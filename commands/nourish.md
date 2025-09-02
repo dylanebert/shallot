@@ -28,6 +28,7 @@ Traverse upward through context tiers (see CLAUDE.md):
 
 Fix obvious issues encountered:
 
+- Remove comments; code should be self-explanatory without comments
 - Remove dead code and unused files
 - Consolidate duplicate patterns
 - Apply CLAUDE.md principles (simplicity, reuse, single responsibility)
