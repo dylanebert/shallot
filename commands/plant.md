@@ -4,8 +4,8 @@ Initialize context management structure for the project.
 
 ## Auto-Loaded Context:
 
-@/CLAUDE.md
-@/layers/structure.md
+@CLAUDE.md
+@layers/structure.md
 
 User arguments: "$ARGUMENTS"
 

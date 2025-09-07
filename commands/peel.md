@@ -4,8 +4,8 @@ Load relevant context for the current conversation.
 
 ## Auto-Loaded Context:
 
-@/CLAUDE.md
-@/layers/structure.md
+@CLAUDE.md
+@layers/structure.md
 
 User arguments: "$ARGUMENTS"
 

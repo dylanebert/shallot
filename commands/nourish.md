@@ -4,8 +4,8 @@ Complete conversation by updating context and applying cleanup.
 
 ## Auto-Loaded Context:
 
-@/CLAUDE.md
-@/layers/structure.md
+@CLAUDE.md
+@layers/structure.md
 
 User arguments: "$ARGUMENTS"
 
