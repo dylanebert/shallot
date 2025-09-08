@@ -4,8 +4,6 @@
 [Short high-level description of the project - MUST be filled during /plant initialization]
 </project-description>
 
-3D game engine layer for vibe coding - ECS-based abstraction for easily building Three.js games using Entity Component System (ECS) architecture with bitECS.
-
 **Required**: Read [layers/structure.md](layers/structure.md) before proceeding with any task
 
 ## Context Management System
