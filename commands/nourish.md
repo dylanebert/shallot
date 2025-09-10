@@ -42,3 +42,9 @@ Fix obvious issues encountered:
 ## Output
 
 Report conversation completion: updated context files and improvements made.
+
+## Guidelines
+
+- When updating context, don't over-specify implementation details
+- If changes were internal (e.g. business logic), it may not be necessary to update context
+- Context should be even shorter after updates, avoiding context rot
