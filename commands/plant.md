@@ -6,6 +6,7 @@ Initialize context management structure for the project.
 
 @CLAUDE.md
 @layers/structure.md
+@layers/context-template.md
 
 User arguments: "$ARGUMENTS"
 
