@@ -1,6 +1,6 @@
 # 🧄 /peel
 
-Load relevant context for the current conversation.
+Load relevant context for the current conversation. Then, proceed with the task using the loaded context.
 
 ## Auto-Loaded Context:
 
