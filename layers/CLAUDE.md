@@ -30,7 +30,3 @@
 
 - **Inputs & secrets**: Validate inputs; secrets only in env; never log sensitive data
 - **Auth**: Gateway auth; server-side token validation; sanitize inputs
-
-## Tools
-
-- **Context7**: Use as needed to fetch documentation

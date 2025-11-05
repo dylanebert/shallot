@@ -18,7 +18,6 @@ MOSS_GREEN='\033[2;36m'
 NC='\033[0m'
 
 TARGET_DIR=""
-INSTALL_CONTEXT7="y"
 OVERWRITE_ALL="y"
 SKIP_ALL="n"
 
@@ -92,10 +91,6 @@ get_target_directory() {
     print_color "$SAGE_GREEN" "✓ Target: $TARGET_DIR"
 }
 
-prompt_optional_components() {
-    print_color "$MOSS_GREEN" "Context7 MCP Server will be installed"
-}
-
 create_directories() {
     print_color "$GOLDEN_BROWN" "Creating directories..."
     
@@ -158,29 +153,6 @@ copy_framework_files() {
     print_color "$SAGE_GREEN" "✓ Files copied"
 }
 
-install_context7() {
-    [ "$INSTALL_CONTEXT7" = "y" ] && {
-        echo
-        print_color "$GOLDEN_BROWN" "Installing Context7..."
-        
-        if claude mcp add --transport sse context7 https://mcp.context7.com/sse 2>/dev/null; then
-            print_color "$SAGE_GREEN" "✓ Context7 installed successfully"
-        else
-            print_color "$GOLDEN_BROWN" "→ Context7 already installed"
-        fi
-        echo
-    }
-}
-
-display_context7_info() {
-    [ "$INSTALL_CONTEXT7" = "y" ] && {
-        echo
-        print_color "$CLAY_BLUE" "Context7 Installed:"
-        print_color "$MOSS_GREEN" "Access library docs with /context7 or claude resolve/get commands"
-        echo
-    }
-}
-
 show_next_steps() {
     echo
     print_color "$SAGE_GREEN" "Installation Complete!"
@@ -203,16 +175,13 @@ main() {
     download_shallot_files
     
     get_target_directory
-    prompt_optional_components
-    
+
     echo
     print_color "$GOLDEN_BROWN" "Installing to: $TARGET_DIR"
     
     create_directories
     copy_framework_files
-    install_context7
-    
-    display_context7_info
+
     show_next_steps
 }
 
