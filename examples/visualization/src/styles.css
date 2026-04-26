@@ -1,0 +1,129 @@
+:root {
+    --bg: #fafafa;
+    --fg: #111;
+    --fg-dim: #666;
+    --border: #e5e5e5;
+    --frame-bg: #f0f0f0;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 3rem 1.5rem;
+    background: var(--bg);
+    font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    color: var(--fg);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+.blog-container {
+    max-width: 720px;
+    margin: 0 auto;
+}
+
+header {
+    margin-bottom: 3rem;
+}
+
+h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.5rem;
+}
+
+.subtitle {
+    font-size: 0.875rem;
+    color: var(--fg-dim);
+    margin: 0;
+}
+
+.demo-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+}
+
+.demo-header {
+    margin-bottom: 0.75rem;
+}
+
+.demo-icon {
+    display: none;
+}
+
+.demo-meta {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.demo-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    margin: 0;
+}
+
+.demo-description {
+    font-size: 0.8125rem;
+    color: var(--fg-dim);
+    margin: 0;
+}
+
+.demo-frame {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 10;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--frame-bg);
+}
+
+.demo-tags {
+    display: none;
+}
+
+footer {
+    margin-top: 3rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+}
+
+.footer-text {
+    font-size: 0.8125rem;
+    color: var(--fg-dim);
+    margin: 0;
+}
+
+.footer-text a {
+    color: var(--fg);
+    text-decoration: none;
+}
+
+.footer-text a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 640px) {
+    body {
+        padding: 2rem 1rem;
+    }
+
+    h1 {
+        font-size: 1.25rem;
+    }
+
+    .demo-meta {
+        flex-direction: column;
+        gap: 0.25rem;
+    }
+}

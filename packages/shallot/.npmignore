@@ -1,0 +1,9 @@
+# Excludes dev-only files from the published tarball.
+# The `files` field in package.json controls inclusion; this handles exclusion.
+node_modules
+rust/*/target
+rust/*/Cargo.lock
+tests
+benchmarks
+scripts
+*.tsbuildinfo

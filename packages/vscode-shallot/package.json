@@ -1,0 +1,36 @@
+{
+    "name": "shallot",
+    "displayName": "shallot",
+    "description": "Language support for Shallot scene files",
+    "version": "0.2.0",
+    "author": "Dylan Ebert <dylan.ebert@gmail.com>",
+    "publisher": "dylanebert",
+    "license": "MIT",
+    "icon": "icon.png",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dylanebert/shallot"
+    },
+    "categories": ["Programming Languages"],
+    "keywords": ["scene", "3d", "webgpu", "ecs"],
+    "engines": {
+        "vscode": "^1.75.0"
+    },
+    "contributes": {
+        "languages": [
+            {
+                "id": "scene",
+                "aliases": ["scene"],
+                "extensions": [".scene"],
+                "configuration": "./language-configuration.json"
+            }
+        ],
+        "grammars": [
+            {
+                "language": "scene",
+                "scopeName": "text.scene",
+                "path": "./syntaxes/scene.tmLanguage.json"
+            }
+        ]
+    }
+}

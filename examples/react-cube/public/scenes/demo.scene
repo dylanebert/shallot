@@ -1,0 +1,13 @@
+<scene>
+    <a id="camera" camera fxaa orbit tonemap transform />
+
+    <a ambient-light />
+    <a directional-light />
+
+    <a
+        id="cube"
+        part="size: 1; shape: box; color: 0xd49560"
+        rotate-cube="speed-x: 60; speed-y: 30"
+        transform="pos: 0"
+    />
+</scene>

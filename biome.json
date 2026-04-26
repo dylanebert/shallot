@@ -1,0 +1,78 @@
+{
+    "$schema": "https://biomejs.dev/schemas/2.0.x/schema.json",
+    "files": {
+        "includes": ["packages/**/*.ts", "examples/**/*.ts", "research/**/*.ts", "scripts/**/*.ts"]
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "recommended": true,
+            "correctness": {
+                "noUnusedImports": "error",
+                "noUnusedVariables": "error",
+                "noUnusedFunctionParameters": "error",
+                "useParseIntRadix": "off"
+            },
+            "style": {
+                "noNonNullAssertion": "off",
+                "useNodejsImportProtocol": "off",
+                "useExponentiationOperator": "off",
+                "useTemplate": "off",
+                "useNamingConvention": {
+                    "level": "error",
+                    "options": {
+                        "strictCase": false,
+                        "conventions": [
+                            {
+                                "selector": { "kind": "classProperty", "modifiers": ["private"] },
+                                "match": "_(.+)",
+                                "formats": ["camelCase"]
+                            },
+                            {
+                                "selector": { "kind": "objectLiteralProperty" },
+                                "formats": ["camelCase", "PascalCase", "CONSTANT_CASE"]
+                            },
+                            {
+                                "selector": { "kind": "typeLike" },
+                                "formats": ["PascalCase", "CONSTANT_CASE"]
+                            }
+                        ]
+                    }
+                }
+            },
+            "suspicious": {
+                "noExplicitAny": "off",
+                "noAssignInExpressions": "off",
+                "noConfusingVoidType": "off",
+                "noTsIgnore": "off"
+            },
+            "complexity": {
+                "useLiteralKeys": "off",
+                "noUselessUndefinedInitialization": "off"
+            }
+        }
+    },
+    "assist": {
+        "enabled": false
+    },
+    "formatter": {
+        "enabled": true,
+        "indentWidth": 4,
+        "indentStyle": "space",
+        "lineWidth": 100,
+        "lineEnding": "lf"
+    },
+    "javascript": {
+        "formatter": {
+            "semicolons": "always",
+            "quoteStyle": "double",
+            "trailingCommas": "all"
+        }
+    },
+    "overrides": [
+        {
+            "includes": ["**/rust/**/pkg/**", "scripts/compare.ts"],
+            "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
+        }
+    ]
+}

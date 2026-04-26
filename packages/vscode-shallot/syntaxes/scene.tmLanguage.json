@@ -1,0 +1,46 @@
+{
+    "scopeName": "text.scene",
+    "name": "Scene",
+    "patterns": [
+        { "include": "#comment" },
+        { "include": "#tag" }
+    ],
+    "repository": {
+        "comment": {
+            "begin": "<!--",
+            "end": "-->",
+            "name": "comment.block.scene"
+        },
+        "tag": {
+            "begin": "(<)(/?)([-_a-zA-Z0-9]+)",
+            "beginCaptures": {
+                "1": { "name": "punctuation.definition.tag.begin.scene" },
+                "2": { "name": "punctuation.definition.tag.begin.scene" },
+                "3": { "name": "entity.name.tag.scene" }
+            },
+            "end": "(/?>)",
+            "endCaptures": {
+                "1": { "name": "punctuation.definition.tag.end.scene" }
+            },
+            "patterns": [
+                { "include": "#attribute" }
+            ]
+        },
+        "attribute": {
+            "patterns": [
+                {
+                    "match": "([-_a-zA-Z0-9]+)(=)(\"[^\"]*\")",
+                    "captures": {
+                        "1": { "name": "entity.other.attribute-name.scene" },
+                        "2": { "name": "punctuation.separator.key-value.scene" },
+                        "3": { "name": "string.quoted.double.scene" }
+                    }
+                },
+                {
+                    "match": "([-_a-zA-Z0-9]+)(?=\\s|/?>)",
+                    "name": "entity.other.attribute-name.scene"
+                }
+            ]
+        }
+    }
+}

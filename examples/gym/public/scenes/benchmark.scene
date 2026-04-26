@@ -1,0 +1,19 @@
+<scene>
+    <a
+        id="camera"
+        bench-config
+        camera
+        orbit="distance: 100; max-distance: 250; pitch: 0.46"
+        shadows="distance: 500"
+        transform
+        viewport
+    />
+
+    <a id="sun" directional-light="direction: -0.5 -0.7 -0.5" />
+
+    <a id="ambient" ambient-light />
+
+    <a id="ground" part="size: 500 1 500; shape: plane; color: 0x252220" transform="pos: 0 -50 0" />
+
+    <a id="benchmark" benchmark="count: 100" />
+</scene>

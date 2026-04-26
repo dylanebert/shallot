@@ -1,0 +1,27 @@
+[package]
+name = "shallot-window"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "shallot-window"
+path = "src/main.rs"
+
+[dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+zstd = "0.13"
+tar = "0.4"
+
+[target.'cfg(not(target_os = "linux"))'.dependencies]
+winit = "0.30"
+wry = "0.48"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+cef = "145"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

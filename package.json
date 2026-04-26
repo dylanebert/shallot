@@ -1,0 +1,27 @@
+{
+    "private": true,
+    "workspaces": [
+        "packages/*",
+        "examples/*"
+    ],
+    "scripts": {
+        "build": "bun run --cwd packages/shallot build",
+        "check": "bun run format && tsc && biome check && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts",
+        "check:svelte": "bun run scripts/check-svelte.ts",
+        "format": "biome check --write && bun run scripts/format.ts",
+        "test": "bun test packages/shallot/tests",
+        "bench": "bun run scripts/bench.ts",
+        "capture": "bun run scripts/capture.ts",
+        "local": "bun run scripts/local-test.ts"
+    },
+    "devDependencies": {
+        "@biomejs/biome": "^2.4.6",
+        "@playwright/test": "^1.58.2",
+        "@types/pngjs": "^6.0.5",
+        "mitata": "^1.0.34",
+        "playwright": "^1.58.2",
+        "pngjs": "^7.0.0",
+        "sharp": "^0.34.5",
+        "typescript": "^5.9.3"
+    }
+}

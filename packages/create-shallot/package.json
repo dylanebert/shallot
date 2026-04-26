@@ -1,0 +1,9 @@
+{
+    "name": "create-shallot",
+    "version": "0.4.0",
+    "type": "module",
+    "bin": "./index.ts",
+    "files": ["index.ts"],
+    "description": "Scaffold a Shallot project",
+    "license": "MIT"
+}
