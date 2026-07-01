@@ -12,6 +12,14 @@ export interface Compute {
 
 export const Compute = resource<Compute>("compute");
 
+/**
+ * Get the precision type for shader compilation based on GPU capabilities.
+ * Uses f16 if available for better performance, falls back to f32 for older GPUs.
+ */
+export function getPrecisionType(capabilities: GPUCapabilities): "f16" | "f32" {
+    return capabilities.supportsF16 ? "f16" : "f32";
+}
+
 const ComputeSystem: System = {
     group: "compute",
     annotations: { mode: "always" },
@@ -48,4 +56,4 @@ export type { ComputeNode, ExecutionContext } from "./graph";
 export { Profiler } from "./profile";
 export { createReadback, readback } from "./readback";
 export { gbuf, view, type GBuf, type BufferView, CHUNK_SHIFT, CHUNK_MASK } from "./buffer";
-export { write } from "./device";
+export { write, type GPUCapabilities } from "./device";
