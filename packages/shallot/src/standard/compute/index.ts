@@ -1,69 +1,59 @@
-import { resource, FrameSync, type Plugin, type State } from "../../engine";
+import { resource, type Plugin, type State, type System } from "../../engine";
+import { requestGPU, type GPUCapabilities } from "./device";
 import { ComputeGraph } from "./graph";
-import { requestGPU } from "./device";
-
-export { ComputeGraph, SubGraph, beginComputePass } from "./graph";
-export type { ExecutionContext, ComputeNode } from "./graph";
-
-export { type BufferView, type Binding, type GBuf, bindView, binding, gbuf, view } from "./buffer";
-
-export interface ComputeResources {
-    textures: Map<string, GPUTexture>;
-    textureViews: Map<string, GPUTextureView>;
-    buffers: Map<string, GPUBuffer>;
-}
+import { Profiler } from "./profile";
 
 export interface Compute {
-    readonly device: GPUDevice;
-    readonly graph: ComputeGraph;
-    readonly resources: ComputeResources;
-    frameIndex: number;
-    readonly pending: number;
-    sync(): Promise<void> | null;
+    device: GPUDevice;
+    capabilities: GPUCapabilities;
+    graph: ComputeGraph;
+    profiler: Profiler;
 }
 
 export const Compute = resource<Compute>("compute");
-export const SharedDevice = resource<GPUDevice>("shared-device");
+
+/**
+ * Get the precision type for shader compilation based on GPU capabilities.
+ * Uses f16 if available for better performance, falls back to f32 for older GPUs.
+ */
+export function getPrecisionType(capabilities: GPUCapabilities): "f16" | "f32" {
+    return capabilities.supportsF16 ? "f16" : "f32";
+}
+
+const ComputeSystem: System = {
+    group: "compute",
+    annotations: { mode: "always" },
+    first: true,
+
+    update(state: State) {
+        const compute = Compute.from(state);
+        if (!compute) return;
+        compute.graph.execute(state, compute.device);
+    },
+};
 
 export const ComputePlugin: Plugin = {
     name: "Compute",
+    systems: [ComputeSystem],
     async initialize(state: State, onProgress?: (progress: number) => void) {
-        const existing = state.getResource(SharedDevice);
-        const device = existing ?? (await requestGPU());
-
+        const { device, capabilities } = await requestGPU();
+        const profiler = new Profiler(device, capabilities.supportsTimestampQuery);
         const graph = new ComputeGraph();
-        const resources: ComputeResources = {
-            textures: new Map(),
-            textureViews: new Map(),
-            buffers: new Map(),
-        };
 
-        const fences: Promise<void>[] = [];
-        const compute: Compute = {
+        state.setResource(Compute, {
             device,
+            capabilities,
             graph,
-            resources,
-            frameIndex: 0,
-            get pending() {
-                return fences.length;
-            },
-            sync() {
-                fences.push(device.queue.onSubmittedWorkDone());
-                if (fences.length >= 2) return fences.shift()!;
-                return null;
-            },
-        };
-        state.setResource(Compute, compute);
-        state.setResource(FrameSync, () => compute.sync());
+            profiler,
+        });
+
         onProgress?.(1);
     },
-
-    async warm(state: State, onProgress?: (progress: number) => void) {
-        const compute = Compute.from(state);
-        if (!compute) return;
-
-        await compute.graph.prepare(compute.device, (done, total) => {
-            onProgress?.(done / total);
-        });
-    },
 };
+
+export { ComputeGraph } from "./graph";
+export type { ComputeNode, ExecutionContext } from "./graph";
+export { Profiler } from "./profile";
+export { createReadback, readback } from "./readback";
+export { gbuf, view, type GBuf, type BufferView, CHUNK_SHIFT, CHUNK_MASK } from "./buffer";
+export { write, type GPUCapabilities } from "./device";
