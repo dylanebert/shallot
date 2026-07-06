@@ -12,7 +12,7 @@ export const MAX_WIDTH = 64;
 /**
  * the jump-flood step ladder for a band of `maxWidth` pixels: the largest power of two ≥ the width,
  * halving to 1. Bounding the first jump by the width (not the screen) is what makes the pass count
- * `ceil(log2(width))` — a pixel only needs to find seeds within `width`, so seeds nearer than the start
+ * `ceil(log2(width))`: a pixel only needs to find seeds within `width`, so seeds nearer than the start
  * step resolve correctly. Pure.
  */
 export function jfaSteps(maxWidth: number): number[] {
@@ -26,7 +26,7 @@ export function jfaSteps(maxWidth: number): number[] {
 
 /**
  * group highlighted eids by their mesh id, preserving insertion order. The mask draws one instanced
- * call per mesh — each group's eids become a contiguous instance slice. Pure.
+ * call per mesh: each group's eids become a contiguous instance slice. Pure.
  */
 export function groupByMesh(
     eids: number[],
@@ -46,7 +46,7 @@ export function groupByMesh(
  * the JFA seed-mask shader for the outline pass. The vs pulls the highlighted instances' position stream +
  * applies the `transforms` firehose; the fs writes the pixel's own coordinate as the JFA seed + the
  * instance's color/width into the attr texture. `occlude` adds the depth gate: sample sear's `view.depth`
- * and discard fragments behind the visible scene (reverse-Z — an occluded fragment's depth is *less* than
+ * and discard fragments behind the visible scene (reverse-Z, an occluded fragment's depth is *less* than
  * the nearest scene depth), so an occluded object contributes no silhouette. Two pipeline variants, not a
  * 1×1 dummy depth: an out-of-bounds textureLoad returns 0 = far under reverse-Z, which would silently make
  * every fragment read as un-occluded. Pure codegen.

@@ -38,7 +38,7 @@ export const DirectionalLight = {
 /**
  * point light component. Position comes from the entity's `Transform`; sear's
  * `lit` / `lightFactor` helpers accumulate the fragment's cluster's point
- * lights — inverse-square falloff windowed smoothly to exactly zero at
+ * lights: inverse-square falloff windowed smoothly to exactly zero at
  * `range`. `color` is hex sRGB; `intensity` is a linear multiplier. Slab
  * fields: the light-cull compute passes read them straight off the GPU (no
  * CPU light list)
@@ -53,7 +53,7 @@ export const PointLight = {
     color: slab(f32),
     /** linear brightness multiplier */
     intensity: slab(f32),
-    /** the distance (metres) the falloff smoothly reaches zero at — the cull cutoff */
+    /** the distance (metres) the falloff smoothly reaches zero at: the cull cutoff */
     range: slab(f32),
     /** the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field
      * bulb and widens the specular highlight; 0.01 reproduces the old bare-filament hotspot */
@@ -61,7 +61,7 @@ export const PointLight = {
 };
 
 /**
- * spot add-on for a {@link PointLight} — presence narrows the light into a cone (like {@link Shadow},
+ * spot add-on for a {@link PointLight}: presence narrows the light into a cone (like {@link Shadow},
  * presence is the switch). The cone points along the entity's forward axis (its `Transform` rotation), so
  * aim it by rotating the entity. `inner` / `outer` are half-angles in degrees (axis to edge): full
  * brightness inside `inner`, smoothly to dark at `outer`. The light still falls off + culls by the
@@ -73,18 +73,18 @@ export const PointLight = {
  * ```
  */
 export const Spot = {
-    /** the cone's inner half-angle (degrees, axis→edge) — full brightness inside it */
+    /** the cone's inner half-angle (degrees, axis→edge): full brightness inside it */
     inner: slab(f32),
-    /** the cone's outer half-angle (degrees, axis→edge) — dark past it, smooth between inner and outer */
+    /** the cone's outer half-angle (degrees, axis→edge): dark past it, smooth between inner and outer */
     outer: slab(f32),
 };
 
 /**
- * opt a light — {@link PointLight}, {@link Spot}, or the {@link DirectionalLight} sun — into volumetric
+ * opt a light ({@link PointLight}, {@link Spot}, or the {@link DirectionalLight} sun) into volumetric
  * light shafts; presence is the switch, like {@link Spot}. On a point/spot light the light-compact pass
  * flags its compacted entry; on the sun it flags the Lighting uniform. The `fog` march then scatters that
  * light through the haze (a visible cone or sun shaft, shadowed by occluders if the light also carries a
- * `Shadow`). With no `FogPlugin` / `Fog` singleton the flag is inert — the lit path is unchanged.
+ * `Shadow`). With no `FogPlugin` / `Fog` singleton the flag is inert. The lit path is unchanged.
  *
  * @example
  * ```
@@ -94,11 +94,11 @@ export const Spot = {
  */
 export const Volumetric = {};
 
-/** the Lighting UBO byte size (three vec4s — ambient, sun direction, sun color); a relocatable consumer
+/** the Lighting UBO byte size (three vec4s: ambient, sun direction, sun color); a relocatable consumer
  * (the fog march) sizes its `lighting` binding to match. */
 export const LIGHTING_UNIFORM_SIZE = 48;
 
-/** the `Lighting` UBO's WGSL struct — spliced by sear + any relocatable consumer (the fog march) that
+/** the `Lighting` UBO's WGSL struct, spliced by sear + any relocatable consumer (the fog march) that
  * reads the shared lighting uniform; layout mirrors {@link Lighting}. */
 export const LIGHTING_STRUCT_WGSL = /* wgsl */ `
 struct Lighting {
@@ -184,11 +184,11 @@ export const POINT_LIGHTS_BUFFER_SIZE =
 /**
  * the compacted point-light list's WGSL struct (`PointLightGpu[]` + count header), spliced by sear's
  * clustered loop and the fog march. Per light: `posRange` (xyz world position, w = 1/range²), `color`
- * (linear rgb intensity-baked, `a` = source entity id as f32 — the per-entity hook sear matches shadowed
+ * (linear rgb intensity-baked, `a` = source entity id as f32: the per-entity hook sear matches shadowed
  * casters on), `params` (x = source radius; y = the spot cone axis oct-packed via bitcast; z/w = the
- * Frostbite spot angular scale/offset — a non-spot writes `(radius, 0, 0, 1)` so the angular factor is 1).
+ * Frostbite spot angular scale/offset: a non-spot writes `(radius, 0, 0, 1)` so the angular factor is 1).
  * GPU-written by the light compact pass (`cluster.ts`) from the PointLight + Spot slabs + the transforms
- * firehose — there is no CPU light list.
+ * firehose. There is no CPU light list.
  */
 export const POINT_LIGHTS_STRUCT_WGSL = /* wgsl */ `
 struct PointLightGpu {
@@ -203,7 +203,7 @@ struct PointLights {
 
 /**
  * the point-light falloff (Bevy `getDistanceAttenuation`): inverse-square with a smooth
- * window — `smooth = saturate(1 − (d²/r²)²)`, attenuation `smooth² / max(d², radiusSq)` —
+ * window (`smooth = saturate(1 − (d²/r²)²)`, attenuation `smooth² / max(d², radiusSq)`),
  * exactly zero at and past the range, and flat at `1/radiusSq` inside the source sphere
  * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). Pure; the
  * oracle sear's WGSL twin is pinned to
@@ -231,7 +231,7 @@ export function spotParams(innerDeg: number, outerDeg: number): { scale: number;
 let _overflowWarned = false;
 
 /**
- * warn once per episode when more PointLight entities exist than the list cap —
+ * warn once per episode when more PointLight entities exist than the list cap:
  * the GPU compact pass drops the excess (count beyond {@link MAX_POINT_LIGHTS}
  * never writes an entry), so the overflow is loud, not silent. A count, not a
  * pack: the light data itself flows GPU-side

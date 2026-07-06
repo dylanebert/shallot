@@ -54,7 +54,7 @@ import {
 import { packFog } from "./pack";
 
 /**
- * the scene's volumetric atmosphere — one per scene (a singleton). The fog pass marches each pixel from the
+ * the scene's volumetric atmosphere: one per scene (a singleton). The fog pass marches each pixel from the
  * camera to the scene depth, accumulating extinction and fading the scene toward `color`. `density` is the
  * base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with
  * altitude above `heightBase`); `steps` / `jitter` trade march cost for banding. The scattering knobs
@@ -66,17 +66,17 @@ import { packFog } from "./pack";
  * ```
  */
 export const Fog = {
-    /** base extinction coefficient — how fast the scene fades into haze with distance (0 = clear) */
+    /** base extinction coefficient: how fast the scene fades into haze with distance (0 = clear) */
     density: sparse(f32),
     /** hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8) */
     color: sparse(f32),
     /** absorbed fraction of extinction [0,1]; the rest scatters (the scattering albedo for light shafts) */
     absorption: sparse(f32),
-    /** in-scatter strength — how brightly light shafts glow in the haze */
+    /** in-scatter strength: how brightly light shafts glow in the haze */
     scattering: sparse(f32),
     /** Henyey-Greenstein anisotropy [-1,1]: 0 even glow, →1 forward (bright halo toward a light) */
     anisotropy: sparse(f32),
-    /** world height where density equals `density` — the base of the height falloff */
+    /** world height where density equals `density`: the base of the height falloff */
     heightBase: sparse(f32),
     /** exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog) */
     heightFalloff: sparse(f32),
@@ -289,7 +289,7 @@ function fogLights(device: GPUDevice): GPUBindGroup {
  * the fog march, per camera: reads the resolved scene (`view.framebuffer`) + the camera's depth lane,
  * marches each pixel through the atmosphere, and writes the haze-composited scene back through the
  * `sceneTransform` scratch so glaze tonemaps it. No-op unless the scene has a {@link Fog} singleton and the
- * camera carries sear's `Depth` lane (the march needs scene depth — no auto-add). Ordered after sear's
+ * camera carries sear's `Depth` lane (the march needs scene depth, no auto-add). Ordered after sear's
  * color pass and before glaze.
  */
 export const FogSystem: System = {

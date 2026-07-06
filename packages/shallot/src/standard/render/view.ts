@@ -10,21 +10,21 @@ export const VIEW_STRIDE = 256;
 
 /**
  * max **shading** views (presenting cameras) per frame. A shading slot carries the clustered-light
- * substrate — its froxel AABB grid + light grid are ~140 KB each — so this cap stays small.
+ * substrate (its froxel AABB grid + light grid are ~140 KB each), so this cap stays small.
  * `BeginFrameSystem` assigns shading views the low slots `[0, MAX_VIEWS)`; depth-only views (a
  * shadow light's off-screen camera) get the slots above, out of {@link MAX_SLOTS}, and never
  * allocate cluster state
  */
 export const MAX_VIEWS = 8;
 
-/** total view slots per frame — shading cameras + depth-only views (the sun's light camera + the
+/** total view slots per frame: shading cameras + depth-only views (the sun's light camera + the
  * point-shadow member-compaction "union" camera). Sizes only the cheap per-slot state
  * ({@link Render.viewBuffer}, `Render.cullVolumes`), so it's generous */
 export const MAX_SLOTS = 64;
 
 export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
 
-/** the per-camera `View` UBO's WGSL struct — spliced by sear for every surface and by any relocatable
+/** the per-camera `View` UBO's WGSL struct, spliced by sear for every surface and by any relocatable
  * screen-space consumer (the fog march) that binds `view`; layout mirrors {@link VIEW_BYTES}. */
 export const VIEW_STRUCT_WGSL = /* wgsl */ `
 struct View {
@@ -38,15 +38,15 @@ struct View {
 }`;
 
 /**
- * the byte size of the {@link View} uniform a surface statically reads — `mat4` (64) + `vec2`
+ * the byte size of the {@link View} uniform a surface statically reads: `mat4` (64) + `vec2`
  * resolution (8, padded to 16 by the vec4 that follows) + two `vec4` camera-basis columns (right at
  * byte 80, up at 96: the camera's normalized world-space right/up, packed by `BeginFrameSystem`;
  * forward derives as `-cross(right, up)`) + the `cluster` vec4 at 112 (near, far, perspective flag,
- * view slot — what sear's FS needs to map a fragment to its froxel cluster and index the slot-major
+ * view slot: what sear's FS needs to map a fragment to its froxel cluster and index the slot-major
  * light grid) + the `eye` vec4 at 128 (the camera's world-space position, for view-dependent shading
- * — specular, fresnel, fog). Billboard-shaped surfaces orient quads from `right`/`up` — note
+ * (specular, fresnel, fog)). Billboard-shaped surfaces orient quads from `right`/`up`. Note
  * the shadow light camera packs through the same path, so a billboard in the shadow pass faces the
- * light (Godot-consistent). Then `invViewProj` at byte 144 (the inverse of `viewProj`) — a screen-space
+ * light (Godot-consistent). Then `invViewProj` at byte 144 (the inverse of `viewProj`). A screen-space
  * pass (fog / volumetrics) reconstructs a fragment's world position from its depth: `ndc(uv, depth)`
  * → `invViewProj` → world. The renderer's bind-group layout declares this as the View binding's
  * `minBindingSize`; the bound range is the full {@link VIEW_STRIDE} slot. Bump this in lockstep
@@ -72,25 +72,25 @@ fn linearToSrgb(c: vec3<f32>) -> vec3<f32> {
  * each frame and read by the renderers. `slot` is the camera's index into the packed View UBO; use it
  * as the dynamic offset (`slot * VIEW_STRIDE`) when binding. `framebuffer` is the per-camera **offscreen**
  * scene-color target the renderer draws into (sear resolves its MSAA color into it; the `Custom` renderer
- * draws straight into it single-sample) — sampleable (`TEXTURE_BINDING`), in `Render.format`, sized to
+ * draws straight into it single-sample): sampleable (`TEXTURE_BINDING`), in `Render.format`, sized to
  * the view; a composite `textureLoad`s it and writes the result into `present`. `present` is the swapchain
- * backbuffer, as a **storage** view in the base canvas format (not sRGB) — the only target the user ever
+ * backbuffer, as a **storage** view in the base canvas format (not sRGB). The only target the user ever
  * sees. A compute composite (glaze, or a consumer's own fused pass) `textureStore`s into it, encoding
  * linear→sRGB itself since a storage view can't be sRGB. The split from `framebuffer` exists so postfx
  * has a rendered color to read: writing the swapchain in place leaves nothing to read back. `depth` + `tag`
  * are the renderer's opt-in **prepass lanes**, each gated by a per-camera marker (sear's `Depth` / `Tag`).
  * `depth` is the camera's single-sample depth, *stored* + published by the prepass only when the camera
- * carries `Depth`, read by screen-space consumers (AO, fog) — `null` otherwise (a tag-only camera tests
+ * carries `Depth`, read by screen-space consumers (AO, fog). `null` otherwise (a tag-only camera tests
  * depth but discards it). `tag` is the screen-space surface-tag (object-id) target, written by the same
  * prepass for a camera carrying `Tag`: the front-most opaque fragment's surface-authored tag per pixel
  * (`TAG_NONE` where no surface owns it, defaulting to the entity's eid for an instanced surface). It's
- * the `GPUTexture` (not a view, unlike `depth` / `framebuffer`) because its consumers need the texture —
+ * the `GPUTexture` (not a view, unlike `depth` / `framebuffer`) because its consumers need the texture:
  * a hover readback `copyTextureToBuffer`s the cursor pixel, and a view can't be turned back into a
  * texture; an outline pass `createView`s it to sample. `null` until the prepass has drawn the camera. A
  * canvas-bound view (`attachCanvas`) renders to that canvas; a canvas-less view (`attachView`) has
- * no `canvas` / `context` / `observer` and a null `framebuffer` / `present` — it still takes a cull slot
+ * no `canvas` / `context` / `observer` and a null `framebuffer` / `present`. It still takes a cull slot
  * (a shadow light's off-screen camera renders to its own target, not the screen). Every view
- * frustum-culls from its viewProj — cameras, the sun, and each point/spot shadow combo's depth view.
+ * frustum-culls from its viewProj: cameras, the sun, and each point/spot shadow combo's depth view.
  * @expand
  */
 export interface View {
@@ -113,10 +113,10 @@ export interface View {
     observer: ResizeObserver | null;
 }
 
-/** every camera with a view, keyed by eid — canvas-bound ({@link attachCanvas}) or off-screen ({@link attachView}) */
+/** every camera with a view, keyed by eid: canvas-bound ({@link attachCanvas}) or off-screen ({@link attachView}) */
 export const Views: Map<number, View> = new Map();
 
-/** bind a canvas to a camera entity. 1:1 — each camera owns one canvas */
+/** bind a canvas to a camera entity, 1:1: each camera owns one canvas */
 export function attachCanvas(eid: number, canvas: HTMLCanvasElement): void {
     if (!Compute.device) throw new Error("attachCanvas: RenderPlugin not initialized");
     if (!Render.format) throw new Error("attachCanvas: Render.format not set");
@@ -167,7 +167,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement): void {
  * resolve a view's backing-store size (device px) from its CSS display size. `resW`/`resH` are a
  * {@link Resolution} pin (0 = that axis unset); both unset → the display size × `ratio` (the pixelRatio
  * policy). A set axis is exact and the unset one follows the display aspect, so `resH = 360` alone renders
- * 360 lines tall. `pixelated` is true whenever the backing is below the display — the nearest-neighbor
+ * 360 lines tall. `pixelated` is true whenever the backing is below the display: the nearest-neighbor
  * upscale that keeps a pinned low resolution crisp (and the `ratio < 1` pixel-art case, unchanged).
  */
 export function backingSize(
@@ -220,7 +220,7 @@ export function sizeView(state: State, eid: number, view: View): void {
 }
 
 /**
- * register a camera entity as a canvas-less, off-screen view — it takes a cull slot and its viewProj
+ * register a camera entity as a canvas-less, off-screen view: it takes a cull slot and its viewProj
  * is packed from its `Camera` + `Transform` like any camera, but it has no canvas and `framebuffer`
  * stays null; the caller renders it to its own target. A directional shadow's light-space camera is
  * one (so is each point/spot shadow combo's depth view). 1:1 per eid, like {@link attachCanvas}; the
@@ -263,7 +263,7 @@ const _offscreen = new Map<
     { texture: GPUTexture; view: GPUTextureView; w: number; h: number }
 >();
 
-/** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic — sear's
+/** the camera's offscreen color target, (re)allocated to the view size. Renderer-agnostic: sear's
  * MSAA resolve and the `Custom` single-sample draw both target it; {@link BeginFrameSystem} sets it on
  * `view.framebuffer` each frame */
 export function offscreen(eid: number, w: number, h: number): GPUTextureView {
@@ -311,10 +311,10 @@ function scratchTexture(eid: number, slot: "a" | "b", w: number, h: number): Scr
 }
 
 /**
- * the scene-transform seam — redirect a camera's scene color through a postfx compute effect. Returns
+ * the scene-transform seam: redirect a camera's scene color through a postfx compute effect. Returns
  * `read` (the current `view.framebuffer`: the renderer's resolved scene, or the prior effect's output) and
  * `write` (a lazily-allocated scratch, the *other* half of the ping-pong pair from `read`), and repoints
- * `view.framebuffer` at `write` so the next effect — or the compositor ({@link GlazeSystem}) — reads this
+ * `view.framebuffer` at `write` so the next effect, or the compositor ({@link GlazeSystem}), reads this
  * one's output. Call from a compute system in the post-color seam (`after: [ColorSystem]`, scene-transforms
  * `before: [OverlaySystem]`, overlays `after: [OverlaySystem]`): bind `read` as input, `write` as the
  * storage output, dispatch once. `write` is always the pair slot `read` isn't, so two effects chain
@@ -365,7 +365,7 @@ export function clearScratch(): void {
 }
 
 /**
- * auto-bind a camera to the first `<canvas>` in the document, idempotently — the zero-config
+ * auto-bind a camera to the first `<canvas>` in the document, idempotently. The zero-config
  * single-view path. A no-op (returns undefined) headless or until a canvas mounts;
  * `BeginFrameSystem` retries each frame, so a late-mounted canvas binds when it appears.
  * Multi-view binds each camera explicitly via {@link attachCanvas} before its first frame.

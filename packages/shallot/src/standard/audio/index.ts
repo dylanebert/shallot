@@ -33,7 +33,7 @@ import { markCooldown, policyFor, type SfxPolicy, withinCooldown } from "./polic
  * id; `loop` 0 = one-shot (frees itself when the envelope idles), 1 = loop;
  * `volume` (0–1, quadratic) and `pitch` (semitones, oscillator instruments
  * only) firehose live to the voice. `voice` is the allocated voice handle,
- * managed by {@link SoundSystem} — don't write it
+ * managed by {@link SoundSystem}; don't write it
  */
 export const Sound = {
     /** registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler) */
@@ -44,11 +44,11 @@ export const Sound = {
     volume: sparse(f32),
     /** pitch offset in semitones (oscillator instruments only); firehoses live to the voice */
     pitch: sparse(f32),
-    /** allocated voice handle, managed by the audio system — read-only, don't author */
+    /** allocated voice handle, managed by the audio system. read-only, don't author */
     voice: sparse(i32),
 };
 
-/** marks the spatial listener entity — its `Transform` orients the FOA + HRTF render */
+/** marks the spatial listener entity. its `Transform` orients the FOA + HRTF render */
 export const Listener = {};
 
 // a Sound that holds a live voice. Presence is the liveness signal (Bevy's
@@ -309,11 +309,11 @@ const SoundSystem: System = {
 
 /**
  * play a sound by instrument or sample name, returning the spawned entity id.
- * The event-driven path (a data constructor — `create` + `add(Sound)` + field
+ * The event-driven path (a data constructor: `create` + `add(Sound)` + field
  * writes); scenes declare static / looping audio with `<a sound transform>`. A
  * sample name auto-registers a sampler, so the trivial case needs no
  * instrument. `pos` adds a `Transform`, making it spatial when a `Listener`
- * exists. Stop a loop with `state.remove(eid, Sound)`, not a bare destroy —
+ * exists. Stop a loop with `state.remove(eid, Sound)`, not a bare destroy;
  * destroying a looping voice directly orphans its slot until it's stolen. A
  * name with a registered {@link sfx} policy is capped / cooled / stolen-from
  * first; a dropped trigger returns -1 like an unresolved name
@@ -347,7 +347,7 @@ export { sample } from "./sample";
 /**
  * procedural audio: the `Sound` + `Listener` components and the voice allocator over the WASM synth
  * kernel. Declare a sound with `<a sound>` or spawn one with {@link play}; mark the spatial reference with
- * `Listener` on the camera. Opt-in — not in the default plugin set.
+ * `Listener` on the camera. Opt-in, not in the default plugin set.
  */
 export const AudioPlugin: Plugin = {
     name: "Audio",

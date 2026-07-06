@@ -10,7 +10,7 @@ import { clamp, compose, lerp, multiply, slerp } from "../../engine";
 // the skinning math: three.js GLTFLoader; decode/encoding reference for the GPU
 // side: keijiro HdrpVatExample VATHelper.hlsl.
 
-/** one animation channel — a node's TRS path sampled over keyframes. `values` is 3 floats/key for
+/** one animation channel: a node's TRS path sampled over keyframes. `values` is 3 floats/key for
  *  translation+scale, 4 (xyzw quaternion) for rotation. STEP holds each key to the next; else LINEAR. */
 export interface SkinChannel {
     node: number;
@@ -22,7 +22,7 @@ export interface SkinChannel {
 
 /** the glTF-agnostic bake input: the node hierarchy's base local TRS (channels override per frame),
  *  the scene roots to walk from, the clip's channels, the skin's joints + inverse-bind matrices, and
- *  the primitive's per-vertex skin weights + rest geometry. Pure data — {@link bakeVat} needs nothing
+ *  the primitive's per-vertex skin weights + rest geometry. Pure data: {@link bakeVat} needs nothing
  *  else, and a test builds a 2-bone rig by hand. */
 export interface SkinInput {
     nodes: {
@@ -33,7 +33,7 @@ export interface SkinInput {
     }[];
     roots: number[];
     channels: SkinChannel[];
-    /** node indices, in skin-joint order — `inverseBind[j]` + the deform's joint slots index this */
+    /** node indices, in skin-joint order: `inverseBind[j]` + the deform's joint slots index this */
     joints: number[];
     /** column-major mat4 per joint, `joints.length * 16` */
     inverseBind: Float32Array;
@@ -51,7 +51,7 @@ export interface SkinInput {
 
 /** one baked clip: per-frame object-space positions + normals (frame-major, `frameCount × vertCount`)
  *  and the conservative all-frames AABB the importer turns into the mesh's cull bound. `fps` is the
- *  effective sample rate `(frameCount-1)/duration` — the skin surface multiplies play-time by it to
+ *  effective sample rate `(frameCount-1)/duration`: the skin surface multiplies play-time by it to
  *  land on a fractional frame, hardware-lerped across the two adjacent rows. */
 export interface GltfVat {
     frameCount: number;
@@ -116,8 +116,8 @@ function sampleChannel(ch: SkinChannel, t: number, out: Float32Array): void {
 
 /**
  * bake a skinned clip to flat per-frame vertex data (VAT). Linear-blend skins every vertex at each
- * sampled frame, producing object-space positions + normals + the conservative all-frames AABB. Pure
- * — the heavy frame×vertex loop, kept off the deviceless conformance walk and run only on the GPU load
+ * sampled frame, producing object-space positions + normals + the conservative all-frames AABB. Pure:
+ * the heavy frame×vertex loop, kept off the deviceless conformance walk and run only on the GPU load
  * path. `fps` is the target sample rate (subsampled if the clip would exceed `maxFrames`).
  *
  * @example

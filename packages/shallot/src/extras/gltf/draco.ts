@@ -8,7 +8,7 @@ import type { DracoExtension } from "./gltf";
 // untyped emscripten boundary
 type Embind = any;
 
-/** one decoded Draco primitive — the same attribute arrays a standard accessor read yields, fed to the
+/** one decoded Draco primitive: the same attribute arrays a standard accessor read yields, fed to the
  *  shared vertex packing. `pos` is `count*3`, `normal` `count*3`, `uv` `count*2`; `indices` is widened u32. */
 export interface DracoMesh {
     pos: Float32Array;
@@ -65,7 +65,7 @@ function readIndices(decoder: Embind, geom: Embind): Uint32Array {
 
 /**
  * decode one `KHR_draco_mesh_compression` primitive's compressed bytes into plain attribute + index arrays.
- * Sync — call {@link loadDraco} first. The geometry's attributes are addressed by the extension's unique ids
+ * Sync: call {@link loadDraco} first. The geometry's attributes are addressed by the extension's unique ids
  * (glTF always uses unique ids, not the 1:1 semantic mapping `.drc` files use).
  *
  * @example

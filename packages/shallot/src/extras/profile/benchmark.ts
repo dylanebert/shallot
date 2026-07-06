@@ -2,109 +2,109 @@ import type { State } from "../../engine";
 import { Compute } from "../../engine";
 import type { Profile } from "./index";
 
-/** one GPU pass, measured per-occurrence — the robust unit for a mixed fixed/variable engine where a
+/** one GPU pass, measured per-occurrence: the reliable unit for a mixed fixed/variable engine where a
  *  pass belongs to one clock (a sim pass fires per fixed step, a render pass per frame). */
 export interface BenchmarkPass {
-    /** per-occurrence (per-fire) GPU time — the per-step cost for a sim pass, per-frame for a render
+    /** per-occurrence (per-fire) GPU time: the per-step cost for a sim pass, per-frame for a render
      *  pass. Exact (cumulative time ÷ fire count), not the display map's greedy-held value. */
     occMs: number;
-    /** p95 of the per-occurrence GPU time over the window — the spike tail the {@link occMs} window
+    /** p95 of the per-occurrence GPU time over the window: the spike tail the {@link occMs} window
      *  mean averages away. A sample is one drained frame's time (== per-occurrence for a per-frame
      *  render pass; the summed occurrences for a multi-step sim frame). 0 when no samples landed. */
     occP95: number;
-    /** p99 of the per-occurrence GPU time — the worst-frame cost of this pass. A pass whose `occP99`
+    /** p99 of the per-occurrence GPU time: the worst-frame cost of this pass. A pass whose `occP99`
      *  far exceeds its `occMs` is spiking; pairing it with the frame-time spike attributes the stall to
      *  its span (the stress-suite saturation gate reads this). */
     occP99: number;
     /** amortized over every frame in the window (`occMs × firesPerFrame`) */
     perFrameMs: number;
-    /** fire cadence: occurrences per frame — ≈1 for a per-frame render pass, ≈steps/frame for sim */
+    /** fire cadence: occurrences per frame, ≈1 for a per-frame render pass, ≈steps/frame for sim */
     firesPerFrame: number;
     /** the clock the pass fires on, inferred from its cadence vs the fixed-step rate */
     clock: "sim" | "render";
 }
 
-/** GPU timing for one measurement window — per-pass costs keyed by pass name, plus the per-frame busy
+/** GPU timing for one measurement window: per-pass costs keyed by pass name, plus the per-frame busy
  *  total and the per-step simulation cost. */
 export interface BenchmarkGpuStats {
-    /** predicted Dawn indirect-draw validation floor in µs/frame, summed over every pass — the
+    /** predicted Dawn indirect-draw validation floor in µs/frame, summed over every pass: the
      *  deterministic *untimed* cost (`#drawIndexedIndirect × INDIRECT_FLOOR_US`, gpu.md), invisible to
      *  the per-pass timers because it runs before each pass. Read it against the fence-wait delta under a
-     *  draw-count ablation, not summed into a single frame's fence — it only surfaces in fence when the
+     *  draw-count ablation, not summed into a single frame's fence: it only surfaces in fence when the
      *  frame is GPU-bound. */
     indirectFloorUsPerFrame: number;
     /** per-pass indirect draws/frame + the floor µs each predicts (window-diffed from `indirectCount`
      *  like the pass timers from `gpuTime`). */
     indirect: Record<string, { drawsPerFrame: number; floorUs: number }>;
-    /** total GPU busy time amortized per frame (Σ `perFrameMs`) — the frame-budget number */
+    /** total GPU busy time amortized per frame (Σ `perFrameMs`): the frame-budget number */
     busyPerFrameMs: number;
-    /** GPU busy per fixed step (Σ `occMs` over sim passes) — the simulation step cost, the number
+    /** GPU busy per fixed step (Σ `occMs` over sim passes): the simulation step cost, the number
      *  that climbs toward the fixed-step budget under load. Reported per-step so it never under-reads
      *  the cost of a heavy step by amortizing it across the idle frames between steps. */
     simPerStepMs: number;
     /** GPU busy per frame from render passes (Σ `perFrameMs` over render passes) */
     renderPerFrameMs: number;
-    /** engine frames spanned by the window — the amortization denominator */
+    /** engine frames spanned by the window: the amortization denominator */
     frames: number;
     passes: Record<string, BenchmarkPass>;
 }
 
-/** per-system CPU timing for one measurement window — mean and p99 per system, plus the frame total. */
+/** per-system CPU timing for one measurement window: mean and p99 per system, plus the frame total. */
 export interface BenchmarkCpuStats {
-    /** per-system mean CPU time over the window, in ms (avg is the primary stat for CPU-mixed rows —
+    /** per-system mean CPU time over the window, in ms (avg is the primary stat for CPU-mixed rows;
      *  `testing.md`, the 100µs `performance.now` quantization makes min biased) */
     systems: Record<string, number>;
-    /** per-system p99 CPU time — the spike tail the {@link systems} mean hides, so the submission /
+    /** per-system p99 CPU time: the spike tail the {@link systems} mean hides, so the submission /
      *  GC-pause hunt can attribute a frame-time outlier to the system that churned (a slab-write burst,
      *  a query loop). Keyed identically to {@link systems}. */
     systemsP99: Record<string, number>;
     total: number;
 }
 
-/** frame-interval timing for one measurement window — the wall-clock distribution (percentiles, stddev)
+/** frame-interval timing for one measurement window: the wall-clock distribution (percentiles, stddev)
  *  plus the cpu/fence/gap decomposition of the mean frame. */
 export interface BenchmarkFrameStats {
     /** wall-clock frame-interval distribution (ms). In headless this is rAF-paced (~240Hz floor), so
-     *  for a light scene it reads near the cadence regardless of work — read it with the decomposition
+     *  for a light scene it reads near the cadence regardless of work: read it with the decomposition
      *  below, not alone. */
     avg: number;
     median: number;
     p5: number;
     p95: number;
-    /** p99 frame interval (ms) — the worst-1%-frame stutter, the even-pacing metric that matters more
+    /** p99 frame interval (ms): the worst-1%-frame stutter, the even-pacing metric that matters more
      *  than the mean: a steady slowdown holds p99 close to the median, a spike pushes it far above. */
     p99: number;
-    /** standard deviation of the frame interval (ms) — the variance signal an even-pacing response
+    /** standard deviation of the frame interval (ms): the variance signal an even-pacing response
      *  must keep bounded. Flat under a chosen even slowdown; climbs when the engine hitches. */
     stddev: number;
     min: number;
     max: number;
-    /** p99 of the *un-clamped* `rawDeltaTime` (ms) — the frame interval before the spiral-of-death dt
+    /** p99 of the *un-clamped* `rawDeltaTime` (ms): the frame interval before the spiral-of-death dt
      *  clamp (`scheduler.ts` MAX_FIXED_STEPS) caps it. {@link p99} reads the clamped value (≤ ~67 ms),
-     *  so this exposes the spike the clamp hides — the worst-1% real frame interval. */
+     *  so this exposes the spike the clamp hides: the worst-1% real frame interval. */
     rawP99: number;
-    /** max un-clamped `rawDeltaTime` (ms) — the single worst spike magnitude. `clampedFrames` counts
+    /** max un-clamped `rawDeltaTime` (ms): the single worst spike magnitude. `clampedFrames` counts
      *  how many frames the dt clamp fired; this is how big the largest one actually was. */
     rawMax: number;
     samples: number;
     /** mean wall-clock decomposition of the frame interval (ms): the interval is CPU work, then the
      *  GPU fence-wait, then idle. `cpuMs + fenceMs + gapMs ≈ avg`. */
     cpuMs: number;
-    /** mean GPU fence-wait — the canonical GPU-bound signal (the loop blocking on the prior frame's
+    /** mean GPU fence-wait: the canonical GPU-bound signal (the loop blocking on the prior frame's
      *  GPU before the next). Small + flat = GPU hidden under pipelining; climbing toward the frame
      *  budget = GPU becoming the bottleneck. */
     fenceMs: number;
-    /** p95 GPU fence-wait — the worst-frame GPU-bound stall */
+    /** p95 GPU fence-wait: the worst-frame GPU-bound stall */
     fenceP95: number;
-    /** mean idle gap (`frame − cpu − fence`) — rAF/vsync pacing, not work */
+    /** mean idle gap (`frame − cpu − fence`): rAF/vsync pacing, not work */
     gapMs: number;
-    /** `device.queue.submit` calls per frame over the window — render + slab flush + any mirror
+    /** `device.queue.submit` calls per frame over the window: render + slab flush + any mirror
      *  readback + the profiler's own resolve. Each is an IPC round-trip + a GPU serialization point,
      *  untimed by the per-pass timers (it surfaces in {@link fenceMs}); window-diffed from
      *  `Profile.submitCount`. The before/after number for the submit-collapse lever (gpu.md "Single
      *  queue"). Reads ~1 higher under the profiler than in production (the resolve submit). */
     submitsPerFrame: number;
-    /** mean fixed steps per frame — the bridge between per-step sim cost and per-frame budget */
+    /** mean fixed steps per frame: the bridge between per-step sim cost and per-frame budget */
     stepsPerFrame: number;
     /** frames whose raw delta was clamped by the spiral-of-death gate (MAX_FIXED_STEPS) */
     clampedFrames: number;
@@ -112,7 +112,7 @@ export interface BenchmarkFrameStats {
     maxPending: number;
 }
 
-/** one-shot pipeline-compile timing from app startup — the total wall span plus per-pipeline durations
+/** one-shot pipeline-compile timing from app startup: the total wall span plus per-pipeline durations
  *  keyed by pipeline label. */
 export interface BenchmarkCompileStats {
     /** wall-clock span from the first pipeline build start to the last build end, in ms */
@@ -121,7 +121,7 @@ export interface BenchmarkCompileStats {
     pipelines: Record<string, number>;
 }
 
-/** the result of one `measure()` window — the gpu, cpu, frame, and compile sections, each null when its
+/** the result of one `measure()` window: the gpu, cpu, frame, and compile sections, each null when its
  *  data wasn't captured (no GPU passes ran, the profiler wasn't attached). */
 export interface BenchmarkMeasurement {
     gpu: BenchmarkGpuStats | null;
@@ -132,10 +132,10 @@ export interface BenchmarkMeasurement {
     frames: number;
 }
 
-/** the `window.__benchmark` contract `ProfilePlugin` installs — a readiness flag plus `measure`, which
+/** the `window.__benchmark` contract `ProfilePlugin` installs: a readiness flag plus `measure`, which
  *  captures a window and resolves the aggregated stats. `bun bench` and any custom perf harness drive it. */
 export interface BenchmarkAPI {
-    /** true once the profiler has attached and a frame has drained — poll before `measure` */
+    /** true once the profiler has attached and a frame has drained: poll before `measure` */
     readonly ready: boolean;
     /** run `warmup` unmeasured frames, then aggregate `frames` measured ones into one measurement */
     measure(warmup: number, frames: number): Promise<BenchmarkMeasurement>;
@@ -158,23 +158,23 @@ function quantile(sorted: number[], q: number): number {
 /** Dawn's injected indirect-draw validation floor, µs per `drawIndexedIndirect` command. Chrome/D3D12
  *  runs this validation *before* the render pass, so it's untimed by `timestampWrites` and surfaces as
  *  fence wait, not a pass time (gpu.md "WebGPU-specific traps"). Calibrated 2026-06-14 via a gym
- *  indirect-draw calibration sweep (redundant instanceCount-0 indirect draws — pure validation, zero raster): measured
+ *  indirect-draw calibration sweep (redundant instanceCount-0 indirect draws, pure validation, zero raster): measured
  *  ~1.0–1.3 µs/draw fence-mean slope on lovelace *in the GPU-bound regime*. Kept at 1 as the round,
- *  cross-device gauge — it's an order-of-magnitude predictor, not a budget-precise number: the cost only
+ *  cross-device gauge; it's an order-of-magnitude predictor, not a budget-precise number: the cost only
  *  surfaces in fence once total GPU work exceeds the frame interval (below that it's absorbed by rAF/vsync
- *  idle — the calibration sweep crossed the threshold at ~4000 draws ≈ 4 ms on a 240 Hz rAF). Consistent with
+ *  idle, the calibration sweep crossed the threshold at ~4000 draws ≈ 4 ms on a 240 Hz rAF). Consistent with
  *  Toji + the 2026-06-14 point-shadow collapse (~1.17 µs/draw). */
 export const INDIRECT_FLOOR_US = 1;
 
 /** the indirect-draw validation floor for `count` issued commands, in µs (`count × INDIRECT_FLOOR_US`).
- *  Pure — unit-tested. */
+ *  Pure, unit-tested. */
 export function indirectFloorUs(count: number): number {
     return count * INDIRECT_FLOOR_US;
 }
 
 /** fold one frame's per-pass indirect tally into the cumulative `count` / `fires` counters (one fire per
  *  pass per frame). The profiler calls it at frame begin so the benchmark window-diffs `count` / `fires`
- *  the way it does the GPU pass timers, deriving the per-frame draw count as `count / fires`. Pure —
+ *  the way it does the GPU pass timers, deriving the per-frame draw count as `count / fires`. Pure,
  *  unit-tested. */
 export function foldIndirect(
     frame: ReadonlyMap<string, number>,
@@ -188,7 +188,7 @@ export function foldIndirect(
 }
 
 /** distribution summary of a sample array (ms): central tendency + the p99 / stddev that read a spike
- *  the mean and p95 hide. Pure — unit-tested. */
+ *  the mean and p95 hide. Pure, unit-tested. */
 export function distribution(samples: number[]): {
     avg: number;
     median: number;
@@ -219,7 +219,7 @@ const mean = (a: number[]): number => (a.length ? a.reduce((s, v) => s + v, 0) /
 
 /** resolve one pass from its window-cumulative deltas. `dTime` ms over `dFires` occurrences across
  *  `dFrames` frames; `stepsPerFrame` sets the sim/render threshold. `samples` is the per-drained-frame
- *  time list for the percentile tail (empty → 0 percentiles). Pure — unit-tested. */
+ *  time list for the percentile tail (empty → 0 percentiles). Pure, unit-tested. */
 export function passStats(
     dTime: number,
     dFires: number,

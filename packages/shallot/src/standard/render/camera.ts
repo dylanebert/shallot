@@ -29,7 +29,7 @@ export const Camera = {
     far: sparse(f32),
     size: sparse(f32),
     clearColor: sparse(u32),
-    /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp — for a pixel-art look) */
+    /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
     antialias: sparse(u32),
 };
 

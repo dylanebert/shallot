@@ -207,7 +207,7 @@ function uniformEntry(binding: number): GPUBindGroupLayoutEntry {
 }
 
 /**
- * build a subgroup-free radix sorter for up to `maxKeys` (key, payload) u32 pairs — the LDS
+ * build a subgroup-free radix sorter for up to `maxKeys` (key, payload) u32 pairs. The LDS
  * sibling {@link createRadixSort} delegates to when `subgroups` is false. Same {@link RadixSort}
  * contract; {@link createBvh} threads its shared buffers + count in.
  */

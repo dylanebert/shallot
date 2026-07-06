@@ -1,6 +1,6 @@
 import { Registry } from "../../engine";
 
-/** the sample registry's capacity — registering past it warns and drops the sample. */
+/** the sample registry's capacity. registering past it warns and drops the sample. */
 export const MAX_SAMPLES = 256;
 
 interface SampleEntry {

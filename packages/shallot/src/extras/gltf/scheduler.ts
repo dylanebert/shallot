@@ -26,7 +26,7 @@ export class Scheduler<T, R> {
 
     /**
      * queue a task at a priority (higher dispatches first; ties keep FIFO) and resolve with its `run` result.
-     * In-flight never exceeds the slot count — excess waits until a slot frees (the backpressure).
+     * In-flight never exceeds the slot count: excess waits until a slot frees (the backpressure).
      */
     submit(task: T, priority = 0): Promise<R> {
         return new Promise<R>((resolve, reject) => {
@@ -36,9 +36,9 @@ export class Scheduler<T, R> {
     }
 
     /**
-     * drop every queued (not-yet-dispatched) task, rejecting each with `reason` — the cancel-on-dispose seam
+     * drop every queued (not-yet-dispatched) task, rejecting each with `reason`: the cancel-on-dispose seam
      * (pool.ts's `abortDecodes`). In-flight runs are untouched: they finish and free their slot normally, so a
-     * decode already on a worker still lands in the asset cache (a late result is safe — the cache is
+     * decode already on a worker still lands in the asset cache (a late result is safe, the cache is
      * idempotent). Submitting again after this works as usual.
      */
     abort(reason: unknown): void {

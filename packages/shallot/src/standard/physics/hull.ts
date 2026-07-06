@@ -63,7 +63,7 @@ const UNIT_CUBE: Omit<Hull, "name"> = {
         [0, 0, 1],
     ],
 };
-/** the reserved hull id of the built-in unit cube (collide.ts `UNIT_CUBE_ID`) — a box reads this hull scaled by its half-extents. */
+/** the reserved hull id of the built-in unit cube (collide.ts `UNIT_CUBE_ID`): a box reads this hull scaled by its half-extents. */
 export const UNIT_CUBE_ID = registerHull("__unit_cube__", UNIT_CUBE);
 
 // ── GPU packing ──────────────────────────────────────────────────────

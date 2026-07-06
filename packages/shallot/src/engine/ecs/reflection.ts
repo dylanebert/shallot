@@ -3,7 +3,7 @@ import type { Component, Pair, Quad, Single, Type } from "./component";
 import { entity, lanes } from "./component";
 import type { State } from "./state";
 import { entries, getComponent, getExclusions, getName, getTraits, type Traits } from "./traits";
-/** convert a name to kebab-case (`OrbitCamera` → `orbit-camera`) — the canonical component-name form
+/** convert a name to kebab-case (`OrbitCamera` → `orbit-camera`), the canonical component-name form
  * registries and scene attributes key on */
 export function kebab(str: string): string {
     return str
@@ -17,11 +17,11 @@ export function camel(str: string): string {
     return str.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
 }
 
-/** the editor category of a component field — how it's shown and edited: a `vec3` as three lanes, an
+/** the editor category of a component field, how it's shown and edited: a `vec3` as three lanes, an
  * `enum` as a dropdown, an `entity` as an `@name` reference, a `unit` through a unit switcher */
 export type FieldKind = "float" | "vec2" | "vec3" | "vec4" | "color" | "enum" | "unit" | "entity";
 
-/** one field's reflected shape — its name, `kind`, default, and kind-specific extras (enum `options`,
+/** one field's reflected shape: its name, `kind`, default, and kind-specific extras (enum `options`,
  * vec lane keys in `fields`, the `units` menu) */
 export interface FieldInfo {
     name: string;
@@ -33,7 +33,7 @@ export interface FieldInfo {
     units?: Unit[];
 }
 
-/** a component's reflected field layout — its kebab `name` and the ordered `fields` the inspector renders
+/** a component's reflected field layout: its kebab `name` and the ordered `fields` the inspector renders
  * rows from */
 export interface Schema {
     name: string;
@@ -46,7 +46,7 @@ export interface FieldValues {
     [field: string]: number | string | readonly number[];
 }
 
-/** one entity's live component values — its `eid` and every attached component's `FieldValues` */
+/** one entity's live component values: its `eid` and every attached component's `FieldValues` */
 export interface EntityData {
     eid: number;
     components: Record<string, FieldValues>;
@@ -139,7 +139,7 @@ export function schemas(): Schema[] {
     return out;
 }
 
-/** the component names a component requires (its `requires` trait) — empty for an unknown component or
+/** the component names a component requires (its `requires` trait), empty for an unknown component or
  * one with no requirements */
 export function dependencies(name: string): string[] {
     const traits = getTraits(name);
@@ -152,7 +152,7 @@ export function dependencies(name: string): string[] {
     return out;
 }
 
-/** the components this one stands in for — an entity carrying it satisfies a `requires` of any of
+/** the components this one stands in for: an entity carrying it satisfies a `requires` of any of
  * them (`Body` provides `Transform`). empty for an unknown component or one with no `provides` trait */
 export function provides(name: string): string[] {
     const traits = getTraits(name);
@@ -165,13 +165,13 @@ export function provides(name: string): string[] {
     return out;
 }
 
-/** true if the component declares the `singleton` trait — one instance per scene (lights, the active
+/** true if the component declares the `singleton` trait: one instance per scene (lights, the active
  * camera). editor metadata, not enforced; false for an unknown component */
 export function isSingleton(name: string): boolean {
     return getTraits(name)?.singleton ?? false;
 }
 
-/** the component names that may not coexist with this one (the symmetric `excludes` trait) — empty for
+/** the component names that may not coexist with this one (the symmetric `excludes` trait); empty for
  * an unknown component or one with no exclusions */
 export function exclusions(name: string): string[] {
     const component = getComponent(name);
@@ -187,7 +187,7 @@ export function exclusions(name: string): string[] {
 }
 
 /** read every field of `component` on `eid` into a flat map, vec fields split into dotted lanes
- * (`pos.x`, `pos.y`) — the row values the inspector shows */
+ * (`pos.x`, `pos.y`); the row values the inspector shows */
 export function readFields(component: Component, eid: number): FieldValues {
     const fields: FieldValues = {};
     for (const [field, store] of Object.entries(component)) {
@@ -229,7 +229,7 @@ export function inspect(state: State, eid: number): EntityData | null {
 }
 
 /**
- * every live entity carrying the named component, each as `EntityData` — empty for an unknown component.
+ * every live entity carrying the named component, each as `EntityData`; empty for an unknown component.
  * @example
  * find(state, "point-light").length; // how many point lights are in the scene
  */
@@ -244,7 +244,7 @@ export function find(state: State, name: string): EntityData[] {
     return out;
 }
 
-/** every live entity's components and values — the whole world as `EntityData`, for tooling, saves, and
+/** every live entity's components and values: the whole world as `EntityData`, for tooling, saves, and
  * debugging */
 export function snapshot(state: State): EntityData[] {
     const out: EntityData[] = [];

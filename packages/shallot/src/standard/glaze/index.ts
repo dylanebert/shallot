@@ -233,7 +233,7 @@ function uploadConfig(state: State, eid: number, slot: number): void {
 /**
  * the postfx composite, per camera: reads the camera's offscreen scene color (`view.framebuffer`) and
  * writes the swapchain (`view.present`) through one compute dispatch, applying its {@link Glaze} chain
- * and the linear→sRGB encode. Renderer-agnostic — it queries every camera with both targets, so sear and
+ * and the linear→sRGB encode. Renderer-agnostic: it queries every camera with both targets, so sear and
  * custom renderers compose the same way. Runs after every renderer (each declares `before: [GlazeSystem]`);
  * a canvas-less view (a shadow light) has no `present` and is skipped. The bind group is rebuilt per frame
  * because the swapchain view changes each frame (`getCurrentTexture`).

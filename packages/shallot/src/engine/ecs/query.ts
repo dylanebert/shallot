@@ -101,7 +101,7 @@ class QueryIterator implements Iterator<number> {
 /**
  * matched-entity set + iteration for one registered query. owns sparse-set
  * state inline (no wrapper class). iteration snapshots count at start so
- * callers can mutate during iteration — e.g. `for (const eid of state.query([Spawn,
+ * callers can mutate during iteration, e.g. `for (const eid of state.query([Spawn,
  * not(Initialized)])) state.add(eid, Initialized)`.
  */
 export class RegisteredQuery implements Iterable<number> {

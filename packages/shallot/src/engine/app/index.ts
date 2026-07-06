@@ -6,7 +6,7 @@ import { preload } from "../scene/core";
 import { coalesce, median } from "./coalesce";
 
 /**
- * bundle of components, systems, and lifecycle hooks — the unit of behavior a project enables.
+ * bundle of components, systems, and lifecycle hooks: the unit of behavior a project enables.
  * @expand
  */
 export interface Plugin {
@@ -28,7 +28,7 @@ export interface Plugin {
     readonly features?: readonly GPUFeatureName[];
     /**
      * GPU features this plugin runs faster with but does not require. Unioned across the active
-     * plugins and requested at device acquisition only where the adapter has them — a device
+     * plugins and requested at device acquisition only where the adapter has them; a device
      * missing one loads normally, and the plugin takes its fallback path (it reads
      * `device.features.has(...)` to pick the arm). e.g. the BVH builder prefers `subgroups` for
      * its bounds reduction + radix sort, falling back to an LDS arm on a device without it.
@@ -61,7 +61,7 @@ export interface Loading {
 }
 
 /**
- * the {@link build} / {@link run} configuration — plugins, scene, and startup behavior.
+ * the {@link build} / {@link run} configuration: plugins, scene, and startup behavior.
  * @expand
  */
 export interface Config {
@@ -133,7 +133,7 @@ export function setDefaultLoading(factory: () => Loading): void {
 
 /**
  * build the app: collect plugins, acquire the GPU device, register, run `initialize`, load scenes, and
- * `warm` — returning a live {@link State} without starting a frame loop. drive `state.step(dt)` yourself,
+ * `warm`, returning a live {@link State} without starting a frame loop. drive `state.step(dt)` yourself,
  * or use {@link run} for the managed loop.
  * @example
  * const app = await build({ plugins: [MyPlugin], scene: "/scenes/demo.scene" });
@@ -317,11 +317,11 @@ function sortPlugins(nodes: Plugin[], edges: [Plugin, Plugin][]): Plugin[] {
 }
 
 /**
- * create the sandboxed UI overlay over a canvas — the single DOM surface a shallot app's UI mounts
+ * create the sandboxed UI overlay over a canvas: the single DOM surface a shallot app's UI mounts
  * into ({@link Config.ui}). It fills the canvas's parent and is a true sandbox: `contain: layout
  * paint` makes it the containing block for absolute *and* fixed descendants and clips paint to its
  * box, so app UI is bounded to the canvas region and can never spill into an embedding host (an
- * editor viewport, a host page) — even a stray `position: fixed`. `pointer-events: none` lets input
+ * editor viewport, a host page), even a stray `position: fixed`. `pointer-events: none` lets input
  * reach the canvas; UI panels re-enable it. Returns the overlay; the caller removes it on dispose.
  */
 export function mountOverlay(canvas: HTMLElement | null): HTMLDivElement {
@@ -426,17 +426,17 @@ export interface SwapResult {
 
 /**
  * hot-swap a live `State`'s plugins in place, preserving runtime state. For each
- * plugin (paired by name) it re-registers the components — the stable-id layer
+ * plugin (paired by name) it re-registers the components: the stable-id layer
  * reuses their storage and id, so membership, queries, and the GPU firehose
- * (slab buffers, bind groups, pipelines) survive untouched — swaps each system's
+ * (slab buffers, bind groups, pipelines) survive untouched. It swaps each system's
  * behavior onto the live scheduler object (identity + ordering + setup state
  * preserved), and re-runs `initialize` to repopulate module singletons with the
  * reloaded code. A schema / system-set / ordering / feature change it can't carry
  * safely returns `{ ok: false, reason }`; the caller then rebuilds from the
  * document. A `warm`- or `setup`-body edit is undetectable (a closure body can't
  * be diffed) and lands on the next rebuild rather than this swap. The editor
- * drives this from its HMR seam
- * — `prev`/`next` are the project's own plugins before and after the reload.
+ * drives this from its HMR seam; `prev`/`next` are the project's own plugins
+ * before and after the reload.
  *
  * `skipped` is the build's skip set ({@link App.skipped}): a plugin skipped at
  * build never initialized, so swapping it would half-apply — it's rejected here.

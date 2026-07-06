@@ -12,7 +12,7 @@ import { Outline, type Plugin, type State, type System } from "@dylanebert/shall
 // #doc:code
 // ### Highlight from code
 //
-// Presence is the switch — `state.add(eid, Outline)` highlights an object, `state.remove` clears it, the
+// Presence is the switch: `state.add(eid, Outline)` highlights an object, `state.remove` clears it, the
 // same call a hover or selection makes. Set `color` and `width` per entity, so different highlights coexist
 // in one pass. This cursor sweeps the highlight across the boxes marked `pick`.
 // #region select

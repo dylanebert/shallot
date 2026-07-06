@@ -9,7 +9,7 @@ const MAGIC = 0x46546c67; // "glTF", little-endian
 const JSON_CHUNK = 0x4e4f534a; // "JSON"
 const BIN_CHUNK = 0x004e4942; // "BIN\0"
 
-/** true if `bytes` starts with the glTF binary magic — lets {@link loadGltf} branch on content, not extension. */
+/** true if `bytes` starts with the glTF binary magic: lets {@link loadGltf} branch on content, not extension. */
 export function isGlb(bytes: ArrayBuffer): boolean {
     return bytes.byteLength >= 12 && new DataView(bytes).getUint32(0, true) === MAGIC;
 }
@@ -17,7 +17,7 @@ export function isGlb(bytes: ArrayBuffer): boolean {
 /**
  * split a `.glb` into its JSON document + optional BIN chunk. The BIN chunk backs every glTF `buffers[]`
  * entry that has no `uri` (a `.glb` puts buffer 0 inline); {@link loadGltf} feeds it to `resolveBuffer`.
- * Throws on a bad magic / unsupported version / missing JSON chunk — a malformed container, not a frame to skip.
+ * Throws on a bad magic / unsupported version / missing JSON chunk: a malformed container, not a frame to skip.
  *
  * @example
  * const { json, bin } = parseGlb(await readBinary("model.glb"));

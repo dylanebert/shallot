@@ -17,9 +17,9 @@ import type { GltfVat } from "./vat";
 // VATHelper.hlsl; the deviceless bake is vat.ts.
 
 /**
- * a skinned glTF instance's animation state — one `slab(vec4)` published as `"skin"`: lane x is the play
+ * a skinned glTF instance's animation state. One `slab(vec4)` published as `"skin"`: lane x is the play
  * time in seconds (advanced by {@link SkinSystem}), y the material palette index in the shared union palette
- * (asset base + local id — the `mid` the shade path reads, folded in to keep the surface at the 10-storage
+ * (asset base + local id, the `mid` the shade path reads, folded in to keep the surface at the 10-storage
  * ceiling), z a per-instance phase offset (crowd variety; 0 for a single import), w the clip duration
  * {@link SkinSystem} loops the play time on. The duration is per-instance, so N skinned meshes with different
  * clip lengths coexist in one scene. The importer adds it to each skinned instance.
@@ -141,7 +141,7 @@ export function skinSurface(alphaMode: "OPAQUE" | "MASK" | "BLEND"): string {
 }
 
 /**
- * the assembled VAT GPU resources — the two filterable textures + the params uniform + the clip duration,
+ * the assembled VAT GPU resources: the two filterable textures + the params uniform + the clip duration,
  * built once per skinned mesh + held by the asset cache (survives a State rebuild). Bound per-draw via the
  * mesh's `Mesh.bindings` (so N skinned meshes coexist); the cache frees them on invalidate.
  */
@@ -172,11 +172,11 @@ function publishVat(vat: AssembledVat): void {
 /**
  * encode a baked clip into the two filterable VAT textures + the params uniform, returning the assembled set
  * the asset cache holds + {@link publishVat} binds. Positions → `rgba16float` remapped to the per-mesh AABB
- * `[0,1]` (where f16 holds the most precision), normals → `rgba16float` plain xyz (renormalized in the VS —
+ * `[0,1]` (where f16 holds the most precision), normals → `rgba16float` plain xyz (renormalized in the VS,
  * **not** oct, so the hardware frame-lerp can't cross the octahedral seam; gpu.md rule 9). Both are core
  * filterable formats (the 16-bit *norm* formats need the non-floor `texture-formats-tier1` feature), so the
  * linear clamp sampler gives the VS free hardware frame-lerp on every floor device. The remap keeps f16
- * sub-0.1-unit on a model-scale mesh — far inside the rgba8 banding the survey rejected.
+ * sub-0.1-unit on a model-scale mesh, far inside the rgba8 banding the survey rejected.
  */
 export function assembleVat(device: GPUDevice, vat: GltfVat): AssembledVat {
     const { frameCount, vertCount, positions, normals, aabb } = vat;
@@ -260,8 +260,8 @@ function vatSampler(device: GPUDevice): GPUSampler {
 /**
  * publish 1×1 VAT fallbacks + a zero params uniform under the global `vat*` names so a skin surface's no-op
  * draws over non-skinned meshes bind cleanly (the same fallback shape the texture arrays use; an unbound draw
- * is skipped). A real skinned mesh binds its own VAT per-draw (`Mesh.bindings`), so this set is never replaced
- * — only the no-op pairs read it. Build-scoped, freed in {@link disposeVatFallback}.
+ * is skipped). A real skinned mesh binds its own VAT per-draw (`Mesh.bindings`), so this set is never replaced,
+ * only the no-op pairs read it. Build-scoped, freed in {@link disposeVatFallback}.
  */
 export function fallbackVat(device: GPUDevice): void {
     const fallback = (format: GPUTextureFormat) =>
@@ -287,7 +287,7 @@ export function fallbackVat(device: GPUDevice): void {
 }
 
 /**
- * free the build-scoped VAT fallback (GltfPlugin.dispose). The cache-owned real VATs survive — freed only by
+ * free the build-scoped VAT fallback (GltfPlugin.dispose). The cache-owned real VATs survive, freed only by
  * the asset cache's invalidate / clearGltfCache.
  */
 export function disposeVatFallback(): void {
@@ -300,7 +300,7 @@ export function disposeVatFallback(): void {
 
 /**
  * advance each skinned instance's play time, looping on its own clip duration (`Skin.anim.w`, so N meshes
- * with different clip lengths coexist). Reload-safe — time is derived from `state.time.elapsed` + the
+ * with different clip lengths coexist). Reload-safe: time is derived from `state.time.elapsed` + the
  * instance's phase lane, never accumulated (ecs.md "no module-level accumulator"). A `simulation`-group
  * system, so SlabSystem (`draw`, first) flushes the write before sear's geometry passes read it. Runs in play
  * only (default mode), so the editor shows the rest/bind pose.

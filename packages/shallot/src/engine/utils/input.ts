@@ -1,15 +1,15 @@
 /**
- * an editor input widget for a component field. Display-only — the stored value never changes; a
+ * an editor input widget for a component field. Display-only: the stored value never changes; a
  * widget maps stored↔shown at the editor boundary so ECS data stays pristine. Declare it in a
  * component's traits (`inputs`) when the default number field isn't the right control: a radians field
- * authored in degrees is an {@link angle}. The standard set is small on purpose — add a variant when a
+ * authored in degrees is an {@link angle}. The standard set is small on purpose; add a variant when a
  * field actually needs one.
  */
 export type Input = { kind: "unit"; units: Unit[] };
 
 /**
  * one entry in a {@link units} menu: how to show the stored value in this unit and read it back. `to`
- * and `from` must be inverse — the editor round-trips a value through them on every edit.
+ * and `from` must be inverse: the editor round-trips a value through them on every edit.
  */
 export interface Unit {
     /** dropdown label, e.g. `deg` */
@@ -20,7 +20,7 @@ export interface Unit {
     from: (shown: number) => number;
 }
 
-/** radians shown as-is — the identity unit, storage's own. */
+/** radians shown as-is: the identity unit, storage's own. */
 export const radians: Unit = { label: "rad", to: (x) => x, from: (x) => x };
 
 /** a radians field shown in degrees. */
@@ -39,5 +39,5 @@ export const degrees: Unit = {
  */
 export const units = (list: Unit[]): Input => ({ kind: "unit", units: list });
 
-/** a radians field authored in degrees, with a `deg`/`rad` switch — the common angle case. */
+/** a radians field authored in degrees, with a `deg`/`rad` switch: the common angle case. */
 export const angle: Input = units([degrees, radians]);

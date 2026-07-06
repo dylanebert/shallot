@@ -12,7 +12,7 @@ import { Body } from "./index";
 import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } from "./raycast";
 import { BODY_VEC4 } from "./step";
 
-/** the raycast candidates: every Body at its live (Mirror'd) pose, minus `exclude` — occluders and
+/** the raycast candidates: every Body at its live (Mirror'd) pose, minus `exclude`, occluders and
  *  grabbables alike. Statics/kinematics (mass ≤ 0) are kept so the ray stops on a wall; {@link grabHit}
  *  filters the nearest hit down to a grabbable one. */
 export function bodyCandidates(
@@ -46,9 +46,9 @@ export function bodyCandidates(
 }
 
 /** the body the crosshair grabs along `ray` (null ray = no aim): the nearest solid Body within `maxDist`,
- *  returned ONLY when it's dynamic (grabbable). Statics occlude — a wall nearer than any dynamic body
+ *  returned ONLY when it's dynamic (grabbable). Statics occlude: a wall nearer than any dynamic body
  *  blocks the grab (returns null), so you can't grab through walls. `exclude` drops a body from the cast
- *  entirely (neither occludes nor grabs — e.g. the player's own capsule). */
+ *  entirely (neither occludes nor grabs, e.g. the player's own capsule). */
 export function grabHit(
     state: State,
     bodyMirror: Mirror,
@@ -61,7 +61,7 @@ export function grabHit(
     return hit && Body.mass.get(hit.eid) > 0 ? hit : null;
 }
 
-/** a world point in the held body's local frame (rB for the grab joint) — conj(quat) · (point − pos). */
+/** a world point in the held body's local frame (rB for the grab joint): conj(quat) · (point − pos). */
 export function worldToLocal(
     bodyMirror: Mirror,
     eid: number,
@@ -84,7 +84,7 @@ export function worldToLocal(
     );
 }
 
-/** the first-person centre ray — camera position + its forward (−Z). The player's crosshair pick. */
+/** the first-person centre ray: camera position + its forward (−Z). The player's crosshair pick. */
 export function forwardRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
     const dir = qRotate(
@@ -102,7 +102,7 @@ export function forwardRay(state: State, cam: number): Ray | null {
     };
 }
 
-/** the screen-cursor ray for an orbit camera — `null` when the cursor is off the canvas. The god pick + the
+/** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick + the
  *  voxel carve both aim with it. */
 export function cursorRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;

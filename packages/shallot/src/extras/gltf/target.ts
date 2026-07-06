@@ -13,7 +13,7 @@ const BC5_RG = 5;
 const BC7_M5 = 7;
 const ASTC_4X4 = 10;
 
-/** the chosen transcode destination — a Basis format enum paired with its WebGPU compressed format. `blockDim`
+/** the chosen transcode destination: a Basis format enum paired with its WebGPU compressed format. `blockDim`
  *  is the block edge in texels (4 for every BC/ETC2/ASTC target), so a row holds `ceil(width/4)` blocks. */
 export interface TranscodeTarget {
     basis: number;
@@ -21,7 +21,7 @@ export interface TranscodeTarget {
     blockDim: number;
 }
 
-/** one transcode target per texture slot — the color baseColor (sRGB) plus the four data maps, each resolved to
+/** one transcode target per texture slot: the color baseColor (sRGB) plus the four data maps, each resolved to
  *  the role's block format. `mr`/`normalTex`/`occlusion` are linear, `emissive` + `albedo` sRGB; on a BC device
  *  the data maps specialize (normal → BC5 two-channel, occlusion → BC4 single-channel, mr → BC7), on ETC2/ASTC
  *  every slot rides the family's one color format (the device-validatable path is BC; the EAC/ASTC two-channel

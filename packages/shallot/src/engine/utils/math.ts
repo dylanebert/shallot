@@ -1,12 +1,12 @@
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
-/** constrain `value` to `[min, max]` — below `min` returns `min`, above `max` returns `max` */
+/** constrain `value` to `[min, max]`: below `min` returns `min`, above `max` returns `max` */
 export function clamp(value: number, min: number, max: number): number {
     return value < min ? min : value > max ? max : value;
 }
 
-/** linear interpolation from `a` to `b`, `t` in `[0, 1]` (not clamped — `t` outside the range extrapolates) */
+/** linear interpolation from `a` to `b`, `t` in `[0, 1]` (not clamped; `t` outside the range extrapolates) */
 export function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t;
 }
@@ -288,7 +288,7 @@ export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): 
     return out;
 }
 
-/** general mat4 inverse — returns the input unchanged when the matrix is singular */
+/** general mat4 inverse; returns the input unchanged when the matrix is singular */
 export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
 

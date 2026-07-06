@@ -25,7 +25,7 @@ import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 const DEG = Math.PI / 180;
 
 /**
- * a kinematic character — a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed
+ * a kinematic character: a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed
  * step (collide-and-slide on the CPU). Authors the walkable slope, the jump launch speed, and a per-character
  * gravity; the controller sweeps every `[Character, Body]`, drives it via {@link move} / {@link jump}, and
  * reads {@link grounded} / {@link pose} back. The first-person {@link Player} composes this.
@@ -40,11 +40,11 @@ const DEG = Math.PI / 180;
  * ```
  */
 export const Character = {
-    /** steepest walkable slope in degrees — a contact flatter than this grounds the character; steeper, it slides */
+    /** steepest walkable slope in degrees; a contact flatter than this grounds the character, steeper it slides */
     maxSlope: sparse(f32),
-    /** the launch velocity a buffered + grounded {@link jump} sets — 0 disables jumping */
+    /** the launch velocity a buffered + grounded {@link jump} sets. 0 disables jumping */
     jumpSpeed: sparse(f32),
-    /** per-character gravity (negative, snappier than the world for a player) — 0 = the configured world gravity */
+    /** per-character gravity (negative, snappier than the world for a player). 0 = the configured world gravity */
     gravity: sparse(f32),
 };
 
@@ -270,7 +270,7 @@ function sweepEid(
 // Fixed group — the deterministic dt the sweep integrates gravity over. Plays only (no `mode: "always"`):
 // edit mode doesn't simulate, so a play start re-syncs `states` from the current Body slab.
 /**
- * the kinematic-character sweep — runs collide-and-slide for every `[Character, Body]` each fixed step,
+ * the kinematic-character sweep: runs collide-and-slide for every `[Character, Body]` each fixed step,
  * before the physics solve, uploading the swept pose as a kinematic body. Exported as an ordering anchor: a
  * follower that reads the swept pose (a camera, an attached prop) declares `after: [CharacterSweepSystem]` so
  * it sees this tick's pose, not last tick's.
@@ -293,10 +293,10 @@ export const CharacterSweepSystem: System = {
     },
 };
 
-/** kinematic-character plugin — registers every `[Character, Body]` and sweeps it (collide-and-slide) each
+/** kinematic-character plugin: registers every `[Character, Body]` and sweeps it (collide-and-slide) each
  *  fixed step, before the physics solve. Depends on {@link PhysicsPlugin} (the collision world it sweeps
  *  against) and mirror (the frame-stale dynamic poses it reads). Add it, then drive characters with the
- *  {@link move} / {@link jump} surface — or add {@link Player} for a ready first-person controller. */
+ *  {@link move} / {@link jump} surface, or add {@link Player} for a ready first-person controller. */
 export const CharacterPlugin: Plugin = {
     name: "Character",
     components: { Character },

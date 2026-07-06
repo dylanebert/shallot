@@ -294,7 +294,7 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
     };
 }
 
-/** wipe every registration — used between editor sessions and tests */
+/** wipe every registration; used between editor sessions and tests */
 export function clear(): void {
     byName.clear();
     byId.clear();

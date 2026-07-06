@@ -1,7 +1,7 @@
 import { arrow, box, type Plugin, type State, type System } from "@dylanebert/shallot";
 
 // #doc:intro
-// Debug lines drawn straight into the 3D scene — wireframe boxes, arrows, axis segments — for seeing
+// Debug lines drawn straight into the 3D scene (wireframe boxes, arrows, axis segments) for seeing
 // what your code is doing. Two ways in: the retained `Line` / `Arrow` components for annotations you
 // author in the editor, and an immediate `segment` / `box` / `arrow` API you call each frame from a
 // system.
@@ -9,13 +9,13 @@ import { arrow, box, type Plugin, type State, type System } from "@dylanebert/sh
 // #doc:code source:lines/public/scenes/lines.scene
 // Put a `line` on an entity and it draws from the entity's position along a world-rotated `offset`; add
 // `arrow` for a fletched head. These three share the origin to make an RGB axis gizmo. Both components
-// are retained — the editor authors them, and they ride their entity's transform.
+// are retained: the editor authors them, and they ride their entity's transform.
 
 // #doc:code
 // ### Drawing from code
 //
 // `segment` / `box` / `arrow` append to the current frame and clear the next, so a system calls them
-// every frame. Positions are world-space, `color` is hex sRGB, and `width` is a constant pixel size —
+// every frame. Positions are world-space, `color` is hex sRGB, and `width` is a constant pixel size, so
 // the line stays the same thickness on screen as the camera zooms.
 // #region immediate
 export const gizmos = {

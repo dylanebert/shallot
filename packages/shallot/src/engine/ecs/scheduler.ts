@@ -12,14 +12,14 @@ export const Time = {
 
 export interface Time {
     /** virtual seconds since last frame: clamped, then scaled by {@link Time.scale} (0 while paused). the
-     * default gameplay clock — sim systems read this, so pause and slow-mo reach them for free */
+     * default gameplay clock; sim systems read this, so pause and slow-mo reach them for free */
     deltaTime: number;
     /** seconds since last frame, raw rAF interval before clamping or scaling */
     rawDeltaTime: number;
     /** real seconds since last frame: clamped, never scaled. the escape hatch for presentation that must run
      * through a pause/slow-mo (camera juice, UI, input) */
     realDeltaTime: number;
-    /** fixed timestep interval (1/60) — constant; slow-mo reduces tick frequency, not per-tick dt */
+    /** fixed timestep interval (1/60), constant; slow-mo reduces tick frequency, not per-tick dt */
     fixedDeltaTime: number;
     /** total elapsed virtual time in seconds (advances with {@link Time.deltaTime}, frozen while paused) */
     elapsed: number;
@@ -27,7 +27,7 @@ export interface Time {
     realElapsed: number;
     /** virtual timescale multiplier (1 = real time, <1 slow-mo, >1 fast-forward). set via `state.timescale` */
     scale: number;
-    /** when true the virtual clock is frozen — `deltaTime`/`elapsed` hold and no fixed steps run. set via
+    /** when true the virtual clock is frozen: `deltaTime`/`elapsed` hold and no fixed steps run. set via
      * `state.pause`/`state.resume`. separate from `scale = 0` so resume restores the prior speed */
     paused: boolean;
     /** fixed steps taken this frame (0–4) */
@@ -42,7 +42,7 @@ export interface Time {
 
 export type SystemGroup = "setup" | "fixed" | "simulation" | "draw";
 
-/** unit of behavior — update, setup, dispose, scheduling */
+/** unit of behavior: update, setup, dispose, scheduling */
 export interface System {
     readonly update?: (state: State) => void;
     readonly setup?: (state: State) => void;

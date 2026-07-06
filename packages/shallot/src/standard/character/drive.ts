@@ -34,7 +34,7 @@ export function move(eid: number, vx: number, vz: number): void {
     }
 }
 
-/** request a jump for a character this tick (by body eid) — fires only if grounded or within the coyote
+/** request a jump for a character this tick (by body eid). fires only if grounded or within the coyote
  *  window, consuming both so a held button can't re-fire mid-air (the sweep gates it).
  *
  * @example
@@ -65,7 +65,7 @@ export function pose(eid: number, out: [number, number, number]): boolean {
     return true;
 }
 
-/** place a character at a world position (by body eid), clearing its velocity — the respawn primitive a
+/** place a character at a world position (by body eid), clearing its velocity: the respawn primitive a
  *  fall-recovery system calls. Returns false (a no-op) until the character is registered. The controller
  *  owns the pose, so this is the ONLY way to move a swept character from the outside; the next sweep
  *  integrates from here, and zeroing the velocity keeps a mid-air respawn from inheriting the old fall speed.
@@ -87,7 +87,7 @@ export function teleport(eid: number, x: number, y: number, z: number): boolean 
     return true;
 }
 
-/** whether a character is grounded (by body eid) — the swept-step result the controller keys jump + slope
+/** whether a character is grounded (by body eid): the swept-step result the controller keys jump + slope
  *  hold on. False until the character is registered.
  *
  * @example

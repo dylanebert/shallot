@@ -9,14 +9,14 @@ import {
 
 // #doc:intro
 // Read the keyboard and mouse from any system through the `Inputs` singleton. Input is on in the default
-// plugins, so a system reads it directly — nothing to enable.
+// plugins, so a system reads it directly. Nothing to enable.
 
 export const Controlled = {};
 
 // #doc:code
 // ### Move with held keys
 //
-// `Inputs.isKeyDown(code)` is true every frame a key is held — the path for movement. Codes are
+// `Inputs.isKeyDown(code)` is true every frame a key is held: the path for movement. Codes are
 // `KeyboardEvent.code` strings (`"KeyW"`, `"ArrowUp"`). Read the four direction keys and write the box's
 // `Transform` each frame, scaled by `state.time.deltaTime` so speed is framerate-independent:
 // #region move
@@ -47,7 +47,7 @@ export const move = {
 // ### Read the mouse and press edges
 //
 // `Inputs.mouse` carries the buttons and canvas-relative position; `Inputs.isKeyPressed(code)` fires for the
-// single frame a key goes down — the edge, versus `isKeyDown`'s held state. Redden the box while the left
+// single frame a key goes down: the edge, versus `isKeyDown`'s held state. Redden the box while the left
 // button is held, and snap it home on a Space press:
 // #region react
 export const react = {

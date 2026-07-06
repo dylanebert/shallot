@@ -104,7 +104,7 @@ const VS_FS = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
 // map. depth32float is sampleable and the reverse-Z precision win needs a float buffer (an integer depth
 // gains nothing from reverse-Z); one source of truth for every depth-stencil state — and the shadow map
 // renders through sear's compiled prepass depth pipeline, so one format keeps them sharing it
-/** the depth-stencil format for every sear depth target (color pass, prepass, shadow atlases) — one format so they share the compiled prepass depth pipeline */
+/** the depth-stencil format for every sear depth target (color pass, prepass, shadow atlases): one format so they share the compiled prepass depth pipeline */
 export const DEPTH_FORMAT: GPUTextureFormat = "depth32float";
 
 // the geometric-AA sample count when a camera's `Camera.antialias` is on (the default); off renders
@@ -119,7 +119,7 @@ const SAMPLE_COUNT = 4;
 // the entity's eid for an instanced surface and TAG_NONE otherwise, which a surface's fs overrides
 // (terrain → `capacity + cell`). A consumer reads `view.tag` to know which surface owns each pixel
 // (hover, outline, debug)
-/** the id-lane texture format (`r32uint`) — an integer id can't MSAA-resolve, which forces the single-sample prepass */
+/** the id-lane texture format (`r32uint`): an integer id can't MSAA-resolve, which forces the single-sample prepass */
 export const TAG_FORMAT: GPUTextureFormat = "r32uint";
 
 // the reserved tag sentinel: the default for a non-instanced surface that authors no tag, and the
@@ -131,7 +131,7 @@ export const TAG_NONE = 0xffffffff;
 
 /**
  * marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through
- * sear's color pass — plus the opt-in prepass lanes its {@link Tag} / {@link Depth} markers request.
+ * sear's color pass, plus the opt-in prepass lanes its {@link Tag} / {@link Depth} markers request.
  * Lives in the renderer impl with the systems that query it; the thin `sear` barrel re-exports it to the
  * game author, `sear/core` re-exports the systems to an extender.
  *
@@ -143,7 +143,7 @@ export const TAG_NONE = 0xffffffff;
 export const Sear = {};
 
 /**
- * opt a Sear camera into the **id lane** — the `view.tag` target {@link PrepassSystem} fills. Unreal's
+ * opt a Sear camera into the **id lane**: the `view.tag` target {@link PrepassSystem} fills. Unreal's
  * `CustomStencil` generalized from an 8-bit stencil to a u32 lane; Bevy's prepass carries no id (it
  * CPU-raycasts), so the id rides this single-sample pass because it's the same rasterization. A marker
  * in the spirit of Bevy's `DepthPrepass` / `NormalPrepass`: add it to enable one extra camera output;
@@ -159,7 +159,7 @@ export const Sear = {};
 export const Tag = {};
 
 /**
- * opt a Sear camera into the **depth lane** — the prepass *stores* its single-sample depth and publishes
+ * opt a Sear camera into the **depth lane**: the prepass *stores* its single-sample depth and publishes
  * it as `view.depth` (without this marker the prepass depth is discarded, never reaching main memory).
  * Requestable on its own (a depth-only consumer needs no id) or alongside {@link Tag} (one prepass writes
  * both). Bevy's `DepthPrepass`. A screen-space consumer (AO, fog, volumetrics) adds it to read
@@ -176,8 +176,8 @@ export const Depth = {};
  * per-entity PBR material the `default` / `vertex` surfaces read (alongside `Color`, the base albedo).
  * One slab `Quad` published as `"material"`, lanes `(metallic, roughness, emissive, occlusion)`:
  * `metallic` and `roughness` are the metallic-roughness knobs ([0,1]); `emissive` is a glow **strength**
- * tinting the base color (`Color.rgb * emissive`); `occlusion` dims ambient ([0,1]). Defaults are flat —
- * metallic 0, roughness 1, emissive 0, occlusion 1 — so a Part without it shades exactly like the
+ * tinting the base color (`Color.rgb * emissive`); `occlusion` dims ambient ([0,1]). Defaults are flat
+ * (metallic 0, roughness 1, emissive 0, occlusion 1), so a Part without it shades exactly like the
  * pre-PBR diffuse `lit`. Independent (non-tinted) emissive + texture-driven maps are the glTF importer's
  * job (it drives sear's `litPbr` from its own per-material palette).
  *
@@ -206,12 +206,12 @@ function initMaterial(): void {
 }
 
 /**
- * a registered background — a renderer-agnostic *view-ray → HDR color* recipe sear draws as a fullscreen
+ * a registered background: a renderer-agnostic *view-ray → HDR color* recipe sear draws as a fullscreen
  * backdrop on the un-rendered pixels (the standard infinite-skybox technique). `fs` is a WGSL chunk that
  * writes the HDR color into `col: vec3<f32>` from a normalized world-space view ray `dir` (sear
  * reconstructs it per-pixel from `view.invViewProj`), with read access to `view`, `lighting`, `frame`, and
  * any declared `bindings`. `preamble` is an optional module-scope WGSL chunk (helpers / structs /
- * constants the `fs` calls). Modeled on {@link Surface}, but backdrop-only — no mesh, instancing,
+ * constants the `fs` calls). Modeled on {@link Surface}, but backdrop-only: no mesh, instancing,
  * interpolators, or blend modes; the engine names no sky concept, a plugin owns its own sky math.
  */
 export interface Background {
@@ -225,7 +225,7 @@ export interface Background {
 export const Backgrounds: Registry<Background> = new Registry<Background>();
 
 /**
- * select a Sear camera's backdrop — the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
+ * select a Sear camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
  * view-ray → color fill on the un-rendered pixels. Without it the camera shows the flat `Camera.clearColor`
  * (the opt-in fallback). The recipe is registered in code (`Backgrounds.register`); this picks one per
  * camera by name.
@@ -588,7 +588,7 @@ const MESH_QUANT_WGSL = /* wgsl */ `@group(0) @binding(${MESH_QUANT}) var<storag
 // texel + 2 pad, 32 B). Sear owns the layout, the fallback, and the group-1 bindings; ./shadows owns the
 // cascade cameras that drive the values sear writes here each shadowed frame. Exported so a relocatable
 // consumer (the fog march) sizes its sun-shadow uniform binding to match
-/** byte size of the sun-shadow params uniform — a relocatable consumer (the fog march) sizes its sun-shadow binding to match */
+/** byte size of the sun-shadow params uniform: a relocatable consumer (the fog march) sizes its sun-shadow binding to match */
 export const SHADOW_PARAMS_BYTES = MAX_CASCADES * 96 + 32;
 // f32 strides into the params staging: one Cascade is 24 floats (mat4 16 + rect 4 + far 1 + texelWorld 1 + 2
 // pad), the globals tail starts after the cascade array
@@ -606,7 +606,7 @@ const SUN_GLOBALS_OFFSET = MAX_CASCADES * CASCADE_FLOATS;
 // the point/spot caster uniform structs — relocatable, spliced before the consumer's `pointShadows`
 // binding decl (sear's color group 1, the fog march's group 1). `pointCasters()` is the config cap, fixed
 // before build
-/** returns the point/spot caster WGSL — the `PointCaster` struct + the group-1 binding decl a consumer declares to reach sear's shadow atlas */
+/** returns the point/spot caster WGSL: the `PointCaster` struct + the group-1 binding decl a consumer declares to reach sear's shadow atlas */
 export const casterWgsl = () => /* wgsl */ `
 struct PointCaster {
     pos: vec4<f32>,
@@ -635,7 +635,7 @@ struct TileRects {
 // wrote compares exactly. The receiver is offset along `normal` by normalBias face texels (a volumetric
 // caller with no surface normal passes vec3(0) — zero offset), plus the nf.z depth bias applied toward
 // the light in linear depth (`pointReceiver`) so its world-space lift doesn't blow up with distance
-/** returns the point/spot shadow WGSL — `pointShadowOf(light, normal, fragWorld)` (world pos a param, atlas/sampler/casters by name), the per-light shadow factor sear's clustered loop and a relocatable consumer both call */
+/** returns the point/spot shadow WGSL: `pointShadowOf(light, normal, fragWorld)` (world pos a param, atlas/sampler/casters by name), the per-light shadow factor sear's clustered loop and a relocatable consumer both call */
 export const pointShadowWgsl = () => /* wgsl */ `
 ${POINT_FACE_WGSL}
 ${POINT_RECEIVER_WGSL}
@@ -725,7 +725,7 @@ struct SunShadow {
 // (Bevy `get_cascade_index` + `fetch_directional_shadow`): pick the cascade by the fragment's linear view-z,
 // sample its atlas tile, and blend into the next cascade across the overlap band. `enabled: 0` (the no-caster
 // fallback) short-circuits to fully lit, so a volumetric march reading the fallback scatters the sun unshadowed
-/** relocatable WGSL: `sampleSunShadow(worldPos, normal)` selects a cascade, PCF-samples its atlas tile, and blends across the overlap band — the `enabled: 0` fallback returns fully lit */
+/** relocatable WGSL: `sampleSunShadow(worldPos, normal)` selects a cascade, PCF-samples its atlas tile, and blends across the overlap band; the `enabled: 0` fallback returns fully lit */
 export const SAMPLE_SUN_SHADOW_WGSL = /* wgsl */ `
 fn sampleCascade(ci: u32, worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
     let c = sunShadow.cascades[ci];
@@ -1016,10 +1016,10 @@ function builtinFields(fs: string) {
  * the WGSL module for a surface: the shared frame/view/lighting + vertex pull, then the surface's bindings,
  * vs chunk, and fs chunk (which writes `col`). Two `pass` modules: `"color"` carries the real group-1 shadow
  * bindings + the color fs; `"prepass"` carries the prepass entry points with shadow **stubs** (see
- * SHADOW_STUB_WGSL — a surface chunk's `lit()` statically reaches the shadow samplers, and the prepass
+ * SHADOW_STUB_WGSL: a surface chunk's `lit()` statically reaches the shadow samplers, and the prepass
  * pipelines bind group 0 alone). `variant` is the material map-set a specializing surface compiles a pipeline
  * per (the glTF importer; `surface.specialize(variant)` overrides the preamble/fs); a non-specializing surface
- * ignores it. Pure — exported for structural tests
+ * ignores it. Pure: exported for structural tests
  */
 export function surfaceCode(
     surface: Surface,
@@ -1129,9 +1129,9 @@ ${
  * the WGSL module for a background: frame/view/lighting uniforms + the background's own bindings, a
  * fullscreen-triangle VS at the reverse-Z far plane, and an fs that reconstructs the world-space view ray
  * `dir` per-pixel then splices the chunk (which writes the HDR `col: vec3<f32>`). `dir` comes from
- * `@builtin(position)` + `view.invViewProj` (the fog reconstruct), **not** an interstage interpolator —
- * the view ray is derivable from the pixel, so crossing it would waste a varying slot (gpu.md rule 9). Pure
- * — exported for structural tests.
+ * `@builtin(position)` + `view.invViewProj` (the fog reconstruct), **not** an interstage interpolator:
+ * the view ray is derivable from the pixel, so crossing it would waste a varying slot (gpu.md rule 9). Pure:
+ * exported for structural tests.
  */
 export function backgroundCode(bg: Background): string {
     const binds = bg.bindings ?? {};
@@ -1272,18 +1272,18 @@ ${lanes.map((l) => `    out.${l.local} = ${l.local};`).join("\n")}
 
 /**
  * the point-shadow atlas module for a surface (depth-only): one indirect draw per casting mesh, the VS
- * reading the **re-gathered** instance list — each combo (cube face / spot cone) culled independently
+ * reading the **re-gathered** instance list: each combo (cube face / spot cone) culled independently
  * through the Part pack (its own depth-only view slot), then concatenated mesh-major into one contiguous
  * run + a per-instance combo index (`renderPointShadows`). The list is packed `(combo << COMBO_SHIFT) | eid`
- * and bound at the surface's `eids` lane (so no new storage binding past the 10-ceiling — gpu.md). The VS
+ * and bound at the surface's `eids` lane (so no new storage binding past the 10-ceiling, gpu.md). The VS
  * reads each instance's (caster, face) from `comboMeta[combo]`, transforms by that combo's CPU-computed
  * viewProj (`faceVP[combo]`), and remaps clip XY into the face's atlas tile (the tile placement folded into
  * the viewProj, so the hardware does the divide + near-plane clip and the depth matches `pointShadowOf`'s
- * analytic receiver). The FS discards fragments outside the tile rect (seam bleed) — depth-only, so a kept
+ * analytic receiver). The FS discards fragments outside the tile rect (seam bleed): depth-only, so a kept
  * fragment writes its face's depth into exactly its tile. Reuses the prepass group-0 (position-only stream +
  * the instance bindings, `eids` → the re-gathered list, SHADOW_STUB so no group-1 sampler), adds a
  * point-only group 1 (face viewProjs + combo meta + the caster rects, all uniforms). `screen` surfaces have
- * no atlas placement and `alpha` casts nothing — the caller compiles neither.
+ * no atlas placement and `alpha` casts nothing: the caller compiles neither.
  */
 function pointShadowCode(surface: Surface, variant: number, cascade = false): string {
     const spec = surface.specialize?.(variant);
@@ -1542,28 +1542,28 @@ let _pointBuf = new ArrayBuffer(0);
 let _pointF32 = new Float32Array(_pointBuf);
 
 /** the point-shadow atlas depth view a screen-space consumer (the fog volumetric march) binds to sample
- * the casters' shadows — the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
+ * the casters' shadows: the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
  * caster slots never match a light, so the march reads it as fully lit). Pairs with {@link shadowSampler}
  * + the published `"pointShadows"` caster uniform. */
 export function pointAtlasView(): GPUTextureView | null {
     return _pointAtlasView ?? _fallbackView;
 }
 
-/** the shared shadow comparison sampler (less-equal + linear PCF) — a screen-space consumer binds it to
+/** the shared shadow comparison sampler (less-equal + linear PCF): a screen-space consumer binds it to
  * comparison-sample {@link pointAtlasView} or {@link sunShadowView}. */
 export function shadowSampler(): GPUSampler | null {
     return _shadowSampler;
 }
 
 /** the sun (directional) shadow map depth view a screen-space consumer (the fog volumetric march) binds
- * to sample shadowed sun shafts — the real map once the sun casts (a `Shadow` on the directional light),
+ * to sample shadowed sun shafts: the real map once the sun casts (a `Shadow` on the directional light),
  * else the 1×1 fallback (whose `enabled: 0` params make {@link SAMPLE_SUN_SHADOW_WGSL} return 1.0, so the
  * march scatters the sun unshadowed). Pairs with {@link shadowSampler} + {@link sunShadowParams}. */
 export function sunShadowView(): GPUTextureView | null {
     return _sun?.map ?? _fallbackView;
 }
 
-/** the {@link SUN_SHADOW_STRUCT_WGSL} params uniform a screen-space consumer binds — the real
+/** the {@link SUN_SHADOW_STRUCT_WGSL} params uniform a screen-space consumer binds: the real
  * light viewProj + bias when the sun casts, else the all-zero `enabled: 0` fallback. Pairs with
  * {@link sunShadowView}. */
 export function sunShadowParams(): GPUBuffer | null {
@@ -1666,12 +1666,12 @@ function shadowGroup(): GPUBindGroup {
  * the offscreen framebuffer, a 1× tag pipeline (its own single-sample depth, `less` + write, single
  * `r32uint` target) that stamps the front-most fragment's surface tag into `view.tag`, and a 1× depth
  * pipeline (position-only, the shadow map renders through it). Color is one camera-independent shape
- * across opaque / `clip` / `alpha` — no MRT; the tag is its own single-sample lane. Color samples the
+ * across opaque / `clip` / `alpha`: no MRT; the tag is its own single-sample lane. Color samples the
  * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
  * omit group 1. Sear declares the vertex-pull bindings itself; each draw selects its mesh via
- * `Draw.mesh`. Uniform across surfaces — no "Part-shaped" detection. Also (re)creates the sun-shadow
- * GPU resources sear owns — the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
- * params buffer — surviving HMR re-warms
+ * `Draw.mesh`. Uniform across surfaces: no "Part-shaped" detection. Also (re)creates the sun-shadow
+ * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
+ * params buffer), surviving HMR re-warms
  */
 async function prepareSear(device: GPUDevice): Promise<void> {
     _compiled.clear();
@@ -1886,7 +1886,7 @@ async function colorPipelines(
  * (a camera binds whichever its `Camera.antialias` selects), sharing one shader module + group-0 layout
  * (frame / view-with-dynamic-offset / lighting + the background's own bindings at {@link BG_BASE}). The
  * pipeline draws the fullscreen triangle at the reverse-Z far plane with `depthCompare: "greater-equal"`
- * and **no depth write** — at clip z = 0 an un-rendered pixel (cleared depth 0) passes `0 >= 0`, a
+ * and **no depth write**: at clip z = 0 an un-rendered pixel (cleared depth 0) passes `0 >= 0`, a
  * geometry pixel (depth > 0) fails, so the backdrop fills only background pixels with no readback. Under
  * MSAA the per-sample test resolves the sky↔geometry silhouette antialiased. Both twins compile eagerly
  * (backgrounds are few; the camera's AA mode is known only at draw time).
@@ -1938,8 +1938,8 @@ async function compileBackground(device: GPUDevice, bg: Background): Promise<voi
 }
 
 /**
- * compile one surface's pipelines for a material map-set `variant` — the color + transparent + per-lane-set
- * prepass pipelines + the shared bind-group layout — keyed `${surface}#${variant}` in `_compiled`. A
+ * compile one surface's pipelines for a material map-set `variant` (the color + transparent + per-lane-set
+ * prepass pipelines + the shared bind-group layout), keyed `${surface}#${variant}` in `_compiled`. A
  * non-specializing surface only ever uses variant 0 (compiled eagerly at warm); a specializing surface (the
  * glTF importer) gets one entry per map-set a scene draws (Bevy's on-demand specialization). The bindings are
  * variant-invariant, so every variant shares the same layout shape and `record`'s one cached bind group.
@@ -2250,7 +2250,7 @@ function pointGroup1(): GPUBindGroup {
  * Each combo (cube face / spot cone) culled independently through the Part pack into its own depth-only
  * view slot (the per-combo cull, `updatePointShadows` poses the cameras), then a two-pass **re-gather**
  * concatenates each casting mesh's per-combo culled members into one contiguous mesh-major run + a
- * per-instance combo index — so one indirect draw per mesh covers all its combos (the property the deleted
+ * per-instance combo index: so one indirect draw per mesh covers all its combos (the property the deleted
  * amplify trick bought, now reading per-combo *culled* counts, no over-amplification). The VS reads the
  * re-gathered packed list at the eids lane. Writes the PointCaster params the FS matches lights against,
  * uploads the CPU face viewProjs. No casters → params cleared, no pass, no atlas allocated
@@ -2391,7 +2391,7 @@ function renderPointShadows(): void {
 
 /**
  * render the CSM cascades into the dedicated cascade atlas, then publish the sun seam (`_sun` → the cascade
- * atlas + the per-cascade {@link SunShadow} params) for the color pass to sample inline — the sun's twin of
+ * atlas + the per-cascade {@link SunShadow} params) for the color pass to sample inline: the sun's twin of
  * {@link renderPointShadows}. Each cascade is its own frustum-culled depth view (`updateCascades` poses the
  * cameras); the cascade {@link Regather} concatenates each casting mesh's per-cascade culled members into one
  * indirect draw per mesh, the cascade VS projecting each into its atlas tile. No casting sun
@@ -2734,7 +2734,7 @@ function record(draw: Draw): Recorded | null {
 }
 
 /**
- * the frame's draw list — every registered {@link Draw} with a compiled surface + published
+ * the frame's draw list: every registered {@link Draw} with a compiled surface + published
  * bindings, paired with its cached bind group. View-independent (group 0 binds the whole view
  * buffer; the per-view slice is a dynamic offset applied at bind time), so {@link PrepassSystem}
  * resolves it once per frame into `_frameDraws` and the prepass, shadow map, and color pass all
@@ -2928,9 +2928,9 @@ function bind(
  * front-most opaque / `clip` fragment writes each lane); that depth is *stored* + published as
  * `view.depth` when the camera carries {@link Depth}, otherwise discarded (TBDR: it stays in tile memory,
  * never reaching main RAM). Each requested color lane is one MRT attachment cleared to the lane's clear
- * value and published onto `view.<lane>` (today the id lane → `view.tag`). Binds group 0 only — no shadow
+ * value and published onto `view.<lane>` (today the id lane → `view.tag`). Binds group 0 only: no shadow
  * map, no lighting. `alpha` surfaces are excluded (a transparent pixel has no single owner). **One
- * prepass regardless of lane count** — the lane set selects the pipeline + the attachment list, not the
+ * prepass regardless of lane count**: the lane set selects the pipeline + the attachment list, not the
  * pass count; an empty draw list still clears every lane
  */
 function renderPrepass(
@@ -3017,14 +3017,14 @@ function backdrop(state: State, eid: number): CompiledBg | null {
 /**
  * one camera's geometry pass (`sear:color`) recorded onto `Render.encoder`: shades every opaque draw,
  * then composites every `blend` draw over them (`less-equal` depth-tested against the opaque depth,
- * depth-write off) — one color target, no MRT (the screen-space lanes are {@link renderPrepass}'s). With
+ * depth-write off): one color target, no MRT (the screen-space lanes are {@link renderPrepass}'s). With
  * `Camera.antialias` on (the default) it's a 4× MSAA pass resolved into the offscreen; off, it renders
  * single-sample straight into the offscreen (and binds the surfaces' single-sample pipeline twins,
  * compiled lazily by {@link ensureSingle}). Opaque and transparent share one `beginRenderPass` (nothing
- * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam —
+ * reads the color between them, so they fuse into one tile round-trip). Group 1 is the sun shadow seam:
  * sear's own shadow map + light params, or its 1×1 fallback (fully lit) when no light casts. An empty
  * draw list still clears the framebuffer. `bg` (the camera's {@link Backdrop} selection) draws a fullscreen
- * backdrop between the opaque and blend draws — masked to far-plane pixels by the depth test, so geometry
+ * backdrop between the opaque and blend draws: masked to far-plane pixels by the depth test, so geometry
  * overdraws it and blended draws composite over it; null leaves the flat clear color as the only backdrop
  */
 function renderColor(
@@ -3082,8 +3082,8 @@ function renderColor(
  * ({@link Tag} / {@link Depth}). It collapses the old empty depth anchor + the tag pass into one
  * single-sample pass that emits the camera's opt-in lanes (the id lane → `view.tag`, the depth lane →
  * `view.depth`), the shape Bevy's prepass takes. It's also the **anchor**: a producer whose per-frame
- * compute writes the geometry sear reads — vertices / indices, or an instanced surface's `transforms` /
- * `eids` — declares `before: [PrepassSystem]` so its emit precedes every geometry-reading pass (the
+ * compute writes the geometry sear reads (vertices / indices, or an instanced surface's `transforms` /
+ * `eids`) declares `before: [PrepassSystem]` so its emit precedes every geometry-reading pass (the
  * prepass, the shadow map, and the color pass all read it within the frame; an emit landing between them
  * would desync the reads). It runs first among the geometry passes (`after: [BeginFrameSystem]`), so it
  * resolves the frame's draw list **once** into `_frameDraws` for the shadow map + color pass to share. A
@@ -3118,7 +3118,7 @@ export const PrepassSystem: System = {
 /**
  * sear's geometry pass, per camera: shades every opaque draw then composites every `blend` draw over
  * them in one 4× MSAA pass (its own 4× color + depth), resolved into the offscreen once. Binds the sun
- * shadow seam (group 1) — sear's own shadow map + light params it samples inline, or its fallback (fully
+ * shadow seam (group 1): sear's own shadow map + light params it samples inline, or its fallback (fully
  * lit) when no light casts. Renders the shared `_frameDraws` (resolved once by {@link PrepassSystem}).
  * Runs after every screen-space effect ordered `before: [ColorSystem]`; `before: [GlazeSystem]` makes it
  * sear's terminal offscreen write, so glaze reads `view.framebuffer` only after the resolve lands (glaze
@@ -3144,7 +3144,7 @@ export const ColorSystem: System = {
  * pose the sun's CSM cascade cameras + the point/spot combo cameras from the casting lights + the main Sear
  * camera, so `BeginFrameSystem` packs their viewProjs this frame and the Part pack culls casters into each
  * slot as one more view (the unified culled-combo spine). `simulation` group, before the draw frame opens.
- * No-op for the sun when no directional light carries a {@link Shadow} (the zero-cost off path) — the atlas
+ * No-op for the sun when no directional light carries a {@link Shadow} (the zero-cost off path): the atlas
  * pass is skipped and sear falls back to fully lit
  */
 const ShadowCameraSystem: System = {
@@ -3206,17 +3206,17 @@ const litBindings: Record<string, Binding> = {
 };
 
 /**
- * Sear — the one kitchen renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
+ * Sear: the one kitchen renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
  * then `blend` draws composited over them, fused into one render pass) and an opt-in single-sample
  * prepass emitting per-camera lanes (the {@link Tag} → `view.tag` id lane, the {@link Depth} →
  * `view.depth` lane), with sun shadows sampled inline in the FS. Add `SearPlugin` and give a Camera the
  * {@link Sear} marker and the happy path renders. Sun shadows are data-gated on the {@link Shadow}
- * component on a `DirectionalLight` — add it to cast (and tune), omit it for the fully-lit bare path (no
+ * component on a `DirectionalLight`: add it to cast (and tune), omit it for the fully-lit bare path (no
  * shadow map allocated), exactly like a camera without a lane marker runs no prepass. No separate shadow
- * plugin, no coordination singleton — sear owns its own shadow map and binds it (Bevy's clustered-forward
+ * plugin, no coordination singleton: sear owns its own shadow map and binds it (Bevy's clustered-forward
  * shape). Sear renders into the offscreen
  * (`view.framebuffer`) and never the swapchain; presenting it is a separate **composite** the consumer
- * picks — {@link GlazePlugin} (the engine default postfx composite) or a custom one (orrstead ships a
+ * picks: {@link GlazePlugin} (the engine default postfx composite) or a custom one (orrstead ships a
  * fused compute composite). So sear depends only on {@link RenderPlugin}; list a composite alongside it
  * or nothing reaches the swapchain. `ColorSystem` still orders `before: [GlazeSystem]` so glaze, *when
  * present*, composites after the resolve (the ordering ref drops harmlessly when glaze isn't registered).

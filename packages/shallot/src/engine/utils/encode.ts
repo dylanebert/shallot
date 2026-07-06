@@ -31,7 +31,7 @@ function unpack2x16snorm(u: number): [number, number] {
     return [Math.max(-1, lo / 32767), Math.max(-1, hi / 32767)];
 }
 
-/** pack two [0,1] lanes into a unorm16x2 `u32` (lane x → low 16 bits) — the CPU twin of WGSL
+/** pack two [0,1] lanes into a unorm16x2 `u32` (lane x → low 16 bits): the CPU twin of WGSL
  *  `pack2x16unorm`, bit-identical so a quantized field round-trips. For object-space positions
  *  (gpu.md rule 6) the caller normalizes `(p - aabbMin) / extent` into [0,1] first, and
  *  {@link POS_QUANT_WGSL} `decodePos` reverses it; fixed-point over a bounded range beats f16
@@ -42,7 +42,7 @@ export function pack2x16unorm(x: number, y: number): number {
     return ((b << 16) | a) >>> 0;
 }
 
-/** unpack a unorm16x2 `u32` to two [0,1] lanes (low 16 bits → x) — the CPU twin of WGSL `unpack2x16unorm`. */
+/** unpack a unorm16x2 `u32` to two [0,1] lanes (low 16 bits → x): the CPU twin of WGSL `unpack2x16unorm`. */
 export function unpack2x16unorm(u: number): [number, number] {
     return [(u & 0xffff) / 65535, (u >>> 16) / 65535];
 }
@@ -67,7 +67,7 @@ export function unpackQuatSnorm16x4(lo: number, hi: number): [number, number, nu
 
 /** octahedral-encode a unit normal to a snorm16x2 `u32` (the storage normal, 12 B → 4 B; gpu.md rule 6).
  *  The CPU twin of {@link OCT_ENCODE_WGSL} `octEncodeNormal`, bit-identical (it inlines the same Cigolle
- *  2014 fold) so a normal packed CPU-side decodes the same on the GPU — cardinals round-trip exactly
+ *  2014 fold) so a normal packed CPU-side decodes the same on the GPU; cardinals round-trip exactly
  *  (0 ↔ 0, ±1 ↔ ±32767). */
 export function octEncodeNormal(n: Vec3): number {
     const denom = Math.abs(n.x) + Math.abs(n.y) + Math.abs(n.z);
@@ -82,7 +82,7 @@ export function octEncodeNormal(n: Vec3): number {
     return pack2x16snorm(px, py);
 }
 
-/** decode a snorm16x2 `u32` back to a unit normal — the inverse of {@link octEncodeNormal}, bit-identical
+/** decode a snorm16x2 `u32` back to a unit normal: the inverse of {@link octEncodeNormal}, bit-identical
  *  to {@link OCT_ENCODE_WGSL} `octDecodeNormal`, so a CPU decode matches the GPU's (e.g. an oct-packed spot
  *  cone axis read back to validate a shader). */
 export function octDecodeNormal(enc: number): Vec3 {
@@ -106,7 +106,7 @@ export function octDecodeNormal(enc: number): Vec3 {
     return { x: nx / len, y: ny / len, z: nz / len };
 }
 
-/** WGSL `octEncodeNormal(n) -> u32` + `octDecodeNormal(enc) -> vec3<f32>` — the snorm16x2 storage-normal
+/** WGSL `octEncodeNormal(n) -> u32` + `octDecodeNormal(enc) -> vec3<f32>`: the snorm16x2 storage-normal
  *  codec (gpu.md rule 6, Cigolle et al. 2014). Splice into a producer that packs a normal or a reader that
  *  unpacks one; bit-identical to the CPU {@link octEncodeNormal}. */
 export const OCT_ENCODE_WGSL = /* wgsl */ `
@@ -132,10 +132,10 @@ fn octDecodeNormal(enc: u32) -> vec3<f32> {
 }
 `;
 
-/** WGSL `MeshQuant` + `decodePos` / `decodeUv` / `meshIdOf` — the quantized-vertex decode (gpu.md rule 6).
+/** WGSL `MeshQuant` + `decodePos` / `decodeUv` / `meshIdOf`: the quantized-vertex decode (gpu.md rule 6).
  *  A vertex packs into a 16 B `vec4<u32>`: w0 = unorm16 pos.xy, w1 = unorm16 pos.z | (meshId << 16),
  *  w2 = oct normal, w3 = unorm16 uv. `MeshQuant` is the per-mesh position + uv AABB the decode dequantizes
- *  against, selected by `meshIdOf` from a storage table — AABB-relative with no per-draw uniform, so it works
+ *  against, selected by `meshIdOf` from a storage table, AABB-relative with no per-draw uniform, so it works
  *  unchanged in render bundles. A degenerate axis (extent 0) has scale 0, so decode returns the offset there.
  *  Splice into a vertex-pull shader; the encode half is {@link POS_QUANT_PACK_WGSL} (split so a decode-only
  *  reader doesn't drag in the producer's pack helpers). */
@@ -161,7 +161,7 @@ fn decodeUv(w3: u32, q: MeshQuant) -> vec2<f32> {
 }
 `;
 
-/** WGSL `encodePos(p, meshId, q) -> vec2<u32>` + `encodeUv(uv, q) -> u32` — the {@link POS_QUANT_WGSL} encode
+/** WGSL `encodePos(p, meshId, q) -> vec2<u32>` + `encodeUv(uv, q) -> u32`: the {@link POS_QUANT_WGSL} encode
  *  half, for a GPU producer (compute-emitted terrain / meshing) that writes the quantized streams directly.
  *  Splice after POS_QUANT_WGSL (references `MeshQuant`) + OCT_ENCODE_WGSL; the producer supplies its mesh's
  *  analytic AABB as the `MeshQuant`. `select` guards a zero-extent axis so a flat producer never divides by zero. */
@@ -257,7 +257,7 @@ fn packLdrColor(rgb: vec3<f32>, alpha: f32) -> u32 {
 `;
 
 /** pack four [0,1] lanes into a `pack4x8unorm` u32 (x → byte 0). The CPU twin of WGSL `pack4x8unorm`,
- *  for slab GPU-mirror packing — bit-identical to the intrinsic so a quantized field round-trips. */
+ *  for slab GPU-mirror packing, bit-identical to the intrinsic so a quantized field round-trips. */
 export function pack4x8unorm(x: number, y: number, z: number, w: number): number {
     const b = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255) & 0xff;
     return (b(x) | (b(y) << 8) | (b(z) << 16) | (b(w) << 24)) >>> 0;
@@ -267,7 +267,7 @@ function linearToSrgb1(c: number): number {
     return c <= 0.0031308 ? c * 12.92 : 1.055 * Math.max(c, 0) ** (1 / 2.4) - 0.055;
 }
 
-/** sRGB-encode linear `rgb` + linear `alpha` into a `pack4x8unorm` u32 — the CPU twin of WGSL
+/** sRGB-encode linear `rgb` + linear `alpha` into a `pack4x8unorm` u32: the CPU twin of WGSL
  *  {@link LDR_COLOR_PACK_WGSL} `packLdrColor`, for the `color` slab's GPU mirror and round-trip tests. */
 export function packLdrColor(r: number, g: number, b: number, a: number): number {
     return pack4x8unorm(linearToSrgb1(r), linearToSrgb1(g), linearToSrgb1(b), a);

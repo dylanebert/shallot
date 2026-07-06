@@ -25,7 +25,7 @@ export async function loadMeshopt(): Promise<void> {
 
 /**
  * decompress one `EXT_meshopt_compression` bufferView's bytes into the plain (optionally filtered) bytes a
- * standard accessor read consumes. Sync — call {@link loadMeshopt} first. `mode` selects the codec
+ * standard accessor read consumes. Sync: call {@link loadMeshopt} first. `mode` selects the codec
  * (ATTRIBUTES / TRIANGLES / INDICES) and `filter` the post-decode transform (NONE / OCTAHEDRAL / QUATERNION /
  * EXPONENTIAL), both handled in the one `decodeGltfBuffer` call. The output is `count * size` bytes, tightly
  * packed (stride = `size`), the layout the importer's bufferView normalize step rewrites the view to.

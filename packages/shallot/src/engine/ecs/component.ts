@@ -1,16 +1,16 @@
 import { packLdrColor } from "../utils/core";
 import type { Entity } from "./entity";
 
-/** SoA component — keys map to typed arrays indexed by entity */
+/** SoA component: keys map to typed arrays indexed by entity */
 export type Component = Record<string, unknown>;
 
-/** typed-array element backing — the set `sparse`/`slab` factories support */
+/** typed-array element backing: the set `sparse`/`slab` factories support */
 export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array | Uint8Array;
 
 /**
  * typed-array storage descriptor. Shared between {@link Single}/{@link Pair}/{@link Quad}
  * factories (`sparse`, `slab`) so a consumer can swap one for the other without
- * changing the type spelling. Metadata only — descriptors don't carry state.
+ * changing the type spelling. Metadata only. Descriptors don't carry state.
  *
  * @expand
  */
@@ -31,7 +31,7 @@ export interface Type<TArray extends TypedArray = TypedArray> {
     readonly decode?: (raw: number) => number;
     /**
      * a packed GPU mirror: the CPU storage stays the full `ctor`×`lanes` (so `.set` / lane accessors /
-     * `read` / serialize see lossless floats), but the slab's `.gpu` buffer holds the `pack(...)` form —
+     * `read` / serialize see lossless floats), but the slab's `.gpu` buffer holds the `pack(...)` form:
      * what the per-lane {@link encode} can't express, since it folds across lanes (4 lanes → an `srgb8x4`
      * u32, or → a `vec4<f16>` pair). Quantization is a storage-boundary concern (`gpu.md` rule 6): the
      * pack runs once at the per-frame flush, the CPU side never sees it. The reader shader binds `wgsl`.
@@ -69,7 +69,7 @@ export const u32: Type<Uint32Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * a u32 that holds an entity id — a `@name` reference in scene files (`Tween.target`,
+ * a u32 that holds an entity id, a `@name` reference in scene files (`Tween.target`,
  * `Joint.a`). Storage is identical to {@link u32}; the distinct descriptor lets the field
  * declare itself a ref, so `serialize` round-trips it by the target's scene id rather than the
  * recycled, creation-order eid, with no side list to keep in sync. {@link refs} enumerates them.
@@ -83,7 +83,7 @@ export const entity: Type<Uint32Array> & { readonly lanes: 1 } = {
 
 /**
  * 8-bit unsigned integer. `slab(u8)` packs 4-into-`u32` on GPU upload and
- * is not implemented yet — `sparse(u8)` works for CPU-only fields.
+ * is not implemented yet. `sparse(u8)` works for CPU-only fields.
  */
 export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
     ctor: Uint8Array,
@@ -94,7 +94,7 @@ export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
 
 /**
  * 16-bit unsigned integer. `slab(u16)` packs 2-into-`u32` on GPU upload and
- * is not implemented yet — `sparse(u16)` works for CPU-only fields.
+ * is not implemented yet. `sparse(u16)` works for CPU-only fields.
  */
 export const u16: Type<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
@@ -159,7 +159,7 @@ export const vec2: Type<Float32Array> & { readonly lanes: 2 } = {
 };
 
 /**
- * four f32 lanes. use for any 3-or-4-lane data — `vec3<f32>` is clobbered to
+ * four f32 lanes. use for any 3-or-4-lane data: `vec3<f32>` is clobbered to
  * stride 16 in WebGPU storage anyway, so a true 3-lane type wouldn't save
  * memory. put something useful in `.w` (mass paired with position, opacity
  * with RGB) or leave it 0.
@@ -172,7 +172,7 @@ export const vec4: Type<Float32Array> & { readonly lanes: 4 } = {
 };
 
 /**
- * a GPU mirror of four lanes as `vec4<f16>` (16 B → 8 B) — WebGPU's `float16x4`. The CPU surface is
+ * a GPU mirror of four lanes as `vec4<f16>` (16 B → 8 B), WebGPU's `float16x4`. The CPU surface is
  * identical to {@link vec4} and sees lossless f32 (`set`, `.x/.y/.z/.w`, `read`, serialize); only the
  * mirror packs to half-floats at flush, and the reader shader binds `vec4<f16>` (needs `enable f16`, on
  * the platform floor). HDR-capable (range to 65504) and finer than unorm8 across [0,1] (~15k
@@ -200,7 +200,7 @@ export const f16x4: Type<Float32Array> & { readonly lanes: 4 } = {
  * `rgba8unorm-srgb` semantics), 16 B → 4 B. The CPU surface is identical to {@link vec4} and sees
  * lossless linear floats; only the GPU mirror packs (sRGB-encoding rgb on store), and the reader shader
  * binds a `u32` and decodes with `unpackLdrColor` (`engine/utils/encode.ts`). For `Part.Color` and any
- * LDR per-entity color — sRGB storage keeps perceptual precision in 8 bits.
+ * LDR per-entity color: sRGB storage keeps perceptual precision in 8 bits.
  */
 export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,
@@ -221,7 +221,7 @@ export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
  * Component fields that need dirty tracking, GPU mirroring, or other
  * lifecycle behavior expose this instead of a bare typed array. `state.add`
  * routes default values through `.set`, so defaults flow into dirty bits
- * automatically — no listener subsystem needed. `gpu` is `null` for CPU-only
+ * automatically, no listener subsystem needed. `gpu` is `null` for CPU-only
  * fields (`sparse`) and a buffer for GPU-mirrored fields (`slab`)
  */
 export interface Single {
@@ -235,7 +235,7 @@ export interface Single {
 
 /**
  * per-entity 2-lane storage. one vec2 per entity. `set` writes both lanes at
- * once (AoS) — that's the perf-friendly path. `x` and `y` are per-lane
+ * once (AoS), the perf-friendly path. `x` and `y` are per-lane
  * {@link Single} accessors sharing the master's storage; partial writes go
  * through them and dirty the whole slot. `read` copies both lanes into an
  * out param without allocation
@@ -268,7 +268,7 @@ export interface Quad {
  * structural lane-count detector. Returns 1 / 2 / 4 for a {@link Single} /
  * {@link Pair} / {@link Quad}; 0 for anything else (TypedArray, plain Array,
  * non-storage object, primitive, null). Discriminates by shape so lane
- * `Single`s of a parent Quad — which inherit the parent's `type.lanes` —
+ * `Single`s of a parent Quad (which inherit the parent's `type.lanes`)
  * report as `Single` (1), not their parent's lane count
  */
 export function lanes(value: unknown): 0 | 1 | 2 | 4 {
@@ -284,7 +284,7 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
 }
 
 /**
- * a component's typed storage fields — each {@link Single} / {@link Pair} /
+ * a component's typed storage fields: each {@link Single} / {@link Pair} /
  * {@link Quad} store paired with its declared name, in declaration order. The
  * canonical enumerator of a clean component's stores, for a serializer, an
  * inspector, or a schema walk. Keys with no typed layout (a GPU-buffer getter,
@@ -300,7 +300,7 @@ export function fields(component: Component): { name: string; store: Single | Pa
 }
 
 /**
- * the fields holding an entity ref — those declared `sparse(entity)` / `slab(entity)`.
+ * the fields holding an entity ref: those declared `sparse(entity)` / `slab(entity)`.
  * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
  * can't drift from a separate list. A sibling of {@link fields}.
  */
@@ -344,7 +344,7 @@ export function idOf(component: object): number {
 /**
  * intern the stable id for `name`, stamping it on `component`: first sight assigns
  * one (adopting an id the component auto-minted while bare), re-registration under
- * the same name resolves to it — the reload contract that re-attaches a fresh
+ * the same name resolves to it, the reload contract that re-attaches a fresh
  * module object. Called by `register`.
  */
 export function intern(component: object, name: string): number {

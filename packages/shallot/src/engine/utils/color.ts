@@ -19,7 +19,7 @@ export function unpackColor(packed: number): { r: number; g: number; b: number }
 
 /**
  * pack a 0xRRGGBB sRGB color + a 0..1 opacity into an RGBA8 `u32`, byte 0 = r,
- * byte 3 = a — the `unpack4x8unorm` layout a shader reads. sRGB bytes are kept
+ * byte 3 = a, the `unpack4x8unorm` layout a shader reads. sRGB bytes are kept
  * verbatim (linearize on unpack); opacity clamps to [0, 1] and rounds to a byte
  *
  * @example
@@ -34,7 +34,7 @@ export function packColor(hex: number, opacity: number): number {
 }
 
 /**
- * WGSL `linearToOklab(c: vec3<f32>) -> vec3<f32>` — linear sRGB to OkLab
+ * WGSL `linearToOklab(c: vec3<f32>) -> vec3<f32>`: linear sRGB to OkLab
  * (Björn Ottosson's matrices). Splice into a surface preamble for perceptual
  * color work (hue/lightness perturbation around a base color); pair with
  * {@link OKLAB_TO_LINEAR_WGSL} to come back. One source so every shader
@@ -57,7 +57,7 @@ fn linearToOklab(c: vec3<f32>) -> vec3<f32> {
 `;
 
 /**
- * WGSL `oklabToLinear(lab: vec3<f32>) -> vec3<f32>` — OkLab back to linear
+ * WGSL `oklabToLinear(lab: vec3<f32>) -> vec3<f32>`: OkLab back to linear
  * sRGB (out-of-gamut values are NOT clamped; clamp at the call site if the
  * input can leave gamut). Counterpart of {@link LINEAR_TO_OKLAB_WGSL}; each
  * direction is its own constant so a shader splices only what it calls.
@@ -80,7 +80,7 @@ fn oklabToLinear(lab: vec3<f32>) -> vec3<f32> {
 
 /**
  * format an integer as a 6-digit hex string (e.g. `0xff8080`). The `kind`
- * property is a reflection hint — `reflection.isColor` reads it to classify
+ * property is a reflection hint; `reflection.isColor` reads it to classify
  * trait `format` entries as color-picker fields in the inspector.
  */
 export const formatHex = Object.assign(

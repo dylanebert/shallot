@@ -6,11 +6,10 @@ import { type Plugin, type State, type System, Text, text } from "@dylanebert/sh
 // nothing.
 
 // #doc:code source:text/public/scenes/text.scene
-// Give an entity a `text` and it draws SDF glyphs at the entity's transform. `content` is the string,
-// `font-size` the world height of one line, `anchor` the pivot (`0.5 0.5` centers the label on the
-// entity), and `color` a hex tint. A label is a 3D object, not a screen overlay: it holds its place and
-// orientation in the world as the camera orbits. Text renders in the built-in Inter face by default;
-// register your own with `font()`.
+// Give an entity a `text` and it draws SDF glyphs at the entity's transform: `content` is the string,
+// `font-size` the world height of one line, `anchor` the pivot, and `color` a hex tint. A label is a 3D
+// object, not a screen overlay: it holds its place and orientation in the world as the camera orbits. Text
+// renders in the built-in Inter face by default; register your own with `font()`.
 
 // #doc:code
 // `Counter` marks the one label this plugin drives. A no-field marker component is the idiomatic way to
@@ -23,7 +22,7 @@ export const Counter = {};
 // ### Changing a label at runtime
 //
 // Set `Text.content` to a string id from `text()` to change what a label shows. `text()` interns the
-// string — identical strings share one id — so calling it every frame with the same value is free; the
+// string (identical strings share one id), so calling it every frame with the same value is free; the
 // glyph buffer rebuilds only when the resolved content actually changes.
 // #region drive
 export const tick = {

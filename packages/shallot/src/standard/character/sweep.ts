@@ -34,7 +34,7 @@ const GROUND_SNAP = 0.05;
  * pressed just before landing fire on touchdown — consuming both on launch keeps it a single jump */
 const COYOTE_TIME = 0.1;
 const JUMP_BUFFER = 0.1;
-/** candidate cap per character (the GPU workgroup width) — overflow keeps the first 64 in scan order, loud */
+/** candidate cap per character (the GPU workgroup width): overflow keeps the first 64 in scan order, loud */
 export const MAX_CHAR_CANDIDATES = 64;
 /** cull slack absorbing the f32-vs-f64 sphere-boundary disagreement — a boundary body contributes to no phase */
 const CULL_EPS = 1e-3;
@@ -59,7 +59,7 @@ const rotate = (q: Quat, v: Vec3): Vec3 => qRotate(q[0], q[1], q[2], q[3], v[0],
 const rotateInv = (q: Quat, v: Vec3): Vec3 => qRotate(-q[0], -q[1], -q[2], q[3], v[0], v[1], v[2]);
 
 /**
- * one candidate body the sweep collides the capsule against — the world pose + collider geometry the caller
+ * one candidate body the sweep collides the capsule against: the world pose + collider geometry the caller
  * reads off the runtime sources (a static's authored `Body` slab, a dynamic's `Mirror`-read GPU pose). `half`
  * is the box / hull-AABB half-extents (the capsule core half-height for a capsule); `radius` the rounding
  * (`Body.halfExtents.w`); `hull` the registry geometry for `ShapeKind.Hull`; `vel` the body velocity (a
@@ -99,7 +99,7 @@ export interface CharState {
     buffer: number;
 }
 
-/** per-tick gather diagnostics — `candidates` gathered, `overflow` past the cap, `guard` past the band budget. */
+/** per-tick gather diagnostics: `candidates` gathered, `overflow` past the cap, `guard` past the band budget. */
 export interface SweepDiag {
     candidates: number;
     overflow: boolean;
@@ -315,14 +315,14 @@ function gather(
 }
 
 /**
- * One controller tick on the CPU, mutating `ch` in place — the runtime twin of the f64 oracle `moveCharacter`.
- * `input` is the desired horizontal velocity (x/z; y ignored — gravity owns the
+ * One controller tick on the CPU, mutating `ch` in place: the runtime twin of the f64 oracle `moveCharacter`.
+ * `input` is the desired horizontal velocity (x/z; y ignored, gravity owns the
  * vertical, a jump sets it). Integrates gravity (only while airborne), gathers the sphere-culled candidate
- * set, sweeps the capsule collide-and-slide against `statics` (mass ≤ 0 — walls / ground / platforms) AND
+ * set, sweeps the capsule collide-and-slide against `statics` (mass ≤ 0, walls / ground / platforms) AND
  * `push` dynamics (every body blocks; Jolt CharacterVirtual's model), rides a moving platform (carry), snaps
  * to the ground, and shoves touched dynamics at the desired speed (the push mutates their `vel`). Writes the
  * swept pose (`ch.pos`), the realized velocity (`ch.realizedVel`, for the kinematic upload + carry), and the
- * grounded / jump-timer state. `cull: false` is the brute seam (bit-identical output — the cull is a
+ * grounded / jump-timer state. `cull: false` is the brute seam (bit-identical output; the cull is a
  * contact-set-preserving superset); `diag` surfaces the gather + displacement-guard diagnostics.
  */
 export function sweepCharacter(

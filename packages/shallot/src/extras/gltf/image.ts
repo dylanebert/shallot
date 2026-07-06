@@ -14,7 +14,7 @@ import type { Ktx2Image } from "./basis";
 // maps + 2 VAT textures + 2 shadow maps, so `ALBEDO_BUCKETS + 8 <= maxSampledTexturesPerShaderStage` (spec
 // min 16) caps it at 8. 4 leaves headroom (room for a future data map) and covers the size spread real glTFs
 // mix; more distinct sizes than buckets spill the rarest to one decoded-RGBA array (the warned last resort).
-/** the number of baseColor size-bucket `texture_2d_array`s — varied-size compressed textures split across
+/** the number of baseColor size-bucket `texture_2d_array`s: varied-size compressed textures split across
  *  this many arrays, the rarest sizes past it spilling to one decoded-RGBA array. */
 export const ALBEDO_BUCKETS = 4;
 
@@ -22,9 +22,9 @@ export const ALBEDO_BUCKETS = 4;
 export const ALBEDO_NAMES = Array.from({ length: ALBEDO_BUCKETS }, (_, b) => `albedo${b}`);
 
 /**
- * upload pre-transcoded KTX2 images as a compressed `texture_2d_array` — one layer per image, each carrying
+ * upload pre-transcoded KTX2 images as a compressed `texture_2d_array`, one layer per image, each carrying
  * its own transcoded mip chain straight from the Basis transcoder (no GPU blit; compressed mips are already
- * downsampled). All images must share dimensions + format + block size — the array's one-size constraint,
+ * downsampled). All images must share dimensions + format + block size, the array's one-size constraint,
  * which the caller guarantees. Binds + samples identically to the bitmap arrays: `albedo[layer]`.
  *
  * @example
@@ -39,7 +39,7 @@ export function compressedAlbedoArray(device: GPUDevice, images: Ktx2Image[]): G
     return texture;
 }
 
-/** allocate (but don't fill) the compressed `texture_2d_array` for `images` — dims/format/mip count from the
+/** allocate (but don't fill) the compressed `texture_2d_array` for `images`: dims/format/mip count from the
  *  first image (all share them). The staged half of {@link compressedAlbedoArray}; fill via
  *  {@link writeCompressedLayer}. `label` names the array (the data maps pass their slot name). */
 export function allocCompressed(
@@ -81,7 +81,7 @@ export function writeCompressedLayer(
 /**
  * a 1×1 single-layer array, the absent-slot fallback so a surface binding always resolves (a missing texture
  * would skip the whole draw). Color slots are sRGB, data slots (normal / metallic-roughness / occlusion)
- * linear — but the palette layer is `-1` for every material on a fallback, so the sample is always discarded.
+ * linear, but the palette layer is `-1` for every material on a fallback, so the sample is always discarded.
  */
 export function fallback1x1(device: GPUDevice, format: GPUTextureFormat): GPUTexture {
     return device.createTexture({

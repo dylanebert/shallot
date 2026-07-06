@@ -5,7 +5,7 @@
 // functions byte-for-byte equivalent in arithmetic — the validation is GPU-march == TS-march == closed-form.
 import { distanceAttenuation } from "../render/core";
 
-/** compute workgroup tile — 8×8 = 64 threads, matching glaze's screen-space composite. */
+/** compute workgroup tile: 8×8 = 64 threads, matching glaze's screen-space composite. */
 export const WORKGROUP = 8;
 
 /** the Fog uniform: `color.rgb` linear haze color, `march` = (density, heightBase, heightFalloff, jitter),
@@ -13,10 +13,10 @@ export const WORKGROUP = 8;
 export const FOG_BYTES = 48;
 export const FOG_FLOATS = FOG_BYTES / 4;
 
-/** the march's constant loop cap — DXC chokes on a fully-dynamic loop bound, so the WGSL loop runs to this
+/** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the WGSL loop runs to this
  * compile-time constant and `break`s at the runtime `steps` (gpu.md "DXC: constant upper bound + dynamic
  * break"). `packFog` clamps `Fog.steps` to it, so a clamped step count integrates the full ray at the cap
- * resolution — never a silent under-integration. */
+ * resolution, never a silent under-integration. */
 export const FOG_MAX_STEPS = 256;
 
 export const FOG_STRUCT_WGSL = /* wgsl */ `
@@ -65,8 +65,8 @@ fn fogComposite(scene: vec3<f32>, fogColor: vec3<f32>, transmittance: f32) -> ve
  * the in-scatter primitives (S2 clustered lights + S3 sun), spliced by the production fog shader and the
  * fog probe so there is one GPU source of truth. `henyeyGreenstein` is the single-scatter phase function (g
  * 0 isotropic → 1 forward-peaked, a bright halo toward a light); `inScatterContribution` is one volumetric
- * point/spot light's radiance at a march point — `lightColor · distanceAttenuation · spotFactor · phase`,
- * the same per-light terms sear's lit path uses; `sunInScatter` is the directional sun's — `sunColor ·
+ * point/spot light's radiance at a march point (`lightColor · distanceAttenuation · spotFactor · phase`),
+ * the same per-light terms sear's lit path uses; `sunInScatter` is the directional sun's `sunColor ·
  * phase`, no falloff/cone. Both shadow-free (the caller multiplies the shadow factor). Splice
  * POINT_LIGHTS_STRUCT_WGSL + OCT_ENCODE_WGSL + LIGHT_EVAL_WGSL (sear/core, for `distanceAttenuation` /
  * `spotFactor`) before it.
@@ -106,7 +106,7 @@ export function fogDensity(py: number, density: number, base: number, falloff: n
 }
 
 /** transmittance `exp(-τ)` along `[originY, dirY]·dist`, midpoint Riemann sum over `steps`
- * (sampleOffset 0.5 = midpoint). The TS twin of WGSL `fogTransmittance` — density depends only on
+ * (sampleOffset 0.5 = midpoint). The TS twin of WGSL `fogTransmittance`: density depends only on
  * height, so the y components are all it needs. */
 export function fogTransmittance(
     originY: number,
@@ -127,7 +127,7 @@ export function fogTransmittance(
     return Math.exp(-tau);
 }
 
-/** the closed-form optical depth τ of exponential height fog along `[originY, dirY]·dist` — the analytic
+/** the closed-form optical depth τ of exponential height fog along `[originY, dirY]·dist`: the analytic
  * integral `∫₀ᴸ density·exp(-falloff·(originY + dirY·t - base)) dt` the midpoint march converges to. The
  * unit test's ground truth (march vs this within the midpoint-rule error bound). */
 export function heightOpticalDepth(
@@ -168,9 +168,9 @@ export function henyeyGreenstein(g: number, cosTheta: number): number {
 }
 
 /** one volumetric light in the decoded terms of the GPU `PointLightGpu` the fog march reads: `pos` world
- * position, `invRangeSq` = 1/range² (posRange.w), `radius` the params.x soft-sphere radius (its magnitude —
+ * position, `invRangeSq` = 1/range² (posRange.w), `radius` the params.x soft-sphere radius (its magnitude;
  * the sign is the Volumetric flag, squared away here), `color` linear rgb (intensity baked), and the spot
- * cone — `coneAxis` the oct-decoded forward, `coneScale`/`coneOffset` the angular (scale, offset);
+ * cone: `coneAxis` the oct-decoded forward, `coneScale`/`coneOffset` the angular (scale, offset);
  * `coneScale === 0` is a plain point (no cone). */
 export interface FogLight {
     pos: readonly [number, number, number];
@@ -194,7 +194,7 @@ export interface FogScatter {
     anisotropy: number;
 }
 
-/** one volumetric light's in-scatter radiance at march point `p` (shadow-free — the caller multiplies the
+/** one volumetric light's in-scatter radiance at march point `p` (shadow-free; the caller multiplies the
  * shadow factor). The TS twin of WGSL `inScatterContribution`: `color · distanceAttenuation · spotFactor ·
  * HG-phase`. */
 export function inScatterContribution(
@@ -224,12 +224,12 @@ export function inScatterContribution(
     return [light.color[0] * f, light.color[1] * f, light.color[2] * f];
 }
 
-/** the single-light in-scatter march — the oracle the fog probe's in-scatter readback is pinned to (the
+/** the single-light in-scatter march: the oracle the fog probe's in-scatter readback is pinned to (the
  * production shader sums this over a froxel's volumetric lights; the probe + this run one light). Marches
  * the same midpoint samples as {@link fogTransmittance}, weighting each step's in-scatter by the
  * transmittance to the step start and integrating the source over the step **analytically**
  * (Hillaire/Frostbite energy-conserving form): the in-scatter over a step of optical depth `σ_t·ds` is
- * `albedo·(1−e^{−σ_t·ds})·gain·source`, the within-step extinction folded in — the analytic twin of the
+ * `albedo·(1−e^{−σ_t·ds})·gain·source`, the within-step extinction folded in, the analytic twin of the
  * haze composite's `(1−T)`, not a `source·ds` rectangle. Makes shaft brightness step-count-stable. */
 export function fogInScatter(
     origin: readonly [number, number, number],
@@ -267,13 +267,13 @@ export function fogInScatter(
 
 /** the directional sun in the terms the fog march reads: `direction` the sun's normalized travel direction
  * (lighting.sunDirection.xyz; toward-light is its negation), `color` the linear rgb with intensity baked
- * (lighting.sunColor.rgb). No position/range/cone — directional, infinitely far. */
+ * (lighting.sunColor.rgb). No position/range/cone: directional, infinitely far. */
 export interface FogSun {
     direction: readonly [number, number, number];
     color: readonly [number, number, number];
 }
 
-/** the sun's in-scatter contribution at a march point (shadow-free — the caller multiplies the shadow):
+/** the sun's in-scatter contribution at a march point (shadow-free; the caller multiplies the shadow):
  * `color · HG(g, dot(dir, -sunDir))`. The TS twin of WGSL `sunInScatter`. */
 export function sunInScatter(
     sunColor: readonly [number, number, number],
@@ -286,9 +286,9 @@ export function sunInScatter(
     return [sunColor[0] * phase, sunColor[1] * phase, sunColor[2] * phase];
 }
 
-/** the single-sun in-scatter march — the oracle the fog probe's sun-in-scatter readback is pinned to (the
+/** the single-sun in-scatter march: the oracle the fog probe's sun-in-scatter readback is pinned to (the
  * production shader adds this to the clustered cones on the same march; the probe + this run the sun alone,
- * shadow-free — the no-occluder analytic). Marches the same midpoint samples as {@link fogTransmittance},
+ * shadow-free, the no-occluder analytic). Marches the same midpoint samples as {@link fogTransmittance},
  * weighting each step by the transmittance to its start and integrating the source over the step with the
  * same energy-conserving `albedo·(1−e^{−σ_t·ds})·gain` form as {@link fogInScatter}. */
 export function fogSunInScatter(
@@ -322,7 +322,7 @@ export function fogSunInScatter(
 
 /** reconstruct a fragment's world position from its screen `uv` (0..1, y-down) + ndc `depth` (0..1) using
  * the camera's inverse view-projection (column-major). The TS twin of the WGSL `reconstructWorld` the
- * production march runs each pixel — its round-trip against `viewProj` is the reconstruction unit test. */
+ * production march runs each pixel; its round-trip against `viewProj` is the reconstruction unit test. */
 export function reconstruct(
     invViewProj: Float32Array,
     u: number,

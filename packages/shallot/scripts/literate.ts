@@ -207,12 +207,21 @@ export function composePage(
     return out.join("\n");
 }
 
+/** the raw `#doc:` blocks a page assembles from: specimen blocks (intro/code) and extension-source blocks
+ *  (dev). Unfiltered by routing — the caller applies the `page:<slug>` filter (composePage does, and
+ *  docs-check reads them for the per-block budget check). */
+export function pageBlocks(entry: PageEntry): { specimen: DocBlock[]; source: DocBlock[] } {
+    return {
+        specimen: list(entry.specimen).flatMap((s) => blocksFrom(resolve(ZOO, s), true)),
+        source: coreSources(entry).flatMap((s) => blocksFrom(resolve(PKG, s), false)),
+    };
+}
+
 /** compose a manifest entry's page, reading its specimen(s) and source(s) from disk. `#doc:dev` blocks
  *  come from the extension sources (`core`, else `source`), never the author-only API sources. */
 export function assemblePage(entry: PageEntry): string {
-    const specimenBlocks = list(entry.specimen).flatMap((s) => blocksFrom(resolve(ZOO, s), true));
-    const sourceBlocks = coreSources(entry).flatMap((s) => blocksFrom(resolve(PKG, s), false));
-    return composePage(entry, specimenBlocks, sourceBlocks);
+    const { specimen, source } = pageBlocks(entry);
+    return composePage(entry, specimen, source);
 }
 
 /** the nav manifest: one entry per projected page, carrying the nav chrome + the specimen/source it assembles from. */

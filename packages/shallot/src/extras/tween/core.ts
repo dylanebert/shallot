@@ -3,10 +3,10 @@ import { getEasing } from "./easing";
 // #doc:dev
 // ### The timing atom
 //
-// The tween core is the Web Animations model as pure functions over numbers — no ECS, no entity, no
+// The tween core is the Web Animations model as pure functions over numbers, with no ECS, no entity, no
 // stored state. `sample(t)` maps a local time to the value to write; `owns(t)` decides whether to write
 // it at all (the `Fill` tails). The `Tween` component and `TweenSystem` drive these, and the
-// sequence layer positions `elapsed` — the atom itself just answers "what value, and does it apply".
+// sequence layer positions `elapsed`. The atom itself just answers "what value, and does it apply".
 //
 // Build a custom effect kind against it: a spring, a scripted camera move, an animation over something
 // that isn't an entity field. Call `sample` / `owns` over your own time source and reuse the shared
@@ -44,7 +44,7 @@ export const Fill = {
 /**
  * does the tween write its field at this local time? within the active interval
  * it always does; outside, {@link Fill} governs the tails. the clock decides
- * whether a tween runs at all — this decides whether a running tween's value
+ * whether a tween runs at all; this decides whether a running tween's value
  * applies now.
  * @example owns(1.5, 1, Fill.Forwards) // true — the after tail holds the end
  */

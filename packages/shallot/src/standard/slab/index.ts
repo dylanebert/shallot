@@ -115,7 +115,7 @@ function createStager(device: GPUDevice, bytes: number): GPUBuffer {
 }
 
 /**
- * GPU-mirrored per-entity storage. parameterized by {@link Type} — scalar
+ * GPU-mirrored per-entity storage. parameterized by {@link Type}: scalar
  * types yield a {@link Single}, `vec2` yields a {@link Pair}, `vec4` yields
  * a {@link Quad}. {@link SlabSystem} flushes dirty slots into the canonical
  * GPU buffer once per frame via Toji's persistent-staging + scatter compute
@@ -501,12 +501,12 @@ export class Slab {
 }
 
 /**
- * typed slab factory — mirrors `sparse(...)` so swapping `sparse(f32)` for
+ * typed slab factory: mirrors `sparse(...)` so swapping `sparse(f32)` for
  * `slab(f32)` is a one-token change. Scalar types return a {@link Single};
  * `vec2` returns a {@link Pair}; `vec4` returns a {@link Quad}. Bulk `set`
  * matches the lane count; partial writes go through the lane accessors.
  * Pass an optional `name` to publish the canonical GPU buffer under that
- * name in `Compute.buffers` once allocated — surfaces resolve bindings
+ * name in `Compute.buffers` once allocated; surfaces resolve bindings
  * against that registry, so named slabs become shader-visible by name
  *
  * @example
@@ -534,7 +534,7 @@ export function slab(type: Type, name?: string): Single | Pair | Quad {
 /**
  * per-frame flush of every slab. Runs at the head of the draw group so any
  * draw-group consumer sees the just-uploaded canonical buffer this frame.
- * `mode: "always"` — the editor builds with `mode: "edit"`, and the transform
+ * `mode: "always"`; the editor builds with `mode: "edit"`, and the transform
  * compose firehose this feeds must upload there too, or the viewport renders nothing.
  */
 export const SlabSystem: System = {

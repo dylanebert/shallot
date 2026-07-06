@@ -27,7 +27,7 @@ import {
 // (index.ts) memoizes the result per active-set, so a State rebuild re-publishes the same union with no
 // re-upload.
 
-/** one albedo image's kind + size — the bucketing input, decoupled from the decoded payload so the policy
+/** one albedo image's kind + size: the bucketing input, decoupled from the decoded payload so the policy
  *  is unit-tested without a device. `size` is the `"WxH"` key compressed images group by. */
 export interface AlbedoDesc {
     kind: "bitmap" | "compressed";
@@ -53,8 +53,8 @@ export interface AlbedoPlan {
  * bucket the union of active assets' albedo images into ≤ `cap` size-bucketed arrays. PNG/JPEG images all
  * share ONE bitmap bucket (resized to a common size on upload, so any size collapses there); compressed
  * (KTX2) images can't resize, so they group by size, one bucket per distinct size. When the distinct-bucket
- * count exceeds `cap`, the rarest compressed sizes spill — decoded to RGBA into the shared bitmap bucket (the
- * warned last resort). Pure — the layer assignment follows image order, so the assembler uploads in the same
+ * count exceeds `cap`, the rarest compressed sizes spill: decoded to RGBA into the shared bitmap bucket (the
+ * warned last resort). Pure. The layer assignment follows image order, so the assembler uploads in the same
  * order.
  */
 export function planAlbedoBuckets(images: AlbedoDesc[], cap = ALBEDO_BUCKETS): AlbedoPlan {
@@ -105,7 +105,7 @@ export function planAlbedoBuckets(images: AlbedoDesc[], cap = ALBEDO_BUCKETS): A
     return { loc, buckets };
 }
 
-/** an active asset's contribution to the union — its decoded (deviceless) textures, the source materials
+/** an active asset's contribution to the union: its decoded (deviceless) textures, the source materials
  *  the palette's non-layer fields read, and the palette base (material offset) the caller assigned in
  *  active-set order. */
 export interface UnionAsset {
@@ -144,7 +144,7 @@ export function uniformBlocks(imgs: DecodedImage[]): Ktx2Image[] | null {
 }
 
 /**
- * the pure plan for the union of active assets — buckets the flattened albedo and packs every material's
+ * the pure plan for the union of active assets: buckets the flattened albedo and packs every material's
  * layer indices, rebased into the shared arrays (albedo bucket+layer from {@link planAlbedoBuckets}, data
  * layers concatenated per slot in asset order). Each asset's materials sit at `asset.base`; a factor-only
  * material keeps `-1` layers. Pure, so the rebase is tested without a device.
@@ -205,12 +205,12 @@ export function planUnion(assets: UnionAsset[], matCount: number): UnionPlan {
 
 const ALBEDO_SRGB: GPUTextureFormat = "rgba8unorm-srgb";
 
-/** one array layer's upload — a thunk filling exactly one layer (a bitmap resize + copy + mip blit, or a
+/** one array layer's upload: a thunk filling exactly one layer (a bitmap resize + copy + mip blit, or a
  *  compressed block write). The whole-layer unit the staged builder runs N of per frame within a time budget;
- *  never split a layer (partial uploads aren't done — Bevy's whole-asset rule). */
+ *  never split a layer (partial uploads aren't done, Bevy's whole-asset rule). */
 type UploadStep = () => Promise<void>;
 
-/** the in-flight union upload — every GPUTexture allocated up front (so the set publishes atomically the
+/** the in-flight union upload: every GPUTexture allocated up front (so the set publishes atomically the
  *  instant the last layer lands), its layers filled across frames by draining `steps`. `key` is the active-set
  *  it was begun for, `gen` the build generation; the caller (index.ts) installs it only if both still match
  *  (a later begin supersedes it). Held in module scope as the carry-over across frames. */
@@ -224,11 +224,11 @@ export interface UnionStaging {
 }
 
 /**
- * allocate the union's GPU textures + palette and build the flat per-layer upload step list — the cheap prep
+ * allocate the union's GPU textures + palette and build the flat per-layer upload step list: the cheap prep
  * half of the union assembly ({@link planUnion} does the bucketing + rebase). Returns a {@link UnionStaging}
  * the caller drains with {@link stepUnion} across frames; the textures publish only once every step has run
  * (the atomic flip). The only begin-time cost is the plan, the palette pack/write, and the rare spill
- * transcode — every layer copy + mip blit is deferred into a step, so begin doesn't freeze a frame.
+ * transcode: every layer copy + mip blit is deferred into a step, so begin doesn't freeze a frame.
  */
 export async function beginUnion(
     device: GPUDevice,
@@ -358,7 +358,7 @@ export async function beginUnion(
     return { key, gen, textures, steps, cursor: 0 };
 }
 
-/** drain `staging`'s upload layers until `budgetMs` of main-thread time is spent this call — always at least one
+/** drain `staging`'s upload layers until `budgetMs` of main-thread time is spent this call: always at least one
  *  layer (forward progress even if one layer overruns). A TIME budget, not a byte one: the per-layer cost is the
  *  mip-blit encode (bound to layer count, not texels), so budgeting by bytes batched many cheap-byte/expensive-
  *  encode layers into one frame. Returns true when the last layer has uploaded (the caller then publishes the

@@ -12,14 +12,14 @@
 
 import { checkTextureLimits } from "../../engine";
 
-/** mip levels for a square texture of `size` px — the full chain down to 1×1. */
+/** mip levels for a square texture of `size` px: the full chain down to 1×1. */
 export function mipLevels(size: number): number {
     return Math.floor(Math.log2(size)) + 1;
 }
 
 /**
  * the common (square) layer size for an image array: the largest source dimension, capped at `cap`
- * (downscaling larger sources) and floored at 1. The size-uniformity decision in one function — every
+ * (downscaling larger sources) and floored at 1. The size-uniformity decision in one function. Every
  * layer resizes to this, so the array's one-size constraint is satisfied without size-bucketing.
  */
 export function commonSize(dims: { w: number; h: number }[], cap = 2048): number {
@@ -115,7 +115,7 @@ async function genMipmapsLayer(
 }
 
 /**
- * decode `blobs` to a `texture_2d_array` — one layer per blob, all resized to a common (capped) square
+ * decode `blobs` to a `texture_2d_array`: one layer per blob, all resized to a common (capped) square
  * size, sRGB-encoded, with a full mip chain. The returned texture binds as a surface's `texture-2d-array`
  * and is sampled `array[layer]`. Async (decode + pipeline compile + blit); call from a load path, not a
  * hot frame.
@@ -139,7 +139,7 @@ export async function imageArray(
 }
 
 /**
- * allocate (but don't fill) a `texture_2d_array` for `layers` square `size`-px layers with a full mip chain —
+ * allocate (but don't fill) a `texture_2d_array` for `layers` square `size`-px layers with a full mip chain:
  * the cheap, synchronous half of {@link arrayFromBitmaps}, split out so a staged builder uploads layers across
  * frames ({@link uploadLayer}). Fails loud + clear here (the array-layer / 2D-size limit) rather than at an
  * opaque createTexture validation error.
@@ -201,7 +201,7 @@ export async function uploadLayer(
 }
 
 /**
- * upload decoded `ImageBitmap`s as a `texture_2d_array` — resized to a common (capped) square, sRGB-encoded,
+ * upload decoded `ImageBitmap`s as a `texture_2d_array`: resized to a common (capped) square, sRGB-encoded,
  * mip-filled. The shared core of {@link imageArray} (which decodes blobs first) and any caller with
  * already-decoded bitmaps (the glTF KTX2 RGBA-decode fallback). Takes already-decoded bitmaps so each caller
  * decodes its own way. Synchronous-uploading; the glTF union stages the same primitives across frames instead.

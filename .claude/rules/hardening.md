@@ -107,6 +107,14 @@ works inside. A leaf module like `orbit` (no `/core`, not extended) is author-on
 "why it's built this way" is a plain code comment, not a docs page. Don't write `#doc:dev` mechanics just
 to fill a tab.
 
+**When an Internals tab can't meet the bar, delete it.** A tab that dumps mechanism prose (how the state
+machine works, the buffer layout narrated line by line) instead of an extension usage story fails the bar,
+and the sanctioned fix is to prune it, not pad it: cut the `#doc:dev` blocks to the `/core` usage story an
+extender needs, or, when the module has no real extension surface, drop the tab entirely so the page falls
+to its single-tab author-only shape. Padding a page toward a full three-tab template is never the fix
+(`docs.md` "Drop, don't pad"). `standard/surfaces` is the worked case: extender-only, one tab, its
+`#doc:dev` scoped to the `/core` surface an extender authors against.
+
 **Which tab a reference marker lands in is fixed by which carries it:** `<!-- API: -->` (the public *what*,
 under the walkthrough's *how*) in the Code surface, `<!-- CORE: -->` (the `/core` extension surface) in the
 Internals tab. The projection places both; you write neither.

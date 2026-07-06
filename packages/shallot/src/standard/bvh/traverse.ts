@@ -28,7 +28,7 @@ export const BVH_INVALID = 0xffffffff;
  * the BVH depth bound both traversers size against, and what a consumer's own traverser
  * uses. It is **derived, not tuned**: the LBVH key is `(Morton30 << 32 | index)` = 62 bits,
  * and a binary radix tree on distinct keys has depth ≤ its key width, so an LBVH is ≤ 62 deep
- * for *any* scene the builder can produce. 64 covers that provably — no measurement, no
+ * for *any* scene the builder can produce. 64 covers that provably: no measurement, no
  * margin, no overflow path to get wrong. (A 64-bit-Morton build would raise the key width
  * and this with it.) `bvhClosestHit` sizes its far-child stack to this; `bvhAnyHit`'s restart
  * trail covers this many levels. Either way the push/level index can't exceed it, so a hit is
@@ -63,7 +63,7 @@ export function bvhRoot(primCount: number): number {
 }
 
 /**
- * WGSL form of {@link bvhRoot} — `fn bvhRoot(primCount: u32) -> u32`. Splice into a
+ * WGSL form of {@link bvhRoot}: `fn bvhRoot(primCount: u32) -> u32`. Splice into a
  * consumer that reads the prim count from the GPU-driven count buffer so the trace's
  * root is computed on the GPU rather than passed as a CPU uniform.
  */
@@ -72,11 +72,11 @@ fn bvhRoot(primCount: u32) -> u32 { return select(0u, 2u * primCount - 2u, primC
 `;
 
 /**
- * WGSL traversal chunk — splice into a module that declares
+ * WGSL traversal chunk. Splice into a module that declares
  * `var<storage, read> nodes: array<vec4<f32>>`. Exposes `BvhHit`, `bvhClosestHit`,
  * and `bvhAnyHit`. `dir` need not be normalized (the hit distance is then in `dir`
  * lengths); pass `1.0 / dir` as `invDir`. `tMax` bounds the ray interval and seeds
- * the closest distance — pass a finite limit (a true miss returns `prim == INVALID`
+ * the closest distance. Pass a finite limit (a true miss returns `prim == INVALID`
  * / `false`).
  *
  * @example

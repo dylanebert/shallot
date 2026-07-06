@@ -20,11 +20,11 @@
 
 import { HULL_FACE_STRIDE, HULL_HEADER, UNIT_CUBE_ID } from "./hull";
 
-/** output manifold cap — the reduced spread set (= CONTACTS_PER_PAIR); was 8, halved by 4.8.1 */
+/** output manifold cap: the reduced spread set (= CONTACTS_PER_PAIR); was 8, halved by 4.8.1 */
 export const MAX_CONTACTS = 4;
 
 /**
- * speculative contact band (Phase 4.8.3) — the SAT emits a contact while the boxes are separated by up to
+ * speculative contact band (Phase 4.8.3): the SAT emits a contact while the boxes are separated by up to
  * this gap, carrying the true signed gap in c0 so the repulsion-only normal constraint limits the approach:
  * a body within the band at frame start lands at contact, no penetration pop, no tunnel (Firth 2011 /
  * Box2D's speculative solver). Derived as Box2D's `b2_speculativeDistance = 4 · b2_linearSlop`:
@@ -1092,13 +1092,13 @@ fn collideRoundedPolytope(aPos: vec3<f32>, aQuat: vec4<f32>, aSize: vec3<f32>, a
 /** the shared scale-unified polytope substrate (Convex + hull accessors + projectPoly + bestPolyFace). Both
  *  the hull SAT pipeline and the rounded × polytope pipeline (step.ts) prepend HELPERS_WGSL + this. */
 export const HULL_CORE_WGSL = _HULL_CORE;
-/** collideHull — the polytope×polytope SAT (box×hull, hull×hull). Concatenate after HELPERS_WGSL + HULL_CORE_WGSL. */
+/** collideHull, the polytope×polytope SAT (box×hull, hull×hull). Concatenate after HELPERS_WGSL + HULL_CORE_WGSL. */
 export const HULL_SAT_WGSL = _HULL_SAT;
-/** collideRoundedPolytope — sphere/capsule × box/hull. Concatenate after HELPERS_WGSL + HULL_CORE_WGSL. */
+/** collideRoundedPolytope, sphere/capsule × box/hull. Concatenate after HELPERS_WGSL + HULL_CORE_WGSL. */
 export const ROUNDED_POLY_WGSL = _ROUNDED_POLY;
 /**
  * the full convex-hull narrowphase recomposed (HULL_CORE + collideHull + collideRoundedPolytope in ONE
- * chunk) — for the gym kernel gates (`sat` / `pile` rounded) that compile a single kernel calling both. The
+ * chunk), for the gym kernel gates (`sat` / `pile` rounded) that compile a single kernel calling both. The
  * production collide pass (step.ts) compiles CORE+SAT and CORE+ROUNDED_POLY as SEPARATE pipelines instead.
  */
 export const HULL_WGSL = _HULL_CORE + _HULL_SAT + _ROUNDED_POLY;

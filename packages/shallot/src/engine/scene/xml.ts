@@ -27,7 +27,7 @@ const ATTR_RE = /([^\s=<>/]+)(?:\s*=\s*"([^"]*)")?/g;
 
 /**
  * parses scene XML into a flat node tree, one `Node` per `<a>` element. Throws on malformed markup, an
- * unknown tag, or a nested `<a>` — scenes are flat, so cross-entity links use `@name` field refs.
+ * unknown tag, or a nested `<a>`; scenes are flat, so cross-entity links use `@name` field refs.
  *
  * @example
  * const nodes = parse('<scene><a id="cam" camera orbit /></scene>');

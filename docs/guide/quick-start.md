@@ -32,11 +32,38 @@ cd my-game
 bun install
 ```
 
-This scaffolds a minimal project: a `shallot.json` manifest, a plugin, and a scene. Run it with the CLI — `bunx shallot dev` (standalone, with hot reload), `bunx shallot` (open it in the editor), or `bunx shallot build` (ship a web bundle; add `--target windows|mac|linux` for native).
+This scaffolds a minimal project: a `shallot.json` manifest, a plugin, and a scene. Run it with the CLI:
+
+<!-- pick -->
+<!-- pick: Editor -->
+
+Open the project in the visual editor.
+
+```bash
+bunx shallot
+```
+
+<!-- pick: Dev -->
+
+Run it standalone with hot reload.
+
+```bash
+bunx shallot dev
+```
+
+<!-- pick: Build -->
+
+Ship a web bundle. Add `--target windows|mac|linux` for a native build.
+
+```bash
+bunx shallot build
+```
+
+<!-- /pick -->
 
 ### The manifest
 
-`shallot.json` is the project's source of truth — the scene plus which plugins are on — read identically by the editor, `shallot dev`, and `shallot build`:
+`shallot.json` is the project's source of truth: the scene plus which plugins are on. The editor, `shallot dev`, and `shallot build` all read it identically.
 
 ```json
 {
@@ -49,7 +76,9 @@ This scaffolds a minimal project: a `shallot.json` manifest, a plugin, and a sce
 }
 ```
 
-Each `plugins` entry maps a name to a source. `true` / `false` toggles an **engine** plugin (resolved by name from `@dylanebert/shallot`). A **module specifier** declares a local or installed plugin, whose **default export** is the Plugin — a relative path (`./src/spin`, your own code) or a package subpath (`my-pack/widget`, a plugin library). To add a plugin from anywhere, install it with your package manager (`bun add a-pack`, a git URL, a registry) and list its subpath here; the editor toggles these on and off and writes the change back (a disabled local becomes `["./src/spin", false]`, keeping the spec — the PostCSS/Babel tuple form). The `$schema` line gives autocomplete + validation as you edit the JSON.
+Each `plugins` entry maps a name to a source. `true` / `false` toggles an **engine** plugin, resolved by name from `@dylanebert/shallot`. A **module specifier** declares a local or installed plugin, whose **default export** is the Plugin: a relative path (`./src/spin`, your own code) or a package subpath (`my-pack/widget`, a plugin library).
+
+To add a plugin from anywhere, install it with your package manager (`bun add a-pack`, a git URL, a registry) and list its subpath here. The editor toggles these on and off and writes the change back: a disabled local becomes `["./src/spin", false]`, the `[source, enabled]` tuple form that keeps the spec. The `$schema` line gives autocomplete and validation as you edit the JSON.
 
 ## Your First Scene
 
@@ -100,6 +129,6 @@ Click the play button in the toolbar to run the scene. Click stop to return to e
 
 <!-- tab: Code -->
 
-Prefer to build in code? Every plugin and scene the editor writes is plain TypeScript and XML you can author by hand. [Make a Game](doc:guide/make-a-game) walks through building a full obby end to end — a player, platforms, and the systems that respawn you, track checkpoints, and win the run — using only the APIs in these docs.
+Prefer to build in code? Every plugin and scene the editor writes is plain TypeScript and XML you can author by hand. Start with [ECS](doc:engine/ecs) to write a system, the behavior the editor can't author for you, then the [Scene](doc:engine/scene) format for the world file. Each reference page opens with a scene snippet, then the code that drives it.
 
 <!-- /tabs -->

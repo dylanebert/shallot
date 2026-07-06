@@ -18,7 +18,7 @@ const DRAW_ARG_STRIDE = 20;
 /**
  * ECS-shaped opt-in for Part rendering. `surface` holds the {@link Surfaces}
  * ID for the entity's shading; `mesh` holds the {@link Meshes} ID for its
- * geometry — both `slab(u32)` the pack reads on GPU. The pack groups Parts by
+ * geometry: both `slab(u32)` the pack reads on GPU. The pack groups Parts by
  * `(surface, mesh)` and emits one indirect draw per used pair, so a surface is
  * shading only and renders any mesh. `surface` defaults to `"default"`, `mesh`
  * to `"cube"`; scenes pick others via `<a part="surface: checker; mesh: wall" />`
@@ -79,14 +79,14 @@ let _viewDim = 1;
 
 /**
  * GPU-resident Part draw publication. `drawArgs` holds `DrawIndexedIndirect` entries
- * (20 bytes) laid out slot-major — `slot * pairCount + pair` — so each camera
+ * (20 bytes) laid out slot-major (`slot * pairCount + pair`), so each camera
  * has its own per-pair records: static indexCount/firstIndex/baseVertex from
  * `registerDraws`, per-frame instanceCount/firstInstance from the pack. Sear
  * reads `slot`'s records via `Draw.args.viewStride`. `packedEids` is one list
  * partitioned into a `capacity`-sized region per slot, each region compacted
  * into per-pair slices, read by the VS at `instance_index`. The slot dimension
  * grows with the active camera count, the pair dimension (`Surfaces.size ×
- * Meshes.size`) with mesh registration — no fixed upper bound on either
+ * Meshes.size`) with mesh registration: no fixed upper bound on either
  *
  * @expand
  */
@@ -104,7 +104,7 @@ export const Parts: Parts = {
 
 /**
  * per-frame Part pack. Clears the counts, then cull → count → scan → scatter
- * over `(eid, view slot)`. No CPU iteration over Parts — every thread gates on
+ * over `(eid, view slot)`. No CPU iteration over Parts: every thread gates on
  * the mirrored component-membership bit, then on the view's frustum. The
  * count + scatter dispatch a row of workgroups per active view (`gid.y` =
  * slot); the scan dispatches one workgroup per slot, each scanning its row in
@@ -225,14 +225,14 @@ function scatterGroup(): GPUBindGroup {
 /**
  * size the pack's buffers to the live mesh count (the pair dimension) and
  * active camera count (the view/slot dimension), growing when either rises
- * after warm — procedural producers size geometry from scene data and cameras
+ * after warm: procedural producers size geometry from scene data and cameras
  * attach at runtime, so neither is final at warm. Called each frame; the two
  * `<=` compares are ints, not per-entity dirty tracking. `drawArgs` + `counts`
  * scale with `viewDim × pairCount`; `packedEids` with `viewDim × capacity`;
  * `meshBounds` with mesh count. Pair growth only appends slots
  * (`mid * surfaceCount + sid`) so existing offsets hold, and the pipelines read
  * both dimensions from `cullParams` + `arrayLength`, never recompiling. Old
- * buffers free behind the submit fence — a prior frame may still reference them
+ * buffers free behind the submit fence: a prior frame may still reference them
  */
 function syncBuffers(): void {
     if (_surfaceCount === 0) return;
@@ -325,7 +325,7 @@ function writeMeshBounds(device: GPUDevice): GPUBuffer {
 /**
  * register one Draw per `(Part-compatible surface × mesh)` pair and seed every
  * slot's static indexed-indirect args (indexCount = `mesh.indexCount`, firstIndex =
- * `mesh.indexBase`, baseVertex = 0) — the per-frame pack fills instanceCount + the
+ * `mesh.indexBase`, baseVertex = 0): the per-frame pack fills instanceCount + the
  * compacted firstInstance. The static args repeat across all `_viewDim` slots since a
  * camera attaching later reuses a slot whose geometry never changes; the Draw
  * points at the pair's slot-0 record and carries `viewStride = pairCount × 20`,
@@ -333,10 +333,10 @@ function writeMeshBounds(device: GPUDevice): GPUBuffer {
  * instanced when it declares the `eids` + `transforms` bindings (sear applies
  * the standard transform). Every combination gets a Draw; the ones no entity uses pack to
  * `instanceCount: 0` and `drawIndirect` no-ops them. So a producer just
- * registers its mesh + surface and spawns Parts — the draw it needs already
+ * registers its mesh + surface and spawns Parts: the draw it needs already
  * exists, whenever its entities appear. (When `multi-draw-indirect` lands,
  * these per-pair draws fold into one call per surface on the GPU.) Re-run by
- * `syncBuffers` whenever a mesh registers or the view count grows — it re-seeds
+ * `syncBuffers` whenever a mesh registers or the view count grows: it re-seeds
  * every slot and repoints the Draws at the freshly grown `drawArgs`. The pair
  * offset is `mid * surfaceCount + sid`, so a new mesh only appends slots
  */
@@ -381,12 +381,12 @@ export function initPart(): void {
 
 /**
  * compile the pack pipelines + allocate `packedEids`'s first slot. Runs at warm
- * (after every `initialize`), so `Surfaces.size` is final — surfaces are WGSL
+ * (after every `initialize`), so `Surfaces.size` is final: surfaces are WGSL
  * shading programs declared in code, never data-driven, so the surface count is
  * the one axis safe to bake into the shaders. The pair count + view count come
  * from `cullParams` each frame, so the pipelines never recompile when meshes
  * register or cameras attach. `drawArgs` + `counts` + `meshBounds` size lazily
- * (`syncBuffers`), not here — neither `Meshes.size` nor the camera count is
+ * (`syncBuffers`), not here: neither `Meshes.size` nor the camera count is
  * final at warm
  */
 export async function warmPart(state: State): Promise<void> {

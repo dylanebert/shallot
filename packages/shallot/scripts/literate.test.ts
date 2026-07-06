@@ -129,7 +129,7 @@ describe("composePage", () => {
 
     test("specimen-only page (a guide): walkthrough alone, no source frontmatter, no reference table", () => {
         const page = composePage(
-            entry({ slug: "guide/make-a-game", source: undefined, specimen: "obby" }),
+            entry({ slug: "guide/tutorial", source: undefined, specimen: "tutorial" }),
             [block({ kind: "intro", prose: "build a game." }), block({ prose: "add a system." })],
             [],
         );

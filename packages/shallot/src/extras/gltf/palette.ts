@@ -27,7 +27,7 @@ export interface SlotLayers {
 
 /**
  * pack the per-material PBR palette to the {@link MATERIAL_DATA_WGSL} byte layout. Pure (no device), so the
- * struct offsets are unit-pinned. A factor-only material clamps its `-1` albedo layer to 0 — its instances
+ * struct offsets are unit-pinned. A factor-only material clamps its `-1` albedo layer to 0; its instances
  * ride sear's solid `default` rather than a textured surface, so that slot is never sampled.
  */
 export function packMaterials(materials: GltfMaterial[], layers: SlotLayers): ArrayBuffer {

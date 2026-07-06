@@ -35,9 +35,9 @@ export const MAP_ALL = MAP_NORMAL | MAP_MR | MAP_OCC | MAP_EMIS;
 
 /**
  * the material map-set bitmask (a mesh's {@link Mesh.variant} / the {@link materialPreamble} specialization
- * key) for a decoded material — one bit per present data map, `0` for a factor-only or absent material
+ * key) for a decoded material: one bit per present data map, `0` for a factor-only or absent material
  * (albedo-only). The bits read the same `*Image` fields the per-material palette layers derive from, so a
- * set bit and a `>= 0` palette layer always agree — the guarantee that lets the specialized preamble sample
+ * set bit and a `>= 0` palette layer always agree, the guarantee that lets the specialized preamble sample
  * a present map with no `*Layer >= 0` gate.
  */
 export function mapSet(m: GltfMaterial | undefined): number {
@@ -52,12 +52,12 @@ export function mapSet(m: GltfMaterial | undefined): number {
 
 /**
  * the metallic-roughness shade helpers specialized to a material map-set `mapset` (a bitmask of the
- * `MAP_*` bits) — spliced into a `(surface, mesh)` draw's module scope. Each helper takes the palette
+ * `MAP_*` bits), spliced into a `(surface, mesh)` draw's module scope. Each helper takes the palette
  * index `mid`; a present map samples its `texture_2d_array` directly (the bitmask guarantees its
- * `*Layer >= 0`, so no `select`/`max` gate), an absent one uses the factor alone and emits **no sample**
- * — that's the win over an unconditional ubershader off-L2 (the absent sample is a real DRAM fetch on the
+ * `*Layer >= 0`, so no `select`/`max` gate), an absent one uses the factor alone and emits **no sample**.
+ * That's the win over an unconditional ubershader off-L2 (the absent sample is a real DRAM fetch on the
  * integrated floor). `perturbNormal` only reconstructs the tangent frame (Schüler's screen-space
- * cotangent — no TANGENT attribute) when the normal map is present; otherwise it returns the geometric
+ * cotangent, no TANGENT attribute) when the normal map is present; otherwise it returns the geometric
  * normal with no derivatives. The all-maps form (`MAP_ALL`) is the unconditional shader minus the now-dead
  * gates. Sear compiles one variant per distinct map-set a scene loads (Bevy's on-demand specialization).
  */

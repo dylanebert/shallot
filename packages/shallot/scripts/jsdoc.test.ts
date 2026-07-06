@@ -9,6 +9,7 @@ import {
     parseClassMembers,
     parseComponentFields,
     parseInterfaceFields,
+    parseJSDoc,
     pluginRefs,
 } from "./jsdoc";
 
@@ -80,6 +81,27 @@ describe("pluginRefs — the components/systems/dependencies a plugin bundles", 
             systems: [],
             dependencies: [],
         });
+    });
+});
+
+describe("parseJSDoc — the description is the whole leading paragraph", () => {
+    const at = (file: string, name: string) => parseJSDoc(file, findDefinitionLine(file, name));
+
+    test("collects every line of the first paragraph, joined — not just the first line", () => {
+        // `capacity`'s summary spans four source lines; the old first-line-only rule cut it at "override
+        // via". The result is one joined string (no newlines), reading past the first line and stopping
+        // at the blank line before the second paragraph ("footgun:").
+        const { description } = at(STATE, "capacity");
+        expect(description).toContain("before any allocation");
+        expect(description).not.toContain("\n");
+        expect(description).not.toContain("footgun");
+    });
+
+    test("a single-line summary is returned verbatim", () => {
+        const { description } = at(ORBIT, "OrbitMode");
+        expect(description).toBe(
+            "Free orbits, pans, and zooms; Locked disables orbit rotation, leaving pan and zoom.",
+        );
     });
 });
 

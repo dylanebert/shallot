@@ -60,7 +60,7 @@ export const ReadbackSystem: System = {
 /**
  * the editor↔engine bridge: maps document {@link Node}s to live entity ids and applies document commands
  * to the running {@link State}. It owns the reflection reach (getComponent / setFieldValue) so the rest of
- * the editor stays out of the ECS internals — the inspector's live field preview, component attach/detach,
+ * the editor stays out of the ECS internals. The inspector's live field preview, component attach/detach,
  * and command replay for undo/redo all route through here.
  */
 export class Session {

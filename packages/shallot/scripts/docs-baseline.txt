@@ -1,8 +1,10 @@
 # docs:check baseline — regenerate with `bun run docs:check --update`.
 # Each class trends to empty as the docs pillar fills it; keep is acknowledged how-to-use prose.
-#   bare <page> <Export>   release-public export with no JSDoc (the reference-fill worklist)
-#   hole <subsystem>       a tier subsystem (package.json subpath) with no doc page
-#   keep <page> <Export>   acknowledged prose mention of a generated reference entry
+#   bare <page> <Export>     release-public export with no JSDoc (the reference-fill worklist)
+#   hole <subsystem>         a tier subsystem (package.json subpath) with no doc page
+#   keep <page> <Export>     acknowledged prose mention of a generated reference entry
+#   prose <page> <kind>      em dash / banned:<word> / opener:<phrase> in docs prose — burn to zero
+#   budget <page> <block>    a #doc:code block over the 3-sentence walkthrough budget — burn to zero
 keep editor/editor.md Document
 keep editor/editor.md ReadbackSystem
 keep editor/editor.md Session

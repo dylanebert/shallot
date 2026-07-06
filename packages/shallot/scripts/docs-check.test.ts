@@ -2,13 +2,19 @@ import { describe, expect, test } from "bun:test";
 import {
     anchorNames,
     bareLines,
+    descText,
+    docTargets,
     formatBaseline,
     holeLines,
     leakLines,
+    linkLines,
     markerSubsystem,
     parseBaseline,
     prose,
+    proseFindings,
+    proseText,
     requiredSubsystems,
+    sentenceCount,
 } from "./docs-check";
 
 describe("bare-entry", () => {
@@ -80,6 +86,64 @@ describe("subsystem coverage", () => {
     test("no holes when every subsystem is covered", () => {
         const required = requiredSubsystems(exports);
         expect(holeLines(required, new Set(["glaze", "physics", "bvh"]))).toEqual([]);
+    });
+});
+
+describe("doc: link resolution", () => {
+    const valid = new Set(["guide/quick-start", "engine/scene"]);
+
+    test("resolves a target that names a known page slug", () => {
+        const src = "see [scenes](doc:engine/scene#load) for the loader";
+        expect(linkLines(src, valid, "guide/quick-start.md")).toEqual([]);
+    });
+
+    test("flags a target with no matching page", () => {
+        const src = "[obby](doc:guide/make-a-game) walks through it";
+        expect(linkLines(src, valid, "guide/quick-start.md")).toEqual([
+            "docs/guide/quick-start.md: broken doc: link → guide/make-a-game",
+        ]);
+    });
+
+    test("ignores a doc: syntax example inside a fence", () => {
+        const src = "syntax:\n```md\n[x](doc:not/a/page)\n```\n";
+        expect(docTargets(src)).toEqual([]);
+    });
+});
+
+describe("prose gate", () => {
+    test("flags an em dash but not one inside fenced code", () => {
+        expect(proseFindings(proseText("the pass reads positions — only that"), "p.md")).toEqual([
+            "prose p.md emdash",
+        ]);
+        expect(proseFindings(proseText("intro\n```ts\na — b\n```\ndone"), "p.md")).toEqual([]);
+    });
+
+    test("flags a banned word on a boundary, ignores it inside inline code", () => {
+        expect(proseFindings(proseText("this can utilize the buffer"), "p.md")).toEqual([
+            "prose p.md banned:utilize",
+        ]);
+        expect(proseFindings(proseText("call `utilize()` on it"), "p.md")).toEqual([]);
+    });
+
+    test("flags an editorial opener", () => {
+        expect(proseFindings(proseText("In order to move it, set position"), "p.md")).toEqual([
+            "prose p.md opener:in-order-to",
+        ]);
+    });
+
+    test("reads rendered JSDoc summaries, code spans stripped", () => {
+        const html = `<p class="ref-desc">a seamless <code>a—b</code> pass</p>`;
+        expect(proseFindings(descText(html), "p.md")).toEqual(["prose p.md banned:seamless"]);
+    });
+});
+
+describe("sentence budget", () => {
+    test("counts terminators, not identifier or version dots", () => {
+        expect(sentenceCount("Set `Orbit.sensitivity`. Ship v0.6.0 now. Done.")).toBe(3);
+    });
+
+    test("does not count e.g./i.e. as sentence ends", () => {
+        expect(sentenceCount("Tune it, e.g. the damping, and go.")).toBe(1);
     });
 });
 

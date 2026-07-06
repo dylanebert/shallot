@@ -2,13 +2,13 @@ import { Compute, Registry } from "../../engine";
 import { octEncodeNormal, pack2x16unorm } from "../../engine/utils/core";
 
 /**
- * registered vertex-pull geometry — a slice descriptor into the quantized vertex
+ * registered vertex-pull geometry: a slice descriptor into the quantized vertex
  * streams + `indices` GPU storage. `vertices` is the 16 B/vertex main stream
  * (`vec4<u32>`: unorm16 pos + meshId, oct normal, unorm16 uv); `position` is the
  * 8 B/vertex depth/shadow stream (pos + meshId only); `quant` is the per-mesh
  * `MeshQuant` table the decode dequantizes against (gpu.md rule 6). `indices` is
  * `u32` absolute vertex positions. `indexBase`/`indexCount` slice the index
- * stream. All have `STORAGE` usage — consumer renderers pull indexed vertices in
+ * stream. All have `STORAGE` usage: consumer renderers pull indexed vertices in
  * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
  *
  * The registry is source-agnostic. Static producers stage typed arrays via
@@ -42,13 +42,13 @@ export interface Mesh {
      * static: a consumer that builds a per-mesh acceleration structure (the RT-shadow
      * BLAS) builds it once and reuses it. `true` = the `vertices`/`indices` are rewritten per
      * frame (a deforming or compute-emitted mesh), so the structure rebuilds every frame. A
-     * mesh whose geometry changes but is left static casts stale shadows — mark it dynamic.
+     * mesh whose geometry changes but is left static casts stale shadows. Mark it dynamic.
      */
     dynamic?: boolean;
     /**
      * optional GPU buffer whose `[0]` is this mesh's *live* index count, ≤ `indexCount`. A
      * compute-emitting producer that materializes only its live elements supplies it so the
-     * RT-shadow BLAS builds over the live triangle range each frame, not the registered cap —
+     * RT-shadow BLAS builds over the live triangle range each frame, not the registered cap:
      * the GPU-count contract, the count never crossing to the CPU. Omit for a fixed mesh: its
      * `indexCount` is the live count. Pair with `dynamic: true`.
      */
@@ -56,13 +56,13 @@ export interface Mesh {
     /**
      * whether the RT-shadow caster builds a BLAS for this mesh. `true` (default) = every mesh
      * casts (the caster auto-builds its BLAS; a producer contributes instances). Set `false` for
-     * a **draw-only** mesh that another mesh already casts for — a producer that materializes a
+     * a **draw-only** mesh that another mesh already casts for: a producer that materializes a
      * world-space draw mesh but casts via a deduped object-space copy would otherwise reserve a
      * redundant slot in the shared caster budget for the draw mesh.
      */
     cast?: boolean;
     /**
-     * a surface-specialization index (default 0) — for a draw whose surface declares
+     * a surface-specialization index (default 0): for a draw whose surface declares
      * {@link Surface.specialize}, it selects the compiled pipeline variant. The glTF importer sets it to
      * a primitive's material map-set bitmask so a textured draw samples only the maps its material
      * carries; a mesh whose surface doesn't specialize ignores it. Constant per mesh (a mesh is one glTF
@@ -70,11 +70,11 @@ export interface Mesh {
      */
     variant?: number;
     /**
-     * per-mesh binding overrides — resources scoped to *this* mesh's draws, keyed by the surface's binding
+     * per-mesh binding overrides: resources scoped to *this* mesh's draws, keyed by the surface's binding
      * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
      * (`Compute.*`). The skinned-mesh VAT is the worked case: each skinned mesh owns its position/normal VAT
      * textures + params, so N skinned meshes coexist in one scene (the textured firehose shares its albedo
-     * arrays globally; a VAT can't — different size per mesh — so it binds per-mesh). A mesh is already its
+     * arrays globally; a VAT can't (different size per mesh), so it binds per-mesh). A mesh is already its
      * own bind group (own geometry buffers), so this adds no draw.
      */
     bindings?: Record<string, GPUTexture | GPUSampler | GPUBuffer>;
@@ -84,7 +84,7 @@ export interface Mesh {
 export const Meshes: Registry<Mesh> = new Registry<Mesh>();
 
 /** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
- *  authoring layout — {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
+ *  authoring layout. {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
  *  (gpu.md rule 6); a GPU producer writes those directly via `POS_QUANT_PACK_WGSL`. */
 export const VERTEX_STRIDE = 32;
 
@@ -106,7 +106,7 @@ let _placeholder: GPUBuffer | null = null;
 /**
  * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
  * `posU + normalV` layout, position in the first three floats per record).
- * Pure — the one position-AABB scan both the cull sphere ({@link meshBounds})
+ * Pure: the one position-AABB scan both the cull sphere ({@link meshBounds})
  * and the unorm16 dequant range (the per-mesh `MeshQuant`, gpu.md rule 6) derive
  * from, so they share one source. An empty buffer returns a zero box.
  */
@@ -138,7 +138,7 @@ export function meshAabb(vertices: Float32Array): {
 /**
  * local-space bounding sphere `[cx, cy, cz, radius]` of a vertex buffer. Center
  * is the {@link meshAabb} midpoint; radius is the farthest vertex from it, so the
- * sphere is tight and a producer's cull can scale it by world scale. Pure —
+ * sphere is tight and a producer's cull can scale it by world scale. Pure:
  * derived once at registration, never per frame.
  */
 export function meshBounds(vertices: Float32Array): [number, number, number, number] {
@@ -160,7 +160,7 @@ export function meshBounds(vertices: Float32Array): [number, number, number, num
 /**
  * register a static mesh from typed arrays. The data is staged now and packed
  * into the shared family buffer at warm by {@link flushMeshes}; the registry
- * entry is a slice of that shared buffer. Procedural producers skip this — they
+ * entry is a slice of that shared buffer. Procedural producers skip this: they
  * own their `GPUBuffer`s and call `Meshes.register(...)` directly. Requires
  * `Compute.device`; no-ops otherwise
  *
@@ -197,7 +197,7 @@ export function mesh(spec: { name: string; vertices: Float32Array; indices: Uint
 /**
  * concatenate staged meshes into one vertex + index pair, shifting each mesh's
  * indices by its vertex base so the index stream holds absolute positions.
- * Pure — exported for the index-shift test; {@link flushMeshes} uploads it
+ * Pure: exported for the index-shift test; {@link flushMeshes} uploads it
  */
 export function packMeshes(
     staged: { name: string; vertices: Float32Array; indices: Uint32Array }[],
@@ -254,9 +254,9 @@ const MESH_QUANT_FLOATS = 12;
  * the GPU vertex streams a quantized family uploads, derived from the packed f32
  * (gpu.md rule 6). `main` is 16 B/vertex (`vec4<u32>`): w0 = unorm16 pos.xy,
  * w1 = unorm16 pos.z | (meshId << 16), w2 = oct normal, w3 = unorm16 uv.
- * `position` is the 8 B/vertex depth/shadow stream (w0, w1 — pos + meshId only).
+ * `position` is the 8 B/vertex depth/shadow stream (w0, w1: pos + meshId only).
  * `quant` is `MeshQuant` per mesh (the position + uv AABB the decode dequantizes
- * against, selected by meshId). The f32 stays the lossless authoring form — only
+ * against, selected by meshId). The f32 stays the lossless authoring form: only
  * the GPU mirror quantizes (the slab packed-mirror discipline, ecs.md).
  */
 export interface QuantStreams {
@@ -269,8 +269,8 @@ export interface QuantStreams {
  * quantize a packed f32 vertex stream ({@link packMeshes}'s output) into the GPU
  * formats. One AABB per mesh slice (its own position + uv range), so a small mesh
  * keeps full unorm16 precision; meshId is the slice index, packed into the stream
- * so the decode selects the right `MeshQuant` from a plain storage table — no
- * per-draw uniform, works unchanged in render bundles. Pure — the single emitter
+ * so the decode selects the right `MeshQuant` from a plain storage table: no
+ * per-draw uniform, works unchanged in render bundles. Pure: the single emitter
  * both `flushMeshes` and the glTF importer call, paired with the WGSL `decodePos`
  * (`POS_QUANT_WGSL`) so the lattice can't drift between writer and reader.
  */

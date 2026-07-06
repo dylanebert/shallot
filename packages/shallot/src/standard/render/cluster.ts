@@ -29,7 +29,7 @@ export const CLUSTER_X = 16;
 export const CLUSTER_Y = 9;
 /** cluster grid: logarithmic depth slices (DOOM 2016 / Olsson log-Z) */
 export const CLUSTER_Z = 24;
-/** total froxels per view — `CLUSTER_X * CLUSTER_Y * CLUSTER_Z` */
+/** total froxels per view: `CLUSTER_X * CLUSTER_Y * CLUSTER_Z` */
 export const CLUSTER_COUNT = CLUSTER_X * CLUSTER_Y * CLUSTER_Z;
 
 /**
@@ -64,7 +64,7 @@ export function clusterView(eid: number, aspect: number): ClusterView {
 
 /**
  * linearize cluster coords: `(y·X + x)·Z + z`, so a tile's Z-slices are
- * contiguous — the FS walks depth within a tile without striding
+ * contiguous, so the FS walks depth within a tile without striding
  */
 export function clusterIndex(x: number, y: number, z: number): number {
     return (y * CLUSTER_X + x) * CLUSTER_Z + z;
@@ -79,7 +79,7 @@ export function clusterCoord(index: number): { x: number; y: number; z: number }
 
 /**
  * the log-slice boundary depth: positive view-space depth where slice `z`
- * begins — `near · (far/near)^(z/Z)`, so slice 0 starts at `near` and slice
+ * begins: `near · (far/near)^(z/Z)`, so slice 0 starts at `near` and slice
  * `CLUSTER_Z` (one past the last) lands exactly on `far`
  */
 export function sliceDepth(view: ClusterView, z: number): number {
@@ -123,7 +123,7 @@ export function clusterAabb(
 }
 
 /**
- * the cluster indices a point light's influence sphere touches —
+ * the cluster indices a point light's influence sphere touches:
  * sphere-vs-AABB by squared distance from the view-space center to each
  * cluster's box. The TS twin of the light-cull WGSL test; the gym Mirror
  * assert pins them together. `center` is the light's view-space position
@@ -157,8 +157,8 @@ const CLUSTER_VIEW_FLOATS = 8;
 
 /**
  * GPU cluster substrate. `aabbs` holds each cluster's view-space AABB as two
- * `vec4<f32>` (min, max; w unused), slot-major —
- * `(slot · CLUSTER_COUNT + cluster) · 2` — published to `Compute.buffers` as
+ * `vec4<f32>` (min, max; w unused), slot-major at
+ * `(slot · CLUSTER_COUNT + cluster) · 2`, published to `Compute.buffers` as
  * `"clusterAabbs"`. Rebuilt by {@link ClusterSystem} only when a view's
  * projection changes
  * @expand
@@ -178,7 +178,7 @@ export const Clusters: Clusters = {
 };
 
 /**
- * pack a camera's {@link ClusterView} into the staging slot — called per view by
+ * pack a camera's {@link ClusterView} into the staging slot, called per view by
  * `BeginFrameSystem`, which reuses the returned view for the View.cluster pack
  */
 export function packClusterView(eid: number, aspect: number, slot: number): ClusterView {
@@ -198,7 +198,7 @@ let _group: GPUBindGroup | null = null;
 
 /**
  * rebuilds the cluster AABB buffer when any active view's projection changed
- * since the last build (the staging prefix is the dirty signal — pose changes
+ * since the last build (the staging prefix is the dirty signal: pose changes
  * never touch it, so a static-projection frame dispatches nothing). Runs after
  * `BeginFrameSystem` (the `first` bucket sorts ahead of every normal system),
  * which packed the staging prefix this frame
@@ -343,11 +343,11 @@ const POOL_HEADER = 2;
 
 /**
  * GPU light-cull state. `lights` is the compacted world-space light list
- * (POINT_LIGHTS_STRUCT_WGSL — count header + posRange/color entries), GPU-written
+ * (POINT_LIGHTS_STRUCT_WGSL: count header + posRange/color entries), GPU-written
  * each frame by the compact pass. `grid` holds an (offset, count) entry per
  * (view slot, cluster), slot-major; `indices` is the flat index pool the offsets
  * point into ([0] counter, [1] overflow, data from element 2). `viewMats` is the
- * per-slot world→view matrix, staged by `BeginFrameSystem` — the cull pass
+ * per-slot world→view matrix, staged by `BeginFrameSystem`: the cull pass
  * transforms world-space lights into each view's cluster space with it
  * @expand
  */

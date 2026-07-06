@@ -2,10 +2,10 @@ import { euler, quat } from "./math";
 
 /**
  * a field's authoring alias: a bidirectional codec between its stored lanes and the representation a
- * user edits. Sits alongside the scalar string codecs (`parse`/`format` traits) — this is the vector
+ * user edits. Sits alongside the scalar string codecs (`parse`/`format` traits); this is the vector
  * one (lanes ↔ lanes). Declare it in a component's traits when the stored form isn't what should be
  * edited; the canonical case is a quaternion authored as euler angles ({@link eulerAlias}). A field
- * without an alias edits its lanes directly. The standard set is small on purpose — euler is the one
+ * without an alias edits its lanes directly. The standard set is small on purpose: euler is the one
  * common vector alias; add a member when a field actually needs it.
  */
 export interface Alias {
@@ -19,8 +19,8 @@ export interface Alias {
 
 /**
  * author a packed `Pair`/`Quad`'s lanes by name (`metallic`, `roughness`) for one-buffer storage with
- * friendly authoring: `material="metallic: 1; roughness: 0.2"`. An **identity** alias — `axes.length`
- * equals the field's lane count, each axis 1:1 with a lane — which the scene parser + serializer honor.
+ * friendly authoring: `material="metallic: 1; roughness: 0.2"`. An **identity** alias: `axes.length`
+ * equals the field's lane count, each axis 1:1 with a lane, which the scene parser + serializer honor.
  * A non-identity alias ({@link eulerAlias}, 3 axes over a 4-lane quat) stays editor-only: the length
  * mismatch is the discriminator that keeps quaternion fields authored positionally.
  *
@@ -40,7 +40,7 @@ const EULER_AXES = ["x", "y", "z"] as const;
 
 /**
  * author a quaternion stored at `base` (lanes `base.x/y/z/w`) as euler angles in degrees. The user
- * never sees the quaternion — `read` decodes quat→euler, `write` encodes the edited euler→quat.
+ * never sees the quaternion: `read` decodes quat→euler, `write` encodes the edited euler→quat.
  *
  * @example
  * traits: { Transform: { aliases: { rot: eulerAlias("rot") } } }

@@ -72,7 +72,7 @@ function dispatch(slot: number, req: DecodeRequest): Promise<DecodedGltf> {
 }
 
 /**
- * drop the pool's queued decodes — the cancel-on-dispose seam (`GltfPlugin.dispose` on a scene switch / State
+ * drop the pool's queued decodes: the cancel-on-dispose seam (`GltfPlugin.dispose` on a scene switch / State
  * teardown). Queued requests reject (their awaiters guard on `state.disposed`, so a drop is silent teardown,
  * not a load failure); an in-flight decode finishes on its worker and lands in the asset cache, where a late
  * result is safe (idempotent, no LRU eviction race). A no-op before any pool spins up (the bun-webgpu inline
@@ -86,10 +86,10 @@ export function abortDecodes(): void {
  * decode a glTF through the worker pool, resolving the transferred {@link DecodedGltf}. The url is absolutized
  * against the document (a module worker's base url is the bundle chunk, not the page, so a relative .bin /
  * image / KTX2 fetch would resolve wrong); `targets` are the device's per-slot compressed formats, resolved
- * main-thread-side (the deviceless contract — undefined is fine for an untextured / PNG asset). Where Worker
- * is unavailable (bun-webgpu / tests) it decodes inline — the same `decode`, no second implementation.
+ * main-thread-side (the deviceless contract, so undefined is fine for an untextured / PNG asset). Where Worker
+ * is unavailable (bun-webgpu / tests) it decodes inline, the same `decode`, no second implementation.
  * `priority` orders the queue (higher dispatches first). The asset cache ({@link ensureDecoded}) routes through
- * this; it caches on the original src, so this returns a `DecodedGltf` whose `url` is the absolutized form —
+ * this; it caches on the original src, so this returns a `DecodedGltf` whose `url` is the absolutized form,
  * the caller normalizes it back.
  */
 export function poolDecode(
@@ -110,7 +110,7 @@ export function poolDecode(
 }
 
 /**
- * decode a glTF off the main thread — submit it to the worker pool and resolve the {@link DecodedGltf} a worker
+ * decode a glTF off the main thread: submit it to the worker pool and resolve the {@link DecodedGltf} a worker
  * transfers back zero-copy. The transcode target is resolved from the device (the deviceless contract), so this
  * needs a built State. Feed the result to {@link register} exactly like {@link decode}'s output; for the cached
  * load path use {@link loadGltf} / {@link ensureDecoded} instead, which route through the same pool.

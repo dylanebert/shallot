@@ -1,10 +1,10 @@
 import type { Pair, Quad, Single, Type, TypedArray } from "./component";
 
 /**
- * Map-backed component field — the CPU storage primitive. Memory is
+ * Map-backed component field: the CPU storage primitive. Memory is
  * O(live entities), demand-allocated on first write, so a component held by a
  * handful of entities (cameras, players, orbits, singletons) costs nothing for
- * the empty slots. CPU-only — pair it with `slab(type)` for a GPU-mirrored
+ * the empty slots. CPU-only. Pair it with `slab(type)` for a GPU-mirrored
  * field: same {@link Type} descriptor, same {@link Single}/{@link Pair}/{@link Quad}
  * surface, so consumers, scene parse, and traits don't see the difference.
  * Reads of unset entities return the type's zero value.

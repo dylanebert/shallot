@@ -1,6 +1,6 @@
 {
   "ambient-light": {
-    "summary": "ambient light component. sear's `lit` / `lightFactor` helpers",
+    "summary": "ambient light component. sear's `lit` / `lightFactor` helpers read it via the kitchen Lighting uniform. `color` is hex sRGB (e.g. `0xd0dcec`); `intensity` is a linear multiplier",
     "fields": {
       "color": {
         "description": null,
@@ -15,7 +15,7 @@
     }
   },
   "arrow": {
-    "summary": "an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints.",
+    "summary": "an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints. Requires a {@link Line} on the same entity",
     "fields": {
       "start": {
         "description": "a head at the start endpoint when nonzero",
@@ -35,7 +35,7 @@
     }
   },
   "backdrop": {
-    "summary": "select a Sear camera's backdrop — the {@link Backgrounds} recipe drawn behind the scene as a fullscreen",
+    "summary": "select a Sear camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen view-ray → color fill on the un-rendered pixels. Without it the camera shows the flat `Camera.clearColor` (the opt-in fallback). The recipe is registered in code (`Backgrounds.register`); this picks one per camera by name.",
     "fields": {
       "name": {
         "description": "the registered background drawn behind the scene (selected by name)",
@@ -80,7 +80,7 @@
     }
   },
   "camera": {
-    "summary": "camera component. Pose comes from {@link Transform} (looks down its local -Z). A lone camera",
+    "summary": "camera component. Pose comes from {@link Transform} (looks down its local -Z). A lone camera auto-binds to the first `<canvas>` in the document, so the single-view case needs no wiring; multi-view (or a dynamically-created canvas) binds each camera explicitly via `attachCanvas` from `render/core`. `clearColor` is hex sRGB-encoded (e.g. `0x5cbfbf`); sear unpacks to linear when recording the camera's render pass",
     "fields": {
       "mode": {
         "description": null,
@@ -113,34 +113,34 @@
         "default": "0x2e2b28"
       },
       "antialias": {
-        "description": "antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp — for a pixel-art look)",
+        "description": "antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look)",
         "type": "float",
         "default": "1"
       }
     }
   },
   "character": {
-    "summary": "a kinematic character — a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed",
+    "summary": "a kinematic character: a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed step (collide-and-slide on the CPU). Authors the walkable slope, the jump launch speed, and a per-character gravity; the controller sweeps every `[Character, Body]`, drives it via {@link move} / {@link jump}, and reads {@link grounded} / {@link pose} back. The first-person {@link Player} composes this.",
     "fields": {
       "max-slope": {
-        "description": "steepest walkable slope in degrees — a contact flatter than this grounds the character; steeper, it slides",
+        "description": "steepest walkable slope in degrees; a contact flatter than this grounds the character, steeper it slides",
         "type": "float",
         "default": "45"
       },
       "jump-speed": {
-        "description": "the launch velocity a buffered + grounded {@link jump} sets — 0 disables jumping",
+        "description": "the launch velocity a buffered + grounded {@link jump} sets. 0 disables jumping",
         "type": "float",
         "default": "0"
       },
       "gravity": {
-        "description": "per-character gravity (negative, snappier than the world for a player) — 0 = the configured world gravity",
+        "description": "per-character gravity (negative, snappier than the world for a player). 0 = the configured world gravity",
         "type": "float",
         "default": "0"
       }
     }
   },
   "color": {
-    "summary": "per-entity base color. Authored CPU-side as a linear {@link Quad}, but mirrored to the GPU as one",
+    "summary": "per-entity base color. Authored CPU-side as a linear {@link Quad}, but mirrored to the GPU as one sRGB-packed u32 ({@link srgb8x4}, 16 B → 4 B), published to `Compute.buffers` under the name `\"color\"`; a surface reads it as `unpackLdrColor(color[eid])`. Alpha is reserved for transparency",
     "fields": {
       "rgba": {
         "description": null,
@@ -150,11 +150,11 @@
     }
   },
   "depth": {
-    "summary": "opt a Sear camera into the **depth lane** — the prepass *stores* its single-sample depth and publishes",
+    "summary": "opt a Sear camera into the **depth lane**: the prepass *stores* its single-sample depth and publishes it as `view.depth` (without this marker the prepass depth is discarded, never reaching main memory). Requestable on its own (a depth-only consumer needs no id) or alongside {@link Tag} (one prepass writes both). Bevy's `DepthPrepass`. A screen-space consumer (AO, fog, volumetrics) adds it to read `view.depth`.",
     "fields": {}
   },
   "directional-light": {
-    "summary": "directional light component. sear's `lit` / `lightFactor`",
+    "summary": "directional light component. sear's `lit` / `lightFactor` helpers read it via the kitchen Lighting uniform. `direction` is the light's travel direction (down-pointing for a sun overhead); auto-normalized when packed",
     "fields": {
       "color": {
         "description": null,
@@ -174,10 +174,10 @@
     }
   },
   "fog": {
-    "summary": "the scene's volumetric atmosphere — one per scene (a singleton). The fog pass marches each pixel from the",
+    "summary": "the scene's volumetric atmosphere: one per scene (a singleton). The fog pass marches each pixel from the camera to the scene depth, accumulating extinction and fading the scene toward `color`. `density` is the base haze thickness; `heightFalloff` makes it an exponential height fog (denser low, thinning with altitude above `heightBase`); `steps` / `jitter` trade march cost for banding. The scattering knobs (`absorption` / `scattering` / `anisotropy` / `scatterIntensity`) shape volumetric light shafts.",
     "fields": {
       "density": {
-        "description": "base extinction coefficient — how fast the scene fades into haze with distance (0 = clear)",
+        "description": "base extinction coefficient: how fast the scene fades into haze with distance (0 = clear)",
         "type": "float",
         "default": "0.02"
       },
@@ -192,7 +192,7 @@
         "default": "0"
       },
       "scattering": {
-        "description": "in-scatter strength — how brightly light shafts glow in the haze",
+        "description": "in-scatter strength: how brightly light shafts glow in the haze",
         "type": "float",
         "default": "1"
       },
@@ -202,7 +202,7 @@
         "default": "0"
       },
       "height-base": {
-        "description": "world height where density equals `density` — the base of the height falloff",
+        "description": "world height where density equals `density`: the base of the height falloff",
         "type": "float",
         "default": "0"
       },
@@ -229,7 +229,7 @@
     }
   },
   "glaze": {
-    "summary": "per-camera postfx tuning. A camera tonemaps Neutral by default (no `Glaze` needed); add `Glaze` to",
+    "summary": "per-camera postfx tuning. A camera tonemaps Neutral by default (no `Glaze` needed); add `Glaze` to pick a different {@link Tonemap} operator, dial a color grade, or enable vignette / posterize / dither. `tonemap` is a {@link Tonemap} index (0 = Neutral default, 1 = None); `exposure` scales the scene pre-tonemap; the grade is ASC CDL `slope`/`offset`/`power` (per-channel rgb, scene-referred, pre-tonemap) plus a post-tonemap `saturation`; `vignette` is corner darkness in [0,1] between `vignetteInner` and `vignetteOuter` screen radii; `posterize` is the band count (0 = off) and `dither` the OkLab-L dither amplitude that breaks bands. The grade defaults to a no-op (slope/power 1, offset 0, saturation 1).",
     "fields": {
       "exposure": {
         "description": null,
@@ -312,14 +312,14 @@
         "default": "0 0 0"
       },
       "stiffness-ang": {
-        "description": "angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation — author `stiffness-ang: fixed`.",
+        "description": "angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation (author `stiffness-ang: fixed`).",
         "type": "float",
         "default": "0"
       }
     }
   },
   "line": {
-    "summary": "a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated",
+    "summary": "a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated offset. A retained scene annotation, expanded into one screen-space segment each frame",
     "fields": {
       "offset": {
         "description": "line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up)",
@@ -349,11 +349,11 @@
     }
   },
   "listener": {
-    "summary": "marks the spatial listener entity — its `Transform` orients the FOA + HRTF render",
+    "summary": "marks the spatial listener entity. its `Transform` orients the FOA + HRTF render",
     "fields": {}
   },
   "material": {
-    "summary": "per-entity PBR material the `default` / `vertex` surfaces read (alongside `Color`, the base albedo).",
+    "summary": "per-entity PBR material the `default` / `vertex` surfaces read (alongside `Color`, the base albedo). One slab `Quad` published as `\"material\"`, lanes `(metallic, roughness, emissive, occlusion)`: `metallic` and `roughness` are the metallic-roughness knobs ([0,1]); `emissive` is a glow **strength** tinting the base color (`Color.rgb * emissive`); `occlusion` dims ambient ([0,1]). Defaults are flat (metallic 0, roughness 1, emissive 0, occlusion 1), so a Part without it shades exactly like the pre-PBR diffuse `lit`. Independent (non-tinted) emissive + texture-driven maps are the glTF importer's job (it drives sear's `litPbr` from its own per-material palette).",
     "fields": {
       "params": {
         "description": "the four PBR lanes `(metallic, roughness, emissive, occlusion)`, authored named via the `material` attribute (`material=\"metallic: 1; roughness: 0.2\"`).",
@@ -513,7 +513,7 @@
     }
   },
   "part": {
-    "summary": "ECS-shaped opt-in for Part rendering. `surface` holds the {@link Surfaces}",
+    "summary": "ECS-shaped opt-in for Part rendering. `surface` holds the {@link Surfaces} ID for the entity's shading; `mesh` holds the {@link Meshes} ID for its geometry: both `slab(u32)` the pack reads on GPU. The pack groups Parts by `(surface, mesh)` and emits one indirect draw per used pair, so a surface is shading only and renders any mesh. `surface` defaults to `\"default\"`, `mesh` to `\"cube\"`; scenes pick others via `<a part=\"surface: checker; mesh: wall\" />`",
     "fields": {
       "surface": {
         "description": null,
@@ -528,7 +528,7 @@
     }
   },
   "player": {
-    "summary": "first-person player — the look + camera layer over a kinematic {@link Character}. Lives on the same capsule",
+    "summary": "first-person player: the look + camera layer over a kinematic {@link Character}. Lives on the same capsule {@link Body} as a {@link Character} (`mass <= 0`); the character module registers + drives it, this adds the mouse look + a follow camera. `camera` is the eid of a separate camera entity (Camera + Transform + a renderer marker) the controller poses each frame. `distance` is the camera's pull-back from the eye. 0 is first-person (the default), `> 0` is the third-person scaffolding. Walk/jump/slope tuning lives on `Character`.",
     "fields": {
       "yaw": {
         "description": "look yaw in radians (turn around world Y); set it to face a direction at spawn",
@@ -551,7 +551,7 @@
         "default": "1.8"
       },
       "sensitivity": {
-        "description": "mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look",
+        "description": "mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size)",
         "type": "float",
         "default": "1.5"
       },
@@ -573,7 +573,7 @@
     }
   },
   "point-light": {
-    "summary": "point light component. Position comes from the entity's `Transform`; sear's",
+    "summary": "point light component. Position comes from the entity's `Transform`; sear's `lit` / `lightFactor` helpers accumulate the fragment's cluster's point lights: inverse-square falloff windowed smoothly to exactly zero at `range`. `color` is hex sRGB; `intensity` is a linear multiplier. Slab fields: the light-cull compute passes read them straight off the GPU (no CPU light list)",
     "fields": {
       "color": {
         "description": "the light's hex sRGB color (e.g. 0xffd9a0)",
@@ -586,19 +586,19 @@
         "default": "1"
       },
       "range": {
-        "description": "the distance (metres) the falloff smoothly reaches zero at — the cull cutoff",
+        "description": "the distance (metres) the falloff smoothly reaches zero at: the cull cutoff",
         "type": "float",
         "default": "10"
       },
       "radius": {
-        "description": "the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field",
+        "description": "the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field bulb and widens the specular highlight; 0.01 reproduces the old bare-filament hotspot",
         "type": "float",
         "default": "0.1"
       }
     }
   },
   "resolution": {
-    "summary": "render this camera at a fixed low resolution and scale it up to fill the canvas, crisp not blurred.",
+    "summary": "render this camera at a fixed low resolution and scale it up to fill the canvas, crisp not blurred. Without it the view renders at the canvas backing size (the global pixelRatio policy). `0` on an axis derives it from the other to keep the canvas aspect, so `height: 360` alone renders 360 lines tall and as wide as the canvas shape needs; set both for an exact (possibly aspect-distorting) target. Per camera, so each canvas in a multi-view scene pins its own. Pairs with {@link Camera} `antialias` off.",
     "fields": {
       "width": {
         "description": "render width in pixels; 0 = derive from height to keep the canvas aspect",
@@ -613,11 +613,11 @@
     }
   },
   "sear": {
-    "summary": "marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through",
+    "summary": "marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through sear's color pass, plus the opt-in prepass lanes its {@link Tag} / {@link Depth} markers request. Lives in the renderer impl with the systems that query it; the thin `sear` barrel re-exports it to the game author, `sear/core` re-exports the systems to an extender.",
     "fields": {}
   },
   "sequence": {
-    "summary": "a timeline that plays {@link Tween}s placed on it with `at` — a shared playhead many tweens read",
+    "summary": "a timeline that plays {@link Tween}s placed on it with `at`: a shared playhead many tweens read",
     "fields": {
       "state": {
         "description": "play control; a fresh sequence defaults to playing",
@@ -642,10 +642,10 @@
     }
   },
   "shadow": {
-    "summary": "shadow tuning, on a light entity — presence is the switch (like {@link Tag} on a camera), the",
+    "summary": "shadow tuning, on a light entity: presence is the switch (like {@link Tag} on a camera), the fields are the tuning. On the {@link DirectionalLight} it casts the sun's cascaded shadow map; on a {@link PointLight} the light's six cube faces render into the shared depth atlas (`distance` doesn't apply there: coverage is the light's `range`, and the tile size is importance-sized from the {@link PointShadows} atlas budget). `distance` is the directional sun's **max shadow distance**: the camera's view range is split into cascades out to it ({@link SunShadows}); raise it to shadow farther, lower it for finer near texels. `normalBias` is the primary acne fix: the receiver is shifted along its surface normal by `normalBias` shadow-map texels (in world size) before the depth compare, so grazing faces (where acne is worst) get more offset (raise it if acne shows, lower it if shadows detach from contact edges). `depthBias` is a small residual depth bias toward the light the normal offset can't cover (flat faces dead-on to the light).",
     "fields": {
       "distance": {
-        "description": "the sun's max shadow distance — the camera view range is split into cascades out to it; raise to shadow farther, lower for finer near texels. Ignored on a point light (coverage is its `range`).",
+        "description": "the sun's max shadow distance: the camera view range is split into cascades out to it; raise to shadow farther, lower for finer near texels. Ignored on a point light (coverage is its `range`).",
         "type": "float",
         "default": "50"
       },
@@ -662,7 +662,7 @@
     }
   },
   "skin": {
-    "summary": "a skinned glTF instance's animation state — one `slab(vec4)` published as `\"skin\"`: lane x is the play",
+    "summary": "a skinned glTF instance's animation state. One `slab(vec4)` published as `\"skin\"`: lane x is the play time in seconds (advanced by {@link SkinSystem}), y the material palette index in the shared union palette (asset base + local id, the `mid` the shade path reads, folded in to keep the surface at the 10-storage ceiling), z a per-instance phase offset (crowd variety; 0 for a single import), w the clip duration {@link SkinSystem} loops the play time on. The duration is per-instance, so N skinned meshes with different clip lengths coexist in one scene. The importer adds it to each skinned instance.",
     "fields": {
       "anim": {
         "description": null,
@@ -672,7 +672,7 @@
     }
   },
   "sky": {
-    "summary": "the scene's procedural sky — one per scene (a singleton). A camera shows it by selecting the registered",
+    "summary": "the scene's procedural sky, one per scene (a singleton). A camera shows it by selecting the registered `sky` backdrop (`backdrop=\"name: sky\"`). The look is a layered recipe: an elevation gradient from `horizon` up to `zenith`, a sun glow + disk (positioned by the scene's directional light, tinted `sun-color`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction follows the directional light; this component sets only its appearance.",
     "fields": {
       "zenith": {
         "description": "hex sRGB color overhead, at the zenith (e.g. 0x89b6e9)",
@@ -695,7 +695,7 @@
         "default": "0xffffff"
       },
       "sun-size": {
-        "description": "sun disk size [0,1] — larger paints a bigger disk",
+        "description": "sun disk size [0,1]: larger paints a bigger disk",
         "type": "float",
         "default": "0.7"
       },
@@ -710,7 +710,7 @@
         "default": "0xffffff"
       },
       "cloud-coverage": {
-        "description": "cloud coverage [0,1] — how much of the sky the clouds fill (0 = clear)",
+        "description": "cloud coverage [0,1]: how much of the sky the clouds fill (0 = clear)",
         "type": "float",
         "default": "0.5"
       },
@@ -720,7 +720,7 @@
         "default": "0.7"
       },
       "cloud-height": {
-        "description": "cloud layer height — scales the projected cloud size (larger = higher, smaller clouds)",
+        "description": "cloud layer height: scales the projected cloud size (larger = higher, smaller clouds)",
         "type": "float",
         "default": "4"
       },
@@ -730,7 +730,7 @@
         "default": "0"
       },
       "star-amount": {
-        "description": "star density [0,1] — more stars in the grid",
+        "description": "star density [0,1]: more stars in the grid",
         "type": "float",
         "default": "0.5"
       },
@@ -747,7 +747,7 @@
     }
   },
   "sound": {
-    "summary": "a playing sound, mirroring Bevy's `AudioPlayer` + `PlaybackSettings`: add it",
+    "summary": "a playing sound, mirroring Bevy's `AudioPlayer` + `PlaybackSettings`: add it to start, remove it to stop a loop. `instrument` is a registered instrument id; `loop` 0 = one-shot (frees itself when the envelope idles), 1 = loop; `volume` (0–1, quadratic) and `pitch` (semitones, oscillator instruments only) firehose live to the voice. `voice` is the allocated voice handle, managed by {@link SoundSystem}; don't write it",
     "fields": {
       "instrument": {
         "description": "registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler)",
@@ -770,22 +770,22 @@
         "default": "0"
       },
       "voice": {
-        "description": "allocated voice handle, managed by the audio system — read-only, don't author",
+        "description": "allocated voice handle, managed by the audio system. read-only, don't author",
         "type": "float",
         "default": "-1"
       }
     }
   },
   "spot": {
-    "summary": "spot add-on for a {@link PointLight} — presence narrows the light into a cone (like {@link Shadow},",
+    "summary": "spot add-on for a {@link PointLight}: presence narrows the light into a cone (like {@link Shadow}, presence is the switch). The cone points along the entity's forward axis (its `Transform` rotation), so aim it by rotating the entity. `inner` / `outer` are half-angles in degrees (axis to edge): full brightness inside `inner`, smoothly to dark at `outer`. The light still falls off + culls by the PointLight's `range`.",
     "fields": {
       "inner": {
-        "description": "the cone's inner half-angle (degrees, axis→edge) — full brightness inside it",
+        "description": "the cone's inner half-angle (degrees, axis→edge): full brightness inside it",
         "type": "float",
         "default": "20"
       },
       "outer": {
-        "description": "the cone's outer half-angle (degrees, axis→edge) — dark past it, smooth between inner and outer",
+        "description": "the cone's outer half-angle (degrees, axis→edge): dark past it, smooth between inner and outer",
         "type": "float",
         "default": "30"
       }
@@ -827,7 +827,7 @@
     }
   },
   "sprite": {
-    "summary": "a textured world-space quad (icon, marker) anchored to an entity's {@link Transform}. `image` is",
+    "summary": "a textured world-space quad (icon, marker) anchored to an entity's {@link Transform}. `image` is a registered image id ({@link image}), `size` the world-space quad size, `anchor` the 0..1 pivot (0.5 0.5 = centered), `color` a hex sRGB tint, `billboard` a {@link SpriteBillboard} mode, `blend` a {@link SpriteBlend} mode. `opacity` multiplies the texture alpha; under the default `clip` blend that shrinks the cutout (the sprite vanishes below 0.5, the gltf-clip convention); a smooth fade needs `blend: alpha`. The quad scales by the transform's scale on top of `size`. `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode`: a radial fill over a ring icon is a progress ring, a vertical fill over a bar icon a gauge",
     "fields": {
       "image": {
         "description": "registered image id (see {@link image}); a scene's `image:` resolves the registered name",
@@ -882,11 +882,11 @@
     }
   },
   "tag": {
-    "summary": "opt a Sear camera into the **id lane** — the `view.tag` target {@link PrepassSystem} fills. Unreal's",
+    "summary": "opt a Sear camera into the **id lane**: the `view.tag` target {@link PrepassSystem} fills. Unreal's `CustomStencil` generalized from an 8-bit stencil to a u32 lane; Bevy's prepass carries no id (it CPU-raycasts), so the id rides this single-sample pass because it's the same rasterization. A marker in the spirit of Bevy's `DepthPrepass` / `NormalPrepass`: add it to enable one extra camera output; omit it and the lane is absent (no target allocated). Per-camera, so a minimap opts out while the main view opts in. A consumer that reads `view.tag` (hover, outline, picking) wants this on its camera; the engine itself stays tag-agnostic.",
     "fields": {}
   },
   "text": {
-    "summary": "a world-space text label anchored to an entity's {@link Transform}. Register the string with",
+    "summary": "a world-space text label anchored to an entity's {@link Transform}. Register the string with {@link text} and, optionally, a face with {@link font}; the glyphs lay out once and ride the entity's transform, so moving a label triggers no rebuild",
     "fields": {
       "content": {
         "description": "interned string id (see {@link text}); a scene's `content:` interns the raw string",
@@ -926,7 +926,7 @@
     }
   },
   "textured": {
-    "summary": "per-instance material id — an index into the per-material palette (`materialData`) the textured glTF",
+    "summary": "per-instance material id: an index into the per-material palette (`materialData`) the textured glTF surfaces read. A `slab(u32)` published as `\"materialIndex\"`, so a surface samples `albedo[materialData[id].layer]`. The firehose seam for textures: one more per-entity GPU column, no new draws. Distinct from sear's `Material` (the per-instance PBR knobs): this is the palette index, that is the shading params. A runtime-derived decoration. {@link GltfPlugin}'s route sync owns it (the id is union-palette-relative, so scenes never author it).",
     "fields": {
       "id": {
         "description": null,
@@ -936,7 +936,7 @@
     }
   },
   "transform": {
-    "summary": "per-entity transform: pos, rot, scale as direct {@link Quad} fields. Lanes",
+    "summary": "per-entity transform: pos, rot, scale as direct {@link Quad} fields. Lanes are individually addressable as Singles (`Transform.pos.x.set(eid, v)`) and writable in bulk (`Transform.pos.set(eid, x, y, z, 0)`). The CPU writes flow through the slab plugin; SlabSystem flushes dirty slots once per frame and the compose pass derives world matrices into the `\"transforms\"` firehose.",
     "fields": {
       "pos": {
         "description": null,
@@ -984,7 +984,7 @@
         "default": "1"
       },
       "elapsed": {
-        "description": "current clock position, seconds; seekable — set it to scrub",
+        "description": "current clock position, seconds; seekable: set it to scrub",
         "type": "float",
         "default": "0"
       },
@@ -999,7 +999,7 @@
         "default": "replace"
       },
       "fill": {
-        "description": "whether the tween holds its value outside the active interval — `none`, `forwards`, `backwards`, `both`",
+        "description": "whether the tween holds its value outside the active interval: `none`, `forwards`, `backwards`, `both`",
         "type": "none | forwards | backwards | both",
         "default": "forwards"
       },
@@ -1030,7 +1030,7 @@
     "fields": {}
   },
   "volumetric": {
-    "summary": "opt a light — {@link PointLight}, {@link Spot}, or the {@link DirectionalLight} sun — into volumetric",
+    "summary": "opt a light ({@link PointLight}, {@link Spot}, or the {@link DirectionalLight} sun) into volumetric light shafts; presence is the switch, like {@link Spot}. On a point/spot light the light-compact pass flags its compacted entry; on the sun it flags the Lighting uniform. The `fog` march then scatters that light through the haze (a visible cone or sun shaft, shadowed by occluders if the light also carries a `Shadow`). With no `FogPlugin` / `Fog` singleton the flag is inert. The lit path is unchanged.",
     "fields": {}
   }
 }

@@ -8,7 +8,7 @@
 // (a zeroed config → mode 0) tonemaps Neutral.
 
 /**
- * tonemap operator for the {@link Glaze} `tonemap` field. `Neutral` (0) is the zero-config default —
+ * tonemap operator for the {@link Glaze} `tonemap` field. `Neutral` (0) is the zero-config default:
  * color-faithful, rolls off only the highlights. `None` is a raw passthrough.
  *
  * @example
@@ -26,7 +26,7 @@ export const Tonemap = {
     SomewhatBoring: 6,
 } as const;
 
-/** the tonemap operators as one WGSL chunk — a `tonemap(color, op)` switch over the {@link Tonemap}
+/** the tonemap operators as one WGSL chunk: a `tonemap(color, op)` switch over the {@link Tonemap}
  * indices, spliced into glaze's composite. A custom composite that wants the same display transforms
  * splices this and dispatches on its own operator field. */
 export const TONEMAP_WGSL = /* wgsl */ `

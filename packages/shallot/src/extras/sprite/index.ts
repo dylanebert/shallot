@@ -45,7 +45,7 @@ function transparentPixel(): Blob {
  * register a sprite image, returning the id stored in {@link Sprite.image}. `source` is a url or a
  * `Blob` (a procedurally-drawn `OffscreenCanvas.convertToBlob` works); `name` is the handle a
  * scene's `image:` attribute resolves (defaults to the url). Register any time up to a plugin's
- * `initialize` — `SpritePlugin` builds the `texture_2d_array` at `warm`, after every initialize — so a
+ * `initialize` (`SpritePlugin` builds the `texture_2d_array` at `warm`, after every initialize), so a
  * plugin can register its own images (no pre-`build` call needed); all images share one array, layer-per-image
  *
  * @example
@@ -127,7 +127,7 @@ const SpriteSystem: System = {
 };
 
 /**
- * the sprite producer: the retained {@link Sprite} component drawn as instanced textured quads —
+ * the sprite producer: the retained {@link Sprite} component drawn as instanced textured quads,
  * world-space icons and markers. Register images with {@link image}; they upload into one
  * `texture_2d_array`, so every sprite draws in one indirect draw per (billboard, blend) variant.
  * Default `clip` blend writes depth and casts holed shadows; billboard modes are compile-time

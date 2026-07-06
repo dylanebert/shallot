@@ -31,7 +31,7 @@ let _bPipe: GPUComputePipeline | null = null;
 let _aLayout: GPUBindGroupLayout | null = null;
 let _bLayout: GPUBindGroupLayout | null = null;
 
-/** compile the shared A/B re-gather pipelines once (idempotent) — called from `prepareSear`, folded into its
+/** compile the shared A/B re-gather pipelines once (idempotent): called from `prepareSear`, folded into its
  * warm `Promise.all`. Every {@link Regather} instance binds against these singleton layouts. */
 export async function prepareRegather(device: GPUDevice): Promise<void> {
     if (_aPipe) return;
@@ -170,13 +170,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     _bPipe = b;
 }
 
-/** one shadow atlas's re-gather instance — its own packed list + indirect args + meta, sharing the
+/** one shadow atlas's re-gather instance: its own packed list + indirect args + meta, sharing the
  * module-singleton A/B pipelines. The point atlas and the CSM cascade atlas each own one. */
 export interface Regather {
     /** the re-gathered packed instance list (`(combo << COMBO_SHIFT) | eid`), bound at the consumer
      * pipeline's `eids` lane. `null` until {@link Regather.ensure} allocates it (the first casting frame). */
     eids(): GPUBuffer | null;
-    /** the indirect buffer the atlas render pass draws from — one DrawIndexedIndirect record per casting
+    /** the indirect buffer the atlas render pass draws from: one DrawIndexedIndirect record per casting
      * mesh (Pass A fills it). `null` until {@link Regather.run} allocates it. */
     args(): GPUBuffer | null;
     /** lazily allocate the packed list (sized `maxCombos × capacity`, the provably-safe bound: each combo

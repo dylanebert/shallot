@@ -10,7 +10,7 @@ import {
 } from "@dylanebert/shallot";
 
 // #doc:intro
-// Math and color helpers, as plain functions over numbers and `Float32Array`s — no vector or matrix
+// Math and color helpers, as plain functions over numbers and `Float32Array`s, with no vector or matrix
 // classes. `lerp`, `quat`, and `unpackColor` take and return plain numbers, so they slot into systems that
 // read and write ECS fields directly. The Reference lists every helper; this page shows the common shapes.
 
@@ -22,7 +22,7 @@ const WARM = unpackColor(0xff9040);
 const COOL = unpackColor(0x40a0ff);
 
 // #doc:code source:utils/public/scenes/utils.scene
-// The scene places one box over a ground. Its pose and color are only a starting point — the system
+// The scene places one box over a ground. Its pose and color are only a starting point. The system
 // rewrites them every frame.
 
 // #doc:code

@@ -3,14 +3,14 @@ import { VERTEX_FLOATS } from "../../standard/render/core";
 import type { DracoMesh } from "./draco";
 import type { SkinChannel, SkinInput } from "./vat";
 
-/** the injected Draco decode — {@link loadGltf} dynamic-imports the codec (`decodeDraco`) only when a
+/** the injected Draco decode: {@link loadGltf} dynamic-imports the codec (`decodeDraco`) only when a
  *  primitive carries `KHR_draco_mesh_compression`, so the ~250KB decoder stays out of the base bundle. */
 export type DracoDecode = (
     bytes: Uint8Array,
     attributes: DracoExtension["attributes"],
 ) => DracoMesh;
 
-/** the injected meshopt decode — {@link loadGltf} dynamic-imports the codec (`decodeMeshopt`) only when a
+/** the injected meshopt decode: {@link loadGltf} dynamic-imports the codec (`decodeMeshopt`) only when a
  *  bufferView carries `EXT_meshopt_compression`. Decompresses one compressed bufferView's `source` into
  *  `count * size` plain (filtered) bytes the standard accessor read then consumes. */
 export type MeshoptDecode = (
@@ -34,7 +34,7 @@ export type MeshoptDecode = (
 // so they live here behind unit tests, validated against three.js GLTFLoader
 // (the decode authority).
 
-/** the slice of the glTF JSON this importer reads. Loose by design — only the fields decoded (or detected
+/** the slice of the glTF JSON this importer reads. Loose by design: only the fields decoded (or detected
  *  as unsupported) appear. */
 export interface GltfJson {
     accessors?: Accessor[];
@@ -50,13 +50,13 @@ export interface GltfJson {
     buffers?: { uri?: string; byteLength: number; extensions?: Record<string, unknown> }[];
     animations?: Animation[];
     skins?: Skin[];
-    /** extensions the asset *requires* — a renderer that can't honor one renders the scene wrong */
+    /** extensions the asset *requires*: a renderer that can't honor one renders the scene wrong */
     extensionsRequired?: string[];
-    /** extensions the asset uses (a superset of required) — optional ones may be ignored */
+    /** extensions the asset uses (a superset of required): optional ones may be ignored */
     extensionsUsed?: string[];
 }
 
-/** an object's `extensions` map — keyed by extension name (`KHR_*`). The two the importer decodes are typed
+/** an object's `extensions` map, keyed by extension name (`KHR_*`). The two the importer decodes are typed
  *  ({@link DracoExtension} on a primitive, {@link BasisuExtension} on a texture); the rest stay opaque so
  *  the unsupported-feature scan can name them. */
 export interface Extensions {
@@ -88,7 +88,7 @@ export interface BasisuExtension {
 
 /**
  * `EXT_meshopt_compression` on a bufferView: the compressed source slice + how to decompress it. The
- * extension's fields are authoritative — the bufferView's own `buffer`/`byteOffset`/`byteLength` are the
+ * extension's fields are authoritative: the bufferView's own `buffer`/`byteOffset`/`byteLength` are the
  * (zero-filled) fallback per spec. `mode` selects the codec, `byteStride` is the decompressed element stride,
  * `count` the element count, `filter` the optional post-decode transform.
  */
@@ -181,7 +181,7 @@ interface Node {
     scale?: number[];
 }
 
-/** a glTF skin — the joint node list + their inverse-bind matrices (the VAT bake reads both). */
+/** a glTF skin: the joint node list + their inverse-bind matrices (the VAT bake reads both). */
 interface Skin {
     joints: number[];
     inverseBindMatrices?: number;
@@ -195,7 +195,7 @@ interface AnimationSampler {
     interpolation?: "LINEAR" | "STEP" | "CUBICSPLINE";
 }
 
-/** one animation clip — samplers + channels (a channel targets a node's TRS path, `weights` = morph). */
+/** one animation clip: samplers + channels (a channel targets a node's TRS path, `weights` = morph). */
 interface Animation {
     name?: string;
     samplers: AnimationSampler[];
@@ -218,17 +218,17 @@ export interface GltfMesh {
 }
 
 /**
- * one decoded glTF material — the per-material record the importer keys textures + routing off of.
+ * one decoded glTF material: the per-material record the importer keys textures + routing off of.
  * `image` indexes {@link GltfScene.images} (the baseColorTexture's source), or is undefined for a
  * factor-only material that needs no texture. `alphaMode` routes the surface (OPAQUE / MASK→cutout /
  * BLEND→translucent); `cutoff` is the MASK threshold (glTF `alphaCutoff`, default 0.5).
  */
 export interface GltfMaterial {
-    /** `baseColorFactor`, linear rgba — multiplies the sampled albedo */
+    /** `baseColorFactor`, linear rgba: multiplies the sampled albedo */
     color: [number, number, number, number];
     /** index into {@link GltfScene.images} of the baseColorTexture source, undefined if untextured */
     image?: number;
-    /** `metallicFactor` / `roughnessFactor` ([0,1], glTF default 1) — scale the metallicRoughness texture */
+    /** `metallicFactor` / `roughnessFactor` ([0,1], glTF default 1): scale the metallicRoughness texture */
     metallic: number;
     roughness: number;
     /** metallicRoughness texture source (glTF packs roughness in G, metallic in B), undefined if none */
@@ -239,7 +239,7 @@ export interface GltfMaterial {
     /** occlusion texture source (R channel) + its `strength`, undefined if none */
     occImage?: number;
     occStrength: number;
-    /** `emissiveFactor × KHR_materials_emissive_strength`, linear rgb — multiplies the emissive texture */
+    /** `emissiveFactor × KHR_materials_emissive_strength`, linear rgb: multiplies the emissive texture */
     emissive: [number, number, number];
     emissiveImage?: number;
     alphaMode: "OPAQUE" | "MASK" | "BLEND";
@@ -257,7 +257,7 @@ export interface GltfImage {
     mimeType?: string;
 }
 
-/** one scene-graph placement of a {@link GltfMesh} — its node's world transform, decomposed to TRS. */
+/** one scene-graph placement of a {@link GltfMesh}: its node's world transform, decomposed to TRS. */
 export interface GltfInstance {
     /** index into {@link GltfScene.meshes} */
     mesh: number;
@@ -268,8 +268,8 @@ export interface GltfInstance {
 
 /**
  * one glTF feature the importer intentionally doesn't handle yet, surfaced so a scene that needs it is
- * diagnosable rather than silently wrong. `feature` is a stable key
- * — an extension name (`KHR_materials_clearcoat`) or a category (`skin` / `morph` / `vertex-color` /
+ * diagnosable rather than silently wrong. `feature` is a stable key:
+ * an extension name (`KHR_materials_clearcoat`) or a category (`skin` / `morph` / `vertex-color` /
  * `texcoord-1` / `sparse-accessor` / `primitive-mode`). {@link parse} collects them (deduped by key);
  * {@link loadGltf} logs each once. The conformance suite asserts the set per model.
  */
@@ -294,7 +294,7 @@ export interface GltfScene {
      * identity-placed (the bake is in skeleton space, so crowd placement rides the instance matrix).
      */
     skinInputs: (SkinInput | null)[];
-    /** features this importer skipped, deduped by key — empty for a fully-supported scene */
+    /** features this importer skipped, deduped by key: empty for a fully-supported scene */
     unsupported: GltfUnsupported[];
 }
 
@@ -315,7 +315,7 @@ const TRIANGLES = 4;
  * quaternion (xyzw), and scale. Exact for a TRS chain (translate · rotate ·
  * scale); a mirror folds into the x-axis scale via the determinant sign. Shear
  * (a non-uniform scale through a rotation) is not representable as TRS and is
- * silently dropped — no consumer authors it, and the engine's transform is TRS.
+ * silently dropped: no consumer authors it, and the engine's transform is TRS.
  */
 export function decompose(m: ArrayLike<number>): {
     pos: [number, number, number];
@@ -538,11 +538,11 @@ function readWeights(gltf: GltfJson, buffers: ArrayBuffer[], index: number): Flo
 }
 
 /**
- * smooth per-vertex normals from positions + triangle indices — the glTF 2.0 fallback when a primitive omits
+ * smooth per-vertex normals from positions + triangle indices: the glTF 2.0 fallback when a primitive omits
  * `NORMAL` (the spec mandates the client calculate them; the Khronos Fox is the common case). Area-weighted
  * face-normal accumulation: a triangle's un-normalized edge cross product scales with its area, so a larger
  * face weights its vertices more, then normalize per vertex. Reference: three.js
- * `BufferGeometry.computeVertexNormals` (smooth, not the spec's literal flat — flat would need de-indexing and
+ * `BufferGeometry.computeVertexNormals` (smooth, not the spec's literal flat; flat would need de-indexing and
  * facet an organic model; smooth is the universal loader behavior). Pure, so the geometry is unit-tested.
  */
 export function computeNormals(pos: Float32Array, indices: Uint32Array): Float32Array {
@@ -950,8 +950,8 @@ function decodePrimitive(
 /**
  * decode a glTF document + its resolved binary buffers into unique geometries
  * and their per-node placements. Triangle primitives only; the node hierarchy
- * is baked to a world transform per instance (the engine has no runtime parent
- * — scenes are flat). `buffers` is one `ArrayBuffer` per glTF `buffers[]` entry
+ * is baked to a world transform per instance (the engine has no runtime parent,
+ * scenes are flat). `buffers` is one `ArrayBuffer` per glTF `buffers[]` entry
  * (the `.bin`, a data-URI, or a `.glb` BIN chunk), resolved by the caller.
  *
  * `decodeDraco` is the dynamic-imported Draco codec, passed by {@link loadGltf} only when a primitive needs

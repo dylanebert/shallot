@@ -255,7 +255,7 @@ const EndFrameSystem: System = {
  * a no-op ordering anchor splitting the post-color seam: scene-space transforms (fog) run `before` it,
  * screen-space overlays (outline) run `after` it, so an overlay composites on top of the transformed
  * scene. Both reference it by name, so neither imports the other (the scene-transform / overlay pair
- * stays decoupled). It carries no `update` — pure scheduling, invisible to the profiler. Sits in `draw`
+ * stays decoupled). It carries no `update`: pure scheduling, invisible to the profiler. Sits in `draw`
  * with the rest of the seam; `BeginFrameSystem`/`EndFrameSystem` and the per-effect Color/Glaze edges
  * still bound it, so it needs no Color/Glaze edge of its own (render must not import sear/glaze).
  */
@@ -320,7 +320,7 @@ async function initRender(): Promise<void> {
  * the renderer-agnostic substrate: frame loop, camera, Frame/View UBOs, and
  * the `Surfaces` / `Meshes` / `Draws` registries. Producer and consumer
  * plugins (Part, Sear, custom producers) depend on this. Users
- * typically don't list it directly — `PartPlugin` pulls it transitively,
+ * typically don't list it directly: `PartPlugin` pulls it transitively,
  * and either can become a default plugin
  */
 export const RenderPlugin: Plugin = {

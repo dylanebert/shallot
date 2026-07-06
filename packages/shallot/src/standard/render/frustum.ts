@@ -4,12 +4,12 @@ export const FRUSTUM_FLOATS = 24;
 /**
  * floats per packed cull volume: a leading header `vec4` (the tag in `.x`) + the 6 frustum planes. Each
  * slot of `Render.cullVolumes` is one of these; the producer pack indexes a slot at `slot *
- * CULL_VOLUME_FLOATS` and tests the planes after the header vec4. Every view culls by frustum — cameras,
+ * CULL_VOLUME_FLOATS` and tests the planes after the header vec4. Every view culls by frustum: cameras,
  * the sun, and each point/spot shadow combo (its own frustum-culled depth view).
  */
 export const CULL_VOLUME_FLOATS = 4 + FRUSTUM_FLOATS;
 
-/** cull-volume tag (header `vec4`'s `.x`): a frustum — a 6-plane AND (every camera + shadow caster view) */
+/** cull-volume tag (header `vec4`'s `.x`): a frustum, a 6-plane AND (every camera + shadow caster view) */
 export const CULL_FRUSTUM = 0;
 
 /**
@@ -17,7 +17,7 @@ export const CULL_FRUSTUM = 0;
  * packed as 6 × `vec4<f32>` (xyz = inward normal, w = offset) into `out` at
  * `base`. Gribb–Hartmann against WebGPU's [0, 1] depth range: the near plane is
  * the bare z-row, not w+z. Each plane is normalized so the signed distance
- * `dot(n, p) + w` is in world units — a sphere of radius `r` is outside when
+ * `dot(n, p) + w` is in world units. A sphere of radius `r` is outside when
  * that distance drops below `-r`. Pure; the cull pass reads the packed planes
  * per view, the producer pack tests instance bounds against them
  *

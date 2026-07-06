@@ -3,7 +3,7 @@ import { Sky } from "./index";
 
 /**
  * pack a `Sky` singleton entity into its uniform (the layout `./shader`'s WGSL `Sky` struct declares). Hex
- * colors decode to linear rgb. The sun *direction* is not packed — the shader reads it from sear's
+ * colors decode to linear rgb. The sun *direction* is not packed; the shader reads it from sear's
  * `lighting` uniform.
  */
 export function packSky(eid: number, out: Float32Array): void {

@@ -3,10 +3,10 @@ import type { Entity } from "./entity";
 /**
  * per-{@link State} entity identity: which entities `load` authored from the
  * document, and the stable scene `id` each was named with. The runtime half of
- * the durable-identity story `serialize` reads — an eid stays a borrow
+ * the durable-identity story `serialize` reads. An eid stays a borrow
  * (`ecs.md`), so a round-trip keys refs by the recorded scene id, never the
  * recycled eid. Reset with the State; populated by `load`, dropped on
- * `destroy`. Holds no serialization logic — just the map.
+ * `destroy`. Holds no serialization logic, just the map.
  */
 export class Identity {
     private _ids = new Map<Entity, string>();

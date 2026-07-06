@@ -7,7 +7,7 @@
 
 import { ShapeKind } from "./index";
 
-/** a world-space ray. `dir` MUST be normalized — the returned `distance` is then world units along it. */
+/** a world-space ray. `dir` MUST be normalized; the returned `distance` is then world units along it. */
 export interface Ray {
     origin: readonly [number, number, number];
     dir: readonly [number, number, number];
@@ -41,7 +41,7 @@ interface ShapeHit {
 }
 
 /** rotate a vector by a quaternion (q · v). Pass the conjugate (`-qx, -qy, -qz, qw`) for the inverse
- * rotation — world → body-local. */
+ * rotation, world → body-local. */
 export function qRotate(
     qx: number,
     qy: number,
@@ -320,7 +320,7 @@ export function generateRay(
 
 /**
  * a world-space pick ray through a canvas pixel (`screenX`/`screenY` in [0, width]×[0, height], origin
- * top-left). Converts the pixel to NDC + aspect and defers to {@link generateRay} — the cursor-driven pick
+ * top-left). Converts the pixel to NDC + aspect and defers to {@link generateRay}: the cursor-driven pick
  * primitive (god-mode pick/drag). `origin`/`quat` are the camera's world pose, `fov`/`near` its params.
  */
 export function screenToRay(

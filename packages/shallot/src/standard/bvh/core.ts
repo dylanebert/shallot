@@ -41,24 +41,24 @@ export {
 // #doc:dev
 // ### The BVH library
 //
-// `createBvh` builds a GPU bounding volume hierarchy — a spatial index that turns ray and overlap
+// `createBvh` builds a GPU bounding volume hierarchy, a spatial index that turns ray and overlap
 // queries from an O(n) scan into a log-depth tree walk. It's rendering-unaware: primitive AABBs in, a
 // BVH2 out, naming neither bodies nor triangles. Write AABBs into `prims`, record `build` into an
 // encoder, submit, and read the tree from `nodes`. When the set is stable but the geometry moved, record
-// `refit` instead — the same topology re-bounded, far cheaper than a rebuild.
+// `refit` instead: the same topology re-bounded, far cheaper than a rebuild.
 //
 // Query it from your own kernel: splice `BVH_TRAVERSE_WGSL` (a single-level ray-AABB traverser) into a
 // compute shader and it walks the node buffer for you. Ray-triangle leaf tests and two-level TLAS/BLAS
-// instancing belong with the consumer, not the builder — the physics broadphase is the worked case,
+// instancing belong with the consumer, not the builder. The physics broadphase is the worked case,
 // building one BVH over body AABBs each step.
 //
-// The per-stage factories the builder composes are exposed for isolated validation — each stage runs and
+// The per-stage factories the builder composes are exposed for isolated validation. Each stage runs and
 // reads back on its own. The bounds reduce and the sort each carry a subgroup arm and an LDS fallback; a
 // plugin that builds a BVH lists `BVH_FEATURES` in its `preferredFeatures` so a `subgroups`-less device
 // (WebKit) still loads it, on the LDS arm.
 
 /**
- * GPU features the builder's kernels run faster with — the bounds reduction and the radix sort have
+ * GPU features the builder's kernels run faster with: the bounds reduction and the radix sort have
  * a subgroup arm and an LDS fallback ({@link createBvh} reads `device.features` to pick). A plugin
  * that builds a BVH (the physics broadphase, an acceleration structure) lists these in its
  * `Plugin.preferredFeatures` so a `subgroups`-less device (WebKit) still loads it, on the LDS arm.
@@ -69,19 +69,19 @@ export const BVH_FEATURES: readonly GPUFeatureName[] = ["subgroups"];
  * an LBVH BVH2 builder sized for `maxPrims`. Write primitive AABBs into {@link
  * Bvh.prims} (2 × vec4<f32> per prim: `min.xyz+pad`, `max.xyz+pad`, leaf-index
  * order), record {@link Bvh.build}, submit, then read the BVH2 from {@link
- * Bvh.nodes} (`2N−1` nodes × 32 B; root is node `2N−2` for N≥2, else node 0 — see
+ * Bvh.nodes} (`2N−1` nodes × 32 B; root is node `2N−2` for N≥2, else node 0; see
  * {@link bvhRoot}). For stable topology under motion, write moved AABBs and record
  * {@link Bvh.refit} instead: the bounds relaxation alone, topology untouched. A {@link
  * Bvh.build} always leaves the tree refit-ready.
  */
 export interface Bvh {
-    /** input prim AABB buffer — fill [0, count) prims, 2 vec4 each */
+    /** input prim AABB buffer; fill [0, count) prims, 2 vec4 each */
     readonly prims: GPUBuffer;
-    /** output BVH2 nodes — `2N−1` nodes, 32 B each (the traverser's input) */
+    /** output BVH2 nodes: `2N−1` nodes, 32 B each (the traverser's input) */
     readonly nodes: GPUBuffer;
     /**
      * GPU-driven prim count (one u32 at [0]). Write it (≤ `maxPrims`) before {@link
-     * Bvh.build} / {@link Bvh.refit} — a fixed-count producer via `writeBuffer`, a
+     * Bvh.build} / {@link Bvh.refit}: a fixed-count producer via `writeBuffer`, a
      * GPU producer by writing it from its own compute. Read on the GPU into bounds,
      * Morton (gating), the build (indirect dispatch + the `2N−1` node range), and the
      * trace root (`bvhRoot`, {@link BVH_ROOT_WGSL}); it never crosses to the CPU.

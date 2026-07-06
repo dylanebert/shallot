@@ -41,13 +41,13 @@ export const Tween = {
     to: sparse(f32),
     /** length of the animation, seconds */
     duration: sparse(f32),
-    /** current clock position, seconds; seekable — set it to scrub */
+    /** current clock position, seconds; seekable: set it to scrub */
     elapsed: sparse(f32),
     /** easing curve, by id (the `ease-out-quad` names) */
     easing: sparse(u8),
     /** how the sampled value applies to the field: `replace` overwrites it, `add` layers a transient delta */
     composite: sparse(u8),
-    /** whether the tween holds its value outside the active interval — `none`, `forwards`, `backwards`, `both` */
+    /** whether the tween holds its value outside the active interval: `none`, `forwards`, `backwards`, `both` */
     fill: sparse(u8),
     /** rewind and replay on completion */
     loop: sparse(u8),
@@ -60,7 +60,7 @@ export const Tween = {
 };
 
 /**
- * a timeline that plays {@link Tween}s placed on it with `at` — a shared playhead many tweens read
+ * a timeline that plays {@link Tween}s placed on it with `at`: a shared playhead many tweens read
  */
 export const Sequence = {
     /** play control; a fresh sequence defaults to playing */

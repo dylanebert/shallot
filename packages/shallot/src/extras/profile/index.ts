@@ -22,21 +22,21 @@ export interface Profile {
      *  display: a fixed-group pass keeps its last value across frames it doesn't fire (see the
      *  drain hold). For exact per-occurrence accounting, use {@link gpuTime} / {@link gpuFires}. */
     readonly gpu: ReadonlyMap<string, number>;
-    /** cumulative GPU time per pass since attach, in milliseconds — summed over every actual
+    /** cumulative GPU time per pass since attach, in milliseconds: summed over every actual
      *  occurrence (a fixed-group pass once per fixed step, a draw pass once per frame). Pair with
      *  {@link gpuFires} to derive the per-occurrence cost: `gpuTime / gpuFires`. Immune to the
-     *  greedy hold the display {@link gpu} map applies — the source of truth for the benchmark. */
+     *  greedy hold the display {@link gpu} map applies, the source of truth for the benchmark. */
     readonly gpuTime: ReadonlyMap<string, number>;
-    /** cumulative occurrence count per pass since attach — how many times the pass actually fired.
+    /** cumulative occurrence count per pass since attach: how many times the pass actually fired.
      *  Divided into a window's frame count it gives the pass's fire cadence (≈1 for a per-frame
      *  render pass, ≈fixed-steps-per-frame for a per-step sim pass). */
     readonly gpuFires: ReadonlyMap<string, number>;
-    /** cumulative indirect-draw count per pass since attach — summed over every frame the pass issued
+    /** cumulative indirect-draw count per pass since attach: summed over every frame the pass issued
      *  draws. Pair with {@link indirectFires} for the per-frame count (`indirectCount / indirectFires`)
      *  and derive Dawn's injected-validation floor via `INDIRECT_FLOOR_US` (gpu.md). The benchmark
      *  window-diffs it like {@link gpuTime} / {@link gpuFires}, untimed by `timestampWrites`. */
     readonly indirectCount: ReadonlyMap<string, number>;
-    /** cumulative frame count per pass — how many frames the pass reported indirect draws. */
+    /** cumulative frame count per pass: how many frames the pass reported indirect draws. */
     readonly indirectFires: ReadonlyMap<string, number>;
     /** per-pipeline compile durations from app startup, in milliseconds */
     readonly compile: ReadonlyMap<string, number>;
@@ -46,8 +46,8 @@ export interface Profile {
     readonly fenceWaitMs: number;
     /** cumulative `device.queue.submit` calls since attach. Each submit is a renderer→GPU-process IPC
      *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
-     *  wait, not a pass). A frame issues several — render, the slab flush, a mirror readback, the
-     *  profiler's own resolve — so the benchmark window-diffs this into submits/frame, the lever for
+     *  wait, not a pass). A frame issues several (render, the slab flush, a mirror readback, the
+     *  profiler's own resolve), so the benchmark window-diffs this into submits/frame, the lever for
      *  collapsing them into one encoder (gpu.md "Single queue"). */
     readonly submitCount: number;
 }
@@ -992,7 +992,7 @@ const ProfileRenderSystem: System = {
 /**
  * performance profiler: an F3-toggled stats overlay (FPS, per-pass GPU/CPU timings, memory, shader
  * compile) plus the {@link Profile} singleton and the `window.__benchmark` measurement API. Off by
- * default — add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
+ * default: add it and press F3 to show the overlay; the data is on `Profile` whether it's shown or not.
  * Register it first so its `createBuffer` / pipeline patches catch every allocation.
  * @example
  * const config = { plugins: [ProfilePlugin] };

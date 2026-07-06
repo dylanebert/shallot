@@ -14,7 +14,7 @@ import { packSky } from "./pack";
 import { SKY_BYTES, SKY_FLOATS, SKY_WGSL } from "./shader";
 
 /**
- * the scene's procedural sky — one per scene (a singleton). A camera shows it by selecting the registered
+ * the scene's procedural sky, one per scene (a singleton). A camera shows it by selecting the registered
  * `sky` backdrop (`backdrop="name: sky"`). The look is a layered recipe: an elevation gradient from
  * `horizon` up to `zenith`, a sun glow + disk (positioned by the scene's directional light, tinted
  * `sun-color`), FBM `cloud`s, hash-grid `star`s, and a `haze` band fading the horizon. The sun's direction
@@ -35,21 +35,21 @@ export const Sky = {
     band: sparse(f32),
     /** hex sRGB tint of the sun glow + disk (the sun's *position* follows the directional light) */
     sunColor: sparse(f32),
-    /** sun disk size [0,1] — larger paints a bigger disk */
+    /** sun disk size [0,1]: larger paints a bigger disk */
     sunSize: sparse(f32),
     /** sun glow strength around the disk [0,1] (0 = no glow) */
     sunGlow: sparse(f32),
     /** hex sRGB cloud color */
     cloudColor: sparse(f32),
-    /** cloud coverage [0,1] — how much of the sky the clouds fill (0 = clear) */
+    /** cloud coverage [0,1]: how much of the sky the clouds fill (0 = clear) */
     cloudCoverage: sparse(f32),
     /** cloud opacity / thickness [0,1] */
     cloudDensity: sparse(f32),
-    /** cloud layer height — scales the projected cloud size (larger = higher, smaller clouds) */
+    /** cloud layer height: scales the projected cloud size (larger = higher, smaller clouds) */
     cloudHeight: sparse(f32),
     /** star brightness [0,1] (0 = no stars) */
     starIntensity: sparse(f32),
-    /** star density [0,1] — more stars in the grid */
+    /** star density [0,1]: more stars in the grid */
     starAmount: sparse(f32),
     /** hex sRGB haze color the horizon fades toward */
     hazeColor: sparse(f32),

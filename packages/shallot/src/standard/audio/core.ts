@@ -9,8 +9,8 @@ import { createWorkletURL } from "./worklet";
 //
 // ### Custom instruments
 //
-// An instrument is a DAG of typed DSP nodes — oscillator, filter, envelope, gain, a two-input mix,
-// constant, and a PCM sample source — wired by naming each node's input. `instrument(def, name)` compiles
+// An instrument is a DAG of typed DSP nodes (oscillator, filter, envelope, gain, a two-input mix,
+// constant, and a PCM sample source), wired by naming each node's input. `instrument(def, name)` compiles
 // the graph to a flat kernel eval order and registers it under a name, the same id space `Sound.instrument`
 // and `play()` resolve. Naming `volumeParam` / `pitchParams` / `loopParam` in the definition wires the
 // params the ECS layer firehoses per voice, so an authored instrument plugs into `Sound.volume` / `.pitch`
@@ -20,7 +20,7 @@ import { createWorkletURL } from "./worklet";
 // ### Direct voices
 //
 // Bypass ECS for one-off or tightly-timed sound: `alloc` a voice handle, `assign` an instrument, `setParam`
-// its params, `gate` it on to sound it, and `free` when done — or mark it `oneShot` and `watchIdle` to free
+// its params, `gate` it on to sound it, and `free` when done. Or mark it `oneShot` and `watchIdle` to free
 // it when the envelope completes. `spatialize` routes a voice through the FOA + HRTF path; `polar` +
 // `addSpatial` + `flushSpatial` feed it a listener-relative position each frame, which is what the sound
 // system does for a positioned `Sound`.
@@ -29,8 +29,8 @@ import { createWorkletURL } from "./worklet";
 // ### The kernel
 //
 // Synthesis runs in a Rust/WASM kernel (`rust/audio/`) on the AudioWorklet thread. Rust owns per-sample and
-// per-block work — oscillators, filters, envelopes, sample playback, the FOA + HRTF spatial render, the FDN
-// reverb, mixing, the master limiter — and the DSP hot path never crosses the FFI mid-block. JS owns
+// per-block work (oscillators, filters, envelopes, sample playback, the FOA + HRTF spatial render, the FDN
+// reverb, mixing, the master limiter), and the DSP hot path never crosses the FFI mid-block. JS owns
 // per-event and per-frame work: instrument authoring, voice allocation, and the spatial parameter feed.
 //
 // The kernel is frozen: each subsystem is grounded in a named reference and gated at a tolerance derived
@@ -49,12 +49,12 @@ import { createWorkletURL } from "./worklet";
 //
 // Deliberate choices, decided rather than provisional:
 //
-// - **Synthetic Brown-Duda HRTF + FOA** over measured HRIR — ships no impulse-data blob, fits the
+// - **Synthetic Brown-Duda HRTF + FOA** over measured HRIR: ships no impulse-data blob, fits the
 //   build-size and procedural-first goals. A measured set is a free internal upgrade later.
-// - **tanh soft-clip master limiter** — zero lookahead, the right call for a realtime thread.
-// - **Cubic Hermite interpolation** for sample and wavetable reads — band-limits pitch-shift aliasing.
+// - **tanh soft-clip master limiter**: zero lookahead, the right call for a realtime thread.
+// - **Cubic Hermite interpolation** for sample and wavetable reads: band-limits pitch-shift aliasing.
 // - **f32 sample stream, f64 only where error compounds** (the transport counter, high-shelf coefficient
-//   math, the sample read position) — Web Audio mandates f32 and a 64-voice sum errs by ≈ −108 dB.
+//   math, the sample read position): Web Audio mandates f32 and a 64-voice sum errs by ≈ −108 dB.
 
 const MAX_VOICES = 64;
 const SLOT_MASK = 0x7f;
@@ -64,7 +64,7 @@ const GEN_MASK = 0xffffff;
  * device-level audio state owned by `AudioPlugin`: the AudioContext + worklet
  * host, the 64-slot voice allocator (a free-list + per-slot generation), and
  * the per-frame message batch. Read through the helper functions, not the
- * fields. The kernel owns all DSP; this owns allocation and the wire — there is
+ * fields. The kernel owns all DSP; this owns allocation and the wire. there is
  * no CPU mirror of voice gate/instrument state (the deleted `backend.ts` rot)
  */
 export interface Audio {
@@ -135,7 +135,7 @@ function reconnect(): void {
 
 /**
  * stand up the AudioContext + worklet + WASM kernel and reset the allocator.
- * The context may start suspended (no user gesture yet) — a one-shot
+ * The context may start suspended (no user gesture yet); a one-shot
  * pointer/key listener resumes it; `running()` reports false until then
  */
 export async function initAudio(): Promise<void> {
@@ -304,14 +304,14 @@ export function free(handle: number): void {
 
 // --- voice ops (gen-validated; send plain objects to the frozen worklet) ----
 
-/** gate a voice on (`value` 1, note-on) or off (0, enters the envelope release) — the musical trigger,
+/** gate a voice on (`value` 1, note-on) or off (0, enters the envelope release): the musical trigger,
  *  distinct from freeing the slot. No-op on a stale handle. */
 export function gate(handle: number, value: number): void {
     if (!valid(handle)) return;
     enqueue({ type: "gate", voiceId: handle & SLOT_MASK, value });
 }
 
-/** set one kernel param of a voice by its `offset` in the instrument's compiled param layout — the
+/** set one kernel param of a voice by its `offset` in the instrument's compiled param layout: the
  *  per-frame firehose the ECS layer drives volume/pitch through. No-op on a stale handle or negative offset. */
 export function setParam(handle: number, offset: number, value: number): void {
     if (!valid(handle) || offset < 0) return;
@@ -378,7 +378,7 @@ const _polar: Polar = { azimuth: 0, elevation: 0, distance: 0 };
 /**
  * source offset (`d`) and listener basis (`r`/`u`/`f`, the listener world
  * matrix's right/up/forward columns) → listener-relative azimuth, elevation,
- * distance — the polar form the frozen kernel renders FOA + HRTF from
+ * distance: the polar form the frozen kernel renders FOA + HRTF from
  */
 export function polar(
     dx: number,

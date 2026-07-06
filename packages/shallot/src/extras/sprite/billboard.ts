@@ -45,7 +45,7 @@ export function screenCorner(
  * Y-locked: the quad stays upright, yawing its horizontal axes toward the viewer.
  * `cross(right, up)` is the camera's backward axis (toward the viewer); its xz projection is the
  * quad's facing. A straight-down camera collapses that projection, so the camera up's xz
- * projection (screen-up on the ground plane) takes over — the quad is edge-on there anyway, the
+ * projection (screen-up on the ground plane) takes over; the quad is edge-on there anyway, the
  * fallback only keeps the basis finite and stable.
  */
 export function yLockedCorner(

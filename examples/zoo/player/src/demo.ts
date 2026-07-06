@@ -4,14 +4,13 @@ import { Physics } from "@dylanebert/shallot/physics/core";
 // #doc:intro
 // A first-person player: a capsule you walk with WASD, look with the mouse, and jump with Space. Under the
 // hood it's a kinematic `Character` (the swept capsule that walks, climbs small steps, and rides platforms)
-// with a mouse look and a follow camera on top. It's opt-in — add `PlayerPlugin`.
+// with a mouse look and a follow camera on top. It's opt-in: add `PlayerPlugin`.
 
 // #doc:code source:player/public/scenes/player.scene
-// Give one entity a `body` (a capsule — `shape: 2`, sized by `half-extents` as half-height + radius in `w`),
-// a `character` (the controller: walkable slope, jump, gravity), and a `player` (the look + camera). Point
-// `player.camera` at a separate camera entity — the controller poses it every frame. Click the canvas to
-// capture the mouse; then WASD moves, Shift sprints, Space jumps. Nothing else is wired: the controller reads
-// input itself.
+// Give one entity a `body` (a capsule: `shape: 2`, sized by `half-extents` as half-height + radius in `w`),
+// a `character` (walkable slope, jump, gravity), and a `player` (look + camera). Point `player.camera` at a
+// separate camera entity, which the controller poses every frame. Click the canvas to capture the mouse, then
+// WASD moves, Shift sprints, and Space jumps.
 
 // #doc:code
 // ### Tune the feel
@@ -34,7 +33,7 @@ function tune(state: State) {
 // #doc:code
 // ### Ride a moving platform
 //
-// A `mass: 0` body is kinematic — the solver never moves it, you do. Drive its pose each fixed tick with
+// A `mass: 0` body is kinematic: the solver never moves it, you do. Drive its pose each fixed tick with
 // `setKinematic`, and a character standing on it is carried along. This slides the platform back and forth
 // (the scene tags it with a `moving` marker so the system finds it):
 // #region platform

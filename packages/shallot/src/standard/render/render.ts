@@ -5,12 +5,12 @@
  * volume per active view (a tagged descriptor carrying a frustum's six clip-space planes;
  * published to `Compute.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
  * for `cullVolumes[slot]`.
- * `viewCount` is how many slots `BeginFrameSystem` populated this frame — the
+ * `viewCount` is how many slots `BeginFrameSystem` populated this frame: the
  * view dimension a producer's cull dispatches over. `shadeCount` is the shading
  * prefix of those slots (presenting cameras, the views that carry clustered-light
  * state); depth-only views (shadow light cameras) fill `[shadeCount, viewCount)`,
  * so the cluster + light-cull passes dispatch over `shadeCount` alone.
- * Renderer-agnostic — knows
+ * Renderer-agnostic: knows
  * nothing about how draws are issued. Lives as a leaf (no intra-module imports)
  * so the frame loop and the view binding both depend on it inward
  * @expand

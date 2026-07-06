@@ -12,19 +12,19 @@ import { Skin } from "./skin";
 // A scene references a glTF primitive by its registered mesh name (`part="mesh: model.glb#0"`); two
 // pieces make that reference self-sufficient. The **preloader** (GltfPlugin registers it into the scene
 // `Preloads` seam) scans parsed nodes with `scanRefs` and awaits `loadGltf` for every distinct source
-// before `load` resolves the names — Godot's shape: the resource path in the scene is the load trigger.
+// before `load` resolves the names. Godot's shape: the resource path in the scene is the load trigger.
 // The **route sync** (`RouteSystem`) then converges every Part whose mesh resolves to a handle onto the
 // route `placeGltf` would have wired: the textured/skinned surface, plus the `Textured` / `Skin`
-// decoration carrying the union-relative material id. Both components are `derived` traits — a system
-// owns them, `serialize` and the editor never see them — because their ids are recomputed per active
+// decoration carrying the union-relative material id. Both components are `derived` traits (a system
+// owns them, `serialize` and the editor never see them) because their ids are recomputed per active
 // set and cannot be authored.
 
 /**
- * per-instance material id — an index into the per-material palette (`materialData`) the textured glTF
+ * per-instance material id: an index into the per-material palette (`materialData`) the textured glTF
  * surfaces read. A `slab(u32)` published as `"materialIndex"`, so a surface samples
  * `albedo[materialData[id].layer]`. The firehose seam for textures: one more per-entity GPU column, no
- * new draws. Distinct from sear's `Material` (the per-instance PBR knobs) — this is the
- * palette index, that is the shading params. A runtime-derived decoration — {@link GltfPlugin}'s route
+ * new draws. Distinct from sear's `Material` (the per-instance PBR knobs): this is the
+ * palette index, that is the shading params. A runtime-derived decoration. {@link GltfPlugin}'s route
  * sync owns it (the id is union-palette-relative, so scenes never author it).
  */
 export const Textured = { id: slab(u32, "materialIndex") };
@@ -33,7 +33,7 @@ export const Textured = { id: slab(u32, "materialIndex") };
 // variant `src.glb@clipN#index` (specName's shape). The capture groups are (src, clip).
 const MESH_REF = /^(.+\.(?:glb|gltf))(?:@clip(\d+))?#\d+$/i;
 
-/** one distinct glTF source a scene references by mesh name — the unit the pre-load resolve imports. */
+/** one distinct glTF source a scene references by mesh name: the unit the pre-load resolve imports. */
 export interface GltfRef {
     src: string;
     clip: number;
@@ -53,7 +53,7 @@ function meshValue(attr: string): string | null {
 
 /**
  * scan parsed scene nodes for glTF mesh references (`part="mesh: model.glb#0"`, clip variants
- * `model.glb@clip2#0`) and return the distinct `(src, clip)` sources — what the glTF preloader awaits
+ * `model.glb@clip2#0`) and return the distinct `(src, clip)` sources: what the glTF preloader awaits
  * `loadGltf` for before the scene loads.
  */
 export function scanRefs(nodes: Node[]): GltfRef[] {
@@ -73,7 +73,7 @@ export function scanRefs(nodes: Node[]): GltfRef[] {
     return [...refs.values()];
 }
 
-/** mesh id → its handle, repopulated as each asset registers (per build — mesh ids die with the
+/** mesh id → its handle, repopulated as each asset registers (per build: mesh ids die with the
  *  registry). `register` writes it, {@link RouteSystem} reads it; internal seam, not on the barrel. */
 export const routes = new Map<number, GltfHandle>();
 
@@ -91,7 +91,7 @@ const ROUTE_SURFACES = [
 
 /**
  * converge each Part onto its mesh's route: surface + `Textured`/`Skin` follow the handle, and a mesh
- * edited off a glTF handle drops them. Compare-before-write throughout — an unconditional slab set would
+ * edited off a glTF handle drops them. Compare-before-write throughout: an unconditional slab set would
  * dirty every decorated entity every frame. `mode: "always"` so the editor viewport renders textures;
  * the add/remove is sanctioned by the components' `derived` trait (nothing document-facing sees them).
  */

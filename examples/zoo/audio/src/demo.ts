@@ -13,13 +13,13 @@ import {
 // #doc:code source:audio/public/scenes/audio.scene
 // `"Audio": true` enables the worklet and voice allocator. A `listener` on the camera makes it the spatial
 // reference; a `sound` on an entity plays an instrument by name, and giving that entity a `transform` makes
-// the voice positional — pan and distance are relative to the listener.
+// the voice positional: pan and distance are relative to the listener.
 
 // #doc:code
 // ### Register the sound, move the source
 //
 // An instrument or sample registers by name before the scene parses, so `sound="instrument: tone"`
-// resolves. Here a seamless sine buffer registers as "tone", and a system orbits the source each frame so
+// resolves. Here a click-free sine buffer registers as "tone", and a system orbits the source each frame so
 // its spatial pan audibly tracks its position:
 // #region demo
 const SR = 48000;

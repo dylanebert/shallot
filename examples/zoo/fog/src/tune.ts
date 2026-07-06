@@ -6,10 +6,10 @@ import { Fog, type Plugin, type State } from "@dylanebert/shallot";
 // depth, so near geometry stays crisp while the distance dissolves into the haze.
 
 // #doc:code source:fog/public/scenes/fog.scene
-// Fog is opt-in — `"Fog": true` in the manifest registers the pass. Give the scene one `Fog` singleton for
+// Fog is opt-in: `"Fog": true` in the manifest registers the pass. Give the scene one `Fog` singleton for
 // the look and give the rendering camera a `depth` lane, which the march reads for scene depth. `density`
-// sets how fast the scene fades; `height-falloff` turns the haze into ground fog, densest at `height-base`
-// and thinning upward. The editor edits these live.
+// sets how fast the scene fades, and `height-falloff` turns the haze into ground fog, densest at
+// `height-base` and thinning upward.
 
 // #doc:code
 // ### Tune the feel

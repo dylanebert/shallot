@@ -54,7 +54,7 @@ function release(): void {
 /**
  * flushes the component-membership bitset to the `"membership"` GPU buffer.
  * Draw-group head, before any index-scan consumer (the Part pack) reads it.
- * `mode: "always"` so it runs in edit mode too — the pack it feeds does.
+ * `mode: "always"` so it runs in edit mode too; the pack it feeds does.
  * Owns the buffer: allocates at setup (generation count is fixed by `build`),
  * releases on dispose
  */

@@ -859,7 +859,7 @@ export function formatFields(
  * normalize a scene attribute value to its canonical form: parse, then re-format the way the live
  * `serialize` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
  * formatter (`scripts/format.ts`) runs every `.scene` through this, so a formatted file is the same
- * minimal bytes the editor's save path and `serialize(state)` emit — one canonical form, no divergence
+ * minimal bytes the editor's save path and `serialize(state)` emit: one canonical form, no divergence
  * between hand-authored and editor-written scenes. Returns null for an empty value or unregistered
  * component (left untouched).
  */
@@ -894,7 +894,7 @@ export interface Diagnostic {
 
 /**
  * validates a parsed scene against the registered components: an unknown component (with a did-you-mean
- * suggestion), an unmet `requires` trait, or a violated `excludes`. Returns every issue found — `run()`
+ * suggestion), an unmet `requires` trait, or a violated `excludes`. Returns every issue found; `run()`
  * warns each to the console, the editor surfaces them in the inspector. Empty means the scene is clean.
  *
  * @example

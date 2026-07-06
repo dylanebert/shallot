@@ -38,7 +38,7 @@ const RADIX_PASSES = 4; // four 8-bit passes (full 32-bit key; a 30-bit Morton u
 const WG = 256; // binning / scan / init workgroup; == RADIX so digit-indexed work needs no guard
 const KEYS_PER_THREAD = 14;
 const PART_SIZE = WG * KEYS_PER_THREAD; // 3584; keys per binning partition
-/** keys per block — sort capacity rounds up to a multiple of this */
+/** keys per block; sort capacity rounds up to a multiple of this */
 export const KEYS_PER_BLOCK = PART_SIZE;
 const G_D = PART_SIZE + RADIX; // binning shared: sorted partition + per-digit device base (3840)
 const G_HIST_DIM = 128; // global-histogram workgroup

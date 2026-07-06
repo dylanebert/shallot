@@ -14,7 +14,7 @@ import {
 // #doc:intro
 // The platform layer is the substrate every built-in system is built on: the GPU device, per-entity
 // buffers that upload to it, and readback that brings results home. Reach for it when a plugin needs its
-// own compute pass — a simulation step, an aggregation, anything the standard systems don't cover.
+// own compute pass: a simulation step, an aggregation, anything the standard systems don't cover.
 //
 // This specimen sums a per-entity value on the GPU and reads the total back to the CPU. Three pieces do
 // the work: a `slab` field mirrors per-entity data up to the GPU, a compute pass over the device from
@@ -28,14 +28,14 @@ let readback: Mirror | null = null;
 // #doc:code source:platform/public/scenes/platform.scene
 // ### The scene
 //
-// Three boxes over a ground, each carrying a `charge` — the per-entity value the pass sums. The scene
+// Three boxes over a ground, each carrying a `charge`, the per-entity value the pass sums. The scene
 // authors the amounts; the code never touches the pose.
 
 // #doc:code
 // ### Per-entity data on the GPU
 //
 // `slab(f32)` stores one float per entity and mirrors it to a GPU buffer each frame, so a compute pass
-// can read it — the write-only half of the platform's data path (the `Transform` firehose the renderer
+// can read it. That's the write-only half of the platform's data path (the `Transform` firehose the renderer
 // reads is the same primitive). Naming the slab `"charge"` publishes its buffer under that name in
 // `Compute.buffers`, the registry the pass resolves it from.
 // #region component
@@ -86,8 +86,8 @@ async function build(): Promise<void> {
 // ### Dispatch and read back
 //
 // A `simulation` system records the pass into an encoder and submits it each frame. Its `setup` runs on
-// the first frame — after every plugin's `warm`, so the `"charge"` slab buffer is published in
-// `Compute.buffers` by then — and binds it once. `mirror` copies the output into a CPU-mapped staging
+// the first frame (after every plugin's `warm`, so the `"charge"` slab buffer is published in
+// `Compute.buffers` by then) and binds it once. `mirror` copies the output into a CPU-mapped staging
 // buffer, so its `snapshot` lands a frame or two later; read whatever's current.
 // #region loop
 const reduce = {

@@ -13,15 +13,15 @@ export const SpriteBillboard = {
     Screen: 0,
     /** upright, yawing toward the viewer (foliage, standees) */
     YLocked: 1,
-    /** plain transform — the quad lives in the entity's local xy plane (decals, ground markers) */
+    /** plain transform: the quad lives in the entity's local xy plane (decals, ground markers) */
     World: 2,
 } as const;
 
 /** how a sprite composites against the scene */
 export const SpriteBlend = {
-    /** alpha-tested cutout at 0.5 — depth-written, unsorted, holed shadows (the default) */
+    /** alpha-tested cutout at 0.5: depth-written, unsorted, holed shadows (the default) */
     Clip: 0,
-    /** translucent — blended over the opaque scene, casts nothing */
+    /** translucent: blended over the opaque scene, casts nothing */
     Alpha: 1,
 } as const;
 
@@ -29,11 +29,11 @@ export const SpriteBlend = {
 export const SpriteFill = {
     /** the whole image (the default) */
     None: 0,
-    /** clockwise wedge from 12 o'clock — progress rings */
+    /** clockwise wedge from 12 o'clock: progress rings */
     Radial: 1,
-    /** bottom-up — tanks, vertical gauges */
+    /** bottom-up: tanks, vertical gauges */
     Vertical: 2,
-    /** left-to-right — bars */
+    /** left-to-right: bars */
     Horizontal: 3,
 } as const;
 
@@ -41,10 +41,10 @@ export const SpriteFill = {
  * a textured world-space quad (icon, marker) anchored to an entity's {@link Transform}. `image` is
  * a registered image id ({@link image}), `size` the world-space quad size, `anchor` the 0..1 pivot
  * (0.5 0.5 = centered), `color` a hex sRGB tint, `billboard` a {@link SpriteBillboard} mode,
- * `blend` a {@link SpriteBlend} mode. `opacity` multiplies the texture alpha — under the default
+ * `blend` a {@link SpriteBlend} mode. `opacity` multiplies the texture alpha; under the default
  * `clip` blend that shrinks the cutout (the sprite vanishes below 0.5, the gltf-clip convention);
  * a smooth fade needs `blend: alpha`. The quad scales by the transform's scale on top of `size`.
- * `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode` —
+ * `fill` shows only the leading 0..1 fraction of the image along a {@link SpriteFill} `fillMode`:
  * a radial fill over a ring icon is a progress ring, a vertical fill over a bar icon a gauge
  *
  * @example
@@ -80,7 +80,7 @@ export const Sprite = {
 // vec4 reads
 const SPRITE_FLOATS = 8;
 export const SPRITE_BYTES = 32;
-/** initial instance capacity — the staging + GPU buffer double on demand */
+/** initial instance capacity: the staging + GPU buffer double on demand */
 export const INITIAL = 1 << 8;
 
 /** six buckets, billboard-major: bucket = billboard * 2 + blend */
@@ -154,7 +154,7 @@ function grow(min: number): void {
     _cap = cap;
 }
 
-/** restore the staging to its initial capacity — the producer's `warm` reset */
+/** restore the staging to its initial capacity: the producer's `warm` reset */
 export function resetPack(): void {
     _cap = INITIAL;
     _staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);

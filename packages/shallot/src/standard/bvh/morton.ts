@@ -95,7 +95,7 @@ function storageEntry(binding: number, readonly: boolean): GPUBindGroupLayoutEnt
 /**
  * a built Morton-code pass sized for `maxPrims`. Write primitive AABBs into {@link
  * Morton.prims} (2 × vec4<f32> per prim) and the scene AABB into {@link Morton.bounds}
- * (2 × vec4<f32>: `min.xyz+pad`, `max.xyz+pad` — the {@link SceneBounds} output),
+ * (2 × vec4<f32>: `min.xyz+pad`, `max.xyz+pad`, the {@link SceneBounds} output),
  * record {@link Morton.compute}, submit, then read {@link Morton.keys} (one 30-bit
  * code per prim) and {@link Morton.payload} (primitive index, identity before sort).
  * The two output buffers are the radix sort's key / payload input.

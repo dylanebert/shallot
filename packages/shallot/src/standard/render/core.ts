@@ -14,7 +14,7 @@
 // per-frame uniforms, but iterates none of them. A **producer** registers a surface, a geometry slice,
 // and a draw record, publishing its per-instance buffers by name; a **renderer** consumes those draws. Because
 // the contract sits between them, a custom producer (terrain, particles) and a custom renderer are peers of
-// the built-in `Part` and sear — build either against the registries below, no engine change needed.
+// the built-in `Part` and sear. Build either against the registries below, no engine change needed.
 
 // #doc:dev
 // ## Ordering anchors
@@ -22,7 +22,7 @@
 // Systems order against no-op anchor systems, not registration order. A producer whose compute writes
 // geometry a renderer reads for position pins `before: [PrepassSystem]`, so the prepass, shadow, and color
 // passes all read the same frame's data; a screen-space effect slots around `OverlaySystem` (scene-space
-// transforms `before:`, screen-space overlays `after:`). Never mark a renderer `last: true` — that slot
+// transforms `before:`, screen-space overlays `after:`). Never mark a renderer `last: true`. That slot
 // belongs to the frame submit.
 
 export { computeViewProj } from "./camera";

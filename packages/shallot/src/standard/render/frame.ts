@@ -7,7 +7,7 @@ const TIME_F32 = 0;
 const DT_F32 = 1;
 const FRAME_U32 = 2;
 
-/** the per-frame `Frame` UBO's WGSL struct (time / dt / frame counter) — spliced by sear for every
+/** the per-frame `Frame` UBO's WGSL struct (time / dt / frame counter), spliced by sear for every
  * surface and by any relocatable consumer that binds `frame`; layout mirrors {@link Frame}. */
 export const FRAME_STRUCT_WGSL = /* wgsl */ `
 struct Frame {

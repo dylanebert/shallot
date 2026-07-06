@@ -24,7 +24,7 @@ export interface Mouse {
     x: number;
     /** pointer y within the focused canvas, CSS pixels from the top edge */
     y: number;
-    /** focused canvas width in CSS pixels — divide `x` by it for a 0–1 coordinate */
+    /** focused canvas width in CSS pixels; divide `x` by it for a 0–1 coordinate */
     canvasWidth: number;
     /** focused canvas height in CSS pixels */
     canvasHeight: number;
@@ -41,17 +41,17 @@ export interface Mouse {
  * if (Inputs.mouse.left) fire();
  */
 export interface Inputs {
-    /** current mouse state — buttons, canvas-relative position, per-frame deltas */
+    /** current mouse state: buttons, canvas-relative position, per-frame deltas */
     readonly mouse: Readonly<Mouse>;
     /** entity id of the canvas holding input focus, or -1 when none is focused */
     readonly focused: number;
     /** whether a key is currently held down */
     isKeyDown(code: string): boolean;
-    /** whether a key went down this frame — the press edge, true for one frame */
+    /** whether a key went down this frame: the press edge, true for one frame */
     isKeyPressed(code: string): boolean;
-    /** whether a key came up this frame — the release edge, true for one frame */
+    /** whether a key came up this frame: the release edge, true for one frame */
     isKeyReleased(code: string): boolean;
-    /** whether a key's last press was within the last `seconds` — an input buffer for jump/coyote timing */
+    /** whether a key's last press was within the last `seconds`: an input buffer for jump/coyote timing */
     isKeyPressedWithin(code: string, seconds: number): boolean;
 }
 
@@ -98,8 +98,8 @@ export const Inputs: Inputs = {
 };
 
 /**
- * suspend or resume all input. While suspended, every {@link Inputs} read reports neutral — no keys held, no
- * mouse buttons, zero deltas — so a menu or cutscene freezes every consumer (movement, look, grab) with one
+ * suspend or resume all input. While suspended, every {@link Inputs} read reports neutral: no keys held, no
+ * mouse buttons, zero deltas, so a menu or cutscene freezes every consumer (movement, look, grab) with one
  * call, and a pointer-lock controller releases its lock. Resets to enabled on each State (re)bind.
  *
  * @example
@@ -188,7 +188,7 @@ function gateButtons(s: InputState, buttons: number): number {
 
 /**
  * gate mouse-button reporting on pointer lock. while on, {@link Inputs}.mouse buttons stay
- * up until the pointer is locked, so the click that engages the lock doesn't fire a command —
+ * up until the pointer is locked, so the click that engages the lock doesn't fire a command.
  * only clicks made once locked count. a pointer-lock controller (the {@link Player}) turns this
  * on in its setup; non-locked cameras (orbit) leave it off and read buttons immediately.
  */
@@ -493,7 +493,7 @@ const InputResetSystem: System = {
 
 /**
  * binds keyboard and mouse listeners to the app's canvases and populates the {@link Inputs} singleton.
- * In the default plugin set — a system reads `Inputs` without enabling anything.
+ * In the default plugin set. A system reads `Inputs` without enabling anything.
  */
 export const InputPlugin: Plugin = {
     name: "Input",

@@ -13,7 +13,7 @@ type Embind = any;
 // live in target.ts, picked main-thread-side from the device features (see pickTargets there).
 const RGBA32 = 13;
 
-/** one transcoded mip level — compressed bytes plus the level's texel dimensions. */
+/** one transcoded mip level: compressed bytes plus the level's texel dimensions. */
 export interface Ktx2Mip {
     level: number;
     width: number;
@@ -21,7 +21,7 @@ export interface Ktx2Mip {
     data: Uint8Array;
 }
 
-/** one transcoded KTX2 image — a compressed mip chain in `format`, ready to upload as one texture-array layer. */
+/** one transcoded KTX2 image: a compressed mip chain in `format`, ready to upload as one texture-array layer. */
 export interface Ktx2Image {
     width: number;
     height: number;
@@ -50,7 +50,7 @@ export async function loadBasis(): Promise<void> {
 }
 
 /**
- * transcode one KTX2/Basis file to the target's compressed mip chain. Sync — call {@link loadBasis} first.
+ * transcode one KTX2/Basis file to the target's compressed mip chain. Sync: call {@link loadBasis} first.
  * Stops at the 4×4 block floor: mips smaller than one block need partial-block copies WebGPU validates
  * awkwardly, and a 4×4 minimum mip is visually ample.
  *
@@ -84,9 +84,9 @@ export function transcodeKtx2(bytes: Uint8Array, target: TranscodeTarget): Ktx2I
 }
 
 /**
- * transcode a KTX2 file's base level to raw RGBA8 pixels — the fallback the importer uses when a scene's KTX2
+ * transcode a KTX2 file's base level to raw RGBA8 pixels: the fallback the importer uses when a scene's KTX2
  * baseColor images vary in size (a compressed array can't resize, so they route through the same RGBA resize
- * path the PNG importer uses). Sync — {@link loadBasis} first.
+ * path the PNG importer uses). Sync: {@link loadBasis} first.
  */
 export function transcodeKtx2Rgba(bytes: Uint8Array): {
     width: number;

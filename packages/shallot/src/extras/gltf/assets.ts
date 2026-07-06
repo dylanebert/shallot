@@ -58,11 +58,11 @@ import { bakeVat, type GltfVat } from "./vat";
 // #doc:dev
 // `gltf/core` is the pipeline under `loadGltf`, for tooling and custom async loading. `loadGltf` is
 // `ensureDecoded` (a content-keyed cache over the deviceless `decode`) followed by `register` (the GPU
-// assembly that hands back the placement descriptor). Call them apart to keep decode off the hot path —
-// `decodeInWorker` runs the same `decode` on the worker pool, and its `DecodedGltf` feeds `register`
-// directly — or to manage the cache across a reload: `invalidate` evicts one source (the HMR / asset-swap
+// assembly that hands back the placement descriptor). Call them apart to keep decode off the hot path
+// (`decodeInWorker` runs the same `decode` on the worker pool, and its `DecodedGltf` feeds `register`
+// directly), or to manage the cache across a reload: `invalidate` evicts one source (the HMR / asset-swap
 // seam), `clearGltfCache` drops everything, and `gltfCacheStats` reports the decode + asset counts.
-// `unionPending` is true while the shared texture atlas is still uploading — it streams across frames after
+// `unionPending` is true while the shared texture atlas is still uploading. It streams across frames after
 // a load, so a gate waits on it before reading published textures.
 //
 // Textured assets share one accumulating palette: each material lands in a `texture_2d_array` bucketed by
@@ -300,7 +300,7 @@ function gpuBuffer(device: GPUDevice, label: string, data: Float32Array | Uint32
 }
 
 /**
- * one registered glTF primitive, ready to point a {@link Part} at — the rich handle {@link loadGltf} hands
+ * one registered glTF primitive, ready to point a {@link Part} at: the rich handle {@link loadGltf} hands
  * back. `mesh` is the registered {@link Meshes} id (the real reference; `name` is its readable
  * `url#index` form), `surface` the resolved {@link Surfaces} id for its route (sear's solid `default`, a
  * `gltf-albedo*` textured variant, or a `skin*` VAT variant), and `material` its index into the shared
@@ -311,7 +311,7 @@ export interface GltfHandle {
     name: string;
     mesh: number;
     surface: number;
-    /** index into the shared union palette (`materialData`) — `Textured.id` / the skin `material` lane */
+    /** index into the shared union palette (`materialData`): `Textured.id` / the skin `material` lane */
     material: number;
     /** `baseColorFactor`, linear rgba */
     color: [number, number, number, number];
@@ -323,7 +323,7 @@ export interface GltfHandle {
     duration: number;
 }
 
-/** one node placement of a {@link GltfHandle} — `handle` indexes {@link GltfImport.meshes}, the rest is the
+/** one node placement of a {@link GltfHandle}: `handle` indexes {@link GltfImport.meshes}, the rest is the
  *  node's baked world TRS. {@link placeScene} replays them; replay them yourself to lay the asset out. */
 export interface GltfPlacement {
     handle: number;
@@ -333,7 +333,7 @@ export interface GltfPlacement {
 }
 
 /**
- * the result of importing a glTF — its registered primitives ({@link GltfHandle}s) + their node placements
+ * the result of importing a glTF: its registered primitives ({@link GltfHandle}s) + their node placements
  * ({@link GltfPlacement}s). Pure data: the import registers the meshes/surfaces/VATs and hands this back; it
  * creates no entities. Point Parts at the handles (a scene `<a part="mesh: …">`, {@link placeGltf}, or
  * {@link placeScene} for the whole asset).
@@ -397,7 +397,7 @@ function describe(
 }
 
 /**
- * spawn one entity rendering a glTF primitive — the standard part/transform flow for a {@link GltfHandle}
+ * spawn one entity rendering a glTF primitive: the standard part/transform flow for a {@link GltfHandle}
  * from a {@link loadGltf} descriptor. Creates a {@link Transform} + {@link Part} + {@link Color} wired to the
  * handle's mesh, surface, and baseColorFactor, adding {@link Skin} (skinned) or {@link Textured} (textured)
  * as the handle's route dictates. Returns the eid. Pass `pos`/`rot`/`scale` to place it; defaults are the
@@ -441,11 +441,11 @@ export function placeGltf(
 }
 
 /**
- * spawn the whole imported asset — one {@link Part} entity per node placement, at its baked TRS — and return
+ * spawn the whole imported asset: one {@link Part} entity per node placement, at its baked TRS, returning
  * the eids. The convenience for a multi-primitive asset or a whole environment (Sponza): `placeScene(state,
  * await loadGltf(state, url))`. The asset lands at its authored origin; reposition the returned entities, or
  * place a single mesh elsewhere with {@link placeGltf}. (No root-transform compose: the substrate is flat TRS
- * by design — a hierarchy/matrix root is the shape it deliberately omits, see the transforms contract.)
+ * by design, a hierarchy/matrix root is the shape it deliberately omits, see the transforms contract.)
  *
  * @example
  * placeScene(state, await loadGltf(state, "sponza/Sponza.gltf"));
@@ -707,29 +707,29 @@ interface DecodedGeometry {
 }
 
 /**
- * a fully decoded glTF asset — the deviceless, State-independent output of {@link decode}: quantized
+ * a fully decoded glTF asset: the deviceless, State-independent output of {@link decode}: quantized
  * geometry, decoded textures + palette, baked VATs, and the source scene describe reads. {@link register}
  * turns it into GPU resources + a {@link GltfImport} descriptor. The payload is the seam the asset cache keys
  * on and the worker transfers.
  */
 export interface DecodedGltf {
     url: string;
-    /** the animation clip baked into the VAT — part of the `(url, clip)` cache key (a different clip is a
+    /** the animation clip baked into the VAT: part of the `(url, clip)` cache key (a different clip is a
      *  distinct decoded asset). 0 when the asset has no animation. */
     clip: number;
     scene: GltfScene;
     geometry: DecodedGeometry;
     textures: DecodedTextures;
-    /** baked VAT per scene mesh (parallel to `scene.meshes`) — non-null for every skinned mesh, each binding
+    /** baked VAT per scene mesh (parallel to `scene.meshes`): non-null for every skinned mesh, each binding
      *  its own VAT textures per-draw, so N skinned meshes coexist in one scene. */
     vats: (GltfVat | null)[];
     textured: boolean;
 }
 
 /**
- * decode a glTF 2.0 asset to a deviceless {@link DecodedGltf} — `.gltf` (external `.bin` + data-URI buffers)
+ * decode a glTF 2.0 asset to a deviceless {@link DecodedGltf}: `.gltf` (external `.bin` + data-URI buffers)
  * or `.glb` (the binary container, detected by magic). Fetches + parses (Draco), transcodes textures
- * (KTX2/Basis) to GPU-ready bitmaps/blocks, quantizes geometry, and bakes a skinned mesh's clip to a VAT —
+ * (KTX2/Basis) to GPU-ready bitmaps/blocks, quantizes geometry, and bakes a skinned mesh's clip to a VAT,
  * producing typed-array payloads with no GPU calls and no State. The State-independent half of
  * {@link loadGltf}: the seam the asset cache keys on and the worker transfers. Pair with {@link register}.
  *
@@ -835,7 +835,7 @@ function assetKey(src: string, clip: number): string {
 }
 
 /**
- * decode a glTF asset once, caching the deviceless payload by `(src, clip)` — a repeat `(src, clip)` returns
+ * decode a glTF asset once, caching the deviceless payload by `(src, clip)`: a repeat `(src, clip)` returns
  * the cached {@link DecodedGltf} with no re-decode (the rebuild win; {@link loadGltf} reuses it across
  * builds). Concurrent calls for one key share a single decode. {@link invalidate} drops it so the next call
  * re-decodes. `targets` (the device's per-slot compressed formats) are passed to the underlying {@link decode}
@@ -1000,7 +1000,7 @@ function ensureUnion(): void {
     _begin = p;
 }
 
-/** true while the frame-staged union upload is mid-flight (the textured set isn't published yet) — a load
+/** true while the frame-staged union upload is mid-flight (the textured set isn't published yet): a load
  *  screen can hold on it, and a test drains on it before asserting the published union. Covers both the
  *  begin (allocate + plan) and the per-frame layer drain. */
 export function unionPending(): boolean {
@@ -1071,7 +1071,7 @@ function dropUnion(): void {
 }
 
 /**
- * drop a glTF source from the asset cache + free its GPU resources (behind the submit fence) — every clip
+ * drop a glTF source from the asset cache + free its GPU resources (behind the submit fence): every clip
  * variant of `src`, plus the accumulated union (it included this source). The next {@link loadGltf}
  * re-decodes + re-uploads. The push-driven invalidation seam (sub-stage 5 wires it to the editor's
  * file-watch / HMR): pair it with a State rebuild so the active State re-registers before the next frame,
@@ -1094,7 +1094,7 @@ export function clearGltfCache(): void {
     dropUnion();
 }
 
-/** asset-cache stats — `decodes` is the total successful decodes since process start (must not advance
+/** asset-cache stats. `decodes` is the total successful decodes since process start (must not advance
  *  across a rebuild, the rebuild-reuse gate), `assets` the live cache entries, `inflight` the in-flight
  *  decodes (a failed decode must leave it clear, so the source stays retryable). */
 export function gltfCacheStats(): { decodes: number; assets: number; inflight: number } {
@@ -1162,7 +1162,7 @@ function emptyImport(): GltfImport {
 }
 
 /**
- * register a {@link DecodedGltf}'s meshes/surfaces/VATs into the State — the device-bound half of
+ * register a {@link DecodedGltf}'s meshes/surfaces/VATs into the State: the device-bound half of
  * {@link loadGltf}, creating no entities. Cache-aware: the per-asset assembly (geometry buffers, VATs) is
  * memoized by `(url, clip)` and survives State rebuilds, and the shared albedo arrays + palette accumulate
  * across the active union (memoized by the active set), so a rebuild re-registers + re-publishes with no
@@ -1198,15 +1198,15 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
 }
 
 /**
- * fetch + decode + import a glTF 2.0 asset in one call — the one-way import utility. `.gltf` (external `.bin`
+ * fetch + decode + import a glTF 2.0 asset in one call: the one-way import utility. `.gltf` (external `.bin`
  * + data-URI buffers) or `.glb` (the binary container, detected by magic). Registers each primitive into
  * {@link Meshes} under a stable `url#index` name, accumulates its baseColor into the shared union arrays (when
  * materials carry textures + {@link GltfPlugin} is loaded), bakes each skinned mesh's animation to a vertex
  * animation texture (the `clip` option picks which), and logs any intentionally-unsupported feature (see
- * {@link GltfUnsupported}). Returns the {@link GltfImport} descriptor — the registered {@link GltfHandle}s +
+ * {@link GltfUnsupported}). Returns the {@link GltfImport} descriptor: the registered {@link GltfHandle}s +
  * their node placements. Creates no entities: point Parts at the handles yourself via {@link placeGltf} or
- * {@link placeScene} for the whole asset. (A scene referencing a primitive by name — `<a part="mesh: …#0">`
- * — needs no call at all: {@link GltfPlugin}'s preloader imports it before load.) Call it from your
+ * {@link placeScene} for the whole asset. (A scene referencing a primitive by name, `<a part="mesh: …#0">`,
+ * needs no call at all: {@link GltfPlugin}'s preloader imports it before load.) Call it from your
  * plugin's `initialize` or `warm` (both awaited, the device is up, the loading screen covers it) so the
  * registered mesh names resolve when you place them. Cached by `(url, clip)`, so a repeat load (the editor's rebuild)
  * reuses the decode + GPU upload. Multiple distinct textured / skinned sources coexist in one scene. The
@@ -1237,7 +1237,7 @@ async function resolveRefs(nodes: Node[], state: State): Promise<void> {
 }
 
 /**
- * the glTF importer plugin — registers the textured baseColor + skinned surfaces, the per-instance
+ * the glTF importer plugin: registers the textured baseColor + skinned surfaces, the per-instance
  * {@link Textured} / {@link Skin} decorations a loaded asset's primitives ride, and the declarative load:
  * a scene that names a glTF primitive (`<a part="mesh: model.glb#0">`) imports it automatically before
  * load, and the route sync gives the Part its textured/skinned surface + material. Add it alongside the

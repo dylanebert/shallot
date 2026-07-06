@@ -31,10 +31,10 @@ const MAX_PITCH = Math.PI / 2 - 0.01;
 const LOOK_REFERENCE_HEIGHT = 1080;
 
 /**
- * first-person player — the look + camera layer over a kinematic {@link Character}. Lives on the same capsule
+ * first-person player: the look + camera layer over a kinematic {@link Character}. Lives on the same capsule
  * {@link Body} as a {@link Character} (`mass <= 0`); the character module registers + drives it, this adds the
  * mouse look + a follow camera. `camera` is the eid of a separate camera entity (Camera + Transform + a
- * renderer marker) the controller poses each frame. `distance` is the camera's pull-back from the eye — 0 is
+ * renderer marker) the controller poses each frame. `distance` is the camera's pull-back from the eye. 0 is
  * first-person (the default), `> 0` is the third-person scaffolding. Walk/jump/slope tuning lives on `Character`.
  *
  * @example
@@ -59,7 +59,7 @@ export const Player = {
     /** sprint multiplier applied while Shift is held */
     sprint: sparse(f32),
     /** mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look
-     * speed is resolution-independent — the same mouse motion turns the same angle at any canvas size) */
+     * speed is resolution-independent, so the same mouse motion turns the same angle at any canvas size) */
     sensitivity: sparse(f32),
     /** camera height above the capsule centre (the eye offset) */
     eyeHeight: sparse(f32),
@@ -163,7 +163,7 @@ function setLook(cam: number, yaw: number, pitch: number): void {
 const _pos: [number, number, number] = [0, 0, 0];
 
 /**
- * the first-person controller — mouse-look + WASD/jump intent + the follow-camera pose, run in the
+ * the first-person controller: mouse-look + WASD/jump intent + the follow-camera pose, run in the
  * `simulation` group. Exported as an ordering anchor: a camera-juice / additive-pose system that perturbs
  * the camera on top of the controller's base pose declares `after: [PlayerControlSystem]`, reading the base
  * `Transform` this writes before `BeginFrameSystem` (draw) consumes it.
@@ -289,7 +289,7 @@ export const PlayerControlSystem: System = {
     },
 };
 
-/** first-person player plugin — pointer-lock mouse look, WASD/sprint/jump, and a fixed-timestep follow
+/** first-person player plugin: pointer-lock mouse look, WASD/sprint/jump, and a fixed-timestep follow
  *  camera over a kinematic {@link Character}. Depends on {@link CharacterPlugin} (the controller it composes),
  *  input, physics, and the renderer. Add it, then give an entity {@link Body} + {@link Character} + {@link Player}. */
 export const PlayerPlugin: Plugin = {

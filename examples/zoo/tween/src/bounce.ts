@@ -7,7 +7,7 @@ import { type Plugin, type State, sequence, tween } from "@dylanebert/shallot";
 
 // #doc:code source:tween/public/scenes/tween.scene
 // A `<a tween>` animates one `field` of its `target` from `from` to `to` over `duration`, along an
-// `easing` curve. Put two on a looping `<a sequence>` — one rising, one falling at `at: 0.7` — and the
+// `easing` curve. Put two on a looping `<a sequence>` (one rising, one falling at `at: 0.7`) and the
 // ball bobs forever. `fill: none` makes each phase own only its own window, so the rise hands off to
 // the fall cleanly instead of both fighting over the field.
 
@@ -16,8 +16,8 @@ import { type Plugin, type State, sequence, tween } from "@dylanebert/shallot";
 //
 // `tween()` animates a field and returns the tween entity. Passing `to` alone captures the field's
 // current value as the start (the GSAP `.to` convenience), so the coin rises from wherever it sits.
-// `sequence()` builds the looping timeline the same way the scene does — an `ease-out-back` rise
-// overshoots the top before settling. `Bounce` is a no-field marker naming the entity this plugin drives.
+// `sequence()` builds the looping timeline the same way the scene does, with an `ease-out-back` rise that
+// overshoots the top before settling.
 // #region bounce
 export const Bounce = {};
 

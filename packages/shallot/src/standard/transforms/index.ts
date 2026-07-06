@@ -84,7 +84,7 @@ export function composeTransforms(encoder: GPUCommandEncoder): void {
 
 /**
  * compose one entity's world matrix on CPU from its slab fields. For camera
- * view derivation and other low-count CPU consumers — per-frame entity loops
+ * view derivation and other low-count CPU consumers. Per-frame entity loops
  * should read the `"transforms"` firehose on GPU instead
  *
  * @example

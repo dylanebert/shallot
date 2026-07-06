@@ -57,7 +57,7 @@ const DISCRETE_PARAMS = new Set([
     "sample.channel",
 ]);
 
-/** a modulation route in an instrument DAG — a `source` node's output drives a `target` node's `param`,
+/** a modulation route in an instrument DAG. A `source` node's output drives a `target` node's `param`,
  *  applied `linear` or per-`semitone`. */
 export interface ModulationDef {
     source: string;
@@ -66,7 +66,7 @@ export interface ModulationDef {
     mode?: "linear" | "semitone";
 }
 
-/** one node in an instrument DAG: its {@link NodeType} plus the node names feeding it — `input`, and
+/** one node in an instrument DAG: its {@link NodeType} plus the node names feeding it: `input`, and
  *  `inputB` for the second input of a `mix`. */
 export interface NodeDef {
     type: NodeType;
@@ -121,8 +121,8 @@ export interface PitchEntry {
 /**
  * immutable compiled topology for one instrument, carrying its registry `name`
  * + a `version` bumped on re-author (so the kernel re-receives topology only on
- * change). The ECS-driven param offsets — `volumeOffsets` / `baseVolume` /
- * `pitchEntries` / `loopOffsets` — are resolved here once so the per-frame
+ * change). The ECS-driven param offsets (`volumeOffsets` / `baseVolume` /
+ * `pitchEntries` / `loopOffsets`) are resolved here once so the per-frame
  * firehose reads them with no string work and no per-voice mirror. A stereo
  * instrument carries one volume/loop offset per chain; `outputBufR` equals
  * `outputBuf` for mono (the kernel reads the same buffer into both bus channels)
@@ -144,7 +144,7 @@ export interface Instrument {
 
 const NO_BUF = 0xff;
 /**
- * the kernel's fixed instrument-table size — the number of distinct instrument *definitions* that can be
+ * the kernel's fixed instrument-table size: the number of distinct instrument *definitions* that can be
  * registered (not concurrent voices; the 64-slot pool bounds polyphony). Registering past it warns and
  * plays silent. Mirrors `rust/audio/src/graph.rs`'s `[InstrumentDef; MAX_INSTRUMENTS]`.
  */
@@ -173,7 +173,7 @@ export function getParamPairs(id: number): [number, number][] {
     return pairs;
 }
 
-/** compiled instrument by numeric id — `name(id)` is an array index, `get` a map read */
+/** compiled instrument by numeric id. `name(id)` is an array index, `get` a map read */
 export function byId(id: number): Instrument | undefined {
     const name = Instruments.name(id);
     return name === undefined ? undefined : Instruments.get(name);

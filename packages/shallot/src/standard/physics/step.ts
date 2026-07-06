@@ -70,21 +70,21 @@ export const BODY_VEC4 = 12;
 /** columns per body in the `solveOut` double-buffer scratch (`solveOut[col*eidCap + eid]`): pos, quat */
 const SOLVE_VEC4 = 2;
 /** logical columns per contact record in the persistent `pairContacts` SoA cols-buffer
- * (`pairContacts[col*recordCap + rec]`) — meta(type,a,b,feature) / normal / rA / rB / c0 / penalty / lambda */
+ * (`pairContacts[col*recordCap + rec]`): meta(type,a,b,feature) / normal / rA / rB / c0 / penalty / lambda */
 export const CONTACT_VEC4 = 7;
 /**
- * contact records per persistent manifold block — one block holds a body pair's whole manifold at a stable
+ * contact records per persistent manifold block: one block holds a body pair's whole manifold at a stable
  * per-pair slot (Phase 4.7, the webphysics model). The SAT reduces a pair to MAX_CONTACTS (4, the Jolt
- * spread set — Phase 4.8.1), so a block of that size holds every contact; the collide writes this frame's
+ * spread set, Phase 4.8.1), so a block of that size holds every contact; the collide writes this frame's
  * contacts in place + carries λ/k off last frame's records in the same slot (no hash, no separate store).
  * Matches the oracle's `Manifold.contacts`.
  */
 export const CONTACTS_PER_PAIR = MAX_CONTACTS;
 /**
- * the per-body FIXED-BLOCK slot count (Phase 4.9 robustness, scratch.md "warmstart addressing") — each live
+ * the per-body FIXED-BLOCK slot count (Phase 4.9 robustness, scratch.md "warmstart addressing"): each live
  * body owns a fixed block of `PAIRS_PER_BODY` pair slots at base `eid · PAIRS_PER_BODY` in BOTH the pair list
  * (the descent's `vec2<u32>` output) AND the persistent `pairContacts` manifold store. The base is a function
- * of the owner's eid alone, so a flicker in one body's owned-candidate set churns only THAT body's slots —
+ * of the owner's eid alone, so a flicker in one body's owned-candidate set churns only THAT body's slots,
  * local warmstart fragility (webphysics `broadPhase.ts` `bodyBase = body · pairsPerBody`), not the global
  * fragility a prefix-sum compaction has (any body's count change shifts every downstream slot → total
  * warmstart collapse on a churning pile). A body descends the BVH once, keeps the NEAREST by center-dist² +
@@ -99,7 +99,7 @@ export const CONTACTS_PER_PAIR = MAX_CONTACTS;
 export const PAIRS_PER_BODY = 8;
 /**
  * one authored constraint's per-body adjacency entry in `constraintList` (AoS, 3 vec4). Springs (Phase
- * 6.1) and joints (Phase 6.2) SHARE this list + the `constraintCsr` adjacency — the binding budget forces
+ * 6.1) and joints (Phase 6.2) SHARE this list + the `constraintCsr` adjacency: the binding budget forces
  * it (the primal is at the `maxStorageBuffersPerShaderStage` floor, so a joint can't add a primal/coloring
  * binding; physics.md "phase ladder"). A constraint appears in BOTH bodies' lists, each entry from the
  * owner's frame (`rSelf` = the owner's anchor, `otherEid` = the partner), and `kind` ({@link KIND_SPRING}
@@ -115,7 +115,7 @@ export const CONSTRAINT_VEC4 = 3;
 export const KIND_SPRING = 1;
 export const KIND_JOINT = 2;
 /**
- * one joint's persistent record in `jointRecords` (AoS, 12 vec4 — Phase 6.2). The hard `Force` (joint.ts,
+ * one joint's persistent record in `jointRecords` (AoS, 12 vec4, Phase 6.2). The hard `Force` (joint.ts,
  * a port of joint.cpp) carries per-joint mutable dual state warmstarted across frames (λ + a per-iteration
  * penalty ramp + the rigid-stabilization gap `c0`), the per-joint geometry the per-body entries can't hold
  * (init/dual are dispatched one-thread-per-joint, not per-endpoint), and the recycle-version guard:
@@ -125,14 +125,14 @@ export const KIND_JOINT = 2;
  *  10 (motorAxis.xyz, motorMaxTorque)     11 (motorSpeed, motorLambda, motorPenalty, _)
  * `torqueArm` + `active` are GPU-written (jointInit); the CPU seeds geometry + versions + zeroed state. The
  * motor (a 1-DOF force-clamped angular drive, avbd-demo2d motor.cpp; `maxTorque > 0` activates it) rides cols
- * 10/11, which jointInit does NOT rewrite — its static axis/speed/maxTorque persist from `setJoints`, and its
+ * 10/11, which jointInit does NOT rewrite: its static axis/speed/maxTorque persist from `setJoints`, and its
  * λ/penalty warmstart in 11.y/.z. `active`: 0 inactive, 1 active, 2 fresh (jointInit runs the anchor-coincidence
  * guard once). ∞ stiffness (rigid) is the `1e30` sentinel (`> 1e29` reads rigid), matching the harness JSON map.
  */
 export const JOINT_REC_VEC4 = 12;
-/** ∞-stiffness sentinel — `> RIGID_THRESHOLD` reads "rigid" on the GPU (f32 can't compare to true inf cleanly) */
+/** ∞-stiffness sentinel: `> RIGID_THRESHOLD` reads "rigid" on the GPU (f32 can't compare to true inf cleanly) */
 export const RIGID_STIFFNESS = 1e30;
-/** joint hard-conflict coloring-repair rounds (webphysics `BODY_COLOR_HARD_REPAIR_ROUNDS`) — a hard
+/** joint hard-conflict coloring-repair rounds (webphysics `BODY_COLOR_HARD_REPAIR_ROUNDS`): a hard
  * (dynamic-dynamic joint) pair degrading to same-color Jacobi destabilizes, so the greedy's tolerated
  * fold is repaired: 2 rounds of lower-eid-recolors, validated by the observable coloring-split invariant. */
 export const JOINT_REPAIR_ROUNDS = 2;
@@ -143,9 +143,9 @@ export const COLOR_CAP = 32;
  * the readback-bounded color loop's safety margin (Phase 4.9 Lever 1): the primal dispatches
  * `min(maxColors, usedColors + COLOR_MARGIN)` color-passes per iteration, where `usedColors` is a
  * frame-stale readback of the greedy's actual color count (`colorCount`, written by `colorize`). The
- * margin covers the readback's 1-2 frame staleness — the incremental greedy's chromatic number shifts by
+ * margin covers the readback's 1-2 frame staleness: the incremental greedy's chromatic number shifts by
  * ≤1 per frame on a settling pile, so one insurance color keeps the loop ≥ this frame's true count; a
- * frame that densifies further under-dispatches once (a soft convergence dip the next readback catches —
+ * frame that densifies further under-dispatches once (a soft convergence dip the next readback catches,
  * the same self-healing the live-count margin below relies on). It's a frame-staleness margin (the
  * profiler-counter class, gpu.md), not a tuned solver tolerance.
  */
@@ -153,28 +153,28 @@ export const COLOR_MARGIN = 1;
 /**
  * the direct color-loop dispatch's live-count margin in bodies (dispatch-ladder rung 0): the primal/commit
  * color loop dispatches `ceil((liveCount + BODY_MARGIN) / 64)` workgroups DIRECT off the frame-stale
- * `colorCount[1]` readback (written by `packScan`) — Dawn injects a validation pass per indirect call
+ * `colorCount[1]` readback (written by `packScan`): Dawn injects a validation pass per indirect call
  * (measured ≈ 2× the direct unit cost, physics.md "Dispatch count"), so the loop's `iters × colors × 2`
  * dispatches are the place a direct dispatch pays. Over-dispatch is correctness-safe (every body pass
  * early-outs on `d >= eids[0]`); the margin only covers under-dispatch from a spawn burst inside the
- * readback's 1-2 frame staleness — one workgroup's worth of headroom, after which a burst body misses
+ * readback's 1-2 frame staleness: one workgroup's worth of headroom, after which a burst body misses
  * one solve step and the next readback catches it (the spawn-despawn gym gate's hazard). Full-cap on
  * cold start / `configure`, like {@link COLOR_MARGIN}'s `boundColors` pattern.
  */
 export const BODY_MARGIN = 64;
 /**
- * box-box contact type tag — the source-agnostic seam (joints/kinematic/voxel append other tags later).
+ * box-box contact type tag: the source-agnostic seam (joints/kinematic/voxel append other tags later).
  * 1, not 0, so a zeroed (cleared) pairContacts record reads as inactive (tag 0) and the solve skips it.
  */
 export const CONSTRAINT_CONTACT = 1;
-/** dual-layer penalty seed — the contact penalty starts here and ramps via `betaLin` (manifold.ts) */
+/** dual-layer penalty seed: the contact penalty starts here and ramps via `betaLin` (manifold.ts) */
 export const PENALTY_MIN = 1.0;
 
 /**
- * the per-eid manifold store (`pairContacts`) is the step's largest single storage binding —
+ * the per-eid manifold store (`pairContacts`) is the step's largest single storage binding:
  * `eidCap · PAIRS_PER_BODY · CONTACTS_PER_PAIR · CONTACT_VEC4 · 16 B`, dominating {@link PhysicsStep.bytes}.
- * Guard its size against the device's per-binding limit so a high `capacity` fails loud + clear here —
- * naming the buffer, the needed-vs-available, and the remedy — rather than at an opaque bind-group
+ * Guard its size against the device's per-binding limit so a high `capacity` fails loud + clear here
+ * (naming the buffer, the needed-vs-available, and the remedy) rather than at an opaque bind-group
  * validation error. `acquireDevice` requests the adapter's full `maxStorageBufferBindingSize`
  * (engine/runtime/gpu.ts), so on real hardware this only trips at a genuinely huge capacity past the device
  * ceiling (desktop + Deck expose ~2 GB). Pure (eidCount + limit) so a unit test exercises it with no device.
@@ -197,7 +197,7 @@ export function checkContactStore(eidCount: number, maxBinding: number): void {
 // contact-record columns (SoA, `pairContacts[col*recordCap + rec]`):
 //   0 meta(type,a,b,feature)  1 normal  2 rA  3 rB  4 c0  5 penalty.xyz/friction.w  6 lambda
 
-/** per-step constants — one uniform, written by the driver (the live count is GPU-resident, in `eids[0]`) */
+/** per-step constants: one uniform, written by the driver (the live count is GPU-resident, in `eids[0]`) */
 export interface StepParams {
     dt: number;
     gravity: number;
@@ -245,20 +245,20 @@ export interface StepParams {
     substeps?: number;
 }
 
-/** the default small-N regime threshold — the live count at or under which `record` runs the
+/** the default small-N regime threshold: the live count at or under which `record` runs the
  * one-dispatch O(n²) broadphase rather than the BVH build + descent (the gameplay regime is
  * structure-tax-bound, not work-bound; crossover measured by the physics bench sweep) */
 export const SMALL_N = 1024;
 
-/** the LDS-resident solve capacity — what fits the 16 KB workgroup-memory floor
+/** the LDS-resident solve capacity: what fits the 16 KB workgroup-memory floor
  * (maxComputeWorkgroupStorageSize 16384): pos (3 split f32 columns, 12 B) + quat (vec4, 16 B) =
  * 28 B/body → 512 · 28 = 14336 B resident, headroom for the kernel's control vars. Sits below the
- * {@link SMALL_N} regime threshold by construction. The DEFAULT threshold is {@link LDS_N}, not this —
+ * {@link SMALL_N} regime threshold by construction. The DEFAULT threshold is {@link LDS_N}, not this:
  * a `ldsN` sweep up to the capacity is the floor-device lever (the Metal cell). */
 export const LDS_CAP = 512;
 
-/** the default LDS-resident solve threshold — the measured Lovelace-neutral point:
- * the single-WG kernel is parity at ≤~64 bodies and loses ~linearly above (~+19% at 130, +39% at 502 —
+/** the default LDS-resident solve threshold: the measured Lovelace-neutral point:
+ * the single-WG kernel is parity at ≤~64 bodies and loses ~linearly above (~+19% at 130, +39% at 502,
  * its serialized record/CSR latency on one SM outgrows the looped path's dispatch boundaries), so the
  * default engages only where it costs nothing and the gym gates keep it green. On Metal the boundary
  * constant is 4× Lovelace (~3.5 µs/phase recoverable in-kernel), so the C1.4 Apple cell decides
@@ -2517,15 +2517,15 @@ const WORLD_ANCHOR_U32 = 0xffffffff; // the GPU sentinel (WGSL WORLD_ANCHOR) a <
 
 /**
  * an authored joint (Phase 6.2, the hard `Force`): two stacked constraints pinning `b`'s anchor `rB` to
- * `a`'s anchor `rA` — a linear anchor pin + an angular relative-orientation lock. `a`/`b` are body eids,
+ * `a`'s anchor `rA`: a linear anchor pin + an angular relative-orientation lock. `a`/`b` are body eids,
  * `rA`/`rB` the anchors in each body's local frame. **`a = {@link WORLD}` (any `a < 0`) makes `rA` a
- * world-space point** with no body A — the constraint pins `b` to a fixed world anchor with no anchor body
+ * world-space point** with no body A: the constraint pins `b` to a fixed world anchor with no anchor body
  * (so no anchor↔b contact), `b` dangling freely; drive the point each frame with {@link PhysicsStep.setJointAnchor}.
  * Defaults match `joint()`/`Joint::Joint`: rigid linear (`stiffnessLin = ∞`) + free rotation
  * (`stiffnessAng = 0`) = a spherical joint; pass `stiffnessAng = Infinity` for a fixed joint. Two
  * construction-time guards reject an energy-injecting authoring (deactivate, the GPU analog of `joint()`'s
- * throw): the two endpoints must NOT both be non-dynamic (`mass ≤ 0`, the world counting as static) — a joint
- * no dynamic body can resolve ramps its dual penalty + λ unbounded (a `counters[1]` bump) — and the anchors
+ * throw): the two endpoints must NOT both be non-dynamic (`mass ≤ 0`, the world counting as static), since a joint
+ * no dynamic body can resolve ramps its dual penalty + λ unbounded (a `counters[1]` bump); and the anchors
  * MUST start coincident at the scene pose, a gross mismatch injecting energy through BDF1 recovery (the rope
  * explosion, a `counters[2]` bump). Joint one dynamic body to a static/kinematic/world anchor. The torque arm
  * `‖sizeA + sizeB‖²` is GPU-computed from the bodies' half-extents.

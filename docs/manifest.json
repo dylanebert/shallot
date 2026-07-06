@@ -1,13 +1,5 @@
 [
     {
-        "slug": "guide/make-a-game",
-        "title": "Make a Game",
-        "description": "build an obby end to end",
-        "icon": "gamepad-2",
-        "specimen": "obby",
-        "order": 1
-    },
-    {
         "slug": "engine/ecs",
         "title": "ECS",
         "description": "entities, components, systems, transforms",

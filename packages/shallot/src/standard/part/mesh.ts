@@ -45,7 +45,7 @@ function pack(verts: Vert[]): Float32Array {
 }
 
 /**
- * unit cube (half-extent 0.5), flat-shaded — four vertices per face for
+ * unit cube (half-extent 0.5), flat-shaded: four vertices per face for
  * per-face normals, each face's uv running (0,0)→(1,0)→(1,1)→(0,1) over its
  * BL→BR→TR→TL corners. Winding is CCW outward, matching sear's back-face cull
  */
@@ -175,7 +175,7 @@ export function sphere(
 }
 
 /**
- * capsule of radius 0.5 and cylinder half-height 0.5 — two hemispherical caps
+ * capsule of radius 0.5 and cylinder half-height 0.5: two hemispherical caps
  * over a cylindrical mid-section, spanning y ∈ [-1, 1], smooth-shaded.
  * `segments` divisions around the axis, `rings` from cap pole to cap pole
  * (rounded down to an even count). The bottom cap winds the opposite direction

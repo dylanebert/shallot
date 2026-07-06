@@ -22,10 +22,10 @@ export const DATA_FORMAT: Record<(typeof DATA_NAMES)[number], GPUTextureFormat> 
     emissive: "rgba8unorm-srgb",
 };
 
-/** a decoded texture image, deviceless — shared by baseColor (union.ts buckets these by size) and the data
+/** a decoded texture image, deviceless: shared by baseColor (union.ts buckets these by size) and the data
  *  maps. PNG/JPEG carry an `ImageBitmap` (resized into a shared bitmap bucket/array on upload, so any size
  *  collapses there); KTX2 carry the transcoded compressed block + the source bytes (the union re-transcodes
- *  to RGBA only when sizes don't match — the spill / warned last resort). */
+ *  to RGBA only when sizes don't match, the spill / warned last resort). */
 export type DecodedImage =
     | { kind: "bitmap"; bitmap: ImageBitmap }
     | { kind: "compressed"; image: Ktx2Image; bytes: Uint8Array };
@@ -39,7 +39,7 @@ export interface DecodedMap {
     layer: Int32Array;
 }
 
-/** the decoded texture payload — every image decoded to its deviceless GPU-ready form + the per-material
+/** the decoded texture payload: every image decoded to its deviceless GPU-ready form + the per-material
  *  references the union rebases into the shared arrays + palette. Nothing uploaded, nothing bucketed (the
  *  bucketing is a union-level decision, made at assembly across the active set). */
 export interface DecodedTextures {
@@ -53,7 +53,7 @@ export interface DecodedTextures {
     textured: boolean;
 }
 
-/** the assembled (uploaded) texture GPU resources — the size-bucketed baseColor arrays (padded to
+/** the assembled (uploaded) texture GPU resources: the size-bucketed baseColor arrays (padded to
  *  ALBEDO_NAMES so every `albedo{b}` binding resolves), the four data-map arrays, one shared sampler, and the
  *  per-material palette. Built by {@link beginUnion} (union.ts) per active-set + held by the asset cache;
  *  {@link publishTextures} points the surfaces at it. */
@@ -65,7 +65,7 @@ export interface AssembledTextures {
 }
 
 /** the GPU resources behind an assembled texture set, for the deferred free (the union's albedo arrays + data
- *  arrays + palette buffer) — invalidate / clearGltfCache destroy these behind the submit fence. */
+ *  arrays + palette buffer): invalidate / clearGltfCache destroy these behind the submit fence. */
 export function textureResources(set: AssembledTextures): (GPUTexture | GPUBuffer)[] {
     const res: (GPUTexture | GPUBuffer)[] = [...set.albedo, set.palette];
     for (const name of DATA_NAMES) res.push(set.data[name]);
@@ -73,7 +73,7 @@ export function textureResources(set: AssembledTextures): (GPUTexture | GPUBuffe
 }
 
 /**
- * point the textured + skin surfaces' bindings at an assembled texture set — a pointer-publish, no free
+ * point the textured + skin surfaces' bindings at an assembled texture set: a pointer-publish, no free
  * (the asset cache / union memo owns the real set; the build-scoped fallback is freed in dispose). `albedo`
  * is padded to ALBEDO_NAMES, so an unused bucket's binding still resolves.
  */
@@ -111,7 +111,7 @@ export function fallbackTextures(device: GPUDevice): void {
     publishTextures(_fallback);
 }
 
-/** free the build-scoped fallback set (GltfPlugin.dispose). The cache-owned union arrays + palette survive —
+/** free the build-scoped fallback set (GltfPlugin.dispose). The cache-owned union arrays + palette survive,
  *  freed only by invalidate / clearGltfCache. */
 export function disposeTextureFallbacks(): void {
     if (!_fallback) return;

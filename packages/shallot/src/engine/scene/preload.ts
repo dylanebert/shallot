@@ -4,7 +4,7 @@ import type { Node } from "./xml";
 
 /** one scene pre-load resolver: scans parsed nodes for references it owns (a glTF mesh name) and awaits
  *  their registration, so `load` resolves every name. Registered by a plugin's `initialize`, removed by its
- *  `dispose` — a disabled plugin leaves no stale resolver. */
+ *  `dispose`; a disabled plugin leaves no stale resolver. */
 export interface Preloader {
     name: string;
     resolve(nodes: Node[], state: State): Promise<void> | void;
@@ -20,7 +20,7 @@ export interface Preloader {
 export const Preloads = new Registry<Preloader>();
 
 /**
- * run every registered {@link Preloader} over parsed scene nodes — the awaited pre-load resolve pass.
+ * run every registered {@link Preloader} over parsed scene nodes: the awaited pre-load resolve pass.
  * Call between `parse` and `load` (the engine's `build` and the editor already do).
  *
  * @example

@@ -81,16 +81,21 @@ export function parseJSDoc(filePath: string, defLine: number): JSDocResult {
         cleaned.push(line);
     }
 
-    let description: string | null = null;
     const tags: string[] = [];
     let example: string | null = null;
     let params: string | null = null;
     let inExample = false;
     const exampleLines: string[] = [];
+    // the description is the leading paragraph — every line before the first blank line or first tag,
+    // joined into one string. Taking only the first physical line truncated multi-line summaries
+    // mid-clause ("override via" then nothing).
+    const descLines: string[] = [];
+    let descDone = false;
 
     for (const line of cleaned) {
         if (line.startsWith("@example")) {
             inExample = true;
+            descDone = true;
             continue;
         }
         if (inExample) {
@@ -102,15 +107,24 @@ export function parseJSDoc(filePath: string, defLine: number): JSDocResult {
                 continue;
             }
         }
-        if (line === "") continue;
         if (line.startsWith("@params ")) {
             params = line.slice(8).trim();
-        } else if (line.startsWith("@")) {
-            tags.push(line);
-        } else if (description === null) {
-            description = line;
+            continue;
         }
+        if (line.startsWith("@")) {
+            tags.push(line);
+            descDone = true;
+            continue;
+        }
+        if (descDone) continue;
+        if (line === "") {
+            if (descLines.length) descDone = true;
+            continue;
+        }
+        descLines.push(line);
     }
+
+    const description: string | null = descLines.length ? descLines.join(" ") : null;
 
     if (exampleLines.length > 0) {
         while (exampleLines.length > 0 && exampleLines[0] === "") exampleLines.shift();

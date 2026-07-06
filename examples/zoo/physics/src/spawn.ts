@@ -5,16 +5,16 @@ import { Body, Part, type Plugin, ShapeKind, type State, type System } from "@dy
 // opt-in, so add `PhysicsPlugin` to enable it.
 
 // #doc:code source:physics/public/scenes/physics.scene
-// Give an entity a `body` and the solver simulates it. `half-extents` sizes the box collider and `mass: 0`
-// pins a body in place — the ground, walls, or a fixed anchor. Pair `body` with `part` to draw it. A
-// `spring` pulls two bodies toward a `rest` length; a `joint` pins them rigidly so the bar swings from the
-// pivot. Both are their own entity, referencing their bodies by `@name`.
+// Give an entity a `body` and the solver simulates it: `half-extents` sizes the box collider, and `mass: 0`
+// pins it in place (the ground, a wall, a fixed anchor). Pair `body` with `part` to draw it. A `spring` pulls
+// two bodies toward a `rest` length and a `joint` pins them rigidly, each its own entity referencing its
+// bodies by `@name`.
 
 // #doc:code
 // ### Spawn bodies in code
 //
 // Build a body at runtime: create an entity, add `Body`, set its shape, pose, and mass, then add `Part`
-// to render it. `Body.shape` takes a `ShapeKind` — `Box` here. This rains a cube onto the pile on a timer
+// to render it. `Body.shape` takes a `ShapeKind`: `Box` here. This rains a cube onto the pile on a timer
 // while the scene is playing.
 // #region spawn
 const MAX = 12;

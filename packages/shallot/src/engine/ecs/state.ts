@@ -8,7 +8,7 @@ import { applyDefaults, getExclusions, getName } from "./traits";
 /**
  * entity capacity, fixed at app construction. defaults to 65536. override via
  * `build({ capacity })` before any allocation; shared across every {@link State}
- * in the process — multi-state scenarios (networking server+client, rollback)
+ * in the process. multi-state scenarios (networking server+client, rollback)
  * all share one capacity by construction.
  *
  * footgun: don't bind at module top level (`const SIZE = capacity * 4`) — captures
@@ -18,7 +18,7 @@ export let capacity = 65536;
 
 /**
  * render device-pixel ratio for canvas-bound views, fixed at app construction. `"auto"`
- * (default) clamps the display's `devicePixelRatio` to `[1, 2]` (react-three-fiber's default) —
+ * (default) clamps the display's `devicePixelRatio` to `[1, 2]` (react-three-fiber's default):
  * crisp on HiDPI, never below logical resolution, capped so a DPR-3 phone doesn't pay 9× the fill.
  * A fixed number overrides: `1` renders at CSS resolution (cheapest, the three.js literal default),
  * `2` forces 2×, a value below 1 downscales for a pixel-art look (the upscale switches to
@@ -40,7 +40,7 @@ export let pixelRatio: number | "auto" = "auto";
 export class State {
     /**
      * when set, scheduler skips systems whose `annotations.mode` differs.
-     * `"always"`-annotated systems run in both modes. fixed at construction —
+     * `"always"`-annotated systems run in both modes. fixed at construction.
      * rebuild the app to switch modes. leave undefined to run every system
      * regardless of annotation.
      */
@@ -73,7 +73,7 @@ export class State {
         this._scheduler.step(this, deltaTime);
     }
 
-    /** freeze the virtual clock — gameplay (`time.deltaTime`/`elapsed`) and physics hold; the real clock keeps
+    /** freeze the virtual clock: gameplay (`time.deltaTime`/`elapsed`) and physics hold; the real clock keeps
      * running for camera/UI/input. takes effect next frame. {@link resume} restores the prior {@link timescale}. */
     pause(): void {
         this._scheduler.pause();
@@ -122,7 +122,7 @@ export class State {
     }
 
     /**
-     * entity identity recorded by `load` — the authored set + each entity's
+     * entity identity recorded by `load`: the authored set + each entity's
      * scene `id`. `serialize` reads it to round-trip refs by name and to skip
      * warm-derived entities. See {@link Identity}
      */
@@ -143,7 +143,7 @@ export class State {
     /**
      * attach a component to an entity. Default values declared via the component's
      * `Traits.defaults` are routed through each field's `.set` (for fields
-     * implementing the `Single` contract) — dirty tracking falls out automatically.
+     * implementing the `Single` contract): dirty tracking falls out automatically.
      * @example
      * state.add(eid, Health);
      * Health.current.set(eid, 100);
@@ -222,7 +222,7 @@ export class State {
     }
 
     /**
-     * hot-swap a live system's behavior in place — the reloaded module's
+     * hot-swap a live system's behavior in place. the reloaded module's
      * `update`/`setup`/`dispose` replace the old ones on the same registered
      * object, preserving its identity, ordering, and setup state. The engine
      * `swap` (plugin-level) drives this per system; not a per-frame call.
@@ -231,12 +231,12 @@ export class State {
         this._scheduler.swap(old, next);
     }
 
-    /** true if the system is live in the scheduler — `swap` validates its pairing against this */
+    /** true if the system is live in the scheduler; `swap` validates its pairing against this */
     hasSystem(system: System): boolean {
         return this._scheduler.has(system);
     }
 
-    /** record a CPU timing entry — no-op when no sink is installed */
+    /** record a CPU timing entry; no-op when no sink is installed */
     record(name: string, ms: number): void {
         this._scheduler.record?.(name, ms);
     }
@@ -253,7 +253,7 @@ export class State {
         this._scheduler.record = fn;
     }
 
-    /** report a GPU fence-wait duration — no-op when no sink is installed */
+    /** report a GPU fence-wait duration; no-op when no sink is installed */
     fenceWait(ms: number): void {
         this._scheduler.fenceWait?.(ms);
     }
@@ -276,7 +276,7 @@ export class State {
         return this._disposed;
     }
 
-    /** tear down the world — disposes every registered system */
+    /** tear down the world; disposes every registered system */
     dispose(): void {
         if (this._disposed) return;
         this._scheduler.dispose(this);

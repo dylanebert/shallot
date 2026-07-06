@@ -148,7 +148,7 @@ export const Joint = {
     rA: sparse(vec4),
     /** the pin's anchor on body `b`, in its local frame. */
     rB: sparse(vec4),
-    /** angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation — author `stiffness-ang: fixed`. */
+    /** angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation (author `stiffness-ang: fixed`). */
     stiffnessAng: sparse(f32),
 };
 
@@ -156,7 +156,7 @@ interface Physics {
     step: PhysicsStep | null;
 }
 
-/** the running physics state — the gym + tools read the GPU pose from `step.bodies` (indexed by `step.eids`) */
+/** the running physics state: the gym + tools read the GPU pose from `step.bodies` (indexed by `step.eids`) */
 export const Physics: Physics = {
     step: null,
 };
@@ -197,7 +197,7 @@ function inputs(): Inputs {
 // (deterministic dt). The pack runs in the draw group (below), which runs after fixed, so a new body
 // joins the solve the next frame — a documented 1-frame structural latency. Always records: an empty
 // scene is all-early-out on the GPU (the live count `eids[0]` is GPU-resident), so no CPU count guard.
-/** the fixed-group solver step — the ordering anchor a producer that writes the GPU `bodies` buffer before
+/** the fixed-group solver step: the ordering anchor a producer that writes the GPU `bodies` buffer before
  *  the solve (the CPU character sweep's kinematic upload) orders `before:` (`physics/core`, the render-anchor shape). */
 export const StepSystem: System = {
     name: "step",

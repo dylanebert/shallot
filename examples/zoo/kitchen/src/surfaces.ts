@@ -4,7 +4,7 @@ import { Backgrounds } from "@dylanebert/shallot/sear/core";
 
 // #doc:intro page:standard/surfaces
 // A surface is a WGSL shading program registered by name; `Part.surface` selects it per entity. Sear
-// splices the chunk into its fragment shader — the chunk reads sear's locals (`uv`, `worldNormal`, the
+// splices the chunk into its fragment shader: the chunk reads sear's locals (`uv`, `worldNormal`, the
 // per-instance `color`) and writes the final `col`. Geometry is per-entity (`Part.mesh`), so one surface
 // shades any mesh. These four grow from sear's built-in diffuse helper to a hand-written BRDF and a
 // fullscreen backdrop.
@@ -19,7 +19,7 @@ const KitchenSurfaces = {
         // ## A lit surface
         //
         // A procedural UV checker shaded through sear's `lit(base, normal)` diffuse helper. Declaring the
-        // `eids` + `transforms` bindings is all instancing needs — sear applies the standard per-instance
+        // `eids` + `transforms` bindings is all instancing needs: sear applies the standard per-instance
         // transform, no `vs` chunk.
         // #region checker
         Surfaces.register({
@@ -59,7 +59,7 @@ const KitchenSurfaces = {
         // #doc:code page:standard/surfaces
         // ## A custom BRDF
         //
-        // sear's `lit()` isn't the only shading model — write your own. This is Oren-Nayar diffuse (the
+        // sear's `lit()` isn't the only shading model, so write your own. This is Oren-Nayar diffuse (the
         // rough-matte clay / moon look): the `preamble` carries the BRDF, the `fs` calls it with the sun
         // and view directions from `lighting` and `view.eye`. `sunVisibility` is filled by the color
         // scaffold before the chunk runs, so even a hand-written BRDF gets sun shadows for free.
@@ -101,7 +101,7 @@ const KitchenSurfaces = {
         //
         // A backdrop fills the un-rendered (background) pixels: a view-ray → HDR color recipe registered
         // with `Backgrounds`, selected per camera by the `Backdrop` component. The `fs` writes `col` from
-        // `dir`, the world-space view ray sear reconstructs per pixel — here a vertical sky gradient.
+        // `dir`, the world-space view ray sear reconstructs per pixel. Here, a vertical sky gradient.
         // #region backdrop
         Backgrounds.register({
             name: "gradient",

@@ -13,7 +13,7 @@ import { Registry } from "../../engine";
  * bindings (`uniform` / `storage`) resolve from `Compute.buffers`; texture
  * bindings (`texture-2d` / `texture-2d-array` / `texture-depth-2d`) from
  * `Compute.textures`; sampler bindings (`sampler` / `sampler-comparison`) from `Compute.samplers`.
- * All resolution happens at bind-group build time — slabs with a name
+ * All resolution happens at bind-group build time: slabs with a name
  * self-register their buffer; producers register their static buffers,
  * textures, and samplers explicitly
  */
@@ -30,7 +30,7 @@ export type Binding =
  * renderer-agnostic shading recipe. `vs` and `fs` are WGSL chunks the
  * consumer renderer inlines into its `@vertex` / `@fragment` bodies; the
  * renderer provides vertex pull, struct definitions, lighting helpers, and
- * entry points — the surface's `vs` chunk owns any per-instance transform via
+ * entry points: the surface's `vs` chunk owns any per-instance transform via
  * the bindings it declares, and the `fs` chunk writes the final color
  * (`col`), shading explicitly via the renderer's lighting helpers. `preamble`
  * is an optional WGSL chunk inlined at module scope after bindings, for helper
@@ -38,11 +38,11 @@ export type Binding =
  * custom vertex→fragment varyings (name → WGSL type, e.g.
  * `{ litFactor: "vec3<f32>" }`): the renderer adds them to its output struct,
  * exposes them as mutable locals the `vs` chunk writes, and rebinds them as
- * locals the `fs` chunk reads — the path for per-vertex lighting, world-space
+ * locals the `fs` chunk reads: the path for per-vertex lighting, world-space
  * position, tangent frames, and the like. `bindings` enumerates every resource
  * the surface uses beyond Frame + View + Lighting; the renderer looks each
  * name up in the matching registry (`Compute.buffers` / `Compute.textures` /
- * `Compute.samplers`) by binding type. A surface is mesh-agnostic — geometry
+ * `Compute.samplers`) by binding type. A surface is mesh-agnostic: geometry
  * is chosen per-{@link Draw} (`Draw.mesh`); for Part entities that's the
  * per-entity `Part.mesh` field, so one surface shades any mesh.
  *
@@ -76,7 +76,7 @@ export interface Surface {
     /**
      * compile-time pipeline specialization (Bevy's `specialize` / the `#ifdef USE_*MAP` idiom). When set,
      * the renderer compiles one pipeline per `variant` value a draw requests (the draw's `Mesh.variant`),
-     * splicing the returned `preamble` / `fs` over the surface's defaults — on demand, deduped by variant,
+     * splicing the returned `preamble` / `fs` over the surface's defaults: on demand, deduped by variant,
      * so only the variants a scene actually loads are compiled. The `bindings` + `interpolators` are
      * variant-invariant (a variant samples fewer of the *same* bindings), so every variant shares one
      * bind-group layout. Omitted = one pipeline, variant ignored. The glTF importer specializes its
@@ -89,11 +89,11 @@ export interface Surface {
 export const Surfaces: Registry<Surface> = new Registry<Surface>();
 
 /**
- * draw arguments — always indirect. `indirect` is a GPU buffer holding the
+ * draw arguments: always indirect. `indirect` is a GPU buffer holding the
  * standard 20-byte `DrawIndexedIndirect` record (`{ indexCount, instanceCount,
  * firstIndex, baseVertex, firstInstance }`) at `offset`; the renderer binds the
  * mesh's index buffer and issues `pass.drawIndexedIndirect(indirect, offset)`. Everything is GPU-driven, so the draw
- * count lives in GPU memory — a CPU-known draw just `writeBuffer`s its record
+ * count lives in GPU memory: a CPU-known draw just `writeBuffer`s its record
  * into a small buffer rather than passing literals.
  *
  * `viewStride`, when set, makes the record per-view: a producer that culls into
@@ -109,7 +109,7 @@ export interface DrawArgs {
 
 /**
  * one rendered thing. `surface` references a registered Surface by name;
- * `mesh` references a registered Mesh by name — the consumer renderer pulls
+ * `mesh` references a registered Mesh by name: the consumer renderer pulls
  * indexed vertices from that mesh's `vertices` + `indices` buffers in WGSL.
  * `args` points at the indirect draw record. Surface bindings beyond mesh
  * resolve by name against `Compute.buffers`

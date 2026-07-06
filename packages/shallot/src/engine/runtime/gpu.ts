@@ -18,7 +18,7 @@ const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
  * pre-flight a large/fixed-cap storage buffer against the device's per-binding limit. A heavy scene
  * grows several of these (the physics contact store, the BVH node buffer); past `maxStorageBufferBindingSize`
  * the bare allocation OOMs silently or surfaces an opaque bind-group validation error, so this throws a
- * named {@link UnsupportedError} first — the buffer, the needed-vs-available MB, and a remedy. Pure
+ * named {@link UnsupportedError} first: the buffer, the needed-vs-available MB, and a remedy. Pure
  * (bytes + limit), so a unit test exercises it with no device. `label` names the buffer (e.g.
  * `"[bvh] the node buffer"`); `remedy` says how to fit under the limit.
  */
@@ -40,7 +40,7 @@ export function checkStorageBinding(
  * pre-flight a texture (or texture array) against the device's dimension + array-layer limits. A texture
  * whose width/height exceeds `maxTextureDimension2D` or whose layer count exceeds `maxTextureArrayLayers`
  * (a VAT keyed by a huge vertex/frame count, a glTF baseColor / sprite array unioning many sources) fails
- * at an opaque `createTexture` validation error; this throws a named {@link UnsupportedError} first — the
+ * at an opaque `createTexture` validation error; this throws a named {@link UnsupportedError} first: the
  * extent, the needed-vs-available, and a remedy. Pure (extents + limits), so a unit test exercises it with
  * no device. `layers` defaults to 1 (a plain 2D texture).
  */
@@ -107,8 +107,8 @@ export interface Compute {
      * optional indirect-draw tally hook installed by `ProfilePlugin`. A pass reports the
      * `drawIndexedIndirect` commands it issues (the honest count, post the skip), and the profiler
      * derives Dawn's injected indirect-draw validation floor (`#draws × ~1µs`, untimed by
-     * `timestampWrites` because it runs before the pass — gpu.md "WebGPU-specific traps"). A `?.`
-     * no-op without the plugin, mirroring {@link span}. A bundle reports its *recorded* draw count —
+     * `timestampWrites` because it runs before the pass, gpu.md "WebGPU-specific traps"). A `?.`
+     * no-op without the plugin, mirroring {@link span}. A bundle reports its *recorded* draw count;
      * the injected validation runs the same for a replay
      */
     indirect?: (name: string, count: number) => void;
@@ -147,7 +147,7 @@ const REQUIRED_STORAGE_BUFFERS_PER_STAGE = 10;
 
 /**
  * split requested features against what an adapter offers. `required` (the base floor ∪ the active
- * plugins' `Plugin.features`) that the adapter lacks land in `missing` — the caller throws. `preferred`
+ * plugins' `Plugin.features`) that the adapter lacks land in `missing`; the caller throws. `preferred`
  * (the plugins' `Plugin.preferredFeatures`) are `granted` only where present, never gating the device:
  * a plugin asks for an arm it can run without (the BVH builder's `subgroups`). Pure over the adapter's
  * feature set, so a unit test exercises it with no device.
@@ -164,10 +164,10 @@ export function resolveFeatures(
 
 /**
  * populate the {@link Compute} singleton. With no argument, acquires a device
- * via `navigator.gpu` and enforces shallot's feature floor — the base floor plus
- * any `features` the active plugins require — throwing {@link UnsupportedError}
+ * via `navigator.gpu` and enforces shallot's feature floor (the base floor plus
+ * any `features` the active plugins require), throwing {@link UnsupportedError}
  * otherwise. `preferred` features are requested only where the adapter has them
- * (never gating the device). Pass an external device to adopt it as-is — the caller
+ * (never gating the device). Pass an external device to adopt it as-is; the caller
  * is responsible for feature support.
  */
 export async function requestGPU(
@@ -235,7 +235,7 @@ async function acquireDevice(
 
 /**
  * the limits requested at device acquisition, read from the adapter. Requesting ≤ the adapter's
- * reported value is always granted, so this never rejects `requestDevice` — the storage-binding /
+ * reported value is always granted, so this never rejects `requestDevice`; the storage-binding /
  * buffer sizes pass the adapter's full values through (physics' compacted contact store needs the
  * full size past the 128 MB / 256 MB spec defaults at high capacity, and a consumer overreaching
  * the true limit still fails loud at bind-group validation).

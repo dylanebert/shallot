@@ -10,7 +10,7 @@ export interface SfxPolicy {
     max?: number;
     /** min seconds between triggers; a re-trigger inside the window is dropped */
     cooldown?: number;
-    /** at the cap, which playing instance to cull — the oldest, the quietest, or none (drop the new trigger). default "oldest" */
+    /** at the cap, which playing instance to cull: the oldest, the quietest, or none (drop the new trigger). default "oldest" */
     steal?: "oldest" | "quietest" | "none";
 }
 
@@ -42,7 +42,7 @@ export function policyFor(name: string): Required<SfxPolicy> | undefined {
     return policies.get(name);
 }
 
-/** true when `name` last fired inside its cooldown window — the trigger should drop. A backwards clock (a State rebuild reset elapsed) reads as expired */
+/** true when `name` last fired inside its cooldown window; the trigger should drop. A backwards clock (a State rebuild reset elapsed) reads as expired */
 export function withinCooldown(name: string, cooldown: number, elapsed: number): boolean {
     if (cooldown <= 0) return false;
     const last = fired.get(name);
