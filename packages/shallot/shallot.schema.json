@@ -1,0 +1,50 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "$id": "https://dylanebert.github.io/shallot/shallot.schema.json",
+    "title": "Shallot project manifest",
+    "description": "The committed source of truth for a shallot project's scene + plugin enablement (shallot.json). Read identically by the editor and a standalone boot.",
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+        "$schema": {
+            "type": "string",
+            "description": "Pointer to this schema for editor autocomplete + validation."
+        },
+        "scene": {
+            "type": "string",
+            "description": "Path to the project's scene file, relative to the manifest (e.g. \"scenes/main.scene\")."
+        },
+        "capacity": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Fixed entity capacity for the session (a build-time invariant). Omit for the engine default (65536)."
+        },
+        "plugins": {
+            "type": "object",
+            "description": "Plugin enablement. An engine plugin is enabled by name with true/false; a local/external plugin is a module specifier whose default export is the Plugin.",
+            "additionalProperties": {
+                "oneOf": [
+                    {
+                        "type": "boolean",
+                        "description": "An engine plugin: true enables it, false disables a default."
+                    },
+                    {
+                        "type": "string",
+                        "description": "A local/external plugin: a module specifier (relative path like \"./src/x\" or a package subpath like \"orrstead/grid\") whose default export is the Plugin."
+                    },
+                    {
+                        "type": "array",
+                        "description": "A local/external plugin kept but toggled off — [specifier, false] (the spec survives the toggle; the Babel/PostCSS tuple form).",
+                        "minItems": 2,
+                        "maxItems": 2,
+                        "prefixItems": [
+                            { "type": "string", "description": "The module specifier (default-exporting a Plugin)." },
+                            { "type": "boolean", "description": "Whether the plugin is enabled." }
+                        ],
+                        "items": false
+                    }
+                ]
+            }
+        }
+    }
+}

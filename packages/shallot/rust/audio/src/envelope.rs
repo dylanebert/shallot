@@ -103,6 +103,12 @@ impl Envelope {
     }
 }
 
+/// Envelope segment shaping. `c` in [-1, 1] bends a normalized 0→1 segment:
+/// `c = 0` is linear, `c > 0` convex (slow then fast), `c < 0` concave. The
+/// exponential form `(e^(p·t) - 1)/(e^p - 1)` (p = 6c) maps [0,1] onto [0,1]
+/// for any `c`, so endpoints stay exact and the segment is monotonic. This
+/// curve shape is the deliberate, settled choice — a single tunable per stage,
+/// not a placeholder for per-segment spline tables.
 pub fn curve(t: f32, c: f32) -> f32 {
     let p = c * 6.0;
     if p.abs() < 0.01 {

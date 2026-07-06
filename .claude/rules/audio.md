@@ -2,38 +2,30 @@
 paths:
     - "packages/shallot/src/standard/audio/**/*.ts"
     - "packages/shallot/rust/audio/**/*.rs"
-    - "packages/shallot/src/extras/acoustics/**/*.ts"
-    - "examples/workstation/**/*"
 ---
 
 # Audio
 
 Reference: `docs/standard/audio.md` for architecture, playback patterns, and API surface.
 
+> The **kernel-behavior** sections below (voice lifecycle, instrument completeness, metadata params, gain staging, gotchas) describe the frozen `rust/audio/` kernel + `worklet.ts`. The **Layers** section describes the live `standard/audio` JS layer.
+
+## Layers
+
+Substrate then composable contracts, dependencies inward (the `render/` ← `sear/` shape). Don't collapse layers; don't push an upper layer's work into a lower one.
+
+- **`audio/core` — the voice contract + DSP substrate.** The `Audio` singleton (AudioContext/worklet host, 64-slot voice allocator, per-frame batch), the gen-validated voice ops, `polar` + the spatial batch, and the DAG compiler (`instrument()` → kernel node-list + `paramLayout`). The kernel owns all DSP; this owns allocation + the wire — no CPU voice mirror, no `AudioCommand` union (the wire lives only in `worklet.ts`).
+- **`audio/index` — the SFX surface (the barrel happy path).** `Sound`/`Listener` on `sparse`, `SoundSystem` (alloc/free gated on the `Voiced` marker, volume firehose, spatial derivation), `play()`.
+- **`audio/policy` — the per-name instance budget over `play()` (FMOD/Wwise instance limits).** `sfx(name, {max, cooldown, steal})` registers a limit `play()` consults (cap / min-interval cooldown / cull victim oldest|quietest|drop); no policy → unbounded as before. Cooldown is clocked on `state.time.elapsed`, self-healing across a rebuild via a backwards-clock read. **Loops are never culled** — `steal()` skips `loop === 1` and a per-name cap removes only a same-name instance, so an SFX burst can't steal the bed/music. A general `Sound.priority` is the deferred follow-up (a real scope boundary, not a stopgap).
+- **Future contracts on top** (each one scenario, mix freely): pattern/sequencer (the transport L2 wires aren't built — a pure L3 + thin-passthrough add), the spatial/acoustics rebuild, physics coupling, DDSP. Substrate stays small; use cases accumulate at the top.
+
 ## Voice lifecycle
 
 - **One-shot voices** (`one_shot` flag): auto-gate-off when any envelope reaches Sustain. Sustain level becomes release start. Prevents voice accumulation from short-lived sounds.
 - **Spatial tail**: spatial voices get min 16 blocks (~46ms) idle tail, regardless of convolver state. Covers GPU reflection readback latency.
-- **Idle tracking**: worklet's `_releasing` set watches for idle. `voice_idle` returns true when all envelopes are `Idle` AND idle_countdown reaches 0. Only `watch_idle` populates `_releasing` — never `gate(0)`. Gate-off is musical; idle watching is lifecycle.
+- **Idle tracking**: worklet's `_releasing` set watches for idle. `voice_idle` returns true when all envelopes are `Idle` AND idle_countdown reaches 0. Only `watch_idle` populates `_releasing`; any `gate(value != 0)` clears it (the re-gate guard below), so a voice's `watch_idle` must be enqueued **after** its gate-on or the same batch wipes the watch and the voice never idles (it leaks). Gate-off is musical; idle watching is lifecycle.
+- **Sample playback path**: a one-shot rides `play(name)` → `sampler()` (the enveloped auto-build). With no envelope `voice_idle` is vacuously true, so a bare sample node is freed mid-sample by `watchIdle`; the sampler's sustain=1/decay≈length envelope holds it open and also wires `volumeParam` (else `Sound.volume` is ignored) and `loopParam`. A **looping** bed uses an explicit looping instrument with `volumeParam` — the auto-sampler's loop arm is unexercised in-engine.
 - **Transport re-gate**: transport events gate on/off internally without notifying the worklet. If `gate(0)` populated `_releasing`, a voice gated off by seek then re-gated would be falsely reported idle.
-
-## Two update paths
-
-- **Value change** (knob tweak): `setValues()` + `upload(audio, instId, changed)`. No recompilation, no voice reset
-- **Topology change** (add/remove nodes): `instrument()` to recompile + `refresh(audio, instId)`. Sends new topology to voices
-
-Don't recompile for value-only changes.
-
-## Compiled topology vs mutable values
-
-`CompiledInstrument` is immutable compiled topology (nodes, paramLayout, modulations, outputBuf). Values stored separately in instrument.ts.
-
-- `instrumentRegistry.get(id)` — immutable topology
-- `getValues(id)` — mutable values map (metadata + WASM params)
-- `getParamPairs(instId)` — offset/value pairs filtered to paramLayout (for WASM upload)
-- `setValues(instId, params)` — mutates the values map
-
-All accessed via `@dylanebert/shallot/audio/core` subpath. User-facing API is `instrument()`, `Instrument` type, `noteFreq`, `midiFreq` from the main barrel.
 
 ## Instrument completeness
 

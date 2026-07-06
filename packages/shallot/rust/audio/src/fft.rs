@@ -6,9 +6,21 @@ pub const SPECTRUM_SIZE: usize = FFT_SIZE / 2 + 1;
 const HALF: usize = FFT_SIZE / 2;
 const LOG2_HALF: usize = 7;
 
+// Per-stage twiddles, destrided so each radix-2 stage reads a contiguous run
+// instead of the strided `k * step` a single shared table forces. Stage `s`
+// (butterfly span `len = 2^(s+1)`, half-span `half_len = 2^s`) owns the
+// `half_len` slots at offset `2^s - 1`; the slot count over the 7 stages sums to
+// `HALF - 1`. Contiguity is what lets the butterfly loop pull 4 twiddles with one
+// `v128_load` (Stage 1.4) — a strided table would need a gather wasm SIMD lacks.
+const STAGE_TW_LEN: usize = HALF - 1;
+
+fn stage_offset(s: usize) -> usize {
+    (1 << s) - 1
+}
+
 pub struct FftPlan {
-    twiddle_re: [f32; HALF / 2],
-    twiddle_im: [f32; HALF / 2],
+    stage_re: [f32; STAGE_TW_LEN],
+    stage_im: [f32; STAGE_TW_LEN],
     bit_rev: [u8; HALF],
     unscramble_re: [f32; SPECTRUM_SIZE],
     unscramble_im: [f32; SPECTRUM_SIZE],
@@ -23,14 +35,123 @@ fn bit_reverse(mut x: u32, bits: u32) -> u32 {
     result
 }
 
+/// One radix-2 butterfly: `z[b]` is rotated by the twiddle `(wr, wi)` and
+/// combined with `z[a]` in place. The scalar form — shared by the native build
+/// and the SIMD build's sub-4 stages — so all paths agree bit-for-bit.
+#[inline(always)]
+fn bfly1(zr: &mut [f32; HALF], zi: &mut [f32; HALF], a: usize, b: usize, wr: f32, wi: f32) {
+    let tr = wr * zr[b] - wi * zi[b];
+    let ti = wr * zi[b] + wi * zr[b];
+    zr[b] = zr[a] - tr;
+    zi[b] = zi[a] - ti;
+    zr[a] += tr;
+    zi[a] += ti;
+}
+
+/// One butterfly group of a radix-2 DIT stage: `half_len` butterflies pairing
+/// `start + k` with `start + half_len + k`, twiddle `tw_re[k] + sign·i·tw_im[k]`
+/// (`sign = -1` for the inverse transform). Both halves and the twiddle run are
+/// contiguous, so the `half_len >= 4` stages process 4 butterflies per `f32x4`;
+/// the sub-4 stages (half_len 1, 2) fall to the scalar [`bfly1`].
+///
+/// Hand-vectorized (Stage 1.4): the autovectorizer leaves `fft_core` scalar (the
+/// bit-reversed strides of the enclosing loops defeat it), but each group's inner
+/// loop is contiguous once the twiddles are destrided. The math is elementwise —
+/// no cross-lane reduction — so each SIMD lane equals [`bfly1`] value-for-value,
+/// and native (scalar) vs wasm (SIMD) stay inside the FMA floor the native-vs-wasm
+/// parity differential already budgets. Reference: kissfft `kf_bfly2`.
+#[cfg(target_feature = "simd128")]
+#[inline]
+fn butterfly(
+    zr: &mut [f32; HALF],
+    zi: &mut [f32; HALF],
+    start: usize,
+    half_len: usize,
+    tw_re: &[f32],
+    tw_im: &[f32],
+    sign: f32,
+) {
+    use core::arch::wasm32::{f32x4_add, f32x4_mul, f32x4_splat, f32x4_sub, v128_load, v128_store};
+    if half_len < 4 {
+        for k in 0..half_len {
+            bfly1(
+                zr,
+                zi,
+                start + k,
+                start + half_len + k,
+                tw_re[k],
+                sign * tw_im[k],
+            );
+        }
+        return;
+    }
+    let signv = f32x4_splat(sign);
+    // SAFETY: a in [start, start+half_len), b in [start+half_len, start+2·half_len),
+    // both inside [0, HALF); k steps by 4 and half_len is a multiple of 4, so every
+    // 4-wide load/store stays in bounds. tw_re/tw_im have len == half_len.
+    // simd128 is the shipped wasm target feature (`.cargo/config.toml`); v128_load
+    // is unaligned-safe.
+    unsafe {
+        let (zrp, zip) = (zr.as_mut_ptr(), zi.as_mut_ptr());
+        let (trp, tip) = (tw_re.as_ptr(), tw_im.as_ptr());
+        let mut k = 0;
+        while k < half_len {
+            let a = start + k;
+            let b = start + half_len + k;
+            let wr = v128_load(trp.add(k).cast());
+            let wi = f32x4_mul(signv, v128_load(tip.add(k).cast()));
+            let zbr = v128_load(zrp.add(b).cast());
+            let zbi = v128_load(zip.add(b).cast());
+            let tr = f32x4_sub(f32x4_mul(wr, zbr), f32x4_mul(wi, zbi));
+            let ti = f32x4_add(f32x4_mul(wr, zbi), f32x4_mul(wi, zbr));
+            let zar = v128_load(zrp.add(a).cast());
+            let zai = v128_load(zip.add(a).cast());
+            v128_store(zrp.add(b).cast(), f32x4_sub(zar, tr));
+            v128_store(zip.add(b).cast(), f32x4_sub(zai, ti));
+            v128_store(zrp.add(a).cast(), f32x4_add(zar, tr));
+            v128_store(zip.add(a).cast(), f32x4_add(zai, ti));
+            k += 4;
+        }
+    }
+}
+
+#[cfg(not(target_feature = "simd128"))]
+#[inline]
+fn butterfly(
+    zr: &mut [f32; HALF],
+    zi: &mut [f32; HALF],
+    start: usize,
+    half_len: usize,
+    tw_re: &[f32],
+    tw_im: &[f32],
+    sign: f32,
+) {
+    for k in 0..half_len {
+        bfly1(
+            zr,
+            zi,
+            start + k,
+            start + half_len + k,
+            tw_re[k],
+            sign * tw_im[k],
+        );
+    }
+}
+
 impl FftPlan {
     pub fn new() -> Self {
-        let mut twiddle_re = [0.0f32; HALF / 2];
-        let mut twiddle_im = [0.0f32; HALF / 2];
-        for k in 0..HALF / 2 {
-            let angle = -TAU * k as f32 / HALF as f32;
-            twiddle_re[k] = angle.cos();
-            twiddle_im[k] = angle.sin();
+        let mut stage_re = [0.0f32; STAGE_TW_LEN];
+        let mut stage_im = [0.0f32; STAGE_TW_LEN];
+        let mut len = 2usize;
+        for s in 0..LOG2_HALF {
+            let half_len = len / 2;
+            let off = stage_offset(s);
+            for k in 0..half_len {
+                let angle = -TAU * k as f32 / len as f32;
+                stage_re[off + k] = angle.cos();
+                stage_im[off + k] = angle.sin();
+            }
+            len *= 2;
         }
 
         let mut bit_rev = [0u8; HALF];
@@ -47,8 +168,8 @@ impl FftPlan {
         }
 
         FftPlan {
-            twiddle_re,
-            twiddle_im,
+            stage_re,
+            stage_im,
             bit_rev,
             unscramble_re,
             unscramble_im,
@@ -64,28 +185,15 @@ impl FftPlan {
             }
         }
 
+        let sign = if inverse { -1.0 } else { 1.0 };
         let mut len = 2usize;
-        for _ in 0..LOG2_HALF {
+        for s in 0..LOG2_HALF {
             let half_len = len / 2;
-            let step = HALF / len;
+            let off = stage_offset(s);
+            let tw_re = &self.stage_re[off..off + half_len];
+            let tw_im = &self.stage_im[off..off + half_len];
             for start in (0..HALF).step_by(len) {
-                for k in 0..half_len {
-                    let tw = k * step;
-                    let wr = self.twiddle_re[tw];
-                    let wi = if inverse {
-                        -self.twiddle_im[tw]
-                    } else {
-                        self.twiddle_im[tw]
-                    };
-                    let a = start + k;
-                    let b = a + half_len;
-                    let tr = wr * zr[b] - wi * zi[b];
-                    let ti = wr * zi[b] + wi * zr[b];
-                    zr[b] = zr[a] - tr;
-                    zi[b] = zi[a] - ti;
-                    zr[a] += tr;
-                    zi[a] += ti;
-                }
+                butterfly(zr, zi, start, half_len, tw_re, tw_im, sign);
             }
             len *= 2;
         }

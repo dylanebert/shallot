@@ -1,7 +1,15 @@
 {
     "$schema": "https://biomejs.dev/schemas/2.0.x/schema.json",
     "files": {
-        "includes": ["packages/**/*.ts", "examples/**/*.ts", "research/**/*.ts", "scripts/**/*.ts"]
+        "includes": [
+            "packages/**/*.ts",
+            "examples/**/*.ts",
+            "!examples/templates",
+            "research/**/*.ts",
+            "scripts/**/*.ts",
+            "!scripts/capture/fixture-svelte",
+            "!scripts/capture/fixture-react"
+        ]
     },
     "linter": {
         "enabled": true,
@@ -29,6 +37,11 @@
                                 "formats": ["camelCase"]
                             },
                             {
+                                "selector": { "kind": "classProperty" },
+                                "match": "[a-zA-Z].*",
+                                "formats": ["camelCase"]
+                            },
+                            {
                                 "selector": { "kind": "objectLiteralProperty" },
                                 "formats": ["camelCase", "PascalCase", "CONSTANT_CASE"]
                             },
@@ -53,7 +66,12 @@
         }
     },
     "assist": {
-        "enabled": false
+        "enabled": true,
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
+        }
     },
     "formatter": {
         "enabled": true,
@@ -71,7 +89,7 @@
     },
     "overrides": [
         {
-            "includes": ["**/rust/**/pkg/**", "scripts/compare.ts"],
+            "includes": ["**/rust/**/pkg/**"],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }
     ]

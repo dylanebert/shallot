@@ -1,0 +1,12 @@
+{
+  "name": "shallot-widget-fixture",
+  "version": "0.0.0",
+  "type": "module",
+  "exports": {
+    "./widget": "./src/widget.ts"
+  },
+  "files": ["src"],
+  "peerDependencies": {
+    "@dylanebert/shallot": "*"
+  }
+}

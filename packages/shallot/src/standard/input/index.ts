@@ -1,30 +1,130 @@
-import { resource, type State, type System, type Plugin } from "../../engine";
-import { Views } from "../viewport";
+import type { Plugin, System } from "../../engine";
 
+/**
+ * live mouse state, read through {@link Inputs}.mouse. Positions and sizes are CSS pixels; the deltas
+ * accumulate over the frame and reset at frame end.
+ * @expand
+ */
 export interface Mouse {
+    /** horizontal pointer movement since the last frame, in CSS pixels (drag/look delta) */
     deltaX: number;
+    /** vertical pointer movement since the last frame, in CSS pixels */
     deltaY: number;
+    /** wheel movement accumulated this frame; positive scrolls down/away */
     scroll: number;
+    /** left button held */
     left: boolean;
+    /** right button held */
     right: boolean;
+    /** middle button held */
     middle: boolean;
+    /** pointer is over a bound canvas */
     hover: boolean;
+    /** pointer x within the focused canvas, CSS pixels from the left edge */
     x: number;
+    /** pointer y within the focused canvas, CSS pixels from the top edge */
     y: number;
+    /** focused canvas width in CSS pixels — divide `x` by it for a 0–1 coordinate */
     canvasWidth: number;
+    /** focused canvas height in CSS pixels */
     canvasHeight: number;
 }
 
+/**
+ * the input singleton: query keyboard and mouse state from any system. Key codes are
+ * `KeyboardEvent.code` values (`"KeyW"`, `"Space"`, `"ShiftLeft"`). While input is suspended
+ * ({@link setInputEnabled}) every read reports neutral.
+ * @expand
+ * @example
+ * if (Inputs.isKeyDown("KeyW")) moveForward();
+ * if (Inputs.isKeyPressed("Space")) jump();
+ * if (Inputs.mouse.left) fire();
+ */
 export interface Inputs {
+    /** current mouse state — buttons, canvas-relative position, per-frame deltas */
     readonly mouse: Readonly<Mouse>;
+    /** entity id of the canvas holding input focus, or -1 when none is focused */
     readonly focused: number;
+    /** whether a key is currently held down */
     isKeyDown(code: string): boolean;
+    /** whether a key went down this frame — the press edge, true for one frame */
     isKeyPressed(code: string): boolean;
+    /** whether a key came up this frame — the release edge, true for one frame */
     isKeyReleased(code: string): boolean;
+    /** whether a key's last press was within the last `seconds` — an input buffer for jump/coyote timing */
     isKeyPressedWithin(code: string, seconds: number): boolean;
 }
 
-export const Inputs = resource<Inputs>("inputs");
+const DEFAULT_MOUSE: Mouse = {
+    deltaX: 0,
+    deltaY: 0,
+    scroll: 0,
+    left: false,
+    right: false,
+    middle: false,
+    hover: false,
+    x: 0,
+    y: 0,
+    canvasWidth: 0,
+    canvasHeight: 0,
+};
+
+// the global input gate. While off, every read reports neutral (no keys, no buttons, no deltas) and the
+// keydown handler stops accumulating, so a menu or cutscene suspends every input consumer with one flag. A
+// pointer-lock controller (the Player) watches it to release the lock too. Reset to true on each (re)bind.
+let enabled = true;
+
+export const Inputs: Inputs = {
+    get mouse(): Readonly<Mouse> {
+        return enabled ? (inputState?.mouse ?? DEFAULT_MOUSE) : DEFAULT_MOUSE;
+    },
+    get focused(): number {
+        return inputState?.focused ?? -1;
+    },
+    isKeyDown(code: string): boolean {
+        return enabled ? (inputState?.keys.has(code) ?? false) : false;
+    },
+    isKeyPressed(code: string): boolean {
+        return enabled ? (inputState?.keysPressed.has(code) ?? false) : false;
+    },
+    isKeyReleased(code: string): boolean {
+        return enabled ? (inputState?.keysReleased.has(code) ?? false) : false;
+    },
+    isKeyPressedWithin(code: string, seconds: number): boolean {
+        if (!enabled) return false;
+        const t = inputState?.keyPressedAt.get(code) ?? -Infinity;
+        return performance.now() - t < seconds * 1000;
+    },
+};
+
+/**
+ * suspend or resume all input. While suspended, every {@link Inputs} read reports neutral — no keys held, no
+ * mouse buttons, zero deltas — so a menu or cutscene freezes every consumer (movement, look, grab) with one
+ * call, and a pointer-lock controller releases its lock. Resets to enabled on each State (re)bind.
+ *
+ * @example
+ * ```
+ * setInputEnabled(false); // open a pause menu — the player stops moving + looking
+ * setInputEnabled(true);  // close it — control resumes
+ * ```
+ */
+export function setInputEnabled(on: boolean): void {
+    enabled = on;
+    if (!on && inputState) {
+        inputState.keys.clear();
+        inputState.keysPressed.clear();
+        inputState.keysReleased.clear();
+        clearAllButtons(inputState.mouse);
+        inputState.mouse.deltaX = 0;
+        inputState.mouse.deltaY = 0;
+        inputState.mouse.scroll = 0;
+    }
+}
+
+/** whether input is currently live (the inverse of a {@link setInputEnabled} suspend). */
+export function inputEnabled(): boolean {
+    return enabled;
+}
 
 interface InputState {
     keys: Set<string>;
@@ -39,6 +139,7 @@ interface InputState {
     lastPointerY: number;
     activePointerId: number | null;
     activeButton: number | null;
+    requireLock: boolean;
     pointerHover: (e: PointerEvent) => void;
     pointerEnter: (e: PointerEvent) => void;
     pointerLeave: (e: PointerEvent) => void;
@@ -55,7 +156,7 @@ interface InputState {
     windowBlur: () => void;
 }
 
-const InputResource = resource<InputState>("input");
+let inputState: InputState | null = null;
 
 // `PointerEvent.buttons` is the bitmask of currently-pressed buttons
 // (left=1, right=2, middle=4). browsers update it on every pointer event
@@ -67,6 +168,32 @@ function syncButtons(mouse: Mouse, buttons: number): void {
     mouse.left = (buttons & 1) !== 0;
     mouse.right = (buttons & 2) !== 0;
     mouse.middle = (buttons & 4) !== 0;
+}
+
+// true while pointer lock is engaged on one of our canvases.
+function locked(s: InputState): boolean {
+    const el =
+        typeof document === "undefined"
+            ? null
+            : (document.pointerLockElement as HTMLCanvasElement | null);
+    return !!el && s.canvases.has(el);
+}
+
+// the button bitmask a press reports. with `requireLock` on (a pointer-lock controller
+// like Player), buttons read 0 until the pointer is locked — so the click that engages
+// the lock only focuses; subsequent clicks, made while locked, register as commands.
+function gateButtons(s: InputState, buttons: number): number {
+    return s.requireLock && !locked(s) ? 0 : buttons;
+}
+
+/**
+ * gate mouse-button reporting on pointer lock. while on, {@link Inputs}.mouse buttons stay
+ * up until the pointer is locked, so the click that engages the lock doesn't fire a command —
+ * only clicks made once locked count. a pointer-lock controller (the {@link Player}) turns this
+ * on in its setup; non-locked cameras (orbit) leave it off and read buttons immediately.
+ */
+export function requirePointerLock(on: boolean): void {
+    if (inputState) inputState.requireLock = on;
 }
 
 function clearAllButtons(mouse: Mouse): void {
@@ -107,6 +234,7 @@ function createHandlers(s: InputState): void {
     };
 
     s.keyDown = (e: KeyboardEvent) => {
+        if (!enabled) return;
         const locked = document.pointerLockElement as HTMLCanvasElement | null;
         if (!s.canvasFocused && !(locked && s.canvases.has(locked))) return;
         if (!s.keys.has(e.code)) {
@@ -129,7 +257,7 @@ function createHandlers(s: InputState): void {
         // ignore multi-touch (different pointerId on the same canvas) so a
         // second pointer's buttons can't masquerade as the captured one's.
         if (s.activePointerId === null || s.activePointerId === e.pointerId) {
-            syncButtons(s.mouse, e.buttons);
+            syncButtons(s.mouse, gateButtons(s, e.buttons));
         }
         if (s.activePointerId === null) {
             s.activePointerId = e.pointerId;
@@ -161,11 +289,16 @@ function createHandlers(s: InputState): void {
 
     s.pointerUp = (e: PointerEvent) => {
         if (e.pointerId !== s.activePointerId) return;
-        syncButtons(s.mouse, e.buttons);
+        syncButtons(s.mouse, gateButtons(s, e.buttons));
         // releasing the capturing button releases the pointer; secondary
         // buttons just toggle their state and leave the drag intact.
         if (e.button === s.activeButton) {
-            s.activeCanvas?.releasePointerCapture(e.pointerId);
+            // release only a capture actually held — pointerDown's capture is
+            // best-effort (a synthetic pointer can't be captured), and releasing
+            // an unheld pointer throws NotFoundError.
+            if (s.activeCanvas?.hasPointerCapture(e.pointerId)) {
+                s.activeCanvas.releasePointerCapture(e.pointerId);
+            }
             releaseCapture(s);
         }
     };
@@ -181,8 +314,12 @@ function createHandlers(s: InputState): void {
         // sync buttons during drag too — e.g. catches a right-press that
         // happened mid-drag if the per-button pointerdown was suppressed
         // and the user moved before releasing.
-        syncButtons(s.mouse, e.buttons);
-        e.preventDefault();
+        syncButtons(s.mouse, gateButtons(s, e.buttons));
+        // canceling pointermove suppresses the compatibility mousemove (Pointer Events spec) — and a
+        // pointer-lock controller (Player) reads the look off document `mousemove`. With a button held
+        // (activePointerId set, so we reach here), canceling would silence mouse-look. Under lock there's
+        // nothing to prevent (cursor hidden), so skip it; non-locked drags still cancel (selection/scroll).
+        if (!(s.requireLock && locked(s))) e.preventDefault();
         s.mouse.deltaX += e.clientX - s.lastPointerX;
         s.mouse.deltaY += e.clientY - s.lastPointerY;
         s.lastPointerX = e.clientX;
@@ -241,7 +378,7 @@ function detachGlobal(s: InputState): void {
     window.removeEventListener("blur", s.windowBlur);
 }
 
-function setup(state: State, views: Map<number, any>): void {
+function setup(views: Map<number, any>): void {
     const mouse: Mouse = {
         deltaX: 0,
         deltaY: 0,
@@ -268,7 +405,7 @@ function setup(state: State, views: Map<number, any>): void {
 
     if (canvases.size === 0) return;
 
-    const inputState: InputState = {
+    const s: InputState = {
         keys: new Set(),
         keysPressed: new Set(),
         keysReleased: new Set(),
@@ -281,6 +418,7 @@ function setup(state: State, views: Map<number, any>): void {
         lastPointerY: 0,
         activePointerId: null,
         activeButton: null,
+        requireLock: false,
         pointerHover: null!,
         pointerEnter: null!,
         pointerLeave: null!,
@@ -297,46 +435,43 @@ function setup(state: State, views: Map<number, any>): void {
         windowBlur: null!,
     };
 
-    createHandlers(inputState);
-    attachGlobal(inputState);
+    createHandlers(s);
+    attachGlobal(s);
     for (const canvas of canvases.keys()) {
-        attachCanvas(inputState, canvas);
+        attachCanvas(s, canvas);
     }
 
-    state.setResource(InputResource, inputState);
-    state.setResource(Inputs, {
-        mouse,
-        get focused() {
-            return inputState.focused;
-        },
-        isKeyDown: (code: string) => inputState.keys.has(code),
-        isKeyPressed: (code: string) => inputState.keysPressed.has(code),
-        isKeyReleased: (code: string) => inputState.keysReleased.has(code),
-        isKeyPressedWithin: (code: string, seconds: number) =>
-            performance.now() - (inputState.keyPressedAt.get(code) ?? -Infinity) < seconds * 1000,
-    });
+    enabled = true; // a fresh bind starts live — never inherit a prior State's suspended gate
+    inputState = s;
 }
 
 const InputSystem: System = {
     group: "simulation",
     annotations: { mode: "always" },
 
-    setup(state: State) {
-        const views = Views.from(state);
-        if (!views || views.size === 0) return;
-        setup(state, views);
+    setup() {
+        // Bind to canvas elements in the document directly.
+        // Guarded for non-DOM test environments where `document.querySelectorAll` is absent
+        if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
+            return;
+        }
+        const elements = Array.from(document.querySelectorAll("canvas"));
+        if (elements.length === 0) return;
+        const synthetic = new Map<number, { element: HTMLCanvasElement }>();
+        for (let i = 0; i < elements.length; i++) {
+            synthetic.set(i, { element: elements[i] });
+        }
+        setup(synthetic);
     },
 
-    dispose(state: State) {
-        const s = InputResource.from(state);
-        if (s) {
-            detachGlobal(s);
-            for (const canvas of s.canvases.keys()) {
-                detachCanvas(s, canvas);
+    dispose() {
+        if (inputState) {
+            detachGlobal(inputState);
+            for (const canvas of inputState.canvases.keys()) {
+                detachCanvas(inputState, canvas);
             }
-            state.deleteResource(InputResource);
+            inputState = null;
         }
-        state.deleteResource(Inputs);
     },
 };
 
@@ -345,8 +480,8 @@ const InputResetSystem: System = {
     annotations: { mode: "always" },
     last: true,
 
-    update(state: State) {
-        const s = InputResource.from(state);
+    update() {
+        const s = inputState;
         if (!s) return;
         s.keysPressed.clear();
         s.keysReleased.clear();
@@ -356,6 +491,10 @@ const InputResetSystem: System = {
     },
 };
 
+/**
+ * binds keyboard and mouse listeners to the app's canvases and populates the {@link Inputs} singleton.
+ * In the default plugin set — a system reads `Inputs` without enabling anything.
+ */
 export const InputPlugin: Plugin = {
     name: "Input",
     systems: [InputSystem, InputResetSystem],

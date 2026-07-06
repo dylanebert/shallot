@@ -1,243 +1,122 @@
 const INDENT = "    ";
 const MAX_LINE = 100;
 
+/** one parsed scene entity: an optional `id`, its component attributes, and a (always-empty) children list. */
 export interface Node {
     id?: string;
     attrs: Attr[];
+    /** always empty — kept for AST shape stability after flat-scene migration. */
     children: Node[];
     comments?: string[];
     blankBefore?: boolean;
 }
 
+/** one component attribute on a node: its kebab-case name and raw string value (`""` for a bare component). */
 export interface Attr {
     name: string;
     value: string;
 }
 
+/** a scene parse or load failure, carrying a human-readable message. */
 export interface ParseError {
     message: string;
-    path?: string;
 }
 
-interface Token {
-    type: "comment" | "open" | "close" | "blank";
-    value: string;
-    selfClosing?: boolean;
-    attrs?: Record<string, string>;
-    tagName?: string;
-}
+const TAG_RE = /<!--([\s\S]*?)-->|<\s*(\/?)\s*(\w+)([^>]*)>/g;
+const ATTR_RE = /([^\s=<>/]+)(?:\s*=\s*"([^"]*)")?/g;
 
-function tokenize(xml: string): Token[] {
-    const tokens: Token[] = [];
-    const regex = /<!--[\s\S]*?-->|<\/?\s*(\w+)[^>]*\/?>/g;
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = regex.exec(xml)) !== null) {
-        const before = xml.slice(lastIndex, match.index);
-        if (/\n\s*\n/.test(before)) {
-            tokens.push({ type: "blank", value: "" });
-        }
-        lastIndex = match.index + match[0].length;
-
-        const tag = match[0];
-
-        if (tag.startsWith("<!--")) {
-            const content = tag.slice(4, -3).trim();
-            tokens.push({ type: "comment", value: content });
-        } else if (tag.startsWith("</")) {
-            const tagName = tag.match(/<\/\s*(\w+)/)?.[1] ?? "";
-            tokens.push({ type: "close", value: tag, tagName });
-        } else {
-            const selfClosing = tag.endsWith("/>");
-            const tagMatch = tag.match(/<\s*(\w+)/);
-            const tagName = tagMatch?.[1] ?? "";
-            const attrs = parseTagAttrs(tag);
-            tokens.push({ type: "open", value: tag, selfClosing, tagName, attrs });
-        }
-    }
-
-    return tokens;
-}
-
-function parseTagAttrs(tag: string): Record<string, string> {
-    const attrs: Record<string, string> = {};
-    const attrRegex = /([^\s=<>/]+)(?:\s*=\s*"([^"]*)")?/g;
-    const inner = tag.replace(/^<\s*\w+/, "").replace(/\/?>$/, "");
-    let match: RegExpExecArray | null;
-
-    while ((match = attrRegex.exec(inner)) !== null) {
-        const name = match[1];
-        const value = match[2] ?? "";
-        attrs[name] = value;
-    }
-
-    return attrs;
-}
-
+/**
+ * parses scene XML into a flat node tree, one `Node` per `<a>` element. Throws on malformed markup, an
+ * unknown tag, or a nested `<a>` — scenes are flat, so cross-entity links use `@name` field refs.
+ *
+ * @example
+ * const nodes = parse('<scene><a id="cam" camera orbit /></scene>');
+ */
 export function parse(xml: string): Node[] {
-    const unclosedMatch = xml.match(/<[^>]*$/);
-    if (unclosedMatch) {
-        throw new Error(`xml parse error: Unclosed tag at end of document`);
-    }
-
-    const tokens = tokenize(xml);
-
-    for (const token of tokens) {
-        if (token.type === "open" && token.tagName !== "scene" && token.tagName !== "a") {
-            const tagName = token.tagName ?? "unknown";
-            if (tagName.toLowerCase() === "a" || tagName.toLowerCase() === "scene") {
-                continue;
-            }
-            throw new Error(`xml parse error: Unknown tag <${tagName}>`);
-        }
+    if (/<[^>]*$/.test(xml)) {
+        throw new Error("xml parse error: Unclosed tag at end of document");
     }
 
     const nodes: Node[] = [];
-    const errors: ParseError[] = [];
+    let comments: string[] = [];
+    let blank = false;
+    let inEntity = false;
+    let cursor = 0;
 
-    let i = 0;
-    let pendingComments: string[] = [];
-    let pendingBlank = false;
+    TAG_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = TAG_RE.exec(xml)) !== null) {
+        if (/\n\s*\n/.test(xml.slice(cursor, m.index))) blank = true;
+        cursor = m.index + m[0].length;
 
-    while (i < tokens.length) {
-        const token = tokens[i];
+        const [, comment, slash, name, body = ""] = m;
 
-        if (token.type === "blank") {
-            pendingBlank = true;
-            i++;
+        if (comment !== undefined) {
+            comments.push(comment.trim());
             continue;
         }
 
-        if (token.type === "comment") {
-            pendingComments.push(token.value);
-            i++;
+        const lower = name.toLowerCase();
+        if (lower !== "scene" && lower !== "a") {
+            throw new Error(`xml parse error: Unknown tag <${name}>`);
+        }
+        if (name !== lower) {
+            throw new Error(`Invalid tag "${name}". Use lowercase <${lower}>`);
+        }
+
+        if (slash) {
+            if (lower === "a") inEntity = false;
             continue;
         }
 
-        if (token.type === "open" && token.tagName === "scene") {
-            pendingComments = [];
-            pendingBlank = false;
-            i++;
+        if (lower === "scene") {
+            comments = [];
+            blank = false;
             continue;
         }
 
-        if (token.type === "close" && token.tagName === "scene") {
-            i++;
-            continue;
+        if (inEntity) {
+            throw new Error(
+                "xml parse error: nested <a> elements are not supported. Scenes are flat; use @name field references for cross-entity links.",
+            );
         }
 
-        if (token.type === "open" && token.tagName === "a") {
-            const result = parseNodeFromTokens(tokens, i, errors);
-            if (result.node) {
-                result.node.comments = pendingComments.length > 0 ? pendingComments : undefined;
-                result.node.blankBefore = pendingBlank || undefined;
-                nodes.push(result.node);
-            }
-            pendingComments = [];
-            pendingBlank = false;
-            i = result.nextIndex;
-            continue;
-        }
-
-        if (token.type === "open" && token.tagName?.toLowerCase() === "scene") {
-            throw new Error(`Invalid tag "${token.tagName}". Use lowercase <scene>`);
-        }
-
-        if (
-            token.type === "open" &&
-            token.tagName?.toLowerCase() === "a" &&
-            token.tagName !== "a"
-        ) {
-            throw new Error(`Invalid tag "${token.tagName}". Use lowercase <a>`);
-        }
-
-        i++;
-    }
-
-    if (errors.length > 0) {
-        throw new Error(errors.map((e) => e.message).join("\n"));
+        const node = parseEntity(body);
+        if (comments.length > 0) node.comments = comments;
+        if (blank) node.blankBefore = true;
+        nodes.push(node);
+        comments = [];
+        blank = false;
+        if (!body.trimEnd().endsWith("/")) inEntity = true;
     }
 
     return nodes;
 }
 
-function parseNodeFromTokens(
-    tokens: Token[],
-    startIndex: number,
-    errors: ParseError[],
-): { node: Node | null; nextIndex: number } {
-    const token = tokens[startIndex];
-
-    if (token.type !== "open" || token.tagName !== "a") {
-        if (token.tagName?.toLowerCase() === "a") {
-            errors.push({ message: `Invalid tag "${token.tagName}". Use lowercase <a>` });
-        }
-        return { node: null, nextIndex: startIndex + 1 };
-    }
-
-    const rawAttrs = token.attrs ?? {};
+function parseEntity(body: string): Node {
     const attrs: Attr[] = [];
-    let nodeId: string | undefined;
-
-    for (const [attrName, attrValue] of Object.entries(rawAttrs)) {
-        if (attrName === "id") {
-            nodeId = attrValue;
-        } else {
-            attrs.push({ name: attrName, value: attrValue });
-        }
+    let id: string | undefined;
+    ATTR_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = ATTR_RE.exec(body)) !== null) {
+        const [, name, value = ""] = m;
+        if (name === "id") id = value;
+        else attrs.push({ name, value });
     }
-
-    const children: Node[] = [];
-    let i = startIndex + 1;
-
-    if (!token.selfClosing) {
-        let pendingComments: string[] = [];
-        let pendingBlank = false;
-
-        while (i < tokens.length) {
-            const childToken = tokens[i];
-
-            if (childToken.type === "blank") {
-                pendingBlank = true;
-                i++;
-                continue;
-            }
-
-            if (childToken.type === "comment") {
-                pendingComments.push(childToken.value);
-                i++;
-                continue;
-            }
-
-            if (childToken.type === "close" && childToken.tagName === "a") {
-                i++;
-                break;
-            }
-
-            if (childToken.type === "open" && childToken.tagName === "a") {
-                const result = parseNodeFromTokens(tokens, i, errors);
-                if (result.node) {
-                    result.node.comments = pendingComments.length > 0 ? pendingComments : undefined;
-                    result.node.blankBefore = pendingBlank || undefined;
-                    children.push(result.node);
-                }
-                pendingComments = [];
-                pendingBlank = false;
-                i = result.nextIndex;
-                continue;
-            }
-
-            i++;
-        }
-    }
-
-    return {
-        node: { id: nodeId, attrs, children },
-        nextIndex: i,
-    };
+    return { id, attrs, children: [] };
 }
 
+/** finds a node by its scene `id` in a parsed tree, or `undefined` if none matches. */
+export function findNodeById(id: string, nodes: Node[]): Node | undefined {
+    for (const node of nodes) {
+        if (node.id === id) return node;
+    }
+}
+
+/**
+ * locates a node's parent in the tree. Scenes are flat, so a present node returns the passed `parent`
+ * (`null` at the top level); a node absent from the tree returns `undefined`.
+ */
 export function findParent(
     target: Node,
     nodes: Node[],
@@ -245,85 +124,51 @@ export function findParent(
 ): Node | null | undefined {
     for (const node of nodes) {
         if (node === target) return parent;
-        const found = findParent(target, node.children, node);
-        if (found !== undefined) return found;
     }
     return undefined;
 }
 
-export function findNodeById(id: string, nodes: Node[]): Node | undefined {
-    for (const node of nodes) {
-        if (node.id === id) return node;
-        const found = findNodeById(id, node.children);
-        if (found) return found;
-    }
-}
-
-export function serialize(nodes: Node[]): string {
+/**
+ * renders a node tree back to formatted scene XML, the inverse of `parse`. Long entities wrap one
+ * attribute per line; a `stringify(serialize(state))` round-trips a live scene to disk.
+ *
+ * @example
+ * const xml = stringify(serialize(state));
+ */
+export function stringify(nodes: Node[]): string {
     const lines: string[] = ["<scene>"];
-    let isFirst = true;
-
-    for (const node of nodes) {
-        serializeNode(node, lines, 1, isFirst);
-        isFirst = false;
-    }
-
+    for (let i = 0; i < nodes.length; i++) writeNode(nodes[i], lines, 1, i === 0);
     lines.push("</scene>");
     return lines.join("\n");
 }
 
-function serializeNode(node: Node, lines: string[], depth: number, isFirst: boolean): void {
+function writeNode(node: Node, lines: string[], depth: number, isFirst: boolean): void {
     const indent = INDENT.repeat(depth);
 
-    if (node.blankBefore && !isFirst) {
-        lines.push("");
-    }
-
+    if (node.blankBefore && !isFirst) lines.push("");
     if (node.comments) {
-        for (const comment of node.comments) {
-            lines.push(`${indent}<!-- ${comment} -->`);
-        }
+        for (const comment of node.comments) lines.push(`${indent}<!-- ${comment} -->`);
     }
 
-    const attrParts = buildAttrParts(node);
-    const singleLine = `${indent}<a${attrParts.join("")}${node.children.length === 0 ? " />" : ">"}`;
-
-    if (singleLine.length <= MAX_LINE) {
-        lines.push(singleLine);
-    } else {
-        lines.push(`${indent}<a`);
-        const attrIndent = INDENT.repeat(depth + 1);
-        for (const part of attrParts) {
-            lines.push(`${attrIndent}${part.trim()}`);
-        }
-        lines.push(`${indent}${node.children.length === 0 ? "/>" : ">"}`);
+    const parts = attrParts(node);
+    const single = `${indent}<a${parts.join("")} />`;
+    if (single.length <= MAX_LINE) {
+        lines.push(single);
+        return;
     }
 
-    if (node.children.length > 0) {
-        let childIsFirst = true;
-        for (const child of node.children) {
-            serializeNode(child, lines, depth + 1, childIsFirst);
-            childIsFirst = false;
-        }
-        lines.push(`${indent}</a>`);
-    }
+    lines.push(`${indent}<a`);
+    const attrIndent = INDENT.repeat(depth + 1);
+    for (const part of parts) lines.push(`${attrIndent}${part.trim()}`);
+    lines.push(`${indent}/>`);
 }
 
-function buildAttrParts(node: Node): string[] {
+function attrParts(node: Node): string[] {
     const parts: string[] = [];
-
-    if (node.id) {
-        parts.push(` id="${escapeAttr(node.id)}"`);
+    if (node.id) parts.push(` id="${escapeAttr(node.id)}"`);
+    for (const { name, value } of node.attrs) {
+        parts.push(value === "" ? ` ${name}` : ` ${name}="${escapeAttr(value)}"`);
     }
-
-    for (const attr of node.attrs) {
-        if (attr.value === "") {
-            parts.push(` ${attr.name}`);
-        } else {
-            parts.push(` ${attr.name}="${escapeAttr(attr.value)}"`);
-        }
-    }
-
     return parts;
 }
 

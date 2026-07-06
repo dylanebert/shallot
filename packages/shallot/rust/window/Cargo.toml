@@ -1,23 +1,53 @@
 [package]
 name = "shallot-window"
-version = "0.1.0"
+version = "0.6.0"
 edition = "2021"
 
 [[bin]]
 name = "shallot-window"
 path = "src/main.rs"
 
-[dependencies]
-image = { version = "0.25", default-features = false, features = ["png"] }
-zstd = "0.13"
-tar = "0.4"
+# macOS CEF subprocess entry. CEF on macOS launches renderer/GPU/etc. as separate helper .app
+# bundles (not the main exe), so they need their own minimal binary. A no-op on every other config.
+[[bin]]
+name = "shallot-helper"
+path = "src/helper.rs"
 
-[target.'cfg(not(target_os = "linux"))'.dependencies]
-winit = "0.30"
-wry = "0.48"
+# Two build modes, one per backend. `system` (default) builds against the platform's system webview
+# (wry → WebView2 / WKWebView / WebKitGTK); `portable` ships the Chromium runtime (CEF) and runs
+# anywhere. A portable build is invoked with `--no-default-features --features portable`, so it never
+# links wry/winit — the artifact is self-contained. objc2 is macOS-only; Cargo recognizes the
+# `dep:` reference on every target and activates it only where its `cfg(target_os)` matches.
+[features]
+default = ["system"]
+system = ["dep:wry", "dep:winit", "dep:image"]
+portable = ["dep:cef", "dep:objc2", "dep:objc2-app-kit"]
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winit = { version = "0.30", optional = true }
+wry = { version = "0.48", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+cef = { version = "145", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-cef = "145"
+winit = { version = "0.30", optional = true }
+wry = { version = "0.48", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+cef = { version = "145", optional = true }
+
+# macOS CEF: default-features = false drops the unused build-util + sandbox.
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "0.30", optional = true }
+wry = { version = "0.48", optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+cef = { version = "145", default-features = false, optional = true }
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = [
+    "std",
+    "NSApplication",
+    "NSResponder",
+    "NSEvent",
+] }
 
 [profile.release]
 opt-level = 3

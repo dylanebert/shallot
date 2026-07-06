@@ -1,0 +1,16 @@
+<scene>
+    <!-- the Sponza atrium from one compressed .glb: Draco-compressed geometry + KTX2/Basis textures. The
+         Sponza plugin (src/sponza.ts) imports it and placeScene spawns it as Part entities with PBR
+         materials, so the scene authors only the environment + camera. -->
+    <a ambient-light />
+    <a directional-light shadow="distance: 40" />
+
+    <!-- orbit camera framed on the ~30×12×18 atrium (floor y≈0, mid-height ~5); drag to orbit, scroll to
+         zoom in on the columns. clear-color is a soft sky behind the geometry. -->
+    <a
+        camera="clear-color: 0x8a9bb0"
+        sear
+        orbit="pan: 0 5 0; distance: 30; max-distance: 80; min-distance: 1; yaw: 0.9; pitch: 0.45"
+        transform
+    />
+</scene>

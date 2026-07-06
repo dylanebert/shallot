@@ -1,49 +1,37 @@
 ---
 title: Editor
 description: editor interface, state management
-source: editor
+source: editor/document
 icon: diamond
+order: 0
 ---
 
 # Editor
 
 <!-- tabs -->
-<!-- tab: UI -->
-
-coming soon
-
 <!-- tab: Code -->
 
-Shallot's editor uses Svelte 5 as a UI harness around the engine. Svelte handles the inspector, panels, and controls — not ECS code.
+The editor library is the scene document model plus the engine bridge — the pieces you build editor tooling on, independent of the Svelte UI.
 
-The core challenge is **proxy identity**. Svelte 5's `$state` deep-proxies objects, which breaks identity comparisons (`===`, `Set.has`, `Map.get`). This matters for anything that stores engine objects: Nodes, ECS components, Map keys, plugin arrays.
+A `Document` holds the parsed node tree with undo/redo. Every mutation (add, remove, set attribute, reorder, reparent) records a reversible command, so `undo`/`redo` replay without re-deriving state. Wrap a drag or a multi-field scrub in `begin`/`commit` to coalesce its writes into one undo step.
 
-The engine's Document is a plain object — mutations don't trigger Svelte reactivity. A version counter bridges the gap: bump it after any Document mutation, and children create a dependency via the version prop.
+A `Session` bridges the document to a live `State`: it maps nodes to entity ids and replays each command onto the running engine, so an edit shows up in both the tree and the viewport. `ReadbackSystem` closes the loop the other way — it reflects live field values (a gizmo drag, a running system) back onto the attributes each node already authors.
 
-## Examples
+<!-- API:editor/document -->
 
-### Identity-safe state
+<!-- tab: Internals -->
 
-Use `$state.raw` for any state that stores objects used in identity comparisons:
+The editor app wraps the engine in Svelte 5 as a UI harness — the inspector, panels, and controls are Svelte; the ECS is not.
+
+The core challenge is **proxy identity**. Svelte 5's `$state` deep-proxies objects, which breaks identity comparisons (`===`, `Set.has`, `Map.get`) — a problem for anything storing engine objects: Nodes, ECS components, Map keys, plugin arrays. Use `$state.raw` for state that stores objects used in identity comparisons, and split a variable when some fields need reactivity and others need identity:
 
 ```typescript
 let plugins = $state.raw(defaultPlugins);  // identity-sensitive
 let panelSize = $state(300);               // reactive, no identity concern
 ```
 
-When some fields need reactivity and others need identity, split into two variables:
+The engine's Document is a plain object, so mutations don't trigger Svelte reactivity. A version counter bridges the gap: `Document.version` bumps after any mutation, and children create a dependency by reading it. For in-place array mutations `{#each}` skips blocks whose item reference is unchanged, so derive a flat view-model that pre-computes mutable state into fresh objects per version bump — never read mutable Node properties directly in templates.
 
-```typescript
-let popoverCtx: { node: Node } | null = null;            // identity
-let popover: { x: number; y: number } | null = $state(null);  // reactive
-```
-
-### Reactivity bridge
-
-For in-place array mutations, `{#each}` skips re-rendering blocks whose item reference hasn't changed. Derive a flat view-model that pre-computes mutable state into fresh objects per version bump. Never read mutable Node properties directly in templates.
-
-### Naming
-
-ECS State is always `ecs` — never `state` (conflicts with `$state` rune), never `engine` or `shallot`.
+One naming rule: ECS State is always `ecs` — never `state` (it collides with the `$state` rune), never `engine` or `shallot`.
 
 <!-- /tabs -->

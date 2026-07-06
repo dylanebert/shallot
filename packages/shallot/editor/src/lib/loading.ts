@@ -1,4 +1,5 @@
 import type { Loading } from "@dylanebert/shallot";
+import { current } from "./theme";
 
 export function editorLoading(container: HTMLElement): Loading {
     let overlay: HTMLDivElement | null = null;
@@ -9,13 +10,22 @@ export function editorLoading(container: HTMLElement): Loading {
     const Radius = (Size - Stroke) / 2;
     const Circumference = 2 * Math.PI * Radius;
 
+    // tear the overlay out of the DOM, shared by the faded hide and the error path. a failed build never
+    // calls the show() cleanup (build() hides only on success), so without the `error` hook below the
+    // spinner would cover the viewport forever, masking the build-failed banner.
+    function remove() {
+        overlay?.remove();
+        overlay = null;
+        spinner = null;
+    }
+
     return {
         show() {
             overlay = document.createElement("div");
             overlay.style.cssText = `
                 position: absolute;
                 inset: 0;
-                background: rgb(14, 13, 12);
+                background: ${current.palette.bg};
                 z-index: 10000;
                 display: flex;
                 align-items: center;
@@ -34,7 +44,7 @@ export function editorLoading(container: HTMLElement): Loading {
             track.setAttribute("cy", String(Size / 2));
             track.setAttribute("r", String(Radius));
             track.setAttribute("fill", "none");
-            track.setAttribute("stroke", "#252220");
+            track.setAttribute("stroke", current.palette.spinnerTrack);
             track.setAttribute("stroke-width", String(Stroke));
             svg.appendChild(track);
 
@@ -43,7 +53,7 @@ export function editorLoading(container: HTMLElement): Loading {
             arc.setAttribute("cy", String(Size / 2));
             arc.setAttribute("r", String(Radius));
             arc.setAttribute("fill", "none");
-            arc.setAttribute("stroke", "#d49560");
+            arc.setAttribute("stroke", current.palette.accent);
             arc.setAttribute("stroke-width", String(Stroke));
             arc.setAttribute("stroke-linecap", "round");
             arc.setAttribute("stroke-dasharray", String(Circumference));
@@ -77,15 +87,15 @@ export function editorLoading(container: HTMLElement): Loading {
             container.appendChild(overlay);
 
             return () => {
-                if (overlay) {
-                    overlay.style.opacity = "0";
-                    overlay.style.transition = "opacity 0.08s ease";
-                    setTimeout(() => {
-                        overlay?.remove();
-                        overlay = null;
-                        spinner = null;
-                    }, 80);
-                }
+                const fading = overlay;
+                if (!fading) return;
+                fading.style.opacity = "0";
+                fading.style.transition = "opacity 0.08s ease";
+                // only clear if a later show() hasn't already swapped in a fresh overlay — without the
+                // identity guard this stale timeout would yank the next rebuild's spinner
+                setTimeout(() => {
+                    if (overlay === fading) remove();
+                }, 80);
             };
         },
 
@@ -94,6 +104,11 @@ export function editorLoading(container: HTMLElement): Loading {
                 const offset = Circumference * (1 - progress);
                 spinner.setAttribute("stroke-dashoffset", String(offset));
             }
+        },
+
+        // drop the overlay at once (no fade) on a build failure, so the build-failed banner is visible
+        error() {
+            remove();
         },
     };
 }

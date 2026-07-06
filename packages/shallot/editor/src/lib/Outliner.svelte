@@ -1,23 +1,31 @@
 <script lang="ts">
+    import { tick } from "svelte";
     import type { Document, Node } from "@dylanebert/shallot/editor";
-    import { type Diagnostic, findParent } from "@dylanebert/shallot";
-    import { heroMeta, ChevronRight, Plus, TriangleAlert, type ComponentMeta } from "./components";
+    import type { Diagnostic } from "@dylanebert/shallot";
+    import { findParent } from "@dylanebert/shallot/scene/core";
+    import { Import } from "lucide-static";
+    import { ChevronRight, Plus, TriangleAlert } from "./components";
+    import { type Bundle, menuGroups } from "./bundles";
+    import { nextSelection } from "./pick";
+    import { rows, type RowView } from "./rows";
     import Icon from "./Icon.svelte";
+    import SectionLabel from "./SectionLabel.svelte";
     import { dismissOnClickOutside } from "./dismiss";
+    import { fit, type Rect } from "./place";
+    import { portal } from "./portal";
 
-    let { doc, version, diagnostics, renameSignal, onselect, oncreate, ondelete, onreorder, onrename }: {
+    let { doc, version, diagnostics, renameSignal, onselect, oncreate, onimport, ondelete, onreorder, onrename }: {
         doc: Document;
         version: number;
         diagnostics: Diagnostic[];
         renameSignal: number;
         onselect: () => void;
-        oncreate: () => Node;
+        oncreate: (bundle: Bundle) => void;
+        onimport: () => void;
         ondelete: (node: Node) => void;
         onreorder: () => void;
         onrename: () => void;
     } = $props();
-
-    import { tick } from "svelte";
 
     let contextMenu: { x: number; y: number; node: Node } | null = $state.raw(null);
     let collapsed: WeakSet<Node> = new WeakSet();
@@ -27,42 +35,10 @@
     let lastClickTime = 0;
     let lastClickNode: Node | null = null;
 
-    type RowView = {
-        node: Node;
-        parent: Node | null;
-        depth: number;
-        label: string;
-        meta: ComponentMeta;
-        selected: boolean;
-        hasChildren: boolean;
-        expanded: boolean;
-        warning: boolean;
-    };
-
-    let rows = $derived.by((): RowView[] => {
+    let rowViews = $derived.by((): RowView[] => {
         void version;
         void collapseVersion;
-        const result: RowView[] = [];
-        function walk(nodes: Node[], parent: Node | null, depth: number) {
-            for (const node of nodes) {
-                const hasChildren = node.children.length > 0;
-                const expanded = hasChildren && !collapsed.has(node);
-                result.push({
-                    node,
-                    parent,
-                    depth,
-                    label: node.id || "entity",
-                    meta: heroMeta(node.attrs),
-                    selected: doc.selection.has(node),
-                    hasChildren,
-                    expanded,
-                    warning: diagnostics.some((d) => d.node === node),
-                });
-                if (expanded) walk(node.children, node, depth + 1);
-            }
-        }
-        walk(doc.nodes, null, 0);
-        return result;
+        return rows(doc.nodes, doc.selection, collapsed, diagnostics);
     });
 
     function revealSelection() {
@@ -106,12 +82,12 @@
     }
 
     function selectNode(e: MouseEvent, node: Node) {
-        if (e.shiftKey && doc.selection.has(node)) {
-            doc.deselect(node);
-        } else {
-            doc.clearSelection();
-            doc.select(node);
-        }
+        // shift / ctrl / cmd toggles the row in or out of the selection; a plain click selects only
+        // it — the same toggle-everywhere rule the viewport pick uses (nextSelection, lib/pick).
+        const additive = e.shiftKey || e.ctrlKey || e.metaKey;
+        const next = nextSelection([...doc.selection], node, additive);
+        doc.clearSelection();
+        doc.select(...next);
         onselect();
     }
 
@@ -158,10 +134,66 @@
         }
     }
 
-    function handleCreate(e: MouseEvent) {
+    // the Add menu: the outliner `+` summons a grouped bundle picker (Empty first), keyboard-navigable,
+    // fitted above the button. Picking a bundle hands it to `oncreate`, which instantiates + selects it.
+    let addOpen = $state(false);
+    let addAnchor = $state.raw<Rect>({ left: 0, top: 0, right: 0, bottom: 0 });
+    let addFocus = $state(-1);
+    let addBtnEl: HTMLElement;
+
+    let addGroups = $derived.by(() => {
+        void version; // re-derive on rebuild / plugin toggle — availability keys on the live registry
+        return menuGroups();
+    });
+    let addFlat = $derived(addGroups.flatMap((g) => g.items));
+
+    function openAdd(e: MouseEvent) {
         e.stopPropagation();
-        oncreate();
+        const r = addBtnEl.getBoundingClientRect();
+        addAnchor = { left: r.left, top: r.top, right: r.right, bottom: r.bottom };
+        addFocus = -1;
+        addOpen = true;
     }
+
+    function pickBundle(bundle: Bundle) {
+        addOpen = false;
+        oncreate(bundle);
+    }
+
+    function pickImport() {
+        addOpen = false;
+        onimport();
+    }
+
+    function handleAddKey(e: KeyboardEvent) {
+        // the summoned menu owns the keyboard — nothing leaks to the window keymap (a stray Delete
+        // would otherwise delete the selection underneath; a digit would switch tools)
+        e.stopPropagation();
+        // the Model… import row sits after the bundles, at index addFlat.length
+        const total = addFlat.length + 1;
+        if (e.key === "Escape") {
+            addOpen = false;
+        } else if (e.key === "ArrowDown" && total) {
+            e.preventDefault();
+            addFocus = addFocus < total - 1 ? addFocus + 1 : 0;
+        } else if (e.key === "ArrowUp" && total) {
+            e.preventDefault();
+            addFocus = addFocus > 0 ? addFocus - 1 : total - 1;
+        } else if (e.key === "Enter" && addFocus >= 0 && addFocus < total) {
+            e.preventDefault();
+            if (addFocus === addFlat.length) pickImport();
+            else pickBundle(addFlat[addFocus]);
+        }
+    }
+
+    function focusMenu(node: HTMLElement) {
+        node.focus();
+    }
+
+    $effect(() => {
+        if (!addOpen) return;
+        return dismissOnClickOutside(() => { addOpen = false; }, ".add-entity-menu", ".add-entity-btn");
+    });
 
     function showContextMenu(e: MouseEvent, node: Node) {
         e.preventDefault();
@@ -222,12 +254,12 @@
     function computeDropTarget(clientY: number): DropTarget | null {
         if (!dragNode) return null;
         const rowEls = getRowElements();
-        if (rowEls.length !== rows.length) return null;
+        if (rowEls.length !== rowViews.length) return null;
 
         for (let i = 0; i < rowEls.length; i++) {
             const rect = rowEls[i].getBoundingClientRect();
             if (clientY < rect.top || clientY > rect.bottom) continue;
-            const entry = rows[i];
+            const entry = rowViews[i];
             const relY = clientY - rect.top;
             const zone = rect.height;
 
@@ -272,7 +304,7 @@
         const siblings = target.parent ? target.parent.children : doc.nodes;
         if (target.index < siblings.length) {
             const node = siblings[target.index];
-            const fi = rows.findIndex((r) => r.node === node);
+            const fi = rowViews.findIndex((r) => r.node === node);
             if (fi >= 0 && rowEls[fi]) {
                 return rowEls[fi].getBoundingClientRect().top;
             }
@@ -283,7 +315,7 @@
                 return rowEls[lastFlat].getBoundingClientRect().bottom;
             }
         } else if (target.parent) {
-            const fi = rows.findIndex((r) => r.node === target.parent);
+            const fi = rowViews.findIndex((r) => r.node === target.parent);
             if (fi >= 0 && rowEls[fi]) {
                 return rowEls[fi].getBoundingClientRect().bottom;
             }
@@ -292,10 +324,10 @@
     }
 
     function findLastRowIndex(node: Node): number {
-        let last = rows.findIndex((r) => r.node === node);
+        let last = rowViews.findIndex((r) => r.node === node);
         if (last < 0) return -1;
-        for (let i = last + 1; i < rows.length; i++) {
-            let ancestor = rows[i].parent;
+        for (let i = last + 1; i < rowViews.length; i++) {
+            let ancestor = rowViews[i].parent;
             let isDesc = false;
             while (ancestor) {
                 if (ancestor === node) { isDesc = true; break; }
@@ -376,8 +408,9 @@
     onpointermove={handleDragMove}
     onpointerup={handleDragEnd}
 >
-    {#if rows.length > 0}
-        {#each rows as row}
+    <SectionLabel label="Entities" />
+    {#if rowViews.length > 0}
+        {#each rowViews as row}
             {@const isReparentTarget = dragging && dropTarget?.reparent && dropTarget.parent === row.node}
             <div
                 class="row"
@@ -425,7 +458,7 @@
         <div class="empty">No entities</div>
     {/if}
     <div class="add-entity">
-        <button class="add-entity-btn" onclick={handleCreate}>
+        <button class="add-entity-btn" class:active={addOpen} onclick={openAdd} bind:this={addBtnEl}>
             <Icon icon={Plus} size={14} strokeWidth={1.5} />
             <span>Add Entity</span>
         </button>
@@ -441,10 +474,7 @@
 
 {#if contextMenu}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-        class="context-menu"
-        style="left: {contextMenu.x}px; top: {contextMenu.y}px"
-    >
+    <div class="context-menu" use:fit={{ anchor: { left: contextMenu.x, top: contextMenu.y, right: contextMenu.x, bottom: contextMenu.y } }}>
         <button class="context-item" onmousedown={handleContextRename}>
             Rename
         </button>
@@ -454,11 +484,59 @@
     </div>
 {/if}
 
+{#if addOpen}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+        class="add-entity-menu"
+        tabindex="-1"
+        use:portal
+        use:focusMenu
+        use:fit={{ anchor: addAnchor, side: "above", align: "start" }}
+        onkeydown={handleAddKey}
+    >
+        {#each addGroups as group}
+            {#if group.category}
+                <div class="add-entity-group-header">
+                    <span class="add-entity-dot" style="background: {group.category.color}"></span>
+                    <span class="add-entity-group-label">{group.category.label}</span>
+                </div>
+            {/if}
+            {#each group.items as bundle}
+                {@const idx = addFlat.indexOf(bundle)}
+                <button
+                    class="add-entity-item"
+                    class:focused={addFocus === idx}
+                    onmousedown={() => pickBundle(bundle)}
+                    onmouseenter={() => { addFocus = idx; }}
+                >
+                    <Icon icon={bundle.icon} size={13} strokeWidth={1.5} class="add-entity-icon" style="color: {bundle.color}" />
+                    <span>{bundle.label}</span>
+                </button>
+            {/each}
+        {/each}
+        <div class="add-entity-group-header">
+            <span class="add-entity-dot" style="background: var(--cat-rendering)"></span>
+            <span class="add-entity-group-label">Import</span>
+        </div>
+        <button
+            class="add-entity-item"
+            class:focused={addFocus === addFlat.length}
+            onmousedown={pickImport}
+            onmouseenter={() => { addFocus = addFlat.length; }}
+        >
+            <Icon icon={Import} size={13} strokeWidth={1.5} class="add-entity-icon" style="color: var(--cat-rendering)" />
+            <span>Model…</span>
+        </button>
+    </div>
+{/if}
+
 <style>
     .outliner {
         position: relative;
         flex: 1;
-        min-height: 100%;
+        /* fill the panel below the menu header so empty space clears selection, without overflowing the
+           shared scroll container (the header is a sibling in the same .sidebar) */
+        min-height: calc(100% - var(--header-h));
     }
 
     .row {
@@ -478,26 +556,28 @@
     }
 
     .row:hover {
-        background: rgba(255, 255, 255, 0.04);
+        background: var(--surface-1);
         color: var(--text);
     }
 
+    /* selection is the accent-tinted background; the text stays neutral (readable) rather than accent —
+       gold-on-gold has too little chromatic contrast (VS Code likewise: tinted row, neutral foreground) */
     .row.selected {
-        background: rgba(212, 149, 96, 0.1);
-        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 16%, transparent);
+        color: var(--text);
     }
 
     .row.selected:hover {
-        background: rgba(212, 149, 96, 0.15);
-        color: var(--accent-hover);
+        background: color-mix(in srgb, var(--accent) 22%, transparent);
+        color: var(--text);
     }
 
     .row:active {
-        background: rgba(212, 149, 96, 0.08);
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
     }
 
     .row.selected:active {
-        background: rgba(212, 149, 96, 0.18);
+        background: color-mix(in srgb, var(--accent) 26%, transparent);
     }
 
     .disclosure {
@@ -575,7 +655,7 @@
         font-size: 12px;
         font-family: inherit;
         outline: none;
-        box-shadow: 0 0 0 1px rgba(212, 149, 96, 0.3), 0 0 0 3px rgba(212, 149, 96, 0.15);
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent), 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
     }
 
     .rename-input::placeholder {
@@ -613,14 +693,94 @@
     .add-entity-btn:hover {
         border-color: var(--accent);
         color: var(--accent);
-        background: rgba(212, 149, 96, 0.04);
+        background: color-mix(in srgb, var(--accent) 4%, transparent);
     }
 
     .add-entity-btn:active {
         transform: scale(0.95);
     }
 
+    .add-entity-btn.active {
+        border-color: var(--accent);
+        color: var(--accent);
+        border-style: solid;
+    }
+
     .add-entity-btn :global(svg) {
+        flex-shrink: 0;
+    }
+
+    .add-entity-menu {
+        display: flex;
+        flex-direction: column;
+        min-width: 176px;
+        padding: 4px;
+        background: var(--surface-3-solid);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        z-index: 100;
+        max-height: 60vh;
+        overflow-y: auto;
+        outline: none;
+        animation: add-entity-appear 150ms var(--ease-out);
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    @keyframes add-entity-appear {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .add-entity-group-header {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 8px 2px;
+    }
+
+    .add-entity-group-header:first-child {
+        padding-top: 2px;
+    }
+
+    .add-entity-dot {
+        width: 5px;
+        height: 5px;
+        border-radius: 50%;
+        flex-shrink: 0;
+    }
+
+    .add-entity-group-label {
+        font-size: 9px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-muted);
+    }
+
+    .add-entity-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        padding: 4px 8px;
+        border: none;
+        border-radius: 4px;
+        background: transparent;
+        color: var(--text-secondary);
+        font-size: 11px;
+        font-family: inherit;
+        text-align: left;
+        cursor: pointer;
+        transition: background 120ms var(--ease-out), color 120ms var(--ease-out);
+    }
+
+    .add-entity-item:hover,
+    .add-entity-item.focused {
+        background: var(--surface-2);
+        color: var(--text);
+    }
+
+    .add-entity-item :global(.add-entity-icon) {
         flex-shrink: 0;
     }
 
@@ -628,9 +788,7 @@
         position: fixed;
         min-width: 120px;
         padding: 4px;
-        background: rgba(38, 37, 36, 0.85);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        background: var(--surface-3-solid);
         border: 1px solid var(--border);
         border-radius: 6px;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
@@ -660,12 +818,12 @@
     }
 
     .context-item.delete:hover {
-        background: rgba(220, 80, 60, 0.12);
-        color: #e05545;
+        background: color-mix(in srgb, var(--error) 12%, transparent);
+        color: var(--error);
     }
 
     .context-item:active {
-        background: rgba(212, 149, 96, 0.08);
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
         transform: scale(0.95);
     }
 
@@ -683,7 +841,7 @@
     }
 
     .row.reparent-target {
-        background: rgba(212, 149, 96, 0.12);
+        background: color-mix(in srgb, var(--accent) 12%, transparent);
         outline: 1px solid var(--accent);
         outline-offset: -1px;
     }

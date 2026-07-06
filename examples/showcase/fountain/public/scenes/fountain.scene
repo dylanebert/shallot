@@ -1,0 +1,11 @@
+<scene>
+    <a ambient-light />
+    <a directional-light />
+
+    <!-- the camera auto-binds to the page's <canvas>; orbit framing aims at the fountain arc -->
+    <a camera sear orbit="distance: 8; yaw: 0.6; pitch: 0.18" transform />
+
+    <!-- ground: the shipped cube scaled into a flat slab, top face at y=0 where the fountain spouts
+         and lands. The happy path (drop in a Part) next to the custom GPU producer (the fountain) -->
+    <a part transform="pos: 0 -0.1 0; scale: 40 0.2 40" color="rgba: 0.13 0.13 0.16" />
+</scene>

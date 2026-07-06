@@ -1,0 +1,9 @@
+{
+  "scene": "scenes/physics.scene",
+  "plugins": {
+    "Orbit": true,
+    "Mirror": true,
+    "Physics": true,
+    "Spawn": "./src/spawn"
+  }
+}

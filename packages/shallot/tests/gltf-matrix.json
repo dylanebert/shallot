@@ -1,0 +1,2439 @@
+{
+  "ABeautifulGame": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 15,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 15,
+      "status": "partial"
+    },
+    "glTF-Binary-KTX-ETC1S-Draco": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 15,
+      "status": "partial"
+    }
+  },
+  "AlphaBlendModeTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 9,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 9,
+      "status": "supported"
+    }
+  },
+  "AnimatedColorsCube": {
+    "glTF": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "animation"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "animation"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "AnimatedCube": {
+    "glTF": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "AnimatedMorphCube": {
+    "glTF": {
+      "unsupported": [
+        "animation",
+        "morph"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "animation",
+        "morph"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "AnimatedTriangle": {
+    "glTF": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "AnimationPointerUVs": {
+    "glTF": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_lights_punctual",
+        "KHR_materials_anisotropy",
+        "KHR_materials_clearcoat",
+        "KHR_materials_diffuse_transmission",
+        "KHR_materials_iridescence",
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_materials_transmission",
+        "KHR_materials_unlit",
+        "KHR_materials_volume",
+        "KHR_texture_transform",
+        "animation"
+      ],
+      "meshes": 132,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_lights_punctual",
+        "KHR_materials_anisotropy",
+        "KHR_materials_clearcoat",
+        "KHR_materials_diffuse_transmission",
+        "KHR_materials_iridescence",
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_materials_transmission",
+        "KHR_materials_unlit",
+        "KHR_materials_volume",
+        "KHR_texture_transform",
+        "animation"
+      ],
+      "meshes": 132,
+      "status": "partial"
+    }
+  },
+  "AnisotropyBarnLamp": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_anisotropy",
+        "KHR_materials_clearcoat",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_anisotropy",
+        "KHR_materials_clearcoat",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-KTX-BasisU": {
+      "unsupported": [
+        "KHR_materials_anisotropy",
+        "KHR_materials_clearcoat",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "AnisotropyDiscTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 12,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 12,
+      "status": "partial"
+    }
+  },
+  "AnisotropyRotationTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    }
+  },
+  "AnisotropyStrengthTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 50,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 50,
+      "status": "partial"
+    }
+  },
+  "AntiqueCamera": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    }
+  },
+  "AttenuationTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 18,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 18,
+      "status": "partial"
+    }
+  },
+  "Avocado": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BarramundiFish": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BoomBox": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BoomBoxWithAxes": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 5,
+      "status": "supported"
+    }
+  },
+  "Box": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "Box With Spaces": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BoxAnimated": {
+    "glTF": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "BoxInterleaved": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BoxTextured": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BoxTexturedNonPowerOfTwo": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "BoxVertexColors": {
+    "glTF": {
+      "unsupported": [
+        "vertex-color"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "vertex-color"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "BrainStem": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 59,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 59,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "animation",
+        "skin"
+      ],
+      "meshes": 59,
+      "status": "partial"
+    },
+    "glTF-Meshopt": {
+      "unsupported": [
+        "KHR_meshopt_compression",
+        "animation",
+        "skin"
+      ],
+      "meshes": 0,
+      "status": "unsupported"
+    },
+    "glTF-Meshopt-EXT": {
+      "unsupported": [],
+      "meshes": 49,
+      "status": "supported"
+    }
+  },
+  "Cameras": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "CarConcept": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 109,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 109,
+      "status": "partial"
+    },
+    "glTF-KTX-BasisU-Draco": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 109,
+      "status": "partial"
+    }
+  },
+  "CarbonFibre": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_anisotropy"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "CesiumMan": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "animation",
+        "skin"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "CesiumMilkTruck": {
+    "glTF": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "ChairDamaskPurplegold": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 11,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 11,
+      "status": "partial"
+    }
+  },
+  "ChronographWatch": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "animation",
+        "texcoord-1"
+      ],
+      "meshes": 19,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "animation",
+        "texcoord-1"
+      ],
+      "meshes": 19,
+      "status": "partial"
+    },
+    "glTF-KTX-BasisU": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "animation",
+        "texcoord-1"
+      ],
+      "meshes": 19,
+      "status": "partial"
+    }
+  },
+  "ClearCoatCarPaint": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_texture_transform"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_texture_transform"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "ClearCoatTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat"
+      ],
+      "meshes": 27,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat"
+      ],
+      "meshes": 27,
+      "status": "partial"
+    }
+  },
+  "ClearcoatWicker": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "CommercialRefrigerator": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_transmission",
+        "animation"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_transmission",
+        "animation"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    }
+  },
+  "CompareAlphaCoverage": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 6,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 6,
+      "status": "supported"
+    }
+  },
+  "CompareAmbientOcclusion": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 6,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 6,
+      "status": "supported"
+    }
+  },
+  "CompareAnisotropy": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_anisotropy",
+        "KHR_texture_transform"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_anisotropy",
+        "KHR_texture_transform"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "CompareBaseColor": {
+    "glTF": {
+      "unsupported": [
+        "KHR_texture_transform",
+        "vertex-color"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_texture_transform",
+        "vertex-color"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "CompareClearcoat": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_ior"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_ior"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "CompareDispersion": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "CompareEmissiveStrength": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    }
+  },
+  "CompareIor": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "CompareIridescence": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_iridescence"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_iridescence"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "CompareMetallic": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    }
+  },
+  "CompareNormal": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    }
+  },
+  "CompareRoughness": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    }
+  },
+  "CompareSheen": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_sheen"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_sheen"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "CompareSpecular": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_specular"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_specular"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "CompareTransmission": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission"
+      ],
+      "meshes": 5,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission"
+      ],
+      "meshes": 5,
+      "status": "partial"
+    }
+  },
+  "CompareVolume": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 5,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 5,
+      "status": "partial"
+    }
+  },
+  "Corset": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "Cube": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "CubeVisibility": {
+    "glTF": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_node_visibility",
+        "animation"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_node_visibility",
+        "animation"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "DamagedHelmet": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "DiffuseTransmissionPlant": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_diffuse_transmission",
+        "animation"
+      ],
+      "meshes": 9,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_diffuse_transmission",
+        "animation"
+      ],
+      "meshes": 9,
+      "status": "partial"
+    }
+  },
+  "DiffuseTransmissionTeacup": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_diffuse_transmission"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_diffuse_transmission"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "DiffuseTransmissionTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_diffuse_transmission",
+        "KHR_materials_unlit"
+      ],
+      "meshes": 33,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_diffuse_transmission",
+        "KHR_materials_unlit"
+      ],
+      "meshes": 33,
+      "status": "partial"
+    }
+  },
+  "DirectionalLight": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "DispersionTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 27,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 27,
+      "status": "partial"
+    }
+  },
+  "DragonAttenuation": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_materials_volume"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_materials_volume"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Meshopt": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_materials_volume",
+        "KHR_meshopt_compression",
+        "KHR_texture_transform"
+      ],
+      "meshes": 0,
+      "status": "unsupported"
+    },
+    "glTF-Meshopt-EXT": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_materials_volume",
+        "KHR_texture_transform"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "DragonDispersion": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "Duck": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "EmissiveStrengthTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 6,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 6,
+      "status": "supported"
+    }
+  },
+  "EnvironmentTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 3,
+      "status": "supported"
+    }
+  },
+  "FlightHelmet": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    }
+  },
+  "Fox": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "GlamVelvetSofa": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_materials_variants",
+        "KHR_texture_transform"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_materials_variants",
+        "KHR_texture_transform"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "GlassBrokenWindow": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "GlassHurricaneCandleHolder": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "GlassVaseFlowers": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "IORTestGrid": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_specular",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 23,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_specular",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 23,
+      "status": "partial"
+    }
+  },
+  "InterpolationTest": {
+    "glTF": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "IridescenceAbalone": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_iridescence"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_iridescence"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "IridescenceDielectricSpheres": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence"
+      ],
+      "meshes": 346,
+      "status": "partial"
+    }
+  },
+  "IridescenceLamp": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "IridescenceMetallicSpheres": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence"
+      ],
+      "meshes": 346,
+      "status": "partial"
+    }
+  },
+  "IridescenceSuzanne": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "IridescentDishWithOlives": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume",
+        "animation",
+        "vertex-color"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume",
+        "animation",
+        "vertex-color"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "Lantern": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 3,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 3,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 3,
+      "status": "supported"
+    }
+  },
+  "LightVisibility": {
+    "glTF": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_lights_punctual",
+        "KHR_node_visibility",
+        "animation"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_lights_punctual",
+        "KHR_node_visibility",
+        "animation"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "LightsPunctualLamp": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_transmission"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_transmission"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "MandarinOrange": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_diffuse_transmission"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "MaterialsVariantsShoe": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_variants"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_variants"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "MeshPrimitiveModes": {
+    "glTF": {
+      "unsupported": [
+        "primitive-mode"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "MeshoptCubeTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_meshopt_compression",
+        "animation",
+        "vertex-color"
+      ],
+      "meshes": 19,
+      "status": "partial"
+    },
+    "glTF-Meshopt": {
+      "unsupported": [
+        "KHR_meshopt_compression",
+        "animation",
+        "vertex-color"
+      ],
+      "meshes": 19,
+      "status": "partial"
+    }
+  },
+  "MetalRoughSpheres": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 5,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 5,
+      "status": "supported"
+    }
+  },
+  "MetalRoughSpheresNoTextures": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 123,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 123,
+      "status": "supported"
+    }
+  },
+  "MorphPrimitivesTest": {
+    "glTF": {
+      "unsupported": [
+        "morph"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "morph"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "morph"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "MorphStressTest": {
+    "glTF": {
+      "unsupported": [
+        "animation",
+        "morph",
+        "texcoord-1"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "animation",
+        "morph",
+        "texcoord-1"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "MosquitoInAmber": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume",
+        "texcoord-1"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume",
+        "texcoord-1"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "MultiUVTest": {
+    "glTF": {
+      "unsupported": [
+        "texcoord-1"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "texcoord-1"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "MultipleScenes": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 2,
+      "status": "supported"
+    }
+  },
+  "NegativeScaleTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 8,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 8,
+      "status": "supported"
+    }
+  },
+  "NodePerformanceTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual"
+      ],
+      "meshes": 10000,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual"
+      ],
+      "meshes": 10000,
+      "status": "partial"
+    }
+  },
+  "NormalTangentMirrorTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "NormalTangentTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "OrientationTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 13,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 13,
+      "status": "supported"
+    }
+  },
+  "PlaysetLightTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    }
+  },
+  "PointLightIntensityTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_unlit"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_lights_punctual",
+        "KHR_materials_unlit"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "PotOfCoals": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "PotOfCoalsAnimationPointer": {
+    "glTF": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_materials_clearcoat",
+        "KHR_materials_specular",
+        "KHR_materials_transmission",
+        "KHR_materials_volume",
+        "KHR_texture_transform",
+        "animation"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_animation_pointer",
+        "KHR_materials_clearcoat",
+        "KHR_materials_specular",
+        "KHR_materials_transmission",
+        "KHR_materials_volume",
+        "KHR_texture_transform",
+        "animation"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "PrimitiveModeNormalsTest": {
+    "glTF": {
+      "unsupported": [
+        "primitive-mode",
+        "vertex-color"
+      ],
+      "meshes": 9,
+      "status": "partial"
+    }
+  },
+  "RecursiveSkeletons": {
+    "glTF": {
+      "unsupported": [
+        "vertex-color"
+      ],
+      "meshes": 84,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "vertex-color"
+      ],
+      "meshes": 84,
+      "status": "partial"
+    }
+  },
+  "RiggedFigure": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "animation",
+        "skin"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "RiggedSimple": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "animation",
+        "skin"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "ScatteringSkull": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_diffuse_transmission",
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_volume",
+        "KHR_materials_volume_scatter",
+        "KHR_xmp_json_ld"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_diffuse_transmission",
+        "KHR_materials_dispersion",
+        "KHR_materials_ior",
+        "KHR_materials_volume",
+        "KHR_materials_volume_scatter",
+        "KHR_xmp_json_ld"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "SciFiHelmet": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "SheenChair": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_materials_variants",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "SheenCloth": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_texture_transform"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "SheenTestGrid": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_sheen"
+      ],
+      "meshes": 20,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_sheen"
+      ],
+      "meshes": 20,
+      "status": "partial"
+    }
+  },
+  "SheenWoodLeatherSofa": {
+    "glTF": {
+      "unsupported": [
+        "EXT_texture_webp",
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_texture_transform",
+        "texcoord-1",
+        "vertex-color"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "EXT_texture_webp",
+        "KHR_materials_sheen",
+        "KHR_materials_specular",
+        "KHR_texture_transform",
+        "texcoord-1",
+        "vertex-color"
+      ],
+      "meshes": 6,
+      "status": "partial"
+    }
+  },
+  "SimpleInstancing": {
+    "glTF": {
+      "unsupported": [
+        "EXT_mesh_gpu_instancing"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "EXT_mesh_gpu_instancing"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "SimpleMaterial": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "SimpleMeshes": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "SimpleMorph": {
+    "glTF": {
+      "unsupported": [
+        "animation",
+        "morph"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "SimpleSkin": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "SimpleSparseAccessor": {
+    "glTF": {
+      "unsupported": [
+        "sparse-accessor"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "SimpleTexture": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "SpecGlossVsMetalRough": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_pbrSpecularGlossiness"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_pbrSpecularGlossiness"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "SpecularSilkPouf": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_materials_specular"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_sheen",
+        "KHR_materials_specular"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  },
+  "SpecularTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_specular"
+      ],
+      "meshes": 24,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_specular"
+      ],
+      "meshes": 24,
+      "status": "partial"
+    }
+  },
+  "Sponza": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 103,
+      "status": "supported"
+    }
+  },
+  "StainedGlassLamp": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_materials_volume"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    },
+    "glTF-KTX-BasisU": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_variants",
+        "KHR_materials_volume"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    }
+  },
+  "SunglassesKhronos": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "EXT_texture_webp",
+        "KHR_materials_ior",
+        "KHR_materials_iridescence",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 8,
+      "status": "partial"
+    }
+  },
+  "Suzanne": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "TextureCoordinateTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 5,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 5,
+      "status": "supported"
+    }
+  },
+  "TextureEncodingTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 14,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 14,
+      "status": "supported"
+    }
+  },
+  "TextureLinearInterpolationTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 3,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 3,
+      "status": "supported"
+    }
+  },
+  "TextureSettingsTest": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 10,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 10,
+      "status": "supported"
+    }
+  },
+  "TextureTransformMultiTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_unlit",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 29,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_unlit",
+        "KHR_texture_transform",
+        "texcoord-1"
+      ],
+      "meshes": 29,
+      "status": "partial"
+    }
+  },
+  "TextureTransformTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_texture_transform"
+      ],
+      "meshes": 9,
+      "status": "partial"
+    }
+  },
+  "ToyCar": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_sheen",
+        "KHR_materials_transmission",
+        "KHR_texture_transform"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_clearcoat",
+        "KHR_materials_sheen",
+        "KHR_materials_transmission",
+        "KHR_texture_transform"
+      ],
+      "meshes": 3,
+      "status": "partial"
+    }
+  },
+  "TransmissionOrderTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 10,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 10,
+      "status": "partial"
+    }
+  },
+  "TransmissionRoughnessTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 9,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 9,
+      "status": "partial"
+    }
+  },
+  "TransmissionTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_xmp"
+      ],
+      "meshes": 22,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_xmp"
+      ],
+      "meshes": 22,
+      "status": "partial"
+    }
+  },
+  "TransmissionThinwallTestGrid": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 14,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_ior",
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 14,
+      "status": "partial"
+    }
+  },
+  "Triangle": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "TriangleWithoutIndices": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "TwoSidedPlane": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "USDShaderBallForGltf": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_transmission",
+        "KHR_materials_volume"
+      ],
+      "meshes": 4,
+      "status": "partial"
+    }
+  },
+  "Unicode❤♻Test": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "UnlitTest": {
+    "glTF": {
+      "unsupported": [
+        "KHR_materials_unlit"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_materials_unlit"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "VertexColorTest": {
+    "glTF": {
+      "unsupported": [
+        "vertex-color"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "vertex-color"
+      ],
+      "meshes": 2,
+      "status": "partial"
+    }
+  },
+  "VirtualCity": {
+    "glTF": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 167,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 167,
+      "status": "partial"
+    },
+    "glTF-Draco": {
+      "unsupported": [
+        "animation"
+      ],
+      "meshes": 167,
+      "status": "partial"
+    }
+  },
+  "WaterBottle": {
+    "glTF": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Binary": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    },
+    "glTF-Draco": {
+      "unsupported": [],
+      "meshes": 1,
+      "status": "supported"
+    }
+  },
+  "XmpMetadataRoundedCube": {
+    "glTF": {
+      "unsupported": [
+        "KHR_xmp_json_ld"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    },
+    "glTF-Binary": {
+      "unsupported": [
+        "KHR_xmp_json_ld"
+      ],
+      "meshes": 1,
+      "status": "partial"
+    }
+  }
+}

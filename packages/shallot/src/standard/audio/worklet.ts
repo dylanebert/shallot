@@ -22,7 +22,7 @@ class SynthProcessor extends AudioWorkletProcessor {
                     this.memory = this.wasm.memory;
                     this.wasm.audio_init(sampleRate);
                     for (const msg of this._pendingMessages) {
-                        this._handleMessage(msg);
+                        this.handleMessage(msg);
                     }
                     this._pendingMessages = [];
                 });
@@ -30,15 +30,15 @@ class SynthProcessor extends AudioWorkletProcessor {
                 if (!this.wasm) {
                     this._pendingMessages.push(e.data);
                 } else {
-                    this._handleMessage(e.data);
+                    this.handleMessage(e.data);
                 }
             }
         };
     }
 
-    _handleMessage(data) {
+    handleMessage(data) {
         if (data.type === "batch") {
-            for (const cmd of data.commands) this._handleMessage(cmd);
+            for (const cmd of data.commands) this.handleMessage(cmd);
             return;
         }
         if (data.type === "params") {
@@ -69,7 +69,7 @@ class SynthProcessor extends AudioWorkletProcessor {
                 this._releasing.delete(data.voiceId);
             }
         } else if (data.type === "set_instrument") {
-            this.wasm.audio_set_instrument(data.id, data.nodeCount, data.outputBuf);
+            this.wasm.audio_set_instrument(data.id, data.nodeCount, data.outputBuf, data.outputBufR);
             for (let i = 0; i < data.nodes.length; i++) {
                 const n = data.nodes[i];
                 this.wasm.audio_set_instrument_node(data.id, i, n.type, n.inputBuf, n.inputBufB, n.outputBuf, n.paramOffset);
@@ -117,7 +117,7 @@ class SynthProcessor extends AudioWorkletProcessor {
                 this.wasm.audio_set_acoustic_separate(arr[i], arr[i + 1], arr[i + 2], arr[i + 3], arr[i + 4]);
             }
         } else if (data.type === "set_sample") {
-            const ptr = this.wasm.audio_sample_alloc(data.id, data.data.length);
+            const ptr = this.wasm.audio_sample_alloc(data.id, data.channel, data.channels, data.data.length);
             if (ptr) {
                 new Float32Array(this.memory.buffer, ptr, data.data.length).set(data.data);
             }
@@ -129,7 +129,7 @@ class SynthProcessor extends AudioWorkletProcessor {
         } else if (data.type === "reflectionGain") {
             this.wasm.audio_set_reflection_gain(data.voiceId, data.gain);
         } else if (data.type === "reverb") {
-            this.wasm.audio_set_reverb(data.rt60Low, data.rt60Mid, data.rt60High, data.wetGain, data.eqLow, data.eqMid, data.eqHigh);
+            this.wasm.audio_set_reverb(data.rt60Low, data.rt60Mid, data.rt60High, data.wetGain);
         } else if (data.type === "watch_idle") {
             this._releasing.add(data.voiceId);
         } else if (data.type === "reset") {

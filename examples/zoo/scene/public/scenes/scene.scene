@@ -1,0 +1,12 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" />
+
+    <a id="camera" camera sear transform orbit="distance: 8; yaw: 0.6; pitch: 0.3; target: @hero" />
+
+    <a id="ground" part transform="pos: 0 -1 0; scale: 10 0.2 10" color="rgba: 0.28 0.3 0.34" />
+
+    <a id="hero" part transform="rot: 0 30 0" color="rgba: 0.85 0.55 0.35" />
+    <a part transform="pos: -2.5 0.5 0; scale: 0.6" color="rgba: 0.5 0.7 0.55" />
+    <a part transform="pos: 2.5 1 0; scale: 2" color="rgba: 0.45 0.55 0.7" />
+</scene>

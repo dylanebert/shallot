@@ -1,11 +1,32 @@
-import { resolve, relative } from "node:path";
-import { readFileSync, readdirSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { relative, resolve } from "node:path";
+import { Marked } from "marked";
+import markedShiki from "marked-shiki";
+import { createHighlighter } from "shiki";
+import { kebab, schema } from "../src/engine/ecs/core";
+import { exampleBlock } from "./example";
+import { fieldRows, fieldTable, registerComponents } from "./fields";
+import {
+    enumOptions,
+    findDefinitionLine,
+    getLines,
+    isAsConst,
+    type MemberExport,
+    objectLiteral,
+    paramNames,
+    parseClassMembers,
+    parseComponentFields,
+    parseInterfaceFields,
+    parseJSDoc,
+    pluginRefs,
+} from "./jsdoc";
+import { assemblePage, manifest } from "./literate";
 
 const PKG = resolve(import.meta.dir, "../src");
 const DOCS = resolve(import.meta.dir, "../../../docs");
 const DIST = resolve(DOCS, "dist");
-// TODO: link to tagged release (e.g. /blob/v1.0.0/) instead of /blob/main/ once releases are standardized
-const GITHUB = "https://github.com/dylanebert/shallot/blob/main/packages/shallot/src";
+// pinned to the release tag so reference source links stay stable; retarget at each release
+const GITHUB = "https://github.com/dylanebert/shallot/blob/v0.6.0/packages/shallot/src";
 
 // Build core export map from package.json: subsystem name → core file path
 const pkg = JSON.parse(readFileSync(resolve(import.meta.dir, "../package.json"), "utf-8"));
@@ -26,148 +47,6 @@ interface Export {
     params: string | null;
 }
 
-// cache source file contents for line lookups
-const fileCache = new Map<string, string[]>();
-
-function getLines(filePath: string): string[] {
-    if (!fileCache.has(filePath)) {
-        fileCache.set(filePath, readFileSync(filePath, "utf-8").split("\n"));
-    }
-    return fileCache.get(filePath)!;
-}
-
-function findDefinitionLine(filePath: string, name: string): number {
-    if (!existsSync(filePath)) return 1;
-    const lines = getLines(filePath);
-    const exportRe = new RegExp(
-        `\\bexport\\s+(const|let|function|async\\s+function|class|enum|interface|type)\\s+${name}\\b`,
-    );
-    const localRe = new RegExp(
-        `\\b(const|let|function|async\\s+function|class|enum|interface|type)\\s+${name}\\b`,
-    );
-    const reExportRe = new RegExp(`export\\s*(type\\s+)?\\{[^}]*\\b${name}\\b`);
-
-    // prefer exported definitions over local ones
-    let localMatch = -1;
-    for (let i = 0; i < lines.length; i++) {
-        const l = lines[i];
-        if (exportRe.test(l)) return i + 1;
-        if (reExportRe.test(l)) return i + 1;
-        if (localMatch === -1 && localRe.test(l)) localMatch = i + 1;
-    }
-    return localMatch !== -1 ? localMatch : 1;
-}
-
-interface JSDocResult {
-    description: string | null;
-    tags: string[];
-    example: string | null;
-    params: string | null;
-}
-
-function parseJSDoc(filePath: string, defLine: number): JSDocResult {
-    const lines = getLines(filePath);
-    if (defLine <= 1) return { description: null, tags: [], example: null, params: null };
-
-    let end = -1;
-    for (let i = defLine - 2; i >= 0; i--) {
-        const trimmed = lines[i].trim();
-        if (trimmed === "") continue;
-        if (trimmed.endsWith("*/")) {
-            end = i;
-            break;
-        }
-        break;
-    }
-    if (end === -1) return { description: null, tags: [], example: null, params: null };
-
-    let start = -1;
-    for (let i = end; i >= 0; i--) {
-        if (lines[i].trimStart().startsWith("/**")) {
-            start = i;
-            break;
-        }
-    }
-    if (start === -1) return { description: null, tags: [], example: null, params: null };
-
-    // collect cleaned lines
-    const cleaned: string[] = [];
-    for (let i = start; i <= end; i++) {
-        let line = lines[i].trim();
-        line = line
-            .replace(/^\/\*\*\s*/, "")
-            .replace(/\s*\*\/\s*$/, "")
-            .replace(/^\*\s?/, "");
-        cleaned.push(line);
-    }
-
-    let description: string | null = null;
-    const tags: string[] = [];
-    let example: string | null = null;
-    let params: string | null = null;
-    let inExample = false;
-    const exampleLines: string[] = [];
-
-    for (const line of cleaned) {
-        if (line.startsWith("@example")) {
-            inExample = true;
-            continue;
-        }
-        if (inExample) {
-            if (line.startsWith("@")) {
-                inExample = false;
-                // fall through to tag handling below
-            } else {
-                exampleLines.push(line);
-                continue;
-            }
-        }
-        if (line === "") continue;
-        if (line.startsWith("@params ")) {
-            params = line.slice(8).trim();
-        } else if (line.startsWith("@")) {
-            tags.push(line);
-        } else if (description === null) {
-            description = line;
-        }
-    }
-
-    if (exampleLines.length > 0) {
-        while (exampleLines.length > 0 && exampleLines[0] === "") exampleLines.shift();
-        while (exampleLines.length > 0 && exampleLines[exampleLines.length - 1] === "")
-            exampleLines.pop();
-        if (exampleLines.length > 0) example = exampleLines.join("\n");
-    }
-
-    return { description, tags, example, params };
-}
-
-function extractParamsFromLine(filePath: string, lineNum: number, name: string): string | null {
-    if (!existsSync(filePath)) return null;
-    const lines = getLines(filePath);
-    if (lineNum <= 0 || lineNum > lines.length) return null;
-    // join lines until closing paren (handles multi-line signatures)
-    let sig = "";
-    for (let i = lineNum - 1; i < Math.min(lines.length, lineNum + 10); i++) {
-        sig += ` ${lines[i]}`;
-        if (sig.includes(")")) break;
-    }
-    const m = sig.match(new RegExp(`\\b${name}\\s*(?:<[^>]*>)?\\s*\\(([^)]*)\\)`));
-    if (!m) return null;
-    const raw = m[1].trim();
-    if (!raw) return "";
-    return raw
-        .split(",")
-        .map((p) =>
-            p
-                .trim()
-                .replace(/\s*[:=].*$/, "")
-                .replace(/^\.\.\.\s*/, "..."),
-        )
-        .filter(Boolean)
-        .join(", ");
-}
-
 function findDoc(
     filePath: string,
     name: string,
@@ -175,7 +54,7 @@ function findDoc(
     if (!existsSync(filePath)) return { description: null, example: null, params: null };
     const defLine = findDefinitionLine(filePath, name);
     const doc = parseJSDoc(filePath, defLine);
-    const params = doc.params ?? extractParamsFromLine(filePath, defLine, name);
+    const params = doc.params ?? paramNames(filePath, defLine, name);
     return { description: doc.description, example: doc.example, params };
 }
 
@@ -186,136 +65,14 @@ function hasExpandTag(filePath: string, name: string): boolean {
     return tags.some((t) => t.startsWith("@expand"));
 }
 
-interface MemberExport {
-    name: string;
-    kind: "method" | "property" | "field";
-    line: number;
-    description: string | null;
-    returnType?: string;
-    example?: string | null;
-    params?: string;
-}
-
-function parseClassMembers(filePath: string, className: string): MemberExport[] {
-    if (!existsSync(filePath)) return [];
-    const lines = getLines(filePath);
-    const defLine = findDefinitionLine(filePath, className);
-    if (defLine <= 0) return [];
-
-    const members: MemberExport[] = [];
-    let braceDepth = 0;
-    let inClass = false;
-
-    for (let i = defLine - 1; i < lines.length; i++) {
-        const line = lines[i];
-        const depthBefore = braceDepth;
-
-        for (const ch of line) {
-            if (ch === "{") {
-                braceDepth++;
-                inClass = true;
-            }
-            if (ch === "}") braceDepth--;
-        }
-        if (inClass && braceDepth === 0) break;
-        if (depthBefore !== 1) continue;
-
-        const trimmed = line.trim();
-        if (trimmed.startsWith("private") || trimmed.startsWith("readonly")) continue;
-        if (trimmed.startsWith("constructor")) continue;
-        if (trimmed.startsWith("/") || trimmed.startsWith("*") || trimmed === "") continue;
-
-        // getter → property, extract return type
-        const getterMatch = trimmed.match(/^get\s+(\w+)\s*\(\s*\)\s*:\s*(.+?)\s*\{/);
-        if (getterMatch) {
-            const lineNum = i + 1;
-            const doc = parseJSDoc(filePath, lineNum);
-            const rawType = getterMatch[2];
-            const bareType = rawType.replace(/^Readonly<(.+)>$/, "$1").replace(/\[\]$/, "");
-            members.push({
-                name: getterMatch[1],
-                kind: "property",
-                line: lineNum,
-                description: doc.description,
-                returnType: bareType,
-                example: doc.example,
-            });
-            continue;
-        }
-
-        // skip setters (paired with getter)
-        if (trimmed.startsWith("set ")) continue;
-
-        // method
-        const methodMatch = trimmed.match(/^(\w+)\s*[(<]/);
-        if (methodMatch) {
-            const lineNum = i + 1;
-            const doc = parseJSDoc(filePath, lineNum);
-            const params = extractParamsFromLine(filePath, lineNum, methodMatch[1]);
-            members.push({
-                name: methodMatch[1],
-                kind: "method",
-                line: lineNum,
-                description: doc.description,
-                example: doc.example,
-                params: params ?? "",
-            });
-        }
-    }
-
-    return members;
-}
-
-function parseInterfaceFields(filePath: string, name: string): MemberExport[] {
-    if (!existsSync(filePath)) return [];
-    const lines = getLines(filePath);
-    // find the interface specifically (not a const/class with the same name)
-    const interfaceRe = new RegExp(`\\binterface\\s+${name}\\b`);
-    let defLine = -1;
-    for (let i = 0; i < lines.length; i++) {
-        if (interfaceRe.test(lines[i])) {
-            defLine = i + 1;
-            break;
-        }
-    }
-    if (defLine <= 0) return [];
-
-    const fields: MemberExport[] = [];
-    let braceDepth = 0;
-    let started = false;
-
-    for (let i = defLine - 1; i < lines.length; i++) {
-        const line = lines[i];
-        for (const ch of line) {
-            if (ch === "{") {
-                braceDepth++;
-                started = true;
-            }
-            if (ch === "}") braceDepth--;
-        }
-        if (started && braceDepth === 0) break;
-        if (braceDepth !== 1) continue;
-
-        const trimmed = line.trim();
-        if (trimmed.startsWith("/") || trimmed.startsWith("*") || trimmed === "") continue;
-        if (trimmed === "{") continue;
-
-        // interface field: name: type or readonly name: type
-        const fieldMatch = trimmed.match(/^(?:readonly\s+)?(\w+)\s*[?:]?\s*:/);
-        if (fieldMatch) {
-            const lineNum = i + 1;
-            const doc = parseJSDoc(filePath, lineNum);
-            fields.push({
-                name: fieldMatch[1],
-                kind: "field",
-                line: lineNum,
-                description: doc.description,
-                example: doc.example,
-            });
-        }
-    }
-
-    return fields;
+// a re-exported name keeps the kind of its definition, so a re-exported function reads as a function
+// (its signature + badge), not a bare value — matching a directly-exported one. Without this a
+// re-exported `arrow()` fell through `exportKind`'s function guard to the kebab-folded `schema()` check
+// and mis-rendered as the same-named `Arrow` component
+function reExportKind(srcPath: string, name: string): "function" | "const" {
+    const defLine = findDefinitionLine(srcPath, name);
+    const line = defLine > 1 ? (getLines(srcPath)[defLine - 1] ?? "") : "";
+    return /\bexport\s+(?:async\s+)?function\s/.test(line) ? "function" : "const";
 }
 
 function parseExports(indexPath: string, subsystem: string): Export[] {
@@ -376,7 +133,7 @@ function parseExports(indexPath: string, subsystem: string): Export[] {
                 } else {
                     exports.push({
                         name: n,
-                        kind: "const",
+                        kind: reExportKind(srcPath, n),
                         source,
                         subsystem,
                         line: findDefinitionLine(srcPath, n),
@@ -408,7 +165,7 @@ function parseExports(indexPath: string, subsystem: string): Export[] {
                 } else {
                     exports.push({
                         name: n,
-                        kind: "const",
+                        kind: reExportKind(indexPath, n),
                         source: "index.ts",
                         subsystem,
                         line: findDefinitionLine(indexPath, n),
@@ -499,6 +256,83 @@ function sourceLink(subsystem: string, source: string, line: number): string {
     return `${GITHUB}/${subsystem}/${source}#L${line}`;
 }
 
+/** the export's kind for the reference badge, so a reader can tell a component from a plugin from an enum
+ *  at a glance: a registered component, a `: Plugin`/`: System`-typed object, an `as const` enum, a class,
+ *  a function, a type, or a plain value. */
+function exportKind(e: Export, srcPath: string): string {
+    if (e.kind === "type") return "type";
+    if (e.kind === "function") return "function";
+    if (schema(e.name)) return "component";
+    const defLine = findDefinitionLine(srcPath, e.name);
+    const line = defLine > 1 ? (getLines(srcPath)[defLine - 1] ?? "") : "";
+    if (/\bexport\s+class\b/.test(line)) return "class";
+    if (/\bexport\s+enum\b/.test(line) || isAsConst(srcPath, e.name)) return "enum";
+    if (/:\s*Plugin\b/.test(line)) return "plugin";
+    if (/:\s*System\b/.test(line)) return "system";
+    return "value";
+}
+
+/** a component's fields as a reference table — field, type, default, and the field's doc — so the entry
+ *  shows what the component holds, not just its one-line summary. The rows are the inspector's, reflected
+ *  from `schema()` (`fields.ts`); the descriptions are the field doc comments. Empty when it has no fields. */
+function fieldRefTable(name: string, srcPath: string): string {
+    const rows = fieldRows(name) ?? [];
+    if (rows.length === 0) return "";
+    const raw = parseComponentFields(srcPath, name);
+    const descs: Record<string, string> = {};
+    for (const k of Object.keys(raw)) descs[kebab(k)] = raw[k];
+    const body = rows
+        .map(
+            (r) =>
+                `<tr><td><code>${r.field}</code></td><td class="ref-ftype">${escapeHtml(r.type)}</td>` +
+                `<td class="ref-fdefault">${escapeHtml(r.default)}</td>` +
+                `<td class="ref-fdesc">${escapeHtml(descs[r.field] ?? "")}</td></tr>`,
+        )
+        .join("\n");
+    const head = `<thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>`;
+    return `<table class="ref-fields">${head}<tbody>\n${body}\n</tbody></table>`;
+}
+
+/** an `as const` enum's option → value rows as a reference table, so the entry shows what it can be. */
+function enumTable(srcPath: string, name: string): string {
+    const opts = enumOptions(objectLiteral(srcPath, name));
+    if (opts.length === 0) return "";
+    const rows = opts
+        .map(
+            ([opt, val]) =>
+                `<tr><td><code>${opt}</code></td><td class="ref-fdefault">${escapeHtml(val)}</td></tr>`,
+        )
+        .join("\n");
+    return `<table class="ref-fields"><thead><tr><th>Option</th><th>Value</th></tr></thead><tbody>\n${rows}\n</tbody></table>`;
+}
+
+/** a plugin's bundled components / systems / dependencies, linking the components also documented on the
+ *  page, so the entry shows what enabling it brings in. */
+function pluginTable(srcPath: string, name: string, seen: Set<string>): string {
+    const { components, systems, dependencies } = pluginRefs(objectLiteral(srcPath, name));
+    const link = (n: string) =>
+        seen.has(n) ? `<a href="#ref-${n}" class="ref-type">${n}</a>` : escapeHtml(n);
+    const row = (label: string, items: string[]) =>
+        items.length ? `<tr><th>${label}</th><td>${items.map(link).join(", ")}</td></tr>` : "";
+    const rows = [
+        row("Components", components),
+        row("Systems", systems),
+        row("Dependencies", dependencies),
+    ].filter(Boolean);
+    if (rows.length === 0) return "";
+    return `<table class="ref-parts"><tbody>\n${rows.join("\n")}\n</tbody></table>`;
+}
+
+/** JSDoc `{@link Name}` / `{@link Name|text}` → a same-page reference link when Name has an entry, else
+ *  plain code. Same grammar the editor field-hover strips (`fielddocs.ts` `plain`). */
+function linkTags(desc: string, seen: Set<string>): string {
+    return desc.replace(/\{@link\s+([^}|\s]+)(?:[|\s]+([^}]+))?\}/g, (_, name, text) =>
+        seen.has(name)
+            ? `<a href="#ref-${name}" class="ref-type"><code>${text ?? name}</code></a>`
+            : `<code>${text ?? name}</code>`,
+    );
+}
+
 function generateTable(subsystem: string, filePath?: string): string {
     let indexPath = filePath ?? resolve(PKG, subsystem, "index.ts");
     let singleFile = false;
@@ -535,18 +369,19 @@ function generateTable(subsystem: string, filePath?: string): string {
         return true;
     });
 
-    // @expand classes first, then alphabetical within each group
+    // @expand classes first, then alphabetical within each group. checked for every kind, not just
+    // const: an interface+const merge (a singleton `export const Profile: Profile` beside its
+    // `export interface Profile`) dedups to the interface entry, whose JSDoc carries the @expand tag —
+    // gating on const alone dropped its field table.
     const expandSet = new Set<string>();
     for (const e of deduped) {
-        if (e.kind === "const") {
-            const srcPath = resolve(
-                singleFile
-                    ? resolve(PKG, subsystem.split("/").slice(0, -1).join("/"))
-                    : resolve(PKG, subsystem),
-                e.source,
-            );
-            if (hasExpandTag(srcPath, e.name)) expandSet.add(e.name);
-        }
+        const srcPath = resolve(
+            singleFile
+                ? resolve(PKG, subsystem.split("/").slice(0, -1).join("/"))
+                : resolve(PKG, subsystem),
+            e.source,
+        );
+        if (hasExpandTag(srcPath, e.name)) expandSet.add(e.name);
     }
     deduped.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -556,21 +391,43 @@ function generateTable(subsystem: string, filePath?: string): string {
 
     for (const e of deduped) {
         const url = sourceLink(linkBase, e.source, e.line);
-        const desc = e.description ?? "";
+        const desc = linkTags(e.description ?? "", seen);
+        const srcPath = resolve(
+            singleFile
+                ? resolve(PKG, subsystem.split("/").slice(0, -1).join("/"))
+                : resolve(PKG, subsystem),
+            e.source,
+        );
+        const kind = exportKind(e, srcPath);
+        const tag = `<span class="ref-kind ref-kind-${kind}">${kind}</span>`;
+        const srcIcon = `<a href="${url}" target="_blank" rel="noopener" class="ref-src" aria-label="View source">${LINK_ICON}</a>`;
 
-        // check for @expand (pre-computed in expandSet)
+        // a kind-specific body expands the entry: a component's fields, an enum's options, or the
+        // components/systems a plugin bundles. the entry then shows what the export *holds*, not a bare name.
+        const body =
+            kind === "component"
+                ? fieldRefTable(e.name, srcPath)
+                : kind === "enum"
+                  ? enumTable(srcPath, e.name)
+                  : kind === "plugin"
+                    ? pluginTable(srcPath, e.name, seen)
+                    : "";
+        if (body) {
+            lines.push(`<details class="ref-entry ref-group">`);
+            lines.push(
+                `<summary id="ref-${e.name}">${tag}<code>${e.name}</code>${srcIcon}</summary>`,
+            );
+            if (desc) lines.push(`<p class="ref-desc">${desc}</p>`);
+            lines.push(`<div class="ref-methods">${body}</div>`);
+            lines.push(`</details>`);
+            continue;
+        }
+
+        // @expand classes/interfaces list their documented members
         let members: MemberExport[] = [];
         if (expandSet.has(e.name)) {
-            const srcPath = resolve(
-                singleFile
-                    ? resolve(PKG, subsystem.split("/").slice(0, -1).join("/"))
-                    : resolve(PKG, subsystem),
-                e.source,
-            );
-            // class → methods + properties, interface/const → fields
             members = parseClassMembers(srcPath, e.name);
             if (members.length === 0) members = parseInterfaceFields(srcPath, e.name);
-            // only show documented members — undocumented ones are internal
             members = members.filter((m) => m.description !== null);
             members.sort((a, b) => a.name.localeCompare(b.name));
         }
@@ -578,7 +435,7 @@ function generateTable(subsystem: string, filePath?: string): string {
         if (members.length > 0) {
             lines.push(`<details class="ref-entry ref-group">`);
             lines.push(
-                `<summary id="ref-${e.name}"><code>${e.name}</code><a href="${url}" target="_blank" rel="noopener" class="ref-src" aria-label="View source">${LINK_ICON}</a></summary>`,
+                `<summary id="ref-${e.name}">${tag}<code>${e.name}</code>${srcIcon}</summary>`,
             );
             if (desc) lines.push(`<p class="ref-desc">${desc}</p>`);
             if (e.example)
@@ -586,7 +443,7 @@ function generateTable(subsystem: string, filePath?: string): string {
             lines.push(`<div class="ref-methods">`);
             for (const m of members) {
                 const mUrl = sourceLink(linkBase, e.source, m.line);
-                const mDesc = m.description ?? "";
+                const mDesc = linkTags(m.description ?? "", seen);
                 const label =
                     m.kind === "method"
                         ? `.${m.name}<span class="ref-params">(${m.params ?? ""})</span>`
@@ -620,7 +477,7 @@ function generateTable(subsystem: string, filePath?: string): string {
                 e.params !== null
                     ? `${e.name}<span class="ref-params">(${e.params})</span>`
                     : e.name;
-            const head = `<code>${label}</code><a href="${url}" target="_blank" rel="noopener" class="ref-src" aria-label="View source">${LINK_ICON}</a>`;
+            const head = `${tag}<code>${label}</code>${srcIcon}`;
             const body = [
                 desc ? `<p class="ref-desc">${desc}</p>` : "",
                 e.example
@@ -657,6 +514,53 @@ function generateCoreTable(subsystemName: string): string | null {
     return generateTable(subsystem, corePath);
 }
 
+// markdown → HTML happens here at build time so docs/dist/ is a render-ready artifact:
+// both the site and the editor are pure views over it, neither shipping a markdown or
+// highlighter runtime. Tab markers (<!-- tabs -->, <!-- pick -->) are HTML comments that
+// survive marked, so consumers split them into their own tab UI.
+const highlighter = await createHighlighter({
+    themes: ["vitesse-dark"],
+    langs: ["typescript", "xml", "bash", "json"],
+});
+
+const HIGHLIGHT = { theme: "vitesse-dark", colorReplacements: { "#121212": "transparent" } };
+
+const marked = new Marked(
+    markedShiki({
+        highlight: (code, lang) =>
+            highlighter.codeToHtml(code, { lang: lang || "text", ...HIGHLIGHT }),
+    }),
+    {
+        renderer: {
+            // images stay as authored (e.g. /captures/x.webp); a consumer prefixes its base path
+            image: ({ href, title, text }) =>
+                `<img src="${href}" alt="${text}"${title ? ` title="${title}"` : ""} loading="lazy">`,
+            link: ({ href, title, text }) => {
+                const external = href.startsWith("http://") || href.startsWith("https://");
+                const target = external ? ' target="_blank" rel="noopener"' : "";
+                return `<a href="${href}"${title ? ` title="${title}"` : ""}${target}>${text}</a>`;
+            },
+        },
+    },
+);
+
+// ref-example blocks reach marked as raw HTML (escaped code emitted by the API/CORE tables),
+// so marked-shiki skips them; highlight them in a second pass the way fenced blocks get it
+function highlightRefExamples(html: string): string {
+    return html.replace(/<pre class="ref-example"><code>([\s\S]*?)<\/code><\/pre>/g, (_, code) => {
+        const decoded = code.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+        return highlighter
+            .codeToHtml(decoded, { lang: "typescript", ...HIGHLIGHT })
+            .replace("<pre", '<pre class="ref-example"');
+    });
+}
+
+async function renderBody(body: string): Promise<string> {
+    // drop the leading H1 — the title renders from frontmatter
+    const html = (await marked.parse(body)).replace(/^<h1>.*?<\/h1>\n?/, "");
+    return highlightRefExamples(html);
+}
+
 // main
 rmSync(DIST, { recursive: true, force: true });
 mkdirSync(DIST, { recursive: true });
@@ -675,36 +579,89 @@ function walkDocs(dir: string): string[] {
     return results;
 }
 
+// FIELDS markers read the component registry, so populate it before the page loop
+await registerComponents();
+
+// a page is rendered the same way whoever wrote it: hand-authored docs/**/*.md or projected from a
+// manifest entry (assemblePage). both reach here as the same marker-laden markdown.
+async function renderPage(rel: string, source: string): Promise<void> {
+    const dst = resolve(DIST, rel);
+    mkdirSync(resolve(dst, ".."), { recursive: true });
+    let content = source;
+
+    // Expand EXAMPLE markers into fenced snippets pulled from zoo specimens (marked highlights them
+    // in renderBody, like any fenced block). A missing file/region logs a "warning:" docs:check gates.
+    content = content.replace(/<!-- EXAMPLE:([^#\s]+)(?:#(\S+))? -->/g, (_, path, region) => {
+        const { code, error } = exampleBlock(path, region);
+        if (error || !code) {
+            console.warn(`  warning: EXAMPLE ${path}${region ? `#${region}` : ""}: ${error}`);
+            return "";
+        }
+        return code;
+    });
+
+    // Expand FIELDS markers into a component's reflection-generated field table (the inspector's rows at
+    // its default pose). A missing/unregistered component logs a "warning:" docs:check gates, like EXAMPLE.
+    content = content.replace(/<!-- FIELDS:(\S+) -->/g, (_, name) => {
+        const { table, error } = fieldTable(name);
+        if (error || !table) {
+            console.warn(`  warning: FIELDS ${name}: ${error ?? "no table"}`);
+            return "";
+        }
+        return table;
+    });
+
+    // Replace API markers with one Reference heading + a source-tagged table per comma-listed source
+    // (a single source is the one-to-one page; a list draws a conceptual page from several modules).
+    content = content.replace(/<!-- API:(\S+) -->/g, (_, paths) => {
+        const tables = paths.split(",").map((path: string) => {
+            const srcFile = existsSync(resolve(PKG, path, "index.ts"))
+                ? `${path}/index.ts`
+                : `${path}.ts`;
+            const srcLink = `${GITHUB}/${srcFile}`;
+            return `${sourceTag(srcFile, srcLink)}\n\n${generateTable(path)}`;
+        });
+        return `## Reference\n\n${tables.join("\n\n")}`;
+    });
+
+    content = content.replace(/<!-- CORE:(\S+) -->/g, (_, subsystems) => {
+        const sections = subsystems
+            .split(",")
+            .map((subsystem: string) => {
+                const table = generateCoreTable(subsystem);
+                if (!table) return "";
+                const corePath = coreExports.get(subsystem);
+                const rel = corePath ? relative(PKG, corePath) : "";
+                const srcLink = rel ? `${GITHUB}/${rel}` : "";
+                const srcLine = rel ? `${sourceTag(rel, srcLink)}\n\n` : "";
+                return `${srcLine}${table}`;
+            })
+            .filter(Boolean);
+        if (sections.length === 0) return "";
+        return `### Core\n\n${sections.join("\n\n")}`;
+    });
+
+    // frontmatter stays verbatim (consumers read title/source/icon from it); the body
+    // renders to HTML so dist is ready to display
+    const fm = content.match(/^---\n[\s\S]*?\n---\n/);
+    const front = fm ? fm[0] : "";
+    const rendered = await renderBody(content.slice(front.length));
+    writeFileSync(dst, front ? `${front}\n${rendered}` : rendered);
+    console.log(`  ${rel}`);
+}
+
 const docs = walkDocs(DOCS);
 let count = 0;
 
 for (const src of docs) {
-    const rel = relative(DOCS, src);
-    const dst = resolve(DIST, rel);
-    mkdirSync(resolve(dst, ".."), { recursive: true });
-    let content = readFileSync(src, "utf-8");
+    await renderPage(relative(DOCS, src), readFileSync(src, "utf-8"));
+    count++;
+}
 
-    // Replace API markers with Reference heading + table
-    content = content.replace(/<!-- API:(\S+) -->/g, (_, path) => {
-        const srcFile = existsSync(resolve(PKG, path, "index.ts"))
-            ? `${path}/index.ts`
-            : `${path}.ts`;
-        const srcLink = `${GITHUB}/${srcFile}`;
-        return `## Reference\n\n${sourceTag(srcFile, srcLink)}\n\n${generateTable(path)}`;
-    });
-
-    content = content.replace(/<!-- CORE:(\S+) -->/g, (_, subsystem) => {
-        const table = generateCoreTable(subsystem);
-        if (!table) return "";
-        const corePath = coreExports.get(subsystem);
-        const rel = corePath ? relative(PKG, corePath) : "";
-        const srcLink = rel ? `${GITHUB}/${rel}` : "";
-        const srcLine = rel ? `${sourceTag(rel, srcLink)}\n\n` : "";
-        return `### Core\n\n${srcLine}${table}`;
-    });
-
-    writeFileSync(dst, content);
-    console.log(`  ${rel}`);
+// projected pages: assembled from a specimen + module source + the nav manifest, then rendered
+// through the identical path above — no hand-authored markdown, so no drift surface.
+for (const entry of manifest()) {
+    await renderPage(`${entry.slug}.md`, assemblePage(entry));
     count++;
 }
 

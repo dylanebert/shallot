@@ -1,0 +1,42 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" shadow />
+
+    <a id="camera" camera sear transform orbit="distance: 22; yaw: 0.6; pitch: 0.5; pan: 1 4 0" />
+
+    <!-- static ground: mass 0 pins it in place -->
+    <a body="pos: 0 0 0; half-extents: 7 0.5 7; mass: 0" part color="rgba: 0.4 0.42 0.46" />
+
+    <!-- a box that falls onto the ground -->
+    <a body="pos: -4 6 0; half-extents: 0.6 0.6 0.6; mass: 1" part color="rgba: 0.85 0.55 0.35" />
+
+    <!-- a spring hangs a block under a fixed anchor -->
+    <a
+        id="anchor"
+        body="pos: 0 8 0; half-extents: 0.2 0.2 0.2; mass: 0"
+        part
+        color="rgba: 0.55 0.57 0.6"
+    />
+    <a
+        id="bob"
+        body="pos: 0 4.5 0; half-extents: 0.6 0.6 0.6; mass: 1"
+        part
+        color="rgba: 0.4 0.7 0.9"
+    />
+    <a spring="a: @anchor; b: @bob; rest: 3; stiffness: 80" />
+
+    <!-- a joint pins a bar to a fixed pivot, so it swings -->
+    <a
+        id="pivot"
+        body="pos: 4 8 0; half-extents: 0.2 0.2 0.2; mass: 0"
+        part
+        color="rgba: 0.55 0.57 0.6"
+    />
+    <a
+        id="bar"
+        body="pos: 6 8 0; half-extents: 2 0.3 0.3; mass: 1"
+        part
+        color="rgba: 0.9 0.5 0.6"
+    />
+    <a joint="a: @pivot; b: @bar; r-a: 0 0 0; r-b: -2 0 0" />
+</scene>

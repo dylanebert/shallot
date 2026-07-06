@@ -18,6 +18,12 @@ impl FilterMode {
     }
 }
 
+/// State-variable filter — Simper/Cytomic topology-preserving transform
+/// ("Solving the continuous SVF equations using trapezoidal integration and
+/// equivalent currents", Andrew Simper, 2013). `g = tan(π·fc/fs)` pre-warps the
+/// cutoff so the discrete response matches the analog prototype at the cutoff;
+/// `ic1eq`/`ic2eq` are the two integrator states. Proven by closed-form analog-
+/// prototype tests (unity DC gain, the band responses).
 #[derive(Clone, Copy)]
 pub struct SvfFilter {
     pub ic1eq: f32,
@@ -419,6 +425,43 @@ mod tests {
     }
 
     #[test]
+    fn lowpass_unity_dc_gain() {
+        // Closed-form analog-prototype response: a lowpass passes DC at unity
+        // exactly. Drive a constant; after the homogeneous response settles
+        // (<<1e-6 over 4800 samples), the residual is f32 IIR roundoff, so the
+        // gain sits at 1.0 to ~1e-4.
+        let mut f = SvfFilter::default();
+        f.mode = FilterMode::LowPass;
+        f.q = 0.707;
+        f.update_coefficients(48000.0, 1000.0);
+        let mut out = 0.0f32;
+        for _ in 0..4800 {
+            out = f.tick(1.0);
+        }
+        assert!(
+            (out - 1.0).abs() < 1e-3,
+            "lowpass DC gain should be 1.0, got {out}"
+        );
+    }
+
+    #[test]
+    fn highpass_blocks_dc() {
+        // The complementary closed-form: a highpass has zero DC gain.
+        let mut f = SvfFilter::default();
+        f.mode = FilterMode::HighPass;
+        f.q = 0.707;
+        f.update_coefficients(48000.0, 1000.0);
+        let mut out = 0.0f32;
+        for _ in 0..4800 {
+            out = f.tick(1.0);
+        }
+        assert!(
+            out.abs() < 1e-3,
+            "highpass DC gain should be 0.0, got {out}"
+        );
+    }
+
+    #[test]
     fn svf_coefficient_stability_at_nyquist() {
         let mut f = SvfFilter::default();
         f.mode = FilterMode::LowPass;
@@ -619,6 +662,78 @@ mod tests {
             mid_energy < high_energy * 0.5,
             "peaking(0.1) should attenuate 2kHz more than 12kHz: mid={mid_energy}, high={high_energy}",
         );
+    }
+
+    #[test]
+    fn svf_golden() {
+        // Captured Cytomic TPT SVF (Simper 2013): coefficients + unit-step response.
+        // Production is the same listing, so the coefficients agree to ~1 ulp (the
+        // only transcendental is the one `tan` in the coefficient solve, whose
+        // cross-platform ulp propagates to < 1e-7 in a1..a3). The 16-sample step
+        // response accumulates f32 roundoff over the recurrence (per-sample ≈
+        // |v|·2⁻²³, |v| ≤ 1.4 → 16·1.4·2⁻²³ ≈ 2.7e-6) plus that coefficient
+        // propagation — bounded under 1e-5.
+        let coeff_tol = 1e-6;
+        let step_tol = 1e-5;
+        for &(mode, cutoff, q, sr, coeffs, steps) in crate::golden::SVF {
+            let mut f = SvfFilter {
+                mode: FilterMode::from_u32(mode),
+                q,
+                ..Default::default()
+            };
+            f.update_coefficients(sr, cutoff);
+            for (got, want) in [f.a1, f.a2, f.a3, f.k].iter().zip(coeffs.iter()) {
+                assert!(
+                    (got - want).abs() <= coeff_tol,
+                    "SVF mode {mode} coeff {got} vs golden {want}, Δ{}",
+                    (got - want).abs()
+                );
+            }
+            for (i, want) in steps.iter().enumerate() {
+                let got = f.tick(1.0);
+                assert!(
+                    (got - want).abs() <= step_tol,
+                    "SVF mode {mode} step {i}: {got} vs golden {want}, Δ{}",
+                    (got - want).abs()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn biquad_coefficients_golden() {
+        // Captured RBJ / Steam Audio shelving + peaking coefficients (iir.cpp),
+        // computed in f64 = the accurate closed form. Production computes high-shelf
+        // in f64 (≈ the golden's final-cast roundoff) and low-shelf / peaking in f32.
+        // The f32 paths are gated to the true coefficient within accumulated f32
+        // roundoff over ~12 ops (relative ≈ 1e-5, with an absolute floor for
+        // near-zero coefficients). That is the test's purpose: it measures
+        // production's fidelity to the formula, not to itself, so a wider Δ is a real
+        // precision regression, never noise to widen the tolerance for.
+        let check = |label: &str, got: [f32; 5], want: &[f32; 5]| {
+            for k in 0..5 {
+                let tol = 1e-5 * want[k].abs().max(1.0);
+                assert!(
+                    (got[k] - want[k]).abs() <= tol,
+                    "{label} coeff[{k}] = {}, golden {}, Δ{} > {tol}",
+                    got[k],
+                    want[k],
+                    (got[k] - want[k]).abs()
+                );
+            }
+        };
+        for &(cutoff, gain, sr, want) in crate::golden::LOW_SHELF {
+            let f = Biquad::low_shelf(cutoff, gain, sr);
+            check("low_shelf", [f.b0, f.b1, f.b2, f.a1, f.a2], &want);
+        }
+        for &(cutoff, gain, sr, want) in crate::golden::HIGH_SHELF {
+            let f = Biquad::high_shelf(cutoff, gain, sr);
+            check("high_shelf", [f.b0, f.b1, f.b2, f.a1, f.a2], &want);
+        }
+        for &(low, high, gain, sr, want) in crate::golden::PEAKING {
+            let f = Biquad::peaking(low, high, gain, sr);
+            check("peaking", [f.b0, f.b1, f.b2, f.a1, f.a2], &want);
+        }
     }
 
     #[test]

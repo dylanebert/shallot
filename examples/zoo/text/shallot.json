@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/text.scene",
+  "plugins": {
+    "Text": true,
+    "Orbit": true,
+    "Labels": "./src/labels"
+  }
+}

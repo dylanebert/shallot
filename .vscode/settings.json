@@ -1,7 +1,12 @@
 {
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
     "editor.formatOnSave": true,
+    "editor.defaultFormatter": "biomejs.biome",
+    "[svelte]": {
+        "editor.defaultFormatter": "svelte.svelte-vscode"
+    },
+    "editor.codeActionsOnSave": {
+        "source.organizeImports.biome": "explicit"
+    },
     "editor.tabSize": 4,
-    "prettier.configPath": ".prettierrc",
     "svelte.enable-ts-plugin": false
 }

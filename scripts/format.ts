@@ -1,40 +1,39 @@
-import {
+import { Glob } from "bun";
+import { setupGlobals } from "bun-webgpu";
+import type { Node } from "../packages/shallot/src";
+
+// the engine references WebGPU globals (e.g. GPUShaderStage) at module scope, so define
+// them before importing it — mirrors tests/setup.ts. ES imports are hoisted, hence dynamic.
+await setupGlobals();
+
+const {
     State,
     parse,
-    serialize,
-    normalizeAttr,
-    TransformsPlugin,
-    RenderPlugin,
-    RasterPlugin,
-    RaytracingPlugin,
-    TweenPlugin,
-    SkylabPlugin,
-    OrbitPlugin,
-    PlayerPlugin,
+    stringify,
+    DEFAULT_PLUGINS,
     LinesPlugin,
-    ArrowsPlugin,
     TextPlugin,
-    type Node,
-    type Plugin,
-} from "../packages/shallot/src";
-import { Glob } from "bun";
+    TweenPlugin,
+    AudioPlugin,
+} = await import("../packages/shallot/src");
+const { register } = await import("../packages/shallot/src/engine/ecs/core");
+const { normalizeAttr } = await import("../packages/shallot/src/engine/scene/core");
 
-const PLUGINS: Plugin[] = [
-    TransformsPlugin,
-    RenderPlugin,
-    RasterPlugin,
-    RaytracingPlugin,
-    TweenPlugin,
-    SkylabPlugin,
-    OrbitPlugin,
-    PlayerPlugin,
-    LinesPlugin,
-    ArrowsPlugin,
-    TextPlugin,
-];
+// the engine defaults plus the opt-in viz extras that add scene-authorable components,
+// so normalizeAttr knows every component schema a scene can reference
+const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, TweenPlugin, AudioPlugin];
 
 const state = new State();
-for (const plugin of PLUGINS) state.register(plugin);
+for (const plugin of PLUGINS) {
+    if (plugin.components) {
+        for (const [name, component] of Object.entries(plugin.components)) {
+            register(name, component, plugin.traits?.[name]);
+        }
+    }
+    if (plugin.systems) {
+        for (const system of plugin.systems) state.addSystem(system, plugin.name);
+    }
+}
 
 function normalizeNodes(nodes: Node[]) {
     for (const node of nodes) {
@@ -50,7 +49,8 @@ function normalizeNodes(nodes: Node[]) {
 }
 
 const glob = new Glob("**/*.scene");
-const ignore = ["node_modules", "dist"];
+// examples/templates/* are generated from the create-shallot template; leave them byte-identical
+const ignore = ["node_modules", "dist", "_legacy", "examples/templates"];
 
 let formatted = 0;
 let unchanged = 0;
@@ -63,7 +63,7 @@ for await (const path of glob.scan({ cwd: process.cwd() })) {
         const content = await Bun.file(path).text();
         const nodes = parse(content);
         normalizeNodes(nodes);
-        const output = serialize(nodes) + "\n";
+        const output = stringify(nodes) + "\n";
 
         if (content !== output) {
             await Bun.write(path, output);

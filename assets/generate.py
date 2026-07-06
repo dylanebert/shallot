@@ -15,6 +15,8 @@ class Color:
     highlight: str
     deep_shadow: str = "#B87654"
     outline: str = "#6B4230"
+    # wordmark fill — matches the site's fg text token, not the warm icon
+    text: str = "#F0ECE8"
 
 
 DEFAULT_COLOR = Color(
@@ -23,6 +25,7 @@ DEFAULT_COLOR = Color(
     highlight="#F5D4B8",
     deep_shadow="#B87654",
     outline="#6B4230",
+    text="#F0ECE8",
 )
 
 
@@ -98,24 +101,14 @@ def generate_icon_paths() -> IconPaths:
     return IconPaths(main, clove_left, clove_right, center_crease, shade, highlight)
 
 
-def generate_defs(color: Color, include_text: bool = False) -> str:
-    base = f'''  <defs>
+def generate_defs(color: Color) -> str:
+    return f'''  <defs>
     <radialGradient id="baseGradient" cx="35%" cy="30%" r="70%" fx="25%" fy="20%">
       <stop offset="0%" stop-color="{color.highlight}"/>
       <stop offset="45%" stop-color="{color.fill}"/>
       <stop offset="100%" stop-color="{color.deep_shadow}"/>
-    </radialGradient>'''
-
-    if include_text:
-        base += f'''
-    <linearGradient id="textGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="{color.highlight}"/>
-      <stop offset="25%" stop-color="{color.fill}"/>
-      <stop offset="100%" stop-color="{color.shadow}"/>
-    </linearGradient>'''
-
-    base += '\n  </defs>'
-    return base
+    </radialGradient>
+  </defs>'''
 
 
 def generate_icon_elements(paths: IconPaths, color: Color, outline_width: float = 2) -> str:
@@ -166,16 +159,8 @@ def generate_letter_paths(text: str, font_path: Path, scale: float = 0.08, weigh
 
 def generate_text_elements(letter_paths: list[str], color: Color) -> str:
     combined = " ".join(letter_paths)
-
-    # Cel-animation style: dark offset shadow + bold outline + flat fill
-    layers = f'''    <!-- Drop shadow (darker, more offset like animation cels) -->
-    <path d="{combined}" fill="#3D2415" transform="translate(2.5 3)"/>
-    <!-- Bold outline -->
-    <path d="{combined}" fill="none" stroke="{color.outline}" stroke-width="3.5" stroke-linejoin="round"/>
-    <!-- Flat fill -->
-    <path d="{combined}" fill="{color.fill}"/>'''
-
-    return layers
+    # plain wordmark — standard Outfit-700 glyphs, same as the site text (no cel shadow/outline)
+    return f'    <path d="{combined}" fill="{color.text}"/>'
 
 
 def generate_icon(
@@ -204,16 +189,21 @@ def generate_logo(
     icon_size: int = 80,
     text_scale: float = 0.058,
     color: Color = DEFAULT_COLOR,
+    gap: float = 6,
+    trailing: float = 10,
 ) -> str:
     font_path = Path(__file__).parent / "font.ttf"
     letter_paths, text_width, descender = generate_letter_paths("shallot", font_path, text_scale, weight=700)
 
-    total_width = round(icon_size + text_width + 24)
-    text_x = icon_size
+    # the 35°-rotated onion fills the 80-box out to ~x=64; start the text just past that,
+    # not at the box edge, so the wordmark sits close to the icon
+    icon_visible_right = 64
+    text_x = round(icon_visible_right + gap)
     text_y = round(icon_size - 6 + descender)
+    total_width = round(text_x + text_width + trailing)
 
     paths = generate_icon_paths()
-    defs = generate_defs(color, include_text=True)
+    defs = generate_defs(color)
     icon_elements = generate_icon_elements(paths, color)
     text_elements = generate_text_elements(letter_paths, color)
 

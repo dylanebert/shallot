@@ -9,6 +9,7 @@
 
         "moduleResolution": "bundler",
         "verbatimModuleSyntax": true,
+        "resolveJsonModule": true,
 
         "noEmit": true,
 
@@ -24,6 +25,11 @@
             "@dylanebert/shallot/src/*": ["./packages/shallot/src/*"]
         }
     },
-    "include": ["packages", "examples", "scripts"],
-    "exclude": ["sandbox", "**/dist", "**/build", "archive"]
+    "include": ["packages", "examples", "scripts", "harness"],
+    "exclude": [
+        "**/dist",
+        "**/build",
+        "scripts/capture/fixture-svelte",
+        "scripts/capture/fixture-react"
+    ]
 }

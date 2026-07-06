@@ -1,7 +1,0 @@
-{
-    "name": "shallot-gpu-tests",
-    "type": "module",
-    "devDependencies": {
-        "@playwright/test": "^1.58.0"
-    }
-}

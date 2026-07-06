@@ -1,0 +1,13 @@
+{
+  "scene": "scenes/voxel.scene",
+  "plugins": {
+    "Part": false,
+    "Orbit": true,
+    "Mirror": true,
+    "Profile": true,
+    "Lines": true,
+    "Voxel": "./src/voxel/mesher",
+    "VoxelControl": "./src/carve",
+    "VoxelBoot": "./src/boot"
+  }
+}

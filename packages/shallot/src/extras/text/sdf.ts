@@ -1,3 +1,5 @@
+import { Compute } from "../../engine";
+
 interface LineSegment {
     x1: number;
     y1: number;
@@ -408,6 +410,7 @@ export class SDFGenerator {
                         storeOp: "store",
                     },
                 ],
+                timestampWrites: Compute.span?.("text:sdf-distance"),
             });
 
             distancePass.setPipeline(this._distancePipeline!);
@@ -438,6 +441,7 @@ export class SDFGenerator {
                         storeOp: "store",
                     },
                 ],
+                timestampWrites: Compute.span?.("text:sdf-finalize"),
             });
 
             finalizePass.setViewport(
@@ -457,7 +461,7 @@ export class SDFGenerator {
 
         this._device.queue.submit([encoder.finish()]);
 
-        for (const buf of tempBuffers) buf.destroy();
+        for (const column of tempBuffers) column.destroy();
         this._pending = [];
     }
 

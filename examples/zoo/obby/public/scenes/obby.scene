@@ -1,0 +1,46 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" shadow />
+
+    <!-- the player's eye + the first-person controller (see the Player page for the details) -->
+    <a id="eye" camera sear transform="pos: 0 3 6" />
+    <a
+        id="player"
+        body="pos: 0 2 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0"
+        character
+        player="camera: @eye"
+    />
+
+    <!-- the course: platforms in a line with gaps between them, and no ground to catch a miss. each is a
+         static body (mass 0) with a part to draw it. a `checkpoint` / `goal` tag is a plain marker our
+         systems query for; the start platform is the first checkpoint. -->
+    <a
+        body="pos: 0 0 0; half-extents: 1.5 0.25 1.5; mass: 0"
+        part
+        color="rgba: 0.4 0.7 0.45"
+        checkpoint
+    />
+    <a
+        body="pos: 0 0.5 -5; half-extents: 1.5 0.25 1.5; mass: 0"
+        part
+        color="rgba: 0.45 0.47 0.52"
+    />
+    <a
+        body="pos: 0 1 -10; half-extents: 1.5 0.25 1.5; mass: 0"
+        part
+        color="rgba: 0.4 0.7 0.45"
+        checkpoint
+    />
+    <a
+        body="pos: 0 1 -15; half-extents: 1.5 0.25 1.5; mass: 0"
+        part
+        color="rgba: 0.55 0.45 0.7"
+        moving
+    />
+    <a
+        body="pos: 0 1 -20; half-extents: 1.5 0.25 1.5; mass: 0"
+        part
+        color="rgba: 0.85 0.72 0.3"
+        goal
+    />
+</scene>

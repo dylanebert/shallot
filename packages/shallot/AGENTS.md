@@ -14,7 +14,7 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 
 **Scenes declare; code transforms.** XML scenes are the source of truth for entity composition. Imperative entity setup belongs in procedural generation and tests, not the standard load path. If you're writing entity-construction code that mirrors a scene file, use the scene file.
 
-**Compute graphs declare order.** Pass order emerges from declared inputs and outputs. Don't sequence passes manually — declare what reads and writes what.
+**Systems declare order.** A system declares `after` / `before` other systems (and a `group`); the scheduler topo-sorts. Don't sequence frame work manually.
 
 **One source of truth.** Every piece of data has exactly one authoritative location. Derive, don't duplicate.
 
@@ -22,10 +22,10 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 
 ## Imports
 
-- `@dylanebert/shallot` — public API: components, registries, registration functions, types
-- `@dylanebert/shallot/extras` — opt-in plugins (orbit, tween, raytracing, etc.)
+- `@dylanebert/shallot` — public API: components, types, plugins, shape factories. The default plugins (`RenderPlugin`, `SearPlugin`, `GlazePlugin`, `TransformsPlugin`, `PartPlugin`, `InputPlugin`, `SlabPlugin`) auto-register; components register through `Plugin.components`, parse-time metadata via `Plugin.traits`. The orbit camera is opt-in (`OrbitPlugin`, in `extras`)
+- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `text`, `tween`, `audio`, `mirror`, `profile` (also reachable on the bare barrel)
 - `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`)
-- `@dylanebert/shallot/{render,physics,audio,compute,transforms,ecs,raytracing}/core` — extension API for custom render nodes, custom compute pipelines, diagnostics. WGSL constants, surface internals, GPU buffer layouts
+- `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. WGSL constants, surface internals, GPU buffer layouts
 
 Don't deep-import from `src/`. If something you need isn't in a barrel or `*/core` subpath, file an issue.
 
@@ -35,30 +35,34 @@ Don't deep-import from `src/`. If something you need isn't in a barrel or `*/cor
 
 `initialize(state)` runs BEFORE scene parse — no entities exist yet. Use `warm(state)` for anything that touches scene data. System `setup(state)` is NOT plugin initialize; it runs lazily on the first frame the system runs.
 
-Plugins that register meshes or surfaces MUST declare `dependencies: [RenderPlugin]`. RenderPlugin.initialize calls `clearMeshes()` / `clearDefaultSurfaces()`, wiping earlier registrations.
-
-The compute graph runs `prepare()` itself. Don't call it manually.
+Plugins register meshes/surfaces against `render/core`'s `Surfaces` / `Draws` / `Meshes` (`Registry<T>` instances); registrations accumulate across plugin initializes (no reset). A producer whose per-frame compute writes geometry the renderer reads for *position* declares `before: [PrepassSystem]` (see `render.md` "System ordering").
 
 ### Choosing a primitive
 
 - **Marker component + `not()` query** — entity-scoped one-time work
-- **`events<T>`** — transient cross-system messages. Frame-scoped, auto-drained
-- **Resource** — persistent shared state with a real data structure
-- **Relation** — entity-to-entity links (`ChildOf`, custom). Always prefer over storing entity IDs in component fields — IDs depend on creation order and break on serialize → reload
-
-In scene files, entity references use `@name` syntax (`body-a: @gnome-body`). ReadbackSystem skips attributes containing `@`.
+- **Module-level singleton** (`Compute`, `Audio`, `Render`) — process-scoped shared state; populate fields in plugin `initialize`, read via direct import
+- **Eid field on a component** — entity-to-entity links. An entity references another by storing its eid in a component field, resolved via `@name` syntax in scenes (`target: @hero`). Scenes are flat — there is no engine-level parent. ReadbackSystem skips attributes containing `@`.
 
 ### Anti-patterns
 
 - **Methods on components** — components are data; behavior lives in systems
-- **Manager classes that own entities** — use queries, relations, and systems
-- **`Map<entityId, ...>` for ownership** — use a relation with marker components
-- **`lastState` / `entityExists` defensive guards** — symptoms of cross-State leaking or missed scope
+- **Manager classes that own entities** — use queries with a consumer-shaped relation (eid field) and systems
+- **`Map<entityId, ...>` for ownership** — use an eid field on the owning component with marker components
+- **`lastState` / `state.exists` defensive guards** — symptoms of cross-State leaking or missed scope
 - **Editor systems with `mode: "always"` that add/remove components** — must be non-destructive; update existing fields instead
+
+## UI
+
+DOM UI mounts into **one engine-provided container, sandboxed to the canvas region** — it can never spill into an embedding host (the editor viewport, a host page).
+
+- **One attachment point.** `config.ui(container, state) => () => void` — `run()` creates the container over the canvas and hands it in; mount your UI (any framework) and return a cleanup. A plugin that owns UI (a manifest project has no `config.ui`) calls `mountOverlay(canvas)` for the identical sandboxed container and removes it on `dispose`.
+- **Author within the container** — position relative to it; **never `position: fixed`** (escapes to the viewport) and **never `document.body`**. The container is `pointer-events: none`; an interactive panel sets `pointer-events: auto`.
+- **The engine guarantees containment** — the container is `contain: layout paint` + `overflow: hidden`, so overflowing or stray-`fixed` UI is bounded + clipped to the canvas region by construction.
+- **Anti-pattern: mounting to `document.body` or a self-styled `position: fixed` overlay.** It works standalone but covers the whole window when embedded.
 
 ## GPU
 
-Custom render nodes and compute passes are normal extension points. The engine ships a compute graph; consumers add nodes.
+Custom render producers and compute passes are normal extension points — register against `render/core` (`Surfaces` / `Meshes` / `Draws`) and run compute on `Render.encoder` from a system.
 
 ### Binding limits
 
@@ -81,7 +85,7 @@ Shaders can't print. The only way to know what a shader computed is write-to-buf
 
 1. Pick the exact value you're uncertain about ("`body.pos.y` for entity 0 after primal", not "is broadphase working")
 2. `atomicStore(&debug[SLOT], bitcast<u32>(value))`
-3. Read it back via `readBuffer` / `readFloat32` / `readUint32` from `compute/core`
+3. Read it back via `readBuffer` / `readFloat32` / `readUint32` from `@dylanebert/shallot`
 4. Compare actual vs expected. Apply one fix at a time
 
 Verify via readback BEFORE changing shader code. Off-by-one, wrong binding, stale bind group all look correct in source.
@@ -97,49 +101,18 @@ Verify via readback BEFORE changing shader code. Off-by-one, wrong binding, stal
 
 ### Gamma pipeline
 
-End-to-end gamma-correct. Three boundaries do conversion; everywhere else is linear:
+End-to-end gamma-correct; everywhere but the boundaries is linear:
 
-1. **Hex decode** — `unpackColor`, `createColorProxy.set`, `hexColorProxy.set`. sRGB byte → linear float
-2. **Hex encode** — `createColorProxy.get`, `hexColorProxy.get`. Linear → sRGB byte for round-trip
-3. **Display encode** — once, mid-shader, in `present.ts` (`linearToSrgb(saturate(color))`)
+1. **Hex decode** — scene hex colors decode sRGB byte → linear float at parse time (`unpackColor`).
+2. **Surfaces output linear** — a surface fs writes a linear `col`; sear returns it verbatim.
+3. **Composite encode** — the postfx composite (`GlazePlugin`, or a custom one) `textureStore`s the swapchain, encoding linear→sRGB itself (`LINEAR_TO_SRGB_WGSL`) — the storage swapchain isn't sRGB.
 
-Don't add `linearToSrgb` at `textureStore` (already encoded). Don't apply it before tonemap or FXAA. Drivers writing raw hex arrays directly (e.g. light colors from a gradient) must encode linear → sRGB byte before storing — otherwise `unpackColor` decodes the byte as sRGB and the value drifts. See `extras/skylab` `packColor`.
+Don't call `linearToSrgb` in a surface fs — the composite does it. A consumer writing its own composite must encode the present gamma itself.
 
 ### Content tuning
 
-- Reflectivity for dielectrics: 0.02–0.05. Higher values are artifacts of pre-gamma tuning
-- Bright accent hex (`0xd49560`) saturates aggressively under intense lighting (linear * intensity > 1.0 collapses to white). Use darker variants (`0x8b6040`) or lower intensity
-- Gamma is non-linear; no global intensity multiplier matches every albedo. Tune for dominant tones; accept drift on saturated-bright accents
-
-## Physics
-
-### Collision filtering
-
-`Body.group` (u32, default 0). Group 0 collides with everything. Same non-zero group = pair skipped.
-
-### Kinematic semantics
-
-Kinematic bodies (mass=0, non-character) are CPU-owned. Write `Transform` directly each frame for platforms, levers, grab anchors. Physics readback skips them.
-
-`Move` marker — opt-in for kinematic bodies whose displacement should impart velocity to contacts (platforms, elevators, conveyors). Without `Move`, position changes are teleports (no friction drag, no ground velocity inheritance).
-
-### Character vs Player
-
-Demonstrates the philosophy: split unopinionated primitive from opinionated driver.
-
-`Character` accepts world-space velocity intent (`moveX`, `moveZ`, `jump`), returns `grounded`. No keyboard, no camera. `Player` reads input, writes velocity to Character, interpolates camera at render rate.
-
-```xml
-<a player character body ...>
-  <a camera viewport transform />
-</a>
-```
-
-Player finds the camera via the parent-child relation. Add a new control scheme by writing a new driver, not by extending Character.
-
-### Contact readback
-
-`Contact.bodyA` / `bodyB` are GPU body indices, not ECS entity IDs. Map via `physics.bodyEids[idx]` before any ECS work. `Contacts` resource is double-buffered, persists 2 ticks.
+- Bright accent hex (`0xd49560`) saturates under intense lighting (linear × intensity > 1 collapses to white). Use darker variants (`0x8b6040`) or lower intensity.
+- Gamma is non-linear; no global intensity multiplier matches every albedo. Tune for dominant tones; accept drift on saturated-bright accents.
 
 ## Testing
 

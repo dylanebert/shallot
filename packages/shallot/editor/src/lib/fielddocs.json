@@ -1,0 +1,1036 @@
+{
+  "ambient-light": {
+    "summary": "ambient light component. sear's `lit` / `lightFactor` helpers",
+    "fields": {
+      "color": {
+        "description": null,
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "intensity": {
+        "description": null,
+        "type": "float",
+        "default": "0.5"
+      }
+    }
+  },
+  "arrow": {
+    "summary": "an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints.",
+    "fields": {
+      "start": {
+        "description": "a head at the start endpoint when nonzero",
+        "type": "float",
+        "default": "0"
+      },
+      "end": {
+        "description": "a head at the end endpoint when nonzero",
+        "type": "float",
+        "default": "1"
+      },
+      "size": {
+        "description": "head size relative to the shaft length",
+        "type": "float",
+        "default": "1"
+      }
+    }
+  },
+  "backdrop": {
+    "summary": "select a Sear camera's backdrop — the {@link Backgrounds} recipe drawn behind the scene as a fullscreen",
+    "fields": {
+      "name": {
+        "description": "the registered background drawn behind the scene (selected by name)",
+        "type": "float",
+        "default": ""
+      }
+    }
+  },
+  "body": {
+    "summary": "a rigid body simulated by the solver: falls under gravity and collides with other bodies (`mass: 0` = static).",
+    "fields": {
+      "shape": {
+        "description": "the collider, a `ShapeKind`: `Box` (an OBB of `halfExtents`), `Sphere`, `Capsule` (a segment along local Y inflated by the radius), or `Hull` (a convex polytope registered in `Hulls`).",
+        "type": "float",
+        "default": "0"
+      },
+      "pos": {
+        "description": "spawn position; the solver owns it after spawn.",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "quat": {
+        "description": "spawn orientation, authored as euler degrees like `Transform.rot`; physics-owned after spawn.",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "half-extents": {
+        "description": "box/AABB half-extents in `xyz`; `w` doubles as the rounding radius (sphere/capsule) or the `Hull` id (a hull has radius 0, so the lane is free).",
+        "type": "vec3",
+        "default": "0.5 0.5 0.5"
+      },
+      "mass": {
+        "description": "mass in kg; `0` or less marks a static body that never moves.",
+        "type": "float",
+        "default": "1"
+      },
+      "friction": {
+        "description": "coulomb friction coefficient: `0` slides freely, higher grips.",
+        "type": "float",
+        "default": "0.5"
+      }
+    }
+  },
+  "camera": {
+    "summary": "camera component. Pose comes from {@link Transform} (looks down its local -Z). A lone camera",
+    "fields": {
+      "mode": {
+        "description": null,
+        "type": "perspective | orthographic",
+        "default": "perspective"
+      },
+      "fov": {
+        "description": null,
+        "type": "float",
+        "default": "60"
+      },
+      "near": {
+        "description": null,
+        "type": "float",
+        "default": "0.1"
+      },
+      "far": {
+        "description": null,
+        "type": "float",
+        "default": "1000"
+      },
+      "size": {
+        "description": null,
+        "type": "float",
+        "default": "5"
+      },
+      "clear-color": {
+        "description": null,
+        "type": "color",
+        "default": "0x2e2b28"
+      },
+      "antialias": {
+        "description": "antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp — for a pixel-art look)",
+        "type": "float",
+        "default": "1"
+      }
+    }
+  },
+  "character": {
+    "summary": "a kinematic character — a capsule {@link Body} (`mass <= 0`) swept against the scene's bodies each fixed",
+    "fields": {
+      "max-slope": {
+        "description": "steepest walkable slope in degrees — a contact flatter than this grounds the character; steeper, it slides",
+        "type": "float",
+        "default": "45"
+      },
+      "jump-speed": {
+        "description": "the launch velocity a buffered + grounded {@link jump} sets — 0 disables jumping",
+        "type": "float",
+        "default": "0"
+      },
+      "gravity": {
+        "description": "per-character gravity (negative, snappier than the world for a player) — 0 = the configured world gravity",
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "color": {
+    "summary": "per-entity base color. Authored CPU-side as a linear {@link Quad}, but mirrored to the GPU as one",
+    "fields": {
+      "rgba": {
+        "description": null,
+        "type": "vec3",
+        "default": "1 1 1"
+      }
+    }
+  },
+  "depth": {
+    "summary": "opt a Sear camera into the **depth lane** — the prepass *stores* its single-sample depth and publishes",
+    "fields": {}
+  },
+  "directional-light": {
+    "summary": "directional light component. sear's `lit` / `lightFactor`",
+    "fields": {
+      "color": {
+        "description": null,
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "intensity": {
+        "description": null,
+        "type": "float",
+        "default": "1.5"
+      },
+      "direction": {
+        "description": null,
+        "type": "vec3",
+        "default": "-0.6 -1 -0.8"
+      }
+    }
+  },
+  "fog": {
+    "summary": "the scene's volumetric atmosphere — one per scene (a singleton). The fog pass marches each pixel from the",
+    "fields": {
+      "density": {
+        "description": "base extinction coefficient — how fast the scene fades into haze with distance (0 = clear)",
+        "type": "float",
+        "default": "0.02"
+      },
+      "color": {
+        "description": "hex sRGB haze color the scene fades toward (e.g. 0xb5c4d8)",
+        "type": "color",
+        "default": "0xb5c4d8"
+      },
+      "absorption": {
+        "description": "absorbed fraction of extinction [0,1]; the rest scatters (the scattering albedo for light shafts)",
+        "type": "float",
+        "default": "0"
+      },
+      "scattering": {
+        "description": "in-scatter strength — how brightly light shafts glow in the haze",
+        "type": "float",
+        "default": "1"
+      },
+      "anisotropy": {
+        "description": "Henyey-Greenstein anisotropy [-1,1]: 0 even glow, →1 forward (bright halo toward a light)",
+        "type": "float",
+        "default": "0"
+      },
+      "height-base": {
+        "description": "world height where density equals `density` — the base of the height falloff",
+        "type": "float",
+        "default": "0"
+      },
+      "height-falloff": {
+        "description": "exponential density falloff per world unit above `heightBase` (0 = uniform haze, no height fog)",
+        "type": "float",
+        "default": "0"
+      },
+      "steps": {
+        "description": "raymarch step count along each pixel's ray (clamped to 256); more = smoother, costlier",
+        "type": "float",
+        "default": "32"
+      },
+      "jitter": {
+        "description": "per-pixel step jitter [0,1] that breaks march banding into noise (0 = fixed midpoint sampling)",
+        "type": "float",
+        "default": "1"
+      },
+      "scatter-intensity": {
+        "description": "overall multiplier on in-scatter brightness",
+        "type": "float",
+        "default": "1"
+      }
+    }
+  },
+  "glaze": {
+    "summary": "per-camera postfx tuning. A camera tonemaps Neutral by default (no `Glaze` needed); add `Glaze` to",
+    "fields": {
+      "exposure": {
+        "description": null,
+        "type": "float",
+        "default": "1"
+      },
+      "tonemap": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      },
+      "slope": {
+        "description": null,
+        "type": "vec3",
+        "default": "1 1 1"
+      },
+      "offset": {
+        "description": null,
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "power": {
+        "description": null,
+        "type": "vec3",
+        "default": "1 1 1"
+      },
+      "saturation": {
+        "description": null,
+        "type": "float",
+        "default": "1"
+      },
+      "vignette": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      },
+      "vignette-inner": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      },
+      "vignette-outer": {
+        "description": null,
+        "type": "float",
+        "default": "1"
+      },
+      "posterize": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      },
+      "dither": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "joint": {
+    "summary": "a hard joint pinning two bodies together: a rigid linear pin plus an optional angular lock, referencing both by `@name`.",
+    "fields": {
+      "a": {
+        "description": "the first body (a `@name` reference).",
+        "type": "entity",
+        "default": "0"
+      },
+      "b": {
+        "description": "the second body.",
+        "type": "entity",
+        "default": "0"
+      },
+      "r-a": {
+        "description": "the pin's anchor on body `a`, in its local frame.",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "r-b": {
+        "description": "the pin's anchor on body `b`, in its local frame.",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "stiffness-ang": {
+        "description": "angular lock: `0` (default) leaves rotation free (spherical); `∞` locks orientation — author `stiffness-ang: fixed`.",
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "line": {
+    "summary": "a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated",
+    "fields": {
+      "offset": {
+        "description": "line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up)",
+        "type": "vec3",
+        "default": "1 0 0"
+      },
+      "thickness": {
+        "description": "constant screen width in pixels",
+        "type": "float",
+        "default": "2"
+      },
+      "color": {
+        "description": "hex sRGB color",
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "opacity": {
+        "description": "0..1 opacity multiplier",
+        "type": "float",
+        "default": "1"
+      },
+      "visible": {
+        "description": "drawn when nonzero; set to 0 to hide without removing (edit-mode safe)",
+        "type": "float",
+        "default": "1"
+      }
+    }
+  },
+  "listener": {
+    "summary": "marks the spatial listener entity — its `Transform` orients the FOA + HRTF render",
+    "fields": {}
+  },
+  "material": {
+    "summary": "per-entity PBR material the `default` / `vertex` surfaces read (alongside `Color`, the base albedo).",
+    "fields": {
+      "params": {
+        "description": "the four PBR lanes `(metallic, roughness, emissive, occlusion)`, authored named via the `material` attribute (`material=\"metallic: 1; roughness: 0.2\"`).",
+        "type": "vec4",
+        "default": "0 1 0 1"
+      }
+    }
+  },
+  "orbit": {
+    "summary": "orbit camera controls: drag to rotate around a target, scroll to zoom",
+    "fields": {
+      "yaw": {
+        "description": "horizontal orbit angle around the target, radians",
+        "type": "deg | rad",
+        "default": "30 deg"
+      },
+      "pitch": {
+        "description": "vertical orbit angle, radians; clamped to min/maxPitch",
+        "type": "deg | rad",
+        "default": "20 deg"
+      },
+      "distance": {
+        "description": "camera distance from the target, world units (perspective zoom)",
+        "type": "float",
+        "default": "10"
+      },
+      "size": {
+        "description": "orthographic half-height, world units (ortho zoom)",
+        "type": "float",
+        "default": "5"
+      },
+      "min-pitch": {
+        "description": "lower pitch clamp, radians",
+        "type": "deg | rad",
+        "default": "-89 deg"
+      },
+      "max-pitch": {
+        "description": "upper pitch clamp, radians",
+        "type": "deg | rad",
+        "default": "89 deg"
+      },
+      "min-distance": {
+        "description": "closest perspective distance",
+        "type": "float",
+        "default": "0.1"
+      },
+      "max-distance": {
+        "description": "farthest perspective distance",
+        "type": "float",
+        "default": "900"
+      },
+      "min-size": {
+        "description": "smallest orthographic size",
+        "type": "float",
+        "default": "0.05"
+      },
+      "max-size": {
+        "description": "largest orthographic size",
+        "type": "float",
+        "default": "900"
+      },
+      "smoothness": {
+        "description": "follow damping, 0–1; higher snaps to the target pose faster",
+        "type": "float",
+        "default": "0.3"
+      },
+      "fly-smoothness": {
+        "description": "fly look damping, 0–1; higher is snappier; default tighter than orbit so first-person look tracks closely",
+        "type": "float",
+        "default": "0.6"
+      },
+      "sensitivity": {
+        "description": "orbit look speed (yaw/pitch), radians per pixel of mouse drag",
+        "type": "float",
+        "default": "0.005"
+      },
+      "fly-sensitivity": {
+        "description": "fly look speed (yaw/pitch), radians per pixel; separate so fly look reads calmer than orbit",
+        "type": "float",
+        "default": "0.003"
+      },
+      "zoom-speed": {
+        "description": "zoom factor applied per scroll-wheel notch",
+        "type": "float",
+        "default": "0.025"
+      },
+      "orbit-button": {
+        "description": "mouse button that orbits: 0 left, 1 middle, 2 right",
+        "type": "float",
+        "default": "0"
+      },
+      "pan-button": {
+        "description": "mouse button that pans: 0 left, 1 middle, 2 right",
+        "type": "float",
+        "default": "1"
+      },
+      "fly-button": {
+        "description": "mouse button that flies (hold to look around, WASD/QE to move): 0 left, 1 middle, 2 right",
+        "type": "float",
+        "default": "2"
+      },
+      "pan": {
+        "description": "pan offset from the orbit target, world units",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "fly-speed": {
+        "description": "WASD/QE fly speed, world units per second; scroll while flying adjusts it (clamped to flyMin/flyMax)",
+        "type": "float",
+        "default": "5"
+      },
+      "fly-boost": {
+        "description": "shift-held fly boost multiplier, transient; scales flySpeed while shift is down, never stored",
+        "type": "float",
+        "default": "3"
+      },
+      "fly-min": {
+        "description": "lower clamp for scroll-adjusted flySpeed, world units per second",
+        "type": "float",
+        "default": "0.5"
+      },
+      "fly-max": {
+        "description": "upper clamp for scroll-adjusted flySpeed, world units per second",
+        "type": "float",
+        "default": "100"
+      },
+      "mode": {
+        "description": "Free orbits, pans, and zooms; Locked disables orbit rotation, leaving pan and zoom",
+        "type": "free | locked",
+        "default": "free"
+      },
+      "target": {
+        "description": "entity to orbit; pan is relative to its position (0 = world origin)",
+        "type": "entity",
+        "default": "0"
+      }
+    }
+  },
+  "outline": {
+    "summary": "outline highlight: a colored band hugs the object's silhouette for hover, selection, or grab feedback.",
+    "fields": {
+      "color": {
+        "description": "band color, linear rgb (alpha unused in v1)",
+        "type": "vec3",
+        "default": "1 0.85 0.2"
+      },
+      "width": {
+        "description": "band thickness in pixels, clamped to 64",
+        "type": "float",
+        "default": "4"
+      },
+      "occlude": {
+        "description": "0 = always-on-top (default); 1 = occlusion-aware, hidden where the object is behind other geometry (needs sear's `Depth` on the camera)",
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "part": {
+    "summary": "ECS-shaped opt-in for Part rendering. `surface` holds the {@link Surfaces}",
+    "fields": {
+      "surface": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      },
+      "mesh": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "player": {
+    "summary": "first-person player — the look + camera layer over a kinematic {@link Character}. Lives on the same capsule",
+    "fields": {
+      "yaw": {
+        "description": "look yaw in radians (turn around world Y); set it to face a direction at spawn",
+        "type": "float",
+        "default": "0"
+      },
+      "pitch": {
+        "description": "look pitch in radians (clamped to ±90°); set it to tilt the view at spawn",
+        "type": "float",
+        "default": "0"
+      },
+      "speed": {
+        "description": "walk speed (m/s) the move input is scaled to",
+        "type": "float",
+        "default": "6"
+      },
+      "sprint": {
+        "description": "sprint multiplier applied while Shift is held",
+        "type": "float",
+        "default": "1.8"
+      },
+      "sensitivity": {
+        "description": "mouse-look radians per pixel of pointer-lock movement, at a fixed 1080px reference height (the look",
+        "type": "float",
+        "default": "1.5"
+      },
+      "eye-height": {
+        "description": "camera height above the capsule centre (the eye offset)",
+        "type": "float",
+        "default": "0.7"
+      },
+      "distance": {
+        "description": "camera pull-back from the eye: 0 = first-person, > 0 = third-person (scaffolding)",
+        "type": "float",
+        "default": "0"
+      },
+      "camera": {
+        "description": "the linked camera entity (a Camera + Transform); set this or the camera never moves",
+        "type": "entity",
+        "default": "0"
+      }
+    }
+  },
+  "point-light": {
+    "summary": "point light component. Position comes from the entity's `Transform`; sear's",
+    "fields": {
+      "color": {
+        "description": "the light's hex sRGB color (e.g. 0xffd9a0)",
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "intensity": {
+        "description": "linear brightness multiplier",
+        "type": "float",
+        "default": "1"
+      },
+      "range": {
+        "description": "the distance (metres) the falloff smoothly reaches zero at — the cull cutoff",
+        "type": "float",
+        "default": "10"
+      },
+      "radius": {
+        "description": "the physical source radius (metres): a soft sphere, not a point. Larger softens the near-field",
+        "type": "float",
+        "default": "0.1"
+      }
+    }
+  },
+  "resolution": {
+    "summary": "render this camera at a fixed low resolution and scale it up to fill the canvas, crisp not blurred.",
+    "fields": {
+      "width": {
+        "description": "render width in pixels; 0 = derive from height to keep the canvas aspect",
+        "type": "float",
+        "default": "0"
+      },
+      "height": {
+        "description": "render height in pixels; 0 = derive from width to keep the canvas aspect",
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "sear": {
+    "summary": "marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through",
+    "fields": {}
+  },
+  "sequence": {
+    "summary": "a timeline that plays {@link Tween}s placed on it with `at` — a shared playhead many tweens read",
+    "fields": {
+      "state": {
+        "description": "play control; a fresh sequence defaults to playing",
+        "type": "idle | playing | complete",
+        "default": "playing"
+      },
+      "elapsed": {
+        "description": "playhead position, seconds; the tweens on it read their slice as `elapsed - at`",
+        "type": "float",
+        "default": "0"
+      },
+      "duration": {
+        "description": "timeline period, seconds; grows to span its tweens' ends",
+        "type": "float",
+        "default": "0"
+      },
+      "loop": {
+        "description": "wrap the whole timeline back to the start on completion",
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "shadow": {
+    "summary": "shadow tuning, on a light entity — presence is the switch (like {@link Tag} on a camera), the",
+    "fields": {
+      "distance": {
+        "description": "the sun's max shadow distance — the camera view range is split into cascades out to it; raise to shadow farther, lower for finer near texels. Ignored on a point light (coverage is its `range`).",
+        "type": "float",
+        "default": "50"
+      },
+      "depth-bias": {
+        "description": "a small residual depth bias toward the light, covering flat faces dead-on to it the normal offset can't.",
+        "type": "float",
+        "default": "0.001"
+      },
+      "normal-bias": {
+        "description": "the primary acne fix: shifts the receiver along its surface normal by this many shadow texels before the depth compare. Raise if acne shows, lower if shadows detach at contact edges.",
+        "type": "float",
+        "default": "1.8"
+      }
+    }
+  },
+  "skin": {
+    "summary": "a skinned glTF instance's animation state — one `slab(vec4)` published as `\"skin\"`: lane x is the play",
+    "fields": {
+      "anim": {
+        "description": null,
+        "type": "vec3",
+        "default": "0 0 0"
+      }
+    }
+  },
+  "sky": {
+    "summary": "the scene's procedural sky — one per scene (a singleton). A camera shows it by selecting the registered",
+    "fields": {
+      "zenith": {
+        "description": "hex sRGB color overhead, at the zenith (e.g. 0x89b6e9)",
+        "type": "color",
+        "default": "0x89b6e9"
+      },
+      "horizon": {
+        "description": "hex sRGB color at the horizon, blended up toward `zenith`",
+        "type": "color",
+        "default": "0xc4cdda"
+      },
+      "band": {
+        "description": "bright band strength right at the horizon line [0,1] (0 = none)",
+        "type": "float",
+        "default": "0"
+      },
+      "sun-color": {
+        "description": "hex sRGB tint of the sun glow + disk (the sun's *position* follows the directional light)",
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "sun-size": {
+        "description": "sun disk size [0,1] — larger paints a bigger disk",
+        "type": "float",
+        "default": "0.7"
+      },
+      "sun-glow": {
+        "description": "sun glow strength around the disk [0,1] (0 = no glow)",
+        "type": "float",
+        "default": "0.5"
+      },
+      "cloud-color": {
+        "description": "hex sRGB cloud color",
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "cloud-coverage": {
+        "description": "cloud coverage [0,1] — how much of the sky the clouds fill (0 = clear)",
+        "type": "float",
+        "default": "0.5"
+      },
+      "cloud-density": {
+        "description": "cloud opacity / thickness [0,1]",
+        "type": "float",
+        "default": "0.7"
+      },
+      "cloud-height": {
+        "description": "cloud layer height — scales the projected cloud size (larger = higher, smaller clouds)",
+        "type": "float",
+        "default": "4"
+      },
+      "star-intensity": {
+        "description": "star brightness [0,1] (0 = no stars)",
+        "type": "float",
+        "default": "0"
+      },
+      "star-amount": {
+        "description": "star density [0,1] — more stars in the grid",
+        "type": "float",
+        "default": "0.5"
+      },
+      "haze-color": {
+        "description": "hex sRGB haze color the horizon fades toward",
+        "type": "color",
+        "default": "0xbcc5d4"
+      },
+      "haze-density": {
+        "description": "horizon haze strength [0,1] (0 = none)",
+        "type": "float",
+        "default": "0.005"
+      }
+    }
+  },
+  "sound": {
+    "summary": "a playing sound, mirroring Bevy's `AudioPlayer` + `PlaybackSettings`: add it",
+    "fields": {
+      "instrument": {
+        "description": "registered instrument or sample name, resolved to an id (a bare sample auto-wraps a sampler)",
+        "type": "float",
+        "default": "-1"
+      },
+      "loop": {
+        "description": "0 = one-shot (frees itself when the envelope idles), 1 = loop until the `Sound` is removed",
+        "type": "float",
+        "default": "0"
+      },
+      "volume": {
+        "description": "playback level 0–1, quadratic; firehoses live to the voice",
+        "type": "float",
+        "default": "1"
+      },
+      "pitch": {
+        "description": "pitch offset in semitones (oscillator instruments only); firehoses live to the voice",
+        "type": "float",
+        "default": "0"
+      },
+      "voice": {
+        "description": "allocated voice handle, managed by the audio system — read-only, don't author",
+        "type": "float",
+        "default": "-1"
+      }
+    }
+  },
+  "spot": {
+    "summary": "spot add-on for a {@link PointLight} — presence narrows the light into a cone (like {@link Shadow},",
+    "fields": {
+      "inner": {
+        "description": "the cone's inner half-angle (degrees, axis→edge) — full brightness inside it",
+        "type": "float",
+        "default": "20"
+      },
+      "outer": {
+        "description": "the cone's outer half-angle (degrees, axis→edge) — dark past it, smooth between inner and outer",
+        "type": "float",
+        "default": "30"
+      }
+    }
+  },
+  "spring": {
+    "summary": "a soft distance spring linking two bodies, pulling them toward a rest length; its own entity, referencing the bodies by `@name`.",
+    "fields": {
+      "a": {
+        "description": "the first body (a `@name` reference).",
+        "type": "entity",
+        "default": "0"
+      },
+      "b": {
+        "description": "the second body.",
+        "type": "entity",
+        "default": "0"
+      },
+      "r-a": {
+        "description": "anchor point on body `a`, in its local frame.",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "r-b": {
+        "description": "anchor point on body `b`, in its local frame.",
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "stiffness": {
+        "description": "pull strength; higher is stiffer.",
+        "type": "float",
+        "default": "100"
+      },
+      "rest": {
+        "description": "the target distance the spring pulls the anchors toward.",
+        "type": "float",
+        "default": "1"
+      }
+    }
+  },
+  "sprite": {
+    "summary": "a textured world-space quad (icon, marker) anchored to an entity's {@link Transform}. `image` is",
+    "fields": {
+      "image": {
+        "description": "registered image id (see {@link image}); a scene's `image:` resolves the registered name",
+        "type": "float",
+        "default": "0"
+      },
+      "size": {
+        "description": "quad size in world units, before the transform's scale",
+        "type": "vec2",
+        "default": "1 1"
+      },
+      "anchor": {
+        "description": "0..1 pivot within the quad; 0.5 0.5 centers, 0.5 0 pins the bottom edge to the entity",
+        "type": "vec2",
+        "default": "0.5 0.5"
+      },
+      "color": {
+        "description": "hex sRGB tint multiplied into the texture",
+        "type": "color",
+        "default": "0xffffff"
+      },
+      "opacity": {
+        "description": "texture-alpha multiplier; under clip blend it shrinks the cutout, under alpha blend it fades",
+        "type": "float",
+        "default": "1"
+      },
+      "visible": {
+        "description": "drawn when nonzero",
+        "type": "float",
+        "default": "1"
+      },
+      "billboard": {
+        "description": "billboard orientation, a {@link SpriteBillboard} mode",
+        "type": "screen | ylocked | world",
+        "default": "screen"
+      },
+      "blend": {
+        "description": "compositing, a {@link SpriteBlend} mode",
+        "type": "clip | alpha",
+        "default": "clip"
+      },
+      "fill": {
+        "description": "leading fraction of the image shown, 0..1, along {@link fillMode}",
+        "type": "float",
+        "default": "1"
+      },
+      "fill-mode": {
+        "description": "fill direction, a {@link SpriteFill} mode",
+        "type": "none | radial | vertical | horizontal",
+        "default": "none"
+      }
+    }
+  },
+  "tag": {
+    "summary": "opt a Sear camera into the **id lane** — the `view.tag` target {@link PrepassSystem} fills. Unreal's",
+    "fields": {}
+  },
+  "text": {
+    "summary": "a world-space text label anchored to an entity's {@link Transform}. Register the string with",
+    "fields": {
+      "content": {
+        "description": "interned string id (see {@link text}); a scene's `content:` interns the raw string",
+        "type": "float",
+        "default": "0"
+      },
+      "font": {
+        "description": "registered font id (see {@link font}); 0 is the default face",
+        "type": "float",
+        "default": "0"
+      },
+      "font-size": {
+        "description": "world height of one em",
+        "type": "float",
+        "default": "1"
+      },
+      "opacity": {
+        "description": "0..1 opacity multiplier",
+        "type": "float",
+        "default": "1"
+      },
+      "visible": {
+        "description": "drawn when nonzero",
+        "type": "float",
+        "default": "1"
+      },
+      "anchor": {
+        "description": "0..1 pivot within the label; 0 0 = bottom-left, 0.5 0.5 centered",
+        "type": "vec2",
+        "default": "0 0"
+      },
+      "color": {
+        "description": "hex sRGB glyph color",
+        "type": "color",
+        "default": "0xffffff"
+      }
+    }
+  },
+  "textured": {
+    "summary": "per-instance material id — an index into the per-material palette (`materialData`) the textured glTF",
+    "fields": {
+      "id": {
+        "description": null,
+        "type": "float",
+        "default": "0"
+      }
+    }
+  },
+  "transform": {
+    "summary": "per-entity transform: pos, rot, scale as direct {@link Quad} fields. Lanes",
+    "fields": {
+      "pos": {
+        "description": null,
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "rot": {
+        "description": null,
+        "type": "vec3",
+        "default": "0 0 0"
+      },
+      "scale": {
+        "description": null,
+        "type": "vec3",
+        "default": "1 1 1"
+      }
+    }
+  },
+  "tween": {
+    "summary": "animate one numeric field of a target over time, with an easing curve",
+    "fields": {
+      "state": {
+        "description": "play control; a fresh tween defaults to playing",
+        "type": "idle | playing | complete",
+        "default": "playing"
+      },
+      "field": {
+        "description": "the field path this tween writes, `component.field[.lane]` (`transform.pos.y`)",
+        "type": "float",
+        "default": "0"
+      },
+      "from": {
+        "description": "start value; NaN captures the field's current value on the first frame (the `.to` convenience)",
+        "type": "float",
+        "default": "NaN"
+      },
+      "to": {
+        "description": "end value at `duration`",
+        "type": "float",
+        "default": "0"
+      },
+      "duration": {
+        "description": "length of the animation, seconds",
+        "type": "float",
+        "default": "1"
+      },
+      "elapsed": {
+        "description": "current clock position, seconds; seekable — set it to scrub",
+        "type": "float",
+        "default": "0"
+      },
+      "easing": {
+        "description": "easing curve, by id (the `ease-out-quad` names)",
+        "type": "float",
+        "default": "0"
+      },
+      "composite": {
+        "description": "how the sampled value applies to the field: `replace` overwrites it, `add` layers a transient delta",
+        "type": "replace | add",
+        "default": "replace"
+      },
+      "fill": {
+        "description": "whether the tween holds its value outside the active interval — `none`, `forwards`, `backwards`, `both`",
+        "type": "none | forwards | backwards | both",
+        "default": "forwards"
+      },
+      "loop": {
+        "description": "rewind and replay on completion",
+        "type": "float",
+        "default": "0"
+      },
+      "sequence": {
+        "description": "the timeline this tween plays on, or 0 for standalone; resolves via `@name` in a scene",
+        "type": "entity",
+        "default": "0"
+      },
+      "at": {
+        "description": "start offset on the sequence's playhead, seconds",
+        "type": "float",
+        "default": "0"
+      },
+      "target": {
+        "description": "the entity whose field is animated; resolves via `@name` in a scene",
+        "type": "entity",
+        "default": "0"
+      }
+    }
+  },
+  "voiced": {
+    "summary": null,
+    "fields": {}
+  },
+  "volumetric": {
+    "summary": "opt a light — {@link PointLight}, {@link Spot}, or the {@link DirectionalLight} sun — into volumetric",
+    "fields": {}
+  }
+}

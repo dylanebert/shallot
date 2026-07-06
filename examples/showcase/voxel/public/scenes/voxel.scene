@@ -1,0 +1,21 @@
+<scene>
+    <!-- the declarative environment for the voxel mesher dogfood: a default ambient + a casting sun, and a
+         plain orbit camera. The meshed grid is a non-Part producer built in code (mesher.ts), so only the
+         lights + camera live here. -->
+    <a ambient-light />
+    <a directional-light shadow="distance: 320" />
+
+    <!-- a normal orbit camera, auto-bound to the page's canvas, targeting the origin — where the mesher
+         centres the grid (cell DIM/2 → world 0), so the generated terrain (the full 256³ grid) sits dead
+         centre. distance + max-distance frame the whole ~256-unit grid; the default distance 10 /
+         max-distance 30 would frame a speck and snap on the first zoom (the start pose past the cap clamps).
+         min-distance drops so you can zoom in to read caves; everything else — yaw, pitch, fov, near/far —
+         is the orbit/camera default. The sun shadow distance (above) covers the grid so terrain self-shadows.
+         clear-color is the minecraft daytime sky (sRGB hex), the background behind the terrain. -->
+    <a
+        camera="clear-color: 0x78a7ff"
+        sear
+        orbit="distance: 300; max-distance: 700; min-distance: 5"
+        transform
+    />
+</scene>

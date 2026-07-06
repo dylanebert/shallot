@@ -1,38 +1,93 @@
-import { mount } from "svelte";
-import { run } from "@dylanebert/shallot";
-import { config, noUI, activeScenarioName, stepCount, Body, Transform, Compute } from "./lib";
-import { gymState } from "./state.svelte";
-import App from "./App.svelte";
+import "./scenarios";
+import {
+    frames,
+    getScenario,
+    installHarness,
+    mountControls,
+    resolveParams,
+    scenarioNames,
+} from "./gym";
 
-if (noUI) {
-    const canvas = document.createElement("canvas");
-    canvas.style.cssText = "display:block;width:100vw;height:100vh";
-    document.getElementById("app")!.appendChild(canvas);
+// One app, one URL-selected scenario, one `build`. `?scenario=` picks it; with no scenario the page is
+// an index of every registered name. Each scenario declares its tunables as `params` (the single source
+// of truth): the URL parses them, the bench `--param` sets them, and the top-right control panel
+// auto-renders from them — a live knob mutates in place, a structural (`rebuild`) knob reloads. The same
+// page runs headless under the harness or interactive in a tab; `build` attaches the camera either way,
+// the `#hud` shows the live readout, and F3 toggles the profiler stats panel. No environment switch.
+
+const url = new URL(window.location.href);
+const name = url.searchParams.get("scenario");
+
+if (name === null) {
+    renderIndex();
 } else {
-    mount(App, { target: document.getElementById("app")! });
+    await boot(name);
 }
 
-const state = await run(config);
-gymState.ecs = state;
-
-const compute = Compute.from(state);
-
-const shallotExport: Record<string, unknown> = {
-    state,
-    Transform,
-    Body,
-    gpuResourceCount: () => {
-        const registry = compute ? (compute.device as any).__gpuRegistry : null;
-        return registry ? registry.count() : -1;
-    },
-};
-
-if (activeScenarioName) {
-    shallotExport.getStepCount = () => stepCount;
+// no scenario selected — list every registered scenario as a link into its page.
+function renderIndex(): void {
+    document.getElementById("panel")?.remove();
+    const index = document.createElement("div");
+    index.id = "index";
+    index.innerHTML = "<h1>gym</h1><p>scenarios</p>";
+    const nav = document.createElement("nav");
+    for (const n of scenarioNames()) {
+        const link = document.createElement("a");
+        link.href = `?scenario=${n}`;
+        link.textContent = n;
+        nav.appendChild(link);
+    }
+    index.appendChild(nav);
+    document.getElementById("app")!.appendChild(index);
 }
 
-(window as any).__shallot = shallotExport;
+async function boot(name: string): Promise<void> {
+    const scenario = getScenario(name);
+    if (!scenario) {
+        throw new Error(`unknown scenario "${name}". Available: ${scenarioNames().join(", ")}`);
+    }
 
-if (import.meta.hot) {
-    import.meta.hot.dispose(() => state.dispose());
+    const decls = scenario.params ?? [];
+    const values = resolveParams(decls, url.searchParams);
+
+    const canvas = document.createElement("canvas");
+    document.getElementById("app")!.appendChild(canvas);
+
+    const { state, dispose } = await scenario.build(canvas, values);
+
+    let built = false;
+    installHarness(scenario, state, () => built);
+    await frames(2);
+    built = true;
+
+    // a control change writes the value into the URL (so a reload restores it), then either reloads for a
+    // structural knob (clean rebuild from the new scene size/shape) or lets a live knob take effect next
+    // frame — the scenario reads `values` each frame, so a live mutation needs no rebuild.
+    const panel = document.getElementById("panel")!;
+    const controlsCleanup = mountControls(panel, decls, values, (key, rebuild) => {
+        const v = values[key];
+        const u = new URL(window.location.href);
+        u.searchParams.set(key, typeof v === "boolean" ? (v ? "1" : "0") : String(v));
+        history.replaceState(null, "", u);
+        if (rebuild) location.reload();
+    });
+
+    let hudFrame = 0;
+    const hud = document.getElementById("hud")!;
+    if (scenario.live) {
+        const update = () => {
+            hud.textContent = scenario.live!(state);
+            hudFrame = requestAnimationFrame(update);
+        };
+        hudFrame = requestAnimationFrame(update);
+    }
+
+    // HMR re-runs this module — without cleanup each reload stacks another HUD loop.
+    if (import.meta.hot) {
+        import.meta.hot.dispose(() => {
+            cancelAnimationFrame(hudFrame);
+            controlsCleanup();
+            dispose();
+        });
+    }
 }

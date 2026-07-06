@@ -1,5 +1,5 @@
-import { resolve, relative, dirname, join } from "path";
 import { Glob } from "bun";
+import { dirname, join, relative, resolve } from "path";
 
 const src = resolve(import.meta.dir, "../packages/shallot/src");
 const pkg = await Bun.file(resolve(import.meta.dir, "../packages/shallot/package.json")).json();
@@ -37,6 +37,8 @@ const violations: { file: string; line: number; import: string; target: string }
 
 const glob = new Glob("**/*.ts");
 for await (const path of glob.scan({ cwd: src })) {
+    // tests sit beside their source and legitimately cross modules
+    if (path.endsWith(".test.ts")) continue;
     const full = join(src, path);
     const content = await Bun.file(full).text();
     const lines = content.split("\n");

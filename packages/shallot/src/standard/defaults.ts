@@ -1,26 +1,22 @@
-import { setDefaultPlugins, setDefaultLoading } from "../engine/app";
 import type { Plugin } from "../engine";
-import { AudioPlugin } from "./audio";
-import { ComputePlugin } from "./compute";
+import { setDefaultLoading, setDefaultPlugins } from "../engine/app";
+import { GlazePlugin } from "./glaze";
 import { InputPlugin } from "./input";
-import { PhysicsPlugin } from "./physics";
-import { PlayerPlugin } from "./player";
-import { RasterPlugin } from "./raster";
-import { RenderPlugin } from "./render";
-import { TransformsPlugin } from "./transforms";
-import { ViewportPlugin } from "./viewport";
 import { shallotDark } from "./loading";
+import { PartPlugin } from "./part";
+import { RenderPlugin } from "./render";
+import { SearPlugin } from "./sear";
+import { SlabPlugin } from "./slab";
+import { TransformsPlugin } from "./transforms";
 
 export const DEFAULT_PLUGINS: readonly Plugin[] = [
+    SlabPlugin,
     TransformsPlugin,
     InputPlugin,
-    ComputePlugin,
-    ViewportPlugin,
     RenderPlugin,
-    RasterPlugin,
-    AudioPlugin,
-    PhysicsPlugin,
-    PlayerPlugin,
+    PartPlugin,
+    SearPlugin,
+    GlazePlugin,
 ];
 
 setDefaultPlugins(DEFAULT_PLUGINS);

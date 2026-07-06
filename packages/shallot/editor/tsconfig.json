@@ -6,7 +6,9 @@
         "verbatimModuleSyntax": true,
         "strict": true,
         "noEmit": true,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        "types": ["@webgpu/types"]
     },
-    "include": ["src"]
+    "include": ["src"],
+    "exclude": ["**/*.test.ts"]
 }

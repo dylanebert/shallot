@@ -1,197 +1,463 @@
-import { linearToSrgb, srgbToLinear } from "../utils";
-import { CHUNK_MASK, CHUNK_SHIFT, type ArrayKind, type Buf } from "./capacity";
-import { toKebabCase } from "./strings";
+import { packLdrColor } from "../utils/core";
+import type { Entity } from "./entity";
 
 /** SoA component — keys map to typed arrays indexed by entity */
 export type Component = Record<string, unknown>;
 
-/** computed field derived from other parsed fields */
-export interface Derived {
-    get(parsed: Record<string, number>): number;
-    set(value: number, parsed: Record<string, number>): Record<string, number>;
-}
+/** typed-array element backing — the set `sparse`/`slab` factories support */
+export type TypedArray = Float32Array | Int32Array | Uint32Array | Uint16Array | Uint8Array;
 
-/** component metadata — defaults, dependencies, parse/format */
-export interface Traits {
-    requires?: Component[];
-    defaults?: () => Record<string, number>;
-    parse?: Record<string, (value: string) => number | undefined>;
-    format?: Record<string, (value: number) => string | undefined>;
-    enums?: Record<string, Record<string, number>>;
-    annotations?: Record<string, unknown>;
-}
-
-export function parseEnum(enumObj: Record<string, number>): (value: string) => number | undefined {
-    const lookup = new Map<string, number>();
-    for (const [key, val] of Object.entries(enumObj)) {
-        lookup.set(toKebabCase(key), val);
-    }
-    return (value: string) => lookup.get(value);
-}
-
-export function formatEnum(enumObj: Record<string, number>): (value: number) => string | undefined {
-    const lookup = new Map<number, string>();
-    for (const [key, val] of Object.entries(enumObj)) {
-        lookup.set(val, toKebabCase(key));
-    }
-    return (value: number) => lookup.get(value);
-}
-
-const traitsMap = new WeakMap<Component, Traits>();
-
-/** attach metadata to a component */
-export function traits(component: Component, t: Traits): void {
-    if (t.enums) {
-        const parse = t.parse ?? {};
-        const format = t.format ?? {};
-        for (const [field, enumObj] of Object.entries(t.enums)) {
-            if (!parse[field]) parse[field] = parseEnum(enumObj);
-            if (!format[field]) format[field] = formatEnum(enumObj);
-        }
-        t.parse = parse;
-        t.format = format;
-    }
-    traitsMap.set(component, t);
-}
-
-export function getTraits(component: Component): Traits | undefined {
-    return traitsMap.get(component);
-}
-
-export interface ComponentEntry {
-    readonly component: Component;
+/**
+ * typed-array storage descriptor. Shared between {@link Single}/{@link Pair}/{@link Quad}
+ * factories (`sparse`, `slab`) so a consumer can swap one for the other without
+ * changing the type spelling. Metadata only — descriptors don't carry state.
+ *
+ * @expand
+ */
+export interface Type<TArray extends TypedArray = TypedArray> {
+    /** typed-array constructor used to back CPU storage */
+    readonly ctor: new (
+        length: number,
+    ) => TArray;
+    /** scalar = 1, vec2 = 2, vec4 = 4. stride into the backing array per eid */
+    readonly lanes: 1 | 2 | 4;
+    /** debug label */
     readonly name: string;
-    readonly traits?: Traits;
+    /** WGSL element type for GPU storage bindings. null for types without native WGSL storage (u8, u16) */
+    readonly wgsl: string | null;
+    /** JS number → array-slot value. omit for identity-mapped types */
+    readonly encode?: (v: number) => number;
+    /** array-slot value → JS number. omit for identity-mapped types */
+    readonly decode?: (raw: number) => number;
+    /**
+     * a packed GPU mirror: the CPU storage stays the full `ctor`×`lanes` (so `.set` / lane accessors /
+     * `read` / serialize see lossless floats), but the slab's `.gpu` buffer holds the `pack(...)` form —
+     * what the per-lane {@link encode} can't express, since it folds across lanes (4 lanes → an `srgb8x4`
+     * u32, or → a `vec4<f16>` pair). Quantization is a storage-boundary concern (`gpu.md` rule 6): the
+     * pack runs once at the per-frame flush, the CPU side never sees it. The reader shader binds `wgsl`.
+     */
+    readonly gpu?: {
+        readonly wgsl: string;
+        readonly bytes: number;
+        /** write `bytes / 4` u32 words at `out[at..]` from the four CPU lanes */
+        pack(out: Uint32Array, at: number, x: number, y: number, z: number, w: number): void;
+    };
 }
 
-const registry = new Map<string, ComponentEntry>();
+/** 32-bit IEEE float. */
+export const f32: Type<Float32Array> & { readonly lanes: 1 } = {
+    ctor: Float32Array,
+    lanes: 1,
+    name: "f32",
+    wgsl: "f32",
+};
 
-export function registerComponent(name: string, component: Component): void {
-    const kebabName = toKebabCase(name);
-    const traits = traitsMap.get(component);
-    registry.set(kebabName, { component, name: kebabName, traits });
-}
+/** 32-bit signed integer. */
+export const i32: Type<Int32Array> & { readonly lanes: 1 } = {
+    ctor: Int32Array,
+    lanes: 1,
+    name: "i32",
+    wgsl: "i32",
+};
 
-export function getComponent(name: string): ComponentEntry | undefined {
-    return registry.get(toKebabCase(name));
-}
+/** 32-bit unsigned integer. */
+export const u32: Type<Uint32Array> & { readonly lanes: 1 } = {
+    ctor: Uint32Array,
+    lanes: 1,
+    name: "u32",
+    wgsl: "u32",
+};
 
-export function getComponents(): ComponentEntry[] {
-    return [...registry.values()];
-}
+/**
+ * a u32 that holds an entity id — a `@name` reference in scene files (`Tween.target`,
+ * `Joint.a`). Storage is identical to {@link u32}; the distinct descriptor lets the field
+ * declare itself a ref, so `serialize` round-trips it by the target's scene id rather than the
+ * recycled, creation-order eid, with no side list to keep in sync. {@link refs} enumerates them.
+ */
+export const entity: Type<Uint32Array> & { readonly lanes: 1 } = {
+    ctor: Uint32Array,
+    lanes: 1,
+    name: "entity",
+    wgsl: "u32",
+};
 
-export function getComponentName(component: Component): string | undefined {
-    for (const [name, entry] of registry) {
-        if (entry.component === component) return name;
+/**
+ * 8-bit unsigned integer. `slab(u8)` packs 4-into-`u32` on GPU upload and
+ * is not implemented yet — `sparse(u8)` works for CPU-only fields.
+ */
+export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
+    ctor: Uint8Array,
+    lanes: 1,
+    name: "u8",
+    wgsl: null,
+};
+
+/**
+ * 16-bit unsigned integer. `slab(u16)` packs 2-into-`u32` on GPU upload and
+ * is not implemented yet — `sparse(u16)` works for CPU-only fields.
+ */
+export const u16: Type<Uint16Array> & { readonly lanes: 1 } = {
+    ctor: Uint16Array,
+    lanes: 1,
+    name: "u16",
+    wgsl: null,
+};
+
+// IEEE 754 binary16 codec — scratch buffer aliases an f32 over a u32 for the
+// bit-pattern extraction. Module-scoped to avoid per-call allocation.
+const F16_BUF = new ArrayBuffer(4);
+const F16_F32 = new Float32Array(F16_BUF);
+const F16_U32 = new Uint32Array(F16_BUF);
+
+function f16encode(x: number): number {
+    F16_F32[0] = x;
+    const bits = F16_U32[0];
+    const sign = (bits >>> 16) & 0x8000;
+    const exp = ((bits >>> 23) & 0xff) - 127 + 15;
+    const mantissa = bits & 0x7fffff;
+    if (exp <= 0) {
+        if (exp < -10) return sign;
+        const m = (mantissa | 0x800000) >>> (1 - exp);
+        return sign | (m >>> 13);
     }
-    return undefined;
+    if (exp >= 31) return sign | 0x7c00 | (mantissa ? 1 : 0);
+    return sign | (exp << 10) | (mantissa >>> 13);
 }
 
-export function clearRegistry(): void {
-    registry.clear();
-}
-
-export interface FieldProxy extends Array<number> {
-    get(eid: number): number;
-    set(eid: number, value: number): void;
+function f16decode(bits: number): number {
+    const sign = bits & 0x8000;
+    const exp = (bits >>> 10) & 0x1f;
+    const mantissa = bits & 0x3ff;
+    if (exp === 0) {
+        if (mantissa === 0) return sign ? -0 : 0;
+        return (sign ? -1 : 1) * mantissa * 2 ** -24;
+    }
+    if (exp === 31) return mantissa ? Number.NaN : sign ? -Infinity : Infinity;
+    return (sign ? -1 : 1) * (1 + mantissa / 1024) * 2 ** (exp - 15);
 }
 
 /**
- * memory layout of a typed-array-backed field. external runtimes use this to
- * address chunk slots directly: `chunks[eid >>> CHUNK_SHIFT][(eid & CHUNK_MASK) * stride + offset]`.
+ * 16-bit IEEE float. CPU storage uses `Uint16Array` of bit patterns; reads
+ * and writes go through the half-float codec. native WGSL storage with the
+ * `shader-f16` feature (in the platform support floor).
  */
-export interface FieldLayout {
-    bufId: number;
-    array: ArrayKind;
-    stride: number;
-    offset: number;
+export const f16: Type<Uint16Array> & { readonly lanes: 1 } = {
+    ctor: Uint16Array,
+    lanes: 1,
+    name: "f16",
+    wgsl: "f16",
+    encode: f16encode,
+    decode: f16decode,
+};
+
+/** two f32 lanes. */
+export const vec2: Type<Float32Array> & { readonly lanes: 2 } = {
+    ctor: Float32Array,
+    lanes: 2,
+    name: "vec2",
+    wgsl: "vec2<f32>",
+};
+
+/**
+ * four f32 lanes. use for any 3-or-4-lane data — `vec3<f32>` is clobbered to
+ * stride 16 in WebGPU storage anyway, so a true 3-lane type wouldn't save
+ * memory. put something useful in `.w` (mass paired with position, opacity
+ * with RGB) or leave it 0.
+ */
+export const vec4: Type<Float32Array> & { readonly lanes: 4 } = {
+    ctor: Float32Array,
+    lanes: 4,
+    name: "vec4",
+    wgsl: "vec4<f32>",
+};
+
+/**
+ * a GPU mirror of four lanes as `vec4<f16>` (16 B → 8 B) — WebGPU's `float16x4`. The CPU surface is
+ * identical to {@link vec4} and sees lossless f32 (`set`, `.x/.y/.z/.w`, `read`, serialize); only the
+ * mirror packs to half-floats at flush, and the reader shader binds `vec4<f16>` (needs `enable f16`, on
+ * the platform floor). HDR-capable (range to 65504) and finer than unorm8 across [0,1] (~15k
+ * representable values vs 256), so it suits PBR material params (metallic / roughness / occlusion)
+ * alongside an unbounded emissive glow strength.
+ */
+export const f16x4: Type<Float32Array> & { readonly lanes: 4 } = {
+    ctor: Float32Array,
+    lanes: 4,
+    name: "f16x4",
+    wgsl: "vec4<f16>",
+    gpu: {
+        wgsl: "vec4<f16>",
+        bytes: 8,
+        // two u32 words, each two f16 — the byte layout of a vec4<f16> (low 16 bits = first lane)
+        pack: (out, at, x, y, z, w) => {
+            out[at] = (f16encode(x) | (f16encode(y) << 16)) >>> 0;
+            out[at + 1] = (f16encode(z) | (f16encode(w) << 16)) >>> 0;
+        },
+    },
+};
+
+/**
+ * an LDR color mirrored to one u32: four 8-bit lanes, sRGB transfer on rgb + linear alpha (WebGPU's
+ * `rgba8unorm-srgb` semantics), 16 B → 4 B. The CPU surface is identical to {@link vec4} and sees
+ * lossless linear floats; only the GPU mirror packs (sRGB-encoding rgb on store), and the reader shader
+ * binds a `u32` and decodes with `unpackLdrColor` (`engine/utils/encode.ts`). For `Part.Color` and any
+ * LDR per-entity color — sRGB storage keeps perceptual precision in 8 bits.
+ */
+export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
+    ctor: Float32Array,
+    lanes: 4,
+    name: "srgb8x4",
+    wgsl: "u32",
+    gpu: {
+        wgsl: "u32",
+        bytes: 4,
+        pack: (out, at, r, g, b, a) => {
+            out[at] = packLdrColor(r, g, b, a);
+        },
+    },
+};
+
+/**
+ * per-entity scalar storage. one value per entity, read/written by eid.
+ * Component fields that need dirty tracking, GPU mirroring, or other
+ * lifecycle behavior expose this instead of a bare typed array. `state.add`
+ * routes default values through `.set`, so defaults flow into dirty bits
+ * automatically — no listener subsystem needed. `gpu` is `null` for CPU-only
+ * fields (`sparse`) and a buffer for GPU-mirrored fields (`slab`)
+ */
+export interface Single {
+    set(eid: number, value: number): void;
+    get(eid: number): number;
+    /** type descriptor — needed for surface binding (WGSL element type) */
+    readonly type: Type;
+    /** canonical GPU buffer; `null` for sparse-backed (CPU-only) fields */
+    readonly gpu: GPUBuffer | null;
 }
 
-const proxyLayouts = new WeakMap<FieldProxy, FieldLayout>();
-
-export function getFieldLayout(proxy: FieldProxy): FieldLayout | undefined {
-    return proxyLayouts.get(proxy);
+/**
+ * per-entity 2-lane storage. one vec2 per entity. `set` writes both lanes at
+ * once (AoS) — that's the perf-friendly path. `x` and `y` are per-lane
+ * {@link Single} accessors sharing the master's storage; partial writes go
+ * through them and dirty the whole slot. `read` copies both lanes into an
+ * out param without allocation
+ */
+export interface Pair {
+    set(eid: number, x: number, y: number): void;
+    read(eid: number, out: Float32Array): Float32Array;
+    readonly x: Single;
+    readonly y: Single;
+    readonly type: Type;
+    readonly gpu: GPUBuffer | null;
 }
 
-function recordLayout(proxy: FieldProxy, ref: Buf, stride: number, offset: number): void {
-    proxyLayouts.set(proxy, { bufId: ref.id, array: ref.kind, stride, offset });
+/**
+ * per-entity 4-lane storage. one vec4 per entity. shape matches {@link Pair}
+ * with two more lanes
+ */
+export interface Quad {
+    set(eid: number, x: number, y: number, z: number, w: number): void;
+    read(eid: number, out: Float32Array): Float32Array;
+    readonly x: Single;
+    readonly y: Single;
+    readonly z: Single;
+    readonly w: Single;
+    readonly type: Type;
+    readonly gpu: GPUBuffer | null;
 }
 
-export function isStringField(component: Component, field: string): boolean {
-    const val = component[field];
-    if (val == null) return false;
-    if (ArrayBuffer.isView(val) || Array.isArray(val)) return false;
-    return typeof val === "object";
+/**
+ * structural lane-count detector. Returns 1 / 2 / 4 for a {@link Single} /
+ * {@link Pair} / {@link Quad}; 0 for anything else (TypedArray, plain Array,
+ * non-storage object, primitive, null). Discriminates by shape so lane
+ * `Single`s of a parent Quad — which inherit the parent's `type.lanes` —
+ * report as `Single` (1), not their parent's lane count
+ */
+export function lanes(value: unknown): 0 | 1 | 2 | 4 {
+    if (!value || typeof value !== "object") return 0;
+    const v = value as Record<string, unknown>;
+    if (typeof v.set !== "function") return 0;
+    // classify by an actual lane handle, not key presence: the Slab class declares x/y/z/w fields, so a
+    // scalar slab carries them as `undefined` — `"z" in v` would misread it as a Quad
+    if (v.z != null && v.w != null) return 4;
+    if (v.x != null && v.y != null) return 2;
+    if (typeof v.get === "function") return 1;
+    return 0;
 }
 
-export function createFieldProxy(ref: Buf, stride: number, offset: number): FieldProxy {
-    const chunks = ref.chunks;
-    function getValue(eid: number): number {
-        return chunks[eid >>> CHUNK_SHIFT][(eid & CHUNK_MASK) * stride + offset];
+/**
+ * a component's typed storage fields — each {@link Single} / {@link Pair} /
+ * {@link Quad} store paired with its declared name, in declaration order. The
+ * canonical enumerator of a clean component's stores, for a serializer, an
+ * inspector, or a schema walk. Keys with no typed layout (a GPU-buffer getter,
+ * a legacy raw `number[]`) report {@link lanes} 0 and are skipped.
+ */
+export function fields(component: Component): { name: string; store: Single | Pair | Quad }[] {
+    const out: { name: string; store: Single | Pair | Quad }[] = [];
+    for (const name of Object.keys(component)) {
+        const store = component[name];
+        if (lanes(store) !== 0) out.push({ name, store: store as Single | Pair | Quad });
+    }
+    return out;
+}
+
+/**
+ * the fields holding an entity ref — those declared `sparse(entity)` / `slab(entity)`.
+ * `serialize` reads it to emit each as `@<id>`; the ref-ness lives on the field's type, so it
+ * can't drift from a separate list. A sibling of {@link fields}.
+ */
+export function refs(component: Component): string[] {
+    const out: string[] = [];
+    for (const name of Object.keys(component)) {
+        if ((component[name] as { type?: Type } | undefined)?.type === entity) out.push(name);
+    }
+    return out;
+}
+
+// Stable component identity. A component's id is interned by name at
+// registration (`intern`) and resolves back to the same id when a reloaded
+// module hands in a fresh component object under the same name — so membership,
+// queries, and storage re-attach across a hot swap, the component object being
+// the one thing a module reload recreates. An unregistered component (a bare
+// test marker) auto-mints an anonymous id on first sight, stable for the
+// object's lifetime. Process-global and monotonic: ids never reset, so no id is
+// ever reused for a different name (a `clear()` between sessions leaves them intact).
+//
+// The key is a Symbol so it stays out of every `Object.keys`/`Object.entries`
+// field walk (reflection's readFields/inspect, this file's `fields`) — an
+// enumerable `id` would be misread as a component field.
+const $id = Symbol("id");
+const _idByName = new Map<string, number>();
+let _nextId = 0;
+
+/**
+ * the component's stable numeric id, the key for membership and query
+ * structures. Auto-mints an anonymous id for an unregistered component;
+ * {@link intern} binds it by name at registration so a reloaded handle (a fresh
+ * object) resolves to the same id.
+ */
+export function idOf(component: object): number {
+    const c = component as { [$id]?: number };
+    const id = c[$id];
+    if (id !== undefined) return id;
+    return (c[$id] = _nextId++);
+}
+
+/**
+ * intern the stable id for `name`, stamping it on `component`: first sight assigns
+ * one (adopting an id the component auto-minted while bare), re-registration under
+ * the same name resolves to it — the reload contract that re-attaches a fresh
+ * module object. Called by `register`.
+ */
+export function intern(component: object, name: string): number {
+    let id = _idByName.get(name);
+    if (id === undefined) {
+        const existing = (component as { [$id]?: number })[$id];
+        id = existing ?? _nextId++;
+        _idByName.set(name, id);
+    }
+    (component as { [$id]?: number })[$id] = id;
+    return id;
+}
+
+const BITS_PER_GEN = 31;
+
+/**
+ * read access to the component-membership bitset, exposed as `state.membership`.
+ * A GPU producer that scans a buffer by index gates on it instead of a per-field
+ * sentinel: `(membershipWord & mask) != 0` is the authoritative "does eid carry
+ * this component" test. The standard membership mirror uploads the bitset each
+ * frame; consumers read the published `"membership"` buffer.
+ */
+export interface Membership {
+    /**
+     * a component's gate coordinates — `gen` selects the membership word,
+     * `mask` is the bit to test within it. Assigns a bit on first use
+     */
+    bit(component: object): { gen: number; mask: number };
+    /** membership words per entity (31 components each); fixes the mirror size */
+    readonly generations: number;
+    /**
+     * report every entity whose membership changed since the last call, then
+     * clear the pending set; returns false when nothing changed. The standard
+     * membership mirror is the sole caller — it copies each `(eid, gen, word)`
+     * into its GPU staging
+     */
+    drain(visit: (eid: number, gen: number, word: number) => void): boolean;
+}
+
+/** per-entity component membership, packed as bitsets across generations of 31-bit masks */
+export class Components implements Membership {
+    private _nextBit = 0;
+    private _gen = 0;
+    // keyed by component id (idOf), not the object — a reloaded component handle
+    // re-attaches by id. Array-by-id, since ids are small and monotonic.
+    private _meta: ({ gen: number; bit: number } | undefined)[] = [];
+    private _masks: number[][] = [[]];
+    /** eids whose membership changed since the last {@link drain} */
+    private _dirty = new Set<number>();
+
+    has(eid: Entity, component: any): boolean {
+        const m = this._meta[idOf(component)];
+        if (!m) return false;
+        return ((this._masks[m.gen][eid] ?? 0) & m.bit) !== 0;
     }
 
-    function setValue(eid: number, value: number): void {
-        chunks[eid >>> CHUNK_SHIFT][(eid & CHUNK_MASK) * stride + offset] = value;
+    add(eid: Entity, component: any): boolean {
+        const m = this.ensure(component);
+        const prev = this._masks[m.gen][eid] ?? 0;
+        if (prev & m.bit) return false;
+        this._masks[m.gen][eid] = prev | m.bit;
+        this._dirty.add(eid);
+        return true;
     }
 
-    const proxy = new Proxy([] as unknown as FieldProxy, {
-        get(_, prop) {
-            if (prop === "get") return getValue;
-            if (prop === "set") return setValue;
-            const eid = Number(prop);
-            if (Number.isNaN(eid)) return undefined;
-            return getValue(eid);
-        },
-        set(_, prop, value) {
-            const eid = Number(prop);
-            if (Number.isNaN(eid)) return false;
-            setValue(eid, value);
-            return true;
-        },
-    });
-    recordLayout(proxy, ref, stride, offset);
-    return proxy;
-}
-
-export function createColorProxy(
-    ref: Buf<Float32Array>,
-    stride: number,
-    offset: number,
-): FieldProxy {
-    const chunks = ref.chunks;
-    function getValue(eid: number): number {
-        const chunk = chunks[eid >>> CHUNK_SHIFT];
-        const o = (eid & CHUNK_MASK) * stride + offset;
-        const r = Math.round(linearToSrgb(chunk[o]) * 255);
-        const g = Math.round(linearToSrgb(chunk[o + 1]) * 255);
-        const b = Math.round(linearToSrgb(chunk[o + 2]) * 255);
-        return (r << 16) | (g << 8) | b;
+    remove(eid: Entity, component: any): boolean {
+        const m = this._meta[idOf(component)];
+        if (!m) return false;
+        const prev = this._masks[m.gen][eid] ?? 0;
+        if (!(prev & m.bit)) return false;
+        this._masks[m.gen][eid] = prev & ~m.bit;
+        this._dirty.add(eid);
+        return true;
     }
 
-    function setValue(eid: number, value: number): void {
-        const chunk = chunks[eid >>> CHUNK_SHIFT];
-        const o = (eid & CHUNK_MASK) * stride + offset;
-        chunk[o] = srgbToLinear(((value >> 16) & 0xff) / 255);
-        chunk[o + 1] = srgbToLinear(((value >> 8) & 0xff) / 255);
-        chunk[o + 2] = srgbToLinear((value & 0xff) / 255);
-        chunk[o + 3] = 1;
+    clear(eid: Entity): void {
+        for (let g = 0; g <= this._gen; g++) this._masks[g][eid] = 0;
+        this._dirty.add(eid);
     }
 
-    const proxy = new Proxy([] as unknown as FieldProxy, {
-        get(_, prop) {
-            if (prop === "get") return getValue;
-            if (prop === "set") return setValue;
-            const eid = Number(prop);
-            if (Number.isNaN(eid)) return undefined;
-            return getValue(eid);
-        },
-        set(_, prop, value) {
-            const eid = Number(prop);
-            if (Number.isNaN(eid)) return false;
-            setValue(eid, value);
-            return true;
-        },
-    });
-    recordLayout(proxy, ref, stride, offset);
-    return proxy;
+    /** {@inheritDoc Membership.bit} */
+    bit(component: any): { gen: number; mask: number } {
+        const m = this.ensure(component);
+        return { gen: m.gen, mask: m.bit };
+    }
+
+    /** {@inheritDoc Membership.generations} */
+    get generations(): number {
+        return this._gen + 1;
+    }
+
+    /** {@inheritDoc Membership.drain} */
+    drain(visit: (eid: number, gen: number, word: number) => void): boolean {
+        if (this._dirty.size === 0) return false;
+        const gens = this._gen + 1;
+        for (const eid of this._dirty) {
+            for (let g = 0; g < gens; g++) visit(eid, g, this._masks[g][eid] ?? 0);
+        }
+        this._dirty.clear();
+        return true;
+    }
+
+    private ensure(component: any) {
+        const id = idOf(component);
+        const existing = this._meta[id];
+        if (existing) return existing;
+        if (this._nextBit >= BITS_PER_GEN) {
+            this._gen++;
+            this._nextBit = 0;
+            this._masks.push([]);
+        }
+        const m = { gen: this._gen, bit: 1 << this._nextBit++ };
+        this._meta[id] = m;
+        return m;
+    }
 }

@@ -1,27 +1,31 @@
-import {
-    EntityPool,
-    ComponentStore,
-    ObservableStore,
-    type HookInstance,
-    type ObservableCallback,
-} from "./store";
-import type { SparseSet, Entity } from "./store";
-import { compileQuery, QueryCache } from "./query";
-import {
-    RelationStore,
-    isPairComponent,
-    pairRelation,
-    pairTarget,
-    type RelationHost,
-    type Relation,
-    type PairKey,
-} from "./relation";
-import { Scheduler, Time, type System } from "./scheduler";
-import type { Plugin } from "./plugin";
-import { registerComponent, getTraits } from "./component";
-import type { Resource } from "./resource";
-import { clearAllEvents } from "./events";
-import { grow, reset } from "./capacity";
+import { Components, type Membership } from "./component";
+import { Entities } from "./entity";
+import { Identity } from "./identity";
+import { Queries } from "./query";
+import { Scheduler, type System, Time } from "./scheduler";
+import { applyDefaults, getExclusions, getName } from "./traits";
+
+/**
+ * entity capacity, fixed at app construction. defaults to 65536. override via
+ * `build({ capacity })` before any allocation; shared across every {@link State}
+ * in the process — multi-state scenarios (networking server+client, rollback)
+ * all share one capacity by construction.
+ *
+ * footgun: don't bind at module top level (`const SIZE = capacity * 4`) — captures
+ * the default before `build` runs. read inside functions or factories instead.
+ */
+export let capacity = 65536;
+
+/**
+ * render device-pixel ratio for canvas-bound views, fixed at app construction. `"auto"`
+ * (default) clamps the display's `devicePixelRatio` to `[1, 2]` (react-three-fiber's default) —
+ * crisp on HiDPI, never below logical resolution, capped so a DPR-3 phone doesn't pay 9× the fill.
+ * A fixed number overrides: `1` renders at CSS resolution (cheapest, the three.js literal default),
+ * `2` forces 2×, a value below 1 downscales for a pixel-art look (the upscale switches to
+ * nearest-neighbor). Read at every resize (see {@link attachCanvas}), so dragging a window between
+ * monitors re-sizes the backing. Set via `build({ pixelRatio })`.
+ */
+export let pixelRatio: number | "auto" = "auto";
 
 /**
  * ecs state passed to every system
@@ -33,108 +37,148 @@ import { grow, reset } from "./capacity";
  *     },
  * };
  */
-export class State implements RelationHost {
-    readonly entities = new EntityPool();
-    readonly components = new ComponentStore();
-    readonly relations = new RelationStore(this);
-    readonly observables = new ObservableStore();
-    readonly queryCache = new QueryCache();
-    readonly scheduler = new Scheduler();
+export class State {
+    /**
+     * when set, scheduler skips systems whose `annotations.mode` differs.
+     * `"always"`-annotated systems run in both modes. fixed at construction —
+     * rebuild the app to switch modes. leave undefined to run every system
+     * regardless of annotation.
+     */
+    readonly mode: "edit" | "play" | undefined;
 
-    private _resources = new Map<symbol, unknown>();
+    private _scheduler = new Scheduler();
+    private _entities = new Entities();
+    private _components = new Components();
+    private _queries = new Queries();
+    private _identity = new Identity();
     private _disposed = false;
-    private _max = 0;
-    private _disposeHooks: (() => void)[] = [];
+
+    constructor(opts?: {
+        capacity?: number;
+        pixelRatio?: number | "auto";
+        mode?: "edit" | "play";
+    }) {
+        if (opts?.capacity !== undefined) capacity = opts.capacity;
+        if (opts?.pixelRatio !== undefined) pixelRatio = opts.pixelRatio;
+        this.mode = opts?.mode;
+    }
 
     /** current frame time and delta */
     get time(): Readonly<Time> {
-        return this.scheduler.time;
-    }
-
-    /** highest entity ID in use */
-    get max(): number {
-        return this._max;
-    }
-
-    /** store a global resource */
-    setResource<T>(key: Resource<T>, value: T): void {
-        this._resources.set(key, value);
-    }
-
-    /** retrieve a global resource */
-    getResource<T>(key: Resource<T>): T | undefined {
-        return this._resources.get(key) as T | undefined;
-    }
-
-    /** delete a global resource */
-    deleteResource<T>(key: Resource<T>): boolean {
-        return this._resources.delete(key);
-    }
-
-    /** register a plugin or system */
-    register(pluginOrSystem: Plugin | System): void {
-        if (
-            "update" in pluginOrSystem ||
-            "setup" in pluginOrSystem ||
-            "dispose" in pluginOrSystem
-        ) {
-            this.scheduler.register(pluginOrSystem as System);
-        } else {
-            const plugin = pluginOrSystem as Plugin;
-            if (plugin.components) {
-                for (const [name, component] of Object.entries(plugin.components)) {
-                    registerComponent(name, component);
-                }
-            }
-            if (plugin.systems) {
-                for (const system of plugin.systems) {
-                    this.scheduler.register(system, plugin.name);
-                }
-            }
-        }
-    }
-
-    /** remove a system */
-    unregister(system: System): void {
-        this.scheduler.unregister(system);
+        return this._scheduler.time;
     }
 
     /** advance one frame */
     step(deltaTime = Time.DEFAULT_DT): void {
-        this.scheduler.step(this, deltaTime);
-        clearAllEvents(this);
+        this._scheduler.step(this, deltaTime);
+    }
+
+    /** freeze the virtual clock — gameplay (`time.deltaTime`/`elapsed`) and physics hold; the real clock keeps
+     * running for camera/UI/input. takes effect next frame. {@link resume} restores the prior {@link timescale}. */
+    pause(): void {
+        this._scheduler.pause();
+    }
+
+    /** unfreeze the virtual clock. */
+    resume(): void {
+        this._scheduler.resume();
+    }
+
+    /** set the virtual timescale: 1 real time, <1 slow-mo, >1 fast-forward, 0 freeze (negative clamps to 0).
+     * read via `time.scale`. */
+    timescale(scale: number): void {
+        this._scheduler.setScale(scale);
     }
 
     /** create a new entity, returns its ID */
-    addEntity(): number {
-        const eid = this.entities.add();
-        grow(eid + 1);
-        if (eid > this._max) this._max = eid;
+    create(): number {
+        const eid = this._entities.add();
+        if (eid + 1 > capacity) {
+            throw new Error(
+                `Entity count ${eid + 1} exceeds configured capacity ${capacity}. ` +
+                    `Increase via app build config: { capacity: ${Math.max(eid + 1, capacity * 2)} }.`,
+            );
+        }
         return eid;
     }
 
-    /** destroy an entity and its components/relations */
-    removeEntity(eid: number): void {
-        if (!this.entities.exists(eid)) return;
-        this.relations.onEntityRemoved(eid);
-        for (const component of this.components.getAll(eid)) {
-            this.observables.notifyRemove(eid, component, this.components);
-        }
-        this.queryCache.onEntityRemoved(eid);
-        this.components.clear(eid);
-        this.entities.remove(eid);
-        if (eid === this._max) {
-            while (this._max > 0 && !this.entities.exists(this._max)) this._max--;
-        }
+    /** destroy an entity */
+    destroy(eid: number): void {
+        if (!this._entities.exists(eid)) return;
+        this._queries.onEntityRemoved(eid);
+        this._components.clear(eid);
+        this._entities.remove(eid);
+        this._identity.forget(eid);
     }
 
     /** true if entity ID is alive */
-    entityExists(eid: number): boolean {
-        return this.entities.exists(eid);
+    exists(eid: number): boolean {
+        return this._entities.exists(eid);
     }
 
-    getAllEntities(): readonly number[] {
-        return this.entities.all();
+    /** snapshot of every alive entity id */
+    entities(): readonly number[] {
+        return this._entities.all();
+    }
+
+    /**
+     * entity identity recorded by `load` — the authored set + each entity's
+     * scene `id`. `serialize` reads it to round-trip refs by name and to skip
+     * warm-derived entities. See {@link Identity}
+     */
+    get identity(): Identity {
+        return this._identity;
+    }
+
+    /**
+     * read access to the component-membership bitset. A GPU producer that
+     * scans a buffer by index gates on `state.membership.bit(C)` rather than a
+     * per-field sentinel; the standard membership mirror flushes the bitset to
+     * the `"membership"` buffer each frame. See {@link Membership}
+     */
+    get membership(): Membership {
+        return this._components;
+    }
+
+    /**
+     * attach a component to an entity. Default values declared via the component's
+     * `Traits.defaults` are routed through each field's `.set` (for fields
+     * implementing the `Single` contract) — dirty tracking falls out automatically.
+     * @example
+     * state.add(eid, Health);
+     * Health.current.set(eid, 100);
+     */
+    add<T>(eid: number, component: T): void {
+        const excluded = getExclusions(component as Record<string, unknown>);
+        if (excluded) {
+            for (const other of excluded) {
+                if (this._components.has(eid, other)) {
+                    const a = getName(component as Record<string, unknown>) ?? "?";
+                    const b = getName(other) ?? "?";
+                    throw new Error(
+                        `state.add: cannot attach "${a}" to entity ${eid} — excluded by "${b}"`,
+                    );
+                }
+            }
+        }
+        if (this._components.add(eid, component)) {
+            this._queries.onComponentChanged(eid, component, this._components);
+            applyDefaults(component as Record<string, unknown>, eid);
+        } else {
+            console.warn("state.add: component already attached to entity", eid);
+        }
+    }
+
+    /** detach a component from an entity */
+    remove(eid: number, component: any): void {
+        if (this._components.remove(eid, component)) {
+            this._queries.onComponentChanged(eid, component, this._components);
+        }
+    }
+
+    /** true if entity has the component */
+    has<T>(eid: number, component: T): boolean {
+        return this._components.has(eid, component);
     }
 
     /**
@@ -144,23 +188,8 @@ export class State implements RelationHost {
      *     Health.current[eid] -= 1;
      * }
      */
-    query(terms: any[]): SparseSet | number[] {
-        const compiled = compileQuery(terms);
-        const rq = this.queryCache.register(
-            compiled,
-            this.components,
-            this.entities.dense,
-            this.entities.alive,
-        );
-        if (!compiled.hierarchy) return rq.set;
-        if (!rq.sortedDirty && rq.sortedCache) return rq.sortedCache;
-        const results: number[] = [];
-        const dense = rq.set.dense;
-        const count = rq.set.count;
-        for (let i = 0; i < count; i++) results.push(dense[i]);
-        rq.sortedCache = this.sortByDepth(results, compiled.hierarchy.relation);
-        rq.sortedDirty = false;
-        return rq.sortedCache;
+    query(terms: any[]): Iterable<number> {
+        return this._queries.find(terms, this._components, this._entities);
     }
 
     /**
@@ -182,150 +211,76 @@ export class State implements RelationHost {
         return result;
     }
 
-    getEntityComponents(eid: number): any[] {
-        return this.components.getAll(eid);
+    /** wire a system into the scheduler */
+    addSystem(system: System, pluginName?: string): void {
+        this._scheduler.register(system, pluginName);
+    }
+
+    /** remove a previously-added system */
+    removeSystem(system: System): void {
+        this._scheduler.unregister(system);
     }
 
     /**
-     * attach a component to an entity
-     * @example
-     * state.addComponent(eid, Health);
-     * Health.current[eid] = 100;
+     * hot-swap a live system's behavior in place — the reloaded module's
+     * `update`/`setup`/`dispose` replace the old ones on the same registered
+     * object, preserving its identity, ordering, and setup state. The engine
+     * `swap` (plugin-level) drives this per system; not a per-frame call.
      */
-    addComponent<T>(eid: number, component: T): void {
-        if (isPairComponent(component)) {
-            const relation = pairRelation(component)!;
-            const target = pairTarget(component)!;
-            if (typeof target === "number") {
-                this.relations.add(eid, relation, target);
-                return;
-            }
-        }
-
-        if (this.components.add(eid, component)) {
-            this.queryCache.onComponentChanged(eid, component, this.components);
-            this.notifyAdd(eid, component);
-        }
-
-        this.applyDefaults(eid, component);
+    swap(old: System, next: System): void {
+        this._scheduler.swap(old, next);
     }
 
-    /** detach a component from an entity */
-    removeComponent(eid: number, component: any): void {
-        if (isPairComponent(component)) {
-            const relation = pairRelation(component)!;
-            const target = pairTarget(component)!;
-            if (typeof target === "number") {
-                this.relations.remove(eid, relation, target);
-                return;
-            }
-        }
-        this.notifyRemove(eid, component);
-        this.components.remove(eid, component);
-        this.queryCache.onComponentChanged(eid, component, this.components);
+    /** true if the system is live in the scheduler — `swap` validates its pairing against this */
+    hasSystem(system: System): boolean {
+        return this._scheduler.has(system);
     }
 
-    /** true if entity has the component */
-    hasComponent<T>(eid: number, component: T): boolean {
-        return this.components.has(eid, component);
-    }
-
-    /** component if present, undefined otherwise */
-    getComponent<T>(eid: number, component: T) {
-        return this.components.has(eid, component) ? component : undefined;
-    }
-
-    /** link two entities with a relation */
-    addRelation(subject: number, relation: Relation, target: number): void {
-        this.addComponent(subject, relation.relation(target));
-    }
-
-    /** remove a relation between two entities */
-    removeRelation(subject: number, relation: Relation, target: number): void {
-        this.removeComponent(subject, relation.relation(target));
-    }
-
-    /** true if a relation exists between two entities */
-    hasRelation(subject: number, relation: Relation, target: number): boolean {
-        return this.hasComponent(subject, relation.relation(target));
-    }
-
-    /** all targets of a relation from a subject */
-    getRelationTargets(subject: number, relation: Relation): readonly number[] {
-        return this.relations.targets(subject, relation.relation);
-    }
-
-    /** first relation target, or -1 */
-    getFirstRelationTarget(subject: number, relation: Relation): number {
-        const targets = this.relations.targets(subject, relation.relation);
-        return targets.length > 0 ? targets[0] : -1;
+    /** record a CPU timing entry — no-op when no sink is installed */
+    record(name: string, ms: number): void {
+        this._scheduler.record?.(name, ms);
     }
 
     /**
-     * subscribe to a lifecycle hook, returns unsubscribe
-     * @example
-     * state.observe(onAdd(Health), (eid) => {
-     *     Health.current[eid] = Health.max[eid];
-     * });
+     * the CPU timing sink, or `undefined` when profiling is off. Hot-path
+     * callers can read this once and skip timed work entirely when absent.
      */
-    observe(hook: HookInstance, callback: ObservableCallback): () => void {
-        return this.observables.subscribe(hook, callback);
+    get recordSink(): ((name: string, ms: number) => void) | undefined {
+        return this._scheduler.record;
     }
 
-    notifyAdd(eid: Entity, component: any): void {
-        this.observables.notifyAdd(eid, component, this.components);
+    set recordSink(fn: ((name: string, ms: number) => void) | undefined) {
+        this._scheduler.record = fn;
     }
 
-    notifyRemove(eid: Entity, component: any): void {
-        this.observables.notifyRemove(eid, component, this.components);
+    /** report a GPU fence-wait duration — no-op when no sink is installed */
+    fenceWait(ms: number): void {
+        this._scheduler.fenceWait?.(ms);
     }
 
-    notifyQueryChanged(eid: Entity, component: any): void {
-        this.queryCache.onComponentChanged(eid, component, this.components);
+    /** the GPU fence-wait telemetry sink, or `undefined` when profiling is off */
+    get fenceWaitSink(): ((ms: number) => void) | undefined {
+        return this._scheduler.fenceWait;
     }
 
-    /** register a cleanup hook */
-    onDispose(hook: () => void): void {
-        this._disposeHooks.push(hook);
+    set fenceWaitSink(fn: ((ms: number) => void) | undefined) {
+        this._scheduler.fenceWait = fn;
     }
 
-    /** tear down the world */
+    /**
+     * true once {@link dispose} has run. An async plugin step that awaits across a teardown (a glTF decode
+     * resolving after a scene switch) checks this before touching the State, so a late result no-ops instead
+     * of mutating a dead world.
+     */
+    get disposed(): boolean {
+        return this._disposed;
+    }
+
+    /** tear down the world — disposes every registered system */
     dispose(): void {
         if (this._disposed) return;
-        for (const hook of this._disposeHooks) hook();
-        this._disposeHooks.length = 0;
-        for (const system of this.scheduler.systems) {
-            system.dispose?.(this);
-        }
-        this.queryCache.clear();
-        clearAllEvents(this);
-        reset();
+        this._scheduler.dispose(this);
+        this._queries.clear();
         this._disposed = true;
-    }
-
-    private applyDefaults(eid: number, component: any): void {
-        const traits = getTraits(component as Record<string, unknown>);
-        if (!traits?.defaults) return;
-        const defaults = traits.defaults();
-        const data = component as Record<string, number[] | Float32Array | Uint32Array>;
-        for (const [field, value] of Object.entries(defaults)) {
-            const arr = data[field];
-            if (arr != null) arr[eid] = value;
-        }
-    }
-
-    private sortByDepth(eids: number[], relation: PairKey): number[] {
-        const depths = new Map<number, number>();
-        const depthOf = (eid: Entity): number => {
-            const cached = depths.get(eid);
-            if (cached !== undefined) return cached;
-            const targets = this.relations.targets(eid, relation);
-            const depth = targets.length === 0 ? 0 : depthOf(targets[0]) + 1;
-            depths.set(eid, depth);
-            return depth;
-        };
-        for (const eid of eids) depthOf(eid);
-        eids.sort((a, b) => (depths.get(a) ?? 0) - (depths.get(b) ?? 0));
-        return eids;
     }
 }

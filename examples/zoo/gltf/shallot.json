@@ -1,0 +1,8 @@
+{
+    "scene": "scenes/gltf.scene",
+    "plugins": {
+        "Gltf": true,
+        "Orbit": true,
+        "Models": "./src/import"
+    }
+}

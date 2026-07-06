@@ -1,29 +1,19 @@
+export { type Alias, eulerAlias, laneAlias } from "./alias";
+export { formatHex, linearToSrgb, srgbToLinear, unpackColor } from "./color";
+export { angle, degrees, type Input, radians, type Unit, units } from "./input";
 export {
+    aim,
     clamp,
-    lerp,
-    slerp,
-    rotate,
-    eulerToQuaternion,
-    quaternionToEuler,
-    lookAt,
-    lookAtMatrix,
-    perspective,
-    orthographic,
-    orthographicBounds,
-    multiply,
+    compose,
+    euler,
     invert,
-    invertMatrix,
-    extractFrustumPlanes,
-    extractFrustumCorners,
-    testAABBFrustum,
-    testAABBSphere,
-    type Vec3,
-    type Ray,
-    unpackColor,
-    srgbToLinear,
-    linearToSrgb,
-    normalizeDirection,
+    lerp,
+    lookAt,
+    multiply,
+    orthographic,
+    perspective,
+    quat,
+    rotate,
+    slerp,
 } from "./math";
-
-export { Shape } from "./shape";
-export { registry, type Registry } from "./registry";
+export { Registry } from "./registry";

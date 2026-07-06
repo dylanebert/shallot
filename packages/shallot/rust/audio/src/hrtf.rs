@@ -1,3 +1,13 @@
+//! Spatial rendering: a first-order ambisonic (FOA) bus decoded to a virtual
+//! speaker ring, each speaker convolved with a synthetic Brown-Duda structural
+//! HRTF (head as a sphere + pinna/ITD model; Brown & Duda, "A Structural Model
+//! for Binaural Sound Synthesis", 1998). Synthetic is the final choice, not a
+//! placeholder: a procedural model ships zero HRIR data (no measured-impulse
+//! blob in the binary), which fits the build-size and procedural-first goals.
+//! The HRTF runs on the CPU worklet either way, so performance isn't the axis.
+//! The decode seam is HRTF-agnostic, so a measured set is a free internal
+//! upgrade later — but synthetic is the intended answer, not a stopgap.
+
 use core::f32::consts::PI;
 
 pub const NUM_SPEAKERS: usize = 8;

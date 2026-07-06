@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>shallot ui-containment fixture</title>
+        <style>
+            html,
+            body {
+                height: 100%;
+            }
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            /* the "host chrome" the app UI must never paint over — a solid teal frame standing in for the
+               editor viewport's surrounding panels. The canvas lives in a sub-region inset 64px on all
+               sides (body padding), so any pixel inside that border is chrome. */
+            body {
+                background: rgb(20, 60, 80);
+                overflow: hidden;
+                padding: 64px;
+            }
+            #frame {
+                position: relative;
+                width: 100%;
+                height: 100%;
+            }
+            canvas {
+                display: block;
+                width: 100%;
+                height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="frame"><canvas id="canvas"></canvas></div>
+        <script type="module" src="./src/main.ts"></script>
+    </body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/outline.scene",
+  "plugins": {
+    "Outline": true,
+    "Orbit": true,
+    "Selector": "./src/select"
+  }
+}

@@ -1,0 +1,9 @@
+<scene>
+    <a ambient-light />
+    <a directional-light="direction: -0.4 -1 -0.55; intensity: 1.4" />
+
+    <a camera sear orbit="distance: 6; yaw: 0.6; pitch: 0.4" transform />
+
+    <a part="mesh: BoxTextured.glb#0" transform="pos: -1.2 0 0" color />
+    <a part="mesh: box.gltf#0" transform="pos: 1.2 0 0" color="rgba: 0.8 0.55 0.35" />
+</scene>

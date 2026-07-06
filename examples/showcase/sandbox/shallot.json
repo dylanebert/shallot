@@ -1,0 +1,15 @@
+{
+  "scene": "scenes/sandbox.scene",
+  "capacity": 512,
+  "plugins": {
+    "Physics": true,
+    "Character": true,
+    "Player": true,
+    "Audio": true,
+    "Fog": true,
+    "Outline": true,
+    "Profile": true,
+    "Mirror": true,
+    "Sandbox": "./src/sandbox"
+  }
+}

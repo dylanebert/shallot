@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { resolve, join } from "path";
 import { existsSync, readFileSync, writeFileSync } from "fs";
+import { join, resolve } from "path";
 
 const projectDir = resolve(import.meta.dir, "..");
 const name = process.argv[2] || "local-test";

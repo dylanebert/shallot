@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+        <title>shallot — visualization</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=Outfit:wght@600;700&family=JetBrains+Mono:wght@400&display=swap"
+            rel="stylesheet"
+        />
+        <style>
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
+            body {
+                background: #0e0d0c;
+                color: #f0ece8;
+                font-family: "JetBrains Mono", monospace;
+                padding: 4rem 1.5rem;
+                -webkit-font-smoothing: antialiased;
+            }
+            .wrap {
+                max-width: 760px;
+                margin: 0 auto;
+            }
+            h1 {
+                font-family: "Outfit", sans-serif;
+                font-weight: 700;
+                font-size: 1.75rem;
+            }
+            .sub {
+                color: #a09890;
+                font-size: 0.85rem;
+                margin: 0.6rem 0 2.5rem;
+                line-height: 1.6;
+            }
+            .demo {
+                margin-bottom: 2rem;
+            }
+            /* surface step, not a border — visual-identity.md */
+            .frame {
+                width: 100%;
+                aspect-ratio: 3 / 2;
+                border: 0;
+                display: block;
+                border-radius: 10px;
+                background: #161514;
+            }
+            .cap {
+                margin-top: 0.7rem;
+                color: #a09890;
+                font-size: 0.82rem;
+                line-height: 1.5;
+            }
+            .cap b {
+                font-family: "Outfit", sans-serif;
+                font-weight: 600;
+                color: #f0ece8;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="wrap">
+            <h1>visualization</h1>
+            <p class="sub">
+                Lines, arrows, and SDF text. Drag to orbit, F3 for stats.
+            </p>
+
+            <div class="demo">
+                <iframe class="frame" src="./demos/immediate.html" title="immediate"></iframe>
+                <p class="cap">
+                    <b>Immediate</b> — an arrow flow field and a sine ribbon, redrawn every frame
+                </p>
+            </div>
+
+            <div class="demo">
+                <iframe class="frame" src="./demos/retained.html" title="retained"></iframe>
+                <p class="cap">
+                    <b>Retained</b> — Line and Arrow entities, spinning hands over static axes
+                </p>
+            </div>
+
+            <div class="demo">
+                <iframe class="frame" src="./demos/wireframe.html" title="wireframe"></iframe>
+                <p class="cap">
+                    <b>Wireframe</b> — per-frame box() outlines on lit cubes
+                </p>
+            </div>
+
+            <div class="demo">
+                <iframe class="frame" src="./demos/text.html" title="text"></iframe>
+                <p class="cap">
+                    <b>Text</b> — world-space SDF labels, laid out once then moved without rebuilding
+                    the glyph buffer
+                </p>
+            </div>
+
+            <div class="demo">
+                <iframe class="frame" src="./demos/tween.html" title="tween"></iframe>
+                <p class="cap">
+                    <b>Tween</b> — five cubes rise then fall on their easing curves, sequenced and looped;
+                    back and elastic overshoot, then settle
+                </p>
+            </div>
+        </div>
+    </body>
+</html>

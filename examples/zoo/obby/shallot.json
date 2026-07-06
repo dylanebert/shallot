@@ -1,0 +1,10 @@
+{
+  "scene": "scenes/obby.scene",
+  "plugins": {
+    "Physics": true,
+    "Mirror": true,
+    "Character": true,
+    "Player": true,
+    "Game": "./src/game"
+  }
+}

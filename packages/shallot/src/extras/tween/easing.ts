@@ -1,3 +1,4 @@
+/** an easing curve: maps normalized progress (0→1) to an eased value (0→1, may overshoot for back/elastic) */
 export type Easing = (t: number) => number;
 
 const linear: Easing = (t) => t;
@@ -92,6 +93,7 @@ const easeInBounce: Easing = (t) => 1 - easeOutBounce(1 - t);
 const easeInOutBounce: Easing = (t) =>
     t < 0.5 ? (1 - easeOutBounce(1 - 2 * t)) / 2 : (1 + easeOutBounce(2 * t - 1)) / 2;
 
+/** the built-in easing curves, indexed by easing id (parallel to the kebab names `getEasingIndex` resolves) */
 export const EASING_FUNCTIONS: readonly Easing[] = [
     linear,
     easeInQuad,
@@ -160,10 +162,24 @@ const EASING_INDEX: Record<string, number> = {
     "ease-in-out-bounce": 30,
 };
 
+// reverse of EASING_INDEX, so the scene `easing` trait formats an index back to
+// its kebab name and round-trips
+const EASING_NAMES: string[] = Object.entries(EASING_INDEX).reduce((names, [name, index]) => {
+    names[index] = name;
+    return names;
+}, [] as string[]);
+
+/** the easing id for a kebab name (`ease-out-quad`); 0 (linear) for an unknown name */
 export function getEasingIndex(name: string): number {
     return EASING_INDEX[name] ?? 0;
 }
 
+/** the kebab name for an easing id; `linear` for an unknown id */
+export function getEasingName(index: number): string {
+    return EASING_NAMES[index] ?? "linear";
+}
+
+/** the easing curve for an easing id; linear for an unknown id */
 export function getEasing(index: number): Easing {
     return EASING_FUNCTIONS[index] ?? linear;
 }

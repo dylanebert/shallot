@@ -1,0 +1,518 @@
+[
+  {
+    "name": "cube-cube-axis-overlap-x",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      0.80000001,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      -1,
+      0,
+      0
+    ],
+    "numClipContacts": 4,
+    "numReducedContacts": 4,
+    "contacts": [
+      {
+        "point": [
+          0.30000001,
+          -0.5,
+          0.5
+        ],
+        "depth": -0.19999999
+      },
+      {
+        "point": [
+          0.30000001,
+          0.5,
+          0.5
+        ],
+        "depth": -0.19999999
+      },
+      {
+        "point": [
+          0.30000001,
+          0.5,
+          -0.5
+        ],
+        "depth": -0.19999999
+      },
+      {
+        "point": [
+          0.30000001,
+          -0.5,
+          -0.5
+        ],
+        "depth": -0.19999999
+      }
+    ]
+  },
+  {
+    "name": "cube-cube-rotated-edge",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      1.10000002,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0.38268346,
+      0.9238795
+    ],
+    "separated": false,
+    "separatingNormal": [
+      -1,
+      0,
+      0
+    ],
+    "numClipContacts": 2,
+    "numReducedContacts": 2,
+    "contacts": [
+      {
+        "point": [
+          0.39289325,
+          -6e-8,
+          -0.5
+        ],
+        "depth": -0.10710675
+      },
+      {
+        "point": [
+          0.39289325,
+          -6e-8,
+          0.5
+        ],
+        "depth": -0.10710675
+      }
+    ]
+  },
+  {
+    "name": "cube-cube-separated",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      2,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": true,
+    "contacts": []
+  },
+  {
+    "name": "tet-cube-overlap",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      0.5,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      -0.99999994,
+      0,
+      0
+    ],
+    "numClipContacts": 6,
+    "numReducedContacts": 4,
+    "contacts": [
+      {
+        "point": [
+          0,
+          0.5,
+          0
+        ],
+        "depth": 0
+      },
+      {
+        "point": [
+          0,
+          -0.5,
+          -0.25
+        ],
+        "depth": -0.43301269
+      },
+      {
+        "point": [
+          0,
+          0,
+          -0.5
+        ],
+        "depth": 0
+      },
+      {
+        "point": [
+          0,
+          -0.5,
+          0.5
+        ],
+        "depth": -0.86602539
+      }
+    ]
+  },
+  {
+    "name": "tet-tet-overlap",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      0.60000002,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      -1,
+      0,
+      0
+    ],
+    "numClipContacts": 1,
+    "numReducedContacts": 1,
+    "contacts": [
+      {
+        "point": [
+          0.10000002,
+          -0.39999998,
+          0.39999998
+        ],
+        "depth": -0.69282025
+      }
+    ]
+  },
+  {
+    "name": "cone8-cube-overlap",
+    "posA": [
+      0,
+      0.80000001,
+      0
+    ],
+    "posB": [
+      0,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      0,
+      1,
+      0
+    ],
+    "numClipContacts": 0,
+    "numReducedContacts": 0,
+    "contacts": []
+  },
+  {
+    "name": "cube-cube-full-face",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      0.5,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      -1,
+      0,
+      0
+    ],
+    "numClipContacts": 4,
+    "numReducedContacts": 4,
+    "contacts": [
+      {
+        "point": [
+          0,
+          -0.5,
+          0.5
+        ],
+        "depth": -0.5
+      },
+      {
+        "point": [
+          0,
+          0.5,
+          0.5
+        ],
+        "depth": -0.5
+      },
+      {
+        "point": [
+          0,
+          0.5,
+          -0.5
+        ],
+        "depth": -0.5
+      },
+      {
+        "point": [
+          0,
+          -0.5,
+          -0.5
+        ],
+        "depth": -0.5
+      }
+    ]
+  },
+  {
+    "name": "cube-cube-asymmetric",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      0.30000001,
+      0.69999999,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      0,
+      -1,
+      0
+    ],
+    "numClipContacts": 4,
+    "numReducedContacts": 4,
+    "contacts": [
+      {
+        "point": [
+          0.5,
+          0.19999999,
+          0.5
+        ],
+        "depth": -0.30000001
+      },
+      {
+        "point": [
+          -0.19999999,
+          0.19999999,
+          0.5
+        ],
+        "depth": -0.30000001
+      },
+      {
+        "point": [
+          -0.19999999,
+          0.19999999,
+          -0.5
+        ],
+        "depth": -0.30000001
+      },
+      {
+        "point": [
+          0.5,
+          0.19999999,
+          -0.5
+        ],
+        "depth": -0.30000001
+      }
+    ]
+  },
+  {
+    "name": "tet-tet-rotated",
+    "posA": [
+      0,
+      0,
+      0
+    ],
+    "posB": [
+      0.40000001,
+      0.2,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0.24740396,
+      0,
+      0.96891242
+    ],
+    "separated": false,
+    "separatingNormal": [
+      -0.9405548,
+      -0.2401631,
+      0.2401631
+    ],
+    "numClipContacts": 3,
+    "numReducedContacts": 3,
+    "contacts": [
+      {
+        "point": [
+          0.47101152,
+          -0.30000001,
+          -0.24202308
+        ],
+        "depth": -0.05020949
+      },
+      {
+        "point": [
+          0.13663369,
+          -0.16590661,
+          0.560826
+        ],
+        "depth": -0.6293689
+      },
+      {
+        "point": [
+          -0.13501382,
+          0.40070379,
+          0.06357861
+        ],
+        "depth": -0.1719861
+      }
+    ]
+  },
+  {
+    "name": "cone8-tet-overlap",
+    "posA": [
+      0,
+      0.40000001,
+      0
+    ],
+    "posB": [
+      0,
+      0,
+      0
+    ],
+    "quatA": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "quatB": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "separated": false,
+    "separatingNormal": [
+      0,
+      1,
+      0
+    ],
+    "numClipContacts": 0,
+    "numReducedContacts": 0,
+    "contacts": []
+  }
+]

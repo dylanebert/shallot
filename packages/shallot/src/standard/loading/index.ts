@@ -1,15 +1,41 @@
+import { version } from "../../../package.json";
+import { UnsupportedError } from "../../engine";
 import type { Loading } from "../../engine/app";
-export type { Loading };
 
 interface Theme {
     bg: string;
+    surface: string;
     track: string;
     bar: string;
     text: string;
+    muted: string;
+    amber: string;
+    red: string;
 }
 
-const dark: Theme = { bg: "#1a1816", track: "#252220", bar: "#d49560", text: "#e8e0d8" };
-const light: Theme = { bg: "#f5f5f5", track: "#ddd", bar: "#B87654", text: "#3D2415" };
+const dark: Theme = {
+    bg: "#1a1816",
+    surface: "#252220",
+    track: "#252220",
+    bar: "#d49560",
+    text: "#e8e0d8",
+    muted: "#8a7d70",
+    amber: "#e8a86b",
+    red: "#c4574b",
+};
+
+const light: Theme = {
+    bg: "#f5f5f5",
+    surface: "#e8e0d8",
+    track: "#ddd",
+    bar: "#B87654",
+    text: "#3D2415",
+    muted: "#6B4230",
+    amber: "#a55c2c",
+    red: "#9b3528",
+};
+
+const SUPPORT_URL = "https://caniuse.com/webgpu";
 
 const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 285 80">
   <defs>
@@ -34,6 +60,23 @@ const LOGO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 285 80">
   </g>
 </svg>`;
 
+const WARNING_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="32" height="32" aria-hidden="true">
+  <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+  <line x1="12" y1="9" x2="12" y2="13"/>
+  <line x1="12" y1="17" x2="12.01" y2="17"/>
+</svg>`;
+
+const ERROR_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" width="32" height="32" aria-hidden="true">
+  <circle cx="12" cy="12" r="10"/>
+  <line x1="15" y1="9" x2="9" y2="15"/>
+  <line x1="9" y1="9" x2="15" y2="15"/>
+</svg>`;
+
+const ARROW_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14" aria-hidden="true">
+  <line x1="7" y1="17" x2="17" y2="7"/>
+  <polyline points="7 7 17 7 17 17"/>
+</svg>`;
+
 function createOverlay(bg: string, container?: HTMLElement): HTMLDivElement | null {
     if (typeof document === "undefined") return null;
 
@@ -41,13 +84,20 @@ function createOverlay(bg: string, container?: HTMLElement): HTMLDivElement | nu
 
     const parent = container ?? document.querySelector("canvas")?.parentElement ?? document.body;
 
+    // a scroll container, not a fixed center: the panel centers itself with `margin: auto`, which
+    // collapses to the scroll start when content is taller than the viewport (small phones) instead
+    // of clipping the top — `justify-content: center` would make the overflow unreachable.
+    //
+    // `inset: 0` fills the parent, but a full-page parent is `100vh` — the *large* viewport, which on
+    // mobile spans behind the dynamic URL bar. A card centered there has its lower edge hidden behind
+    // the browser chrome and, fitting within `100vh`, never becomes scrollable. `max-height: 100dvh`
+    // caps the overlay to the *visible* viewport, so centering and scroll both stay on-screen.
     overlay.style.cssText = `
         position: absolute;
         inset: 0;
+        max-height: 100dvh;
         display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
+        overflow: auto;
         background: ${bg};
         z-index: 10000;
     `;
@@ -60,10 +110,30 @@ function createOverlay(bg: string, container?: HTMLElement): HTMLDivElement | nu
     return overlay;
 }
 
+// the single centered column every overlay state fills. `margin: auto` centers it in both axes when
+// it fits and resolves to the scroll start when it doesn't (see createOverlay). `align` is `center`
+// for the loading logo/bar, `stretch` for the left-aligned error cards.
+function panel(maxWidth: number, align: string): HTMLDivElement {
+    const el = document.createElement("div");
+    el.style.cssText = `
+        margin: auto;
+        width: 100%;
+        max-width: ${maxWidth}px;
+        display: flex;
+        flex-direction: column;
+        align-items: ${align};
+        gap: 16px;
+        padding: 32px 24px;
+        box-sizing: border-box;
+    `;
+    return el;
+}
+
 function createProgressBar(theme: Theme): { track: HTMLDivElement; bar: HTMLDivElement } {
     const track = document.createElement("div");
     track.style.cssText = `
         width: 228px;
+        max-width: 100%;
         height: 4px;
         background: ${theme.track};
         overflow: hidden;
@@ -81,47 +151,210 @@ function createProgressBar(theme: Theme): { track: HTMLDivElement; bar: HTMLDivE
     return { track, bar };
 }
 
-function showError(
-    overlay: HTMLDivElement,
-    message: string,
-    theme: Theme,
-    track?: HTMLDivElement,
-): void {
-    const el = document.createElement("div");
-    el.style.cssText = `max-width: 400px; color: ${theme.text}; font: 14px/1.5 system-ui, sans-serif; text-align: center;`;
-    el.textContent = message;
-    if (track) {
-        track.replaceWith(el);
-    } else {
-        overlay.appendChild(el);
+function fontStack(): string {
+    return "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+}
+
+function monoStack(): string {
+    return "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace";
+}
+
+function diagnosticText(error: Error): string {
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "unknown";
+    const stack = error.stack ?? `${error.name}: ${error.message}`;
+    return `shallot v${version}\n${stack}\n\nUser agent: ${ua}`;
+}
+
+function createLink(label: string, href: string, accent: string): HTMLAnchorElement {
+    const a = document.createElement("a");
+    a.href = href;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.style.cssText = `
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        color: ${accent};
+        font: 500 13px/1 ${fontStack()};
+        text-decoration: none;
+        padding: 8px 12px;
+        border: 1px solid ${accent}55;
+        border-radius: 4px;
+        transition: background 0.12s ease, border-color 0.12s ease;
+    `;
+    a.innerHTML = `<span>${label}</span>${ARROW_ICON}`;
+    a.addEventListener("mouseenter", () => {
+        a.style.background = `${accent}14`;
+        a.style.borderColor = `${accent}aa`;
+    });
+    a.addEventListener("mouseleave", () => {
+        a.style.background = "transparent";
+        a.style.borderColor = `${accent}55`;
+    });
+    return a;
+}
+
+function createButton(label: string, accent: string): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    b.style.cssText = `
+        appearance: none;
+        background: transparent;
+        color: ${accent};
+        font: 500 13px/1 ${fontStack()};
+        padding: 8px 12px;
+        border: 1px solid ${accent}55;
+        border-radius: 4px;
+        cursor: pointer;
+        transition: background 0.12s ease, border-color 0.12s ease;
+    `;
+    b.addEventListener("mouseenter", () => {
+        b.style.background = `${accent}14`;
+        b.style.borderColor = `${accent}aa`;
+    });
+    b.addEventListener("mouseleave", () => {
+        b.style.background = "transparent";
+        b.style.borderColor = `${accent}55`;
+    });
+    return b;
+}
+
+function renderUnsupported(overlay: HTMLDivElement, error: UnsupportedError, theme: Theme): void {
+    overlay.replaceChildren();
+
+    const card = panel(440, "stretch");
+
+    const head = document.createElement("div");
+    head.style.cssText = `display: flex; align-items: center; gap: 12px; color: ${theme.amber};`;
+    head.innerHTML = `${WARNING_ICON}<div style="font: 600 18px/1.2 ${fontStack()};">Unsupported configuration</div>`;
+    card.appendChild(head);
+
+    const body = document.createElement("p");
+    body.style.cssText = `margin: 0; color: ${theme.text}; font: 14px/1.5 ${fontStack()};`;
+    body.textContent = error.message;
+    card.appendChild(body);
+
+    if (error.missing.length > 0) {
+        const list = document.createElement("div");
+        list.style.cssText = `display: flex; flex-wrap: wrap; gap: 6px;`;
+        for (const feat of error.missing) {
+            const pill = document.createElement("code");
+            pill.textContent = feat;
+            pill.style.cssText = `
+                background: ${theme.surface};
+                color: ${theme.amber};
+                font: 12px/1 ${monoStack()};
+                padding: 6px 8px;
+                border-radius: 3px;
+            `;
+            list.appendChild(pill);
+        }
+        card.appendChild(list);
     }
+
+    const hint = document.createElement("p");
+    hint.style.cssText = `margin: 0; color: ${theme.muted}; font: 13px/1.5 ${fontStack()};`;
+    hint.textContent = "Use a recent Chromium browser (Chrome, Edge, Brave) on desktop or Android.";
+    card.appendChild(hint);
+
+    const actions = document.createElement("div");
+    actions.style.cssText = `display: flex; gap: 8px;`;
+    actions.appendChild(createLink("Browser support", SUPPORT_URL, theme.amber));
+    card.appendChild(actions);
+
+    overlay.appendChild(card);
+}
+
+function renderEngineError(overlay: HTMLDivElement, error: Error, theme: Theme): void {
+    overlay.replaceChildren();
+
+    const card = panel(520, "stretch");
+
+    const head = document.createElement("div");
+    head.style.cssText = `display: flex; align-items: center; gap: 12px; color: ${theme.red};`;
+    head.innerHTML = `${ERROR_ICON}<div style="font: 600 18px/1.2 ${fontStack()};">Something went wrong</div>`;
+    card.appendChild(head);
+
+    const body = document.createElement("p");
+    body.style.cssText = `margin: 0; color: ${theme.text}; font: 14px/1.5 ${fontStack()};`;
+    body.textContent =
+        "An error occurred during startup. The details below can help identify the cause.";
+    card.appendChild(body);
+
+    const detail = document.createElement("pre");
+    detail.style.cssText = `
+        margin: 0;
+        background: ${theme.surface};
+        color: ${theme.text};
+        font: 12px/1.5 ${monoStack()};
+        padding: 12px;
+        border-radius: 4px;
+        max-height: 200px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+    `;
+    detail.textContent = `${error.name}: ${error.message}`;
+    card.appendChild(detail);
+
+    const actions = document.createElement("div");
+    actions.style.cssText = `display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap;`;
+
+    const copy = createButton("Copy details", theme.red);
+    let resetTimer: ReturnType<typeof setTimeout> | null = null;
+    copy.addEventListener("click", async () => {
+        try {
+            await navigator.clipboard.writeText(diagnosticText(error));
+            copy.textContent = "Copied";
+            if (resetTimer) clearTimeout(resetTimer);
+            resetTimer = setTimeout(() => {
+                copy.textContent = "Copy details";
+            }, 1500);
+        } catch {
+            copy.textContent = "Copy failed";
+        }
+    });
+    actions.appendChild(copy);
+    card.appendChild(actions);
+
+    overlay.appendChild(card);
+}
+
+function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): void {
+    if (error instanceof UnsupportedError) {
+        renderUnsupported(overlay, error, theme);
+        return;
+    }
+    const wrapped = error instanceof Error ? error : new Error(String(error));
+    renderEngineError(overlay, wrapped, theme);
 }
 
 function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
-    let track: HTMLDivElement | null = null;
 
     return {
         show() {
             overlay = createOverlay(theme.bg, container);
             if (!overlay) return;
 
+            const content = panel(276, "center");
+
             const logo = document.createElement("div");
             logo.innerHTML = LOGO_SVG;
-            logo.style.cssText = "width: 228px; height: 64px; margin-bottom: 24px;";
-            overlay.appendChild(logo);
+            logo.style.cssText = "width: 228px; max-width: 100%; height: auto;";
+            content.appendChild(logo);
 
             const progressBar = createProgressBar(theme);
             bar = progressBar.bar;
-            track = progressBar.track;
-            overlay.appendChild(progressBar.track);
+            content.appendChild(progressBar.track);
+            overlay.appendChild(content);
 
             return () => {
                 overlay?.remove();
                 overlay = null;
                 bar = null;
-                track = null;
             };
         },
 
@@ -129,8 +362,8 @@ function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
             if (bar) bar.style.width = `${progress * 100}%`;
         },
 
-        error(message) {
-            if (overlay) showError(overlay, message, theme, track ?? undefined);
+        error(error) {
+            if (overlay) renderError(overlay, error, theme);
         },
     };
 }
@@ -138,23 +371,22 @@ function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
 function minimalLoading(theme: Theme, container?: HTMLElement): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
-    let track: HTMLDivElement | null = null;
 
     return {
         show() {
             overlay = createOverlay(theme.bg, container);
             if (!overlay) return;
 
+            const content = panel(276, "center");
             const progressBar = createProgressBar(theme);
             bar = progressBar.bar;
-            track = progressBar.track;
-            overlay.appendChild(progressBar.track);
+            content.appendChild(progressBar.track);
+            overlay.appendChild(content);
 
             return () => {
                 overlay?.remove();
                 overlay = null;
                 bar = null;
-                track = null;
             };
         },
 
@@ -162,15 +394,17 @@ function minimalLoading(theme: Theme, container?: HTMLElement): Loading {
             if (bar) bar.style.width = `${progress * 100}%`;
         },
 
-        error(message) {
-            if (overlay) showError(overlay, message, theme, track ?? undefined);
+        error(error) {
+            if (overlay) renderError(overlay, error, theme);
         },
     };
 }
 
+/** dark-theme startup screen: the Shallot logo over a progress bar. the engine default. */
 export const shallotDark = (container?: HTMLElement): Loading => shallotLoading(dark, container);
+/** light-theme startup screen: the Shallot logo over a progress bar */
 export const shallotLight = (container?: HTMLElement): Loading => shallotLoading(light, container);
+/** dark-theme startup screen: a bare progress bar, no logo */
 export const minimalDark = (container?: HTMLElement): Loading => minimalLoading(dark, container);
+/** light-theme startup screen: a bare progress bar, no logo */
 export const minimalLight = (container?: HTMLElement): Loading => minimalLoading(light, container);
-
-export { shallotDark as canvasLoading };

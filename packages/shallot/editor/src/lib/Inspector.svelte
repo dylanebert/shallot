@@ -1,33 +1,30 @@
 <script lang="ts">
     import type { Document, Node, Command } from "@dylanebert/shallot/editor";
-    import { parseFields, formatFields, type Diagnostic, type State } from "@dylanebert/shallot";
-    import { getComponent, getComponents, dependencies, schema, readFields, type Derived, type Traits } from "@dylanebert/shallot/ecs/core";
-    import { getMeta, Plus, ChevronRight, TriangleAlert, groupComponents, type ComponentGroup } from "./components";
+    import { type Diagnostic, type State, type Unit } from "@dylanebert/shallot";
+    import { formatFields, parseFields } from "@dylanebert/shallot/scene/core";
+    import { dependencies, entries, exclusions, isSingleton, kebab, readFields } from "@dylanebert/shallot/ecs/core";
+    import { getMeta, nodeLabel, Plus, ChevronRight, TriangleAlert, groupComponents, type ComponentGroup } from "./components";
+    import { multiSections, lookup, dotted, wide, type FieldMap } from "./sections";
+    import { fieldDocs, plain } from "./fielddocs";
+    import { CircleHelp } from "lucide-static";
     import Icon from "./Icon.svelte";
+    import SectionLabel from "./SectionLabel.svelte";
+    import Select from "./Select.svelte";
     import { dismissOnClickOutside } from "./dismiss";
+    import { fit, type Rect } from "./place";
 
-    type FieldEntry =
-        | { type: "float"; key: string; label: string; value: number }
-        | { type: "vec3"; base: string; label: string; x: number; y: number; z: number }
-        | { type: "vec2"; base: string; label: string; x: number; y: number }
-        | { type: "color"; key: string; label: string; value: number }
-        | { type: "enum"; key: string; label: string; value: number; options: Record<string, number> }
-        | { type: "other"; label: string; value: string };
+    const point = (x: number, y: number): Rect => ({ left: x, top: y, right: x, bottom: y });
 
-    type ComponentSection = {
-        name: string;
-        fields: FieldEntry[];
-        parsed: Record<string, number | string> | null;
-        registered: boolean;
-        diagnosticMessage?: string;
-    };
-
-    let { doc, version, diagnostics, ecs, nodeMap, onchange, onsync, onremove, onadd, onreorder }: {
+    let { doc, version, diagnostics, ecs, nodeMap, docsFor, ondocs, onchange, onsync, onremove, onadd, onreorder }: {
         doc: Document;
         version: number;
         diagnostics: Diagnostic[];
         ecs: State | null;
         nodeMap: Map<Node, number>;
+        /** does a component have a doc page? — gates the section's docs affordance (App passes docFor) */
+        docsFor: (component: string) => { slug: string; anchor?: string } | null;
+        /** open the docs reader at a component's reference (the context-sensitive help seam) */
+        ondocs: (component: string) => void;
         onchange: () => void;
         onsync: (node: Node, attrName: string, fields: Record<string, number | string>) => void;
         onremove: (node: Node, attrName: string) => void;
@@ -35,23 +32,44 @@
         onreorder: () => void;
     } = $props();
 
-    let contextMenu: { x: number; y: number; node: Node; name: string } | null = $state.raw(null);
+    let contextMenu: { x: number; y: number; name: string } | null = $state.raw(null);
 
-    function removeComponent(node: Node, name: string) {
-        doc.removeAttr(node, name);
-        onremove(node, name);
+    // whether a node carries a component, by scene attr or live ECS — the multi-select intersection test
+    // for which components are shared (removable from all) vs addable (some node lacks it).
+    function hasComponent(node: Node, name: string): boolean {
+        if (node.attrs.some((a) => a.name === name)) return true;
+        const eid = ecs ? nodeMap?.get(node) : undefined;
+        if (eid === undefined) return false;
+        const reg = lookup(name);
+        return !!(reg && ecs!.has(eid, reg.component as never));
+    }
+
+    // remove a component from every selected node that has it, as one undo.
+    function removeComponent(name: string) {
+        const commands: Command[] = [];
+        const removed: Node[] = [];
+        for (const node of selectedNodes) {
+            const index = node.attrs.findIndex((a) => a.name === name);
+            if (index < 0) continue;
+            commands.push({ type: "removeAttr", node, name, prev: node.attrs[index].value, index });
+            removed.push(node);
+        }
+        if (commands.length === 0) return;
+        if (commands.length === 1) doc.removeAttr(removed[0], name);
+        else doc.compound(commands);
+        for (const node of removed) onremove(node, name);
         onchange();
     }
 
-    function showContextMenu(e: MouseEvent, node: Node, name: string) {
-        contextMenu = { x: e.clientX, y: e.clientY, node, name };
+    function showContextMenu(e: MouseEvent, name: string) {
+        contextMenu = { x: e.clientX, y: e.clientY, name };
     }
 
     function handleContextRemove() {
-        if (!contextMenu || !selected) return;
+        if (!contextMenu) return;
         const { name } = contextMenu;
         contextMenu = null;
-        removeComponent(selected, name);
+        removeComponent(name);
     }
 
     $effect(() => {
@@ -61,24 +79,20 @@
 
     let addOpen = $state(false);
     let addFilter = $state("");
-    let addBtnEl = $state<HTMLButtonElement>();
+    let addBtnEl: HTMLButtonElement | undefined = $state();
     let pickerStyle = $state("");
+    let addUp = $state(false);
 
+    // a component is addable to the selection when at least one selected node lacks it (so Add Component
+    // fills the gaps); single-select reduces to "the node doesn't already have it". Derived decorations
+    // (glTF's Textured/Skin) are system-owned, never authorable, so they don't offer.
     let availableComponents = $derived.by(() => {
         void version;
-        if (!selected) return [];
-        const existing = new Set(selected.attrs.map((a) => a.name));
-        const eid = ecs ? nodeMap?.get(selected) : undefined;
-        return getComponents()
+        if (selectedNodes.length === 0) return [];
+        return [...entries()]
+            .filter((r) => !r.traits?.derived)
             .map((r) => r.name)
-            .filter((n) => {
-                if (existing.has(n)) return false;
-                if (eid !== undefined) {
-                    const reg = getComponent(n);
-                    if (reg && ecs!.hasComponent(eid, reg.component as never)) return false;
-                }
-                return true;
-            });
+            .filter((n) => selectedNodes.some((node) => !hasComponent(node, n)));
     });
 
     let matches = $derived(
@@ -91,10 +105,29 @@
         return groupComponents(matches);
     });
 
+    // the flattened visual order (grouped by category) — keyboard nav and the focused-summary
+    // index into this, not the raw registration-order `matches`, so the cursor walks rows top to bottom.
+    let ordered = $derived(groups.flatMap((g) => g.items));
+
     let focusIdx = $state(-1);
 
+    // the focused row's docs, shown in the picker footer — tracks the one cursor (mouse hover or
+    // keyboard arrow), so it reads the same for both input modes. The summary is author prose
+    // (fielddocs); the chips are structured traits read live from the registry, never prose.
+    let focusedInfo = $derived.by(() => {
+        if (focusIdx < 0 || focusIdx >= ordered.length) return null;
+        const name = ordered[focusIdx];
+        const raw = fieldDocs[name]?.summary;
+        const summary = raw ? plain(raw) : null;
+        const requires = dependencies(name);
+        const excludes = exclusions(name);
+        const singleton = isSingleton(name);
+        if (!summary && !singleton && !requires.length && !excludes.length) return null;
+        return { summary, requires, excludes, singleton };
+    });
+
     function handlePickerKey(e: KeyboardEvent) {
-        const total = matches.length;
+        const total = ordered.length;
         if (!total) return;
         if (e.key === "ArrowDown") {
             e.preventDefault();
@@ -104,7 +137,7 @@
             focusIdx = focusIdx > 0 ? focusIdx - 1 : total - 1;
         } else if (e.key === "Enter" && focusIdx >= 0 && focusIdx < total) {
             e.preventDefault();
-            addComponent(matches[focusIdx]);
+            addComponent(ordered[focusIdx]);
         }
     }
 
@@ -118,7 +151,8 @@
         const spaceAbove = rect.top;
         const spaceBelow = window.innerHeight - rect.bottom;
         const lr = `position:fixed;left:${rect.left}px;right:${window.innerWidth - rect.right}px`;
-        pickerStyle = spaceAbove > spaceBelow
+        addUp = spaceAbove > spaceBelow;
+        pickerStyle = addUp
             ? `${lr};bottom:${window.innerHeight - rect.top + 4}px;--slide:4px`
             : `${lr};top:${rect.bottom + 4}px;--slide:-4px`;
         addOpen = true;
@@ -126,35 +160,42 @@
         focusIdx = -1;
     }
 
+    // add a component (and its missing dependencies) to every selected node that lacks it, as one undo.
     function addComponent(name: string) {
-        if (!selected) return;
-        const reg = getComponent(name);
+        if (selectedNodes.length === 0) return;
+        const reg = lookup(name);
         const defaults = reg?.traits?.defaults?.() ?? {};
         const value = formatFields(name, defaults);
 
-        const existing = new Set(selected.attrs.map((a) => a.name));
-        const depCommands: Command[] = [];
-        for (const dep of dependencies(name)) {
-            if (!existing.has(dep)) {
-                const depReg = getComponent(dep);
+        const commands: Command[] = [];
+        const added: { node: Node; name: string }[] = [];
+        for (const node of selectedNodes) {
+            if (hasComponent(node, name)) continue;
+            const have = new Set(node.attrs.map((a) => a.name));
+            commands.push({ type: "addAttr", node, name, value });
+            added.push({ node, name });
+            for (const dep of dependencies(name)) {
+                if (have.has(dep) || hasComponent(node, dep)) continue;
+                have.add(dep);
+                const depReg = lookup(dep);
                 const depDefaults = depReg?.traits?.defaults?.() ?? {};
-                depCommands.push({ type: "addAttr", node: selected, name: dep, value: formatFields(dep, depDefaults) });
+                commands.push({ type: "addAttr", node, name: dep, value: formatFields(dep, depDefaults) });
+                added.push({ node, name: dep });
             }
         }
 
-        if (depCommands.length === 0) {
-            doc.addAttr(selected, name, value);
+        if (commands.length === 0) {
+            addOpen = false;
+            return;
+        }
+        if (commands.length === 1) {
+            const c = commands[0] as Extract<Command, { type: "addAttr" }>;
+            doc.addAttr(c.node, c.name, c.value);
         } else {
-            doc.compound([
-                { type: "addAttr", node: selected, name, value },
-                ...depCommands,
-            ]);
+            doc.compound(commands);
         }
 
-        onadd(selected, name);
-        for (const cmd of depCommands) {
-            if (cmd.type === "addAttr") onadd(selected, cmd.name);
-        }
+        for (const a of added) onadd(a.node, a.name);
 
         onchange();
         collapseState.set(name, true);
@@ -186,205 +227,72 @@
         collapseState = new Map(collapseState);
     }
 
-    let selected = $derived(
-        version >= 0 && doc.selection.size === 1 ? doc.selection.values().next().value! : null
-    );
+    // the selection as an ordered list (insertion order, so the last is the active node) and `selected`
+    // = that active node. The inspector edits the whole selection: `sectionViews` shows the components
+    // shared across it (mixed fields flagged), and each edit fans out to every selected node as one undo.
+    let selectedNodes = $derived.by((): Node[] => {
+        void version;
+        return [...doc.selection];
+    });
+    let selected = $derived(selectedNodes.at(-1) ?? null);
 
     $effect(() => {
         void selected;
         animate = false;
     });
 
-    let sections = $derived.by(() => {
+    let sectionViews = $derived.by(() => {
         void version;
-        if (!selected) return [];
-        const eid = ecs ? nodeMap?.get(selected) : undefined;
-
-        const result: ComponentSection[] = [];
-        const seen = new Set<string>();
-        for (const attr of selected.attrs) {
-            seen.add(attr.name);
-            result.push(eid !== undefined ? analyzeFromECS(attr.name, eid) : analyzeAttr(attr));
-        }
-
-        if (eid !== undefined) {
-            for (const { name, component } of getComponents()) {
-                if (seen.has(name)) continue;
-                if (!ecs!.hasComponent(eid, component as never)) continue;
-                result.push(analyzeFromECS(name, eid));
-            }
-        }
-        return result;
+        if (selectedNodes.length === 0) return [];
+        const eids = selectedNodes.map((n) => (ecs ? nodeMap?.get(n) : undefined));
+        return multiSections(selectedNodes, eids, ecs, diagnostics);
     });
 
-    function toKebab(s: string): string {
-        return s.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase();
-    }
-
-    function round(v: number): number {
-        return Math.round(v * 1000) / 1000;
-    }
-
-    function isCustomField(key: string, traits: { format?: Record<string, unknown>; parse?: Record<string, unknown> } | undefined): boolean {
-        return !!(traits?.format?.[key] || traits?.parse?.[key]);
-    }
-
-    function getDerived(t: Traits | undefined): Record<string, Derived> | undefined {
-        return t?.annotations?.derived as Record<string, Derived> | undefined;
-    }
-
-    function buildFields(name: string, parsed: Record<string, number | string>): FieldEntry[] {
-        const reg = getComponent(name);
-        if (!reg) return [];
-        const s = schema(name);
-        if (!s) return [];
-        const traits = reg.traits;
-        const fields: FieldEntry[] = [];
-
-        for (const info of s.fields) {
-            switch (info.kind) {
-                case "vec4": {
-                    const [xK, yK, zK, wK] = info.fields!;
-                    fields.push({ type: "other", label: toKebab(info.name), value: `${round(parsed[xK] as number)} ${round(parsed[yK] as number)} ${round(parsed[zK] as number)} ${round(parsed[wK] as number)}` });
-                    break;
-                }
-                case "vec3": {
-                    const [xK, yK, zK] = info.fields!;
-                    if (isCustomField(xK, traits)) {
-                        fields.push({ type: "other", label: toKebab(info.name), value: `${parsed[xK]} ${parsed[yK]} ${parsed[zK]}` });
-                    } else {
-                        fields.push({ type: "vec3", base: info.name, label: toKebab(info.name), x: round(parsed[xK] as number), y: round(parsed[yK] as number), z: round(parsed[zK] as number) });
-                    }
-                    break;
-                }
-                case "vec2": {
-                    const [xK, yK] = info.fields!;
-                    if (isCustomField(xK, traits)) {
-                        fields.push({ type: "other", label: toKebab(info.name), value: `${parsed[xK]} ${parsed[yK]}` });
-                    } else {
-                        fields.push({ type: "vec2", base: info.name, label: toKebab(info.name), x: round(parsed[xK] as number), y: round(parsed[yK] as number) });
-                    }
-                    break;
-                }
-                case "enum": {
-                    const val = parsed[info.name];
-                    if (typeof val === "number" && info.options) {
-                        fields.push({ type: "enum", key: info.name, label: toKebab(info.name), value: val, options: info.options });
-                    }
-                    break;
-                }
-                case "color": {
-                    const val = parsed[info.name];
-                    if (typeof val === "number") {
-                        fields.push({ type: "color", key: info.name, label: toKebab(info.name), value: val });
-                    }
-                    break;
-                }
-                case "float": {
-                    const val = parsed[info.name];
-                    if (typeof val === "number") {
-                        fields.push({ type: "float", key: info.name, label: toKebab(info.name), value: round(val) });
-                    } else {
-                        const formatFn = traits?.format?.[info.name] as ((v: number) => string) | undefined;
-                        const display = formatFn && typeof val === "number" ? formatFn(val) ?? String(val) : String(val);
-                        fields.push({ type: "other", label: toKebab(info.name), value: display });
-                    }
-                    break;
-                }
-                case "string": {
-                    const val = parsed[info.name];
-                    fields.push({ type: "other", label: toKebab(info.name), value: String(val ?? "") });
-                    break;
-                }
-            }
-        }
-
-        for (const virt of s.derived) {
-            const p = parsed as Record<string, number>;
-            if (virt.kind === "vec3" && virt.fields) {
-                const [xK, yK, zK] = virt.fields;
-                fields.push({
-                    type: "vec3",
-                    base: "derived:" + virt.name,
-                    label: toKebab(virt.name),
-                    x: round(getDerived(traits)![xK].get(p)),
-                    y: round(getDerived(traits)![yK].get(p)),
-                    z: round(getDerived(traits)![zK].get(p)),
-                });
-            } else {
-                fields.push({
-                    type: "float",
-                    key: "derived:" + virt.name,
-                    label: toKebab(virt.name),
-                    value: round(getDerived(traits)![virt.name].get(p)),
-                });
-            }
-        }
-
-        return fields;
-    }
-
-    function analyzeAttr(attr: { name: string; value: string }): ComponentSection {
-        const reg = getComponent(attr.name);
-        if (!reg) {
-            const diag = selected ? diagnostics.find((d) => d.node === selected && d.attr === attr.name) : undefined;
-            return { name: attr.name, fields: [], parsed: null, registered: false, diagnosticMessage: diag?.message };
-        }
-
-        let parsed: Record<string, number | string>;
-        try {
-            const defaults = reg.traits?.defaults?.() ?? {};
-            if (attr.value) {
-                parsed = { ...defaults, ...parseFields(attr.name, attr.value) };
-            } else {
-                parsed = defaults;
-            }
-        } catch {
-            return { name: attr.name, fields: [], parsed: null, registered: true };
-        }
-
-        return { name: attr.name, fields: buildFields(attr.name, parsed), parsed, registered: true };
-    }
-
-    function analyzeFromECS(name: string, eid: number): ComponentSection {
-        const reg = getComponent(name);
-        if (!reg) return { name, fields: [], parsed: null, registered: false };
-
-        const defaults = reg.traits?.defaults?.() ?? {};
-        const fields = readFields(reg.component, eid);
-        const parsed = { ...defaults, ...fields };
-
-        return { name, fields: buildFields(name, parsed), parsed, registered: true };
-    }
-
-    function ensureAttr(node: Node, attrName: string, parsed: Record<string, number | string>) {
+    function ensureAttr(node: Node, attrName: string, parsed: FieldMap) {
         if (!node.attrs.find((a) => a.name === attrName)) {
             doc.addAttr(node, attrName, formatFields(attrName, parsed));
             onadd(node, attrName);
         }
     }
 
-    function updateField(node: Node, attrName: string, parsed: Record<string, number | string>, fieldKey: string, value: number) {
-        if (fieldKey.startsWith("derived:")) {
-            const realKey = fieldKey.slice(8);
-            const reg = getComponent(attrName);
-            const virt = getDerived(reg?.traits)?.[realKey];
-            if (!virt) return;
-            const realUpdates = virt.set(value, parsed as Record<string, number>);
-            const updated = { ...parsed, ...realUpdates };
-            const str = formatFields(attrName, updated);
-            ensureAttr(node, attrName, parsed);
-            doc.setAttr(node, attrName, str);
-            onchange();
-            onsync(node, attrName, { [realKey]: value });
-            return;
-        }
-        const updated = { ...parsed, [fieldKey]: value };
-        const str = formatFields(attrName, updated);
+    // each node's current field values for a component — from its scene attr, else the live ECS. The
+    // per-node read is what lets a multi-edit set one field while preserving every entity's other lanes.
+    function parsedOf(node: Node, attrName: string): FieldMap | null {
+        const reg = lookup(attrName);
+        if (!reg) return null;
+        const defaults = reg.traits?.defaults?.() ?? {};
+        const attr = node.attrs.find((a) => a.name === attrName);
+        if (attr) return attr.value ? { ...defaults, ...parseFields(attrName, attr.value) } : defaults;
+        const eid = nodeMap?.get(node);
+        if (eid === undefined) return null;
+        return { ...defaults, ...readFields(reg.component, eid) };
+    }
+
+    // write one field's absolute value to a node inside an open gesture (doc.begin already called). An
+    // `alias:` key (euler→quat) maps back to the stored lanes from the node's OWN current values.
+    function writeField(node: Node, attrName: string, fieldKey: string, value: number) {
+        const parsed = parsedOf(node, attrName);
+        if (!parsed) return;
         ensureAttr(node, attrName, parsed);
-        doc.setAttr(node, attrName, str);
+        if (fieldKey.startsWith("alias:")) {
+            const [, base, axis] = fieldKey.split(":");
+            const alias = lookup(attrName)?.traits?.aliases?.[base];
+            if (!alias) return;
+            const realUpdates = alias.write(Number(axis), value, dotted(parsed));
+            doc.setAttr(node, attrName, formatFields(attrName, { ...parsed, ...realUpdates }));
+            onsync(node, attrName, realUpdates);
+        } else {
+            doc.setAttr(node, attrName, formatFields(attrName, { ...parsed, [fieldKey]: value }));
+            onsync(node, attrName, { [fieldKey]: value });
+        }
+    }
+
+    // an absolute field edit (typed input, enum, unit), fanned out to every selected node as one undo.
+    function updateField(attrName: string, fieldKey: string, value: number) {
+        doc.begin();
+        for (const node of selectedNodes) writeField(node, attrName, fieldKey, value);
+        doc.commit();
         onchange();
-        onsync(node, attrName, { [fieldKey]: value });
     }
 
     function selectOnFocus(e: FocusEvent) {
@@ -393,6 +301,15 @@
 
     function blurOnEnter(e: KeyboardEvent) {
         if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+    }
+
+    // selected unit per unit-field, editor-only display state (storage stays in its base unit). Keyed by
+    // component + field, so the choice is a per-field view preference shared across entities; default 0.
+    let unitSel: Record<string, number> = $state({});
+    const unitKey = (comp: string, key: string) => `${comp}:${key}`;
+
+    function round(v: number): number {
+        return Math.round(v * 1000) / 1000;
     }
 
     let dragSectionIdx: number | null = $state(null);
@@ -405,6 +322,7 @@
 
     function handleSectionDragStart(e: PointerEvent, idx: number) {
         if (e.button !== 0) return;
+        if (selectedNodes.length !== 1) return; // reorder targets one node's attrs; ambiguous for many
         dragSectionIdx = idx;
         dragPointerId = e.pointerId;
         sectionDragStartY = e.clientY;
@@ -447,53 +365,72 @@
         sectionDragging = false;
     }
 
-    function dragLabel(e: PointerEvent, node: Node, attrName: string, fieldKey: string) {
-        const reg = getComponent(attrName);
-        const defaults = reg?.traits?.defaults?.() ?? {};
-        const attr = node.attrs.find((a) => a.name === attrName);
-        let startValue: string;
-        let fresh: Record<string, number | string>;
-        if (attr) {
-            startValue = attr.value;
-            fresh = startValue ? { ...defaults, ...parseFields(attrName, startValue) } : defaults;
-        } else {
-            const eid = nodeMap?.get(node);
-            if (eid === undefined || !reg) return;
-            fresh = { ...defaults, ...readFields(reg.component, eid) };
-            ensureAttr(node, attrName, fresh);
-            startValue = node.attrs.find((a) => a.name === attrName)!.value;
-        }
+    function dragLabel(e: PointerEvent, attrName: string, fieldKey: string, unit?: Unit) {
+        // the scrub drags one field absolute and writes it to every selected node (writeField), so a
+        // multi-select scrub converges them and commits as one undo. acc seeds from the active node and
+        // holds the shown value (a unit field drags in its shown unit — degrees feel like degrees).
+        const targets = [...selectedNodes];
+        const active = targets.at(-1);
+        if (!active) return;
+        const reg = lookup(attrName);
+        const fresh = parsedOf(active, attrName);
+        if (!fresh) return;
         const label = e.currentTarget as HTMLElement;
-        const input = (label.closest(".vec-field") ?? label.closest(".field-row"))?.querySelector("input") as HTMLInputElement | null;
+        const input = label.closest(".input-cell")?.querySelector("input") as HTMLInputElement | null;
         label.setPointerCapture(e.pointerId);
-        const isDerived = fieldKey.startsWith("derived:");
-        const realKey = isDerived ? fieldKey.slice(8) : fieldKey;
-        const virt = isDerived ? getDerived(reg?.traits)?.[realKey] : undefined;
-        let acc = virt ? virt.get(fresh as Record<string, number>) : ((fresh[fieldKey] as number) ?? 0);
-        const live = { ...fresh };
+        const aliasKey = fieldKey.startsWith("alias:");
+        const [, base, axis] = aliasKey ? fieldKey.split(":") : [];
+        const alias = aliasKey ? reg?.traits?.aliases?.[base] : undefined;
+        const stored0 = (fresh[fieldKey] as number) ?? 0;
+        let acc = alias ? alias.read(dotted(fresh))[Number(axis)] ?? 0 : unit ? unit.to(stored0) : stored0;
         function onMove(ev: PointerEvent) {
             acc += ev.movementX * 0.01;
-            const rounded = Math.round(acc * 1000) / 1000;
-            if (virt) {
-                const realUpdates = virt.set(rounded, live as Record<string, number>);
-                Object.assign(live, realUpdates);
-            } else {
-                live[fieldKey] = rounded;
-            }
+            const rounded = round(acc);
+            // alias takes the shown axis value; unit stores the base-unit value; raw stores the value
+            const value = alias ? rounded : unit ? unit.from(rounded) : rounded;
+            // record the scrub into the gesture: auto-prev at first touch (pristine, before readback
+            // mirrors the live ECS back to attr.value), coalesced to one undoable entry on commit
+            for (const node of targets) writeField(node, attrName, fieldKey, value);
             if (input) input.value = String(rounded);
-            onsync(node, attrName, { [realKey]: rounded });
         }
         function onUp() {
             label.removeEventListener("pointermove", onMove);
             label.removeEventListener("pointerup", onUp);
-            const finalValue = formatFields(attrName, live);
-            if (finalValue !== startValue) {
-                doc.setAttr(node, attrName, finalValue, startValue);
-                onchange();
-            }
+            label.removeEventListener("pointercancel", onUp);
+            doc.commit();
+            onchange();
         }
+        doc.begin();
         label.addEventListener("pointermove", onMove);
         label.addEventListener("pointerup", onUp);
+        // a cancelled pointer must still close the gesture — a left-open one would buffer later edits
+        label.addEventListener("pointercancel", onUp);
+    }
+
+    // layer-1 field help: hovering the title row's "?" reveals a styled popover with the field's
+    // description + type + default, after a short rest so a passing cursor doesn't flash it.
+    let hover: { component: string; field: string; top: number; left: number } | null = $state(null);
+    let hoverTimer: ReturnType<typeof setTimeout> | null = null;
+    const hoverDoc = $derived.by(() => {
+        const h = hover;
+        return h ? fieldDocs[h.component]?.fields[h.field] : undefined;
+    });
+
+    function enterField(e: PointerEvent, component: string, field: string) {
+        const el = e.currentTarget as HTMLElement;
+        if (hoverTimer) clearTimeout(hoverTimer);
+        hoverTimer = setTimeout(() => {
+            const r = el.getBoundingClientRect();
+            hover = { component, field, top: r.top, left: r.left };
+        }, 400);
+    }
+
+    function leaveField() {
+        if (hoverTimer) {
+            clearTimeout(hoverTimer);
+            hoverTimer = null;
+        }
+        hover = null;
     }
 
     function hexToCss(packed: number): string {
@@ -551,29 +488,46 @@
     let pickerCtx: {
         node: Node;
         startValue: string;
-        live: Record<string, number | string>;
+        live: FieldMap;
         dragging: boolean;
     } | null = null;
 
-    let colorPicker: { key: string; attrName: string; h: number; s: number; v: number; x: number; y: number } | null = $state(null);
+    let colorPicker: { key: string; attrName: string; h: number; s: number; v: number; anchor: Rect } | null = $state(null);
+
+    // every selected node the picker writes, with its pristine pre-gesture attr value as the undo prev —
+    // captured at open before any live mirror (onsync → readback) moves attr.value, so the commit's
+    // prev→next is correct even though the value drifted live. One picker edit is one undo across all.
+    let colorTargets: { node: Node; start: string }[] = [];
 
     function syncColorLive() {
-        const ctx = pickerCtx;
         const cp = colorPicker;
-        if (!cp || !ctx) return;
+        if (!cp || !pickerCtx) return;
         const hex = hsvToHex(cp.h, cp.s, cp.v);
-        ctx.live[cp.key] = hex;
-        onsync(ctx.node, cp.attrName, { [cp.key]: hex });
+        pickerCtx.live[cp.key] = hex;
+        for (const t of colorTargets) onsync(t.node, cp.attrName, { [cp.key]: hex });
     }
 
-    function openColorPicker(e: MouseEvent, node: Node, attrName: string, parsed: Record<string, number | string>, key: string, value: number) {
+    function openColorPicker(e: MouseEvent, attrName: string, key: string, value: number) {
         if (colorPicker) commitColorGesture();
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        const active = selectedNodes.at(-1);
+        if (!active) return;
+        const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
         const [h, s, v] = hexToHsv(value);
-        ensureAttr(node, attrName, parsed);
-        const attr = node.attrs.find((a) => a.name === attrName);
-        pickerCtx = { node, startValue: attr?.value ?? "", live: { ...parsed }, dragging: false };
-        colorPicker = { key, attrName, h, s, v, x: rect.left, y: rect.bottom + 4 };
+        colorTargets = [];
+        for (const node of selectedNodes) {
+            const parsed = parsedOf(node, attrName);
+            if (!parsed) continue;
+            ensureAttr(node, attrName, parsed);
+            colorTargets.push({ node, start: node.attrs.find((a) => a.name === attrName)?.value ?? "" });
+        }
+        const activeParsed = parsedOf(active, attrName) ?? {};
+        pickerCtx = {
+            node: active,
+            startValue: active.attrs.find((a) => a.name === attrName)?.value ?? "",
+            live: { ...activeParsed },
+            dragging: false,
+        };
+        colorPicker = { key, attrName, h, s, v, anchor: { left: r.left, top: r.top, right: r.right, bottom: r.bottom } };
     }
 
     function commitColorGesture() {
@@ -581,13 +535,29 @@
         const cp = colorPicker;
         if (!ctx || !cp) return;
         ctx.dragging = false;
-        const finalValue = formatFields(cp.attrName, ctx.live);
-        if (finalValue !== ctx.startValue) {
-            doc.setAttr(ctx.node, cp.attrName, finalValue, ctx.startValue);
-            onchange();
-            ctx.startValue = finalValue;
-            ctx.live = { ...ctx.live };
+        const hex = hsvToHex(cp.h, cp.s, cp.v);
+        // build each node's final from its captured start (readback-independent) + the new hex; one undo
+        const commands: Command[] = [];
+        for (const t of colorTargets) {
+            const reg = lookup(cp.attrName);
+            const defaults = reg?.traits?.defaults?.() ?? {};
+            const base = t.start ? { ...defaults, ...parseFields(cp.attrName, t.start) } : defaults;
+            const final = formatFields(cp.attrName, { ...base, [cp.key]: hex });
+            if (final !== t.start) {
+                commands.push({ type: "setAttr", node: t.node, name: cp.attrName, prev: t.start, next: final });
+                t.start = final;
+            }
         }
+        if (commands.length === 0) return;
+        if (commands.length === 1) {
+            const c = commands[0] as Extract<Command, { type: "setAttr" }>;
+            doc.setAttr(c.node, c.name, c.next, c.prev);
+        } else {
+            doc.compound(commands);
+        }
+        onchange();
+        ctx.startValue = ctx.node.attrs.find((a) => a.name === cp.attrName)?.value ?? ctx.startValue;
+        ctx.live = { ...ctx.live, [cp.key]: hex };
     }
 
     function closeColorPicker() {
@@ -633,7 +603,7 @@
         if (!attr) return;
         if (attr.value !== ctx.startValue) {
             ctx.startValue = attr.value;
-            const reg = getComponent(cp.attrName);
+            const reg = lookup(cp.attrName);
             const defaults = reg?.traits?.defaults?.() ?? {};
             const parsed = attr.value ? { ...defaults, ...parseFields(cp.attrName, attr.value) } : defaults;
             ctx.live = parsed;
@@ -663,11 +633,12 @@
     onpointermove={handleSectionDragMove}
     onpointerup={handleSectionDragEnd}
 >
+    <div class="inspector-head" class:empty={!selected}>
+        {#if selectedNodes.length > 1}{version >= 0 ? `${selectedNodes.length} selected` : ""}{:else if selected}{version >= 0 ? nodeLabel(selected) : ""}{:else}No selection{/if}
+    </div>
     {#if selected}
-        <div class="section id-section">
-            <div class="node-id">{version >= 0 ? (selected.id ?? "entity") : ""}</div>
-        </div>
-        {#each sections as section, sIdx}
+        <SectionLabel label="Components" />
+        {#each sectionViews as section, sIdx}
             {@const meta = getMeta(section.name)}
             {@const expanded = isExpanded(section.name)}
             {#if sectionDragging && dropSectionIdx === sIdx}
@@ -679,7 +650,7 @@
                         class="section-header"
                         role="group"
                         onpointerdown={(e) => handleSectionDragStart(e, sIdx)}
-                        oncontextmenu={(e) => { e.preventDefault(); selected && showContextMenu(e, selected, section.name); }}
+                        oncontextmenu={(e) => { e.preventDefault(); showContextMenu(e, section.name); }}
                     >
                         <Icon icon={TriangleAlert} size={13} strokeWidth={1.5} class="section-icon" />
                         <span class="section-label">{section.name}</span>
@@ -694,7 +665,7 @@
                     class:flag={!hasFields}
                     onclick={() => hasFields && toggleSection(section.name)}
                     onpointerdown={(e) => handleSectionDragStart(e, sIdx)}
-                    oncontextmenu={(e) => { e.preventDefault(); selected && showContextMenu(e, selected, section.name); }}
+                    oncontextmenu={(e) => { e.preventDefault(); showContextMenu(e, section.name); }}
                 >
                     <Icon icon={meta.icon} size={14} strokeWidth={1.5} class="section-icon" />
                     <span class="section-label">{section.name}</span>
@@ -702,133 +673,143 @@
                         <Icon icon={ChevronRight} size={12} strokeWidth={2} class="section-chevron {expanded ? 'expanded' : ''}" />
                     {/if}
                 </button>
+                {#if docsFor(section.name)}
+                    <button
+                        class="section-docs"
+                        class:with-fields={hasFields}
+                        title="Open docs"
+                        aria-label="{section.name} docs"
+                        onclick={() => ondocs(section.name)}
+                    ><Icon icon={CircleHelp} size={12} strokeWidth={2} /></button>
+                {/if}
                 <div class="section-body" class:expanded={hasFields && expanded}>
                     <div class="section-body-inner">
                         <div class="section-fields">
                         {#if section.fields.length > 0}
                             {#each section.fields as field}
-                                {#if field.type === "float"}
-                                    <div class="field-row">
-                                        <span
-                                            role="slider"
-                                            tabindex="-1"
-                                            aria-valuenow={field.value}
-                                            class="field-label drag-label"
-                                            onpointerdown={(e) => selected && dragLabel(e, selected, section.name, field.key)}
-                                        >{field.label}</span>
-                                        <input
-                                            class="field-input"
-                                            type="number"
-                                            step="0.1"
-                                            value={field.value}
-                                            onfocus={selectOnFocus}
-                                            onkeydown={blurOnEnter}
-                                            onchange={(e) => {
-                                                const v = parseFloat((e.target as HTMLInputElement).value);
-                                                if (!Number.isNaN(v) && selected && section.parsed) {
-                                                    updateField(selected, section.name, section.parsed, field.key, v);
-                                                }
-                                            }}
-                                        />
+                                <div class="field-group" class:wide={wide(field)}>
+                                    <div class="field-title">
+                                        <span class="field-name">{field.label}</span>
+                                        {#if fieldDocs[section.name]?.fields[field.label]}
+                                            <button
+                                                class="field-help"
+                                                aria-label="{field.label} info"
+                                                onpointerenter={(e) => enterField(e, section.name, field.label)}
+                                                onpointerleave={leaveField}
+                                                onclick={() => ondocs(section.name)}
+                                            ><Icon icon={CircleHelp} size={11} strokeWidth={2} /></button>
+                                        {/if}
                                     </div>
-                                {:else if field.type === "vec3"}
-                                    <div class="field-row">
-                                        <span class="field-label">{field.label}</span>
-                                        <div class="vec-inputs">
-                                            {#each [["X", field.x], ["Y", field.y], ["Z", field.z]] as [suffix, val]}
-                                                <div class="vec-field">
+                                    {#if field.type === "float"}
+                                        <div class="input-cell">
+                                            <span
+                                                class="cell-handle axis-label"
+                                                role="slider"
+                                                tabindex="-1"
+                                                aria-valuenow={field.value}
+                                                onpointerdown={(e) => dragLabel(e, section.name, field.key)}
+                                            >x</span>
+                                            <input
+                                                class="field-input"
+                                                type="number"
+                                                step="any"
+                                                value={field.mixed ? "" : field.value}
+                                                placeholder={field.mixed ? "—" : undefined}
+                                                onfocus={selectOnFocus}
+                                                onkeydown={blurOnEnter}
+                                                onchange={(e) => {
+                                                    const v = parseFloat((e.target as HTMLInputElement).value);
+                                                    if (!Number.isNaN(v)) updateField(section.name, field.key, v);
+                                                }}
+                                            />
+                                        </div>
+                                    {:else if field.type === "vec"}
+                                        <div class="vec-cells">
+                                            {#each field.axes as axis}
+                                                <div class="input-cell">
                                                     <span
+                                                        class="cell-handle axis-label"
                                                         role="slider"
                                                         tabindex="-1"
-                                                        aria-valuenow={Number(val)}
-                                                        class="vec-label drag-label"
-                                                        onpointerdown={(e) => selected && dragLabel(e, selected, section.name, field.base + suffix)}
-                                                    >{suffix}</span>
+                                                        aria-valuenow={axis.value}
+                                                        onpointerdown={(e) => dragLabel(e, section.name, axis.key)}
+                                                    >{axis.label}</span>
                                                     <input
                                                         class="field-input vec-input"
                                                         type="number"
-                                                        step="0.1"
-                                                        value={val}
+                                                        step="any"
+                                                        value={axis.mixed ? "" : axis.value}
+                                                        placeholder={axis.mixed ? "—" : undefined}
                                                         onfocus={selectOnFocus}
                                                         onkeydown={blurOnEnter}
                                                         onchange={(e) => {
                                                             const v = parseFloat((e.target as HTMLInputElement).value);
-                                                            if (!Number.isNaN(v) && selected && section.parsed) {
-                                                                updateField(selected, section.name, section.parsed, field.base + suffix, v);
-                                                            }
+                                                            if (!Number.isNaN(v)) updateField(section.name, axis.key, v);
                                                         }}
                                                     />
                                                 </div>
                                             {/each}
                                         </div>
-                                    </div>
-                                {:else if field.type === "vec2"}
-                                    <div class="field-row">
-                                        <span class="field-label">{field.label}</span>
-                                        <div class="vec-inputs">
-                                            {#each [["X", field.x], ["Y", field.y]] as [suffix, val]}
-                                                <div class="vec-field">
-                                                    <span
-                                                        role="slider"
-                                                        tabindex="-1"
-                                                        aria-valuenow={Number(val)}
-                                                        class="vec-label drag-label"
-                                                        onpointerdown={(e) => selected && dragLabel(e, selected, section.name, field.base + suffix)}
-                                                    >{suffix}</span>
-                                                    <input
-                                                        class="field-input vec-input"
-                                                        type="number"
-                                                        step="0.1"
-                                                        value={val}
-                                                        onfocus={selectOnFocus}
-                                                        onkeydown={blurOnEnter}
-                                                        onchange={(e) => {
-                                                            const v = parseFloat((e.target as HTMLInputElement).value);
-                                                            if (!Number.isNaN(v) && selected && section.parsed) {
-                                                                updateField(selected, section.name, section.parsed, field.base + suffix, v);
-                                                            }
-                                                        }}
-                                                    />
-                                                </div>
-                                            {/each}
-                                        </div>
-                                    </div>
-                                {:else if field.type === "enum"}
-                                    <div class="field-row">
-                                        <span class="field-label">{field.label}</span>
-                                        <select
-                                            class="field-input field-select"
-                                            value={String(field.value)}
-                                            onchange={(e) => {
-                                                const v = parseInt((e.target as HTMLSelectElement).value);
-                                                if (!Number.isNaN(v) && selected && section.parsed) {
-                                                    updateField(selected, section.name, section.parsed, field.key, v);
-                                                }
-                                            }}
-                                        >
-                                            {#each Object.entries(field.options) as [name, val]}
-                                                <option value={String(val)} selected={val === field.value}>{toKebab(name)}</option>
-                                            {/each}
-                                        </select>
-                                    </div>
-                                {:else if field.type === "color"}
-                                    {@const liveHex = colorPicker && colorPicker.key === field.key && colorPicker.attrName === section.name ? hsvToHex(colorPicker.h, colorPicker.s, colorPicker.v) : field.value}
-                                    <div class="field-row">
-                                        <span class="field-label">{field.label}</span>
-                                        <button
-                                            class="color-swatch"
-                                            style="background: {hexToCss(liveHex)}"
+                                    {:else if field.type === "enum"}
+                                        <Select
                                             title={field.label}
-                                            onclick={(e) => selected && section.parsed && openColorPicker(e, selected, section.name, section.parsed, field.key, field.value)}
-                                        ></button>
-                                        <span class="field-value">{hexToCss(liveHex)}</span>
-                                    </div>
-                                {:else}
-                                    <div class="field-row">
-                                        <span class="field-label">{field.label}</span>
+                                            value={field.value}
+                                            placeholder={field.mixed ? "—" : undefined}
+                                            options={Object.entries(field.options).map(([name, val]) => ({ label: kebab(name), value: val }))}
+                                            onchange={(v) => updateField(section.name, field.key, v)}
+                                        />
+                                    {:else if field.type === "color"}
+                                        {@const liveHex = colorPicker && colorPicker.key === field.key && colorPicker.attrName === section.name ? hsvToHex(colorPicker.h, colorPicker.s, colorPicker.v) : field.value}
+                                        <div class="color-control">
+                                            <button
+                                                class="color-swatch"
+                                                style="background: {hexToCss(liveHex)}"
+                                                aria-label={field.label}
+                                                onclick={(e) => openColorPicker(e, section.name, field.key, field.value)}
+                                            ></button>
+                                            <span class="field-value">{field.mixed ? "—" : hexToCss(liveHex)}</span>
+                                        </div>
+                                    {:else if field.type === "unit"}
+                                        {@const sel = unitSel[unitKey(section.name, field.key)] ?? 0}
+                                        {@const u = field.units[sel] ?? field.units[0]}
+                                        {@const shown = round(u.to(field.value))}
+                                        <div class="input-cell">
+                                            <span
+                                                class="cell-handle axis-label"
+                                                role="slider"
+                                                tabindex="-1"
+                                                aria-valuenow={shown}
+                                                onpointerdown={(e) => dragLabel(e, section.name, field.key, u)}
+                                            >x</span>
+                                            <div class="unit-attach">
+                                                <input
+                                                    class="field-input"
+                                                    type="number"
+                                                    step="any"
+                                                    value={field.mixed ? "" : shown}
+                                                    placeholder={field.mixed ? "—" : undefined}
+                                                    onfocus={selectOnFocus}
+                                                    onkeydown={blurOnEnter}
+                                                    onchange={(e) => {
+                                                        const entered = parseFloat((e.target as HTMLInputElement).value);
+                                                        if (!Number.isNaN(entered)) updateField(section.name, field.key, u.from(entered));
+                                                    }}
+                                                />
+                                                <Select
+                                                    variant="unit"
+                                                    title="{field.label} unit"
+                                                    value={sel}
+                                                    options={field.units.map((uu, i) => ({ label: uu.label, value: i }))}
+                                                    onchange={(v) => {
+                                                        unitSel[unitKey(section.name, field.key)] = v;
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    {:else}
                                         <span class="field-value">{field.value}</span>
-                                    </div>
-                                {/if}
+                                    {/if}
+                                </div>
                             {/each}
                         {/if}
                         </div>
@@ -837,7 +818,7 @@
             </div>
             {/if}
         {/each}
-        {#if sectionDragging && dropSectionIdx === sections.length}
+        {#if sectionDragging && dropSectionIdx === sectionViews.length}
             <div class="section-drop-indicator"></div>
         {/if}
         {#if availableComponents.length > 0}
@@ -848,7 +829,7 @@
                 </button>
                 {#if addOpen}
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="add-component-picker" style={pickerStyle} onkeydown={handlePickerKey}>
+                    <div class="add-component-picker" class:up={addUp} style={pickerStyle} onkeydown={handlePickerKey}>
                         <input
                             class="add-component-search"
                             type="text"
@@ -866,7 +847,7 @@
                                         </div>
                                         {#each group.items as name}
                                             {@const meta = getMeta(name)}
-                                            {@const flatIdx = matches.indexOf(name)}
+                                            {@const flatIdx = ordered.indexOf(name)}
                                             <button
                                                 class="add-component-item"
                                                 class:focused={focusIdx === flatIdx}
@@ -883,14 +864,30 @@
                                 <div class="add-component-empty">No components</div>
                             {/if}
                         </div>
+                        {#if focusedInfo}
+                            <div class="add-component-summary">
+                                {#if focusedInfo.summary}
+                                    <div class="acs-text">{focusedInfo.summary}</div>
+                                {/if}
+                                {#if focusedInfo.singleton || focusedInfo.requires.length || focusedInfo.excludes.length}
+                                    <div class="acs-tags">
+                                        {#if focusedInfo.singleton}
+                                            <span class="acs-tag">one per scene</span>
+                                        {/if}
+                                        {#each focusedInfo.requires as req}
+                                            <span class="acs-tag">requires {req}</span>
+                                        {/each}
+                                        {#each focusedInfo.excludes as exc}
+                                            <span class="acs-tag acs-tag-warn">excludes {exc}</span>
+                                        {/each}
+                                    </div>
+                                {/if}
+                            </div>
+                        {/if}
                     </div>
                 {/if}
             </div>
         {/if}
-    {:else if version >= 0 && doc.selection.size > 1}
-        <div class="hint">{doc.selection.size} nodes selected</div>
-    {:else}
-        <div class="hint">No selection</div>
     {/if}
 
 
@@ -898,10 +895,7 @@
 
 {#if contextMenu}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-        class="context-menu"
-        style="left: {contextMenu.x}px; top: {contextMenu.y}px"
-    >
+    <div class="context-menu" use:fit={{ anchor: point(contextMenu.x, contextMenu.y) }}>
         <button class="context-item" onmousedown={handleContextRemove}>
             Remove
         </button>
@@ -912,10 +906,7 @@
     {@const hueColor = `hsl(${colorPicker.h * 360}, 100%, 50%)`}
     {@const currentCss = hexToCss(hsvToHex(colorPicker.h, colorPicker.s, colorPicker.v))}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div
-        class="color-picker-popover"
-        style="left: {colorPicker.x}px; top: {colorPicker.y}px"
-    >
+    <div class="color-picker-popover" use:fit={{ anchor: colorPicker.anchor }}>
         <div
             class="cp-sv"
             style="background: {hueColor}"
@@ -966,6 +957,19 @@
     </div>
 {/if}
 
+{#if hover && hoverDoc}
+    <div class="field-popover" style="top: {hover.top}px; right: calc(100vw - {hover.left}px + 8px)">
+        <div class="fp-head">
+            <span class="fp-name">{hover.field}</span>
+            <span class="fp-type">{hoverDoc.type}</span>
+        </div>
+        {#if hoverDoc.description}
+            <div class="fp-desc">{plain(hoverDoc.description)}</div>
+        {/if}
+        <div class="fp-default">default {hoverDoc.default}</div>
+    </div>
+{/if}
+
 <style>
     .inspector {
         position: relative;
@@ -973,17 +977,63 @@
     }
 
     .section {
+        position: relative;
         margin-bottom: 2px;
     }
 
-    .id-section {
-        padding: 8px 12px;
+    /* the component's docs affordance — quiet until the section is hovered (editor-ui.md gate 2), sitting
+       just left of the chevron so it never overlaps it. A sibling of the header button, not nested. */
+    .section-docs {
+        position: absolute;
+        top: 0;
+        right: 10px;
+        height: 28px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--text-muted);
+        opacity: 0;
+        cursor: pointer;
+        transition: opacity 150ms var(--ease-out), color 150ms var(--ease-out);
     }
 
-    .node-id {
+    .section-docs.with-fields {
+        right: 30px;
+    }
+
+    .section:hover .section-docs,
+    .section-docs:focus-visible {
+        opacity: 0.65;
+    }
+
+    .section-docs:hover {
+        opacity: 1;
+        color: var(--accent);
+    }
+
+    .inspector-head {
+        height: var(--header-h);
+        line-height: var(--header-h);
+        padding: 0 12px;
         font-size: 13px;
         font-weight: 600;
         color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        position: sticky;
+        top: 0;
+        background: var(--surface-1-solid);
+        z-index: 1;
+    }
+
+    .inspector-head.empty {
+        color: var(--text-muted);
+        font-weight: 500;
     }
 
     .section-header {
@@ -994,21 +1044,20 @@
         height: 28px;
         padding: 0 12px;
         border: none;
-        border-left: 2px solid color-mix(in srgb, var(--section-color) 60%, transparent);
+        border-left: 2px solid var(--section-color);
         border-radius: 0;
         background: var(--surface-2-solid);
         color: var(--text);
         cursor: pointer;
-        transition: background 150ms var(--ease-out), border-left-color 150ms var(--ease-out);
+        transition: background 150ms var(--ease-out);
     }
 
     .section-header:hover {
         background: var(--surface-3);
-        border-left-color: var(--section-color);
     }
 
     .section-header:active {
-        background: rgba(212, 149, 96, 0.08);
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
         transform: scale(0.98);
     }
 
@@ -1020,7 +1069,6 @@
     .section-header :global(.section-icon) {
         flex-shrink: 0;
         color: var(--section-color);
-        opacity: 0.9;
     }
 
     .section-label {
@@ -1028,7 +1076,7 @@
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.04em;
-        color: var(--text-muted);
+        color: var(--text-secondary);
         flex: 1;
         text-align: left;
     }
@@ -1088,35 +1136,65 @@
 
     .section-fields {
         padding: 8px 12px;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 10px;
     }
 
-    .field-row {
+    /* the standard field element: a minimal title row over its value row. Scalars pack two per grid
+       row; multi-component fields (vec) span the full width. */
+    .field-group {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        min-width: 0;
+    }
+
+    .field-group.wide {
+        grid-column: 1 / -1;
+    }
+
+    .field-title {
         display: flex;
         align-items: center;
-        gap: 8px;
-        min-height: 24px;
-        margin-bottom: 4px;
+        gap: 4px;
+        min-width: 0;
+        height: 16px;
     }
 
-    .field-label {
-        width: 72px;
-        flex-shrink: 0;
+    .field-name {
+        min-width: 0;
         font-size: 11px;
-        color: var(--text-secondary);
+        color: var(--text-muted);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         user-select: none;
-        pointer-events: none;
     }
 
-    .drag-label {
-        cursor: ew-resize;
-        pointer-events: auto;
+    /* the subtle "?": hover reveals the field's popover, a click opens the component's docs reference */
+    .field-help {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: none;
+        background: none;
+        color: var(--text-muted);
+        opacity: 0.7;
+        cursor: help;
+        transition: opacity 150ms var(--ease-out), color 150ms var(--ease-out);
+    }
+
+    .field-help:hover {
+        opacity: 1;
+        color: var(--accent);
     }
 
     .field-input {
-        flex: 1;
+        box-sizing: border-box;
+        width: 100%;
         min-width: 0;
         height: 22px;
         padding: 0 8px;
@@ -1137,11 +1215,11 @@
     .field-input:focus {
         border-color: var(--accent);
         background: var(--surface-4);
-        box-shadow: 0 0 0 2px rgba(212, 149, 96, 0.15);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
     }
 
     .field-input::selection {
-        background: rgba(212, 149, 96, 0.3);
+        background: color-mix(in srgb, var(--accent) 30%, transparent);
     }
 
     .field-input::-webkit-inner-spin-button,
@@ -1156,55 +1234,68 @@
         appearance: textfield;
     }
 
-    .field-select {
-        cursor: pointer;
-        -webkit-appearance: none;
-        appearance: none;
-        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E");
-        background-repeat: no-repeat;
-        background-position: right 6px center;
-        padding-right: 20px;
-    }
-
-    .field-select option {
-        background: #2a2928;
-        color: #e8e4df;
-    }
-
-    .vec-inputs {
-        flex: 1;
+    /* a value cell: a leading scrub handle (a type icon for scalars, an axis letter for vec components)
+       then the editable input. The handle scrubs; the input is a plain text field. */
+    .input-cell {
         display: flex;
+        align-items: center;
         gap: 4px;
         min-width: 0;
     }
 
-    .vec-field {
+    .input-cell .field-input {
+        flex: 1;
+        width: auto;
+    }
+
+    .vec-cells {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+    }
+
+    .vec-cells .input-cell {
+        flex: 1 1 auto;
+        min-width: 56px;
+    }
+
+    .cell-handle {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        color: var(--text-muted);
+        cursor: ew-resize;
+        user-select: none;
+    }
+
+    .cell-handle:hover {
+        color: var(--text-secondary);
+    }
+
+    .axis-label {
+        font-size: 10px;
+        font-weight: 600;
+    }
+
+    .color-control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* a unit field: the number input keeps its own field box; the unit dropdown attaches flush to its
+       right (zero gap), outside the field's border — so the dropdown stays the field's appendage, not
+       part of it. */
+    .unit-attach {
         flex: 1;
         display: flex;
         align-items: center;
         min-width: 0;
     }
 
-    .vec-label {
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--text-muted);
-        width: 14px;
-        flex-shrink: 0;
-        text-align: center;
-    }
-
-    .vec-label.drag-label {
-        cursor: ew-resize;
-        user-select: none;
-    }
-
-    .vec-input {
-        flex: 1;
-    }
-
     .field-value {
-        flex: 1;
         font-size: 11px;
         color: var(--text-muted);
         font-family: "JetBrains Mono", monospace;
@@ -1213,9 +1304,54 @@
         white-space: nowrap;
     }
 
-    .hint {
-        padding: 16px 12px;
+    /* layer-1 field help, anchored to the left of the hovered "?" */
+    .field-popover {
+        position: fixed;
+        z-index: 100;
+        max-width: 240px;
+        padding: 8px 10px;
+        background: var(--surface-2-solid);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+        pointer-events: none;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .fp-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+    }
+
+    .fp-name {
         font-size: 12px;
+        font-weight: 600;
+        color: var(--text);
+    }
+
+    .fp-type {
+        font-size: 10px;
+        font-family: "JetBrains Mono", monospace;
+        color: var(--text-muted);
+        background: var(--surface-3-solid);
+        padding: 1px 5px;
+        border-radius: 3px;
+        white-space: nowrap;
+    }
+
+    .fp-desc {
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+    }
+
+    .fp-default {
+        font-size: 10px;
+        font-family: "JetBrains Mono", monospace;
         color: var(--text-muted);
     }
 
@@ -1243,7 +1379,7 @@
     .add-component-btn:hover {
         border-color: var(--accent);
         color: var(--accent);
-        background: rgba(212, 149, 96, 0.04);
+        background: color-mix(in srgb, var(--accent) 4%, transparent);
     }
 
     .add-component-btn:active {
@@ -1255,15 +1391,23 @@
     }
 
     .add-component-picker {
-        background: rgba(38, 37, 36, 0.85);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        display: flex;
+        flex-direction: column;
+        background: var(--surface-3-solid);
         border: 1px solid var(--border);
         border-radius: 6px;
         z-index: 100;
         overflow: hidden;
         animation: dropdown-appear 150ms var(--ease-out);
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    /* opening upward: pin the list to the button, let the variable-height summary
+       grow off the far (top) edge so hovering rows never shifts the list */
+    .add-component-picker.up .add-component-summary {
+        order: -1;
+        border-top: none;
+        border-bottom: 1px solid var(--border);
     }
 
     @keyframes dropdown-appear {
@@ -1379,6 +1523,39 @@
         text-align: center;
     }
 
+    .add-component-summary {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        padding: 8px 10px;
+        border-top: 1px solid var(--border);
+    }
+
+    .acs-text {
+        font-size: 11px;
+        line-height: 1.4;
+        color: var(--text-secondary);
+    }
+
+    .acs-tags {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .acs-tag {
+        font-size: 10px;
+        padding: 1px 6px;
+        border-radius: 3px;
+        background: var(--surface-2);
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+
+    .acs-tag-warn {
+        color: var(--accent);
+    }
+
     .inspector.section-dragging {
         cursor: grabbing;
     }
@@ -1398,9 +1575,7 @@
         position: fixed;
         min-width: 140px;
         padding: 4px;
-        background: rgba(38, 37, 36, 0.85);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        background: var(--surface-3-solid);
         border: 1px solid var(--border);
         border-radius: 6px;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);
@@ -1430,7 +1605,7 @@
     }
 
     .context-item:active {
-        background: rgba(212, 149, 96, 0.08);
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
         transform: scale(0.96);
     }
 
@@ -1459,9 +1634,7 @@
         position: fixed;
         width: 200px;
         padding: 8px;
-        background: rgba(38, 37, 36, 0.85);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        background: var(--surface-3-solid);
         border: 1px solid var(--border);
         border-radius: 6px;
         box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3), 0 1px 4px rgba(0, 0, 0, 0.2);

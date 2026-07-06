@@ -1,13 +1,13 @@
 use crate::envelope::{EnvStage, Envelope};
 use crate::filter::{FilterMode, SvfFilter};
 use crate::oscillator::{oscillator, Waveform};
-use crate::sample::sample_read;
+use crate::sample::{sample_read, sample_read_loop, SampleBuffer};
 use crate::BLOCK_SIZE;
 
 pub const MAX_NODES: usize = 16;
 pub const MAX_BUFFERS: usize = 8;
 pub const MAX_PARAMS: usize = 64;
-pub const MAX_INSTRUMENTS: usize = 16;
+pub const MAX_INSTRUMENTS: usize = 32;
 pub const MAX_MODS: usize = 16;
 pub const NO_BUF: u8 = 0xFF;
 
@@ -101,6 +101,7 @@ impl Default for NodeDef {
 pub struct InstrumentDef {
     pub node_count: u8,
     pub output_buf: u8,
+    pub output_buf_r: u8,
     pub mod_count: u8,
     pub nodes: [NodeDef; MAX_NODES],
     pub mod_connections: [ModConnection; MAX_MODS],
@@ -111,6 +112,7 @@ impl Default for InstrumentDef {
         Self {
             node_count: 0,
             output_buf: 0,
+            output_buf_r: 0,
             mod_count: 0,
             nodes: [NodeDef::default(); MAX_NODES],
             mod_connections: [ModConnection::default(); MAX_MODS],
@@ -123,6 +125,7 @@ pub enum NodeState {
     None,
     Oscillator {
         phase: f32,
+        tri: f32,
     },
     Filter {
         ic1eq: f32,
@@ -140,7 +143,9 @@ pub enum NodeState {
         release_start: f32,
     },
     Sample {
-        position: f32,
+        // f64 so the read index + fraction stay exact in long buffers (see
+        // sample_read); advanced by the f32 rate cast up per sample.
+        position: f64,
     },
 }
 
@@ -251,6 +256,24 @@ fn borrow_io<'a>(
     }
 }
 
+/// Run a single-input single-output node. When input and output alias the same
+/// buffer (`ib == ob`), snapshot it so the node reads its pre-write input;
+/// otherwise hand out disjoint borrows via `borrow_io`.
+fn run_io(
+    buffers: &mut [[f32; BLOCK_SIZE]; MAX_BUFFERS],
+    ib: usize,
+    ob: usize,
+    mut f: impl FnMut(&[f32; BLOCK_SIZE], &mut [f32; BLOCK_SIZE]),
+) {
+    if ib == ob {
+        let tmp = buffers[ib];
+        f(&tmp, &mut buffers[ob]);
+    } else {
+        let (inp, out) = borrow_io(buffers, ib, ob);
+        f(inp, out);
+    }
+}
+
 fn oscillator_node(
     state: &mut NodeState,
     params: &[f32],
@@ -267,17 +290,28 @@ fn oscillator_node(
     let wavetable_pos = params[2];
     let target_vol = params[3];
 
-    if let NodeState::Oscillator { phase } = state {
+    let sin_table = crate::oscillator::sin_lut();
+    if let NodeState::Oscillator { phase, tri } = state {
         for i in start..start + count {
             smooth[0] += smooth_coeff * (target_freq - smooth[0]);
             smooth[3] += smooth_coeff * (target_vol - smooth[3]);
             let phase_inc = smooth[0] / sample_rate;
-            output[i] =
-                oscillator(waveform, *phase, phase_inc, wavetable, wavetable_pos) * smooth[3];
+            output[i] = oscillator(
+                waveform,
+                *phase,
+                phase_inc,
+                sin_table,
+                wavetable,
+                wavetable_pos,
+                tri,
+            ) * smooth[3];
             *phase += phase_inc;
-            if *phase >= 1.0 {
-                *phase -= 1.0;
-            }
+            // Wrap into [0,1) for any phase_inc: the sine LUT indexes the table
+            // directly, so a freq >= sample_rate (phase_inc >= 1) must not leave
+            // phase past the table end — a single `-= 1.0` would. Identical to the
+            // branch for freq < sample_rate, and keeps saw/square/triangle in
+            // range there too.
+            *phase -= phase.floor();
         }
     }
 }
@@ -298,13 +332,19 @@ fn filter_node(
 
     let mut filter = state.as_filter(params);
 
-    for i in start..start + count {
-        smooth[0] += smooth_coeff * (target_cutoff - smooth[0]);
-        smooth[3] += smooth_coeff * (target_mix - smooth[3]);
-        let cutoff = smooth[0].max(20.0);
-        let mix = smooth[3].clamp(0.0, 1.0);
+    // The cutoff smoother is a one-pole at the 5ms param-smooth time constant, so
+    // the cutoff barely moves across a 128-sample block — a per-sample `tan()`
+    // coefficient solve is wasted. Advance the smoother across the segment in
+    // closed form (the geometric sum is exact to the per-sample IIR at the block
+    // boundary) and solve the coefficients once, at control rate. The mix
+    // crossfade stays per-sample below — it's a cheap lerp, no transcendental.
+    let decay = (1.0 - smooth_coeff).powi(count as i32);
+    smooth[0] = target_cutoff + (smooth[0] - target_cutoff) * decay;
+    filter.update_coefficients(sample_rate, smooth[0].max(20.0));
 
-        filter.update_coefficients(sample_rate, cutoff);
+    for i in start..start + count {
+        smooth[3] += smooth_coeff * (target_mix - smooth[3]);
+        let mix = smooth[3].clamp(0.0, 1.0);
 
         let filtered = if mix >= 1.0 {
             filter.tick(input[i])
@@ -418,7 +458,7 @@ fn sample_node(
     params: &[f32],
     smooth: &mut [f32],
     output: &mut [f32; BLOCK_SIZE],
-    samples: &[Vec<f32>],
+    samples: &[SampleBuffer],
     smooth_coeff: f32,
     start: usize,
     count: usize,
@@ -427,8 +467,14 @@ fn sample_node(
     let target_rate = params[1];
     let looping = params[2] as u32 != 0;
     let target_vol = params[3];
+    let channel = params[4] as usize;
 
-    let buffer: &[f32] = samples.get(buffer_id).map(|v| v.as_slice()).unwrap_or(&[]);
+    // mono (count 1) clamps any channel to 0; unallocated (count 0) clamps to 0
+    // and reads an empty buffer (silence). The picked index is always 0 or 1.
+    let buffer: &[f32] = samples
+        .get(buffer_id)
+        .map(|s| s.channels[channel.min((s.count as usize).saturating_sub(1))].as_slice())
+        .unwrap_or(&[]);
 
     if let NodeState::Sample { position } = state {
         for i in start..start + count {
@@ -440,9 +486,9 @@ fn sample_node(
                 continue;
             }
 
-            if *position >= buffer.len() as f32 {
+            if *position >= buffer.len() as f64 {
                 if looping {
-                    let len = buffer.len() as f32;
+                    let len = buffer.len() as f64;
                     *position -= (*position / len).floor() * len;
                 } else {
                     output[i] = 0.0;
@@ -450,8 +496,12 @@ fn sample_node(
                 }
             }
 
-            output[i] = sample_read(buffer, *position) * smooth[3];
-            *position += smooth[1];
+            output[i] = if looping {
+                sample_read_loop(buffer, *position)
+            } else {
+                sample_read(buffer, *position)
+            } * smooth[3];
+            *position += smooth[1] as f64;
         }
     }
 }
@@ -481,7 +531,7 @@ pub fn synthesize_graph_voice(
     sample_rate: f32,
     smooth_coeff: f32,
     wavetable: &[f32],
-    samples: &[Vec<f32>],
+    samples: &[SampleBuffer],
     start: usize,
     count: usize,
 ) -> u8 {
@@ -516,35 +566,24 @@ pub fn synthesize_graph_voice(
                 );
             }
             NodeType::Filter => {
-                let ib = node.input_buf as usize;
-                let ob = node.output_buf as usize;
-                if ib == ob {
-                    let tmp = buffers[ib];
-                    filter_node(
-                        &mut node_states[ni],
-                        &working_params[po..],
-                        &mut smooth_params[po..],
-                        &tmp,
-                        &mut buffers[ob],
-                        sample_rate,
-                        smooth_coeff,
-                        start,
-                        count,
-                    );
-                } else {
-                    let (inp, out) = borrow_io(buffers, ib, ob);
-                    filter_node(
-                        &mut node_states[ni],
-                        &working_params[po..],
-                        &mut smooth_params[po..],
-                        inp,
-                        out,
-                        sample_rate,
-                        smooth_coeff,
-                        start,
-                        count,
-                    );
-                }
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        filter_node(
+                            &mut node_states[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
             }
             NodeType::Envelope => {
                 let ob = node.output_buf as usize;
@@ -559,20 +598,7 @@ pub fn synthesize_graph_voice(
                         count,
                     );
                 } else {
-                    let ib = node.input_buf as usize;
-                    if ib == ob {
-                        let tmp = buffers[ib];
-                        envelope_node(
-                            &mut node_states[ni],
-                            &working_params[po..],
-                            Some(&tmp),
-                            &mut buffers[ob],
-                            sample_rate,
-                            start,
-                            count,
-                        );
-                    } else {
-                        let (inp, out) = borrow_io(buffers, ib, ob);
+                    run_io(buffers, node.input_buf as usize, ob, |inp, out| {
                         envelope_node(
                             &mut node_states[ni],
                             &working_params[po..],
@@ -582,35 +608,26 @@ pub fn synthesize_graph_voice(
                             start,
                             count,
                         );
-                    }
+                    });
                 }
             }
             NodeType::Gain => {
-                let ib = node.input_buf as usize;
-                let ob = node.output_buf as usize;
-                if ib == ob {
-                    let tmp = buffers[ib];
-                    gain_node(
-                        &working_params[po..],
-                        &mut smooth_params[po..],
-                        &tmp,
-                        &mut buffers[ob],
-                        smooth_coeff,
-                        start,
-                        count,
-                    );
-                } else {
-                    let (inp, out) = borrow_io(buffers, ib, ob);
-                    gain_node(
-                        &working_params[po..],
-                        &mut smooth_params[po..],
-                        inp,
-                        out,
-                        smooth_coeff,
-                        start,
-                        count,
-                    );
-                }
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        gain_node(
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
             }
             NodeType::Mix => {
                 let ia = node.input_buf as usize;
@@ -770,7 +787,10 @@ mod tests {
     fn oscillator_sine_zero_crossings() {
         let inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
-        states[0] = NodeState::Oscillator { phase: 0.0 };
+        states[0] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -808,13 +828,59 @@ mod tests {
     }
 
     #[test]
+    fn oscillator_sine_above_sample_rate_no_oob() {
+        // freq >= sample_rate gives phase_inc >= 1; a single-step wrap would leave
+        // phase past the sine LUT's end and the table read would panic on the
+        // realtime thread. The full wrap keeps phase in [0,1) for any phase_inc.
+        let inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
+        let mut params = [0.0f32; MAX_PARAMS];
+        let mut smooth = [0.0f32; MAX_PARAMS];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+
+        params[0] = SR * 2.3; // phase_inc = 2.3 → reliably escapes a single wrap, non-integer so phase sweeps the cycle
+        params[3] = 1.0;
+        smooth[0] = SR * 2.3;
+        smooth[3] = 1.0;
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        for &s in buffers[0].iter() {
+            assert!(
+                s.is_finite() && (-1.0..=1.0).contains(&s),
+                "sample out of range: {s}"
+            );
+        }
+    }
+
+    #[test]
     fn oscillator_waveforms_in_range() {
         let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
 
         for waveform_id in 0..4u32 {
             let inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
             let mut states = [NodeState::default(); MAX_NODES];
-            states[0] = NodeState::Oscillator { phase: 0.0 };
+            states[0] = NodeState::Oscillator {
+                phase: 0.0,
+                tri: 0.0,
+            };
             let mut params = [0.0f32; MAX_PARAMS];
             let mut smooth = [0.0f32; MAX_PARAMS];
             let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -840,9 +906,13 @@ mod tests {
                 BLOCK_SIZE,
             );
 
+            // Sanity ceiling, not a tight amplitude bound: the triangle's
+            // leaky integrator overshoots to ~1.6 over its first cycle from a
+            // cold (zero) state before settling to unit, so allow headroom for
+            // that onset transient while still catching a real runaway.
             for i in 0..BLOCK_SIZE {
                 assert!(
-                    buffers[0][i].abs() <= 1.5,
+                    buffers[0][i].abs() <= 2.0,
                     "waveform {waveform_id} sample {i} out of range: {}",
                     buffers[0][i]
                 );
@@ -1259,7 +1329,10 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
-        states[1] = NodeState::Oscillator { phase: 0.0 };
+        states[1] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1335,7 +1408,10 @@ mod tests {
 
         let count_crossings = |freq: f32, mod_val: f32, depth: f32| -> usize {
             let mut states = [NodeState::default(); MAX_NODES];
-            states[1] = NodeState::Oscillator { phase: 0.0 };
+            states[1] = NodeState::Oscillator {
+                phase: 0.0,
+                tri: 0.0,
+            };
             let mut params = [0.0f32; MAX_PARAMS];
             let mut smooth = [0.0f32; MAX_PARAMS];
             let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1407,7 +1483,10 @@ mod tests {
 
         let run = |depth: f32| -> Vec<f32> {
             let mut states = [NodeState::default(); MAX_NODES];
-            states[1] = NodeState::Oscillator { phase: 0.0 };
+            states[1] = NodeState::Oscillator {
+                phase: 0.0,
+                tri: 0.0,
+            };
             let mut params = [0.0f32; MAX_PARAMS];
             let mut smooth = [0.0f32; MAX_PARAMS];
             let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1438,7 +1517,10 @@ mod tests {
         let with_depth_0 = run(0.0);
         let no_mod_inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
-        states[0] = NodeState::Oscillator { phase: 0.0 };
+        states[0] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1496,7 +1578,10 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
-        states[0] = NodeState::Oscillator { phase: 0.0 };
+        states[0] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
         states[1] = NodeState::Filter {
             ic1eq: 0.0,
             ic2eq: 0.0,
@@ -1585,7 +1670,10 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
-        states[0] = NodeState::Oscillator { phase: 0.0 };
+        states[0] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
         states[1] = NodeState::Filter {
             ic1eq: 0.0,
             ic2eq: 0.0,
@@ -1739,8 +1827,14 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
-        states[0] = NodeState::Oscillator { phase: 0.0 };
-        states[1] = NodeState::Oscillator { phase: 0.0 };
+        states[0] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
+        states[1] = NodeState::Oscillator {
+            phase: 0.0,
+            tri: 0.0,
+        };
         states[2] = NodeState::Envelope {
             stage: EnvStage::Attack,
             level: 0.0,
@@ -1836,7 +1930,7 @@ mod tests {
             params[po as usize] = mode.freq;
             params[po as usize + 1] = 0.0; // sine
             params[po as usize + 2] = 0.0; // wavetable_pos
-            // Compensate for mix-chain attenuation so the final per-mode amplitude equals mode.amp.
+                                           // Compensate for mix-chain attenuation so the final per-mode amplitude equals mode.amp.
             params[po as usize + 3] = mode.amp / CHAIN_SCALING[i];
             inst.nodes[node_idx] = NodeDef {
                 node_type: NodeType::Oscillator,
@@ -1891,7 +1985,10 @@ mod tests {
         let mut states = [NodeState::default(); MAX_NODES];
         let mut idx = 0;
         for i in 0..modes_len {
-            states[idx] = NodeState::Oscillator { phase: 0.0 };
+            states[idx] = NodeState::Oscillator {
+                phase: 0.0,
+                tri: 0.0,
+            };
             idx += 1;
             states[idx] = NodeState::Envelope {
                 stage: EnvStage::Attack,
@@ -1957,11 +2054,31 @@ mod tests {
     fn modal_synthesis_peaks_at_configured_frequencies() {
         // Inharmonic spectrum (loose body-like ratios), well-separated in frequency.
         let modes = [
-            Mode { freq: 280.0, amp: 1.0, decay: 4.0 },
-            Mode { freq: 590.0, amp: 0.7, decay: 4.0 },
-            Mode { freq: 940.0, amp: 0.5, decay: 4.0 },
-            Mode { freq: 1380.0, amp: 0.35, decay: 4.0 },
-            Mode { freq: 1860.0, amp: 0.2, decay: 4.0 },
+            Mode {
+                freq: 280.0,
+                amp: 1.0,
+                decay: 4.0,
+            },
+            Mode {
+                freq: 590.0,
+                amp: 0.7,
+                decay: 4.0,
+            },
+            Mode {
+                freq: 940.0,
+                amp: 0.5,
+                decay: 4.0,
+            },
+            Mode {
+                freq: 1380.0,
+                amp: 0.35,
+                decay: 4.0,
+            },
+            Mode {
+                freq: 1860.0,
+                amp: 0.2,
+                decay: 4.0,
+            },
         ];
         let (inst, mut params) = build_modal_instrument(&modes);
         // Hold envelope at peak for a steady-state spectral measurement.
@@ -2039,11 +2156,31 @@ mod tests {
     fn modal_synthesis_per_mode_independent_decay() {
         // Higher modes decay faster — typical of real impacts.
         let modes = [
-            Mode { freq: 280.0, amp: 1.0, decay: 0.40 },
-            Mode { freq: 590.0, amp: 1.0, decay: 0.25 },
-            Mode { freq: 940.0, amp: 1.0, decay: 0.15 },
-            Mode { freq: 1380.0, amp: 1.0, decay: 0.10 },
-            Mode { freq: 1860.0, amp: 1.0, decay: 0.06 },
+            Mode {
+                freq: 280.0,
+                amp: 1.0,
+                decay: 0.40,
+            },
+            Mode {
+                freq: 590.0,
+                amp: 1.0,
+                decay: 0.25,
+            },
+            Mode {
+                freq: 940.0,
+                amp: 1.0,
+                decay: 0.15,
+            },
+            Mode {
+                freq: 1380.0,
+                amp: 1.0,
+                decay: 0.10,
+            },
+            Mode {
+                freq: 1860.0,
+                amp: 1.0,
+                decay: 0.06,
+            },
         ];
         let (inst, params) = build_modal_instrument(&modes);
 
@@ -2109,6 +2246,20 @@ mod tests {
             .collect()
     }
 
+    fn mono(ch0: Vec<f32>) -> SampleBuffer {
+        SampleBuffer {
+            channels: [ch0, Vec::new()],
+            count: 1,
+        }
+    }
+
+    fn stereo(ch0: Vec<f32>, ch1: Vec<f32>) -> SampleBuffer {
+        SampleBuffer {
+            channels: [ch0, ch1],
+            count: 2,
+        }
+    }
+
     #[test]
     fn sample_node_silent_with_no_buffer_registered() {
         let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
@@ -2126,7 +2277,16 @@ mod tests {
         smooth[3] = 1.0;
 
         synthesize_graph_voice(
-            &inst, &mut states, &params, &mut smooth, &mut buffers, SR, COEFF, &wt, &[], 0,
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &[],
+            0,
             BLOCK_SIZE,
         );
 
@@ -2146,7 +2306,7 @@ mod tests {
         let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
 
         let buf = sine_buffer(480.0, 4800);
-        let samples = vec![buf.clone()];
+        let samples = vec![mono(buf.clone())];
 
         params[0] = 0.0;
         params[1] = 1.0;
@@ -2155,7 +2315,16 @@ mod tests {
         smooth[3] = 1.0;
 
         synthesize_graph_voice(
-            &inst, &mut states, &params, &mut smooth, &mut buffers, SR, COEFF, &wt, &samples, 0,
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &samples,
+            0,
             BLOCK_SIZE,
         );
 
@@ -2177,9 +2346,9 @@ mod tests {
         let mut buffers_2x = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
         let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
         let buf = sine_buffer(480.0, 4800);
-        let samples = vec![buf];
+        let samples = vec![mono(buf)];
 
-        let mut count_crossings = |rate: f32, buffers: &mut [[f32; BLOCK_SIZE]; MAX_BUFFERS]| {
+        let count_crossings = |rate: f32, buffers: &mut [[f32; BLOCK_SIZE]; MAX_BUFFERS]| {
             let mut states = [NodeState::default(); MAX_NODES];
             states[0] = NodeState::Sample { position: 0.0 };
             let mut params = [0.0f32; MAX_PARAMS];
@@ -2189,7 +2358,16 @@ mod tests {
             smooth[1] = rate;
             smooth[3] = 1.0;
             synthesize_graph_voice(
-                &inst, &mut states, &params, &mut smooth, buffers, SR, COEFF, &wt, &samples, 0,
+                &inst,
+                &mut states,
+                &params,
+                &mut smooth,
+                buffers,
+                SR,
+                COEFF,
+                &wt,
+                &samples,
+                0,
                 BLOCK_SIZE,
             );
             let mut crossings = 0;
@@ -2221,7 +2399,7 @@ mod tests {
         let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
 
         let buf: Vec<f32> = (0..100).map(|_| 1.0).collect();
-        let samples = vec![buf];
+        let samples = vec![mono(buf)];
 
         params[0] = 0.0;
         params[1] = 1.0;
@@ -2231,7 +2409,16 @@ mod tests {
         smooth[3] = 1.0;
 
         synthesize_graph_voice(
-            &inst, &mut states, &params, &mut smooth, &mut buffers, SR, COEFF, &wt, &samples, 0,
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &samples,
+            0,
             BLOCK_SIZE,
         );
 
@@ -2264,7 +2451,7 @@ mod tests {
 
         // 10-sample ramp [0, 0.1, 0.2, ..., 0.9]
         let buf: Vec<f32> = (0..10).map(|i| i as f32 * 0.1).collect();
-        let samples = vec![buf];
+        let samples = vec![mono(buf)];
 
         params[0] = 0.0;
         params[1] = 1.0;
@@ -2274,7 +2461,16 @@ mod tests {
         smooth[3] = 1.0;
 
         synthesize_graph_voice(
-            &inst, &mut states, &params, &mut smooth, &mut buffers, SR, COEFF, &wt, &samples, 0,
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &samples,
+            0,
             BLOCK_SIZE,
         );
 
@@ -2289,6 +2485,55 @@ mod tests {
             );
         }
         let peak = buffers[0].iter().cloned().fold(0.0f32, f32::max);
-        assert!(peak > 0.5, "expected ramp peak > 0.5 across loops, got {peak}");
+        assert!(
+            peak > 0.5,
+            "expected ramp peak > 0.5 across loops, got {peak}"
+        );
+    }
+
+    fn render_channel(samples: &[SampleBuffer], channel: f32) -> [f32; BLOCK_SIZE] {
+        let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Sample { position: 0.0 };
+        let mut params = [0.0f32; MAX_PARAMS];
+        let mut smooth = [0.0f32; MAX_PARAMS];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        params[1] = 1.0; // rate
+        params[3] = 1.0; // volume
+        params[4] = channel;
+        smooth[1] = 1.0;
+        smooth[3] = 1.0;
+        synthesize_graph_voice(
+            &inst, &mut states, &params, &mut smooth, &mut buffers, SR, COEFF, &wt, samples, 0,
+            BLOCK_SIZE,
+        );
+        buffers[0]
+    }
+
+    #[test]
+    fn sample_node_reads_distinct_channels() {
+        let ch0: Vec<f32> = vec![0.25; 200];
+        let ch1: Vec<f32> = vec![-0.5; 200];
+        let samples = vec![stereo(ch0, ch1)];
+
+        let left = render_channel(&samples, 0.0);
+        let right = render_channel(&samples, 1.0);
+
+        for i in 0..BLOCK_SIZE {
+            assert!((left[i] - 0.25).abs() < 1e-6, "i={i}: ch0 read {}", left[i]);
+            assert!((right[i] + 0.5).abs() < 1e-6, "i={i}: ch1 read {}", right[i]);
+        }
+    }
+
+    #[test]
+    fn sample_node_channel_1_on_mono_reads_channel_0() {
+        let samples = vec![mono(vec![0.3; 200])];
+
+        // A mono asset has no channel 1; the read clamps to channel 0, not silence.
+        let out = render_channel(&samples, 1.0);
+        for i in 0..BLOCK_SIZE {
+            assert!((out[i] - 0.3).abs() < 1e-6, "i={i}: expected 0.3, got {}", out[i]);
+        }
     }
 }

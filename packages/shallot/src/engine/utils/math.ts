@@ -1,58 +1,17 @@
-export interface Vec3 {
-    x: number;
-    y: number;
-    z: number;
-}
-
-export interface Ray {
-    origin: Vec3;
-    direction: Vec3;
-}
-
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
 
-const _rgb = { r: 0, g: 0, b: 0 };
-
-export function srgbToLinear(c: number): number {
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-export function linearToSrgb(c: number): number {
-    return c <= 0.0031308 ? c * 12.92 : 1.055 * c ** (1 / 2.4) - 0.055;
-}
-
-export function unpackColor(packed: number): { r: number; g: number; b: number } {
-    _rgb.r = srgbToLinear(((packed >> 16) & 0xff) / 255);
-    _rgb.g = srgbToLinear(((packed >> 8) & 0xff) / 255);
-    _rgb.b = srgbToLinear((packed & 0xff) / 255);
-    return _rgb;
-}
-
-const _dir: [number, number, number] = [0, 0, 0];
-
-export function normalizeDirection(x: number, y: number, z: number): [number, number, number] {
-    const len = Math.sqrt(x * x + y * y + z * z);
-    if (len < 0.0001) {
-        _dir[0] = 0;
-        _dir[1] = -1;
-        _dir[2] = 0;
-    } else {
-        _dir[0] = x / len;
-        _dir[1] = y / len;
-        _dir[2] = z / len;
-    }
-    return _dir;
-}
-
+/** constrain `value` to `[min, max]` — below `min` returns `min`, above `max` returns `max` */
 export function clamp(value: number, min: number, max: number): number {
     return value < min ? min : value > max ? max : value;
 }
 
+/** linear interpolation from `a` to `b`, `t` in `[0, 1]` (not clamped — `t` outside the range extrapolates) */
 export function lerp(a: number, b: number, t: number): number {
     return a + (b - a) * t;
 }
 
+/** spherical interpolation between two quaternions, t in [0, 1] */
 export function slerp(
     fromX: number,
     fromY: number,
@@ -101,39 +60,8 @@ export function slerp(
     };
 }
 
-export function rotate(
-    qx: number,
-    qy: number,
-    qz: number,
-    qw: number,
-    dx: number,
-    dy: number,
-    dz: number,
-): { x: number; y: number; z: number; w: number } {
-    const hx = dx * DEG_TO_RAD * 0.5;
-    const hy = dy * DEG_TO_RAD * 0.5;
-    const hz = dz * DEG_TO_RAD * 0.5;
-    const cx = Math.cos(hx),
-        sx = Math.sin(hx);
-    const cy = Math.cos(hy),
-        sy = Math.sin(hy);
-    const cz = Math.cos(hz),
-        sz = Math.sin(hz);
-
-    const bx = sx * cy * cz + cx * sy * sz;
-    const by = cx * sy * cz - sx * cy * sz;
-    const bz = cx * cy * sz + sx * sy * cz;
-    const bw = cx * cy * cz - sx * sy * sz;
-
-    return {
-        x: qw * bx + qx * bw + qy * bz - qz * by,
-        y: qw * by - qx * bz + qy * bw + qz * bx,
-        z: qw * bz + qx * by - qy * bx + qz * bw,
-        w: qw * bw - qx * bx - qy * by - qz * bz,
-    };
-}
-
-export function eulerToQuaternion(
+/** quaternion from euler angles in degrees (XYZ order) */
+export function quat(
     x: number,
     y: number,
     z: number,
@@ -156,7 +84,8 @@ export function eulerToQuaternion(
     };
 }
 
-export function quaternionToEuler(
+/** euler angles in degrees (XYZ order) from a quaternion */
+export function euler(
     x: number,
     y: number,
     z: number,
@@ -193,6 +122,40 @@ export function quaternionToEuler(
     }
 }
 
+/** apply an euler delta (degrees, XYZ order) to a quaternion */
+export function rotate(
+    qx: number,
+    qy: number,
+    qz: number,
+    qw: number,
+    dx: number,
+    dy: number,
+    dz: number,
+): { x: number; y: number; z: number; w: number } {
+    const hx = dx * DEG_TO_RAD * 0.5;
+    const hy = dy * DEG_TO_RAD * 0.5;
+    const hz = dz * DEG_TO_RAD * 0.5;
+    const cx = Math.cos(hx),
+        sx = Math.sin(hx);
+    const cy = Math.cos(hy),
+        sy = Math.sin(hy);
+    const cz = Math.cos(hz),
+        sz = Math.sin(hz);
+
+    const bx = sx * cy * cz + cx * sy * sz;
+    const by = cx * sy * cz - sx * cy * sz;
+    const bz = cx * cy * sz + sx * sy * cz;
+    const bw = cx * cy * cz - sx * sy * sz;
+
+    return {
+        x: qw * bx + qx * bw + qy * bz - qz * by,
+        y: qw * by - qx * bz + qy * bw + qz * bx,
+        z: qw * bz + qx * by - qy * bx + qz * bw,
+        w: qw * bw - qx * bx - qy * by - qz * bz,
+    };
+}
+
+/** perspective projection mat4 (column-major), reverse-Z (near→1, far→0); fov in degrees */
 export function perspective(
     fov: number,
     aspect: number,
@@ -216,15 +179,19 @@ export function perspective(
     out[7] = 0;
     out[8] = 0;
     out[9] = 0;
-    out[10] = far * nf;
+    // reverse-Z: the depth row is the standard mapping with near/far swapped, so near→1 and
+    // far→0 (`out[11] = -1` keeps w_clip = z). Float depth + reverse-Z holds near-constant
+    // relative precision across the range; forward-Z crowds it all at the far plane.
+    out[10] = -near * nf;
     out[11] = -1;
     out[12] = 0;
     out[13] = 0;
-    out[14] = far * near * nf;
+    out[14] = -near * far * nf;
     out[15] = 0;
     return out;
 }
 
+/** orthographic projection mat4 (column-major), reverse-Z (near→1, far→0); size is the half-height in world units */
 export function orthographic(
     size: number,
     aspect: number,
@@ -249,15 +216,64 @@ export function orthographic(
     out[7] = 0;
     out[8] = 0;
     out[9] = 0;
-    out[10] = nf;
+    // reverse-Z: the depth row with near/far swapped, so near→1 and far→0 — the convention the
+    // perspective path uses, kept uniform so the sun's ortho shadow map matches the receivers
+    out[10] = -nf;
     out[11] = 0;
     out[12] = 0;
     out[13] = 0;
-    out[14] = near * nf;
+    out[14] = -far * nf;
     out[15] = 1;
     return out;
 }
 
+/** column-major mat4 from translation (px, py, pz), quaternion (qx, qy, qz, qw), scale (sx, sy, sz) */
+export function compose(
+    px: number,
+    py: number,
+    pz: number,
+    qx: number,
+    qy: number,
+    qz: number,
+    qw: number,
+    sx: number,
+    sy: number,
+    sz: number,
+    out?: Float32Array,
+): Float32Array {
+    if (!out) out = new Float32Array(16);
+    const x2 = qx + qx;
+    const y2 = qy + qy;
+    const z2 = qz + qz;
+    const xx = qx * x2;
+    const xy = qx * y2;
+    const xz = qx * z2;
+    const yy = qy * y2;
+    const yz = qy * z2;
+    const zz = qz * z2;
+    const wx = qw * x2;
+    const wy = qw * y2;
+    const wz = qw * z2;
+    out[0] = (1 - yy - zz) * sx;
+    out[1] = (xy + wz) * sx;
+    out[2] = (xz - wy) * sx;
+    out[3] = 0;
+    out[4] = (xy - wz) * sy;
+    out[5] = (1 - xx - zz) * sy;
+    out[6] = (yz + wx) * sy;
+    out[7] = 0;
+    out[8] = (xz + wy) * sz;
+    out[9] = (yz - wx) * sz;
+    out[10] = (1 - xx - yy) * sz;
+    out[11] = 0;
+    out[12] = px;
+    out[13] = py;
+    out[14] = pz;
+    out[15] = 1;
+    return out;
+}
+
+/** mat4 × mat4, column-major */
 export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
     for (let i = 0; i < 4; i++) {
@@ -272,87 +288,68 @@ export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): 
     return out;
 }
 
+/** general mat4 inverse — returns the input unchanged when the matrix is singular */
 export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
-    const r00 = m[0],
-        r01 = m[1],
-        r02 = m[2];
-    const r10 = m[4],
-        r11 = m[5],
-        r12 = m[6];
-    const r20 = m[8],
-        r21 = m[9],
-        r22 = m[10];
-    const tx = m[12],
-        ty = m[13],
-        tz = m[14];
 
-    out[0] = r00;
-    out[1] = r10;
-    out[2] = r20;
-    out[3] = 0;
-    out[4] = r01;
-    out[5] = r11;
-    out[6] = r21;
-    out[7] = 0;
-    out[8] = r02;
-    out[9] = r12;
-    out[10] = r22;
-    out[11] = 0;
-    out[12] = -(r00 * tx + r01 * ty + r02 * tz);
-    out[13] = -(r10 * tx + r11 * ty + r12 * tz);
-    out[14] = -(r20 * tx + r21 * ty + r22 * tz);
-    out[15] = 1;
+    const a00 = m[0],
+        a01 = m[1],
+        a02 = m[2],
+        a03 = m[3];
+    const a10 = m[4],
+        a11 = m[5],
+        a12 = m[6],
+        a13 = m[7];
+    const a20 = m[8],
+        a21 = m[9],
+        a22 = m[10],
+        a23 = m[11];
+    const a30 = m[12],
+        a31 = m[13],
+        a32 = m[14],
+        a33 = m[15];
+
+    const b00 = a00 * a11 - a01 * a10;
+    const b01 = a00 * a12 - a02 * a10;
+    const b02 = a00 * a13 - a03 * a10;
+    const b03 = a01 * a12 - a02 * a11;
+    const b04 = a01 * a13 - a03 * a11;
+    const b05 = a02 * a13 - a03 * a12;
+    const b06 = a20 * a31 - a21 * a30;
+    const b07 = a20 * a32 - a22 * a30;
+    const b08 = a20 * a33 - a23 * a30;
+    const b09 = a21 * a32 - a22 * a31;
+    const b10 = a21 * a33 - a23 * a31;
+    const b11 = a22 * a33 - a23 * a32;
+
+    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
+    if (Math.abs(det) < 1e-10) {
+        return out;
+    }
+    det = 1 / det;
+
+    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
+    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
+    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
+    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
+    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
+    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
+    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
+    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
+    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
+    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
+    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
+    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
+    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
+    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
+    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
+    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
 
     return out;
 }
 
-export function extractFrustumPlanes(viewProj: Float32Array, out?: Float32Array): Float32Array {
-    const planes = out ?? new Float32Array(24);
-    const m = viewProj;
-
-    planes[0] = m[3] + m[0];
-    planes[1] = m[7] + m[4];
-    planes[2] = m[11] + m[8];
-    planes[3] = m[15] + m[12];
-
-    planes[4] = m[3] - m[0];
-    planes[5] = m[7] - m[4];
-    planes[6] = m[11] - m[8];
-    planes[7] = m[15] - m[12];
-
-    planes[8] = m[3] + m[1];
-    planes[9] = m[7] + m[5];
-    planes[10] = m[11] + m[9];
-    planes[11] = m[15] + m[13];
-
-    planes[12] = m[3] - m[1];
-    planes[13] = m[7] - m[5];
-    planes[14] = m[11] - m[9];
-    planes[15] = m[15] - m[13];
-
-    planes[16] = m[2];
-    planes[17] = m[6];
-    planes[18] = m[10];
-    planes[19] = m[14];
-
-    planes[20] = m[3] - m[2];
-    planes[21] = m[7] - m[6];
-    planes[22] = m[11] - m[10];
-    planes[23] = m[15] - m[14];
-    for (let i = 0; i < 6; i++) {
-        const len = Math.hypot(planes[i * 4], planes[i * 4 + 1], planes[i * 4 + 2]);
-        if (len > 0) {
-            planes[i * 4] /= len;
-            planes[i * 4 + 1] /= len;
-            planes[i * 4 + 2] /= len;
-            planes[i * 4 + 3] /= len;
-        }
-    }
-    return planes;
-}
-
-export function lookAtMatrix(
+/** view matrix from eye looking at target */
+export function lookAt(
     eyeX: number,
     eyeY: number,
     eyeZ: number,
@@ -431,173 +428,8 @@ export function lookAtMatrix(
     return out;
 }
 
-export function orthographicBounds(
-    left: number,
-    right: number,
-    bottom: number,
-    top: number,
-    near: number,
-    far: number,
-    out?: Float32Array,
-): Float32Array {
-    if (!out) out = new Float32Array(16);
-    const lr = 1 / (right - left);
-    const bt = 1 / (top - bottom);
-    const nf = 1 / (near - far);
-    out[0] = 2 * lr;
-    out[1] = 0;
-    out[2] = 0;
-    out[3] = 0;
-    out[4] = 0;
-    out[5] = 2 * bt;
-    out[6] = 0;
-    out[7] = 0;
-    out[8] = 0;
-    out[9] = 0;
-    out[10] = nf;
-    out[11] = 0;
-    out[12] = -(right + left) * lr;
-    out[13] = -(top + bottom) * bt;
-    out[14] = near * nf;
-    out[15] = 1;
-    return out;
-}
-
-export function extractFrustumCorners(
-    invViewProj: Float32Array,
-    nearZ: number,
-    farZ: number,
-    out?: Float32Array,
-): Float32Array {
-    const corners = out ?? new Float32Array(24);
-    const ndcCorners = [
-        [-1, -1, nearZ],
-        [1, -1, nearZ],
-        [-1, 1, nearZ],
-        [1, 1, nearZ],
-        [-1, -1, farZ],
-        [1, -1, farZ],
-        [-1, 1, farZ],
-        [1, 1, farZ],
-    ];
-
-    for (let i = 0; i < 8; i++) {
-        const [nx, ny, nz] = ndcCorners[i];
-        const m = invViewProj;
-
-        const wx = m[0] * nx + m[4] * ny + m[8] * nz + m[12];
-        const wy = m[1] * nx + m[5] * ny + m[9] * nz + m[13];
-        const wz = m[2] * nx + m[6] * ny + m[10] * nz + m[14];
-        const ww = m[3] * nx + m[7] * ny + m[11] * nz + m[15];
-
-        corners[i * 3] = wx / ww;
-        corners[i * 3 + 1] = wy / ww;
-        corners[i * 3 + 2] = wz / ww;
-    }
-
-    return corners;
-}
-
-export function invertMatrix(m: Float32Array, out?: Float32Array): Float32Array {
-    if (!out) out = new Float32Array(16);
-
-    const a00 = m[0],
-        a01 = m[1],
-        a02 = m[2],
-        a03 = m[3];
-    const a10 = m[4],
-        a11 = m[5],
-        a12 = m[6],
-        a13 = m[7];
-    const a20 = m[8],
-        a21 = m[9],
-        a22 = m[10],
-        a23 = m[11];
-    const a30 = m[12],
-        a31 = m[13],
-        a32 = m[14],
-        a33 = m[15];
-
-    const b00 = a00 * a11 - a01 * a10;
-    const b01 = a00 * a12 - a02 * a10;
-    const b02 = a00 * a13 - a03 * a10;
-    const b03 = a01 * a12 - a02 * a11;
-    const b04 = a01 * a13 - a03 * a11;
-    const b05 = a02 * a13 - a03 * a12;
-    const b06 = a20 * a31 - a21 * a30;
-    const b07 = a20 * a32 - a22 * a30;
-    const b08 = a20 * a33 - a23 * a30;
-    const b09 = a21 * a32 - a22 * a31;
-    const b10 = a21 * a33 - a23 * a31;
-    const b11 = a22 * a33 - a23 * a32;
-
-    let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    if (Math.abs(det) < 1e-10) {
-        return out;
-    }
-    det = 1 / det;
-
-    out[0] = (a11 * b11 - a12 * b10 + a13 * b09) * det;
-    out[1] = (a02 * b10 - a01 * b11 - a03 * b09) * det;
-    out[2] = (a31 * b05 - a32 * b04 + a33 * b03) * det;
-    out[3] = (a22 * b04 - a21 * b05 - a23 * b03) * det;
-    out[4] = (a12 * b08 - a10 * b11 - a13 * b07) * det;
-    out[5] = (a00 * b11 - a02 * b08 + a03 * b07) * det;
-    out[6] = (a32 * b02 - a30 * b05 - a33 * b01) * det;
-    out[7] = (a20 * b05 - a22 * b02 + a23 * b01) * det;
-    out[8] = (a10 * b10 - a11 * b08 + a13 * b06) * det;
-    out[9] = (a01 * b08 - a00 * b10 - a03 * b06) * det;
-    out[10] = (a30 * b04 - a31 * b02 + a33 * b00) * det;
-    out[11] = (a21 * b02 - a20 * b04 - a23 * b00) * det;
-    out[12] = (a11 * b07 - a10 * b09 - a12 * b06) * det;
-    out[13] = (a00 * b09 - a01 * b07 + a02 * b06) * det;
-    out[14] = (a31 * b01 - a30 * b03 - a32 * b00) * det;
-    out[15] = (a20 * b03 - a21 * b01 + a22 * b00) * det;
-
-    return out;
-}
-
-export function testAABBFrustum(
-    minX: number,
-    minY: number,
-    minZ: number,
-    maxX: number,
-    maxY: number,
-    maxZ: number,
-    planes: Float32Array,
-): boolean {
-    for (let i = 0; i < 6; i++) {
-        const nx = planes[i * 4];
-        const ny = planes[i * 4 + 1];
-        const nz = planes[i * 4 + 2];
-        const d = planes[i * 4 + 3];
-        const px = nx >= 0 ? maxX : minX;
-        const py = ny >= 0 ? maxY : minY;
-        const pz = nz >= 0 ? maxZ : minZ;
-        if (nx * px + ny * py + nz * pz + d < 0) return false;
-    }
-    return true;
-}
-
-export function testAABBSphere(
-    minX: number,
-    minY: number,
-    minZ: number,
-    maxX: number,
-    maxY: number,
-    maxZ: number,
-    cx: number,
-    cy: number,
-    cz: number,
-    radius: number,
-): boolean {
-    const dx = Math.max(minX - cx, 0, cx - maxX);
-    const dy = Math.max(minY - cy, 0, cy - maxY);
-    const dz = Math.max(minZ - cz, 0, cz - maxZ);
-    return dx * dx + dy * dy + dz * dz <= radius * radius;
-}
-
-export function lookAt(
+/** rotation quaternion that points an object at eye toward target */
+export function aim(
     eyeX: number,
     eyeY: number,
     eyeZ: number,
@@ -617,7 +449,7 @@ export function lookAt(
         !Number.isFinite(targetZ)
     ) {
         throw new Error(
-            `lookAt received NaN: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}]`,
+            `aim received NaN: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}]`,
         );
     }
 

@@ -1,0 +1,26 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" />
+
+    <a
+        id="camera"
+        camera
+        sear
+        transform
+        orbit="distance: 8; yaw: 0.6; pitch: 0.28; target: @ground"
+    />
+
+    <a id="ground" part transform="scale: 6 0.2 6" color="rgba: 0.5 0.55 0.52" />
+
+    <a id="post" part transform="pos: -1.6 0.7 0; scale: 0.2 1.2 0.2" color="rgba: 0.7 0.5 0.35" />
+    <a
+        sprite="image: pin; size: 1 1; anchor: 0.5 0; billboard: screen"
+        transform="pos: -1.6 1.4 0"
+    />
+
+    <a id="node" part transform="pos: 1.6 0.6 0" color="rgba: 0.4 0.5 0.7" />
+    <a
+        sprite="image: ring; size: 1.1 1.1; anchor: 0.5 0.5; fill-mode: radial; fill: 0.35"
+        transform="pos: 1.6 1.8 0"
+    />
+</scene>

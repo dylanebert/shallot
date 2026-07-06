@@ -1,0 +1,10 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" />
+
+    <a id="camera" camera sear transform orbit="distance: 9; yaw: 0.5; pitch: 0.32; pan: 0 0.5 0" />
+
+    <a id="ground" part transform="pos: 0 -0.5 0; scale: 8 0.15 8" color="rgba: 0.28 0.3 0.34" />
+
+    <a id="player" controlled part transform="pos: 0 0.5 0" color="rgba: 0.4 0.7 0.9" />
+</scene>

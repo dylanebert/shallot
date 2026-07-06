@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/kitchen.scene",
+  "plugins": {
+    "Orbit": true,
+    "KitchenSurfaces": "./src/surfaces",
+    "Look": "./src/look"
+  }
+}

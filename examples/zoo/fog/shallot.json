@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/fog.scene",
+  "plugins": {
+    "Fog": true,
+    "Orbit": true,
+    "FogTune": "./src/tune"
+  }
+}

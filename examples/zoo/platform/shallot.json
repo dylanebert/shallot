@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/platform.scene",
+  "plugins": {
+    "Orbit": true,
+    "Mirror": true,
+    "Reduce": "./src/reduce"
+  }
+}

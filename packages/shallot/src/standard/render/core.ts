@@ -1,71 +1,94 @@
+// extension API for renderer + producer authors: the contract registries, the
+// per-frame uniform singletons + their WGSL structs, the vertex-pull contract,
+// canvas binding, and the frame-loop ordering anchor. The typical-user surface
+// (components, plugin, public types, mesh()) lives in the index barrel. `VIEW_STRIDE`
+// + `MAX_VIEWS` size a per-view uniform a consumer packs slot-major (glaze's postfx
+// config); the buffer sizes and the cull-volume packer stay internal — a consumer reads
+// the packed `Render.cullVolumes` buffer, never re-packs it. A producer that runs its own
+// cull (Part's pack) reads the per-slot layout constants below to index + dispatch on the tag.
+
+// #doc:dev
+// ## Custom producers and renderers
+//
+// `render/` is renderer-agnostic: it defines the `Surfaces` / `Meshes` / `Draws` registries and the
+// per-frame uniforms, but iterates none of them. A **producer** registers a surface, a geometry slice,
+// and a draw record, publishing its per-instance buffers by name; a **renderer** consumes those draws. Because
+// the contract sits between them, a custom producer (terrain, particles) and a custom renderer are peers of
+// the built-in `Part` and sear — build either against the registries below, no engine change needed.
+
+// #doc:dev
+// ## Ordering anchors
+//
+// Systems order against no-op anchor systems, not registration order. A producer whose compute writes
+// geometry a renderer reads for position pins `before: [PrepassSystem]`, so the prepass, shadow, and color
+// passes all read the same frame's data; a screen-space effect slots around `OverlaySystem` (scene-space
+// transforms `before:`, screen-space overlays `after:`). Never mark a renderer `last: true` — that slot
+// belongs to the frame submit.
+
+export { computeViewProj } from "./camera";
+export type { ClusterView } from "./cluster";
 export {
-    SURFACE_DATA_STRUCT_WGSL,
-    SCENE_STRUCT_WGSL,
-    SKY_STRUCT_WGSL,
-    DATA_STRUCT_WGSL,
-    OKLAB_WGSL,
-    SPACE_CONVERT_WGSL,
-    POINT_LIGHT_STRUCT_WGSL,
-    POINT_SHADOW_STRUCT_WGSL,
-    SHADOW_STRUCT_WGSL,
-    VERTEX_PULL_WGSL,
-    WGSL_STRUCTS,
-} from "./surface/structs";
+    CLUSTER_COUNT,
+    CLUSTER_X,
+    CLUSTER_Y,
+    CLUSTER_Z,
+    Clusters,
+    clusterAabb,
+    clusterCoord,
+    clusterIndex,
+    clusterView,
+    LIGHT_POOL,
+    LightCull,
+    lightClusters,
+    sliceDepth,
+    zSlice,
+} from "./cluster";
+export { FRAME_STRUCT_WGSL, Frame } from "./frame";
+export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
+// the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas
+// both sample, inward of both extras so neither reaches sideways into the other
+export {
+    allocArray,
+    arrayFromBitmaps,
+    commonSize,
+    imageArray,
+    mipLevels,
+    uploadLayer,
+} from "./image";
+export { BeginFrameSystem, OverlaySystem } from "./index";
 
 export {
-    NOISE_WGSL,
-    SKY_WGSL,
-    HAZE_WGSL,
-    SKY_DIR_WGSL,
-    SPECULAR_WGSL,
-    POINT_LIGHT_EVAL_WGSL,
-    SHADOW_SAMPLE_WGSL,
-    POINT_SHADOW_SAMPLE_WGSL,
-    SURFACE_HELPERS_WGSL,
-    compileVertexBody,
-    WGSL_LIGHTING_CALC,
-    REFLECTION_WGSL,
-} from "./surface/shaders";
-
+    distanceAttenuation,
+    LIGHTING_STRUCT_WGSL,
+    LIGHTING_UNIFORM_SIZE,
+    Lighting,
+    MAX_POINT_LIGHTS,
+    POINT_LIGHTS_STRUCT_WGSL,
+    spotParams,
+} from "./lighting";
+export type { Mesh, QuantStreams } from "./mesh";
 export {
-    compileSurfaceBlock,
-    compileVertexVariant,
-    compileVertexDispatch,
-    OPACITY_GUARD_WGSL,
-} from "./surface/compile";
-export type { PipelineVariantConfig } from "./surface/compile";
-export { hasProperties, instanceStructWGSL, instanceBindingWGSL } from "./surface";
-export type { SurfaceData } from "./surface";
-
-export { drawBatches, CULL_ENTITY_STRIDE, INDIRECT_STRIDE } from "./batch";
-export type { Batching } from "./batch";
-
-export { CULL_SHARED_WGSL, CULL_WORKGROUP_SIZE, SHAPE_AABB_STRIDE, packShapeAABBs } from "./cull";
-
-export type { SharedPassContext, OverlayDraw } from "./pass";
-
-export { COLOR_FORMAT, Z_FORMAT, SCENE_UNIFORM_SIZE } from "./scene";
-
-export { projectActiveSun, projectSunToScreen } from "./camera";
-
-export {
-    packLightUniforms,
-    packPointLights,
-    POINT_LIGHT_BUFFER_SIZE,
-    POINT_LIGHT_STRIDE,
-    MAX_RASTER_POINT_LIGHTS,
-} from "./light";
-
-export type { ShapeAtlas, MeshData, AABB, DynamicInfo } from "./mesh";
-export {
-    MAX_BATCH_SLOTS,
-    MAX_SHAPES,
-    computeShapeAABB,
-    isDynamic,
-    dynamicInfo,
-    getMeshId,
-    getMesh,
-    PartSizes,
-    PartShapes,
-    MeshGeometryData,
+    Meshes,
+    meshBounds,
+    packMeshes,
+    quantizeMeshes,
+    VERTEX_FLOATS,
+    VERTEX_STRIDE,
 } from "./mesh";
+export type { Binding, Draw, Surface } from "./registry";
+export { Draws, Surfaces } from "./registry";
+export { Render } from "./render";
+export type { View } from "./view";
+export {
+    attachCanvas,
+    attachView,
+    detachCanvas,
+    LINEAR_TO_SRGB_WGSL,
+    MAX_SLOTS,
+    MAX_VIEWS,
+    sceneTransform,
+    VIEW_BYTES,
+    VIEW_STRIDE,
+    VIEW_STRUCT_WGSL,
+    Views,
+} from "./view";

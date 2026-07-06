@@ -1,2 +1,3 @@
 [test]
-root = "packages/shallot/tests"
+root = "packages/shallot"
+preload = "./packages/shallot/tests/setup.ts"

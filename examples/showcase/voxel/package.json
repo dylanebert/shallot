@@ -1,0 +1,16 @@
+{
+    "name": "voxel",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "bun test src",
+        "gate": "playwright test"
+    },
+    "dependencies": {
+        "@dylanebert/shallot": "workspace:*"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.58.2"
+    }
+}

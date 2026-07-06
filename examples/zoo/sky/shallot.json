@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/sky.scene",
+  "plugins": {
+    "Sky": true,
+    "Orbit": true,
+    "SkyTune": "./src/tune"
+  }
+}

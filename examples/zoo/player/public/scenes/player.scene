@@ -1,0 +1,28 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" shadow />
+
+    <!-- the player's eye: a camera the controller poses each frame -->
+    <a id="eye" camera sear transform="pos: 0 1.5 5" />
+
+    <!-- the player: a capsule (shape 2, half-height 0.6 + radius 0.3), mass 0 = the controller owns the pose -->
+    <a
+        id="player"
+        body="pos: 0 1 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0"
+        character
+        player="camera: @eye"
+    />
+
+    <!-- ground + a raised block to walk up to -->
+    <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" part color="rgba: 0.4 0.42 0.46" />
+    <a body="pos: 4 0.5 0; half-extents: 1.5 0.5 1.5; mass: 0" part color="rgba: 0.5 0.52 0.56" />
+
+    <!-- a kinematic platform the slide system drives; a player standing on it is carried along -->
+    <a
+        id="platform"
+        body="pos: -4 0.75 0; half-extents: 1.5 0.25 1.5; mass: 0"
+        part
+        color="rgba: 0.55 0.45 0.65"
+        moving
+    />
+</scene>

@@ -2,8 +2,11 @@ mod convolution;
 mod envelope;
 mod fft;
 mod filter;
+#[cfg(test)]
+mod golden;
 mod graph;
 mod hrtf;
+mod interp;
 mod oscillator;
 mod sample;
 
@@ -17,8 +20,11 @@ use graph::{
 };
 use hrtf::{Speaker, HRTF_TAPS, NUM_SPEAKERS};
 use oscillator::{WAVETABLE_FRAMES, WAVETABLE_SAMPLES};
+use sample::SampleBuffer;
 
 pub const BLOCK_SIZE: usize = 128;
+/// Flat binaural delay line: `HRTF_TAPS - 1` history samples + one block.
+const CONV_LEN: usize = BLOCK_SIZE + HRTF_TAPS - 1;
 pub const MAX_VOICES: usize = 64;
 pub const MAX_TRANSPORTS: usize = 8;
 pub const MAX_SAMPLES: usize = 256;
@@ -107,6 +113,11 @@ struct TransportEvent {
     voice_id: u8,
     duration_beats: f32,
     param_count: u8,
+    // A scheduled note carries at most 4 (param-offset, value) pairs. The cap
+    // is the deliberate, final shape: a note event sets pitch + a few
+    // per-note tweaks, not an arbitrary parameter snapshot — richer control
+    // is the per-frame `set_param` path, not the event payload. Fixed-size so
+    // the event array stays Copy and allocation-free on the audio thread.
     params: [(u8, f32); 4],
 }
 
@@ -173,6 +184,55 @@ fn compute_fdn_lengths(rt60_mid: f32, sample_rate: f32) -> [usize; FDN_SIZE] {
     lengths
 }
 
+/// In-place normalized 16-point fast Walsh-Hadamard transform — the FDN mixing
+/// matrix, run once per sample. Hand-vectorized to `f32x4` (Stage 1.5) as four
+/// lane registers: the stride-1/2 stages butterfly lanes within a register (a
+/// shuffle + a `[1,-1,…]` sign multiply, since `b·(-1) = a-b` exactly), the
+/// stride-4/8 stages butterfly whole registers. Elementwise, no reduction, so it
+/// equals the scalar form value-for-value (native vs wasm parity holds).
+#[cfg(target_feature = "simd128")]
+fn hadamard16(buf: &mut [f32; FDN_SIZE]) {
+    use core::arch::wasm32::{
+        f32x4, f32x4_add, f32x4_mul, f32x4_splat, f32x4_sub, i32x4_shuffle, v128_load, v128_store,
+    };
+    // SAFETY: buf is [f32; 16]; the four 4-wide loads/stores at 0/4/8/12 are in
+    // bounds. simd128 is the shipped wasm target feature (`.cargo/config.toml`).
+    unsafe {
+        let p = buf.as_mut_ptr();
+        let mut v = [
+            v128_load(p.cast()),
+            v128_load(p.add(4).cast()),
+            v128_load(p.add(8).cast()),
+            v128_load(p.add(12).cast()),
+        ];
+        // stride 1: butterfly adjacent lanes (0,1)(2,3) within each register.
+        let s1 = f32x4(1.0, -1.0, 1.0, -1.0);
+        for r in v.iter_mut() {
+            let a = i32x4_shuffle::<0, 0, 2, 2>(*r, *r);
+            let b = i32x4_shuffle::<1, 1, 3, 3>(*r, *r);
+            *r = f32x4_add(a, f32x4_mul(b, s1));
+        }
+        // stride 2: butterfly lane pairs (0,2)(1,3) within each register.
+        let s2 = f32x4(1.0, 1.0, -1.0, -1.0);
+        for r in v.iter_mut() {
+            let a = i32x4_shuffle::<0, 1, 0, 1>(*r, *r);
+            let b = i32x4_shuffle::<2, 3, 2, 3>(*r, *r);
+            *r = f32x4_add(a, f32x4_mul(b, s2));
+        }
+        // stride 4: butterfly register pairs (v0,v1) and (v2,v3).
+        let (n0, n1) = (f32x4_add(v[0], v[1]), f32x4_sub(v[0], v[1]));
+        let (n2, n3) = (f32x4_add(v[2], v[3]), f32x4_sub(v[2], v[3]));
+        // stride 8 across the two halves, with the scalar tail's 0.25 (the
+        // orthonormal 1/sqrt(16)) folded into this final multiply.
+        let scale = f32x4_splat(0.25);
+        v128_store(p.cast(), f32x4_mul(f32x4_add(n0, n2), scale));
+        v128_store(p.add(4).cast(), f32x4_mul(f32x4_add(n1, n3), scale));
+        v128_store(p.add(8).cast(), f32x4_mul(f32x4_sub(n0, n2), scale));
+        v128_store(p.add(12).cast(), f32x4_mul(f32x4_sub(n1, n3), scale));
+    }
+}
+
+#[cfg(not(target_feature = "simd128"))]
 fn hadamard16(buf: &mut [f32; FDN_SIZE]) {
     let mut stride = 1;
     for _ in 0..4 {
@@ -233,11 +293,138 @@ fn boxed_fn<T, const N: usize>(f: impl Fn() -> T) -> Box<[T; N]> {
     v.into_boxed_slice().try_into().ok().unwrap()
 }
 
+/// [`FDN_SIZE`] parallel Direct-Form-I biquads — one per FDN line — for one
+/// absorptive band. State and coefficients are SoA (`[f32; FDN_SIZE]` per field)
+/// so [`tick`](BiquadBank::tick) advances 4 lanes per `f32x4`: the recurrence
+/// lives within a lane, the 16 lanes are independent, so they vectorize across
+/// lanes. Reference: chowdsp biquad-bank (N biquads as SIMD lanes). The scalar
+/// fallback (native, and the parity differential's non-simd leg) runs the same
+/// per-lane Direct-Form-I as [`Biquad::tick`], so all paths agree bit-for-bit —
+/// the tick is elementwise, no cross-lane reduction.
+struct BiquadBank {
+    b0: [f32; FDN_SIZE],
+    b1: [f32; FDN_SIZE],
+    b2: [f32; FDN_SIZE],
+    a1: [f32; FDN_SIZE],
+    a2: [f32; FDN_SIZE],
+    xm1: [f32; FDN_SIZE],
+    xm2: [f32; FDN_SIZE],
+    ym1: [f32; FDN_SIZE],
+    ym2: [f32; FDN_SIZE],
+}
+
+impl BiquadBank {
+    fn passthrough() -> Self {
+        BiquadBank {
+            b0: [1.0; FDN_SIZE],
+            b1: [0.0; FDN_SIZE],
+            b2: [0.0; FDN_SIZE],
+            a1: [0.0; FDN_SIZE],
+            a2: [0.0; FDN_SIZE],
+            xm1: [0.0; FDN_SIZE],
+            xm2: [0.0; FDN_SIZE],
+            ym1: [0.0; FDN_SIZE],
+            ym2: [0.0; FDN_SIZE],
+        }
+    }
+
+    /// Copy lane `i`'s 5 coefficients from `src`; the lane's filter state is kept.
+    fn set_lane(&mut self, i: usize, src: &Biquad) {
+        self.b0[i] = src.b0;
+        self.b1[i] = src.b1;
+        self.b2[i] = src.b2;
+        self.a1[i] = src.a1;
+        self.a2[i] = src.a2;
+    }
+
+    fn reset(&mut self) {
+        self.xm1 = [0.0; FDN_SIZE];
+        self.xm2 = [0.0; FDN_SIZE];
+        self.ym1 = [0.0; FDN_SIZE];
+        self.ym2 = [0.0; FDN_SIZE];
+    }
+
+    /// Lane `i`'s coefficients on a clean (state-zero) [`Biquad`] — the absorptive
+    /// tests reconstruct an isolated per-line chain straight after `update_filters`.
+    #[cfg(test)]
+    fn lane_filter(&self, i: usize) -> Biquad {
+        let mut bq = Biquad::passthrough();
+        bq.b0 = self.b0[i];
+        bq.b1 = self.b1[i];
+        bq.b2 = self.b2[i];
+        bq.a1 = self.a1[i];
+        bq.a2 = self.a2[i];
+        bq
+    }
+
+    /// Advance all [`FDN_SIZE`] lanes one sample, in place — `io[k]` becomes line
+    /// `k`'s Direct-Form-I output (with the `+1e-9` denormal guard of [`Biquad::tick`]).
+    #[cfg(target_feature = "simd128")]
+    fn tick(&mut self, io: &mut [f32; FDN_SIZE]) {
+        use core::arch::wasm32::{
+            f32x4_add, f32x4_mul, f32x4_splat, f32x4_sub, v128_load, v128_store,
+        };
+        let eps = f32x4_splat(1e-9);
+        // SAFETY: every field is [f32; FDN_SIZE] (16), c in {0,4,8,12}, so each
+        // 4-wide load/store stays in bounds. The loads precede the stores, and the
+        // stored fields don't alias the still-unread ones in this chunk. simd128 is
+        // the shipped wasm target feature (`.cargo/config.toml`).
+        unsafe {
+            let mut c = 0;
+            while c < FDN_SIZE {
+                let x = f32x4_add(v128_load(io.as_ptr().add(c).cast()), eps);
+                let xm1 = v128_load(self.xm1.as_ptr().add(c).cast());
+                let xm2 = v128_load(self.xm2.as_ptr().add(c).cast());
+                let ym1 = v128_load(self.ym1.as_ptr().add(c).cast());
+                let ym2 = v128_load(self.ym2.as_ptr().add(c).cast());
+                let b0 = v128_load(self.b0.as_ptr().add(c).cast());
+                let b1 = v128_load(self.b1.as_ptr().add(c).cast());
+                let b2 = v128_load(self.b2.as_ptr().add(c).cast());
+                let a1 = v128_load(self.a1.as_ptr().add(c).cast());
+                let a2 = v128_load(self.a2.as_ptr().add(c).cast());
+                let y = f32x4_sub(
+                    f32x4_sub(
+                        f32x4_add(
+                            f32x4_add(f32x4_mul(b0, x), f32x4_mul(b1, xm1)),
+                            f32x4_mul(b2, xm2),
+                        ),
+                        f32x4_mul(a1, ym1),
+                    ),
+                    f32x4_mul(a2, ym2),
+                );
+                v128_store(self.xm2.as_mut_ptr().add(c).cast(), xm1);
+                v128_store(self.xm1.as_mut_ptr().add(c).cast(), x);
+                v128_store(self.ym2.as_mut_ptr().add(c).cast(), ym1);
+                v128_store(self.ym1.as_mut_ptr().add(c).cast(), y);
+                v128_store(io.as_mut_ptr().add(c).cast(), y);
+                c += 4;
+            }
+        }
+    }
+
+    #[cfg(not(target_feature = "simd128"))]
+    fn tick(&mut self, io: &mut [f32; FDN_SIZE]) {
+        for k in 0..FDN_SIZE {
+            let x = io[k] + 1e-9;
+            let y = self.b0[k] * x + self.b1[k] * self.xm1[k] + self.b2[k] * self.xm2[k]
+                - self.a1[k] * self.ym1[k]
+                - self.a2[k] * self.ym2[k];
+            self.xm2[k] = self.xm1[k];
+            self.xm1[k] = x;
+            self.ym2[k] = self.ym1[k];
+            self.ym1[k] = y;
+            io[k] = y;
+        }
+    }
+}
+
 struct FdnReverb {
     lines: Box<[[f32; FDN_MAX_DELAY]; FDN_SIZE]>,
     write_pos: [usize; FDN_SIZE],
     lengths: [usize; FDN_SIZE],
-    absorptive: [[Biquad; 3]; FDN_SIZE],
+    // One bank per absorptive band (low-shelf, peaking, high-shelf), each holding
+    // all FDN_SIZE lines so the per-sample cascade vectorizes across lines.
+    absorptive: [BiquadBank; 3],
     tone_correction: [Biquad; 3],
     allpass: [AllpassFilter; ALLPASS_COUNT],
     wet_gain: f32,
@@ -253,7 +440,11 @@ impl FdnReverb {
             lines: boxed([0.0; FDN_MAX_DELAY]),
             write_pos: [0; FDN_SIZE],
             lengths,
-            absorptive: [[Biquad::passthrough(); 3]; FDN_SIZE],
+            absorptive: [
+                BiquadBank::passthrough(),
+                BiquadBank::passthrough(),
+                BiquadBank::passthrough(),
+            ],
             tone_correction: [Biquad::passthrough(); 3],
             allpass: [
                 AllpassFilter::new(ALLPASS_DELAYS[0], ALLPASS_FEEDBACK),
@@ -286,9 +477,9 @@ impl FdnReverb {
             let ls = Biquad::low_shelf(800.0, gains[0], sample_rate);
             let pk = Biquad::peaking(800.0, 8000.0, gains[1], sample_rate);
             let hs = Biquad::high_shelf(8000.0, gains[2], sample_rate);
-            self.absorptive[i][0].set_coeffs(&ls);
-            self.absorptive[i][1].set_coeffs(&pk);
-            self.absorptive[i][2].set_coeffs(&hs);
+            self.absorptive[0].set_lane(i, &ls);
+            self.absorptive[1].set_lane(i, &pk);
+            self.absorptive[2].set_lane(i, &hs);
         }
 
         let mut tone_gains = [0.0f32; 3];
@@ -318,13 +509,18 @@ pub struct AudioEngine {
     voices: Box<[Voice; MAX_VOICES]>,
     instruments: [InstrumentDef; MAX_INSTRUMENTS],
     wavetable: Box<[f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES]>,
-    samples: Vec<Vec<f32>>,
+    samples: Vec<SampleBuffer>,
     foa_bus: [[f32; BLOCK_SIZE]; 4],
     output: [f32; BLOCK_SIZE * 2],
     speakers: [Speaker; NUM_SPEAKERS],
     hrtf_norm: f32,
-    conv_buf: [[f32; BLOCK_SIZE + HRTF_TAPS - 1]; NUM_SPEAKERS],
-    conv_pos: usize,
+    // Each speaker's HRIRs time-reversed, derived once from `speakers` in `new`.
+    // The binaural convolution reads these so its tap reduction is a forward,
+    // contiguous dot product (`convolve_speaker`); reading the forward filters
+    // backwards would defeat the f32x4 load.
+    hrtf_left_rev: [[f32; HRTF_TAPS]; NUM_SPEAKERS],
+    hrtf_right_rev: [[f32; HRTF_TAPS]; NUM_SPEAKERS],
+    conv_buf: [[f32; CONV_LEN]; NUM_SPEAKERS],
     transports: Box<[Transport; MAX_TRANSPORTS]>,
     readbacks: [TransportReadback; MAX_TRANSPORTS],
     voice_events: [[VoiceBlockEvent; MAX_VOICE_EVENTS_PER_BLOCK]; MAX_VOICES],
@@ -334,15 +530,98 @@ pub struct AudioEngine {
     active_spatial_count: u32,
     fft_plan: fft::FftPlan,
     ir_staging: Box<[f32; convolution::MAX_IR_SAMPLES]>,
-    spike_diag: [f32; 8],
-    pre_tanh_peak: f32,
-    fdn_peak: f32,
     real_voice_budget: u32,
     sorted_indices: [u8; MAX_VOICES],
-    diag_active: u32,
-    diag_real: u32,
-    diag_virtual: u32,
-    diag_convolved: u32,
+    // Peak of the mixed bus before the tanh limiter — the only observable of
+    // the pre-limiter signal (the limiter is in-place, so the output buffer
+    // can't recover it). Test-only gain-staging instrumentation, never shipped.
+    #[cfg(test)]
+    pre_tanh_peak: f32,
+}
+
+/// Dual dot product of `window` (>= [`HRTF_TAPS`] samples) against two reversed
+/// HRIRs (left and right ear), one pass over the shared window — the binaural
+/// FIR's hot reduction.
+///
+/// Hand-vectorized to `f32x4` on wasm (Stage 1.3): the autovectorizer leaves a
+/// float reduction scalar (reassociating a sum isn't value-safe), so the four
+/// lane accumulators are explicit. Native uses the identical 4-lane grouping in
+/// scalar form, so the two builds agree bit-for-bit — the native-vs-wasm
+/// differential gates the wasm path that `golden.rs` (native only) can't see.
+#[cfg(target_feature = "simd128")]
+#[inline]
+fn dot2(window: &[f32], left_rev: &[f32; HRTF_TAPS], right_rev: &[f32; HRTF_TAPS]) -> (f32, f32) {
+    use core::arch::wasm32::{f32x4_add, f32x4_extract_lane, f32x4_mul, f32x4_splat, v128_load};
+    // SAFETY: callers pass `window.len() >= HRTF_TAPS`, so every load of 4 f32
+    // stays in-bounds; `v128_load` is unaligned-safe. simd128 is the shipped
+    // wasm target feature (`.cargo/config.toml`).
+    unsafe {
+        let mut accl = f32x4_splat(0.0);
+        let mut accr = f32x4_splat(0.0);
+        let (wp, lp, rp) = (window.as_ptr(), left_rev.as_ptr(), right_rev.as_ptr());
+        let mut t = 0;
+        while t < HRTF_TAPS {
+            let s = v128_load(wp.add(t).cast());
+            accl = f32x4_add(accl, f32x4_mul(s, v128_load(lp.add(t).cast())));
+            accr = f32x4_add(accr, f32x4_mul(s, v128_load(rp.add(t).cast())));
+            t += 4;
+        }
+        let left = f32x4_extract_lane::<0>(accl)
+            + f32x4_extract_lane::<1>(accl)
+            + f32x4_extract_lane::<2>(accl)
+            + f32x4_extract_lane::<3>(accl);
+        let right = f32x4_extract_lane::<0>(accr)
+            + f32x4_extract_lane::<1>(accr)
+            + f32x4_extract_lane::<2>(accr)
+            + f32x4_extract_lane::<3>(accr);
+        (left, right)
+    }
+}
+
+#[cfg(not(target_feature = "simd128"))]
+#[inline]
+fn dot2(window: &[f32], left_rev: &[f32; HRTF_TAPS], right_rev: &[f32; HRTF_TAPS]) -> (f32, f32) {
+    let mut accl = [0.0f32; 4];
+    let mut accr = [0.0f32; 4];
+    for c in 0..HRTF_TAPS / 4 {
+        let t = c * 4;
+        for lane in 0..4 {
+            let s = window[t + lane];
+            accl[lane] += s * left_rev[t + lane];
+            accr[lane] += s * right_rev[t + lane];
+        }
+    }
+    (
+        accl[0] + accl[1] + accl[2] + accl[3],
+        accr[0] + accr[1] + accr[2] + accr[3],
+    )
+}
+
+/// Linear FIR convolution of one block against a speaker's two HRIRs (left and
+/// right ear), one pass over a shared input window.
+///
+/// `delay` is a flat delay line of length [`CONV_LEN`]: each block shifts the
+/// trailing `HRTF_TAPS - 1` history samples to the front and appends `block`, so
+/// every output is a contiguous dot product ([`dot2`]). A ring buffer would
+/// index each tap modulo its length, and that modulo defeats vectorization.
+/// `left_rev` / `right_rev` are the HRIRs reversed once at speaker init, so the
+/// reduction reads the filter forward.
+fn convolve_speaker(
+    delay: &mut [f32; CONV_LEN],
+    block: &[f32; BLOCK_SIZE],
+    left_rev: &[f32; HRTF_TAPS],
+    right_rev: &[f32; HRTF_TAPS],
+    out_left: &mut [f32; BLOCK_SIZE],
+    out_right: &mut [f32; BLOCK_SIZE],
+) {
+    delay.copy_within(BLOCK_SIZE.., 0);
+    delay[HRTF_TAPS - 1..].copy_from_slice(block);
+
+    for i in 0..BLOCK_SIZE {
+        let (left, right) = dot2(&delay[i..i + HRTF_TAPS], left_rev, right_rev);
+        out_left[i] = left;
+        out_right[i] = right;
+    }
 }
 
 impl AudioEngine {
@@ -355,6 +634,7 @@ impl AudioEngine {
             instruments: [InstrumentDef {
                 node_count: 0,
                 output_buf: 0,
+                output_buf_r: 0,
                 mod_count: 0,
                 nodes: [NodeDef {
                     node_type: NodeType::None,
@@ -372,13 +652,14 @@ impl AudioEngine {
                 }; MAX_MODS],
             }; MAX_INSTRUMENTS],
             wavetable: boxed(0.0),
-            samples: (0..MAX_SAMPLES).map(|_| Vec::new()).collect(),
+            samples: (0..MAX_SAMPLES).map(|_| SampleBuffer::default()).collect(),
             foa_bus: [[0.0; BLOCK_SIZE]; 4],
             output: [0.0; BLOCK_SIZE * 2],
             speakers: unsafe { core::mem::zeroed() },
             hrtf_norm: 0.0,
-            conv_buf: [[0.0; BLOCK_SIZE + HRTF_TAPS - 1]; NUM_SPEAKERS],
-            conv_pos: 0,
+            hrtf_left_rev: [[0.0; HRTF_TAPS]; NUM_SPEAKERS],
+            hrtf_right_rev: [[0.0; HRTF_TAPS]; NUM_SPEAKERS],
+            conv_buf: [[0.0; CONV_LEN]; NUM_SPEAKERS],
             transports: boxed(DEFAULT_TRANSPORT),
             readbacks: [TransportReadback {
                 playing: 0,
@@ -399,18 +680,19 @@ impl AudioEngine {
             active_spatial_count: 0,
             fft_plan: fft::FftPlan::new(),
             ir_staging: boxed(0.0),
-            spike_diag: [0.0; 8],
-            pre_tanh_peak: 0.0,
-            fdn_peak: 0.0,
             real_voice_budget: 24,
             sorted_indices: [0; MAX_VOICES],
-            diag_active: 0,
-            diag_real: 0,
-            diag_virtual: 0,
-            diag_convolved: 0,
+            #[cfg(test)]
+            pre_tanh_peak: 0.0,
         };
         e.speakers = hrtf::init_speakers(sample_rate);
         e.hrtf_norm = 1.0 / NUM_SPEAKERS as f32;
+        for sp in 0..NUM_SPEAKERS {
+            for t in 0..HRTF_TAPS {
+                e.hrtf_left_rev[sp][t] = e.speakers[sp].left[HRTF_TAPS - 1 - t];
+                e.hrtf_right_rev[sp][t] = e.speakers[sp].right[HRTF_TAPS - 1 - t];
+            }
+        }
         e
     }
 
@@ -428,12 +710,11 @@ impl AudioEngine {
         for sp in 0..NUM_SPEAKERS {
             self.conv_buf[sp].fill(0.0);
         }
-        self.conv_pos = 0;
         for k in 0..FDN_SIZE {
             self.fdn.lines[k].fill(0.0);
-            for b in 0..3 {
-                self.fdn.absorptive[k][b].reset();
-            }
+        }
+        for b in 0..3 {
+            self.fdn.absorptive[b].reset();
         }
         for b in 0..3 {
             self.fdn.tone_correction[b].reset();
@@ -443,18 +724,39 @@ impl AudioEngine {
         }
     }
 
-    fn update_diag_convolved(&mut self) {
-        let mut n = 0u32;
-        for vi in 0..MAX_VOICES {
-            if self.voices[vi].active && !self.voices[vi].virtual_voice && self.voices[vi].convolver.is_some() {
-                n += 1;
-            }
-        }
-        self.diag_convolved = n;
-    }
-
     pub fn set_real_voice_budget(&mut self, budget: u32) {
         self.real_voice_budget = budget.clamp(1, MAX_VOICES as u32);
+    }
+
+    // Computed-volume loudness term for voice priority: the voice's loudest
+    // active envelope level (1.0 when the instrument has no envelope). Read from
+    // node_states, which `tick_envelopes_only` keeps live for virtual voices too
+    // — so a deprioritized voice still recovers when it grows loud or near,
+    // unlike a measured-output peak that freezes the moment we stop rendering it.
+    // Heuristic, not a parity port (concept: Wwise/FMOD computed-volume virtual
+    // voices); provisional — validated behaviorally (a louder voice outranks a
+    // quieter one at equal distance), not against a reference.
+    fn voice_loudness(&self, vi: usize) -> f32 {
+        let inst_idx = self.voices[vi].instrument as usize;
+        if inst_idx >= MAX_INSTRUMENTS {
+            return 1.0;
+        }
+        let nc = self.instruments[inst_idx].node_count as usize;
+        let mut level = 0.0f32;
+        let mut has_env = false;
+        for ni in 0..nc {
+            if let NodeState::Envelope { level: l, .. } = self.voices[vi].node_states[ni] {
+                has_env = true;
+                if l > level {
+                    level = l;
+                }
+            }
+        }
+        if has_env {
+            level
+        } else {
+            1.0
+        }
     }
 
     fn classify_voices(&mut self) {
@@ -468,7 +770,8 @@ impl AudioEngine {
                 self.voices[vi].ref_distance,
                 self.voices[vi].rolloff,
             );
-            self.voices[vi].audibility = dist_gain * self.voices[vi].occ_gain;
+            let loudness = self.voice_loudness(vi);
+            self.voices[vi].audibility = loudness * dist_gain * self.voices[vi].occ_gain;
             self.sorted_indices[count as usize] = vi as u8;
             count += 1;
         }
@@ -480,10 +783,6 @@ impl AudioEngine {
                     self.voices[vi].fade_samples = FADE_SAMPLES;
                 }
             }
-            self.diag_active = count;
-            self.diag_real = count;
-            self.diag_virtual = 0;
-            self.update_diag_convolved();
             return;
         }
 
@@ -529,11 +828,6 @@ impl AudioEngine {
                 v.virtual_voice = true;
             }
         }
-
-        self.diag_active = count;
-        self.diag_real = budget.min(count as usize) as u32;
-        self.diag_virtual = count - self.diag_real;
-        self.update_diag_convolved();
 
         let block_coeff = self.spatial_smooth_block;
         let one_minus = 1.0 - block_coeff;
@@ -636,21 +930,6 @@ impl AudioEngine {
         self.voices[idx].one_shot = one_shot != 0;
     }
 
-    pub fn set_acoustic(&mut self, voice_id: u32, gain_low: f32, gain_mid: f32, gain_high: f32) {
-        let idx = voice_id as usize;
-        if idx >= MAX_VOICES {
-            return;
-        }
-        if !gain_low.is_finite() || !gain_mid.is_finite() || !gain_high.is_finite() {
-            return;
-        }
-        let peak = gain_low
-            .clamp(0.0, 1.0)
-            .max(gain_mid.clamp(0.0, 1.0))
-            .max(gain_high.clamp(0.0, 1.0));
-        self.voices[idx].occ_gain_target = peak;
-    }
-
     pub fn set_acoustic_separate(
         &mut self,
         voice_id: u32,
@@ -661,6 +940,13 @@ impl AudioEngine {
     ) {
         let idx = voice_id as usize;
         if idx >= MAX_VOICES {
+            return;
+        }
+        if !occlusion.is_finite()
+            || !trans_low.is_finite()
+            || !trans_mid.is_finite()
+            || !trans_high.is_finite()
+        {
             return;
         }
         let occ = occlusion.clamp(0.0, 1.0);
@@ -705,16 +991,7 @@ impl AudioEngine {
         self.voices[vi].refl_gain_target = gain.clamp(0.0, 1.0);
     }
 
-    pub fn set_reverb(
-        &mut self,
-        rt60_low: f32,
-        rt60_mid: f32,
-        rt60_high: f32,
-        wet_gain: f32,
-        _eq_low: f32,
-        _eq_mid: f32,
-        _eq_high: f32,
-    ) {
+    pub fn set_reverb(&mut self, rt60_low: f32, rt60_mid: f32, rt60_high: f32, wet_gain: f32) {
         self.fdn.rt60_target = [rt60_low.max(0.1), rt60_mid.max(0.1), rt60_high.max(0.1)];
         self.fdn.wet_target = wet_gain;
     }
@@ -784,7 +1061,7 @@ impl AudioEngine {
         1
     }
 
-    pub fn set_instrument(&mut self, id: u32, node_count: u32, output_buf: u32) {
+    pub fn set_instrument(&mut self, id: u32, node_count: u32, output_buf: u32, output_buf_r: u32) {
         let idx = id as usize;
         if idx >= MAX_INSTRUMENTS {
             return;
@@ -792,6 +1069,12 @@ impl AudioEngine {
         let inst = &mut self.instruments[idx];
         inst.node_count = node_count as u8;
         inst.output_buf = output_buf as u8;
+        // out-of-range right buffer (NO_BUF) means mono: right channel reads the left buffer.
+        inst.output_buf_r = if (output_buf_r as usize) < MAX_BUFFERS {
+            output_buf_r as u8
+        } else {
+            output_buf as u8
+        };
         inst.mod_count = 0;
         for n in inst.nodes.iter_mut() {
             *n = NodeDef::default();
@@ -801,13 +1084,16 @@ impl AudioEngine {
         }
     }
 
-    pub fn sample_alloc(&mut self, id: u32, len: u32) -> *mut f32 {
+    pub fn sample_alloc(&mut self, id: u32, channel: u32, channels: u32, len: u32) -> *mut f32 {
         let idx = id as usize;
-        if idx >= MAX_SAMPLES {
+        let ch = channel as usize;
+        if idx >= MAX_SAMPLES || ch >= 2 {
             return core::ptr::null_mut();
         }
-        self.samples[idx] = vec![0.0; len as usize];
-        self.samples[idx].as_mut_ptr()
+        let s = &mut self.samples[idx];
+        s.count = channels.min(2) as u8;
+        s.channels[ch] = vec![0.0; len as usize];
+        s.channels[ch].as_mut_ptr()
     }
 
     pub fn clear_sample(&mut self, id: u32) {
@@ -815,7 +1101,10 @@ impl AudioEngine {
         if idx >= MAX_SAMPLES {
             return;
         }
-        self.samples[idx].clear();
+        let s = &mut self.samples[idx];
+        s.channels[0].clear();
+        s.channels[1].clear();
+        s.count = 0;
     }
 
     pub fn set_instrument_node(
@@ -887,7 +1176,10 @@ impl AudioEngine {
         v.smooth_params = [0.0; MAX_PARAMS];
         for ni in 0..MAX_NODES {
             v.node_states[ni] = match node_types[ni] {
-                NodeType::Oscillator => NodeState::Oscillator { phase: 0.0 },
+                NodeType::Oscillator => NodeState::Oscillator {
+                    phase: 0.0,
+                    tri: 0.0,
+                },
                 NodeType::Filter => NodeState::Filter {
                     ic1eq: 0.0,
                     ic2eq: 0.0,
@@ -1405,6 +1697,7 @@ impl AudioEngine {
 
             let voice = &mut self.voices[vi];
             let output_buf = self.instruments[inst_idx].output_buf as usize;
+            let output_buf_r = self.instruments[inst_idx].output_buf_r as usize;
 
             if voice.spatial {
                 self.active_spatial_count += 1;
@@ -1454,20 +1747,16 @@ impl AudioEngine {
                     voice.air_lp = 0.0;
                 }
 
-                let mut synth_peak = 0.0f32;
-                for i in 0..BLOCK_SIZE {
-                    let s = voice.buffers[output_buf][i].abs();
-                    if s > synth_peak {
-                        synth_peak = s;
-                    }
-                }
                 let inv_block = 1.0 / BLOCK_SIZE as f32;
 
                 let mut raw_block = [0.0f32; BLOCK_SIZE];
                 for i in 0..BLOCK_SIZE {
                     let t = i as f32 * inv_block;
                     let dg = dist_gain_start + (dist_gain_end - dist_gain_start) * t;
-                    let raw = voice.buffers[output_buf][i] * dg;
+                    // a positional voice is a mono point source: downmix the two output channels.
+                    // when mono (output_buf_r == output_buf) this is 0.5*(x+x) == x exactly (IEEE-754).
+                    let raw =
+                        0.5 * (voice.buffers[output_buf][i] + voice.buffers[output_buf_r][i]) * dg;
                     voice.air_lp += air_alpha * (raw - voice.air_lp);
                     raw_block[i] = voice.air_lp;
                 }
@@ -1475,15 +1764,10 @@ impl AudioEngine {
                 let occ_start = gain_start / dist_gain_start.max(1e-6);
                 let occ_end = gain_end / dist_gain_end.max(1e-6);
                 let mut dry_block = [0.0f32; BLOCK_SIZE];
-                let mut dry_peak = 0.0f32;
                 for i in 0..BLOCK_SIZE {
                     let t = i as f32 * inv_block;
                     let og = occ_start + (occ_end - occ_start) * t;
                     dry_block[i] = raw_block[i] * og;
-                    let a = dry_block[i].abs();
-                    if a > dry_peak {
-                        dry_peak = a;
-                    }
                 }
 
                 let mut refl_block = [0.0f32; BLOCK_SIZE];
@@ -1494,30 +1778,6 @@ impl AudioEngine {
                         let rg = refl_gain_start + (refl_gain_end - refl_gain_start) * t;
                         refl_block[i] *= rg;
                     }
-                }
-
-                let mut refl_peak = 0.0f32;
-                let mut total_peak = 0.0f32;
-                for i in 0..BLOCK_SIZE {
-                    let rp = refl_block[i].abs();
-                    if rp > refl_peak {
-                        refl_peak = rp;
-                    }
-                    let total = dry_block[i] + refl_block[i];
-                    let tp = total.abs();
-                    if tp > total_peak {
-                        total_peak = tp;
-                    }
-                }
-                if total_peak > 1.0 && total_peak > self.spike_diag[2] {
-                    self.spike_diag[0] = vi as f32;
-                    self.spike_diag[1] = synth_peak;
-                    self.spike_diag[2] = total_peak;
-                    self.spike_diag[3] = dry_peak;
-                    self.spike_diag[4] = refl_peak;
-                    self.spike_diag[5] = gain_end;
-                    self.spike_diag[6] = voice.distance;
-                    self.spike_diag[7] = if voice.convolver.is_some() { 1.0 } else { 0.0 };
                 }
 
                 if voice.fade_samples != 0 {
@@ -1552,13 +1812,6 @@ impl AudioEngine {
                     self.foa_bus[3][i] += total * ca * ce;
                 }
             } else {
-                let mut peak = 0.0f32;
-                for i in 0..BLOCK_SIZE {
-                    let s = voice.buffers[output_buf][i].abs();
-                    if s > peak {
-                        peak = s;
-                    }
-                }
                 if voice.fade_samples != 0 {
                     let fade_len = FADE_SAMPLES as f32;
                     for i in 0..BLOCK_SIZE {
@@ -1569,6 +1822,10 @@ impl AudioEngine {
                             ((-voice.fade_samples as f32 - i as f32) / fade_len).clamp(0.0, 1.0)
                         };
                         voice.buffers[output_buf][i] *= gain;
+                        // scale the right buffer only when distinct, or an equal buffer fades twice.
+                        if output_buf_r != output_buf {
+                            voice.buffers[output_buf_r][i] *= gain;
+                        }
                     }
                     if voice.fade_samples > 0 {
                         voice.fade_samples = (voice.fade_samples - BLOCK_SIZE as i32).max(0);
@@ -1578,9 +1835,8 @@ impl AudioEngine {
                 }
 
                 for i in 0..BLOCK_SIZE {
-                    let s = voice.buffers[output_buf][i];
-                    self.output[i] += s;
-                    self.output[BLOCK_SIZE + i] += s;
+                    self.output[i] += voice.buffers[output_buf][i];
+                    self.output[BLOCK_SIZE + i] += voice.buffers[output_buf_r][i];
                 }
             }
         }
@@ -1595,41 +1851,38 @@ impl AudioEngine {
             }
         }
 
-        let mut spatial_output = [0.0f32; BLOCK_SIZE * 2];
-
-        let conv_len = BLOCK_SIZE + HRTF_TAPS - 1;
-
         if has_spatial {
+            let mut spatial_output = [0.0f32; BLOCK_SIZE * 2];
+            let mut out_left = [0.0f32; BLOCK_SIZE];
+            let mut out_right = [0.0f32; BLOCK_SIZE];
+
             for sp in 0..NUM_SPEAKERS {
                 let sx = self.speakers[sp].x;
                 let sy = self.speakers[sp].y;
                 let sz = self.speakers[sp].z;
 
                 const MAX_RE: f32 = 0.775;
-                let pos = self.conv_pos;
+                let mut block = [0.0f32; BLOCK_SIZE];
                 for i in 0..BLOCK_SIZE {
-                    let speaker_signal = self.foa_bus[0][i]
+                    block[i] = self.foa_bus[0][i]
                         + MAX_RE
                             * (sx * self.foa_bus[1][i]
                                 + sy * self.foa_bus[2][i]
                                 + sz * self.foa_bus[3][i]);
-                    self.conv_buf[sp][(pos + i) % conv_len] = speaker_signal;
                 }
 
+                convolve_speaker(
+                    &mut self.conv_buf[sp],
+                    &block,
+                    &self.hrtf_left_rev[sp],
+                    &self.hrtf_right_rev[sp],
+                    &mut out_left,
+                    &mut out_right,
+                );
+
                 for i in 0..BLOCK_SIZE {
-                    let mut left = 0.0f32;
-                    let mut right = 0.0f32;
-                    let sample_pos = (pos + i) % conv_len;
-
-                    for t in 0..HRTF_TAPS {
-                        let buf_idx = (sample_pos + conv_len - t) % conv_len;
-                        let sample = self.conv_buf[sp][buf_idx];
-                        left += sample * self.speakers[sp].left[t];
-                        right += sample * self.speakers[sp].right[t];
-                    }
-
-                    spatial_output[i] += left;
-                    spatial_output[BLOCK_SIZE + i] += right;
+                    spatial_output[i] += out_left[i];
+                    spatial_output[BLOCK_SIZE + i] += out_right[i];
                 }
             }
 
@@ -1639,8 +1892,6 @@ impl AudioEngine {
                 self.output[BLOCK_SIZE + i] += spatial_output[BLOCK_SIZE + i] * norm;
             }
         }
-
-        self.conv_pos = (self.conv_pos + BLOCK_SIZE) % conv_len;
 
         let fdn = &mut self.fdn;
         let block_coeff = self.spatial_smooth_block;
@@ -1658,7 +1909,6 @@ impl AudioEngine {
         fdn.update_filters(self.sample_rate);
         let inv_n = 1.0 / FDN_SIZE as f32;
         let inv_block = 1.0 / BLOCK_SIZE as f32;
-        let mut fdn_peak = 0.0f32;
         for i in 0..BLOCK_SIZE {
             let t = i as f32 * inv_block;
             let wet_g = wet_start + (wet_end - wet_start) * t;
@@ -1667,12 +1917,10 @@ impl AudioEngine {
             let mut taps = [0.0f32; FDN_SIZE];
             for k in 0..FDN_SIZE {
                 let read_pos = (fdn.write_pos[k] + FDN_MAX_DELAY - fdn.lengths[k]) % FDN_MAX_DELAY;
-                let raw = fdn.lines[k][read_pos];
-                let mut filtered = raw;
-                for b in 0..3 {
-                    filtered = fdn.absorptive[k][b].tick(filtered);
-                }
-                taps[k] = filtered;
+                taps[k] = fdn.lines[k][read_pos];
+            }
+            for b in 0..3 {
+                fdn.absorptive[b].tick(&mut taps);
             }
 
             let mut raw_wet = 0.0f32;
@@ -1690,10 +1938,6 @@ impl AudioEngine {
             for b in 0..3 {
                 wet = fdn.tone_correction[b].tick(wet);
             }
-            let wa = wet.abs();
-            if wa > fdn_peak {
-                fdn_peak = wa;
-            }
             self.output[i] += wet;
             self.output[BLOCK_SIZE + i] += wet;
 
@@ -1705,11 +1949,9 @@ impl AudioEngine {
                 fdn.write_pos[k] = (fdn.write_pos[k] + 1) % FDN_MAX_DELAY;
             }
         }
-        self.fdn_peak = fdn_peak;
     }
 
     pub fn process(&mut self) -> *const f32 {
-        self.spike_diag = [0.0; 8];
         self.schedule_transport_events();
         self.classify_voices();
 
@@ -1727,15 +1969,17 @@ impl AudioEngine {
         self.synthesize_voices();
         self.render_binaural();
 
-        let mut pre_tanh_peak = 0.0f32;
+        #[cfg(test)]
+        {
+            self.pre_tanh_peak = self.output.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+        }
+        // Master soft-clip limiter: tanh is the deliberate final choice for a
+        // realtime audio thread — zero lookahead/latency, smooth odd-harmonic
+        // saturation, transparent below ~0.7 and graceful above. A lookahead
+        // brickwall would add latency the worklet can't spend; this stays.
         for s in self.output.iter_mut() {
-            let a = s.abs();
-            if a > pre_tanh_peak {
-                pre_tanh_peak = a;
-            }
             *s = s.tanh();
         }
-        self.pre_tanh_peak = pre_tanh_peak;
 
         for tidx in 0..MAX_TRANSPORTS {
             let t = &self.transports[tidx];
@@ -1833,8 +2077,13 @@ pub extern "C" fn audio_voice_idle(voice_id: u32) -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn audio_set_instrument(id: u32, node_count: u32, output_buf: u32) {
-    engine().set_instrument(id, node_count, output_buf);
+pub extern "C" fn audio_set_instrument(
+    id: u32,
+    node_count: u32,
+    output_buf: u32,
+    output_buf_r: u32,
+) {
+    engine().set_instrument(id, node_count, output_buf, output_buf_r);
 }
 
 #[no_mangle]
@@ -1885,8 +2134,8 @@ pub extern "C" fn audio_set_voice_instrument(voice_id: u32, instrument_id: u32) 
 }
 
 #[no_mangle]
-pub extern "C" fn audio_sample_alloc(id: u32, len: u32) -> *mut f32 {
-    engine().sample_alloc(id, len)
+pub extern "C" fn audio_sample_alloc(id: u32, channel: u32, channels: u32, len: u32) -> *mut f32 {
+    engine().sample_alloc(id, channel, channels, len)
 }
 
 #[no_mangle]
@@ -1968,11 +2217,6 @@ pub extern "C" fn transport_set_loop(tid: u32, length: f64) {
 }
 
 #[no_mangle]
-pub extern "C" fn audio_set_acoustic(voice_id: u32, gain_low: f32, gain_mid: f32, gain_high: f32) {
-    engine().set_acoustic(voice_id, gain_low, gain_mid, gain_high);
-}
-
-#[no_mangle]
 pub extern "C" fn audio_set_acoustic_separate(
     voice_id: u32,
     occlusion: f32,
@@ -1999,18 +2243,8 @@ pub extern "C" fn audio_set_reflection_gain(voice_id: u32, gain: f32) {
 }
 
 #[no_mangle]
-pub extern "C" fn audio_set_reverb(
-    rt60_low: f32,
-    rt60_mid: f32,
-    rt60_high: f32,
-    wet_gain: f32,
-    eq_low: f32,
-    eq_mid: f32,
-    eq_high: f32,
-) {
-    engine().set_reverb(
-        rt60_low, rt60_mid, rt60_high, wet_gain, eq_low, eq_mid, eq_high,
-    );
+pub extern "C" fn audio_set_reverb(rt60_low: f32, rt60_mid: f32, rt60_high: f32, wet_gain: f32) {
+    engine().set_reverb(rt60_low, rt60_mid, rt60_high, wet_gain);
 }
 
 #[no_mangle]
@@ -2031,41 +2265,6 @@ pub extern "C" fn audio_process() -> *const f32 {
     engine().process()
 }
 
-#[no_mangle]
-pub extern "C" fn audio_spike_diag_ptr() -> *const f32 {
-    engine().spike_diag.as_ptr()
-}
-
-#[no_mangle]
-pub extern "C" fn audio_pre_tanh_peak() -> f32 {
-    engine().pre_tanh_peak
-}
-
-#[no_mangle]
-pub extern "C" fn audio_fdn_peak() -> f32 {
-    engine().fdn_peak
-}
-
-#[no_mangle]
-pub extern "C" fn audio_diag_active() -> u32 {
-    engine().diag_active
-}
-
-#[no_mangle]
-pub extern "C" fn audio_diag_real() -> u32 {
-    engine().diag_real
-}
-
-#[no_mangle]
-pub extern "C" fn audio_diag_virtual() -> u32 {
-    engine().diag_virtual
-}
-
-#[no_mangle]
-pub extern "C" fn audio_diag_convolved() -> u32 {
-    engine().diag_convolved
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2079,8 +2278,114 @@ mod tests {
             .unwrap()
     }
 
+    #[test]
+    fn sample_alloc_stores_channels_and_count() {
+        let mut e = new_engine(48000.0);
+
+        // Stereo: two separate per-channel allocations under one id.
+        let p0 = e.sample_alloc(3, 0, 2, 4);
+        unsafe {
+            for i in 0..4 {
+                *p0.add(i) = i as f32;
+            }
+        }
+        let p1 = e.sample_alloc(3, 1, 2, 4);
+        unsafe {
+            for i in 0..4 {
+                *p1.add(i) = -(i as f32);
+            }
+        }
+        assert_eq!(e.samples[3].count, 2);
+        assert_eq!(e.samples[3].channels[0], vec![0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(e.samples[3].channels[1], vec![0.0, -1.0, -2.0, -3.0]);
+
+        // Mono: count 1, channel 1 left empty.
+        e.sample_alloc(5, 0, 1, 2);
+        assert_eq!(e.samples[5].count, 1);
+        assert_eq!(e.samples[5].channels[1].len(), 0);
+
+        // Out-of-range channel returns null, allocates nothing.
+        assert!(e.sample_alloc(6, 2, 2, 4).is_null());
+
+        // Clear resets both channels and the count.
+        e.clear_sample(3);
+        assert_eq!(e.samples[3].count, 0);
+        assert_eq!(e.samples[3].channels[0].len(), 0);
+        assert_eq!(e.samples[3].channels[1].len(), 0);
+    }
+
+    // Spectral identity: a non-spatial sample voice at rate 1.0 in a matched-rate context must reproduce the
+    // sample's spectrum — the high band cannot be attenuated. Pins the "coin-pickup highs vanish in-game"
+    // class: any low-pass on the sample path (an interp regression, a hidden per-voice filter) drops the 12 kHz
+    // tone relative to the 1 kHz tone here. Reference is the identity, exact up to smoothing + the master limiter.
+    #[test]
+    fn sample_voice_preserves_high_band() {
+        use core::f32::consts::PI;
+        let sr = 48000.0f32; // the in-game AudioContext rate
+        let mut e = new_engine(sr);
+
+        // equal-amplitude 1 kHz + 12 kHz; low amplitude keeps the master tanh limiter ~linear.
+        let len = 8192usize;
+        let signal = |i: usize| -> f32 {
+            let t = i as f32 / sr;
+            0.2 * (2.0 * PI * 1000.0 * t).sin() + 0.2 * (2.0 * PI * 12000.0 * t).sin()
+        };
+        let ptr = e.sample_alloc(0, 0, 1, len as u32);
+        unsafe {
+            for i in 0..len {
+                *ptr.add(i) = signal(i);
+            }
+        }
+
+        // one sample node → output buffer 0, mono. params at offset 0: [bufferId, rate, loop, volume, channel].
+        e.set_instrument(0, 1, 0, NO_BUF as u32);
+        e.set_instrument_node(0, 0, 7, NO_BUF as u32, NO_BUF as u32, 0, 0);
+        e.set_voice_instrument(0, 0);
+        e.set_param(0, 0, 0.0); // bufferId
+        e.set_param(0, 1, 1.0); // rate
+        e.set_param(0, 2, 0.0); // loop (one-shot)
+        e.set_param(0, 3, 1.0); // volume
+        e.set_param(0, 4, 0.0); // channel
+        e.voice_active(0, 1);
+        e.set_voice_spatial(0, 0);
+        e.set_gate(0, 1);
+
+        let mut out = Vec::with_capacity(len + BLOCK_SIZE);
+        for _ in 0..(len / BLOCK_SIZE + 4) {
+            let p = e.process();
+            let block = unsafe { core::slice::from_raw_parts(p, BLOCK_SIZE * 2) };
+            out.extend_from_slice(&block[..BLOCK_SIZE]); // left channel
+        }
+
+        // single-frequency magnitude via Goertzel — phase/offset-invariant, so a rate-ramp time shift is fine.
+        let goertzel = |x: &[f32], f: f32| -> f32 {
+            let n = x.len() as f32;
+            let k = (n * f / sr).round();
+            let coeff = 2.0 * (2.0 * PI * k / n).cos();
+            let (mut s1, mut s2) = (0.0f32, 0.0f32);
+            for &xn in x {
+                let s0 = xn + coeff * s1 - s2;
+                s2 = s1;
+                s1 = s0;
+            }
+            (s1 * s1 + s2 * s2 - coeff * s1 * s2).max(0.0).sqrt()
+        };
+
+        // window past the rate/volume smoothing ramp, before the buffer ends.
+        let win = &out[2048..2048 + 4096];
+        let in_ratio = {
+            let inp: Vec<f32> = (2048..2048 + 4096).map(signal).collect();
+            goertzel(&inp, 12000.0) / goertzel(&inp, 1000.0)
+        };
+        let out_ratio = goertzel(win, 12000.0) / goertzel(win, 1000.0);
+        assert!(
+            out_ratio >= 0.7 * in_ratio,
+            "high band attenuated through the sample voice: in 12k/1k = {in_ratio:.3}, out 12k/1k = {out_ratio:.3}"
+        );
+    }
+
     fn setup_osc_env_instrument(e: &mut AudioEngine, inst_id: u32) {
-        e.set_instrument(inst_id, 2, 0);
+        e.set_instrument(inst_id, 2, 0, NO_BUF as u32);
         e.set_instrument_node(inst_id, 0, 1, NO_BUF as u32, NO_BUF as u32, 0, 0);
         e.set_instrument_node(inst_id, 1, 3, 0, NO_BUF as u32, 0, 4);
     }
@@ -2098,13 +2403,28 @@ mod tests {
     }
 
     fn setup_osc_only_instrument(e: &mut AudioEngine, inst_id: u32) {
-        e.set_instrument(inst_id, 1, 0);
+        e.set_instrument(inst_id, 1, 0, NO_BUF as u32);
         e.set_instrument_node(inst_id, 0, 1, NO_BUF as u32, NO_BUF as u32, 0, 0);
     }
 
     fn set_osc_params(e: &mut AudioEngine, voice_id: u32) {
         e.set_param(voice_id, 0, 440.0);
         e.set_param(voice_id, 3, 0.7);
+    }
+
+    // two oscillators at different frequencies into buf0 (left) and buf1 (right) — a true stereo
+    // instrument, so the two output channels carry distinct signals.
+    fn setup_stereo_instrument(e: &mut AudioEngine, inst_id: u32) {
+        e.set_instrument(inst_id, 2, 0, 1);
+        e.set_instrument_node(inst_id, 0, 1, NO_BUF as u32, NO_BUF as u32, 0, 0);
+        e.set_instrument_node(inst_id, 1, 1, NO_BUF as u32, NO_BUF as u32, 1, 4);
+    }
+
+    fn set_stereo_params(e: &mut AudioEngine, voice_id: u32) {
+        e.set_param(voice_id, 0, 440.0);
+        e.set_param(voice_id, 3, 0.7);
+        e.set_param(voice_id, 4, 880.0);
+        e.set_param(voice_id, 7, 0.7);
     }
 
     fn process_blocks(e: &mut AudioEngine, n: usize) {
@@ -2465,8 +2785,62 @@ mod tests {
         }
         assert!(has_signal);
 
+        // a mono instrument routes the same buffer to both channels — L == R, unchanged.
+        for i in 0..BLOCK_SIZE {
+            assert_eq!(output[i], output[BLOCK_SIZE + i]);
+        }
+
         let foa_energy: f32 = e.foa_bus[0].iter().map(|s| s * s).sum();
         assert!(foa_energy < 1e-10);
+    }
+
+    #[test]
+    fn stereo_voice_keeps_channels_on_bus() {
+        let mut e = new_engine(44100.0);
+        setup_stereo_instrument(&mut e, 0);
+        e.set_voice_instrument(0, 0);
+        set_stereo_params(&mut e, 0);
+        e.voice_active(0, 1);
+        e.set_voice_spatial(0, 0);
+
+        e.set_gate(0, 1);
+        let ptr = e.process();
+        let output = unsafe { core::slice::from_raw_parts(ptr, BLOCK_SIZE * 2) };
+
+        // distinct per-channel signals reach the bus, not a duplicated mono sum.
+        let mut differs = false;
+        for i in 0..BLOCK_SIZE {
+            if (output[i] - output[BLOCK_SIZE + i]).abs() > 1e-6 {
+                differs = true;
+                break;
+            }
+        }
+        assert!(differs);
+
+        // non-spatial: nothing routes to the ambisonic bus.
+        let foa_energy: f32 = e.foa_bus[0].iter().map(|s| s * s).sum();
+        assert!(foa_energy < 1e-10);
+    }
+
+    #[test]
+    fn stereo_positional_voice_downmixes_to_foa() {
+        let mut e = new_engine(44100.0);
+        // signal only on the right buffer; the left (output_buf) stays silent. only the downmix
+        // reads the right buffer, so an L-only spatial read would be silent — pins the downmix.
+        e.set_instrument(0, 1, 0, 1);
+        e.set_instrument_node(0, 0, 1, NO_BUF as u32, NO_BUF as u32, 1, 0);
+        e.set_voice_instrument(0, 0);
+        e.set_param(0, 0, 440.0);
+        e.set_param(0, 3, 0.7);
+        e.voice_active(0, 1);
+        e.set_voice_spatial(0, 1);
+        e.set_spatial(0, 0.0, 0.0, 1.0, 1.0, 100.0, 1.0);
+
+        e.set_gate(0, 1);
+        e.process();
+
+        let foa_energy: f32 = e.foa_bus[0].iter().map(|s| s * s).sum();
+        assert!(foa_energy > 0.0);
     }
 
     #[test]
@@ -2521,7 +2895,7 @@ mod tests {
     #[test]
     fn constant_node_outputs_value() {
         let mut e = new_engine(44100.0);
-        e.set_instrument(0, 2, 0);
+        e.set_instrument(0, 2, 0, NO_BUF as u32);
         e.set_instrument_node(0, 0, 6, NO_BUF as u32, NO_BUF as u32, 0, 0);
         e.set_instrument_node(0, 1, 4, 0, NO_BUF as u32, 0, 1);
         e.set_voice_instrument(0, 0);
@@ -2545,7 +2919,7 @@ mod tests {
     #[test]
     fn constant_as_modulation_source() {
         let mut e = new_engine(44100.0);
-        e.set_instrument(0, 2, 0);
+        e.set_instrument(0, 2, 0, NO_BUF as u32);
         e.set_instrument_node(0, 0, 6, NO_BUF as u32, NO_BUF as u32, 1, 0);
         e.set_instrument_node(0, 1, 1, NO_BUF as u32, NO_BUF as u32, 0, 1);
         e.set_instrument_mod(0, 0, 1, 1, 1, 5, 0);
@@ -2599,6 +2973,80 @@ mod tests {
     }
 
     #[test]
+    fn convolve_speaker_matches_brute_force() {
+        // The ring → flat-delay-line linearization (Stage 1.3) is a data-layout
+        // change on the binaural FIR; the inner tap reduction must still equal
+        // the textbook linear convolution out[n] = Σ_t x[n-t]·h[t]. Drive
+        // several blocks through `convolve_speaker` (so the cross-block history
+        // carry is exercised) and compare against a brute-force convolution of
+        // the full signal. Distinct left/right filters catch an ear swap or a
+        // reversal-orientation bug.
+        const BLOCKS: usize = 4;
+        const N: usize = BLOCKS * BLOCK_SIZE;
+
+        let mut x = [0.0f32; N];
+        for n in 0..N {
+            let t = n as f32;
+            x[n] = (t * 0.07).sin() * 0.6 + (t * 0.013).cos() * 0.4;
+        }
+
+        let mut h_l = [0.0f32; HRTF_TAPS];
+        let mut h_r = [0.0f32; HRTF_TAPS];
+        for t in 0..HRTF_TAPS {
+            let ft = t as f32;
+            h_l[t] = (-ft / 40.0).exp() * (ft * 0.20).sin();
+            h_r[t] = (-ft / 25.0).exp() * (ft * 0.31).cos();
+        }
+        let mut l_rev = [0.0f32; HRTF_TAPS];
+        let mut r_rev = [0.0f32; HRTF_TAPS];
+        for k in 0..HRTF_TAPS {
+            l_rev[k] = h_l[HRTF_TAPS - 1 - k];
+            r_rev[k] = h_r[HRTF_TAPS - 1 - k];
+        }
+
+        let mut delay = [0.0f32; CONV_LEN];
+        let mut got_l = [0.0f32; N];
+        let mut got_r = [0.0f32; N];
+        for b in 0..BLOCKS {
+            let mut block = [0.0f32; BLOCK_SIZE];
+            block.copy_from_slice(&x[b * BLOCK_SIZE..(b + 1) * BLOCK_SIZE]);
+            let mut out_l = [0.0f32; BLOCK_SIZE];
+            let mut out_r = [0.0f32; BLOCK_SIZE];
+            convolve_speaker(&mut delay, &block, &l_rev, &r_rev, &mut out_l, &mut out_r);
+            got_l[b * BLOCK_SIZE..(b + 1) * BLOCK_SIZE].copy_from_slice(&out_l);
+            got_r[b * BLOCK_SIZE..(b + 1) * BLOCK_SIZE].copy_from_slice(&out_r);
+        }
+
+        // Tolerance derived from f32 summation error: the worst-case difference
+        // between two orderings of a HRTF_TAPS-term sum is ≤ (TAPS-1)·eps·Σ|p|
+        // ≈ 1.5e-5·Σ|h| (eps = 1.19e-7, |x| ≤ 1). 1e-4·Σ|h| clears that and the
+        // per-product rounding with margin.
+        let tol_l = 1e-4 * h_l.iter().map(|v| v.abs()).sum::<f32>().max(1.0);
+        let tol_r = 1e-4 * h_r.iter().map(|v| v.abs()).sum::<f32>().max(1.0);
+
+        for n in 0..N {
+            let mut want_l = 0.0f32;
+            let mut want_r = 0.0f32;
+            for t in 0..HRTF_TAPS {
+                if n >= t {
+                    want_l += x[n - t] * h_l[t];
+                    want_r += x[n - t] * h_r[t];
+                }
+            }
+            assert!(
+                (got_l[n] - want_l).abs() <= tol_l,
+                "left[{n}]: got {} want {want_l} (tol {tol_l})",
+                got_l[n],
+            );
+            assert!(
+                (got_r[n] - want_r).abs() <= tol_r,
+                "right[{n}]: got {} want {want_r} (tol {tol_r})",
+                got_r[n],
+            );
+        }
+    }
+
+    #[test]
     fn convolver_output_bounded() {
         let mut e = new_engine(44100.0);
         setup_osc_only_instrument(&mut e, 0);
@@ -2640,7 +3088,7 @@ mod tests {
         e.voice_active(0, 1);
         e.set_voice_spatial(0, 1);
         e.set_gate(0, 1);
-        e.set_reverb(5.0, 5.0, 5.0, 2.0, 1.0, 1.0, 1.0);
+        e.set_reverb(5.0, 5.0, 5.0, 2.0);
 
         for block in 0..500 {
             let ptr = e.process();
@@ -2672,7 +3120,7 @@ mod tests {
             e.set_voice_spatial(v, 1);
             e.set_gate(v, 1);
         }
-        e.set_reverb(2.0, 2.0, 2.0, 2.0, 1.0, 1.0, 1.0);
+        e.set_reverb(2.0, 2.0, 2.0, 2.0);
 
         for block in 0..200 {
             let ptr = e.process();
@@ -2714,6 +3162,42 @@ mod tests {
     }
 
     #[test]
+    fn biquad_bank_matches_independent_biquads() {
+        // The SoA bank must filter each lane exactly as an independent Biquad —
+        // a guard on the lane mapping (the AoS→SoA boundary), separate from the
+        // FDN's tolerance-bounded reverb tests. Distinct coeffs per lane so any
+        // lane mixup diverges; exact equality because the bank's scalar tick is
+        // Biquad::tick's expression, lane for lane.
+        let sr = 48000.0;
+        let mut bank = BiquadBank::passthrough();
+        let mut refs = [Biquad::passthrough(); FDN_SIZE];
+        for k in 0..FDN_SIZE {
+            let bq = Biquad::low_shelf(200.0 + k as f32 * 100.0, 0.5 + k as f32 * 0.03, sr);
+            bank.set_lane(k, &bq);
+            refs[k] = bq;
+        }
+        let mut seed = 0x1234_5678u32;
+        for _ in 0..64 {
+            let mut io = [0.0f32; FDN_SIZE];
+            for k in 0..FDN_SIZE {
+                seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                io[k] = (seed >> 9) as f32 / (1u32 << 23) as f32 * 2.0 - 1.0;
+            }
+            let mut expected = [0.0f32; FDN_SIZE];
+            for k in 0..FDN_SIZE {
+                expected[k] = refs[k].tick(io[k]);
+            }
+            bank.tick(&mut io);
+            for k in 0..FDN_SIZE {
+                assert_eq!(
+                    io[k], expected[k],
+                    "lane {k} diverged from independent biquad"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn fdn_rt60_floor() {
         let sr = 44100.0;
         let mut fdn = FdnReverb::new(sr);
@@ -2721,11 +3205,16 @@ mod tests {
         fdn.update_filters(sr);
         let dt = 1.0 / sr;
         for k in 0..FDN_SIZE {
+            let mut chain = [
+                fdn.absorptive[0].lane_filter(k),
+                fdn.absorptive[1].lane_filter(k),
+                fdn.absorptive[2].lane_filter(k),
+            ];
             for i in 0..4800 {
                 let input = (std::f32::consts::TAU * 1000.0 * i as f32 * dt).sin();
                 let mut s = input;
                 for b in 0..3 {
-                    s = fdn.absorptive[k][b].tick(s);
+                    s = chain[b].tick(s);
                 }
                 assert!(
                     s.is_finite(),
@@ -2750,7 +3239,7 @@ mod tests {
             e.process();
         }
 
-        e.set_acoustic(0, 0.1, 0.1, 0.1);
+        e.set_acoustic_separate(0, 0.0, 0.1, 0.1, 0.1);
 
         let mut prev_sample = 0.0f32;
         let mut max_diff = 0.0f32;
@@ -2781,7 +3270,7 @@ mod tests {
         e.set_voice_spatial(0, 1);
         e.set_spatial(0, 0.0, 0.0, 2.0, 1.0, 100.0, 1.0);
         e.set_gate(0, 1);
-        e.set_acoustic(0, 0.0, 0.0, 0.0);
+        e.set_acoustic_separate(0, 0.0, 0.0, 0.0, 0.0);
 
         for _ in 0..500 {
             e.process();
@@ -2806,7 +3295,7 @@ mod tests {
         e.set_voice_spatial(0, 1);
         e.set_spatial(0, 0.0, 0.0, 1.0, 1.0, 100.0, 1.0);
         e.set_gate(0, 1);
-        e.set_acoustic(0, 1.0, 1.0, 1.0);
+        e.set_acoustic_separate(0, 1.0, 0.0, 0.0, 0.0);
 
         for _ in 0..50 {
             e.process();
@@ -2942,7 +3431,11 @@ mod tests {
                     .exp()
                     .max(1e-3);
 
-                let mut chain = fdn.absorptive[k];
+                let mut chain = [
+                    fdn.absorptive[0].lane_filter(k),
+                    fdn.absorptive[1].lane_filter(k),
+                    fdn.absorptive[2].lane_filter(k),
+                ];
                 let mut in_energy = 0.0f32;
                 let mut out_energy = 0.0f32;
                 for i in 0..(warmup + measure) {
@@ -2961,6 +3454,13 @@ mod tests {
                     measured_gain.is_finite(),
                     "absorptive gain not finite: line {k}, band {band}",
                 );
+                // `expected_gain` is Steam Audio's exact per-band target
+                // (calcAbsorptiveGains: exp(-6.91·delay/(rt60·sr))). The filter
+                // realizing it is a 3-band RBJ shelf cascade, so the gain at a
+                // band-center probe carries crossover bleed from the adjacent
+                // shelves — an approximation residual, not measurement noise.
+                // The wide window bounds that bleed; the exact pin is the shelf
+                // coefficient design, exercised by fdn_tone_correction_formula.
                 let ratio = measured_gain / expected_gain;
                 assert!(
                     ratio > 0.3 && ratio < 3.0,
@@ -3029,7 +3529,7 @@ mod tests {
             e.voice_active(0, 1);
             e.set_voice_spatial(0, 1);
             e.set_gate(0, 1);
-            e.set_reverb(rt60, rt60, rt60, 1.0, 1.0, 1.0, 1.0);
+            e.set_reverb(rt60, rt60, rt60, 1.0);
 
             for block in 0..300 {
                 let ptr = e.process();
@@ -3068,12 +3568,10 @@ mod tests {
             let mut taps = [0.0f32; FDN_SIZE];
             for k in 0..FDN_SIZE {
                 let read_pos = (fdn.write_pos[k] + FDN_MAX_DELAY - fdn.lengths[k]) % FDN_MAX_DELAY;
-                let raw = fdn.lines[k][read_pos];
-                let mut filtered = raw;
-                for b in 0..3 {
-                    filtered = fdn.absorptive[k][b].tick(filtered);
-                }
-                taps[k] = filtered;
+                taps[k] = fdn.lines[k][read_pos];
+            }
+            for b in 0..3 {
+                fdn.absorptive[b].tick(&mut taps);
             }
 
             let mut raw_wet: f32 = taps.iter().sum();
@@ -3334,20 +3832,21 @@ mod tests {
         let mut e = new_engine(48000.0);
         e.voice_active(0, 1);
 
-        e.set_acoustic(0, 0.5, 0.5, 0.5);
-        let expected = 0.5f32;
+        // occ 0.5 + (1-0.5)*0.5 transmission = 0.75 direct gain
+        e.set_acoustic_separate(0, 0.5, 0.5, 0.5, 0.5);
+        let expected = 0.75f32;
         assert!((e.voices[0].occ_gain_target - expected).abs() < 1e-6);
 
-        e.set_acoustic(0, f32::NAN, 0.5, 0.5);
+        e.set_acoustic_separate(0, f32::NAN, 0.5, 0.5, 0.5);
         assert!(
             (e.voices[0].occ_gain_target - expected).abs() < 1e-6,
-            "NaN should be rejected"
+            "NaN occlusion should be rejected"
         );
 
-        e.set_acoustic(0, f32::INFINITY, 0.5, 0.5);
+        e.set_acoustic_separate(0, 0.5, f32::INFINITY, 0.5, 0.5);
         assert!(
             (e.voices[0].occ_gain_target - expected).abs() < 1e-6,
-            "infinity should be rejected"
+            "infinite transmission should be rejected"
         );
     }
 
@@ -3356,13 +3855,13 @@ mod tests {
         let mut e = new_engine(48000.0);
         e.voice_active(0, 1);
 
-        e.set_acoustic(0, 2.0, 2.0, 2.0);
+        e.set_acoustic_separate(0, 2.0, 2.0, 2.0, 2.0);
         assert_eq!(
             e.voices[0].occ_gain_target, 1.0,
             "gain should be clamped to 1.0"
         );
 
-        e.set_acoustic(0, -1.0, -1.0, -1.0);
+        e.set_acoustic_separate(0, -1.0, -1.0, -1.0, -1.0);
         assert!(
             e.voices[0].occ_gain_target < 1e-4,
             "gain should be near zero for negative input"
@@ -3402,7 +3901,7 @@ mod tests {
 
     fn setup_kick_instrument(e: &mut AudioEngine, inst_id: u32) {
         // osc(0) → filter(1) → env(2) → gain(3), output=buf 0
-        e.set_instrument(inst_id, 4, 0);
+        e.set_instrument(inst_id, 4, 0, NO_BUF as u32);
         // osc: output=buf0, params@0 (freq=p0, waveform=p1, wavetable=p2, vol=p3)
         e.set_instrument_node(inst_id, 0, 1, NO_BUF as u32, NO_BUF as u32, 0, 0);
         // filter: input=buf0, output=buf1, params@4 (cutoff=p4, q=p5, mode=p6, mix=p7)
@@ -3444,7 +3943,7 @@ mod tests {
         }
 
         // Bathroom reverb (low absorption = long RT60)
-        e.set_reverb(2.0, 1.5, 0.8, 0.5, 1.0, 1.0, 1.0);
+        e.set_reverb(2.0, 1.5, 0.8, 0.5);
 
         let mut ir_data = vec![0.0f32; convolution::MAX_IR_SAMPLES];
         // Simple early reflection pattern: delta at 0, decay at later taps
@@ -3507,7 +4006,7 @@ mod tests {
 
         // Bathroom: RT60 ~1.5s, wet_gain 2.0 (cap), refl_gain 1.0 (reflective room)
         // These match what processHistogram computes for absorption=0.05
-        e.set_reverb(1.5, 1.5, 1.5, 2.0, 1.0, 1.0, 1.0);
+        e.set_reverb(1.5, 1.5, 1.5, 2.0);
 
         let bpm = 180.0;
         let beat_interval_samples = (60.0 / bpm * sample_rate) as usize;
@@ -3605,7 +4104,7 @@ mod tests {
         let sr = 44100.0;
         let mut e = new_engine(sr);
         setup_kick_instrument(&mut e, 0);
-        e.set_reverb(1.5, 1.5, 1.5, 0.8, 1.0, 1.0, 1.0);
+        e.set_reverb(1.5, 1.5, 1.5, 0.8);
 
         let num_kicks = 5;
         let beat_blocks = (60.0 / 180.0 * sr) as usize / BLOCK_SIZE;
@@ -3626,7 +4125,7 @@ mod tests {
 
             for b in 0..beat_blocks {
                 if b == 2 {
-                    e.set_acoustic(vi, 0.8, 0.6, 4000.0);
+                    e.set_acoustic_separate(vi, 0.8, 0.6, 0.6, 0.6);
                 }
                 if b == 3 {
                     let len = 128usize;
@@ -3713,7 +4212,7 @@ mod tests {
             e.set_voice_spatial(0, 1);
             e.set_spatial(0, az, el, 1.0, 1.0, 100.0, 1.0);
             e.set_gate(0, 1);
-            e.set_reverb(0.5, 0.5, 0.5, 0.0, 1.0, 1.0, 1.0);
+            e.set_reverb(0.5, 0.5, 0.5, 0.0);
 
             let mut max_pre_tanh = 0.0f32;
             for _ in 0..100 {
@@ -3762,7 +4261,7 @@ mod tests {
         e.set_voice_spatial(0, 1);
         e.set_spatial(0, 0.0, 0.0, 1.0, 1.0, 100.0, 1.0);
         e.set_gate(0, 1);
-        e.set_reverb(0.5, 0.5, 0.5, 0.0, 1.0, 1.0, 1.0);
+        e.set_reverb(0.5, 0.5, 0.5, 0.0);
 
         // Unoccluded: occlusion=1.0 → gain = 1.0 + 0*trans = 1.0
         e.set_acoustic_separate(0, 1.0, 0.05, 0.05, 0.05);
@@ -3972,7 +4471,10 @@ mod tests {
         e.process();
         let a0 = e.voices[0].audibility;
         let a1 = e.voices[1].audibility;
-        assert!(a0 > 0.0, "audibility should be nonzero from gain chain alone");
+        assert!(
+            a0 > 0.0,
+            "audibility should be nonzero from gain chain alone"
+        );
         assert!(
             a0 > a1,
             "close voice should have higher audibility: {a0} vs {a1}"
@@ -4190,7 +4692,10 @@ mod tests {
         setup_spatial_voice(&mut e, 1, 1, 50.0);
         e.set_real_voice_budget(1);
         e.process();
-        assert!(e.voices[0].audibility > 0.0, "close voice audibility should be nonzero");
+        assert!(
+            e.voices[0].audibility > 0.0,
+            "close voice audibility should be nonzero"
+        );
         assert!(
             e.voices[0].audibility > e.voices[1].audibility,
             "close voice should have higher audibility than far voice"
@@ -4212,6 +4717,53 @@ mod tests {
         assert!(
             !e.voices[1].virtual_voice,
             "voice 1 should become real after moving close (no last_peak dependency)"
+        );
+    }
+
+    #[test]
+    fn louder_voice_outranks_quieter_at_equal_distance() {
+        // The loudness term breaks ties that distance×occlusion alone can't:
+        // two voices at identical distance, differing only in envelope level.
+        // Voice 0 is the quiet one and voice 1 the loud one, so the budget
+        // decision (keep voice 1 real) contradicts the index/distance tiebreak
+        // a tie would resolve to voice 0 — only the loudness term flips it.
+        let mut e = new_engine(44100.0);
+        setup_osc_env_instrument(&mut e, 0);
+        setup_osc_env_instrument(&mut e, 1);
+
+        e.set_voice_instrument(0, 0);
+        set_osc_env_params(&mut e, 0);
+        e.set_param(0, 6, 0.1); // quiet sustain vs voice 1's 0.7
+        e.voice_active(0, 1);
+        e.set_voice_spatial(0, 1);
+        e.set_spatial(0, 0.0, 0.0, 10.0, 1.0, 100.0, 1.0);
+        e.set_gate(0, 1);
+
+        e.set_voice_instrument(1, 1);
+        set_osc_env_params(&mut e, 1);
+        e.voice_active(1, 1);
+        e.set_voice_spatial(1, 1);
+        e.set_spatial(1, 0.0, 0.0, 10.0, 1.0, 100.0, 1.0);
+        e.set_gate(1, 1);
+
+        process_blocks(&mut e, 10); // settle both into sustain
+
+        assert!(
+            e.voices[1].audibility > e.voices[0].audibility,
+            "louder voice should outrank quieter at equal distance: {} vs {}",
+            e.voices[1].audibility,
+            e.voices[0].audibility
+        );
+
+        e.set_real_voice_budget(1);
+        process_blocks(&mut e, 5);
+        assert!(
+            !e.voices[1].virtual_voice,
+            "louder voice keeps the real slot despite the lower-index voice tiebreak"
+        );
+        assert!(
+            e.voices[0].virtual_voice,
+            "quieter voice is virtualized despite equal distance"
         );
     }
 }

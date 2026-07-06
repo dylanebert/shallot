@@ -1,409 +1,258 @@
-import {
-    resource,
-    traits,
-    capacity,
-    buf,
-    write,
-    CHUNK_SHIFT,
-    CHUNK_MASK,
-    type Plugin,
-    type State,
-    type System,
-} from "../../engine";
-import {
-    createColorProxy,
-    createFieldProxy,
-    formatHex,
-    type FieldProxy,
-} from "../../engine/ecs/core";
-import { Compute, ComputePlugin } from "../../standard/compute";
-import { gbuf, type GBuf } from "../../standard/compute";
-import { Render, RenderPlugin } from "../../standard/render";
-import { Z_FORMAT, SCENE_STRUCT_WGSL, type SharedPassContext } from "../../standard/render/core";
-import { Transform } from "../../standard/transforms";
+// Lines — the kitchen debug-line producer. One shared segment buffer, two feeders: an immediate API
+// (`segment` / `box` / `arrow`, appended and cleared each frame — the scale path) and the retained
+// `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
+// Everything draws as one instanced 6-vertex quad per segment, rendered as a sear `"alpha"` surface
+// inside the color pass — translucent, depth-tested, depth-write off, no overlay pass. Screen-space
+// constant-pixel width: the surface projects each segment's endpoints itself (sear's `screen` mode)
+// and writes `clipPos`, expanding the quad by a pixel half-width read from `view.resolution`. Bevy's
+// gizmo model; arrows are folded in (a shaft segment + segment-fletched head), no separate primitive.
+// The segment staging + upload + immediate API live in `segments.ts`.
 
-export const LineData = buf(Float32Array, 12, 0);
+import type { Plugin, State, System } from "../../engine";
+import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
+import { packColor } from "../../engine/utils/core";
+import { mesh, RenderPlugin } from "../../standard/render";
+import { BeginFrameSystem, Draws, Meshes, Surfaces } from "../../standard/render/core";
+import { PrepassSystem } from "../../standard/sear/core";
+import { composeTransform, Transform, TransformsPlugin } from "../../standard/transforms";
+import {
+    disposeSegments,
+    flushSegments,
+    head,
+    Lines,
+    push,
+    ready,
+    resetCount,
+    warmSegments,
+} from "./segments";
 
-export const Line: {
-    offsetX: FieldProxy;
-    offsetY: FieldProxy;
-    offsetZ: FieldProxy;
-    thickness: FieldProxy;
-    visible: FieldProxy;
-    overdraw: FieldProxy;
-    opacity: FieldProxy;
-    color: FieldProxy;
-    colorR: FieldProxy;
-    colorG: FieldProxy;
-    colorB: FieldProxy;
-} = {
-    offsetX: createFieldProxy(LineData, 12, 0),
-    offsetY: createFieldProxy(LineData, 12, 1),
-    offsetZ: createFieldProxy(LineData, 12, 2),
-    thickness: createFieldProxy(LineData, 12, 3),
-    visible: createFieldProxy(LineData, 12, 4),
-    overdraw: createFieldProxy(LineData, 12, 5),
-    opacity: createFieldProxy(LineData, 12, 7),
-    color: createColorProxy(LineData, 12, 8),
-    colorR: createFieldProxy(LineData, 12, 8),
-    colorG: createFieldProxy(LineData, 12, 9),
-    colorB: createFieldProxy(LineData, 12, 10),
+export { arrow, box, segment } from "./segments";
+
+/**
+ * a debug line anchored to an entity, drawn from its {@link Transform} position along a world-rotated
+ * offset. A retained scene annotation, expanded into one screen-space segment each frame
+ *
+ * @example
+ * ```
+ * <a line="offset: 0 1 0; thickness: 3; color: 0x44ff88" transform />
+ * ```
+ */
+export const Line = {
+    /** line vector from the entity in its local frame, rotated by the transform (`0 1 0` = one unit up) */
+    offset: sparse(vec4),
+    /** constant screen width in pixels */
+    thickness: sparse(f32),
+    /** hex sRGB color */
+    color: sparse(f32),
+    /** 0..1 opacity multiplier */
+    opacity: sparse(f32),
+    /** drawn when nonzero; set to 0 to hide without removing (edit-mode safe) */
+    visible: sparse(f32),
 };
 
-traits(Line, {
-    requires: [Transform],
-    defaults: () => ({
-        offsetX: 1,
-        offsetY: 0,
-        offsetZ: 0,
-        thickness: 2,
-        visible: 1,
-        opacity: 1,
-        color: 0xffffff,
-    }),
-    format: { color: formatHex },
-});
+/**
+ * an arrowhead on a {@link Line}: four world-space fins (Bevy's fletched shape) at the line's endpoints.
+ * Requires a {@link Line} on the same entity
+ *
+ * @example
+ * ```
+ * <a arrow="size: 1.5" line="offset: 2 0 0; color: 0xffcc00" transform />
+ * ```
+ */
+export const Arrow = {
+    /** a head at the start endpoint when nonzero */
+    start: sparse(f32),
+    /** a head at the end endpoint when nonzero */
+    end: sparse(f32),
+    /** head size relative to the shaft length */
+    size: sparse(f32),
+};
 
-const lineShader = /* wgsl */ `
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) color: vec4<f32>,
-    @location(1) dist: f32,
-    @location(2) halfWidth: f32,
-    @location(3) @interpolate(flat) entityId: u32,
+const SEGMENT_WGSL = /* wgsl */ `
+struct Segment {
+    a: vec3<f32>,
+    width: f32,
+    b: vec3<f32>,
+    color: u32,
 }
 
-${SCENE_STRUCT_WGSL}
-
-struct LineData {
-    offset: vec3<f32>,
-    thickness: f32,
-    visible: f32,
-    _pad1: f32,
-    _pad2: f32,
-    opacity: f32,
-    color: vec4<f32>,
-}
-
-@group(0) @binding(0) var<uniform> scene: Scene;
-@group(0) @binding(1) var<storage, read> entityIds: array<u32>;
-@group(0) @binding(2) var<storage, read> lines: array<LineData>;
-@group(0) @binding(3) var<storage, read> matrices: array<mat4x4<f32>>;
-
-@vertex
-fn vs(@builtin(vertex_index) vid: u32, @builtin(instance_index) iid: u32) -> VertexOutput {
-    let eid = entityIds[iid];
-    let line = lines[eid];
-    let transform = matrices[eid];
-
-    let start = transform[3].xyz;
-    let rotation = mat3x3<f32>(transform[0].xyz, transform[1].xyz, transform[2].xyz);
-    let end = start + rotation * line.offset;
-
-    var startClip = scene.viewProj * vec4(start, 1.0);
-    var endClip = scene.viewProj * vec4(end, 1.0);
-
-    let nearW = 0.001;
-    if (startClip.w < nearW && endClip.w < nearW) {
-        var out: VertexOutput;
-        out.position = vec4(0.0, 0.0, -1.0, 1.0);
-        out.color = vec4(0.0);
-        out.dist = 0.0;
-        out.halfWidth = 0.0;
-        out.entityId = eid;
-        return out;
-    }
-    if (startClip.w < nearW) {
-        let t = (nearW - startClip.w) / (endClip.w - startClip.w);
-        startClip = mix(startClip, endClip, t);
-    } else if (endClip.w < nearW) {
-        let t = (nearW - endClip.w) / (startClip.w - endClip.w);
-        endClip = mix(endClip, startClip, t);
-    }
-
-    let startNDC = startClip.xy / startClip.w;
-    let endNDC = endClip.xy / endClip.w;
-
-    let dir = endNDC - startNDC;
-    let len = length(dir);
-    let normDir = select(vec2(1.0, 0.0), dir / len, len > 0.0001);
-
-    let scale = scene.viewport.y / 1080.0;
-    let halfWidth = line.thickness * 0.5 * scale;
-    let aaPadding = 1.0;
-    let totalHalf = halfWidth + aaPadding;
-    let perpNDC = vec2(-normDir.y, normDir.x) * totalHalf * 2.0 / scene.viewport;
-
-    var pos: vec2<f32>;
-    var t: f32;
-    var edge: f32;
-    switch vid {
-        case 0u: { pos = startNDC - perpNDC; t = 0.0; edge = -1.0; }
-        case 1u: { pos = startNDC + perpNDC; t = 0.0; edge = 1.0; }
-        case 2u: { pos = endNDC + perpNDC; t = 1.0; edge = 1.0; }
-        case 3u: { pos = startNDC - perpNDC; t = 0.0; edge = -1.0; }
-        case 4u: { pos = endNDC + perpNDC; t = 1.0; edge = 1.0; }
-        case 5u: { pos = endNDC - perpNDC; t = 1.0; edge = -1.0; }
-        default: { pos = startNDC; t = 0.0; edge = 0.0; }
-    }
-
-    let depth = mix(startClip.z / startClip.w, endClip.z / endClip.w, t);
-
-    let pixelDist = edge * totalHalf;
-
-    var out: VertexOutput;
-    out.position = vec4(pos, depth, 1.0);
-    out.color = vec4(line.color.rgb, line.color.a * line.opacity);
-    out.dist = pixelDist;
-    out.halfWidth = halfWidth;
-    out.entityId = eid;
-    return out;
-}
-
-struct FragmentOutput {
-    @location(0) color: vec4<f32>,
-    @location(1) mask: f32,
-    @location(2) entityId: u32,
-}
-
-@fragment
-fn fs(input: VertexOutput) -> FragmentOutput {
-    let dist = abs(input.dist);
-    let aaWidth = fwidth(input.dist);
-    let aa = 1.0 - smoothstep(input.halfWidth - aaWidth, input.halfWidth + aaWidth, dist);
-    var out: FragmentOutput;
-    out.color = vec4(input.color.rgb, input.color.a * aa);
-    out.mask = select(0.0, 1.0, aa > 0.01);
-    out.entityId = input.entityId;
-    return out;
+fn lineSrgbToLinear(c: vec3<f32>) -> vec3<f32> {
+    let lo = c / 12.92;
+    let hi = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
+    return select(hi, lo, c <= vec3<f32>(0.04045));
 }
 `;
 
-function createLinesPipeline(
-    device: GPUDevice,
-    format: GPUTextureFormat,
-    maskFormat: GPUTextureFormat,
-    eidFormat: GPUTextureFormat,
-    depthCompare: GPUCompareFunction = "less",
-): GPURenderPipeline {
-    const module = device.createShaderModule({ code: lineShader });
+// localPos.xy carries the quad corner: x = t (0 start, 1 end), y = edge (-1, +1). The chunk projects
+// both endpoints, near-plane-clips, then offsets the chosen endpoint perpendicular by a pixel half-width
+// (constant-pixel: pixels → NDC is × 2/resolution). 1px of AA pad each side; a sub-pixel width clamps the
+// geometry to 1px and fades the alpha to keep its energy. world = the chosen endpoint so the (unused,
+// DCE'd) shadow sample reads a valid position
+const LINE_VS = /* wgsl */ `
+let seg = lineSegments[iid];
+let t = localPos.x;
+let edge = localPos.y;
+let widthPx = seg.width;
 
-    return device.createRenderPipeline({
-        layout: "auto",
-        vertex: {
-            module,
-            entryPoint: "vs",
-        },
-        fragment: {
-            module,
-            entryPoint: "fs",
-            targets: [
-                {
-                    format,
-                    blend: {
-                        color: {
-                            srcFactor: "src-alpha",
-                            dstFactor: "one-minus-src-alpha",
-                            operation: "add",
-                        },
-                        alpha: {
-                            srcFactor: "one",
-                            dstFactor: "one-minus-src-alpha",
-                            operation: "add",
-                        },
-                    },
-                },
-                {
-                    format: maskFormat,
-                    writeMask: GPUColorWrite.RED,
-                },
-                {
-                    format: eidFormat,
-                },
-            ],
-        },
-        primitive: {
-            topology: "triangle-list",
-        },
-        depthStencil: {
-            format: Z_FORMAT,
-            depthCompare,
-            depthWriteEnabled: false,
-        },
-    });
+var sClip = view.viewProj * vec4<f32>(seg.a, 1.0);
+var eClip = view.viewProj * vec4<f32>(seg.b, 1.0);
+let nearW = 1e-5;
+if (sClip.w < nearW && eClip.w < nearW) {
+    // both endpoints behind the camera — collapse offscreen (z < 0 clips)
+    clipPos = vec4<f32>(0.0, 0.0, -1.0, 1.0);
+    lineRgba = vec4<f32>(0.0);
+    edgeDist = 0.0;
+    halfPx = 0.0;
+    world = vec4<f32>(seg.a, 1.0);
+} else {
+    if (sClip.w < nearW) {
+        let k = (nearW - sClip.w) / (eClip.w - sClip.w);
+        sClip = mix(sClip, eClip, k);
+    } else if (eClip.w < nearW) {
+        let k = (nearW - eClip.w) / (sClip.w - eClip.w);
+        eClip = mix(eClip, sClip, k);
+    }
+    let sNdc = sClip.xy / sClip.w;
+    let eNdc = eClip.xy / eClip.w;
+    let res = view.resolution;
+    let dirPx = (eNdc - sNdc) * res;
+    let lenPx = length(dirPx);
+    let dir = select(vec2<f32>(1.0, 0.0), dirPx / lenPx, lenPx > 1e-4);
+    let perp = vec2<f32>(-dir.y, dir.x);
+    let halfW = max(widthPx, 1.0) * 0.5;
+    let total = halfW + 1.0;
+    let useEnd = t > 0.5;
+    let baseNdc = select(sNdc, eNdc, useEnd);
+    let baseClip = select(sClip, eClip, useEnd);
+    let ndc = baseNdc + perp * (edge * total) * 2.0 / res;
+    clipPos = vec4<f32>(ndc, baseClip.z / baseClip.w, 1.0);
+    let unp = unpack4x8unorm(seg.color);
+    lineRgba = vec4<f32>(lineSrgbToLinear(unp.rgb), unp.a * min(widthPx, 1.0));
+    edgeDist = edge * total;
+    halfPx = halfW;
+    world = vec4<f32>(select(seg.a, seg.b, useEnd), 1.0);
+}
+`;
+
+// signed-distance edge AA: fade over one screen-space derivative either side of the half-width
+const LINE_FS = /* wgsl */ `
+let aa = 1.0 - smoothstep(halfPx - fwidth(edgeDist), halfPx + fwidth(edgeDist), abs(edgeDist));
+col = vec4<f32>(lineRgba.rgb, lineRgba.a * aa);
+`;
+
+// the canonical quad: posU.xyz = (t, edge, 0); normalV unused. sear pulls these as localPos, the
+// chunk expands. 4 corners, 6 indices (two triangles)
+// prettier-ignore
+const QUAD_VERTS = new Float32Array([
+    0, -1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 1, -1, 0, 0, 0, 0, 1,
+    0,
+]);
+const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
+
+const _m = new Float32Array(16);
+let _quadBase = 0;
+
+// each retained Line is one segment from the entity's world pos along its rotated offset; an Arrow on it
+// adds fletched heads at the endpoints. Appended on top of this frame's immediate segments. Small counts
+// (scene annotations) — the immediate API is the scale path
+function expandRetained(state: State): void {
+    for (const eid of state.query([Line, Transform])) {
+        if (!Line.visible.get(eid)) continue;
+        composeTransform(eid, _m);
+        const ox = Line.offset.x.get(eid);
+        const oy = Line.offset.y.get(eid);
+        const oz = Line.offset.z.get(eid);
+        const sx = _m[12];
+        const sy = _m[13];
+        const sz = _m[14];
+        const ex = sx + _m[0] * ox + _m[4] * oy + _m[8] * oz;
+        const ey = sy + _m[1] * ox + _m[5] * oy + _m[9] * oz;
+        const ez = sz + _m[2] * ox + _m[6] * oy + _m[10] * oz;
+        const w = Line.thickness.get(eid);
+        const c = packColor(Line.color.get(eid), Line.opacity.get(eid));
+        push(sx, sy, sz, ex, ey, ez, w, c);
+        if (state.has(eid, Arrow)) {
+            const size = Arrow.size.get(eid);
+            if (Arrow.end.get(eid)) head(ex, ey, ez, sx, sy, sz, size, w, c);
+            if (Arrow.start.get(eid)) head(sx, sy, sz, ex, ey, ez, size, w, c);
+        }
+    }
 }
 
-export interface Lines {
-    buffer: GBuf;
-    entityIds: GBuf;
-    overdrawEntityIds: GBuf;
-    count: number;
-    overdrawCount: number;
-}
-
-export const Lines = resource<Lines>("lines");
-
-const EntityIdArray = buf(Uint32Array, 1, 0);
-const OverdrawEntityIdArray = buf(Uint32Array, 1, 0);
-
+// runs after the immediate appends (simulation systems) and before sear reads the segment buffer
+// (PrepassSystem resolves the draw's bind group): expands retained components, then uploads + clears
 const LinesSystem: System = {
+    name: "lines",
     group: "draw",
     annotations: { mode: "always" },
-
-    update(state: State) {
-        const compute = Compute.from(state);
-        const lines = Lines.from(state);
-        if (!compute || !lines) return;
-
-        const { device } = compute;
-
-        let count = 0;
-        let overdrawCount = 0;
-        const ldChunks = LineData.chunks;
-        const eidChunks = EntityIdArray.chunks;
-        const odChunks = OverdrawEntityIdArray.chunks;
-        for (const eid of state.query([Line, Transform])) {
-            const ld = ldChunks[eid >>> CHUNK_SHIFT];
-            const local = eid & CHUNK_MASK;
-            if (!ld[local * 12 + 4]) continue;
-            if (ld[local * 12 + 5]) {
-                const slot = overdrawCount++;
-                odChunks[slot >>> CHUNK_SHIFT][slot & CHUNK_MASK] = eid;
-            } else {
-                const slot = count++;
-                eidChunks[slot >>> CHUNK_SHIFT][slot & CHUNK_MASK] = eid;
-            }
-        }
-
-        const uploadCount = state.max + 1;
-        write(device.queue, lines.buffer.buffer, 0, LineData, uploadCount);
-        write(device.queue, lines.entityIds.buffer, 0, EntityIdArray, count);
-        lines.count = count;
-        if (overdrawCount > 0) {
-            write(
-                device.queue,
-                lines.overdrawEntityIds.buffer,
-                0,
-                OverdrawEntityIdArray,
-                overdrawCount,
-            );
-        }
-        lines.overdrawCount = overdrawCount;
+    after: [BeginFrameSystem],
+    before: [PrepassSystem],
+    setup() {
+        _quadBase = Meshes.get("lineQuad")?.indexBase ?? 0;
+        Draws.register({
+            name: "lines",
+            surface: "lines",
+            mesh: "lineQuad",
+            args: { indirect: Lines.args! },
+        });
+    },
+    update(state) {
+        if (!Compute.device || !ready()) return;
+        expandRetained(state);
+        flushSegments(Compute.device, _quadBase);
     },
 };
 
+/**
+ * the kitchen debug-line producer: an immediate {@link segment} / {@link box} / {@link arrow} API plus
+ * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
+ * as a sear `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
+ * {@link RenderPlugin}; a Sear camera renders it
+ */
 export const LinesPlugin: Plugin = {
     name: "Lines",
+    components: { Line, Arrow },
     systems: [LinesSystem],
-    components: { Line },
-    dependencies: [ComputePlugin, RenderPlugin],
+    dependencies: [RenderPlugin, TransformsPlugin],
+    traits: {
+        Line: {
+            requires: [Transform],
+            defaults: () => ({
+                offset: [1, 0, 0, 0],
+                thickness: 2,
+                color: 0xffffff,
+                opacity: 1,
+                visible: 1,
+            }),
+            format: { color: formatHex },
+        },
+        Arrow: {
+            requires: [Line],
+            defaults: () => ({ start: 0, end: 1, size: 1 }),
+        },
+    },
 
-    initialize(state: State) {
-        const compute = Compute.from(state);
-        const render = Render.from(state);
-        if (!compute || !render) return;
-
-        const { device } = compute;
-
-        const linesState: Lines = {
-            buffer: gbuf(
-                device,
-                "lines",
-                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-                (cap) => cap * 12 * 4,
-            ),
-            entityIds: gbuf(
-                device,
-                "line-entityIds",
-                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-                (cap) => cap * 4,
-            ),
-            overdrawEntityIds: gbuf(
-                device,
-                "line-overdraw-entityIds",
-                GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-                (cap) => cap * 4,
-            ),
-            count: 0,
-            overdrawCount: 0,
-        };
-
-        state.setResource(Lines, linesState);
-
-        let pipeline: GPURenderPipeline | null = null;
-        let overdrawPipeline: GPURenderPipeline | null = null;
-        let bindGroup: GPUBindGroup | null = null;
-        let overdrawBindGroup: GPUBindGroup | null = null;
-        let cachedCapacity = capacity();
-
-        render.effects.overlay.push({
-            order: 0,
-
-            draw(pass: GPURenderPassEncoder, ctx: SharedPassContext) {
-                if (capacity() !== cachedCapacity) {
-                    cachedCapacity = capacity();
-                    bindGroup = null;
-                    overdrawBindGroup = null;
-                }
-                const count = linesState.count;
-                const overdrawCount = linesState.overdrawCount;
-                if (count === 0 && overdrawCount === 0) return;
-
-                if (!pipeline) {
-                    pipeline = createLinesPipeline(
-                        ctx.device,
-                        ctx.format,
-                        ctx.maskFormat,
-                        ctx.eidFormat,
-                    );
-                }
-
-                if (count > 0) {
-                    if (!bindGroup) {
-                        bindGroup = ctx.device.createBindGroup({
-                            layout: pipeline.getBindGroupLayout(0),
-                            entries: [
-                                { binding: 0, resource: { buffer: render.scene } },
-                                { binding: 1, resource: { buffer: linesState.entityIds.buffer } },
-                                { binding: 2, resource: { buffer: linesState.buffer.buffer } },
-                                { binding: 3, resource: { buffer: render.matrices.buffer } },
-                            ],
-                        });
-                    }
-                    pass.setPipeline(pipeline);
-                    pass.setBindGroup(0, bindGroup);
-                    pass.draw(6, count);
-                }
-
-                if (overdrawCount > 0) {
-                    if (!overdrawPipeline) {
-                        overdrawPipeline = createLinesPipeline(
-                            ctx.device,
-                            ctx.format,
-                            ctx.maskFormat,
-                            ctx.eidFormat,
-                            "always",
-                        );
-                    }
-                    if (!overdrawBindGroup) {
-                        overdrawBindGroup = ctx.device.createBindGroup({
-                            layout: overdrawPipeline.getBindGroupLayout(0),
-                            entries: [
-                                { binding: 0, resource: { buffer: render.scene } },
-                                {
-                                    binding: 1,
-                                    resource: { buffer: linesState.overdrawEntityIds.buffer },
-                                },
-                                { binding: 2, resource: { buffer: linesState.buffer.buffer } },
-                                { binding: 3, resource: { buffer: render.matrices.buffer } },
-                            ],
-                        });
-                    }
-                    pass.setPipeline(overdrawPipeline);
-                    pass.setBindGroup(0, overdrawBindGroup);
-                    pass.draw(6, overdrawCount);
-                }
-            },
+    initialize() {
+        resetCount();
+        mesh({ name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        Surfaces.register({
+            name: "lines",
+            blend: "alpha",
+            screen: true,
+            bindings: { lineSegments: { type: "storage", element: "Segment" } },
+            interpolators: { lineRgba: "vec4<f32>", edgeDist: "f32", halfPx: "f32" },
+            preamble: SEGMENT_WGSL,
+            vs: LINE_VS,
+            fs: LINE_FS,
         });
+    },
+
+    warm() {
+        if (!Compute.device) return;
+        warmSegments(Compute.device);
+    },
+
+    dispose() {
+        disposeSegments();
     },
 };

@@ -1,7 +1,11 @@
 {
     "name": "@dylanebert/shallot",
-    "version": "0.4.0",
+    "version": "0.6.0",
     "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
+    "sideEffects": [
+        "./src/standard/index.ts",
+        "./src/standard/defaults.ts"
+    ],
     "license": "MIT",
     "author": "Dylan Ebert <dylan.ebert@gmail.com>",
     "repository": {
@@ -18,13 +22,20 @@
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
         "./editor": "./src/editor/index.ts",
+        "./vite": "./editor/src/project/vite.ts",
         "./ecs/core": "./src/engine/ecs/core.ts",
-        "./compute/core": "./src/standard/compute/core.ts",
+        "./scene/core": "./src/engine/scene/core.ts",
+        "./utils/core": "./src/engine/utils/core.ts",
+        "./fog/core": "./src/standard/fog/core.ts",
+        "./glaze": "./src/standard/glaze/index.ts",
         "./render/core": "./src/standard/render/core.ts",
-        "./physics/core": "./src/standard/physics/gpu.ts",
-        "./audio/core": "./src/standard/audio/engine.ts",
-        "./transforms/core": "./src/standard/transforms/core.ts",
-        "./raytracing/core": "./src/extras/raytracing/core.ts",
+        "./sear/core": "./src/standard/sear/core.ts",
+        "./physics/core": "./src/standard/physics/core.ts",
+        "./character/core": "./src/standard/character/core.ts",
+        "./bvh/core": "./src/standard/bvh/core.ts",
+        "./audio/core": "./src/standard/audio/core.ts",
+        "./gltf/core": "./src/extras/gltf/core.ts",
+        "./tween/core": "./src/extras/tween/core.ts",
         "./runtime": "./src/engine/runtime/index.ts",
         "./src/*": "./src/*"
     },
@@ -33,31 +44,41 @@
     },
     "files": [
         "src",
+        "!src/**/*.test.ts",
         "editor",
+        "!editor/**/*.test.ts",
         "bin",
-        "rust/transforms/pkg",
         "rust/audio/pkg",
-        "AGENTS.md"
+        "AGENTS.md",
+        "shallot.schema.json"
     ],
     "scripts": {
         "build": "bun run ./scripts/build.ts",
-        "test": "bun test"
+        "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",
+        "test": "bun test",
+        "test:oracle": "bun test ./tests/avbd/*.oracle.ts",
+        "test:full": "bun run test && bun run test:oracle"
     },
     "dependencies": {
         "@sveltejs/vite-plugin-svelte": "^7.0.0",
+        "@webgpu/types": "^0.1.70",
         "lucide-static": "^0.564.0",
         "mediabunny": "^1.34.4",
-        "paneforge": "^1.0.2",
+        "meshoptimizer": "^0.22.0",
         "svelte": "^5.19.0",
         "vite": "^8.0.0"
     },
     "devDependencies": {
-        "svelte-check": "^4.4.0",
         "@napi-rs/canvas": "^0.1.88",
         "@types/bun": "latest",
         "@types/three": "^0.182.0",
+        "bitecs": "^0.4.0",
         "bun-webgpu": "^0.1.4",
         "fast-check": "^4.6.0",
+        "marked": "^17.0.4",
+        "marked-shiki": "^1.2.1",
+        "shiki": "^4.0.2",
+        "svelte-check": "^4.4.0",
         "three": "^0.182.0",
         "troika-three-text": "^0.52.4",
         "wgpu-matrix": "^3.4.0"

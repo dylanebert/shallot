@@ -11,7 +11,7 @@ use wry::{Rect, WebContext, WebViewBuilder};
 #[cfg(windows)]
 use wry::WebViewBuilderExtWindows;
 
-use crate::{app_name, asset_dir, cache_dir, content_type, BG};
+use crate::{app_name, asset, cache_dir, content_type, BG};
 
 const FULLSCREEN_JS: &str = r#"
 document.addEventListener('keydown', e => {
@@ -26,36 +26,49 @@ document.addEventListener('keydown', e => {
 });
 "#;
 
+// WKWebView doesn't grant the Pointer Lock API (Chromium does) — wry's UI delegate has no
+// pointer-lock method and there's no preference that enables it — so the web engine's
+// `requestPointerLock()` silently fails and a pointer-lock controller never engages. Tauri hits the
+// same wall and exposes the winit cursor grab for the app to drive look itself; we do that under the
+// hood instead, so engine code stays standard. The shim polyfills the API over the IPC bridge below:
+// requestPointerLock grabs the OS cursor (winit `CursorGrabMode::Locked`, the `pointer:lock` handler),
+// and native mouse-motion deltas come back through `__shallot_mouse_delta` as synthetic locked
+// `mousemove` events — the native-event-to-injected-JS-MouseEvent pattern is wry's own
+// (`wkwebview/synthetic_mouse_events.rs`).
+//
+// macOS only. WebView2 (Windows) and CEF are full Chromium with working native pointer lock. The
+// polyfill actively breaks them: winit's `CursorGrabMode::Locked` is unsupported on Windows (the grab
+// errors, swallowed by `let _`), and raw `DeviceEvent::MouseMotion` reaches the focused WebView2 child
+// HWND, not the winit parent, so the cursor never locks and no deltas arrive. The `pointer:lock` IPC
+// arms and the `device_event` injection below stay uniform but inert off macOS: nothing posts the
+// messages that arm them.
 #[cfg(target_os = "macos")]
-const POINTER_LOCK_JS: &str = r#"
-(function() {
-    let locked = null;
-    Object.defineProperty(document, 'pointerLockElement', {
-        get: () => locked,
-        configurable: true,
-    });
-    Element.prototype.requestPointerLock = function() {
-        locked = this;
+const POINTERLOCK_JS: &str = r#"
+(function () {
+    let el = null;
+    Object.defineProperty(document, 'pointerLockElement', { configurable: true, get: () => el });
+    Element.prototype.requestPointerLock = function () {
+        el = this;
         window.ipc.postMessage('pointer:lock');
-        queueMicrotask(() => document.dispatchEvent(new Event('pointerlockchange')));
+        document.dispatchEvent(new Event('pointerlockchange'));
         return Promise.resolve();
     };
-    Document.prototype.exitPointerLock = function() {
-        if (!locked) return;
-        locked = null;
+    document.exitPointerLock = function () {
+        if (!el) return;
+        el = null;
         window.ipc.postMessage('pointer:unlock');
-        queueMicrotask(() => document.dispatchEvent(new Event('pointerlockchange')));
-    };
-    window.__shallot_mouse_delta = function(dx, dy) {
-        if (!locked) return;
-        const e = new MouseEvent('mousemove', { bubbles: true, cancelable: true });
-        Object.defineProperty(e, 'movementX', { value: dx });
-        Object.defineProperty(e, 'movementY', { value: dy });
-        locked.dispatchEvent(e);
+        document.dispatchEvent(new Event('pointerlockchange'));
     };
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape' && locked) document.exitPointerLock();
+        if (e.key === 'Escape' && el) document.exitPointerLock();
     });
+    window.__shallot_mouse_delta = function (dx, dy) {
+        if (!el) return;
+        const e = new MouseEvent('mousemove', { bubbles: true });
+        Object.defineProperty(e, 'movementX', { value: dx });
+        Object.defineProperty(e, 'movementY', { value: dy });
+        document.dispatchEvent(e);
+    };
 })();
 "#;
 
@@ -84,8 +97,7 @@ fn style_window(hwnd: isize, r: u8, g: u8, b: u8) {
 }
 
 fn load_icon() -> Option<Icon> {
-    let path = asset_dir().join("icon.png");
-    let data = std::fs::read(&path).ok()?;
+    let data = asset("icon.png")?;
     let img = image::load_from_memory(&data).ok()?.into_rgba8();
     let (w, h) = img.dimensions();
     Icon::from_rgba(img.into_raw(), w, h).ok()
@@ -105,7 +117,6 @@ impl ApplicationHandler for App {
             return;
         }
 
-        let dist = asset_dir();
         let mut attrs = WindowAttributes::default()
             .with_title(&self.title)
             .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
@@ -160,18 +171,14 @@ impl ApplicationHandler for App {
             .with_custom_protocol("shallot".into(), move |_id, request| {
                 let path = request.uri().path();
                 let path = if path == "/" { "/index.html" } else { path };
-                let file_path = dist.join(&path[1..]);
 
-                match std::fs::read(&file_path) {
-                    Ok(data) => {
-                        let mime = content_type(path);
-                        Response::builder()
-                            .header("Content-Type", mime)
-                            .header("Access-Control-Allow-Origin", "*")
-                            .body(Cow::Owned(data))
-                            .unwrap()
-                    }
-                    Err(_) => Response::builder()
+                match asset(&path[1..]) {
+                    Some(data) => Response::builder()
+                        .header("Content-Type", content_type(path))
+                        .header("Access-Control-Allow-Origin", "*")
+                        .body(data)
+                        .unwrap(),
+                    None => Response::builder()
                         .status(404)
                         .body(Cow::Borrowed(&[] as &[u8]))
                         .unwrap(),
@@ -180,7 +187,7 @@ impl ApplicationHandler for App {
             .with_url("shallot://localhost/");
 
         #[cfg(target_os = "macos")]
-        let builder = builder.with_initialization_script(POINTER_LOCK_JS);
+        let builder = builder.with_initialization_script(POINTERLOCK_JS);
 
         #[cfg(windows)]
         let builder = builder.with_theme(wry::Theme::Dark);

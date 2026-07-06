@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/scene.scene",
+  "plugins": {
+    "Orbit": true,
+    "Profile": true,
+    "ticker": "./src/ticker"
+  }
+}

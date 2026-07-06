@@ -1,14 +1,16 @@
-import { resolve, basename } from "node:path";
 import { execSync } from "node:child_process";
+import { basename, resolve } from "node:path";
 import { preview } from "vite";
-import { bundleNative, bundleNativeMac, bundleNativeLinux } from "./native";
 import { buildWeb } from "./build";
+import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 
 export async function runProject(
     projectDir: string,
-    opts: { target?: string; port?: number; release?: boolean },
+    opts: { target?: string; port?: number; release?: boolean; portable?: boolean },
 ) {
     const target = opts.target ?? "web";
+    const release = opts.release ?? false;
+    const portable = opts.portable ?? false;
 
     if (target === "web") {
         await buildWeb(projectDir);
@@ -22,11 +24,10 @@ export async function runProject(
     }
 
     if (target === "mac") {
-        const profile = opts.release ? "release" : "debug";
-        const outputDir = resolve(projectDir, "build/mac", profile);
-        console.log(`\n  building ${basename(projectDir)} (${profile})...\n`);
+        const outputDir = nativeOutDir(projectDir, "mac", release, portable);
+        console.log(`\n  building ${basename(projectDir)}...\n`);
 
-        await bundleNativeMac(projectDir, outputDir, { release: opts.release });
+        await bundleNativeMac(projectDir, outputDir, { release, portable });
 
         const appDir = resolve(outputDir, `${basename(projectDir)}.app`);
         console.log(`\n  running ${basename(projectDir)}...\n`);
@@ -38,18 +39,20 @@ export async function runProject(
     }
 
     if (target === "linux") {
-        const profile = opts.release ? "release" : "debug";
-        const outputDir = resolve(projectDir, "build/linux", profile);
-        console.log(`\n  building ${basename(projectDir)} (${profile})...\n`);
+        const outputDir = nativeOutDir(projectDir, "linux", release, portable);
+        console.log(`\n  building ${basename(projectDir)}...\n`);
 
-        await bundleNativeLinux(projectDir, outputDir, { release: opts.release });
+        await bundleNativeLinux(projectDir, outputDir, { release, portable });
 
         const bin = resolve(outputDir, basename(projectDir));
         console.log(`\n  running ${basename(projectDir)}...\n`);
 
-        const cefLibDir = resolve(outputDir, "cef");
         const env = { ...process.env };
-        env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
+        // portable resolves libcef.so from the sibling cef/ dir; the system build uses host WebKitGTK.
+        if (portable) {
+            const cefLibDir = resolve(outputDir, "cef");
+            env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
+        }
 
         const result = Bun.spawnSync([bin], { env });
         process.stdout.write(result.stdout);
@@ -62,11 +65,10 @@ export async function runProject(
         process.exit(1);
     }
 
-    const profile = opts.release ? "release" : "debug";
-    const outputDir = resolve(projectDir, "build/windows", profile);
-    console.log(`\n  building ${basename(projectDir)} (${profile})...\n`);
+    const outputDir = nativeOutDir(projectDir, "windows", release, portable);
+    console.log(`\n  building ${basename(projectDir)}...\n`);
 
-    await bundleNative(projectDir, outputDir, { release: opts.release });
+    await bundleNativeWindows(projectDir, outputDir, { release, portable });
 
     console.log(`\n  running ${basename(projectDir)}...\n`);
 

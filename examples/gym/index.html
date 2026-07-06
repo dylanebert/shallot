@@ -3,26 +3,126 @@
     <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <link rel="icon" type="image/svg+xml" href="/icon.svg" />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link
-            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Outfit:wght@500;600&display=swap"
-            rel="stylesheet"
-        />
+        <link rel="icon" type="image/svg+xml" href="./icon.svg" />
         <title>gym</title>
         <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+            }
             body {
                 background: #0c0a09;
                 overflow: hidden;
-                -webkit-font-smoothing: antialiased;
             }
-            #app { width: 100vw; height: 100vh; }
+            #app {
+                width: 100vw;
+                height: 100vh;
+            }
+            #app canvas {
+                display: block;
+                width: 100%;
+                height: 100%;
+            }
+            /* scenario index — shown when no ?scenario= is selected */
+            #index {
+                display: flex;
+                flex-direction: column;
+                padding: 48px;
+                font-family: "JetBrains Mono", ui-monospace, monospace;
+                color: #f0ece8;
+            }
+            #index h1 {
+                font-size: 18px;
+                font-weight: 600;
+            }
+            #index p {
+                margin: 4px 0 16px;
+                font-size: 12px;
+                color: #a09890;
+            }
+            #index nav {
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+            #index a {
+                padding: 6px 10px;
+                border-radius: 4px;
+                font-size: 13px;
+                color: #cdc5bc;
+                text-decoration: none;
+                transition: background 150ms cubic-bezier(0.34, 0, 0, 1),
+                    color 150ms cubic-bezier(0.34, 0, 0, 1);
+            }
+            #index a:hover {
+                background: rgba(212, 149, 96, 0.08);
+                color: #e8a86b;
+            }
+            /* top-right panel: live readout + auto-populated scenario controls */
+            #panel {
+                position: fixed;
+                top: 12px;
+                right: 12px;
+                /* fixed width (not max-width) so a changing live readout never reflows the panel */
+                width: 260px;
+                box-sizing: border-box;
+                padding: 8px 12px;
+                font-family: "JetBrains Mono", ui-monospace, monospace;
+                font-size: 12px;
+                color: #f0ece8;
+                background: rgba(14, 13, 12, 0.72);
+                border: 1px solid rgba(255, 255, 255, 0.09);
+                border-radius: 4px;
+            }
+            #hud {
+                margin: 0;
+                line-height: 1.5;
+                /* pre-wrap (not pre): honor the live string's own newlines AND wrap a long line within the
+                   fixed-width panel instead of clipping it off the right edge */
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
+                /* equal-width digits so a changing value doesn't shift the line */
+                font-variant-numeric: tabular-nums;
+            }
+            .controls {
+                display: flex;
+                flex-direction: column;
+                gap: 6px;
+                margin-top: 10px;
+            }
+            #hud:empty + .controls {
+                margin-top: 0;
+            }
+            .control {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                gap: 10px;
+                font-size: 11px;
+            }
+            .control span {
+                color: #a09890;
+            }
+            .control input[type="number"],
+            .control select {
+                width: 96px;
+                padding: 2px 4px;
+                font: inherit;
+                font-size: 11px;
+                color: #f0ece8;
+                background: #1c1917;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                border-radius: 3px;
+            }
+            .control input[type="checkbox"] {
+                accent-color: #e8a86b;
+            }
         </style>
     </head>
     <body>
         <div id="app"></div>
-        <script type="module" src="/src/main.ts"></script>
+        <div id="panel"><pre id="hud"></pre></div>
+        <script type="module" src="./src/main.ts"></script>
     </body>
 </html>

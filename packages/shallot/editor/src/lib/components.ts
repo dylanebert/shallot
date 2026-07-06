@@ -1,41 +1,41 @@
 import {
-    Axis3d,
-    Camera,
-    Box,
-    Sun,
-    Diamond,
-    Plus,
-    ChevronRight,
-    TriangleAlert,
-    Layers,
-    Lightbulb,
-    Eye,
-    Monitor,
-    Sparkles,
-    SlidersHorizontal,
-    Cloud,
-    Wind,
-    Moon as MoonIcon,
-    Star,
-    Sunrise,
-    Type,
+    Aperture,
     ArrowRight,
-    Minus,
+    Axis3d,
+    Box,
+    Camera,
+    ChevronRight,
+    CircleDashed,
     CircleDot,
+    Cloud,
+    Diamond,
+    Eye,
     Gamepad2,
     Grid3X3,
-    Zap,
-    ShieldCheck,
-    Scan,
     Image,
-    CircleDashed,
-    Aperture,
+    Layers,
+    Lightbulb,
+    Minus,
+    Monitor,
+    Moon as MoonIcon,
+    Plus,
+    Scan,
     Search,
+    ShieldCheck,
+    SlidersHorizontal,
+    Sparkles,
+    Star,
+    Sun,
+    Sunrise,
+    TriangleAlert,
+    Type,
+    Wind,
+    Zap,
 } from "lucide-static";
 
 export type ComponentMeta = { icon: string; color: string; category?: string };
 
-export { Plus, ChevronRight, TriangleAlert };
+export { ChevronRight, Plus, TriangleAlert };
 
 export type Category = { id: string; label: string; color: string };
 
@@ -158,4 +158,17 @@ export function heroMeta(attrs: { name: string }[]): ComponentMeta {
         if (attrs.some((a) => a.name === hero)) return META[hero];
     }
     return DEFAULT_META;
+}
+
+/** the component a node is best identified by: its hero type, else its first component */
+export function heroName(attrs: { name: string }[]): string | undefined {
+    for (const hero of HERO_PRIORITY) {
+        if (attrs.some((a) => a.name === hero)) return hero;
+    }
+    return attrs[0]?.name;
+}
+
+/** how a node titles in the outliner + inspector: its id, else its type, else a bare "entity" */
+export function nodeLabel(node: { id?: string; attrs: { name: string }[] }): string {
+    return node.id || heroName(node.attrs) || "entity";
 }

@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/lines.scene",
+  "plugins": {
+    "Lines": true,
+    "Orbit": true,
+    "Gizmos": "./src/gizmos"
+  }
+}

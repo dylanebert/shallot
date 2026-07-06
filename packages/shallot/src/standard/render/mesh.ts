@@ -1,351 +1,129 @@
-import { registry, type Registry } from "../../engine";
-import { Shape, linearToSrgb, srgbToLinear } from "../../engine/utils";
-import { buf, traits, type Buf, CHUNK_MASK, CHUNK_SHIFT } from "../../engine";
-import { createFieldProxy, formatHex, type FieldProxy } from "../../engine/ecs/core";
-import { Transform } from "../transforms";
-import { SurfaceType, surfaceRegistry } from "./surface";
+import { Compute, Registry } from "../../engine";
+import { octEncodeNormal, pack2x16unorm } from "../../engine/utils/core";
 
-export const MAX_SURFACES = 32;
-export const MAX_SHAPES = 256;
-export const MAX_BATCH_SLOTS = MAX_SHAPES * MAX_SURFACES;
-const INVALID_SHAPE = 0xffffffff;
-
-export interface MeshData {
-    vertices: Float32Array<ArrayBuffer>;
-    indices: Uint16Array<ArrayBuffer>;
-    vertexCount: number;
+/**
+ * registered vertex-pull geometry — a slice descriptor into the quantized vertex
+ * streams + `indices` GPU storage. `vertices` is the 16 B/vertex main stream
+ * (`vec4<u32>`: unorm16 pos + meshId, oct normal, unorm16 uv); `position` is the
+ * 8 B/vertex depth/shadow stream (pos + meshId only); `quant` is the per-mesh
+ * `MeshQuant` table the decode dequantizes against (gpu.md rule 6). `indices` is
+ * `u32` absolute vertex positions. `indexBase`/`indexCount` slice the index
+ * stream. All have `STORAGE` usage — consumer renderers pull indexed vertices in
+ * WGSL, never via `setVertexBuffer` / `setIndexBuffer`.
+ *
+ * The registry is source-agnostic. Static producers stage typed arrays via
+ * {@link mesh}, which {@link flushMeshes} packs into one shared family buffer
+ * set — every static mesh is a slice (its own `indexBase` + meshId) of the same
+ * buffers, so sear binds geometry once and the layout is `multi-draw-indirect`
+ * ready. Procedural producers (compute-driven terrain, particle ribbons) allocate
+ * their own `GPUBuffer`s (emitting the same quantized format via `POS_QUANT_PACK_WGSL`)
+ * and register directly. Meshes sharing a buffer set share a bind group in sear
+ *
+ * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
+ * frustum cull transforms per instance. {@link mesh} derives it from the staged
+ * vertices; procedural producers may supply their own or omit it (a culler then
+ * treats the mesh as always-visible)
+ *
+ * @expand
+ */
+export interface Mesh {
+    name: string;
+    vertices: GPUBuffer;
+    /** the 8 B/vertex position-only stream the depth + shadow passes pull (sear binds this in the prepass group) */
+    position?: GPUBuffer;
+    /** the per-mesh `MeshQuant` dequant table (position + uv AABB), indexed by the meshId packed in the stream */
+    quant?: GPUBuffer;
+    indices: GPUBuffer;
+    indexBase: number;
     indexCount: number;
+    bounds?: [number, number, number, number];
+    /**
+     * whether this mesh's geometry changes after registration. `false` (default) =
+     * static: a consumer that builds a per-mesh acceleration structure (the RT-shadow
+     * BLAS) builds it once and reuses it. `true` = the `vertices`/`indices` are rewritten per
+     * frame (a deforming or compute-emitted mesh), so the structure rebuilds every frame. A
+     * mesh whose geometry changes but is left static casts stale shadows — mark it dynamic.
+     */
+    dynamic?: boolean;
+    /**
+     * optional GPU buffer whose `[0]` is this mesh's *live* index count, ≤ `indexCount`. A
+     * compute-emitting producer that materializes only its live elements supplies it so the
+     * RT-shadow BLAS builds over the live triangle range each frame, not the registered cap —
+     * the GPU-count contract, the count never crossing to the CPU. Omit for a fixed mesh: its
+     * `indexCount` is the live count. Pair with `dynamic: true`.
+     */
+    count?: GPUBuffer;
+    /**
+     * whether the RT-shadow caster builds a BLAS for this mesh. `true` (default) = every mesh
+     * casts (the caster auto-builds its BLAS; a producer contributes instances). Set `false` for
+     * a **draw-only** mesh that another mesh already casts for — a producer that materializes a
+     * world-space draw mesh but casts via a deduped object-space copy would otherwise reserve a
+     * redundant slot in the shared caster budget for the draw mesh.
+     */
+    cast?: boolean;
+    /**
+     * a surface-specialization index (default 0) — for a draw whose surface declares
+     * {@link Surface.specialize}, it selects the compiled pipeline variant. The glTF importer sets it to
+     * a primitive's material map-set bitmask so a textured draw samples only the maps its material
+     * carries; a mesh whose surface doesn't specialize ignores it. Constant per mesh (a mesh is one glTF
+     * primitive = one material), so it specializes the `(surface, mesh)` draw with no per-instance branch.
+     */
+    variant?: number;
+    /**
+     * per-mesh binding overrides — resources scoped to *this* mesh's draws, keyed by the surface's binding
+     * name. A surface binding resolves to `mesh.bindings?.[name]` when present, else the published global
+     * (`Compute.*`). The skinned-mesh VAT is the worked case: each skinned mesh owns its position/normal VAT
+     * textures + params, so N skinned meshes coexist in one scene (the textured firehose shares its albedo
+     * arrays globally; a VAT can't — different size per mesh — so it binds per-mesh). A mesh is already its
+     * own bind group (own geometry buffers), so this adds no draw.
+     */
+    bindings?: Record<string, GPUTexture | GPUSampler | GPUBuffer>;
 }
 
-export const meshRegistry: Registry<MeshData> = registry(MAX_SHAPES);
+/** every registered mesh, keyed by name with a stable numeric ID */
+export const Meshes: Registry<Mesh> = new Registry<Mesh>();
 
-function ensureBuiltIns(): void {
-    if (meshRegistry.count() === 0) {
-        meshRegistry.add(createBox(), "box");
-        meshRegistry.add(createSphere(), "sphere");
-        meshRegistry.add(createCapsule(), "capsule");
-        meshRegistry.add(createPlane(), "plane");
-    }
+/** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
+ *  authoring layout — {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
+ *  (gpu.md rule 6); a GPU producer writes those directly via `POS_QUANT_PACK_WGSL`. */
+export const VERTEX_STRIDE = 32;
+
+/** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
+export const VERTEX_FLOATS = 8;
+
+// static meshes pack into one shared family buffer pair. `mesh()` stages the
+// typed arrays + a placeholder registry entry (so `Meshes.size` is final after
+// `initialize`, before any warm); `flushMeshes()` concatenates them at warm.
+interface PendingMesh {
+    name: string;
+    vertices: Float32Array;
+    indices: Uint32Array;
+    bounds: [number, number, number, number];
 }
+const _pending: PendingMesh[] = [];
+let _placeholder: GPUBuffer | null = null;
 
-export const MeshShape = {
-    Box: 0,
-    Sphere: 1,
-    Capsule: 2,
-    Plane: 3,
-} as const;
-
-export function mesh(data: MeshData, name?: string): number {
-    ensureBuiltIns();
-    return meshRegistry.add(data, name);
-}
-
-export function getMeshByName(name: string): number | undefined {
-    ensureBuiltIns();
-    return meshRegistry.getByName(name);
-}
-
-export function getMeshName(id: number): string | undefined {
-    ensureBuiltIns();
-    return meshRegistry.getName(id);
-}
-
-export function getMesh(id: number): MeshData | undefined {
-    ensureBuiltIns();
-    return meshRegistry.get(id);
-}
-
-export function getMeshVersion(): number {
-    return meshRegistry.version;
-}
-
-export function meshCount(): number {
-    ensureBuiltIns();
-    return meshRegistry.count();
-}
-
-export function clearMeshes(): void {
-    meshRegistry.clear();
-    _dynamics.clear();
-}
-
-export const PartShapes = buf(Uint8Array, 1, 0);
-export const PartColors = buf(Float32Array, 4, 0);
-export const PartSizes = buf(Float32Array, 4, 0);
-export const PartPBR = buf(Float32Array, 4, 0);
-export const PartEmission = buf(Float32Array, 4, 0);
-export const PartVolumes = buf(Uint8Array, 1, 0);
-export const PartGeometry = buf(Uint32Array, 1, INVALID_SHAPE);
-
-export const Volume = {
-    Solid: 0,
-    HalfSpace: 1,
-} as const;
-
-function hexColorProxy(ref: Buf<Float32Array>): FieldProxy {
-    const chunks = ref.chunks;
-    function getValue(eid: number): number {
-        const chunk = chunks[eid >>> CHUNK_SHIFT];
-        const o = (eid & CHUNK_MASK) * 4;
-        const r = Math.round(linearToSrgb(chunk[o]) * 255);
-        const g = Math.round(linearToSrgb(chunk[o + 1]) * 255);
-        const b = Math.round(linearToSrgb(chunk[o + 2]) * 255);
-        return (r << 16) | (g << 8) | b;
-    }
-
-    function setValue(eid: number, value: number): void {
-        const chunk = chunks[eid >>> CHUNK_SHIFT];
-        const o = (eid & CHUNK_MASK) * 4;
-        chunk[o] = srgbToLinear(((value >> 16) & 0xff) / 255);
-        chunk[o + 1] = srgbToLinear(((value >> 8) & 0xff) / 255);
-        chunk[o + 2] = srgbToLinear((value & 0xff) / 255);
-    }
-
-    return new Proxy([] as unknown as FieldProxy, {
-        get(_, prop) {
-            if (prop === "get") return getValue;
-            if (prop === "set") return setValue;
-            const eid = Number(prop);
-            if (Number.isNaN(eid)) return undefined;
-            return getValue(eid);
-        },
-        set(_, prop, value) {
-            const eid = Number(prop);
-            if (Number.isNaN(eid)) return false;
-            setValue(eid, value);
-            return true;
-        },
-    });
-}
-
-const SHAPE_NAMES: Record<string, number> = {
-    box: Shape.Box,
-    sphere: Shape.Sphere,
-    capsule: Shape.Capsule,
-    plane: Shape.Plane,
-    mesh: Shape.Mesh,
-};
-
-function parseShape(name: string): number | undefined {
-    return SHAPE_NAMES[name];
-}
-
-function formatShape(value: number): string | undefined {
-    for (const [name, v] of Object.entries(SHAPE_NAMES)) {
-        if (v === value) return name;
-    }
-    return undefined;
-}
-
-export const PartSurfaces = buf(Uint16Array, 1, 0);
-
-export const Part: {
-    shape: FieldProxy;
-    surface: FieldProxy;
-    volume: FieldProxy;
-    color: FieldProxy;
-    colorR: FieldProxy;
-    colorG: FieldProxy;
-    colorB: FieldProxy;
-    opacity: FieldProxy;
-    sizeX: FieldProxy;
-    sizeY: FieldProxy;
-    sizeZ: FieldProxy;
-    shadows: FieldProxy;
-    roughness: FieldProxy;
-    reflectivity: FieldProxy;
-    emission: FieldProxy;
-    emissionIntensity: FieldProxy;
-} = {
-    shape: createFieldProxy(PartShapes, 1, 0),
-    surface: createFieldProxy(PartSurfaces, 1, 0),
-    volume: createFieldProxy(PartVolumes, 1, 0),
-    color: hexColorProxy(PartColors),
-    colorR: createFieldProxy(PartColors, 4, 0),
-    colorG: createFieldProxy(PartColors, 4, 1),
-    colorB: createFieldProxy(PartColors, 4, 2),
-    opacity: createFieldProxy(PartColors, 4, 3),
-    sizeX: createFieldProxy(PartSizes, 4, 0),
-    sizeY: createFieldProxy(PartSizes, 4, 1),
-    sizeZ: createFieldProxy(PartSizes, 4, 2),
-    shadows: createFieldProxy(PartSizes, 4, 3),
-    roughness: createFieldProxy(PartPBR, 4, 0),
-    reflectivity: createFieldProxy(PartPBR, 4, 1),
-    emission: hexColorProxy(PartEmission),
-    emissionIntensity: createFieldProxy(PartEmission, 4, 3),
-};
-
-traits(Part, {
-    requires: [Transform],
-    defaults: () => ({
-        shape: Shape.Box,
-        surface: SurfaceType.Default,
-        color: 0xffffff,
-        opacity: 1.0,
-        sizeX: 1,
-        sizeY: 1,
-        sizeZ: 1,
-        shadows: 1,
-        roughness: 1.0,
-        reflectivity: 0.0,
-        emission: 0x000000,
-        emissionIntensity: 0.0,
-        volume: Volume.Solid,
-    }),
-    parse: { shape: parseShape, surface: (name: string) => surfaceRegistry.getByName(name) },
-    format: {
-        shape: formatShape,
-        surface: (id: number) => surfaceRegistry.getName(id),
-        color: formatHex,
-        emission: formatHex,
-    },
-    enums: { surface: SurfaceType, volume: Volume, shape: Shape },
-});
-
-export const MeshGeometryData = buf(Uint32Array, 1, 0);
-
-export const Mesh: {
-    geometry: FieldProxy;
-} = {
-    geometry: createFieldProxy(MeshGeometryData, 1, 0),
-};
-
-traits(Mesh, {
-    requires: [Part],
-    defaults: () => ({
-        geometry: MeshShape.Box,
-    }),
-    parse: { geometry: getMeshByName },
-    format: { geometry: getMeshName },
-});
-
-export const Dynamic = {};
-
-traits(Dynamic, {
-    requires: [Part],
-});
-
-export interface DynamicInfo {
-    baseFloatOffset: number;
-    atlasFloatOffset: number;
-    atlasIndexOffset: number;
-    vertexCount: number;
-}
-
-interface DynamicEntry {
-    meshId: number;
-    priorShape: number;
-    priorGeometry: number;
-    baseFloatOffset: number;
-    atlasFloatOffset: number;
-    atlasIndexOffset: number;
-    vertexCount: number;
-}
-
-const _dynamics = new Map<number, DynamicEntry>();
-const _unboundedShapes = new Set<number>();
-
-export function isUnboundedShape(shapeId: number): boolean {
-    return _unboundedShapes.has(shapeId);
-}
-
-export function dynamicInfo(eid: number): DynamicInfo | undefined {
-    const d = _dynamics.get(eid);
-    if (!d || d.atlasFloatOffset < 0) return undefined;
-    return {
-        baseFloatOffset: d.baseFloatOffset,
-        atlasFloatOffset: d.atlasFloatOffset,
-        atlasIndexOffset: d.atlasIndexOffset,
-        vertexCount: d.vertexCount,
-    };
-}
-
-export function isDynamic(eid: number): boolean {
-    return _dynamics.has(eid);
-}
-
-export function allocateDynamic(eid: number): void {
-    if (_dynamics.has(eid)) return;
-    const baseShapeId = getMeshId(eid);
-    const baseMesh = getMesh(baseShapeId);
-    if (!baseMesh) return;
-    const cloned: MeshData = {
-        vertices: new Float32Array(baseMesh.vertices),
-        indices: new Uint16Array(baseMesh.indices),
-        vertexCount: baseMesh.vertexCount,
-        indexCount: baseMesh.indexCount,
-    };
-    const meshId = mesh(cloned);
-    _unboundedShapes.add(meshId);
-    _dynamics.set(eid, {
-        meshId,
-        priorShape: Part.shape[eid],
-        priorGeometry: Mesh.geometry[eid],
-        baseFloatOffset: -1,
-        atlasFloatOffset: -1,
-        atlasIndexOffset: -1,
-        vertexCount: baseMesh.vertexCount,
-    });
-    Mesh.geometry[eid] = meshId;
-    Part.shape[eid] = Shape.Mesh;
-}
-
-export function deallocateDynamic(eid: number): void {
-    const d = _dynamics.get(eid);
-    if (d) {
-        _unboundedShapes.delete(d.meshId);
-        Part.shape[eid] = d.priorShape;
-        Mesh.geometry[eid] = d.priorGeometry;
-    }
-    _dynamics.delete(eid);
-}
-
-export function getMeshId(eid: number): number {
-    const shape = Part.shape[eid];
-    switch (shape) {
-        case Shape.Box:
-            return MeshShape.Box;
-        case Shape.Sphere:
-            return MeshShape.Sphere;
-        case Shape.Capsule:
-            return MeshShape.Capsule;
-        case Shape.Plane:
-            return MeshShape.Plane;
-        case Shape.Mesh:
-            return Mesh.geometry[eid];
-        default:
-            return MeshShape.Box;
-    }
-}
-
-export interface AABB {
-    minX: number;
-    minY: number;
-    minZ: number;
-    maxX: number;
-    maxY: number;
-    maxZ: number;
-}
-
-export function computeShapeAABB(mesh: MeshData): AABB {
-    const { vertices, vertexCount } = mesh;
-    const stride = 8;
-
-    if (vertexCount === 0) {
-        return { minX: 0, minY: 0, minZ: 0, maxX: 0, maxY: 0, maxZ: 0 };
-    }
-
-    let minX = vertices[0];
-    let minY = vertices[1];
-    let minZ = vertices[2];
-    let maxX = vertices[0];
-    let maxY = vertices[1];
-    let maxZ = vertices[2];
-
-    for (let i = 1; i < vertexCount; i++) {
-        const x = vertices[i * stride];
-        const y = vertices[i * stride + 1];
-        const z = vertices[i * stride + 2];
+/**
+ * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
+ * `posU + normalV` layout, position in the first three floats per record).
+ * Pure — the one position-AABB scan both the cull sphere ({@link meshBounds})
+ * and the unorm16 dequant range (the per-mesh `MeshQuant`, gpu.md rule 6) derive
+ * from, so they share one source. An empty buffer returns a zero box.
+ */
+export function meshAabb(vertices: Float32Array): {
+    min: [number, number, number];
+    max: [number, number, number];
+} {
+    let minX = Infinity;
+    let minY = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < vertices.length; i += VERTEX_FLOATS) {
+        const x = vertices[i];
+        const y = vertices[i + 1];
+        const z = vertices[i + 2];
         if (x < minX) minX = x;
         if (y < minY) minY = y;
         if (z < minZ) minZ = z;
@@ -353,444 +131,283 @@ export function computeShapeAABB(mesh: MeshData): AABB {
         if (y > maxY) maxY = y;
         if (z > maxZ) maxZ = z;
     }
-
-    return { minX, minY, minZ, maxX, maxY, maxZ };
+    if (!Number.isFinite(minX)) return { min: [0, 0, 0], max: [0, 0, 0] }; // no vertices
+    return { min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
 }
 
-export function createBox(): MeshData {
-    // prettier-ignore
-    const vertices = new Float32Array([
-        // +Z face
-        -0.5, -0.5, 0.5, 0, 0, 1, 0, 0, 0.5, -0.5, 0.5, 0, 0, 1, 1, 0, 0.5, 0.5, 0.5, 0, 0, 1, 1, 1,
-        -0.5, 0.5, 0.5, 0, 0, 1, 0, 1,
-        // -Z face
-        0.5, -0.5, -0.5, 0, 0, -1, 0, 0, -0.5, -0.5, -0.5, 0, 0, -1, 1, 0, -0.5, 0.5, -0.5, 0, 0,
-        -1, 1, 1, 0.5, 0.5, -0.5, 0, 0, -1, 0, 1,
-        // +Y face
-        -0.5, 0.5, 0.5, 0, 1, 0, 0, 0, 0.5, 0.5, 0.5, 0, 1, 0, 1, 0, 0.5, 0.5, -0.5, 0, 1, 0, 1, 1,
-        -0.5, 0.5, -0.5, 0, 1, 0, 0, 1,
-        // -Y face
-        -0.5, -0.5, -0.5, 0, -1, 0, 0, 0, 0.5, -0.5, -0.5, 0, -1, 0, 1, 0, 0.5, -0.5, 0.5, 0, -1, 0,
-        1, 1, -0.5, -0.5, 0.5, 0, -1, 0, 0, 1,
-        // +X face
-        0.5, -0.5, 0.5, 1, 0, 0, 0, 0, 0.5, -0.5, -0.5, 1, 0, 0, 1, 0, 0.5, 0.5, -0.5, 1, 0, 0, 1,
-        1, 0.5, 0.5, 0.5, 1, 0, 0, 0, 1,
-        // -X face
-        -0.5, -0.5, -0.5, -1, 0, 0, 0, 0, -0.5, -0.5, 0.5, -1, 0, 0, 1, 0, -0.5, 0.5, 0.5, -1, 0, 0,
-        1, 1, -0.5, 0.5, -0.5, -1, 0, 0, 0, 1,
-    ]);
-
-    const indices = new Uint16Array([
-        0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7, 8, 9, 10, 8, 10, 11, 12, 13, 14, 12, 14, 15, 16, 17, 18,
-        16, 18, 19, 20, 21, 22, 20, 22, 23,
-    ]);
-
-    return { vertices, indices, vertexCount: 24, indexCount: 36 };
+/**
+ * local-space bounding sphere `[cx, cy, cz, radius]` of a vertex buffer. Center
+ * is the {@link meshAabb} midpoint; radius is the farthest vertex from it, so the
+ * sphere is tight and a producer's cull can scale it by world scale. Pure —
+ * derived once at registration, never per frame.
+ */
+export function meshBounds(vertices: Float32Array): [number, number, number, number] {
+    const { min, max } = meshAabb(vertices);
+    const cx = (min[0] + max[0]) * 0.5;
+    const cy = (min[1] + max[1]) * 0.5;
+    const cz = (min[2] + max[2]) * 0.5;
+    let r2 = 0;
+    for (let i = 0; i < vertices.length; i += VERTEX_FLOATS) {
+        const dx = vertices[i] - cx;
+        const dy = vertices[i + 1] - cy;
+        const dz = vertices[i + 2] - cz;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 > r2) r2 = d2;
+    }
+    return [cx, cy, cz, Math.sqrt(r2)];
 }
 
-export function createSphere(segments = 32, rings = 16): MeshData {
-    const vertices: number[] = [];
-    const indices: number[] = [];
-    const radius = 0.5;
-
-    for (let y = 0; y <= rings; y++) {
-        const v = y / rings;
-        const theta = v * Math.PI;
-
-        for (let x = 0; x <= segments; x++) {
-            const u = x / segments;
-            const phi = u * Math.PI * 2;
-
-            const nx = Math.sin(theta) * Math.cos(phi);
-            const ny = Math.cos(theta);
-            const nz = Math.sin(theta) * Math.sin(phi);
-
-            vertices.push(nx * radius, ny * radius, nz * radius, nx, ny, nz, u, v);
-        }
-    }
-
-    for (let y = 0; y < rings; y++) {
-        for (let x = 0; x < segments; x++) {
-            const a = y * (segments + 1) + x;
-            const b = a + segments + 1;
-
-            indices.push(a, a + 1, b);
-            indices.push(a + 1, b + 1, b);
-        }
-    }
-
-    return {
-        vertices: new Float32Array(vertices),
-        indices: new Uint16Array(indices),
-        vertexCount: (rings + 1) * (segments + 1),
-        indexCount: rings * segments * 6,
-    };
-}
-
-export function createCapsule(segments = 32, rings = 16): MeshData {
-    const vertices: number[] = [];
-    const indices: number[] = [];
-    const radius = 0.5;
-    const halfHeight = 0.5;
-    const halfRings = rings / 2;
-
-    for (let y = 0; y <= halfRings; y++) {
-        const theta = (y / halfRings) * (Math.PI / 2);
-        const v = (y / halfRings) * 0.25;
-        for (let x = 0; x <= segments; x++) {
-            const u = x / segments;
-            const phi = u * Math.PI * 2;
-            const nx = Math.sin(theta) * Math.cos(phi);
-            const ny = Math.cos(theta);
-            const nz = Math.sin(theta) * Math.sin(phi);
-            vertices.push(nx * radius, ny * radius + halfHeight, nz * radius, nx, ny, nz, u, v);
-        }
-    }
-
-    for (let x = 0; x <= segments; x++) {
-        const u = x / segments;
-        const phi = u * Math.PI * 2;
-        const nx = Math.cos(phi);
-        const nz = Math.sin(phi);
-        vertices.push(nx * radius, halfHeight, nz * radius, nx, 0, nz, u, 0.25);
-    }
-    for (let x = 0; x <= segments; x++) {
-        const u = x / segments;
-        const phi = u * Math.PI * 2;
-        const nx = Math.cos(phi);
-        const nz = Math.sin(phi);
-        vertices.push(nx * radius, -halfHeight, nz * radius, nx, 0, nz, u, 0.75);
-    }
-
-    for (let y = 0; y <= halfRings; y++) {
-        const theta = (y / halfRings) * (Math.PI / 2);
-        const v = 0.75 + (y / halfRings) * 0.25;
-        for (let x = 0; x <= segments; x++) {
-            const u = x / segments;
-            const phi = u * Math.PI * 2;
-            const nx = Math.sin(theta) * Math.cos(phi);
-            const ny = -Math.cos(theta);
-            const nz = Math.sin(theta) * Math.sin(phi);
-            vertices.push(nx * radius, ny * radius - halfHeight, nz * radius, nx, ny, nz, u, v);
-        }
-    }
-
-    const stride = segments + 1;
-
-    for (let y = 0; y < halfRings; y++) {
-        for (let x = 0; x < segments; x++) {
-            const a = y * stride + x;
-            const b = a + stride;
-            indices.push(a, a + 1, b);
-            indices.push(a + 1, b + 1, b);
-        }
-    }
-
-    const cylTop = (halfRings + 1) * stride;
-    const cylBot = cylTop + stride;
-    for (let x = 0; x < segments; x++) {
-        const a = cylTop + x;
-        const b = cylBot + x;
-        indices.push(a, a + 1, b);
-        indices.push(a + 1, b + 1, b);
-    }
-
-    const botStart = cylBot + stride;
-    for (let y = 0; y < halfRings; y++) {
-        for (let x = 0; x < segments; x++) {
-            const a = botStart + y * stride + x;
-            const b = a + stride;
-            indices.push(a, b, a + 1);
-            indices.push(a + 1, b, b + 1);
-        }
-    }
-
-    return {
-        vertices: new Float32Array(vertices),
-        indices: new Uint16Array(indices),
-        vertexCount: vertices.length / 8,
-        indexCount: indices.length,
-    };
-}
-
-export function createPlane(): MeshData {
-    // prettier-ignore
-    const vertices = new Float32Array([
-        -0.5, 0, 0.5, 0, 1, 0, 0, 0, 0.5, 0, 0.5, 0, 1, 0, 1, 0, 0.5, 0, -0.5, 0, 1, 0, 1, 1, -0.5,
-        0, -0.5, 0, 1, 0, 0, 1,
-    ]);
-
-    const indices = new Uint16Array([0, 1, 2, 0, 2, 3]);
-
-    return { vertices, indices, vertexCount: 4, indexCount: 6 };
-}
-
-export function createCone(segments = 16): MeshData {
-    const vertices: number[] = [];
-    const indices: number[] = [];
-    const radius = 0.5;
-    const height = 1.0;
-
-    vertices.push(0, height / 2, 0, 0, 1, 0, 0.5, 0);
-
-    for (let i = 0; i <= segments; i++) {
-        const u = i / segments;
-        const angle = u * Math.PI * 2;
-        const x = Math.cos(angle) * radius;
-        const z = Math.sin(angle) * radius;
-        const ny = radius / height;
-        const len = Math.sqrt(x * x + ny * ny + z * z);
-        vertices.push(x, -height / 2, z, x / len, ny / len, z / len, u, 1);
-    }
-
-    for (let i = 0; i < segments; i++) {
-        indices.push(0, i + 2, i + 1);
-    }
-
-    const baseCenterIndex = vertices.length / 8;
-    vertices.push(0, -height / 2, 0, 0, -1, 0, 0.5, 0.5);
-
-    const baseStartIndex = vertices.length / 8;
-    for (let i = 0; i <= segments; i++) {
-        const u = i / segments;
-        const angle = u * Math.PI * 2;
-        vertices.push(
-            Math.cos(angle) * radius,
-            -height / 2,
-            Math.sin(angle) * radius,
-            0,
-            -1,
-            0,
-            u,
-            1,
+/**
+ * register a static mesh from typed arrays. The data is staged now and packed
+ * into the shared family buffer at warm by {@link flushMeshes}; the registry
+ * entry is a slice of that shared buffer. Procedural producers skip this — they
+ * own their `GPUBuffer`s and call `Meshes.register(...)` directly. Requires
+ * `Compute.device`; no-ops otherwise
+ *
+ * @example
+ * mesh({ name: "cube", vertices, indices })
+ */
+export function mesh(spec: { name: string; vertices: Float32Array; indices: Uint32Array }): void {
+    if (spec.vertices.length % VERTEX_FLOATS !== 0) {
+        throw new Error(
+            `mesh "${spec.name}": vertices length ${spec.vertices.length} is not a multiple of ${VERTEX_FLOATS} (one Vertex = posU + normalV)`,
         );
     }
-
-    for (let i = 0; i < segments; i++) {
-        indices.push(baseCenterIndex, baseStartIndex + i, baseStartIndex + i + 1);
-    }
-
-    return {
-        vertices: new Float32Array(vertices),
-        indices: new Uint16Array(indices),
-        vertexCount: vertices.length / 8,
-        indexCount: indices.length,
-    };
-}
-
-interface ShapeMeta {
-    vertexOffset: number;
-    indexOffset: number;
-    triCount: number;
-}
-
-export interface ShapeAtlas {
-    vertices: GPUBuffer;
-    indices: GPUBuffer;
-    meta: GPUBuffer;
-    baseVertices: GPUBuffer;
-    shapeCount: number;
-    maxTriangles: number;
-    vertexCapacity: number;
-    indexCapacity: number;
-    baseVertexCapacity: number;
-    dynOffsets: Map<number, number>;
-}
-
-function packMeshData(): {
-    verticesData: Float32Array;
-    indicesData: Uint32Array;
-    metaData: Uint32Array;
-    baseVerticesData: Float32Array;
-    shapeCount: number;
-    maxTriangles: number;
-    dynOffsets: Map<number, number>;
-} {
-    const allVertices: number[] = [];
-    const allIndices: number[] = [];
-    const baseVertices: number[] = [];
-    const shapeMetas: ShapeMeta[] = [];
-    const dynOffsets = new Map<number, number>();
-    const dynMeshIds = new Map<number, DynamicEntry>();
-    for (const d of _dynamics.values()) dynMeshIds.set(d.meshId, d);
-
-    let vertexOffset = 0;
-    let indexOffset = 0;
-    let maxTriangles = 0;
-    let baseVertexOffset = 0;
-
-    const shapeCount = meshCount();
-    for (let shapeId = 0; shapeId < shapeCount; shapeId++) {
-        const m = getMesh(shapeId);
-        if (!m) {
-            shapeMetas.push({ vertexOffset: 0, indexOffset: 0, triCount: 0 });
-            continue;
-        }
-
-        const triCount = m.indexCount / 3;
-        shapeMetas.push({ vertexOffset, indexOffset, triCount });
-
-        const dynEntry = dynMeshIds.get(shapeId);
-        if (dynEntry) {
-            dynOffsets.set(shapeId, vertexOffset * 4);
-            dynEntry.atlasFloatOffset = vertexOffset;
-            dynEntry.atlasIndexOffset = indexOffset;
-            dynEntry.baseFloatOffset = baseVertexOffset;
-            for (let i = 0; i < m.vertices.length; i++) {
-                baseVertices.push(m.vertices[i]);
-            }
-            baseVertexOffset += m.vertices.length;
-        }
-
-        for (let i = 0; i < m.vertices.length; i++) {
-            allVertices.push(m.vertices[i]);
-        }
-
-        for (let i = 0; i < m.indices.length; i++) {
-            allIndices.push(m.indices[i]);
-        }
-
-        vertexOffset += m.vertices.length;
-        indexOffset += m.indices.length;
-        maxTriangles += triCount;
-    }
-
-    const verticesData = new Float32Array(allVertices);
-    const indicesData = new Uint32Array(allIndices);
-    const baseVerticesData = new Float32Array(baseVertices);
-    const metaData = new Uint32Array(MAX_SHAPES * 4);
-
-    for (let i = 0; i < shapeMetas.length; i++) {
-        metaData[i * 4] = shapeMetas[i].vertexOffset;
-        metaData[i * 4 + 1] = shapeMetas[i].indexOffset;
-        metaData[i * 4 + 2] = shapeMetas[i].triCount;
-        metaData[i * 4 + 3] = 0;
-    }
-
-    return {
-        verticesData,
-        indicesData,
-        metaData,
-        baseVerticesData,
-        shapeCount: shapeMetas.filter((m) => m.triCount > 0).length,
-        maxTriangles,
-        dynOffsets,
-    };
-}
-
-function atlasBufferSize(dataLength: number): number {
-    return Math.max(dataLength * 2, 256) * 4;
-}
-
-export function createShapeAtlas(device: GPUDevice): ShapeAtlas {
-    const {
-        verticesData,
-        indicesData,
-        metaData,
-        baseVerticesData,
-        shapeCount,
-        maxTriangles,
-        dynOffsets,
-    } = packMeshData();
-
-    const vertexCapacity = atlasBufferSize(verticesData.length);
-    const indexCapacity = atlasBufferSize(indicesData.length);
-    const baseVertexCapacity = atlasBufferSize(Math.max(baseVerticesData.length, 1));
-
-    const vertices = device.createBuffer({
-        label: "unified-vertices",
-        size: vertexCapacity,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    const device = Compute.device;
+    if (!device) return;
+    // a placeholder reserves the registry entry now (fixing Meshes.size before
+    // warm); flushMeshes swaps in the real shared buffer + correct indexBase
+    _placeholder ??= device.createBuffer({
+        label: "kitchen-mesh-pending",
+        size: 4,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX,
     });
-    device.queue.writeBuffer(vertices, 0, verticesData as Float32Array<ArrayBuffer>);
+    const bounds = meshBounds(spec.vertices);
+    _pending.push({ ...spec, bounds });
+    Meshes.register({
+        name: spec.name,
+        vertices: _placeholder,
+        indices: _placeholder,
+        indexBase: 0,
+        indexCount: spec.indices.length,
+        bounds,
+    });
+}
 
+/**
+ * concatenate staged meshes into one vertex + index pair, shifting each mesh's
+ * indices by its vertex base so the index stream holds absolute positions.
+ * Pure — exported for the index-shift test; {@link flushMeshes} uploads it
+ */
+export function packMeshes(
+    staged: { name: string; vertices: Float32Array; indices: Uint32Array }[],
+): {
+    vertices: Float32Array;
+    indices: Uint32Array;
+    slices: {
+        name: string;
+        indexBase: number;
+        indexCount: number;
+        vertexBase: number;
+        vertexCount: number;
+    }[];
+} {
+    let totalVerts = 0;
+    let totalIndices = 0;
+    for (const m of staged) {
+        totalVerts += m.vertices.length / VERTEX_FLOATS;
+        totalIndices += m.indices.length;
+    }
+    const vertices = new Float32Array(totalVerts * VERTEX_FLOATS);
+    const indices = new Uint32Array(totalIndices);
+    const slices: {
+        name: string;
+        indexBase: number;
+        indexCount: number;
+        vertexBase: number;
+        vertexCount: number;
+    }[] = [];
+    let vertexBase = 0;
+    let indexBase = 0;
+    for (const m of staged) {
+        const vertexCount = m.vertices.length / VERTEX_FLOATS;
+        vertices.set(m.vertices, vertexBase * VERTEX_FLOATS);
+        for (let i = 0; i < m.indices.length; i++)
+            indices[indexBase + i] = m.indices[i] + vertexBase;
+        slices.push({
+            name: m.name,
+            indexBase,
+            indexCount: m.indices.length,
+            vertexBase,
+            vertexCount,
+        });
+        vertexBase += vertexCount;
+        indexBase += m.indices.length;
+    }
+    return { vertices, indices, slices };
+}
+
+// f32 lanes per mesh in a quant table — the `MeshQuant` record (3 × `vec4<f32>`)
+const MESH_QUANT_FLOATS = 12;
+
+/**
+ * the GPU vertex streams a quantized family uploads, derived from the packed f32
+ * (gpu.md rule 6). `main` is 16 B/vertex (`vec4<u32>`): w0 = unorm16 pos.xy,
+ * w1 = unorm16 pos.z | (meshId << 16), w2 = oct normal, w3 = unorm16 uv.
+ * `position` is the 8 B/vertex depth/shadow stream (w0, w1 — pos + meshId only).
+ * `quant` is `MeshQuant` per mesh (the position + uv AABB the decode dequantizes
+ * against, selected by meshId). The f32 stays the lossless authoring form — only
+ * the GPU mirror quantizes (the slab packed-mirror discipline, ecs.md).
+ */
+export interface QuantStreams {
+    main: Uint32Array;
+    position: Uint32Array;
+    quant: Float32Array;
+}
+
+/**
+ * quantize a packed f32 vertex stream ({@link packMeshes}'s output) into the GPU
+ * formats. One AABB per mesh slice (its own position + uv range), so a small mesh
+ * keeps full unorm16 precision; meshId is the slice index, packed into the stream
+ * so the decode selects the right `MeshQuant` from a plain storage table — no
+ * per-draw uniform, works unchanged in render bundles. Pure — the single emitter
+ * both `flushMeshes` and the glTF importer call, paired with the WGSL `decodePos`
+ * (`POS_QUANT_WGSL`) so the lattice can't drift between writer and reader.
+ */
+export function quantizeMeshes(
+    vertices: Float32Array,
+    slices: { vertexBase: number; vertexCount: number }[],
+): QuantStreams {
+    const vertexCount = vertices.length / VERTEX_FLOATS;
+    const main = new Uint32Array(vertexCount * 4);
+    const position = new Uint32Array(vertexCount * 2);
+    const quant = new Float32Array(slices.length * MESH_QUANT_FLOATS);
+    slices.forEach((s, meshId) => {
+        if (meshId > 0xffff)
+            throw new Error(
+                `quantizeMeshes: ${slices.length} meshes exceeds the 16-bit meshId cap (65535) per family`,
+            );
+        // per-mesh position + uv AABB over the slice (a vertex belongs to one mesh)
+        const pmin = [Infinity, Infinity, Infinity];
+        const pmax = [-Infinity, -Infinity, -Infinity];
+        const umin = [Infinity, Infinity];
+        const umax = [-Infinity, -Infinity];
+        for (let v = 0; v < s.vertexCount; v++) {
+            const i = (s.vertexBase + v) * VERTEX_FLOATS;
+            for (let a = 0; a < 3; a++) {
+                pmin[a] = Math.min(pmin[a], vertices[i + a]);
+                pmax[a] = Math.max(pmax[a], vertices[i + a]);
+            }
+            umin[0] = Math.min(umin[0], vertices[i + 3]);
+            umax[0] = Math.max(umax[0], vertices[i + 3]);
+            umin[1] = Math.min(umin[1], vertices[i + 7]);
+            umax[1] = Math.max(umax[1], vertices[i + 7]);
+        }
+        if (s.vertexCount === 0) {
+            pmin.fill(0);
+            pmax.fill(0);
+            umin.fill(0);
+            umax.fill(0);
+        }
+        const pext = [pmax[0] - pmin[0], pmax[1] - pmin[1], pmax[2] - pmin[2]];
+        const uext = [umax[0] - umin[0], umax[1] - umin[1]];
+        // MeshQuant: posOffset(pmin.xyz, umin.x), posScale(pext.xyz, umin.y), uvScale(uext.xy, 0, 0)
+        const q = meshId * MESH_QUANT_FLOATS;
+        quant.set([pmin[0], pmin[1], pmin[2], umin[0]], q);
+        quant.set([pext[0], pext[1], pext[2], umin[1]], q + 4);
+        quant.set([uext[0], uext[1], 0, 0], q + 8);
+        // a degenerate axis (extent 0 — a flat quad's z) writes 0 → decode returns the offset
+        const norm = (val: number, lo: number, ext: number) => (ext === 0 ? 0 : (val - lo) / ext);
+        for (let v = 0; v < s.vertexCount; v++) {
+            const i = (s.vertexBase + v) * VERTEX_FLOATS;
+            const vi = s.vertexBase + v;
+            const w0 = pack2x16unorm(
+                norm(vertices[i], pmin[0], pext[0]),
+                norm(vertices[i + 1], pmin[1], pext[1]),
+            );
+            const z16 = Math.round(
+                Math.max(0, Math.min(1, norm(vertices[i + 2], pmin[2], pext[2]))) * 65535,
+            );
+            const w1 = ((z16 & 0xffff) | (meshId << 16)) >>> 0;
+            const w2 = octEncodeNormal({
+                x: vertices[i + 4],
+                y: vertices[i + 5],
+                z: vertices[i + 6],
+            });
+            const w3 = pack2x16unorm(
+                norm(vertices[i + 3], umin[0], uext[0]),
+                norm(vertices[i + 7], umin[1], uext[1]),
+            );
+            main[vi * 4] = w0;
+            main[vi * 4 + 1] = w1;
+            main[vi * 4 + 2] = w2;
+            main[vi * 4 + 3] = w3;
+            position[vi * 2] = w0;
+            position[vi * 2 + 1] = w1;
+        }
+    });
+    return { main, position, quant };
+}
+
+// drop the staged-but-unflushed mesh data + the placeholder buffer. flushMeshes calls it after packing,
+// clearMeshes after discarding — one source of truth for the staging state to reset.
+function resetStaging(): void {
+    _pending.length = 0;
+    _placeholder?.destroy();
+    _placeholder = null;
+}
+
+/**
+ * pack every staged static mesh into the quantized vertex streams + a shared
+ * index buffer and re-register each as a slice. Called once from
+ * `RenderPlugin.warm`, after all `initialize` hooks (so every `mesh(...)` has run)
+ */
+export function flushMeshes(): void {
+    const device = Compute.device;
+    if (!device || _pending.length === 0) return;
+    const packed = packMeshes(_pending);
+    const q = quantizeMeshes(packed.vertices, packed.slices);
+    const storage = (label: string, data: Uint32Array | Float32Array) => {
+        const buf = device.createBuffer({
+            label,
+            size: data.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(buf, 0, data as Uint32Array<ArrayBuffer>);
+        return buf;
+    };
+    const vertices = storage("kitchen-mesh-main", q.main);
+    const position = storage("kitchen-mesh-pos", q.position);
+    const quant = storage("kitchen-mesh-quant", q.quant);
     const indices = device.createBuffer({
-        label: "unified-indices",
-        size: indexCapacity,
+        label: "kitchen-mesh-indices",
+        size: packed.indices.byteLength,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
-    device.queue.writeBuffer(indices, 0, indicesData as Uint32Array<ArrayBuffer>);
-
-    const meta = device.createBuffer({
-        label: "unified-meta",
-        size: MAX_SHAPES * 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(meta, 0, metaData as Uint32Array<ArrayBuffer>);
-
-    const baseVerticesBuffer = device.createBuffer({
-        label: "dynamic-base-vertices",
-        size: baseVertexCapacity,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    if (baseVerticesData.length > 0) {
-        device.queue.writeBuffer(
-            baseVerticesBuffer,
-            0,
-            baseVerticesData as Float32Array<ArrayBuffer>,
-        );
+    device.queue.writeBuffer(indices, 0, packed.indices as Uint32Array<ArrayBuffer>);
+    const bounds = new Map(_pending.map((m) => [m.name, m.bounds]));
+    for (const s of packed.slices) {
+        Meshes.register({
+            name: s.name,
+            vertices,
+            position,
+            quant,
+            indices,
+            indexBase: s.indexBase,
+            indexCount: s.indexCount,
+            bounds: bounds.get(s.name),
+        });
     }
-
-    return {
-        vertices,
-        indices,
-        meta,
-        baseVertices: baseVerticesBuffer,
-        shapeCount,
-        maxTriangles,
-        vertexCapacity,
-        indexCapacity,
-        baseVertexCapacity,
-        dynOffsets,
-    };
+    resetStaging();
 }
 
-export function updateShapeAtlas(device: GPUDevice, atlas: ShapeAtlas): void {
-    const { verticesData, indicesData, metaData, baseVerticesData, dynOffsets } = packMeshData();
-
-    const needsVertexGrow = verticesData.byteLength > atlas.vertexCapacity;
-    const needsIndexGrow = indicesData.byteLength > atlas.indexCapacity;
-    const needsBaseGrow = baseVerticesData.byteLength > atlas.baseVertexCapacity;
-
-    if (needsVertexGrow) {
-        atlas.vertices.destroy();
-        atlas.vertexCapacity = atlasBufferSize(verticesData.length);
-        atlas.vertices = device.createBuffer({
-            label: "unified-vertices",
-            size: atlas.vertexCapacity,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-    }
-
-    if (needsIndexGrow) {
-        atlas.indices.destroy();
-        atlas.indexCapacity = atlasBufferSize(indicesData.length);
-        atlas.indices = device.createBuffer({
-            label: "unified-indices",
-            size: atlas.indexCapacity,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-    }
-
-    if (needsBaseGrow) {
-        atlas.baseVertices.destroy();
-        atlas.baseVertexCapacity = atlasBufferSize(Math.max(baseVerticesData.length, 1));
-        atlas.baseVertices = device.createBuffer({
-            label: "dynamic-base-vertices",
-            size: atlas.baseVertexCapacity,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-    }
-
-    atlas.dynOffsets = dynOffsets;
-    device.queue.writeBuffer(atlas.vertices, 0, verticesData as Float32Array<ArrayBuffer>);
-    device.queue.writeBuffer(atlas.indices, 0, indicesData as Uint32Array<ArrayBuffer>);
-    device.queue.writeBuffer(atlas.meta, 0, metaData as Uint32Array<ArrayBuffer>);
-    if (baseVerticesData.length > 0) {
-        device.queue.writeBuffer(
-            atlas.baseVertices,
-            0,
-            baseVerticesData as Float32Array<ArrayBuffer>,
-        );
-    }
+/**
+ * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
+ * (`RenderPlugin.initialize`, ecs.md "clear then rebuild"). Static producers re-stage via {@link mesh} in
+ * their own initialize, so a producer toggled off in the editor leaves no stale slice to be paired against
+ * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
+ */
+export function clearMeshes(): void {
+    Meshes.clear();
+    resetStaging();
 }

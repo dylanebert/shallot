@@ -1,0 +1,10 @@
+{
+  "scene": "scenes/collapse.scene",
+  "plugins": {
+    "Orbit": true,
+    "Profile": true,
+    "Mirror": true,
+    "Physics": true,
+    "Collapse": "./src/collapse"
+  }
+}

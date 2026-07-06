@@ -1,369 +1,160 @@
-import { getMesh, type MeshData } from "../render";
-import { registry, type Registry } from "../../engine";
-import { quickhull } from "./quickhull";
+// Convex-hull narrowphase geometry (Phase 6.3) — the CPU side of hull collision: the registry of convex
+// hull shapes a `Body` references by id, and the flat GPU packing the collide pass (collide.ts HULL_WGSL)
+// reads. The collision algorithm itself is the f64 oracle `tests/avbd/hull.ts` (the spec); collide.ts is
+// the WGSL port. This file owns the storage layout — the registry value (verts / polygonal faces / unique
+// edge directions, identical in shape to the oracle `Hull`) and `packHulls` (the one `hullData` buffer all
+// registered hulls concatenate into, addressed per hull by a header table). No GJK/EPA (collide.ts header);
+// no quickhull build here —
+// authored hulls come from explicit geometry until the §6.6 authoring layer adds a mesh→hull path.
 
-export interface ConvexHullFace {
-    plane: Float32Array;
-    vertexIndices: Uint32Array;
+import { Registry } from "../../engine";
+
+type Vec3 = [number, number, number];
+
+/** one polygonal hull face: outward unit normal + plane offset (`dot(normal, v) = offset` on the face) + CCW vertex indices. Matches the oracle `HullFace`. */
+export interface HullFace {
+    normal: Vec3;
+    offset: number;
+    verts: number[];
 }
 
-export interface ConvexHull {
-    vertices: Float32Array;
-    numVertices: number;
-    faces: ConvexHullFace[];
-    numFaces: number;
-    uniqueEdges: Float32Array;
-    numUniqueEdges: number;
-    localCenter: Float32Array;
-    extents: Float32Array;
+/** convex hull geometry: local vertices, polygonal faces, the unique edge directions for the SAT, and a registry name. Matches the oracle `Hull` (plus `name`). */
+export interface Hull {
+    name: string;
+    verts: Vec3[];
+    faces: HullFace[];
+    edges: Vec3[];
 }
 
-const MAX_HULLS = 256;
+/** the registered convex hulls. A `Body` with `ShapeKind.Hull` references one by id; `packHulls` serializes them all into the `hullData` GPU buffer (collide.ts reads it). */
+export const Hulls = new Registry<Hull>();
 
-export const hullRegistry: Registry<ConvexHull> = registry(MAX_HULLS);
-
-export function hull(meshId: number): number {
-    const existing = hullRegistry.getByName(String(meshId));
-    if (existing !== undefined) return existing;
-    const meshData = getMesh(meshId);
-    if (!meshData) throw new Error(`mesh ${meshId} not found`);
-    const h = computeHull(meshData);
-    return hullRegistry.add(h, String(meshId));
+/** register convex hull geometry under `name`, returning its stable id (the body's `hullId`). Re-registering a name reuses the id. */
+export function registerHull(name: string, geom: Omit<Hull, "name">): number {
+    return Hulls.register({ name, verts: geom.verts, faces: geom.faces, edges: geom.edges });
 }
 
-const VERTEX_STRIDE = 8;
-const NORMAL_TOL = 1e-6;
+// the built-in unit cube (full-size 2, verts ±1) reserved at id 0 — a box collider is THIS hull scaled by
+// its half-extents, so the hull SAT (collide.ts collideHull) reads box and hull through ONE branch-free
+// accessor path (no per-access isBox branch — the legacy narrowphase's scale-unified shape, the lever that
+// keeps the collide-pass shader compile down). Vertex/face/edge order matches the oracle `boxHull([2,2,2])`.
+const UNIT_CUBE: Omit<Hull, "name"> = {
+    verts: [
+        [-1, -1, -1],
+        [1, -1, -1],
+        [1, 1, -1],
+        [-1, 1, -1],
+        [-1, -1, 1],
+        [1, -1, 1],
+        [1, 1, 1],
+        [-1, 1, 1],
+    ],
+    faces: [
+        { normal: [1, 0, 0], offset: 1, verts: [1, 2, 6, 5] },
+        { normal: [-1, 0, 0], offset: 1, verts: [0, 4, 7, 3] },
+        { normal: [0, 1, 0], offset: 1, verts: [2, 3, 7, 6] },
+        { normal: [0, -1, 0], offset: 1, verts: [0, 1, 5, 4] },
+        { normal: [0, 0, 1], offset: 1, verts: [4, 5, 6, 7] },
+        { normal: [0, 0, -1], offset: 1, verts: [0, 3, 2, 1] },
+    ],
+    edges: [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+    ],
+};
+/** the reserved hull id of the built-in unit cube (collide.ts `UNIT_CUBE_ID`) — a box reads this hull scaled by its half-extents. */
+export const UNIT_CUBE_ID = registerHull("__unit_cube__", UNIT_CUBE);
 
-function extractUniquePositions(meshData: MeshData): Float64Array {
-    const seen = new Map<string, number>();
-    const coords: number[] = [];
-    for (let i = 0; i < meshData.vertexCount; i++) {
-        const off = i * VERTEX_STRIDE;
-        const x = meshData.vertices[off];
-        const y = meshData.vertices[off + 1];
-        const z = meshData.vertices[off + 2];
-        const key = `${Math.round(x * 1e5)},${Math.round(y * 1e5)},${Math.round(z * 1e5)}`;
-        if (!seen.has(key)) {
-            seen.set(key, coords.length / 3);
-            coords.push(x, y, z);
-        }
+// ── GPU packing ──────────────────────────────────────────────────────
+// One flat u32 buffer (`hullData`, bound `array<u32>`; floats bitcast). A header table indexed by hullId,
+// then each hull's block concatenated. Offsets are u32-element indices into the same buffer.
+//
+//   header[id] (HULL_HEADER u32):  [vertBase, vertCount, faceBase, faceCount, edgeBase, edgeCount, faceIdxBase, 0]
+//   verts:    vertCount × 3  (f32 xyz)
+//   faces:    faceCount × HULL_FACE_STRIDE: [nx, ny, nz, offset] (f32) + [faceVertLocalOff, faceVertCount]
+//   faceIdx:  Σ faceVertCount  (u32 vertex indices, addressed faceIdxBase + faceVertLocalOff + j)
+//   edges:    edgeCount × 3  (f32 xyz)
+
+/** u32 stride of one hull's header record (collide.ts `HULL_HEADER`) */
+export const HULL_HEADER = 8;
+/** u32 stride of one packed face: plane (n.xyz, offset) + (faceVertLocalOff, faceVertCount) (collide.ts `HULL_FACE_STRIDE`) */
+export const HULL_FACE_STRIDE = 6;
+
+/**
+ * Serialize every registered hull into the flat `hullData` GPU buffer (the collide pass reads it, indexed
+ * by a body's `hullId`). Rebuilt + re-uploaded whenever the registry changes (hulls are static after that).
+ * Returns at least a 1-element buffer (an empty registry still needs a valid binding).
+ */
+export function packHulls(): Uint32Array {
+    const hulls: Hull[] = [];
+    for (let id = 0; ; id++) {
+        const name = Hulls.name(id);
+        if (name === undefined) break;
+        const h = Hulls.get(name);
+        if (!h) break;
+        hulls.push(h);
     }
-    return new Float64Array(coords);
-}
+    const count = hulls.length;
+    if (count === 0) return new Uint32Array(1);
 
-function mergeCoplanarFaces(
-    tris: number[][],
-    normals: Float64Array,
-    pts: Float64Array,
-): ConvexHullFace[] {
-    const groups: number[][] = [];
-    const groupNormals: number[] = [];
-    const groupOffsets: number[] = [];
-
-    for (let i = 0; i < tris.length; i++) {
-        const nx = normals[i * 3],
-            ny = normals[i * 3 + 1],
-            nz = normals[i * 3 + 2];
-        const v0 = tris[i][0];
-        const offset = nx * pts[v0 * 3] + ny * pts[v0 * 3 + 1] + nz * pts[v0 * 3 + 2];
-        let found = -1;
-        for (let g = 0; g < groups.length; g++) {
-            const go = g * 3;
-            const dot =
-                nx * groupNormals[go] + ny * groupNormals[go + 1] + nz * groupNormals[go + 2];
-            if (dot > 1 - NORMAL_TOL && Math.abs(offset - groupOffsets[g]) < NORMAL_TOL) {
-                found = g;
-                break;
-            }
-        }
-        if (found >= 0) {
-            groups[found].push(i);
-        } else {
-            groups.push([i]);
-            groupNormals.push(nx, ny, nz);
-            groupOffsets.push(offset);
-        }
-    }
-
-    const result: ConvexHullFace[] = [];
-    for (let g = 0; g < groups.length; g++) {
-        const gTris = groups[g];
-        const nx = groupNormals[g * 3],
-            ny = groupNormals[g * 3 + 1],
-            nz = groupNormals[g * 3 + 2];
-        const d = -groupOffsets[g];
-        const plane = new Float32Array([nx, ny, nz, d]);
-        if (gTris.length === 1) {
-            result.push({ plane, vertexIndices: new Uint32Array(tris[gTris[0]]) });
-        } else {
-            result.push({ plane, vertexIndices: new Uint32Array(extractBoundary(tris, gTris)) });
-        }
-    }
-    return result;
-}
-
-function extractBoundary(tris: number[][], group: number[]): number[] {
-    const edgeCounts = new Map<string, number>();
-    for (const ti of group) {
-        const tri = tris[ti];
-        for (let i = 0; i < 3; i++) {
-            const a = tri[i],
-                b = tri[(i + 1) % 3];
-            const key = a < b ? `${a},${b}` : `${b},${a}`;
-            edgeCounts.set(key, (edgeCounts.get(key) ?? 0) + 1);
-        }
-    }
-    const next = new Map<number, number>();
-    for (const ti of group) {
-        const tri = tris[ti];
-        for (let i = 0; i < 3; i++) {
-            const a = tri[i],
-                b = tri[(i + 1) % 3];
-            const key = a < b ? `${a},${b}` : `${b},${a}`;
-            if (edgeCounts.get(key) === 1) next.set(a, b);
-        }
-    }
-    if (next.size === 0) return tris[group[0]];
-    const start = next.keys().next().value!;
-    const loop: number[] = [start];
-    let cur = next.get(start)!;
-    while (cur !== start) {
-        loop.push(cur);
-        const n = next.get(cur);
-        if (n === undefined) break;
-        cur = n;
-    }
-    return loop;
-}
-
-function collectUniqueEdges(faces: ConvexHullFace[], vertices: Float32Array): Float32Array {
-    const dirs: number[] = [];
-    let count = 0;
-    for (const face of faces) {
-        const idx = face.vertexIndices;
-        for (let i = 0; i < idx.length; i++) {
-            const a = idx[i],
-                b = idx[(i + 1) % idx.length];
-            let dx = vertices[b * 3] - vertices[a * 3];
-            let dy = vertices[b * 3 + 1] - vertices[a * 3 + 1];
-            let dz = vertices[b * 3 + 2] - vertices[a * 3 + 2];
-            const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            if (len < 1e-12) continue;
-            dx /= len;
-            dy /= len;
-            dz /= len;
-            if (
-                dx < -1e-8 ||
-                (Math.abs(dx) < 1e-8 && dy < -1e-8) ||
-                (Math.abs(dx) < 1e-8 && Math.abs(dy) < 1e-8 && dz < 0)
-            ) {
-                dx = -dx;
-                dy = -dy;
-                dz = -dz;
-            }
-            let dup = false;
-            for (let j = 0; j < count; j++) {
-                if (
-                    dx * dirs[j * 3] + dy * dirs[j * 3 + 1] + dz * dirs[j * 3 + 2] >
-                    1 - NORMAL_TOL
-                ) {
-                    dup = true;
-                    break;
-                }
-            }
-            if (!dup) {
-                dirs.push(dx, dy, dz);
-                count++;
-            }
-        }
-    }
-    return new Float32Array(dirs);
-}
-
-function computeHull(meshData: MeshData): ConvexHull {
-    const pts = extractUniquePositions(meshData);
-    const n = pts.length / 3;
-    const triFaces = quickhull(pts, n);
-
-    const triNormals = new Float64Array(triFaces.length * 3);
-    for (let i = 0; i < triFaces.length; i++) {
-        const [a, b, c] = triFaces[i];
-        const p = pts;
-        const ax = p[a * 3],
-            ay = p[a * 3 + 1],
-            az = p[a * 3 + 2];
-        const bx = p[b * 3] - ax,
-            by = p[b * 3 + 1] - ay,
-            bz = p[b * 3 + 2] - az;
-        const cx = p[c * 3] - ax,
-            cy = p[c * 3 + 1] - ay,
-            cz = p[c * 3 + 2] - az;
-        let nx = by * cz - bz * cy,
-            ny = bz * cx - bx * cz,
-            nz = bx * cy - by * cx;
-        const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
-        if (len > 1e-15) {
-            nx /= len;
-            ny /= len;
-            nz /= len;
-        }
-        triNormals[i * 3] = nx;
-        triNormals[i * 3 + 1] = ny;
-        triNormals[i * 3 + 2] = nz;
-    }
-
-    const faces = mergeCoplanarFaces(triFaces, triNormals, pts);
-    const vertices = new Float32Array(n * 3);
-    for (let i = 0; i < n * 3; i++) vertices[i] = pts[i];
-    const uniqueEdges = collectUniqueEdges(faces, vertices);
-
-    let cx = 0,
-        cy = 0,
-        cz = 0;
-    for (let i = 0; i < n; i++) {
-        cx += pts[i * 3];
-        cy += pts[i * 3 + 1];
-        cz += pts[i * 3 + 2];
-    }
-    cx /= n;
-    cy /= n;
-    cz /= n;
-
-    let minX = Infinity,
-        minY = Infinity,
-        minZ = Infinity;
-    let maxX = -Infinity,
-        maxY = -Infinity,
-        maxZ = -Infinity;
-    for (let i = 0; i < n; i++) {
-        const x = pts[i * 3],
-            y = pts[i * 3 + 1],
-            z = pts[i * 3 + 2];
-        if (x < minX) minX = x;
-        if (y < minY) minY = y;
-        if (z < minZ) minZ = z;
-        if (x > maxX) maxX = x;
-        if (y > maxY) maxY = y;
-        if (z > maxZ) maxZ = z;
-    }
-
-    return {
-        vertices,
-        numVertices: n,
-        faces,
-        numFaces: faces.length,
-        uniqueEdges,
-        numUniqueEdges: uniqueEdges.length / 3,
-        localCenter: new Float32Array([cx, cy, cz]),
-        extents: new Float32Array([(maxX - minX) / 2, (maxY - minY) / 2, (maxZ - minZ) / 2]),
-    };
-}
-
-export interface PackedHullGPU {
-    data: Uint32Array;
-    metaCount: number;
-}
-
-const HULL_META_STRIDE = 12;
-const VERTEX_STRIDE_GPU = 4;
-const FACE_STRIDE_GPU = 8;
-const EDGE_STRIDE_GPU = 4;
-
-export function packHullsForGPU(): PackedHullGPU {
-    const hulls = hullRegistry.all();
-    const metaCount = hulls.length;
-    if (metaCount === 0) {
-        return { data: new Uint32Array(HULL_META_STRIDE), metaCount: 0 };
-    }
-
-    let totalVerts = 0;
-    let totalFaces = 0;
-    let totalFaceIndices = 0;
-    let totalEdges = 0;
+    const headerSize = count * HULL_HEADER;
+    let total = headerSize;
     for (const h of hulls) {
-        totalVerts += h.numVertices;
-        totalFaces += h.numFaces;
-        for (const f of h.faces) totalFaceIndices += f.vertexIndices.length;
-        totalEdges += h.numUniqueEdges;
+        total += h.verts.length * 3 + h.faces.length * HULL_FACE_STRIDE;
+        for (const f of h.faces) total += f.verts.length;
+        total += h.edges.length * 3;
     }
 
-    const metaSize = metaCount * HULL_META_STRIDE;
-    const vertSize = totalVerts * VERTEX_STRIDE_GPU;
-    const faceSize = totalFaces * FACE_STRIDE_GPU;
-    const faceIdxSize = totalFaceIndices;
-    const edgeSize = totalEdges * EDGE_STRIDE_GPU;
-    const totalSize = metaSize + vertSize + faceSize + faceIdxSize + edgeSize;
-
-    const buf = new ArrayBuffer(totalSize * 4);
+    const buf = new ArrayBuffer(total * 4);
     const u32 = new Uint32Array(buf);
     const f32 = new Float32Array(buf);
 
-    const vertBase = metaSize;
-    const faceBase = vertBase + vertSize;
-    const faceIdxBase = faceBase + faceSize;
-    const edgeBase = faceIdxBase + faceIdxSize;
-
-    let vertOff = 0;
-    let faceOff = 0;
-    let faceIdxOff = 0;
-    let edgeOff = 0;
-
-    for (let hi = 0; hi < hulls.length; hi++) {
-        const h = hulls[hi];
-        const metaOff = hi * HULL_META_STRIDE;
-        u32[metaOff + 0] = vertBase + vertOff * VERTEX_STRIDE_GPU;
-        u32[metaOff + 1] = h.numVertices;
-        u32[metaOff + 2] = faceBase + faceOff * FACE_STRIDE_GPU;
-        u32[metaOff + 3] = h.numFaces;
-        u32[metaOff + 4] = edgeBase + edgeOff * EDGE_STRIDE_GPU;
-        u32[metaOff + 5] = h.numUniqueEdges;
-        f32[metaOff + 6] = h.extents[0] > 1e-12 ? 1.0 / h.extents[0] : 0;
-        f32[metaOff + 7] = h.extents[1] > 1e-12 ? 1.0 / h.extents[1] : 0;
-        f32[metaOff + 8] = h.extents[2] > 1e-12 ? 1.0 / h.extents[2] : 0;
-        u32[metaOff + 9] = 0;
-        u32[metaOff + 10] = 0;
-        u32[metaOff + 11] = 0;
-
-        for (let vi = 0; vi < h.numVertices; vi++) {
-            const dst = vertBase + (vertOff + vi) * VERTEX_STRIDE_GPU;
-            f32[dst + 0] = h.vertices[vi * 3 + 0];
-            f32[dst + 1] = h.vertices[vi * 3 + 1];
-            f32[dst + 2] = h.vertices[vi * 3 + 2];
-            f32[dst + 3] = 0;
+    let cursor = headerSize;
+    for (let id = 0; id < count; id++) {
+        const h = hulls[id];
+        const vertBase = cursor;
+        for (let i = 0; i < h.verts.length; i++) {
+            f32[cursor + 0] = h.verts[i][0];
+            f32[cursor + 1] = h.verts[i][1];
+            f32[cursor + 2] = h.verts[i][2];
+            cursor += 3;
+        }
+        const faceBase = cursor;
+        const faceIdxBase = faceBase + h.faces.length * HULL_FACE_STRIDE;
+        let faceIdxCursor = faceIdxBase;
+        let localOff = 0;
+        for (let fi = 0; fi < h.faces.length; fi++) {
+            const f = h.faces[fi];
+            const o = faceBase + fi * HULL_FACE_STRIDE;
+            f32[o + 0] = f.normal[0];
+            f32[o + 1] = f.normal[1];
+            f32[o + 2] = f.normal[2];
+            f32[o + 3] = f.offset;
+            u32[o + 4] = localOff;
+            u32[o + 5] = f.verts.length;
+            for (let j = 0; j < f.verts.length; j++) u32[faceIdxCursor++] = f.verts[j];
+            localOff += f.verts.length;
+        }
+        cursor = faceIdxCursor;
+        const edgeBase = cursor;
+        for (let i = 0; i < h.edges.length; i++) {
+            f32[cursor + 0] = h.edges[i][0];
+            f32[cursor + 1] = h.edges[i][1];
+            f32[cursor + 2] = h.edges[i][2];
+            cursor += 3;
         }
 
-        let localFaceIdxOff = 0;
-        for (let fi = 0; fi < h.numFaces; fi++) {
-            const face = h.faces[fi];
-            const dst = faceBase + (faceOff + fi) * FACE_STRIDE_GPU;
-            f32[dst + 0] = face.plane[0];
-            f32[dst + 1] = face.plane[1];
-            f32[dst + 2] = face.plane[2];
-            f32[dst + 3] = face.plane[3];
-            u32[dst + 4] = faceIdxBase + faceIdxOff + localFaceIdxOff;
-            u32[dst + 5] = face.vertexIndices.length;
-            u32[dst + 6] = 0;
-            u32[dst + 7] = 0;
-
-            for (let ii = 0; ii < face.vertexIndices.length; ii++) {
-                u32[faceIdxBase + faceIdxOff + localFaceIdxOff + ii] = face.vertexIndices[ii];
-            }
-            localFaceIdxOff += face.vertexIndices.length;
-        }
-
-        for (let ei = 0; ei < h.numUniqueEdges; ei++) {
-            const dst = edgeBase + (edgeOff + ei) * EDGE_STRIDE_GPU;
-            f32[dst + 0] = h.uniqueEdges[ei * 3 + 0];
-            f32[dst + 1] = h.uniqueEdges[ei * 3 + 1];
-            f32[dst + 2] = h.uniqueEdges[ei * 3 + 2];
-            f32[dst + 3] = 0;
-        }
-
-        vertOff += h.numVertices;
-        faceOff += h.numFaces;
-        faceIdxOff += localFaceIdxOff;
-        edgeOff += h.numUniqueEdges;
+        const ho = id * HULL_HEADER;
+        u32[ho + 0] = vertBase;
+        u32[ho + 1] = h.verts.length;
+        u32[ho + 2] = faceBase;
+        u32[ho + 3] = h.faces.length;
+        u32[ho + 4] = edgeBase;
+        u32[ho + 5] = h.edges.length;
+        u32[ho + 6] = faceIdxBase;
+        u32[ho + 7] = 0;
     }
 
-    return { data: u32, metaCount };
+    return u32;
 }

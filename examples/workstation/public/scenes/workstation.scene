@@ -1,5 +1,0 @@
-<scene>
-    <a id="camera" camera shadows tonemap transform="pos: 0 1.6 5" viewport />
-    <a ambient-light />
-    <a directional-light />
-</scene>

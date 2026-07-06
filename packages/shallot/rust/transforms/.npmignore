@@ -1,4 +1,0 @@
-# Override .gitignore for npm publishing
-# Keep pkg directory but ignore build artifacts
-/target
-Cargo.lock

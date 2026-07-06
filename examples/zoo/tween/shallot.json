@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/tween.scene",
+  "plugins": {
+    "Tween": true,
+    "Orbit": true,
+    "Bouncer": "./src/bounce"
+  }
+}
