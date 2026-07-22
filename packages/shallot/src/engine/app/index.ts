@@ -39,9 +39,22 @@ export interface Plugin {
         state: State,
         onProgress?: (progress: number) => void,
     ) => void | Promise<void>;
-    /** post-scene GPU setup and derived spawns, run once entities exist; idempotent, may report progress */
+    /**
+     * post-scene GPU setup and derived spawns, run once entities exist; may report progress.
+     * idempotent: entity spawns need nothing (they live in the `State`). Tie any external effect
+     * (a DOM mount, listener, or rAF loop) to the State via `state.onDispose` / `state.signal` so it
+     * unwinds at dispose. warm also re-runs on an in-place rebuild with no `dispose` first (`swap()`),
+     * where `onDispose` doesn't fire — so also clear a warm-created mount at the top of `warm` before
+     * re-creating it
+     */
     readonly warm?: (state: State, onProgress?: (progress: number) => void) => void | Promise<void>;
-    /** teardown, run in reverse dependency order on `App.dispose` */
+    /**
+     * teardown, run in reverse dependency order on `App.dispose`. reserve it for process/module-lifetime
+     * teardown — engine singletons, globals — not per-build external effects. tie a per-build mount,
+     * listener, or rAF loop to the State via `state.onDispose` / `state.signal` at its creation site
+     * instead: a `dispose` hook fires only on the `App.dispose` path, never on a direct `state.dispose()`
+     * (a host driving the State without an App), so a State-registered effect is the only one covering both.
+     */
     readonly dispose?: (state: State) => void;
 }
 
@@ -320,17 +333,20 @@ function sortPlugins(nodes: Plugin[], edges: [Plugin, Plugin][]): Plugin[] {
  * create the sandboxed UI overlay over a canvas: the single DOM surface a shallot app's UI mounts
  * into ({@link Config.ui}). It fills the canvas's parent and is a true sandbox: `contain: layout
  * paint` makes it the containing block for absolute *and* fixed descendants and clips paint to its
- * box, so app UI is bounded to the canvas region and can never spill into an embedding host (an
- * editor viewport, a host page), even a stray `position: fixed`. `pointer-events: none` lets input
- * reach the canvas; UI panels re-enable it. Returns the overlay; the caller removes it on dispose.
+ * box, so app UI is bounded to the canvas region and can never spill into an embedding host (a
+ * host page), even a stray `position: fixed`. `pointer-events: none` lets input
+ * reach the canvas; UI panels re-enable it. Returns the overlay. Pass `state` to tie the overlay's
+ * removal to the State's lifetime — it auto-registers `overlay.remove()` via {@link State.onDispose},
+ * so a build that disposes cleans it up; omit `state` to remove the overlay yourself.
  */
-export function mountOverlay(canvas: HTMLElement | null): HTMLDivElement {
+export function mountOverlay(canvas: HTMLElement | null, state?: State): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
     parent.style.position = "relative";
     const overlay = document.createElement("div");
     overlay.style.cssText =
         "position:absolute;inset:0;pointer-events:none;z-index:1;contain:layout paint;overflow:hidden";
     parent.appendChild(overlay);
+    state?.onDispose(() => overlay.remove());
     return overlay;
 }
 
@@ -344,14 +360,24 @@ export function mountOverlay(canvas: HTMLElement | null): HTMLDivElement {
 export async function run(config: Config): Promise<App> {
     const app = await build(config);
     const state = app.state;
-    let uiCleanup: (() => void) | undefined;
-    let overlay: HTMLDivElement | undefined;
+    // UI teardown is State-owned: the overlay auto-registers its removal (mountOverlay above), and the
+    // ui cleanup registers beside it. Both run at state.dispose() — after the plugin dispose hooks on the
+    // App.dispose path (UI cleanup is DOM/unmount work with no dependency on plugin GPU state), and it also
+    // covers a host that calls state.dispose() directly (the flows apps).
     if (config.ui && Runtime === "web") {
-        overlay = mountOverlay(document.querySelector("canvas"));
-        uiCleanup = config.ui(overlay, state);
+        const overlay = mountOverlay(document.querySelector("canvas"), state);
+        const uiCleanup = config.ui(overlay, state);
+        if (uiCleanup) state.onDispose(uiCleanup);
     }
 
     let disposed = false;
+    // stop the rAF loop when the State tears down, so a host that calls state.dispose() directly (the
+    // flows path) halts the loop too — not only the returned App.dispose(). Without this the loop keeps
+    // stepping a torn-down State every frame (the stacked-rAF leak). App.dispose sets it first; this is
+    // idempotent with that.
+    state.onDispose(() => {
+        disposed = true;
+    });
     let lastTime = now();
     let pendingFenceWaitMs = 0;
     // recent raw-callback intervals + a reused sort scratch, feeding the double-fire coalescer's median
@@ -411,8 +437,6 @@ export async function run(config: Config): Promise<App> {
         skipped: app.skipped,
         dispose() {
             disposed = true;
-            uiCleanup?.();
-            overlay?.remove();
             app.dispose();
         },
     };
@@ -434,7 +458,7 @@ export interface SwapResult {
  * reloaded code. A schema / system-set / ordering / feature change it can't carry
  * safely returns `{ ok: false, reason }`; the caller then rebuilds from the
  * document. A `warm`- or `setup`-body edit is undetectable (a closure body can't
- * be diffed) and lands on the next rebuild rather than this swap. The editor
+ * be diffed) and lands on the next rebuild rather than this swap. A live host
  * drives this from its HMR seam; `prev`/`next` are the project's own plugins
  * before and after the reload.
  *

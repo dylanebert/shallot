@@ -12,6 +12,7 @@ import {
     type Mirror,
     mirror,
     mountOverlay,
+    Physics,
     Player,
     type Plugin,
     RenderPlugin,
@@ -22,7 +23,7 @@ import {
     type System,
     Transform,
 } from "@dylanebert/shallot";
-import { type JointDef, Physics } from "@dylanebert/shallot/physics/core";
+import { Avbd, type JointDef } from "@dylanebert/shallot/avbd/core";
 import { type Binding, Surfaces } from "@dylanebert/shallot/render/core";
 import { armImpacts, ImpactSystem, registerInstruments } from "./audio";
 import { type Gun, gun } from "./gun";
@@ -163,12 +164,11 @@ let bodyMirror: Mirror | null = null;
 let contactMirror: Mirror | null = null;
 let theGun: Gun | null = null;
 let booted = false;
-let hudCleanup: (() => void) | null = null;
 
-// the world spawns from a boot system, not `warm`: build() reads `Physics.step` (joints, the body Mirror),
-// and plugin warms run concurrently (Promise.all in build()), so PhysicsPlugin.warm may not have created the
-// step yet. A one-shot system gated on `Physics.step` runs after every plugin has warmed — `mode: always` so
-// the room renders in the editor viewport too, not only play. `setup` re-arms per State build.
+// the world spawns from a boot system, not `warm`: build() reads `Avbd.step` (joints, the body Mirror),
+// and plugin warms run concurrently (Promise.all in build()), so AvbdPlugin.warm may not have created the
+// step yet. A one-shot system gated on `Avbd.step` runs after every plugin has warmed — `mode: always` so
+// the room renders in edit mode too, not only play. `setup` re-arms per State build.
 const BootSystem: System = {
     name: "sandbox-boot",
     group: "simulation",
@@ -177,19 +177,17 @@ const BootSystem: System = {
         booted = false;
     },
     update(state: State) {
-        if (booted || !Physics.step) return;
+        if (booted || !Avbd.step) return;
         booted = true;
         build(state);
-        // the crosshair + prompts are gameplay chrome — skip them in the editor's edit viewport (the gun
+        // the crosshair + prompts are gameplay chrome — skip them in edit mode (the gun
         // doesn't run there), mount in play + standalone. Plugin-owned DOM mounts into the engine's
         // sandboxed overlay (`mountOverlay`), the same canvas-bounded surface `config.ui` hands an app.
+        // Teardown is State-owned: passing `state` auto-removes the overlay, and the hud's own cleanup
+        // registers beside it — both unwind at `state.dispose()`, no plugin `dispose` hook for the UI.
         if (state.mode !== "edit") {
-            const overlay = mountOverlay(document.querySelector("canvas"));
-            const cleanup = hud(overlay);
-            hudCleanup = () => {
-                cleanup();
-                overlay.remove();
-            };
+            const overlay = mountOverlay(document.querySelector("canvas"), state);
+            state.onDispose(hud(overlay));
         }
     },
 };
@@ -247,8 +245,6 @@ const SandboxPlugin: Plugin = {
         registerInstruments();
     },
     dispose() {
-        hudCleanup?.();
-        hudCleanup = null;
         bodyMirror?.dispose();
         contactMirror?.dispose();
         bodyMirror = null;
@@ -307,8 +303,10 @@ function world(state: State): void {
 // spawn the world + props + player — runs once from BootSystem after the physics step exists. Idempotent
 // per State: a rebuild re-runs it, re-creating the derived bodies (they live in State, not the Document).
 function build(state: State): void {
-    const step = Physics.step;
-    if (!step) throw new Error("[sandbox] PhysicsPlugin not warmed — no step");
+    const step = Avbd.step;
+    if (!step) throw new Error("[sandbox] AvbdPlugin not warmed — no step");
+    const backend = Physics.backend;
+    if (!backend) throw new Error("[sandbox] no physics backend installed");
 
     world(state);
     pyramid(state, 0, 0, -4.0, 10);
@@ -366,6 +364,6 @@ function build(state: State): void {
 
     bodyMirror = mirror(step.bodies);
     contactMirror = mirror(step.pairContacts);
-    theGun = gun(step, bodyMirror, joints, (eid) => eid === playerEid);
+    theGun = gun(step, backend, joints, (eid) => eid === playerEid);
     armImpacts({ step, contacts: contactMirror, bodies: bodyMirror });
 }

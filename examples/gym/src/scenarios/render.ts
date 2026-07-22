@@ -1,10 +1,13 @@
 import {
     AmbientLight,
     Backdrop,
+    Body,
     Camera,
     CameraMode,
     Color,
     Compute,
+    compose,
+    composeTransform,
     Depth,
     DirectionalLight,
     Fog,
@@ -16,10 +19,12 @@ import {
     type Mirror,
     MirrorPlugin,
     mirror,
+    multiply,
     Orbit,
     OrbitPlugin,
     Part,
     PartPlugin,
+    Physics,
     type Plugin,
     PointLight,
     quat,
@@ -28,6 +33,7 @@ import {
     Sear,
     SearPlugin,
     Shadow,
+    ShapeKind,
     SlabPlugin,
     Spot,
     type State,
@@ -35,6 +41,8 @@ import {
     Tag,
     Transform,
     TransformsPlugin,
+    Tumble,
+    TumblePlugin,
     unpackColor,
     Volumetric,
 } from "@dylanebert/shallot";
@@ -43,6 +51,7 @@ import {
     loadGltf,
     Profile,
     ProfilePlugin,
+    placeGltf,
     placeScene,
     Skin,
     Sky,
@@ -70,8 +79,13 @@ import {
     decode,
     decodeInWorker,
     gltfCacheStats,
+    LiveSkin,
+    skinMatrix,
     unionPending,
 } from "@dylanebert/shallot/gltf/core";
+// Parts.drawArgs is the pack's GPU output — the cull readback reads it through the part/core extension surface
+import { Parts } from "@dylanebert/shallot/part/core";
+import { qRotate } from "@dylanebert/shallot/physics/core";
 import {
     BeginFrameSystem,
     type Binding,
@@ -89,29 +103,32 @@ import {
     frustumPlanes,
     LIGHT_POOL,
     LightCull,
+    type Mesh,
     Meshes,
     POINT_LIGHTS_STRUCT_WGSL,
+    quantizeMeshes,
     Render,
     Surfaces,
     spotParams,
+    VERTEX_FLOATS,
     Views,
 } from "@dylanebert/shallot/render/core";
-import { Backgrounds, ColorSystem, LIGHT_EVAL_WGSL } from "@dylanebert/shallot/sear/core";
-// Parts.drawArgs is the pack's GPU output — internal to Part, reached here through the src escape hatch
-// for the cull readback. `default`/`unlit`/`vertex` ship with SearPlugin.
-import { Parts } from "@dylanebert/shallot/src/standard/part/part";
-// the point-shadow allocator — the atlas metadata Mirror pins the caster params + the importance-sized tile
-// rects' invariants (sear-internal, reached through the src escape hatch like Parts)
 import {
+    Backgrounds,
+    ColorSystem,
+    // the point-shadow allocator — the atlas metadata Mirror pins the caster params + the importance-sized
+    // tile rects' invariants; the pooled cull-slot eids pin per-cascade/per-combo survivor counts
     cascadeComboEids,
     cascadeCount,
+    LIGHT_EVAL_WGSL,
     pointAtlasSize,
     pointCasters,
     pointComboCount,
     pointComboEids,
-} from "@dylanebert/shallot/src/standard/sear/shadows";
-// composeTransform is the camera's CPU world matrix — the light-cull oracle inverts it to view space
-import { composeTransform } from "@dylanebert/shallot/src/standard/transforms";
+} from "@dylanebert/shallot/sear/core";
+// the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
+// nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
+import { nlerpShortest } from "@dylanebert/shallot/tumble/core";
 import {
     OCT_ENCODE_WGSL,
     octDecodeNormal,
@@ -3044,6 +3061,1074 @@ async function assertSky(): Promise<Check[]> {
 }
 
 // ============================================================================
+// skin-live — the live joint-palette substrate on the real GPU (specs/tumble-shallot.md stage 6d)
+// ============================================================================
+//
+// A by-construction 2-bone rig posed entirely through the public `LiveSkin` seam — no glTF asset, no
+// physics, the non-physics producer that proves the substrate independently. A skin-live Part carries its
+// own palette block; a scripted driver writes per-joint object-space skin matrices each frame (bend the
+// upper bone about an elbow), and the surface's `vs` blends the palette per vertex. Because skinning is a
+// VS warp, sear's shadow + prepass passes deform for free — the whole point the mode pins on hardware:
+//
+//   deform: bending swings the upper arm into a screen region that was background (fills) while the bind-
+//   pose tip region empties — the palette blend rendering the live pose. shadow: the limb's shadow on the
+//   floor moves between poses, pinning the free prepass/shadow deformation (a static-geometry shadow pass
+//   couldn't). reach: at the bent (max-extension) pose the instance still packs a survivor and renders its
+//   extended arm — the reach-sphere cull bound covers the pose envelope, not the tight rest AABB.
+//
+// GltfPlugin supplies the substrate (registers the skin-live surfaces + LiveSkinSystem + the material/albedo
+// fallbacks + resets LiveSkin), so the mode rides the gltf plugin set but authors its rig by hand.
+
+const RIG_MESH = "skin-live-rig";
+const RIG_RINGS = [0, 0.5, 1, 1.5, 2, 2.5, 3]; // beam heights (y); the elbow blend sits at y≈1
+const RIG_HALF = 0.2; // cross-section half-extent (a thin square beam along +Y)
+// the 4 cross-section corners CCW viewed from +Y — the order the side-face winding below reads as outward
+const RIG_CORNERS: [number, number][] = [
+    [RIG_HALF, -RIG_HALF],
+    [RIG_HALF, RIG_HALF],
+    [-RIG_HALF, RIG_HALF],
+    [-RIG_HALF, -RIG_HALF],
+];
+
+// the upper bone's influence at height `y`: 0 below the elbow blend band, ramping to 1 above it, so the
+// lower half stays with the fixed root (a stable shadow anchor) and the upper half swings with the elbow
+function rigWeight(y: number): number {
+    return Math.min(1, Math.max(0, (y - 0.7) / 0.6));
+}
+
+// build the beam: 4 side faces, each a vertical quad strip over the rings, with the per-vertex joints
+// (slot 0 = root joint 0, slot 1 = elbow joint 1) + weights (unorm8 pair summing to 255, so the surface
+// skips a runtime renorm, matching the importer). `reach` is the object-space reach radius the importer's
+// bound derives — max over joints (w>0) of |bⱼ| + |restPos − bⱼ|, bⱼ the bone bind origin (0 / (0,1,0)).
+function buildRigGeometry(): {
+    vertices: Float32Array;
+    indices: Uint32Array;
+    joints: Uint32Array;
+    weights: Uint32Array;
+    reach: number;
+} {
+    const verts: number[] = [];
+    const idx: number[] = [];
+    const joints: number[] = [];
+    const weights: number[] = [];
+    let reach = 0;
+    const R = RIG_RINGS.length;
+    for (let f = 0; f < 4; f++) {
+        const c0 = RIG_CORNERS[f];
+        const c1 = RIG_CORNERS[(f + 1) % 4];
+        const nx = (c0[0] + c1[0]) * 0.5;
+        const nz = (c0[1] + c1[1]) * 0.5;
+        const nl = Math.hypot(nx, nz) || 1; // face midpoint direction = its outward normal (axis-aligned)
+        const base = verts.length / VERTEX_FLOATS;
+        for (let r = 0; r < R; r++) {
+            const y = RIG_RINGS[r];
+            const w1 = rigWeight(y);
+            const u1 = Math.round(w1 * 255);
+            for (const c of [c0, c1]) {
+                verts.push(c[0], y, c[1], 0, nx / nl, 0, nz / nl, 0); // posU + normalV (uv unused)
+                joints.push(0 | (1 << 8)); // slots [0, 1, 0, 0]
+                weights.push((255 - u1) | (u1 << 8)); // unorm8 [w0, w1, 0, 0], sum 255
+                const d0 = Math.hypot(c[0], y, c[1]); // |restPos − b0|, b0 = origin
+                const d1 = 1 + Math.hypot(c[0], y - 1, c[1]); // |b1| + |restPos − b1|, b1 = (0,1,0)
+                reach = Math.max(reach, w1 < 1 ? d0 : 0, w1 > 0 ? d1 : 0);
+            }
+        }
+        // outward-wound quads (derived: cross(edge) points along the face's outward normal for this order)
+        for (let r = 0; r < R - 1; r++) {
+            const v0 = base + r * 2;
+            idx.push(v0, v0 + 2, v0 + 1, v0 + 1, v0 + 2, v0 + 3);
+        }
+    }
+    return {
+        vertices: new Float32Array(verts),
+        indices: new Uint32Array(idx),
+        joints: new Uint32Array(joints),
+        weights: new Uint32Array(weights),
+        reach,
+    };
+}
+
+let rigEid = -1;
+let rigMeshId = -1;
+let rigReach = 0;
+let rigMaxExcursion = 0; // the actual max distance any posed vertex reaches from the origin (brute force)
+let heldAngle: number | null = null; // the assert pins a pose here; null → the live tab oscillates
+let rigDrawArgs: Mirror | null = null;
+
+const RIG_IDENT = compose(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+const RIG_T1 = compose(0, 1, 0, 0, 0, 0, 1, 1, 1, 1); // elbow at y=1
+const RIG_INV1 = compose(0, -1, 0, 0, 0, 0, 1, 1, 1, 1); // joint-1 inverse bind
+const _rigSkin = new Float32Array(32);
+const _rigRz = new Float32Array(16);
+const _rigTmp = new Float32Array(16);
+
+// write the 2-bone pose into the rig's palette: joint 0 stays identity (the root is fixed), joint 1 rotates
+// `angle` about Z at the elbow (y=1). skin = jointWorld · inverseBind — the object-space matrices a producer
+// (a physics ragdoll, this scripted driver) hands `writePalette`; LiveSkin decomposes each to its Xform entry.
+function writeRigPose(angle: number): void {
+    _rigSkin.set(RIG_IDENT, 0);
+    const h = angle / 2;
+    compose(0, 0, 0, 0, 0, Math.sin(h), Math.cos(h), 1, 1, 1, _rigRz);
+    multiply(RIG_T1, _rigRz, _rigTmp); // T1·Rz
+    multiply(_rigTmp, RIG_INV1, _rigRz); // ·inv1 → distinct out (multiply isn't alias-safe)
+    _rigSkin.set(_rigRz, 16);
+    LiveSkin.writePalette(rigEid, _rigSkin);
+}
+
+// the actual max distance any vertex reaches from the origin across the pose range — a geometry-side
+// cross-check (independent of the analytic reach formula) that the reach bound covers the envelope. LBS each
+// rest vertex at the bind (rest) and bent (90°) extremes: joint 0 is identity, joint 1 is `skin1`, so the
+// posed point is `w0·p + w1·(skin1·p)`. The bent tip lands *closer* to the origin than the rest tip, so for
+// this interior-elbow rig the rest pose is the max extent (the note in the reach check spells this out).
+function maxPosedExcursion(g: ReturnType<typeof buildRigGeometry>): number {
+    const skin1 = new Float32Array(16);
+    compose(0, 0, 0, 0, 0, Math.SQRT1_2, Math.SQRT1_2, 1, 1, 1, _rigRz); // Rz(90°)
+    multiply(RIG_T1, _rigRz, _rigTmp);
+    multiply(_rigTmp, RIG_INV1, skin1);
+    let max = 0;
+    for (let v = 0; v < g.vertices.length / VERTEX_FLOATS; v++) {
+        const px = g.vertices[v * 8];
+        const py = g.vertices[v * 8 + 1];
+        const pz = g.vertices[v * 8 + 2];
+        const w1 = ((g.weights[v] >> 8) & 0xff) / 255;
+        const jx = skin1[0] * px + skin1[4] * py + skin1[8] * pz + skin1[12];
+        const jy = skin1[1] * px + skin1[5] * py + skin1[9] * pz + skin1[13];
+        const jz = skin1[2] * px + skin1[6] * py + skin1[10] * pz + skin1[14];
+        const bx = (1 - w1) * px + w1 * jx;
+        const by = (1 - w1) * py + w1 * jy;
+        const bz = (1 - w1) * pz + w1 * jz;
+        max = Math.max(max, Math.hypot(px, py, pz), Math.hypot(bx, by, bz));
+    }
+    return max;
+}
+
+// pose the rig each frame — a held angle (the assert's pinned pose) or a 0→90° oscillation for the live tab.
+// `simulation` group so the write lands before SlabSystem + LiveSkinSystem flush it (draw group).
+const RigDriverSystem: System = {
+    name: "skin-live-driver",
+    group: "simulation",
+    annotations: { mode: "always" },
+    update(state: State) {
+        if (rigEid < 0) return;
+        const t = state.time.elapsed;
+        writeRigPose(heldAngle ?? (Math.PI / 2) * (0.5 - 0.5 * Math.cos(t * 1.2)));
+    },
+};
+
+// the probe classifies each framebuffer pixel by colour, not luminance: the warm-tinted limb (r ≫ b) and
+// the neutral-grey floor read nearly the same luminance, so a luminance region can't tell them apart. It
+// scans a coarse grid and reports the limb's coloured-pixel centroid + count (out[0..2]) and the shadowed-
+// floor centroid + count (out[3..4]). The neutral floor makes the shadow a genuine LUMINANCE separation
+// (the `chroma < 0.04` clause is a tiebreaker, not the discriminator): the pre-tonemap HDR framebuffer reads
+// the lit floor at ~0.4 (albedo 0.214 × [ambient 0.35 + sun 1.6·halfLambert]), the sun-shadowed floor at
+// ~0.075 (ambient only), the clear-colour background at ~0.004. The `0.02 < lum < 0.2` band captures the
+// shadowed floor with ≥2.5× margin either side, excluding both the lit floor and the background — so no
+// coloured floor is needed to keep the lit floor out. The assert reads these across a bind vs bent pose: the
+// limb centroid swings left when the arm bends, and the shadow footprint shifts/grows.
+const SKIN_PROBE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var fb: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+const luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+@compute @workgroup_size(1)
+fn main() {
+    let dim = vec2<f32>(textureDimensions(fb));
+    let W = 160; let H = 100;
+    var limbN = 0.0; var limbX = 0.0; var limbY = 0.0;
+    var shadN = 0.0; var shadX = 0.0;
+    for (var j = 0; j < H; j = j + 1) {
+        for (var i = 0; i < W; i = i + 1) {
+            let u = (f32(i) + 0.5) / f32(W);
+            let v = (f32(j) + 0.5) / f32(H);
+            let c = textureLoad(fb, vec2<i32>(vec2<f32>(u, v) * dim), 0).rgb;
+            let lum = dot(c, luma);
+            let chroma = c.r - c.b; // warm limb: r ≫ b; neutral floor / background: ≈ 0
+            if (chroma > 0.06 && lum > 0.03) {
+                limbN += 1.0; limbX += u; limbY += v;
+            } else if (abs(chroma) < 0.04 && lum > 0.02 && lum < 0.2) {
+                shadN += 1.0; shadX += u; // grey + mid-dark (below lit floor, above background) = shadow
+            }
+        }
+    }
+    out[0] = limbN;
+    out[1] = select(0.5, limbX / limbN, limbN > 0.0);
+    out[2] = select(0.5, limbY / limbN, limbN > 0.0);
+    out[3] = shadN;
+    out[4] = select(0.5, shadX / shadN, shadN > 0.0);
+}`;
+
+// publish a white 1×1 albedo so the skin-live limb reads its Color tint: the limb samples material 0 (the
+// gltf fallback palette entry — bucket 0, layer 0), whose albedo texture is otherwise the unwritten black
+// fallback, so base = albedo × tint would be black. A real asset publishes its own union here; a hand-built
+// rig has none, so the mode supplies a usable albedo.
+function whiteAlbedo(device: GPUDevice): void {
+    const tex = device.createTexture({
+        label: "skin-live-albedo",
+        size: { width: 1, height: 1 },
+        format: "rgba8unorm-srgb",
+        usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+    });
+    device.queue.writeTexture(
+        { texture: tex },
+        new Uint8Array([255, 255, 255, 255]),
+        { bytesPerRow: 4 },
+        { width: 1, height: 1 },
+    );
+    Compute.textures.set("albedo0", tex);
+}
+
+async function buildSkinLive(state: State): Promise<void> {
+    const device = Compute.device;
+
+    const ambient = state.create();
+    state.add(ambient, AmbientLight);
+    AmbientLight.color.set(ambient, 0xffffff);
+    AmbientLight.intensity.set(ambient, 0.35);
+
+    // a casting sun, mostly overhead (slightly -X) so the limb's shadow projects onto the floor and shifts
+    // when the arm bends left — the moving-shadow probe reads that
+    const sun = state.create();
+    state.add(sun, DirectionalLight);
+    DirectionalLight.color.set(sun, 0xffffff);
+    DirectionalLight.intensity.set(sun, 1.6);
+    DirectionalLight.direction.set(sun, -0.35, -1, -0.12, 0);
+    state.add(sun, Shadow);
+    Shadow.distance.set(sun, 20);
+
+    // the receiver floor (default surface — independent of the gltf material path), top face at y=0
+    const floor = state.create();
+    state.add(floor, Transform);
+    Transform.pos.set(floor, 0, -0.1, 0, 0);
+    Transform.scale.set(floor, 14, 0.2, 14, 0);
+    state.add(floor, Part);
+    state.add(floor, Color);
+    Color.rgba.set(floor, 0.5, 0.5, 0.5, 1); // neutral grey — the shadow probe separates by luminance, not tint
+
+    // above + in front (+Z) looking down at the rig; yaw 0 keeps world X = screen X, world Y = screen Y, so
+    // the bind-pose beam runs up the centre and the bent arm swings to screen-left (the probe regions)
+    cam = state.create();
+    state.add(cam, Transform);
+    state.add(cam, Camera);
+    state.add(cam, Sear);
+    state.add(cam, Orbit);
+    Camera.mode.set(cam, CameraMode.Perspective);
+    Camera.fov.set(cam, 50);
+    Camera.near.set(cam, 0.1);
+    Camera.far.set(cam, 100);
+    Camera.clearColor.set(cam, 0x0a0c12);
+    Orbit.distance.set(cam, 8);
+    Orbit.pan.set(cam, 0, 1.2, 0, 0);
+    Orbit.yaw.set(cam, 0);
+    Orbit.pitch.set(cam, 0.32);
+
+    // the rig geometry as its OWN buffers (not the shared mesh() family) so `vidx` is local [0, vertCount) —
+    // the axis the live JW block is keyed by, the same own-stream a skinned import uses
+    const g = buildRigGeometry();
+    rigReach = g.reach;
+    rigMaxExcursion = maxPosedExcursion(g);
+    const q = quantizeMeshes(g.vertices, [
+        { vertexBase: 0, vertexCount: g.vertices.length / VERTEX_FLOATS },
+    ]);
+    const bufOf = (label: string, data: Uint32Array): GPUBuffer => {
+        const b = device.createBuffer({
+            label,
+            size: data.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        device.queue.writeBuffer(b, 0, data);
+        return b;
+    };
+    const spec: Mesh = {
+        name: RIG_MESH,
+        vertices: bufOf("skin-live-rig-main", q.main),
+        position: bufOf("skin-live-rig-pos", q.position),
+        quant: device.createBuffer({
+            label: "skin-live-rig-quant",
+            size: q.quant.byteLength,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        }),
+        indices: bufOf("skin-live-rig-idx", g.indices),
+        indexBase: 0,
+        indexCount: g.indices.length,
+        bounds: [0, 0, 0, g.reach], // the reach sphere (origin-centred), not the tight rest AABB
+        variant: 0,
+    };
+    device.queue.writeBuffer(spec.quant!, 0, q.quant);
+    rigMeshId = Meshes.register(spec);
+    LiveSkin.registerMesh(rigMeshId, g.joints, g.weights);
+    const registered = Meshes.get(RIG_MESH);
+    if (registered) registered.bindings = { skinParams: LiveSkin.paramsBuffer(device, rigMeshId) };
+    whiteAlbedo(device);
+
+    // the skin-live Part carrying its own palette block (seeded to the bind pose until the driver poses it)
+    rigEid = state.create();
+    state.add(rigEid, Transform);
+    state.add(rigEid, Part);
+    state.add(rigEid, Color);
+    state.add(rigEid, Skin);
+    Part.mesh.set(rigEid, rigMeshId);
+    Part.surface.set(rigEid, Surfaces.id("skin-live")!);
+    Color.rgba.set(rigEid, 0.95, 0.7, 0.35, 1);
+    const paletteBase = LiveSkin.alloc(rigEid, 2, state.stamp(rigEid));
+    Skin.anim.set(rigEid, paletteBase, 0, 0, 0); // palette base, material 0, unused, w=0 (SkinSystem skips)
+
+    state.addSystem(RigDriverSystem);
+
+    probePipeline = await device.createComputePipelineAsync({
+        label: "skin-live-probe",
+        layout: "auto",
+        compute: {
+            module: device.createShaderModule({ label: "skin-live-probe", code: SKIN_PROBE_WGSL }),
+            entryPoint: "main",
+        },
+    });
+    probeBuf = device.createBuffer({
+        label: "skin-live-probe",
+        size: 20, // limb count/x/y + shadow count/x
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    probeBg = null;
+    state.addSystem(ProbeSystem);
+    await frames(4);
+    probeMirror = mirror(probeBuf);
+    rigDrawArgs = mirror(Parts.drawArgs!);
+    await frames(3);
+}
+
+// read the probe stats once the currently-held pose has propagated through the pipeline (the driver ticks
+// on a sim step ~0.5/frame → flush → render → probe → the Mirror ring). `.slice()` copies out of the
+// mirror's reused staging buffer — a bare `new Float32Array(snapshot.bytes)` is a *view*, so two stored
+// reads would alias the same buffer and always compare equal.
+async function skinProbe(): Promise<Float32Array | null> {
+    if (!probeMirror) return null;
+    await frames(12);
+    await settle(probeMirror);
+    return probeMirror.snapshot ? new Float32Array(probeMirror.snapshot.bytes).slice() : null;
+}
+
+// the (skin-live, live-rig) pair's survivor count at the camera slot — 1 when the instance passes its
+// frustum cull, 0 if the reach bound wrongly dropped it
+function rigSurvivors(): number | null {
+    if (!rigDrawArgs?.snapshot) return null;
+    const slot = Views.get(cam)?.slot ?? 0;
+    const pairCount = Surfaces.size * Meshes.size;
+    const pair = rigMeshId * Surfaces.size + (Surfaces.id("skin-live") ?? 0);
+    const counts = packCounts(rigDrawArgs, slot, pairCount);
+    return counts ? counts[pair] : null;
+}
+
+async function assertSkinLive(): Promise<Check[]> {
+    const checks: Check[] = [];
+
+    // structural: the substrate published its buffers and the rig's JW landed in region B
+    const skinData = Compute.buffers.has("skinData");
+    const jwRegistered = LiveSkin.meshes.has(rigMeshId) && LiveSkin.jwEnd > 0;
+    checks.push({
+        name: "skinData + JW published",
+        pass: skinData && jwRegistered,
+        detail: `skinData ${skinData}, mesh JW ${jwRegistered} (jwEnd ${LiveSkin.jwEnd})`,
+    });
+
+    // the mesh carries the origin-centred reach sphere (not a mid-centred rest AABB), and that reach covers
+    // the actual posed geometry — a formula-vs-brute-force cross-check of the bound the cull tests against
+    const meshBound = Meshes.get(RIG_MESH)?.bounds;
+    checks.push({
+        name: "reach bound carried by the mesh + covers the posed geometry",
+        pass:
+            meshBound?.[3] === rigReach && meshBound[0] === 0 && rigReach >= rigMaxExcursion - 1e-3,
+        detail: `mesh bound r ${meshBound?.[3]?.toFixed(2)} = reach ${rigReach.toFixed(2)} ≥ max posed excursion ${rigMaxExcursion.toFixed(2)}`,
+    });
+
+    // bind pose (straight)
+    heldAngle = 0;
+    const bind = await skinProbe();
+    // bent pose (~90° — the arm swings horizontally left; the max-extension reach)
+    heldAngle = Math.PI / 2;
+    const bent = await skinProbe();
+    const survivors = rigSurvivors();
+
+    if (!bind || !bent) {
+        checks.push({ name: "probe", pass: false, detail: "no probe snapshot" });
+        return checks;
+    }
+
+    // deform: the limb renders in both poses (coloured pixels present) and its centroid swings left when the
+    // arm bends about the elbow — the palette blend rendering the live pose in the color pass
+    const visible = bind[0] > 80 && bent[0] > 80;
+    checks.push({
+        name: "bending swings the limb left",
+        pass: visible && bent[1] < bind[1] - 0.03,
+        detail: `limb pixels bind ${bind[0]} / bent ${bent[0]}, centroid x ${bind[1].toFixed(3)} → ${bent[1].toFixed(3)}`,
+    });
+
+    // shadow: the limb's shadow on the floor shifts/grows with the pose (the free prepass/shadow deform — a
+    // static-geometry shadow pass couldn't) — a differential on the shadowed-floor centroid + area
+    const shadowMoved =
+        bind[3] > 15 &&
+        bent[3] > 15 &&
+        (Math.abs(bind[4] - bent[4]) > 0.02 || Math.abs(bind[3] - bent[3]) > 0.2 * bind[3]);
+    checks.push({
+        name: "the limb's shadow moves with the pose",
+        pass: shadowMoved,
+        detail: `shadow pixels bind ${bind[3]} / bent ${bent[3]}, centroid x ${bind[4].toFixed(3)} → ${bent[4].toFixed(3)}`,
+    });
+
+    // reach: the max-extension pose packs a frustum-cull survivor and its extended arm renders — the reach-
+    // bounded instance draws its live pose. Honest scope: the camera frames the whole rig, so survivors=1
+    // doesn't adversarially force the reach bound over a tighter one (and this interior-elbow bend stays
+    // within the origin-centred rest extent anyway); the reach formula is unit-tested in gltf.test.ts. The
+    // pin here is that the substrate packs + draws the extended pose on the real GPU.
+    checks.push({
+        name: "max-extension pose packs a survivor and renders",
+        pass: survivors === 1 && bent[0] > 80,
+        detail: `survivors ${survivors}, limb pixels at extension ${bent[0]}`,
+    });
+
+    // the skin-live color pass fired
+    await frames(4);
+    const color = Profile.gpu.has("sear:color");
+    checks.push({ name: "skin-live color pass draws", pass: color, detail: `sear:color ${color}` });
+
+    heldAngle = null; // hand the pose back to the live oscillation
+    return checks;
+}
+
+// ============================================================================
+// ragdoll — the live palette's first physics producer (specs/tumble-shallot.md stage 7b)
+// ============================================================================
+//
+// RiggedFigure imported `{live}` + an 11-capsule tumble ragdoll driving its 19-joint palette. Bones are
+// substrate `Body` capsule entities (so writeback, pick, and the character sweep see them); joints ride
+// the `Tumble.world` escape hatch via `Tumble.body(eid)` handles (spherical cone/twist, revolute,
+// filter — deliberately richer than the substrate `Spring`/`Joint` mapping). The pose producer reads
+// `readBody` per bone each fixed tick, nlerps prev→curr at `fixedAlpha`, and writes each glTF joint's
+// palette entry as its bone's rigid delta: `palette_j = T_inst⁻¹ · boneNow · boneObjBind⁻¹` — the glTF
+// inverse-bind cancels (a joint rigidly follows its bone), so the producer needs only each BONE's
+// object-space bind (captured at build) + the bone→joints name map, never per-joint IBMs. The instance
+// `Transform` tracks the pelvis (`T_inst = pelvisNow · pelvisObjBind⁻¹`) so palette entries stay bounded
+// and the importer's reach-sphere cull holds as the ragdoll falls.
+
+const RIG_SRC = "rig/RiggedFigure.gltf";
+const RAG_DROP = 1.0; // spawn height (feet above the floor)
+const RAG_TILT = 0.25; // spawn lean (rad about world Z) so the topple is deterministic, not knife-edge
+
+type V3 = [number, number, number];
+type Q4 = [number, number, number, number];
+
+// quaternion helpers over [x, y, z, w] arrays (the engine's quat layout); rotation via physics/core's qRotate
+function qMul(a: Q4, b: Q4): Q4 {
+    return [
+        a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1],
+        a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0],
+        a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3],
+        a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2],
+    ];
+}
+const qConj = (q: Q4): Q4 => [-q[0], -q[1], -q[2], q[3]];
+const qRotA = (q: Q4, v: V3): V3 => qRotate(q[0], q[1], q[2], q[3], v[0], v[1], v[2]);
+
+// the quat rotating unit vector `a` onto unit vector `b` (shortest arc); antiparallel flips about X or Y
+function qFromTo(a: V3, b: V3): Q4 {
+    const d = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    if (d > 1 - 1e-8) return [0, 0, 0, 1];
+    if (d < -1 + 1e-8) {
+        // 180° about any axis perpendicular to `a`
+        const ax: V3 = Math.abs(a[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0];
+        const px = a[1] * ax[2] - a[2] * ax[1];
+        const py = a[2] * ax[0] - a[0] * ax[2];
+        const pz = a[0] * ax[1] - a[1] * ax[0];
+        const pl = Math.hypot(px, py, pz);
+        return [px / pl, py / pl, pz / pl, 0];
+    }
+    const cx = a[1] * b[2] - a[2] * b[1];
+    const cy = a[2] * b[0] - a[0] * b[2];
+    const cz = a[0] * b[1] - a[1] * b[0];
+    const w = 1 + d;
+    const l = Math.hypot(cx, cy, cz, w);
+    return [cx / l, cy / l, cz / l, w / l];
+}
+
+// the 11 capsule bones in the rig's object space (glTF Z-up, feet at z = 0), placed to RiggedFigure's
+// skeleton (segment ends at its joint bind positions); fixed creation order — the tumble determinism
+// contract. Radii keep non-jointed bones clear of each other (jointed pairs don't collide).
+const RAG_BONES: { name: string; a: V3; b: V3; r: number; mass: number }[] = [
+    { name: "pelvis", a: [-0.09, 0, 0.66], b: [0.09, 0, 0.66], r: 0.09, mass: 2.5 },
+    { name: "chest", a: [0, 0, 0.78], b: [0, 0, 1.04], r: 0.11, mass: 3.5 },
+    { name: "head", a: [0, 0, 1.21], b: [0, 0, 1.33], r: 0.09, mass: 1 },
+    { name: "upperArmL", a: [0.088, 0.01, 1.074], b: [0.306, 0.023, 0.964], r: 0.05, mass: 0.5 },
+    { name: "upperArmR", a: [-0.088, 0.01, 1.074], b: [-0.306, 0.023, 0.964], r: 0.05, mass: 0.5 },
+    { name: "lowerArmL", a: [0.306, 0.023, 0.964], b: [0.447, -0.065, 0.882], r: 0.045, mass: 0.4 },
+    {
+        name: "lowerArmR",
+        a: [-0.306, 0.023, 0.964],
+        b: [-0.447, -0.065, 0.882],
+        r: 0.045,
+        mass: 0.4,
+    },
+    { name: "thighL", a: [0.068, -0.001, 0.614], b: [0.077, -0.058, 0.354], r: 0.055, mass: 1.4 },
+    { name: "thighR", a: [-0.068, -0.001, 0.614], b: [-0.077, -0.058, 0.354], r: 0.055, mass: 1.4 },
+    { name: "calfL", a: [0.077, -0.058, 0.354], b: [0.078, 0.002, 0.085], r: 0.05, mass: 0.9 },
+    { name: "calfR", a: [-0.077, -0.058, 0.354], b: [-0.078, 0.002, 0.085], r: 0.05, mass: 0.9 },
+];
+
+// bone → glTF joint names (RiggedFigure's 19-joint skeleton) — every joint follows exactly one bone
+const RAG_MAP: Record<string, string[]> = {
+    pelvis: ["torso_joint_1"],
+    chest: ["torso_joint_2", "torso_joint_3"],
+    head: ["neck_joint_1", "neck_joint_2"],
+    upperArmL: ["arm_joint_L_1"],
+    upperArmR: ["arm_joint_R_1"],
+    lowerArmL: ["arm_joint_L_2", "arm_joint_L_3"],
+    lowerArmR: ["arm_joint_R_2", "arm_joint_R_3"],
+    thighL: ["leg_joint_L_1"],
+    thighR: ["leg_joint_R_1"],
+    calfL: ["leg_joint_L_2", "leg_joint_L_3", "leg_joint_L_5"],
+    calfR: ["leg_joint_R_2", "leg_joint_R_3", "leg_joint_R_5"],
+};
+
+// the 11 joints in fixed order (the tumble samples' human.ts recipe): object-space pivots at the rig's
+// anatomical joints; `axis` is the joint frame's Z in object space — tumble's cone axis (spherical) and
+// hinge axis (revolute) both read frame Z. Shoulder cones point along the arm; hips down; spine/neck up.
+const RAG_JOINTS: {
+    kind: "ball" | "hinge" | "filter";
+    a: string;
+    b: string;
+    pivot?: V3;
+    axis?: V3;
+}[] = [
+    { kind: "ball", a: "pelvis", b: "chest", pivot: [0, 0, 0.72], axis: [0, 0, 1] },
+    { kind: "ball", a: "chest", b: "head", pivot: [0, 0, 1.13], axis: [0, 0, 1] },
+    {
+        kind: "ball",
+        a: "chest",
+        b: "upperArmL",
+        pivot: [0.088, 0.01, 1.074],
+        axis: [0.218, 0.013, -0.11],
+    },
+    {
+        kind: "ball",
+        a: "chest",
+        b: "upperArmR",
+        pivot: [-0.088, 0.01, 1.074],
+        axis: [-0.218, 0.013, -0.11],
+    },
+    {
+        kind: "hinge",
+        a: "upperArmL",
+        b: "lowerArmL",
+        pivot: [0.306, 0.023, 0.964],
+        axis: [0, 1, 0],
+    },
+    {
+        kind: "hinge",
+        a: "upperArmR",
+        b: "lowerArmR",
+        pivot: [-0.306, 0.023, 0.964],
+        axis: [0, -1, 0],
+    },
+    { kind: "ball", a: "pelvis", b: "thighL", pivot: [0.068, -0.001, 0.614], axis: [0, 0, -1] },
+    {
+        kind: "ball",
+        a: "pelvis",
+        b: "thighR",
+        pivot: [-0.068, -0.001, 0.614],
+        axis: [0, 0, -1],
+    },
+    { kind: "hinge", a: "thighL", b: "calfL", pivot: [0.077, -0.058, 0.354], axis: [1, 0, 0] },
+    { kind: "hinge", a: "thighR", b: "calfR", pivot: [-0.077, -0.058, 0.354], axis: [1, 0, 0] },
+    { kind: "filter", a: "thighL", b: "thighR" },
+];
+
+interface RagBone {
+    eid: number;
+    invBind: Float32Array; // the bone's object-space bind inverse — the skinMatrix right factor
+    joints: number[]; // palette indices (skin-joint order) this bone drives
+    spawnPos: V3;
+    spawnQuat: Q4; // world spawn pose — local joint frames + the bones-moved assert derive from it
+}
+
+let ragEid = -1;
+let ragMeshId = -1;
+let ragBones: RagBone[] = [];
+let ragBindPos: V3 = [0, 0, 0]; // the pelvis bone's object-space bind (T_inst's fixed right factor)
+let ragBindQuat: Q4 = [0, 0, 0, 1];
+let ragR0: Q4 = [0, 0, 0, 1]; // spawn orientation: object Z-up → world Y-up, plus the lean
+let ragJointsWired = 0;
+let ragPalette = new Float32Array(0);
+// per-bone prev/curr fixed-tick poses (7 lanes: pos xyz + quat xyzw), the render-interpolation pair
+let ragPrev = new Float32Array(0);
+let ragCurr = new Float32Array(0);
+let ragTick = -1;
+let ragSampled = false;
+let ragShowBind = false; // assert A/B: true → the driver writes the identity (bind) palette instead
+let ragDrawArgs: Mirror | null = null;
+
+// wire the escape-hatch joints once every bone has marshaled (Tumble.body non-null after the first
+// fixed tick). Local frames derive from the SPAWN pose analytically — the bodies have already stepped
+// by wire time, so a live getLocalPoint would fold the first ticks' free-fall into the anchors.
+function wireRagdoll(): void {
+    const world = Tumble.world;
+    if (!world) return;
+    const handles = ragBones.map((b) => Tumble.body(b.eid));
+    if (handles.some((h) => !h)) return;
+    const index = new Map(RAG_BONES.map((b, i) => [b.name, i]));
+    const origin: V3 = [0, RAG_DROP, 0];
+    for (const j of RAG_JOINTS) {
+        const ia = index.get(j.a)!;
+        const ib = index.get(j.b)!;
+        const A = handles[ia]!;
+        const B = handles[ib]!;
+        if (j.kind === "filter") {
+            world.createFilterJoint(A, B);
+            ragJointsWired++;
+            continue;
+        }
+        const pl = Math.hypot(j.axis![0], j.axis![1], j.axis![2]);
+        const axisW = qRotA(ragR0, [j.axis![0] / pl, j.axis![1] / pl, j.axis![2] / pl]);
+        const qJ = qFromTo([0, 0, 1], axisW); // both frames share one world orientation → rest rotation = identity
+        const pivotW: V3 = [0, 0, 0];
+        const rot = qRotA(ragR0, j.pivot!);
+        for (let k = 0; k < 3; k++) pivotW[k] = origin[k] + rot[k];
+        const frame = (i: number) => {
+            const b = ragBones[i];
+            const local = qRotA(qConj(b.spawnQuat), [
+                pivotW[0] - b.spawnPos[0],
+                pivotW[1] - b.spawnPos[1],
+                pivotW[2] - b.spawnPos[2],
+            ]);
+            const q = qMul(qConj(b.spawnQuat), qJ);
+            return {
+                p: { x: local[0], y: local[1], z: local[2] },
+                q: { v: { x: q[0], y: q[1], z: q[2] }, s: q[3] },
+            };
+        };
+        if (j.kind === "ball") {
+            world.createSphericalJoint(A, B, {
+                localFrameA: frame(ia),
+                localFrameB: frame(ib),
+                enableConeLimit: true,
+                coneAngle: 0.9,
+                enableTwistLimit: true,
+                lowerTwistAngle: -0.4,
+                upperTwistAngle: 0.4,
+                enableMotor: true,
+                maxMotorTorque: 1.5,
+                motorVelocity: { x: 0, y: 0, z: 0 },
+            });
+        } else {
+            world.createRevoluteJoint(A, B, {
+                localFrameA: frame(ia),
+                localFrameB: frame(ib),
+                enableLimit: true,
+                lowerAngle: -0.1,
+                upperAngle: 2.2,
+                enableMotor: true,
+                maxMotorTorque: 1.5,
+                motorSpeed: 0,
+            });
+        }
+        ragJointsWired++;
+    }
+}
+
+const _ragQTi: Q4 = [0, 0, 0, 1];
+
+// the pose producer: sample readBody per bone on each fixed tick (prev/curr pair), then every render
+// frame nlerp at fixedAlpha, track the instance Transform to the pelvis, and write the palette.
+// `simulation` group so the writes land before the Transform compose + LiveSkinSystem flush (draw group).
+const RagdollSystem: System = {
+    name: "ragdoll-driver",
+    group: "simulation",
+    annotations: { mode: "always" },
+    update(state: State) {
+        if (ragEid < 0 || ragBones.length === 0) return;
+        if (ragJointsWired === 0) wireRagdoll();
+        const backend = Physics.backend;
+        if (!backend) return;
+        if (state.time.fixedTick !== ragTick) {
+            ragTick = state.time.fixedTick;
+            for (let i = 0; i < ragBones.length; i++) {
+                const s = backend.readBody(ragBones[i].eid);
+                if (!s) return; // not marshaled yet — keep the seeded bind pose
+                const o = i * 7;
+                if (ragSampled) ragPrev.set(ragCurr.subarray(o, o + 7), o);
+                ragCurr[o] = s.pos[0];
+                ragCurr[o + 1] = s.pos[1];
+                ragCurr[o + 2] = s.pos[2];
+                ragCurr[o + 3] = s.quat[0];
+                ragCurr[o + 4] = s.quat[1];
+                ragCurr[o + 5] = s.quat[2];
+                ragCurr[o + 6] = s.quat[3];
+                if (!ragSampled) ragPrev.set(ragCurr.subarray(o, o + 7), o);
+            }
+            ragSampled = true;
+        }
+        if (!ragSampled) return;
+        const t = state.time.fixedAlpha;
+        const pose = (i: number): { p: V3; q: Q4 } => {
+            const o = i * 7;
+            return {
+                p: [
+                    ragPrev[o] + (ragCurr[o] - ragPrev[o]) * t,
+                    ragPrev[o + 1] + (ragCurr[o + 1] - ragPrev[o + 1]) * t,
+                    ragPrev[o + 2] + (ragCurr[o + 2] - ragPrev[o + 2]) * t,
+                ],
+                q: nlerpShortest(
+                    [ragPrev[o + 3], ragPrev[o + 4], ragPrev[o + 5], ragPrev[o + 6]],
+                    [ragCurr[o + 3], ragCurr[o + 4], ragCurr[o + 5], ragCurr[o + 6]],
+                    t,
+                ),
+            };
+        };
+        const pelvis = pose(0);
+        // T_inst = pelvisNow · pelvisObjBind⁻¹ — the instance rides the pelvis, so frustum cull, pick,
+        // and the firehose keep a meaningful root while the palette stays bounded
+        const instQ = qMul(pelvis.q, qConj(ragBindQuat));
+        const off = qRotA(instQ, ragBindPos);
+        Transform.pos.set(
+            ragEid,
+            pelvis.p[0] - off[0],
+            pelvis.p[1] - off[1],
+            pelvis.p[2] - off[2],
+            0,
+        );
+        Transform.rot.set(ragEid, instQ[0], instQ[1], instQ[2], instQ[3]);
+        if (ragShowBind) {
+            // the assert's A/B arm: a pure-translation palette (bind rotation, lifted 1.2 along
+            // WORLD up expressed in object space — independent of how the ragdoll landed) under the
+            // SAME instance transform. The mesh visibly rises only if the vertices actually flow
+            // through skinData, so the screen-centroid delta is unambiguous.
+            const lift = qRotA(qConj(instQ), [0, 1.2, 0]);
+            ragPalette.fill(0);
+            for (let j = 0; j * 16 < ragPalette.length; j++) {
+                const o = j * 16;
+                ragPalette[o] = 1;
+                ragPalette[o + 5] = 1;
+                ragPalette[o + 10] = 1;
+                ragPalette[o + 12] = lift[0];
+                ragPalette[o + 13] = lift[1];
+                ragPalette[o + 14] = lift[2];
+                ragPalette[o + 15] = 1;
+            }
+            LiveSkin.writePalette(ragEid, ragPalette);
+            return;
+        }
+        // T_inst⁻¹ · boneNow as a pos/quat pair, fed through skinMatrix with the bone's bind inverse
+        const qTi = qMul(ragBindQuat, qConj(pelvis.q));
+        _ragQTi[0] = qTi[0];
+        _ragQTi[1] = qTi[1];
+        _ragQTi[2] = qTi[2];
+        _ragQTi[3] = qTi[3];
+        for (let i = 0; i < ragBones.length; i++) {
+            const bone = ragBones[i];
+            const b = pose(i);
+            const d = qRotA(_ragQTi, [
+                b.p[0] - pelvis.p[0],
+                b.p[1] - pelvis.p[1],
+                b.p[2] - pelvis.p[2],
+            ]);
+            const relP: V3 = [ragBindPos[0] + d[0], ragBindPos[1] + d[1], ragBindPos[2] + d[2]];
+            const relQ = qMul(_ragQTi, b.q);
+            for (const j of bone.joints) {
+                skinMatrix(relP, relQ, bone.invBind, ragPalette.subarray(j * 16, j * 16 + 16));
+            }
+        }
+        LiveSkin.writePalette(ragEid, ragPalette);
+    },
+};
+
+// the probe classifies the warm-tinted figure by chroma (the skin-live classifier) and reports its pixel
+// count, centroid, and vertical screen extent — the crumple differential the deform assert reads — plus
+// the lit neutral-grey floor's pixel count (chroma ≈ 0, luminance well above the dark background), the
+// gate for the static Body+Part floor rendering at all (the membership-gated transforms compose).
+const RAG_PROBE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var fb: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+const luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+@compute @workgroup_size(1)
+fn main() {
+    let dim = vec2<f32>(textureDimensions(fb));
+    let W = 160; let H = 120;
+    var n = 0.0; var cx = 0.0; var cy = 0.0;
+    var lo = 1.0; var hi = 0.0;
+    var floorN = 0.0;
+    for (var j = 0; j < H; j = j + 1) {
+        for (var i = 0; i < W; i = i + 1) {
+            let u = (f32(i) + 0.5) / f32(W);
+            let v = (f32(j) + 0.5) / f32(H);
+            let c = textureLoad(fb, vec2<i32>(vec2<f32>(u, v) * dim), 0).rgb;
+            let lum = dot(c, luma);
+            let chroma = c.r - c.b;
+            if (chroma > 0.06 && lum > 0.03) {
+                n += 1.0; cx += u; cy += v;
+                lo = min(lo, v); hi = max(hi, v);
+            } else if (abs(chroma) < 0.04 && lum > 0.15) {
+                floorN += 1.0;
+            }
+        }
+    }
+    out[0] = n;
+    out[1] = select(0.5, cx / n, n > 0.0);
+    out[2] = select(0.5, cy / n, n > 0.0);
+    out[3] = select(0.0, hi - lo, n > 0.0);
+    out[4] = floorN;
+}`;
+
+async function buildRagdoll(state: State): Promise<void> {
+    const device = Compute.device;
+    ragBones = [];
+    ragJointsWired = 0;
+    ragTick = -1;
+    ragSampled = false;
+    ragShowBind = false;
+    ragEid = -1;
+
+    const ambient = state.create();
+    state.add(ambient, AmbientLight);
+    AmbientLight.color.set(ambient, 0xffffff);
+    AmbientLight.intensity.set(ambient, 0.35);
+    const sun = state.create();
+    state.add(sun, DirectionalLight);
+    DirectionalLight.color.set(sun, 0xffffff);
+    DirectionalLight.intensity.set(sun, 1.6);
+    DirectionalLight.direction.set(sun, -0.35, -1, -0.12, 0);
+    state.add(sun, Shadow);
+    Shadow.distance.set(sun, 20);
+
+    // the physics floor doubles as the receiver: a static Body box + Part renders at the body's pose
+    const floor = state.create();
+    state.add(floor, Body);
+    Body.pos.set(floor, 0, -0.1, 0, 0);
+    Body.halfExtents.set(floor, 7, 0.1, 7, 0);
+    Body.mass.set(floor, 0);
+    state.add(floor, Part);
+    state.add(floor, Color);
+    Color.rgba.set(floor, 0.5, 0.5, 0.5, 1);
+
+    cam = state.create();
+    state.add(cam, Transform);
+    state.add(cam, Camera);
+    state.add(cam, Sear);
+    state.add(cam, Orbit);
+    Camera.mode.set(cam, CameraMode.Perspective);
+    Camera.fov.set(cam, 50);
+    Camera.near.set(cam, 0.1);
+    Camera.far.set(cam, 100);
+    Camera.clearColor.set(cam, 0x0a0c12);
+    Orbit.distance.set(cam, 4.5);
+    Orbit.pan.set(cam, 0, 0.9, 0, 0);
+    Orbit.yaw.set(cam, 0.6);
+    Orbit.pitch.set(cam, 0.3);
+
+    // import the rig on the live path + place its skinned instance (palette seeded to the bind pose)
+    const asset = await loadGltf(state, RIG_SRC, { live: true });
+    const handle = asset.meshes.find((m) => m.live);
+    if (!handle) throw new Error("[ragdoll] RiggedFigure did not import live");
+    ragMeshId = handle.mesh;
+    ragEid = placeGltf(state, handle);
+    // warm tint the probe classifies the figure by chroma. RiggedFigure is untextured, so its material
+    // carries palette layer -1 and `sampleAlbedo` returns white (the glTF default) — `white × tint` is the
+    // warm base with no albedo texture to supply (shade.ts). The by-construction skin-live mode still hands
+    // its rig an explicit white 1×1: it hand-builds a material with no palette entry, so no -1 to key on.
+    Color.rgba.set(ragEid, 0.95, 0.7, 0.35, 1);
+    ragPalette = new Float32Array(16 * handle.jointCount);
+    ragPrev = new Float32Array(7 * RAG_BONES.length);
+    ragCurr = new Float32Array(7 * RAG_BONES.length);
+
+    // palette order is the skin's joint list — resolve the bone map's names against the raw glTF json
+    const json = await (await fetch(RIG_SRC)).json();
+    const names: string[] = json.skins[0].joints.map((n: number) => json.nodes[n].name);
+    const jointIdx = new Map(names.map((n, i) => [n, i] as const));
+
+    // spawn frame: object Z-up → world Y-up, leaned RAG_TILT about world Z, feet RAG_DROP above the floor
+    const S = Math.SQRT1_2;
+    ragR0 = qMul([0, 0, Math.sin(RAG_TILT / 2), Math.cos(RAG_TILT / 2)], [-S, 0, 0, S]);
+    const origin: V3 = [0, RAG_DROP, 0];
+    for (const bone of RAG_BONES) {
+        const mid: V3 = [
+            (bone.a[0] + bone.b[0]) / 2,
+            (bone.a[1] + bone.b[1]) / 2,
+            (bone.a[2] + bone.b[2]) / 2,
+        ];
+        const dx = bone.b[0] - bone.a[0];
+        const dy = bone.b[1] - bone.a[1];
+        const dz = bone.b[2] - bone.a[2];
+        const len = Math.hypot(dx, dy, dz);
+        // the substrate capsule's segment runs along local +Y — align it to the bone direction
+        const qAlign = qFromTo([0, 1, 0], [dx / len, dy / len, dz / len]);
+        const wr = qRotA(ragR0, mid);
+        const spawnPos: V3 = [origin[0] + wr[0], origin[1] + wr[1], origin[2] + wr[2]];
+        const spawnQuat = qMul(ragR0, qAlign);
+        const eid = state.create();
+        state.add(eid, Body);
+        Body.shape.set(eid, ShapeKind.Capsule);
+        Body.pos.set(eid, spawnPos[0], spawnPos[1], spawnPos[2], 0);
+        Body.quat.set(eid, spawnQuat[0], spawnQuat[1], spawnQuat[2], spawnQuat[3]);
+        Body.halfExtents.set(eid, 0, len / 2, 0, bone.r);
+        Body.mass.set(eid, bone.mass);
+        const joints = RAG_MAP[bone.name].map((n) => {
+            const j = jointIdx.get(n);
+            if (j === undefined) throw new Error(`[ragdoll] rig has no joint named ${n}`);
+            return j;
+        });
+        const objBind = compose(
+            mid[0],
+            mid[1],
+            mid[2],
+            qAlign[0],
+            qAlign[1],
+            qAlign[2],
+            qAlign[3],
+            1,
+            1,
+            1,
+        );
+        ragBones.push({
+            eid,
+            invBind: invert(objBind, new Float32Array(16)),
+            joints,
+            spawnPos,
+            spawnQuat,
+        });
+        if (bone.name === "pelvis") {
+            ragBindPos = mid;
+            ragBindQuat = qAlign;
+        }
+    }
+
+    state.addSystem(RagdollSystem);
+
+    probePipeline = await device.createComputePipelineAsync({
+        label: "ragdoll-probe",
+        layout: "auto",
+        compute: {
+            module: device.createShaderModule({ label: "ragdoll-probe", code: RAG_PROBE_WGSL }),
+            entryPoint: "main",
+        },
+    });
+    probeBuf = device.createBuffer({
+        label: "ragdoll-probe",
+        size: 20, // figure count/x/y + vertical extent + lit-floor count
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    probeBg = null;
+    state.addSystem(ProbeSystem);
+    await frames(4);
+    probeMirror = mirror(probeBuf);
+    ragDrawArgs = mirror(Parts.drawArgs!);
+    await frames(3);
+}
+
+// probe read with the pipeline-depth settling + `.slice()` copy the skin-live mode established (a bare
+// Float32Array over snapshot.bytes is a view into the reused staging buffer — two reads would alias)
+async function ragProbe(): Promise<Float32Array | null> {
+    if (!probeMirror) return null;
+    await frames(12);
+    await settle(probeMirror);
+    return probeMirror.snapshot ? new Float32Array(probeMirror.snapshot.bytes).slice() : null;
+}
+
+// the (skin-live surface, rig mesh) pair's survivor count at the camera slot — the reach-bound cull gate
+function ragSurvivors(): number | null {
+    if (!ragDrawArgs?.snapshot) return null;
+    const slot = Views.get(cam)?.slot ?? 0;
+    const pairCount = Surfaces.size * Meshes.size;
+    const pair = Part.mesh.get(ragEid) * Surfaces.size + Part.surface.get(ragEid);
+    const counts = packCounts(ragDrawArgs, slot, pairCount);
+    return counts ? counts[pair] : null;
+}
+
+async function assertRagdoll(): Promise<Check[]> {
+    const checks: Check[] = [];
+
+    // structural: the live substrate published + all 11 bones marshaled + all 11 joints wired
+    const skinData = Compute.buffers.has("skinData");
+    const jw = LiveSkin.meshes.has(ragMeshId);
+    const marshaled = ragBones.filter((b) => Tumble.body(b.eid)).length;
+    checks.push({
+        name: "live substrate + ragdoll wired",
+        pass:
+            skinData &&
+            jw &&
+            marshaled === RAG_BONES.length &&
+            ragJointsWired === RAG_JOINTS.length,
+        detail: `skinData ${skinData}, JW ${jw}, bodies ${marshaled}/${RAG_BONES.length}, joints ${ragJointsWired}/${RAG_JOINTS.length}`,
+    });
+
+    // the ragdoll fell + settled during the bench's measured frames; give a fresh scene a margin too
+    await frames(90);
+
+    // the palette received a genuinely crumpled pose: bones rotated relative to the pelvis vs bind
+    let moved = 0;
+    const backend = Physics.backend;
+    const pelvisNow = backend?.readBody(ragBones[0].eid);
+    if (pelvisNow) {
+        for (let i = 1; i < ragBones.length; i++) {
+            const s = backend?.readBody(ragBones[i].eid);
+            if (!s) continue;
+            const relNow = qMul(qConj([...pelvisNow.quat] as Q4), [...s.quat] as Q4);
+            const relBind = qMul(qConj(ragBones[0].spawnQuat), ragBones[i].spawnQuat);
+            const d = Math.abs(
+                relNow[0] * relBind[0] +
+                    relNow[1] * relBind[1] +
+                    relNow[2] * relBind[2] +
+                    relNow[3] * relBind[3],
+            );
+            if (2 * Math.acos(Math.min(1, d)) > 0.3) moved++;
+        }
+    }
+    checks.push({
+        name: "the ragdoll crumples the palette",
+        pass: moved >= 3,
+        detail: `${moved}/${ragBones.length - 1} bones rotated >0.3 rad relative to the pelvis`,
+    });
+
+    // the settled crumple renders
+    const settled = await ragProbe();
+    checks.push({
+        name: "the fallen figure renders",
+        pass: !!settled && settled[0] > 120,
+        detail: settled ? `${settled[0]} px, extent ${settled[3].toFixed(3)}` : "no probe snapshot",
+    });
+
+    // the static Body+Part floor renders — pins the membership-gated transforms compose on the real
+    // GPU (an ungated scatter stomps the tumble backend's CPU-written record: an invisible floor)
+    checks.push({
+        name: "static physics floor renders",
+        pass: !!settled && settled[4] > 2000,
+        detail: `lit-floor pixels ${settled?.[4] ?? 0} / 19200`,
+    });
+
+    // the palette drives the pixels: swap in a lifted pure-translation palette under the SAME
+    // instance transform and the figure's screen centroid must rise. A mesh ignoring the palette
+    // (stuck at bind, or not sampling skinData) renders identically in both arms.
+    ragShowBind = true;
+    const lifted = await ragProbe();
+    ragShowBind = false;
+    const rose = !!settled && !!lifted && lifted[0] > 120 && settled[2] - lifted[2] > 0.06;
+    checks.push({
+        name: "the palette drives the rendered mesh (lifted-palette A/B)",
+        pass: rose,
+        detail:
+            settled && lifted
+                ? `crumpled ${settled[0]}px @v ${settled[2].toFixed(3)} vs lifted ${lifted[0]}px @v ${lifted[2].toFixed(3)}`
+                : "no probe snapshot",
+    });
+
+    // the fallen pose still packs a frustum survivor — the pelvis-tracked reach bound covers the crumple
+    const survivors = ragSurvivors();
+    checks.push({
+        name: "fallen pose packs a survivor and draws",
+        pass: survivors === 1 && !!settled && settled[0] > 120,
+        detail: `survivors ${survivors}, figure pixels ${settled?.[0] ?? 0}`,
+    });
+
+    await frames(4);
+    const color = Profile.gpu.has("sear:color");
+    checks.push({ name: "color pass draws", pass: color, detail: `sear:color ${color}` });
+    return checks;
+}
+
+// ============================================================================
 
 // the modes grouped by the build path each drives — the select lists their union (one home for the list)
 // and each knob's `when` shows it only for the modes whose scene actually reads it. `shaded` is the
@@ -3064,6 +4149,10 @@ const MODES = {
     ],
     fog: ["fog"],
     gltf: ["gltf-model", "gltf-animated", "gltf-spill", "gltf-multi", "gltf-worker"],
+    // the live joint-palette substrate — rides the gltf plugin set, but authors its rig by hand (no asset)
+    skinLive: ["skin-live"],
+    // the live palette's physics producer: RiggedFigure {live} driven by an 11-capsule tumble ragdoll
+    ragdoll: ["ragdoll"],
     transparency: ["transparency"],
     background: ["background"],
     sky: ["sky"],
@@ -3196,10 +4285,14 @@ const scenario: Scenario = {
         count = 0; // non-cull modes carry no filler — the transport wave is a no-op there
 
         const gltf = MODES.gltf.includes(mode);
+        const skinLive = mode === "skin-live";
+        const ragdoll = mode === "ragdoll";
         const plugins = [...corePlugins];
         if (mode === "cull") plugins.push(transportPlugin);
         else if (mode === "fog") plugins.push(FogPlugin);
-        else if (gltf) plugins.push(GltfPlugin);
+        else if (gltf || skinLive)
+            plugins.push(GltfPlugin); // GltfPlugin owns the live-skin substrate
+        else if (ragdoll) plugins.push(GltfPlugin, TumblePlugin);
         else if (mode === "transparency") plugins.push(TransparencyPlugin);
         else if (mode === "background") plugins.push(BackgroundPlugin);
         else if (mode === "sky") plugins.push(SkyPlugin);
@@ -3216,7 +4309,9 @@ const scenario: Scenario = {
         else if (gltf) {
             await placeGltfAssets(state, p);
             await frames(2); // settle a couple frames before asserting
-        } else if (mode === "transparency") {
+        } else if (skinLive) await buildSkinLive(state);
+        else if (ragdoll) await buildRagdoll(state);
+        else if (mode === "transparency") {
             buildTransparency(state);
             await setupFramebufferProbe(state);
         } else if (mode === "background") {
@@ -3238,6 +4333,8 @@ const scenario: Scenario = {
         if (mode === "gltf-spill") return assertGltfSpill(state);
         if (mode === "gltf-multi") return assertGltfMulti(state);
         if (mode === "gltf-worker") return assertGltfWorker(state);
+        if (mode === "skin-live") return assertSkinLive();
+        if (mode === "ragdoll") return assertRagdoll();
         if (mode === "transparency") return assertTransparency();
         if (mode === "background") return assertBackground();
         if (mode === "sky") return assertSky();
@@ -3259,6 +4356,20 @@ const scenario: Scenario = {
             if (!probeMirror?.snapshot) return "render — sky\nprobe …";
             const out = new Float32Array(probeMirror.snapshot.bytes);
             return `render — sky\nsky corner ${out[6].toFixed(3)} (backdrop) / box centre ${out[5].toFixed(3)} (overdraw)`;
+        }
+        if (mode === "skin-live") {
+            const s = rigSurvivors();
+            const p = probeMirror?.snapshot ? new Float32Array(probeMirror.snapshot.bytes) : null;
+            const regions = p
+                ? `limb ${p[0].toFixed(0)}px @ x${p[1].toFixed(2)}  shadow ${p[3].toFixed(0)}px`
+                : "probe …";
+            return `render — skin-live\nsurvivors ${s ?? "…"}  reach ${rigReach.toFixed(2)}\n${regions}`;
+        }
+        if (mode === "ragdoll") {
+            const marshaled = ragBones.filter((b) => Tumble.body(b.eid)).length;
+            const p = probeMirror?.snapshot ? new Float32Array(probeMirror.snapshot.bytes) : null;
+            const fig = p ? `figure ${p[0].toFixed(0)}px extent ${p[3].toFixed(2)}` : "probe …";
+            return `render — ragdoll\nbodies ${marshaled}/${ragBones.length || 11}  joints ${ragJointsWired}/${RAG_JOINTS.length}\n${fig}`;
         }
         if (mode.startsWith("gltf-")) {
             const parts = [...state.query([Part])].length;

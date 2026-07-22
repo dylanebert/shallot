@@ -14,13 +14,13 @@ export interface Traits {
      * scene validation only, not enforced at `state.add`
      */
     provides?: Component[];
-    /** one instance per scene (lights, the active camera). Informational — surfaced as editor
-     * metadata, not enforced at `state.add` */
+    /** one instance per scene (lights, the active camera). Informational — surfaced through
+     * reflection, not enforced at `state.add` */
     singleton?: boolean;
     /**
      * runtime-derived decoration — a system owns its membership and values (the glTF route sync's
-     * `Textured` / `Skin`), so scenes never author it: `serialize` skips it, the editor's add-component
-     * picker and derived-section append hide it, and `diagnose` flags an authored attr. Registration
+     * `Textured` / `Skin`), so scenes never author it: `serialize` skips it, authoring tooling
+     * hides it, and `diagnose` flags an authored attr. Registration
      * still allocates its storage (a slab field needs it), and an always-mode system may add/remove it
      * freely — the exemption from the edit-mode "never add/remove components" contract, since nothing
      * document-facing can see it
@@ -44,7 +44,7 @@ export interface Traits {
     parse?: Record<string, (value: string) => number | undefined>;
     format?: Record<string, (value: number) => string | undefined>;
     enums?: Record<string, Record<string, number>>;
-    /** per-field editor input widget — a stored field shown through a richer control (a `toggle`
+    /** per-field input widget — a stored field shown through a richer control (a `toggle`
      * checkbox, an `angle` unit switcher). Display-only; storage is unchanged */
     inputs?: Record<string, Input>;
     annotations?: Record<string, unknown>;
@@ -294,7 +294,7 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
     };
 }
 
-/** wipe every registration; used between editor sessions and tests */
+/** wipe every registration; used between sessions and tests */
 export function clear(): void {
     byName.clear();
     byId.clear();

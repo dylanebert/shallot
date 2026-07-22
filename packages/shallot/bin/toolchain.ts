@@ -6,24 +6,29 @@ import {
     type PluginOption,
     type Plugin as VitePlugin,
 } from "vite";
-import { discoverScenes, manifestPath } from "../editor/src/project/vite";
+import { discoverScenes, manifestPath } from "../src/project/vite";
 
-// One toolchain merge shared by `shallot dev`, `shallot build`, and the editor (`shallot edit`). A manifest
-// project is pure data, but a project that needs a framework (Svelte, React) declares it the standard vite
-// way — its own `vite.config.ts` with `@sveltejs/vite-plugin-svelte` etc. All three commands load + merge
-// that config identically here, so a Svelte project (orrstead) runs the same in dev, the editor, and a
-// build. No `vite.config` → the synthesized zero-config path (zoo/starter are unaffected).
+// One toolchain merge shared by `shallot dev` and `shallot build`. A manifest project is pure data, but a
+// project that needs a framework (Svelte, React) declares it the standard vite way — its own
+// `vite.config.ts` with `@sveltejs/vite-plugin-svelte` etc. Both commands load + merge that config
+// identically here, so a framework project (orrstead) runs the same in dev and a build. No `vite.config` →
+// the synthesized zero-config path (a manifest recipe is unaffected).
+
+/** dir holds a shallot project — a shallot.json manifest or a .scene file. */
+export function isProject(projectDir: string): boolean {
+    const abs = resolve(projectDir);
+    return existsSync(manifestPath(abs)) || discoverScenes(abs).length > 0;
+}
 
 /** exit with the scaffold hint when dir holds neither a shallot.json manifest nor a .scene file. */
 export function requireProject(projectDir: string): void {
-    const abs = resolve(projectDir);
-    if (existsSync(manifestPath(abs)) || discoverScenes(abs).length > 0) return;
+    if (isProject(projectDir)) return;
     console.error(`\n  ✗ No shallot project found at ${projectDir}`);
     console.error("    Expected a shallot.json manifest or a .scene file\n");
     console.error("    To create a project:");
     console.error("      bun create shallot my-game");
     console.error("      cd my-game && bun install");
-    console.error("      bunx shallot\n");
+    console.error("      bunx shallot dev\n");
     process.exit(1);
 }
 
@@ -31,7 +36,7 @@ export function requireProject(projectDir: string): void {
  * flatten vite's nested + async plugin option arrays to named plugins. Plugin factories return arrays
  * (`@sveltejs/vite-plugin-svelte`, `@vitejs/plugin-react`) and a config entry may be a promise; vite
  * resolves both at config time, so we resolve them here to read each `.name` (e.g. for name-based dedup of
- * a project's plugins against the editor's). Falsy entries (a conditional `cond && plugin()`) drop out.
+ * a project's plugins against the host's). Falsy entries (a conditional `cond && plugin()`) drop out.
  */
 export async function flattenPlugins(
     plugins: PluginOption | PluginOption[] | undefined,
@@ -63,7 +68,7 @@ export interface ProjectConfig {
 /**
  * load a project's own `vite.config.{ts,js}` if it has one. Returns null for a zero-config manifest project
  * (the common case) — the caller then uses its synthesized base unchanged. `command` is `"serve"` for the
- * dev server / editor, `"build"` for a build.
+ * dev server, `"build"` for a build.
  */
 export async function loadProjectConfig(
     absProjectDir: string,
@@ -87,8 +92,8 @@ export async function loadProjectConfig(
  * compose a host's base config (carrying its own `plugins`) with a project's loaded config. The project's
  * framework plugins go first (each claims only its own file types; vite re-sorts by `enforce`), then the
  * host's; the project's resolve/define/optimizeDeps overlay the base. `drop` removes project plugins that
- * collide by name with a host plugin (the editor wins, so a Svelte game runs on one runes-configured svelte
- * instance). `project` null → the base unchanged.
+ * collide by name with a host plugin (the host wins, so a project never doubles a host-provided
+ * plugin). `project` null → the base unchanged.
  */
 export function composeViteConfig(
     base: Record<string, unknown>,

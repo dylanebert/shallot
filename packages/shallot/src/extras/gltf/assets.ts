@@ -25,9 +25,12 @@ import {
     type GltfMaterial,
     type GltfScene,
     type GltfUnsupported,
+    type LiveMesh,
     parse,
+    quantizeLive,
 } from "./gltf";
 import { ALBEDO_NAMES } from "./image";
+import { LiveSkin, LiveSkinSystem, liveSkinSurface, registerLiveSkinSurfaces } from "./live";
 import { abortDecodes, poolDecode } from "./pool";
 import { RouteSystem, routes, scanRefs, Textured } from "./routes";
 import { mapSet, materialPreamble } from "./shade";
@@ -54,20 +57,6 @@ import {
 } from "./textures";
 import { beginUnion, stepUnion, type UnionAsset, type UnionStaging } from "./union";
 import { bakeVat, type GltfVat } from "./vat";
-
-// #doc:dev
-// `gltf/core` is the pipeline under `loadGltf`, for tooling and custom async loading. `loadGltf` is
-// `ensureDecoded` (a content-keyed cache over the deviceless `decode`) followed by `register` (the GPU
-// assembly that hands back the placement descriptor). Call them apart to keep decode off the hot path
-// (`decodeInWorker` runs the same `decode` on the worker pool, and its `DecodedGltf` feeds `register`
-// directly), or to manage the cache across a reload: `invalidate` evicts one source (the HMR / asset-swap
-// seam), `clearGltfCache` drops everything, and `gltfCacheStats` reports the decode + asset counts.
-// `unionPending` is true while the shared texture atlas is still uploading. It streams across frames after
-// a load, so a gate waits on it before reading published textures.
-//
-// Textured assets share one accumulating palette: each material lands in a `texture_2d_array` bucketed by
-// baseColor size, and every instance carries a palette index resolved per-primitive on the GPU, so several
-// assets coexist in one draw without re-binding.
 
 // the bindings every textured glTF surface declares: the instancing convention (eids + transforms) + the
 // per-instance baseColorFactor (color) + the per-instance palette index (materialIndex) + the per-material
@@ -100,7 +89,7 @@ const texturedBindings: Record<string, Binding> = {
 // the maps it carries — no throwaway off-L2 fetch. Only the blend mode + cutout discard differ between the
 // three. Registered in GltfPlugin.initialize; a draw stays skipped until loadGltf publishes the arrays +
 // `materialData` and its map-set variant compiles (both sear-lazy). `mid` is the per-instance `materialIndex[eid]`.
-function registerSurfaces(): void {
+export function registerTexturedSurfaces(): void {
     Surfaces.register({
         name: "gltf-albedo",
         bindings: texturedBindings,
@@ -159,16 +148,36 @@ function sphereOf(aabb: GltfVat["aabb"]): [number, number, number, number] {
 
 // quantize each scene mesh's geometry into the GPU-ready vertex streams keyed by scene-mesh index — the
 // deviceless half of geometry registration. Static meshes pack into one shared family (sear binds geometry
-// once); a skinned mesh keeps its own stream so its index range stays local `[0, vertCount)` — the axis the
-// VAT row is keyed by via `indices[vidx]`. bounds drive Part's cull (rest-pose AABB for static, the VAT's
-// conservative all-frames sphere for skinned). Each mesh carries its material map-set as `variant`, so the
-// textured/skin surface specializes its pipeline to that mesh's map-set (a mesh is one glTF primitive).
-function quantizeGeometry(scene: GltfScene, vats: (GltfVat | null)[]): DecodedGeometry {
+// once); a skinned mesh (VAT or live) keeps its own stream so its index range stays local `[0, vertCount)` —
+// the axis the VAT row / the live JW block is keyed by via `indices[vidx]`. bounds drive Part's cull (rest-pose
+// AABB for static, the VAT's all-frames sphere for a baked mesh, the reach sphere for a live one). Each mesh
+// carries its material map-set as `variant`, so the textured/skin surface specializes its pipeline to that
+// mesh's map-set (a mesh is one glTF primitive).
+function quantizeGeometry(
+    scene: GltfScene,
+    vats: (GltfVat | null)[],
+    liveMeshes: (LiveMesh | null)[],
+): DecodedGeometry {
     const variantOf = (i: number) => {
         const matIdx = scene.meshes[i].material;
         return mapSet(matIdx >= 0 ? scene.materials[matIdx] : undefined);
     };
-    const staticIdx = scene.meshes.flatMap((_, i) => (vats[i] ? [] : [i]));
+    // a skinned mesh's own stream: its rest geometry as a single 0-based slice (the local vidx the VAT row /
+    // live JW block keys on). The `vs` overwrites the decoded position (VAT sample or palette blend), so the
+    // decode result is unread — quantized only for the shared decode preamble (dead, harmless).
+    const ownStream = (i: number, bounds: [number, number, number, number]): SkinnedGeometry => {
+        const m = scene.meshes[i];
+        return {
+            meshIndex: i,
+            quant: quantizeMeshes(m.vertices, [
+                { vertexBase: 0, vertexCount: m.vertices.length / VERTEX_FLOATS },
+            ]),
+            indices: m.indices,
+            bounds,
+            variant: variantOf(i),
+        };
+    };
+    const staticIdx = scene.meshes.flatMap((_, i) => (vats[i] || liveMeshes[i] ? [] : [i]));
     let statics: DecodedGeometry["static"] = null;
     if (staticIdx.length > 0) {
         const packed = packMeshes(staticIdx.map((i) => scene.meshes[i]));
@@ -184,25 +193,13 @@ function quantizeGeometry(scene: GltfScene, vats: (GltfVat | null)[]): DecodedGe
             })),
         };
     }
-    // a skinned mesh keeps its own stream (its index range stays local, the axis the VAT row is keyed by);
-    // its static stream is quantized for the shared decode preamble but unread — SKIN_VS overwrites the
-    // position from the VAT textures, so the decode result is discarded (dead, harmless).
-    const skinned = scene.meshes.flatMap((m, i) => {
-        const vat = vats[i];
-        if (!vat) return [];
-        return [
-            {
-                meshIndex: i,
-                quant: quantizeMeshes(m.vertices, [
-                    { vertexBase: 0, vertexCount: m.vertices.length / VERTEX_FLOATS },
-                ]),
-                indices: m.indices,
-                bounds: sphereOf(vat.aabb),
-                variant: variantOf(i),
-            },
-        ];
-    });
-    return { static: statics, skinned };
+    const skinned = scene.meshes.flatMap((_, i) =>
+        vats[i] ? [ownStream(i, sphereOf(vats[i]!.aabb))] : [],
+    );
+    const live = scene.meshes.flatMap((_, i) =>
+        liveMeshes[i] ? [ownStream(i, liveMeshes[i]!.reach)] : [],
+    );
+    return { static: statics, skinned, live };
 }
 
 // one assembled mesh: its scene-mesh index + the register-ready Mesh spec (GPU buffers baked in, name
@@ -276,6 +273,57 @@ function assembleGeometry(
     return specs;
 }
 
+// one assembled live-skinned mesh: its own geometry buffers (cached, like a VAT skinned mesh) + the packed
+// joints/weights {@link LiveSkin.registerMesh} uploads + the jointCount. The `skinData` GPU buffer + the
+// `skinParams` uniform are per-build (LiveSkin resets each build), so the register path (not the cache) does
+// that wiring + builds the Mesh spec fresh — this holds only the cache-safe half.
+interface LiveAssembly {
+    meshIndex: number;
+    name: string;
+    vertices: GPUBuffer;
+    position: GPUBuffer;
+    quant: GPUBuffer;
+    indices: GPUBuffer;
+    indexCount: number;
+    vertCount: number;
+    bounds: [number, number, number, number];
+    variant: number;
+    joints: Uint32Array;
+    weights: Uint32Array;
+    jointCount: number;
+}
+
+// upload each live-skinned mesh's own geometry buffers + carry its packed joints/weights — the cache-owned
+// half (buffers survive a rebuild). The `skinData` upload + the `skinParams` uniform + the Mesh spec are
+// per-build ({@link wireLive}), since LiveSkin resets each build.
+function assembleLive(
+    device: GPUDevice,
+    live: SkinnedGeometry[],
+    liveMeshes: (LiveMesh | null)[],
+    url: string,
+    clip: number,
+): LiveAssembly[] {
+    return live.map((g) => {
+        const name = specName(url, clip, g.meshIndex);
+        const lm = liveMeshes[g.meshIndex] as LiveMesh;
+        return {
+            meshIndex: g.meshIndex,
+            name,
+            vertices: gpuBuffer(device, `gltf-live-main:${name}`, g.quant.main),
+            position: gpuBuffer(device, `gltf-live-pos:${name}`, g.quant.position),
+            quant: gpuBuffer(device, `gltf-live-quant:${name}`, g.quant.quant),
+            indices: gpuBuffer(device, `gltf-live-idx:${name}`, g.indices),
+            indexCount: g.indices.length,
+            vertCount: lm.joints.length,
+            bounds: g.bounds,
+            variant: g.variant,
+            joints: lm.joints,
+            weights: lm.weights,
+            jointCount: lm.jointCount,
+        };
+    });
+}
+
 // register the assembled Mesh specs into the (per-build) Meshes registry, returning the scene-mesh-index →
 // mesh-id map describe reads — the cheap, idempotent per-build half. The cached specs point at the cached
 // buffers, so re-running on each rebuild re-registers without re-upload; the name-keyed registry reuses an id
@@ -285,6 +333,32 @@ function registerGeometry(specs: GeometrySpec[], meshCount: number): number[] {
     const meshIds: number[] = new Array(meshCount);
     for (const { meshIndex, spec } of specs) meshIds[meshIndex] = Meshes.register(spec);
     return meshIds;
+}
+
+// wire each live-skinned mesh into the per-build GPU state — the register-path half the cache can't hold
+// ({@link LiveSkin} resets every build). Registers a fresh Mesh spec (buffers from the cache, `skinParams`
+// from LiveSkin), uploads the mesh's joints/weights into `skinData` region B, and binds its `skinParams`
+// uniform (LiveSkin owns + rewrites it on a palette-growth realloc). Fills the live meshes' slots in
+// `meshIds`. The spec is built fresh (not the cached geometry spec), so binding the per-build uniform mutates
+// no cross-build state.
+function wireLive(device: GPUDevice, live: LiveAssembly[], meshIds: number[]): void {
+    for (const g of live) {
+        const meshId = Meshes.register({
+            name: g.name,
+            vertices: g.vertices,
+            position: g.position,
+            quant: g.quant,
+            indices: g.indices,
+            indexBase: 0,
+            indexCount: g.indexCount,
+            bounds: g.bounds,
+            variant: g.variant,
+        });
+        meshIds[g.meshIndex] = meshId;
+        LiveSkin.registerMesh(meshId, g.joints, g.weights);
+        const spec = Meshes.get(g.name);
+        if (spec) spec.bindings = { skinParams: LiveSkin.paramsBuffer(device, meshId) };
+    }
 }
 
 function gpuBuffer(device: GPUDevice, label: string, data: Float32Array | Uint32Array): GPUBuffer {
@@ -315,12 +389,17 @@ export interface GltfHandle {
     material: number;
     /** `baseColorFactor`, linear rgba */
     color: [number, number, number, number];
-    /** a VAT-deforming skinned primitive: {@link placeGltf} adds {@link Skin} */
+    /** a VAT-deforming skinned primitive: {@link placeGltf} adds {@link Skin} + advances its clip time */
     skinned: boolean;
+    /** a live joint-palette skinned primitive: {@link placeGltf} adds {@link Skin} + allocates its palette
+     *  block (a producer poses it at runtime). Mutually exclusive with {@link skinned}. */
+    live: boolean;
     /** a textured primitive: {@link placeGltf} adds {@link Textured} */
     textured: boolean;
-    /** the baked clip's loop duration in seconds (skinned only, else 0) */
+    /** the baked clip's loop duration in seconds (VAT skinned only, else 0) */
     duration: number;
+    /** the skin's joint count — the live palette block size {@link placeGltf} allocates (live only, else 0) */
+    jointCount: number;
 }
 
 /** one node placement of a {@link GltfHandle}: `handle` indexes {@link GltfImport.meshes}, the rest is the
@@ -344,16 +423,17 @@ export interface GltfImport {
 }
 
 // build the import descriptor over the already-registered mesh ids — the pure half of placement. Each scene
-// primitive resolves to one {@link GltfHandle} with its route: a skinned mesh → a VAT-deforming `skin*`
-// surface; a textured material → the matching `gltf-albedo*` surface; everything else → sear's solid
-// `default`. `base` is the asset's palette offset in the shared union, so every handle's `material` carries
-// `base + localMatId` (the instance reads `materialData[base + localMatId]` in the one accumulated palette).
+// primitive resolves to one {@link GltfHandle} with its route: a VAT-skinned mesh → a `skin*` surface, a
+// live-skinned mesh → a `skin-live*` surface, a textured material → the matching `gltf-albedo*` surface,
+// everything else → sear's solid `default`. `base` is the asset's palette offset in the shared union, so every
+// handle's `material` carries `base + localMatId` (the instance reads `materialData[base + localMatId]`).
 function describe(
     scene: GltfScene,
     meshIds: number[],
     base: number,
     textured: boolean,
     vats: (GltfVat | null)[],
+    liveMeshes: (LiveMesh | null)[],
 ): GltfImport {
     const solid = Surfaces.id("default") ?? 0;
     const opaque = Surfaces.id("gltf-albedo");
@@ -364,14 +444,21 @@ function describe(
         const mat = matIdx >= 0 ? scene.materials[matIdx] : undefined;
         const alpha = mat?.alphaMode ?? "OPAQUE";
         const vat = vats[i];
+        const lm = liveMeshes[i];
         let surface = solid;
         let skinned = false;
+        let live = false;
         let isTextured = false;
         let duration = 0;
+        let jointCount = 0;
         if (vat) {
             surface = Surfaces.id(skinSurface(alpha)) ?? solid;
             skinned = true;
             duration = vat.duration;
+        } else if (lm) {
+            surface = Surfaces.id(liveSkinSurface(alpha)) ?? solid;
+            live = true;
+            jointCount = lm.jointCount;
         } else if (textured && mat?.image !== undefined) {
             surface = (alpha === "MASK" ? clip : alpha === "BLEND" ? blend : opaque) ?? solid;
             isTextured = true;
@@ -383,8 +470,10 @@ function describe(
             material: base + Math.max(matIdx, 0),
             color: m.color,
             skinned,
+            live,
             textured: isTextured,
             duration,
+            jointCount,
         };
     });
     const instances: GltfPlacement[] = scene.instances.map((p) => ({
@@ -433,6 +522,13 @@ export function placeGltf(
         state.add(eid, Skin);
         // lanes: time, palette index (base + local), phase offset, clip duration (SkinSystem loops on it)
         Skin.anim.set(eid, 0, handle.material, 0, handle.duration);
+    } else if (handle.live) {
+        state.add(eid, Skin);
+        // allocate this instance's palette block (seeded to the rest/bind pose) — lanes: palette base (the
+        // surface reads skin[eid].x), material index, unused, 0 (w ≤ 0 so SkinSystem skips it). A producer
+        // poses it via LiveSkin.writePalette; unposed, it renders the bind pose.
+        const paletteBase = LiveSkin.alloc(eid, handle.jointCount, state.stamp(eid));
+        Skin.anim.set(eid, paletteBase, handle.material, 0, 0);
     } else if (handle.textured) {
         state.add(eid, Textured);
         Textured.id.set(eid, handle.material);
@@ -693,17 +789,24 @@ interface MeshSlice {
     variant: number;
 }
 
+// one own-stream skinned mesh's quantized geometry (VAT or live): its own vertex stream (index range local
+// [0, vertCount), the axis the VAT row / the live JW block is keyed by) + its cull bound + material variant.
+interface SkinnedGeometry {
+    meshIndex: number;
+    quant: QuantStreams;
+    indices: Uint32Array;
+    bounds: [number, number, number, number];
+    variant: number;
+}
+
 // the decoded geometry payload — quantized vertex streams + index data as typed arrays, no GPU buffers.
-// Static meshes pack into one shared family (sear binds geometry once); each skinned mesh owns its stream.
+// Static meshes pack into one shared family (sear binds geometry once); each skinned mesh owns its stream,
+// split by route: `skinned` = VAT (bounds = the clip's all-frames sphere), `live` = joint-palette (bounds =
+// the reach sphere). The two never overlap — `scene.live` picks one route for the whole asset.
 interface DecodedGeometry {
     static: { quant: QuantStreams; indices: Uint32Array; slices: MeshSlice[] } | null;
-    skinned: {
-        meshIndex: number;
-        quant: QuantStreams;
-        indices: Uint32Array;
-        bounds: [number, number, number, number];
-        variant: number;
-    }[];
+    skinned: SkinnedGeometry[];
+    live: SkinnedGeometry[];
 }
 
 /**
@@ -714,15 +817,22 @@ interface DecodedGeometry {
  */
 export interface DecodedGltf {
     url: string;
-    /** the animation clip baked into the VAT: part of the `(url, clip)` cache key (a different clip is a
+    /** the animation clip baked into the VAT: part of the `(url, clip, live)` cache key (a different clip is a
      *  distinct decoded asset). 0 when the asset has no animation. */
     clip: number;
+    /** the **live** import option (part of the cache key): forces the live joint-palette route over VAT for
+     *  the asset's skinned meshes. Distinct from `scene.live` (the *effective* route — this is what the caller
+     *  asked, `scene.live` is what parse decided, which is also true for an auto-rescued clip-less rig). */
+    live: boolean;
     scene: GltfScene;
     geometry: DecodedGeometry;
     textures: DecodedTextures;
-    /** baked VAT per scene mesh (parallel to `scene.meshes`): non-null for every skinned mesh, each binding
-     *  its own VAT textures per-draw, so N skinned meshes coexist in one scene. */
+    /** baked VAT per scene mesh (parallel to `scene.meshes`): non-null for a VAT-skinned mesh (`!scene.live`),
+     *  each binding its own VAT textures per-draw, so N skinned meshes coexist in one scene. */
     vats: (GltfVat | null)[];
+    /** quantized live-skin payload per scene mesh (parallel to `scene.meshes`): non-null for a live-skinned
+     *  mesh (`scene.live`), holding the packed joints/weights {@link LiveSkin} uploads + the reach bound. */
+    liveMeshes: (LiveMesh | null)[];
     textured: boolean;
 }
 
@@ -743,7 +853,7 @@ export interface DecodedGltf {
  */
 export async function decode(
     url: string,
-    opts: { clip?: number; targets?: Targets } = {},
+    opts: { clip?: number; targets?: Targets; live?: boolean } = {},
 ): Promise<DecodedGltf> {
     const dir = url.slice(0, url.lastIndexOf("/") + 1);
     const bytes = await readBinary(url);
@@ -772,24 +882,31 @@ export async function decode(
         await meshopt.loadMeshopt();
         decodeMeshopt = meshopt.decodeMeshopt;
     }
-    const scene = parse(json, buffers, decodeDraco, decodeMeshopt, opts.clip ?? 0);
+    const live = opts.live ?? false;
+    const scene = parse(json, buffers, decodeDraco, decodeMeshopt, opts.clip ?? 0, live);
     warnUnsupported(url, scene.unsupported);
     const textures = await decodeTextures(scene, json, buffers, dir, opts.targets);
 
-    // bake every skinned mesh's clip to its own VAT — each skinned mesh binds its own VAT textures per-draw
-    // (its geometry already owns its buffers), so N skinned meshes coexist in one scene. The
-    // heavy per-frame skinning loop runs once per skinned mesh, off the deviceless conformance walk.
-    const vats: (GltfVat | null)[] = scene.skinInputs.map((si) =>
-        si ? bakeVat(si, { fps: VAT_FPS }) : null,
-    );
-    const geometry = quantizeGeometry(scene, vats);
+    // each skinned mesh binds its own resources per-draw (its geometry already owns its buffers), so N skinned
+    // meshes coexist in one scene. `scene.live` picks the route for all of them: VAT bakes each clip to a
+    // texture (the heavy per-frame skinning loop, once per mesh, off the deviceless conformance walk); live
+    // quantizes each to packed joints/weights + a reach bound, posed at runtime by a producer.
+    const vats: (GltfVat | null)[] = scene.live
+        ? scene.skinInputs.map(() => null)
+        : scene.skinInputs.map((si) => (si ? bakeVat(si, { fps: VAT_FPS }) : null));
+    const liveMeshes: (LiveMesh | null)[] = scene.live
+        ? scene.skinInputs.map((si) => (si ? quantizeLive(si) : null))
+        : scene.skinInputs.map(() => null);
+    const geometry = quantizeGeometry(scene, vats, liveMeshes);
     return {
         url,
         clip: opts.clip ?? 0,
+        live,
         scene,
         geometry,
         textures,
         vats,
+        liveMeshes,
         textured: textures.textured,
     };
 }
@@ -801,14 +918,17 @@ export async function decode(
 // cache frees these on invalidate.
 interface AssembledGltf {
     geometry: GeometrySpec[];
-    // baked VAT GPU resources per scene mesh (parallel to scene.meshes); non-null for each skinned mesh
+    // baked VAT GPU resources per scene mesh (parallel to scene.meshes); non-null for each VAT-skinned mesh
     vats: (AssembledVat | null)[];
+    // per-asset geometry buffers + JW payload for each live-skinned mesh; the per-build `skinData` upload +
+    // `skinParams` uniform + Mesh spec are wired in `register`, not cached (LiveSkin resets each build)
+    live: LiveAssembly[];
 }
 
 // ───────────────────────────────────────────────────────────────────────────────────────────────────────
 // The content-keyed asset cache. A module-level `(src, clip)`-keyed cache
 // holding the deviceless {@link DecodedGltf} + its assembled per-asset GPU resources — the audio `Registry`
-// shape (module-level, survives every State rebuild, not cleared in a lifecycle hook). So an editor rebuild
+// shape (module-level, survives every State rebuild, not cleared in a lifecycle hook). So a live host rebuild
 // re-registers the cached decode with no re-decode + no re-upload — the spike this kills. Cache-owns /
 // registry-borrows: the cache owns the GPU buffers/VATs; each build's {@link place} re-registers the cached
 // Mesh specs into the wiped `Meshes` (a pointer copy). The shared textures live in `_union` (below), keyed by
@@ -830,8 +950,8 @@ const _decoding = new Map<string, Promise<GltfAsset>>();
 // advance across a rebuild). Exposed via {@link gltfCacheStats}.
 let _decodes = 0;
 
-function assetKey(src: string, clip: number): string {
-    return `${src}|${clip}`;
+function assetKey(src: string, clip: number, live: boolean): string {
+    return `${src}|${clip}|${live ? "L" : ""}`;
 }
 
 /**
@@ -846,8 +966,9 @@ export async function ensureDecoded(
     src: string,
     clip = 0,
     targets?: Targets,
+    live = false,
 ): Promise<DecodedGltf> {
-    const k = assetKey(src, clip);
+    const k = assetKey(src, clip, live);
     const cached = _cache.get(k);
     if (cached) return cached.decoded;
     let pending = _decoding.get(k);
@@ -856,7 +977,7 @@ export async function ensureDecoded(
         // `_cache`, a failure leaves the slot clear so the next load retries (never a cached rejection)
         pending = (async () => {
             try {
-                const decoded = await poolDecode(src, { clip, targets });
+                const decoded = await poolDecode(src, { clip, targets, live });
                 // the worker fetches via an absolutized url, so its decoded.url is absolute — normalize back to
                 // the caller's src, the key `register` / `activate` recompute from `decoded.url` (a cache miss
                 // there → a duplicate asset). A no-op on the inline path, where url already equals src.
@@ -881,7 +1002,7 @@ export async function ensureDecoded(
 // active `(src, clip)` keys (the order the palette bases follow), `_paletteBase` each key's material offset,
 // `_matCount` the running total. The assembled union is memoized in `_union` keyed by the active-set order and
 // survives rebuilds (module-level), so a rebuild re-accumulating the same set re-publishes the same arrays
-// with no re-upload — the multi-asset generalization of the sub-stage-2 rebuild win. `_active` /
+// with no re-upload — the multi-asset generalization of the decode cache's rebuild win. `_active` /
 // `_paletteBase` / `_matCount` reset each build (initialize → {@link clearActive}); `_union` is freed only by
 // invalidate / clearGltfCache.
 const _active: string[] = [];
@@ -942,7 +1063,7 @@ function clearActive(): void {
 // rebuild re-place). Append order, so an already-placed asset's base never shifts — a later asset only appends
 // its materials to the union palette.
 function activate(entry: GltfAsset): number {
-    const k = assetKey(entry.decoded.url, entry.decoded.clip);
+    const k = assetKey(entry.decoded.url, entry.decoded.clip, entry.decoded.live);
     let base = _paletteBase.get(k);
     if (base === undefined) {
         base = _matCount;
@@ -1073,8 +1194,8 @@ function dropUnion(): void {
 /**
  * drop a glTF source from the asset cache + free its GPU resources (behind the submit fence): every clip
  * variant of `src`, plus the accumulated union (it included this source). The next {@link loadGltf}
- * re-decodes + re-uploads. The push-driven invalidation seam (sub-stage 5 wires it to the editor's
- * file-watch / HMR): pair it with a State rebuild so the active State re-registers before the next frame,
+ * re-decodes + re-uploads. The push-driven invalidation seam a live host wires to its file-watch / HMR:
+ * pair it with a State rebuild so the active State re-registers before the next frame,
  * since the freed resources may still be bound.
  */
 export function invalidate(src: string): void {
@@ -1107,13 +1228,20 @@ export function gltfCacheStats(): { decodes: number; assets: number; inflight: n
 async function assemble(device: GPUDevice, decoded: DecodedGltf): Promise<AssembledGltf> {
     const vats = decoded.vats.map((v) => (v ? assembleVat(device, v) : null));
     const geometry = assembleGeometry(device, decoded.geometry, vats, decoded.url, decoded.clip);
-    return { geometry, vats };
+    const live = assembleLive(
+        device,
+        decoded.geometry.live,
+        decoded.liveMeshes,
+        decoded.url,
+        decoded.clip,
+    );
+    return { geometry, vats, live };
 }
 
 // the per-asset cache entry for a decoded payload (created on first sight; `ensureDecoded` already created it
 // for the cached-decode path, so this resolves it there).
 function ensureEntry(decoded: DecodedGltf): GltfAsset {
-    const k = assetKey(decoded.url, decoded.clip);
+    const k = assetKey(decoded.url, decoded.clip, decoded.live);
     let entry = _cache.get(k);
     if (!entry) {
         entry = { decoded, assembled: null, assembling: null };
@@ -1146,9 +1274,10 @@ async function decodeGuarded(
     src: string,
     clip: number,
     targets?: Targets,
+    live = false,
 ): Promise<DecodedGltf | null> {
     try {
-        return await ensureDecoded(src, clip, targets);
+        return await ensureDecoded(src, clip, targets, live);
     } catch (e) {
         if (state.disposed) return null;
         throw e;
@@ -1185,12 +1314,14 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
     const a = entry.assembled as AssembledGltf;
     const base = activate(entry);
     const meshIds = registerGeometry(a.geometry, entry.decoded.scene.meshes.length);
+    wireLive(device, a.live, meshIds); // fills the live meshes' slots + the per-build LiveSkin/skinParams wiring
     const desc = describe(
         entry.decoded.scene,
         meshIds,
         base,
         entry.decoded.textured,
         entry.decoded.vats,
+        entry.decoded.liveMeshes,
     );
     for (const h of desc.meshes) routes.set(h.mesh, h);
     ensureUnion(); // kicks off the frame-staged union upload; textures pop in over N frames, geometry is ready now
@@ -1208,24 +1339,31 @@ export async function register(state: State, decoded: DecodedGltf): Promise<Gltf
  * {@link placeScene} for the whole asset. (A scene referencing a primitive by name, `<a part="mesh: …#0">`,
  * needs no call at all: {@link GltfPlugin}'s preloader imports it before load.) Call it from your
  * plugin's `initialize` or `warm` (both awaited, the device is up, the loading screen covers it) so the
- * registered mesh names resolve when you place them. Cached by `(url, clip)`, so a repeat load (the editor's rebuild)
+ * registered mesh names resolve when you place them. Cached by `(url, clip)`, so a repeat load (a live host's rebuild)
  * reuses the decode + GPU upload. Multiple distinct textured / skinned sources coexist in one scene. The
  * descriptor + mesh names are ready the moment this resolves, but the union's textures upload across the next
  * frames (the build is frame-budgeted to avoid a freeze), so a first-loaded textured asset renders on the 1×1
  * fallback for a few frames before the textures pop in.
  *
+ * `live` forces the **live joint-palette** route for the asset's skinned meshes: the mesh renders the bind
+ * pose until a producer (a physics ragdoll, a scripted driver) poses it via `LiveSkin`, so no clip is baked
+ * to a VAT. A clip-less rig auto-rescues to live without the flag; the flag is for a *bakeable* rig you want
+ * to pose at runtime (the ragdoll case). It's part of the cache key, so a VAT load and a live load of one url
+ * are distinct cached assets.
+ *
  * @example
  * const { meshes } = await loadGltf(state, "tree.glb"); // register; place via a scene or placeGltf
  * placeScene(state, await loadGltf(state, "sponza/Sponza.gltf")); // whole environment
+ * placeScene(state, await loadGltf(state, "CesiumMan.glb", { live: true })); // pose it via a producer
  */
 export async function loadGltf(
     state: State,
     url: string,
-    opts: { clip?: number } = {},
+    opts: { clip?: number; live?: boolean } = {},
 ): Promise<GltfImport> {
     const device = Compute.device;
     if (!device) throw new Error("[gltf] no GPU device — call loadGltf after build()");
-    const decoded = await decodeGuarded(state, url, opts.clip ?? 0, pickTargets(device));
+    const decoded = await decodeGuarded(state, url, opts.clip ?? 0, pickTargets(device), opts.live);
     if (!decoded) return emptyImport(); // aborted mid-decode on a torn-down State (register guards post-decode)
     return register(state, decoded);
 }
@@ -1260,7 +1398,7 @@ export const GltfPlugin: Plugin = {
     name: "Gltf",
     components: { Textured, Skin },
     dependencies: [RenderPlugin, SlabPlugin],
-    systems: [RouteSystem, SkinSystem, UnionBuildSystem],
+    systems: [RouteSystem, SkinSystem, LiveSkinSystem, UnionBuildSystem],
     traits: {
         Textured: { defaults: () => ({ id: 0 }), derived: true },
         Skin: { defaults: () => ({ anim: [0, 0, 0, 0] }), derived: true },
@@ -1271,14 +1409,18 @@ export const GltfPlugin: Plugin = {
     // parse. Publishing the fallbacks at warm would clobber a union an `initialize`-time import already
     // published (both write the same `Compute.textures` names) — so they sit here, before any import.
     initialize() {
-        registerSurfaces();
+        registerTexturedSurfaces();
         registerSkinSurfaces();
+        registerLiveSkinSurfaces();
         // the declarative-load seam: scenes naming glTF meshes import them before load resolves the names.
         // Registered here / deleted in dispose, so a disabled plugin leaves no stale resolver.
         Preloads.register({ name: "gltf", resolve: resolveRefs });
         // reset the per-build active set; the `_union` memo survives so a rebuild re-accumulating the same set
         // re-publishes its arrays with no re-upload
         clearActive();
+        // the live joint-palette substrate is a module singleton — reset its layout each build so a State
+        // rebuild starts clean and the next flush republishes `skinData` into the wiped `Compute.buffers`
+        LiveSkin.reset();
         if (!Compute.device) return;
         fallbackTextures(Compute.device);
         fallbackVat(Compute.device);
@@ -1293,5 +1435,6 @@ export const GltfPlugin: Plugin = {
         abortDecodes();
         disposeTextureFallbacks();
         disposeVatFallback();
+        LiveSkin.dispose();
     },
 };

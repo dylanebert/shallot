@@ -4,7 +4,7 @@ import { State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
 import { Transform } from "../transforms";
 import { AudioPlugin, play, Sound, sfx } from "./";
-import { Audio, alloc, byId, free, instrument, polar, slotOf, valid } from "./core";
+import { Audio, alloc, byId, free, getParamPairs, instrument, polar, slotOf, valid } from "./core";
 import { markCooldown, withinCooldown } from "./policy";
 import { flushSamples, keepChannels, resetSampleUploads, Samples } from "./sample";
 
@@ -155,6 +155,190 @@ describe("instrument compiler", () => {
         expect(inst.pitchEntries.length).toBe(1);
         expect(inst.pitchEntries[0].offset).toBe(inst.paramLayout.get("osc.frequency")!);
         expect(inst.pitchEntries[0].baseFreq).toBe(220);
+    });
+
+    test("compiles a delay node with its four params and mix defaulting to bypass", () => {
+        const id = instrument(
+            {
+                nodes: { src: { type: "sample" }, echo: { type: "delay", input: "src" } },
+                output: "echo",
+                values: { "echo.mix": 0.4 },
+            },
+            "test-delay",
+        );
+        const inst = byId(id);
+        expect(inst).toBeDefined();
+        if (!inst) return;
+        for (const param of ["time", "feedback", "damp", "mix"]) {
+            expect(inst.paramLayout.has(`echo.${param}`)).toBe(true);
+        }
+        expect(inst.nodes.map((n) => n.type)).toEqual([7, 8]);
+    });
+
+    test("compiles a dynamics node with its eight params and a compressor default mode", () => {
+        const id = instrument(
+            {
+                nodes: { src: { type: "sample" }, comp: { type: "dynamics", input: "src" } },
+                output: "comp",
+            },
+            "test-dynamics",
+        );
+        const inst = byId(id);
+        expect(inst).toBeDefined();
+        if (!inst) return;
+        for (const param of [
+            "mode",
+            "threshold",
+            "ratio",
+            "knee",
+            "attack",
+            "release",
+            "makeup",
+            "mix",
+        ]) {
+            expect(inst.paramLayout.has(`comp.${param}`)).toBe(true);
+        }
+        expect(inst.nodes.map((n) => n.type)).toEqual([7, 9]);
+        const modeOffset = inst.paramLayout.get("comp.mode")!;
+        expect(
+            getParamPairs(id).some(([offset, value]) => offset === modeOffset && value === 0),
+        ).toBe(true);
+    });
+
+    test("compiles a waveshaper node with mode/drive/mix and mix defaulting to bypass", () => {
+        const id = instrument(
+            {
+                nodes: { src: { type: "sample" }, shape: { type: "waveshaper", input: "src" } },
+                output: "shape",
+            },
+            "test-waveshaper",
+        );
+        const inst = byId(id);
+        expect(inst).toBeDefined();
+        if (!inst) return;
+        for (const param of ["mode", "drive", "mix"]) {
+            expect(inst.paramLayout.has(`shape.${param}`)).toBe(true);
+        }
+        expect(inst.nodes.map((n) => n.type)).toEqual([7, 10]);
+        const mixOffset = inst.paramLayout.get("shape.mix")!;
+        expect(
+            getParamPairs(id).some(([offset, value]) => offset === mixOffset && value === 0),
+        ).toBe(true);
+    });
+
+    test("compiles an eq node with mode/freq/gain/q and gain defaulting to flat", () => {
+        const id = instrument(
+            {
+                nodes: { src: { type: "sample" }, band: { type: "eq", input: "src" } },
+                output: "band",
+            },
+            "test-eq",
+        );
+        const inst = byId(id);
+        expect(inst).toBeDefined();
+        if (!inst) return;
+        for (const param of ["mode", "freq", "gain", "q"]) {
+            expect(inst.paramLayout.has(`band.${param}`)).toBe(true);
+        }
+        expect(inst.nodes.map((n) => n.type)).toEqual([7, 11]);
+        const gainOffset = inst.paramLayout.get("band.gain")!;
+        expect(
+            getParamPairs(id).some(([offset, value]) => offset === gainOffset && value === 1),
+        ).toBe(true);
+    });
+
+    test("compiles chorus and flanger nodes with rate/depth/feedback/mix, mix bypassed", () => {
+        for (const [type, id_] of [
+            ["chorus", 12],
+            ["flanger", 13],
+        ] as const) {
+            const id = instrument(
+                {
+                    nodes: { src: { type: "sample" }, mod: { type, input: "src" } },
+                    output: "mod",
+                },
+                `test-${type}`,
+            );
+            const inst = byId(id);
+            expect(inst).toBeDefined();
+            if (!inst) return;
+            for (const param of ["rate", "depth", "feedback", "mix"]) {
+                expect(inst.paramLayout.has(`mod.${param}`)).toBe(true);
+            }
+            expect(inst.nodes.map((n) => n.type)).toEqual([7, id_]);
+            const mixOffset = inst.paramLayout.get("mod.mix")!;
+            expect(
+                getParamPairs(id).some(([offset, value]) => offset === mixOffset && value === 0),
+            ).toBe(true);
+        }
+    });
+
+    test("compiles a phaser node with a discrete stages param defaulting to four", () => {
+        const id = instrument(
+            {
+                nodes: { src: { type: "sample" }, ph: { type: "phaser", input: "src" } },
+                output: "ph",
+            },
+            "test-phaser",
+        );
+        const inst = byId(id);
+        expect(inst).toBeDefined();
+        if (!inst) return;
+        for (const param of ["rate", "depth", "feedback", "stages", "mix"]) {
+            expect(inst.paramLayout.has(`ph.${param}`)).toBe(true);
+        }
+        expect(inst.nodes.map((n) => n.type)).toEqual([7, 14]);
+        const stagesOffset = inst.paramLayout.get("ph.stages")!;
+        expect(
+            getParamPairs(id).some(([offset, value]) => offset === stagesOffset && value === 4),
+        ).toBe(true);
+    });
+
+    test("compiles a tremolo node with rate/depth and depth defaulting to no-op", () => {
+        const id = instrument(
+            {
+                nodes: { src: { type: "sample" }, trem: { type: "tremolo", input: "src" } },
+                output: "trem",
+            },
+            "test-tremolo",
+        );
+        const inst = byId(id);
+        expect(inst).toBeDefined();
+        if (!inst) return;
+        for (const param of ["rate", "depth"]) {
+            expect(inst.paramLayout.has(`trem.${param}`)).toBe(true);
+        }
+        expect(inst.nodes.map((n) => n.type)).toEqual([7, 15]);
+        const depthOffset = inst.paramLayout.get("trem.depth")!;
+        expect(
+            getParamPairs(id).some(([offset, value]) => offset === depthOffset && value === 0),
+        ).toBe(true);
+    });
+
+    test("cannot modulate a discrete phaser stages count", () => {
+        expect(() =>
+            instrument({
+                nodes: {
+                    lfo: { type: "constant" },
+                    ph: { type: "phaser", input: "lfo" },
+                },
+                output: "ph",
+                modulations: [{ source: "lfo", target: "ph", param: "stages" }],
+            }),
+        ).toThrow(/discrete/);
+    });
+
+    test("cannot modulate a discrete waveshaper or eq mode", () => {
+        expect(() =>
+            instrument({
+                nodes: {
+                    lfo: { type: "constant" },
+                    shape: { type: "waveshaper", input: "lfo" },
+                },
+                output: "shape",
+                modulations: [{ source: "lfo", target: "shape", param: "mode" }],
+            }),
+        ).toThrow(/discrete/);
     });
 
     test("a cyclic graph throws", () => {

@@ -1,4 +1,4 @@
-import { compose, multiply } from "../../engine";
+import { compose, invert, multiply } from "../../engine";
 import { VERTEX_FLOATS } from "../../standard/render/core";
 import type { DracoMesh } from "./draco";
 import type { SkinChannel, SkinInput } from "./vat";
@@ -294,8 +294,28 @@ export interface GltfScene {
      * identity-placed (the bake is in skeleton space, so crowd placement rides the instance matrix).
      */
     skinInputs: (SkinInput | null)[];
+    /** the asset-wide route for its skinned meshes: `true` = the **live** joint-palette path (each skinned
+     *  mesh's {@link SkinInput} is quantized to packed joints/weights + a reach bound, posed at runtime by a
+     *  producer — no VAT bake), `false` = VAT (bake each `skinInputs` entry to a clip texture). Set by
+     *  {@link parse}'s routing: `opts.live` forces live, else a live-eligible rig that isn't VAT-bakeable
+     *  (clip-less / CUBICSPLINE) auto-rescues to live; a bakeable rig stays VAT. */
+    live: boolean;
     /** features this importer skipped, deduped by key: empty for a fully-supported scene */
     unsupported: GltfUnsupported[];
+}
+
+/** one skinned mesh quantized for the live joint-palette path: the per-vertex packed skin influences (the
+ *  `skinData` region-B block {@link LiveSkin.registerMesh} uploads) + the joint count (palette block size,
+ *  header) + the conservative object-space reach sphere the mesh culls against ({@link reachBound}). The
+ *  runtime-posed twin of {@link GltfVat}, derived from a {@link SkinInput} by {@link quantizeLive}. */
+export interface LiveMesh {
+    /** per-vertex u32 of 4×u8 joint slots (indices into the skin's joints), `vertCount` entries */
+    joints: Uint32Array;
+    /** per-vertex u32 of 4×unorm8 weights, renormalized to sum 255 (=1.0, no runtime renorm), `vertCount` */
+    weights: Uint32Array;
+    jointCount: number;
+    /** object-space cull bound `[cx, cy, cz, r]`, centered at the root frame origin */
+    reach: [number, number, number, number];
 }
 
 const COMPONENTS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 } as const;
@@ -812,6 +832,116 @@ export function skinBakeable(gltf: GltfJson): boolean {
     return true;
 }
 
+// whether the document has a skinnable rig for the LIVE joint-palette path: a skin + at least one skinned
+// node whose primitives all carry accessor-backed JOINTS_0 + WEIGHTS_0. Unlike skinBakeable it needs NO
+// animation — a clip-less rig (or a CUBICSPLINE one skinBakeable drops) is live-eligible, posed at runtime by
+// a producer (a physics ragdoll, a scripted driver), no baked clip. The eligibility half of the live route;
+// parse's `live` flag forces it, else it auto-rescues a non-bakeable rig.
+export function liveSkinnable(gltf: GltfJson): boolean {
+    if (!gltf.skins?.length) return false;
+    const skinned = (gltf.nodes ?? []).filter((n) => n.skin !== undefined && n.mesh !== undefined);
+    if (skinned.length === 0) return false;
+    for (const node of skinned) {
+        for (const prim of gltf.meshes![node.mesh!].primitives) {
+            if ((prim.mode ?? TRIANGLES) !== TRIANGLES) continue;
+            if (!primSkinnable(gltf, prim)) return false;
+        }
+    }
+    return true;
+}
+
+// the max joint slots per skin the live path packs into a u8 lane (glTF caps a skin's joints well below this;
+// the palette + header assume it, and a slot must index a u8 lane in the packed JOINTS_0)
+const MAX_LIVE_JOINTS = 256;
+
+/**
+ * quantize a {@link SkinInput} to the live joint-palette payload: per-vertex packed joint slots (4×u8) +
+ * weights (4×unorm8, renormalized to sum 255 so the surface skips a runtime renorm) + the joint count + the
+ * reach bound. The deviceless half of the live route (the VAT `bakeVat` twin); {@link LiveSkin} uploads the
+ * packed streams + the importer culls against `reach`.
+ *
+ * @example
+ * const live = quantizeLive(skinInput);
+ */
+export function quantizeLive(input: SkinInput): LiveMesh {
+    const jointCount = input.joints.length;
+    if (jointCount > MAX_LIVE_JOINTS)
+        throw new Error(
+            `[gltf] a live-skinned mesh's skin has ${jointCount} joints, over the ${MAX_LIVE_JOINTS} the ` +
+                "packed u8 joint slots hold — split the skin or bake it to a VAT instead",
+        );
+    const vertCount = input.restPos.length / 3;
+    const joints = new Uint32Array(vertCount);
+    const weights = new Uint32Array(vertCount);
+    for (let v = 0; v < vertCount; v++) {
+        const o = v * 4;
+        joints[v] =
+            (input.jointIndex[o] & 0xff) |
+            ((input.jointIndex[o + 1] & 0xff) << 8) |
+            ((input.jointIndex[o + 2] & 0xff) << 16) |
+            ((input.jointIndex[o + 3] & 0xff) << 24);
+        weights[v] = packWeights(input.weights, o);
+    }
+    return { joints, weights, jointCount, reach: reachBound(input) };
+}
+
+// pack a vertex's 4 float weights (at offset `o`) to a u32 of 4×unorm8 summing to 255 — so `unpack4x8unorm`
+// decodes to weights summing to 1.0 and the surface needs no runtime renorm. Rounds each lane, then absorbs
+// the sum residual into the largest lane (bounding the per-lane error to ~2/255). A fully-unweighted vertex
+// (sum ≤ 0) packs all-zero — the surface blends nothing → the vertex collapses to the origin, matching
+// bakeVat's unweighted handling (the equivalence authority).
+function packWeights(w: Float32Array, o: number): number {
+    const sum = w[o] + w[o + 1] + w[o + 2] + w[o + 3];
+    if (sum <= 0) return 0;
+    const q = [
+        Math.round((w[o] / sum) * 255),
+        Math.round((w[o + 1] / sum) * 255),
+        Math.round((w[o + 2] / sum) * 255),
+        Math.round((w[o + 3] / sum) * 255),
+    ];
+    let max = 0;
+    for (let k = 1; k < 4; k++) if (q[k] > q[max]) max = k;
+    q[max] += 255 - (q[0] + q[1] + q[2] + q[3]);
+    return q[0] | (q[1] << 8) | (q[2] << 16) | (q[3] << 24);
+}
+
+/**
+ * the conservative object-space cull sphere for a live-skinned mesh, centered at the root frame origin (the
+ * palette is root-relative, so the instance {@link Transform} carries the pose to world). `R = maxᵥ maxₖ(wᵥₖ>0:
+ * |bⱼ| + |restPosᵥ − bⱼ|)` where `bⱼ` is joint j's bind position (`inverse(inverseBind)` translation): a vertex
+ * at rest offset `|restPosᵥ − bⱼ|` from a pivot `|bⱼ|` from the origin reaches at most their sum under any
+ * rotation of that joint — exact for single-joint rotation, conservative for a chain (the gym gate validates
+ * it at max pose). The rest AABB inflated by joint travel, the VAT all-frames-sphere twin.
+ */
+export function reachBound(input: SkinInput): [number, number, number, number] {
+    const jointCount = input.joints.length;
+    const bind = new Float32Array(jointCount * 3);
+    const inv = new Float32Array(16);
+    for (let j = 0; j < jointCount; j++) {
+        invert(input.inverseBind.subarray(j * 16, j * 16 + 16), inv);
+        bind[j * 3] = inv[12];
+        bind[j * 3 + 1] = inv[13];
+        bind[j * 3 + 2] = inv[14];
+    }
+    let r = 0;
+    const vertCount = input.restPos.length / 3;
+    for (let v = 0; v < vertCount; v++) {
+        const px = input.restPos[v * 3];
+        const py = input.restPos[v * 3 + 1];
+        const pz = input.restPos[v * 3 + 2];
+        for (let k = 0; k < 4; k++) {
+            if (input.weights[v * 4 + k] <= 0) continue;
+            const j = input.jointIndex[v * 4 + k];
+            const bx = bind[j * 3];
+            const by = bind[j * 3 + 1];
+            const bz = bind[j * 3 + 2];
+            const reach = Math.hypot(bx, by, bz) + Math.hypot(px - bx, py - by, pz - bz);
+            if (reach > r) r = reach;
+        }
+    }
+    return [0, 0, 0, r];
+}
+
 // decode the glTF-agnostic bake input for one skinned node's primitive: the node hierarchy's base TRS, the
 // clip's channels, the skin's joints + inverse-bind matrices, and the primitive's per-vertex weights + rest
 // geometry. Light (accessor reads only) — the heavy per-frame bake is vat.ts's bakeVat, run GPU-side.
@@ -840,12 +970,14 @@ function decodeSkinInput(
         };
     });
     const roots = gltf.scenes?.[gltf.scene ?? 0]?.nodes ?? gltf.nodes?.map((_, i) => i) ?? [];
-    const anim = gltf.animations![animIndex] ?? gltf.animations![0];
+    // a clip-less rig (the live path) has no animation — empty channels, duration 0; the live route ignores
+    // them (it quantizes joints/weights + geometry, not the clip), so this stays a valid SkinInput
+    const anim = gltf.animations?.[animIndex] ?? gltf.animations?.[0];
     const channels: SkinChannel[] = [];
     let duration = 0;
-    for (const ch of anim.channels) {
+    for (const ch of anim?.channels ?? []) {
         if (ch.target.path === "weights" || ch.target.node === undefined) continue;
-        const s = anim.samplers[ch.sampler];
+        const s = anim!.samplers[ch.sampler];
         const times = readFloats(gltf, buffers, s.input);
         channels.push({
             node: ch.target.node,
@@ -883,18 +1015,21 @@ function decodeSkinInput(
 
 // scan a document for features the importer skips, deduped by a stable key (extension name or category). The
 // loader logs these once; the conformance suite asserts the set per model. Detection only — no decode. When
-// the skinned+animated content is VAT-bakeable (skinBakeable), `skin`/`animation` are NOT flagged — the
-// importer handles them; otherwise both stay flagged (e.g. CUBICSPLINE, or animation without a skin).
+// the skinned content is handled (VAT-bakeable, or routed to the live palette path), `skin`/`animation` are
+// NOT flagged — the importer renders them; otherwise both stay flagged (e.g. an animation without a skin).
 function scanUnsupported(
     gltf: GltfJson,
     dracoAvailable: boolean,
     meshoptAvailable: boolean,
+    useLive: boolean,
 ): GltfUnsupported[] {
     const found = new Map<string, GltfUnsupported>();
     const flag = (feature: string, detail?: string) => {
         if (!found.has(feature)) found.set(feature, detail ? { feature, detail } : { feature });
     };
-    const bakeable = skinBakeable(gltf);
+    // the skinned content renders when it's bakeable OR routed live (posed at runtime); either way its skin +
+    // any clip is handled, not skipped
+    const handled = skinBakeable(gltf) || useLive;
 
     for (const ext of gltf.extensionsRequired ?? []) {
         if (!supportedExtension(ext, dracoAvailable, meshoptAvailable))
@@ -904,9 +1039,9 @@ function scanUnsupported(
         if (!supportedExtension(ext, dracoAvailable, meshoptAvailable) && !found.has(ext))
             flag(ext, "extension");
     }
-    if (gltf.animations?.length && !bakeable)
+    if (gltf.animations?.length && !handled)
         flag("animation", `${gltf.animations.length} animations`);
-    if (gltf.skins?.length && !bakeable) flag("skin", `${gltf.skins.length} skins`);
+    if (gltf.skins?.length && !handled) flag("skin", `${gltf.skins.length} skins`);
 
     for (const m of gltf.meshes ?? []) {
         for (const prim of m.primitives) {
@@ -914,7 +1049,7 @@ function scanUnsupported(
             const a = prim.attributes;
             if (a.TEXCOORD_1 !== undefined) flag("texcoord-1", "second UV set");
             if (a.COLOR_0 !== undefined) flag("vertex-color");
-            if (!bakeable && (a.JOINTS_0 !== undefined || a.WEIGHTS_0 !== undefined))
+            if (!handled && (a.JOINTS_0 !== undefined || a.WEIGHTS_0 !== undefined))
                 flag("skin", "skinning attributes");
             if (prim.targets?.length) flag("morph", `${prim.targets.length} targets`);
             for (const idx of [a.POSITION, prim.indices]) {
@@ -968,6 +1103,7 @@ export function parse(
     decodeDraco?: DracoDecode,
     decodeMeshopt?: MeshoptDecode,
     animIndex = 0,
+    live = false,
 ): GltfScene {
     // decompress meshopt bufferViews up front so the accessor reads below see plain views (the companion
     // KHR_mesh_quantization is dequantized in readFloats); a no-op when no view carries the extension. A decode
@@ -986,11 +1122,17 @@ export function parse(
     const meshes: GltfMesh[] = [];
     const skinInputs: (SkinInput | null)[] = [];
 
-    // a skinned mesh can't share geometry across poses, so its primitives bake to per-node VAT entries in
-    // the scene walk (phase 2); the static dedup decode below skips them.
+    // a skinned mesh can't share geometry across poses, so its primitives get their own entries in the scene
+    // walk (phase 2) whether baked (VAT) or posed live; the static dedup decode below skips them. The route:
+    // `live` (an import opt-in) forces the live path; else a live-eligible **clip-less** rig auto-rescues to
+    // live (nothing to bake), while an animated-but-unbakeable rig (e.g. CUBICSPLINE) stays flagged — silently
+    // dropping its clip to a static bind pose would surprise. `useLive` decides the whole asset's skinned
+    // meshes together (the cache keys on it, so one asset is one path).
     const bakeable = skinBakeable(gltf);
+    const useLive = live || (!gltf.animations?.length && liveSkinnable(gltf));
+    const handled = bakeable || useLive;
     const skinnedMeshes = new Set<number>(
-        bakeable
+        handled
             ? (gltf.nodes ?? [])
                   .filter((n) => n.skin !== undefined && n.mesh !== undefined)
                   .map((n) => n.mesh!)
@@ -1070,6 +1212,7 @@ export function parse(
         materials: decodeMaterials(gltf),
         images,
         skinInputs,
-        unsupported: scanUnsupported(gltf, decodeDraco !== undefined, meshoptOk),
+        live: useLive,
+        unsupported: scanUnsupported(gltf, decodeDraco !== undefined, meshoptOk, useLive),
     };
 }

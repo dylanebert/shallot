@@ -31,6 +31,10 @@
                 padding: 48px;
                 font-family: "JetBrains Mono", ui-monospace, monospace;
                 color: #f0ece8;
+                /* the list overflows the viewport at ~60 scenarios (body is overflow:hidden); scroll it.
+                   max-height (not height) leaves a short list unchanged — no scrollbar, no reflow. */
+                max-height: 100vh;
+                overflow-y: auto;
             }
             #index h1 {
                 font-size: 18px;
@@ -44,6 +48,8 @@
             #index nav {
                 display: flex;
                 flex-direction: column;
+                /* links shrink to their own text — the click surface is the entry, not the full row */
+                align-items: flex-start;
                 gap: 2px;
             }
             #index a {

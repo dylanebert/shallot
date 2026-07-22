@@ -1,0 +1,54 @@
+<scene>
+    <a ambient-light="color: 0x2b3242; intensity: 0.7" />
+    <a
+        directional-light="direction: -0.5 -1 -0.55; color: 0xfff2dc; intensity: 2.4"
+        shadow="distance: 24"
+    />
+    <a point-light="color: 0xff6a2c; intensity: 6; range: 8" transform="pos: 2.8 1.6 1.6" />
+
+    <a
+        id="camera"
+        camera
+        sear
+        glaze
+        orbit="distance: 9; yaw: 0.6; pitch: 0.3"
+        backdrop="name: gradient"
+        transform
+    />
+
+    <!-- a ground plane the spheres cast their sun shadow onto -->
+    <a part="mesh: cube" transform="pos: 0 -0.8 0; scale: 16 0.2 16" color="rgba: 0.46 0.49 0.53" />
+
+    <!-- sear's default PBR surface, each sphere carrying its own Material lanes -->
+    <a
+        part="mesh: sphere"
+        material="metallic: 1; roughness: 0.22"
+        transform="pos: -2.6 0.2 0"
+        color="rgba: 0.95 0.76 0.35"
+    />
+    <a
+        part="mesh: sphere"
+        material="roughness: 0.4"
+        transform="pos: -0.9 0.2 0"
+        color="rgba: 0.86 0.33 0.29"
+    />
+    <a
+        part="mesh: sphere"
+        material="roughness: 0.12; emissive: 3"
+        transform="pos: 0.8 0.2 0"
+        color="rgba: 0.33 0.83 0.95"
+    />
+
+    <!-- the plugin's own custom surfaces, registered in src/surfaces.ts -->
+    <a part="surface: checker" transform="pos: 2.6 0.2 0" />
+    <a
+        part="surface: glass; mesh: sphere"
+        transform="pos: 2.6 0.2 1.8"
+        color="rgba: 0.4 0.7 1 0.5"
+    />
+    <a
+        part="surface: clay; mesh: sphere"
+        transform="pos: 2.6 0.2 -1.8"
+        color="rgba: 0.78 0.44 0.34"
+    />
+</scene>

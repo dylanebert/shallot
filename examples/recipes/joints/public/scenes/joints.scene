@@ -1,0 +1,8 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" shadow />
+
+    <a id="camera" camera sear transform orbit="distance: 20; yaw: 0.6; pitch: 0.35; pan: 0 4 0" />
+
+    <a body="pos: 0 0 0; half-extents: 14 0.5 14; mass: 0" part color="rgba: 0.4 0.42 0.46" />
+</scene>

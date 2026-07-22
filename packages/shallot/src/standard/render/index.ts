@@ -31,10 +31,10 @@ import {
     bindCamera,
     clearOffscreens,
     clearScratch,
-    detachCanvas,
     MAX_SLOTS,
     MAX_VIEWS,
     offscreen,
+    pruneViews,
     sizeView,
     VIEW_STRIDE,
     VIEW_UNIFORM_SIZE,
@@ -84,9 +84,10 @@ export const BeginFrameSystem: System = {
 
         // auto-bind's inverse. A destroyed camera leaves a stale View whose ResizeObserver leaks
         // and whose eid, once recycled, re-binds to the wrong canvas. Membership is the liveness
-        // signal (re-derived each frame, the gate Part's pack also applies), so a View lacking a
-        // live Camera is dropped here.
-        for (const eid of Views.keys()) if (!state.has(eid, Camera)) detachCanvas(eid);
+        // signal (re-derived each frame, the gate Part's pack also applies) and the create-stamp
+        // catches a same-update realias membership misses, so a View lacking a live camera — or bound
+        // to a recycled eid — is dropped here.
+        pruneViews(state);
 
         Render.encoder = device.createCommandEncoder({ label: "kitchen-frame" });
         writeFrame(state);
@@ -101,6 +102,8 @@ export const BeginFrameSystem: System = {
         // off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
         // cheap slots run to MAX_SLOTS
         const pack = (eid: number, view: View, shading: boolean) => {
+            // record the live camera's create-stamp so next frame's pruneViews detects a realias
+            view.stamp = state.stamp(eid);
             view.slot = count;
             const offset = count * slotFloats;
             const viewProj = Render.viewStaging.subarray(offset, offset + 16);
@@ -163,7 +166,7 @@ export const BeginFrameSystem: System = {
         for (const eid of state.query([Camera])) {
             // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
-            const view = bindCamera(eid);
+            const view = bindCamera(eid, state);
             if (!view) continue;
             // derive the backing store from the display size + the camera's `Resolution` pin before any
             // consumer reads view.width/height (the offscreen + present below, the cluster pack above)
@@ -272,7 +275,7 @@ async function initRender(): Promise<void> {
 
     // clear the render registries so each build re-registers from a clean slate (ecs.md "clear then
     // rebuild"). This runs in RenderPlugin.initialize, before any producer / sear re-registers (they
-    // depend on RenderPlugin), so a producer toggled off in the editor leaves no stale surface / draw /
+    // depend on RenderPlugin), so a producer toggled off leaves no stale surface / draw /
     // mesh behind to be drawn against its torn-down buffers. A same-set rebuild is unchanged (every
     // plugin re-registers); a first build clears empty registries (a no-op).
     Surfaces.clear();

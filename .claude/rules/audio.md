@@ -6,9 +6,9 @@ paths:
 
 # Audio
 
-Reference: `docs/standard/audio.md` for architecture, playback patterns, and API surface.
-
-> The **kernel-behavior** sections below (voice lifecycle, instrument completeness, metadata params, gain staging, gotchas) describe the frozen `rust/audio/` kernel + `worklet.ts`. The **Layers** section describes the live `standard/audio` JS layer.
+> The **kernel-behavior** sections below (voice lifecycle, instrument completeness, metadata params, gain staging, gotchas) describe the stable `rust/audio/` kernel + `worklet.ts`. The **Layers** section describes the live `standard/audio` JS layer.
+>
+> The kernel carries the full standard insert rack (delay, dynamics, waveshaper, EQ, chorus, flanger, phaser, tremolo) alongside the synth primitives — every effect transcribed from a permissive reference and bit-checked against `src/golden.rs`. Adding a node is a real reopening, not routine: a new `NodeType`, its `graph.rs` dispatch + `NodeState`/`delay_lines` init in `set_voice_instrument` (lib.rs), a golden vector, a behavioral test, and the `instrument.ts` table rows. Effect DSP is a few floats inline in the Copy `NodeState`; sample-buffer nodes (delay, chorus, flanger) box a `DelayLine` in the `Voice.delay_lines` side-array keyed by node index, allocated on the control path like `Voice.convolver`.
 
 ## Layers
 

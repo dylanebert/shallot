@@ -2,10 +2,17 @@
 import { resolve } from "node:path";
 import { buildProject } from "./build";
 import { startDev } from "./dev";
-import { startEdit } from "./edit";
 import { runProject } from "./run";
 
 const raw = process.argv.slice(2);
+
+// `verify` owns its own flag set (--dist, --screenshot, --query, --timeout, --json), so route it before
+// the shared dev/build/run parse rather than teaching that loop every verify flag.
+if (raw[0] === "verify") {
+    const { runVerify } = await import("./verify");
+    process.exit(await runVerify(raw.slice(1)));
+}
+
 const positionalArgs: string[] = [];
 let target: string | undefined;
 let release = false;
@@ -39,19 +46,17 @@ for (let i = 0; i < raw.length; i++) {
     }
 }
 
-if (help) {
-    console.log(`
-  shallot — run, edit, and build a shallot project
+const usage = `
+  shallot — run and build a shallot project
 
   Usage
-    shallot [command] [dir] [options]
+    shallot <command> [dir] [options]
 
   Commands
-    (none)    Open the project in the editor (default)
-    edit      Open the project in the editor
     dev       Run the project standalone, with hot reload
     build     Build for distribution
     run       Build and run
+    verify    Boot the project in a headless browser and check it renders (shallot verify --help)
 
   Options
     --target <platform>   web (default), windows, mac, linux
@@ -59,30 +64,32 @@ if (help) {
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
                           Larger, but self-contained and runs anywhere. Required on Linux
                           (WebKitGTK has no usable WebGPU) and for apps needing subgroups on macOS.
-    --port <n>            Server port (dev, edit, run)
+    --port <n>            Server port (dev, run)
     --strict-port         Fail if the port is in use instead of picking another
     -h, --help            Show this help
 
   Examples
-    shallot                      Edit the current project
     shallot dev                  Run with hot reload
     shallot build --target mac   Build a macOS app (system WKWebView)
     shallot build --target linux --portable   Build a self-contained Linux app
-`);
+`;
+
+if (help) {
+    console.log(usage);
     process.exit(0);
 }
 
-const subcommands = ["edit", "dev", "build", "run"];
-const first = positionalArgs[0];
-const isSubcmd = first != null && subcommands.includes(first);
-// bare `shallot [dir]` opens the editor — the headline harness; `dev` runs the project standalone.
-const subcmd = isSubcmd ? first : "edit";
-const dir = isSubcmd ? positionalArgs[1] || "." : first || ".";
+const subcommands = ["dev", "build", "run"];
+const subcmd = positionalArgs[0];
+// bare `shallot [dir]` names no command — print usage rather than guess one.
+if (subcmd == null || !subcommands.includes(subcmd)) {
+    console.log(usage);
+    process.exit(subcmd == null ? 0 : 1);
+}
+const dir = positionalArgs[1] || ".";
 const projectDir = resolve(dir);
 
-if (subcmd === "edit") {
-    await startEdit(projectDir, { port, strictPort });
-} else if (subcmd === "dev") {
+if (subcmd === "dev") {
     // native webviews can't HMR — `dev --target <native>` is a debug build + run (run without --release)
     if (target && target !== "web") {
         await runProject(projectDir, { target, port, release: false, portable });

@@ -404,7 +404,7 @@ export function flushMeshes(): void {
 /**
  * drop every registered mesh + any staged-but-unflushed data, resetting the registry for a fresh build
  * (`RenderPlugin.initialize`, ecs.md "clear then rebuild"). Static producers re-stage via {@link mesh} in
- * their own initialize, so a producer toggled off in the editor leaves no stale slice to be paired against
+ * their own initialize, so a producer toggled off leaves no stale slice to be paired against
  * a live surface (the pack registers a Draw per `(surface, mesh)` pair, including a dead one otherwise).
  */
 export function clearMeshes(): void {

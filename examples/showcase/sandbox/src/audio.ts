@@ -1,6 +1,7 @@
 import { type Mirror, play, Sound, type State, type System } from "@dylanebert/shallot";
 import { type InstrumentDef, instrument } from "@dylanebert/shallot/audio/core";
-import { type PhysicsStep, qRotate } from "@dylanebert/shallot/physics/core";
+import type { PhysicsStep } from "@dylanebert/shallot/avbd/core";
+import { qRotate } from "@dylanebert/shallot/physics/core";
 import { Brick } from "./spawn";
 
 // The synthetic SFX — three modal instruments (no sample assets) + the contact-driven impact system.

@@ -5,7 +5,7 @@ import {
     CONTACTS_PER_PAIR,
     checkContactStore,
     PAIRS_PER_BODY,
-} from "../../src/standard/physics/step";
+} from "../../src/standard/avbd/step";
 
 // the Phase-4.9 device-limit guard: the per-eid contact store is the step's largest single storage binding,
 // and at a high capacity it exceeds the WebGPU spec defaults. The guard (a pure size-vs-limit check, so it

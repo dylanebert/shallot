@@ -81,7 +81,9 @@ export function writeCompressedLayer(
 /**
  * a 1×1 single-layer array, the absent-slot fallback so a surface binding always resolves (a missing texture
  * would skip the whole draw). Color slots are sRGB, data slots (normal / metallic-roughness / occlusion)
- * linear, but the palette layer is `-1` for every material on a fallback, so the sample is always discarded.
+ * linear. Its content is never sampled: a material on a fallback carries palette layer `-1`, and both readers
+ * short-circuit it — `sampleAlbedo` returns white (the glTF baseColorFactor default) for `layer < 0`, and an
+ * absent data map emits no sample at all (`materialPreamble`, gated by the map-set bitmask).
  */
 export function fallback1x1(device: GPUDevice, format: GPUTextureFormat): GPUTexture {
     return device.createTexture({

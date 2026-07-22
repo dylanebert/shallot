@@ -301,10 +301,6 @@ const SoundSystem: System = {
 
         tickAudio();
     },
-    dispose(state) {
-        for (const eid of state.query([Voiced])) free(Sound.voice.get(eid));
-        disposeAudio();
-    },
 };
 
 /**
@@ -361,7 +357,11 @@ export const AudioPlugin: Plugin = {
         },
         Listener: { requires: [Transform] },
     },
-    async initialize() {
+    async initialize(state) {
+        // the whole audio teardown (worklet + context + host listeners + heartbeat) rides the State's
+        // lifetime — registered up front so a partial init that then throws still tears down; disposeAudio
+        // is idempotent, so the top-of-initAudio reinit and this dispose can't double-free.
+        state.onDispose(disposeAudio);
         try {
             await initAudio();
         } catch {

@@ -209,7 +209,7 @@ export function mountToolbar(): {
     dispose: () => void;
 } {
     // the toolbar lives in the engine's sandboxed overlay (`mountOverlay`) — the canvas-bounded surface,
-    // not `document.body` (a fixed bar there spills over the editor viewport).
+    // not `document.body` (a fixed bar there spills past the canvas, into the rest of the page).
     const overlay = mountOverlay(document.querySelector("canvas"));
     const style = document.createElement("style");
     style.textContent = TOOLBAR_CSS;

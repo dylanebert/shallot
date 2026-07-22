@@ -1,7 +1,0 @@
-{
-  "scene": "scenes/scene.scene",
-  "plugins": {
-    "Orbit": true,
-    "Save": "./src/save"
-  }
-}

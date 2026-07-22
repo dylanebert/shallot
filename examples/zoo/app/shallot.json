@@ -1,7 +1,0 @@
-{
-  "scene": "scenes/app.scene",
-  "plugins": {
-    "Orbit": true,
-    "Hud": "./src/hud"
-  }
-}

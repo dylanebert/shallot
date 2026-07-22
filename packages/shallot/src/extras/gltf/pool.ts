@@ -10,7 +10,7 @@ import type { DecodeReply, DecodeRequest } from "./worker";
 // parallel, off the main thread — no hitch. Module-level + lazy like the codec singletons (loadDraco /
 // loadBasis): the workers spawn once and survive every State rebuild, never torn down in a lifecycle hook.
 // One decode implementation, two call sites — where Worker is absent (bun-webgpu / tests) the pool runs
-// `decode` inline, never a second decode. Abort + dead-State guards are sub-stage 4d.
+// `decode` inline, never a second decode.
 
 // leave a core for the main thread; cap low — each worker instantiates the Draco + Basis wasm, so more workers
 // cost memory (three.js' DRACOLoader defaults a workerLimit of 4). A tuning constant.
@@ -94,16 +94,18 @@ export function abortDecodes(): void {
  */
 export function poolDecode(
     url: string,
-    opts: { clip?: number; targets?: Targets; priority?: number } = {},
+    opts: { clip?: number; targets?: Targets; priority?: number; live?: boolean } = {},
 ): Promise<DecodedGltf> {
     const clip = opts.clip ?? 0;
+    const live = opts.live ?? false;
     // inline where there's no browser worker context (bun-webgpu / tests): no `location` to absolutize against
     // and no module-worker bundling. bun defines `Worker` but not `location`, so gate on the document url.
     if (typeof location === "undefined" || typeof Worker === "undefined")
-        return decode(url, { clip, targets: opts.targets });
+        return decode(url, { clip, targets: opts.targets, live });
     const req: DecodeRequest = {
         url: new URL(url, location.href).href,
         clip,
+        live,
         targets: opts.targets,
     };
     return ensurePool().submit(req, opts.priority ?? 0);

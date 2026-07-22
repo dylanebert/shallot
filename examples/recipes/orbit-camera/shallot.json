@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/orbit-camera.scene",
+  "plugins": {
+    "Orbit": true,
+    "OrbitOverlay": true,
+    "OrbitTune": "./src/tune"
+  }
+}

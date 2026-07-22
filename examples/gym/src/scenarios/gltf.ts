@@ -24,7 +24,7 @@ import { now, requestGPU } from "@dylanebert/shallot/runtime";
 import { type Check, frames, type Params, register, type Scenario } from "../gym";
 
 // gltf — the asset lifecycle atom: load → dispose/rebuild (cache hit) → unload (invalidate) → reload, the
-// substrate of the editor's play/stop and a standalone HMR. The render scenario's gltf-* modes cover a single
+// substrate of a live host's play/stop and a standalone HMR. The render scenario's gltf-* modes cover a single
 // build's import correctness; this one covers what survives a State rebuild. The bug it pins: `build()` calls
 // `requestGPU(device)` which wipes `Compute.textures`/`buffers` to empty maps every build (the engine's
 // clear-then-rebuild contract — each producer re-publishes its slots), but the glTF union memo
@@ -124,14 +124,14 @@ const scenario: Scenario = {
         loadMs = { first: 0, rebuild: 0 };
         loadJankMs = { first: 0, rebuild: 0 };
 
-        // reuse ONE device across every build — the editor substrate (its `ensureDevice`): a play/stop rebuild
-        // reuses the device, so the module-level asset cache + union survive it. Acquiring per build (run's
-        // default) would hand each build a fresh device and the cache's GPU resources would belong to a dead one.
+        // reuse ONE device across every build — a live host's play/stop rebuild reuses the device, so the
+        // module-level asset cache + union survive it. Acquiring per build (run's default) would hand each
+        // build a fresh device and the cache's GPU resources would belong to a dead one.
         const device = (await requestGPU()).device;
 
         // warm the once-per-process costs (decode worker pool + Draco/Basis WASM + sear/blit pipeline compiles)
-        // so the measured leg A reflects the per-load UNION BUILD, not the one-time cold-start the editor pays at
-        // startup behind a loading cover. Without this, leg A's stall is dominated by ~175ms of worker+pipeline
+        // so the measured leg A reflects the per-load UNION BUILD, not the one-time cold-start a live host pays
+        // at startup behind a loading cover. Without this, leg A's stall is dominated by ~175ms of worker+pipeline
         // warm-up that has nothing to do with the texture upload this scenario gates.
         const warm = await cycle(device, renderStack);
         await loadGltf(warm.state, src);
@@ -139,7 +139,7 @@ const scenario: Scenario = {
         warm.dispose();
         invalidate(src);
 
-        // leg A — cold UNION load (worker + pipelines warm, union cache-cold): the editor's runtime-load path. The
+        // leg A — cold UNION load (worker + pipelines warm, union cache-cold): a live host's runtime-load path. The
         // staged build spreads the upload across frames, so the stall is per-frame budget, not one 168ms freeze.
         const a = await cycle(device, renderStack);
         const first = await timedLoad(a.state, src);
@@ -160,7 +160,7 @@ const scenario: Scenario = {
         trace.redecodes = gltfCacheStats().decodes;
         c.dispose();
 
-        // leg B — the cache-hit rebuild (the editor play/stop), the returned live state. requestGPU wiped
+        // leg B — the cache-hit rebuild (a live host's play/stop), the returned live state. requestGPU wiped
         // Compute.textures at this build and the union memo survives from C: the exact path the black-on-replay
         // bug lived on. The union must re-publish into the wiped map (no re-decode, no re-upload).
         const b = await cycle(device, liveStack);

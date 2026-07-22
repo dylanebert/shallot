@@ -1,0 +1,26 @@
+<scene>
+    <a ambient-light="color: 0xd0dcec" />
+    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" />
+
+    <a id="camera" camera sear transform orbit="distance: 8; yaw: 0.4; pitch: 0.22" />
+
+    <a id="ground" part transform="pos: 0 -1 0; scale: 8 0.15 8" color="rgba: 0.28 0.3 0.34" />
+
+    <!-- retained world-space text: a static title and a live counter, anchored to the signboard -->
+    <a id="sign" part transform="pos: -2.6 1.2 0; scale: 3 1.6 0.2" color="rgba: 0.3 0.32 0.38" />
+    <a
+        text="anchor: 0.5; content: SHALLOT; font-size: 0.5; color: 0xffcc44"
+        transform="pos: -2.6 1.55 0.11"
+    />
+    <a
+        counter
+        text="anchor: 0.5; font-size: 0.32; color: 0x9fe0ff"
+        transform="pos: -2.6 0.9 0.11"
+    />
+
+    <!-- retained line + arrow: an RGB axis gizmo on the hub (both ride the entity's transform) -->
+    <a id="hub" part transform="pos: 2.6 0 0; scale: 0.5" color="rgba: 0.55 0.58 0.66" />
+    <a line="offset: 2 0 0; thickness: 4; color: 0xff5566" arrow transform="pos: 2.6 0 0" />
+    <a line="offset: 0 2 0; thickness: 4; color: 0x66dd77" arrow transform="pos: 2.6 0 0" />
+    <a line="offset: 0 0 2; thickness: 4; color: 0x5599ff" arrow transform="pos: 2.6 0 0" />
+</scene>

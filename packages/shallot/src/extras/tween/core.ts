@@ -1,18 +1,5 @@
 import { getEasing } from "./easing";
 
-// #doc:dev
-// ### The timing atom
-//
-// The tween core is the Web Animations model as pure functions over numbers, with no ECS, no entity, no
-// stored state. `sample(t)` maps a local time to the value to write; `owns(t)` decides whether to write
-// it at all (the `Fill` tails). The `Tween` component and `TweenSystem` drive these, and the
-// sequence layer positions `elapsed`. The atom itself just answers "what value, and does it apply".
-//
-// Build a custom effect kind against it: a spring, a scripted camera move, an animation over something
-// that isn't an entity field. Call `sample` / `owns` over your own time source and reuse the shared
-// easing surface (`getEasing`, `EASING_FUNCTIONS`). The semantics follow WAAPI (composite + fill +
-// timing), so the model is proven rather than bespoke.
-
 export { EASING_FUNCTIONS, type Easing, getEasing, getEasingIndex, getEasingName } from "./easing";
 
 /** how a sampled value combines with the field's current value (WAAPI composite). */

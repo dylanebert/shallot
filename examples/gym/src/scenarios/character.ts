@@ -17,7 +17,6 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
-    PhysicsPlugin,
     Player,
     PlayerPlugin,
     type Plugin,
@@ -32,9 +31,10 @@ import {
     Transform,
     TransformsPlugin,
 } from "@dylanebert/shallot";
+import { AvbdPlugin } from "@dylanebert/shallot/avbd";
+import { Avbd, BODY_VEC4, PENALTY_MIN } from "@dylanebert/shallot/avbd/core";
 import { grounded, jump, move, pose } from "@dylanebert/shallot/character/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import { BODY_VEC4, PENALTY_MIN, Physics } from "@dylanebert/shallot/physics/core";
 import type { Vec3 } from "../../../../packages/shallot/tests/avbd/math";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 import { disposeLoad, getLoad, LoadPlugin, setLoad } from "../load";
@@ -104,7 +104,7 @@ const DriverPlugin: Plugin = {
             name: "char-driver",
             group: "fixed",
             update() {
-                if (!Physics.step) return;
+                if (!Avbd.step) return;
                 for (const [eid, [vx, vz]] of moves) move(eid, vx, vz);
                 for (const eid of jumps) jump(eid); // spam: the single-jump gating lives in the controller
             },
@@ -250,7 +250,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                PhysicsPlugin,
+                AvbdPlugin,
                 CharacterPlugin,
                 DriverPlugin,
                 PartPlugin,
@@ -261,7 +261,7 @@ const scenario: Scenario = {
 
         state.add(state.create(), AmbientLight);
         state.add(state.create(), DirectionalLight);
-        Physics.step?.configure(cfg);
+        Avbd.step?.configure(cfg);
 
         // one shared flat floor for the drop / wall / push stations, laid out in z-lanes. top at y = 0.5, so
         // a settled capsule rests at y = 1.3.
@@ -349,7 +349,7 @@ const scenario: Scenario = {
         Orbit.distance.set(cam, 38);
 
         await frames(3);
-        if (Physics.step) bodyMirror = mirror(Physics.step.bodies);
+        if (Avbd.step) bodyMirror = mirror(Avbd.step.bodies);
 
         // run + sample across the window — ~3 s of sim (headless rAF rate × fixed step 60 Hz). Record the push
         // char/box trajectory (the carry, surfaced in the push detail). The slope check reads only the settled
@@ -415,7 +415,7 @@ async function buildProbe(p: Params): Promise<{ state: State; dispose: () => voi
             TransformsPlugin,
             InputPlugin,
             RenderPlugin,
-            PhysicsPlugin,
+            AvbdPlugin,
             CharacterPlugin,
             PlayerPlugin,
             PartPlugin,
@@ -427,7 +427,7 @@ async function buildProbe(p: Params): Promise<{ state: State; dispose: () => voi
 
     state.add(state.create(), AmbientLight);
     state.add(state.create(), DirectionalLight);
-    Physics.step?.configure(cfg);
+    Avbd.step?.configure(cfg);
 
     // a clear flat floor; top at y = 0.5, so the player rests at y = 1.3.
     staticBox(state, [0, 0, 0], [40, 0.5, 40], [0.28, 0.3, 0.34]);
@@ -778,8 +778,8 @@ async function measured(): Promise<Check> {
     const data: Record<string, number> = {};
     for (const n of STEP_PASSES) data[n] = get(n);
     const full = STEP_PASSES.reduce((sum, n) => sum + data[n], 0);
-    data.dispatchedColors = Physics.step?.dispatchedColors ?? 0;
-    data.bytes = Physics.step?.bytes ?? 0;
+    data.dispatchedColors = Avbd.step?.dispatchedColors ?? 0;
+    data.bytes = Avbd.step?.bytes ?? 0;
     const resolved = get("phys:primal") > 0;
     const label = (n: string): string => n.replace("phys:", "").replace("bvh:", "bvh.");
     const parts = STEP_PASSES.map((n) => `${label(n)} ${data[n].toFixed(3)}`).join(" · ");

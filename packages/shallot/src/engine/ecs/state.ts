@@ -51,6 +51,8 @@ export class State {
     private _components = new Components();
     private _queries = new Queries();
     private _identity = new Identity();
+    private _disposals: (() => void)[] = [];
+    private _controller: AbortController | undefined;
     private _disposed = false;
 
     constructor(opts?: {
@@ -119,6 +121,20 @@ export class State {
     /** snapshot of every alive entity id */
     entities(): readonly number[] {
         return this._entities.all();
+    }
+
+    /**
+     * create-stamp for an entity id, bumped on every allocation (`create`), fresh or recycled. A
+     * consumer holding an eid across frames caches the stamp beside it and compares alongside a
+     * membership check: `has(eid, Component)` catches a plain despawn (destroy leaves the stamp
+     * unchanged), the stamp catches a same-update destroy+create realias that membership misses.
+     * Neither alone suffices. `0` for an eid never created.
+     * @example
+     * const stamp = state.stamp(eid); // cache beside the held eid
+     * if (!state.has(eid, Body) || state.stamp(eid) !== stamp) evict(); // despawn or realias
+     */
+    stamp(eid: number): number {
+        return this._entities.stamp(eid);
     }
 
     /**
@@ -276,11 +292,54 @@ export class State {
         return this._disposed;
     }
 
+    /**
+     * register a teardown callback tied to this State's lifetime. Callbacks run in LIFO order (last
+     * registered, first run) at {@link dispose}, so a DOM mount, listener, or rAF loop keeps its cleanup
+     * beside its creation site. A callback registered after dispose has already run fires immediately
+     * (paired with {@link signal}, already aborted), so a late async step never leaks silently.
+     * @example
+     * const el = document.createElement("div");
+     * container.appendChild(el);
+     * state.onDispose(() => el.remove());
+     */
+    onDispose(fn: () => void): void {
+        if (this._disposed) {
+            fn();
+            return;
+        }
+        this._disposals.push(fn);
+    }
+
+    /**
+     * an {@link AbortSignal} tied to this State's lifetime, aborted when {@link dispose} runs (already
+     * aborted if read afterward). Pass it as `{ signal }` to `addEventListener`, `fetch`, or any
+     * abortable API to detach on teardown with zero removal code. Lazily created on first read.
+     * @example
+     * window.addEventListener("resize", onResize, { signal: state.signal });
+     */
+    get signal(): AbortSignal {
+        if (!this._controller) this._controller = new AbortController();
+        if (this._disposed && !this._controller.signal.aborted) this._controller.abort();
+        return this._controller.signal;
+    }
+
     /** tear down the world; disposes every registered system */
     dispose(): void {
         if (this._disposed) return;
+        this._disposed = true;
+        this._controller?.abort();
+        // the list now carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
+        // than engine hooks, and LIFO runs them first — a throw must not skip the remaining callbacks or
+        // the scheduler/query teardown below, or it re-opens the leak this list closes. Report, never mask.
+        for (let i = this._disposals.length - 1; i >= 0; i--) {
+            try {
+                this._disposals[i]();
+            } catch (err) {
+                console.error("State.dispose: a teardown callback threw:", err);
+            }
+        }
+        this._disposals.length = 0;
         this._scheduler.dispose(this);
         this._queries.clear();
-        this._disposed = true;
     }
 }

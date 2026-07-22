@@ -4,34 +4,35 @@
     "workspaces": [
         "packages/*",
         "examples/gym",
-        "examples/zoo/*",
-        "examples/templates/*",
+        "examples/flows/*",
+        "examples/recipes/*",
         "examples/showcase/*"
     ],
     "scripts": {
         "build": "bun run --cwd packages/shallot build",
-        "check": "bun run format && tsc && biome check && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run docs:check && bun run scripts/check-starter.ts && bun run scripts/check-fielddocs.ts",
-        "check:svelte": "bun run scripts/check-svelte.ts",
-        "docs:check": "bun run packages/shallot/scripts/docs-check.ts",
+        "check": "bun run format && tsc && biome check && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts",
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun test packages/shallot",
         "test:oracle": "bun test ./packages/shallot/tests/avbd/*.oracle.ts",
-        "test:full": "bun run test && bun run test:oracle",
+        "test:gym": "bun test ./examples/gym/src",
+        "test:full": "bun run test && bun run test:oracle && bun run --cwd packages/shallot test:fixture && bun run test:gym",
         "test:install": "bun run scripts/install-test.ts",
-        "bench": "bun run harness/gym/index.ts",
-        "capture": "bun run scripts/capture.ts",
-        "local": "bun run scripts/local-test.ts"
+        "bench": "bun run scripts/bench.ts",
+        "bench:tumble": "bun run scripts/bench-tumble.ts",
+        "tumble:interaction": "bun run scripts/tumble-interaction.ts",
+        "tumble:repro": "bun run scripts/tumble-repro.ts",
+        "flows": "bun run scripts/flows.ts",
+        "recipes": "bun run scripts/recipes.ts",
+        "local": "bun run scripts/local-test.ts",
+        "eval:setup": "bun run evals/setup.ts",
+        "eval:grade": "bun run evals/grade.ts"
     },
     "devDependencies": {
         "@biomejs/biome": "^2.4.6",
         "@playwright/test": "^1.58.2",
         "@types/pngjs": "^6.0.5",
-        "@vitejs/plugin-react": "^6.0.1",
         "playwright": "^1.58.2",
         "pngjs": "^7.0.0",
-        "react": "^19.2.4",
-        "react-dom": "^19.2.4",
-        "sharp": "^0.34.5",
-        "typescript": "^5.9.3"
+        "typescript": "^7.0.2"
     }
 }

@@ -49,8 +49,7 @@ function normalizeNodes(nodes: Node[]) {
 }
 
 const glob = new Glob("**/*.scene");
-// examples/templates/* are generated from the create-shallot template; leave them byte-identical
-const ignore = ["node_modules", "dist", "_legacy", "examples/templates"];
+const ignore = ["node_modules", "dist", "_legacy"];
 
 let formatted = 0;
 let unchanged = 0;

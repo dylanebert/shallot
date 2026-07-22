@@ -176,6 +176,10 @@ impl ApplicationHandler for App {
                     Some(data) => Response::builder()
                         .header("Content-Type", content_type(path))
                         .header("Access-Control-Allow-Origin", "*")
+                        // COOP/COEP: cross-origin isolation so tumble physics can multithread
+                        // (mirrors the JS serve surfaces' CROSS_ORIGIN_ISOLATION in project/vite.ts)
+                        .header("Cross-Origin-Opener-Policy", "same-origin")
+                        .header("Cross-Origin-Embedder-Policy", "require-corp")
                         .body(data)
                         .unwrap(),
                     None => Response::builder()

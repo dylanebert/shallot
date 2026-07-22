@@ -1,0 +1,9 @@
+{
+    "scene": "scenes/breakable-joints.scene",
+    "plugins": {
+        "Orbit": true,
+        "Tumble": true,
+        "Breakable": "./src/breakable",
+        "BreakableSmoke": "./src/smoke"
+    }
+}

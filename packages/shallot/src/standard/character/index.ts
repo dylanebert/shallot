@@ -1,19 +1,19 @@
 import { f32, type Plugin, type State, type System, sparse } from "../../engine";
-import { type Mirror, MirrorPlugin, mirror } from "../mirror";
-import { Body, PhysicsPlugin, ShapeKind } from "../physics";
-import { type Hull, Hulls, Physics, StepSystem } from "../physics/core";
+import { Body, Physics, ShapeKind } from "../physics";
+import { type Hull, Hulls, type PhysicsBackend, StepSystem } from "../physics/core";
 import { jumped, moves, resetDrive, states } from "./drive";
 import { type CharState, type SweepBody, sweepCharacter } from "./sweep";
 
 // Character — the kinematic capsule controller (Phase 6.4), the base a higher-level controller (the
 // first-person Player) composes. The Character entity IS a capsule Body (mass <= 0) whose pose the CPU
 // SWEEP owns: each fixed tick `CharacterSweepSystem` runs the collide-and-slide (`sweep.ts`, the f32-tier
-// twin of the f64 oracle `tests/avbd/character.ts`) on the CPU, BEFORE the GPU solve, then uploads the
-// swept pose into the GPU `bodies` buffer as a kinematic body (`setKinematic`). So the player's input →
-// pose → camera is a same-frame CPU path with no GPU readback, and the GPU dynamics collide against the
-// CURRENT-tick player. The coupling is one-way: the CPU writes the player's fresh pose (the GPU reads it to
-// push dynamics + carry riders), and the CPU sweep reads dynamic poses one tick stale off a `Mirror` of the
-// `bodies` firehose (a frame-old dynamic pose is fine for the sweep; the static collision world doesn't move).
+// twin of the f64 oracle `tests/avbd/character.ts`) on the CPU, BEFORE the physics solve, then uploads the
+// swept pose as a kinematic body (`Physics.backend.setKinematic`). So the player's input → pose → camera is
+// a same-frame CPU path with no GPU readback, and the backend's dynamics collide against the CURRENT-tick
+// player. The coupling is one-way: the CPU writes the player's fresh pose (the backend reads it to push
+// dynamics + carry riders), and the CPU sweep reads every other body's live pose through the installed
+// backend's pose-read seam (`Physics.backend.readBody`, up to one fixed tick stale for a GPU backend — a
+// frame-old dynamic pose is fine for the sweep; the static collision world doesn't move).
 //
 // This module is the authoring + driving surface: the tuning component, the per-tick sweep system, the
 // eid-keyed drive (move/jump) + the swept-pose / grounded readback a follower (a camera) reads from the
@@ -48,11 +48,6 @@ export const Character = {
     gravity: sparse(f32),
 };
 
-// a Mirror of the GPU `bodies` firehose — the sweep reads dynamic (and moving-platform) candidate poses +
-// velocities from its snapshot (one fixed tick stale). The character's OWN pose comes from its CharState
-// (current, never the Mirror). Lazily allocated once Physics.step exists (after every warm + Mirror.reset).
-let bodyMirror: Mirror | null = null;
-
 // last-registered signature — re-sync `states` ONLY on a change to the authored set / tuning (the GPU
 // register's FNV discipline). FNV_BASIS = the empty set, so a character-free scene never syncs.
 const FNV_BASIS = 2166136261;
@@ -64,11 +59,17 @@ const sigBits = (x: number): number => {
     return _sigU32[0];
 };
 let charSig = FNV_BASIS;
+// the create-stamp each `states` entry was built at (ecs.md "An eid is a borrow"). A same-update
+// destroy+create recycling a character's eid with identical tuning hashes to the SAME signature, so folding
+// the stamp into the signature is what makes the realias visible; the per-eid compare in `syncStates` then
+// rebuilds the controller state (a stale pose/velocity kept across the recycle is the bug this closes).
+const stamps = new Map<number, number>();
 
 function signature(state: State): number {
     let h = FNV_BASIS;
     for (const eid of state.query([Character, Body])) {
         h = fold(h, eid);
+        h = fold(h, state.stamp(eid));
         h = fold(h, sigBits(Character.maxSlope.get(eid)));
         h = fold(h, sigBits(Character.jumpSpeed.get(eid)));
         h = fold(h, sigBits(Character.gravity.get(eid)));
@@ -112,14 +113,22 @@ function syncStates(state: State): void {
     const seen = new Set<number>();
     for (const eid of state.query([Character, Body])) {
         seen.add(eid);
+        const stamp = state.stamp(eid);
         const st = states.get(eid);
-        if (st) {
+        if (st && stamps.get(eid) === stamp) {
             st.maxSlopeCos = Math.cos(Character.maxSlope.get(eid) * DEG);
             st.jumpSpeed = Character.jumpSpeed.get(eid);
             st.half = Body.halfExtents.y.get(eid);
             st.radius = Body.halfExtents.w.get(eid);
         } else {
+            if (st) {
+                // realias: drive input keyed to the destroyed owner is stale. A fresh spawn keeps
+                // input queued before its first sync.
+                moves.delete(eid);
+                jumped.delete(eid);
+            }
             states.set(eid, buildState(eid));
+            stamps.set(eid, stamp);
         }
     }
     for (const eid of [...states.keys()]) {
@@ -127,6 +136,7 @@ function syncStates(state: State): void {
             states.delete(eid);
             moves.delete(eid);
             jumped.delete(eid);
+            stamps.delete(eid);
         }
     }
 }
@@ -158,25 +168,13 @@ function poolBody(i: number): SweepBody {
 
 const hullById = (id: number): Hull | undefined => Hulls.get(Hulls.name(id) ?? "");
 
-// the bodies SoA columns the sweep reads off the Mirror snapshot (must match step.ts B_POS / B_QUAT / B_VELL)
-const B_POS = 0;
-const B_QUAT = 1;
-const B_VELL = 6;
-
-// one character's sweep: gather candidates (geometry from the authored Body slab, live pose + velocity from
-// the bodies Mirror snapshot — the static world is unchanged by the one-tick lag, a dynamic / platform pose
-// is fine one tick old), run the collide-and-slide, upload the swept pose as a kinematic body, and apply the
-// full-speed push to shoved dynamics (variant A — the full-CPU apply: the swept body's stale-velocity +
-// shove is written straight to the GPU `B_VELL`, no GPU character work; see the push-apply A/B in the gym).
-function sweepEid(
-    eid: number,
-    st: CharState,
-    state: State,
-    view: Float32Array | null,
-    cap: number,
-): void {
-    const step = Physics.step;
-    if (!step) return;
+// one character's sweep: gather candidates (geometry from the authored Body slab, live pose + velocity
+// through the installed backend's pose-read seam — the static world is unchanged by the possible one-tick
+// lag, a dynamic / platform pose is fine one tick old), run the collide-and-slide, upload the swept pose as
+// a kinematic body, and apply the full-speed push to shoved dynamics (variant A — the full-CPU apply: the
+// swept body's stale-velocity + shove is written straight through `setVelocity`, no GPU character work; see
+// the push-apply A/B in the gym).
+function sweepEid(eid: number, st: CharState, state: State, backend: PhysicsBackend): void {
     _statics.length = 0;
     _push.length = 0;
     _pushEids.length = 0;
@@ -197,22 +195,20 @@ function sweepEid(
             sb.radius = hw;
             sb.hull = undefined;
         }
-        if (view) {
-            const p = (B_POS * cap + b) * 4;
-            const q = (B_QUAT * cap + b) * 4;
-            const v = (B_VELL * cap + b) * 4;
-            sb.pos[0] = view[p];
-            sb.pos[1] = view[p + 1];
-            sb.pos[2] = view[p + 2];
-            sb.quat[0] = view[q];
-            sb.quat[1] = view[q + 1];
-            sb.quat[2] = view[q + 2];
-            sb.quat[3] = view[q + 3];
-            sb.vel[0] = view[v];
-            sb.vel[1] = view[v + 1];
-            sb.vel[2] = view[v + 2];
+        const live = backend.readBody(b);
+        if (live) {
+            sb.pos[0] = live.pos[0];
+            sb.pos[1] = live.pos[1];
+            sb.pos[2] = live.pos[2];
+            sb.quat[0] = live.quat[0];
+            sb.quat[1] = live.quat[1];
+            sb.quat[2] = live.quat[2];
+            sb.quat[3] = live.quat[3];
+            sb.vel[0] = live.vel[0];
+            sb.vel[1] = live.vel[1];
+            sb.vel[2] = live.vel[2];
         } else {
-            // cold start (no snapshot yet): the authored spawn pose, velocity 0 — correct for the static
+            // cold start (no live pose yet): the authored spawn pose, velocity 0 — correct for the static
             // collision world the character needs from frame 1, and a freshly-spawned dynamic hasn't moved.
             sb.pos[0] = Body.pos.x.get(b);
             sb.pos[1] = Body.pos.y.get(b);
@@ -236,7 +232,7 @@ function sweepEid(
     const m = moves.get(eid);
     const input: [number, number, number] = [m ? m[0] : 0, 0, m ? m[1] : 0];
     const g = Character.gravity.get(eid);
-    const gravity = g !== 0 ? g : step.gravity;
+    const gravity = g !== 0 ? g : backend.gravity;
 
     // snapshot the dynamics' velocities so we can tell which the sweep actually shoved (the push loop only
     // mutates a touched dynamic's `vel`) — a no-op velocity rewrite would wake every nearby resting body.
@@ -247,14 +243,14 @@ function sweepEid(
         _pushVel0[3 * i + 2] = v[2];
     }
 
-    sweepCharacter(st, input, _statics, gravity, step.dt, jumped.has(eid), _push);
+    sweepCharacter(st, input, _statics, gravity, backend.dt, jumped.has(eid), _push);
 
-    // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit B_VELL so
-    // the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.
-    step.setKinematic(eid, st.pos, st.quat, false, st.realizedVel);
+    // kinematic upload — the swept pose, with the realized velocity (snap excluded) as the explicit
+    // velocity so the carry-of-riders + broadphase pad read the swept motion, not the cosmetic ground snap.
+    backend.setKinematic(eid, st.pos, st.quat, false, st.realizedVel);
 
-    // full-speed push (variant A): write each shoved dynamic's new velocity straight to the GPU. setVelocity
-    // wakes the body, so apply it only to the ones the sweep changed.
+    // full-speed push (variant A): write each shoved dynamic's new velocity straight through the backend.
+    // setVelocity wakes the body, so apply it only to the ones the sweep changed.
     for (let i = 0; i < _push.length; i++) {
         const v = _push[i].vel;
         if (
@@ -262,7 +258,7 @@ function sweepEid(
             v[1] !== _pushVel0[3 * i + 1] ||
             v[2] !== _pushVel0[3 * i + 2]
         ) {
-            step.setVelocity(_pushEids[i], v[0], v[1], v[2]);
+            backend.setVelocity(_pushEids[i], v[0], v[1], v[2]);
         }
     }
 }
@@ -280,28 +276,24 @@ export const CharacterSweepSystem: System = {
     group: "fixed",
     before: [StepSystem],
     update(state: State) {
-        const step = Physics.step;
-        if (!step) return;
+        const backend = Physics.backend;
+        if (!backend) return;
         syncStates(state);
         if (states.size === 0) return;
-        if (!bodyMirror) bodyMirror = mirror(step.bodies);
-        const snap = bodyMirror.snapshot;
-        const view = snap ? new Float32Array(snap.bytes) : null;
-        const cap = step.eidCap;
-        for (const [eid, st] of states) sweepEid(eid, st, state, view, cap);
+        for (const [eid, st] of states) sweepEid(eid, st, state, backend);
         jumped.clear();
     },
 };
 
 /** kinematic-character plugin: registers every `[Character, Body]` and sweeps it (collide-and-slide) each
- *  fixed step, before the physics solve. Depends on {@link PhysicsPlugin} (the collision world it sweeps
- *  against) and mirror (the frame-stale dynamic poses it reads). Add it, then drive characters with the
- *  {@link move} / {@link jump} surface, or add {@link Player} for a ready first-person controller. */
+ *  fixed step, before the physics solve. Backend-neutral: add a physics backend plugin (`TumblePlugin` or
+ *  `AvbdPlugin`) to the scene alongside it, and the sweep runs against whichever backend is installed
+ *  (it no-ops without one). Drive characters with the {@link move} / {@link jump} surface, or add
+ *  {@link Player} for a ready first-person controller. */
 export const CharacterPlugin: Plugin = {
     name: "Character",
     components: { Character },
     systems: [CharacterSweepSystem],
-    dependencies: [PhysicsPlugin, MirrorPlugin],
     traits: {
         Character: {
             requires: [Body],
@@ -313,9 +305,8 @@ export const CharacterPlugin: Plugin = {
         },
     },
     dispose() {
-        bodyMirror?.dispose();
-        bodyMirror = null;
         resetDrive();
+        stamps.clear();
         charSig = FNV_BASIS;
     },
 };

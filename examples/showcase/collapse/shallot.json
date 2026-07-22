@@ -4,7 +4,7 @@
     "Orbit": true,
     "Profile": true,
     "Mirror": true,
-    "Physics": true,
+    "Avbd": true,
     "Collapse": "./src/collapse"
   }
 }

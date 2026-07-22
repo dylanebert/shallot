@@ -13,6 +13,8 @@ import type { Targets } from "./target";
 export interface DecodeRequest {
     url: string;
     clip: number;
+    /** the live import option — forces the live joint-palette route over VAT (part of the cache key). */
+    live: boolean;
     targets?: Targets;
 }
 
@@ -67,6 +69,18 @@ export function transferables(d: DecodedGltf): Transferable[] {
         if (vat) {
             buf(vat.positions);
             buf(vat.normals);
+        }
+    }
+    for (const g of d.geometry.live) {
+        buf(g.quant.main);
+        buf(g.quant.position);
+        buf(g.quant.quant);
+        buf(g.indices);
+    }
+    for (const lm of d.liveMeshes) {
+        if (lm) {
+            buf(lm.joints);
+            buf(lm.weights);
         }
     }
     return [...seen];

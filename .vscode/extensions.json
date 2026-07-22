@@ -1,3 +1,6 @@
 {
-    "recommendations": ["biomejs.biome", "svelte.svelte-vscode", "dylanebert.shallot"]
+    "recommendations": [
+        "biomejs.biome",
+        "dylanebert.shallot"
+    ]
 }

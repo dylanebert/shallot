@@ -330,6 +330,9 @@ const LIGHT_INDICES = 6;
 const MESH_QUANT = 7;
 const SURFACE_BASE = 8;
 
+/** storage bindings every sear color pass shares (indices `VERTICES..SURFACE_BASE`): vertices, pointLights, lightGrid, lightIndices, meshQuant. A surface's own storage plus this must fit the 10-per-stage ceiling (gpu.md), so a surface has `10 − SHARED_STORAGE_COUNT` for its own. Derived from the binding indices so a sixth shared binding (which bumps `SURFACE_BASE`) updates it automatically — the gltf storage-ceiling audit (`extras/gltf/live.test.ts`) imports it. */
+export const SHARED_STORAGE_COUNT = SURFACE_BASE - VERTICES;
+
 // a background's own bindings start here — after frame/view/lighting (0/1/2). A backdrop needs none of
 // the surface group's vertex-pull / light-grid bindings, so its group 0 is just the three uniforms + these
 const BG_BASE = 3;

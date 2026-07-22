@@ -1,11 +1,12 @@
-// the per-plugin reload-conformance sweep (testing.md "Reload tier"): the editor rebuilds a State
-// on scene switch, plugin toggle, or play/stop, re-running every plugin's lifecycle against the SAME
+// the per-plugin reload-conformance sweep (testing.md "Reload tier"): a live host that rebuilds a
+// State (a rejected swap's fallback, a restore) re-runs every plugin's lifecycle against the SAME
 // module-level singletons (ecs.md "Reload-safety"). The mechanism tests pin the core seams (ids,
 // swap, rebuild, serialize); this harness pins each plugin's module-scope state — two identical
 // build→step→dispose passes must produce the same observable State, so a registry that
-// double-registers or a warm that doubles its derived spawns goes red here. CPU-reachable plugins
-// run in this roster; the GPU-bound set rides the same loop live in the editor via the
-// `reload-conformance` capture flow (scripts/capture).
+// double-registers or a warm that doubles its derived spawns goes red here. The browser end-to-end
+// is the survive-reload flow at examples/flows/survive-reload/ (`bun run flows`), which rebuilds through a real page
+// reload; the editor's live rebuild-loop e2e died with the editor, so this roster is the sole
+// per-plugin conformance coverage.
 
 import { describe, expect, test } from "bun:test";
 import {

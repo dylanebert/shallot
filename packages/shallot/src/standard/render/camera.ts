@@ -3,7 +3,7 @@ import { composeTransform, Transform } from "../transforms";
 
 /**
  * a camera's projection model: `Perspective` (fov-based, the default) or `Orthographic` (size-based).
- * Set via the `Camera.mode` scene attribute (`mode="perspective"` / `mode="orthographic"`).
+ * Set via the `mode` field on the `camera` attribute (`camera="mode: perspective"` / `camera="mode: orthographic"`).
  */
 export const CameraMode = {
     Perspective: 0,
@@ -19,7 +19,7 @@ export const CameraMode = {
  *
  * @example
  * ```
- * <a camera mode="perspective" fov="60" clear-color="0x5cbfbf" transform="pos: 4 3 4; rot: ..." />
+ * <a camera="mode: perspective; fov: 60; clear-color: 0x5cbfbf" transform="pos: 4 3 4" />
  * ```
  */
 export const Camera = {

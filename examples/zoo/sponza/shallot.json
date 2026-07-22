@@ -1,8 +1,0 @@
-{
-    "scene": "scenes/sponza.scene",
-    "plugins": {
-        "Gltf": true,
-        "Orbit": true,
-        "Sponza": "./src/sponza"
-    }
-}

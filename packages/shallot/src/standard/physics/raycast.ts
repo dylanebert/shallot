@@ -121,6 +121,8 @@ export function rayOBB(
     let tmax = Infinity;
     let axis = 0;
     let sign = 1;
+    let exitAxis = 0;
+    let exitSign = 1;
     for (let i = 0; i < 3; i++) {
         const o = i === 0 ? rox : i === 1 ? roy : roz;
         const d = i === 0 ? rdx : i === 1 ? rdy : rdz;
@@ -143,21 +145,30 @@ export function rayOBB(
                 axis = i;
                 sign = s;
             }
-            if (t2 < tmax) tmax = t2;
+            // the exit face's normal is the far plane of this axis — the opposite sign of the entry face.
+            if (t2 < tmax) {
+                tmax = t2;
+                exitAxis = i;
+                exitSign = -s;
+            }
             if (tmin > tmax) return null;
         }
     }
     if (tmax < 0) return null;
-    const t = tmin >= 0 ? tmin : tmax;
+    // origin inside the box (tmin < 0): the hit is the EXIT face at tmax, so pair tmax with the exit normal.
+    const inside = tmin < 0;
+    const t = inside ? tmax : tmin;
     if (t < 0) return null;
+    const nAxis = inside ? exitAxis : axis;
+    const nSign = inside ? exitSign : sign;
     const [nx, ny, nz] = qRotate(
         qx,
         qy,
         qz,
         qw,
-        axis === 0 ? sign : 0,
-        axis === 1 ? sign : 0,
-        axis === 2 ? sign : 0,
+        nAxis === 0 ? nSign : 0,
+        nAxis === 1 ? nSign : 0,
+        nAxis === 2 ? nSign : 0,
     );
     return { t, nx, ny, nz };
 }

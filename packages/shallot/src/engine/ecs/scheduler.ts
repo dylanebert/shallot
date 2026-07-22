@@ -201,7 +201,7 @@ export class Scheduler {
                 if (systemMode !== "always" && systemMode !== mode) continue;
             }
             // quarantine, not crash: a throwing system must not kill the frame loop (a hot-reloaded
-            // bug would wedge the editor). It pauses after the first throw — a failed setup stays
+            // bug would wedge a live host). It pauses after the first throw — a failed setup stays
             // uninitialized so the fix retries it — and resumes on its next swap or a rebuild.
             try {
                 if (!this._initialized.has(system)) {

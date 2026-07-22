@@ -4,20 +4,8 @@ import { Part } from "../../standard/part";
 import { Surfaces } from "../../standard/render/core";
 import { slab } from "../../standard/slab";
 import type { GltfHandle } from "./assets";
+import { LiveSkin } from "./live";
 import { Skin } from "./skin";
-
-// #doc:dev
-// ### Declarative load + route sync
-//
-// A scene references a glTF primitive by its registered mesh name (`part="mesh: model.glb#0"`); two
-// pieces make that reference self-sufficient. The **preloader** (GltfPlugin registers it into the scene
-// `Preloads` seam) scans parsed nodes with `scanRefs` and awaits `loadGltf` for every distinct source
-// before `load` resolves the names. Godot's shape: the resource path in the scene is the load trigger.
-// The **route sync** (`RouteSystem`) then converges every Part whose mesh resolves to a handle onto the
-// route `placeGltf` would have wired: the textured/skinned surface, plus the `Textured` / `Skin`
-// decoration carrying the union-relative material id. Both components are `derived` traits (a system
-// owns them, `serialize` and the editor never see them) because their ids are recomputed per active
-// set and cannot be authored.
 
 /**
  * per-instance material id: an index into the per-material palette (`materialData`) the textured glTF
@@ -27,6 +15,8 @@ import { Skin } from "./skin";
  * palette index, that is the shading params. A runtime-derived decoration. {@link GltfPlugin}'s route
  * sync owns it (the id is union-palette-relative, so scenes never author it).
  */
+// `Textured` is a `derived` trait — a system owns it, never authored or serialized — because its id is
+// recomputed per active set and can't be authored.
 export const Textured = { id: slab(u32, "materialIndex") };
 
 // a registered glTF primitive name as a scene authors it: `src.glb#index`, with an optional baked-clip
@@ -87,12 +77,23 @@ const ROUTE_SURFACES = [
     "skin",
     "skin-clip",
     "skin-blend",
+    "skin-live",
+    "skin-live-clip",
+    "skin-live-blend",
 ];
+
+// drop an entity's Skin decoration, freeing its live palette block first — a no-op for a VAT skinned entity
+// (it never allocated one), so it's safe to call whenever Skin comes off regardless of the prior route.
+function dropSkin(state: State, eid: number): void {
+    if (!state.has(eid, Skin)) return;
+    LiveSkin.free(eid);
+    state.remove(eid, Skin);
+}
 
 /**
  * converge each Part onto its mesh's route: surface + `Textured`/`Skin` follow the handle, and a mesh
  * edited off a glTF handle drops them. Compare-before-write throughout: an unconditional slab set would
- * dirty every decorated entity every frame. `mode: "always"` so the editor viewport renders textures;
+ * dirty every decorated entity every frame. `mode: "always"` so an edit-mode viewport renders textures;
  * the add/remove is sanctioned by the components' `derived` trait (nothing document-facing sees them).
  */
 export const RouteSystem: System = {
@@ -114,7 +115,7 @@ export const RouteSystem: System = {
                 // the mesh moved off a glTF handle (a live edit) — drop the route's decorations
                 if (owned.has(surface)) Part.surface.set(eid, solid);
                 if (state.has(eid, Textured)) state.remove(eid, Textured);
-                if (state.has(eid, Skin)) state.remove(eid, Skin);
+                dropSkin(state, eid);
                 continue;
             }
             if (surface !== handle.surface && (surface === solid || owned.has(surface))) {
@@ -128,13 +129,23 @@ export const RouteSystem: System = {
                 const duration = Math.fround(handle.duration);
                 if (Skin.anim.w.get(eid) !== duration) Skin.anim.w.set(eid, duration);
                 if (state.has(eid, Textured)) state.remove(eid, Textured);
+            } else if (handle.live) {
+                if (!state.has(eid, Skin)) state.add(eid, Skin);
+                // allocate the instance's palette block (idempotent — returns the existing base) and publish
+                // it in lane x for the surface; a producer poses it, unposed it renders the bind pose. w = 0
+                // so SkinSystem's clip-advance skips it.
+                const base = LiveSkin.alloc(eid, handle.jointCount, state.stamp(eid));
+                if (Skin.anim.x.get(eid) !== base) Skin.anim.x.set(eid, base);
+                if (Skin.anim.y.get(eid) !== handle.material) Skin.anim.y.set(eid, handle.material);
+                if (Skin.anim.w.get(eid) !== 0) Skin.anim.w.set(eid, 0);
+                if (state.has(eid, Textured)) state.remove(eid, Textured);
             } else if (handle.textured) {
                 if (!state.has(eid, Textured)) state.add(eid, Textured);
                 if (Textured.id.get(eid) !== handle.material) Textured.id.set(eid, handle.material);
-                if (state.has(eid, Skin)) state.remove(eid, Skin);
+                dropSkin(state, eid);
             } else {
                 if (state.has(eid, Textured)) state.remove(eid, Textured);
-                if (state.has(eid, Skin)) state.remove(eid, Skin);
+                dropSkin(state, eid);
             }
         }
     },

@@ -1,8 +1,0 @@
-{
-  "scene": "scenes/sprite.scene",
-  "plugins": {
-    "Sprite": true,
-    "Orbit": true,
-    "Icons": "./src/icons"
-  }
-}

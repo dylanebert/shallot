@@ -2,18 +2,13 @@ import { execSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { build as viteBuild } from "vite";
-import {
-    discoverScenes,
-    findPublicDirs,
-    manifestPath,
-    projectPlugin,
-} from "../editor/src/project/vite";
+import { discoverScenes, findPublicDirs, manifestPath, projectPlugin } from "../src/project/vite";
 import { requiredFeatures, verdict } from "./features";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 import { composeViteConfig, loadProjectConfig } from "./toolchain";
 
 // the entry a manifest project lacks: a page that runs the project's manifest. resolves the same
-// `virtual:project` the editor reads (one resolver, no second manifest reader) — its `plugins` are the
+// `virtual:project` `shallot dev` reads (one resolver, no second manifest reader) — its `plugins` are the
 // enabled set (engine via the barrel, tree-shaken; locals by specifier), `scene` the default scene.
 // shared by the web build here and the standalone `shallot dev` server (bin/dev.ts).
 export const synthIndex = (name: string) => `<!doctype html>
@@ -37,7 +32,7 @@ export const synthIndex = (name: string) => `<!doctype html>
             // project.plugins is the manifest's complete resolved set (enabled defaults + extras + locals),
             // so defaults: false — re-adding DEFAULT_PLUGINS would resurrect a manifest-disabled default.
             // capacity is the manifest's (null → the engine default), so a build honors the same fixed
-            // capacity the editor does — one source of truth across editor + shipped build.
+            // capacity dev does — one source of truth across dev + shipped build.
             await run({ plugins: project.plugins, scene: project.scene ?? undefined, defaults: false, capacity: project.capacity ?? undefined });
         </script>
     </body>
@@ -65,7 +60,7 @@ export async function buildWeb(projectDir: string): Promise<void> {
     }
 
     console.log(`\n  building ${basename(projectDir)} → dist/\n`);
-    // merge the project's own vite.config (svelte/react/aliases) the same way dev + the editor do, so a
+    // merge the project's own vite.config (svelte/react/aliases) the same way dev does, so a
     // framework manifest project (e.g. a Svelte HUD) ships from `shallot build`. None → the base unchanged.
     const project = await loadProjectConfig(resolve(projectDir), "build", "production");
     if (project) console.log(`  · merged ${relative(projectDir, project.path)}\n`);

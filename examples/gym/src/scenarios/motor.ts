@@ -14,7 +14,6 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
-    PhysicsPlugin,
     type Plugin,
     RenderPlugin,
     run,
@@ -27,15 +26,10 @@ import {
     Transform,
     TransformsPlugin,
 } from "@dylanebert/shallot";
+import { AvbdPlugin } from "@dylanebert/shallot/avbd";
+import { Avbd, BODY_VEC4, type JointDef, PENALTY_MIN, WORLD } from "@dylanebert/shallot/avbd/core";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
-import {
-    BODY_VEC4,
-    type JointDef,
-    PENALTY_MIN,
-    Physics,
-    StepSystem,
-    WORLD,
-} from "@dylanebert/shallot/physics/core";
+import { StepSystem } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, type Params, register, type Scenario } from "../gym";
 
 // motor — the angular motor constraint (kex roadmap "Correct driven-rotation behavior"), the spindle game's
@@ -50,7 +44,8 @@ import { type Check, frames, type Params, register, type Scenario } from "../gym
 //               up to maxTorque, so it spins the whole assembly up and HOLDS the target.
 // The default (`drive=motor`) is the gate — it compiles the motor WGSL on the real device and asserts the
 // spindle holds target ω under the load. `--param drive=forced` is the contrast (asserts it stalls), the
-// kincarry-to-jointcarry relationship. The per-step motor math is the f64 oracle's job (motor.oracle.ts).
+// same joint-vs-raw-contact carry gap the game's catch mechanism depends on. The per-step motor math is
+// the f64 oracle's job (motor.oracle.ts).
 
 const G = -10;
 const DT = 1 / 60;
@@ -94,9 +89,9 @@ const ForcedPlugin: Plugin = {
             group: "fixed",
             before: [StepSystem],
             update() {
-                if (driveMode !== "forced" || spinnerEid < 0 || !Physics.step) return;
-                Physics.step.setAngularVelocity(spinnerEid, 0, rate, 0);
-                Physics.step.setVelocity(spinnerEid, 0, 0, 0);
+                if (driveMode !== "forced" || spinnerEid < 0 || !Avbd.step) return;
+                Avbd.step.setAngularVelocity(spinnerEid, 0, rate, 0);
+                Avbd.step.setVelocity(spinnerEid, 0, 0, 0);
             },
         } satisfies System,
     ],
@@ -131,7 +126,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                PhysicsPlugin,
+                AvbdPlugin,
                 ForcedPlugin,
                 PartPlugin,
                 SearPlugin,
@@ -151,7 +146,7 @@ const scenario: Scenario = {
         state.add(sun, Shadow);
         Shadow.distance.set(sun, 30);
 
-        Physics.step?.configure(cfg);
+        Avbd.step?.configure(cfg);
 
         const floor = state.create();
         state.add(floor, Body);
@@ -215,7 +210,7 @@ const scenario: Scenario = {
                 motor: { axis: [0, 1, 0], speed: rate, maxTorque: MAX_TORQUE },
             });
         }
-        Physics.step?.setJoints(joints);
+        Avbd.step?.setJoints(joints);
         const motorIndex = joints.length - 1; // the motor joint's setJoints index (last), for the setMotor leg
 
         const cam = state.create();
@@ -230,7 +225,7 @@ const scenario: Scenario = {
 
         // warm: let the assembly spin up (the motor reaches target; the forced drive creeps)
         await frames(120);
-        if (Physics.step) bodyMirror = mirror(Physics.step.bodies);
+        if (Avbd.step) bodyMirror = mirror(Avbd.step.bodies);
 
         // sample the spindle's angular speed about Y from B_VELA (col 7) over a window — the reliable signal; the
         // swept angle is its integral (the heavy flywheel sags the assembly a hair, so a quat-Y readout would be
@@ -264,7 +259,7 @@ const scenario: Scenario = {
         // lane writes), then confirm ω follows the new target. The forced drive has no motor joint to retarget.
         let omega2 = 0;
         if (driveMode === "motor") {
-            Physics.step?.setMotor(motorIndex, rate * 1.5, MAX_TORQUE * 2);
+            Avbd.step?.setMotor(motorIndex, rate * 1.5, MAX_TORQUE * 2);
             await frames(90);
             omega2 = (await measure()).omega;
         }

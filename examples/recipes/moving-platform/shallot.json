@@ -1,0 +1,9 @@
+{
+    "scene": "scenes/moving-platform.scene",
+    "plugins": {
+        "Orbit": true,
+        "Tumble": true,
+        "Elevator": "./src/elevator",
+        "PlatformSmoke": "./src/smoke"
+    }
+}

@@ -67,9 +67,9 @@ describe("packMaterials", () => {
         expect(f[12]).toBeCloseTo(0.5, 6); // occStrength
     });
 
-    test("clamps a factor-only material's -1 albedo layer to 0; data slots keep -1 (factor only)", () => {
+    test("a factor-only material keeps its -1 albedo layer, like the data slots", () => {
         const buf = packMaterials([material({})], layers(-1, -1, -1, -1, -1));
-        expect(new Uint32Array(buf)[0]).toBe(0); // albedo clamped — its instances ride sear's default, unsampled
+        expect(new Int32Array(buf)[0]).toBe(-1); // albedo -1 preserved — sampleAlbedo returns white for it (skin path)
         expect(new Int32Array(buf)[4]).toBe(-1); // mrLayer stays -1
         expect(new Int32Array(buf)[7]).toBe(-1); // emisLayer stays -1
     });

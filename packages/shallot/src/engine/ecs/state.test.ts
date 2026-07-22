@@ -104,6 +104,90 @@ describe("State", () => {
             expect(disposeCount).toBe(1);
             expect(state.disposed).toBe(true);
         });
+
+        test("onDispose callbacks run in LIFO order", () => {
+            const order: number[] = [];
+            state.onDispose(() => order.push(1));
+            state.onDispose(() => order.push(2));
+            state.onDispose(() => order.push(3));
+
+            state.dispose();
+            expect(order).toEqual([3, 2, 1]);
+        });
+
+        test("signal aborts on dispose and detaches a { signal } listener", () => {
+            const target = new EventTarget();
+            let hits = 0;
+            target.addEventListener("ping", () => hits++, { signal: state.signal });
+
+            expect(state.signal.aborted).toBe(false);
+            target.dispatchEvent(new Event("ping"));
+            expect(hits).toBe(1);
+
+            state.dispose();
+            expect(state.signal.aborted).toBe(true);
+
+            // the aborted signal detached the listener, so further events are ignored
+            target.dispatchEvent(new Event("ping"));
+            expect(hits).toBe(1);
+        });
+
+        test("double dispose runs onDispose callbacks only once", () => {
+            let count = 0;
+            state.onDispose(() => count++);
+
+            state.dispose();
+            state.dispose();
+            expect(count).toBe(1);
+        });
+
+        test("a throwing onDispose callback doesn't skip the remaining callbacks or the teardown", () => {
+            const order: number[] = [];
+            let systemDisposed = false;
+            state.addSystem({ dispose: () => (systemDisposed = true) });
+
+            // LIFO: the last-registered throws first, so the earlier-registered fn (and the scheduler
+            // teardown after the list) must still run — a throw here re-opens the leak the list closes.
+            state.onDispose(() => order.push(1));
+            state.onDispose(() => {
+                throw new Error("boom");
+            });
+
+            expect(() => state.dispose()).not.toThrow();
+            expect(order).toEqual([1]);
+            expect(systemDisposed).toBe(true);
+            expect(state.disposed).toBe(true);
+        });
+
+        test("onDispose registered after dispose runs immediately, signal already aborted", () => {
+            state.dispose();
+
+            let ran = false;
+            state.onDispose(() => {
+                ran = true;
+            });
+            expect(ran).toBe(true);
+            expect(state.signal.aborted).toBe(true);
+        });
+
+        test("dispose order: signal aborts before the onDispose list runs, systems dispose after it", () => {
+            let systemDisposed = false;
+            state.addSystem({ dispose: () => (systemDisposed = true) });
+
+            let sawAborted = false;
+            let sawSystemLive = false;
+            state.onDispose(() => {
+                // inside the list: the signal is already aborted (abort precedes the list) and the scheduler
+                // hasn't run yet (systems dispose after the list) — the locked teardown interleave.
+                sawAborted = state.signal.aborted;
+                sawSystemLive = !systemDisposed;
+            });
+
+            state.dispose();
+            expect(sawAborted).toBe(true);
+            expect(sawSystemLive).toBe(true);
+            expect(systemDisposed).toBe(true);
+        });
     });
 
     describe("Identity", () => {
@@ -130,6 +214,42 @@ describe("State", () => {
             const recycled = state.create();
             expect(recycled).toBe(a);
             expect(state.identity.id(recycled)).toBeUndefined();
+        });
+    });
+
+    describe("Create stamp", () => {
+        test("the stamp bumps across a destroy+create recycle of the same eid", () => {
+            const a = state.create();
+            const first = state.stamp(a);
+            state.destroy(a);
+
+            const recycled = state.create();
+            expect(recycled).toBe(a); // LIFO reuse hands back the same slot
+            expect(state.stamp(recycled)).not.toBe(first); // ...but a held (eid, stamp) pair sees the realias
+        });
+
+        test("an untouched entity's stamp is stable while another slot recycles", () => {
+            const a = state.create();
+            const b = state.create();
+            const stampA = state.stamp(a);
+
+            state.destroy(b);
+            state.create(); // recycles b, not a
+
+            expect(state.stamp(a)).toBe(stampA);
+        });
+
+        test("a never-created eid reads 0", () => {
+            expect(state.stamp(9999)).toBe(0);
+        });
+
+        test("destroy alone leaves the stamp unchanged — membership catches the plain despawn", () => {
+            const a = state.create();
+            const stamp = state.stamp(a);
+            state.destroy(a);
+
+            expect(state.stamp(a)).toBe(stamp);
+            expect(state.exists(a)).toBe(false);
         });
     });
 });

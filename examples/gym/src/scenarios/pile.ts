@@ -15,7 +15,6 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
-    PhysicsPlugin,
     RenderPlugin,
     run,
     Sear,
@@ -26,27 +25,26 @@ import {
     Transform,
     TransformsPlugin,
 } from "@dylanebert/shallot";
-import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
-import {
-    BODY_VEC4,
-    type JointDef,
-    LDS_CAP,
-    LDS_N,
-    PENALTY_MIN,
-    Physics,
-    PhysicsStep,
-    packHulls,
-    registerHull,
-    SMALL_N,
-} from "@dylanebert/shallot/physics/core";
-import { Meshes } from "@dylanebert/shallot/render/core";
+import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 // the production narrowphase WGSL (composed for the gates), reached at src — the rounded narrowphase gate
 // runs it on the device and diffs against the f64 oracle `narrowphase`, like the rest reach tests/ below.
 import {
+    Avbd,
+    BODY_VEC4,
     COLLIDE_WGSL,
     HULL_WGSL,
+    type JointDef,
+    LDS_CAP,
+    LDS_N,
     MAX_CONTACTS,
-} from "../../../../packages/shallot/src/standard/physics/collide";
+    PENALTY_MIN,
+    PhysicsStep,
+    packHulls,
+    SMALL_N,
+} from "@dylanebert/shallot/avbd/core";
+import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
+import { Hulls } from "@dylanebert/shallot/physics/core";
+import { Meshes } from "@dylanebert/shallot/render/core";
 // the f64 oracle (tests/, out of the published src/) is the executable spec the GPU gates compare against,
 // reached by relative path. accel.ts reaches the BVH oracle the same way.
 import { collide, SPECULATIVE_DISTANCE } from "../../../../packages/shallot/tests/avbd/collide";
@@ -109,7 +107,7 @@ const BETA_LIN = 1e4; // canonical penalty ramp — warmstart carries λ/k acros
 const BETA_ANG = 100; // joint angular penalty ramp (Phase 6.2; contacts ignore it)
 const GAMMA = 0.999; // warmstart decay (Eq. 19)
 const ITERS = 10; // the gym's robustness config — DECOUPLED from the shipped iters=6 (a perf tradeoff)
-const MAX_COLORS = 8; // dispatched-color cap (matches PhysicsPlugin)
+const MAX_COLORS = 8; // dispatched-color cap (matches AvbdPlugin)
 const GROUND_HALF_Y = 0.5;
 
 let liveMirror: Mirror | null = null;
@@ -344,7 +342,7 @@ const scenario: Scenario = {
         // a hull body references a registered hull by id (halfExtents.w); reuse one unit box-hull for the whole
         // pile (the registry keys by name, so this is stable across rebuilds). box/sphere/capsule need no registry.
         if (pileShape === ShapeKind.Hull)
-            pileHullId = registerHull("gym-pile-hull", boxHull([1, 1, 1]));
+            pileHullId = Hulls.register({ name: "gym-pile-hull", ...boxHull([1, 1, 1]) });
 
         const layers = Math.max(1, Math.round((p.layers as number) ?? 4));
         const gap = (p.gap as number) ?? 1.1;
@@ -373,7 +371,7 @@ const scenario: Scenario = {
         // ground + the 4 drum walls + the spawn-despawn body.
         const cap = Math.max(1024, count + 16);
 
-        // PhysicsPlugin before PartPlugin: BodyComposeSystem and the Part pack both run after BeginFrameSystem;
+        // AvbdPlugin before PartPlugin: BodyComposeSystem and the Part pack both run after BeginFrameSystem;
         // the compose declares before:[PrepassSystem] but the pack has no edge to it, so registration order
         // breaks the tie — physics first puts the firehose write ahead of the cull read (render.md ordering).
         const { state, dispose } = await run({
@@ -387,7 +385,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                PhysicsPlugin,
+                AvbdPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
@@ -408,7 +406,7 @@ const scenario: Scenario = {
         // grid/pyramid piles converge at substeps=1. An explicit `--param substeps` overrides.
         const ssParam = Math.max(1, Math.round((p.substeps as number) ?? 1));
         cfgSubsteps = ssParam > 1 ? ssParam : pileLayout === "heap" ? (count > 192 ? 4 : 2) : 1;
-        Physics.step?.configure({
+        Avbd.step?.configure({
             dt: DT,
             gravity: G,
             alpha: ALPHA,
@@ -503,7 +501,7 @@ const scenario: Scenario = {
                     rB: [-rA[0], -rA[1], -rA[2]],
                 }); // spherical (default) — the linear pin, rotation free
             }
-            Physics.step?.setJoints(joints);
+            Avbd.step?.setJoints(joints);
         }
 
         const cam = state.create();
@@ -523,9 +521,9 @@ const scenario: Scenario = {
         // let warm complete + a couple steps run, then mirror the eid-indexed body state (the CPU pose-read
         // path), the transform firehose (the bodied-entity compose output), and the overflow counters.
         await frames(3);
-        if (Physics.step) {
-            liveMirror = mirror(Physics.step.bodies);
-            countersMirror = mirror(Physics.step.counters);
+        if (Avbd.step) {
+            liveMirror = mirror(Avbd.step.bodies);
+            countersMirror = mirror(Avbd.step.counters);
         }
         const xforms = Compute.buffers.get("transforms");
         if (xforms) xformMirror = mirror(xforms);
@@ -541,7 +539,7 @@ const scenario: Scenario = {
         const chaosSettle = pileLayout === "heap" ? 600 : 0;
         await frames(Math.min(240 + count * 4, 3000) + chaosSettle);
         preSpawnPose = await capturePose();
-        preSpawnRegimes = Physics.step ? Physics.step.regimes : null;
+        preSpawnRegimes = Avbd.step ? Avbd.step.regimes : null;
         preSpawnLive = bodyEids.length;
         liveState = state;
         const extra = state.create();
@@ -607,7 +605,7 @@ const scenario: Scenario = {
         return [
             `pile — AVBD warmstart (${SHAPE_NAME[pileShape]}, ${pileLayout}${pileBoundary === "drum" ? ", drum" : ""}${pileJoints ? ", joints" : ""})`,
             `bodies   ${bodyEids.length} (${dynamicCount} dyn)`,
-            `colors   ${Physics.step?.dispatchedColors ?? 0} / ${cfgIters} it${cfgSubsteps > 1 ? ` × ${cfgSubsteps} ss` : ""}`,
+            `colors   ${Avbd.step?.dispatchedColors ?? 0} / ${cfgIters} it${cfgSubsteps > 1 ? ` × ${cfgSubsteps} ss` : ""}`,
             `primal   ${span("phys:primal")} ms`,
             `dual     ${span("phys:dual")} ms`,
             `collide  ${span("phys:collide")} ms`,
@@ -1128,7 +1126,7 @@ async function spawnDespawn(): Promise<Check> {
 // hold across both flips (eid-indexed state + warmstart survive a regime change). Reads the step's
 // `regimes` witness — spans can't distinguish the paths (the profiler holds a non-firing pass's last span).
 async function regimeCross(): Promise<Check | null> {
-    const step = Physics.step;
+    const step = Avbd.step;
     if (!step || !liveState || !preSpawnRegimes || spawnedEid < 0 || !liveMirror || !preSpawnPose) {
         return null;
     }
@@ -1575,7 +1573,7 @@ const STEP_PASSES = [
 // always-pass perf REPORTER (not a correctness gate): publishes the per-step spans + dispatch count +
 // memory + the fall-through signals as structured `Check.data`, the seam scripts/physics-bench.ts reads.
 async function measured(): Promise<Check> {
-    const step = Physics.step;
+    const step = Avbd.step;
     const get = (name: string): number => Profile.gpu.get(name) ?? 0;
     const data: Record<string, number> = {};
     for (const n of STEP_PASSES) data[n] = get(n);

@@ -4,11 +4,9 @@
         "includes": [
             "packages/**/*.ts",
             "examples/**/*.ts",
-            "!examples/templates",
+            "evals/**/*.ts",
             "research/**/*.ts",
-            "scripts/**/*.ts",
-            "!scripts/capture/fixture-svelte",
-            "!scripts/capture/fixture-react"
+            "scripts/**/*.ts"
         ]
     },
     "linter": {

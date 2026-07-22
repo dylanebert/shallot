@@ -4,7 +4,6 @@
         "target": "ESNext",
         "module": "ESNext",
         "moduleDetection": "force",
-        "jsx": "react-jsx",
         "allowJs": true,
 
         "moduleResolution": "bundler",
@@ -25,11 +24,6 @@
             "@dylanebert/shallot/src/*": ["./packages/shallot/src/*"]
         }
     },
-    "include": ["packages", "examples", "scripts", "harness"],
-    "exclude": [
-        "**/dist",
-        "**/build",
-        "scripts/capture/fixture-svelte",
-        "scripts/capture/fixture-react"
-    ]
+    "include": ["packages", "examples", "scripts", "evals"],
+    "exclude": ["**/dist", "**/build", "packages/shallot/examples"]
 }

@@ -21,7 +21,7 @@ export interface Alias {
  * author a packed `Pair`/`Quad`'s lanes by name (`metallic`, `roughness`) for one-buffer storage with
  * friendly authoring: `material="metallic: 1; roughness: 0.2"`. An **identity** alias: `axes.length`
  * equals the field's lane count, each axis 1:1 with a lane, which the scene parser + serializer honor.
- * A non-identity alias ({@link eulerAlias}, 3 axes over a 4-lane quat) stays editor-only: the length
+ * A non-identity alias ({@link eulerAlias}, 3 axes over a 4-lane quat) stays authoring-only: the length
  * mismatch is the discriminator that keeps quaternion fields authored positionally.
  *
  * @example

@@ -2,7 +2,7 @@
   "scene": "scenes/sandbox.scene",
   "capacity": 512,
   "plugins": {
-    "Physics": true,
+    "Avbd": true,
     "Character": true,
     "Player": true,
     "Audio": true,

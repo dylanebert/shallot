@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/compute-and-readback.scene",
+  "plugins": {
+    "Orbit": true,
+    "Mirror": true,
+    "Reduce": "./src/reduce"
+  }
+}

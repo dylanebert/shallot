@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/physics-playground.scene",
+  "plugins": {
+    "Orbit": true,
+    "Tumble": true,
+    "Spawn": "./src/spawn"
+  }
+}

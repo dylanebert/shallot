@@ -1,12 +1,12 @@
 import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
-import { findPublicDirs, projectPlugin } from "../editor/src/project/vite";
+import { CROSS_ORIGIN_ISOLATION, findPublicDirs, projectPlugin } from "../src/project/vite";
 import { synthIndex } from "./build";
 import { composeViteConfig, loadProjectConfig, requireProject } from "./toolchain";
 
 // serve the synthesized entry at `/` — a manifest project owns no index.html, so the CLI provides one.
 // `transformIndexHtml` runs the page through vite's HTML pipeline (HMR client, inline-module extraction),
-// so the inline `run(virtual:project)` script hot-reloads the same manifest the editor and a build resolve.
+// so the inline `run(virtual:project)` script resolves the same manifest a build does.
 function synthIndexPlugin(name: string): VitePlugin {
     return {
         name: "shallot-synth-index",
@@ -23,7 +23,7 @@ function synthIndexPlugin(name: string): VitePlugin {
     };
 }
 
-/** the standalone (non-editor) vite dev config for a manifest project. `open` defaults true (the CLI). */
+/** the vite dev config for a manifest project. `open` defaults true (the CLI). */
 export function devConfig(
     absProjectDir: string,
     name: string,
@@ -37,11 +37,12 @@ export function devConfig(
             port: opts.port,
             strictPort: opts.strictPort,
             open: opts.open ?? true,
+            // cross-origin isolation so tumble physics multithreads (COOP/COEP → shared WebAssembly.Memory)
+            headers: CROSS_ORIGIN_ISOLATION,
             // searchForWorkspaceRoot restores vite's default fs.allow root (which an explicit `allow`
             // overrides). The engine package (`@dylanebert/shallot`, with its `rust/audio/pkg/*.wasm`
             // fetched over /@fs/) is covered by it when in-workspace; a cross-repo symlink (the orrstead
-            // dev setup) lands outside, so the CLI's own engine dir is allowed explicitly too — same as the
-            // editor's `packageDir`.
+            // dev setup) lands outside, so the CLI's own engine dir is allowed explicitly too.
             fs: {
                 allow: [
                     searchForWorkspaceRoot(absProjectDir),
@@ -56,8 +57,8 @@ export function devConfig(
 }
 
 /**
- * `shallot dev` — run a project standalone (no editor): a vite HMR server over its `shallot.json`. The
- * project is pure data; the CLI supplies the entry + harness. `projectPlugin` (non-editor) resolves
+ * `shallot dev` — run a project standalone: a vite HMR server over its `shallot.json`. The
+ * project is pure data; the CLI supplies the entry + harness. `projectPlugin` resolves
  * `virtual:project` and full-reloads on a manifest / scene / plugin edit — the same resolver `shallot build`
  * uses, so dev and ship agree on the loaded plugins + scene + capacity.
  */
@@ -69,8 +70,8 @@ export async function startDev(projectDir: string, opts: { port?: number; strict
 
     console.log(`\n  🧅 shallot · ${name}\n`);
 
-    // merge the project's own vite.config (svelte/react/aliases) the same way the editor + build do, so a
-    // framework project runs identically across all three. No vite.config → the synthesized base unchanged.
+    // merge the project's own vite.config (svelte/react/aliases) the same way `shallot build` does, so a
+    // framework project runs identically in both. No vite.config → the synthesized base unchanged.
     const project = await loadProjectConfig(absProjectDir, "serve", "development");
     if (project) console.log(`  · merged ${relative(absProjectDir, project.path)}\n`);
 

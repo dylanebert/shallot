@@ -1,0 +1,9 @@
+{
+    "scene": "scenes/drive-a-vehicle.scene",
+    "plugins": {
+        "Orbit": true,
+        "Tumble": true,
+        "Car": "./src/car",
+        "CarSmoke": "./src/smoke"
+    }
+}

@@ -8,11 +8,19 @@ import { MATERIAL_DATA_WGSL } from "./palette";
 // bucket — so it's a single non-divergent branch. `textureSampleGrad` (explicit derivatives computed before
 // the switch) is what lets the sample sit inside the branch: unlike `textureSample` it needs no uniform
 // control flow, while still mip-sampling correctly.
+//
+// A material with no baseColor image carries `layer < 0` (union.ts fills -1). The textured path never routes
+// such a material here — `load()` sends a factor-only material to the solid `default` surface — but a skinned
+// one always lands on the skin surface, image or not, so it reaches this function. Return the glTF default
+// baseColor (white) so `albedo × baseColorFactor` yields the factor, not a sample of the black absent-slot
+// fallback. The guard is per-draw uniform (`layer` is), so it costs no divergence.
 const SAMPLE_ALBEDO = /* wgsl */ `
 fn sampleAlbedo(mid: u32, uv: vec2<f32>) -> vec4<f32> {
-    let layer = i32(materialData[mid].layer);
+    let layer = materialData[mid].layer;
+    // derivatives before the guard: dpdx/dpdy need uniform control flow, so they can't sit after a branch
     let ddx = dpdx(uv);
     let ddy = dpdy(uv);
+    if (layer < 0) { return vec4<f32>(1.0); }
     switch materialData[mid].albedoBucket {
 ${ALBEDO_NAMES.map(
     (name, b) =>

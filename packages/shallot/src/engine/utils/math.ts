@@ -273,6 +273,84 @@ export function compose(
     return out;
 }
 
+/**
+ * decompose a column-major TRS matrix into `[px,py,pz, qx,qy,qz,qw, sx,sy,sz]`, the inverse of
+ * {@link compose}. Scale is each basis column's length (`sx` negated when the determinant is negative, so
+ * the extracted rotation stays proper); the quaternion is read from the scale-normalized rotation columns
+ * (Shepperd). Exact only for a similarity transform (T·R·scale); shear / non-uniform-scale-under-rotation
+ * can't be captured by a TRS triple, so a caller that may see either measures the residual against a
+ * recomposed matrix (the gltf live-skin import path warns past a derived epsilon).
+ *
+ * @example
+ * const trs = decompose(compose(1, 2, 3, 0, 0, 0, 1, 2, 2, 2)); // → [1,2,3, 0,0,0,1, 2,2,2]
+ */
+export function decompose(m: Float32Array, out?: Float32Array): Float32Array {
+    if (!out) out = new Float32Array(10);
+    // basis column lengths are the scale; flip sx on a mirrored (det < 0) frame to keep R proper
+    let sx = Math.hypot(m[0], m[1], m[2]);
+    const sy = Math.hypot(m[4], m[5], m[6]);
+    const sz = Math.hypot(m[8], m[9], m[10]);
+    const det =
+        m[0] * (m[5] * m[10] - m[6] * m[9]) -
+        m[4] * (m[1] * m[10] - m[2] * m[9]) +
+        m[8] * (m[1] * m[6] - m[2] * m[5]);
+    if (det < 0) sx = -sx;
+
+    const ix = sx !== 0 ? 1 / sx : 0;
+    const iy = sy !== 0 ? 1 / sy : 0;
+    const iz = sz !== 0 ? 1 / sz : 0;
+    // scale-normalized rotation, indexed mRC = element (row R, col C)
+    const m00 = m[0] * ix,
+        m10 = m[1] * ix,
+        m20 = m[2] * ix;
+    const m01 = m[4] * iy,
+        m11 = m[5] * iy,
+        m21 = m[6] * iy;
+    const m02 = m[8] * iz,
+        m12 = m[9] * iz,
+        m22 = m[10] * iz;
+
+    const trace = m00 + m11 + m22;
+    let qx: number, qy: number, qz: number, qw: number;
+    if (trace > 0) {
+        const s = Math.sqrt(trace + 1) * 2;
+        qw = 0.25 * s;
+        qx = (m21 - m12) / s;
+        qy = (m02 - m20) / s;
+        qz = (m10 - m01) / s;
+    } else if (m00 > m11 && m00 > m22) {
+        const s = Math.sqrt(1 + m00 - m11 - m22) * 2;
+        qw = (m21 - m12) / s;
+        qx = 0.25 * s;
+        qy = (m01 + m10) / s;
+        qz = (m02 + m20) / s;
+    } else if (m11 > m22) {
+        const s = Math.sqrt(1 + m11 - m00 - m22) * 2;
+        qw = (m02 - m20) / s;
+        qx = (m01 + m10) / s;
+        qy = 0.25 * s;
+        qz = (m12 + m21) / s;
+    } else {
+        const s = Math.sqrt(1 + m22 - m00 - m11) * 2;
+        qw = (m10 - m01) / s;
+        qx = (m02 + m20) / s;
+        qy = (m12 + m21) / s;
+        qz = 0.25 * s;
+    }
+    const ql = Math.hypot(qx, qy, qz, qw) || 1;
+    out[0] = m[12];
+    out[1] = m[13];
+    out[2] = m[14];
+    out[3] = qx / ql;
+    out[4] = qy / ql;
+    out[5] = qz / ql;
+    out[6] = qw / ql;
+    out[7] = sx;
+    out[8] = sy;
+    out[9] = sz;
+    return out;
+}
+
 /** mat4 × mat4, column-major */
 export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);

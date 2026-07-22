@@ -72,6 +72,25 @@ describe("rayOBB", () => {
     test("miss returns null", () => {
         expect(rayOBB(3, 0, 5, 0, 0, -1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)).toBeNull();
     });
+
+    test("origin inside returns the exit distance paired with the EXIT face normal", () => {
+        // unit box at origin, ray from the centre toward −z exits the −z face at t=1; the normal is that
+        // exit face (0,0,−1), NOT the entry face the slab test tracks for tmin (which would be +z here).
+        const h = rayOBB(0, 0, 0, 0, 0, -1, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)!;
+        expect(h.t).toBeCloseTo(1, 9);
+        expect([h.nx, h.ny, h.nz]).toEqual([
+            expect.closeTo(0, 9),
+            expect.closeTo(0, 9),
+            expect.closeTo(-1, 9),
+        ]);
+    });
+
+    test("origin inside, off-axis exit picks the correct face", () => {
+        // from the centre toward +x exits the +x face at t=1, normal (1,0,0)
+        const h = rayOBB(0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 1)!;
+        expect(h.t).toBeCloseTo(1, 9);
+        expect(h.nx).toBeCloseTo(1, 9);
+    });
 });
 
 describe("rayCapsule", () => {

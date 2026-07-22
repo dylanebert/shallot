@@ -1,0 +1,9 @@
+{
+  "scene": "scenes/first-person.scene",
+  "plugins": {
+    "Tumble": true,
+    "Character": true,
+    "Player": true,
+    "Demo": "./src/demo"
+  }
+}

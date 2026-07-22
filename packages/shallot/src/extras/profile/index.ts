@@ -664,7 +664,7 @@ function pad(v: string, len: number): string {
 function createOverlay(opts?: OverlayOptions): Overlay {
     const pos = opts?.position ?? "top-left";
     // the stats HUD lives in the engine's sandboxed overlay (canvas-bounded, can't spill into an
-    // embedding host like the editor viewport), the same surface `config.ui` hands an app
+    // embedding host page), the same surface `config.ui` hands an app
     const parent = mountOverlay(document.querySelector("canvas"));
 
     const root = el("div", {
@@ -943,19 +943,18 @@ function collectStats(s: State, profile: ProfileImpl): OverlayData {
     };
 }
 
-// Profile singleton lives for the module's lifetime. The plugin attaches the
-// GPU device on init and tears down the DOM overlay + hook wiring on dispose;
-// GPU resources persist with the device.
+// Profile singleton lives for the module's lifetime. The plugin attaches the GPU device on init; the
+// DOM overlay + F3 listener ride the State's lifetime (onDispose / signal), the Compute hook wiring
+// tears down in the plugin dispose hook. GPU resources persist with the device.
 const _profile = new ProfileImpl();
 export const Profile: Profile = _profile;
 let _overlay: Overlay | null = null;
 let _benchmarkReady = false;
 // the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
-// it lives inside the canvas's container so it sits within the view, not over the whole window — for a
-// fullscreen example that reads the same; for the editor it stays inside the viewport. persists across
-// rebuilds (module-scoped), so an editor scene edit doesn't re-hide it.
+// it lives inside the canvas's container so it sits within the view, not over the whole window — a
+// fullscreen example reads the same; an embedded canvas stays inside its host container. persists across
+// rebuilds (module-scoped), so a scene edit in a live authoring host doesn't re-hide it.
 let _visible = false;
-let _keyHandler: ((e: KeyboardEvent) => void) | null = null;
 
 // runs FIRST in setup group, before any of the new frame's GPU work: drain every ring slot whose async
 // map has resolved (each carries one past frame's timestamps), resolve the just-completed prior frame's
@@ -1015,6 +1014,13 @@ export const ProfilePlugin: Plugin = {
             _profile.fenceWaitMs = ms;
         };
 
+        // the overlay is a DOM mount; its removal rides the State's lifetime, so a host that calls
+        // state.dispose() directly (not App.dispose) still tears it down — the leak class this closes.
+        state.onDispose(() => {
+            _overlay?.destroy();
+            _overlay = null;
+        });
+
         if (typeof window !== "undefined") {
             _benchmarkReady = false;
             const measure = createMeasure(state, _profile);
@@ -1025,20 +1031,25 @@ export const ProfilePlugin: Plugin = {
                 measure,
             };
 
-            if (_keyHandler) window.removeEventListener("keydown", _keyHandler);
-            _keyHandler = (e: KeyboardEvent) => {
-                if (e.key !== "F3") return;
-                e.preventDefault();
-                _visible = !_visible;
-                if (!_visible && _overlay) {
-                    _overlay.destroy();
-                    _overlay = null;
-                }
-            };
-            window.addEventListener("keydown", _keyHandler);
+            // F3 toggle rides `state.signal` — no manual removal, no module-scoped handler ref.
+            window.addEventListener(
+                "keydown",
+                (e: KeyboardEvent) => {
+                    if (e.key !== "F3") return;
+                    e.preventDefault();
+                    _visible = !_visible;
+                    if (!_visible && _overlay) {
+                        _overlay.destroy();
+                        _overlay = null;
+                    }
+                },
+                { signal: state.signal },
+            );
         }
     },
 
+    // the process-lifetime teardown that isn't a listener or a mount: the Compute-singleton profile hooks
+    // and the window.__benchmark global. The DOM overlay + F3 listener ride the State (initialize above).
     dispose(state: State) {
         const compute = Compute;
         if (compute) {
@@ -1047,13 +1058,7 @@ export const ProfilePlugin: Plugin = {
         }
         state.recordSink = undefined;
         state.fenceWaitSink = undefined;
-        _overlay?.destroy();
-        _overlay = null;
         if (typeof window !== "undefined") {
-            if (_keyHandler) {
-                window.removeEventListener("keydown", _keyHandler);
-                _keyHandler = null;
-            }
             delete window.__benchmark;
         }
         _benchmarkReady = false;

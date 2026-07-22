@@ -38,25 +38,6 @@ export {
     bvhRoot,
 } from "./traverse";
 
-// #doc:dev
-// ### The BVH library
-//
-// `createBvh` builds a GPU bounding volume hierarchy, a spatial index that turns ray and overlap
-// queries from an O(n) scan into a log-depth tree walk. It's rendering-unaware: primitive AABBs in, a
-// BVH2 out, naming neither bodies nor triangles. Write AABBs into `prims`, record `build` into an
-// encoder, submit, and read the tree from `nodes`. When the set is stable but the geometry moved, record
-// `refit` instead: the same topology re-bounded, far cheaper than a rebuild.
-//
-// Query it from your own kernel: splice `BVH_TRAVERSE_WGSL` (a single-level ray-AABB traverser) into a
-// compute shader and it walks the node buffer for you. Ray-triangle leaf tests and two-level TLAS/BLAS
-// instancing belong with the consumer, not the builder. The physics broadphase is the worked case,
-// building one BVH over body AABBs each step.
-//
-// The per-stage factories the builder composes are exposed for isolated validation. Each stage runs and
-// reads back on its own. The bounds reduce and the sort each carry a subgroup arm and an LDS fallback; a
-// plugin that builds a BVH lists `BVH_FEATURES` in its `preferredFeatures` so a `subgroups`-less device
-// (WebKit) still loads it, on the LDS arm.
-
 /**
  * GPU features the builder's kernels run faster with: the bounds reduction and the radix sort have
  * a subgroup arm and an LDS fallback ({@link createBvh} reads `device.features` to pick). A plugin

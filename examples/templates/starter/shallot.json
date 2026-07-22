@@ -1,8 +1,0 @@
-{
-  "$schema": "./node_modules/@dylanebert/shallot/shallot.schema.json",
-  "scene": "scenes/scene.scene",
-  "plugins": {
-    "Orbit": true,
-    "Spin": "./src/spin"
-  }
-}

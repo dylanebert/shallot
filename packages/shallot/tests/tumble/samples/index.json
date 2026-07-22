@@ -1,0 +1,257 @@
+{
+  "source": "tumble.js/samples",
+  "sourceCommit": "128a4efeb7d28024c338a4b5beaefc49d3dc4345",
+  "engine": "shallot src/standard/tumble/engine",
+  "stepCount": 600,
+  "registeredCount": 41,
+  "goldCount": 40,
+  "samples": [
+    {
+      "slug": "stacking-box-pyramid",
+      "category": "Stacking",
+      "name": "Box Pyramid",
+      "description": "Boxes stacked into a pyramid, settling on the ground — the canonical resting-contact test."
+    },
+    {
+      "slug": "stacking-dominoes",
+      "category": "Stacking",
+      "name": "Dominoes",
+      "description": "Concentric rings of dominoes kicked into a chain reaction by a single impulse."
+    },
+    {
+      "slug": "stacking-arch",
+      "category": "Stacking",
+      "name": "Arch",
+      "description": "A masonry arch of wedge voussoirs standing on friction alone, loaded with loose boxes."
+    },
+    {
+      "slug": "shapes-shape-soup",
+      "category": "Shapes",
+      "name": "Shape Soup",
+      "description": "Spheres, capsules, and boxes dropped together — every convex primitive in one scene."
+    },
+    {
+      "slug": "shapes-restitution",
+      "category": "Shapes",
+      "name": "Restitution",
+      "description": "A drop of bodies with restitution ramping 0 → 1 — the bounce ladder, sphere or box."
+    },
+    {
+      "slug": "shapes-inclined-plane",
+      "category": "Shapes",
+      "name": "Inclined Plane",
+      "description": "Boxes released on a ramp with rising friction — the low-friction box slides, the grippy one holds."
+    },
+    {
+      "slug": "bodies-body-type",
+      "category": "Bodies",
+      "name": "Body Type",
+      "description": "A platform carrying crates, re-typed live between kinematic, dynamic, and static."
+    },
+    {
+      "slug": "bodies-spinning-book",
+      "category": "Bodies",
+      "name": "Spinning Book",
+      "description": "Books spinning in free fall — the intermediate-axis one flips (the Dzhanibekov effect)."
+    },
+    {
+      "slug": "bodies-motion-locks",
+      "category": "Bodies",
+      "name": "Motion Locks",
+      "description": "Hovering cubes under torque with different angular locks — rotation only about unlocked axes."
+    },
+    {
+      "slug": "geometry-convex-primitives",
+      "category": "Geometry",
+      "name": "Convex Primitives",
+      "description": "Cylinders, cones, and rocks — the built-in convex hull generators dropped together."
+    },
+    {
+      "slug": "geometry-convex-hull",
+      "category": "Geometry",
+      "name": "Convex Hull",
+      "description": "Random point clouds turned into convex polytopes with createHull — a pile of unique shapes."
+    },
+    {
+      "slug": "geometry-hull-reduction",
+      "category": "Geometry",
+      "name": "Hull Reduction",
+      "description": "A sphere point cloud capped to N hull vertices — the slider trades detail for vertex budget."
+    },
+    {
+      "slug": "joints-pendulum",
+      "category": "Joints",
+      "name": "Pendulum",
+      "description": "A chain of boxes on revolute joints, swinging out and settling under gravity."
+    },
+    {
+      "slug": "joints-suspension",
+      "category": "Joints",
+      "name": "Suspension",
+      "description": "A platform hung from four distance-joint springs — drop crates and it bobs."
+    },
+    {
+      "slug": "joints-cantilever",
+      "category": "Joints",
+      "name": "Cantilever",
+      "description": "Welded boxes jutting from a wall as a diving board — the stiffness knob is the weld's spring."
+    },
+    {
+      "slug": "joints-elevator",
+      "category": "Joints",
+      "name": "Elevator",
+      "description": "A prismatic platform motored up and down between limits, carrying crates — stays level, only slides."
+    },
+    {
+      "slug": "joints-rope",
+      "category": "Joints",
+      "name": "Rope",
+      "description": "A capsule rope on spherical joints, released from horizontal — it swings and coils in 3D."
+    },
+    {
+      "slug": "joints-parallel",
+      "category": "Joints",
+      "name": "Parallel",
+      "description": "Two panels under torque — a parallel joint locks one level while the free one tumbles."
+    },
+    {
+      "slug": "joints-paddle",
+      "category": "Joints",
+      "name": "Paddle",
+      "description": "A motor joint spins a paddle at a set speed, batting a pile of loose boxes around."
+    },
+    {
+      "slug": "joints-filter",
+      "category": "Joints",
+      "name": "Filter",
+      "description": "A filter joint mutes one box-platform contact so it falls through, while its twin rests on top."
+    },
+    {
+      "slug": "joints-bridge",
+      "category": "Joints",
+      "name": "Bridge",
+      "description": "A plank bridge on paired spherical hinges — it folds along the span but never twists. Drop boxes to sag it."
+    },
+    {
+      "slug": "joints-driving",
+      "category": "Joints",
+      "name": "Driving",
+      "description": "A car on wheel joints: rear wheels spin, front wheels steer, suspension springs at each corner. Throttle and steer live."
+    },
+    {
+      "slug": "ragdoll-ragdoll",
+      "category": "Ragdoll",
+      "name": "Ragdoll",
+      "description": "A capsule humanoid dropped from a height, folding at its limited joints as it settles."
+    },
+    {
+      "slug": "determinism-falling-ragdolls",
+      "category": "Determinism",
+      "name": "Falling Ragdolls",
+      "description": "A grid of ragdolls falling into a pile — the settled pose hashes the same on every run."
+    },
+    {
+      "slug": "continuous-thin-wall",
+      "category": "Continuous",
+      "name": "Thin Wall",
+      "description": "Fast projectiles hurled at a thin wall — swept collision stops them instead of tunnelling through."
+    },
+    {
+      "slug": "continuous-bullet-vs-stack",
+      "category": "Continuous",
+      "name": "Bullet vs Stack",
+      "description": "A swept bullet punches a box stack it would otherwise pass clean through. Launch refires."
+    },
+    {
+      "slug": "events-sensor-sweep",
+      "category": "Events",
+      "name": "Sensor Sweep",
+      "description": "A sensor volume sweeping through a stack — overlap begin/end reported without colliding."
+    },
+    {
+      "slug": "events-hit",
+      "category": "Events",
+      "name": "Hit",
+      "description": "Hit events from fast contacts, drawn as impact markers scaled by approach speed."
+    },
+    {
+      "slug": "events-joint-break",
+      "category": "Events",
+      "name": "Joint Break",
+      "description": "Distance joints under a rising load — each is cut when its reaction crosses a force threshold."
+    },
+    {
+      "slug": "character-mover",
+      "category": "Character",
+      "name": "Mover",
+      "description": "A kinematic capsule patrolling an arena on the plane solver — climbing steps and shoving crates."
+    },
+    {
+      "slug": "collision-ray-curtain",
+      "category": "Collision",
+      "name": "Ray Curtain",
+      "description": "A sweeping curtain of rays reporting the closest hit on a row of spinning shapes."
+    },
+    {
+      "slug": "collision-shape-cast",
+      "category": "Collision",
+      "name": "Shape Cast",
+      "description": "Spheres swept through spinning shapes, each resolved to its first contact."
+    },
+    {
+      "slug": "collision-overlap-box",
+      "category": "Collision",
+      "name": "Overlap Box",
+      "description": "A query box circling a grid — every shape it overlaps is outlined and counted."
+    },
+    {
+      "slug": "mesh-terrain",
+      "category": "Mesh",
+      "name": "Terrain",
+      "description": "A sine-wave triangle mesh — shapes roll down the hills and settle in the troughs."
+    },
+    {
+      "slug": "mesh-torus",
+      "category": "Mesh",
+      "name": "Torus",
+      "description": "A flat torus mesh — balls balance on the ring or drop straight through the hole."
+    },
+    {
+      "slug": "compound-simple",
+      "category": "Compound",
+      "name": "Simple",
+      "description": "Four tilted slabs baked into one static body — a staircase spheres cascade down."
+    },
+    {
+      "slug": "compound-spheres",
+      "category": "Compound",
+      "name": "Spheres",
+      "description": "A boulder of eighteen spheres in one static compound, pelted by a rain of boxes."
+    },
+    {
+      "slug": "compound-tile-floor",
+      "category": "Compound",
+      "name": "Tile Floor",
+      "description": "A grid of tiles at random heights baked into one body — an uneven floor from a single compound."
+    },
+    {
+      "slug": "benchmark-large-pyramid",
+      "category": "Benchmark",
+      "name": "Large Pyramid",
+      "description": "A tall pyramid of heavy boxes — the canonical stacking-throughput stress at debug scale."
+    },
+    {
+      "slug": "benchmark-joint-grid",
+      "category": "Benchmark",
+      "name": "Joint Grid",
+      "description": "A hanging sheet of spheres tied by spherical joints — the joint solver under a wide load."
+    }
+  ],
+  "exceptions": [
+    {
+      "category": "Benchmark",
+      "name": "Rain",
+      "reason": "engine hangs inside a step once a second ragdoll column lands on the mesh field (~step 40), short of any horizon. Throughput benchmark, not an authoring scene."
+    }
+  ]
+}

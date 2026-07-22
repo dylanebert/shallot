@@ -3,59 +3,6 @@ import { byId, getParamPairs, type Instrument } from "./instrument";
 import { flushSamples, resetSampleUploads } from "./sample";
 import { createWorkletURL } from "./worklet";
 
-// #doc:dev
-// The `audio/core` surface is for building sound past the `Sound` happy path: authoring instruments and
-// driving voices directly.
-//
-// ### Custom instruments
-//
-// An instrument is a DAG of typed DSP nodes (oscillator, filter, envelope, gain, a two-input mix,
-// constant, and a PCM sample source), wired by naming each node's input. `instrument(def, name)` compiles
-// the graph to a flat kernel eval order and registers it under a name, the same id space `Sound.instrument`
-// and `play()` resolve. Naming `volumeParam` / `pitchParams` / `loopParam` in the definition wires the
-// params the ECS layer firehoses per voice, so an authored instrument plugs into `Sound.volume` / `.pitch`
-// with no extra work. The node kinds and their params are the reference below; the kernel is frozen, so
-// this palette is the whole synthesis surface.
-//
-// ### Direct voices
-//
-// Bypass ECS for one-off or tightly-timed sound: `alloc` a voice handle, `assign` an instrument, `setParam`
-// its params, `gate` it on to sound it, and `free` when done. Or mark it `oneShot` and `watchIdle` to free
-// it when the envelope completes. `spatialize` routes a voice through the FOA + HRTF path; `polar` +
-// `addSpatial` + `flushSpatial` feed it a listener-relative position each frame, which is what the sound
-// system does for a positioned `Sound`.
-
-// #doc:dev
-// ### The kernel
-//
-// Synthesis runs in a Rust/WASM kernel (`rust/audio/`) on the AudioWorklet thread. Rust owns per-sample and
-// per-block work (oscillators, filters, envelopes, sample playback, the FOA + HRTF spatial render, the FDN
-// reverb, mixing, the master limiter), and the DSP hot path never crosses the FFI mid-block. JS owns
-// per-event and per-frame work: instrument authoring, voice allocation, and the spatial parameter feed.
-//
-// The kernel is frozen: each subsystem is grounded in a named reference and gated at a tolerance derived
-// from f32 roundoff. Bit-portable formulas are checked against golden vectors; paths whose output depends
-// on internal ordering (the reverb tail, the HRTF render) keep property gates instead.
-//
-// | Subsystem | Reference | Parity gate |
-// |---|---|---|
-// | State-variable filter | Simper/Cytomic TPT SVF (2013) | captured coefficients + unity-DC / band rolloff |
-// | Shelving biquads | RBJ cookbook / Steam Audio `iir.cpp` | captured coefficients + shelf/peak direction |
-// | Oscillators (saw / square / triangle) | DaisySP PolyBLEP | captured kernel + spectral rolloff |
-// | Sample / wavetable interpolation | Niemitalo 4-point Hermite | captured kernel + polynomial reproduction |
-// | FDN reverb | Steam Audio Jot FDN | RT60 decay + energy bounds (ordering isn't bit-portable) |
-// | Spatial HRTF | Brown-Duda structural model (1998) | ITD / ILD + contralateral attenuation |
-// | FFT | radix-2 real FFT | analytic-DFT vector + round-trip, Parseval |
-//
-// Deliberate choices, decided rather than provisional:
-//
-// - **Synthetic Brown-Duda HRTF + FOA** over measured HRIR: ships no impulse-data blob, fits the
-//   build-size and procedural-first goals. A measured set is a free internal upgrade later.
-// - **tanh soft-clip master limiter**: zero lookahead, the right call for a realtime thread.
-// - **Cubic Hermite interpolation** for sample and wavetable reads: band-limits pitch-shift aliasing.
-// - **f32 sample stream, f64 only where error compounds** (the transport counter, high-shelf coefficient
-//   math, the sample read position): Web Audio mandates f32 and a 64-voice sum errs by ≈ −108 dB.
-
 const MAX_VOICES = 64;
 const SLOT_MASK = 0x7f;
 const GEN_MASK = 0xffffff;

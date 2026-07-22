@@ -31,15 +31,3 @@ await Bun.write(
 
 // window (native host binary)
 await $`cargo build --release`.cwd(resolve(root, "window"));
-
-// docs
-console.log("Building docs...");
-await import("./docs");
-
-// field docs (the editor's annotation-sourced UI reference data)
-console.log("Generating field docs...");
-await import("./fielddocs");
-
-// starter example (regenerated from the create-shallot template)
-console.log("Generating starter...");
-await import("./starter");

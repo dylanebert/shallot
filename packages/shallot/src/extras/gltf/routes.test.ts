@@ -7,6 +7,7 @@ import { Surfaces } from "../../standard/render/core";
 import { Slab } from "../../standard/slab";
 import type { GltfHandle } from "./assets";
 import { GltfPlugin } from "./assets";
+import { LiveSkin } from "./live";
 import { RouteSystem, routes, scanRefs, Textured } from "./routes";
 import { Skin } from "./skin";
 
@@ -41,15 +42,18 @@ describe("scanRefs", () => {
 describe("RouteSystem", () => {
     let albedo: number;
     let skinSurf: number;
+    let liveSurf: number;
     let solid: number;
 
     beforeEach(() => {
         clear();
         Surfaces.clear();
         routes.clear();
+        LiveSkin.reset();
         solid = Surfaces.register({ name: "default" });
         albedo = Surfaces.register({ name: "gltf-albedo" });
         skinSurf = Surfaces.register({ name: "skin" });
+        liveSurf = Surfaces.register({ name: "skin-live" });
         Surfaces.register({ name: "checker" });
         for (const p of [PartPlugin, GltfPlugin]) {
             for (const [n, c] of Object.entries(p.components ?? {})) {
@@ -67,8 +71,10 @@ describe("RouteSystem", () => {
             material: 0,
             color: [1, 1, 1, 1],
             skinned: false,
+            live: false,
             textured: false,
             duration: 0,
+            jointCount: 0,
             ...over,
         };
     }
@@ -122,6 +128,41 @@ describe("RouteSystem", () => {
         expect(Skin.anim.w.get(eid)).toBe(2.5);
         expect(Skin.anim.x.get(eid)).toBe(0); // play time is SkinSystem's
         expect(Skin.anim.z.get(eid)).toBe(0); // phase stays per-instance
+    });
+
+    test("a live handle allocates a palette block and publishes its base in Skin.anim.x", () => {
+        routes.set(
+            8,
+            handle({ mesh: 8, surface: liveSurf, live: true, material: 4, jointCount: 3 }),
+        );
+        const state = new State();
+        const eid = partEntity(state, 8);
+
+        RouteSystem.update!(state);
+
+        expect(Part.surface.get(eid)).toBe(liveSurf);
+        expect(state.has(eid, Skin)).toBe(true);
+        expect(LiveSkin.blocks.has(eid)).toBe(true);
+        expect(Skin.anim.x.get(eid)).toBe(LiveSkin.blocks.get(eid)!.base); // palette base, not play time
+        expect(Skin.anim.y.get(eid)).toBe(4); // material lane
+        expect(Skin.anim.w.get(eid)).toBe(0); // w ≤ 0 → SkinSystem's clip-advance skips a live instance
+    });
+
+    test("a live entity edited off its handle frees its palette block", () => {
+        routes.set(
+            8,
+            handle({ mesh: 8, surface: liveSurf, live: true, material: 4, jointCount: 3 }),
+        );
+        const state = new State();
+        const eid = partEntity(state, 8);
+        RouteSystem.update!(state);
+        expect(LiveSkin.blocks.has(eid)).toBe(true);
+
+        Part.mesh.set(eid, 99); // no handle
+        RouteSystem.update!(state);
+
+        expect(state.has(eid, Skin)).toBe(false);
+        expect(LiveSkin.blocks.has(eid)).toBe(false); // the block is freed, not leaked
     });
 
     test("a mesh edited off a glTF handle drops the decorations and the routed surface", () => {

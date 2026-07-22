@@ -1,7 +1,20 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { load, parse, State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
-import { Joint, PhysicsPlugin, Spring } from "./index";
+import { Slab } from "../slab";
+import {
+    Body,
+    bodyTraits,
+    ConstraintSystem,
+    installBackend,
+    Joint,
+    type JointDef,
+    jointTraits,
+    type PhysicsBackend,
+    Spring,
+    springTraits,
+    uninstallBackend,
+} from "./index";
 
 // Spring / Joint scene authoring (Phase 6.6): a constraint is a standalone `<a spring|joint="…">` entity
 // that references its two bodies by `@name`, the consumer-shaped relation (like `Tween.target`). This is the
@@ -14,8 +27,8 @@ describe("constraint authoring (scene)", () => {
     beforeEach(() => {
         clear();
         state = new State();
-        register("spring", Spring, PhysicsPlugin.traits?.Spring);
-        register("joint", Joint, PhysicsPlugin.traits?.Joint);
+        register("spring", Spring, springTraits);
+        register("joint", Joint, jointTraits);
     });
 
     test("spring resolves both body refs, anchors, and scalars", () => {
@@ -60,5 +73,83 @@ describe("constraint authoring (scene)", () => {
         );
         const map = load(nodes, state);
         expect(Joint.stiffnessAng.get(map.get(nodes[2])!)).toBe(1000);
+    });
+});
+
+// A same-update realias of a body an authored Joint references (destroy + create recycling its eid) leaves
+// the Joint's numeric a/b refs unchanged, so the re-upload signature must fold each endpoint's create-stamp
+// or the backend joint silently pins the NEW occupant at the old anchors (ecs.md "An eid is a borrow").
+describe("constraint re-upload on an endpoint realias", () => {
+    let state: State;
+    let joints: JointDef[][];
+
+    function recordingBackend(): PhysicsBackend {
+        return {
+            step() {},
+            readBody: () => null,
+            setKinematic() {},
+            setVelocity() {},
+            setSprings() {},
+            setJoints(j) {
+                joints.push([...j]);
+            },
+            get gravity() {
+                return -10;
+            },
+            get dt() {
+                return 1 / 60;
+            },
+            compose() {},
+        };
+    }
+
+    beforeEach(() => {
+        clear();
+        state = new State();
+        register("body", Body, bodyTraits);
+        register("spring", Spring, springTraits);
+        register("joint", Joint, jointTraits);
+        Slab.collect();
+        joints = [];
+        uninstallBackend();
+        installBackend(recordingBackend()); // arms the constraint re-upload for the fresh backend
+    });
+
+    afterEach(() => {
+        uninstallBackend();
+    });
+
+    test("a recycled endpoint eid re-uploads the joint set", () => {
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.mass.set(anchor, 0);
+        const bob = state.create();
+        state.add(bob, Body);
+        Body.pos.set(bob, 0, -2, 0, 0);
+
+        const joint = state.create();
+        state.add(joint, Joint);
+        Joint.a.set(joint, anchor);
+        Joint.b.set(joint, bob);
+
+        // first sync uploads the authored joint once
+        ConstraintSystem.update?.(state);
+        expect(joints.length).toBe(1);
+        expect(joints[0][0]?.b).toBe(bob);
+
+        // a no-op re-run does NOT re-upload (signature unchanged)
+        ConstraintSystem.update?.(state);
+        expect(joints.length).toBe(1);
+
+        // same update: destroy the bob endpoint and recycle its eid with a fresh Body — the Joint's numeric
+        // `b` is identical, so only the create-stamp fold makes the realias visible.
+        state.destroy(bob);
+        const bob2 = state.create();
+        expect(bob2).toBe(bob);
+        state.add(bob2, Body);
+        Body.pos.set(bob2, 5, -2, 0, 0);
+
+        ConstraintSystem.update?.(state);
+        expect(joints.length).toBe(2); // re-uploaded so the backend joint rebinds to the new occupant
     });
 });

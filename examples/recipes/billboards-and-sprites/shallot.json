@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/billboards-and-sprites.scene",
+  "plugins": {
+    "Sprite": true,
+    "Orbit": true,
+    "Icons": "./src/icons"
+  }
+}

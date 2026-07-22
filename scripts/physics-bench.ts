@@ -1,6 +1,11 @@
-import { runExample } from "../harness/core";
-import type { Check, Verdict } from "../harness/gym/verdict";
-import { SMALL_N } from "../packages/shallot/src/standard/physics/step";
+import { globals } from "bun-webgpu";
+import { type Check, queryFlags, skipReason, verify } from "./verify";
+
+// SMALL_N's module graph (avbd/step → physics/core → sear) references GPU enum constants at module
+// scope, which exist in a browser but not under bare `bun run` — install bun-webgpu's constants-only
+// globals (no adapter) before evaluating it, the same shim `bun test` preloads.
+globals();
+const { SMALL_N } = await import("../packages/shallot/src/standard/avbd/step");
 
 // physics-bench — the standing perf + scaling-robustness surface for the AVBD solver. Drives the §6 gym
 // physics scenarios headless, one isolated page per cell (fresh vite server + GPU), and reads each scenario's
@@ -35,7 +40,6 @@ import { SMALL_N } from "../packages/shallot/src/standard/physics/step";
 // collider (the narrowphase under test); `--joints true` chains the rows (the joint passes). A non-box /
 // jointed cell is perf + no-tunnel — the box correctness suite gates only on box.
 
-const PORT = 3007;
 // the solver-core passes (the matrix's `step` subtotal). `phys:joint` is 0 unless the cell chains joints. The
 // full per-step set (incl. bvh.* / aabb / coloring / pack) lands in PASS × COUNT below.
 const CORE = [
@@ -115,22 +119,27 @@ async function runUrl(
     query: string,
 ): Promise<{ data: Record<string, number>; ok: boolean; error?: string; checks: Check[] }> {
     try {
-        const res = await runExample({
-            example: "gym",
-            port: PORT,
-            url: `http://localhost:${PORT}/?${query}`,
-            warmup: WARMUP,
-            frames: FRAMES,
-            timeoutMs: TIMEOUT,
-            readyTimeoutMs: TIMEOUT,
-        });
-        const verdict = res.verdict as Verdict | undefined;
-        const checks = verdict?.checks ?? [];
+        // one isolated `shallot verify` per cell (fresh browser + GPU + port, verify picks its own). The
+        // scenario knobs ride `--query`; warmup/frames become gym params the harness run() coerces. --memory
+        // samples the retained-leak slope (informational). hardware + memory land in the JSON if a caller wants.
+        const res = await verify(
+            "examples/gym",
+            [
+                ...queryFlags([...query.split("&"), `warmup=${WARMUP}`, `frames=${FRAMES}`]),
+                "--memory",
+                "--timeout",
+                String(TIMEOUT),
+            ],
+            true, // quiet — the sweep table is the output, not per-cell JSON blobs
+        );
+        if (!res)
+            return { data: {}, ok: false, error: "no JSON result from shallot verify", checks: [] };
+        const checks = res.verdict?.checks ?? [];
         const data = measured(checks) ?? {};
         return {
             data,
-            ok: res.ok,
-            error: res.ok ? undefined : (res.fatal ?? "run not ok"),
+            ok: res.pass,
+            error: res.pass ? undefined : (res.error ?? res.errors?.[0] ?? "run not ok"),
             checks,
         };
     } catch (e) {
@@ -293,7 +302,7 @@ async function sweepScenarios(): Promise<
         const { data, ok, error, checks } = await runUrl(cell.query);
         const step = CORE.reduce((s, n) => s + (data[n] ?? 0), 0);
         // scenario rows are gate rows — a failing scenario check (e.g. regime-cross) reddens the bench
-        const failed = checks.find((c) => !c.pass);
+        const failed = checks.find((c) => !c.ok);
         const err = !ok
             ? error
             : failed
@@ -628,6 +637,11 @@ async function audit(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+    const skip = skipReason();
+    if (skip) {
+        console.log(`physics-bench needs native hardware (${skip}). Skipping.`);
+        return;
+    }
     if (process.argv.includes("--audit")) {
         await audit();
         return;

@@ -17,7 +17,7 @@ export function camel(str: string): string {
     return str.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
 }
 
-/** the editor category of a component field, how it's shown and edited: a `vec3` as three lanes, an
+/** the presentation category of a component field, how it's shown and edited: a `vec3` as three lanes, an
  * `enum` as a dropdown, an `entity` as an `@name` reference, a `unit` through a unit switcher */
 export type FieldKind = "float" | "vec2" | "vec3" | "vec4" | "color" | "enum" | "unit" | "entity";
 
@@ -33,8 +33,8 @@ export interface FieldInfo {
     units?: Unit[];
 }
 
-/** a component's reflected field layout: its kebab `name` and the ordered `fields` the inspector renders
- * rows from */
+/** a component's reflected field layout: its kebab `name` and the ordered `fields` a tooling surface
+ * renders as rows */
 export interface Schema {
     name: string;
     fields: FieldInfo[];
@@ -119,8 +119,8 @@ export function schema(name: string): Schema | null {
             fields.push({ name: key, kind: "color", default: defaults[key] as number });
             for (const s of ["R", "G", "B"]) handled.add(key + s);
         } else if ((component[key] as { type?: Type } | undefined)?.type === entity) {
-            // ref-ness lives on the field's type (`sparse(entity)`) — surface it so the inspector
-            // and the docs table show an `@name` reference, not a number
+            // ref-ness lives on the field's type (`sparse(entity)`) — surface it so tooling
+            // shows an `@name` reference, not a number
             fields.push({ name: key, kind: "entity", default: defaults[key] as number });
         } else {
             fields.push({ name: key, kind: "float", default: defaults[key] as number });
@@ -166,7 +166,7 @@ export function provides(name: string): string[] {
 }
 
 /** true if the component declares the `singleton` trait: one instance per scene (lights, the active
- * camera). editor metadata, not enforced; false for an unknown component */
+ * camera). reflection metadata, not enforced; false for an unknown component */
 export function isSingleton(name: string): boolean {
     return getTraits(name)?.singleton ?? false;
 }
@@ -187,7 +187,7 @@ export function exclusions(name: string): string[] {
 }
 
 /** read every field of `component` on `eid` into a flat map, vec fields split into dotted lanes
- * (`pos.x`, `pos.y`); the row values the inspector shows */
+ * (`pos.x`, `pos.y`); the row values tooling shows */
 export function readFields(component: Component, eid: number): FieldValues {
     const fields: FieldValues = {};
     for (const [field, store] of Object.entries(component)) {

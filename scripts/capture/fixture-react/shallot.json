@@ -1,7 +1,0 @@
-{
-    "scene": "scenes/scene.scene",
-    "plugins": {
-        "Orbit": true,
-        "game": "./src/game"
-    }
-}

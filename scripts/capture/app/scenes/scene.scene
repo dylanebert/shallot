@@ -1,9 +1,0 @@
-<scene>
-    <a ambient-light="intensity: 0.6" />
-    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.2" />
-
-    <a camera sear orbit="distance: 5; yaw: 0.5; pitch: 0.35" transform />
-
-    <!-- the authored entity whose runtime-climbing `counter.n` survive-reload must restore -->
-    <a id="hero" part counter transform color="rgba: 0.85 0.55 0.35" />
-</scene>

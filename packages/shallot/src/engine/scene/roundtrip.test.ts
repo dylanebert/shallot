@@ -33,7 +33,7 @@ import { clear, getComponent, register, snapshot } from "../ecs/core";
 import { formatFields, normalizeAttr, parseFields } from "./core";
 
 const SCENE_FILES = [
-    "zoo/kitchen/public/scenes/kitchen.scene",
+    "recipes/custom-material/public/scenes/custom-material.scene",
     "showcase/fountain/public/scenes/fountain.scene",
     "showcase/visualization/public/scenes/tween.scene",
 ];

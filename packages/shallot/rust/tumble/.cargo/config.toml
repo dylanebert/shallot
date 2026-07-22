@@ -1,0 +1,6 @@
+# simd128 applies only when targeting wasm; native `cargo test` builds for the host with no
+# wasm feature flag, exercising the scalar FloatW fallback. No default `target` is set on
+# purpose — the build script passes `--target wasm32-unknown-unknown` explicitly, so bare
+# `cargo test` runs on the host.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

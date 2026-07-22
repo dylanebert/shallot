@@ -15,9 +15,9 @@ const ctx = globalThis as unknown as {
 };
 
 ctx.onmessage = async (e) => {
-    const { url, clip, targets } = e.data;
+    const { url, clip, targets, live } = e.data;
     try {
-        const decoded = await decode(url, { clip, targets });
+        const decoded = await decode(url, { clip, targets, live });
         ctx.postMessage({ ok: true, decoded }, transferables(decoded));
     } catch (err) {
         // forward the message only — an Error doesn't survive the structured clone, and the pool rewraps this

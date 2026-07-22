@@ -1,12 +1,8 @@
 {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "biomejs.biome",
-    "[svelte]": {
-        "editor.defaultFormatter": "svelte.svelte-vscode"
-    },
     "editor.codeActionsOnSave": {
         "source.organizeImports.biome": "explicit"
     },
-    "editor.tabSize": 4,
-    "svelte.enable-ts-plugin": false
+    "editor.tabSize": 4
 }

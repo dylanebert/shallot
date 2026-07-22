@@ -38,4 +38,12 @@ describe("devConfig", () => {
         expect(devConfig(dir, "demo", {}).server.open).toBe(true);
         expect(devConfig(dir, "demo", { open: false }).server.open).toBe(false);
     });
+
+    test("sends the cross-origin isolation headers so tumble physics multithreads", () => {
+        // the COOP/COEP the dev server (shallot dev + verify's project boot) needs for a shared
+        // WebAssembly.Memory; a regression here silently degrades tumble to single-thread
+        const headers = devConfig(dir, "demo", { open: false }).server.headers;
+        expect(headers["Cross-Origin-Opener-Policy"]).toBe("same-origin");
+        expect(headers["Cross-Origin-Embedder-Policy"]).toBe("require-corp");
+    });
 });

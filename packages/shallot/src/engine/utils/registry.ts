@@ -36,7 +36,7 @@ export class Registry<T extends { name: string }> {
 
     /**
      * wipe every entry and reset the ID space. The reload seam — a rebuild re-registers from a clean
-     * registry (ecs.md "clear then rebuild"), so a plugin toggled off in the editor leaves no stale entry
+     * registry (ecs.md "clear then rebuild"), so a plugin toggled off leaves no stale entry
      * (a draw against torn-down buffers). Unlike {@link delete}, this frees the ID slots too; IDs are
      * stable only within one build generation.
      */

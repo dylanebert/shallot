@@ -14,14 +14,14 @@ export interface Preloader {
  * the scene pre-load resolver registry. A plugin whose assets are referenced by name in scenes (the glTF
  * importer) registers a {@link Preloader} in `initialize` and deletes it in `dispose`; {@link preload} runs
  * every registered resolver over the parsed nodes before `load`, so a declarative reference (`part="mesh:
- * model.glb#0"`) triggers its own import. The engine's scene loop and the editor both await it between
+ * model.glb#0"`) triggers its own import. The engine's scene loop awaits it between
  * `parse` and `load`; a custom loader does the same.
  */
 export const Preloads = new Registry<Preloader>();
 
 /**
  * run every registered {@link Preloader} over parsed scene nodes: the awaited pre-load resolve pass.
- * Call between `parse` and `load` (the engine's `build` and the editor already do).
+ * Call between `parse` and `load` (the engine's `build` already does).
  *
  * @example
  * const nodes = parse(xml);

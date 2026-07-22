@@ -1,7 +1,9 @@
 import { Registry } from "../../engine";
 
 /** a DSP node kind in an instrument DAG: an `oscillator`, `filter`, `envelope`, `gain`, two-input `mix`,
- *  `constant`, or PCM `sample` source. */
+ *  `constant`, PCM `sample` source, feedback `delay` line, `dynamics` (compressor/limiter/expander/gate),
+ *  `waveshaper` (soft/hard/fold distortion), `eq` (low-shelf/peaking/high-shelf biquad), or a modulation
+ *  effect (`chorus`, `flanger`, `phaser`, `tremolo`). */
 export type NodeType =
     | "oscillator"
     | "filter"
@@ -9,7 +11,15 @@ export type NodeType =
     | "gain"
     | "mix"
     | "constant"
-    | "sample";
+    | "sample"
+    | "delay"
+    | "dynamics"
+    | "waveshaper"
+    | "eq"
+    | "chorus"
+    | "flanger"
+    | "phaser"
+    | "tremolo";
 
 const NODE_TYPE_ID: Record<NodeType, number> = {
     oscillator: 1,
@@ -19,7 +29,42 @@ const NODE_TYPE_ID: Record<NodeType, number> = {
     mix: 5,
     constant: 6,
     sample: 7,
+    delay: 8,
+    dynamics: 9,
+    waveshaper: 10,
+    eq: 11,
+    chorus: 12,
+    flanger: 13,
+    phaser: 14,
+    tremolo: 15,
 };
+
+/** `dynamics.mode` values — mirrors `rust/audio/src/dynamics.rs`'s `DynamicsMode`.
+ *  `limiter`/`gate` share the `compressor`/`expander` curve; only the default
+ *  parameter preset differs. */
+export const DYNAMICS_MODE = {
+    compressor: 0,
+    limiter: 1,
+    expander: 2,
+    gate: 3,
+} as const;
+
+/** `waveshaper.mode` values — mirrors `rust/audio/src/waveshaper.rs`'s `ShaperMode`.
+ *  `soft` is DaisySP's overdrive (rational-tanh), `hard` a clip, `fold` a wavefolder. */
+export const WAVESHAPER_MODE = {
+    soft: 0,
+    hard: 1,
+    fold: 2,
+} as const;
+
+/** `eq.mode` values — the biquad shape. `gain` is a linear ratio (1.0 = flat), so an
+ *  EQ node at unit gain is transparent; `q` applies to `peaking` only (shelves are
+ *  fixed-slope). */
+export const EQ_MODE = {
+    lowShelf: 0,
+    peaking: 1,
+    highShelf: 2,
+} as const;
 
 const NODE_DEFAULTS: Record<NodeType, number[]> = {
     oscillator: [440, 0, 0, 0.7],
@@ -29,6 +74,23 @@ const NODE_DEFAULTS: Record<NodeType, number[]> = {
     mix: [0.5],
     constant: [0],
     sample: [0, 1, 0, 1, 0],
+    // mix=0 bypasses by default, matching filter's convention — set "node.mix"
+    // explicitly to bring the delay into the chain.
+    delay: [0.3, 0.35, 0.3, 0],
+    // compressor preset: gentle 4:1 above -18dB, 6dB soft knee, musical ballistics.
+    dynamics: [DYNAMICS_MODE.compressor, -18, 4, 6, 0.01, 0.15, 0, 1],
+    // mix=0 bypasses by default (delay/filter convention) — raise "node.mix" to shape.
+    waveshaper: [WAVESHAPER_MODE.soft, 0.5, 0],
+    // gain=1 is transparent, so an added-but-untuned EQ is a no-op; peaking @ 1kHz.
+    eq: [EQ_MODE.peaking, 1000, 1, 1],
+    // mix=0 bypasses by default (delay/filter convention) — raise "node.mix" to blend.
+    chorus: [1.5, 0.5, 0.2, 0],
+    // slower rate + higher feedback → the resonant swept comb; mix=0 bypasses.
+    flanger: [0.5, 0.5, 0.5, 0],
+    // 4-stage sweep; mix=0 bypasses.
+    phaser: [0.5, 0.7, 0.3, 4, 0],
+    // depth=0 is a transparent no-op (gain stays at unity).
+    tremolo: [5, 0],
 };
 
 const NODE_PARAM_NAMES: Record<NodeType, string[]> = {
@@ -47,6 +109,14 @@ const NODE_PARAM_NAMES: Record<NodeType, string[]> = {
     mix: ["mix"],
     constant: ["value"],
     sample: ["bufferId", "rate", "loop", "volume", "channel"],
+    delay: ["time", "feedback", "damp", "mix"],
+    dynamics: ["mode", "threshold", "ratio", "knee", "attack", "release", "makeup", "mix"],
+    waveshaper: ["mode", "drive", "mix"],
+    eq: ["mode", "freq", "gain", "q"],
+    chorus: ["rate", "depth", "feedback", "mix"],
+    flanger: ["rate", "depth", "feedback", "mix"],
+    phaser: ["rate", "depth", "feedback", "stages", "mix"],
+    tremolo: ["rate", "depth"],
 };
 
 const DISCRETE_PARAMS = new Set([
@@ -55,6 +125,11 @@ const DISCRETE_PARAMS = new Set([
     "sample.bufferId",
     "sample.loop",
     "sample.channel",
+    "dynamics.mode",
+    "waveshaper.mode",
+    "eq.mode",
+    // integer allpass-stage count, not a smoothed continuous value.
+    "phaser.stages",
 ]);
 
 /** a modulation route in an instrument DAG. A `source` node's output drives a `target` node's `param`,

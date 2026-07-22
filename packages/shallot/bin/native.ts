@@ -62,7 +62,7 @@ function cargoTarget(target: string, release: boolean, targetDir = CRATE_TARGET)
 }
 
 // running under WSL — the Windows target then builds with the host's native MSVC toolchain through
-// PowerShell, not cargo-xwin (see cargoBuild). Same probe the harness uses (harness/core/wsl.ts).
+// PowerShell, not cargo-xwin (see cargoBuild). Same probe the eval harness uses (evals/harness/wsl.ts).
 const isWSL = existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 
 // translate a WSL path to its Windows form (\\wsl.localhost\… UNC) so PowerShell can `cd` into it.

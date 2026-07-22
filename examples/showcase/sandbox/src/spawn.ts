@@ -9,7 +9,7 @@ import {
     Transform,
     Volumetric,
 } from "@dylanebert/shallot";
-import type { JointDef } from "@dylanebert/shallot/physics/core";
+import type { JointDef } from "@dylanebert/shallot/avbd/core";
 import { Meshes, Surfaces } from "@dylanebert/shallot/render/core";
 
 // Spawn helpers + the prop builders (ropes, bridge, pyramid, brick stack). Joints are authored

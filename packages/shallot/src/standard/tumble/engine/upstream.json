@@ -1,0 +1,5 @@
+{
+    "repo": "erincatto/box3d",
+    "sha": "29bf523ce7bc4590aba9f17c9db791cdc5c4397e",
+    "watch": ["src", "include", "shared", "test"]
+}

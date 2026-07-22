@@ -9,7 +9,7 @@ import {
     type State,
     type System,
 } from "@dylanebert/shallot";
-import { Physics } from "@dylanebert/shallot/physics/core";
+import { Avbd } from "@dylanebert/shallot/avbd/core";
 import { Meshes } from "@dylanebert/shallot/render/core";
 
 // Large collapsing AVBD structure — the spectacle proof of the rigid-body solver (roadmap "Showcases").
@@ -20,10 +20,10 @@ import { Meshes } from "@dylanebert/shallot/render/core";
 // the floor planks overhanging the perimeter posts so the edge pieces sit flush. A ROW of compact balls rolls
 // LOW from the +Z end along the wall's whole length at the base, knocking out the entire lower layer, so the
 // storeys above pancake down with nothing left to stand on — a collapse that travels behind them. Posts are
-// thick for a reliable settle. Runs on the default plugins + capacity (idiomatic) plus PhysicsPlugin /
+// thick for a reliable settle. Runs on the default plugins + capacity (idiomatic) plus AvbdPlugin /
 // MirrorPlugin / ProfilePlugin; scalable by the knobs below.
 //
-// The launch writes the balls' velocity straight into the eid-indexed `bodies` SoA (`Physics.step.bodies`,
+// The launch writes the balls' velocity straight into the eid-indexed `bodies` SoA (`Avbd.step.bodies`,
 // the gym's seed path) — the solver authors a spawn pose + mass, not a live impulse. Reset rewrites every
 // plank's pose/velocity columns the same way (mass/shape columns are seed-owned, left untouched), re-posing
 // the wall without rebuilding it. The static ground lives in the scene at a lower eid, so the contiguous
@@ -146,8 +146,8 @@ function box(
 // State rebuild re-runs it, re-creating the derived bodies (they live in State, not the Document).
 function build(state: State): void {
     // no per-scene solver config — the engine's ship default (iters=6) settles the 10-storey wall, so this
-    // runs on the plain PhysicsPlugin defaults (physics.md "iters is a free knob"). A taller TARGET that
-    // pancakes is the one case to bump iters per-scene via `Physics.step.configure`.
+    // runs on the plain AvbdPlugin defaults (physics.md "iters is a free knob"). A taller TARGET that
+    // pancakes is the one case to bump iters per-scene via `Avbd.step.configure`.
 
     const [pt, ph] = POST; // post half-thickness, post half-height
     const Sy = 2 * ph + 4 * FT + 3 * GAP; // storey pitch: post + depth-floor + length-floor + 3 seating gaps
@@ -258,7 +258,7 @@ function captureInitial(): void {
 // ── perturbation + reset (write the eid-indexed bodies SoA directly) ──────────
 
 function writeCol(col: number, base: number, data: Float32Array<ArrayBuffer>): void {
-    const step = Physics.step;
+    const step = Avbd.step;
     if (!step || !Compute.device) return;
     Compute.device.queue.writeBuffer(step.bodies, (col * step.eidCap + base) * 16, data);
 }
@@ -318,8 +318,10 @@ const DirectorSystem: System = {
 };
 
 // the plugin: spawns the wall in `warm`, runs the one-shot director, owns the control panel. `warm` is
-// post-scene + idempotent (ecs.md "Reload-safety"); `dispose` tears the panel down so a State rebuild
-// (play/stop, plugin toggle) doesn't stack overlays.
+// post-scene + idempotent (ecs.md "Reload-safety"). The panel's teardown is State-owned — `mountPanel`
+// hands `state` to `mountOverlay`, so `state.dispose()` removes it, no `dispose` hook needed. The
+// top-of-`warm` clear is the fallback for a host that re-warms without disposing (`swap()`), which
+// `onDispose` doesn't fire for.
 let panelCleanup: (() => void) | null = null;
 
 const CollapsePlugin: Plugin = {
@@ -328,11 +330,7 @@ const CollapsePlugin: Plugin = {
     warm(state) {
         build(state);
         panelCleanup?.();
-        panelCleanup = mountPanel();
-    },
-    dispose() {
-        panelCleanup?.();
-        panelCleanup = null;
+        panelCleanup = mountPanel(state);
     },
 };
 
@@ -342,9 +340,10 @@ export default CollapsePlugin;
 // ── control panel ─────────────────────────────────────────────────────────────
 
 // mounted into the engine's sandboxed overlay (`mountOverlay`) — the canvas-bounded surface `config.ui`
-// hands an app, the contract-correct home for plugin-owned DOM (it can't spill into the editor viewport).
-function mountPanel(): () => void {
-    const overlay = mountOverlay(document.querySelector("canvas"));
+// hands an app, the contract-correct home for plugin-owned DOM (it can't spill past the canvas). Passing
+// `state` ties the overlay's removal to `state.dispose()`; the returned closure is the re-warm fallback.
+function mountPanel(state: State): () => void {
+    const overlay = mountOverlay(document.querySelector("canvas"), state);
     const panel = document.createElement("div");
     panel.style.cssText = [
         "position:absolute",

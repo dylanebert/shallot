@@ -5,6 +5,7 @@ export {
     aim,
     clamp,
     compose,
+    decompose,
     euler,
     invert,
     lerp,

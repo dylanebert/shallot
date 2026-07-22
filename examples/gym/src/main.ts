@@ -31,7 +31,7 @@ function renderIndex(): void {
     index.id = "index";
     index.innerHTML = "<h1>gym</h1><p>scenarios</p>";
     const nav = document.createElement("nav");
-    for (const n of scenarioNames()) {
+    for (const n of [...scenarioNames()].sort()) {
         const link = document.createElement("a");
         link.href = `?scenario=${n}`;
         link.textContent = n;
@@ -49,6 +49,11 @@ async function boot(name: string): Promise<void> {
 
     const decls = scenario.params ?? [];
     const values = resolveParams(decls, url.searchParams);
+
+    // a never-ready placeholder pins `shallot verify` to the harness path before the build starts: a
+    // heavy scenario (a large pile) builds for longer than the settle check needs to conclude, and a
+    // settle verdict would skip the scenario's checks entirely. installHarness replaces it once built.
+    window.__harness = { ready: false };
 
     const canvas = document.createElement("canvas");
     document.getElementById("app")!.appendChild(canvas);
@@ -71,6 +76,7 @@ async function boot(name: string): Promise<void> {
         history.replaceState(null, "", u);
         if (rebuild) location.reload();
     });
+    state.onDispose(controlsCleanup);
 
     let hudFrame = 0;
     const hud = document.getElementById("hud")!;
@@ -80,14 +86,12 @@ async function boot(name: string): Promise<void> {
             hudFrame = requestAnimationFrame(update);
         };
         hudFrame = requestAnimationFrame(update);
+        state.onDispose(() => cancelAnimationFrame(hudFrame));
     }
 
-    // HMR re-runs this module — without cleanup each reload stacks another HUD loop.
+    // HMR re-runs this module — `dispose()` disposes the State, unwinding the controls + HUD loop
+    // registered above (`state.onDispose`), so each reload starts clean without stacking another loop.
     if (import.meta.hot) {
-        import.meta.hot.dispose(() => {
-            cancelAnimationFrame(hudFrame);
-            controlsCleanup();
-            dispose();
-        });
+        import.meta.hot.dispose(dispose);
     }
 }

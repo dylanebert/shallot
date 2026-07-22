@@ -15,7 +15,6 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
-    PhysicsPlugin,
     RenderPlugin,
     run,
     Sear,
@@ -26,20 +25,19 @@ import {
     Transform,
     TransformsPlugin,
 } from "@dylanebert/shallot";
-import { ProfilePlugin } from "@dylanebert/shallot/extras";
+import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import {
+    Avbd,
     BODY_VEC4,
-    PENALTY_MIN,
-    Physics,
-    packHulls,
-    registerHull,
-} from "@dylanebert/shallot/physics/core";
-import { Meshes } from "@dylanebert/shallot/render/core";
-import {
     COLLIDE_WGSL,
     HULL_WGSL,
     MAX_CONTACTS,
-} from "../../../../packages/shallot/src/standard/physics/collide";
+    PENALTY_MIN,
+    packHulls,
+} from "@dylanebert/shallot/avbd/core";
+import { ProfilePlugin } from "@dylanebert/shallot/extras";
+import { Hulls } from "@dylanebert/shallot/physics/core";
+import { Meshes } from "@dylanebert/shallot/render/core";
 import { boxHull, coneHull, tetHull } from "../../../../packages/shallot/tests/avbd/hull";
 import {
     add,
@@ -67,7 +65,7 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 //
 // The two passes:
 //   "main-kernel"     — production-shape: workgroup_size(64), one thread per config, 14 active lanes.
-//                       matches the narrowphase pass at standard/physics/step.ts:325.
+//                       matches the narrowphase pass at standard/avbd/step.ts:325.
 //   "ref-kernel"      — workgroup_size(32), one active lane, hardcoded face-y-overlap. The reference
 //                       configuration the SAT kernel is correct under.
 //
@@ -101,7 +99,7 @@ const OUT_STRIDE = 1 + 9 + MAX_CONTACTS * 7; // count, basis(9), MAX × (feat, r
 const CFG_VEC4 = 7; // posA, quatA, sizeA, posB, quatB, sizeB, dRel
 
 // The main SAT kernel — production shape (workgroup_size 64, one thread per config). Matches the
-// standard/physics/step.ts narrowphase pass that calls collideBoxBox per broadphase candidate.
+// standard/avbd/step.ts narrowphase pass that calls collideBoxBox per broadphase candidate.
 const KERNEL_WGSL = `${COLLIDE_WGSL}
 struct Cfg { posA: vec4<f32>, quatA: vec4<f32>, sizeA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeB: vec4<f32>, dRel: vec4<f32> };
 @group(0) @binding(0) var<storage, read> cfgs: array<Cfg>;
@@ -390,7 +388,8 @@ const Z90H: Quat = [0, 0, Math.SQRT1_2, Math.SQRT1_2]; // +Y capsule axis → ho
 const TET_ROT: Quat = [0, 0.24740396, 0, 0.96891242]; // the bullet gold tet-tet-rotated quat
 
 let hullSeq = 0;
-const reg = (geom: ReturnType<typeof boxHull>): number => registerHull(`sat-${hullSeq++}`, geom);
+const reg = (geom: ReturnType<typeof boxHull>): number =>
+    Hulls.register({ name: `sat-${hullSeq++}`, ...geom });
 // a hull body + its registered id (the GPU references geometry by id; the oracle body carries it directly)
 const bh = (
     geom: ReturnType<typeof boxHull>,
@@ -692,7 +691,7 @@ function diffHull(cfg: HCfg, got: GpuHull): { detail: string; err: number } {
 
 // ── full-pipeline hull rests (Phase 6.3) ───────────────────────────────────────────────────────────────
 // The kernel gate above validates the narrowphase math standalone; these settle convex-hull bodies through
-// the WHOLE PhysicsPlugin (seed reads hullId from halfExtents.w → uploads the packed Hulls → the collide
+// the WHOLE AvbdPlugin (seed reads hullId from halfExtents.w → uploads the packed Hulls → the collide
 // dispatch routes box × hull + hull × hull → the solver), reading the rest pose back via Mirror. Box-hulls
 // render as their AABB cube (collider == render mesh), so the rests are visible. The oracle (hull.test.ts)
 // pins the expected heights: a unit box-hull rests at ground-top + half − COLLISION_MARGIN.
@@ -729,7 +728,7 @@ function spawnBoxHull(
     mass: number,
     color: [number, number, number],
 ): number {
-    const id = registerHull(`rest-${hullRest++}`, boxHull(fullSize));
+    const id = Hulls.register({ name: `rest-${hullRest++}`, ...boxHull(fullSize) });
     const eid = state.create();
     state.add(eid, Body);
     Body.shape.set(eid, ShapeKind.Hull);
@@ -765,7 +764,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                PhysicsPlugin,
+                AvbdPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
@@ -776,7 +775,7 @@ const scenario: Scenario = {
         state.add(state.create(), DirectionalLight);
 
         // match the oracle's iters=10 (the plugin ships 6) so the rests are comparable to the f64 spec
-        Physics.step?.configure({
+        Avbd.step?.configure({
             dt: 1 / 60,
             gravity: -10,
             alpha: 0.99,
@@ -811,7 +810,7 @@ const scenario: Scenario = {
         Orbit.distance.set(cam, 20);
 
         await frames(3);
-        if (Physics.step) restMirror = mirror(Physics.step.bodies);
+        if (Avbd.step) restMirror = mirror(Avbd.step.bodies);
         await frames(420); // settle every rest
 
         return {

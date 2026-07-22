@@ -286,8 +286,8 @@ export function lanes(value: unknown): 0 | 1 | 2 | 4 {
 /**
  * a component's typed storage fields: each {@link Single} / {@link Pair} /
  * {@link Quad} store paired with its declared name, in declaration order. The
- * canonical enumerator of a clean component's stores, for a serializer, an
- * inspector, or a schema walk. Keys with no typed layout (a GPU-buffer getter,
+ * canonical enumerator of a clean component's stores, for a serializer, a
+ * reflection reader, or a schema walk. Keys with no typed layout (a GPU-buffer getter,
  * a legacy raw `number[]`) report {@link lanes} 0 and are skipped.
  */
 export function fields(component: Component): { name: string; store: Single | Pair | Quad }[] {

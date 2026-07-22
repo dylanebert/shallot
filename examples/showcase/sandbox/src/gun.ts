@@ -1,11 +1,10 @@
-import { Inputs, type Mirror, play, type State } from "@dylanebert/shallot";
+import { Inputs, play, type State } from "@dylanebert/shallot";
+import { type JointDef, type PhysicsStep, WORLD } from "@dylanebert/shallot/avbd/core";
 import { Outline } from "@dylanebert/shallot/extras";
 import {
     forwardRay,
     grabHit,
-    type JointDef,
-    type PhysicsStep,
-    WORLD,
+    type PhysicsBackend,
     worldToLocal,
 } from "@dylanebert/shallot/physics/core";
 
@@ -30,7 +29,7 @@ export interface Gun {
 
 export function gun(
     step: PhysicsStep,
-    bodyMirror: Mirror,
+    backend: PhysicsBackend,
     baseJoints: readonly JointDef[],
     exclude?: (eid: number) => boolean, // drop the player's own capsule so it never occludes the crosshair
 ): Gun {
@@ -42,12 +41,8 @@ export function gun(
     let wasRight = false;
     let outlined = -1;
 
-    function bodyPos(eid: number): [number, number, number] {
-        const snap = bodyMirror.snapshot;
-        if (!snap) return [0, 0, 0];
-        const f = new Float32Array(snap.bytes);
-        const o = eid * 4; // col 0 (posLin), eid-indexed
-        return [f[o], f[o + 1], f[o + 2]];
+    function bodyPos(eid: number): readonly [number, number, number] {
+        return backend.readBody(eid)?.pos ?? [0, 0, 0];
     }
 
     // a muted cool tint says "grabbable", the warm accent says "holding". Depth-tested (occlude 1) so
@@ -123,8 +118,9 @@ export function gun(
                     active = held;
                 }
             } else {
-                const hit = grabHit(state, bodyMirror, ray, MAX_RANGE, exclude);
-                if (leftPressed && hit) {
+                const hit = grabHit(state, backend, ray, MAX_RANGE, exclude);
+                const anchor = hit ? worldToLocal(backend, hit.eid, hit.point) : null;
+                if (leftPressed && hit && anchor) {
                     held = hit.eid;
                     holdDist = Math.max(hit.distance, 0.1);
                     grabTick = state.time.fixedTick;
@@ -134,7 +130,7 @@ export function gun(
                             a: WORLD,
                             b: held,
                             rA: hit.point,
-                            rB: worldToLocal(bodyMirror, held, hit.point),
+                            rB: anchor,
                             stiffnessLin: STIFFNESS,
                             stiffnessAng: 0, // spherical — the held body dangles
                         },

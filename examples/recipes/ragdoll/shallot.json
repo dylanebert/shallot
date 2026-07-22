@@ -1,0 +1,9 @@
+{
+    "scene": "scenes/ragdoll.scene",
+    "plugins": {
+        "Tumble": true,
+        "Gltf": true,
+        "Orbit": true,
+        "Ragdoll": "./src/ragdoll"
+    }
+}

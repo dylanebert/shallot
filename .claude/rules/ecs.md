@@ -3,15 +3,12 @@ paths:
     - "packages/shallot/src/engine/**/*.ts"
     - "packages/shallot/src/standard/**/*.ts"
     - "packages/shallot/src/extras/**/*.ts"
-    - "packages/shallot/editor/**/*.ts"
-    - "packages/shallot/editor/**/*.svelte"
+    - "packages/shallot/src/document/**/*.ts"
     - "examples/**/*.scene"
     - "examples/**/*.ts"
 ---
 
 # ECS & Document Model
-
-Reference: `docs/engine/ecs.md` for entities, components, systems, queries, plugins, traits, and the auto-generated API surface.
 
 ## Plugin lifecycle gotchas
 
@@ -21,7 +18,7 @@ Reference: `docs/engine/ecs.md` for entities, components, systems, queries, plug
 
 ## Reload-safety: lifecycle + module scope
 
-A `State` is rebuilt routinely — the editor rebuilds on a scene switch, plugin toggle, or play/stop, re-running every plugin's `initialize`/`warm` against the **same module-level singletons** (registries and services persist across States). In-place plugin hot-reload (swapping a system's behavior on a live State) is the same shape, tighter. Both need the two rules below — better practice regardless, load-bearing once a State outlives one build.
+A `State` is rebuilt routinely — a live host (the document layer's `Session`, an embedding app) rebuilds on a scene switch, plugin toggle, or play/stop, re-running every plugin's `initialize`/`warm` against the **same module-level singletons** (registries and services persist across States). In-place plugin hot-reload (swapping a system's behavior on a live State) is the same shape, tighter. Both need the two rules below — better practice regardless, load-bearing once a State outlives one build.
 
 **Module scope holds idempotent definitions + registries, never runtime identity.**
 
@@ -30,6 +27,10 @@ A `State` is rebuilt routinely — the editor rebuilds on a scene switch, plugin
 - A module-level registry (the `Surfaces`/`Draws`/`Meshes` shape, or a plugin's own) is **idempotent w.r.t. `initialize`**: clear then rebuild, so re-running `initialize` is a no-op-equivalent. `RenderPlugin.initialize` clearing `Surfaces`/`Draws` (`Registry.clear`) + `clearMeshes()` is the exemplar — a same-set rebuild re-registers identically, and a plugin **toggled off** leaves no stale entry (otherwise its dead draw/mesh is paired against torn-down buffers — a GPU error, the conformance "producer toggle" gate).
 
 **Lifecycle phases are idempotent and re-runnable.** `initialize` — registration only, pre-scene, no entities; clears + rebuilds any registry it owns. `warm` — post-parse GPU setup + derived (non-authored) spawns, idempotent; warm-spawned entities re-create each build (they live in `State`, not the Document). `setup` — per-`State` lazy init. `update` — pure over `State`. `dispose` — teardown.
+
+**External side effects register their teardown on the State.** A DOM mount, window/document listener, or rAF loop created during a build leaks unless something unwinds it. Register that cleanup where you create it: `state.onDispose(fn)` runs `fn` (LIFO) when the State disposes, and `state.signal` is an `AbortSignal` — pass it as `{ signal }` to `addEventListener`/`fetch` and the listener detaches at dispose with no removal code (`engine/ecs/state.ts`). Cleanup lives beside its creation site, not in a separate `dispose` hook. A plugin `dispose` hook is still correct for **process/module-lifetime** teardown — an engine singleton or global, not a per-build mount/listener (the profile plugin's Compute-sink + `window.__benchmark` teardown is the exemplar, the way collapse is the exemplar for the swap fallback). A plugin mounting UI hands its State to `mountOverlay(canvas, state)` (auto-registers `overlay.remove()`) or calls `state.onDispose` directly; `examples/showcase/collapse` is the exemplar. Removing a mounted framework component's host DOM is not teardown — register its real unmount (Svelte `unmount()`, React `root.unmount()`) or its effects and rAF loops survive.
+
+**The fallback covers a host that re-warms without disposing.** `onDispose` fires only on `state.dispose()`. A rebuild on the *same* State — `swap()` (in-place hot reload), or any host that re-runs `warm` without a `dispose` first — never triggers it, so a `warm` mount stacks. There, hold the cleanup in module scope and run it at the top of `warm` before re-creating, keeping the State-owned registration for the disposing path (collapse's control panel does both: `mountOverlay(canvas, state)` for `dispose`, a module `panelCleanup` cleared top-of-`warm` for the swap).
 
 **Session invariants, fixed for a `State`'s life:** capacity, the registered-component set, each component's schema, and the membership generation count (`build` assigns every component its bit up front). A change to any is a fresh build, never an in-place migration.
 
@@ -45,7 +46,7 @@ ECS state is built from a Document via `load()`. `serialize(state)` is the on-de
 
 Systems with `mode: "always"` run in edit mode but must be non-destructive — update existing component values only, never add/remove components. Use field values (set to 0) rather than add/remove.
 
-The rule guards the **authored** document: a system churning an authored entity's registered components per frame desyncs the inspector + serialize. A one-time, marker-gated **load** is outside it — spawning *derived* entities (not in the Document, like a `warm` spawn) and gating on an *unregistered* marker (out of `entries()`, so never serialized or shown in the inspector) touches no authored state. The shape is `query([Trigger, not(Done)])` → `add(Done)` + spawn: the `not(marker)` one-time gate (the `stagger` system in `examples/zoo/ecs` is the live gate shape) with the spawned entities derived, so a declarative trigger loads content in the editor and at runtime without desyncing anything.
+The rule guards the **authored** document: a system churning an authored entity's registered components per frame desyncs serialize + any live document view. A one-time, marker-gated **load** is outside it — spawning *derived* entities (not in the Document, like a `warm` spawn) and gating on an *unregistered* marker (out of `entries()`, so never serialized) touches no authored state. The shape is `query([Trigger, not(Done)])` → `add(Done)` + spawn: the `not(marker)` one-time gate with the spawned entities derived, so a declarative trigger loads content in edit mode and at runtime without desyncing anything.
 
 ## Choosing the right primitive
 
@@ -85,7 +86,7 @@ A flat component is a real data shape, not a bundle of named scalars. Splitting 
 
 ## Single-writer rule
 
-ReadbackSystem is the sole writer of `attr.value`. Editor gestures communicate via `onsync` (live ECS) + the Document edit API (`doc.setAttr`, or a `doc.begin`/`commit` gesture that coalesces a drag's writes into one undoable entry, prev auto-captured) — never write `attr.value` directly. Never add serialization concerns to ECS.
+ReadbackSystem is the sole writer of `attr.value`. A live host's gestures communicate via `onsync` (live ECS) + the Document edit API (`doc.setAttr`, or a `doc.begin`/`commit` gesture that coalesces a drag's writes into one undoable entry, prev auto-captured) — never write `attr.value` directly. Never add serialization concerns to ECS.
 
 ## Entity reference fields
 
@@ -95,9 +96,9 @@ A ref field declares itself by **type**: `target: sparse(entity)` (the `entity` 
 
 Scenes are flat: no XML nesting, no engine-level parent component. Consumers that need attachment (player → camera, water → chunks, sequence → tweens) declare a consumer-shaped relation — a numeric eid field on the relevant component, resolved via `@name` at load time. `state.destroy(eid)` removes one entity (dropping its component membership) — no cascade to related entities.
 
-**The transform substrate is flat by definition.** `Transform` is a per-entity world transform (the flat `transforms` firehose sear + the pack read); no `parent` field, no per-frame parent-graph traversal. Relative / hierarchical / animated transforms are consumer concerns that depend inward and emit substrate-native flat output, never an engine parent graph: a static glTF node chain bakes to a flat world matrix at import; runtime attachment is the consumer-shaped relation above (a system writes the follower's flat `Transform` from the target each frame); skinning bakes its clip to per-frame vertex textures (the VAT) the importer's `skin` surface samples per-vertex in its `vs` chunk — the instance root stays flat in the firehose, the VAT a separate binding (a live joint palette would ride the same shape). Don't grow `Transform` a `parent` to make imported hierarchies "just work" — that taxes the entities that don't animate to serve the few that do; the convenience layer produces flat output and the substrate stays blind. This is the transform analogue of the no-Hi-Z call (`render.md` "Culling lives in the producer"): refuse the universal runtime mechanism in the substrate, relocate the real need to an inward-depending layer.
+**The transform substrate is flat by definition.** `Transform` is a per-entity world transform (the flat `transforms` firehose sear + the pack read); no `parent` field, no per-frame parent-graph traversal. Relative / hierarchical / animated transforms are consumer concerns that depend inward and emit substrate-native flat output, never an engine parent graph: a static glTF node chain bakes to a flat world matrix at import; runtime attachment is the consumer-shaped relation above (a system writes the follower's flat `Transform` from the target each frame); skinning bakes its clip to per-frame vertex textures (the VAT) the importer's `skin` surface samples per-vertex in its `vs` chunk — the instance root stays flat in the firehose, the VAT a separate binding (a live joint palette rides the same shape — the runtime-posed twin in `extras/gltf/live.ts`, `LiveSkin` + the `skin-live` surface, posed each fixed tick instead of sampled from a baked texture). Don't grow `Transform` a `parent` to make imported hierarchies "just work" — that taxes the entities that don't animate to serve the few that do; the convenience layer produces flat output and the substrate stays blind. This is the transform analogue of the no-Hi-Z call (`render.md` "Culling lives in the producer"): refuse the universal runtime mechanism in the substrate, relocate the real need to an inward-depending layer.
 
-**An eid is a borrow, not a durable handle.** It is valid for the scope you obtain it in, recycled on `state.destroy`, with no version packed in (it stays a bare index — see the storage contract). Recycle is handled by membership, not a sentinel: a dead slot is gated out, a reused slot re-applies defaults on `state.add`, so a system that re-queries each frame is always safe. A *held* (cached-across-frames) bare eid is not — validate it with a `state.has`/membership check. That catches a despawned target but **not** a slot recycled to a new same-component entity; if that realias matters, carry an explicit `(eid, version)` pair against a side-array version counter — never a version packed into the eid (it stays a bare index). Durable cross-session identity (serialization) is a separate concern from the runtime eid.
+**An eid is a borrow, not a durable handle.** It is valid for the scope you obtain it in, recycled on `state.destroy`, with no version packed in (it stays a bare index — see the storage contract). Recycle is handled by membership, not a sentinel: a dead slot is gated out, a reused slot re-applies defaults on `state.add`, so a system that re-queries each frame is always safe. A *held* (cached-across-frames) bare eid is not — validate it with a `state.has`/membership check. That catches a despawned target but **not** a slot recycled to a new same-component entity; for that realias, pair the membership check with **`state.stamp(eid)`** — the create-stamp side array, bumped on every allocation (destroy leaves it unchanged, so neither check alone suffices): `if (!state.has(eid, Comp) || state.stamp(eid) !== cached) evict()`. Store the cached stamp **beside the held state, wherever that lives** — the four shipped shapes: beside the handle map (tumble `bodies`+`stamps`), folded into a sync signature (character's FNV), a field on the resource (`View.stamp`), a param on the allocator (LiveSkin `alloc`). A shared adoption helper was considered and declined — the storage shape is what varies, and abstracting it is premature; only a pure diff earns extraction (AVBD's `diffStamps`). Never pack a version into the eid (it stays a bare index). Durable cross-session identity (serialization) is a separate concern from the runtime eid.
 
 ## Anti-patterns
 

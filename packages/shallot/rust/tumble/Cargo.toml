@@ -1,0 +1,30 @@
+[package]
+name = "tumble-kernel"
+version = "0.8.0"
+edition = "2021"
+publish = false
+description = "wasm-simd128 contact-solve + integration kernel for tumble.js"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The staged multithreaded solve (src/solve.rs + its stage/block tables). Only the shared-memory
+# artifact enables it — a single-thread consumer has no pool to run it, and the tables are ~37 KB of
+# data section it would otherwise carry (scripts/build-kernel.ts).
+[features]
+mt = []
+
+# Test-only: parse the committed C-reference gold vectors (src/math.gold.json) in the native
+# `cargo test` build. Never compiled into the shipping wasm (release profile pulls no dev-deps).
+[dev-dependencies]
+serde_json = "1"
+
+# The shipping wasm build. Native `cargo test` uses the default dev/test profiles so the
+# per-lane scalar fallback (bit-identical to simd128, proven by the fixture-equality experiment)
+# can be exercised without a wasm sandbox.
+[profile.release]
+panic = "abort"
+lto = true
+opt-level = 3
+codegen-units = 1
+strip = true

@@ -142,8 +142,8 @@ describe("Plugin", () => {
     });
 
     // the plugin-swap half of the reload-safety tier (testing.md "Reload tier"); the component-identity
-    // half lives in ecs/ecs.test.ts "stable component ids". The live HMR end-to-end check is the
-    // `hot-reload` capture flow (scripts/capture), which the engine tests can't reach.
+    // half lives in ecs/ecs.test.ts "stable component ids". The in-place hot-swap e2e died with the
+    // editor — `swap()` coverage is these unit tests alone.
     describe("swap (hot reload)", () => {
         test("in-place swap preserves runtime state and applies new behavior", async () => {
             clear();

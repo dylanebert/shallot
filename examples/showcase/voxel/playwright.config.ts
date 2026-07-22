@@ -5,7 +5,7 @@ import { defineConfig } from "@playwright/test";
 // gate logic in `src/gate.ts`, written against the published surface. The web server is `shallot dev` (the
 // standalone runtime, no editor), so the gate runs against the same path a user opens. This is full device
 // testing: it needs a capable WebGPU GPU. In WSL the only adapter is software (llvmpipe), which fails
-// shallot's device floor, so the gate is display-gated there — the same posture `bun run capture` takes.
+// shallot's device floor, so the gate is display-gated there — the same posture `bun run flows` takes.
 
 const PORT = 3100;
 const URL = `http://localhost:${PORT}`;

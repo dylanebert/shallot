@@ -1,6 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { attach } from "../../../tests/helpers";
-import { InputPlugin, Orbit, OrbitPlugin, State, Transform, TransformsPlugin } from "../..";
+import {
+    InputPlugin,
+    Orbit,
+    OrbitPick,
+    OrbitPlugin,
+    State,
+    Transform,
+    TransformsPlugin,
+} from "../..";
 import { clear, register } from "../../engine/ecs/core";
 import { Slab } from "../../standard/slab";
 import { OrbitSmooth } from "./smooth";
@@ -232,6 +240,28 @@ describe("OrbitSystem fly mode is the held fly button", () => {
         expect(again[2]).toBeCloseTo(start[2], 4);
     });
 
+    test("bare WASD/QE never engages fly — a gameplay scene keeps the movement keys", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        state.step(1 / 60); // orbit pose
+
+        const before = [
+            Transform.pos.x.get(cam),
+            Transform.pos.y.get(cam),
+            Transform.pos.z.get(cam),
+        ];
+        // press a movement key with NO fly button held: hold-to-fly means this must not fly, so the camera
+        // stays put and the key is free for gameplay (a car/character reads it) — not auto-fly-on-WASD.
+        onWindow("keydown")({ code: "KeyW" });
+        state.step(1 / 60);
+
+        expect(OrbitSmooth.flyActive.get(cam)).toBe(0); // never entered fly
+        expect(Transform.pos.x.get(cam)).toBeCloseTo(before[0], 6);
+        expect(Transform.pos.y.get(cam)).toBeCloseTo(before[1], 6);
+        expect(Transform.pos.z.get(cam)).toBeCloseTo(before[2], 6);
+    });
+
     test("move is speed-normalized — a diagonal isn't faster than a single axis", () => {
         const cam = state.create();
         state.add(cam, Transform);
@@ -348,5 +378,145 @@ describe("OrbitSystem fly mode is the held fly button", () => {
         state.step(1 / 60);
         expect(moved(from)).toBeCloseTo(boosted, 4);
         expect(Orbit.flySpeed.get(cam)).toBe(5);
+    });
+});
+
+// Contextual left-click (PlayCanvas-style): the orbit button (left by default) orbits over empty space but
+// yields to an interaction when a registered OrbitPick.claim owns the press. The claim is consulted only at
+// the button's down-edge and latches for the whole drag, so a mid-drag claim change can't flip an in-flight
+// orbit. Driven through the real InputPlugin handlers with synthetic DOM events, the fly-mode block's shape.
+describe("OrbitSystem contextual claim (left-click partition)", () => {
+    let state: State;
+    let canvas: HTMLCanvasElement;
+    let windowTracker: ListenerTracker;
+    let savedWindow: typeof globalThis.window;
+    let savedDocument: typeof globalThis.document;
+
+    beforeEach(() => {
+        clear();
+        windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        savedWindow = globalThis.window;
+        savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+        canvas = mockCanvas();
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelectorAll: (sel: string) => (sel === "canvas" ? [canvas] : []),
+        } as unknown as typeof document;
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        for (const [n, c] of Object.entries(InputPlugin.components ?? {}))
+            register(n, c, InputPlugin.traits?.[n]);
+        Slab.collect();
+        attach(state, InputPlugin);
+        attach(state, OrbitPlugin);
+        state.step(1 / 60); // InputSystem.setup binds the DOM handlers on its first run
+    });
+
+    afterEach(() => {
+        OrbitPick.claim = undefined; // module-level singleton — clear so it can't leak across tests
+        state.dispose();
+        globalThis.window = savedWindow;
+        globalThis.document = savedDocument;
+    });
+
+    const onWindow = (type: string): Fn => windowTracker.added.find(([t]) => t === type)![1];
+    const onCanvas = (type: string): Fn =>
+        (canvas as unknown as { tracker: ListenerTracker }).tracker.added.find(
+            ([t]) => t === type,
+        )![1];
+
+    // press / drag / release the LEFT (default orbit) button; the buttons bitmask for left is 1
+    const leftDown = (): void => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+    };
+    const drag = (clientX: number): void => {
+        onWindow("pointermove")({
+            pointerId: 1,
+            buttons: 1,
+            clientX,
+            clientY: 0,
+            preventDefault() {},
+        });
+    };
+    const leftUp = (): void => {
+        onWindow("pointerup")({ pointerId: 1, button: 0, buttons: 0, preventDefault() {} });
+    };
+
+    const makeCam = (): number => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit); // default orbitButton 0 (left), yaw Math.PI/6
+        state.step(1 / 60); // pose once
+        return cam;
+    };
+
+    test("an unclaimed left-drag orbits — yaw changes", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+        // no OrbitPick.claim registered: the press is unclaimed, so left orbits as usual
+        leftDown();
+        drag(40);
+        state.step(1 / 60);
+        expect(Orbit.yaw.get(cam)).not.toBeCloseTo(yaw0, 6);
+    });
+
+    test("a claimed left-drag never orbits, even if the claim flips false mid-drag", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+        let claimed = true;
+        let calls = 0;
+        OrbitPick.claim = () => {
+            calls++;
+            return claimed;
+        };
+
+        leftDown();
+        drag(40);
+        state.step(1 / 60); // down-edge claims (true) → suppressed, the drag is ignored
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6);
+        expect(calls).toBe(1); // consulted exactly once, at the down-edge
+
+        // the latch holds the whole drag: even though the claim would now pass the press through, the
+        // in-flight orbit stays suppressed — no mid-drag flip.
+        claimed = false;
+        drag(80);
+        state.step(1 / 60);
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6);
+        expect(calls).toBe(1); // not re-consulted mid-drag
+    });
+
+    test("release then re-press orbits again once the claim returns false", () => {
+        const cam = makeCam();
+        let claimed = true;
+        OrbitPick.claim = () => claimed;
+
+        // first press is claimed → suppressed, yaw unchanged
+        const yaw0 = Orbit.yaw.get(cam);
+        leftDown();
+        drag(40);
+        state.step(1 / 60);
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6);
+
+        leftUp();
+        state.step(1 / 60); // release resets the latch to idle
+
+        // a fresh press with the claim now false is unclaimed → orbits
+        claimed = false;
+        leftDown();
+        drag(40);
+        state.step(1 / 60);
+        expect(Orbit.yaw.get(cam)).not.toBeCloseTo(yaw0, 6);
     });
 });

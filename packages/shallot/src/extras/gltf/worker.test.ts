@@ -76,7 +76,7 @@ describe("transferables", () => {
                 skinInputs: [],
                 unsupported: [],
             },
-            geometry: { static: null, skinned: [] },
+            geometry: { static: null, skinned: [], live: [] },
             textures: {
                 albedo: [],
                 albedoRef: new Int32Array(0),
@@ -84,6 +84,7 @@ describe("transferables", () => {
                 textured: false,
             },
             vats: [],
+            liveMeshes: [],
         } as unknown as DecodedGltf;
 
         const list = transferables(payload);
@@ -113,7 +114,7 @@ describe("transferables", () => {
                 skinInputs: [],
                 unsupported: [],
             },
-            geometry: { static: null, skinned: [] },
+            geometry: { static: null, skinned: [], live: [] },
             textures: {
                 albedo: [],
                 albedoRef: new Int32Array(0),
@@ -131,6 +132,7 @@ describe("transferables", () => {
                     aabb: { min: [0, 0, 0], max: [0, 0, 0] },
                 },
             ],
+            liveMeshes: [],
         } as unknown as DecodedGltf;
 
         const list = transferables(payload);

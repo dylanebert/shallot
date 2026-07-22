@@ -1,0 +1,7 @@
+{
+  "scene": "scenes/game-loop.scene",
+  "plugins": {
+    "Orbit": true,
+    "Spin": "./src/spin"
+  }
+}

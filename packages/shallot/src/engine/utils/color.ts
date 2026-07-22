@@ -81,7 +81,7 @@ fn oklabToLinear(lab: vec3<f32>) -> vec3<f32> {
 /**
  * format an integer as a 6-digit hex string (e.g. `0xff8080`). The `kind`
  * property is a reflection hint; `reflection.isColor` reads it to classify
- * trait `format` entries as color-picker fields in the inspector.
+ * trait `format` entries as color fields.
  */
 export const formatHex = Object.assign(
     (n: number) => "0x" + (n >>> 0).toString(16).padStart(6, "0"),

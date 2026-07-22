@@ -1,8 +1,0 @@
-{
-  "scene": "scenes/profile.scene",
-  "plugins": {
-    "Profile": true,
-    "Orbit": true,
-    "Budget": "./src/budget"
-  }
-}

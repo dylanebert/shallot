@@ -1,0 +1,20 @@
+<svg id="Shallot" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80">
+  <title>shallot icon</title>
+
+  <defs>
+    <radialGradient id="baseGradient" cx="35%" cy="30%" r="70%" fx="25%" fy="20%">
+      <stop offset="0%" stop-color="#F5D4B8"/>
+      <stop offset="45%" stop-color="#E8A86B"/>
+      <stop offset="100%" stop-color="#B87654"/>
+    </radialGradient>
+  </defs>
+
+  <g transform="rotate(35 40.0 40.0)">
+    <path id="Background" d="M40,2 C44,10 66,28 66,46 C66,60 48,70 40,78 C32,70 14,60 14,46 C14,28 36,10 40,2 Z" fill="#E8A86B"/>
+    <path id="CloveLeft" d="M40,6 C37,14 22,28 20,44 C20,52 28,62 36,70 C34,58 26,46 26,38 C26,26 38,12 40,6 Z" fill="#D49560"/>
+    <path id="CloveRight" d="M40,6 C43,14 58,28 60,44 C60,52 52,62 44,70 C46,58 54,46 54,38 C54,26 42,12 40,6 Z" fill="#D49560"/>
+    <path id="CenterCrease" d="M40,8 C40,20 40,50 40,72" stroke="#6B4230" stroke-width="1" stroke-opacity="0.4" fill="none" stroke-linecap="round"/>
+    <path id="BottomEdge" d="M40,78 C48,70 66,60 66,46 C61,58 44,70 40,73 Z" fill="#D49560"/>
+    <path id="Outline" d="M40,2 C44,10 66,28 66,46 C66,60 48,70 40,78 C32,70 14,60 14,46 C14,28 36,10 40,2 Z" fill="none" stroke="#6B4230" stroke-width="2"/>
+  </g>
+</svg>

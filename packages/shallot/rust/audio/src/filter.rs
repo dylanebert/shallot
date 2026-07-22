@@ -193,6 +193,18 @@ impl Biquad {
         }
     }
 
+    /// Peaking EQ by center frequency and quality `q`, for the `Eq` node's
+    /// `(freq, gain, q)` control set. `peaking` above is parameterized by band edges
+    /// (`center = sqrt(low·high)`, `q = center/(high−low)`); this inverts that to the
+    /// two edges — `high−low = center/q`, `low·high = center²` — then defers to it, so
+    /// the coefficient math stays the golden-gated `peaking` (no new DSP).
+    pub fn peaking_q(center: f32, gain: f32, q: f32, sr: f32) -> Self {
+        let inv_q = 1.0 / q.max(0.01);
+        let sum = center * (inv_q * inv_q + 4.0).sqrt(); // low + high
+        let diff = center * inv_q; // high - low
+        Self::peaking((sum - diff) * 0.5, (sum + diff) * 0.5, gain, sr)
+    }
+
     pub fn tick(&mut self, input: f32) -> f32 {
         let x = input + 1e-9;
         let y = self.b0 * x + self.b1 * self.xm1 + self.b2 * self.xm2
@@ -211,6 +223,17 @@ impl Biquad {
         self.b2 = other.b2;
         self.a1 = other.a1;
         self.a2 = other.a2;
+    }
+
+    pub fn history(&self) -> (f32, f32, f32, f32) {
+        (self.xm1, self.xm2, self.ym1, self.ym2)
+    }
+
+    pub fn set_history(&mut self, xm1: f32, xm2: f32, ym1: f32, ym2: f32) {
+        self.xm1 = xm1;
+        self.xm2 = xm2;
+        self.ym1 = ym1;
+        self.ym2 = ym2;
     }
 
     pub fn reset(&mut self) {
@@ -734,6 +757,39 @@ mod tests {
             let f = Biquad::peaking(low, high, gain, sr);
             check("peaking", [f.b0, f.b1, f.b2, f.a1, f.a2], &want);
         }
+    }
+
+    #[test]
+    fn peaking_q_boosts_at_center_narrower_with_higher_q() {
+        // (center, q) must land the boost at `center` (the edge-parameterized
+        // `peaking` gets the same coefficients), and a higher q must ring more
+        // sharply — measurably more energy at center relative to an octave away.
+        let sr = 48000.0;
+        let center = 1000.0;
+        let selectivity = |q: f32| {
+            let at_center = measure_biquad_energy(
+                &mut Biquad::peaking_q(center, 4.0, q, sr),
+                center,
+                sr,
+                48000,
+            );
+            let octave_up = measure_biquad_energy(
+                &mut Biquad::peaking_q(center, 4.0, q, sr),
+                center * 2.0,
+                sr,
+                48000,
+            );
+            at_center / octave_up
+        };
+        // gain 4.0 = boost, so center energy exceeds the octave-away energy.
+        assert!(
+            selectivity(1.0) > 1.0,
+            "peaking boost should raise center energy"
+        );
+        assert!(
+            selectivity(8.0) > selectivity(1.0),
+            "higher q should be more selective (relatively louder at center)"
+        );
     }
 
     #[test]

@@ -1,7 +1,11 @@
+use crate::delay::DelayLine;
+use crate::dynamics::{self, DynamicsMode};
 use crate::envelope::{EnvStage, Envelope};
-use crate::filter::{FilterMode, SvfFilter};
+use crate::filter::{Biquad, FilterMode, SvfFilter};
+use crate::modulation::{self, MAX_PHASER_STAGES};
 use crate::oscillator::{oscillator, Waveform};
 use crate::sample::{sample_read, sample_read_loop, SampleBuffer};
+use crate::waveshaper::{self, DcBlock, ShaperMode};
 use crate::BLOCK_SIZE;
 
 pub const MAX_NODES: usize = 16;
@@ -11,7 +15,7 @@ pub const MAX_INSTRUMENTS: usize = 32;
 pub const MAX_MODS: usize = 16;
 pub const NO_BUF: u8 = 0xFF;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[repr(u8)]
 pub enum NodeType {
     None = 0,
@@ -22,6 +26,14 @@ pub enum NodeType {
     Mix = 5,
     Constant = 6,
     Sample = 7,
+    Delay = 8,
+    Dynamics = 9,
+    Waveshaper = 10,
+    Eq = 11,
+    Chorus = 12,
+    Flanger = 13,
+    Phaser = 14,
+    Tremolo = 15,
 }
 
 impl NodeType {
@@ -34,6 +46,14 @@ impl NodeType {
             5 => Self::Mix,
             6 => Self::Constant,
             7 => Self::Sample,
+            8 => Self::Delay,
+            9 => Self::Dynamics,
+            10 => Self::Waveshaper,
+            11 => Self::Eq,
+            12 => Self::Chorus,
+            13 => Self::Flanger,
+            14 => Self::Phaser,
+            15 => Self::Tremolo,
             _ => Self::None,
         }
     }
@@ -146,6 +166,38 @@ pub enum NodeState {
         // f64 so the read index + fraction stay exact in long buffers (see
         // sample_read); advanced by the f32 rate cast up per sample.
         position: f64,
+    },
+    Dynamics {
+        env: f32,
+    },
+    Waveshaper {
+        dc_x1: f32,
+        dc_y1: f32,
+    },
+    // Biquad history only; coefficients recompute per block at control rate from the
+    // (mode, freq, gain, q) params, exactly as Filter re-solves its SVF coefficients.
+    Eq {
+        xm1: f32,
+        xm2: f32,
+        ym1: f32,
+        ym2: f32,
+    },
+    // Chorus/flanger triangle-LFO state; the modulated delay buffer is the boxed
+    // side-state (`Voice.delay_lines`), shared with Delay.
+    ModDelay {
+        lfo_phase: f32,
+        lfo_dir: f32,
+    },
+    // Phaser: per-stage one-pole allpass state (`y`), feedback tap (`last`), triangle
+    // LFO. No heap — the whole chain is a few floats.
+    Phaser {
+        y: [f32; MAX_PHASER_STAGES],
+        last: f32,
+        lfo_phase: f32,
+        lfo_dir: f32,
+    },
+    Tremolo {
+        phase: f32,
     },
 }
 
@@ -506,6 +558,298 @@ fn sample_node(
     }
 }
 
+fn delay_node(
+    heap: &mut Option<Box<DelayLine>>,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    start: usize,
+    count: usize,
+) {
+    let Some(dl) = heap else {
+        output[start..start + count].copy_from_slice(&input[start..start + count]);
+        return;
+    };
+    let target_time = params[0].max(0.0);
+    let target_feedback = params[1].clamp(0.0, 0.98); // <1 for feedback-loop stability
+    let target_damp = params[2].clamp(0.0, 1.0);
+    let target_mix = params[3].clamp(0.0, 1.0);
+    let max_delay_samples = (crate::delay::DELAY_MAX_SAMPLES - 4) as f32;
+
+    for i in start..start + count {
+        smooth[0] += smooth_coeff * (target_time - smooth[0]);
+        smooth[1] += smooth_coeff * (target_feedback - smooth[1]);
+        smooth[2] += smooth_coeff * (target_damp - smooth[2]);
+        smooth[3] += smooth_coeff * (target_mix - smooth[3]);
+
+        let delay_samples = (smooth[0] * sample_rate).clamp(1.0, max_delay_samples);
+        // damp=0 -> coeff=1 (undamped, tracks instantly); damp=1 -> coeff~0 (frozen/dark).
+        let damp_coeff = (1.0 - smooth[2]).max(0.001);
+        let wet = dl.process(input[i], delay_samples, smooth[1], damp_coeff);
+        let mix = smooth[3].clamp(0.0, 1.0);
+        output[i] = input[i] * (1.0 - mix) + wet * mix;
+    }
+}
+
+fn dynamics_node(
+    state: &mut NodeState,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    start: usize,
+    count: usize,
+) {
+    // mode is discrete (not smoothed), like filter.mode / sample.bufferId.
+    let mode = DynamicsMode::from_u32(params[0] as u32);
+    let target_threshold = params[1];
+    let target_ratio = params[2].max(1e-6);
+    let target_knee = params[3].max(0.0);
+    let target_attack = params[4].max(0.0);
+    let target_release = params[5].max(0.0);
+    let target_makeup = params[6];
+    let target_mix = params[7].clamp(0.0, 1.0);
+
+    if let NodeState::Dynamics { env } = state {
+        for i in start..start + count {
+            smooth[1] += smooth_coeff * (target_threshold - smooth[1]);
+            smooth[2] += smooth_coeff * (target_ratio - smooth[2]);
+            smooth[3] += smooth_coeff * (target_knee - smooth[3]);
+            smooth[4] += smooth_coeff * (target_attack - smooth[4]);
+            smooth[5] += smooth_coeff * (target_release - smooth[5]);
+            smooth[6] += smooth_coeff * (target_makeup - smooth[6]);
+            smooth[7] += smooth_coeff * (target_mix - smooth[7]);
+
+            let attack_coeff = dynamics::ar_coeff(smooth[4], sample_rate);
+            let release_coeff = dynamics::ar_coeff(smooth[5], sample_rate);
+            output[i] = dynamics::process(
+                env,
+                input[i],
+                mode,
+                smooth[1],
+                smooth[2],
+                smooth[3],
+                attack_coeff,
+                release_coeff,
+                smooth[6],
+                smooth[7],
+            );
+        }
+    }
+}
+
+fn waveshaper_node(
+    state: &mut NodeState,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    start: usize,
+    count: usize,
+) {
+    // mode is discrete (not smoothed), like filter.mode / dynamics.mode.
+    let mode = ShaperMode::from_u32(params[0] as u32);
+    let target_drive = params[1].clamp(0.0, 1.0);
+    let target_mix = params[2].clamp(0.0, 1.0);
+    let dc_gain = waveshaper::dc_gain(sample_rate);
+
+    if let NodeState::Waveshaper { dc_x1, dc_y1 } = state {
+        let mut dc = DcBlock {
+            x1: *dc_x1,
+            y1: *dc_y1,
+        };
+        for i in start..start + count {
+            smooth[1] += smooth_coeff * (target_drive - smooth[1]);
+            smooth[2] += smooth_coeff * (target_mix - smooth[2]);
+            output[i] = waveshaper::process(&mut dc, input[i], mode, smooth[1], dc_gain, smooth[2]);
+        }
+        *dc_x1 = dc.x1;
+        *dc_y1 = dc.y1;
+    }
+}
+
+fn eq_node(
+    state: &mut NodeState,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    start: usize,
+    count: usize,
+) {
+    // mode is discrete; freq/gain/q are smoothed to control-rate targets. gain is a
+    // linear amplitude ratio (1.0 = flat/transparent), matching Biquad's `gain`.
+    let mode = params[0] as u32;
+    let target_freq = params[1].clamp(20.0, sample_rate * 0.49);
+    let target_gain = params[2].max(1e-4);
+    let target_q = params[3].max(0.01);
+
+    // Advance the smoothers across the block in closed form and solve coefficients
+    // once, at control rate — the filter_node precedent (the biquad response barely
+    // moves across 128 samples, so a per-sample RBJ solve is wasted).
+    let decay = (1.0 - smooth_coeff).powi(count as i32);
+    smooth[1] = target_freq + (smooth[1] - target_freq) * decay;
+    smooth[2] = target_gain + (smooth[2] - target_gain) * decay;
+    smooth[3] = target_q + (smooth[3] - target_q) * decay;
+    let freq = smooth[1].clamp(20.0, sample_rate * 0.49);
+    let gain = smooth[2].max(1e-4);
+    let q = smooth[3].max(0.01);
+
+    let mut bq = match mode {
+        0 => Biquad::low_shelf(freq, gain, sample_rate),
+        2 => Biquad::high_shelf(freq, gain, sample_rate),
+        _ => Biquad::peaking_q(freq, gain, q, sample_rate),
+    };
+    if let NodeState::Eq { xm1, xm2, ym1, ym2 } = state {
+        bq.set_history(*xm1, *xm2, *ym1, *ym2);
+        for i in start..start + count {
+            output[i] = bq.tick(input[i]);
+        }
+        let (h0, h1, h2, h3) = bq.history();
+        *xm1 = h0;
+        *xm2 = h1;
+        *ym1 = h2;
+        *ym2 = h3;
+    }
+}
+
+/// Chorus/flanger: a triangle LFO modulates a delay-line read, fed back into the
+/// line. Chorus (long base delay) and flanger (short base + a resonant `feedback_scale`)
+/// share this engine, differing only in `base_ms`/`feedback_scale`/`extra_delay`. Params:
+/// (rate, depth, feedback, mix).
+#[allow(clippy::too_many_arguments)]
+fn mod_delay_node(
+    state: &mut NodeState,
+    heap: &mut Option<Box<DelayLine>>,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    base_ms: f32,
+    feedback_scale: f32,
+    extra_delay: f32,
+    start: usize,
+    count: usize,
+) {
+    let Some(dl) = heap else {
+        output[start..start + count].copy_from_slice(&input[start..start + count]);
+        return;
+    };
+    // rate feeds the LFO increment at control rate (an LFO-freq step is inaudible), so
+    // it isn't per-sample smoothed — depth/feedback/mix are, to stay click-free.
+    let inc = modulation::lfo_inc(params[0].max(0.0), sample_rate);
+    let target_depth = params[1].clamp(0.0, 0.93); // <1 keeps the modulated delay > 0
+    let target_feedback = params[2].clamp(0.0, 0.98) * feedback_scale;
+    let target_mix = params[3].clamp(0.0, 1.0);
+    let base = base_ms * 0.001 * sample_rate;
+
+    if let NodeState::ModDelay { lfo_phase, lfo_dir } = state {
+        for i in start..start + count {
+            smooth[1] += smooth_coeff * (target_depth - smooth[1]);
+            smooth[2] += smooth_coeff * (target_feedback - smooth[2]);
+            smooth[3] += smooth_coeff * (target_mix - smooth[3]);
+
+            let ph = modulation::tri_step(lfo_phase, lfo_dir, inc);
+            let delay = base + extra_delay + ph * (smooth[1] * base);
+            // damp_coeff = 1 → the DelayLine feedback loop is undamped (a modulated
+            // delay, not a filtered echo).
+            let wet = dl.process(input[i], delay, smooth[2], 1.0);
+            let mix = smooth[3];
+            output[i] = input[i] * (1.0 - mix) + wet * mix;
+        }
+    }
+}
+
+/// Phaser: a triangle LFO log-sweeps the center frequency of a cascade of one-pole
+/// allpasses; the phase-shifted chain summed against dry makes the sweeping notches.
+/// Params: (rate, depth, feedback, stages, mix).
+fn phaser_node(
+    state: &mut NodeState,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    start: usize,
+    count: usize,
+) {
+    let inc = modulation::lfo_inc(params[0].max(0.0), sample_rate);
+    let target_depth = params[1].clamp(0.0, 1.0);
+    let target_feedback = params[2].clamp(0.0, 0.9); // <1 for the resonant feedback tap
+    let stages = (params[3] as i32).clamp(1, MAX_PHASER_STAGES as i32) as usize; // discrete
+    let target_mix = params[4].clamp(0.0, 1.0);
+    let sweep = modulation::PHASER_FMAX / modulation::PHASER_FMIN;
+
+    if let NodeState::Phaser {
+        y,
+        last,
+        lfo_phase,
+        lfo_dir,
+    } = state
+    {
+        for i in start..start + count {
+            smooth[1] += smooth_coeff * (target_depth - smooth[1]);
+            smooth[2] += smooth_coeff * (target_feedback - smooth[2]);
+            smooth[4] += smooth_coeff * (target_mix - smooth[4]);
+
+            let ph = modulation::tri_step(lfo_phase, lfo_dir, inc);
+            let t = 0.5 + 0.5 * smooth[1] * ph; // depth-scaled sweep position in [0,1]
+            let fc = modulation::PHASER_FMIN * sweep.powf(t);
+            let a = modulation::allpass_coeff(fc, sample_rate);
+
+            let mut x = input[i] + smooth[2] * *last;
+            for s in y.iter_mut().take(stages) {
+                x = modulation::allpass_tick(s, a, x);
+            }
+            *last = x;
+            let mix = smooth[4];
+            output[i] = input[i] * (1.0 - mix) + x * mix;
+        }
+    }
+}
+
+/// Tremolo: a sine LFO modulates amplitude between (1 − depth) and 1 (DaisySP
+/// `Tremolo`). Params: (rate, depth); depth = 0 is a transparent no-op.
+fn tremolo_node(
+    state: &mut NodeState,
+    params: &[f32],
+    smooth: &mut [f32],
+    input: &[f32; BLOCK_SIZE],
+    output: &mut [f32; BLOCK_SIZE],
+    sample_rate: f32,
+    smooth_coeff: f32,
+    start: usize,
+    count: usize,
+) {
+    let inc = params[0].max(0.0) / sample_rate;
+    let target_depth = params[1].clamp(0.0, 1.0);
+
+    if let NodeState::Tremolo { phase } = state {
+        for i in start..start + count {
+            smooth[1] += smooth_coeff * (target_depth - smooth[1]);
+            let d = smooth[1] * 0.5;
+            let m = (1.0 - d) + d * (core::f32::consts::TAU * *phase).sin();
+            output[i] = input[i] * m;
+            *phase += inc;
+            if *phase >= 1.0 {
+                *phase -= 1.0;
+            }
+        }
+    }
+}
+
 fn apply_mod(
     working_params: &mut [f32; MAX_PARAMS],
     params: &[f32; MAX_PARAMS],
@@ -531,6 +875,7 @@ pub fn synthesize_graph_voice(
     sample_rate: f32,
     smooth_coeff: f32,
     wavetable: &[f32],
+    delay_lines: &mut [Option<Box<DelayLine>>; MAX_NODES],
     samples: &[SampleBuffer],
     start: usize,
     count: usize,
@@ -663,6 +1008,154 @@ pub fn synthesize_graph_voice(
                     count,
                 );
             }
+            NodeType::Delay => {
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        delay_node(
+                            &mut delay_lines[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
+            NodeType::Dynamics => {
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        dynamics_node(
+                            &mut node_states[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
+            NodeType::Waveshaper => {
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        waveshaper_node(
+                            &mut node_states[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
+            NodeType::Eq => {
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        eq_node(
+                            &mut node_states[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
+            NodeType::Chorus | NodeType::Flanger => {
+                let (base_ms, feedback_scale, extra_delay) = match node.node_type {
+                    NodeType::Flanger => (modulation::FLANGER_BASE_MS, 0.97, 1.0),
+                    _ => (modulation::CHORUS_BASE_MS, 1.0, 0.0),
+                };
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        mod_delay_node(
+                            &mut node_states[ni],
+                            &mut delay_lines[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            base_ms,
+                            feedback_scale,
+                            extra_delay,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
+            NodeType::Phaser => {
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        phaser_node(
+                            &mut node_states[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
+            NodeType::Tremolo => {
+                run_io(
+                    buffers,
+                    node.input_buf as usize,
+                    node.output_buf as usize,
+                    |inp, out| {
+                        tremolo_node(
+                            &mut node_states[ni],
+                            &working_params[po..],
+                            &mut smooth_params[po..],
+                            inp,
+                            out,
+                            sample_rate,
+                            smooth_coeff,
+                            start,
+                            count,
+                        );
+                    },
+                );
+            }
         }
     }
 
@@ -787,6 +1280,8 @@ mod tests {
     fn oscillator_sine_zero_crossings() {
         let inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -810,6 +1305,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -834,6 +1330,8 @@ mod tests {
         // realtime thread. The full wrap keeps phase in [0,1) for any phase_inc.
         let inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -857,6 +1355,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -877,6 +1376,8 @@ mod tests {
         for waveform_id in 0..4u32 {
             let inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
             let mut states = [NodeState::default(); MAX_NODES];
+            let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
             states[0] = NodeState::Oscillator {
                 phase: 0.0,
                 tri: 0.0,
@@ -901,6 +1402,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -928,6 +1430,8 @@ mod tests {
         fn measure_energy(freq: f32, cutoff: f32, sr: f32, dt: f32, wt: &[f32]) -> f32 {
             let inst = single_node_instrument(NodeType::Filter, 0, 0, 1);
             let mut states = [NodeState::default(); MAX_NODES];
+            let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
             states[0] = NodeState::Filter {
                 ic1eq: 0.0,
                 ic2eq: 0.0,
@@ -960,6 +1464,7 @@ mod tests {
                     sr,
                     0.005,
                     wt,
+                    &mut delay_lines,
                     &[],
                     0,
                     BLOCK_SIZE,
@@ -987,6 +1492,8 @@ mod tests {
     fn filter_mix_zero_bypasses() {
         let inst = single_node_instrument(NodeType::Filter, 0, 0, 1);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Filter {
             ic1eq: 0.0,
             ic2eq: 0.0,
@@ -1020,6 +1527,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1039,6 +1547,8 @@ mod tests {
     fn envelope_attack_reaches_one() {
         let inst = single_node_instrument(NodeType::Envelope, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1068,6 +1578,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -1095,6 +1606,8 @@ mod tests {
     fn envelope_sustain_holds() {
         let inst = single_node_instrument(NodeType::Envelope, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1122,6 +1635,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1140,6 +1654,8 @@ mod tests {
     fn envelope_release_to_idle() {
         let inst = single_node_instrument(NodeType::Envelope, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1169,6 +1685,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -1194,6 +1711,8 @@ mod tests {
     fn gain_multiplies() {
         let inst = single_node_instrument(NodeType::Gain, 0, 0, 1);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1215,6 +1734,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1236,6 +1756,8 @@ mod tests {
         for (mix_val, expected_desc) in [(0.0f32, "A"), (1.0, "B"), (0.5, "avg")] {
             let inst = mix_instrument();
             let mut states = [NodeState::default(); MAX_NODES];
+            let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
             let mut params = [0.0f32; MAX_PARAMS];
             let mut smooth = [0.0f32; MAX_PARAMS];
             let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1257,6 +1779,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -1277,6 +1800,8 @@ mod tests {
     fn constant_fills_value() {
         let inst = single_node_instrument(NodeType::Constant, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1293,6 +1818,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1329,6 +1855,8 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[1] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -1354,6 +1882,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1408,6 +1937,8 @@ mod tests {
 
         let count_crossings = |freq: f32, mod_val: f32, depth: f32| -> usize {
             let mut states = [NodeState::default(); MAX_NODES];
+            let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
             states[1] = NodeState::Oscillator {
                 phase: 0.0,
                 tri: 0.0,
@@ -1435,6 +1966,7 @@ mod tests {
                     SR,
                     COEFF,
                     &wt,
+                    &mut delay_lines,
                     &[],
                     0,
                     BLOCK_SIZE,
@@ -1483,6 +2015,8 @@ mod tests {
 
         let run = |depth: f32| -> Vec<f32> {
             let mut states = [NodeState::default(); MAX_NODES];
+            let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
             states[1] = NodeState::Oscillator {
                 phase: 0.0,
                 tri: 0.0,
@@ -1507,6 +2041,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -1517,6 +2052,8 @@ mod tests {
         let with_depth_0 = run(0.0);
         let no_mod_inst = single_node_instrument(NodeType::Oscillator, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -1537,6 +2074,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1578,6 +2116,8 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -1623,6 +2163,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1670,6 +2211,8 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -1717,6 +2260,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -1750,6 +2294,8 @@ mod tests {
     fn gain_zero_silences() {
         let inst = single_node_instrument(NodeType::Gain, 0, 0, 1);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
@@ -1770,6 +2316,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1827,6 +2374,8 @@ mod tests {
         };
 
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Oscillator {
             phase: 0.0,
             tri: 0.0,
@@ -1870,6 +2419,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -1886,6 +2436,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -2026,6 +2577,8 @@ mod tests {
         n_blocks: usize,
     ) -> Vec<f32> {
         let mut states = init_modal_states(modes_len);
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         let mut smooth = *params;
         let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
         let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
@@ -2041,6 +2594,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &[],
                 0,
                 BLOCK_SIZE,
@@ -2264,6 +2818,8 @@ mod tests {
     fn sample_node_silent_with_no_buffer_registered() {
         let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Sample { position: 0.0 };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
@@ -2285,6 +2841,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &[],
             0,
             BLOCK_SIZE,
@@ -2299,6 +2856,8 @@ mod tests {
     fn sample_node_unit_rate_reproduces_buffer() {
         let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Sample { position: 0.0 };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
@@ -2323,6 +2882,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &samples,
             0,
             BLOCK_SIZE,
@@ -2350,6 +2910,8 @@ mod tests {
 
         let count_crossings = |rate: f32, buffers: &mut [[f32; BLOCK_SIZE]; MAX_BUFFERS]| {
             let mut states = [NodeState::default(); MAX_NODES];
+            let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
             states[0] = NodeState::Sample { position: 0.0 };
             let mut params = [0.0f32; MAX_PARAMS];
             let mut smooth = [0.0f32; MAX_PARAMS];
@@ -2366,6 +2928,7 @@ mod tests {
                 SR,
                 COEFF,
                 &wt,
+                &mut delay_lines,
                 &samples,
                 0,
                 BLOCK_SIZE,
@@ -2391,6 +2954,8 @@ mod tests {
     fn sample_node_one_shot_silences_past_end() {
         let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         // Start halfway through a 100-sample buffer; one block (128 samples) takes us past the end.
         states[0] = NodeState::Sample { position: 50.0 };
         let mut params = [0.0f32; MAX_PARAMS];
@@ -2417,6 +2982,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &samples,
             0,
             BLOCK_SIZE,
@@ -2443,6 +3009,8 @@ mod tests {
     fn sample_node_loop_continues_past_end() {
         let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Sample { position: 0.0 };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
@@ -2469,6 +3037,7 @@ mod tests {
             SR,
             COEFF,
             &wt,
+            &mut delay_lines,
             &samples,
             0,
             BLOCK_SIZE,
@@ -2494,6 +3063,8 @@ mod tests {
     fn render_channel(samples: &[SampleBuffer], channel: f32) -> [f32; BLOCK_SIZE] {
         let inst = single_node_instrument(NodeType::Sample, 0, NO_BUF, 0);
         let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<crate::delay::DelayLine>>; MAX_NODES] =
+            core::array::from_fn(|_| None);
         states[0] = NodeState::Sample { position: 0.0 };
         let mut params = [0.0f32; MAX_PARAMS];
         let mut smooth = [0.0f32; MAX_PARAMS];
@@ -2505,7 +3076,17 @@ mod tests {
         smooth[1] = 1.0;
         smooth[3] = 1.0;
         synthesize_graph_voice(
-            &inst, &mut states, &params, &mut smooth, &mut buffers, SR, COEFF, &wt, samples, 0,
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            samples,
+            0,
             BLOCK_SIZE,
         );
         buffers[0]
@@ -2522,7 +3103,11 @@ mod tests {
 
         for i in 0..BLOCK_SIZE {
             assert!((left[i] - 0.25).abs() < 1e-6, "i={i}: ch0 read {}", left[i]);
-            assert!((right[i] + 0.5).abs() < 1e-6, "i={i}: ch1 read {}", right[i]);
+            assert!(
+                (right[i] + 0.5).abs() < 1e-6,
+                "i={i}: ch1 read {}",
+                right[i]
+            );
         }
     }
 
@@ -2533,7 +3118,713 @@ mod tests {
         // A mono asset has no channel 1; the read clamps to channel 0, not silence.
         let out = render_channel(&samples, 1.0);
         for i in 0..BLOCK_SIZE {
-            assert!((out[i] - 0.3).abs() < 1e-6, "i={i}: expected 0.3, got {}", out[i]);
+            assert!(
+                (out[i] - 0.3).abs() < 1e-6,
+                "i={i}: expected 0.3, got {}",
+                out[i]
+            );
         }
+    }
+
+    #[test]
+    fn delay_node_impulse_train_produces_echo_at_delay_time() {
+        let inst = single_node_instrument(NodeType::Delay, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        delay_lines[0] = Some(Box::new(DelayLine::new()));
+        let mut params = [0.0f32; MAX_PARAMS];
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+
+        let delay_samples = 48usize; // 1ms @ SR
+        params[0] = delay_samples as f32 / SR; // time
+        params[1] = 0.5; // feedback
+        params[2] = 0.0; // damp — undamped, cleanest impulse tracking
+        params[3] = 1.0; // mix — fully wet
+        let mut smooth = params; // seeded to target: no smoothing ramp within this block
+
+        buffers[0][0] = 1.0;
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        for i in 0..delay_samples - 2 {
+            assert!(
+                buffers[1][i].abs() < 1e-3,
+                "sample {i} should be silent before the echo, got {}",
+                buffers[1][i]
+            );
+        }
+        let peak_idx = (0..BLOCK_SIZE)
+            .max_by(|&a, &b| {
+                buffers[1][a]
+                    .abs()
+                    .partial_cmp(&buffers[1][b].abs())
+                    .unwrap()
+            })
+            .unwrap();
+        assert!(
+            (peak_idx as isize - delay_samples as isize).abs() <= 2,
+            "echo peak at {peak_idx}, expected near {delay_samples}"
+        );
+    }
+
+    #[test]
+    fn delay_node_passes_through_with_no_heap_state() {
+        // A Delay node with no allocated DelayLine (e.g. before `set_voice_instrument`
+        // ran) must pass the signal through unmodified rather than panic.
+        let inst = single_node_instrument(NodeType::Delay, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[3] = 1.0;
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        for i in 0..BLOCK_SIZE {
+            buffers[0][i] = (i as f32 * 0.1).sin();
+        }
+        let input_copy = buffers[0];
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        for i in 0..BLOCK_SIZE {
+            assert_eq!(
+                buffers[1][i], input_copy[i],
+                "sample {i}: should pass through unchanged"
+            );
+        }
+    }
+
+    #[test]
+    fn dynamics_node_compresses_a_loud_tone_end_to_end() {
+        let inst = single_node_instrument(NodeType::Dynamics, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Dynamics { env: 0.0 };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 0.0; // mode: compressor
+        params[1] = -12.0; // threshold
+        params[2] = 4.0; // ratio (4:1)
+        params[3] = 6.0; // knee
+        params[4] = 0.001; // attack
+        params[5] = 0.001; // release
+        params[6] = 0.0; // makeup
+        params[7] = 1.0; // mix
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        for s in buffers[0].iter_mut() {
+            *s = 0.8;
+        }
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        let settled = buffers[1][BLOCK_SIZE - 1];
+        assert!(
+            settled < 0.8 && settled > 0.0,
+            "compressor should reduce a steady tone above threshold, got {settled}"
+        );
+    }
+
+    #[test]
+    fn dynamics_node_gate_silences_a_quiet_signal() {
+        let inst = single_node_instrument(NodeType::Dynamics, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Dynamics { env: 0.0 };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 3.0; // mode: gate
+        params[1] = -40.0; // threshold
+        params[2] = 50.0; // ratio
+        params[3] = 0.0; // knee
+        params[4] = 0.001; // attack
+        params[5] = 0.001; // release
+        params[6] = 0.0; // makeup
+        params[7] = 1.0; // mix
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        for s in buffers[0].iter_mut() {
+            *s = 0.00003; // -90dB, well below the gate's threshold
+        }
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        let settled = buffers[1][BLOCK_SIZE - 1];
+        assert!(
+            settled.abs() < 1e-4,
+            "gate should silence a signal well below threshold, got {settled}"
+        );
+    }
+
+    #[test]
+    fn waveshaper_node_soft_mode_saturates_a_loud_tone_end_to_end() {
+        let inst = single_node_instrument(NodeType::Waveshaper, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Waveshaper {
+            dc_x1: 0.0,
+            dc_y1: 0.0,
+        };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 0.0; // mode: soft
+        params[1] = 0.8; // drive
+        params[2] = 1.0; // mix: fully wet
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        // A small-amplitude tone: high drive should push it up toward saturation.
+        for (i, s) in buffers[0].iter_mut().enumerate() {
+            *s = 0.1 * (core::f32::consts::TAU * 200.0 * i as f32 / SR).sin();
+        }
+        let input_peak = buffers[0].iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        let out_peak = buffers[1].iter().fold(0.0f32, |m, &s| m.max(s.abs()));
+        assert!(
+            buffers[1].iter().all(|s| s.is_finite()),
+            "waveshaper output must stay finite"
+        );
+        assert!(
+            out_peak > input_peak * 2.0,
+            "high drive should amplify a quiet tone toward saturation: in {input_peak}, out {out_peak}"
+        );
+    }
+
+    #[test]
+    fn waveshaper_node_mix_zero_bypasses() {
+        let inst = single_node_instrument(NodeType::Waveshaper, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Waveshaper {
+            dc_x1: 0.0,
+            dc_y1: 0.0,
+        };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 2.0; // fold — the most aggressive shaper
+        params[1] = 0.9;
+        params[2] = 0.0; // mix=0 -> bypass
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        for i in 0..BLOCK_SIZE {
+            buffers[0][i] = (i as f32 * 0.1).sin();
+        }
+        let input_copy = buffers[0];
+
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+
+        for i in 0..BLOCK_SIZE {
+            assert!(
+                (buffers[1][i] - input_copy[i]).abs() < 1e-6,
+                "mix=0 should bypass, sample {i}: {} vs {}",
+                buffers[1][i],
+                input_copy[i]
+            );
+        }
+    }
+
+    #[test]
+    fn eq_node_flat_at_unity_gain() {
+        // gain=1.0 makes every EQ mode a transparent passthrough (a=sqrt(1)=1 collapses
+        // the RBJ coefficients to identity) — the node's "off" state, no mix param.
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        for mode in [0.0f32, 1.0, 2.0] {
+            let inst = single_node_instrument(NodeType::Eq, 0, 0, 1);
+            let mut states = [NodeState::default(); MAX_NODES];
+            states[0] = NodeState::Eq {
+                xm1: 0.0,
+                xm2: 0.0,
+                ym1: 0.0,
+                ym2: 0.0,
+            };
+            let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
+            let mut params = [0.0f32; MAX_PARAMS];
+            params[0] = mode;
+            params[1] = 1000.0; // freq
+            params[2] = 1.0; // gain: flat
+            params[3] = 1.0; // q
+            let mut smooth = params;
+            let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+            for i in 0..BLOCK_SIZE {
+                buffers[0][i] = (core::f32::consts::TAU * 440.0 * i as f32 / SR).sin();
+            }
+            let input_copy = buffers[0];
+
+            synthesize_graph_voice(
+                &inst,
+                &mut states,
+                &params,
+                &mut smooth,
+                &mut buffers,
+                SR,
+                COEFF,
+                &wt,
+                &mut delay_lines,
+                &[],
+                0,
+                BLOCK_SIZE,
+            );
+
+            for i in 0..BLOCK_SIZE {
+                assert!(
+                    (buffers[1][i] - input_copy[i]).abs() < 1e-4,
+                    "eq mode {mode} gain=1 should pass through, sample {i}: {} vs {}",
+                    buffers[1][i],
+                    input_copy[i]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn eq_node_low_shelf_cut_attenuates_lows() {
+        // A low-shelf at gain 0.1 (−20 dB) run over multiple blocks must attenuate a
+        // low tone far more than a high one — the shelving character, end to end.
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let measure = |freq: f32| -> f32 {
+            let inst = single_node_instrument(NodeType::Eq, 0, 0, 1);
+            let mut states = [NodeState::default(); MAX_NODES];
+            states[0] = NodeState::Eq {
+                xm1: 0.0,
+                xm2: 0.0,
+                ym1: 0.0,
+                ym2: 0.0,
+            };
+            let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
+            let mut params = [0.0f32; MAX_PARAMS];
+            params[0] = 0.0; // low shelf
+            params[1] = 800.0; // corner
+            params[2] = 0.1; // gain: -20dB
+            params[3] = 0.707;
+            let mut smooth = params;
+            let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+            let mut energy = 0.0f32;
+            for block in 0..16 {
+                for i in 0..BLOCK_SIZE {
+                    let t = (block * BLOCK_SIZE + i) as f32 / SR;
+                    buffers[0][i] = (core::f32::consts::TAU * freq * t).sin();
+                }
+                synthesize_graph_voice(
+                    &inst,
+                    &mut states,
+                    &params,
+                    &mut smooth,
+                    &mut buffers,
+                    SR,
+                    COEFF,
+                    &wt,
+                    &mut delay_lines,
+                    &[],
+                    0,
+                    BLOCK_SIZE,
+                );
+                if block >= 8 {
+                    for i in 0..BLOCK_SIZE {
+                        energy += buffers[1][i] * buffers[1][i];
+                    }
+                }
+            }
+            energy
+        };
+        let low = measure(150.0);
+        let high = measure(8000.0);
+        assert!(
+            low < high * 0.25,
+            "low-shelf cut should attenuate 150Hz far more than 8kHz: low {low}, high {high}"
+        );
+    }
+
+    #[test]
+    fn mod_delay_node_mix_zero_bypasses() {
+        // Chorus and flanger both crossfade dry/wet at `mix`; mix=0 is an exact
+        // passthrough (the "added-but-untuned = no-op" convention).
+        for node_type in [NodeType::Chorus, NodeType::Flanger] {
+            let inst = single_node_instrument(node_type, 0, 0, 1);
+            let mut states = [NodeState::default(); MAX_NODES];
+            states[0] = NodeState::ModDelay {
+                lfo_phase: 0.0,
+                lfo_dir: 1.0,
+            };
+            let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
+            delay_lines[0] = Some(Box::new(DelayLine::new()));
+            let mut params = [0.0f32; MAX_PARAMS];
+            params[0] = 2.0; // rate
+            params[1] = 0.5; // depth
+            params[2] = 0.5; // feedback
+            params[3] = 0.0; // mix — bypass
+            let mut smooth = params;
+            let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+            let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+            for i in 0..BLOCK_SIZE {
+                buffers[0][i] = (i as f32 * 0.2).sin();
+            }
+            let input_copy = buffers[0];
+            synthesize_graph_voice(
+                &inst,
+                &mut states,
+                &params,
+                &mut smooth,
+                &mut buffers,
+                SR,
+                COEFF,
+                &wt,
+                &mut delay_lines,
+                &[],
+                0,
+                BLOCK_SIZE,
+            );
+            for i in 0..BLOCK_SIZE {
+                assert_eq!(
+                    buffers[1][i], input_copy[i],
+                    "{node_type:?} mix=0 sample {i}: should bypass"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn chorus_node_depth_modulates_the_output() {
+        // The defining behavior: a nonzero LFO depth sweeps the delay, so the wet
+        // output differs from the fixed-delay (depth=0) case. Isolates that the LFO is
+        // actually driving the delay read, not just the mix.
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let render = |depth: f32| -> Vec<f32> {
+            let inst = single_node_instrument(NodeType::Chorus, 0, 0, 1);
+            let mut states = [NodeState::default(); MAX_NODES];
+            states[0] = NodeState::ModDelay {
+                lfo_phase: 0.0,
+                lfo_dir: 1.0,
+            };
+            let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] =
+                core::array::from_fn(|_| None);
+            delay_lines[0] = Some(Box::new(DelayLine::new()));
+            let mut params = [0.0f32; MAX_PARAMS];
+            params[0] = 5.0; // rate (fast, to sweep within the window)
+            params[1] = depth;
+            params[2] = 0.0; // feedback off — isolate the modulated read
+            params[3] = 1.0; // fully wet
+            let mut smooth = params;
+            let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+            let mut out = Vec::new();
+            for block in 0..48 {
+                for i in 0..BLOCK_SIZE {
+                    let t = (block * BLOCK_SIZE + i) as f32 / SR;
+                    buffers[0][i] = (core::f32::consts::TAU * 440.0 * t).sin();
+                }
+                synthesize_graph_voice(
+                    &inst,
+                    &mut states,
+                    &params,
+                    &mut smooth,
+                    &mut buffers,
+                    SR,
+                    COEFF,
+                    &wt,
+                    &mut delay_lines,
+                    &[],
+                    0,
+                    BLOCK_SIZE,
+                );
+                out.extend_from_slice(&buffers[1]);
+            }
+            out
+        };
+        let fixed = render(0.0);
+        let swept = render(0.5);
+        let diff: f32 = fixed
+            .iter()
+            .zip(&swept)
+            .map(|(a, b)| (a - b).abs())
+            .sum::<f32>()
+            / fixed.len() as f32;
+        assert!(
+            diff > 1e-2,
+            "chorus depth should modulate the output vs a fixed delay, mean |Δ| {diff}"
+        );
+    }
+
+    #[test]
+    fn mod_delay_node_passes_through_with_no_heap_state() {
+        // No allocated DelayLine (e.g. before `set_voice_instrument`) must pass through
+        // rather than panic — the shared early-return branch.
+        let inst = single_node_instrument(NodeType::Chorus, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::ModDelay {
+            lfo_phase: 0.0,
+            lfo_dir: 1.0,
+        };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[3] = 1.0; // fully wet, but no heap → passthrough
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        for i in 0..BLOCK_SIZE {
+            buffers[0][i] = (i as f32 * 0.1).sin();
+        }
+        let input_copy = buffers[0];
+        synthesize_graph_voice(
+            &inst,
+            &mut states,
+            &params,
+            &mut smooth,
+            &mut buffers,
+            SR,
+            COEFF,
+            &wt,
+            &mut delay_lines,
+            &[],
+            0,
+            BLOCK_SIZE,
+        );
+        for i in 0..BLOCK_SIZE {
+            assert_eq!(
+                buffers[1][i], input_copy[i],
+                "sample {i}: should pass through"
+            );
+        }
+    }
+
+    #[test]
+    fn phaser_node_full_wet_preserves_energy() {
+        // At mix=1, feedback=0, depth=0 the phaser is a fixed allpass cascade — unit
+        // magnitude at every frequency, so a steady tone's energy passes unchanged.
+        // (The dry+wet sum makes the notches; that's the mix<1 character.)
+        let inst = single_node_instrument(NodeType::Phaser, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Phaser {
+            y: [0.0; MAX_PHASER_STAGES],
+            last: 0.0,
+            lfo_phase: 0.0,
+            lfo_dir: 1.0,
+        };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 0.5; // rate
+        params[1] = 0.0; // depth 0 → fixed center
+        params[2] = 0.0; // feedback off
+        params[3] = 4.0; // stages
+        params[4] = 1.0; // fully wet
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        let (mut ein, mut eout) = (0.0f32, 0.0f32);
+        for block in 0..24 {
+            for i in 0..BLOCK_SIZE {
+                let t = (block * BLOCK_SIZE + i) as f32 / SR;
+                buffers[0][i] = (core::f32::consts::TAU * 440.0 * t).sin();
+            }
+            synthesize_graph_voice(
+                &inst,
+                &mut states,
+                &params,
+                &mut smooth,
+                &mut buffers,
+                SR,
+                COEFF,
+                &wt,
+                &mut delay_lines,
+                &[],
+                0,
+                BLOCK_SIZE,
+            );
+            if block >= 8 {
+                for i in 0..BLOCK_SIZE {
+                    ein += buffers[0][i] * buffers[0][i];
+                    eout += buffers[1][i] * buffers[1][i];
+                }
+            }
+        }
+        let ratio = eout / ein;
+        assert!(
+            (ratio - 1.0).abs() < 0.02,
+            "phaser allpass cascade should preserve energy at full wet, ratio {ratio}"
+        );
+    }
+
+    #[test]
+    fn phaser_node_high_feedback_stays_bounded() {
+        // The feedback tap is a resonance control; a first-order allpass has unit gain,
+        // so a feedback coefficient < 1 keeps the loop BIBO-stable. Drive the max
+        // feedback with a full-scale tone and confirm the output can't blow up.
+        let inst = single_node_instrument(NodeType::Phaser, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Phaser {
+            y: [0.0; MAX_PHASER_STAGES],
+            last: 0.0,
+            lfo_phase: 0.0,
+            lfo_dir: 1.0,
+        };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 2.0; // rate
+        params[1] = 1.0; // depth
+        params[2] = 1.5; // feedback above the clamp; must be limited to < 1
+        params[3] = 8.0; // max stages
+        params[4] = 1.0; // fully wet
+
+        // Smoothers start at 0 as at a real voice start, so feedback ramps up to the
+        // clamped 0.9 and never transits the unstable region (seeding to the raw 1.5
+        // would inject an unclamped transient that isn't reachable in production).
+        let mut smooth = [0.0f32; MAX_PARAMS];
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        for block in 0..64 {
+            for i in 0..BLOCK_SIZE {
+                let t = (block * BLOCK_SIZE + i) as f32 / SR;
+                buffers[0][i] = (core::f32::consts::TAU * 440.0 * t).sin();
+            }
+            synthesize_graph_voice(
+                &inst,
+                &mut states,
+                &params,
+                &mut smooth,
+                &mut buffers,
+                SR,
+                COEFF,
+                &wt,
+                &mut delay_lines,
+                &[],
+                0,
+                BLOCK_SIZE,
+            );
+            for &s in buffers[1].iter() {
+                assert!(
+                    s.is_finite() && s.abs() < 100.0,
+                    "phaser output blew up: {s}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn tremolo_node_modulates_amplitude_between_floor_and_unity() {
+        // A DC=1 input through tremolo traces the gain envelope directly: it must
+        // oscillate between (1 − depth) and 1. depth=0 is a transparent passthrough.
+        let inst = single_node_instrument(NodeType::Tremolo, 0, 0, 1);
+        let mut states = [NodeState::default(); MAX_NODES];
+        states[0] = NodeState::Tremolo { phase: 0.0 };
+        let mut delay_lines: [Option<Box<DelayLine>>; MAX_NODES] = core::array::from_fn(|_| None);
+        let depth = 0.5f32;
+        let mut params = [0.0f32; MAX_PARAMS];
+        params[0] = 100.0; // rate (a full cycle every 480 samples)
+        params[1] = depth;
+        let mut smooth = params;
+        let wt = [0.0f32; WAVETABLE_FRAMES * WAVETABLE_SAMPLES];
+        let mut buffers = [[0.0f32; BLOCK_SIZE]; MAX_BUFFERS];
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        for _ in 0..8 {
+            buffers[0] = [1.0; BLOCK_SIZE];
+            synthesize_graph_voice(
+                &inst,
+                &mut states,
+                &params,
+                &mut smooth,
+                &mut buffers,
+                SR,
+                COEFF,
+                &wt,
+                &mut delay_lines,
+                &[],
+                0,
+                BLOCK_SIZE,
+            );
+            for &s in buffers[1].iter() {
+                lo = lo.min(s);
+                hi = hi.max(s);
+            }
+        }
+        assert!(
+            (lo - (1.0 - depth)).abs() < 1e-3,
+            "tremolo trough should reach 1−depth = {}, got {lo}",
+            1.0 - depth
+        );
+        assert!(
+            (hi - 1.0).abs() < 1e-3,
+            "tremolo peak should reach unity, got {hi}"
+        );
     }
 }

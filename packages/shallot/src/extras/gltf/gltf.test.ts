@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { compose, quat } from "../../engine";
-import { computeNormals, decompose, type GltfJson, parse } from "./gltf";
+import {
+    computeNormals,
+    decompose,
+    type GltfJson,
+    liveSkinnable,
+    parse,
+    quantizeLive,
+    reachBound,
+} from "./gltf";
+import type { SkinInput } from "./vat";
 
 // one packed vertex = (px py pz u)(nx ny nz v). Integer lanes are f32-exact (toBe); the fractional uv
 // lanes round-trip through Float32Array so they need toBeCloseTo (coding.md float-equality discipline).
@@ -658,5 +667,114 @@ describe("gltf skinned + animated (VAT bake input)", () => {
                 .unsupported.map((u) => u.feature)
                 .sort(),
         ).toEqual(["animation", "skin"]);
+    });
+});
+
+const IDENT = [...compose(0, 0, 0, 0, 0, 0, 1, 1, 1, 1)];
+
+// a minimal SkinInput carrying only the fields the live route reads (joints, inverseBind, jointIndex,
+// weights, restPos); the clip / hierarchy fields are unused stubs. `quantizeLive` / `reachBound` need nothing
+// else, so a test builds a rig by hand (the vat.ts SkinInput contract, live half).
+function liveInput(over: Partial<SkinInput>): SkinInput {
+    return {
+        nodes: [],
+        roots: [],
+        channels: [],
+        joints: [0],
+        inverseBind: new Float32Array(IDENT),
+        jointIndex: new Uint16Array([0, 0, 0, 0]),
+        weights: new Float32Array([1, 0, 0, 0]),
+        restPos: new Float32Array([0, 0, 0]),
+        restNormal: new Float32Array([0, 0, 1]),
+        duration: 0,
+        ...over,
+    };
+}
+
+// The live joint-palette route (the runtime-posed twin of the VAT bake): the deviceless decode half — the
+// eligibility gate that rescues a clip-less rig skinBakeable drops, the JOINTS_0/WEIGHTS_0 quantization, and
+// the reach-bound derivation. The GPU wiring + placement land at the gym `render` `skin-live` gate (stage 6d).
+describe("live joint-palette skinning", () => {
+    test("a clip-less rig imports live where skinBakeable dropped it", () => {
+        const { gltf, buffers } = skinnedFixture();
+        delete gltf.animations;
+        const scene = parse(gltf, buffers);
+        expect(scene.live).toBe(true); // auto-rescued to the live route
+        expect(scene.unsupported).toEqual([]); // a handled skin isn't flagged
+        // the skinned mesh gets its own-stream SkinInput (the axis the JW block keys on)
+        expect(scene.skinInputs.filter((si) => si !== null).length).toBe(1);
+    });
+
+    test("a bakeable rig stays VAT; the live flag forces it live; CUBICSPLINE isn't auto-rescued", () => {
+        const bake = skinnedFixture();
+        expect(parse(bake.gltf, bake.buffers).live).toBe(false); // VAT default
+        expect(parse(bake.gltf, bake.buffers, undefined, undefined, 0, true).live).toBe(true); // forced
+        const cubic = skinnedFixture("CUBICSPLINE");
+        expect(parse(cubic.gltf, cubic.buffers).live).toBe(false); // its clip would be lost — stays flagged
+    });
+
+    test("liveSkinnable needs a skin + accessor-backed JOINTS_0/WEIGHTS_0", () => {
+        expect(liveSkinnable(skinnedFixture().gltf)).toBe(true);
+        const noWeights = skinnedFixture().gltf;
+        delete noWeights.meshes![0].primitives[0].attributes.WEIGHTS_0;
+        expect(liveSkinnable(noWeights)).toBe(false);
+        const noSkin = skinnedFixture().gltf;
+        noSkin.skins = [];
+        expect(liveSkinnable(noSkin)).toBe(false);
+    });
+
+    test("quantizeLive packs joint slots (u8×4) + weights (unorm8×4 summing to 1.0)", () => {
+        const input = liveInput({
+            joints: [0, 1, 2, 3],
+            inverseBind: new Float32Array([...IDENT, ...IDENT, ...IDENT, ...IDENT]),
+            jointIndex: new Uint16Array([0, 1, 2, 3]),
+            weights: new Float32Array([0.5, 0.3, 0.15, 0.05]),
+        });
+        const live = quantizeLive(input);
+        expect(live.jointCount).toBe(4);
+        expect(live.joints).toHaveLength(1); // 1 vertex
+        // joint slots round-trip exact through the u8 pack
+        const j = live.joints[0];
+        expect([j & 0xff, (j >> 8) & 0xff, (j >> 16) & 0xff, (j >> 24) & 0xff]).toEqual([
+            0, 1, 2, 3,
+        ]);
+        // weights unpack (unorm8) sum to 255 → 1.0 after `unpack4x8unorm`, so the surface skips a runtime
+        // renorm; each lane is within the derived bound: its own rounding (≤ 0.5/255) plus, for the largest
+        // lane, the residual it absorbs (≤ 3 × 0.5/255) → ≤ 2/255
+        const w = live.weights[0];
+        const dw = [w & 0xff, (w >> 8) & 0xff, (w >> 16) & 0xff, (w >> 24) & 0xff];
+        expect(dw[0] + dw[1] + dw[2] + dw[3]).toBe(255);
+        const exp = [0.5, 0.3, 0.15, 0.05];
+        for (let k = 0; k < 4; k++)
+            expect(Math.abs(dw[k] / 255 - exp[k])).toBeLessThanOrEqual(2 / 255);
+    });
+
+    test("quantizeLive: an unweighted vertex packs all-zero (collapses to origin, the bakeVat rule)", () => {
+        const input = liveInput({ weights: new Float32Array([0, 0, 0, 0]) });
+        expect(quantizeLive(input).weights[0]).toBe(0);
+    });
+
+    test("quantizeLive throws past 256 joints (the u8 joint slot)", () => {
+        const input = liveInput({ joints: new Array(257).fill(0) });
+        expect(() => quantizeLive(input)).toThrow(/256/);
+    });
+
+    test("reachBound: R = maxᵥ (|bindPos| + |restPos − bindPos|), centered at the origin", () => {
+        // joint 0 bound at (2,0,0) (inverseBind = translate(−2,0,0), so its inverse translates to (2,0,0)),
+        // joint 1 at (10,0,0); vert 0 → joint 0 at rest (3,0,0) reaches 2 + 1 = 3, vert 1 → joint 1 at rest
+        // (10,0,0) reaches 10 + 0 = 10, so R = max = 10.
+        const input = liveInput({
+            joints: [0, 1],
+            inverseBind: new Float32Array([
+                ...compose(-2, 0, 0, 0, 0, 0, 1, 1, 1, 1),
+                ...compose(-10, 0, 0, 0, 0, 0, 1, 1, 1, 1),
+            ]),
+            jointIndex: new Uint16Array([0, 0, 0, 0, 1, 0, 0, 0]),
+            weights: new Float32Array([1, 0, 0, 0, 1, 0, 0, 0]),
+            restPos: new Float32Array([3, 0, 0, 10, 0, 0]),
+        });
+        const [cx, cy, cz, r] = reachBound(input);
+        expect([cx, cy, cz]).toEqual([0, 0, 0]);
+        expect(r).toBeCloseTo(10, 5);
     });
 });

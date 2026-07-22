@@ -1,7 +1,0 @@
-{
-  "scene": "scenes/utils.scene",
-  "plugins": {
-    "Orbit": true,
-    "Ease": "./src/ease"
-  }
-}

@@ -1,8 +1,0 @@
-{
-  "scene": "scenes/orbit.scene",
-  "plugins": {
-    "Orbit": true,
-    "OrbitOverlay": true,
-    "OrbitTune": "./src/tune"
-  }
-}

@@ -23,7 +23,7 @@ let _composeBindGroup: GPUBindGroup | null = null;
  *
  * @example
  * ```
- * <a transform pos="0 1 0" rot="0 0 0 1" scale="1 1 1" />
+ * <a transform="pos: 0 1 0; rot: 0 0 0 1; scale: 1 1 1" />
  * ```
  */
 export const Transform = {
@@ -34,19 +34,25 @@ export const Transform = {
 
 // gather the pos/rot/scale slabs into the decomposed `Xform` firehose. No matrix math — readers
 // reconstruct on demand (XFORM_WGSL); the gather just lays the three SoA slabs into one AoS record so a
-// reader's per-instance read is a single cache line.
-const COMPOSE_WGSL =
+// reader's per-instance read is a single cache line. Gated on Transform MEMBERSHIP (`gate`, the part-pack
+// shape): the firehose has a second writer — a physics backend composes `Body` poses into the same buffer
+// (`Body` excludes `Transform`, so the two writers partition by slot) — and a CPU backend's
+// `queue.writeBuffer` executes in queue order BEFORE this frame's encoder, so an ungated scatter would
+// stomp every physics record with the unset Transform slab (zero scale — an invisible Body+Part).
+const composeWgsl = (gate: string): string =>
     XFORM_WGSL +
     /* wgsl */ `
 @group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read> rot: array<vec4<f32>>;
 @group(0) @binding(2) var<storage, read> scale: array<vec4<f32>>;
 @group(0) @binding(3) var<storage, read_write> transforms: array<Xform>;
+@group(0) @binding(4) var<storage, read> membership: array<u32>;
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
     if (i >= arrayLength(&transforms)) { return; }
+    ${gate}
     transforms[i] = Xform(pos[i].xyz, rot[i], scale[i].xyz);
 }
 `;
@@ -69,6 +75,9 @@ export function composeTransforms(encoder: GPUCommandEncoder): void {
                 { binding: 1, resource: { buffer: Transform.rot.gpu! } },
                 { binding: 2, resource: { buffer: Transform.scale.gpu! } },
                 { binding: 3, resource: { buffer: _transforms } },
+                // published by SlabPlugin's MembershipSystem before any draw frame; a missing
+                // one is a wiring bug — let the bind group creation throw, never skip a frame
+                { binding: 4, resource: { buffer: Compute.buffers.get("membership")! } },
             ],
         });
     }
@@ -157,7 +166,7 @@ export const TransformsPlugin: Plugin = {
         },
     },
 
-    async initialize() {
+    async initialize(state) {
         _transforms = null;
         _composeLayout = null;
         _composePipeline = null;
@@ -169,7 +178,10 @@ export const TransformsPlugin: Plugin = {
         _transforms = device.createBuffer({
             label: "kitchen-transforms",
             size: capacity * 48, // sizeof(Xform): pos + quat + scale, vec4-aligned
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+            // COPY_DST: a CPU physics backend (tumble) writes a mover's interpolated pose straight in via
+            // `queue.writeBuffer` (standard/tumble ComposeSystem) — the GPU-only AVBD backend's compose is
+            // a compute pass and needs no CPU write, but the buffer is shared, so the usage covers both.
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
         });
         Compute.buffers.set("transforms", _transforms);
         _composeLayout = device.createBindGroupLayout({
@@ -195,11 +207,19 @@ export const TransformsPlugin: Plugin = {
                     visibility: GPUShaderStage.COMPUTE,
                     buffer: { type: "storage" },
                 },
+                {
+                    binding: 4,
+                    visibility: GPUShaderStage.COMPUTE,
+                    buffer: { type: "read-only-storage" },
+                },
             ],
         });
+        const t = state.membership.bit(Transform);
         const module = device.createShaderModule({
             label: "kitchen-transforms-compose",
-            code: COMPOSE_WGSL,
+            code: composeWgsl(
+                `if ((membership[${t.gen}u * ${capacity}u + i] & ${t.mask}u) == 0u) { return; }`,
+            ),
         });
         _composePipeline = await device.createComputePipelineAsync({
             label: "kitchen-transforms-compose",

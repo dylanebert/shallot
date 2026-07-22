@@ -1,6 +1,6 @@
 {
     "name": "@dylanebert/shallot",
-    "version": "0.6.0",
+    "version": "0.8.0",
     "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
     "sideEffects": [
         "./src/standard/index.ts",
@@ -21,17 +21,22 @@
     "exports": {
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
-        "./editor": "./src/editor/index.ts",
-        "./vite": "./editor/src/project/vite.ts",
+        "./harness": "./src/harness/index.ts",
+        "./document": "./src/document/index.ts",
+        "./vite": "./src/project/vite.ts",
         "./ecs/core": "./src/engine/ecs/core.ts",
         "./scene/core": "./src/engine/scene/core.ts",
         "./utils/core": "./src/engine/utils/core.ts",
         "./fog/core": "./src/standard/fog/core.ts",
         "./glaze": "./src/standard/glaze/index.ts",
+        "./part/core": "./src/standard/part/core.ts",
         "./render/core": "./src/standard/render/core.ts",
         "./sear/core": "./src/standard/sear/core.ts",
         "./physics/core": "./src/standard/physics/core.ts",
+        "./avbd": "./src/standard/avbd/index.ts",
+        "./avbd/core": "./src/standard/avbd/core.ts",
         "./character/core": "./src/standard/character/core.ts",
+        "./tumble/core": "./src/standard/tumble/core.ts",
         "./bvh/core": "./src/standard/bvh/core.ts",
         "./audio/core": "./src/standard/audio/core.ts",
         "./gltf/core": "./src/extras/gltf/core.ts",
@@ -45,42 +50,46 @@
     "files": [
         "src",
         "!src/**/*.test.ts",
-        "editor",
-        "!editor/**/*.test.ts",
+        "!src/**/*.fixture.ts",
+        "!src/**/*.gold.json",
         "bin",
         "rust/audio/pkg",
+        "examples",
         "AGENTS.md",
         "shallot.schema.json"
     ],
     "scripts": {
+        "prepack": "bun run ./scripts/prepack.ts",
+        "postpack": "bun run ./scripts/postpack.ts",
         "build": "bun run ./scripts/build.ts",
         "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",
         "test": "bun test",
         "test:oracle": "bun test ./tests/avbd/*.oracle.ts",
-        "test:full": "bun run test && bun run test:oracle"
+        "test:fixture": "bun run scripts/run-tumble-fixtures.ts",
+        "test:fixture:mt": "TUMBLE_THREADS=${TUMBLE_THREADS:-4} bun run scripts/run-tumble-fixtures.ts",
+        "test:fixture:auto": "TUMBLE_THREADS=auto bun run scripts/run-tumble-fixtures.ts",
+        "test:exit": "bun run scripts/tumble-exit-test.ts",
+        "test:full": "bun run test && bun run test:oracle && bun run test:fixture",
+        "gen-tumble-fixtures": "bun run scripts/gen-tumble-fixtures.ts",
+        "gen-tumble-gold": "bun run scripts/gen-tumble-gold.ts"
     },
     "dependencies": {
-        "@sveltejs/vite-plugin-svelte": "^7.0.0",
         "@webgpu/types": "^0.1.70",
-        "lucide-static": "^0.564.0",
-        "mediabunny": "^1.34.4",
         "meshoptimizer": "^0.22.0",
-        "svelte": "^5.19.0",
         "vite": "^8.0.0"
     },
+    "peerDependencies": {
+        "playwright": "^1.0.0"
+    },
+    "peerDependenciesMeta": {
+        "playwright": {
+            "optional": true
+        }
+    },
     "devDependencies": {
-        "@napi-rs/canvas": "^0.1.88",
         "@types/bun": "latest",
-        "@types/three": "^0.182.0",
-        "bitecs": "^0.4.0",
         "bun-webgpu": "^0.1.4",
         "fast-check": "^4.6.0",
-        "marked": "^17.0.4",
-        "marked-shiki": "^1.2.1",
-        "shiki": "^4.0.2",
-        "svelte-check": "^4.4.0",
-        "three": "^0.182.0",
-        "troika-three-text": "^0.52.4",
         "wgpu-matrix": "^3.4.0"
     },
     "trustedDependencies": [

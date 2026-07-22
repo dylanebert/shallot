@@ -1,7 +1,0 @@
-{
-  "scene": "scenes/ecs.scene",
-  "plugins": {
-    "Orbit": true,
-    "Spin": "./src/spin"
-  }
-}

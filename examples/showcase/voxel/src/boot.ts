@@ -9,7 +9,7 @@ import { syncGrid, Voxels } from "./voxel/mesher";
 // The mesher allocates `Voxels.grid` + `.indirect` in its first-frame setup, so the boot can only run once
 // they exist: it fills the grid on the GPU (FBM terrain — the live visual), syncs the CPU mirror so the carve
 // path can march it, mounts the toolbar + keys, and installs the device gate. `mode: always` so the terrain
-// meshes in the editor viewport, not just play. Idempotent per State — `setup` re-arms it each build (ecs.md
+// meshes in edit mode too, not just play. Idempotent per State — `setup` re-arms it each build (ecs.md
 // "Reload-safety"); `dispose` tears the UI down so a rebuild doesn't stack overlays.
 
 declare global {
@@ -24,7 +24,6 @@ const SEED = 1337;
 let armed = true;
 let indirect: Mirror | null = null;
 let toolbar: { setTool: (t: "pointer" | "terrain") => void; dispose: () => void } | null = null;
-let onKey: ((e: KeyboardEvent) => void) | null = null;
 
 const BootSystem: System = {
     name: "voxel-boot",
@@ -53,28 +52,31 @@ async function boot(state: State): Promise<void> {
     await generate(SEED);
     await syncGrid();
     initCarve(state, document.querySelector("canvas"), SEED);
-    mountUi();
+    mountUi(state);
 }
 
-function mountUi(): void {
+function mountUi(state: State): void {
     teardownUi();
     toolbar = mountToolbar();
-    onKey = (e) => {
-        if (e.key === "v" || e.key === "V") toolbar?.setTool("pointer");
-        else if (e.key === "b" || e.key === "B") toolbar?.setTool("terrain");
-        else if (e.key === "F9") {
-            e.preventDefault();
-            setSeed((Math.random() * 0x1_0000_0000) >>> 0);
-        }
-    };
-    window.addEventListener("keydown", onKey);
+    // the shortcut keys ride a `window` listener (global, outside the canvas) — `{ signal: state.signal }`
+    // detaches it at `state.dispose()` with no removal code, so teardownUi only unwinds the toolbar.
+    window.addEventListener(
+        "keydown",
+        (e) => {
+            if (e.key === "v" || e.key === "V") toolbar?.setTool("pointer");
+            else if (e.key === "b" || e.key === "B") toolbar?.setTool("terrain");
+            else if (e.key === "F9") {
+                e.preventDefault();
+                setSeed((Math.random() * 0x1_0000_0000) >>> 0);
+            }
+        },
+        { signal: state.signal },
+    );
 }
 
 function teardownUi(): void {
     toolbar?.dispose();
     toolbar = null;
-    if (onKey) window.removeEventListener("keydown", onKey);
-    onKey = null;
 }
 
 const VoxelBootPlugin: Plugin = {

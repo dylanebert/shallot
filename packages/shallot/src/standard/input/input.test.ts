@@ -14,15 +14,13 @@ import { clear, register } from "../../engine/ecs/core";
 type Fn = Function;
 
 class ListenerTracker {
-    added: [string, Fn][] = [];
-    removed: [string, Fn][] = [];
+    added: [string, Fn, AddEventListenerOptions | undefined][] = [];
 
-    addEventListener = (type: string, fn: Fn, _opts?: unknown) => {
-        this.added.push([type, fn]);
+    addEventListener = (type: string, fn: Fn, opts?: AddEventListenerOptions) => {
+        this.added.push([type, fn, opts]);
     };
-    removeEventListener = (type: string, fn: Fn) => {
-        this.removed.push([type, fn]);
-    };
+    // input attaches with `{ signal }` and never removes by hand; kept as a no-op so a stray call can't throw
+    removeEventListener = () => {};
 }
 
 function mockCanvas(): HTMLCanvasElement & { tracker: ListenerTracker } {
@@ -119,22 +117,28 @@ describe("InputPlugin", () => {
         ]);
     });
 
-    test("dispose removes all canvas listeners", () => {
-        state.dispose();
-        const added = canvas.tracker.added.map(([t, fn]) => [t, fn]);
-        const removed = canvas.tracker.removed.map(([t, fn]) => [t, fn]);
-        for (const [type, fn] of added) {
-            expect(removed).toContainEqual([type, fn]);
+    // teardown is signal-based: every listener is attached with `{ signal: state.signal }`, so
+    // `state.dispose()` aborting that signal detaches them all with no removal code (the browser
+    // contract). The mock can't fire abort, so assert the wiring — every listener carries the
+    // State's signal, and dispose aborts it.
+    test("every canvas listener is attached with the State's signal, aborted on dispose", () => {
+        expect(canvas.tracker.added.length).toBeGreaterThan(0);
+        for (const [, , opts] of canvas.tracker.added) {
+            expect(opts?.signal).toBe(state.signal);
         }
+        expect(state.signal.aborted).toBe(false);
+        state.dispose();
+        expect(state.signal.aborted).toBe(true);
     });
 
-    test("dispose removes all global listeners", () => {
-        state.dispose();
-        const added = windowTracker.added.map(([t, fn]) => [t, fn]);
-        const removed = windowTracker.removed.map(([t, fn]) => [t, fn]);
-        for (const [type, fn] of added) {
-            expect(removed).toContainEqual([type, fn]);
+    test("every global listener is attached with the State's signal, aborted on dispose", () => {
+        expect(windowTracker.added.length).toBeGreaterThan(0);
+        for (const [, , opts] of windowTracker.added) {
+            expect(opts?.signal).toBe(state.signal);
         }
+        expect(state.signal.aborted).toBe(false);
+        state.dispose();
+        expect(state.signal.aborted).toBe(true);
     });
 
     test("keyboard events flow through to Inputs", () => {

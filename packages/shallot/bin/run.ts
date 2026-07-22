@@ -1,6 +1,7 @@
 import { execSync } from "node:child_process";
 import { basename, resolve } from "node:path";
 import { preview } from "vite";
+import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 import { buildWeb } from "./build";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 
@@ -16,7 +17,8 @@ export async function runProject(
         await buildWeb(projectDir);
         const server = await preview({
             root: projectDir,
-            preview: { port: opts.port, open: true },
+            // cross-origin isolation so tumble physics multithreads (COOP/COEP → shared WebAssembly.Memory)
+            preview: { port: opts.port, open: true, headers: CROSS_ORIGIN_ISOLATION },
         });
         server.printUrls();
         console.log();

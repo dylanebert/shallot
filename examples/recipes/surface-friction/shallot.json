@@ -1,0 +1,9 @@
+{
+    "scene": "scenes/surface-friction.scene",
+    "plugins": {
+        "Orbit": true,
+        "Tumble": true,
+        "Ramp": "./src/ramp",
+        "FrictionSmoke": "./src/smoke"
+    }
+}

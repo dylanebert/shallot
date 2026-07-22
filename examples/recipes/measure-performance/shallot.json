@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/measure-performance.scene",
+  "plugins": {
+    "Profile": true,
+    "Orbit": true,
+    "Budget": "./src/budget"
+  }
+}

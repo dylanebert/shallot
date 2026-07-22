@@ -1,39 +1,33 @@
-// Pick utilities — the layer binding the pose-agnostic raycast to live ECS + Mirror state: candidate
-// gathering off the GPU `bodies` snapshot, world↔body-local conversion for joint anchors, and the two
-// pick rays (first-person centre, screen cursor). Consumers build their own pick/drag state machines on
-// these (the sandbox gravity gun).
+// Pick utilities — the layer binding the pose-agnostic raycast to live ECS + backend state: candidate
+// gathering off the installed backend's live pose, world↔body-local conversion for joint anchors, and
+// the two pick rays (first-person centre, screen cursor). Consumers build their own pick/drag state
+// machines on these (the sandbox gravity gun).
 
 import type { State } from "../../engine";
 import { Inputs } from "../input";
-import type { Mirror } from "../mirror";
 import { Camera } from "../render";
 import { Transform } from "../transforms";
-import { Body } from "./index";
+import { Body, type PhysicsBackend } from "./index";
 import { qRotate, type Ray, type RayBody, type RayHit, raycast, screenToRay } from "./raycast";
-import { BODY_VEC4 } from "./step";
 
-/** the raycast candidates: every Body at its live (Mirror'd) pose, minus `exclude`, occluders and
+/** the raycast candidates: every Body at its live backend pose, minus `exclude`, occluders and
  *  grabbables alike. Statics/kinematics (mass ≤ 0) are kept so the ray stops on a wall; {@link grabHit}
- *  filters the nearest hit down to a grabbable one. */
+ *  filters the nearest hit down to a grabbable one. Empty until the backend has a live pose to report. */
 export function bodyCandidates(
     state: State,
-    bodyMirror: Mirror,
+    backend: PhysicsBackend,
     exclude?: (eid: number) => boolean,
 ): RayBody[] {
-    const snap = bodyMirror.snapshot;
-    if (!snap) return [];
-    const f = new Float32Array(snap.bytes);
-    const cap = f.length / (BODY_VEC4 * 4);
     const out: RayBody[] = [];
     for (const eid of state.query([Body])) {
         if (exclude?.(eid)) continue;
-        const po = (0 * cap + eid) * 4;
-        const qo = (1 * cap + eid) * 4;
+        const live = backend.readBody(eid);
+        if (!live) continue;
         out.push({
             eid,
             shape: Body.shape.get(eid),
-            pos: [f[po], f[po + 1], f[po + 2]],
-            quat: [f[qo], f[qo + 1], f[qo + 2], f[qo + 3]],
+            pos: live.pos,
+            quat: live.quat,
             half: [
                 Body.halfExtents.x.get(eid),
                 Body.halfExtents.y.get(eid),
@@ -51,43 +45,36 @@ export function bodyCandidates(
  *  entirely (neither occludes nor grabs, e.g. the player's own capsule). */
 export function grabHit(
     state: State,
-    bodyMirror: Mirror,
+    backend: PhysicsBackend,
     ray: Ray | null,
     maxDist?: number,
     exclude?: (eid: number) => boolean,
 ): RayHit | null {
     if (!ray) return null;
-    const hit = raycast(ray, bodyCandidates(state, bodyMirror, exclude), maxDist);
+    const hit = raycast(ray, bodyCandidates(state, backend, exclude), maxDist);
     return hit && Body.mass.get(hit.eid) > 0 ? hit : null;
 }
 
-/** a world point in the held body's local frame (rB for the grab joint): conj(quat) · (point − pos). */
+/** a world point in the held body's local frame (rB for the grab joint): conj(quat) · (point − pos), or
+ *  `null` when the backend has no live pose for `eid` (a body that despawned between the cast and the grab
+ *  — the caller drops the grab rather than pinning to a bogus local anchor). */
 export function worldToLocal(
-    bodyMirror: Mirror,
+    backend: PhysicsBackend,
     eid: number,
     point: readonly [number, number, number],
-): [number, number, number] {
-    const snap = bodyMirror.snapshot;
-    if (!snap) return [0, 0, 0];
-    const f = new Float32Array(snap.bytes);
-    const cap = f.length / (BODY_VEC4 * 4);
-    const po = (0 * cap + eid) * 4;
-    const qo = (1 * cap + eid) * 4;
-    return qRotate(
-        -f[qo],
-        -f[qo + 1],
-        -f[qo + 2],
-        f[qo + 3],
-        point[0] - f[po],
-        point[1] - f[po + 1],
-        point[2] - f[po + 2],
-    );
+): [number, number, number] | null {
+    const live = backend.readBody(eid);
+    if (!live) return null;
+    const [qx, qy, qz, qw] = live.quat;
+    const [px, py, pz] = live.pos;
+    return qRotate(-qx, -qy, -qz, qw, point[0] - px, point[1] - py, point[2] - pz);
 }
 
-/** the first-person centre ray: camera position + its forward (−Z). The player's crosshair pick. */
+/** the first-person centre ray: camera position + its normalized forward (−Z). The player's crosshair pick.
+ *  Unlike {@link cursorRay} (which offsets the origin to the near plane), the origin stays AT the camera. */
 export function forwardRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
-    const dir = qRotate(
+    const [dx, dy, dz] = qRotate(
         Transform.rot.x.get(cam),
         Transform.rot.y.get(cam),
         Transform.rot.z.get(cam),
@@ -96,14 +83,16 @@ export function forwardRay(state: State, cam: number): Ray | null {
         0,
         -1,
     );
+    const len = Math.hypot(dx, dy, dz) || 1;
     return {
         origin: [Transform.pos.x.get(cam), Transform.pos.y.get(cam), Transform.pos.z.get(cam)],
-        dir,
+        dir: [dx / len, dy / len, dz / len],
     };
 }
 
 /** the screen-cursor ray for an orbit camera: `null` when the cursor is off the canvas. The god pick + the
- *  voxel carve both aim with it. */
+ *  voxel carve both aim with it. The pick aspect derives from the canvas CSS box (`Inputs.mouse.canvas*`),
+ *  so it can diverge from the render aspect under an aspect-distorting `Resolution` override. */
 export function cursorRay(state: State, cam: number): Ray | null {
     if (cam < 0 || !state.has(cam, Camera) || !state.has(cam, Transform)) return null;
     if (!Inputs.mouse.hover) return null;

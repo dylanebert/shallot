@@ -7,6 +7,7 @@ export type Entity = number;
 export class Entities {
     private _dense: number[] = [];
     private _sparse: number[] = [];
+    private _stamp: number[] = [];
     private _count = 0;
     private _nextId = 1;
     private _freelist: number[] = [];
@@ -15,7 +16,13 @@ export class Entities {
         const eid = this._freelist.length > 0 ? this._freelist.pop()! : this._nextId++;
         this._sparse[eid] = this._count;
         this._dense[this._count++] = eid;
+        // bump on every allocation (fresh or recycled) so a held (eid, stamp) pair detects a realias
+        this._stamp[eid] = (this._stamp[eid] ?? 0) + 1;
         return eid;
+    }
+
+    stamp(eid: Entity): number {
+        return this._stamp[eid] ?? 0;
     }
 
     remove(eid: Entity): void {

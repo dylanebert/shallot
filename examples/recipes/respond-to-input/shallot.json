@@ -1,0 +1,7 @@
+{
+  "scene": "scenes/respond-to-input.scene",
+  "plugins": {
+    "Orbit": true,
+    "Drive": "./src/drive"
+  }
+}

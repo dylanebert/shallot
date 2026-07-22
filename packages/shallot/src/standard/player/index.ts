@@ -3,8 +3,7 @@ import { clamp, lerp } from "../../engine/utils";
 import { Character, CharacterPlugin, CharacterSweepSystem } from "../character";
 import { jump, move, pose } from "../character/core";
 import { InputPlugin, Inputs, inputEnabled, requirePointerLock } from "../input";
-import { MirrorPlugin } from "../mirror";
-import { Body, PhysicsPlugin } from "../physics";
+import { Body } from "../physics";
 import { Camera, RenderPlugin } from "../render";
 import { Transform, TransformsPlugin } from "../transforms";
 import { PlayerFollow } from "./follow";
@@ -70,7 +69,6 @@ export const Player = {
 };
 
 interface PointerLock {
-    canvas: HTMLCanvasElement;
     locked: boolean;
     dx: number;
     dy: number;
@@ -172,7 +170,7 @@ export const PlayerControlSystem: System = {
     name: "control",
     group: "simulation",
 
-    setup(_state: State) {
+    setup(state: State) {
         // the DOM canvas, not Views: setup runs in the simulation group, before BeginFrameSystem (draw) auto-
         // binds the camera View, so Views is still empty here. The canvas is mounted before run(), so the DOM
         // query (the same one run() uses) finds it regardless of View-attach timing.
@@ -182,7 +180,6 @@ export const PlayerControlSystem: System = {
         // that captures the pointer only focuses — it never fires a gun/grab. see requirePointerLock.
         requirePointerLock(true);
         const pl: PointerLock = {
-            canvas,
             locked: false,
             dx: 0,
             dy: 0,
@@ -198,10 +195,18 @@ export const PlayerControlSystem: System = {
                 pl.dy += e.movementY;
             },
         };
-        canvas.addEventListener("click", pl.onClick);
-        document.addEventListener("pointerlockchange", pl.onChange);
-        document.addEventListener("mousemove", pl.onMove);
+        // listeners ride `state.signal` — `state.dispose()` detaches them with no removal code.
+        const signal = state.signal;
+        canvas.addEventListener("click", pl.onClick, { signal });
+        document.addEventListener("pointerlockchange", pl.onChange, { signal });
+        document.addEventListener("mousemove", pl.onMove, { signal });
         lock = pl;
+        // release the input gate + any live pointer lock and drop the module ref when this State tears down.
+        state.onDispose(() => {
+            requirePointerLock(false);
+            if (lock?.locked) document.exitPointerLock();
+            lock = null;
+        });
     },
 
     update(state: State) {
@@ -276,34 +281,17 @@ export const PlayerControlSystem: System = {
             lock.dy = 0;
         }
     },
-
-    dispose() {
-        requirePointerLock(false);
-        if (lock) {
-            if (lock.locked) document.exitPointerLock();
-            lock.canvas.removeEventListener("click", lock.onClick);
-            document.removeEventListener("pointerlockchange", lock.onChange);
-            document.removeEventListener("mousemove", lock.onMove);
-            lock = null;
-        }
-    },
 };
 
 /** first-person player plugin: pointer-lock mouse look, WASD/sprint/jump, and a fixed-timestep follow
  *  camera over a kinematic {@link Character}. Depends on {@link CharacterPlugin} (the controller it composes),
- *  input, physics, and the renderer. Add it, then give an entity {@link Body} + {@link Character} + {@link Player}. */
+ *  input, and the renderer; add a physics backend plugin (`TumblePlugin` or `AvbdPlugin`) to the scene, and
+ *  the character sweeps against it. Give an entity {@link Body} + {@link Character} + {@link Player}. */
 export const PlayerPlugin: Plugin = {
     name: "Player",
     systems: [PlayerSnapshotSystem, PlayerControlSystem],
     components: { Player },
-    dependencies: [
-        CharacterPlugin,
-        InputPlugin,
-        MirrorPlugin,
-        PhysicsPlugin,
-        RenderPlugin,
-        TransformsPlugin,
-    ],
+    dependencies: [CharacterPlugin, InputPlugin, RenderPlugin, TransformsPlugin],
     traits: {
         Player: {
             requires: [Body, Character],

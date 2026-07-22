@@ -59,7 +59,7 @@ interface TopAlloc {
 
 declare global {
     interface Window {
-        // the CDP allocation probe the harness exposes for the cpu-memory axis (harness/core/page.ts): a
+        // the CDP allocation probe `shallot verify --alloc` exposes for the cpu-memory axis: a
         // collectGarbage-bracketed, no-forced-GC heap delta + GC activity + top allocators over windowMs.
         __probeAlloc?: (
             windowMs: number,

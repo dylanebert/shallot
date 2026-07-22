@@ -1,14 +1,35 @@
 import { Compute, type Mirror, type State } from "@dylanebert/shallot";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
-import type { HarnessTarget, RunOpts } from "../../../harness/core";
-import type { Check, Verdict } from "../../../harness/gym/verdict";
+import type {
+    HarnessTarget,
+    Check as WireCheck,
+    Verdict as WireVerdict,
+} from "@dylanebert/shallot/harness";
 
 // The gym contract — the shared core every scenario depends inward on. A scenario builds a
 // deterministic scene, optionally asserts behavioral invariants, and gets the profiler's
-// timing for free. The launcher (harness/gym) routes the Verdict; this layer never touches
-// the transport. Readback for asserts is `Mirror` (not the legacy compute/readback); timing
-// is `window.__benchmark` (ProfilePlugin — the source of truth, GPU timestamps + frame).
-export type { Check, Verdict };
+// timing for free. Gym is a consumer of the shipped `window.__harness` protocol (`@dylanebert/shallot/
+// harness`): `installHarness` below translates a scenario's internal {@link Verdict} to the published
+// wire {@link WireVerdict} that `shallot verify` drives. Readback for asserts is `Mirror` (not the legacy
+// compute/readback); timing is `window.__benchmark` (ProfilePlugin — GPU timestamps + frame).
+
+/** one behavioral assertion; `detail` is the human-readable value, `data` the machine-readable one.
+ *  `data` is an optional flat number map a bench script consumes directly (the physics scenario's
+ *  `measured` reporter publishes its per-step spans + health counters here). Translated to the published
+ *  {@link WireCheck} (`pass` → `ok`) at the harness boundary. */
+export interface Check {
+    name: string;
+    pass: boolean;
+    detail?: string;
+    data?: Record<string, number>;
+}
+
+/** the gym's internal scenario result — what a scenario's `assert` plus the profiler produce. The metrics
+ *  ride through to the wire verdict as a pass-through extra; the checks are translated to {@link WireCheck}. */
+export interface Verdict {
+    metrics?: BenchmarkMeasurement;
+    checks?: Check[];
+}
 
 // A scenario's tunables are declared as data — the single source of truth the URL parses, the bench
 // `--param` sets, and the live control panel auto-renders from. A `bool` is a checkbox, `select` a
@@ -67,6 +88,11 @@ export interface Scenario {
         params: Params,
     ): Promise<{ state: State; dispose: () => void }>;
     assert?(state: State): Promise<Check[]>;
+    /** an optional param-gated extra-check phase run after {@link assert}, on the live (still-running)
+     *  scene — for checks that drive the scene rather than read a settled snapshot (a scripted pointer
+     *  drag, a visual-presence walk). Returns `[]` when its opts aren't set, so a plain `run()` (the
+     *  bench:tumble gold gate) is unperturbed. Its checks fold into the same wire verdict as `assert`'s. */
+    probe?(state: State, opts: Record<string, unknown>): Promise<Check[]>;
     live?(state: State): string;
 }
 
@@ -240,23 +266,42 @@ export function packCounts(m: Mirror, slot: number, pairCount: number): Uint32Ar
     return out;
 }
 
-// Wire `window.__benchmark` — the single contract harness/core drives. `run` measures through
-// the profiler (timing source of truth), then asserts; the page treats the returned Verdict as
-// opaque and the launcher interprets it. `ready` waits on both the built scene and the
-// profiler's first resolved frame.
+// Install the published `window.__harness` (`@dylanebert/shallot/harness`) that `shallot verify` drives.
+// `run` measures through the profiler (timing source of truth), then asserts, then translates the internal
+// verdict to the wire shape (`pass` → `ok`, metrics ride through as a pass-through extra). `ready` waits on
+// both the built scene and the profiler's first resolved frame. `opts` carries the CLI's `--query` params
+// as strings (the URL is the primary channel); warmup/frames coerce to the profiler defaults when absent.
 export function installHarness(scenario: Scenario, state: State, built: () => boolean): void {
     const target: HarnessTarget = {
         get ready() {
             return built() && window.__benchmark?.ready === true;
         },
-        async run(opts: RunOpts): Promise<Verdict> {
+        async run(opts?: Record<string, unknown>): Promise<WireVerdict> {
             const benchmark = window.__benchmark;
             if (!benchmark) {
                 throw new Error("ProfilePlugin missing — window.__benchmark not installed");
             }
-            const metrics: BenchmarkMeasurement = await benchmark.measure(opts.warmup, opts.frames);
-            const checks = await scenario.assert?.(state);
-            return checks ? { metrics, checks } : { metrics };
+            // `??` not `||` — warmup=0 (measure from frame zero) is a legitimate value.
+            const warmup = opts?.warmup != null ? Number(opts.warmup) : 60;
+            const frames = opts?.frames != null ? Number(opts.frames) : 500;
+            const metrics: BenchmarkMeasurement = await benchmark.measure(warmup, frames);
+            const asserted = await scenario.assert?.(state);
+            // the probe drives the live scene (pointer drag, visual walk); it returns [] unless its opts
+            // are set, so the standard gold gate stays a pure assert. Its checks join assert's in one verdict.
+            const probed = await scenario.probe?.(state, opts ?? {});
+            const checks =
+                asserted || probed ? [...(asserted ?? []), ...(probed ?? [])] : undefined;
+            const wire: WireCheck[] | undefined = checks?.map((c) => ({
+                name: c.name,
+                ok: c.pass,
+                detail: c.detail,
+                data: c.data,
+            }));
+            return {
+                ok: wire ? wire.every((c) => c.ok) : true,
+                ...(wire ? { checks: wire } : {}),
+                metrics,
+            };
         },
     };
     window.__harness = target;

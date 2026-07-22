@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { plan } from "../editor/src/project/generate";
-import { normalize } from "../editor/src/project/manifest";
-import { manifestPath } from "../editor/src/project/vite";
+import { plan } from "../src/project/generate";
+import { normalize } from "../src/project/manifest";
+import { manifestPath } from "../src/project/vite";
 import { installGpuGlobals } from "./gpu-globals";
 
 // Required features (beyond the base floor) a wry/system-webview backend can't provide, keyed by

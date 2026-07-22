@@ -370,3 +370,43 @@ describe("perspective", () => {
         expect(() => math.perspective(60, 1, 100, 100)).toThrow("Invalid depth planes");
     });
 });
+
+describe("decompose", () => {
+    // decompose is the inverse of compose, so `decompose(compose(p, q, s))` must round-trip back to the
+    // authored TRS (quat up to sign). The tolerance is one f32 ULP: compose stores its matrix as a
+    // Float32Array, so the decompose reads f32-rounded inputs.
+    const trsEqual = (out: Float32Array, p: number[], q: number[], s: number[]) => {
+        for (let i = 0; i < 3; i++) expect(out[i]).toBeCloseTo(p[i], 5);
+        expect(quatEqual({ x: out[3], y: out[4], z: out[5], w: out[6] }, q)).toBe(true);
+        for (let i = 0; i < 3; i++) expect(out[7 + i]).toBeCloseTo(s[i], 5);
+    };
+
+    test("round-trips translation + rotation + uniform scale", () => {
+        const q = math.quat(30, 45, 60); // euler degrees → quaternion
+        const m = math.compose(1, -2, 3, q.x, q.y, q.z, q.w, 2, 2, 2);
+        trsEqual(math.decompose(m), [1, -2, 3], [q.x, q.y, q.z, q.w], [2, 2, 2]);
+    });
+
+    test("round-trips non-uniform axis scale", () => {
+        const q = math.quat(0, 90, 0);
+        const m = math.compose(0, 0, 0, q.x, q.y, q.z, q.w, 1, 2, 3);
+        trsEqual(math.decompose(m), [0, 0, 0], [q.x, q.y, q.z, q.w], [1, 2, 3]);
+    });
+
+    test("identity decomposes to the identity TRS", () => {
+        const m = math.compose(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+        trsEqual(math.decompose(m), [0, 0, 0], [0, 0, 0, 1], [1, 1, 1]);
+    });
+
+    test("a mirrored (negative-determinant) frame flips scale.x, keeping the rotation proper", () => {
+        // negate the first basis column of the identity → det < 0. decompose absorbs the mirror into a
+        // negative scale.x rather than an improper rotation (a valid TRS the recomposed matrix reproduces).
+        const m = math.compose(0, 0, 0, 0, 0, 0, 1, 1, 1, 1);
+        m[0] = -1;
+        const out = math.decompose(m);
+        expect(out[7]).toBeCloseTo(-1, 5); // scale.x
+        // recompose and confirm it reproduces the mirrored matrix
+        const back = math.compose(0, 0, 0, out[3], out[4], out[5], out[6], out[7], out[8], out[9]);
+        for (let i = 0; i < 12; i++) expect(back[i]).toBeCloseTo(m[i], 5);
+    });
+});

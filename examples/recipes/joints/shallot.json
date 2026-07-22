@@ -1,0 +1,9 @@
+{
+    "scene": "scenes/joints.scene",
+    "plugins": {
+        "Orbit": true,
+        "Tumble": true,
+        "Joints": "./src/joints",
+        "JointsSmoke": "./src/smoke"
+    }
+}

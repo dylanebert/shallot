@@ -1,4 +1,4 @@
-import type { Plugin, System } from "../../engine";
+import type { Plugin, State, System } from "../../engine";
 
 /**
  * live mouse state, read through {@link Inputs}.mouse. Positions and sizes are CSS pixels; the deltas
@@ -340,45 +340,28 @@ function createHandlers(s: InputState): void {
     };
 }
 
-function attachCanvas(s: InputState, canvas: HTMLCanvasElement): void {
-    canvas.addEventListener("pointerdown", s.pointerDown);
-    canvas.addEventListener("pointermove", s.pointerHover);
-    canvas.addEventListener("pointerenter", s.pointerEnter);
-    canvas.addEventListener("pointerleave", s.pointerLeave);
-    canvas.addEventListener("wheel", s.wheel, { passive: false });
-    canvas.addEventListener("contextmenu", s.contextMenu);
+// listeners bind to `state.signal`, so `state.dispose()` (which aborts it) detaches every one with no
+// removal code — the per-build teardown rides the State's lifetime.
+function attachCanvas(s: InputState, canvas: HTMLCanvasElement, signal: AbortSignal): void {
+    canvas.addEventListener("pointerdown", s.pointerDown, { signal });
+    canvas.addEventListener("pointermove", s.pointerHover, { signal });
+    canvas.addEventListener("pointerenter", s.pointerEnter, { signal });
+    canvas.addEventListener("pointerleave", s.pointerLeave, { signal });
+    canvas.addEventListener("wheel", s.wheel, { passive: false, signal });
+    canvas.addEventListener("contextmenu", s.contextMenu, { signal });
 }
 
-function detachCanvas(s: InputState, canvas: HTMLCanvasElement): void {
-    canvas.removeEventListener("pointerdown", s.pointerDown);
-    canvas.removeEventListener("pointermove", s.pointerHover);
-    canvas.removeEventListener("pointerenter", s.pointerEnter);
-    canvas.removeEventListener("pointerleave", s.pointerLeave);
-    canvas.removeEventListener("wheel", s.wheel);
-    canvas.removeEventListener("contextmenu", s.contextMenu);
+function attachGlobal(s: InputState, signal: AbortSignal): void {
+    window.addEventListener("keydown", s.keyDown, { signal });
+    window.addEventListener("keyup", s.keyUp, { signal });
+    window.addEventListener("pointerdown", s.windowPointerDown, { signal });
+    window.addEventListener("pointerup", s.pointerUp, { signal });
+    window.addEventListener("pointercancel", s.pointerCancel, { signal });
+    window.addEventListener("pointermove", s.pointerMove, { signal });
+    window.addEventListener("blur", s.windowBlur, { signal });
 }
 
-function attachGlobal(s: InputState): void {
-    window.addEventListener("keydown", s.keyDown);
-    window.addEventListener("keyup", s.keyUp);
-    window.addEventListener("pointerdown", s.windowPointerDown);
-    window.addEventListener("pointerup", s.pointerUp);
-    window.addEventListener("pointercancel", s.pointerCancel);
-    window.addEventListener("pointermove", s.pointerMove);
-    window.addEventListener("blur", s.windowBlur);
-}
-
-function detachGlobal(s: InputState): void {
-    window.removeEventListener("keydown", s.keyDown);
-    window.removeEventListener("keyup", s.keyUp);
-    window.removeEventListener("pointerdown", s.windowPointerDown);
-    window.removeEventListener("pointerup", s.pointerUp);
-    window.removeEventListener("pointercancel", s.pointerCancel);
-    window.removeEventListener("pointermove", s.pointerMove);
-    window.removeEventListener("blur", s.windowBlur);
-}
-
-function setup(views: Map<number, any>): void {
+function setup(state: State, views: Map<number, any>): void {
     const mouse: Mouse = {
         deltaX: 0,
         deltaY: 0,
@@ -436,20 +419,25 @@ function setup(views: Map<number, any>): void {
     };
 
     createHandlers(s);
-    attachGlobal(s);
+    attachGlobal(s, state.signal);
     for (const canvas of canvases.keys()) {
-        attachCanvas(s, canvas);
+        attachCanvas(s, canvas, state.signal);
     }
 
     enabled = true; // a fresh bind starts live — never inherit a prior State's suspended gate
     inputState = s;
+    // drop the module ref when this State tears down, so a disposed app reads neutral; guarded so a
+    // newer build's inputState isn't clobbered. Listener detach is the signal's job (attach* above).
+    state.onDispose(() => {
+        if (inputState === s) inputState = null;
+    });
 }
 
 const InputSystem: System = {
     group: "simulation",
     annotations: { mode: "always" },
 
-    setup() {
+    setup(state: State) {
         // Bind to canvas elements in the document directly.
         // Guarded for non-DOM test environments where `document.querySelectorAll` is absent
         if (typeof document === "undefined" || typeof document.querySelectorAll !== "function") {
@@ -461,17 +449,7 @@ const InputSystem: System = {
         for (let i = 0; i < elements.length; i++) {
             synthetic.set(i, { element: elements[i] });
         }
-        setup(synthetic);
-    },
-
-    dispose() {
-        if (inputState) {
-            detachGlobal(inputState);
-            for (const canvas of inputState.canvases.keys()) {
-                detachCanvas(inputState, canvas);
-            }
-            inputState = null;
-        }
+        setup(state, synthetic);
     },
 };
 

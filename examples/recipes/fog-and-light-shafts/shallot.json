@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/fog-and-light-shafts.scene",
+  "plugins": {
+    "Fog": true,
+    "Orbit": true,
+    "FogTune": "./src/tune"
+  }
+}

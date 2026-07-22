@@ -1,6 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
-    "$id": "https://dylanebert.github.io/shallot/shallot.schema.json",
+    "$id": "https://raw.githubusercontent.com/dylanebert/shallot/main/packages/shallot/shallot.schema.json",
     "title": "Shallot project manifest",
     "description": "The committed source of truth for a shallot project's scene + plugin enablement (shallot.json). Read identically by the editor and a standalone boot.",
     "type": "object",

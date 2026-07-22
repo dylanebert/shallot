@@ -1,5 +1,5 @@
 // Real-user install flow, sandboxed — the gate the dev symlink can't be. It packs the engine
-// (`bun pm pack`, so it exercises the published `files` surface: src, bin, editor, the audio `.wasm`, the
+// (`bun pm pack`, so it exercises the published `files` surface: src, bin, the audio `.wasm`, the
 // schema) and a custom plugin library, installs both into a throwaway project via `bun install` (a real
 // node_modules layout, not a workspace symlink), then runs every headless CLI flow against the installed
 // engine: `shallot build` (manifest resolves an installed plugin by subpath + a local plugin, the wasm
@@ -77,6 +77,55 @@ function createShallotFlow(work: string, engineTgz: string) {
     const built = run(["bun", CLI, "build", "."], proj);
     check("the scaffolded starter builds", built.ok, built.ok ? "" : built.out.slice(-600));
     check("starter build produced dist/index.html", existsSync(join(proj, "dist", "index.html")));
+
+    // the emitted docs must point an agent at the installed engine (node_modules), not a repo URL, and
+    // every path they name must resolve inside the freshly installed project.
+    const doc = readFileSync(join(proj, "AGENTS.md"), "utf8");
+    check(
+        "scaffold docs point at node_modules, not a GitHub URL",
+        /node_modules\/@dylanebert\/shallot\/AGENTS\.md/.test(doc) &&
+            /node_modules\/@dylanebert\/shallot\/examples\/AGENTS\.md/.test(doc) &&
+            !/github\.com\/dylanebert\/shallot/.test(doc),
+    );
+    for (const rel of [
+        "node_modules/@dylanebert/shallot/AGENTS.md",
+        "node_modules/@dylanebert/shallot/examples/AGENTS.md",
+    ]) {
+        check(`the scaffold's ${rel} pointer resolves`, existsSync(join(proj, rel)));
+    }
+    check(
+        "scaffold docs name `shallot verify` as the verification step",
+        /shallot verify/.test(doc),
+    );
+
+    // the shipped verify gate, run as an installed agent would: --help is a clean exit, and a project
+    // with no playwright gets the distinct exit 3 + the actionable install command (a browser run itself
+    // is display/GPU-gated in WSL — not asserted here).
+    const help = run(["bun", CLI, "verify", "--help"], proj);
+    check("shallot verify --help exits 0", help.ok, help.ok ? "" : help.out.slice(-200));
+    const noPw = Bun.spawnSync(["bun", CLI, "verify", "."], {
+        cwd: proj,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    check(
+        "shallot verify exits 3 with an install remedy when playwright is absent",
+        noPw.exitCode === 3 &&
+            /playwright install chromium/.test(
+                `${noPw.stdout.toString()}\n${noPw.stderr.toString()}`,
+            ),
+        `exit ${noPw.exitCode}`,
+    );
+
+    // the TS18003 trap: deleting the demo plugin (its comment invites it) empties src/ but must not break
+    // the scaffold's documented `bunx tsc --noEmit` — the env.d.ts anchor keeps `include: ["src"]` matched.
+    rmSync(join(proj, "src", "spin.ts"));
+    const tsc = run(["bunx", "tsc", "--noEmit"], proj);
+    check(
+        "tsc --noEmit stays green with an emptied src/ (no TS18003)",
+        tsc.ok,
+        tsc.ok ? "" : tsc.out.slice(-400),
+    );
 }
 
 // realpath: macOS tmpdir is a symlink (/var → /private/var); vite realpaths files before the
@@ -151,6 +200,29 @@ try {
     check(
         "the schema shipped in the tarball",
         existsSync(join(sandbox, "node_modules/@dylanebert/shallot/shallot.schema.json")),
+    );
+    // the version-matched agent context: the prepack projection must ship (engine AGENTS.md + the
+    // examples index + the recipes corpus), and the shipped index must not dangle at tiers the tarball
+    // omits (gym/showcase live in the repo only).
+    const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
+    check("the engine AGENTS.md shipped in the tarball", existsSync(join(shipped, "AGENTS.md")));
+    check(
+        "the recipes corpus shipped in the tarball (prepack projection)",
+        existsSync(join(shipped, "examples/AGENTS.md")) &&
+            existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&
+            existsSync(join(shipped, "examples/recipes/save-and-restore/shallot.json")),
+    );
+    check(
+        "no repo-only plumbing leaked into a shipped recipe (package.json / tsconfig)",
+        !existsSync(join(shipped, "examples/recipes/build-a-scene/package.json")) &&
+            !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")),
+    );
+    const idx = existsSync(join(shipped, "examples/AGENTS.md"))
+        ? readFileSync(join(shipped, "examples/AGENTS.md"), "utf8")
+        : "";
+    check(
+        "the shipped index carries recipes with no dangling gym/showcase tier",
+        /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
     );
 
     if (install.ok) {

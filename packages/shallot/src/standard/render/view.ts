@@ -1,5 +1,5 @@
 import { Compute, pixelRatio, type State } from "../../engine";
-import { Resolution } from "./camera";
+import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
 /**
@@ -111,19 +111,64 @@ export interface View {
     tag: GPUTexture | null;
     slot: number;
     observer: ResizeObserver | null;
+    // the create-stamp of the camera this view was last packed for (`state.stamp`, `0` until first packed).
+    // Membership catches a plain despawn; the stamp catches a same-update destroy+create realias that keeps
+    // Camera membership, so a recycled eid doesn't inherit the dead camera's canvas. See {@link pruneViews}
+    stamp: number;
 }
 
 /** every camera with a view, keyed by eid: canvas-bound ({@link attachCanvas}) or off-screen ({@link attachView}) */
 export const Views: Map<number, View> = new Map();
 
-/** bind a canvas to a camera entity, 1:1: each camera owns one canvas */
-export function attachCanvas(eid: number, canvas: HTMLCanvasElement): void {
+// canvas → the State that last bound it, for the dev-only rebuild guard below. WeakMap so a collected
+// canvas drops its entry; never populated in production (the guard is dev-gated).
+const _canvasOwners: WeakMap<HTMLCanvasElement, State> = new WeakMap();
+
+// read `import.meta.env.DEV` typeof-safely: the engine is bundled by arbitrary consumer bundlers, and a
+// bare `import.meta.env.DEV` throws where `import.meta.env` is undefined (non-vite). Optional-chained,
+// wrapped so an exotic `import.meta` shape can't take down attachCanvas. Exported as a test seam (pins the
+// false-not-throw contract off a vite build) — not on the `render/core` barrel.
+export function devEnabled(): boolean {
+    try {
+        const env = import.meta.env as Record<string, unknown> | undefined;
+        return env?.DEV === true;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * dev-only rebuild guard, canvas-keyed: warn when `canvas` is still held by a live, undisposed *different*
+ * State — an app rebuilt without disposing the prior one (the leak class `State.onDispose` closes), then
+ * record the new owner. Two apps on distinct canvases stay silent; a proper dispose flips the prior owner's
+ * `disposed`, so a later rebind is silent too. Internal + a test seam — not on the `render/core` barrel.
+ */
+export function trackCanvasOwner(canvas: HTMLCanvasElement, state: State): void {
+    const prior = _canvasOwners.get(canvas);
+    if (prior && prior !== state && !prior.disposed) {
+        console.warn(
+            "attachCanvas: canvas already bound to a live State — did an app rebuild without disposing the previous one? dispose it first (app.dispose() / state.dispose())",
+        );
+    }
+    _canvasOwners.set(canvas, state);
+}
+
+/**
+ * bind a canvas to a camera entity, 1:1: each camera owns one canvas. Pass `state` to arm the dev-only
+ * rebuild guard ({@link trackCanvasOwner}) — it only warns for callers that pass it, so a multi-view app
+ * binding its cameras directly should pass `state` to catch a rebuild that skipped `dispose`.
+ */
+export function attachCanvas(eid: number, canvas: HTMLCanvasElement, state?: State): void {
     if (!Compute.device) throw new Error("attachCanvas: RenderPlugin not initialized");
     if (!Render.format) throw new Error("attachCanvas: Render.format not set");
     if (Views.has(eid)) throw new Error(`attachCanvas: eid ${eid} already bound`);
 
     const context = canvas.getContext("webgpu") as unknown as GPUCanvasContext | null;
     if (!context) throw new Error("attachCanvas: WebGPU canvas context unavailable");
+
+    // record ownership only after the attach is validated — a failed attach must not claim the canvas, or a
+    // later legitimate attach from a different live State warns spuriously.
+    if (state && devEnabled()) trackCanvasOwner(canvas, state);
 
     const linearFormat = navigator.gpu.getPreferredCanvasFormat();
     context.configure({
@@ -150,6 +195,7 @@ export function attachCanvas(eid: number, canvas: HTMLCanvasElement): void {
         tag: null,
         slot: 0,
         observer: null!,
+        stamp: 0,
     };
     // the observer is a pure sensor — it caches the display size and `sizeView` derives the backing from
     // it each frame. Splitting it this way lets a runtime `Resolution` edit re-size (the observer never
@@ -243,6 +289,7 @@ export function attachView(eid: number): void {
         tag: null,
         slot: 0,
         observer: null,
+        stamp: 0,
     });
 }
 
@@ -252,6 +299,21 @@ export function detachCanvas(eid: number): void {
     Views.delete(eid);
     releaseOffscreen(eid);
     releaseScratch(eid);
+}
+
+/**
+ * drop the auto-bind's inverse: a View whose camera despawned, or whose eid was recycled to a new camera.
+ * `state.has(eid, Camera)` catches a plain despawn (the destroy dropped Camera); the create-stamp catches a
+ * same-update destroy+create realias that *keeps* Camera membership — without it the recycled eid keeps the
+ * dead camera's View (its canvas + leaked ResizeObserver, re-binding to the wrong canvas). A View not yet
+ * packed (`stamp` 0) skips the stamp arm for that frame; the next pack records its camera's live stamp.
+ * {@link BeginFrameSystem} calls it at frame start, before binding.
+ */
+export function pruneViews(state: State): void {
+    for (const [eid, view] of Views) {
+        if (!state.has(eid, Camera) || (view.stamp !== 0 && state.stamp(eid) !== view.stamp))
+            detachCanvas(eid);
+    }
 }
 
 // per-camera offscreen scene-color target — the `view.framebuffer` a renderer draws (or resolves)
@@ -370,16 +432,16 @@ export function clearScratch(): void {
  * `BeginFrameSystem` retries each frame, so a late-mounted canvas binds when it appears.
  * Multi-view binds each camera explicitly via {@link attachCanvas} before its first frame.
  */
-export function bindCamera(eid: number): View | undefined {
+export function bindCamera(eid: number, state?: State): View | undefined {
     const existing = Views.get(eid);
     if (existing) return existing;
     if (typeof document === "undefined") return undefined;
     const canvas = document.querySelector("canvas");
     if (!(canvas instanceof HTMLCanvasElement)) return undefined;
-    // claim the canvas for exactly one camera. A second unbound camera (an editor's scene camera
-    // alongside its explicitly-attached viewport camera) must not also grab it — two cameras on one
+    // claim the canvas for exactly one camera. A second unbound camera (a multi-view scene's extra camera
+    // alongside an explicitly-attached viewport camera) must not also grab it — two cameras on one
     // context each call getCurrentTexture per frame, and the second destroys the first's swapchain texture.
     for (const view of Views.values()) if (view.canvas === canvas) return undefined;
-    attachCanvas(eid, canvas);
+    attachCanvas(eid, canvas, state);
     return Views.get(eid);
 }

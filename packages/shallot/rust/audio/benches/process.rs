@@ -46,6 +46,11 @@ const FILTER: u32 = 2;
 const ENV: u32 = 3;
 const CONST: u32 = 6;
 const SAMPLE: u32 = 7;
+const DELAY: u32 = 8;
+const DYNAMICS: u32 = 9;
+const WAVESHAPER: u32 = 10;
+const EQ: u32 = 11;
+const CHORUS: u32 = 12;
 const NO_BUF: u32 = 0xFF;
 
 const WARMUP_BLOCKS: usize = 256;
@@ -65,6 +70,17 @@ enum Complexity {
     /// Constant source → filter → envelope. `osc-filter-env` with the sine
     /// flipped to a constant — isolates the oscillator's per-sample cost.
     ConstFilterEnv,
+    /// Constant source → dynamics (compressor mode). Isolates the dynamics
+    /// node's per-sample `log10`/`powf` cost against `const-filter-env`'s
+    /// per-sample `exp` (the envelope curve) baseline — the stage-2 provisional
+    /// flag's bench (audio-effect-nodes.md).
+    ConstDynamics,
+    /// The maximal standard insert rack over a sample source: 3×EQ biquads →
+    /// dynamics → waveshaper → delay → chorus → envelope (9 nodes, the heaviest
+    /// realistic voice a game authors). Records the full effect-chain per-block
+    /// cost for the audio-effect-nodes close-out; the delta over `sample` is the
+    /// whole rack's per-voice price.
+    EffectChain,
 }
 
 impl Complexity {
@@ -73,6 +89,8 @@ impl Complexity {
             Complexity::Sample => "sample",
             Complexity::OscFilterEnv => "osc-filter-env",
             Complexity::ConstFilterEnv => "const-filter-env",
+            Complexity::ConstDynamics => "const-dynamics",
+            Complexity::EffectChain => "effect-chain",
         }
     }
 }
@@ -125,22 +143,27 @@ fn enable_ftz() {
 #[cfg(not(target_arch = "x86_64"))]
 fn enable_ftz() {}
 
+/// Fill sample buffer 0 of instrument 0 with a looping one-period sine, so a
+/// Sample node's read does real Hermite-interpolation work.
+fn alloc_loop_sample(e: &mut AudioEngine) {
+    let len = 4800usize;
+    let ptr = e.sample_alloc(0, 0, 1, len as u32);
+    unsafe {
+        for i in 0..len {
+            let phase = i as f32 / len as f32 * std::f32::consts::TAU;
+            *ptr.add(i) = phase.sin() * 0.5;
+        }
+    }
+}
+
 /// Build instrument 0 for the config, and (for `Sample`) populate buffer 0 and
 /// (for `Reflect`) stage the reflection IR — anything the voices read.
 fn setup_config(e: &mut AudioEngine, complexity: Complexity, spatial: Spatial) {
     match complexity {
         Complexity::Sample => {
-            e.set_instrument(0, 1, 0);
+            e.set_instrument(0, 1, 0, NO_BUF);
             e.set_instrument_node(0, 0, SAMPLE, NO_BUF, NO_BUF, 0, 0);
-            // a looping one-period sine so sample_read does real Hermite work
-            let len = 4800usize;
-            let ptr = e.sample_alloc(0, len as u32);
-            unsafe {
-                for i in 0..len {
-                    let phase = i as f32 / len as f32 * std::f32::consts::TAU;
-                    *ptr.add(i) = phase.sin() * 0.5;
-                }
-            }
+            alloc_loop_sample(e);
         }
         Complexity::OscFilterEnv | Complexity::ConstFilterEnv => {
             // source(buf0,off0) -> filter(buf1,off4) -> envelope(buf2,off8)
@@ -149,10 +172,34 @@ fn setup_config(e: &mut AudioEngine, complexity: Complexity, spatial: Spatial) {
             } else {
                 CONST
             };
-            e.set_instrument(0, 3, 2);
+            e.set_instrument(0, 3, 2, NO_BUF);
             e.set_instrument_node(0, 0, source, NO_BUF, NO_BUF, 0, 0);
             e.set_instrument_node(0, 1, FILTER, 0, NO_BUF, 1, 4);
             e.set_instrument_node(0, 2, ENV, 1, NO_BUF, 2, 8);
+        }
+        Complexity::ConstDynamics => {
+            // source(buf0,off0) -> dynamics(buf1,off1)
+            e.set_instrument(0, 2, 1, NO_BUF);
+            e.set_instrument_node(0, 0, CONST, NO_BUF, NO_BUF, 0, 0);
+            e.set_instrument_node(0, 1, DYNAMICS, 0, NO_BUF, 1, 1);
+        }
+        Complexity::EffectChain => {
+            // A linear 9-node rack ping-ponging graph buffers 0/1: the sample node
+            // writes buffer 0, each effect reads the previous buffer and writes the
+            // other, the envelope's output (buffer 0) is the instrument output. 43
+            // params (<=64), 2 graph buffers (<=8). The delay + chorus DelayLine
+            // side-state allocates in set_voice_instrument, so no extra wiring here.
+            e.set_instrument(0, 9, 0, NO_BUF);
+            e.set_instrument_node(0, 0, SAMPLE, NO_BUF, NO_BUF, 0, 0); // 5 params
+            e.set_instrument_node(0, 1, EQ, 0, NO_BUF, 1, 5); // 4
+            e.set_instrument_node(0, 2, EQ, 1, NO_BUF, 0, 9); // 4
+            e.set_instrument_node(0, 3, EQ, 0, NO_BUF, 1, 13); // 4
+            e.set_instrument_node(0, 4, DYNAMICS, 1, NO_BUF, 0, 17); // 8
+            e.set_instrument_node(0, 5, WAVESHAPER, 0, NO_BUF, 1, 25); // 3
+            e.set_instrument_node(0, 6, DELAY, 1, NO_BUF, 0, 28); // 4
+            e.set_instrument_node(0, 7, CHORUS, 0, NO_BUF, 1, 32); // 4
+            e.set_instrument_node(0, 8, ENV, 1, NO_BUF, 0, 36); // 7 -> 43
+            alloc_loop_sample(e);
         }
     }
 
@@ -199,6 +246,11 @@ fn arm_voice(e: &mut AudioEngine, vi: u32, complexity: Complexity, spatial: Spat
             e.set_param(vi, 0, 0.5); // constant source value
             set_filter_env_params(e, vi);
         }
+        Complexity::ConstDynamics => {
+            e.set_param(vi, 0, 0.5); // constant source value — above the default threshold
+            set_dynamics_params(e, vi);
+        }
+        Complexity::EffectChain => set_effect_chain_params(e, vi),
     }
 
     if spatial != Spatial::Dry {
@@ -228,6 +280,74 @@ fn set_filter_env_params(e: &mut AudioEngine, vi: u32) {
     e.set_param(vi, 12, 0.0);
     e.set_param(vi, 13, 0.0);
     e.set_param(vi, 14, 0.0);
+}
+
+fn set_dynamics_params(e: &mut AudioEngine, vi: u32) {
+    // dynamics (offset 1): mode=compressor, threshold, ratio, knee, attack, release, makeup, mix
+    e.set_param(vi, 1, 0.0);
+    e.set_param(vi, 2, -18.0);
+    e.set_param(vi, 3, 4.0);
+    e.set_param(vi, 4, 6.0);
+    e.set_param(vi, 5, 0.005);
+    e.set_param(vi, 6, 0.05);
+    e.set_param(vi, 7, 0.0);
+    e.set_param(vi, 8, 1.0);
+}
+
+/// Set every node in the effect-chain rack so nothing bypasses — the mix-driven
+/// nodes (waveshaper/delay/chorus) run at mix>0, the EQ biquads at non-unit gain,
+/// the sample source loops. Offsets follow the setup_config chain order.
+fn set_effect_chain_params(e: &mut AudioEngine, vi: u32) {
+    // sample (offset 0): bufferId, rate, loop, volume, channel
+    e.set_param(vi, 0, 0.0);
+    e.set_param(vi, 1, 1.0 + vi as f32 * 0.001);
+    e.set_param(vi, 2, 1.0);
+    e.set_param(vi, 3, 0.4);
+    e.set_param(vi, 4, 0.0);
+    // eq1/2/3 (offsets 5/9/13): mode, freq, gain, q — peak boost, low shelf, high cut
+    e.set_param(vi, 5, 1.0);
+    e.set_param(vi, 6, 800.0);
+    e.set_param(vi, 7, 2.0);
+    e.set_param(vi, 8, 1.0);
+    e.set_param(vi, 9, 0.0);
+    e.set_param(vi, 10, 200.0);
+    e.set_param(vi, 11, 1.5);
+    e.set_param(vi, 12, 0.707);
+    e.set_param(vi, 13, 2.0);
+    e.set_param(vi, 14, 6000.0);
+    e.set_param(vi, 15, 0.7);
+    e.set_param(vi, 16, 0.707);
+    // dynamics (offset 17): mode, threshold, ratio, knee, attack, release, makeup, mix
+    e.set_param(vi, 17, 0.0);
+    e.set_param(vi, 18, -18.0);
+    e.set_param(vi, 19, 4.0);
+    e.set_param(vi, 20, 6.0);
+    e.set_param(vi, 21, 0.005);
+    e.set_param(vi, 22, 0.05);
+    e.set_param(vi, 23, 0.0);
+    e.set_param(vi, 24, 1.0);
+    // waveshaper (offset 25): mode=soft, drive, mix
+    e.set_param(vi, 25, 0.0);
+    e.set_param(vi, 26, 0.5);
+    e.set_param(vi, 27, 0.5);
+    // delay (offset 28): time, feedback, damp, mix
+    e.set_param(vi, 28, 0.15);
+    e.set_param(vi, 29, 0.3);
+    e.set_param(vi, 30, 0.3);
+    e.set_param(vi, 31, 0.3);
+    // chorus (offset 32): rate, depth, feedback, mix
+    e.set_param(vi, 32, 1.5);
+    e.set_param(vi, 33, 0.5);
+    e.set_param(vi, 34, 0.2);
+    e.set_param(vi, 35, 0.4);
+    // envelope (offset 36): attack, decay, sustain>0, release, 3 curves
+    e.set_param(vi, 36, 0.005);
+    e.set_param(vi, 37, 0.05);
+    e.set_param(vi, 38, 0.7);
+    e.set_param(vi, 39, 0.2);
+    e.set_param(vi, 40, 0.0);
+    e.set_param(vi, 41, 0.0);
+    e.set_param(vi, 42, 0.0);
 }
 
 /// Median µs/block for the engine in its current state. Warms to steady state
@@ -324,6 +444,8 @@ fn main() {
         Complexity::Sample,
         Complexity::OscFilterEnv,
         Complexity::ConstFilterEnv,
+        Complexity::ConstDynamics,
+        Complexity::EffectChain,
     ];
     let spatials = [Spatial::Dry, Spatial::Spatial, Spatial::Reflect];
 
@@ -410,6 +532,18 @@ fn main() {
     println!(
         "  per-sample oscillator = per-voice(osc) - per-voice(const) [dry]   = {:+.4} us/voice  <- sine->constant validation (expect > 0)",
         osc_cost
+    );
+    let dynamics_cost = find(Complexity::ConstDynamics, Spatial::Dry).per_voice
+        - find(Complexity::ConstFilterEnv, Spatial::Dry).per_voice;
+    println!(
+        "  dynamics transcendentals = per-voice(const-dynamics) - per-voice(const-filter-env) [dry] = {:+.4} us/voice  <- log10+powf vs the envelope's exp() baseline",
+        dynamics_cost
+    );
+    let rack_cost = find(Complexity::EffectChain, Spatial::Dry).per_voice
+        - find(Complexity::Sample, Spatial::Dry).per_voice;
+    println!(
+        "  effect rack           = per-voice(effect-chain) - per-voice(sample) [dry]     = {:+.4} us/voice  <- 3xEQ+dynamics+waveshaper+delay+chorus over the bare sample voice",
+        rack_cost
     );
 
     if osc_cost <= 0.0 {

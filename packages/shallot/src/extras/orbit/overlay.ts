@@ -20,7 +20,7 @@ interface Overlay {
 
 function createOverlay(canvas: HTMLElement | null): Overlay {
     // the readout lives in the engine's sandboxed overlay (canvas-bounded, can't spill into an
-    // embedding host like the editor viewport), the same surface `config.ui` hands an app
+    // embedding host page), the same surface `config.ui` hands an app
     const parent = mountOverlay(canvas);
     const root = document.createElement("div");
     Object.assign(root.style, {

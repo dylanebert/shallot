@@ -1,4 +1,6 @@
 mod convolution;
+mod delay;
+mod dynamics;
 mod envelope;
 mod fft;
 mod filter;
@@ -7,11 +9,14 @@ mod golden;
 mod graph;
 mod hrtf;
 mod interp;
+mod modulation;
 mod oscillator;
 mod sample;
+mod waveshaper;
 
 use core::cell::UnsafeCell;
 use core::f32::consts::TAU;
+use delay::DelayLine;
 use envelope::EnvStage;
 use filter::{AllpassFilter, Biquad};
 use graph::{
@@ -71,6 +76,11 @@ struct Voice {
     virtual_voice: bool,
     audibility: f32,
     fade_samples: i32,
+    // Heap state for delay-family nodes (delay, and later chorus/flanger), keyed by
+    // node index — a `NodeState::Copy` slot can't hold a boxed sample buffer.
+    // Allocated lazily in `set_voice_instrument`, mirroring how `convolver` above
+    // allocates lazily in `set_reflection_ir`.
+    delay_lines: [Option<Box<DelayLine>>; MAX_NODES],
 }
 
 fn default_voice() -> Voice {
@@ -104,6 +114,7 @@ fn default_voice() -> Voice {
         virtual_voice: false,
         audibility: 0.0,
         fade_samples: 0,
+        delay_lines: core::array::from_fn(|_| None),
     }
 }
 
@@ -705,6 +716,9 @@ impl AudioEngine {
             if let Some(conv) = &mut v.convolver {
                 conv.reset();
             }
+            for dl in v.delay_lines.iter_mut().flatten() {
+                dl.reset();
+            }
             v.air_lp = 0.0;
         }
         for sp in 0..NUM_SPEAKERS {
@@ -1196,7 +1210,36 @@ impl AudioEngine {
                     release_start: 0.0,
                 },
                 NodeType::Sample => NodeState::Sample { position: 0.0 },
+                NodeType::Dynamics => NodeState::Dynamics { env: 0.0 },
+                NodeType::Waveshaper => NodeState::Waveshaper {
+                    dc_x1: 0.0,
+                    dc_y1: 0.0,
+                },
+                NodeType::Eq => NodeState::Eq {
+                    xm1: 0.0,
+                    xm2: 0.0,
+                    ym1: 0.0,
+                    ym2: 0.0,
+                },
+                NodeType::Chorus | NodeType::Flanger => NodeState::ModDelay {
+                    lfo_phase: 0.0,
+                    lfo_dir: 1.0,
+                },
+                NodeType::Phaser => NodeState::Phaser {
+                    y: [0.0; modulation::MAX_PHASER_STAGES],
+                    last: 0.0,
+                    lfo_phase: 0.0,
+                    lfo_dir: 1.0,
+                },
+                NodeType::Tremolo => NodeState::Tremolo { phase: 0.0 },
                 _ => NodeState::None,
+            };
+            v.delay_lines[ni] = match node_types[ni] {
+                // Chorus/flanger reuse the Delay heap: a modulated read of the same ring.
+                NodeType::Delay | NodeType::Chorus | NodeType::Flanger => {
+                    Some(Box::new(DelayLine::new()))
+                }
+                _ => None,
             };
         }
         for buf in v.buffers.iter_mut() {
@@ -1588,6 +1631,7 @@ impl AudioEngine {
                     self.sample_rate,
                     self.param_smooth_coeff,
                     &*self.wavetable,
+                    &mut voice.delay_lines,
                     &self.samples,
                     0,
                     BLOCK_SIZE,
@@ -1650,6 +1694,7 @@ impl AudioEngine {
                             self.sample_rate,
                             self.param_smooth_coeff,
                             &*self.wavetable,
+                            &mut voice.delay_lines,
                             &self.samples,
                             pos,
                             offset - pos,
@@ -1680,6 +1725,7 @@ impl AudioEngine {
                         self.sample_rate,
                         self.param_smooth_coeff,
                         &*self.wavetable,
+                        &mut voice.delay_lines,
                         &self.samples,
                         pos,
                         BLOCK_SIZE - pos,

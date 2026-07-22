@@ -8,7 +8,7 @@ export const MATERIAL_STRIDE = 64;
 
 export const MATERIAL_DATA_WGSL = /* wgsl */ `
 struct MaterialData {
-    layer: u32, cutoff: f32, metallic: f32, roughness: f32,
+    layer: i32, cutoff: f32, metallic: f32, roughness: f32,
     mrLayer: i32, normalLayer: i32, occLayer: i32, emisLayer: i32,
     emissive: vec3<f32>, normalScale: f32,
     occStrength: f32, albedoBucket: u32, pad1: f32, pad2: f32,
@@ -27,8 +27,9 @@ export interface SlotLayers {
 
 /**
  * pack the per-material PBR palette to the {@link MATERIAL_DATA_WGSL} byte layout. Pure (no device), so the
- * struct offsets are unit-pinned. A factor-only material clamps its `-1` albedo layer to 0; its instances
- * ride sear's solid `default` rather than a textured surface, so that slot is never sampled.
+ * struct offsets are unit-pinned. A factor-only material keeps its `-1` albedo layer (like the data slots):
+ * a textured instance rides sear's solid `default` and never samples it, but a skinned one always lands on the
+ * skin surface, where `sampleAlbedo` reads the `-1` and returns the glTF default white (shade.ts).
  */
 export function packMaterials(materials: GltfMaterial[], layers: SlotLayers): ArrayBuffer {
     const palette = new ArrayBuffer(Math.max(MATERIAL_STRIDE, materials.length * MATERIAL_STRIDE));
@@ -37,7 +38,7 @@ export function packMaterials(materials: GltfMaterial[], layers: SlotLayers): Ar
     const f = new Float32Array(palette);
     materials.forEach((m, k) => {
         const o = k * 16;
-        u[o] = Math.max(0, layers.albedo[k]);
+        i[o] = layers.albedo[k];
         f[o + 1] = m.cutoff;
         f[o + 2] = m.metallic;
         f[o + 3] = m.roughness;

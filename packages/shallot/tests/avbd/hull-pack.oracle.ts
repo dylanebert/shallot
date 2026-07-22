@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import {
-    HULL_FACE_STRIDE,
-    HULL_HEADER,
-    type Hull,
-    packHulls,
-    registerHull,
-    UNIT_CUBE_ID,
-} from "../../src/standard/physics/hull";
+import { HULL_FACE_STRIDE, HULL_HEADER, packHulls } from "../../src/standard/avbd/hull";
+import { type Hull, Hulls, UNIT_CUBE_ID } from "../../src/standard/physics/hull";
 import { boxHull, tetHull } from "./hull";
 
 // The flat `hullData` layout the GPU collide pass (collide.ts HULL_WGSL) reads — a serialization boundary,
@@ -73,8 +67,8 @@ describe("hull packing round-trip", () => {
     test("a box-hull + a tet-hull pack and decode back to their source geometry", () => {
         const box = boxHull([2, 1, 3]);
         const tet = tetHull(0.5);
-        const boxId = registerHull("pack-box", box);
-        const tetId = registerHull("pack-tet", tet);
+        const boxId = Hulls.register({ name: "pack-box", ...box });
+        const tetId = Hulls.register({ name: "pack-tet", ...tet });
         const buf = packHulls();
 
         expectHull(decode(buf, boxId), box);

@@ -1,0 +1,1128 @@
+{
+  "slug": "shapes-restitution",
+  "category": "Shapes",
+  "name": "Restitution",
+  "description": "A drop of bodies with restitution ramping 0 → 1 — the bounce ladder, sphere or box.",
+  "timeStep": 0.016666666666666666,
+  "subStepCount": 4,
+  "gravity": [
+    0,
+    -10,
+    0
+  ],
+  "enableSleep": true,
+  "enableContinuous": true,
+  "stepCount": 600,
+  "camera": {
+    "pivot": [
+      0,
+      21,
+      0
+    ],
+    "yaw": 0.5,
+    "pitch": 0.35,
+    "radius": 128.55818467145812,
+    "fov": 1.0471975511965976,
+    "near": 0.1,
+    "far": 1000
+  },
+  "knobs": [
+    {
+      "kind": "select",
+      "key": "shape",
+      "label": "shape",
+      "options": [
+        "sphere",
+        "box"
+      ],
+      "default": "sphere"
+    },
+    {
+      "kind": "slider",
+      "key": "count",
+      "label": "count",
+      "min": 4,
+      "max": 40,
+      "step": 1,
+      "default": 20
+    }
+  ],
+  "bodyCount": 21,
+  "initial": [
+    {
+      "p": [
+        0,
+        0,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "p": [
+        -19,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -17,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -15,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -13,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -11,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -9,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -7,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -5,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -3,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        -1,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        1,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        3,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        5,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        7,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        9,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        11,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        13,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        15,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        17,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "p": [
+        19,
+        40,
+        0
+      ],
+      "q": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "v": [
+        0,
+        0,
+        0
+      ],
+      "w": [
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "hashes": [
+    "0x1815b9b9e753ea2f",
+    "0xeab7860e0c308057",
+    "0x039502fd852084f3",
+    "0x7d3a9cadf1113cc7",
+    "0x8b54f78d8b033c27",
+    "0x9af7ee13d87d76ef",
+    "0x2a30c97cdd98f06f",
+    "0x96cf9be783d43e7f",
+    "0xdbf1e6e7f4998183",
+    "0x93c2f6c724be5547",
+    "0x9b31c7f7d56a1c53",
+    "0xae5430336cc9b0ff",
+    "0x9fa1cf0f4d1008d7",
+    "0x168e0f27867d053b",
+    "0xd5017035b00dedf3",
+    "0x99487e20256a5e83",
+    "0xc738acd0c9e743cb",
+    "0xe6648a0d3040c67b",
+    "0x5ed6e49896cd1833",
+    "0x809273a27f1dea13",
+    "0xdf06ecf3127d5b17",
+    "0xab6442326d8b9763",
+    "0xf396d4db5dae4357",
+    "0x746fa95640ebbc9b",
+    "0x3fd314fc4f18b397",
+    "0x429f3f530d3382f7",
+    "0x76abe6dc208bee17",
+    "0xe5dfe75ccacd68d7",
+    "0xf482eda819f46057",
+    "0xef4de0de182baa57",
+    "0x06937ba222523a17",
+    "0x3774c13a7795275b",
+    "0xd07491a3198d3567",
+    "0xf8f72b4f67397853",
+    "0x6885e2868ebaf427",
+    "0x7f8dc6cb908064d3",
+    "0xd1a2a7f2c8c454b7",
+    "0xf779f0546706e857",
+    "0xa9b11c6b4ed46227",
+    "0xa46b98037fdf3c27",
+    "0x42272a0fae7a8f17",
+    "0xd924e789911d8977",
+    "0x36b8f2484cb4b44b",
+    "0xc4d02174f3706697",
+    "0x76d5817bf360e2b3",
+    "0x2d7e244bb6476507",
+    "0x9cb34b9841ffd353",
+    "0x4dada560d88d1227",
+    "0xf828dc389dc7b393",
+    "0x7c2bbc55e4761d3b",
+    "0xee3fdb9ebc9e82a3",
+    "0x725ab4c41338a3bb",
+    "0xbb243549176216b3",
+    "0xfd9ccc4af2e24507",
+    "0x330f4c1496ba0e13",
+    "0x59babe9c3e02a15f",
+    "0xe2ed7fca8d9a33c3",
+    "0x2debd6cecf0f38a7",
+    "0x0fb9137a1cb25ad3",
+    "0xb266e3f13fc4988b",
+    "0x4b954536ae89f853",
+    "0x4ad66f6acfd1d33b",
+    "0x2214d8580673d463",
+    "0xc9414a77ffabe2db",
+    "0xc586a23d0b0dcfdf",
+    "0x97c93836c08ee20b",
+    "0x86398261435ccda7",
+    "0xdc83dcfc7e38cadb",
+    "0x58e691fa224c233f",
+    "0x3454cfb4aba5398b",
+    "0xdead8910ccba6a53",
+    "0xd655093883f5ec3b",
+    "0xc3cc5b8b8f1c5bb3",
+    "0x700113514ddc190b",
+    "0x3be8b1bcc87307b3",
+    "0x968efdcae54a8107",
+    "0xddb51b5754fe0b73",
+    "0x4171ef52d91afe3b",
+    "0x9add2fafe400cdf3",
+    "0x2d8fe6ba7365b887",
+    "0x926690e32dbb2c83",
+    "0x79a5b3384003593f",
+    "0x1588b9700ce6294f",
+    "0x272e17df123a3faf",
+    "0xd6d4b62887ffc61f",
+    "0x3de10a320972f8ab",
+    "0xf2ace3f185937b87",
+    "0xc737b59e1532597b",
+    "0x00ada0b7d1dae6e3",
+    "0x5fdf235a26cf21db",
+    "0x445852ce010cc747",
+    "0x4df08a424c7fb88b",
+    "0xe8033a193c2c95bf",
+    "0x9e1ecce689624bdf",
+    "0xaedd7da427c4269f",
+    "0x53767da7eb4db9c7",
+    "0xa841a663c7da37a3",
+    "0x0894b9d86683218f",
+    "0xd7c4a018022135f3",
+    "0x22b5a1f2ddbc000b",
+    "0xb0213b157b16b543",
+    "0xc2ee12a6882fcd2b",
+    "0xeb32e10b0ac47567",
+    "0x65284af3093b3c0b",
+    "0x1cf38e442a23fcff",
+    "0x3d15e0c50391f1ef",
+    "0xa8012ec2aaa63daf",
+    "0xf9dfb024c8a0dc9f",
+    "0x51b61bfbed8e1183",
+    "0xd3aee0cb25fa5ac7",
+    "0x96a3beed4734ffd3",
+    "0x7a1150691e37b46b",
+    "0x6640399dacc90323",
+    "0x1fd06eaf6856872b",
+    "0x390683cc6da1110f",
+    "0x998d8a51cec4b08b",
+    "0xb503c77b823975a7",
+    "0x9c7b419a97256177",
+    "0x11bd5633c029ba27",
+    "0xf8a578562eb45637",
+    "0xc57f3f3f2078b9c3",
+    "0x52793f7fb20fbbef",
+    "0x1cf63392309b6c53",
+    "0xc73b3498e2b4206b",
+    "0xe69dba595d352723",
+    "0xa0abb5a6c43c7b4b",
+    "0x4cca5d4bb0b2bb77",
+    "0xc99975b189bcb0ab",
+    "0x8a592d4a07c8fe5f",
+    "0x65bdbb97dfada7ef",
+    "0x35451c23a9517fef",
+    "0xc9bf7cc95d23c397",
+    "0x0f8eb3e6dfb35a5f",
+    "0x55167c0cf4d7bbc7",
+    "0x5b9a01353163ccf3",
+    "0x44702850400d784b",
+    "0x83d2f50007f75563",
+    "0xe70a98c37d43a8c7",
+    "0x60d54eda5b39c24f",
+    "0x03a2edf1d4f44e57",
+    "0xda09a8585e6baae3",
+    "0xba0db75d9a95274b",
+    "0xe6cb503ab75167d3",
+    "0xa4294e800a75b1f7",
+    "0x76ff41b66e834c3f",
+    "0x0343ca31726927c7",
+    "0x6bbb1ee3c67ee2b3",
+    "0x8c98856257dfa8cb",
+    "0x9159bae79757b603",
+    "0xe285c0db39ab5247",
+    "0xcb7facfcc0747a4f",
+    "0x4b973de8ac4fb32b",
+    "0x92ea3d33d73b8cc3",
+    "0x48bc658b35422417",
+    "0xf01d5bb86c078da7",
+    "0xe06d458f7143311f",
+    "0x7e5d4e6f6ff27263",
+    "0x00ffa82693ac708b",
+    "0xbe0b8ec88b474d33",
+    "0x1ad91c226c2f1fff",
+    "0x69c04b145b7d9be7",
+    "0x66e7c9816ce0a1eb",
+    "0x2d7ef08bbaaf5473",
+    "0x2ca572e66ed94bdf",
+    "0xd34cf601fa9ba1e3",
+    "0xfbd755f29a13e3eb",
+    "0x420da1d0c839b077",
+    "0x1afb0907ef904df4",
+    "0x7bc716e71199fce2",
+    "0x70a9aa783af5974d",
+    "0x0fd094e952379fc1",
+    "0xf33b17d6ef189efc",
+    "0x0f19cb31ae138f38",
+    "0x45c48cb54d362a9f",
+    "0x236f61f3c6704c8e",
+    "0xecfc9649d865a80f",
+    "0xac9fd281f72305e1",
+    "0x2ced2d08f620d23d",
+    "0xff8f63abe835b484",
+    "0xd4dd64d58d104872",
+    "0x7bcd0b873c0f6ee0",
+    "0x6b2632a8014771b9",
+    "0x3e31e39d508863f6",
+    "0x043e297c633f5202",
+    "0xde8c5e2712c6d46d",
+    "0x7df82c2e9859266c",
+    "0xef14cec0c90e1bb7",
+    "0x2d96f5f74a8535ad",
+    "0xe048a6953a68bc42",
+    "0x89328d5fc88691c7",
+    "0x8b4220fdd6ddf502",
+    "0xb5019866b5fd898b",
+    "0xaf4ccf0baf01332e",
+    "0x854f9f319f364edd",
+    "0x5ab29ac5049fd415",
+    "0xf0c35a412cf58fb3",
+    "0x73b651aef88acbbd",
+    "0xdb4aa8e05588d25c",
+    "0xe1732f25be9ee321",
+    "0x9bc2e493cbe4519a",
+    "0xa552bd053386678f",
+    "0xd0fa6b3abf56baf8",
+    "0xe4baa3d4277dbfb7",
+    "0x638eb8eb6d1b1d0f",
+    "0xc4fac3ac48ef42e8",
+    "0xba07892fd9b0c924",
+    "0x8de6d5de6b354e16",
+    "0x398960f0586bf021",
+    "0x38d3a8767a325610",
+    "0x2af3c6e76e0f857b",
+    "0x7e897471cc509a82",
+    "0x7a21637b8effc26b",
+    "0xc7672ff2832afd5b",
+    "0xf9ca93e57cbf8416",
+    "0x28b51c939c267a8b",
+    "0xda76da8998d4145b",
+    "0x6dbe3fcb026ada1e",
+    "0x53d49d838b9d47a2",
+    "0xdab9629d4be0e432",
+    "0x69bf6984bc325dcb",
+    "0xceaea5d04affebfb",
+    "0x95128e5e5c8d7cdf",
+    "0xb30e1031fb0d35ec",
+    "0xb5a3e63979e99bfa",
+    "0x70439e783ab6ee51",
+    "0x39482654c139cc63",
+    "0x73065b4330467dd2",
+    "0xcb855ffbe4e4cb44",
+    "0xc3c16df8b106e2ff",
+    "0xc6b2912331afb463",
+    "0xe144a258965830e0",
+    "0x0f0896b623bfa9c3",
+    "0x307f072ca48f763a",
+    "0x2817deb1becb6345",
+    "0x6406c31b2fb1dcc3",
+    "0x12915f130ee3ba24",
+    "0xacfae30aba89bc3d",
+    "0x7f8500905368ace7",
+    "0x8f14c6b73ce32735",
+    "0xea76db2f67090a77",
+    "0x51e52ce464ef98be",
+    "0x12ceac7ba1fe173d",
+    "0x1002c1123446ea26",
+    "0xe486fbf4157439f6",
+    "0x4fbcdfc6f9a9a05c",
+    "0x1a9a3a565fdc0c6e",
+    "0x7b02dbc4e95ea2c0",
+    "0x918e6cdfe3123a27",
+    "0x6056af1534ffc56a",
+    "0xd2e794ead398c2c2",
+    "0x74f15ea99b1d2507",
+    "0x3e0a963781670c85",
+    "0xa56f29f058ad2e19",
+    "0xd25c6f27643a3eb7",
+    "0xf27f438fe1eab7c7",
+    "0x635b0764f7a6c5a4",
+    "0xdfb8ec7d0912bb4e",
+    "0x09f37efc443a51b0",
+    "0x667092b7eff802d6",
+    "0xded635b82493577b",
+    "0xacdefb0893202519",
+    "0x60f3146f0651aed2",
+    "0x775872a408872464",
+    "0xe573211f94213d50",
+    "0x4c0f76414633dd7d",
+    "0x8045209d4d26c2a2",
+    "0x0d9e84d6d303e91f",
+    "0xf127fbba728b5cc4",
+    "0x54a4ad85dc487e74",
+    "0xb52f7a0037a30c54",
+    "0xf8733fed1c5233f3",
+    "0x49262c6a6ae70158",
+    "0xe9f5174772dc844c",
+    "0xeaef038f6502002a",
+    "0xd1de45165ff631ed",
+    "0xa0b1b2179bb2f3ad",
+    "0x5c5a6c87ca0a4de4",
+    "0x9b32143281ad9df2",
+    "0xe145181b248912a0",
+    "0x3c78547b22f3814a",
+    "0x8b3017d58f0eb942",
+    "0xda897704dec5763c",
+    "0xb519abbb7c6748c0",
+    "0x155541c6a9ab491d",
+    "0x64b0fed503878cb4",
+    "0xaa77cccd9c59d2d2",
+    "0x5a6300f81b496fd8",
+    "0xb443ac956e6730a9",
+    "0x7a1b08bbea19232f",
+    "0x85dbbeb3de365918",
+    "0x2c28a7382d50b4b1",
+    "0xdea2fae7f57d0047",
+    "0x39b2ac521b3a5641",
+    "0x07979f9b89e380aa",
+    "0x097b51a20a941d40",
+    "0x806f1a88259b34a2",
+    "0x302dbd7c0360db0f",
+    "0xf19df42eca695af8",
+    "0xfb26c4b79c4ed1ec",
+    "0x1bd1d0a0b8421e1b",
+    "0xceb1f33d32b22e2d",
+    "0x213838e4ba39a15c",
+    "0x0f8112a5062110d1",
+    "0x006eb311d4764d46",
+    "0xcf4024f9d4ec77a1",
+    "0xef4a25801352fbf0",
+    "0xed64753e131c27a2",
+    "0x106946e6399604b8",
+    "0x2fb6f1541e5c6deb",
+    "0xd17c2063161e2b1d",
+    "0xe49ae2a30937e0e8",
+    "0x14407b33c8e1892f",
+    "0x50cdd7c6ce967495",
+    "0xdcefb95e8329dd53",
+    "0xdff43c1cf6a494a2",
+    "0x7184c75cd64b6c34",
+    "0xc14cd7613f244404",
+    "0xd5b0c05306542e40",
+    "0x9aed0db708dbaa52",
+    "0x720934f5a3403866",
+    "0xdff8df204e12b314",
+    "0x5ba9b4d2eb5e8964",
+    "0x86a782ca5e219d41",
+    "0xc33336f2c229981a",
+    "0x96eec1a33891fd46",
+    "0x7fcbf88e58494216",
+    "0xb3a8126ea81ed0c6",
+    "0x5dcb22cbbca0a654",
+    "0xacf4372575a620be",
+    "0x33e062e430a1f318",
+    "0xa5d10bcd409c4a0b",
+    "0x717f006aaab71eb5",
+    "0x38626b261b877c89",
+    "0x08be6639ce335b35",
+    "0x957b8788516b963b",
+    "0xd83254f6ab1eaf3d",
+    "0x9a1ddb212f213f80",
+    "0x13e6ded01a613fb2",
+    "0x16e0118a5a910736",
+    "0x23786390223e5082",
+    "0x72c301a749e45816",
+    "0x247766d59aeff722",
+    "0x3262fdaf733eb2ba",
+    "0xdbfc2cc74059de83",
+    "0x65267cdec5f002f5",
+    "0x108f8e03ba856d39",
+    "0x29525c6cbe622dae",
+    "0xf13f9373f20afd28",
+    "0x50030399b63c674a",
+    "0x921d0fea61b07225",
+    "0x5b852773429f5233",
+    "0x2e461ee7f4f7ec11",
+    "0x394d0b9ffc8d7ae7",
+    "0xab7f5f80f3da3d10",
+    "0x85e6b852acd23b74",
+    "0x3ee6d9c5bf7a76d2",
+    "0x21453b1dfec65293",
+    "0x0db0bb5c94fca262",
+    "0xf95438013eadd3ce",
+    "0x34cf8faab500dfd9",
+    "0x9b9a606d4e6df8b2",
+    "0xb4c35414caf3edfa",
+    "0x9adaee9ec98c6b35",
+    "0x21e477d0299afc8b",
+    "0xbb9c16dcf0ffc67a",
+    "0x18410a30ce544308",
+    "0xd82036d8a9f5d6db",
+    "0x036df52720399722",
+    "0x46b0602c6ab9e15d",
+    "0x39674785d0874a10",
+    "0x322f9e00a03bbb2f",
+    "0x6c3699db8ca3318e",
+    "0x344ecd80fa46d311",
+    "0x58bce59dc01f7748",
+    "0x47f7c5cb47679fe0",
+    "0x25292a1d92347196",
+    "0xf444517a4a1dd0ce",
+    "0x3e0cc9f34393ae79",
+    "0x286e6fe5eee1f62f",
+    "0x1a808b7b5750cc4f",
+    "0x7a79bea02657c753",
+    "0xd57570aa42d54fd1",
+    "0xfffedb68d9a1adc1",
+    "0x0d4c0737bd24d1a5",
+    "0x1014ce951fea8dc7",
+    "0x54fc771457948a25",
+    "0x76932635de2b7cd0",
+    "0xb5b1603882861751",
+    "0x1bf96eac6b7ed903",
+    "0x18456313edcff065",
+    "0x4e12189e6b007a06",
+    "0x7384eccae91df5db",
+    "0x3ca2dac81b2470e3",
+    "0xa2b6bdb23d617618",
+    "0xd95e487560f1bef7",
+    "0xbbf04a98eb45b0f0",
+    "0xe47580b586a7239d",
+    "0x3ad1e321c192f58e",
+    "0x5fb0c8a88da5516a",
+    "0x3866c7c3581ddd64",
+    "0x15721b7b74bc136a",
+    "0x8bbf2096065e85bc",
+    "0xd6e961ecd2bf54b8",
+    "0x6063c443abaf400b",
+    "0xd8352747b9325b09",
+    "0xba4dd2503f2d4105",
+    "0x82ae2187ed74160a",
+    "0xaed5539c541225c9",
+    "0x3ac3ffda52f44225",
+    "0x736017e50b5b69dc",
+    "0xf6ae23fa4516dffd",
+    "0xa91e08898e9cb4e8",
+    "0x5f8175af2d8d79f0",
+    "0x9cd54a7f5453011d",
+    "0xb454878d763f04ef",
+    "0x543adee0863699e1",
+    "0x2f750579858b0364",
+    "0x954226debf9c6170",
+    "0x4460689fb1424b05",
+    "0xfd9fcb00c98d5765",
+    "0xd1b7dd0db4e370e8",
+    "0x15870ec3bfe71315",
+    "0xcb67ac256f46ecb2",
+    "0x10db87d8fd8b96f1",
+    "0x6028fc515c6a417d",
+    "0x23242aa4660fa4f5",
+    "0xcb75a59b87f12e5c",
+    "0xb6921efd55076c31",
+    "0x2a65a40cf78d8a1c",
+    "0x7d8a22d1f0925e07",
+    "0x8ad3c422e80d985e",
+    "0x0a9d57f017091e3f",
+    "0x57d00c9771054a9a",
+    "0xf17487beb3c6bb7f",
+    "0x05f2491b5cdd7d86",
+    "0xb8cc4c4b510b00fb",
+    "0x042c3e6d5f2566ae",
+    "0x1e30821e8544e167",
+    "0x6511838b786d0aa7",
+    "0xbffc80b6f7d9135d",
+    "0x9b0a35a7e2c8f648",
+    "0x2c18421743bbe9ad",
+    "0xf3e6563423f6a495",
+    "0x5bb99051299966b5",
+    "0xd6eb7d5a98bd4474",
+    "0x04722182d77453eb",
+    "0xd08ec1f7a1b0973d",
+    "0x8143b568ee483702",
+    "0xd4aeff5af94351f9",
+    "0xc6e32b6b6f8769f7",
+    "0x499c95946d31aff2",
+    "0xf959aa6e9b859c9b",
+    "0x60698c492383957b",
+    "0x8a2cd764e46055ba",
+    "0x40ecf84bfb5f7507",
+    "0xb566551816d27ef7",
+    "0xd7a37e2b879d56b7",
+    "0x58cd4a28e38c66c2",
+    "0xb17522cd54d56b66",
+    "0xa0460856fbddfaf4",
+    "0x5892b70d7f82c995",
+    "0xb0566ea9dfbbcdf9",
+    "0xac6eb63f5d1eafb4",
+    "0x59e0cf2612ffccf2",
+    "0x4dd1b532447e701d",
+    "0xd006b440820bbe5c",
+    "0x105dbdf2e93e32dd",
+    "0x5b10d66eb20e77a6",
+    "0xddfc314da463fb2e",
+    "0x1ff5eba660fec351",
+    "0xc46bc4f4c3423099",
+    "0x5b9f4abbb8cc268b",
+    "0x51d3fd5c44331e58",
+    "0x9743f42eb8d18f42",
+    "0x00772b9b5d0da00d",
+    "0x71c1b6191f4b9aae",
+    "0x7acfca26458ff282",
+    "0xb44c41c124b0f4c8",
+    "0xdde5d4a3cb7f7dae",
+    "0x10267e226db2813c",
+    "0x104abf5795eeea3d",
+    "0x00e2ce2d0fda4ae5",
+    "0xfffe79a00f0f441d",
+    "0x7f8d9c5b1dde0ec7",
+    "0xa1ce18277190cb26",
+    "0xba90366950c3fd3c",
+    "0x6e21a62781a4626e",
+    "0x1b7ee6a8d1be547b",
+    "0xdcfba8fb645dadb3",
+    "0x6783137fd3d4f87e",
+    "0x08e20def656f958d",
+    "0x064a89064220a83d",
+    "0xcd8bd07191ee38b8",
+    "0xf05afdb5e7338f66",
+    "0x9ddcbc8695ce4664",
+    "0xbd0f0e57484e06c3",
+    "0xb3cbfca0a96e4454",
+    "0xb4719426fba3b926",
+    "0xa416a1dee7caea42",
+    "0x15f0f23b77730aac",
+    "0xfa915e2e075d0af2",
+    "0x20f6c56b6c373457",
+    "0x40fb5e547ff7af0f",
+    "0xe9c8d17637697ac8",
+    "0xf96aca86fbf71872",
+    "0x0720d8a0aac58e46",
+    "0xb948e3611790e4b8",
+    "0xe6bb963f569bf7e5",
+    "0x4a9c5239b9b66680",
+    "0xa751560fb7f3acc0",
+    "0xdbafea2b86c7c8fa",
+    "0x1de3067e4b150c41",
+    "0xd94a72597a560ff8",
+    "0x3419f59ed6035c49",
+    "0x6e3e0258742eac92",
+    "0x868a41241ec01837",
+    "0xcaa4c9a57cf4a808",
+    "0x9e1d1f90c2fad259",
+    "0x875ebaf9321bfa19",
+    "0xdfbbfa10ed622c4a",
+    "0x068d6f713ab5ba03",
+    "0x0d4871202b670d8f",
+    "0xec8761d5e8f6c33d",
+    "0x6ca49f0f270de1d8",
+    "0x2431beee3a5b1237",
+    "0xea7ac73bed6eed12",
+    "0x00b16eebb1e73b73",
+    "0x652249fe7ce5f82b",
+    "0xa6843de2e3499cbd",
+    "0x04a07f5d80f4def2",
+    "0x68b3b0f91212d304",
+    "0xb032b64946fd107f",
+    "0x195ab2581e058df9",
+    "0x2fac97373312718f",
+    "0x0264cfacffe4e27f",
+    "0x67bc86ed03e4d7f3",
+    "0xe982db6163674c3c",
+    "0x1afd0a6d88074a03",
+    "0xe262fc4ad0ccd9b9",
+    "0xf4e7221c6cfe19dd",
+    "0x9664b85360dc32dc",
+    "0xe0dbc540ddf797f7",
+    "0xe0898be6c36b3b8e",
+    "0xee95508d515ddb05",
+    "0xe11752165e1a0dd5",
+    "0x317355d8ba969965",
+    "0x671a2b71b071a8bc",
+    "0xf66be6c472a64b1a",
+    "0x8ea56f57f2cda354",
+    "0xc0ab1463ce9892c7",
+    "0xa9050bcd8284c3ec",
+    "0x4ba541b80e8367c7",
+    "0xd86597e571249a6b",
+    "0xed66bf75681fa133",
+    "0x84fffb4e7aa18949",
+    "0xced87cc6a3491660",
+    "0xc7623f0d131d0fad",
+    "0xd851fcec561c278b",
+    "0xf212824ace901505",
+    "0x1731ddcd781182d3",
+    "0x7c34383887d4528d",
+    "0x2eea58fde16ace6c",
+    "0xd82787195222e256",
+    "0x61cb0c77bd97ddef",
+    "0xc75c8a6a02353117",
+    "0x4bd82639c58b7a7b",
+    "0x9b8b0ad5cb6748f1",
+    "0x025aae2da9f2c98c",
+    "0xdfdf5e4a32ada457",
+    "0x1bec9bffb9d7509a",
+    "0xf66b461f51e27dd2",
+    "0xcc65681b14a0fb35",
+    "0xf710332b0044f83b",
+    "0xe99e06c4cdee882e",
+    "0x3a9809843e43dc5e",
+    "0x3a2aac0dd76e2a5f",
+    "0xa6b0e0573d820056",
+    "0x8f22a797716911a1",
+    "0xb8fae6b8ec02ddd9",
+    "0x2a340894b7ea46e7",
+    "0xbf00490e734c1523",
+    "0x19fa6e3e7a614bd2",
+    "0x983c9d8a2dca20a7",
+    "0xbdc516e534079bb7",
+    "0x83b1ef1a12788ea3",
+    "0x07fd71a7595fbbfc",
+    "0x59f839d73266549d",
+    "0x6fda78e7a710405f",
+    "0x40c53d2873ed4f16",
+    "0xdde0e5d1f1c16b20",
+    "0x8551f03b1bb7234f",
+    "0x3e0dd75b767712f5",
+    "0x9d2b8b3b7a0c015f",
+    "0xdf74abc59460706f",
+    "0xbe62920bfddc32f4",
+    "0x7c3a0259f9b74df9",
+    "0x146e99f2ff970ae6",
+    "0xe2844238e7d88491",
+    "0x755e609b9d90a787",
+    "0x664a58a1a409125b"
+  ]
+}

@@ -150,13 +150,13 @@ export function load(nodes: Node[], state: State): Map<Node, number> {
 
 /**
  * reads one live component instance back to its scene attribute string (fields at their trait default
- * elide). The single per-component readback the on-demand `serialize` and the editor's per-frame
+ * elide). The single per-component readback the on-demand `serialize` and the document layer's per-frame
  * `ReadbackSystem` share, so the two paths can't drift.
  *
  * `resolveRef` (passed only by `serialize`) turns an `entity`-typed field's
  * stored eid into the target's scene `id`, so the field formats as `@<id>`: a
  * ref keyed on a stable name survives the creation-order eid reshuffle a reload
- * causes. The editor's `ReadbackSystem` omits it on purpose, leaving `@name`
+ * causes. The document layer's `ReadbackSystem` omits it on purpose, leaving `@name`
  * attrs untouched.
  */
 export function readComponent(
@@ -647,7 +647,7 @@ function parsePropertyString(
 /**
  * parses one component's attribute string into a field-value record, the inverse of `formatFields`. Vector
  * fields expand to dotted lanes (`"pos: 0 5 0"` → `{ "pos.x": 0, "pos.y": 5, "pos.z": 0 }`); an `@name`
- * ref stays a string. Throws on an unknown field or malformed value. The editor inspector parses an edit
+ * ref stays a string. Throws on an unknown field or malformed value. A live authoring host parses an edit
  * through this before writing it back.
  *
  * @example
@@ -859,8 +859,8 @@ export function formatFields(
  * normalize a scene attribute value to its canonical form: parse, then re-format the way the live
  * `serialize` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
  * formatter (`scripts/format.ts`) runs every `.scene` through this, so a formatted file is the same
- * minimal bytes the editor's save path and `serialize(state)` emit: one canonical form, no divergence
- * between hand-authored and editor-written scenes. Returns null for an empty value or unregistered
+ * minimal bytes a live host's save path and `serialize(state)` emit: one canonical form, no divergence
+ * between hand-authored and programmatically-written scenes. Returns null for an empty value or unregistered
  * component (left untouched).
  */
 export function normalizeAttr(name: string, value: string): string | null {
@@ -895,7 +895,7 @@ export interface Diagnostic {
 /**
  * validates a parsed scene against the registered components: an unknown component (with a did-you-mean
  * suggestion), an unmet `requires` trait, or a violated `excludes`. Returns every issue found; `run()`
- * warns each to the console, the editor surfaces them in the inspector. Empty means the scene is clean.
+ * warns each to the console; a live host surfaces them. Empty means the scene is clean.
  *
  * @example
  * for (const d of diagnose(parse(xml))) console.warn(d.message);

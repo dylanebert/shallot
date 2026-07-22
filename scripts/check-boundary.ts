@@ -13,18 +13,23 @@ import { dirname, join, relative, resolve, sep } from "path";
 //
 // Both are violations here. Cross-project access goes through the package name, into
 // a published subpath only. (coding.md onion layers; AGENTS.md "Don't deep-import
-// from src/".) The dogfood tiers (zoo, showcase, templates) and external consumers
-// are exactly the ones held to this — they exist to use the engine as a user would.
+// from src/".) Every example tier — recipes, gym, showcase — and external consumers
+// are held to this; they exist to use the engine as a user would.
 //
-// Repo testing tooling (gym) is exempt — the repo is free to test its own
-// examples with repo tooling; the boundary governs what a *consumer* imports.
+// The one narrow allowance: a relative import that escapes the project is permitted
+// iff it resolves inside `packages/shallot/tests/` — the CPU-oracle cross-check seam
+// (the f64 avbd solver/joint + the bvh fixtures/oracle a gym scenario diffs the GPU
+// against). Those f64 references are the executable spec, load-bearing and unpublished
+// by design; killing the share would force duplicating them. Engine *access* still must
+// use the published exports — the allowance is the tests/ oracle only, not `src/`.
 //
 // Default scans this repo's consumer examples. `--root <dir>` scans an external
 // consumer tree (e.g. orrstead), where every project is a consumer.
 
 const repoRoot = resolve(import.meta.dir, "..");
 
-const EXEMPT = new Set(["examples/gym"]);
+// the one relative-escape allowance: the f64 CPU-oracle cross-check seam.
+const ORACLE_SEAM = resolve(repoRoot, "packages/shallot/tests");
 
 const PKG = "@dylanebert/shallot";
 
@@ -53,7 +58,8 @@ function isPublished(spec: string): boolean {
     return surface.exact.has(spec) || surface.prefixes.some((p) => spec.startsWith(p));
 }
 
-// Consumer project roots = example workspaces minus the repo-tooling tiers.
+// Consumer project roots = every example workspace (gym included — it's a consumer of the published
+// surface now, held to the boundary like the rest, save the one tests/-oracle allowance in scan()).
 async function consumerRoots(): Promise<string[]> {
     const pkg = await Bun.file(resolve(repoRoot, "package.json")).json();
     const roots: string[] = [];
@@ -65,10 +71,9 @@ async function consumerRoots(): Promise<string[]> {
                 cwd: resolve(repoRoot, "examples"),
                 onlyFiles: false,
             })) {
-                const rel = `examples/${match}`;
-                if (!EXEMPT.has(rel)) roots.push(resolve(repoRoot, rel));
+                roots.push(resolve(repoRoot, `examples/${match}`));
             }
-        } else if (!EXEMPT.has(pattern)) {
+        } else {
             roots.push(resolve(repoRoot, pattern));
         }
     }
@@ -122,6 +127,9 @@ async function scan(roots: string[]): Promise<Violation[]> {
                     if (spec.startsWith(".")) {
                         const resolved = resolve(dirname(full), spec);
                         if (resolved === owner || resolved.startsWith(owner + sep)) continue;
+                        // the one allowance: the f64 CPU-oracle cross-check seam under packages/shallot/tests/
+                        if (resolved === ORACLE_SEAM || resolved.startsWith(ORACLE_SEAM + sep))
+                            continue;
                         violations.push({
                             ...at,
                             reason: `escapes the project → ${relative(repoRoot, resolved)}`,

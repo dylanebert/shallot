@@ -1,0 +1,9 @@
+<scene>
+    <a ambient-light="intensity: 0.35" />
+    <a directional-light="direction: -0.35 -1 -0.12; intensity: 1.6" shadow="distance: 20" />
+
+    <a camera sear transform orbit="distance: 4.5; yaw: 0.6; pitch: 0.3; pan: 0 0.9 0" />
+
+    <!-- the physics floor doubles as the shadow receiver: a static body (mass 0) drawn with a part -->
+    <a body="pos: 0 -0.1 0; half-extents: 7 0.1 7; mass: 0" part color="rgba: 0.5 0.5 0.5" />
+</scene>

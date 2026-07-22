@@ -28,6 +28,7 @@ describe("gltf conformance derivation", () => {
         materials: [],
         images: [],
         skinInputs: [],
+        live: false,
         unsupported: feats.map((feature) => ({ feature })),
     });
 

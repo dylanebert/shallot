@@ -1,0 +1,11 @@
+{
+    "name": "shallot-evals-harness",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@playwright/test": "^1.58.2",
+        "playwright": "^1.58.2",
+        "pngjs": "^7.0.0",
+        "@types/pngjs": "^6.0.5"
+    }
+}

@@ -17,12 +17,15 @@ import type { GltfVat } from "./vat";
 // VATHelper.hlsl; the deviceless bake is vat.ts.
 
 /**
- * a skinned glTF instance's animation state. One `slab(vec4)` published as `"skin"`: lane x is the play
- * time in seconds (advanced by {@link SkinSystem}), y the material palette index in the shared union palette
- * (asset base + local id, the `mid` the shade path reads, folded in to keep the surface at the 10-storage
- * ceiling), z a per-instance phase offset (crowd variety; 0 for a single import), w the clip duration
- * {@link SkinSystem} loops the play time on. The duration is per-instance, so N skinned meshes with different
- * clip lengths coexist in one scene. The importer adds it to each skinned instance.
+ * a skinned glTF instance's animation state. One `slab(vec4)` published as `"skin"`; the lanes are read by
+ * whichever skin surface the instance uses. VAT (baked-clip) path: lane x is the play time in seconds
+ * (advanced by {@link SkinSystem}), y the material palette index in the shared union palette (asset base +
+ * local id, the `mid` the shade path reads, folded in to keep the surface at the 10-storage ceiling), z a
+ * per-instance phase offset (crowd variety; 0 for a single import), w the clip duration {@link SkinSystem}
+ * loops the play time on (per-instance, so N meshes with different clip lengths coexist). Live joint-palette
+ * path: lane x is the palette base (the vec4 index of the instance's block in `skinData`, read by the
+ * `skin-live` surface), y the same material index, z unused, w 0 so {@link SkinSystem} skips it (a producer
+ * poses the instance via `LiveSkin` instead). The importer adds the component to each skinned / live instance.
  */
 export const Skin = { anim: slab(vec4, "skin") };
 
@@ -303,7 +306,7 @@ export function disposeVatFallback(): void {
  * with different clip lengths coexist). Reload-safe: time is derived from `state.time.elapsed` + the
  * instance's phase lane, never accumulated (ecs.md "no module-level accumulator"). A `simulation`-group
  * system, so SlabSystem (`draw`, first) flushes the write before sear's geometry passes read it. Runs in play
- * only (default mode), so the editor shows the rest/bind pose.
+ * only (default mode), so a live host in edit mode shows the rest/bind pose.
  */
 export const SkinSystem: System = {
     name: "Skin",

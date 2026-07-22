@@ -16,7 +16,6 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
-    PhysicsPlugin,
     RenderPlugin,
     run,
     Sear,
@@ -27,17 +26,18 @@ import {
     Transform,
     TransformsPlugin,
 } from "@dylanebert/shallot";
-import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
+import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import {
+    Avbd,
     BODY_VEC4,
     JOINT_REC_VEC4,
     type JointDef,
     PENALTY_MIN,
-    Physics,
     PhysicsStep,
     type SpringDef,
     WORLD,
-} from "@dylanebert/shallot/physics/core";
+} from "@dylanebert/shallot/avbd/core";
+import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { joint as oracleJoint } from "../../../../packages/shallot/tests/avbd/joint";
 // the f64 oracle (tests/, out of the published src/) is the executable spec the GPU constraint solve compares
 // against — reached by relative path, like the pile scenario reaches the rigid oracle.
@@ -201,7 +201,7 @@ const scenario: Scenario = {
                 InputPlugin,
                 OrbitPlugin,
                 RenderPlugin,
-                PhysicsPlugin,
+                AvbdPlugin,
                 PartPlugin,
                 SearPlugin,
                 GlazePlugin,
@@ -210,7 +210,7 @@ const scenario: Scenario = {
 
         state.add(state.create(), AmbientLight);
         state.add(state.create(), DirectionalLight);
-        Physics.step?.configure(cfg);
+        Avbd.step?.configure(cfg);
 
         // a floor under the joint rigs so the deactivation-test boxes (recycle + guard) drop and LAND rather
         // than fall forever — "released, fell, landed" reads as intentional; the held rigs hang above it.
@@ -322,10 +322,10 @@ const scenario: Scenario = {
         Orbit.distance.set(cam, 34);
 
         await frames(3);
-        if (Physics.step) {
-            liveMirror = mirror(Physics.step.bodies);
-            colorMirror = mirror(Physics.step.colors);
-            countersMirror = mirror(Physics.step.counters);
+        if (Avbd.step) {
+            liveMirror = mirror(Avbd.step.bodies);
+            colorMirror = mirror(Avbd.step.colors);
+            countersMirror = mirror(Avbd.step.counters);
         }
         await frames(180); // settle the cantilever rigid, let the pendulum swing + the rope drape
 
@@ -339,7 +339,7 @@ const scenario: Scenario = {
                 recycleHeldY = s[(0 * cap + recycleBox) * 4 + 1];
             }
         }
-        Physics.step?.recycleVersion(recycleBox);
+        Avbd.step?.recycleVersion(recycleBox);
         await frames(240); // the deactivated box free-falls well clear of the held pose (lands on the floor)
 
         return {
@@ -862,8 +862,8 @@ async function measured(): Promise<Check> {
     const data: Record<string, number> = {};
     for (const n of STEP_PASSES) data[n] = get(n);
     const full = STEP_PASSES.reduce((sum, n) => sum + data[n], 0);
-    data.dispatchedColors = Physics.step?.dispatchedColors ?? 0;
-    data.bytes = Physics.step?.bytes ?? 0;
+    data.dispatchedColors = Avbd.step?.dispatchedColors ?? 0;
+    data.bytes = Avbd.step?.bytes ?? 0;
     const resolved = get("phys:primal") > 0;
     const label = (n: string): string => n.replace("phys:", "").replace("bvh:", "bvh.");
     const parts = STEP_PASSES.map((n) => `${label(n)} ${data[n].toFixed(3)}`).join(" · ");

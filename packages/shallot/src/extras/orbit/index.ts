@@ -23,8 +23,19 @@ const Deg2Rad = Math.PI / 180;
 // the negation at the call site makes up = faster, like Unity's / Blender's scene-view accelerator.
 const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 
-/** Free orbits, pans, and zooms; Locked disables orbit rotation, leaving pan and zoom. */
+/** `Free` orbits, pans, and zooms; `Locked` disables orbit rotation, leaving pan and zoom. */
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
+
+/**
+ * contextual left-click hook (PlayCanvas-style): a picker registers `claim` so that pressing the orbit
+ * button over something interactive starts an interaction instead of an orbit. Consulted once, at the orbit
+ * button's press edge, with the cursor in canvas-local CSS pixels; returning true suppresses orbit rotation
+ * for that whole drag (until the button releases), while pan and fly stay unaffected. Unregistered, every
+ * press orbits (the optional slot is a `?.` no-op). Analogous to `Compute.span`.
+ * @example
+ * OrbitPick.claim = (x, y) => bodyUnderCursor(x, y) !== null;
+ */
+export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
 
 /**
  * orbit camera controls: drag to rotate around a target, scroll to zoom
@@ -102,17 +113,6 @@ function isButton(mouse: Readonly<Mouse>, button: number): boolean {
     return mouse.right;
 }
 
-function hasMovementKey(input: Inputs): boolean {
-    return (
-        input.isKeyDown("KeyW") ||
-        input.isKeyDown("KeyS") ||
-        input.isKeyDown("KeyA") ||
-        input.isKeyDown("KeyD") ||
-        input.isKeyDown("KeyQ") ||
-        input.isKeyDown("KeyE")
-    );
-}
-
 const OrbitSystem: System = {
     group: "simulation",
     annotations: { mode: "always" },
@@ -129,6 +129,7 @@ const OrbitSystem: System = {
             OrbitSmooth.size.set(eid, Orbit.size.get(eid));
             // sparse storage survives destroy — a recycled eid could inherit a stale latch
             OrbitSmooth.flyActive.set(eid, 0);
+            OrbitSmooth.orbitLatch.set(eid, 0);
             // the pose loop below requires Transform — orbit drives pos + rot through it. Without one the
             // camera silently never moves; warn at init (once per Orbit entity) so it's not a blank screen.
             if (!state.has(eid, Transform)) {
@@ -169,14 +170,29 @@ const OrbitSystem: System = {
             const orbitHeld = isButton(input.mouse, Orbit.orbitButton.get(eid));
             const panHeld = isButton(input.mouse, Orbit.panButton.get(eid));
             const flyHeld = isButton(input.mouse, Orbit.flyButton.get(eid));
-            // the held button picks the mode; orbit/pan win, so a movement key only flies when neither is
-            // held. fly stays engaged while its button is held, so releasing the keys mid-look doesn't snap.
-            const flying = !orbitHeld && !panHeld && (flyHeld || hasMovementKey(input));
+            // the held button picks the mode; fly engages only while the fly button is held (hold-to-fly, the
+            // Unity/UE scene-view idiom), and orbit/pan win over it. bare WASD/QE never fly, so a gameplay
+            // scene owns the movement keys by default — the camera only takes them while fly is held.
+            const flying = !orbitHeld && !panHeld && flyHeld;
             // look applies the active mode's drag: fly looks in place (fly button), orbit swings the target.
             const looking = flying ? flyHeld : orbitHeld;
             const lookSpeed = flying ? Orbit.flySensitivity.get(eid) : sensitivity;
 
-            if (!locked && looking) {
+            // consult the picker once, at the orbit button's down-edge (latch idle → a fresh press). a true
+            // claim suppresses this drag's orbit rotation so an interaction owns the press; the latch holds
+            // until release, so a mid-drag claim change can't flip it. only orbit look is gated — fly look
+            // reads flyHeld (which needs the orbit button up, so suppression can't coincide) and pan/zoom
+            // read their own buttons.
+            let orbitLatch = OrbitSmooth.orbitLatch.get(eid);
+            if (orbitHeld) {
+                if (orbitLatch === 0)
+                    orbitLatch = OrbitPick.claim?.(input.mouse.x, input.mouse.y) ? 1 : 2;
+            } else {
+                orbitLatch = 0;
+            }
+            const suppressed = orbitLatch === 1;
+
+            if (!locked && looking && !suppressed) {
                 yawO -= input.mouse.deltaX * lookSpeed;
                 pitchO = clamp(pitchO + input.mouse.deltaY * lookSpeed, minPitch, maxPitch);
             }
@@ -346,6 +362,7 @@ const OrbitSystem: System = {
             Orbit.pan.set(eid, panX, panY, panZ, 0);
             Orbit.flySpeed.set(eid, flySpd);
             OrbitSmooth.flyActive.set(eid, flyActive);
+            OrbitSmooth.orbitLatch.set(eid, orbitLatch);
             OrbitSmooth.yaw.set(eid, yawS);
             OrbitSmooth.pitch.set(eid, pitchS);
             OrbitSmooth.distance.set(eid, distS);

@@ -1,16 +1,21 @@
-// Physics extension surface — the GPU step pipeline + the SAT WGSL, for custom tooling, tests,
-// and the gym scenario. The happy path (the `Body` component + `PhysicsPlugin`) ships on the barrel.
-export { COLLIDE_WGSL, HULL_WGSL, MAX_CONTACTS, SPECULATIVE_DISTANCE } from "./collide";
+// Physics substrate extension surface — the backend-neutral pieces for custom tooling, tests, and a
+// backend plugin's own implementation. The happy path (the `Body` component + a backend plugin like
+// `AvbdPlugin`) ships on the main barrel.
+export { type Hull, type HullFace, Hulls, UNIT_CUBE_ID } from "./hull";
 export {
-    HULL_FACE_STRIDE,
-    HULL_HEADER,
-    type Hull,
-    type HullFace,
-    Hulls,
-    packHulls,
-    registerHull,
-} from "./hull";
-export { Physics, StepSystem } from "./index";
+    type BodyState,
+    bodyTraits,
+    ComposeSystem,
+    ConstraintSystem,
+    installBackend,
+    type JointDef,
+    jointTraits,
+    type PhysicsBackend,
+    type SpringDef,
+    StepSystem,
+    springTraits,
+    uninstallBackend,
+} from "./index";
 export { bodyCandidates, cursorRay, forwardRay, grabHit, worldToLocal } from "./pick";
 export {
     generateRay,
@@ -24,22 +29,3 @@ export {
     raySphere,
     screenToRay,
 } from "./raycast";
-export {
-    BODY_MARGIN,
-    BODY_VEC4,
-    COLOR_MARGIN,
-    CONSTRAINT_CONTACT,
-    CONTACT_VEC4,
-    CONTACTS_PER_PAIR,
-    JOINT_REC_VEC4,
-    type JointDef,
-    LDS_CAP,
-    LDS_N,
-    PAIRS_PER_BODY,
-    PENALTY_MIN,
-    PhysicsStep,
-    SMALL_N,
-    type SpringDef,
-    type StepParams,
-    WORLD,
-} from "./step";
