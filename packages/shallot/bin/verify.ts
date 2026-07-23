@@ -39,10 +39,13 @@ export interface VerifyArgs {
     port?: number;
     query: string[];
     timeoutMs: number;
-    /** sample retained JS heap for a leak slope over the run (informational — never gates). */
+    /** sample retained JS heap for a leak slope over a post-run idle window (informational — never gates). */
     memory: boolean;
     /** expose `window.__probeAlloc(windowMs)` for a harness `run()` to measure allocation. */
     alloc: boolean;
+    /** inject a deliberate retained allocation of N bytes/second once the harness is ready — the red-proof
+     *  knob for the `--memory` leak detector (needs `--memory` to be observed). 0 = off. */
+    leak: number;
     /** attach to a remote browser at this Playwright ws endpoint (`chromium.connect`); the endpoint's
      *  owner keeps the browser process, this run only drives it. Absent: launch a local browser. */
     connect?: string;
@@ -70,6 +73,7 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         timeoutMs: 60_000,
         memory: false,
         alloc: false,
+        leak: 0,
         help: false,
     };
     let sawDir = false;
@@ -79,6 +83,8 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         else if (a === "--json") args.json = true;
         else if (a === "--memory") args.memory = true;
         else if (a === "--alloc") args.alloc = true;
+        else if (a === "--leak" && raw[i + 1]) args.leak = num("--leak", raw[++i]);
+        else if (a?.startsWith("--leak=")) args.leak = num("--leak", a.slice("--leak=".length));
         else if (a === "--help" || a === "-h") args.help = true;
         else if (a === "--screenshot" && raw[i + 1]) args.screenshot = raw[++i];
         else if (a === "--connect" && raw[i + 1]) args.connect = raw[++i];
@@ -101,6 +107,12 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
     if (args.memory && args.alloc) {
         throw new Error("--memory and --alloc are mutually exclusive");
     }
+    // --leak plants a retained allocation for the --memory slope to catch. Without --memory nothing samples
+    // it (the injection is silent), and --leak requiring --memory keeps it clear of --alloc's no-forced-GC
+    // window too (--memory/--alloc are already exclusive above).
+    if (args.leak > 0 && !args.memory) {
+        throw new Error("--leak requires --memory (nothing samples the injected allocation)");
+    }
     return args;
 }
 
@@ -122,6 +134,18 @@ const spread = (a: number[], b: number[]): number =>
 /** a frame carries visible structure (not a single flat clear color) — center vs corner region contrast. */
 export function structured(center: number[], corner: number[]): boolean {
     return spread(center, corner) > 12;
+}
+
+/** a captured frame shows visible structure — the pixel-honest signal the harness path gates `rendered` on.
+ *  The settle path's center-vs-corner contrast: a scene the camera frames centrally lifts the centre off the
+ *  cleared corner. A flat clear color, or a scene whose centre reads the clear color (a model that never
+ *  rendered — the gym gltf symptom), or a missing sample (no capturable canvas / decode failure) is not
+ *  rendered. Coarser whole-frame variants were rejected: on real hardware a "blank" canvas still carries a
+ *  faint background gradient (measured spread ~49 on gltf), so a whole-frame max-min passes the very blanks
+ *  this must catch. Known limit: a scene framed away from centre reads blank here (a finding to surface, not
+ *  a reason to widen the check into one that stops catching gltf). */
+export function hasStructure(sample: FrameSample | null): boolean {
+    return sample !== null && structured(sample.center, sample.corner);
 }
 
 /** mean absolute RGB difference between two coarse frame grids, 0..255 — the magnitude of visible change. */
@@ -216,9 +240,15 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
     });
 }
 
-/** harness path passes when the project's Verdict is ok AND no page errors were captured. */
-export function harnessPass(verdict: Verdict, errorCount: number): boolean {
-    return verdict.ok === true && errorCount === 0;
+/** harness path passes when the project's Verdict is ok, the canvas rendered visible structure, and no
+ *  page errors were captured. A green verdict over a blank canvas (a scenario that draws nothing) fails —
+ *  unless the harness declared `noRender`, which reports `rendered: "opt-out"` and passes the pixel gate. */
+export function harnessPass(
+    verdict: Verdict,
+    rendered: boolean | "opt-out",
+    errorCount: number,
+): boolean {
+    return verdict.ok === true && rendered !== false && errorCount === 0;
 }
 
 /** no-harness path passes when the scene booted, rendered a settled frame, and threw no page errors. */
@@ -226,10 +256,17 @@ export function settlePass(booted: boolean, rendered: boolean, errorCount: numbe
     return booted && rendered && errorCount === 0;
 }
 
-// leak threshold, bytes/second. The repo harness flagged 1024 B/frame; at 60fps that's 1024 * 60 =
-// 61_440 B/s — the same physical growth rate re-expressed for wall-clock, since an in-process gate has no
-// frame count to divide by. Informational only: --memory never affects the verdict or exit code.
+// leak threshold, bytes/second of retained heap. Derivation (inherited, kept): the repo harness flagged
+// 1024 B/frame; at 60fps that's 1024 × 60 = 61_440 B/s — the same physical growth re-expressed as a
+// wall-clock rate, which is exactly what the post-run idle window fits (bytes/second, no frame count to
+// divide by). Informational only: --memory never affects the verdict or exit code.
 export const LEAK_BYTES_PER_SEC = 61_440;
+
+// the post-run idle window the --memory slope is fitted over. run() has resolved, so the benchmark's own
+// monotonically-growing stats arrays are unreachable and collect on the first forced GC — this window then
+// measures the engine's steady-state retention alone. Sized for ≥5 samples at startMemory's 800ms cadence
+// (fitMemory needs ≥3 after dropping the cold-start one), independent of how fast the scene rendered.
+const LEAK_IDLE_MS = 5200;
 
 /** one wall-clock heap reading: epoch ms + retained JS heap bytes (post forced-GC). */
 export interface MemorySample {
@@ -295,11 +332,16 @@ interface Result {
     hardware: string;
     harness: boolean;
     booted: boolean;
-    rendered: boolean;
+    /** pixel-honest render verdict: the canvas showed visible structure (`true`), was blank (`false`), or
+     *  the harness declared `noRender` so the pixel gate was skipped (`"opt-out"` — visible, never a fake
+     *  true). See {@link harnessPass} and the harness protocol's `noRender`. */
+    rendered: boolean | "opt-out";
     verdict?: Verdict;
-    /** the --memory leak sample, when requested: fitted across the harness run() window. null when
-     *  there's nothing to fit — no harness run() (settle path), a run too short for three samples, or
-     *  any CDP failure. Informational, never gates. */
+    /** the --memory leak sample, when requested: fitted across a post-run idle window (after run()
+     *  resolves, when the benchmark's own growing stats arrays have gone collectible — so the slope reads
+     *  the engine's steady-state retention, not the harness measuring itself). null when there's nothing
+     *  to fit — no harness run() (settle path), too few samples, or any CDP failure. Informational, never
+     *  gates. */
     memory?: MemoryStats | null;
     errors: string[];
     pass: boolean;
@@ -400,11 +442,12 @@ interface MemorySampler {
     stop(): Promise<MemoryStats | null>;
 }
 
-// sample retained JS heap on a fixed wall-clock cadence while the gate drives the page. Forces a GC before
-// each read so the slope measures *retained* memory, not the transient per-frame allocations (profiler
-// sample arrays, overlay text churn) that pile up uncollected in a short window and read as a false leak on
-// a scene that holds nothing. Best-effort: any CDP failure yields a null result, never a crash — the memory
-// report is informational and never gates. Salvaged from harness/core/page.ts, re-cadenced to wall-clock.
+// sample retained JS heap on a fixed wall-clock cadence over the post-run idle window (the caller starts it
+// once run() has resolved). Forces a GC before each read so the slope measures *retained* memory, not the
+// transient per-frame allocations (profiler sample arrays, overlay text churn) that pile up uncollected in a
+// short window and read as a false leak on a scene that holds nothing. Best-effort: any CDP failure yields a
+// null result, never a crash — the memory report is informational and never gates. Salvaged from
+// harness/core/page.ts, re-cadenced to wall-clock.
 async function startMemory(page: Page): Promise<MemorySampler> {
     const SampleMs = 800;
     try {
@@ -539,6 +582,27 @@ interface AllocProbe {
     gcCount: number;
     gcPauseMs: number;
     top: Allocator[];
+}
+
+// inject a deliberate retained allocation of `bytesPerSec` bytes/second — the red-proof for the --memory
+// leak detector. A GC-rooted array on the page grows at a fixed 10 Hz wall-clock rate, so every forced-GC
+// sample sees monotonic retained growth: a real leak the detector must flag, in the post-run idle window as
+// much as during run(). Each chunk is a distinct-float array so V8 backs it as an on-heap double array
+// counted in JSHeapUsedSize (an integer-fill array packs as SMIs and an external ArrayBuffer sits off-heap —
+// both under-count). Best-effort; the page tears down at run end, so nothing unroots it.
+async function injectLeak(page: Page, bytesPerSec: number): Promise<void> {
+    await page
+        .evaluate((rate: number) => {
+            const held: number[][] = [];
+            (globalThis as { __leakHeld?: number[][] }).__leakHeld = held; // root past forced GC
+            const perTick = Math.max(1, Math.round(rate / 10 / 8)); // 10 Hz, ~8 B per double element
+            setInterval(() => {
+                const a = new Array<number>(perTick);
+                for (let i = 0; i < perTick; i++) a[i] = Math.random();
+                held.push(a);
+            }, 100);
+        }, bytesPerSec)
+        .catch(() => {});
 }
 
 interface Booter {
@@ -685,9 +749,11 @@ const usage = `
     --query k=v           URL param passed to the page (repeatable)
     --port <n>            Server port (default: an auto-picked free port)
     --timeout <ms>        Overall settle/ready budget (default: 60000)
-    --memory              Sample retained JS heap across the harness run() for a leak slope (needs an
+    --memory              Sample retained JS heap over a post-run idle window for a leak slope (needs an
                           installed harness with run(); informational — never gates)
     --alloc               Expose window.__probeAlloc(windowMs) for a harness run() to measure allocation
+    --leak <bytesPerSec>  Inject a retained allocation at this rate once the harness is ready — red-proof for
+                          the --memory leak detector (pair with --memory; off by default)
     --connect <ws>        Drive a remote browser at this Playwright ws endpoint (chromium.connect) rather
                           than launching one — the endpoint owner supplies the browser's channel + flags
     --json                Machine-readable result on stdout
@@ -926,6 +992,23 @@ async function driveHarness(
         return { ...base, booted: true, rendered: false, verdict, pass: false };
     }
 
+    // a harness that renders no framed scene by design (a GPU-compute microbench, a solid-fill clip test)
+    // declares `noRender`: the pixel gate is skipped and `rendered` reports "opt-out" — honest, visible, and
+    // never a fake true. Every other harness is held to the pixel check below.
+    const noRender = (await page
+        .evaluate(() => window.__harness?.noRender === true)
+        .catch(() => false)) as boolean;
+
+    // pixel-honest `rendered`: capture the canvas now that the harness is ready, before run() drives it.
+    // The post-run capture (below) is the primary signal; this early one covers a scenario that renders
+    // during build then tears the scene down inside run(). A scenario that draws nothing fails on this,
+    // not only on its own asserts. Reuses the settle path's compositor screenshot + structure check.
+    const readySample = noRender ? null : await sampleFrame(page);
+
+    // --leak red-proof: start a known retained allocation now (harness is ready), so it runs through run()
+    // and on into the post-run idle window the --memory slope is fitted over. Off (0) in every normal run.
+    if (args.leak > 0) await injectLeak(page, args.leak);
+
     let verdict: Verdict;
     let hasRun = false;
     let probeError: string | null = null;
@@ -936,11 +1019,6 @@ async function driveHarness(
     } catch (err) {
         probeError = err instanceof Error ? err.message : String(err);
     }
-
-    // the --memory window is run() itself: ready has passed, so boot growth (module load, engine
-    // init) is behind us and the slope measures the workload's steady state — the page.ts sampler's
-    // semantics (it sampled the measured run, never the build).
-    const memSampler = args.memory && hasRun ? await startMemory(page) : null;
 
     if (probeError) {
         verdict = {
@@ -976,32 +1054,63 @@ async function driveHarness(
         verdict = { ok: errors.length === 0, checks: [{ name: "ready", ok: true }] };
     }
 
-    // stop as soon as run() concludes (before the screenshot's settle frames) so the fit covers
-    // exactly the workload. A run() too short for three 800ms samples reports null, as documented.
-    const memory = memSampler ? await memSampler.stop() : args.memory ? null : undefined;
+    // the --memory leak slope reads a POST-run IDLE window, not run() itself. During run() the benchmark
+    // retains monotonically-growing per-frame stats arrays (frameTimes + per-pass accumulators,
+    // extras/profile/benchmark.ts), so a post-GC sample over run() measures the harness's own accumulation
+    // and reads a false leak (~110 KB/s on a multi-second run, and hardware-speed-dependent — a fast GPU's
+    // run is too short to even sample). Once run() resolves those arrays are unreachable and collect on the
+    // first forced GC, so a fixed idle window here isolates the engine's steady-state retention — the honest
+    // signal, deterministic across hardware. See fitMemory + testing.md.
+    let memory: MemoryStats | null | undefined;
+    if (args.memory && hasRun) {
+        const sampler = await startMemory(page);
+        await new Promise((r) => setTimeout(r, LEAK_IDLE_MS));
+        memory = await sampler.stop();
+    } else if (args.memory) {
+        memory = null;
+    }
+
+    // the post-run capture is the authoritative `rendered` signal — run() has driven the scene to its
+    // final frame, and the RAF loop keeps drawing, so nextFrame lands a fresh composite before the shot.
+    let rendered: boolean | "opt-out";
+    if (noRender) {
+        rendered = "opt-out";
+    } else {
+        await nextFrame(page);
+        const postSample = await sampleFrame(page);
+        rendered = hasStructure(readySample) || hasStructure(postSample);
+    }
 
     await maybeScreenshot(page, args.screenshot);
     return {
         ...base,
         booted: true,
-        rendered: true,
+        rendered,
         verdict,
         ...(memory !== undefined ? { memory } : {}),
-        pass: harnessPass(verdict, errors.length),
+        pass: harnessPass(verdict, rendered, errors.length),
     };
 }
 
 // the scene's RAF loop keeps drawing after the verdict resolves, so awaiting two frames lands a fresh one
-// before the shot (the harness/core/page.ts ordering). Best-effort — a screenshot failure never fails.
-async function maybeScreenshot(page: Page, path: string | undefined): Promise<void> {
-    if (!path) return;
-    try {
-        await page.evaluate(
+// before a capture (the harness/core/page.ts ordering). Best-effort — resolves without throwing on a
+// broken page so the capture still proceeds.
+async function nextFrame(page: Page): Promise<void> {
+    await page
+        .evaluate(
             () =>
                 new Promise<void>((r) =>
                     requestAnimationFrame(() => requestAnimationFrame(() => r())),
                 ),
-        );
+        )
+        .catch(() => {});
+}
+
+// write a post-run canvas PNG when --screenshot asked for one. Best-effort — a screenshot failure never fails.
+async function maybeScreenshot(page: Page, path: string | undefined): Promise<void> {
+    if (!path) return;
+    try {
+        await nextFrame(page);
         await page.screenshot({ path: resolve(path) });
     } catch {
         // a screenshot is a convenience, never a gate
@@ -1016,7 +1125,11 @@ function report(result: Result, json: boolean): void {
     const mark = (ok: boolean) => (ok ? "✓" : "✗");
     console.log(`\nverify: ${basename(result.project)}  (${result.mode}, ${result.url})`);
     console.log(`  ${mark(result.booted)} booted`);
-    console.log(`  ${mark(result.rendered)} rendered`);
+    if (result.rendered === "opt-out") {
+        console.log(`  ○ rendered — opt-out (renders nothing by design)`);
+    } else {
+        console.log(`  ${mark(result.rendered)} rendered`);
+    }
     if (result.harness && result.verdict) {
         for (const c of result.verdict.checks ?? []) {
             console.log(`  ${mark(c.ok)} ${c.name}${c.detail ? ` — ${c.detail}` : ""}`);

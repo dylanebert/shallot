@@ -1048,8 +1048,10 @@ export function surfaceCode(
     const decls = Object.entries(binds)
         .map(([n, b], k) => bindingDecl(n, b, k + SURFACE_BASE))
         .join("\n");
-    // a surface that binds an f16 storage element (the `material` vec4<f16>) needs the directive, which
-    // must lead the module. shader-f16 is on the platform floor, so enabling it is always valid.
+    // a surface that binds an f16 storage element needs the directive, which must lead the module. No
+    // engine surface does — sear's `material` mirror binds `vec2<u32>` and decodes with the core
+    // `unpack2x16float` — so this is the consumer opt-in path: a surface declaring an f16 element must
+    // also declare `shader-f16` in its plugin's `Plugin.features`, since it is not on the platform floor.
     const enableF16 = Object.values(binds).some(
         (b) => "element" in b && (b.element ?? "").includes("f16"),
     );
@@ -3200,12 +3202,14 @@ const colorBindings: Record<string, Binding> = {
 };
 
 // the lit materials add the per-entity `material` slab (the Material component's metallic / roughness /
-// emissive / occlusion as a `vec4<f16>` — f16 keeps emissive HDR-capable as a glow strength while the
-// bounded lanes stay finer than unorm8). `unlit` omits it — it never shades, so it stays on
-// `colorBindings`. One extra storage binding: the color pass goes 8 → 9 of the 10-per-stage ceiling (gpu.md)
+// emissive / occlusion packed two f16 per u32 word — f16 keeps emissive HDR-capable as a glow strength
+// while the bounded lanes stay finer than unorm8; the binding is `vec2<u32>` + `unpack2x16float` rather
+// than `vec4<f16>` so no engine shader needs `enable f16`). `unlit` omits it — it never shades, so it
+// stays on `colorBindings`. One extra storage binding: the color pass goes 8 → 9 of the 10-per-stage
+// ceiling (gpu.md)
 const litBindings: Record<string, Binding> = {
     ...colorBindings,
-    material: { type: "storage", element: "vec4<f16>" },
+    material: { type: "storage", element: "vec2<u32>" },
 };
 
 /**
@@ -3254,15 +3258,18 @@ export const SearPlugin: Plugin = {
         // no stale entry (the Surfaces/Draws/Meshes reload-safety shape — RenderPlugin.initialize clears those)
         Backgrounds.clear();
         // build the Pbr struct + the emissive tint (Color.rgb * the emissive strength lane) from the
-        // f16 material lanes (promoted to f32 for the shading math). emissive is an unbounded HDR glow
-        // strength; dielectric 0 → metallic 0 is specular-free (the flat shallot default)
+        // f16 material lanes: word x holds (metallic, roughness), word y (emissive, occlusion), each
+        // unpacked to f32 for the shading math. emissive is an unbounded HDR glow strength;
+        // dielectric 0 → metallic 0 is specular-free (the flat shallot default)
         const PbrPreamble = /* wgsl */ `
         fn matOf(eid: u32) -> Pbr {
             let m = material[eid];
-            return Pbr(unpackLdrColor(color[eid]).rgb, f32(m.x), f32(m.y), f32(m.w), 0.0);
+            let mr = unpack2x16float(m.x);
+            let eo = unpack2x16float(m.y);
+            return Pbr(unpackLdrColor(color[eid]).rgb, mr.x, mr.y, eo.y, 0.0);
         }
         fn emissiveOf(eid: u32) -> vec3<f32> {
-            return unpackLdrColor(color[eid]).rgb * f32(material[eid].z);
+            return unpackLdrColor(color[eid]).rgb * unpack2x16float(material[eid].y).x;
         }`;
         Surfaces.register({
             name: "default",

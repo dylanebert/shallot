@@ -1,11 +1,11 @@
 import { skipReason, verify } from "./verify";
 
-// `bun run recipes` — the physics recipes' dynamics smoke. Each of the six ported physics recipes installs a
-// `window.__harness` (its `src/smoke.ts`, wired only in its manifest) whose `run()` drives the scene and
-// asserts the concept's observable — the platform slides, the rotor spins, joints hold or break, friction
-// rates differ, the car advances under throttle. This drives each through `shallot verify` (the same shipped
-// gate `bun bench` / `bun run flows` wrap) and reads the pass/fail verdict. It is the standing regression
-// gate for the recipes' behaviour, not just that they render.
+// `bun run recipes` — the recipes' dynamics smoke. Each listed recipe installs a `window.__harness` (its
+// `src/smoke.ts`, wired only in its manifest) whose `run()` drives the scene and asserts the concept's
+// observable — the platform slides, joints hold or break, friction rates differ, the car advances under
+// throttle, the profiler reports GPU time. This drives each through `shallot verify` (the same shipped gate
+// `bun bench` / `bun run flows` wrap) and reads the pass/fail verdict. It is the standing regression gate for
+// the recipes' behaviour, not just that they render.
 //
 // Display-gated exactly like flows: verify needs a real display + a conformant WebGPU adapter, so on WSL /
 // headless it skips honestly (native hardware only). The green run is native; here it proves the wiring.
@@ -24,6 +24,7 @@ const RECIPES: Recipe[] = [
     { dir: "breakable-joints", checks: ["a joint breaks under load"] },
     { dir: "surface-friction", checks: ["friction rates differ"] },
     { dir: "drive-a-vehicle", checks: ["car advances under throttle"] },
+    { dir: "measure-performance", checks: ["profiler reports gpu time"] },
 ];
 
 async function runRecipe(r: Recipe): Promise<boolean> {

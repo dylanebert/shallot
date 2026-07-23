@@ -75,7 +75,7 @@ wrap_app! {
                 // enable-unsafe-webgpu lifts the WebGPU adapter blocklist; ignore-gpu-blocklist lifts
                 // the broader GPU software-rendering list — without both, requestAdapter() returns
                 // null on otherwise-capable GPUs. allow_unsafe_apis exposes the unsafe Dawn features
-                // the engine's base floor needs (timestamp-query).
+                // an engine plugin may require (timestamp-query, which ProfilePlugin declares).
                 cmd.append_switch(Some(&CefString::from("enable-unsafe-webgpu")));
                 cmd.append_switch(Some(&CefString::from("ignore-gpu-blocklist")));
                 cmd.append_switch_with_value(

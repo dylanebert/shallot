@@ -1,5 +1,5 @@
 import { Compute, type Plugin, type State, type System } from "../../engine";
-import { readBinary } from "../../engine/runtime";
+import { readBinary, UnsupportedError } from "../../engine/runtime";
 import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene/core";
 import { Color, Part } from "../../standard/part";
@@ -44,7 +44,7 @@ import {
     SkinSystem,
     skinSurface,
 } from "./skin";
-import { pickTargets, type Targets, type TranscodeTarget } from "./target";
+import { COMPRESSION_FAMILIES, pickTargets, type Targets, type TranscodeTarget } from "./target";
 import {
     type AssembledTextures,
     type DecodedImage,
@@ -630,6 +630,16 @@ async function isKtx2(blob: Blob): Promise<boolean> {
     return KTX2_ID.every((b, i) => head[i] === b);
 }
 
+// the real texture-compression gate: `pickTargets` is total (a geometry-only or PNG-textured import needs
+// no family), so the failure lands here, on the one image that actually has nowhere to transcode to. Both
+// causes name themselves — the device exposes no family because `GltfPlugin` isn't in the plugin list and
+// nothing requested one, or a `decode` call simply omitted `{ targets }`.
+const noTarget = (slot: string) =>
+    new UnsupportedError(
+        `[gltf] a KTX2 ${slot} has no transcode target: the device exposes no texture-compression family. Add GltfPlugin to your plugin list so a capable device requests one, or pass { targets } from pickTargets(device). Requires one of:`,
+        COMPRESSION_FAMILIES,
+    );
+
 // decode the baseColor texture set into deviceless per-image data + the per-material image reference — the
 // compression-preserving half of the importer, with bucketing deferred to the union assembly (union.ts), a
 // union-level decision across the active set. PNG/JPEG decode to `ImageBitmap`s (the union resizes them into
@@ -660,11 +670,7 @@ async function decodeAlbedo(
     // main-thread-side from the device features and threaded in — decode stays deviceless (a worker has none).
     const isKtxArr = await Promise.all(blobs.map(isKtx2));
     const ktx = isKtxArr.some(Boolean) ? await import("./basis") : null;
-    if (ktx && !target) {
-        throw new Error(
-            "[gltf] KTX2 baseColor requires a transcode target — pass { targets } from pickTargets(device)",
-        );
-    }
+    if (ktx && !target) throw noTarget("baseColor");
     if (ktx) await ktx.loadBasis();
     const images = await Promise.all(
         blobs.map(async (b, i): Promise<DecodedImage> => {
@@ -712,11 +718,7 @@ async function decodeMap(
     );
     const isKtxArr = await Promise.all(blobs.map(isKtx2));
     const ktx = isKtxArr.some(Boolean) ? await import("./basis") : null;
-    if (ktx && !target) {
-        throw new Error(
-            "[gltf] KTX2 data map requires a transcode target — pass { targets } from pickTargets(device)",
-        );
-    }
+    if (ktx && !target) throw noTarget("data map");
     if (ktx) await ktx.loadBasis();
     const images = await Promise.all(
         blobs.map(async (b, i): Promise<DecodedImage> => {
@@ -1399,6 +1401,13 @@ export const GltfPlugin: Plugin = {
     components: { Textured, Skin },
     dependencies: [RenderPlugin, SlabPlugin],
     systems: [RouteSystem, SkinSystem, LiveSkinSystem, UnionBuildSystem],
+    // the KTX2 transcode picks a family from `device.features` (`target.ts`), and a feature the device
+    // never *requested* reads false even on hardware that has it — so every family this importer can
+    // target must be requested. This declaration is what makes that read true, so a KTX2 import needs
+    // the plugin in the list even though `loadGltf` itself doesn't. Preferred, never required: an
+    // untextured / non-KTX2 import needs no family, and a device with none still loads the plugin —
+    // `pickTargets` is total, and the per-image gates in `decodeAlbedo` / `decodeMap` are the real one.
+    preferredFeatures: COMPRESSION_FAMILIES,
     traits: {
         Textured: { defaults: () => ({ id: 0 }), derived: true },
         Skin: { defaults: () => ({ anim: [0, 0, 0, 0] }), derived: true },

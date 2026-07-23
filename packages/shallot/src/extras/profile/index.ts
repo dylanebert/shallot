@@ -1,5 +1,6 @@
 import type { Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
+import { UnsupportedError } from "../../engine/runtime";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
 
 export type {
@@ -83,6 +84,10 @@ const GPU_HOLD_DRAINS = 8;
 // they age out of the held `gpu` map and the reported GPU total craters mid-run.
 const READ_RING = 4;
 
+// the one feature this plugin requires — `ProfilePlugin.features` and `attach`'s guard read the same list,
+// so an acquired device and an adopted one fail on identical terms.
+const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
+
 // timestamp queries + pipeline-compile timing + live allocation tracking. Owns
 // the GPU query set + staging buffers (singleton-lifetime — live with the
 // device, never destroyed per-state) and patches `device.createBuffer` /
@@ -135,6 +140,17 @@ class ProfileImpl implements Profile {
     private readonly _mapped: ReadSlot[] = [];
 
     attach(device: GPUDevice, capacity = 2048): void {
+        // `ProfilePlugin.features` covers an acquired device, but `requestGPU(externalDevice)` adopts one
+        // as-is — the declaration never reaches it. Guard where the feature is used, the layer every path
+        // crosses: an unguarded query set on a device without it is a raw validation error on
+        // `onuncapturederror` and a profiler silently reporting no spans. Checked before the re-attach
+        // skip, so adopting a featureless device mid-process fails loud too.
+        const missing = TIMESTAMP.filter((f) => !device.features.has(f));
+        if (missing.length > 0)
+            throw new UnsupportedError(
+                "[profile] GPU timing needs a device that granted:",
+                missing,
+            );
         if (this._querySet) return;
         this._capacity = capacity;
         this._querySet = device.createQuerySet({ type: "timestamp", count: capacity * 2 });
@@ -956,6 +972,21 @@ let _benchmarkReady = false;
 // rebuilds (module-scoped), so a scene edit in a live authoring host doesn't re-hide it.
 let _visible = false;
 
+/**
+ * show or hide the profiler overlay — the same HUD F3 toggles, driven from code. Off by default; call
+ * `showProfiler()` in a plugin `warm` to surface the numbers on open without a keypress. F3 still toggles
+ * it alongside. No-op without {@link ProfilePlugin} (nothing populates the overlay).
+ * @example
+ * const Perf = { name: "Perf", warm() { showProfiler(); } } satisfies Plugin;
+ */
+export function showProfiler(show = true): void {
+    _visible = show;
+    if (!_visible && _overlay) {
+        _overlay.destroy();
+        _overlay = null;
+    }
+}
+
 // runs FIRST in setup group, before any of the new frame's GPU work: drain every ring slot whose async
 // map has resolved (each carries one past frame's timestamps), resolve the just-completed prior frame's
 // queries (every submit settled — coherent timeline; see resolve()), then zero the per-frame query
@@ -1000,6 +1031,11 @@ export const ProfilePlugin: Plugin = {
     name: "Profile",
     systems: [ProfileFrameBeginSystem, ProfileRenderSystem],
     dependencies: [],
+    // the only `createQuerySet` in the engine is this plugin's; every other site passes
+    // `Compute.span?.(...)`, undefined and valid without it. Required, not preferred: an explicitly
+    // added debug plugin that silently reported no GPU spans would be worse than a named throw. This
+    // covers an *acquired* device; `attach` re-checks, for the adopted one this never reaches.
+    features: TIMESTAMP,
 
     initialize(state: State) {
         const compute = Compute;
@@ -1037,11 +1073,7 @@ export const ProfilePlugin: Plugin = {
                 (e: KeyboardEvent) => {
                     if (e.key !== "F3") return;
                     e.preventDefault();
-                    _visible = !_visible;
-                    if (!_visible && _overlay) {
-                        _overlay.destroy();
-                        _overlay = null;
-                    }
+                    showProfiler(!_visible);
                 },
                 { signal: state.signal },
             );

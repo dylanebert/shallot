@@ -2,6 +2,7 @@
     "scene": "scenes/drive-a-vehicle.scene",
     "plugins": {
         "Orbit": true,
+        "Text": true,
         "Tumble": true,
         "Car": "./src/car",
         "CarSmoke": "./src/smoke"

@@ -30,8 +30,11 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 // with a reason; anything past those prerequisites either works or fails loud — never a hang, never a pass.
 //
 // Coverage exercised over --connect and green: recipes, flows, and `bun bench` (all the same verify path).
-// `--memory` over --connect returns null (the retained-leak sampler produces no sample across the bridge —
-// informational, non-gating). Untested arms: mirrored-networking WSL, and `--alloc` over --connect.
+// `--memory` samples over --connect too — the retained-leak slope is a real reading across the bridge: the
+// forced-GC + getMetrics CDP RPCs (`HeapProfiler.*` / `Performance.*`) are Playwright-protocol-generic, so
+// the tunnel forwards them untouched. A run too short for three 800ms samples reports null; an old note here
+// read that degradation as "returns null over --connect", which was never a code guarantee. Untested arms:
+// mirrored-networking WSL, and `--alloc` over --connect.
 
 const STAGE_NAME = "shallot-verify-bridge";
 const BUNDLE = resolve(REPO_ROOT, "node_modules/.cache/shallot-wsl-verify.mjs");

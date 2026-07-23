@@ -35,13 +35,16 @@ function gpuElementBytes(type: Type): number | null {
 
 // the scatter shader + pipeline key off the GPU element type, not the slab's name: a packed `srgb8x4`
 // color mirrors as a `u32`, so it shares the one `u32` scatter pipeline with every other u32 slab — the
-// copy is identical regardless of what the bits decode to. (`f16x4` keys on its own `vec4<f16>` element.)
+// copy is identical regardless of what the bits decode to. (`f16x4` keys on its own `vec2<u32>` element.)
 function scatterKey(type: Type): string {
     return type.gpu?.wgsl ?? type.wgsl ?? type.name;
 }
 
 function scatterWGSL(type: Type): string {
     const t = type.gpu?.wgsl ?? type.wgsl;
+    // `shader-f16` is not on the platform floor, so this arm is the consumer opt-in path: a `slab(f16)`
+    // only compiles for an app whose plugin declares `shader-f16` in `Plugin.features`. No engine slab
+    // takes it — `f16x4` mirrors as `vec2<u32>`.
     const enableF16 = (t ?? "").includes("f16") ? "enable f16;\n" : "";
     return `${enableF16}
 @group(0) @binding(0) var<storage, read> slots: array<u32>;

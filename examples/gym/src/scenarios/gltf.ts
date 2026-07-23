@@ -13,7 +13,13 @@ import {
     type State,
     TransformsPlugin,
 } from "@dylanebert/shallot";
-import { GltfPlugin, loadGltf, ProfilePlugin } from "@dylanebert/shallot/extras";
+import {
+    type GltfImport,
+    GltfPlugin,
+    loadGltf,
+    ProfilePlugin,
+    placeScene,
+} from "@dylanebert/shallot/extras";
 import {
     ALBEDO_NAMES,
     gltfCacheStats,
@@ -57,10 +63,10 @@ const liveStack: Plugin[] = [ProfilePlugin, ...renderStack];
 // the env without the asset — the import loads imperatively after build (the editor's build-then-load runtime
 // path), so the first-load cost lands on a measurable `loadGltf`, not buried in warm behind a loading screen.
 const envScene = `<scene>
-    <a ambient-light="color: 0x39435a; intensity: 0.4" />
-    <a directional-light="intensity: 0.8; direction: -0.4 -0.8 -0.45" shadow="distance: 30" />
+    <a ambient-light="color: 0x6a7290; intensity: 1.0" />
+    <a directional-light="intensity: 3.0; direction: -0.4 -0.8 -0.45" shadow="distance: 30" />
     <a camera="clear-color: 0x0a0c12" sear
-       orbit="pan: 0 3 0; distance: 14; max-distance: 40; yaw: 0.6; pitch: 0.25" transform />
+       orbit="pan: 0 4 0; distance: 16; max-distance: 40; yaw: 0.6; pitch: 0.1" transform />
 </scene>`;
 
 let src = SOURCES.sponza;
@@ -81,7 +87,10 @@ let loadJankMs = { first: 0, rebuild: 0 };
 
 // time one imperative load while sampling the largest gap between animation frames — the main-thread stall the
 // load induces (the loop keeps running through an off-thread decode; only synchronous work widens a gap).
-async function timedLoad(state: State, url: string): Promise<{ ms: number; jankMs: number }> {
+async function timedLoad(
+    state: State,
+    url: string,
+): Promise<{ ms: number; jankMs: number; asset: GltfImport }> {
     let maxGap = 0;
     let last = now();
     let sampling = true;
@@ -93,13 +102,13 @@ async function timedLoad(state: State, url: string): Promise<{ ms: number; jankM
     };
     requestAnimationFrame(sample);
     const t0 = now();
-    await loadGltf(state, url);
+    const asset = await loadGltf(state, url);
     // the union uploads across frames (the cold path stages it); drain it before stopping the clock so the jank
     // sampler measures the spread per-frame cost (not just the cheap begin) and `ms` covers the full load
     while (unionPending()) await new Promise<void>((r) => requestAnimationFrame(() => r()));
     const ms = now() - t0;
     sampling = false;
-    return { ms, jankMs: maxGap };
+    return { ms, jankMs: maxGap, asset };
 }
 
 // one rebuild step — a fresh State on the shared device with the env scene (the caller disposes it)
@@ -127,7 +136,19 @@ const scenario: Scenario = {
         // reuse ONE device across every build — a live host's play/stop rebuild reuses the device, so the
         // module-level asset cache + union survive it. Acquiring per build (run's default) would hand each
         // build a fresh device and the cache's GPU resources would belong to a dead one.
-        const device = (await requestGPU()).device;
+        //
+        // Acquiring by hand means unioning the stack's feature needs by hand too — `run({ device })` adopts
+        // an external device as-is, so a plugin's `features` / `preferredFeatures` never reach it. Both are
+        // load-bearing here: ProfilePlugin *requires* timestamp-query, and the importer *prefers* all three
+        // compression families (a family the device never requested reads false in `pickTargets`, so a
+        // KTX2 asset would throw on hardware that supports it).
+        const device = (
+            await requestGPU(
+                undefined,
+                liveStack.flatMap((p) => p.features ?? []),
+                liveStack.flatMap((p) => p.preferredFeatures ?? []),
+            )
+        ).device;
 
         // warm the once-per-process costs (decode worker pool + Draco/Basis WASM + sear/blit pipeline compiles)
         // so the measured leg A reflects the per-load UNION BUILD, not the one-time cold-start a live host pays
@@ -169,6 +190,10 @@ const scenario: Scenario = {
         loadJankMs.rebuild = rebuild.jankMs;
         trace.rebuildDecodes = gltfCacheStats().decodes;
         trace.rebuildAssets = gltfCacheStats().assets;
+        // place the cache-hit-rebuilt union so the returned live state actually renders the model — the pixel
+        // gate's honest end-to-end proof that the republish bound the real textures (a black canvas here is the
+        // black-on-replay bug's own symptom, the very thing the resource-state checks above verify indirectly).
+        placeScene(b.state, rebuild.asset);
         await frames(2);
         return b;
     },

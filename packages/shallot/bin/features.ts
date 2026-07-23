@@ -10,8 +10,11 @@ import { installGpuGlobals } from "./gpu-globals";
 // as a `preferredFeatures` (LDS fallback on WKWebView), so it's never in the required set and a macOS
 // system-webview physics build runs. Windows WebView2 is full Chromium. Linux WebKitGTK has no usable
 // WebGPU at all — a different shape, handled directly in verdict(). Every CEF (`--portable`) build
-// ships its own Chromium, so it never appears here. No required gap stands today; the map is the seam
-// for the next required feature beyond the floor. See gpu.ts BASE_FEATURES + Plugin.features.
+// ships its own Chromium, so it never appears here. One required feature beyond the floor exists today
+// — `ProfilePlugin`'s `timestamp-query`. WebView2 has every feature, and the 2026-06-19 WKWebView audit
+// (CLAUDE.md "Targets") recorded the then-floor complete with only `subgroups` absent, which is what
+// records it as having `timestamp-query` — so no gap stands, and the map is the seam for the first one
+// that does. See gpu.ts BASE_FEATURES + Plugin.features.
 const WEBVIEW_UNSUPPORTED: Record<string, readonly string[]> = {
     mac: [],
     windows: [],

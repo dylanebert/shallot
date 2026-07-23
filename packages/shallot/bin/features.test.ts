@@ -47,4 +47,11 @@ describe("requiredFeatures", () => {
         const dir = project({ plugins: {} });
         expect(await requiredFeatures(dir)).toEqual([]);
     });
+
+    test("a Profile project requires timestamp-query — it left the floor for the plugin", async () => {
+        // the profiler is the one plugin with a hard requirement beyond the floor; a project that
+        // doesn't enable it never requests the feature at all.
+        const dir = project({ plugins: { Profile: true } });
+        expect(await requiredFeatures(dir)).toEqual(["timestamp-query"]);
+    });
 });

@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { State } from "../../engine";
+import { register } from "../../engine/ecs/core";
+import { Surfaces } from "../render/core";
 import { mesh, packMeshes, quantizeMeshes } from "../render/mesh";
-import { backgroundCode, surfaceCode } from "./forward";
+import { Slab } from "../slab";
+import { backgroundCode, Material, SearPlugin, surfaceCode } from "./forward";
 
 // Structural validation of sear's per-surface WGSL codegen. `surfaceCode` is
 // pure (no GPU), so the contract — explicit `col` output, the `lit` /
@@ -477,6 +481,47 @@ describe("sear surfaceCode", () => {
         expect(code).not.toContain("// BASE");
         expect(code).toContain("col = vec4<f32>(uv, 0.0, 1.0);");
     });
+
+    // `shader-f16` is NOT on the platform floor (CLAUDE.md), and Dawn rejects `createShaderModule` for an
+    // `enable` naming an extension the device never enabled — so an engine module carrying `enable f16`
+    // would be a hard boot failure on a conforming floor device. sear's `material` mirror binds two u32
+    // words and decodes with the core `unpack2x16float` instead, which needs no directive. This is the
+    // device-free half of that gate; `bun bench` is the other half (it compiles for real without
+    // requesting the feature). The engine ships no background, so the default set is surfaces only;
+    // `backgroundCode`'s directive arm is the consumer-opt-in test at the end of this file.
+    test("no engine surface needs f16 — the default set generates without the type or the directive", () => {
+        // `SearPlugin.initialize` bases every slot of the Material slab, so its CPU array must exist
+        // first — `Slab.collect()` is the device-free alloc pass `build()` runs over the registry
+        register("Material", Material);
+        Slab.collect();
+        SearPlugin.initialize?.(new State());
+        for (const name of ["default", "vertex", "unlit"]) {
+            const surface = Surfaces.get(name);
+            expect(surface).toBeDefined();
+            // every generator's directive arm branches on the same input — the declared binding elements
+            // (`surfaceCode`, `backgroundCode`, and the module-private shadow-atlas codegen each test
+            // `element.includes("f16")`) — so an f16-free binding set is f16-free in all of them
+            for (const binding of Object.values(surface?.bindings ?? {})) {
+                if ("element" in binding) expect(binding.element ?? "").not.toMatch(/\bf16\b/);
+            }
+            for (const pass of ["color", "prepass"] as const) {
+                const code = surfaceCode(surface!, pass);
+                expect(code).not.toContain("enable f16");
+                expect(code).not.toMatch(/\bf16\b/);
+            }
+        }
+        const code = surfaceCode(Surfaces.get("default")!);
+        expect(code).toContain("var<storage, read> material: array<vec2<u32>>");
+        // the lane→field mapping, not just the presence of a decode: word x holds (metallic, roughness)
+        // and word y (emissive, occlusion), so Pbr's occlusion reads `eo.y` and the tint `eo.x`. Swapping
+        // any pair still compiles and still renders, so this is the only device-free guard on it
+        expect(code).toContain("let mr = unpack2x16float(m.x);");
+        expect(code).toContain("let eo = unpack2x16float(m.y);");
+        expect(code).toContain("Pbr(unpackLdrColor(color[eid]).rgb, mr.x, mr.y, eo.y, 0.0)");
+        expect(code).toContain(
+            "unpackLdrColor(color[eid]).rgb * unpack2x16float(material[eid].y).x",
+        );
+    });
 });
 
 // the vertices buffer is `array<Vertex>` (posU + normalV = 8 floats). A length
@@ -612,6 +657,9 @@ describe("sear backgroundCode", () => {
         expect(code).toContain("@group(0) @binding(3) var<uniform> sky: Sky;");
     });
 
+    // the consumer opt-in path: no engine surface binds an f16 element (sear's `material` mirror is
+    // `vec2<u32>` + `unpack2x16float`), so a surface that does must declare `shader-f16` in its own
+    // `Plugin.features` — it is not on the platform floor. The directive machinery exists for that case.
     test("a preamble is spliced at module scope and an f16 binding enables the directive", () => {
         const code = backgroundCode({
             name: "t",

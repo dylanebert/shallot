@@ -2,6 +2,7 @@
   "scene": "scenes/respond-to-input.scene",
   "plugins": {
     "Orbit": true,
+    "Text": true,
     "Drive": "./src/drive"
   }
 }

@@ -83,6 +83,10 @@ export type Params = Record<string, boolean | string | number>;
 export interface Scenario {
     name: string;
     params?: Param[];
+    /** this scenario renders no framed scene by design (a GPU-compute microbench) — forwarded to the
+     *  harness's `noRender`, so `shallot verify`'s pixel gate reports "opt-out" and passes on the verdict
+     *  alone. Omit for any scenario that draws content. */
+    noRender?: boolean;
     build(
         canvas: HTMLCanvasElement,
         params: Params,
@@ -273,6 +277,7 @@ export function packCounts(m: Mirror, slot: number, pairCount: number): Uint32Ar
 // as strings (the URL is the primary channel); warmup/frames coerce to the profiler defaults when absent.
 export function installHarness(scenario: Scenario, state: State, built: () => boolean): void {
     const target: HarnessTarget = {
+        ...(scenario.noRender ? { noRender: true } : {}),
         get ready() {
             return built() && window.__benchmark?.ready === true;
         },

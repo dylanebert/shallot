@@ -56,7 +56,8 @@ export async function loadBasis(): Promise<void> {
  *
  * @example
  * await loadBasis();
- * const image = transcodeKtx2(ktx2Bytes, pickTargets(device).albedo); // pickTargets from ./target
+ * const targets = pickTargets(device); // from ./target; undefined when no compressed family was granted
+ * if (targets) image = transcodeKtx2(ktx2Bytes, targets.albedo);
  */
 export function transcodeKtx2(bytes: Uint8Array, target: TranscodeTarget): Ktx2Image {
     const file = openKtx2(bytes);

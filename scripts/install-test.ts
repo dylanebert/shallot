@@ -97,6 +97,18 @@ function createShallotFlow(work: string, engineTgz: string) {
         "scaffold docs name `shallot verify` as the verification step",
         /shallot verify/.test(doc),
     );
+    check(
+        "scaffold docs name `shallot recipe` as the copy-out command",
+        /shallot recipe/.test(doc),
+    );
+    // runnable command lines standardize on `bunx shallot <cmd>` — a bare `shallot <cmd>` at a line or
+    // `&&`-chain start only resolves when globally linked (check-docs.ts guards the repo's own docs; this
+    // guards the docs create-shallot emits, which check-docs can't scan statically). Prose naming the CLI
+    // surface (backtick-preceded) is unaffected.
+    check(
+        "scaffold docs carry no bare `shallot <cmd>` runnable line",
+        !/(^|&&)\s*shallot\s+(dev|build|run|verify|recipe)\b/m.test(doc),
+    );
 
     // the shipped verify gate, run as an installed agent would: --help is a clean exit, and a project
     // with no playwright gets the distinct exit 3 + the actionable install command (a browser run itself
@@ -125,6 +137,57 @@ function createShallotFlow(work: string, engineTgz: string) {
         "tsc --noEmit stays green with an emptied src/ (no TS18003)",
         tsc.ok,
         tsc.ok ? "" : tsc.out.slice(-400),
+    );
+}
+
+// `shallot recipe <name> <dir>` copies a recipe out of the installed package into a runnable project;
+// the copy's engine dep is version-pinned by the CLI, so here we point it back at the packed tarball
+// (as a real user's registry install would resolve) and build it headlessly. Guards the whole copy-out
+// path: recipe present in the pack, CLI copies it, the pinned dep installs, the project builds.
+function recipeFlow(work: string, engineTgz: string) {
+    console.log("shallot recipe (copy a recipe out → install → build)…");
+    const dest = join(work, "recipe-out", "joints");
+    const copied = run(["bun", CLI, "recipe", "joints", dest], sandbox);
+    check("shallot recipe copies a recipe out", copied.ok, copied.ok ? "" : copied.out.slice(-400));
+    if (!existsSync(join(dest, "package.json"))) return;
+    // the CLI pins the engine to the installed version; swap it for the packed tarball the test has
+    const pkg = JSON.parse(readFileSync(join(dest, "package.json"), "utf8"));
+    check(
+        "the copy's engine dep is version-pinned (no workspace:*)",
+        typeof pkg.dependencies?.["@dylanebert/shallot"] === "string" &&
+            !pkg.dependencies["@dylanebert/shallot"].startsWith("workspace:"),
+        String(pkg.dependencies?.["@dylanebert/shallot"]),
+    );
+    pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
+    writeFileSync(join(dest, "package.json"), `${JSON.stringify(pkg, null, 4)}\n`);
+    const inst = run(["bun", "install"], dest);
+    check("the copied recipe installs", inst.ok, inst.ok ? "" : inst.out.slice(-400));
+    if (!inst.ok) return;
+
+    // the copy-out synthesizes the standalone scaffold the monorepo recipe lacks: the agent-surface
+    // pointer (AGENTS.md/CLAUDE.md) an installed harness follows, and a tsconfig. Assert the pointer names
+    // node_modules and resolves in the real install (the reach the distribution decision rests on).
+    for (const file of ["AGENTS.md", "CLAUDE.md"]) {
+        const emitted = readFileSync(join(dest, file), "utf8");
+        check(
+            `the copied recipe's ${file} points at node_modules`,
+            /node_modules\/@dylanebert\/shallot\/AGENTS\.md/.test(emitted),
+        );
+    }
+    check(
+        "the copied recipe's engine-pointer path resolves after install",
+        existsSync(join(dest, "node_modules/@dylanebert/shallot/AGENTS.md")),
+    );
+    check(
+        "the copied recipe carries a standalone tsconfig",
+        existsSync(join(dest, "tsconfig.json")),
+    );
+
+    const built = run(["bun", CLI, "build", "."], dest);
+    check("the copied recipe builds", built.ok, built.ok ? "" : built.out.slice(-600));
+    check(
+        "copied recipe build produced dist/index.html",
+        existsSync(join(dest, "dist", "index.html")),
     );
 }
 
@@ -213,9 +276,30 @@ try {
             existsSync(join(shipped, "examples/recipes/save-and-restore/shallot.json")),
     );
     check(
-        "no repo-only plumbing leaked into a shipped recipe (package.json / tsconfig)",
-        !existsSync(join(shipped, "examples/recipes/build-a-scene/package.json")) &&
-            !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")),
+        "a shipped recipe carries its package.json (the copy-out project surface)",
+        existsSync(join(shipped, "examples/recipes/build-a-scene/package.json")),
+    );
+    check(
+        "no monorepo-only plumbing leaked into a shipped recipe (tsconfig / node_modules)",
+        !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")) &&
+            !existsSync(join(shipped, "examples/recipes/build-a-scene/node_modules")),
+    );
+    // repo test files import across the monorepo root (scripts/, examples/gym), paths that dangle
+    // in a consumer install — the `files` surface must exclude every *.test.ts, bin included.
+    const leakedTests = [...new Bun.Glob("**/*.test.ts").scanSync({ cwd: shipped })];
+    check(
+        "no test files shipped in the tarball (files surface excludes *.test.ts)",
+        leakedTests.length === 0,
+        leakedTests.slice(0, 5).join(", "),
+    );
+    // the dynamics-smoke plugins are CI scaffolding — stripped from the shipped corpus (file + manifest
+    // entry) so a copied-out physics recipe carries no `./src/smoke` reference that would fail to build.
+    check(
+        "the shipped physics recipe dropped its smoke plugin (file + manifest entry)",
+        !existsSync(join(shipped, "examples/recipes/joints/src/smoke.ts")) &&
+            !/smoke/.test(
+                readFileSync(join(shipped, "examples/recipes/joints/shallot.json"), "utf8"),
+            ),
     );
     const idx = existsSync(join(shipped, "examples/AGENTS.md"))
         ? readFileSync(join(shipped, "examples/AGENTS.md"), "utf8")
@@ -223,6 +307,10 @@ try {
     check(
         "the shipped index carries recipes with no dangling gym/showcase tier",
         /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
+    );
+    check(
+        "the shipped index names `shallot recipe` as the copy-out command",
+        /shallot recipe/.test(idx),
     );
 
     if (install.ok) {
@@ -313,6 +401,8 @@ try {
             await Promise.race([Promise.all([drain, drainErr]), Bun.sleep(1500)]);
         }
     }
+
+    if (install.ok) recipeFlow(work, engineTgz);
 
     createShallotFlow(work, engineTgz);
 } finally {

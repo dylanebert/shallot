@@ -1,9 +1,17 @@
 <scene>
-    <a ambient-light="color: 0xc4d0e0" />
-    <!-- `volumetric` opts the sun into god rays: the fog march adds its in-scatter, so shafts glow through the haze -->
-    <a directional-light="direction: -0.4 -0.7 -0.5; color: 0xfff4e0; intensity: 1.1" volumetric />
+    <a ambient-light="color: 0xc4d0e0; intensity: 0.4" />
+    <!-- `volumetric` opts the sun into god rays and `shadow` casts the sun shadow map the fog march reads:
+         occluders darken the in-scatter behind them, so the shafts are the lit gaps between pillar shadows -->
+    <a
+        directional-light="direction: 0.58 -0.36 0.64; color: 0xfff4e0"
+        volumetric
+        shadow="distance: 70"
+    />
 
-    <a fog="density: 0.05; color: 0xbcc7d6; height-base: 0; height-falloff: 0.12" />
+    <!-- scattering/anisotropy/scatter-intensity set the shaft brightness; positive anisotropy pushes a forward glow toward the sun -->
+    <a
+        fog="density: 0.05; color: 0xbcc7d6; height-base: 0; height-falloff: 0.1; absorption: 0.1; scattering: 8; anisotropy: 0.66; scatter-intensity: 2.3"
+    />
 
     <a
         id="camera"

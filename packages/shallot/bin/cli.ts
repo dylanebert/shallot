@@ -13,6 +13,13 @@ if (raw[0] === "verify") {
     process.exit(await runVerify(raw.slice(1)));
 }
 
+// `recipe` copies a shipped example project out of the installed package — its own positional shape
+// (name + dest dir), no shared dev/build/run flags, so route it before that parse.
+if (raw[0] === "recipe") {
+    const { runRecipe } = await import("./recipe");
+    process.exit(await runRecipe(raw.slice(1)));
+}
+
 const positionalArgs: string[] = [];
 let target: string | undefined;
 let release = false;
@@ -57,6 +64,7 @@ const usage = `
     build     Build for distribution
     run       Build and run
     verify    Boot the project in a headless browser and check it renders (shallot verify --help)
+    recipe    Copy an example recipe out of the package (bare: list them)
 
   Options
     --target <platform>   web (default), windows, mac, linux
@@ -72,6 +80,7 @@ const usage = `
     shallot dev                  Run with hot reload
     shallot build --target mac   Build a macOS app (system WKWebView)
     shallot build --target linux --portable   Build a self-contained Linux app
+    shallot recipe first-person  Copy the first-person recipe into ./first-person
 `;
 
 if (help) {

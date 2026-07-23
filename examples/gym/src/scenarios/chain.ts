@@ -172,6 +172,9 @@ function chainPlugin(): Plugin {
 
 const scenario: Scenario = {
     name: "chain",
+    // a GPU-compute microbench: it runs two dependent compute chains and draws no framed scene, so the
+    // canvas is legitimately blank. Opt out of the pixel gate — the chain's correctness is its assert.
+    noRender: true,
     params: [
         {
             key: "phases",

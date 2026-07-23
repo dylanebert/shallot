@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { SCENARIO_TIMEOUTS } from "../../../examples/gym/src/scenarios/timeouts";
+import { benchTimeout } from "../../../scripts/bench";
 import {
     bootArm,
     buildUrl,
@@ -7,6 +9,7 @@ import {
     fitMemory,
     gridDiff,
     harnessPass,
+    hasStructure,
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
@@ -87,6 +90,18 @@ describe("parseVerifyArgs", () => {
     test("--memory and --alloc together are a parse error (their samplers conflict)", () => {
         expect(() => parseVerifyArgs(["--memory", "--alloc"])).toThrow("mutually exclusive");
     });
+
+    test("--leak defaults to 0 (off) and parses a positive rate (with --memory)", () => {
+        expect(parseVerifyArgs([]).leak).toBe(0);
+        expect(parseVerifyArgs(["--leak", "122880", "--memory"]).leak).toBe(122880);
+        expect(parseVerifyArgs(["--leak=122880", "--memory"]).leak).toBe(122880);
+        expect(() => parseVerifyArgs(["--leak", "0"])).toThrow("expected a positive number");
+    });
+
+    test("--leak without --memory is a parse error (nothing samples the injected allocation)", () => {
+        expect(() => parseVerifyArgs(["--leak", "122880"])).toThrow("--leak requires --memory");
+        expect(() => parseVerifyArgs(["--leak=122880"])).toThrow("--leak requires --memory");
+    });
 });
 
 describe("bootArm", () => {
@@ -132,13 +147,31 @@ describe("settle-wait primitives", () => {
         expect(gridDiff(g, g)).toBe(0);
         expect(gridDiff([0, 0, 0], [10, 20, 30])).toBeCloseTo((10 + 20 + 30) / 3, 6);
     });
+
+    test("hasStructure: a centrally-framed scene renders; a flat clear or a null (no canvas) does not", () => {
+        // centre lifted off the cleared corner — a rendered scene
+        expect(hasStructure({ grid: [], center: [200, 200, 200], corner: [10, 10, 10] })).toBe(
+            true,
+        );
+        // centre reads the clear color (a model that never rendered — the gltf symptom) → not rendered
+        expect(hasStructure({ grid: [], center: [10, 10, 10], corner: [10, 10, 10] })).toBe(false);
+        // no capturable canvas → not rendered
+        expect(hasStructure(null)).toBe(false);
+    });
 });
 
 describe("verdict interpretation", () => {
-    test("harnessPass: ok verdict + no errors passes; an error fails an ok verdict", () => {
-        expect(harnessPass({ ok: true }, 0)).toBe(true);
-        expect(harnessPass({ ok: true }, 1)).toBe(false);
-        expect(harnessPass({ ok: false }, 0)).toBe(false);
+    test("harnessPass: ok verdict + rendered + no errors passes; a blank canvas or error fails", () => {
+        expect(harnessPass({ ok: true }, true, 0)).toBe(true);
+        expect(harnessPass({ ok: true }, true, 1)).toBe(false);
+        expect(harnessPass({ ok: false }, true, 0)).toBe(false);
+        // an ok verdict over a canvas that rendered nothing is a FAIL — the pixel-honest gate.
+        expect(harnessPass({ ok: true }, false, 0)).toBe(false);
+        // a declared no-render opt-out passes the pixel gate on the verdict alone (renders nothing by
+        // design), but the verdict + error checks still hold.
+        expect(harnessPass({ ok: true }, "opt-out", 0)).toBe(true);
+        expect(harnessPass({ ok: false }, "opt-out", 0)).toBe(false);
+        expect(harnessPass({ ok: true }, "opt-out", 1)).toBe(false);
     });
 
     test("settlePass needs booted + rendered + zero errors", () => {
@@ -257,5 +290,28 @@ describe("stepWait — the unified wait decision", () => {
         expect(stepWait(st, false, blank)).toBe("continue");
         expect(st.booted).toBe(true);
         expect(st.prev).toBeNull();
+    });
+});
+
+// the scenario-declared bench timeout: `bun bench` drives a scenario that declared a budget under it, keeps
+// the tight 60s default for every scenario that didn't, and lets an explicit --timeout override either.
+describe("benchTimeout", () => {
+    test("a declared scenario drives under its budget, above the 60s default", () => {
+        expect(benchTimeout("stress")).toBe(SCENARIO_TIMEOUTS.stress);
+        // the whole point: stress legitimately needs more than the default hang detector.
+        expect(benchTimeout("stress")).toBeGreaterThan(60_000);
+    });
+
+    test("an undeclared scenario stays undefined so verify's 60s default holds", () => {
+        expect(benchTimeout("render")).toBeUndefined();
+        expect(benchTimeout("pile")).toBeUndefined();
+    });
+
+    test("an explicit --timeout overrides a declared budget (operator override)", () => {
+        expect(benchTimeout("stress", 90_000)).toBe(90_000);
+    });
+
+    test("an explicit --timeout is honored on an undeclared scenario too", () => {
+        expect(benchTimeout("render", 5_000)).toBe(5_000);
     });
 });

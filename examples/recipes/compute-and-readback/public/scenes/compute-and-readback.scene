@@ -9,4 +9,7 @@
     <a part transform="pos: -2.4 0.5 0" color="rgba: 0.9 0.5 0.3" charge="amount: 1" />
     <a part transform="pos: 0 0.5 0" color="rgba: 0.5 0.7 0.55" charge="amount: 2" />
     <a part transform="pos: 2.4 0.5 0" color="rgba: 0.45 0.55 0.7" charge="amount: 3" />
+
+    <!-- driven from the readback total in src/reduce.ts, not authored here -->
+    <a readout text="anchor: 0.5; font-size: 0.4" transform="pos: 0 2.2 0" />
 </scene>

@@ -170,21 +170,19 @@ const scenario: Scenario = {
             return Promise.resolve([{ name: "queries", pass: false, detail: "no tumble world" }]);
         const checks: Check[] = [];
 
-        // ray: closest hit on the sphere, at its top (y 5), and it's the ray target body
+        // ray: closest hit on the sphere, at its top (y 5), and it's the ray target body.
+        // Identity is by-value: the marshaled body carries its eid as userData (a query mints a
+        // fresh Body wrapper each call, so `===` against a cached handle never holds).
         const r = world.castRayClosest(
             { x: RAY_TARGET[0], y: 10, z: RAY_TARGET[2] },
             { x: 0, y: -8, z: 0 },
         );
-        const rayTarget = Tumble.body(rayTargetEid);
+        const hitEid = r.hit && r.shape ? r.shape.getBody().getUserData() : undefined;
         checks.push({
             name: "castRayClosest hits the sphere top (closest hit)",
-            pass:
-                r.hit &&
-                !!r.shape &&
-                r.shape.getBody() === rayTarget &&
-                Math.abs(r.point.y - 5) < 0.3,
+            pass: r.hit && !!r.shape && hitEid === rayTargetEid && Math.abs(r.point.y - 5) < 0.3,
             detail: r.hit
-                ? `hit y ${r.point.y.toFixed(3)} (expect ~5), target ${r.shape?.getBody() === rayTarget}`
+                ? `hit y ${r.point.y.toFixed(3)} (expect ~5), eid ${hitEid} (expect ${rayTargetEid})`
                 : "no hit",
         });
 

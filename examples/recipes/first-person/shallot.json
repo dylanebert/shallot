@@ -4,6 +4,7 @@
     "Tumble": true,
     "Character": true,
     "Player": true,
+    "Text": true,
     "Demo": "./src/demo"
   }
 }

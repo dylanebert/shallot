@@ -6,5 +6,11 @@
 
     <a id="ground" part transform="pos: 0 -0.5 0; scale: 8 0.15 8" color="rgba: 0.28 0.3 0.34" />
 
+    <!-- names the interaction on open; the recipe is otherwise silent until a keypress or click -->
+    <a
+        text="anchor: 0.5; content: WASD: move   Click: color   Space: reset; font-size: 0.4; color: 0xffcc44"
+        transform="pos: 0 2.4 0"
+    />
+
     <a id="player" controlled part transform="pos: 0 0.5 0" color="rgba: 0.4 0.7 0.9" />
 </scene>

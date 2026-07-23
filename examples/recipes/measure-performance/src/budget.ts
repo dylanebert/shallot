@@ -1,4 +1,4 @@
-import { type Plugin, Profile, type System } from "@dylanebert/shallot";
+import { type Plugin, Profile, type System, showProfiler } from "@dylanebert/shallot";
 
 // The same numbers behind the F3 overlay live on the `Profile` singleton, refreshed every frame. Read
 // `Profile.gpu` (per-pass GPU time) or `Profile.cpu` (per-system) in a system to guard a frame budget or
@@ -20,6 +20,11 @@ export const budget = {
 export const Budget = {
     name: "Budget",
     systems: [budget],
+    // surface the profiler HUD on open — the same overlay F3 toggles, shown from code so the numbers are
+    // visible without a keypress. Off by default engine-wide; a perf-focused project opts in like this.
+    warm() {
+        showProfiler();
+    },
 } satisfies Plugin;
 
 export default Budget;

@@ -3,6 +3,7 @@
   "plugins": {
     "Audio": true,
     "Orbit": true,
+    "Text": true,
     "AudioDemo": "./src/demo"
   }
 }

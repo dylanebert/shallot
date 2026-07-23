@@ -25,7 +25,7 @@ bun install @dylanebert/shallot
 
 ## docs
 
-The repo is the documentation. [`AGENTS.md`](AGENTS.md) is the consumer contract — commands, the ECS and plugin conventions, the GPU and render rules — and [`examples/AGENTS.md`](examples/AGENTS.md) indexes a runnable project per problem.
+The repo is the documentation. [`AGENTS.md`](AGENTS.md) is the consumer contract — commands, the ECS and plugin conventions, the GPU and render rules — and [`examples/AGENTS.md`](examples/AGENTS.md) indexes a runnable project per problem. `bunx shallot recipe <name>` copies one out as a runnable project.
 
 ## links
 

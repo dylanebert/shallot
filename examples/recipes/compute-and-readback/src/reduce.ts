@@ -7,8 +7,11 @@ import {
     mirror,
     type Plugin,
     SlabPlugin,
+    type State,
     type System,
     slab,
+    Text,
+    text,
 } from "@dylanebert/shallot";
 
 let pipeline: GPUComputePipeline | null = null;
@@ -20,6 +23,9 @@ let readback: Mirror | null = null;
 // `Transform` firehose the renderer reads is the same primitive). Naming the
 // slab "charge" publishes its buffer under that name in `Compute.buffers`, where the pass resolves it.
 export const Charge = { amount: slab(f32, "charge") };
+
+// a no-field marker selects the world-space label the readback total drives live
+export const Readout = {};
 
 // one thread totals every slot. Unwritten slots are zero, so this sums the live charges with no
 // membership gate; a scene that despawns entities would gate each slot on the "membership" buffer. A
@@ -71,7 +77,7 @@ const reduce = {
             ],
         });
     },
-    update() {
+    update(state: State) {
         if (!pipeline || !bindGroup || !readback) return;
         const device = Compute.device;
         const encoder = device.createCommandEncoder({ label: "reduce" });
@@ -82,19 +88,23 @@ const reduce = {
         pass.end();
         device.queue.submit([encoder.finish()]);
 
-        if (readback.snapshot && Compute.frame % 60 === 0) {
+        if (readback.snapshot) {
             const total = new Float32Array(readback.snapshot.bytes)[0];
-            console.log(`total charge: ${total.toFixed(2)}`);
+            const content = text(`total charge: ${total.toFixed(2)}`);
+            for (const eid of state.query([Readout, Text])) Text.content.set(eid, content);
         }
     },
 } satisfies System;
 
 export const Reduce = {
     name: "Reduce",
-    components: { Charge },
+    components: { Charge, Readout },
     systems: [reduce],
     dependencies: [SlabPlugin, MirrorPlugin],
-    traits: { Charge: { defaults: () => ({ amount: 0 }) } },
+    traits: {
+        Charge: { defaults: () => ({ amount: 0 }) },
+        Readout: { defaults: () => ({}) },
+    },
     warm: build,
     dispose() {
         output?.destroy();

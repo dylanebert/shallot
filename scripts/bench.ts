@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
+import { SCENARIO_TIMEOUTS } from "../examples/gym/src/scenarios/timeouts";
 import { type Check, type Memory, queryFlags, skipReason, teardownBridge, verify } from "./verify";
 
 // `bun bench` — a thin wrapper over the shipped gate. It maps today's arg surface onto `shallot verify
@@ -22,6 +23,7 @@ interface Args {
     timeoutMs?: number;
     params: string[];
     screenshot?: string;
+    leak?: number;
 }
 
 function help(): void {
@@ -38,7 +40,19 @@ Options:
   --frames <n>         measurement frames (default: 240)
   --timeout <ms>       overall run budget; also raises the build/settle ready-window for a heavy scenario
   --param <key=value>  extra URL param a scenario reads (repeatable; e.g. --param dist=clustered)
-  --screenshot <path>  write a post-run canvas screenshot to <path> (PNG; visual smoke test)`);
+  --screenshot <path>  write a post-run canvas screenshot to <path> (PNG; visual smoke test)
+  --leak <bytesPerSec> inject a retained allocation at this rate — red-proof for the leak detector`);
+}
+
+/**
+ * the `--timeout` (ms) to drive a scenario under, or undefined to leave verify's 60s default. An explicit
+ * `bun bench --timeout N` wins (operator override); otherwise a scenario that declared a budget in
+ * {@link SCENARIO_TIMEOUTS} gets it, and everything else stays undefined so the tight default hang detector
+ * holds. Pure — the resolution the run injects, unit-tested in bin/verify.test.ts.
+ */
+export function benchTimeout(scenario: string, cliTimeoutMs?: number): number | undefined {
+    if (cliTimeoutMs != null) return cliTimeoutMs;
+    return SCENARIO_TIMEOUTS[scenario];
 }
 
 function parseArgs(argv: string[]): Args {
@@ -79,6 +93,9 @@ function parseArgs(argv: string[]): Args {
                 break;
             case "screenshot":
                 out.screenshot = take(name, i++);
+                break;
+            case "leak":
+                out.leak = parseInt(take(name, i++), 10);
                 break;
             default:
                 throw new Error(`unknown option: ${arg}`);
@@ -140,7 +157,7 @@ function printMeasurement(label: string, r: BenchmarkMeasurement): void {
                 );
         }
     } else {
-        console.log(`  GPU timing unavailable (no timestamp-query support)`);
+        console.log(`  GPU timing unavailable (no profiler spans in the measure)`);
     }
     console.log(`${bar}\n`);
 }
@@ -190,7 +207,10 @@ async function main(): Promise<void> {
         args.scenario === "stress" ? "--alloc" : "--memory",
     ];
     if (args.screenshot) extra.push("--screenshot", resolve(args.screenshot));
-    if (args.timeoutMs != null) extra.push("--timeout", String(args.timeoutMs));
+    // a scenario that declared a budget (SCENARIO_TIMEOUTS) drives under it; an explicit --timeout wins.
+    const timeoutMs = benchTimeout(args.scenario, args.timeoutMs);
+    if (timeoutMs != null) extra.push("--timeout", String(timeoutMs));
+    if (args.leak != null) extra.push("--leak", String(args.leak));
 
     const result = await verify(GYM, extra);
     if (!result) {
@@ -198,6 +218,9 @@ async function main(): Promise<void> {
         process.exit(1);
     }
     if (args.screenshot) console.log(`\nscreenshot → ${resolve(args.screenshot)}`);
+    if (result.rendered === "opt-out") {
+        console.log(`\n  rendered: opt-out — ${args.scenario} renders nothing by design`);
+    }
 
     let failed = !result.pass;
     const verdict = result.verdict;
@@ -224,7 +247,10 @@ async function main(): Promise<void> {
     console.log("\ngym run passed");
 }
 
-main().catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-});
+// guard so importing this module (bin/verify.test.ts exercises benchTimeout) doesn't launch a bench run.
+if (import.meta.main) {
+    main().catch((err) => {
+        console.error(err instanceof Error ? err.message : err);
+        process.exit(1);
+    });
+}

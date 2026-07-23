@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { State } from "../../engine";
+import { UnsupportedError } from "../../engine/runtime";
 import {
     clearGltfCache,
     decode,
@@ -8,7 +9,7 @@ import {
     invalidate,
     register,
 } from "./assets";
-import type { Targets } from "./target";
+import { COMPRESSION_FAMILIES, pickTargets, type Targets } from "./target";
 
 // the deviceless decode half of the importer (the CPU↔GPU boundary `coding.md` flags for tests). The Box
 // glTF-Draco fixture (untextured) exercises fetch + Draco parse + geometry quantization with no GPU and no
@@ -88,7 +89,7 @@ describe("decode", () => {
     test("a KTX2 baseColor with no transcode target rejects (the deviceless contract)", async () => {
         // the explicit boundary: a KTX2 baseColor needs the main-thread-resolved target threaded in. Decoding
         // without it must fail loud, not silently fall back — the same contract a worker call site satisfies.
-        await expect(decode(boxKtx)).rejects.toThrow(/transcode target/);
+        await expect(decode(boxKtx)).rejects.toThrow(/texture-compression/);
     });
 
     test("decodes the Box glTF-Meshopt fixture deviceless — codec auto-loaded, geometry dequantized", async () => {
@@ -108,6 +109,36 @@ describe("decode", () => {
         expect(verts).toBeGreaterThan(0);
         expect(s!.quant.position.length).toBe(verts * 2);
         expect(d.clip).toBe(0);
+    });
+});
+
+// a device exposing no texture-compression family at all — what `loadGltf` reads whenever `GltfPlugin`
+// isn't in the plugin list (nothing requested the families, so every `device.features.has` is false) as
+// well as on hardware that genuinely has none. Resolving the targets is the *first* thing an import does,
+// before it knows whether the asset carries a KTX2 image, so it must be total: only a KTX2 image that
+// actually needs a target may fail, and it fails naming all three families.
+describe("a device with no texture-compression family", () => {
+    const bare = { features: { has: () => false } } as unknown as GPUDevice;
+
+    test("imports a geometry-only asset", async () => {
+        const targets = pickTargets(bare);
+        expect(targets).toBeUndefined();
+        const d = await decode(box, { targets });
+        expect(d.textured).toBe(false);
+        expect(d.geometry.static).not.toBeNull();
+    });
+
+    test("fails a KTX2 asset with an UnsupportedError naming all three families", async () => {
+        const targets = pickTargets(bare);
+        let caught: unknown;
+        try {
+            await decode(boxKtx, { targets });
+        } catch (e) {
+            caught = e;
+        }
+        expect(caught).toBeInstanceOf(UnsupportedError);
+        expect((caught as UnsupportedError).missing).toEqual([...COMPRESSION_FAMILIES]);
+        expect((caught as Error).message).toContain("GltfPlugin");
     });
 });
 

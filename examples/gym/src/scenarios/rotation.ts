@@ -134,13 +134,23 @@ const scenario: Scenario = {
         state.add(state.create(), AmbientLight);
         state.add(state.create(), DirectionalLight);
 
-        bookXEid = body(state, -6, 6, BOOK_HALF, 1, [0.9, 0.5, 0.4]);
-        bookYEid = body(state, -4, 6, BOOK_HALF, 1, [0.5, 0.7, 0.6]);
-        bookZEid = body(state, -2, 6, BOOK_HALF, 1, [0.5, 0.6, 0.85]);
+        // centered on the orbit target (origin): the chunky held/free panels sit at the middle so the
+        // render gate's center-vs-corner probe reads content, not background (the off-center layout read
+        // blank — verify.ts hasStructure). y=0 for all: zero-g means position is purely framing, never
+        // dynamics — PROVIDED spacing exceeds rotational reach. Each book sweeps ~0.62 from its center
+        // (hypot of BOOK_HALF) while tumbling/spinning, so the 2.0 book-to-book gaps keep the three books'
+        // contact geometrically impossible. The bookZ↔held gap (1.5) budgets BOTH bodies' swept reach:
+        // held's x-extent ~0.9 plus bookZ's swept ~0.36 = 1.26 < 1.5 — but that ~0.9 holds only while the
+        // parallel joint pins held's orientation (the heldTilt < 0.15 rad assert). A broken joint lets held
+        // tumble to its ~1.27 corner reach (1.27 + 0.36 = 1.63 > 1.5, contact) — but the joint assert
+        // reddens first, so this budget never rests on a silent near-miss.
+        bookXEid = body(state, -5.5, 0, BOOK_HALF, 1, [0.9, 0.5, 0.4]);
+        bookYEid = body(state, -3.5, 0, BOOK_HALF, 1, [0.5, 0.7, 0.6]);
+        bookZEid = body(state, -1.5, 0, BOOK_HALF, 1, [0.5, 0.6, 0.85]);
 
-        refEid = body(state, 2, 6, [0.15, 0.15, 0.15], 0, [0.55, 0.57, 0.6]);
-        heldEid = body(state, 2, 6, [0.9, 0.12, 0.9], 1, [0.5, 0.7, 0.6]);
-        freeEid = body(state, 5, 6, [0.9, 0.12, 0.9], 1, [0.9, 0.5, 0.4]);
+        refEid = body(state, 0, 0, [0.15, 0.15, 0.15], 0, [0.55, 0.57, 0.6]);
+        heldEid = body(state, 0, 0, [0.9, 0.12, 0.9], 1, [0.5, 0.7, 0.6]);
+        freeEid = body(state, 2.5, 0, [0.9, 0.12, 0.9], 1, [0.9, 0.5, 0.4]);
 
         state.addSystem(driver);
 
@@ -152,7 +162,7 @@ const scenario: Scenario = {
         Camera.mode.set(cam, CameraMode.Perspective);
         Orbit.yaw.set(cam, 0.4);
         Orbit.pitch.set(cam, 0.25);
-        Orbit.distance.set(cam, 18);
+        Orbit.distance.set(cam, 14);
 
         for (let i = 0; i < 2000 && state.time.fixedTick < TICKS; i++) await frames(1);
 

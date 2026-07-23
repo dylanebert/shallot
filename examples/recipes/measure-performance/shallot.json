@@ -3,6 +3,7 @@
   "plugins": {
     "Profile": true,
     "Orbit": true,
-    "Budget": "./src/budget"
+    "Budget": "./src/budget",
+    "MeasureSmoke": "./src/smoke"
   }
 }

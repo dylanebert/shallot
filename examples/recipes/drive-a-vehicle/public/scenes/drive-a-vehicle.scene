@@ -3,4 +3,10 @@
     <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" shadow />
 
     <a id="camera" camera sear transform orbit="distance: 20; yaw: 0.7; pitch: 0.4; pan: 0 1 0" />
+
+    <!-- names the interaction on open; the recipe is otherwise silent until a keypress -->
+    <a
+        text="anchor: 0.5; content: W/S: throttle   A/D: steer; font-size: 0.4; color: 0xffcc44"
+        transform="pos: 0 5 0"
+    />
 </scene>

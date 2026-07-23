@@ -117,15 +117,20 @@ export interface Compute {
 /** active GPU compute singleton, populated by {@link requestGPU} */
 export const Compute: Compute = {} as Compute;
 
-// the base floor every shallot app needs (the default renderer + slab substrate). Optional
-// capabilities declare their own on top via `Plugin.features` (required — a missing one throws) or
-// `Plugin.preferredFeatures` (best-effort — requested only where the adapter has it, never throws).
-// `subgroups` is the standing preferred case: the BVH builder (physics broadphase / accel structure)
-// runs a faster subgroup arm where present and an LDS arm where absent (WebKit), so it's preferred,
-// not required — a no-subgroup device still loads a physics app, on the LDS arm.
-const BASE_FEATURES = [
-    "shader-f16",
-    "timestamp-query",
+// the base floor every shallot app needs (the default renderer + slab substrate). It gates device
+// acquisition before any plugin loads, so **a floor entry earns its place only by being a
+// `DEFAULT_PLUGINS` need** — anything an opt-in plugin uses belongs on that plugin, via
+// `Plugin.features` (required — a missing one throws) or `Plugin.preferredFeatures` (best-effort —
+// requested only where the adapter has it, never throws). Hence the deliberate absentees:
+// `timestamp-query` is `ProfilePlugin.features`, the BC/ETC2/ASTC families are
+// `GltfPlugin.preferredFeatures` (preferred, because `gltf/target.ts` runtime-branches on
+// `device.features.has` — a family the device never *requested* reads false even where the hardware
+// has it), and `shader-f16` gates the WGSL `f16` *type*, not `pack2x16float` / `unpack2x16float`, so
+// the `f16x4` mirror binds `vec2<u32>` and unpacks. `subgroups` is the standing preferred case: the
+// BVH builder (physics broadphase / accel structure) runs a faster subgroup arm where present and an
+// LDS arm where absent (WebKit), so it's preferred, not required — a no-subgroup device still loads a
+// physics app, on the LDS arm.
+export const BASE_FEATURES = [
     "indirect-first-instance",
     // a fused postfx composite writes the swapchain from a compute pass; on Mac/Windows the
     // preferred canvas format is bgra8unorm, and a storage view of it needs this feature
@@ -134,12 +139,6 @@ const BASE_FEATURES = [
     // passes"): grants it render-attachment + multisample + resolve. Half the bandwidth of rgba16float at
     // 4× MSAA, on the whole floor (desktop / Steam Deck / recent Android all support it)
     "rg11b10ufloat-renderable",
-] as const;
-
-const COMPRESSION_FAMILIES = [
-    "texture-compression-bc",
-    "texture-compression-etc2",
-    "texture-compression-astc",
 ] as const;
 
 /** shallot's per-stage storage buffer floor. 99.6% of WebGPU devices support 10. */
@@ -206,13 +205,6 @@ async function acquireDevice(
     const { granted, missing } = resolveFeatures(adapter.features, required, preferred);
     if (missing.length > 0) throw new UnsupportedError("Missing required WebGPU features", missing);
 
-    const compression = COMPRESSION_FAMILIES.find((f) => adapter.features.has(f));
-    if (!compression)
-        throw new UnsupportedError(
-            "No supported texture compression format. Requires one of:",
-            COMPRESSION_FAMILIES.slice(),
-        );
-
     if (adapter.limits.maxStorageBuffersPerShaderStage < REQUIRED_STORAGE_BUFFERS_PER_STAGE) {
         throw new UnsupportedError(
             `Only ${adapter.limits.maxStorageBuffersPerShaderStage} storage buffers per shader stage; ${REQUIRED_STORAGE_BUFFERS_PER_STAGE} required`,
@@ -220,7 +212,7 @@ async function acquireDevice(
     }
 
     const device = await adapter.requestDevice({
-        requiredFeatures: [...required, ...granted, compression] as GPUFeatureName[],
+        requiredFeatures: [...required, ...granted],
         requiredLimits: deviceLimits(adapter.limits),
     });
 

@@ -1,6 +1,6 @@
 {
     "name": "@dylanebert/shallot",
-    "version": "0.8.0",
+    "version": "0.8.1",
     "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
     "sideEffects": [
         "./src/standard/index.ts",
@@ -53,6 +53,7 @@
         "!src/**/*.fixture.ts",
         "!src/**/*.gold.json",
         "bin",
+        "!bin/**/*.test.ts",
         "rust/audio/pkg",
         "examples",
         "AGENTS.md",

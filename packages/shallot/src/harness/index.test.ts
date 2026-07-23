@@ -17,10 +17,10 @@ describe("installHarness", () => {
         expect(installHarness(stubState(0.016, () => false)).ready).toBe(true);
     });
 
-    test("default run reports a booted-and-rendered pass", async () => {
+    test("default run reports a booted pass", async () => {
         const v = await installHarness(stubState(1, () => false)).run!();
         expect(v.ok).toBe(true);
-        expect(v.checks).toEqual([{ name: "rendered", ok: true }]);
+        expect(v.checks).toEqual([{ name: "booted", ok: true }]);
     });
 
     test("read returns the physics pose for a body, velocity included", () => {

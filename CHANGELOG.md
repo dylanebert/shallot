@@ -2,6 +2,15 @@
 
 Notable changes per release. Versions follow [semver](https://semver.org).
 
+## 0.8.1 — 2026-07-23
+
+The fresh-install patch: recipes ship with the package, the GPU floor widens, the verify gate gets pixel-honest.
+
+- **gpu** — the base device floor shrinks to the default path's needs: `shader-f16`, `timestamp-query`, and texture compression no longer gate device acquisition (`shader-f16` off via a bit-identical `vec2<u32>` material binding; `timestamp-query` → `ProfilePlugin.features`; BC/ETC2/ASTC → `GltfPlugin.preferredFeatures`). **Breaking:** `gltf/core`'s `pickTargets` returns `Targets | undefined` instead of throwing — the `UnsupportedError` fires per-image, only when a KTX2 image has no transcode target.
+- **recipes** — the recipes corpus ships in the npm tarball, indexed by `examples/AGENTS.md`. `bunx shallot recipe` lists it; `bunx shallot recipe <name> <dir>` copies a recipe out as a standalone project pinned to the installed engine version. Every recipe demonstrates its concept on open.
+- **verify** — the `rendered` verdict is pixel-honest: a booted-but-blank canvas fails instead of passing. `--leak <bytesPerSec>` injects a retained allocation (the leak detector's red-proof); the leak flag reads a post-run idle window so GC noise doesn't false-positive.
+- **fixes** — the fog-and-light-shafts recipe actually shows shafts and shadows (its sun was missing the `shadow` opt-in); test files no longer ship in the npm tarball.
+
 ## 0.8.0 — 2026-07-21
 
 The engine goes AI-native: the repo is the documentation, and there's no editor and no docs site. New default physics backend, an audio effect graph, and a shipped verification gate.

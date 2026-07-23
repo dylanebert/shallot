@@ -2,6 +2,7 @@
   "scene": "scenes/save-and-restore.scene",
   "plugins": {
     "Orbit": true,
+    "Text": true,
     "Persist": "./src/persist"
   }
 }

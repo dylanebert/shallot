@@ -9,7 +9,8 @@ import { skipReason, verify } from "./verify";
 // harness asserts a runtime value + a warm-derived entity survived (verify's unified wait polls across the
 // self-navigation by construction). ui-containment mounts a deliberately invalid `config.ui` HUD; paint
 // containment isn't observable in-page, so verify captures the screenshot and this asserts the magenta /
-// host-chrome pixels node-side. Display-gated; on WSL/headless it skips (native hardware only).
+// host-chrome pixels node-side. blank is the pixel-gate red-proof: a draw-nothing app verify must fail
+// with rendered:false (an expected-fail). Display-gated; on WSL/headless it skips (native hardware only).
 
 const MAGENTA: [number, number, number] = [255, 0, 255];
 const near = (a: number, b: number, t = 40): boolean => Math.abs(a - b) <= t;
@@ -48,6 +49,11 @@ async function uiContainment(): Promise<boolean> {
         console.log("FAIL: ui-containment — verify did not pass");
         return false;
     }
+    if (result.rendered === "opt-out") {
+        console.log(
+            "  ○ rendered: opt-out (solid-fill HUD — paint containment checked node-side below)",
+        );
+    }
 
     const { width: w, height: h, data } = PNG.sync.read(readFileSync(shot));
     const at = (x: number, y: number): [number, number, number] => {
@@ -85,6 +91,29 @@ async function uiContainment(): Promise<boolean> {
     return ok;
 }
 
+// blank red-proof: the standing oracle for the pixel-honest `rendered` verdict. examples/flows/blank draws
+// nothing, its harness reports ok:true, and it does NOT declare noRender — so verify MUST fail it with
+// rendered:false. This is an expected-fail: the flow passes when verify correctly goes red, so it never
+// turns the matrix red while re-proving the gate catches a real blank on every run. The gate is
+// specifically the pixel check: also require the fixture's own harness verdict to have SUCCEEDED
+// (`verdict.ok`). verify's harness-ready-timeout path returns the same pass:false/rendered:false shape, so
+// a bitrotted fixture (dev server dies, harness never installs) would vacuously "pass" the red-proof —
+// asserting verdict.ok pins the failure to the pixel gate reading the blank, not to a broken boot.
+async function blankRedProof(): Promise<boolean> {
+    console.log("\n--- blank (red-proof) ---");
+    const result = await verify("examples/flows/blank", ["--timeout", "60000"]);
+    const wentRed =
+        result?.pass === false && result?.rendered === false && result?.verdict?.ok === true;
+    if (wentRed) {
+        console.log("PASS: blank — verify went red on the blank canvas (rendered:false)");
+    } else {
+        console.log(
+            `FAIL: blank — expected verify to FAIL on the pixel gate (rendered:false with a passing harness verdict), got pass=${result?.pass} rendered=${result?.rendered} verdict.ok=${result?.verdict?.ok}`,
+        );
+    }
+    return wentRed;
+}
+
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
     if (args.includes("--help") || args.includes("-h")) {
@@ -93,7 +122,7 @@ async function main(): Promise<void> {
 Runs the standalone-app engine flows through \`shallot verify\`. Display-gated (native hardware only).
 
 Options:
-  --flow <name>   Run a single flow: survive-reload | ui-containment`);
+  --flow <name>   Run a single flow: survive-reload | ui-containment | blank`);
         process.exit(0);
     }
     const flowIdx = args.indexOf("--flow");
@@ -112,6 +141,9 @@ Options:
     }
     if (!only || only === "ui-containment" || only === "ui") {
         allPass = (await uiContainment()) && allPass;
+    }
+    if (!only || only === "blank") {
+        allPass = (await blankRedProof()) && allPass;
     }
 
     if (!allPass) {

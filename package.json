@@ -10,7 +10,7 @@
     ],
     "scripts": {
         "build": "bun run --cwd packages/shallot build",
-        "check": "bun run format && tsc && biome check && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts",
+        "check": "bun run format && tsc && biome check && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts",
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun test packages/shallot",
         "test:oracle": "bun test ./packages/shallot/tests/avbd/*.oracle.ts",

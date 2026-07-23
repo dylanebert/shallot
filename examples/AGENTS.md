@@ -3,7 +3,7 @@
 The retrieval surface for shallot's examples. Grep it for the problem you have before writing a pattern
 from scratch. Four groups: **recipes** (one minimal project per problem, the teaching corpus),
 **gym** (machine-verdict atoms), **flows** (standalone-app engine flows), **showcase** (richer capability
-exhibits). Each recipe is a manifest project — run it with `shallot dev examples/recipes/<name>/`. The
+exhibits). Each recipe is a manifest project — run it with `bunx shallot dev examples/recipes/<name>/`. The
 recipe contract is `.claude/rules/examples.md`.
 
 ## Recipes
@@ -34,7 +34,7 @@ One minimal project per problem a game developer actually has.
 - **animate with tweens** — `recipes/animate-with-tweens/` — the `Tween` component, easing a transform and color over time.
 - **overlay DOM UI / embed in a page** — `recipes/overlay-ui/` — `mountOverlay` for a canvas-bounded HUD, and the `run()` embedding path.
 - **save and restore** — `recipes/save-and-restore/` — `serialize` the world to scene XML, persist it to `localStorage`, restore it in place via `parse` → `load` (or `run({ scene })` at app boot).
-- **measure performance** — `recipes/measure-performance/` — the profiler overlay and `window.__benchmark` timing.
+- **measure performance** — `recipes/measure-performance/` — `showProfiler()` surfaces the profiler HUD on open, reading `Profile.gpu` per-frame and `window.__benchmark` for aggregated timing.
 
 ## Gym
 
@@ -52,11 +52,13 @@ driven by `bun run flows` (`scripts/flows.ts` over `shallot verify`).
   `location.reload()` through the serialize→sessionStorage→restore path; the restored boot's `window.__harness` asserts it.
 - **ui-containment** — `flows/ui-containment/` — a deliberately invalid `config.ui` HUD (`position: fixed`,
   oversized) must stay clipped to the canvas; the flow asserts the host-chrome pixels stay clear.
+- **blank** — `flows/blank/` — the pixel-gate red-proof: a draw-nothing app `shallot verify` must fail with
+  `rendered: false`; an expected-fail flow, so it never reddens the matrix.
 
 ## Showcase
 
 Richer exhibits — each a self-contained real project that owns its own test gate, run with
-`shallot dev examples/showcase/<name>/` (except `visualization`, which owns a vite harness: `cd
+`bunx shallot dev examples/showcase/<name>/` (except `visualization`, which owns a vite harness: `cd
 examples/showcase/visualization && bun dev`).
 
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.

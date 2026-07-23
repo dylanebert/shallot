@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { GltfPlugin } from "./assets";
 import { pickTargets } from "./target";
 
 // pickTargets is the device→per-slot-compressed-format boundary (a feature read, no codec, resolved
@@ -52,12 +53,31 @@ describe("pickTargets", () => {
                 "texture-compression-bc",
             ),
         );
-        expect(t.normalTex.gpu).toBe("bc5-rg-unorm");
+        expect(t?.normalTex.gpu).toBe("bc5-rg-unorm");
     });
 
-    test("no texture-compression feature throws, naming the gap loudly", () => {
-        // the base floor guarantees one family, so this is unreachable on a conforming device — but it must
-        // name the gap, not silently produce an unbindable texture
-        expect(() => pickTargets(device())).toThrow(/no texture-compression/);
+    test("every family the transcode branches on is one GltfPlugin requests", () => {
+        // the trap `preferredFeatures` exists for: `family()` reads `device.features.has`, false for a
+        // feature the device never *requested*. A family this resolves but the plugin doesn't request
+        // reads false on hardware that supports it, and the asset fails to import — so the branches are
+        // pinned against `GltfPlugin.preferredFeatures` itself, over the names written out here
+        // independently of both. Asserting against COMPRESSION_FAMILIES would prove nothing: it *is*
+        // what the plugin declares, so a family swapped out of that list would stay green on both sides.
+        const branches: GPUFeatureName[] = [
+            "texture-compression-bc",
+            "texture-compression-etc2",
+            "texture-compression-astc",
+        ];
+        for (const f of branches) {
+            expect(pickTargets(device(f))?.albedo.blockDim).toBe(4);
+            expect(GltfPlugin.preferredFeatures).toContain(f);
+        }
+    });
+
+    test("no texture-compression feature resolves to no targets, never a throw", () => {
+        // total on purpose: an import resolves targets before it knows whether the asset carries a KTX2
+        // image, so a device with no family must still import geometry. The gate is per-image, in
+        // `assets.ts` — `decode.test.ts` "a device with no texture-compression family" owns that pair.
+        expect(pickTargets(device())).toBeUndefined();
     });
 });

@@ -1,6 +1,6 @@
 # Shallot
 
-WebGPU game engine. Data-oriented ECS, declarative scenes, plugins compose everything. This file is the working contract for building a game on shallot. The source is the reference: every public export carries JSDoc, and the engine repo's `examples/AGENTS.md` (github.com/dylanebert/shallot) indexes a runnable example per problem — check it before writing a pattern from scratch.
+WebGPU game engine. Data-oriented ECS, declarative scenes, plugins compose everything. This file is the working contract for building a game on shallot. The source is the reference: every public export carries JSDoc, and `examples/AGENTS.md` (a sibling of this file) indexes the shipped recipe corpus — grep it for the problem you have, then read that recipe's source, before writing a pattern from scratch. `bunx shallot recipe <name> [dir]` copies a recipe out into a runnable project (bare: lists them).
 
 ## Commands
 
@@ -140,7 +140,7 @@ Physics is opt-in — `TumblePlugin` (main barrel) plus the `Body` / `Spring` / 
 
 ```bash
 bunx shallot verify                    # boot the dev server, check the scene renders
-bunx shallot build && shallot verify --dist   # verify the shipped build instead
+bunx shallot build && bunx shallot verify --dist   # verify the shipped build instead
 bunx shallot verify --screenshot out.png --query scenario=fall
 ```
 
@@ -186,6 +186,6 @@ export default Verify;
 
 Add it to `shallot.json` (`"Verify": "./src/verify"`) while you check, and remove it after.
 
-**Verify persistence in one run.** `run(opts)` receives the `--query` values, so you can seed the saved state and assert the restore path without a real reload. `shallot verify --query color=blue` → `run({ color })` writes `localStorage` the way a prior session would, drives the project's restore path, and asserts the restored value came back — reload-persistence proven in a single invocation, no dev server.
+**Verify persistence in one run.** `run(opts)` receives the `--query` values, so you can seed the saved state and assert the restore path without a real reload. `bunx shallot verify --query color=blue` → `run({ color })` writes `localStorage` the way a prior session would, drives the project's restore path, and asserts the restored value came back — reload-persistence proven in a single invocation, no dev server.
 
 **Installing late?** A defined `window.__harness` always wins over the render check, but only once it exists — a static frame can settle (and conclude the render check) before your app finishes a slow build or a self-reload and installs it. Pin the harness path up front: set `window.__harness = { ready: false }` first thing, then install the real one when ready.

@@ -62,6 +62,12 @@ export interface PoseState {
 export interface HarnessTarget {
     /** true once the scene has built and drawn at least one frame — the command waits for this. */
     ready: boolean;
+    /** declare that this target renders no framed scene by design — a GPU-compute-only microbench, a
+     *  solid-fill clip test. `shallot verify`'s pixel gate then reports `rendered: "opt-out"` and passes
+     *  on the verdict alone, rather than failing the blank canvas. Omit (or `false`) for any target that
+     *  draws content — the pixel gate is the honesty check that a green verdict didn't ride over a canvas
+     *  that silently rendered nothing. The opt-out is visible in the run output, never a silent exemption. */
+    noRender?: boolean;
     /** run the verification and resolve a {@link Verdict}. `opts` carries the command's `--query`
      *  values (URL params are the primary channel; this mirrors them for programmatic runs). */
     run?(opts?: Record<string, unknown>): Promise<Verdict>;
@@ -80,7 +86,8 @@ declare global {
 
 /**
  * install the default `window.__harness` for `shallot verify` and return the handle. `ready` flips true
- * once a frame has drawn, `read` returns live entity poses, and `run` reports a booted-and-rendered pass.
+ * once a frame has drawn, `read` returns live entity poses, and `run` reports a booted pass (verify's
+ * pixel gate derives the real `rendered` verdict; the default run only attests the scene booted).
  * A project layers its own assertions by replacing `run` on the returned handle:
  *
  * @example
@@ -118,7 +125,7 @@ export function installHarness(state: State): HarnessTarget {
         },
         run: async (): Promise<Verdict> => ({
             ok: true,
-            checks: [{ name: "rendered", ok: true }],
+            checks: [{ name: "booted", ok: true }],
         }),
     };
     // assign via globalThis, not `window`: the module runs in the page, but its unit tests run under bun

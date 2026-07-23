@@ -48,7 +48,9 @@ export interface VerifyResult {
     memory?: Memory | null;
     errors?: string[];
     booted?: boolean;
-    rendered?: boolean;
+    /** `true` rendered structure, `false` blank, `"opt-out"` when the harness declared `noRender`
+     *  (renders nothing by design — the pixel gate was skipped). */
+    rendered?: boolean | "opt-out";
 }
 
 const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");

@@ -200,10 +200,10 @@ describe("reset during an in-flight flush", () => {
 
 describe("packed-mirror slabs (srgb8x4 / f16x4)", () => {
     // Two 4-lane formats whose CPU storage stays lossless f32 (set/read/serialize unchanged) while the
-    // GPU mirror packs at flush via `type.gpu`: srgb8x4 → one sRGB u32 (4 B), f16x4 → a vec4<f16> pair
-    // (8 B). The real-GPU flush is the gym `render` transport assert — these pin the device-free CPU-side
-    // losslessness + the per-slot word count + the scatter-pipeline dedup.
-    test("srgb8x4 mirrors as one u32 (4 B); f16x4 as a vec4<f16> pair (8 B)", () => {
+    // GPU mirror packs at flush via `type.gpu`: srgb8x4 → one sRGB u32 (4 B), f16x4 → two u32 words of
+    // two f16 each, bound as `vec2<u32>` (8 B). The real-GPU flush is the gym `render` transport assert —
+    // these pin the device-free CPU-side losslessness + the per-slot word count + the scatter dedup.
+    test("srgb8x4 mirrors as one u32 (4 B); f16x4 as a vec2<u32> f16 pair (8 B)", () => {
         const c = slab(srgb8x4);
         const m = slab(f16x4);
         expect(lanes(c)).toBe(4);
@@ -214,7 +214,7 @@ describe("packed-mirror slabs (srgb8x4 / f16x4)", () => {
             pack: expect.any(Function),
         });
         expect((m as unknown as Slab).type.gpu).toEqual({
-            wgsl: "vec4<f16>",
+            wgsl: "vec2<u32>",
             bytes: 8,
             pack: expect.any(Function),
         });
@@ -237,7 +237,8 @@ describe("packed-mirror slabs (srgb8x4 / f16x4)", () => {
     });
 
     test("gpu.pack writes the right word count (srgb8x4 → 1 u32, f16x4 → 2)", () => {
-        // the packer the flush calls per dirty slot: srgb8x4 emits one sRGB u32, f16x4 two f16-pair words
+        // the packer the flush calls per dirty slot: srgb8x4 emits one sRGB u32, f16x4 two f16-pair words.
+        // These exact words are what the shader's `unpack2x16float` consumes — the packer is the wire format
         const out = new Uint32Array(4);
         srgb8x4.gpu!.pack(out, 0, 1, 1, 1, 1); // white → 0xffffffff
         expect(out[0]).toBe(0xffffffff);
@@ -254,6 +255,6 @@ describe("packed-mirror slabs (srgb8x4 / f16x4)", () => {
         const keys = Slab.gpuTypes()
             .map((t) => t.gpu?.wgsl ?? t.wgsl)
             .sort();
-        expect(keys).toEqual(["u32", "vec4<f16>"]); // srgb8x4 + u32 collapse to "u32"; f16x4 separate
+        expect(keys).toEqual(["u32", "vec2<u32>"]); // srgb8x4 + u32 collapse to "u32"; f16x4 separate
     });
 });

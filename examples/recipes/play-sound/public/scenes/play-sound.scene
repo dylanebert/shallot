@@ -4,6 +4,12 @@
 
     <a id="camera" camera sear orbit="distance: 9; pitch: 0.4" transform listener />
 
+    <!-- names the interaction on open; the tone plays muted until a gesture unlocks the AudioContext -->
+    <a
+        text="anchor: 0.5; content: click to hear the tone; font-size: 0.4; color: 0xffcc44"
+        transform="pos: 0 2.4 0"
+    />
+
     <a part transform color="rgba: 0.45 0.5 0.55" />
     <a
         part

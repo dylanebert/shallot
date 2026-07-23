@@ -33,7 +33,7 @@ export interface Type<TArray extends TypedArray = TypedArray> {
      * a packed GPU mirror: the CPU storage stays the full `ctor`×`lanes` (so `.set` / lane accessors /
      * `read` / serialize see lossless floats), but the slab's `.gpu` buffer holds the `pack(...)` form:
      * what the per-lane {@link encode} can't express, since it folds across lanes (4 lanes → an `srgb8x4`
-     * u32, or → a `vec4<f16>` pair). Quantization is a storage-boundary concern (`gpu.md` rule 6): the
+     * u32, or → an `f16x4` `vec2<u32>` pair). Quantization is a storage-boundary concern (`gpu.md` rule 6): the
      * pack runs once at the per-frame flush, the CPU side never sees it. The reader shader binds `wgsl`.
      */
     readonly gpu?: {
@@ -82,8 +82,8 @@ export const entity: Type<Uint32Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * 8-bit unsigned integer. `slab(u8)` packs 4-into-`u32` on GPU upload and
- * is not implemented yet. `sparse(u8)` works for CPU-only fields.
+ * 8-bit unsigned integer. `slab(u8)` warns and stays CPU-only — WGSL has no
+ * sub-32-bit storage; pack into u32 manually. `sparse(u8)` works for CPU-only fields.
  */
 export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
     ctor: Uint8Array,
@@ -93,8 +93,8 @@ export const u8: Type<Uint8Array> & { readonly lanes: 1 } = {
 };
 
 /**
- * 16-bit unsigned integer. `slab(u16)` packs 2-into-`u32` on GPU upload and
- * is not implemented yet. `sparse(u16)` works for CPU-only fields.
+ * 16-bit unsigned integer. `slab(u16)` warns and stays CPU-only — WGSL has no
+ * sub-32-bit storage; pack into u32 manually. `sparse(u16)` works for CPU-only fields.
  */
 export const u16: Type<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
@@ -138,8 +138,10 @@ function f16decode(bits: number): number {
 
 /**
  * 16-bit IEEE float. CPU storage uses `Uint16Array` of bit patterns; reads
- * and writes go through the half-float codec. native WGSL storage with the
- * `shader-f16` feature (in the platform support floor).
+ * and writes go through the half-float codec. The reader shader binds a native
+ * `f16`, which needs an `enable f16` directive — `shader-f16` is NOT on the
+ * platform floor, so a `slab(f16)` consumer declares it in its own
+ * `Plugin.features`. For four half lanes with no feature at all, use {@link f16x4}.
  */
 export const f16: Type<Uint16Array> & { readonly lanes: 1 } = {
     ctor: Uint16Array,
@@ -172,22 +174,24 @@ export const vec4: Type<Float32Array> & { readonly lanes: 4 } = {
 };
 
 /**
- * a GPU mirror of four lanes as `vec4<f16>` (16 B → 8 B), WebGPU's `float16x4`. The CPU surface is
- * identical to {@link vec4} and sees lossless f32 (`set`, `.x/.y/.z/.w`, `read`, serialize); only the
- * mirror packs to half-floats at flush, and the reader shader binds `vec4<f16>` (needs `enable f16`, on
- * the platform floor). HDR-capable (range to 65504) and finer than unorm8 across [0,1] (~15k
- * representable values vs 256), so it suits PBR material params (metallic / roughness / occlusion)
- * alongside an unbounded emissive glow strength.
+ * a GPU mirror of four lanes as two u32 words holding two f16 each (16 B → 8 B) — the byte layout of
+ * WebGPU's `float16x4`. The CPU surface is identical to {@link vec4} and sees lossless f32 (`set`,
+ * `.x/.y/.z/.w`, `read`, serialize); only the mirror packs to half-floats at flush, and the reader shader
+ * binds `vec2<u32>` and decodes with `unpack2x16float` — core WGSL, no `enable f16` and no `shader-f16`
+ * feature (those gate the `f16` *type*, not the pack/unpack builtins). HDR-capable (range to 65504) and
+ * finer than unorm8 across [0,1] (~15k representable values vs 256), so it suits PBR material params
+ * (metallic / roughness / occlusion) alongside an unbounded emissive glow strength.
  */
 export const f16x4: Type<Float32Array> & { readonly lanes: 4 } = {
     ctor: Float32Array,
     lanes: 4,
     name: "f16x4",
-    wgsl: "vec4<f16>",
+    wgsl: "vec2<u32>",
     gpu: {
-        wgsl: "vec4<f16>",
+        wgsl: "vec2<u32>",
         bytes: 8,
-        // two u32 words, each two f16 — the byte layout of a vec4<f16> (low 16 bits = first lane)
+        // low 16 bits of a word hold the earlier of its two lanes, so the reader's
+        // `unpack2x16float(word0)` recovers lanes 0+1 and `unpack2x16float(word1)` lanes 2+3
         pack: (out, at, x, y, z, w) => {
             out[at] = (f16encode(x) | (f16encode(y) << 16)) >>> 0;
             out[at + 1] = (f16encode(z) | (f16encode(w) << 16)) >>> 0;

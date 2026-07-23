@@ -3,6 +3,7 @@
   "plugins": {
     "Orbit": true,
     "OrbitOverlay": true,
+    "Text": true,
     "OrbitTune": "./src/tune"
   }
 }

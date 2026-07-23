@@ -3,6 +3,16 @@
 // (a feature read, no codec) without pulling the ~large Basis transcoder glue: basis.ts is reached only via
 // dynamic import, keeping the codec code-split, and the pickers must stay on that clean side of the cut.
 
+/** the WebGPU texture-compression families the KTX2 transcode can target, in preference order. Also
+ *  `GltfPlugin.preferredFeatures` — a feature the device never requested reads false in
+ *  {@link pickTargets}' `device.features` branch, so an app importing KTX2 assets needs that plugin in
+ *  its list for a capable device to expose any family here. */
+export const COMPRESSION_FAMILIES: readonly GPUFeatureName[] = [
+    "texture-compression-bc",
+    "texture-compression-etc2",
+    "texture-compression-astc",
+];
+
 // the Basis TranscoderFormat enum values we target (basis_transcoder.js KTX2File, the three.js-vendored build).
 // BC7_M5 / ETC2 / ASTC_4×4 are the 16-byte/4×4 color blocks; BC5_RG (two-channel, 16 B) and BC4_R (single-
 // channel, 8 B) are the data-map formats (gltf normal / occlusion). All are 4×4-block, so the block-row math in
@@ -34,26 +44,35 @@ export interface Targets {
     emissive: TranscodeTarget;
 }
 
-// the compression family the device exposes — the base floor guarantees exactly one (`gpu.md`).
-function family(device: GPUDevice): "bc" | "etc2" | "astc" {
+// the compression family the device exposes, or undefined where it exposes none. Compression is not on
+// the base floor: a device has *requested* a family only when `GltfPlugin` (which declares all three as
+// `preferredFeatures`) is in the plugin list, so this read is false for every family in an app that
+// imports glTF through `loadGltf` alone. Total on purpose — an import resolves targets before it knows
+// whether the asset carries a KTX2 image at all, so the gate belongs at the image (`assets.ts`).
+function family(device: GPUDevice): "bc" | "etc2" | "astc" | undefined {
     if (device.features.has("texture-compression-bc")) return "bc";
     if (device.features.has("texture-compression-etc2")) return "etc2";
     if (device.features.has("texture-compression-astc")) return "astc";
-    throw new Error("[gltf] no texture-compression feature for KTX2 transcode");
+    return undefined;
 }
 
 /**
- * the per-slot transcode targets for a device, role-aware per the family. On a BC device the data maps take
- * their tightest block (Bevy `get_transcoded_formats`: normal/two-channel → BC5, AO/single → BC4, color → BC7);
- * on ETC2/ASTC every slot uses the family's color block (linear or sRGB), which still carries the channels a
- * two-channel form would (the normal FS reconstructs Z from XY regardless). Resolve once on the main thread and
- * thread into the deviceless {@link decode} (the worker has no device).
+ * the per-slot transcode targets for a device, role-aware per the family — or `undefined` where the device
+ * exposes no texture-compression family at all (nothing to transcode *to*). Total, never throwing: an import
+ * resolves targets up front, before it knows whether the asset even carries a KTX2 image, and a geometry-only
+ * or PNG-textured asset needs none. A KTX2 image handed no target is what fails, at the image, naming the
+ * three families (`assets.ts`). On a BC device the data maps take their tightest block (Bevy
+ * `get_transcoded_formats`: normal/two-channel → BC5, AO/single → BC4, color → BC7); on ETC2/ASTC every slot
+ * uses the family's color block (linear or sRGB), which still carries the channels a two-channel form would
+ * (the normal FS reconstructs Z from XY regardless). Resolve once on the main thread and thread into the
+ * deviceless {@link decode} (the worker has no device).
  *
  * @example
  * const decoded = await decode("sponza/Sponza.gltf", { targets: pickTargets(device) });
  */
-export function pickTargets(device: GPUDevice): Targets {
+export function pickTargets(device: GPUDevice): Targets | undefined {
     const f = family(device);
+    if (f === undefined) return undefined;
     if (f === "bc") {
         return {
             albedo: { basis: BC7_M5, gpu: "bc7-rgba-unorm-srgb", blockDim: 4 },

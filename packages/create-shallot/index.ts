@@ -145,6 +145,8 @@ The engine is the documentation. Read \`node_modules/@dylanebert/shallot/AGENTS.
 contract (ECS, plugins, scenes, GPU, UI, and the \`shallot verify\` harness), and every public export
 carries JSDoc. The examples index lives at \`node_modules/@dylanebert/shallot/examples/AGENTS.md\` — grep
 it for the problem you have, then read that recipe's source, before writing a pattern from scratch.
+\`bunx shallot recipe <name> [dir]\` copies a recipe out of the installed package into a runnable project
+(bare: lists them).
 
 ## Conventions
 
