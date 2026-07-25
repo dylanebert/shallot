@@ -19,10 +19,12 @@ import {
     stringify,
     u32,
 } from "../src";
-import { clear, entries } from "../src/engine/ecs/core";
+import { clear, entries, getComponent, getTraits } from "../src/engine/ecs/core";
 import { Compute } from "../src/engine/runtime";
+import { GltfPlugin } from "../src/extras/gltf";
 import { LinesPlugin } from "../src/extras/lines";
 import { OrbitPlugin } from "../src/extras/orbit";
+import { LiveSkin, LiveSkinSystem, Skin, SkinPlugin, skinTraits } from "../src/extras/skin";
 import { SpritePlugin } from "../src/extras/sprite";
 import { TweenPlugin } from "../src/extras/tween";
 import { GlazePlugin } from "../src/standard/glaze";
@@ -173,6 +175,18 @@ function signature(state: State, probe?: () => unknown): Record<string, unknown>
 
 const registryNames = (reg: Iterable<{ name: string }>) => [...reg].map((e) => e.name).sort();
 
+// the live-skin substrate's whole reset-scoped layout — the block regions plus what a build published
+const skinLayout = () => ({
+    paletteCap: LiveSkin.paletteCap,
+    paletteEnd: LiveSkin.paletteEnd,
+    jwCap: LiveSkin.jwCap,
+    jwEnd: LiveSkin.jwEnd,
+    blocks: LiveSkin.blocks.size,
+    meshes: LiveSkin.meshes.size,
+    params: LiveSkin.params.size,
+    published: Compute.buffers.has("skinData"),
+});
+
 describe("reload conformance", () => {
     // the harness itself catches a violation: a module-level registry initialize fails to clear,
     // so the second build's warm derives one entity per accumulated entry — the doubling shape
@@ -214,6 +228,20 @@ describe("reload conformance", () => {
         systems: [CounterSystem],
         warm: (s) => {
             s.add(s.create(), Counter);
+        },
+    };
+
+    // a hand-rig live-skin producer, the shape SkinPlugin exists for: no glTF asset, a mesh's joints/weights
+    // registered once and a palette block allocated per instance. Derived (warm-spawned), so it never enters
+    // the serialized document.
+    const RigPlugin: Plugin = {
+        name: "rig",
+        dependencies: [SkinPlugin],
+        warm: (s) => {
+            LiveSkin.registerMesh(0, new Uint32Array(4), new Uint32Array(4));
+            const eid = s.create();
+            s.add(eid, Skin);
+            Skin.anim.x.set(eid, LiveSkin.alloc(eid, 2, s.stamp(eid)));
         },
     };
 
@@ -293,6 +321,22 @@ describe("reload conformance", () => {
             </scene>`,
             probe: () => ({ surfaces: registryNames(Surfaces), draws: registryNames(Draws) }),
         },
+        // the live joint-palette substrate: a module singleton holding a GPU buffer + a block layout, reset
+        // per build. `RigPlugin` is the producer the substrate exists for — it allocates a block + registers
+        // a mesh in warm, so the layout the probe reads is non-empty and a reset that stopped clearing would
+        // carry the first build's block into the second (appended, not reused) and diverge here.
+        Skin: {
+            plugins: [
+                SlabPlugin,
+                TransformsPlugin,
+                RenderPlugin,
+                SearPlugin,
+                SkinPlugin,
+                RigPlugin,
+            ],
+            scene: `<scene><a id="cam" camera sear transform /></scene>`,
+            probe: () => skinLayout(),
+        },
     };
 
     for (const [name, entry] of Object.entries(roster)) {
@@ -338,5 +382,39 @@ describe("reload conformance", () => {
             { plugins: base, scene: boxScene, probe },
         ]);
         expect(violations).toEqual([]);
+    });
+
+    // SkinPlugin and GltfPlugin both wire the live-skin substrate — the same `Skin` component, the same
+    // `LiveSkinSystem`, the same reset/dispose — because GltfPlugin can't take the substrate as a hard
+    // dependency without breaking every existing glTF app's plugin list. `SkinPlugin`'s JSDoc claims having
+    // both is harmless; these pin it. Component registration is last-writer-wins on the traits, so the
+    // order-sweep is what proves the two plugins agree on one traits object rather than racing.
+    const skinBase: Plugin[] = [SlabPlugin, TransformsPlugin, RenderPlugin, SearPlugin];
+    const skinScene = `<scene><a id="cam" camera sear transform /></scene>`;
+
+    test("SkinPlugin + GltfPlugin in one app rebuilds idempotently", async () => {
+        const violations = await conform({
+            plugins: [...skinBase, SkinPlugin, GltfPlugin],
+            scene: skinScene,
+            probe: () => ({ ...skinLayout(), surfaces: registryNames(Surfaces) }),
+        });
+        expect(violations).toEqual([]);
+    });
+
+    test("either plugin order registers the one Skin component on the shared traits", async () => {
+        for (const order of [
+            [...skinBase, SkinPlugin, GltfPlugin],
+            [...skinBase, GltfPlugin, SkinPlugin],
+        ]) {
+            clear();
+            const app = await build({ plugins: order, defaults: false, scene: skinScene });
+            expect(app.skipped).toEqual([]);
+            app.state.step();
+            expect(getComponent("skin")).toBe(Skin);
+            expect(getTraits("skin")).toBe(skinTraits);
+            // the system is registered by identity, so the second plugin's copy is not a second slot
+            expect(app.state.hasSystem(LiveSkinSystem)).toBe(true);
+            app.dispose();
+        }
     });
 });

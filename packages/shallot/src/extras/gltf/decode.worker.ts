@@ -1,7 +1,8 @@
 // The decode worker — a thin shell: receive (url, clip, targets), run the SAME deviceless `decode`, and post
 // the payload back with its typed arrays + bitmaps as transferables (zero-copy). One decode implementation,
-// two call sites (inline for tests, this for runtime) — the worker is transport, never a second decode. Loaded
-// as a module worker by `decodeInWorker` (worker.ts); the Draco / Basis wasm it pulls in resolve via the
+// two call sites (inline for tests, this for runtime) — the worker is transport, never a second decode. Spawned
+// as a module worker by the decode pool (pool.ts), over the wire protocol in worker.ts; the Draco / Basis wasm
+// it pulls in resolve via the
 // codecs' own `import.meta.url`, so they bundle into the worker chunk the downstream app builds.
 import { decode } from "./assets";
 import { type DecodeReply, type DecodeRequest, transferables } from "./worker";

@@ -40,6 +40,7 @@
         "./bvh/core": "./src/standard/bvh/core.ts",
         "./audio/core": "./src/standard/audio/core.ts",
         "./gltf/core": "./src/extras/gltf/core.ts",
+        "./skin/core": "./src/extras/skin/core.ts",
         "./tween/core": "./src/extras/tween/core.ts",
         "./runtime": "./src/engine/runtime/index.ts",
         "./src/*": "./src/*"
@@ -52,6 +53,7 @@
         "!src/**/*.test.ts",
         "!src/**/*.fixture.ts",
         "!src/**/*.gold.json",
+        "!src/extras/gltf/fixtures",
         "bin",
         "!bin/**/*.test.ts",
         "rust/audio/pkg",

@@ -27,21 +27,9 @@ export const ALBEDO_NAMES = Array.from({ length: ALBEDO_BUCKETS }, (_, b) => `al
  * downsampled). All images must share dimensions + format + block size, the array's one-size constraint,
  * which the caller guarantees. Binds + samples identically to the bitmap arrays: `albedo[layer]`.
  *
- * @example
- * const albedo = compressedAlbedoArray(device, images);
- * Compute.textures.set("albedo", albedo);
- */
-export function compressedAlbedoArray(device: GPUDevice, images: Ktx2Image[]): GPUTexture {
-    const texture = allocCompressed(device, images);
-    images.forEach((image, layer) => {
-        writeCompressedLayer(device, texture, image, layer);
-    });
-    return texture;
-}
-
 /** allocate (but don't fill) the compressed `texture_2d_array` for `images`: dims/format/mip count from the
- *  first image (all share them). The staged half of {@link compressedAlbedoArray}; fill via
- *  {@link writeCompressedLayer}. `label` names the array (the data maps pass their slot name). */
+ *  first image (all share them). Fill each layer with {@link writeCompressedLayer} — the union stages those
+ *  writes one per frame budget step. `label` names the array (the data maps pass their slot name). */
 export function allocCompressed(
     device: GPUDevice,
     images: Ktx2Image[],

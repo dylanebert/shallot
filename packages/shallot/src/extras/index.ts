@@ -4,6 +4,7 @@ export * from "./lines";
 export * from "./orbit";
 export * from "./outline";
 export * from "./profile";
+export * from "./skin";
 export * from "./sky";
 export * from "./sprite";
 export * from "./text";

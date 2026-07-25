@@ -23,11 +23,13 @@ export type MeshoptDecode = (
 
 // Minimal glTF 2.0 decode — the data-boundary half of the importer, pure and
 // testable (no GPU, no State). It decodes positions, normals, UVs, indices, the
-// node TRS hierarchy, `baseColorFactor`, and (for a skinned + animated mesh) the
-// skin + a chosen clip into a {@link SkinInput} the GPU loader bakes to a VAT.
+// node TRS hierarchy, the metallic-roughness material set (factors + the
+// baseColor / MR / normal / occlusion / emissive image refs + alpha routing),
+// and a skinned mesh's rig — either a chosen clip as a {@link SkinInput} the
+// VAT bake consumes, or the joints/weights of a live joint-palette route.
 // Morph targets, tangents, vertex colors, and the second UV are dropped — none
-// have a consumer yet. The output feeds `load` (index.ts), which owns the GPU
-// buffers + spawns the entities.
+// have a consumer yet. The output feeds `assets.ts`, which owns the GPU
+// buffers; the importer creates no entities.
 //
 // The accessor decode (interleaved `byteStride` + per-accessor `byteOffset`)
 // and the node TRS→world bake are the misimplement-then-blame-the-file traps,
@@ -247,7 +249,7 @@ export interface GltfMaterial {
 }
 
 /**
- * one image source, source-agnostic by design (so `.glb` is a small later add): either an external
+ * one image source, source-agnostic by design (so `.glb` rides the same path): either an external
  * `uri` resolved relative to the `.gltf`, or an embedded `bufferView` (a data-URI / `.glb` BIN slice)
  * with its `mimeType`. The GPU half (decode → array layer) resolves whichever is present.
  */
@@ -813,7 +815,7 @@ function primSkinnable(gltf: GltfJson, prim: Primitive): boolean {
 // and an animation both exist, every sampler is LINEAR/STEP (no CUBICSPLINE), and every skinned node's
 // primitives carry accessor-backed JOINTS_0 + WEIGHTS_0. Drives BOTH the unsupported-flag drop and the
 // bake — the two must agree, or the conformance status lies about what renders.
-export function skinBakeable(gltf: GltfJson): boolean {
+function skinBakeable(gltf: GltfJson): boolean {
     if (!gltf.skins?.length || !gltf.animations?.length) return false;
     for (const anim of gltf.animations) {
         for (const s of anim.samplers ?? []) {
@@ -1036,8 +1038,7 @@ function scanUnsupported(
             flag(ext, "required extension");
     }
     for (const ext of gltf.extensionsUsed ?? []) {
-        if (!supportedExtension(ext, dracoAvailable, meshoptAvailable) && !found.has(ext))
-            flag(ext, "extension");
+        if (!supportedExtension(ext, dracoAvailable, meshoptAvailable)) flag(ext, "extension");
     }
     if (gltf.animations?.length && !handled)
         flag("animation", `${gltf.animations.length} animations`);

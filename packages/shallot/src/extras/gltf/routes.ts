@@ -3,9 +3,8 @@ import type { Node } from "../../engine/scene";
 import { Part } from "../../standard/part";
 import { Surfaces } from "../../standard/render/core";
 import { slab } from "../../standard/slab";
+import { LiveSkin, Skin } from "../skin";
 import type { GltfHandle } from "./assets";
-import { LiveSkin } from "./live";
-import { Skin } from "./skin";
 
 /**
  * per-instance material id: an index into the per-material palette (`materialData`) the textured glTF

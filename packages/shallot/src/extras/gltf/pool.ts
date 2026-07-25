@@ -12,8 +12,9 @@ import type { DecodeReply, DecodeRequest } from "./worker";
 // One decode implementation, two call sites — where Worker is absent (bun-webgpu / tests) the pool runs
 // `decode` inline, never a second decode.
 
-// leave a core for the main thread; cap low — each worker instantiates the Draco + Basis wasm, so more workers
-// cost memory (three.js' DRACOLoader defaults a workerLimit of 4). A tuning constant.
+// leave a core for the main thread; cap low — a worker that decodes a compressed asset instantiates its own
+// Draco / Basis wasm, so more workers cost memory (three.js' DRACOLoader defaults a workerLimit of 4). A
+// tuning constant.
 const MAX_WORKERS = 4;
 
 function poolSize(): number {

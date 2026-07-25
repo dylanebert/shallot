@@ -1,8 +1,8 @@
 import type { State, System } from "../../engine";
-import { Compute, checkTextureLimits, vec4 } from "../../engine";
+import { Compute, checkTextureLimits } from "../../engine";
 import type { Binding } from "../../standard/render/core";
 import { Surfaces } from "../../standard/render/core";
-import { slab } from "../../standard/slab";
+import { Skin } from "../skin";
 import { ALBEDO_NAMES } from "./image";
 import { materialPreamble } from "./shade";
 import type { GltfVat } from "./vat";
@@ -16,18 +16,10 @@ import type { GltfVat } from "./vat";
 // the deformed pose free (the same compiled vertex math). Decode reference: keijiro HdrpVatExample
 // VATHelper.hlsl; the deviceless bake is vat.ts.
 
-/**
- * a skinned glTF instance's animation state. One `slab(vec4)` published as `"skin"`; the lanes are read by
- * whichever skin surface the instance uses. VAT (baked-clip) path: lane x is the play time in seconds
- * (advanced by {@link SkinSystem}), y the material palette index in the shared union palette (asset base +
- * local id, the `mid` the shade path reads, folded in to keep the surface at the 10-storage ceiling), z a
- * per-instance phase offset (crowd variety; 0 for a single import), w the clip duration {@link SkinSystem}
- * loops the play time on (per-instance, so N meshes with different clip lengths coexist). Live joint-palette
- * path: lane x is the palette base (the vec4 index of the instance's block in `skinData`, read by the
- * `skin-live` surface), y the same material index, z unused, w 0 so {@link SkinSystem} skips it (a producer
- * poses the instance via `LiveSkin` instead). The importer adds the component to each skinned / live instance.
- */
-export const Skin = { anim: slab(vec4, "skin") };
+// The importer adds the substrate's `Skin` component (`extras/skin`) to each skinned / live instance. The
+// VAT path reads its lanes as (play time, material index, phase, clip duration) — the meaning {@link
+// SkinSystem} advances; the live path reads x as the palette base instead, and leaves w at 0 so that system
+// skips it.
 
 // the per-skinned-mesh VAT params the surface decodes against: the object-space AABB the f16 positions remap
 // from, the effective sample fps, and the texture's frame/vertex extents. Each skinned mesh binds its own VAT
@@ -55,7 +47,7 @@ struct VatParams {
 // headroom: folding (time, materialIndex) into one `skin` vec4 is what buys the room (replacing the textured
 // path's separate `materialIndex` slab) now that the quant table claimed the last shared lane. The texture
 // arrays are a separate limit; the baseColor buckets share the textured path's `sampleAlbedo` switch (shade.ts).
-const skinBindings: Record<string, Binding> = {
+const vatBindings: Record<string, Binding> = {
     eids: { type: "storage", element: "u32" },
     transforms: { type: "storage", element: "Xform" },
     color: { type: "storage", element: "u32" },
@@ -103,7 +95,7 @@ const SKIN_VS = /* wgsl */ `
 export function registerSkinSurfaces(): void {
     Surfaces.register({
         name: "skin",
-        bindings: skinBindings,
+        bindings: vatBindings,
         specialize: (variant) => ({ preamble: skinPreamble(variant) }),
         vs: SKIN_VS,
         fs: /* wgsl */ `
@@ -114,7 +106,7 @@ export function registerSkinSurfaces(): void {
     Surfaces.register({
         name: "skin-clip",
         blend: "clip",
-        bindings: skinBindings,
+        bindings: vatBindings,
         specialize: (variant) => ({ preamble: skinPreamble(variant) }),
         vs: SKIN_VS,
         fs: /* wgsl */ `
@@ -128,7 +120,7 @@ export function registerSkinSurfaces(): void {
     Surfaces.register({
         name: "skin-blend",
         blend: "alpha",
-        bindings: skinBindings,
+        bindings: vatBindings,
         specialize: (variant) => ({ preamble: skinPreamble(variant) }),
         vs: SKIN_VS,
         fs: /* wgsl */ `

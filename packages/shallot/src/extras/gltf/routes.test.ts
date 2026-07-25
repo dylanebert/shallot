@@ -5,11 +5,10 @@ import { parse } from "../../engine/scene";
 import { Part, PartPlugin } from "../../standard/part";
 import { Surfaces } from "../../standard/render/core";
 import { Slab } from "../../standard/slab";
+import { LiveSkin, Skin } from "../skin";
 import type { GltfHandle } from "./assets";
 import { GltfPlugin } from "./assets";
-import { LiveSkin } from "./live";
 import { RouteSystem, routes, scanRefs, Textured } from "./routes";
-import { Skin } from "./skin";
 
 // Declarative-load scan + route sync, CPU-only: scanRefs is pure over parsed nodes, and RouteSystem is
 // pure over a `new State()` + the module `routes` map (no device, no decode). The end-to-end declarative

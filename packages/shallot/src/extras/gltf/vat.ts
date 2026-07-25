@@ -4,7 +4,7 @@ import { clamp, compose, lerp, multiply, slerp } from "../../engine";
 // A skinned clip is baked to per-frame
 // object-space positions + normals by CPU linear-blend skinning, so the skeleton dissolves at bake
 // time like a static node chain (the importer already bakes static node hierarchies to flat
-// transforms). The GPU half (index.ts) encodes the frames into filterable textures the skin surface
+// transforms). The GPU half (skin.ts) encodes the frames into filterable textures the skin surface
 // samples in its `vs`. Input is glTF-agnostic ({@link SkinInput}) so the math is testable against
 // hand-computed LBS without a glTF fixture; gltf.ts decodes a document into it. Decode authority for
 // the skinning math: three.js GLTFLoader; decode/encoding reference for the GPU
@@ -135,7 +135,7 @@ export function bakeVat(
     const frameCount = duration > 0 ? clamp(rawFrames, 2, maxFrames) : 1;
     const sampleFps = frameCount > 1 ? (frameCount - 1) / duration : 0;
     // a clip past the cap subsamples to fit — warn so a decimated animation isn't shipped silently (raise
-    // maxFrames for the full rate). Decodes are cached, so this fires once per asset.
+    // maxFrames for the full rate). Once per skinned mesh — the decode cache keeps a rebuild quiet.
     if (duration > 0 && rawFrames > maxFrames) {
         console.warn(
             `[gltf] VAT clip ${duration.toFixed(2)}s exceeds the ${maxFrames}-frame cap at ${fps}fps — ` +

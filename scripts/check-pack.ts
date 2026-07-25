@@ -1,0 +1,44 @@
+import { resolve } from "path";
+
+// The published tarball must ship only what a consumer needs. Test files and glTF fixtures are
+// dev-only weight (backlog.md "Packaging gap") — this asserts against the real `bun pm pack`
+// output, not the `files` field in isolation, so a future files-field edit can't silently regress it.
+const pkgDir = resolve(import.meta.dir, "../packages/shallot");
+
+const proc = Bun.spawn(["bun", "pm", "pack", "--dry-run"], {
+    cwd: pkgDir,
+    stdout: "pipe",
+    stderr: "pipe",
+});
+const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+]);
+
+if (exitCode !== 0) {
+    console.error("✗ bun pm pack --dry-run failed:\n", stderr);
+    process.exit(1);
+}
+
+const output = `${stdout}\n${stderr}`;
+const files = [...output.matchAll(/^packed\s+\S+\s+(.+)$/gm)].map((m) => m[1]);
+
+if (files.length === 0) {
+    console.error("✗ check-pack: no packed files parsed from `bun pm pack --dry-run` output");
+    process.exit(1);
+}
+
+const violations = files.filter((f) => f.endsWith(".test.ts") || f.includes("/fixtures/"));
+
+if (violations.length > 0) {
+    console.error(`✗ ${violations.length} file(s) that must not ship in the npm pack:\n`);
+    for (const f of violations) console.error(`  ${f}`);
+    console.error(
+        "\nTest files and glTF fixtures are dev-only weight. Exclude them via the `files` field\n" +
+            "in packages/shallot/package.json.",
+    );
+    process.exit(1);
+}
+
+console.log(`✓ tarball clean (${files.length} files, no test.ts or fixtures)`);

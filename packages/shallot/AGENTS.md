@@ -36,9 +36,9 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 ## Imports
 
 - `@dylanebert/shallot` — public API: components, types, plugins, shape factories. The default plugins (`RenderPlugin`, `SearPlugin`, `GlazePlugin`, `TransformsPlugin`, `PartPlugin`, `InputPlugin`, `SlabPlugin`) auto-register; components register through `Plugin.components`, parse-time metadata via `Plugin.traits`. The orbit camera is opt-in (`OrbitPlugin`, in `extras`)
-- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `text`, `tween`, `audio`, `mirror`, `profile` (also reachable on the bare barrel)
+- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `text`, `tween`, `audio`, `mirror`, `profile`, `gltf`, `skin` (also reachable on the bare barrel)
 - `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`)
-- `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. WGSL constants, surface internals, GPU buffer layouts
+- `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs,skin}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. WGSL constants, surface internals, GPU buffer layouts
 
 Don't deep-import from `src/`. If something you need isn't in a barrel or `*/core` subpath, file an issue.
 
@@ -123,6 +123,10 @@ Don't call `linearToSrgb` in a surface fs — the composite does it.
 ## Physics
 
 Physics is opt-in — `TumblePlugin` (main barrel) plus the `Body` / `Spring` / `Joint` components author it, and `Tumble.world` is the escape hatch for constraints past the substrate. When you wire a joint by hand after the bodies marshal, **spawn the jointed bodies non-overlapping**: the physics ticks between body creation and the wire mint a persistent contact that fights the joint from then on, so a motor pulling two concentric bodies together stalls — author them apart, or anchor a driven body to ground it does not overlap.
+
+## Assets
+
+Shallot is procedural-first: meshes, materials, and motion are data you author, and no engine path is shaped around an asset format. When you have authored assets, `extras/gltf` (`GltfPlugin`) is the converter — it turns a glTF file into engine idioms: mesh data, material palette entries, baked VAT animation textures, live-skin rig data. The runtime substrate it feeds is engine-owned: `extras/skin` (`SkinPlugin`) holds the live joint-palette skinning substrate — the `Skin` component, the palette buffer, and the `LiveSkin` pose-write API — with three producers: a glTF rig, a physics ragdoll, or your own procedural rig (compose a custom surface from `skin/core`'s WGSL).
 
 ## Testing
 

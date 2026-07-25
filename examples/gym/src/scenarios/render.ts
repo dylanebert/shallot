@@ -48,6 +48,7 @@ import {
 } from "@dylanebert/shallot";
 import {
     GltfPlugin,
+    LiveSkin,
     loadGltf,
     Profile,
     ProfilePlugin,
@@ -56,6 +57,7 @@ import {
     Skin,
     Sky,
     SkyPlugin,
+    skinMatrix,
     Textured,
 } from "@dylanebert/shallot/extras";
 import {
@@ -79,8 +81,6 @@ import {
     decode,
     decodeInWorker,
     gltfCacheStats,
-    LiveSkin,
-    skinMatrix,
     unionPending,
 } from "@dylanebert/shallot/gltf/core";
 // Parts.drawArgs is the pack's GPU output — the cull readback reads it through the part/core extension surface
@@ -2445,7 +2445,7 @@ async function assertGltfModel(state: State): Promise<Check[]> {
         {
             // layers sum to 25 across the size buckets; each KTX bucket stays a compressed block format (not
             // the RGBA last resort), squares only checked on the resize path. The compressed branch subsumes
-            // the ktx-array gate (the compressedAlbedoArray path ran, not the fallback).
+            // the ktx-array gate (the compressed alloc path ran, not the fallback).
             name: "albedo size-buckets built",
             pass:
                 albedoLayers === ALBEDO_LAYERS &&
@@ -2524,7 +2524,7 @@ async function assertGltfAnimated(state: State): Promise<Check[]> {
 
 // the size-bucket spill end-to-end gate: the union of two KTX assets spans 6 distinct compressed baseColor
 // sizes, past the 4-bucket cap, so the three rarest spill — decoded to RGBA into the shared bitmap bucket on a
-// real device (the `assembleUnion` spill branch the pure `planAlbedoBuckets` unit test can't reach). The proof
+// real device (the union spill branch the pure `planAlbedoBuckets` unit test can't reach). The proof
 // is a compressed bucket and a real (non-fallback) rgba8unorm-srgb spill bucket coexisting among the published
 // albedo arrays, the textured scene rendering. (The pure bucket-planning logic is `union.test.ts`.)
 async function assertGltfSpill(state: State): Promise<Check[]> {

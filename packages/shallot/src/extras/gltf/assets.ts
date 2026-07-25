@@ -18,6 +18,7 @@ import {
 } from "../../standard/render/core";
 import { SlabPlugin } from "../../standard/slab";
 import { Transform } from "../../standard/transforms";
+import { LiveSkin, LiveSkinSystem, Skin, skinTraits } from "../skin";
 import { isGlb, parseGlb } from "./glb";
 import {
     type GltfImage,
@@ -30,7 +31,7 @@ import {
     quantizeLive,
 } from "./gltf";
 import { ALBEDO_NAMES } from "./image";
-import { LiveSkin, LiveSkinSystem, liveSkinSurface, registerLiveSkinSurfaces } from "./live";
+import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
 import { abortDecodes, poolDecode } from "./pool";
 import { RouteSystem, routes, scanRefs, Textured } from "./routes";
 import { mapSet, materialPreamble } from "./shade";
@@ -40,7 +41,6 @@ import {
     disposeVatFallback,
     fallbackVat,
     registerSkinSurfaces,
-    Skin,
     SkinSystem,
     skinSurface,
 } from "./skin";
@@ -377,9 +377,9 @@ function gpuBuffer(device: GPUDevice, label: string, data: Float32Array | Uint32
  * one registered glTF primitive, ready to point a {@link Part} at: the rich handle {@link loadGltf} hands
  * back. `mesh` is the registered {@link Meshes} id (the real reference; `name` is its readable
  * `url#index` form), `surface` the resolved {@link Surfaces} id for its route (sear's solid `default`, a
- * `gltf-albedo*` textured variant, or a `skin*` VAT variant), and `material` its index into the shared
- * union palette. {@link placeGltf} wires all of this onto a Part for you; this is the seam if you author the
- * Part yourself.
+ * `gltf-albedo*` textured variant, a `skin*` VAT variant, or a `skin-live*` joint-palette variant), and
+ * `material` its index into the shared union palette. {@link placeGltf} wires all of this onto a Part for
+ * you; this is the seam if you author the Part yourself.
  */
 export interface GltfHandle {
     name: string;
@@ -1130,7 +1130,7 @@ export function unionPending(): boolean {
     return _staging !== null || _begin !== null;
 }
 
-// drain one byte budget of the in-flight union upload per frame, publishing the whole set the frame it completes
+// drain one time budget of the in-flight union upload per frame, publishing the whole set the frame it completes
 // (the atomic flip). Republishes fragment-stage bindings only (the albedo/data arrays + sampler + palette read
 // in the color FS), so `after: [BeginFrameSystem]` suffices — no `before: [PrepassSystem]` geometry edge. The
 // busy flag keeps one step batch in flight across frames; the identity + generation guards make a mid-step
@@ -1410,7 +1410,7 @@ export const GltfPlugin: Plugin = {
     preferredFeatures: COMPRESSION_FAMILIES,
     traits: {
         Textured: { defaults: () => ({ id: 0 }), derived: true },
-        Skin: { defaults: () => ({ anim: [0, 0, 0, 0] }), derived: true },
+        Skin: skinTraits,
     },
     // surfaces (registries) + the 1×1 texture/VAT fallbacks both belong here, pre-scene: a textured surface
     // binds the fallbacks until an import publishes its real union over them, and the import runs in a project

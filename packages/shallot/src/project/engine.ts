@@ -37,6 +37,7 @@ export const EXTRA_PLUGIN_NAMES = [
     "Outline",
     "Player",
     "Profile",
+    "Skin",
     "Sky",
     "Sprite",
     "Text",

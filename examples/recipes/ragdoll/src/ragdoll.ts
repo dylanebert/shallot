@@ -13,7 +13,7 @@ import {
     Transform,
     Tumble,
 } from "@dylanebert/shallot";
-import { LiveSkin, skinMatrix } from "@dylanebert/shallot/gltf/core";
+import { LiveSkin, skinMatrix } from "@dylanebert/shallot/extras";
 import { qRotate } from "@dylanebert/shallot/physics/core";
 
 // a ragdoll is a physics skeleton wearing a skinned mesh: capsule bodies fall and tangle under the

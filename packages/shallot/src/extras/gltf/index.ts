@@ -8,4 +8,3 @@
 export type { GltfHandle, GltfImport, GltfPlacement } from "./assets";
 export { GltfPlugin, loadGltf, placeGltf, placeScene } from "./assets";
 export { Textured } from "./routes";
-export { Skin } from "./skin";

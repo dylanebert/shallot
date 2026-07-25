@@ -45,7 +45,8 @@ export interface AlbedoLoc {
 export interface AlbedoPlan {
     loc: AlbedoLoc[];
     // per used bucket, its kind — the assembler uploads a "bitmap" bucket via arrayFromBitmaps (rgba8,
-    // resized to a common size) and a "compressed" bucket via compressedAlbedoArray (block format, native size)
+    // resized to a common size) and a "compressed" bucket via allocCompressed + per-layer
+    // writeCompressedLayer (block format, native size)
     buckets: ("bitmap" | "compressed")[];
 }
 
