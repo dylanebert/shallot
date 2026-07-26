@@ -107,3 +107,37 @@ Scenes are flat: no XML nesting, no engine-level parent component. Consumers tha
 - `state.exists` guards — defensive code for cross-State leaking
 - Module-level `Map<number, ...>` for entity ownership — use a consumer-shaped relation (eid field on a component) with marker components
 - Per-frame gather-and-`return null` on GPU buffers that are stable post-warm — a draw-group consumer runs after `warm()` (slab `.gpu`) and the `first` `MembershipSystem` (`membership`), so they're always up at the call site. Read them directly, build the bind group once (rebuilt only on an identity change), let a missing one throw — a null = wiring bug, not a frame to skip. `standard/transforms` is the exemplar
+
+## Bevy as the structural reference
+
+**Bevy is the structural reference for ECS, plugin layout, and frame-graph shape.** Take it where it earns its place; skip the parts that exist for Bevy's scale and constraints, not ours.
+
+**Take from Bevy:**
+
+- ECS-component-first, data over inheritance (already the foundation)
+- Plugin shape: `name` + lifecycle hooks + dependency declarations
+- Frame-graph as named resource publish/subscribe
+- Typed, *closed* resource unions (e.g. `Image` bundles texture + view, like `GpuImage`)
+- Kind-tagged values at access time
+
+**Skip from Bevy:**
+
+- Separate `RenderApp` / extract schedule. Shallot runs sim + render in one `State`; that's intentional, not an oversight
+- `Assets<T>` + `Handle<T>` reference counting. Frame-graph slots aren't assets
+- `Box<dyn Reflect>` plugin-extensible type unions. Closed unions beat open at single-author scale; add a variant when a real consumer needs it
+- Manual `add_slot_edge` graph topology. Auto-wire from input/output name matches; the existing inference is simpler and works
+- Macro-heavy registration, generic-saturated query DSLs, schedule/system ordering DSLs
+- **Multi-threaded executor + access-conflict scheduling.** Single-threaded JS, GPU-bound — no parallelism opportunity on the CPU side. Most of Bevy's ECS bulk exists to make this safe; we don't pay the cost
+- **`ChangeDetection` ticks / dirty tracking.** Directly contradicts gpu.md's firehose principle. Tracking which entities changed *is* the antipattern
+- **Generational `Entity` / mandatory recycle version.** The eid stays a bare index; membership is the liveness signal. A recycle version, if a held-reference consumer ever earns it, is an opt-in side array, never packed in the eid. Detail in *Entity reference fields* above
+- **Auto-inserted `apply_deferred` sync + `Commands` deferred mutation.** Hidden inter-system behavior taxes debugging; immediate mutation is fine in single-threaded JS
+- **Typed `SystemParam` chains (`Res<T>`, `Query<T>`, custom params).** The type ceremony taxes authoring; module-level singletons + `state.query([A, B])` are the right size for shallot's scale and trip count
+
+**The decision rules.** Two axes when evaluating any Bevy-style upgrade:
+
+1. **Iteration speed + performance.** Is the feature solving a problem shallot has, or one of Bevy's? Most of Bevy's mature ECS apparatus addresses multi-threaded CPU parallelism with safe deferred mutation — constraints shallot doesn't have. Adopt only when a feature compounds across many systems and reduces noise without taxing authoring or hiding behavior.
+2. **Layer churn.** Which layer iterates? Substrate stable + pipeline iterates → take the strict typing (typed graph slots, closed resource unions). Substrate iterates → keep it loose.
+
+When something doesn't have a clean Bevy analogue (e.g. shallot's GPU-driven physics, on-GPU graph coloring, fixed-cap SoA component storage), don't invent one. Shallot's "structurally Bevy" ends where the WebGPU-on-integrated-GPU floor, the procedural-first commitment, or the iteration-speed posture forces a different shape.
+
+The minimal scheduler/ECS isn't a TODO — it's a deliberate shape that compounds with TS hot reload and small mental model to give shallot's iteration speed. Bevy 0.16 absorbed the render graph into its schedule because the schedule had grown to ~14.5k lines of typed-param + parallel-executor + auto-sync machinery; shallot's scheduler is 309 lines doing a different, smaller job. The engine runs on plain ECS systems (no compute graph): each camera binds 1:1 to a canvas (a `View` in the `Views` map); `BeginFrameSystem` acquires every view's swapchain texture, renderers attach via `after: [BeginFrameSystem]` and draw directly into each camera's framebuffer, async pipeline compile happens in each plugin's own `warm()`. No compositor, no offscreens; multi-view = multi-canvas.

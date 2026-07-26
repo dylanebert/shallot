@@ -1,6 +1,6 @@
 import { cpSync, existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, resolve } from "node:path";
-import { RECIPE_TSCONFIG, recipeDoc } from "./scaffold";
+import { CLAUDE_IMPORT, RECIPE_TSCONFIG, recipeDoc } from "./scaffold";
 
 // `shallot recipe [name] [dir]` — copy a recipe out of the installed package into a runnable project.
 // The recipes ship in the tarball under this package's `examples/recipes/` (prepack projection); running
@@ -107,13 +107,15 @@ export async function runRecipe(args: string[], e: Env = env()): Promise<number>
     if (existsSync(pkgPath))
         writeFileSync(pkgPath, pinEngine(readFileSync(pkgPath, "utf8"), version));
 
-    // emit the standalone scaffold the monorepo recipe lacks: the agent-surface pointer (AGENTS.md +
-    // CLAUDE.md) that hands a harness the installed engine's contract, and a tsconfig for `bunx tsc`.
-    // Don't clobber a recipe that ships its own.
-    const doc = recipeDoc(name);
-    for (const file of ["AGENTS.md", "CLAUDE.md"]) {
+    // emit the standalone scaffold the monorepo recipe lacks: the agent-surface pointer (AGENTS.md,
+    // imported by CLAUDE.md) that hands a harness the installed engine's contract, and a tsconfig for
+    // `bunx tsc`. Don't clobber a recipe that ships its own.
+    for (const [file, content] of [
+        ["AGENTS.md", recipeDoc(name)],
+        ["CLAUDE.md", CLAUDE_IMPORT],
+    ] as const) {
         const path = resolve(dest, file);
-        if (!existsSync(path)) writeFileSync(path, doc);
+        if (!existsSync(path)) writeFileSync(path, content);
     }
     const tsconfig = resolve(dest, "tsconfig.json");
     if (!existsSync(tsconfig)) writeFileSync(tsconfig, RECIPE_TSCONFIG);

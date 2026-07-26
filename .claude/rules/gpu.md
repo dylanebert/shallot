@@ -232,6 +232,10 @@ If measured ≥5× theoretical_min, the pass is layout-bound, not compute-bound.
 - [CUDA C++ Best Practices Guide](https://docs.nvidia.com/cuda/cuda-c-best-practices-guide/) — coalescing, occupancy, shared memory
 - [NVIDIA Ada GPU Architecture Tuning Guide](https://docs.nvidia.com/cuda/ada-tuning-guide/index.html) — L1 (128 KB/SM combined), L2 (98 MB on AD102), 128B L1 transactions, 32B L2 transactions. Authoritative source for the L2-cache caveat above.
 
+## Native targets and webview backends
+
+Native builds pick a backend by mode. The default is the platform's **system webview** via wry — WebView2 (Windows), WKWebView (macOS), WebKitGTK (Linux) — small but host-dependent. `--portable` bundles the **Chromium runtime (CEF)** instead — larger, self-contained, runs anywhere. WebView2 is full Chromium (every feature); WKWebView meets the base floor but lacks `subgroups` (audited 2026-06-19, Safari 26.5 / Apple Silicon: full floor, only `subgroups` absent — the floor then included `timestamp-query`, so that audit records WKWebView as **having** it, which is what lets `bin/features.ts` leave `ProfilePlugin`'s requirement out of `WEBVIEW_UNSUPPORTED`; WKWebView shares WebKit's WebGPU/Metal backend) — so a macOS physics app runs the LDS broadphase arm there, `--portable` for the faster subgroup arm, no longer a hard requirement. WebKitGTK has no usable WebGPU, so a default Linux build reaches the diagnostic tier — Linux needs `--portable`. `shallot build` runs a build-time check (`bin/features.ts`) that **warns** (never blocks) when the chosen backend can't satisfy a project's *required* features (subgroups, being preferred, never triggers it). Also: Steam Deck (RDNA2), Chrome / Edge on desktop, recent Android Chrome, Safari 26+ on Apple Silicon (the WebKit floor above; end-to-end render still to validate, Intel-Mac unaudited). Firefox and pre-Gen11 Intel iGPUs sit in the diagnostic tier until they ship the floor.
+
 ## DXC shader compilation
 
 DXC (Chrome on Windows) is the compilation bottleneck:

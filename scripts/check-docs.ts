@@ -11,7 +11,7 @@ const root = resolve(import.meta.dir, "..");
 
 const TARGETS = [
     "README.md",
-    "CLAUDE.md",
+    "AGENTS.md",
     "examples/AGENTS.md",
     "packages/shallot/AGENTS.md",
     "packages/shallot/README.md",

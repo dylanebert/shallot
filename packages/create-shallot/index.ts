@@ -9,8 +9,8 @@ import { dirname, join, resolve } from "path";
  *
  * the project is pure data — a `shallot.json` manifest + plugin modules + `public/`, no vite
  * boilerplate. the CLI provides every harness over it: `shallot dev` runs it standalone with hot
- * reload, `shallot build` ships it (web + native targets). the emitted CLAUDE.md / AGENTS.md point an
- * agent at the installed engine's contract.
+ * reload, `shallot build` ships it (web + native targets). the emitted AGENTS.md points an agent at
+ * the installed engine's contract, and CLAUDE.md imports it.
  */
 export function template(name: string): Record<string, string> {
     return {
@@ -53,9 +53,20 @@ export function template(name: string): Record<string, string> {
         "public/scenes/scene.scene": SCENE,
         "README.md": readme(name),
         "AGENTS.md": agents(name),
-        "CLAUDE.md": agents(name),
+        "CLAUDE.md": CLAUDE_IMPORT,
     };
 }
+
+// one contract, two entrypoints: Codex reads AGENTS.md, Claude Code reads CLAUDE.md and expands the
+// `@`-import. An import, not a symlink — a Windows checkout without developer mode gets a literal
+// text file from a symlink. The trailing sentence is the cost of that choice: the import expands only
+// for a session rooted in this file's own directory, so opened from a parent the line is literal text
+// and the prose pointer is all the reader gets. Kept identical to the copy-out's stanza in
+// `packages/shallot/bin/scaffold.ts`.
+const CLAUDE_IMPORT = `@AGENTS.md
+
+If the import line above is showing as literal text, this file was loaded from a parent directory; read the AGENTS.md next to this file before working here.
+`;
 
 /** write a template file map under dir, creating parent directories as needed. */
 export function scaffold(dir: string, files: Record<string, string>): void {

@@ -6,6 +6,7 @@ Notable changes per release. Versions follow [semver](https://semver.org).
 
 - **skin** — the live joint-palette skinning substrate is engine-owned, at `extras/skin`: `SkinPlugin` gives a producer the palette, the `Skin` component, the per-frame flush, and the pose-write API with no glTF asset in the scene. `extras/gltf` is the converter — it turns a rig into substrate data and registers the `skin-live` PBR surfaces that draw it. **Breaking:** `LiveSkin`, `skinMatrix`, and `Skin` move off `@dylanebert/shallot/gltf/core` and the gltf barrel onto `@dylanebert/shallot/extras` (also on the bare barrel); the WGSL a custom skin surface splices is the new `@dylanebert/shallot/skin/core`.
 - **packaging** — the glTF test fixtures no longer ship in the npm tarball.
+- **scaffold** — `bun create shallot` and `shallot recipe` emit one agent contract, not two copies: AGENTS.md holds it and CLAUDE.md is `@AGENTS.md`, so editing one can't drift from the other.
 
 ## 0.8.1 — 2026-07-23
 

@@ -165,15 +165,26 @@ function recipeFlow(work: string, engineTgz: string) {
     if (!inst.ok) return;
 
     // the copy-out synthesizes the standalone scaffold the monorepo recipe lacks: the agent-surface
-    // pointer (AGENTS.md/CLAUDE.md) an installed harness follows, and a tsconfig. Assert the pointer names
-    // node_modules and resolves in the real install (the reach the distribution decision rests on).
-    for (const file of ["AGENTS.md", "CLAUDE.md"]) {
-        const emitted = readFileSync(join(dest, file), "utf8");
-        check(
-            `the copied recipe's ${file} points at node_modules`,
-            /node_modules\/@dylanebert\/shallot\/AGENTS\.md/.test(emitted),
-        );
-    }
+    // pointer (AGENTS.md, imported by CLAUDE.md) an installed harness follows, and a tsconfig. Assert the
+    // pointer names node_modules and resolves in the real install (the reach the distribution decision
+    // rests on), and that CLAUDE.md reaches it through the import rather than copying it.
+    check(
+        "the copied recipe's AGENTS.md points at node_modules",
+        /node_modules\/@dylanebert\/shallot\/AGENTS\.md/.test(
+            readFileSync(join(dest, "AGENTS.md"), "utf8"),
+        ),
+    );
+    const claude = readFileSync(join(dest, "CLAUDE.md"), "utf8");
+    check(
+        "the copied recipe's CLAUDE.md imports AGENTS.md",
+        claude.split("\n")[0] === "@AGENTS.md",
+    );
+    // the import expands only for a session rooted in the recipe itself; opened from a parent directory
+    // the line stays literal text, and the prose pointer is the reader's only route to the contract
+    check(
+        "the copied recipe's CLAUDE.md also names AGENTS.md in prose",
+        claude.replace("@AGENTS.md", "").includes("AGENTS.md"),
+    );
     check(
         "the copied recipe's engine-pointer path resolves after install",
         existsSync(join(dest, "node_modules/@dylanebert/shallot/AGENTS.md")),

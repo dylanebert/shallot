@@ -103,12 +103,11 @@ const install = run(["bun", "install"], proj);
 if (!install.ok) throw new Error(`bun install failed:\n${install.out.slice(-800)}`);
 
 if (bare) {
-    // examples/ is already gone from the tarball (stripTarball above); the scaffold docs still carry the
-    // pointer section at it, so strip that here — reinstall-proof, unlike a node_modules deletion.
-    for (const doc of ["AGENTS.md", "CLAUDE.md"]) {
-        const path = join(proj, doc);
-        writeFileSync(path, stripShippedContext(readFileSync(path, "utf8")));
-    }
+    // examples/ is already gone from the tarball (stripTarball above); the scaffold AGENTS.md still
+    // carries the pointer section at it, so strip that here — reinstall-proof, unlike a node_modules
+    // deletion. CLAUDE.md only imports AGENTS.md, so stripping the one covers both.
+    const doc = join(proj, "AGENTS.md");
+    writeFileSync(doc, stripShippedContext(readFileSync(doc, "utf8")));
 }
 
 writeFileSync(join(proj, "PROMPT.md"), readFileSync(promptPath));

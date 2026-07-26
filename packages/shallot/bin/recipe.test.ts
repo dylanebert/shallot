@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { template } from "../../create-shallot/index";
 import { listRecipes, occupied, pinEngine, runRecipe } from "./recipe";
-import { ENGINE_REFERENCE, recipeDoc } from "./scaffold";
+import { CLAUDE_IMPORT, ENGINE_REFERENCE, recipeDoc } from "./scaffold";
 
 // a fixture corpus: two runnable recipes + a stray non-recipe dir (no shallot.json)
 function corpus(): { recipesDir: string; version: string } {
@@ -122,11 +122,10 @@ describe("runRecipe", () => {
         const env = corpus();
         const dest = join(mkdtempSync(join(tmpdir(), "shallot-copyout-doc-")), "orbit-camera");
         expect(await runRecipe(["orbit-camera", dest], env)).toBe(0);
-        for (const file of ["AGENTS.md", "CLAUDE.md"]) {
-            const doc = readFileSync(join(dest, file), "utf8");
-            expect(doc).toContain("node_modules/@dylanebert/shallot/AGENTS.md");
-            expect(doc).toContain("node_modules/@dylanebert/shallot/examples/AGENTS.md");
-        }
+        const doc = readFileSync(join(dest, "AGENTS.md"), "utf8");
+        expect(doc).toContain("node_modules/@dylanebert/shallot/AGENTS.md");
+        expect(doc).toContain("node_modules/@dylanebert/shallot/examples/AGENTS.md");
+        expect(readFileSync(join(dest, "CLAUDE.md"), "utf8")).toBe(CLAUDE_IMPORT);
         const tsconfig = JSON.parse(readFileSync(join(dest, "tsconfig.json"), "utf8"));
         expect(tsconfig.compilerOptions.types).toContain("@webgpu/types");
     });
@@ -148,9 +147,20 @@ describe("scaffold pointer is one source", () => {
         expect(recipeDoc("orbit-camera")).toContain(ENGINE_REFERENCE);
     });
 
-    test("create-shallot's scaffold AGENTS.md / CLAUDE.md carry the same stanza", () => {
-        const files = template("starter-app");
-        expect(files["AGENTS.md"]).toContain(ENGINE_REFERENCE);
-        expect(files["CLAUDE.md"]).toContain(ENGINE_REFERENCE);
+    test("create-shallot's scaffold AGENTS.md carries the same stanza", () => {
+        expect(template("starter-app")["AGENTS.md"]).toContain(ENGINE_REFERENCE);
+    });
+
+    // One contract, two entrypoints: the scaffolded CLAUDE.md imports AGENTS.md rather than copying it,
+    // so an edit to one can't drift from the other. Both emitters must spell the import identically.
+    test("both scaffolds emit CLAUDE.md as the AGENTS.md import, not a copy", () => {
+        expect(template("starter-app")["CLAUDE.md"]).toBe(CLAUDE_IMPORT);
+        expect(CLAUDE_IMPORT.split("\n")[0]).toBe("@AGENTS.md");
+    });
+
+    // An `@`-import expands only for a session rooted in the file's own directory; opened from a parent
+    // the line loads as literal text. The prose pointer is what a reader in that case has to work with.
+    test("the scaffolded CLAUDE.md names AGENTS.md in prose, not only in the import", () => {
+        expect(CLAUDE_IMPORT.replace("@AGENTS.md", "")).toContain("AGENTS.md");
     });
 });
