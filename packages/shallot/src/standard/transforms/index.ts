@@ -180,6 +180,10 @@ export const TransformsPlugin: Plugin = {
         if (!_composePipeline) return;
         // the bind, not just the dispatch, is deferred into the forcer: the drain runs after every
         // plugin's warm has resolved, which is the first moment the buffers this reads are all up
-        precompile("kitchen-transforms-compose", () => bind()?.dispatchWorkgroups(0));
+        precompile("kitchen-transforms-compose", () => {
+            const bound = bind();
+            bound?.dispatchWorkgroups(0);
+            return bound;
+        });
     },
 };

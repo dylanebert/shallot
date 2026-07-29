@@ -13,6 +13,7 @@
 // publishes into it. Add a `Shadow` to the sun to cast; omit it for the fully-lit bare path (no map
 // allocated), exactly like a camera without a lane marker runs no prepass.
 
+import * as d from "typegpu/data";
 import type { Plugin, State, System } from "../../engine";
 import {
     Compute,
@@ -25,9 +26,11 @@ import {
     unpackColor,
 } from "../../engine";
 import {
+    chunk,
     ldrColorUnpackWgsl,
     octEncodeWgsl,
     posQuantWgsl,
+    spliceNs,
     xformWgsl,
 } from "../../engine/utils/core";
 import { GlazeSystem } from "../glaze";
@@ -35,20 +38,19 @@ import { Camera, RenderPlugin } from "../render";
 import type { Binding, Draw, Surface, View } from "../render/core";
 import {
     BeginFrameSystem,
-    CLUSTER_COUNT,
-    CLUSTER_X,
-    CLUSTER_Y,
-    CLUSTER_Z,
+    clusterCell,
     Draws,
+    distanceAttenuation,
     FRAME_STRUCT_WGSL,
     Frame,
     LIGHTING_STRUCT_WGSL,
     LightCull,
     Lighting,
     Meshes,
-    POINT_LIGHTS_STRUCT_WGSL,
+    pointLightsWgsl,
     Render,
     Surfaces,
+    spotFactor,
     VIEW_BYTES,
     VIEW_STRIDE,
     VIEW_STRUCT_WGSL,
@@ -63,6 +65,20 @@ import {
     SHADOW_ARG_STRIDE,
 } from "./regather";
 import {
+    CASCADE_FLOATS,
+    casterWgsl,
+    checkShadowConfig,
+    POINT_CASTER_FLOATS,
+    pbrWgsl,
+    pointCastersSchema,
+    pointShadowWgsl,
+    SHADOW_PARAMS_BYTES,
+    SUN_PARAMS,
+    sunShadowWgsl,
+    sunStructWgsl,
+    tileRectsSchema,
+} from "./shade";
+import {
     cascadeAtlasSize,
     cascadeComboEids,
     cascadeCount,
@@ -74,10 +90,7 @@ import {
     cascadeTileRects,
     destroyCascades,
     destroyPointShadows,
-    EDGE_TEXELS,
     MAX_CASCADES,
-    POINT_FACE_WGSL,
-    POINT_RECEIVER_WGSL,
     type PointShadowFrame,
     pointAtlasSize,
     pointCasters,
@@ -338,44 +351,23 @@ export const SHARED_STORAGE_COUNT = SURFACE_BASE - VERTICES;
 const BG_BASE = 3;
 
 // the clustered point/spot evaluation primitives, relocatable (no view / fragCoord globals): both sear's
-// color FS and the fog volumetric march splice them. `distanceAttenuation` is Bevy's getDistanceAttenuation
-// (the TS oracle is `distanceAttenuation` in render/lighting.ts); `spotFactor` is Frostbite getAngleAtt over
-// the cone params (params.zw); `clusterCell` maps a pixel fraction + view depth to the slot-major froxel the
-// light cull binned into. Spliced after POINT_LIGHTS_STRUCT_WGSL + octEncodeWgsl() (it reads PointLightGpu +
-// octDecodeNormal)
+// color FS and the fog volumetric march splice them. `distanceAttenuation` + `spotFactor` live with the
+// compacted light list they read (render/lighting.ts), `clusterCell` with the froxel grid it indexes
+// (render/cluster.ts) — this chunk is the relocatable bundle a consumer splices
 /** relocatable clustered-light WGSL (`distanceAttenuation` / `spotFactor` / `clusterCell`) so a screen-space consumer evaluates the same froxel lights sear's color FS does */
-export const LIGHT_EVAL_WGSL = /* wgsl */ `
-fn distanceAttenuation(distSq: f32, invRangeSq: f32, radiusSq: f32) -> f32 {
-    let factor = distSq * invRangeSq;
-    let smoothFactor = saturate(1.0 - factor * factor);
-    return smoothFactor * smoothFactor / max(distSq, radiusSq);
+export function lightEvalWgsl(): string {
+    // force the base chunks first: `PointLightGpu` belongs to the light-list chunk and `octDecodeNormal`
+    // to the oct chunk, and every consumer splices both ahead of this one
+    pointLightsWgsl();
+    octEncodeWgsl();
+    return lightEvalChunk();
 }
 
-// the spot cone's angular attenuation (Frostbite getAngleAtt). A point light's params.zw carry the cone's
-// angular (scale, offset) — (0, 1) for a plain point light, so the early-out returns 1 and the multiply is
-// a no-op. For a spot, cd is the cosine between the cone axis (params.y, the oct-packed forward) and the
-// light→fragment direction (-L, since L points fragment→light); saturate(cd·scale + offset)² is 1 inside
-// the inner cone and smoothly 0 at the outer (the spotParams oracle is the (scale, offset) twin)
-fn spotFactor(light: PointLightGpu, L: vec3<f32>) -> f32 {
-    if (light.params.z == 0.0) { return 1.0; }
-    let axis = octDecodeNormal(bitcast<u32>(light.params.y));
-    let cd = -dot(axis, L);
-    let a = saturate(cd * light.params.z + light.params.w);
-    return a * a;
-}
-
-// the slot-major cluster-grid index for a pixel (fx, fy in [0,1], y-down) at view depth viewZ. Tile (0,0)
-// is NDC (-1,-1) — bottom-left — so the y tile flips from the top-down screen y; the z slice is log over
-// [near, far]. sear passes fragCoord-derived args; the fog march passes its pixel + the per-step view depth
-// (tile-xy fixed along the ray, z-slice per step)
-fn clusterCell(fx: f32, fy: f32, viewZ: f32, near: f32, far: f32, slot: u32) -> u32 {
-    let zs = clamp(i32(log(viewZ / near) / log(far / near) * ${CLUSTER_Z}.0), 0, ${CLUSTER_Z - 1});
-    let tx = min(u32(fx * ${CLUSTER_X}.0), ${CLUSTER_X - 1}u);
-    let tyTop = min(u32(fy * ${CLUSTER_Y}.0), ${CLUSTER_Y - 1}u);
-    let ty = ${CLUSTER_Y - 1}u - tyTop;
-    let cluster = (ty * ${CLUSTER_X}u + tx) * ${CLUSTER_Z}u + u32(zs);
-    return slot * ${CLUSTER_COUNT}u + cluster;
-}`;
+const lightEvalChunk = chunk(
+    "lightEvalWgsl",
+    [distanceAttenuation, spotFactor, clusterCell],
+    spliceNs,
+);
 
 // the lighting helpers sear exposes to surface chunks: `lightFactor(normal)`
 // is ambient + sun·ndl·shadow + the point-light sum (callable in the vs for per-vertex
@@ -397,14 +389,21 @@ fn clusterCell(fx: f32, fy: f32, viewZ: f32, near: f32, far: f32, slot: u32) -> 
 // `clusterOf` maps (fragCoord.xy, view depth) to the grid cell the light cull binned into
 // (view.cluster carries near/far/perspective/slot). The falloff is Bevy's
 // getDistanceAttenuation — inverse-square windowed smoothly to exactly zero at the range;
-// the TS oracle is `distanceAttenuation` in render/lighting.ts (pinned by its unit tests)
+// `distanceAttenuation` is the one function both this shader and the CPU oracles call
+// (render/lighting.ts, via lightEvalWgsl).
+//
+// What stays raw WGSL here is exactly what reads a *binding* by name — `view` / `lighting` /
+// `lightGrid` / `lightIndices` / `pointLights` and the `var<private>` seams. The pure lobe
+// (`halfLambert`, the GGX / Smith / Schlick terms, `brdf` / `brdfSphere` over the `Pbr` struct) is
+// TGSL in ./shade, spliced as `pbrWgsl()` — so `lit` / `litPbr` below are thin binding-readers
+// over functions a `bun test` calls directly
 const LIGHT_WGSL = /* wgsl */ `
 var<private> sunVisibility: f32 = 1.0;
 var<private> fragWorld: vec3<f32> = vec3<f32>(0.0);
 var<private> fragCoord: vec4<f32> = vec4<f32>(0.0);
 var<private> pointScale: f32 = 0.0;
 
-// the fragment's slot-major cluster index (clusterCell, LIGHT_EVAL_WGSL). View depth recovers from the
+// the fragment's slot-major cluster index (clusterCell, lightEvalWgsl). View depth recovers from the
 // position builtin: perspective clip.w is the view depth (fragCoord.w = 1/clip.w); orthographic depth is
 // linear in fragCoord.z
 fn clusterOf() -> u32 {
@@ -414,17 +413,6 @@ fn clusterOf() -> u32 {
     if (view.cluster.z < 0.5) { viewZ = near + fragCoord.z * (far - near); }
     return clusterCell(
         fragCoord.x / view.resolution.x, fragCoord.y / view.resolution.y, viewZ, near, far, u32(view.cluster.w));
-}
-
-// Valve half-Lambert: remap the diffuse cosine from [-1,1] to [0,1] and square it, so the gradient
-// spans the whole surface and the terminator softens — the matte, non-plastic happy-path look
-// (Mitton & McTaggart, "Shading in Valve's Source Engine", GDC 2004). The square (not the bare remap)
-// keeps form: the remap alone flattens, squaring restores midtone contrast. Diffuse-only — the
-// specular cosine stays physical, so metals + glTF dielectrics are unchanged. Deliberately not
-// energy-conserving; a stylized default, not physical Lambert.
-fn halfLambert(ndl: f32) -> f32 {
-    let h = ndl * 0.5 + 0.5;
-    return h * h;
 }
 
 fn pointFactor(normal: vec3<f32>) -> vec3<f32> {
@@ -454,91 +442,6 @@ fn lightFactor(normal: vec3<f32>) -> vec3<f32> {
 
 fn lit(baseColor: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
     return baseColor * lightFactor(normal);
-}
-
-// metallic-roughness PBR (glTF 2.0 model). \`dielectric\` is the non-metal base reflectance (F0): the
-// engine default material passes 0 so a non-metal has zero specular (the flat shallot look), glTF passes
-// the spec-standard 0.04. \`F0 = mix(dielectric, albedo, metallic)\`.
-const PI = 3.14159265359;
-
-struct Pbr {
-    albedo: vec3<f32>,
-    metallic: f32,
-    roughness: f32,
-    occlusion: f32,
-    dielectric: f32,
-}
-
-fn distributionGGX(ndh: f32, a: f32) -> f32 {
-    let a2 = a * a;
-    let d = ndh * ndh * (a2 - 1.0) + 1.0;
-    return a2 / max(PI * d * d, 1e-7);
-}
-
-// Smith height-correlated visibility (G / (4·ndl·ndv)), Heitz 2014
-fn visSmithGGX(ndl: f32, ndv: f32, a: f32) -> f32 {
-    let a2 = a * a;
-    let lv = ndl * sqrt(ndv * ndv * (1.0 - a2) + a2);
-    let ll = ndv * sqrt(ndl * ndl * (1.0 - a2) + a2);
-    return 0.5 / max(lv + ll, 1e-7);
-}
-
-// Schlick Fresnel with f90 derived from F0 (Frostbite, Lagarde 2014): a true zero-reflectance material
-// (F0 = 0) gets f90 = 0, so its specular vanishes entirely — grazing included. F0 >= ~0.02 saturates to
-// the standard f90 = 1. This is what makes \`dielectric = 0\` mean literally no specular.
-fn fresnelSchlick(vdh: f32, f0: vec3<f32>) -> vec3<f32> {
-    let f90 = saturate(dot(f0, vec3<f32>(50.0 / 3.0)));
-    let f = pow(saturate(1.0 - vdh), 5.0);
-    return f0 + (vec3<f32>(f90) - f0) * f;
-}
-
-// one light's Cook-Torrance radiance, unscaled by light color / attenuation (the caller scales). The
-// trailing * PI folds physical diffuse (albedo/PI) back to shallot's no-PI light convention so the diffuse
-// term matches \`lit\` exactly. The diffuse cosine is half-Lambert (the soft default); the specular keeps
-// the physical clamped cosine, so it vanishes on back faces and metals/glTF dielectrics stay correct.
-fn brdf(s: Pbr, N: vec3<f32>, V: vec3<f32>, L: vec3<f32>) -> vec3<f32> {
-    let d = dot(N, L);
-    let ndl = max(d, 0.0);
-    let H = normalize(V + L);
-    let ndv = max(dot(N, V), 1e-4);
-    let ndh = max(dot(N, H), 0.0);
-    let vdh = max(dot(V, H), 0.0);
-    let a = max(s.roughness * s.roughness, 1e-3);
-    let f0 = mix(vec3<f32>(s.dielectric), s.albedo, s.metallic);
-    let F = fresnelSchlick(vdh, f0);
-    let spec = distributionGGX(ndh, a) * visSmithGGX(ndl, ndv, a) * F;
-    let kd = (vec3<f32>(1.0) - F) * (1.0 - s.metallic);
-    return (kd * s.albedo / PI * halfLambert(d) + spec * ndl) * PI;
-}
-
-// the sphere-source BRDF for a point light: diffuse on the light CENTER (\`Lc\`, half-Lambert, identical to
-// \`brdf\`), specular on Karis's representative point (Real Shading in UE4) — the closest point on the source
-// sphere to the mirror reflection ray. A point source gives a pinpoint highlight that a rough surface
-// barely catches; a sphere of radius \`radius\` (in \`params.x\`) gives a soft round highlight scaled to the
-// source size. The roughness is widened to \`aPrime\` by the solid angle the sphere subtends and the peak is
-// renormalized by (a/aPrime)² so total specular energy is conserved (the highlight spreads, doesn't brighten).
-// At radius 0 the representative point is \`Lc\`, \`aPrime = a\`, norm = 1, so this reduces to \`brdf(s,N,V,Lc)\` exactly.
-fn brdfSphere(s: Pbr, N: vec3<f32>, V: vec3<f32>, Lc: vec3<f32>, dist: f32, radius: f32) -> vec3<f32> {
-    let r = reflect(-V, N);
-    let Lvec = Lc * dist; // the unnormalized light vector (Lc normalized, |Lvec| = dist)
-    let centerToRay = dot(Lvec, r) * r - Lvec;
-    let closest = Lvec + centerToRay * saturate(radius / max(length(centerToRay), 1e-4));
-    let Ls = normalize(closest);
-    let a = max(s.roughness * s.roughness, 1e-3);
-    let aPrime = saturate(a + radius / (2.0 * max(dist, 1e-4)));
-    let norm = (a / aPrime) * (a / aPrime);
-
-    let dC = dot(N, Lc);
-    let ndl = max(dot(N, Ls), 0.0);
-    let H = normalize(V + Ls);
-    let ndv = max(dot(N, V), 1e-4);
-    let ndh = max(dot(N, H), 0.0);
-    let vdh = max(dot(V, H), 0.0);
-    let f0 = mix(vec3<f32>(s.dielectric), s.albedo, s.metallic);
-    let F = fresnelSchlick(vdh, f0);
-    let spec = distributionGGX(ndh, aPrime) * visSmithGGX(ndl, ndv, aPrime) * F * norm;
-    let kd = (vec3<f32>(1.0) - F) * (1.0 - s.metallic);
-    return (kd * s.albedo / PI * halfLambert(dC) + spec * ndl) * PI;
 }
 
 // per-pixel (or per-vertex) metallic-roughness shading. Shares the sun-shadow / point-cluster seam with
@@ -586,211 +489,18 @@ ${
 // the per-mesh dequant table — spliced after posQuantWgsl() (it references the MeshQuant struct it defines)
 const MESH_QUANT_WGSL = /* wgsl */ `@group(0) @binding(${MESH_QUANT}) var<storage, read> meshQuant: array<MeshQuant>;`;
 
-// the byte size of the SunShadow params uniform: MAX_CASCADES Cascade structs (96 B each — mat4 lightViewProj
-// + rect + far + texelWorld + 2 pad) + the globals tail (count / overlap / depthBias / enabled / normalBias /
-// texel + 2 pad, 32 B). Sear owns the layout, the fallback, and the group-1 bindings; ./shadows owns the
-// cascade cameras that drive the values sear writes here each shadowed frame. Exported so a relocatable
-// consumer (the fog march) sizes its sun-shadow uniform binding to match
-/** byte size of the sun-shadow params uniform: a relocatable consumer (the fog march) sizes its sun-shadow binding to match */
-export const SHADOW_PARAMS_BYTES = MAX_CASCADES * 96 + 32;
-// f32 strides into the params staging: one Cascade is 24 floats (mat4 16 + rect 4 + far 1 + texelWorld 1 + 2
-// pad), the globals tail starts after the cascade array
-const CASCADE_FLOATS = 24;
-const SUN_GLOBALS_OFFSET = MAX_CASCADES * CASCADE_FLOATS;
-
-// the relocatable shadow chunks below are spliced into sear's color FS (via `shadowWgsl`) AND a
-// screen-space consumer's pass (the fog volumetric march) — one source of truth, each consumer declaring
-// the group-1 bindings the chunks reference by name. The color pass's opaque + transparent pipelines call
-// `sampleSunShadow` / `pointShadowOf`; the tag + depth pipelines omit group 1, so their fragments never
-// reference these and stay valid. The sun half (`SUN_SHADOW_STRUCT_WGSL` + `SAMPLE_SUN_SHADOW_WGSL`) is
-// plain consts (no config); the point/spot half (`casterWgsl` / `pointShadowWgsl`) are `() =>` functions
-// because they interpolate the `PointShadows` config (caster count + atlas size), fixed before build but
-// after this module loads. `enabled: 0` / an empty caster slot is the no-cast fallback → fully lit.
-// the point/spot caster uniform structs — relocatable, spliced before the consumer's `pointShadows`
-// binding decl (sear's color group 1, the fog march's group 1). `pointCasters()` is the config cap, fixed
-// before build
-/** returns the point/spot caster WGSL: the `PointCaster` struct + the group-1 binding decl a consumer declares to reach sear's shadow atlas */
-export const casterWgsl = () => /* wgsl */ `
-struct PointCaster {
-    pos: vec4<f32>,
-    nf: vec4<f32>,
-    spotA: vec4<f32>,
-    spotB: vec4<f32>,
-    spotC: vec4<f32>,
-}
-struct PointCasters {
-    casters: array<PointCaster, ${pointCasters()}>,
-}
-// the per-(caster, face) allocated atlas-UV rects (\`[u0, v0, du, dv]\`, square), indexed \`slot·6 + face\`:
-// a point caster's six face tiles, a spot's lone tile at face 0. The receiver samples its matched caster's
-// rect; the importance allocator (sear/shadows.ts) sizes + packs them into the square atlas each frame
-struct TileRects {
-    rects: array<vec4<f32>, ${pointCasters() * 6}>,
-}`;
-
-// the point-light shadow factor for one compacted light — relocatable: it takes the world position as a
-// param and references `pointAtlas` / `shadowSamp` / `pointShadows` by name (the consumer declares them at
-// its own binding, sear's color group 1 or the fog march's). Match the light to a caster slot by source
-// entity id (color.a, baked by the light compact pass; pos.w is -1 for an empty slot, so a non-caster
-// never matches), pick the cube face (or spot tile) from the light→fragment direction, project into the
-// atlas tile, and 3×3 PCF-compare. The receiver depth reproduces the face projection's perspective depth
-// analytically from the forward distance (same [near, far] = nf.xy), so the hardware depth the atlas render
-// wrote compares exactly. The receiver is offset along `normal` by normalBias face texels (a volumetric
-// caller with no surface normal passes vec3(0) — zero offset), plus the nf.z depth bias applied toward
-// the light in linear depth (`pointReceiver`) so its world-space lift doesn't blow up with distance
-/** returns the point/spot shadow WGSL: `pointShadowOf(light, normal, fragWorld)` (world pos a param, atlas/sampler/casters by name), the per-light shadow factor sear's clustered loop and a relocatable consumer both call */
-export const pointShadowWgsl = () => /* wgsl */ `
-${POINT_FACE_WGSL}
-${POINT_RECEIVER_WGSL}
-
-fn pointShadowOf(light: PointLightGpu, normal: vec3<f32>, fragWorld: vec3<f32>) -> f32 {
-    let atlas = ${pointAtlasSize()}.0;
-    let texel = 1.0 / atlas; // one atlas pixel in uv — tile-size-independent
-    for (var k = 0u; k < ${pointCasters()}u; k = k + 1u) {
-        let c = pointShadows.casters[k];
-        if (c.pos.w != light.color.a) { continue; }
-        let toFrag = fragWorld - c.pos.xyz;
-        let coneTanHalf = c.spotA.w;
-        var uv: vec2<f32>;
-        var receiver: f32;
-        var rect: vec4<f32>;
-        if (coneTanHalf > 0.0) {
-            // spot caster: its single tile (face 0 of the slot). Project the normal-offset fragment onto the
-            // cone's lookAt basis (right/up/fwd, c.spotA/B/C.xyz) — the texel world size (from the tile's own
-            // pixel count), receiver depth, and ndc are the same forms as a cube face, just with the cone basis
-            rect = tileRects.rects[k * 6u];
-            let tilePx = rect.z * atlas;
-            let texelWorld = max(length(toFrag), 1e-4) * (2.0 * coneTanHalf / tilePx);
-            let d = toFrag + normal * (c.nf.w * 1.4142136 * texelWorld);
-            let z = max(dot(d, c.spotC.xyz), c.nf.x);
-            receiver = pointReceiver(z, c.nf.x, c.nf.y, c.nf.z);
-            let ndc = vec2<f32>(dot(d, c.spotA.xyz), dot(d, c.spotB.xyz)) / (z * coneTanHalf);
-            uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
-        } else {
-            // point caster: all six faces share a tile size, so the widened tangent + texel come from face 0
-            // (no need to know the fragment's face yet); the offset then picks the actual face
-            let tilePx = tileRects.rects[k * 6u].z * atlas;
-            let tanHalf = 1.0 + ${2 * EDGE_TEXELS}.0 / tilePx;
-            let texelWorld = max(length(toFrag), 1e-4) * (2.0 * tanHalf / tilePx);
-            let d = toFrag + normal * (c.nf.w * 1.4142136 * texelWorld);
-            let f = pointFaceOf(d);
-            rect = tileRects.rects[k * 6u + f.face];
-            let z = max(f.stz.z, c.nf.x);
-            receiver = pointReceiver(z, c.nf.x, c.nf.y, c.nf.z);
-            let ndc = f.stz.xy / (z * tanHalf);
-            uv = rect.xy + vec2<f32>(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5) * rect.zw;
-        }
-        // clamp the 3×3 PCF taps to the tile interior (half a texel in from each edge) so a grazing/wide
-        // sample never bleeds into a neighbour tile — the leak fix the scissor margin alone can't give
-        let lo = rect.xy + vec2<f32>(0.5 * texel);
-        let hi = rect.xy + rect.zw - vec2<f32>(0.5 * texel);
-        var sum = 0.0;
-        for (var oy = -1; oy <= 1; oy = oy + 1) {
-            for (var ox = -1; ox <= 1; ox = ox + 1) {
-                let o = vec2<f32>(f32(ox), f32(oy)) * texel;
-                sum = sum + textureSampleCompareLevel(pointAtlas, shadowSamp, clamp(uv + o, lo, hi), receiver);
-            }
-        }
-        return sum / 9.0;
-    }
-    return 1.0;
-}`;
-
-// the SunShadow params struct — relocatable, spliced before the consumer's group-1 sun-shadow bindings
-// (sear's color group 1, the fog march's). CSM: an array of per-cascade { lightViewProj, atlas-UV `rect`,
-// `far`-bound (linear view-z), per-cascade `texelWorld` } + a globals tail. Sear owns the layout, the
-// fallback, and the values it writes each shadowed frame
-/** the WGSL `SunShadow` uniform struct (per-cascade viewProj + atlas rect + far bound + texel size, plus a globals tail), relocatable so a screen-space consumer declares the same binding sear's color FS reads */
-export const SUN_SHADOW_STRUCT_WGSL = /* wgsl */ `
-struct Cascade {
-    lightViewProj: mat4x4<f32>,
-    rect: vec4<f32>,       // the cascade's atlas-UV tile [u0, v0, du, dv]
-    far: f32,              // the cascade's far-bound in linear view-z (the receiver selects by these)
-    texelWorld: f32,       // one shadow texel's world size for this cascade (the normal-offset bias scale)
-    _p0: f32,
-    _p1: f32,
-};
-struct SunShadow {
-    cascades: array<Cascade, ${MAX_CASCADES}>,
-    count: f32,            // active cascade count
-    overlap: f32,          // inter-cascade blend-band fraction (Bevy's cascades_overlap_proportion)
-    depthBias: f32,
-    enabled: f32,
-    normalBias: f32,
-    texel: f32,            // one atlas pixel in uv (the PCF tap step) — tile-size-independent
-    _p0: f32,
-    _p1: f32,
-};`;
-
-// the sun (directional) shadow factor — relocatable, the sun twin of `pointShadowWgsl`: world pos + normal
-// are params, and `shadowMap` (the cascade atlas) / `shadowSamp` / `sunShadow` / `view` are referenced by
-// name (the consumer declares them — sear's color group 1, or the fog march's; both bind `view`). CSM
-// (Bevy `get_cascade_index` + `fetch_directional_shadow`): pick the cascade by the fragment's linear view-z,
-// sample its atlas tile, and blend into the next cascade across the overlap band. `enabled: 0` (the no-caster
-// fallback) short-circuits to fully lit, so a volumetric march reading the fallback scatters the sun unshadowed
-/** relocatable WGSL: `sampleSunShadow(worldPos, normal)` selects a cascade, PCF-samples its atlas tile, and blends across the overlap band; the `enabled: 0` fallback returns fully lit */
-export const SAMPLE_SUN_SHADOW_WGSL = /* wgsl */ `
-fn sampleCascade(ci: u32, worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
-    let c = sunShadow.cascades[ci];
-    // normal-offset bias (the primary acne fix, matching Bevy): shift the receiver along its world normal by
-    // normalBias shadow texels of world size before projecting. 1.41 is SQRT_2 (worst-case diagonal); the
-    // texel world size is per-cascade, so a near cascade's finer texels don't over-offset
-    let offset = worldPos + normalize(normal) * (sunShadow.normalBias * 1.4142136 * c.texelWorld);
-    let lc = c.lightViewProj * vec4<f32>(offset, 1.0);
-    let l = lc.xyz / lc.w;
-    if (l.x < -1.0 || l.x > 1.0 || l.y < -1.0 || l.y > 1.0 || l.z < 0.0 || l.z > 1.0) {
-        return 1.0; // outside this cascade box — lit
-    }
-    // remap the cascade-NDC into its atlas tile, then clamp the 3×3 PCF taps to the tile interior so a
-    // grazing sample never bleeds into a neighbour cascade's tile (the point atlas's seam-clamp)
-    let uv = c.rect.xy + vec2<f32>(l.x * 0.5 + 0.5, 0.5 - l.y * 0.5) * c.rect.zw;
-    // a small residual constant lift toward the light (reverse-Z: the light is at greater depth, so it adds)
-    let receiver = l.z + sunShadow.depthBias;
-    let lo = c.rect.xy + vec2<f32>(0.5 * sunShadow.texel);
-    let hi = c.rect.xy + c.rect.zw - vec2<f32>(0.5 * sunShadow.texel);
-    var sum = 0.0;
-    for (var oy = -1; oy <= 1; oy = oy + 1) {
-        for (var ox = -1; ox <= 1; ox = ox + 1) {
-            let o = vec2<f32>(f32(ox), f32(oy)) * sunShadow.texel;
-            sum = sum + textureSampleCompareLevel(shadowMap, shadowSamp, clamp(uv + o, lo, hi), receiver);
-        }
-    }
-    return sum / 9.0;
-}
-
-fn sampleSunShadow(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {
-    if (sunShadow.enabled == 0.0) { return 1.0; }
-    let count = u32(sunShadow.count);
-    // linear view-z: the camera-forward distance from the eye (forward = -cross(right, up)) — the cleanest
-    // select space, Bevy's get_cascade_index axis
-    let fwd = -cross(view.right.xyz, view.up.xyz);
-    let viewZ = dot(worldPos - view.eye.xyz, fwd);
-    // the first cascade whose far-bound the fragment is within
-    var ci = count;
-    for (var i = 0u; i < count; i = i + 1u) {
-        if (viewZ < sunShadow.cascades[i].far) { ci = i; break; }
-    }
-    if (ci >= count) { return 1.0; } // beyond the last cascade — lit
-    var shadow = sampleCascade(ci, worldPos, normal);
-    // blend into the next cascade across the overlap band ((1−overlap)·far … far) so the boundary has no seam
-    let next = ci + 1u;
-    if (next < count) {
-        let thisFar = sunShadow.cascades[ci].far;
-        let nextNear = (1.0 - sunShadow.overlap) * thisFar;
-        if (viewZ >= nextNear) {
-            let t = clamp((viewZ - nextNear) / max(thisFar - nextNear, 1e-5), 0.0, 1.0);
-            shadow = mix(shadow, sampleCascade(next, worldPos, normal), t);
-        }
-    }
-    return shadow;
-}`;
-
+// the relocatable shadow chunks the color FS splices (via `shadowWgsl`) are in ./shade, and a
+// screen-space consumer's pass (the fog volumetric march) splices the same ones — one source of truth,
+// each consumer declaring the group-1 bindings they reference by name. The color pass's opaque +
+// transparent pipelines call `sampleSunShadow` / `pointShadowOf`; the tag + depth pipelines omit group 1,
+// so their fragments never reference these and stay valid. `enabled: 0` / an empty caster slot is the
+// no-cast fallback → fully lit.
 const shadowWgsl = () => /* wgsl */ `
-${SUN_SHADOW_STRUCT_WGSL}
+${sunStructWgsl()}
 @group(1) @binding(0) var shadowMap: texture_depth_2d;
 @group(1) @binding(1) var shadowSamp: sampler_comparison;
 @group(1) @binding(2) var<uniform> sunShadow: SunShadow;
-${SAMPLE_SUN_SHADOW_WGSL}
+${sunShadowWgsl()}
 
 ${casterWgsl()}
 @group(1) @binding(3) var pointAtlas: texture_depth_2d;
@@ -1059,8 +769,9 @@ export function surfaceCode(
 ${FRAME_STRUCT_WGSL}
 ${VIEW_STRUCT_WGSL}
 ${LIGHTING_STRUCT_WGSL}
-${POINT_LIGHTS_STRUCT_WGSL}
-${LIGHT_EVAL_WGSL}
+${pointLightsWgsl()}
+${lightEvalWgsl()}
+${pbrWgsl()}
 ${LIGHT_WGSL}
 ${uniformWgsl(pass)}
 ${octEncodeWgsl()}
@@ -1319,8 +1030,9 @@ function pointShadowCode(surface: Surface, variant: number, cascade = false): st
 ${FRAME_STRUCT_WGSL}
 ${VIEW_STRUCT_WGSL}
 ${LIGHTING_STRUCT_WGSL}
-${POINT_LIGHTS_STRUCT_WGSL}
-${LIGHT_EVAL_WGSL}
+${pointLightsWgsl()}
+${lightEvalWgsl()}
+${pbrWgsl()}
 ${LIGHT_WGSL}
 ${uniformWgsl("prepass")}
 ${octEncodeWgsl()}
@@ -1517,8 +1229,8 @@ let _shadowGroup: {
 let _shadowReady = false;
 let _sunParams: GPUBuffer | null = null;
 
-// the SunShadow params staging: MAX_CASCADES Cascade structs (CASCADE_FLOATS each) then the globals tail
-// (count / overlap / depthBias / enabled / normalBias / texel) at SUN_GLOBALS_OFFSET
+// the SunShadow params staging: MAX_CASCADES Cascade rows (CASCADE_FLOATS each) then the globals tail,
+// every field index derived from the schemas (SUN_PARAMS, ./shade)
 const _paramsBuf = new ArrayBuffer(SHADOW_PARAMS_BYTES);
 const _paramsF32 = new Float32Array(_paramsBuf);
 
@@ -1562,13 +1274,13 @@ export function shadowSampler(): GPUSampler | null {
 
 /** the sun (directional) shadow map depth view a screen-space consumer (the fog volumetric march) binds
  * to sample shadowed sun shafts: the real map once the sun casts (a `Shadow` on the directional light),
- * else the 1×1 fallback (whose `enabled: 0` params make {@link SAMPLE_SUN_SHADOW_WGSL} return 1.0, so the
+ * else the 1×1 fallback (whose `enabled: 0` params make {@link sunShadowWgsl} return 1.0, so the
  * march scatters the sun unshadowed). Pairs with {@link shadowSampler} + {@link sunShadowParams}. */
 export function sunShadowView(): GPUTextureView | null {
     return _sun?.map ?? _fallbackView;
 }
 
-/** the {@link SUN_SHADOW_STRUCT_WGSL} params uniform a screen-space consumer binds: the real
+/** the {@link sunStructWgsl} params uniform a screen-space consumer binds: the real
  * light viewProj + bias when the sun casts, else the all-zero `enabled: 0` fallback. Pairs with
  * {@link sunShadowView}. */
 export function sunShadowParams(): GPUBuffer | null {
@@ -1626,11 +1338,6 @@ const _cascadeRegather = createRegather("cascade");
 // the casting draws this frame whose surface compiled a cascade pipeline, filled in renderCascades
 const _cascadeCastDraws: { draw: Draw; r: Recorded }[] = [];
 
-// the PointCaster stride in f32: pos + nf + spotA/B/C (the spot basis), 5 vec4. The tile rects live in the
-// separate "pointTileRects" uniform (6 per caster), so the FS receiver matches a light by eid then reads
-// its face rect there — keeping the per-caster struct small and the rects sharable with the atlas VS
-const POINT_CASTER_FLOATS = 20;
-
 // every slot empty: pos.w = -1 (eids are non-negative, so nothing matches)
 function clearPointParams(): void {
     _pointF32.fill(0);
@@ -1679,6 +1386,9 @@ function shadowGroup(): GPUBindGroup {
  * params buffer), surviving HMR re-warms
  */
 async function prepareSear(device: GPUDevice): Promise<void> {
+    // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
+    // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
+    checkShadowConfig();
     _compiled.clear();
     _compiling.clear();
     _groups.clear();
@@ -1727,7 +1437,9 @@ async function prepareSear(device: GPUDevice): Promise<void> {
     _pointAtlasView = null;
     _pointFrames = [];
     _pointParams?.destroy();
-    _pointBuf = new ArrayBuffer(pointCasters() * POINT_CASTER_FLOATS * 4);
+    // both uniforms are sized from the schemas the shadow WGSL emits, so the binding and the struct the
+    // receiver reads can't drift apart (checkShadowConfig catches a config change after that resolve)
+    _pointBuf = new ArrayBuffer(d.sizeOf(pointCastersSchema()));
     _pointF32 = new Float32Array(_pointBuf);
     _pointParams = device.createBuffer({
         label: "sear-point-shadow-params",
@@ -1743,7 +1455,7 @@ async function prepareSear(device: GPUDevice): Promise<void> {
     _pointTileRects?.destroy();
     _pointTileRects = device.createBuffer({
         label: "sear-point-tilerects",
-        size: pointCasters() * 6 * 16,
+        size: d.sizeOf(tileRectsSchema(pointCasters() * 6)),
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     device.queue.writeBuffer(_pointTileRects, 0, new Float32Array(pointCasters() * 6 * 4));
@@ -2510,20 +2222,20 @@ function renderCascades(): void {
     _paramsF32.fill(0);
     for (let i = 0; i < C; i++) {
         const base = i * CASCADE_FLOATS;
-        _paramsF32.set(recv.subarray(i * 16, i * 16 + 16), base);
-        _paramsF32.set(tileRects.subarray(i * 4, i * 4 + 4), base + 16);
-        _paramsF32[base + 20] = fars[i];
-        _paramsF32[base + 21] = (2 * covers[i]) / res;
+        _paramsF32.set(recv.subarray(i * 16, i * 16 + 16), base + SUN_PARAMS.cascade.viewProj);
+        _paramsF32.set(tileRects.subarray(i * 4, i * 4 + 4), base + SUN_PARAMS.cascade.rect);
+        _paramsF32[base + SUN_PARAMS.cascade.far] = fars[i];
+        _paramsF32[base + SUN_PARAMS.cascade.texelWorld] = (2 * covers[i]) / res;
     }
     const bias = sunBias();
-    _paramsF32[SUN_GLOBALS_OFFSET] = C;
-    _paramsF32[SUN_GLOBALS_OFFSET + 1] = SunShadows.overlap;
-    _paramsF32[SUN_GLOBALS_OFFSET + 2] = bias.depthBias;
-    _paramsF32[SUN_GLOBALS_OFFSET + 3] = 1; // enabled
-    _paramsF32[SUN_GLOBALS_OFFSET + 4] = bias.normalBias;
+    _paramsF32[SUN_PARAMS.globals.count] = C;
+    _paramsF32[SUN_PARAMS.globals.overlap] = SunShadows.overlap;
+    _paramsF32[SUN_PARAMS.globals.depthBias] = bias.depthBias;
+    _paramsF32[SUN_PARAMS.globals.enabled] = 1;
+    _paramsF32[SUN_PARAMS.globals.normalBias] = bias.normalBias;
     // one atlas pixel in uv — the actual texture side (allocated for the fixed sunCascades()), not the live
     // count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
-    _paramsF32[SUN_GLOBALS_OFFSET + 5] = 1 / cascadeAtlasSize(res, sunCascades());
+    _paramsF32[SUN_PARAMS.globals.texel] = 1 / cascadeAtlasSize(res, sunCascades());
     Compute.device.queue.writeBuffer(_sunParams!, 0, _paramsBuf, 0, SHADOW_PARAMS_BYTES);
     _sun = { map: _cascadeAtlasView!, params: _sunParams! };
 }

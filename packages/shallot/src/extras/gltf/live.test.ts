@@ -39,7 +39,9 @@ describe("skin-live surface trio", () => {
 
     test("the fs reads the tint from the palette header — no separate color storage binding", () => {
         const code = surfaceCode(Surfaces.get("skin-live")!);
-        expect(code).toContain("fn liveTint(e: u32) -> vec4<f32> {");
+        // the tint helper is a WGSL-bodied `tgpu.fn` (it reads `skin` / `skinData` as consumer-declared
+        // globals), so its signature carries the short type aliases resolution requires
+        expect(code).toContain("fn liveTint(e: u32) -> vec4f {");
         expect(code).toContain("return unpackLdrColor(skinData[u32(skin[e].x)].x);");
         expect(code).toContain("sampleAlbedo(mid, uv).rgb * liveTint(eid).rgb");
         // the VAT skin surface binds `color` as storage; the live path folds it into the header, so no

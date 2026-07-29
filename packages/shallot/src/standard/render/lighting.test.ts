@@ -1,12 +1,20 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as d from "typegpu/data";
+import { bitcastU32toF32 } from "typegpu/std";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
+import { octEncodeNormal } from "../../engine/utils/core";
 import { Slab } from "../slab";
 import { Transform } from "../transforms";
 import {
     distanceAttenuation,
     MAX_POINT_LIGHTS,
     PointLight,
+    PointLightGpu,
+    PointLights,
+    PointLightsRw,
+    pointLightsWgsl,
+    spotFactor,
     spotParams,
     warnLightOverflow,
 } from "./lighting";
@@ -132,5 +140,85 @@ describe("warnLightOverflow", () => {
         warnLightOverflow(state);
         expect(warn).toHaveBeenCalledTimes(2); // a new episode warns again
         warn.mockRestore();
+    });
+});
+
+// The compacted list's schema is the CPU↔GPU boundary two raw-WGSL splice sites (sear's clustered loop,
+// the fog march) read by field name, and the compact pass writes through a second, atomic-count schema.
+// Both facts are silent-failure shaped — a renamed field or a diverged layout compiles fine and reads
+// garbage — so they're pinned here rather than left to the bench.
+describe("PointLights schema", () => {
+    test("the reader and the compact pass's writer schemas have identical layouts", () => {
+        expect(d.sizeOf(PointLightsRw)).toBe(d.sizeOf(PointLights));
+        expect(d.alignmentOf(PointLightsRw)).toBe(d.alignmentOf(PointLights));
+        // the count header must occupy the same 16 B in both, so `lights` starts at the same offset
+        expect(d.sizeOf(PointLightsRw.propTypes.count)).toBe(d.sizeOf(PointLights.propTypes.count));
+        expect(d.sizeOf(PointLightsRw.propTypes.lights)).toBe(
+            d.sizeOf(PointLights.propTypes.lights),
+        );
+    });
+
+    test("the spliced WGSL keeps the names a raw consumer indexes by", () => {
+        const wgsl = pointLightsWgsl();
+        expect(wgsl).toContain("struct PointLightGpu");
+        expect(wgsl).toContain("struct PointLights");
+        expect(wgsl).toMatch(/count: vec4u/);
+        expect(wgsl).toMatch(new RegExp(`lights: array<PointLightGpu, ${MAX_POINT_LIGHTS}>`));
+        for (const field of ["posRange", "color", "params"]) {
+            expect(wgsl).toContain(`${field}: vec4f`);
+        }
+    });
+});
+
+// `spotFactor` is the cone attenuation the shader multiplies in, and the same function on the CPU — so the
+// (scale, offset) pair `spotParams` bakes into the compacted light can be checked end to end here
+describe("spotFactor", () => {
+    const light = (axis: [number, number, number], inner: number, outer: number) => {
+        const p = spotParams(inner, outer);
+        return PointLightGpu({
+            posRange: d.vec4f(0, 0, 0, 1),
+            color: d.vec4f(1, 1, 1, 0),
+            // the compact pass stores the cone axis oct-packed, bitcast into the params.y float lane
+            params: d.vec4f(
+                1,
+                bitcastU32toF32(octEncodeNormal(d.vec3f(...axis))),
+                p.scale,
+                p.offset,
+            ),
+        });
+    };
+    // L points fragment→light, so a fragment on the cone axis sees L = -axis
+    const onAxis = d.vec3f(0, 1, 0);
+    const axis: [number, number, number] = [0, -1, 0];
+
+    test("a plain point light is a no-op", () => {
+        const plain = PointLightGpu({
+            posRange: d.vec4f(0, 0, 0, 1),
+            color: d.vec4f(1, 1, 1, 0),
+            params: d.vec4f(1, 0, 0, 1), // what the compact pass writes for a non-spot
+        });
+        expect(spotFactor(plain, onAxis)).toBe(1);
+    });
+
+    test("full brightness inside the inner cone, dark past the outer", () => {
+        const l = light(axis, 20, 30);
+        expect(spotFactor(l, onAxis)).toBe(1); // dead centre
+        const at = (deg: number) => {
+            const r = (deg * Math.PI) / 180;
+            return spotFactor(l, d.vec3f(Math.sin(r), Math.cos(r), 0));
+        };
+        expect(at(19)).toBe(1); // inside the inner half-angle
+        expect(at(31)).toBe(0); // past the outer half-angle
+        expect(at(25)).toBeGreaterThan(0); // and monotone between them
+        expect(at(25)).toBeLessThan(1);
+        expect(at(28)).toBeLessThan(at(22));
+        // squared, not the bare ramp: half-way across the cosine band reads 0.5² — the Frostbite form
+        const half = Math.acos((Math.cos(Math.PI / 9) + Math.cos(Math.PI / 6)) / 2);
+        expect(at((half * 180) / Math.PI)).toBeCloseTo(0.25, 5);
+    });
+
+    test("behind the cone is dark, never negative", () => {
+        const l = light(axis, 20, 30);
+        expect(spotFactor(l, d.vec3f(0, -1, 0))).toBe(0);
     });
 });

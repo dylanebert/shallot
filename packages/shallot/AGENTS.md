@@ -111,7 +111,7 @@ End-to-end gamma-correct; everywhere but the boundaries is linear:
 
 1. **Hex decode** — scene hex colors decode sRGB byte → linear float at parse time (`unpackColor`).
 2. **Surfaces output linear** — a surface fs writes a linear `col`; sear returns it verbatim.
-3. **Composite encode** — the postfx composite (`GlazePlugin`, or a custom one) encodes linear→sRGB itself (`LINEAR_TO_SRGB_WGSL`).
+3. **Composite encode** — the postfx composite (`GlazePlugin`, or a custom one) encodes linear→sRGB itself (`linearToSrgbWgsl()`).
 
 Don't call `linearToSrgb` in a surface fs — the composite does it.
 

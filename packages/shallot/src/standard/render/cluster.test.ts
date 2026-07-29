@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { body, flat, integerDiscipline } from "../../../tests/wgsl";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Camera, CameraMode } from "./camera";
@@ -9,10 +10,13 @@ import {
     CLUSTER_Z,
     type ClusterView,
     clusterAabb,
+    clusterCell,
     clusterCoord,
     clusterIndex,
     clusterView,
+    gridWgsl,
     lightClusters,
+    lightCullWgsl,
     sliceDepth,
     zSlice,
 } from "./cluster";
@@ -207,6 +211,104 @@ describe("lightClusters", () => {
             const hit = new Set(lightClusters(persp, c, r));
             for (const idx of prev) expect(hit.has(idx)).toBe(true);
             prev = hit;
+        }
+    });
+});
+
+// The GPU twins' device-free structural seam. The oracles above are the numeric truth and the gym
+// `render` scenario pins the twins to them on a real device; what needs asserting without a device is
+// the shape the TGSL port can get silently wrong — the grid's two integer divisions (TGSL's `/` emits
+// *float* division, which would leave `x`/`y` fractional and every AABB in the wrong tile), the u32
+// discipline, and the cull's uniformity-analysis scaffolding.
+describe("emitted WGSL", () => {
+    const light = { base: 0, mask: 8 };
+    const spot = { base: 0, mask: 16 };
+    const vol = { base: 65536, mask: 1 };
+
+    test("the grid's cluster→(x, y, z) decompose divides as integers, never as floats", () => {
+        const src = gridWgsl();
+        expect(src).toContain(`let xy = idiv(cluster, ${CLUSTER_Z}u);`);
+        expect(src).toContain(`let y = idiv(xy, ${CLUSTER_X}u);`);
+        expect(src).toContain(`let z = (cluster % ${CLUSTER_Z}u);`);
+        expect(src).toContain(`let x = (xy % ${CLUSTER_X}u);`);
+        // the log-Z depths are the only real division, and both operands are f32 there
+        expect(src).toContain("pow((far / near)");
+    });
+
+    test("the grid folds the whole grid geometry to literals — no uniform but the per-view params", () => {
+        const src = gridWgsl();
+        expect(src).toContain(`cluster >= ${CLUSTER_COUNT}u`);
+        expect(src).toContain(`(slot * ${CLUSTER_COUNT}u)`);
+        expect(src).not.toContain("var<uniform>");
+        integerDiscipline(src);
+    });
+
+    test("the compact pass reuses the shared sRGB and transform codecs, not a local copy", () => {
+        const { compact } = lightCullWgsl(light, spot, vol);
+        expect(compact).toContain("fn srgbToLinear1(");
+        expect(compact).not.toContain("fn srgb1(");
+        expect(compact).toContain("fn xformQuat(");
+        expect(compact).toContain("fn octEncodeNormal(");
+        // the count word is atomic on the writer's side only
+        expect(compact).toContain("count: array<atomic<u32>, 4>");
+    });
+
+    test("the compact pass folds all three membership gates to literals", () => {
+        const { compact } = lightCullWgsl(light, spot, vol);
+        expect(compact).toContain(`membership[(${light.base}u + eid)] & ${light.mask}u`);
+        expect(compact).toContain(`membership[(${spot.base}u + eid)] & ${spot.mask}u`);
+        expect(compact).toContain(`membership[(${vol.base}u + eid)] & ${vol.mask}u`);
+        integerDiscipline(compact);
+    });
+
+    test("the cull's batch loop keeps its uniformity scaffolding", () => {
+        const { cull } = lightCullWgsl(light, spot, vol);
+        // the loop bound comes through workgroupUniformLoad, which is what makes the in-loop
+        // barriers legal; out-of-range threads mask on `live`, they never return early
+        expect(cull).toContain("workgroupUniformLoad");
+        expect(flat(cull)).toContain("uniformLoad((&wgCount))");
+        expect(cull).toContain("workgroupBarrier();");
+        expect(body(cull, "@compute")).not.toContain("return;");
+        expect(flat(cull)).toMatch(/var<workgroup> batch: array<vec4f, ?64>/);
+        integerDiscipline(cull);
+    });
+
+    test("the cull reads the list through the non-atomic schema", () => {
+        const { cull } = lightCullWgsl(light, spot, vol);
+        expect(flat(cull)).toContain("var<storage, read> lights: PointLights;");
+        expect(cull).toContain("count: vec4u");
+        expect(cull).not.toContain("atomic<u32>, 4");
+    });
+});
+
+// `clusterCell` is the froxel index the shader reads the light grid at — one function on both sides now,
+// so this pins it against the CPU grid oracles rather than against a second WGSL spelling of the same math
+describe("clusterCell", () => {
+    const view: ClusterView = { perspective: true, halfW: 1.6, halfH: 0.9, near: 0.1, far: 200 };
+
+    test("the froxel index agrees with the tile + zSlice oracles", () => {
+        for (const fx of [0, 0.03, 0.5, 0.97, 0.999]) {
+            for (const fy of [0, 0.03, 0.5, 0.97, 0.999]) {
+                for (const viewZ of [0.1, 0.4, 3, 40, 199]) {
+                    for (const slot of [0, 1, 3]) {
+                        const tx = Math.min(Math.floor(fx * CLUSTER_X), CLUSTER_X - 1);
+                        // tile (0,0) is NDC (-1,-1) — bottom-left — so the y tile flips screen y
+                        const ty =
+                            CLUSTER_Y - 1 - Math.min(Math.floor(fy * CLUSTER_Y), CLUSTER_Y - 1);
+                        const want =
+                            slot * CLUSTER_COUNT + clusterIndex(tx, ty, zSlice(view, viewZ));
+                        expect(clusterCell(fx, fy, viewZ, view.near, view.far, slot)).toBe(want);
+                    }
+                }
+            }
+        }
+    });
+
+    test("the index stays inside the grid past both depth bounds", () => {
+        for (const viewZ of [1e-6, 0.01, 1e6]) {
+            const cell = clusterCell(0.5, 0.5, viewZ, view.near, view.far, 0);
+            expect(cell).toBeGreaterThanOrEqual(0);
+            expect(cell).toBeLessThan(CLUSTER_COUNT);
         }
     });
 });

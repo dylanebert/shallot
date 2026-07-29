@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
+import { body, flat } from "../../../tests/wgsl";
 import { State } from "../../engine";
 import { register } from "../../engine/ecs/core";
 import { Surfaces } from "../render/core";
 import { mesh, packMeshes, quantizeMeshes } from "../render/mesh";
 import { Slab } from "../slab";
-import { backgroundCode, Material, SearPlugin, surfaceCode } from "./forward";
+import { backgroundCode, lightEvalWgsl, Material, SearPlugin, surfaceCode } from "./forward";
 
 // Structural validation of sear's per-surface WGSL codegen. `surfaceCode` is
 // pure (no GPU), so the contract — explicit `col` output, the `lit` /
@@ -48,22 +49,44 @@ describe("sear surfaceCode", () => {
         expect(code).toContain("view.eye.xyz");
         // the engine-default flat look: dielectric F0 0 → f90 0 → zero specular at metallic 0, so a bare
         // material reduces to the diffuse lit() — the f90-from-F0 (Frostbite) term is the discriminator
-        expect(code).toContain("let f90 = saturate(dot(f0, vec3<f32>(50.0 / 3.0)));");
+        // the emitted lobe is TGSL (./shade) — assert the shape, not the folded 50/3 literal; the
+        // numeric behaviour (zero specular at dielectric 0) is pinned on the CPU in shade.test.ts
+        expect(code).toContain("let f90 = saturate(dot(f0,");
+    });
+
+    // the clustered-light primitives are TGSL now (render/lighting.ts + render/cluster.ts), and the froxel
+    // index is the only integer arithmetic among them: TGSL emits `f32(a) / f32(b)` for an integer `/`, so
+    // a stray one there would index a fractional cell and read another view's lights
+    test("the froxel index arithmetic stays integral — no float division on the index path", () => {
+        const src = lightEvalWgsl();
+        expect(src).toContain("fn clusterCell(");
+        const cell = body(src, "fn clusterCell(");
+        // the two real divisions are the log-Z ratio, both operands f32; everything else is u32 mul/add
+        expect(flat(cell)).toContain("log((viewZ / near)) / log((far / near))");
+        expect(flat(cell)).toContain("let cluster = ((((ty * 16u) + tx) * 24u) + u32(zs));");
+        expect(flat(cell)).toContain("return ((slot * 3456u) + cluster);");
+        // the grid geometry folds to literals — no uniform, and every tile bound is u32-suffixed
+        expect(flat(cell)).toContain("min(u32((fx * 16f)), 15u)");
+        expect(flat(cell)).toContain("min(u32((fy * 9f)), 8u)");
+        // the slice index is deliberately signed (i32 truncation toward zero, clamped into the grid) —
+        // integerDiscipline can't be used here, so pin that one conversion instead of banning all of them
+        expect(flat(cell)).toContain("clamp(i32(");
+        expect(flat(cell)).toContain("0i, 23i)");
+        expect(flat(cell.replace(/clamp\(i32\([^;]*;/, ""))).not.toMatch(/\bi32\(/);
     });
 
     test("the default diffuse cosine is Valve half-Lambert, the soft happy-path look", () => {
         const code = surfaceCode({ name: "t" });
         // remap [-1,1]→[0,1] then square: light wraps fully around, the terminator softens
         expect(code).toContain("fn halfLambert(ndl: f32) -> f32 {");
-        expect(code).toContain("let h = ndl * 0.5 + 0.5;");
-        expect(code).toContain("return h * h;");
         // wired into every diffuse term — the sun, the clustered point lights, and the PBR diffuse lobe
+        // (the remap itself is pinned numerically on the CPU in shade.test.ts)
         expect(code).toContain("let sun = halfLambert(dot(normal, L));");
         expect(code).toContain("let diff = halfLambert(");
-        expect(code).toContain("s.albedo / PI * halfLambert(d)");
+        expect(code).toContain("* halfLambert(dNL))");
         // the specular keeps the physical clamped cosine, so it vanishes on back faces and metals
         // / glTF dielectrics are unchanged
-        expect(code).toContain("spec * ndl");
+        expect(code).toContain("(spec * ndl)");
     });
 
     test("the fs samples the sun shadow inline from the group-1 shadow map", () => {
@@ -87,9 +110,7 @@ describe("sear surfaceCode", () => {
         expect(code).toContain("normalBias: f32,");
         expect(code).toContain("texelWorld: f32,");
         // the per-cascade sample shifts the receiver along the surface normal before projecting
-        expect(code).toContain(
-            "fn sampleSunShadow(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 {",
-        );
+        expect(code).toContain("fn sampleSunShadow(worldPos: vec3f, normal: vec3f) -> f32 {");
         expect(code).toContain("worldPos + normalize(normal) * (sunShadow.normalBias");
         expect(code).toContain("c.texelWorld)"); // per-cascade texel world size
         // the CSM receiver selects a cascade by linear view-z (Bevy get_cascade_index) then blends
@@ -235,6 +256,29 @@ describe("sear surfaceCode", () => {
         expect(code).toContain("@group(0) @binding(10) var samp: sampler;");
     });
 
+    test("a read_write storage binding declares its access mode", () => {
+        const code = surfaceCode({
+            name: "t",
+            bindings: { counters: { type: "storage", element: "u32", access: "read_write" } },
+        });
+        expect(code).toContain(
+            "@group(0) @binding(8) var<storage, read_write> counters: array<u32>;",
+        );
+    });
+
+    test("texture-depth-2d and sampler-comparison bindings emit their WGSL declarations", () => {
+        const code = surfaceCode({
+            name: "t",
+            bindings: {
+                depth: { type: "texture-depth-2d" },
+                cmp: { type: "sampler-comparison" },
+            },
+            fs: "col = vec4<f32>(textureSampleCompareLevel(depth, cmp, uv, 0.5));",
+        });
+        expect(code).toContain("@group(0) @binding(8) var depth: texture_depth_2d;");
+        expect(code).toContain("@group(0) @binding(9) var cmp: sampler_comparison;");
+    });
+
     // the quantized vertex contract (gpu.md rule 6): the color VS decodes pos + oct normal + uv from the
     // 16 B main stream (`vertices`, vec4<u32>) against the meshId-selected MeshQuant; the prepass/shadow VS
     // decodes only position from the 8 B stream (`position`, vec2<u32>) — the depth passes' reduced read
@@ -313,7 +357,7 @@ describe("sear surfaceCode", () => {
             "* diff * spotFactor(light, L) * pointShadowOf(light, normal, fragWorld))",
         );
         expect(code).toContain("if (c.pos.w != light.color.a) { continue; }");
-        expect(code).toContain("fn pointFaceOf(d: vec3<f32>) -> PointFace {");
+        expect(code).toContain("fn pointFaceOf(dir: vec3f) -> PointFace {");
         expect(code).toContain("textureSampleCompareLevel(pointAtlas, shadowSamp,");
     });
 

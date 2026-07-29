@@ -1,6 +1,7 @@
 import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
 import { type AnyData, u32 } from "typegpu/data";
 import { captureGpuLog } from "./log";
+import { now } from "./platform";
 
 /**
  * thrown when the device can't meet a required WebGPU feature or limit. `missing` names the absent
@@ -132,6 +133,17 @@ export interface Compute {
      * the injected validation runs the same for a replay
      */
     indirect?: (name: string, count: number) => void;
+    /**
+     * optional pipeline-compile timing hook installed by `ProfilePlugin`, mirroring {@link span} /
+     * {@link indirect}. typegpu pipelines are sync-created (`root.unwrap` calls the synchronous
+     * `create*Pipeline`), and Dawn defers the real shader compile to the forced {@link precompile}
+     * dispatch — so timing the creation call would report a number that reads like a compile time and
+     * isn't one. {@link precompileAll} instead measures each forcer's dispatch through its own
+     * completion fence and reports it here. A `?.` no-op without the plugin; when it IS installed the
+     * drain serializes on that fence, which is what makes the per-pipeline split real rather than every
+     * row reading the whole drain.
+     */
+    precompiled?: (label: string, start: number, end: number) => void;
 }
 
 /** active GPU compute singleton, populated by {@link requestGPU} */
@@ -237,7 +249,7 @@ export function checkTgsl(): void {
 
 interface Forcer {
     label: string;
-    force: () => void;
+    force: () => unknown;
 }
 
 // pipelines queued for a forced compile at the end of warm, and whether that drain has already run for
@@ -246,11 +258,18 @@ const _precompile: Forcer[] = [];
 let _drained = false;
 
 function compile({ label, force }: Forcer): void {
+    let forced: unknown;
     try {
-        force();
+        forced = force();
     } catch (cause) {
         throw new Error(`precompile "${label}" failed — its pipeline did not compile`, { cause });
     }
+    // a forcer that binds nothing dispatches nothing, so the compile silently falls through to the
+    // first frame — the exact stall the queue exists to prevent, and invisible without this
+    if (!forced)
+        throw new Error(
+            `precompile "${label}" bound nothing — its pipeline would compile on the first frame instead`,
+        );
 }
 
 /**
@@ -260,12 +279,16 @@ function compile({ label, force }: Forcer): void {
  * 0-workgroup dispatch from its `warm`; `build` drains the queue once every plugin has warmed, so the
  * compile is paid under the loading screen. Registered *after* that drain (a lazily-built pipeline, a
  * post-warm producer), the dispatch runs immediately instead — late is better than silently dropped.
- * `label` names the pipeline in the failure when the dispatch throws.
+ *
+ * `force` **returns what it dispatched**: the drain throws on a nullish return, because a forcer whose
+ * buffers aren't up yet no-ops and hands the compile back to frame one without a word. Allocate inside
+ * the thunk if the buffers are late — the drain runs after every plugin's warm, which is the point.
+ * `label` names the pipeline in either failure.
  * @example
- * precompile("narrowphase", () => pipeline.dispatchWorkgroups(0));
+ * precompile("narrowphase", () => bind()?.dispatchWorkgroups(0) ?? null);
  * @internal
  */
-export function precompile(label: string, force: () => void): void {
+export function precompile(label: string, force: () => unknown): void {
     if (_drained) compile({ label, force });
     else _precompile.push({ label, force });
 }
@@ -276,9 +299,20 @@ export function precompile(label: string, force: () => void): void {
  * and leaves the rest queued rather than taking them down with it.
  * @internal
  */
-export function precompileAll(): void {
+export async function precompileAll(): Promise<void> {
     _drained = true;
-    while (_precompile.length > 0) compile(_precompile.shift()!);
+    while (_precompile.length > 0) {
+        const forcer = _precompile.shift()!;
+        const start = now();
+        compile(forcer);
+        // without the profiler there is nothing to attribute, so the drain stays one batched submit;
+        // with it, each forcer settles behind its own fence, which is the only way the per-pipeline
+        // numbers mean anything (back-to-back submits all resolve together and every row reads the same)
+        if (Compute.precompiled) {
+            await Compute.device.queue.onSubmittedWorkDone();
+            Compute.precompiled(forcer.label, start, now());
+        }
+    }
 }
 
 // the root is device-scoped, not build-scoped. A device outlives any one build (a host sharing one

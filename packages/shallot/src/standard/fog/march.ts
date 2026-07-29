@@ -1,135 +1,245 @@
-// The fog raymarch, as a single source shared three ways: the WGSL chunks the production `FogSystem` and
-// the gym `render` fog probe both splice, and the TS oracle the unit tests + the fog probe-readback assert pin them to.
+// The fog raymarch. Each primitive is ONE TGSL function: the same source resolves to the WGSL the
+// production `FogSystem` and the gym `render` fog probe splice, and runs on the CPU as the oracle the unit
+// tests + the probe-readback assert pin the GPU to. There is no twin to keep in step.
+//
 // S1 integrates **extinction** only (uniform haze + exponential height fog, Beer-Lambert per step); S2 adds
-// **in-scatter** (clustered point/spot light shafts) on the same march loop. Keep the WGSL twins and the TS
-// functions byte-for-byte equivalent in arithmetic — the validation is GPU-march == TS-march == closed-form.
-import { distanceAttenuation } from "../render/core";
+// **in-scatter** — the clustered point/spot shafts and the directional sun — on the same march loop.
+//
+// Two things here are deliberately NOT TGSL. `heightOpticalDepth` is the analytic closed form the march is
+// validated against, so it has no shader twin by construction. `fogInScatter` / `fogSunInScatter` are the
+// single-light march oracles: the production shader fuses that loop with the per-step light gather + shadow
+// lookups, so there is no WGSL function to collapse onto — but they call the TGSL primitives below, never a
+// second copy of the arithmetic.
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
+import { chunk, octEncodeWgsl, spliceNs } from "../../engine/utils/core";
+import { distanceAttenuation, PointLightGpu, pointLightsWgsl, spotFactor } from "../render/core";
+import { lightEvalWgsl } from "../sear/core";
 
 /** compute workgroup tile: 8×8 = 64 threads, matching glaze's screen-space composite. */
 export const WORKGROUP = 8;
 
-/** the Fog uniform: `color.rgb` linear haze color, `march` = (density, heightBase, heightFalloff, jitter),
- * `extra.x` = step count. f32 throughout; the shader reads `extra.x` as `u32`. 48 bytes. */
-export const FOG_BYTES = 48;
-export const FOG_FLOATS = FOG_BYTES / 4;
-
-/** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the WGSL loop runs to this
+/** the march's constant loop cap. DXC chokes on a fully-dynamic loop bound, so the marched loop runs to this
  * compile-time constant and `break`s at the runtime `steps` (gpu.md "DXC: constant upper bound + dynamic
- * break"). `packFog` clamps `Fog.steps` to it, so a clamped step count integrates the full ray at the cap
- * resolution, never a silent under-integration. */
+ * break"); a captured JS constant folds to a literal in the emitted WGSL. `packFog` clamps `Fog.steps` to it,
+ * so a clamped step count integrates the full ray at the cap resolution, never a silent under-integration. */
 export const FOG_MAX_STEPS = 256;
 
-export const FOG_STRUCT_WGSL = /* wgsl */ `
-struct Fog {
-    color: vec4<f32>,
-    march: vec4<f32>,
-    extra: vec4<f32>,
-}`;
+// a captured constant folds to a literal in the emitted WGSL, so this is the shader's PI too — the
+// `FOG_PI` the hand-written in-scatter WGSL declared is gone with it
+const PI = Math.PI;
+
+/**
+ * the `Fog` uniform's layout, the one source of truth for it: `color.rgb` is the linear haze color, `march`
+ * is (density, heightBase, heightFalloff, jitter), `extra` is (steps, anisotropy g, absorption, gain). f32
+ * throughout — the shader reads `extra.x` as `u32`. `FOG_BYTES` / `FOG_FLOATS` / `packFog`'s write indices
+ * all derive from it, and {@link fogStructWgsl} emits it as the WGSL `Fog` struct.
+ */
+export const FogGpu = d
+    .struct({
+        color: d.vec4f,
+        march: d.vec4f,
+        extra: d.vec4f,
+    })
+    // the emitted struct is `Fog` (what every splice site declares its binding as); the TS name carries the
+    // `Gpu` suffix so it doesn't collide with the `Fog` component, the `PointLight` / `PointLightGpu` shape
+    .$name("Fog");
+
+/** the `Fog` uniform's byte size, from {@link FogGpu} — a consumer binding it sizes to match. */
+export const FOG_BYTES = d.sizeOf(FogGpu);
+
+/** the `Fog` uniform's f32 count: the length of `packFog`'s staging array. */
+export const FOG_FLOATS = FOG_BYTES / 4;
+
+// the f32 index of one field, from the schema — `packFog` fills a Float32Array, so the schema stays the one
+// source for where each value lands (a reordered struct moves the writes with it)
+const at = <T extends d.BaseData>(schema: T, field: (p: d.Infer<T>) => unknown) =>
+    d.memoryLayoutOf(schema, field).offset / 4;
+
+/**
+ * the f32 indices `packFog` writes at, derived from {@link FogGpu}.
+ * @internal
+ */
+export const FOG_PARAMS = {
+    color: at(FogGpu, (f) => f.color),
+    march: at(FogGpu, (f) => f.march),
+    extra: at(FogGpu, (f) => f.extra),
+} as const;
+
+/** the WGSL `Fog` struct, relocatable so the production march and the fog probe declare the same uniform
+ *  {@link packFog} packs. Splice **before** that declaration. */
+export const fogStructWgsl = chunk("fogStructWgsl", [FogGpu], spliceNs);
+
+// ---- extinction (S1): the midpoint march + the haze composite + the per-pixel ray setup ----
+
+/** exponential height fog's density at a world point: `density · exp(-falloff · (p.y - base))`. Height-only,
+ *  so the x/z lanes are unread — the point is the parameter because the in-scatter loop already has one.
+ *  @example let dens = fogDensity(p, density, base, falloff); */
+export const fogDensity = tgpu.fn(
+    [d.vec3f, d.f32, d.f32, d.f32],
+    d.f32,
+)((p, density, base, falloff) => {
+    "use gpu";
+    return density * std.exp(-falloff * (p.y - base));
+});
+
+/**
+ * transmittance `exp(-τ)` along `origin + dir·[0, dist]`: the midpoint Riemann sum of optical depth through
+ * Beer-Lambert (`sampleOffset` 0.5 = midpoint, per-pixel-jittered on screen). The loop runs to the constant
+ * {@link FOG_MAX_STEPS} and breaks at the runtime `steps` — the DXC constant-bound shape.
+ *
+ * @example let t = fogTransmittance(nearWorld, dir, dist, density, base, falloff, steps, offset);
+ */
+export const fogTransmittance = tgpu.fn(
+    [d.vec3f, d.vec3f, d.f32, d.f32, d.f32, d.f32, d.u32, d.f32],
+    d.f32,
+)((origin, dir, dist, density, base, falloff, steps, sampleOffset) => {
+    "use gpu";
+    const ds = dist / d.f32(steps);
+    let tau = d.f32(0);
+    let i = d.u32(0);
+    while (i < FOG_MAX_STEPS) {
+        if (i >= steps) break;
+        const p = std.add(origin, std.mul(dir, (d.f32(i) + sampleOffset) * ds));
+        tau = tau + fogDensity(p, density, base, falloff) * ds;
+        i = i + 1;
+    }
+    return std.exp(-tau);
+});
+
+/** composite the marched extinction over the scene color: `scene·T + fogColor·(1−T)`.
+ *  @example let outc = fogComposite(scn, fog.color.rgb, t); */
+export const fogComposite = tgpu.fn(
+    [d.vec3f, d.vec3f, d.f32],
+    d.vec3f,
+)((scene, fogColor, transmittance) => {
+    "use gpu";
+    return std.add(std.mul(scene, transmittance), std.mul(fogColor, 1 - transmittance));
+});
+
+/**
+ * reconstruct a fragment's world position from its screen `uv` (0..1, y-down) + ndc `depth` (0..1) through
+ * the camera's inverse view-projection. The matrix is a parameter, not a `view` global, so the function
+ * stays pure and its round-trip against a `viewProj` is a unit test — the production march calls it with
+ * `view.invViewProj`.
+ *
+ * @example let fragWorld = reconstructWorld(view.invViewProj, uv, depth);
+ */
+export const reconstructWorld = tgpu.fn(
+    [d.mat4x4f, d.vec2f, d.f32],
+    d.vec3f,
+)((invViewProj, uv, depth) => {
+    "use gpu";
+    const ndc = d.vec3f(uv.x * 2 - 1, 1 - uv.y * 2, depth);
+    const h = std.mul(invViewProj, d.vec4f(ndc, 1));
+    return std.div(h.xyz, h.w);
+});
+
+/** interleaved gradient noise (Jimenez 2014) — the cheap per-pixel offset that turns march banding into
+ *  noise.
+ *  @example let offset = mix(0.5, ign(vec2f(gid.xy)), jitter); */
+export const ign = tgpu.fn(
+    [d.vec2f],
+    d.f32,
+)((p) => {
+    "use gpu";
+    return std.fract(52.9829189 * std.fract(std.dot(p, d.vec2f(0.06711056, 0.00583715))));
+});
 
 /**
  * the march primitives, spliced by both the production screen march and the fog probe so there is one GPU
- * source of truth. `fogDensity` is exponential height fog (the S2 in-scatter loop reuses it); `fogTransmittance`
- * is the midpoint Riemann sum of optical depth → Beer-Lambert transmittance (sampleOffset 0.5 = midpoint,
- * per-pixel-jittered on screen); `fogComposite` fades the scene toward the haze color by extinction.
+ * source of truth: {@link fogDensity} (exponential height fog, reused by the S2 in-scatter loop),
+ * {@link fogTransmittance} (the midpoint optical-depth sum → Beer-Lambert transmittance),
+ * {@link fogComposite} (fade the scene toward the haze color by extinction), plus the per-pixel ray setup
+ * {@link reconstructWorld} + {@link ign}. Needs no bindings — every input is a parameter.
  */
-export const FOG_MARCH_WGSL = /* wgsl */ `
-fn fogDensity(p: vec3<f32>, density: f32, base: f32, falloff: f32) -> f32 {
-    return density * exp(-falloff * (p.y - base));
-}
+export const fogMarchWgsl = chunk(
+    "fogMarchWgsl",
+    [fogDensity, fogTransmittance, fogComposite, reconstructWorld, ign],
+    spliceNs,
+);
 
-fn fogTransmittance(
-    origin: vec3<f32>,
-    dir: vec3<f32>,
-    dist: f32,
-    density: f32,
-    base: f32,
-    falloff: f32,
-    steps: u32,
-    sampleOffset: f32,
-) -> f32 {
-    let ds = dist / f32(steps);
-    var tau = 0.0;
-    for (var i = 0u; i < ${FOG_MAX_STEPS}u; i = i + 1u) {
-        if (i >= steps) { break; }
-        let p = origin + dir * ((f32(i) + sampleOffset) * ds);
-        tau = tau + fogDensity(p, density, base, falloff) * ds;
-    }
-    return exp(-tau);
-}
+// ---- in-scatter (S2 clustered lights + S3 sun) ----
 
-fn fogComposite(scene: vec3<f32>, fogColor: vec3<f32>, transmittance: f32) -> vec3<f32> {
-    return scene * transmittance + fogColor * (1.0 - transmittance);
-}`;
+/** the Henyey-Greenstein single-scatter phase function. `g` in [-1,1]: 0 isotropic (1/4π), →1 forward-peaked
+ *  (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the cosine between the view ray and the
+ *  direction toward the light.
+ *  @example let phase = henyeyGreenstein(g, dot(dir, L)); */
+export const henyeyGreenstein = tgpu.fn(
+    [d.f32, d.f32],
+    d.f32,
+)((g, cosTheta) => {
+    "use gpu";
+    const g2 = g * g;
+    const denom = std.max(1 + g2 - 2 * g * cosTheta, 1e-4);
+    return (1 - g2) / (4 * PI * denom * std.sqrt(denom));
+});
 
 /**
- * the in-scatter primitives (S2 clustered lights + S3 sun), spliced by the production fog shader and the
- * fog probe so there is one GPU source of truth. `henyeyGreenstein` is the single-scatter phase function (g
- * 0 isotropic → 1 forward-peaked, a bright halo toward a light); `inScatterContribution` is one volumetric
- * point/spot light's radiance at a march point (`lightColor · distanceAttenuation · spotFactor · phase`),
- * the same per-light terms sear's lit path uses; `sunInScatter` is the directional sun's `sunColor ·
- * phase`, no falloff/cone. Both shadow-free (the caller multiplies the shadow factor). Splice
- * POINT_LIGHTS_STRUCT_WGSL + octEncodeWgsl() + LIGHT_EVAL_WGSL (sear/core, for `distanceAttenuation` /
- * `spotFactor`) before it.
+ * one volumetric point/spot light's in-scatter radiance at a march point: `color · distanceAttenuation ·
+ * spotFactor · phase`, the same per-light terms sear's lit path uses (it calls the same two functions).
+ * Shadow-free — the caller multiplies the shadow factor. `params.x`'s magnitude is the source radius; its
+ * sign is the `Volumetric` flag, squared away here.
+ *
+ * @example lstep += inScatterContribution(light, p, dir, g) * shadow;
  */
-export const FOG_INSCATTER_WGSL = /* wgsl */ `
-const FOG_PI = 3.14159265359;
+export const inScatterContribution = tgpu.fn(
+    [PointLightGpu, d.vec3f, d.vec3f, d.f32],
+    d.vec3f,
+)((light, p, dir, g) => {
+    "use gpu";
+    const toLight = std.sub(light.posRange.xyz, p);
+    const distSq = std.dot(toLight, toLight);
+    const radiusSq = light.params.x * light.params.x;
+    const L = std.mul(toLight, std.inverseSqrt(std.max(distSq, 1e-4)));
+    const atten = distanceAttenuation(distSq, light.posRange.w, radiusSq);
+    const phase = henyeyGreenstein(g, std.dot(dir, L));
+    return std.mul(light.color.xyz, atten * spotFactor(light, L) * phase);
+});
 
-fn henyeyGreenstein(g: f32, cosTheta: f32) -> f32 {
-    let g2 = g * g;
-    let denom = max(1.0 + g2 - 2.0 * g * cosTheta, 1e-4);
-    return (1.0 - g2) / (4.0 * FOG_PI * denom * sqrt(denom));
+/**
+ * the sun's (directional) in-scatter contribution at a march point: `sunColor · phase` toward the light.
+ * `sunDir` is the sun's travel direction (`lighting.sunDirection.xyz`), so `-sunDir` is toward the light; no
+ * distance falloff or cone (directional, infinitely far). Shadow-free — the caller multiplies the per-step
+ * sun shadow. Additive with the clustered cones on the same march.
+ *
+ * @example lstep += sunInScatter(lighting.sunColor.rgb, lighting.sunDirection.xyz, dir, g) * shadow;
+ */
+export const sunInScatter = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec3f, d.f32],
+    d.vec3f,
+)((sunColor, sunDir, dir, g) => {
+    "use gpu";
+    return std.mul(sunColor, henyeyGreenstein(g, std.dot(dir, std.neg(sunDir))));
+});
+
+/**
+ * the in-scatter primitives, spliced by the production fog shader and the fog probe:
+ * {@link henyeyGreenstein}, the clustered {@link inScatterContribution}, and the directional
+ * {@link sunInScatter}. Splice **after** `pointLightsWgsl()` + `octEncodeWgsl()` + `lightEvalWgsl()`
+ * (`sear/core`) — the contribution calls their `distanceAttenuation` / `spotFactor`.
+ */
+export function fogInScatterWgsl(): string {
+    // force the base chunks first, so `PointLightGpu` and the light-eval primitives land in the chunks that
+    // own them whatever order a consumer asks in (they are spliced ahead of this one either way)
+    pointLightsWgsl();
+    octEncodeWgsl();
+    lightEvalWgsl();
+    return inScatterChunk();
 }
 
-fn inScatterContribution(light: PointLightGpu, p: vec3<f32>, dir: vec3<f32>, g: f32) -> vec3<f32> {
-    let toLight = light.posRange.xyz - p;
-    let distSq = dot(toLight, toLight);
-    let radiusSq = light.params.x * light.params.x;
-    let L = toLight * inverseSqrt(max(distSq, 1e-4));
-    let atten = distanceAttenuation(distSq, light.posRange.w, radiusSq);
-    let phase = henyeyGreenstein(g, dot(dir, L));
-    return light.color.rgb * (atten * spotFactor(light, L) * phase);
-}
+const inScatterChunk = chunk(
+    "fogInScatterWgsl",
+    [henyeyGreenstein, inScatterContribution, sunInScatter],
+    spliceNs,
+);
 
-// the sun (directional) in-scatter contribution at a march point: sunColor (intensity baked) weighted by
-// the HG phase toward the light. sunDir is the sun's travel direction (lighting.sunDirection.xyz), so
-// -sunDir is toward the light; no distance falloff or cone (directional, infinitely far). Shadow-free —
-// the caller multiplies the per-step sun shadow. Additive with the clustered cones on the same march
-fn sunInScatter(sunColor: vec3<f32>, sunDir: vec3<f32>, dir: vec3<f32>, g: f32) -> vec3<f32> {
-    return sunColor * henyeyGreenstein(g, dot(dir, -sunDir));
-}`;
-
-// --- TS oracle: the twin the WGSL above is pinned to (the gym readback asserts diff against these). ---
-
-/** exponential-height-fog density at world height `py`: `density · exp(-falloff · (py - base))`. */
-export function fogDensity(py: number, density: number, base: number, falloff: number): number {
-    return density * Math.exp(-falloff * (py - base));
-}
-
-/** transmittance `exp(-τ)` along `[originY, dirY]·dist`, midpoint Riemann sum over `steps`
- * (sampleOffset 0.5 = midpoint). The TS twin of WGSL `fogTransmittance`: density depends only on
- * height, so the y components are all it needs. */
-export function fogTransmittance(
-    originY: number,
-    dirY: number,
-    dist: number,
-    density: number,
-    base: number,
-    falloff: number,
-    steps: number,
-    sampleOffset: number,
-): number {
-    const ds = dist / steps;
-    let tau = 0;
-    for (let i = 0; i < steps; i++) {
-        const py = originY + dirY * ((i + sampleOffset) * ds);
-        tau += fogDensity(py, density, base, falloff) * ds;
-    }
-    return Math.exp(-tau);
-}
+// ---- the CPU-only tier: the analytic ground truth + the two single-light march oracles ----
 
 /** the closed-form optical depth τ of exponential height fog along `[originY, dirY]·dist`: the analytic
  * integral `∫₀ᴸ density·exp(-falloff·(originY + dirY·t - base)) dt` the midpoint march converges to. The
- * unit test's ground truth (march vs this within the midpoint-rule error bound). */
+ * unit test's ground truth (march vs this within the midpoint-rule error bound), so it has no shader twin. */
 export function heightOpticalDepth(
     originY: number,
     dirY: number,
@@ -144,44 +254,6 @@ export function heightOpticalDepth(
     return (a * (1 - Math.exp(-k * dist))) / k;
 }
 
-/** composite the marched extinction over the scene color: `scene·T + fogColor·(1-T)`. Twin of WGSL `fogComposite`. */
-export function fogComposite(
-    scene: readonly [number, number, number],
-    fogColor: readonly [number, number, number],
-    transmittance: number,
-): [number, number, number] {
-    const f = 1 - transmittance;
-    return [
-        scene[0] * transmittance + fogColor[0] * f,
-        scene[1] * transmittance + fogColor[1] * f,
-        scene[2] * transmittance + fogColor[2] * f,
-    ];
-}
-
-/** the Henyey-Greenstein single-scatter phase function (the WGSL `henyeyGreenstein` twin). `g` in [-1,1]:
- * 0 isotropic (1/4π), →1 forward-peaked (a bright halo toward a light), →-1 back-scatter. `cosTheta` is the
- * cosine between the view ray and the direction toward the light. */
-export function henyeyGreenstein(g: number, cosTheta: number): number {
-    const g2 = g * g;
-    const denom = Math.max(1 + g2 - 2 * g * cosTheta, 1e-4);
-    return (1 - g2) / (4 * Math.PI * denom * Math.sqrt(denom));
-}
-
-/** one volumetric light in the decoded terms of the GPU `PointLightGpu` the fog march reads: `pos` world
- * position, `invRangeSq` = 1/range² (posRange.w), `radius` the params.x soft-sphere radius (its magnitude;
- * the sign is the Volumetric flag, squared away here), `color` linear rgb (intensity baked), and the spot
- * cone: `coneAxis` the oct-decoded forward, `coneScale`/`coneOffset` the angular (scale, offset);
- * `coneScale === 0` is a plain point (no cone). */
-export interface FogLight {
-    pos: readonly [number, number, number];
-    invRangeSq: number;
-    radius: number;
-    color: readonly [number, number, number];
-    coneAxis: readonly [number, number, number];
-    coneScale: number;
-    coneOffset: number;
-}
-
 /** the atmosphere knobs the in-scatter integral reads: `density`/`base`/`falloff` the same extinction height
  * fog as {@link fogTransmittance}, `absorption` the absorbed fraction (scattering albedo = 1 − absorption),
  * `gain` the combined scatter intensity (scattering · scatterIntensity), `anisotropy` the HG `g`. */
@@ -194,36 +266,6 @@ export interface FogScatter {
     anisotropy: number;
 }
 
-/** one volumetric light's in-scatter radiance at march point `p` (shadow-free; the caller multiplies the
- * shadow factor). The TS twin of WGSL `inScatterContribution`: `color · distanceAttenuation · spotFactor ·
- * HG-phase`. */
-export function inScatterContribution(
-    light: FogLight,
-    p: readonly [number, number, number],
-    dir: readonly [number, number, number],
-    g: number,
-): [number, number, number] {
-    const tx = light.pos[0] - p[0];
-    const ty = light.pos[1] - p[1];
-    const tz = light.pos[2] - p[2];
-    const distSq = tx * tx + ty * ty + tz * tz;
-    const radiusSq = light.radius * light.radius;
-    const inv = 1 / Math.sqrt(Math.max(distSq, 1e-4));
-    const lx = tx * inv;
-    const ly = ty * inv;
-    const lz = tz * inv;
-    const atten = distanceAttenuation(distSq, light.invRangeSq, radiusSq);
-    let spot = 1;
-    if (light.coneScale !== 0) {
-        const cd = -(light.coneAxis[0] * lx + light.coneAxis[1] * ly + light.coneAxis[2] * lz);
-        const a = Math.min(Math.max(cd * light.coneScale + light.coneOffset, 0), 1);
-        spot = a * a;
-    }
-    const phase = henyeyGreenstein(g, dir[0] * lx + dir[1] * ly + dir[2] * lz);
-    const f = atten * spot * phase;
-    return [light.color[0] * f, light.color[1] * f, light.color[2] * f];
-}
-
 /** the single-light in-scatter march: the oracle the fog probe's in-scatter readback is pinned to (the
  * production shader sums this over a froxel's volumetric lights; the probe + this run one light). Marches
  * the same midpoint samples as {@link fogTransmittance}, weighting each step's in-scatter by the
@@ -232,11 +274,11 @@ export function inScatterContribution(
  * `albedo·(1−e^{−σ_t·ds})·gain·source`, the within-step extinction folded in, the analytic twin of the
  * haze composite's `(1−T)`, not a `source·ds` rectangle. Makes shaft brightness step-count-stable. */
 export function fogInScatter(
-    origin: readonly [number, number, number],
-    dir: readonly [number, number, number],
+    origin: d.v3f,
+    dir: d.v3f,
     dist: number,
     fog: FogScatter,
-    light: FogLight,
+    light: d.Infer<typeof PointLightGpu>,
     steps: number,
     sampleOffset: number,
 ): [number, number, number] {
@@ -248,18 +290,14 @@ export function fogInScatter(
     let b = 0;
     for (let i = 0; i < steps; i++) {
         const t = (i + sampleOffset) * ds;
-        const p: [number, number, number] = [
-            origin[0] + dir[0] * t,
-            origin[1] + dir[1] * t,
-            origin[2] + dir[2] * t,
-        ];
-        const d = fogDensity(p[1], fog.density, fog.base, fog.falloff);
-        const sampleTrans = Math.exp(-d * ds);
+        const p = d.vec3f(origin.x + dir.x * t, origin.y + dir.y * t, origin.z + dir.z * t);
+        const dens = fogDensity(p, fog.density, fog.base, fog.falloff);
+        const sampleTrans = Math.exp(-dens * ds);
         const c = inScatterContribution(light, p, dir, fog.anisotropy);
         const w = trans * albedo * fog.gain * (1 - sampleTrans);
-        r += w * c[0];
-        g += w * c[1];
-        b += w * c[2];
+        r += w * c.x;
+        g += w * c.y;
+        b += w * c.z;
         trans *= sampleTrans;
     }
     return [r, g, b];
@@ -269,21 +307,8 @@ export function fogInScatter(
  * (lighting.sunDirection.xyz; toward-light is its negation), `color` the linear rgb with intensity baked
  * (lighting.sunColor.rgb). No position/range/cone: directional, infinitely far. */
 export interface FogSun {
-    direction: readonly [number, number, number];
-    color: readonly [number, number, number];
-}
-
-/** the sun's in-scatter contribution at a march point (shadow-free; the caller multiplies the shadow):
- * `color · HG(g, dot(dir, -sunDir))`. The TS twin of WGSL `sunInScatter`. */
-export function sunInScatter(
-    sunColor: readonly [number, number, number],
-    sunDir: readonly [number, number, number],
-    dir: readonly [number, number, number],
-    g: number,
-): [number, number, number] {
-    const cosTheta = -(dir[0] * sunDir[0] + dir[1] * sunDir[1] + dir[2] * sunDir[2]);
-    const phase = henyeyGreenstein(g, cosTheta);
-    return [sunColor[0] * phase, sunColor[1] * phase, sunColor[2] * phase];
+    direction: d.v3f;
+    color: d.v3f;
 }
 
 /** the single-sun in-scatter march: the oracle the fog probe's sun-in-scatter readback is pinned to (the
@@ -292,8 +317,8 @@ export function sunInScatter(
  * weighting each step by the transmittance to its start and integrating the source over the step with the
  * same energy-conserving `albedo·(1−e^{−σ_t·ds})·gain` form as {@link fogInScatter}. */
 export function fogSunInScatter(
-    origin: readonly [number, number, number],
-    dir: readonly [number, number, number],
+    origin: d.v3f,
+    dir: d.v3f,
     dist: number,
     fog: FogScatter,
     sun: FogSun,
@@ -308,33 +333,17 @@ export function fogSunInScatter(
     let g = 0;
     let b = 0;
     for (let i = 0; i < steps; i++) {
-        const py = origin[1] + dir[1] * ((i + sampleOffset) * ds);
-        const d = fogDensity(py, fog.density, fog.base, fog.falloff);
-        const sampleTrans = Math.exp(-d * ds);
+        const t = (i + sampleOffset) * ds;
+        // the full point, not just its y lane: the fused production march samples `origin + dir·t` and
+        // fogDensity reads `.y` off that, so the f32 rounding has to happen on the same value
+        const p = d.vec3f(origin.x + dir.x * t, origin.y + dir.y * t, origin.z + dir.z * t);
+        const dens = fogDensity(p, fog.density, fog.base, fog.falloff);
+        const sampleTrans = Math.exp(-dens * ds);
         const w = trans * albedo * fog.gain * (1 - sampleTrans);
-        r += w * c[0];
-        g += w * c[1];
-        b += w * c[2];
+        r += w * c.x;
+        g += w * c.y;
+        b += w * c.z;
         trans *= sampleTrans;
     }
     return [r, g, b];
-}
-
-/** reconstruct a fragment's world position from its screen `uv` (0..1, y-down) + ndc `depth` (0..1) using
- * the camera's inverse view-projection (column-major). The TS twin of the WGSL `reconstructWorld` the
- * production march runs each pixel; its round-trip against `viewProj` is the reconstruction unit test. */
-export function reconstruct(
-    invViewProj: Float32Array,
-    u: number,
-    v: number,
-    depth: number,
-): [number, number, number] {
-    const nx = u * 2 - 1;
-    const ny = 1 - v * 2;
-    const m = invViewProj;
-    const x = m[0] * nx + m[4] * ny + m[8] * depth + m[12];
-    const y = m[1] * nx + m[5] * ny + m[9] * depth + m[13];
-    const z = m[2] * nx + m[6] * ny + m[10] * depth + m[14];
-    const w = m[3] * nx + m[7] * ny + m[11] * depth + m[15];
-    return [x / w, y / w, z / w];
 }

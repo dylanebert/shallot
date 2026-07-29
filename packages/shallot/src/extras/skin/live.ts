@@ -1,6 +1,8 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
 import type { Plugin, System } from "../../engine";
 import { Compute, compose, decompose, multiply, vec4 } from "../../engine";
-import { packColor4 } from "../../engine/utils/core";
+import { chunk, packColor4, spliceNs } from "../../engine/utils/core";
 import { Color } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
 import type { Binding } from "../../standard/render/core";
@@ -51,6 +53,29 @@ export const PALETTE_STRIDE = 3;
 // each instance block leads with a header vec4 (packed color, jointCount, flags) — color folded here so the
 // separate `color` slab binding can be dropped (consolidation #3), keeping the surface at 10 storage buffers.
 export const HEADER_VEC4 = 1;
+/** the per-skinned-mesh constants a live-skin surface decodes against: `jwBase` (the vec4 index the mesh's
+ *  joints/weights block starts at in `skinData` region B — shifts when region A's palette capacity grows, so
+ *  the producer rewrites it on a layoutDirty flush; {@link LiveSkin.jwBaseOf}) and `vertCount` (the block's
+ *  vertex extent). Each skinned mesh binds its own `skinParams` per-draw via `Mesh.bindings` (so N live
+ *  meshes coexist); `vatParams` is the precedent. The layout {@link skinBindings}' `skinParams` descriptor
+ *  names, and the one {@link LiveSkin.writeParams}' staging indices derive from ({@link skinParamsWgsl} is
+ *  the WGSL a surface splices). */
+export const SkinParams = d.struct({
+    jwBase: d.u32,
+    vertCount: d.u32,
+    pad0: d.u32,
+    pad1: d.u32,
+});
+
+const SKIN_PARAMS_BYTES = d.sizeOf(SkinParams);
+
+// the u32 index of one SkinParams field — writeParams fills a flat Uint32Array, so the schema stays the
+// one source for where each value lands
+const SKIN_PARAMS_AT = {
+    jwBase: d.memoryLayoutOf(SkinParams, (p) => p.jwBase).offset / 4,
+    vertCount: d.memoryLayoutOf(SkinParams, (p) => p.vertCount).offset / 4,
+} as const;
+
 // initial region capacities in vec4; both double on overflow.
 const INITIAL_PALETTE_CAP = 64;
 const INITIAL_JW_CAP = 64;
@@ -308,7 +333,7 @@ interface Block {
 }
 
 const _color = new Float32Array(4);
-const _params = new Uint32Array(4);
+const _params = new Uint32Array(SKIN_PARAMS_BYTES / 4);
 
 // the initial region-A backing store, held in a local so the literal's f32 + u32 fields below are views of
 // the SAME buffer — the invariant `flush` uploads through (it writes `palette.buffer`, so a `paletteU32`
@@ -387,6 +412,8 @@ export const LiveSkin = {
     dispose(): void {
         this.buffer?.destroy();
         this.buffer = null;
+        for (const b of this.params.values()) b.destroy();
+        this.params.clear();
         this.fallbackParams?.destroy();
         this.fallbackParams = null;
     },
@@ -523,7 +550,7 @@ export const LiveSkin = {
         if (existing) return existing;
         const buf = device.createBuffer({
             label: `skin-params:${meshId}`,
-            size: 16,
+            size: SKIN_PARAMS_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         this.params.set(meshId, buf);
@@ -537,8 +564,8 @@ export const LiveSkin = {
     writeParams(device: GPUDevice, meshId: number, buf: GPUBuffer): void {
         const m = this.meshes.get(meshId);
         if (!m) return;
-        _params[0] = this.paletteCap + m.local;
-        _params[1] = m.vertCount;
+        _params[SKIN_PARAMS_AT.jwBase] = this.paletteCap + m.local;
+        _params[SKIN_PARAMS_AT.vertCount] = m.vertCount;
         device.queue.writeBuffer(buf, 0, _params);
     },
 
@@ -588,7 +615,7 @@ export const LiveSkin = {
             if (!this.fallbackParams)
                 this.fallbackParams = device.createBuffer({
                     label: "skin-params-fallback",
-                    size: 16,
+                    size: SKIN_PARAMS_BYTES,
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                 });
             Compute.buffers.set("skinParams", this.fallbackParams);
@@ -692,29 +719,29 @@ export const skinBindings: Readonly<Record<string, Binding>> = Object.freeze({
     skinParams: Object.freeze({ type: "uniform", struct: "SkinParams" }) as Binding,
 });
 
-/** the per-skinned-mesh constants a live-skin surface decodes against: `jwBase` (the vec4 index the mesh's
- *  joints/weights block starts at in `skinData` region B — shifts when region A's palette capacity grows, so
- *  the producer rewrites it on a layoutDirty flush; {@link LiveSkin.jwBaseOf}) and `vertCount` (the block's
- *  vertex extent). Each skinned mesh binds its own `skinParams` per-draw via `Mesh.bindings` (so N live
- *  meshes coexist); `vatParams` is the precedent. Declared in the preamble after the binding decl that
- *  references it — module-scope structs resolve order-free (like VatParams / MaterialData). */
-export const SKIN_PARAMS_WGSL = /* wgsl */ `
-struct SkinParams {
-    jwBase: u32,
-    vertCount: u32,
-    pad0: u32,
-    pad1: u32,
-}`;
+/** the WGSL {@link SkinParams} struct a live-skin surface declares its `skinParams` uniform over. Splice at
+ *  module scope; structs resolve order-free, so it may sit after the binding decl that references it. */
+export const skinParamsWgsl = chunk("skinParamsWgsl", [SkinParams], spliceNs);
 
-/** the per-instance tint, read from the palette block's header (the color fold, gpu.md consolidation #3):
- *  `color` is packed into the header's first u32 — synced from the `Color` component by the flush — so a
- *  live-skin surface carries no separate `color` storage binding and stays at the 10-storage ceiling.
- *  `skin[eid].x` is the header's vec4 base in `skinData`; `unpackLdrColor` is sear-spliced for every
- *  surface. */
-export const LIVE_TINT_WGSL = /* wgsl */ `
-fn liveTint(e: u32) -> vec4<f32> {
+// the per-instance tint — WGSL-bodied, because it reads `skinData` and `skin` as module-scope globals the
+// *consumer* declares by name (the relocatable contract every live-skin surface shares) and calls the
+// sear-spliced `unpackLdrColor`. A TGSL body has no spelling for either until the surface contract itself
+// is typed (4a).
+const liveTint = tgpu
+    .fn(
+        [d.u32],
+        d.vec4f,
+    )(/* wgsl */ `(e: u32) -> vec4f {
     return unpackLdrColor(skinData[u32(skin[e].x)].x);
-}`;
+}`)
+    .$name("liveTint");
+
+/** the per-instance tint helper, read from the palette block's header (the color fold, gpu.md
+ *  consolidation #3): `color` is packed into the header's first u32 — synced from the `Color` component by
+ *  the flush — so a live-skin surface carries no separate `color` storage binding and stays at the
+ *  10-storage ceiling. `skin[eid].x` is the header's vec4 base in `skinData`; `skin` / `skinData` /
+ *  `unpackLdrColor` are all referenced by name (the latter sear-spliced for every surface). */
+export const liveTintWgsl = chunk("liveTintWgsl", [liveTint], spliceNs);
 
 /** the live-skin `vs`: decode this vertex's 4 joint influences from `skinData` region B (keyed by `vidx`, the
  *  skinned mesh's local vertex index — 2 verts per vec4, 8 B/vertex, gpu.md rule 6), then blend the

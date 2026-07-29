@@ -272,7 +272,7 @@ export async function build(config: Config): Promise<App> {
         // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
         // so every registered pipeline is forced to compile here — under the loading screen, not as a
         // multi-second stall on the first frame
-        precompileAll();
+        await precompileAll();
 
         if (cleanup) {
             loading?.update(1);

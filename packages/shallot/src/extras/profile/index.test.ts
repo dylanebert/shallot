@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { Compute, State } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
-import { ProfilePlugin } from "./index";
+import { Profile, ProfilePlugin } from "./index";
 
 // `ProfilePlugin.features` declares `timestamp-query`, and `acquireDevice` throws on a device that can't
 // grant it — but `requestGPU(externalDevice)` / `run({ device })` adopts a device as-is, so a declared
@@ -10,6 +10,18 @@ import { ProfilePlugin } from "./index";
 // leaving a raw GPU error on `onuncapturederror` and a profiler reporting silent zeros.
 const device = (...features: string[]) =>
     ({ features: { has: (f: string) => features.includes(f) } }) as unknown as GPUDevice;
+
+// a device that grants everything `attach` touches — enough to install the plugin's Compute sinks
+const capableDevice = () =>
+    ({
+        features: { has: () => true },
+        createQuerySet: () => ({}),
+        createBuffer: () => ({ destroy() {} }),
+        createTexture: () => ({ destroy() {} }),
+        createComputePipelineAsync: async () => ({}),
+        createRenderPipelineAsync: async () => ({}),
+        queue: { submit() {}, onSubmittedWorkDone: () => Promise.resolve() },
+    }) as unknown as GPUDevice;
 
 describe("ProfilePlugin", () => {
     test("an adopted device without timestamp-query fails loud, naming it", () => {
@@ -29,15 +41,7 @@ describe("ProfilePlugin", () => {
 
     test("a re-attach to a device missing timestamp-query still fails loud", () => {
         const prev = Compute.device;
-        const capable = {
-            features: { has: () => true },
-            createQuerySet: () => ({}),
-            createBuffer: () => ({ destroy() {} }),
-            createTexture: () => ({ destroy() {} }),
-            createComputePipelineAsync: async () => ({}),
-            createRenderPipelineAsync: async () => ({}),
-            queue: { submit() {} },
-        } as unknown as GPUDevice;
+        const capable = capableDevice();
         let caught: unknown;
         try {
             Object.assign(Compute, { device: capable });
@@ -51,5 +55,26 @@ describe("ProfilePlugin", () => {
         }
         expect(caught).toBeInstanceOf(UnsupportedError);
         expect((caught as UnsupportedError).missing).toEqual(["timestamp-query"]);
+    });
+
+    // typegpu pipelines are sync-created, so Dawn defers their real compile to the forced `precompile`
+    // dispatch and the drain times that (`Compute.precompiled`, whose JSDoc carries the why). What's
+    // worth pinning here is that the hook lands in `Profile.compile` under the forcer's own label with
+    // the drain's measured span — the punch item was typed pipelines vanishing from that table.
+    test("Compute.precompiled records a typed pipeline's measured compile span", () => {
+        const prev = Compute.device;
+        Object.assign(Compute, { device: capableDevice() });
+        try {
+            ProfilePlugin.initialize?.(new State());
+        } finally {
+            Object.assign(Compute, { device: prev });
+        }
+        expect(Compute.precompiled).toBeDefined();
+        Compute.precompiled?.("kitchen-part-count", 100, 137.5);
+        expect(Profile.compile.get("kitchen-part-count")).toBe(37.5);
+        // and it widens the startup span the same way an async pipeline's entry does
+        Compute.precompiled?.("kitchen-part-scan", 137.5, 200);
+        expect(Profile.compile.get("kitchen-part-scan")).toBe(62.5);
+        expect(Profile.compileMs).toBeGreaterThanOrEqual(100);
     });
 });

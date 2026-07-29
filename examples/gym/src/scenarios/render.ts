@@ -62,14 +62,14 @@ import {
 } from "@dylanebert/shallot/extras";
 import {
     FOG_FLOATS,
-    FOG_INSCATTER_WGSL,
-    FOG_MARCH_WGSL,
     FOG_MAX_STEPS,
-    FOG_STRUCT_WGSL,
-    type FogLight,
+    type FogSun,
     FogSystem,
     fogComposite,
     fogInScatter,
+    fogInScatterWgsl,
+    fogMarchWgsl,
+    fogStructWgsl,
     fogSunInScatter,
     fogTransmittance,
     packFog,
@@ -105,7 +105,8 @@ import {
     LightCull,
     type Mesh,
     Meshes,
-    POINT_LIGHTS_STRUCT_WGSL,
+    PointLightGpu,
+    pointLightsWgsl,
     quantizeMeshes,
     Render,
     Surfaces,
@@ -120,7 +121,7 @@ import {
     // tile rects' invariants; the pooled cull-slot eids pin per-cascade/per-combo survivor counts
     cascadeComboEids,
     cascadeCount,
-    LIGHT_EVAL_WGSL,
+    lightEvalWgsl,
     pointAtlasSize,
     pointCasters,
     pointComboCount,
@@ -129,12 +130,10 @@ import {
 // the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
 // nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
 import { nlerpShortest } from "@dylanebert/shallot/tumble/core";
-import {
-    octDecodeNormal,
-    octEncode,
-    octEncodeWgsl,
-    packColor4,
-} from "@dylanebert/shallot/utils/core";
+import { octEncode, octEncodeWgsl, packColor4 } from "@dylanebert/shallot/utils/core";
+// the fog oracle takes the engine's own schema values (a `PointLightGpu` light, `vec3f` rays) — the march
+// primitives are TGSL functions, so the CPU arm reads exactly what the shader reads
+import * as d from "typegpu/data";
 import {
     type Check,
     frames,
@@ -439,7 +438,7 @@ async function lightCullCheck(): Promise<Check> {
         return { name, pass: false, detail: `list count ${count}, expected ${lightPos.length}` };
     }
     const toScene: number[] = [];
-    // per-light stride is 12 floats: posRange + color + params (POINT_LIGHTS_STRUCT_WGSL)
+    // per-light stride is 12 floats: posRange + color + params (pointLightsWgsl())
     const LightStride = 12;
     for (let i = 0; i < count; i++) {
         const o = 4 + i * LightStride;
@@ -1613,10 +1612,10 @@ async function assertProbe(): Promise<Check[]> {
 // The rendered scene (ground + receding box row + a Volumetric spot with an occluder + a Volumetric+Shadow
 // sun) is the live visual. The GATE doesn't pixel-read the framebuffer (null post-present): a compute probe
 // marches one synthetic ray through the SAME WGSL the production fog pass splices — extinction
-// (FOG_MARCH_WGSL) + in-scatter (FOG_INSCATTER_WGSL: one shadow-free spot + the directional sun) — and the
-// assert pins its readback to the TS oracle (fogTransmittance / fogComposite / fogInScatter / fogSunInScatter).
-// GPU == TS. So the gate covers extinction (haze), spot in-scatter (shafts), and sun in-scatter (sun) in one
-// page — independent of the rendered scene.
+// (fogMarchWgsl) + in-scatter (fogInScatterWgsl: one shadow-free spot + the directional sun) — and the
+// assert pins its readback to the CPU arm of those very functions (fogTransmittance / fogComposite /
+// fogInScatter / fogSunInScatter). GPU == CPU, one source. So the gate covers extinction (haze), spot
+// in-scatter (shafts), and sun in-scatter (sun) in one page — independent of the rendered scene.
 
 // a synthetic camera→fragment ray through the foggy near-ground region (transmittance ~0.8 at the defaults).
 // Offset 0.5 (midpoint) makes both the probe and the oracle deterministic, jitter-independent.
@@ -1637,18 +1636,22 @@ const SPOT_INNER = 30;
 const SPOT_OUTER = 55;
 const { scale: SPOT_SCALE, offset: SPOT_OFFSET } = spotParams(SPOT_INNER, SPOT_OUTER);
 const SPOT_AXIS_ENC = octEncode(SPOT_AXIS[0], SPOT_AXIS[1], SPOT_AXIS[2]);
-const SPOT_AXIS_DEC = octDecodeNormal(SPOT_AXIS_ENC);
 
-// the oracle's light in the decoded terms the GPU march reads — coneAxis is the oct round-trip the FS applies
-const PROBE_LIGHT: FogLight = {
-    pos: SPOT_POS,
-    invRangeSq: 1 / (SPOT_RANGE * SPOT_RANGE),
-    radius: SPOT_RADIUS,
-    color: SPOT_COLOR,
-    coneAxis: [SPOT_AXIS_DEC.x, SPOT_AXIS_DEC.y, SPOT_AXIS_DEC.z],
-    coneScale: SPOT_SCALE,
-    coneOffset: SPOT_OFFSET,
-};
+// the f32 whose BITS are the oct-packed axis — how a compacted light carries it in params.y, which
+// `spotFactor` bitcasts back. Reading the same lane the GPU uniform holds is what makes the oracle exact
+function axisLane(enc: number): number {
+    const f = new Float32Array(1);
+    new Uint32Array(f.buffer)[0] = enc;
+    return f[0];
+}
+
+// the oracle's light: the SAME compacted-light record `fogLightBuf` holds below (params.x negative — the
+// Volumetric flag rides the radius sign), so the CPU arm decodes the cone axis exactly as the shader does
+const PROBE_LIGHT = PointLightGpu({
+    posRange: d.vec4f(SPOT_POS[0], SPOT_POS[1], SPOT_POS[2], 1 / (SPOT_RANGE * SPOT_RANGE)),
+    color: d.vec4f(SPOT_COLOR[0], SPOT_COLOR[1], SPOT_COLOR[2], 0),
+    params: d.vec4f(-SPOT_RADIUS, axisLane(SPOT_AXIS_ENC), SPOT_SCALE, SPOT_OFFSET),
+});
 
 // the probe's synthetic sun — a directional shaft marched shadow-free. `dir` is the travel direction
 // (normalized like writeLighting); `color` has intensity baked, as the Lighting uniform carries it.
@@ -1660,15 +1663,19 @@ const PROBE_SUN_DIR: [number, number, number] = [
     SUN_DIR_RAW[2] / SUN_DIR_LEN,
 ];
 const PROBE_SUN_COLOR: [number, number, number] = [3, 2.7, 2.2]; // rgb · intensity, baked
+const PROBE_SUN: FogSun = {
+    direction: d.vec3f(PROBE_SUN_DIR[0], PROBE_SUN_DIR[1], PROBE_SUN_DIR[2]),
+    color: d.vec3f(PROBE_SUN_COLOR[0], PROBE_SUN_COLOR[1], PROBE_SUN_COLOR[2]),
+};
 
 function fogProbeCode(): string {
     return /* wgsl */ `
-${FOG_STRUCT_WGSL}
-${POINT_LIGHTS_STRUCT_WGSL}
+${fogStructWgsl()}
+${pointLightsWgsl()}
 ${octEncodeWgsl()}
-${LIGHT_EVAL_WGSL}
-${FOG_MARCH_WGSL}
-${FOG_INSCATTER_WGSL}
+${lightEvalWgsl()}
+${fogMarchWgsl()}
+${fogInScatterWgsl()}
 
 struct Probe { origin: vec4<f32>, dir: vec4<f32>, scene: vec4<f32>, cfg: vec4<f32> }
 struct Sun { dir: vec4<f32>, color: vec4<f32> }
@@ -1713,10 +1720,10 @@ fn main() {
 }
 
 let fogEid = -1;
-let fogRayOriginY = 0;
-let fogRayDirY = 0;
 let fogRayDist = 0;
-let fogRayDir: [number, number, number] = [0, 0, 0];
+// the probe ray in the schema form the march primitives take (their CPU arm is the oracle)
+let fogRayOrigin = d.vec3f(0, 0, 0);
+let fogRayDir = d.vec3f(0, 0, 0);
 let fogProbePipeline: GPUComputePipeline | null = null;
 let fogBuf: GPUBuffer | null = null;
 let fogCfgBuf: GPUBuffer | null = null;
@@ -1973,9 +1980,8 @@ async function buildFog(state: State, p: Params): Promise<void> {
     const dy = RAY_TARGET[1] - RAY_ORIGIN[1];
     const dz = RAY_TARGET[2] - RAY_ORIGIN[2];
     fogRayDist = Math.hypot(dx, dy, dz);
-    fogRayOriginY = RAY_ORIGIN[1];
-    fogRayDirY = dy / fogRayDist;
-    fogRayDir = [dx / fogRayDist, fogRayDirY, dz / fogRayDist];
+    fogRayOrigin = d.vec3f(RAY_ORIGIN[0], RAY_ORIGIN[1], RAY_ORIGIN[2]);
+    fogRayDir = d.vec3f(dx / fogRayDist, dy / fogRayDist, dz / fogRayDist);
 
     fogBuf = Compute.device.createBuffer({
         label: "render-fog-config",
@@ -1993,7 +1999,7 @@ async function buildFog(state: State, p: Params): Promise<void> {
     });
     const cfg = new Float32Array(16);
     cfg.set([RAY_ORIGIN[0], RAY_ORIGIN[1], RAY_ORIGIN[2], 0], 0);
-    cfg.set([dx / fogRayDist, fogRayDirY, dz / fogRayDist, 0], 4);
+    cfg.set([fogRayDir.x, fogRayDir.y, fogRayDir.z, 0], 4);
     cfg.set([PROBE_SCENE[0], PROBE_SCENE[1], PROBE_SCENE[2], 0], 8);
     cfg.set([fogRayDist, PROBE_OFFSET, 0, 0], 12);
     Compute.device.queue.writeBuffer(fogCfgBuf, 0, cfg);
@@ -2132,9 +2138,10 @@ async function assertFog(): Promise<Check[]> {
             : Number.NaN;
         const fc = unpackColor(Fog.color.get(fogEid));
         const hazeLum = 0.2126 * fc.r + 0.7152 * fc.g + 0.0722 * fc.b; // Rec709, matching PROBE_WGSL
+        // density is height-only, so the ray's y lanes carry the whole integral
         const refT = fogTransmittance(
-            hit.originY,
-            hit.dirY,
+            d.vec3f(0, hit.originY, 0),
+            d.vec3f(0, hit.dirY, 0),
             hit.dist,
             Fog.density.get(fogEid),
             Fog.heightBase.get(fogEid),
@@ -2166,15 +2173,16 @@ async function assertFog(): Promise<Check[]> {
     const gpuT = out[0];
     const gpuC: [number, number, number] = [out[1], out[2], out[3]];
 
-    // the oracle reads the SAME Fog values packFog packed (f32 component reads), so only the march arithmetic
-    // diverges (f32 vs f64). 1e-4 bounds ~32 f32 march steps + the exp; a real divergence is far larger.
+    // the oracle reads the SAME Fog values packFog packed (f32 component reads) through the SAME functions
+    // the shader ran, so only the execution environment differs. 1e-4 bounds ~32 march steps + the exp; a
+    // real divergence is far larger.
     const density = Fog.density.get(fogEid);
     const base = Fog.heightBase.get(fogEid);
     const falloff = Fog.heightFalloff.get(fogEid);
     const c = unpackColor(Fog.color.get(fogEid));
     const wantT = fogTransmittance(
-        fogRayOriginY,
-        fogRayDirY,
+        fogRayOrigin,
+        fogRayDir,
         fogRayDist,
         density,
         base,
@@ -2182,7 +2190,11 @@ async function assertFog(): Promise<Check[]> {
         steps,
         PROBE_OFFSET,
     );
-    const wantC = fogComposite(PROBE_SCENE, [c.r, c.g, c.b], wantT);
+    const wantC = fogComposite(
+        d.vec3f(PROBE_SCENE[0], PROBE_SCENE[1], PROBE_SCENE[2]),
+        d.vec3f(c.r, c.g, c.b),
+        wantT,
+    );
     const Tol = 1e-4;
 
     checks.push({
@@ -2191,9 +2203,9 @@ async function assertFog(): Promise<Check[]> {
         detail: `gpu ${gpuT.toFixed(6)} vs oracle ${wantT.toFixed(6)}`,
     });
     const cErr = Math.max(
-        Math.abs(gpuC[0] - wantC[0]),
-        Math.abs(gpuC[1] - wantC[1]),
-        Math.abs(gpuC[2] - wantC[2]),
+        Math.abs(gpuC[0] - wantC.x),
+        Math.abs(gpuC[1] - wantC.y),
+        Math.abs(gpuC[2] - wantC.z),
     );
     checks.push({
         name: "composite",
@@ -2210,12 +2222,13 @@ async function assertFog(): Promise<Check[]> {
         anisotropy: Fog.anisotropy.get(fogEid),
     };
 
-    // in-scatter (S2): the GPU march of the single volumetric spot (shadow-free) vs the TS oracle, same
-    // midpoint samples. A relative bound (per-step f32 rounding accumulates); `mag > 1e-5` guards a vacuous
-    // all-zero pass (the ray must be lit). Observed ~3e-7 relative on lovelace, so 1e-4 is a ~300× margin.
+    // in-scatter (S2): the GPU march of the single volumetric spot (shadow-free) vs the CPU march over the
+    // same primitives, same midpoint samples. A relative bound (per-step rounding accumulates); `mag > 1e-5`
+    // guards a vacuous all-zero pass (the ray must be lit). Observed ~3e-7 relative on lovelace, so 1e-4 is a
+    // ~300× margin.
     const gpuIn: [number, number, number] = [out[4], out[5], out[6]];
     const wantIn = fogInScatter(
-        RAY_ORIGIN,
+        fogRayOrigin,
         fogRayDir,
         fogRayDist,
         scatter,
@@ -2235,14 +2248,14 @@ async function assertFog(): Promise<Check[]> {
         detail: `err ${inErr.toExponential(2)} / mag ${inMag.toExponential(2)}`,
     });
 
-    // sun in-scatter (S3): the GPU march of the synthetic directional sun (shadow-free) vs the TS oracle
+    // sun in-scatter (S3): the GPU march of the synthetic directional sun (shadow-free) vs the CPU march
     const gpuSun: [number, number, number] = [out[8], out[9], out[10]];
     const wantSun = fogSunInScatter(
-        RAY_ORIGIN,
+        fogRayOrigin,
         fogRayDir,
         fogRayDist,
         scatter,
-        { direction: PROBE_SUN_DIR, color: PROBE_SUN_COLOR },
+        PROBE_SUN,
         steps,
         PROBE_OFFSET,
     );

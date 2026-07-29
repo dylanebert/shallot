@@ -350,12 +350,12 @@ describe("precompile", () => {
         precompile("c", () => order.push("c"));
 
         // the throw names the pipeline, so a build failure points at the kernel, not at `build`
-        expect(() => precompileAll()).toThrow(/precompile "broken" failed/);
+        await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
         // "c" was never shifted off, so the throw costs one pipeline, not the rest of the queue
         expect(order).toEqual(["a", "b"]);
-        precompileAll();
+        await precompileAll();
         expect(order).toEqual(["a", "b", "c"]);
-        precompileAll();
+        await precompileAll();
         expect(order).toEqual(["a", "b", "c"]);
 
         // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
@@ -367,6 +367,12 @@ describe("precompile", () => {
                 throw new Error("createComputePipeline failed");
             });
         }).toThrow(/precompile "late-broken" failed/);
+
+        // a forcer that binds nothing dispatches nothing, so its pipeline silently falls through to the
+        // first frame — the multi-second stall the queue exists to prevent. The drain refuses it
+        expect(() => precompile("unbound", () => null)).toThrow(
+            /precompile "unbound" bound nothing/,
+        );
         Object.assign(Compute, saved);
     });
 });

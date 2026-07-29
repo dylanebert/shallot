@@ -10,7 +10,10 @@
 // `rgba8unorm-srgb` by default, so sampling decodes sRGB→linear in hardware and the mip blit downsamples in
 // linear; a data-map caller passes a linear format instead.
 
-import { checkTextureLimits } from "../../engine";
+import tgpu, { type TgpuRenderPipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
+import { Compute, checkTextureLimits } from "../../engine";
 
 /** mip levels for a square texture of `size` px: the full chain down to 1×1. */
 export function mipLevels(size: number): number {
@@ -24,67 +27,90 @@ export function mipLevels(size: number): number {
  */
 export function commonSize(dims: { w: number; h: number }[], cap = 2048): number {
     let max = 1;
-    for (const d of dims) max = Math.max(max, d.w, d.h);
+    for (const dim of dims) max = Math.max(max, dim.w, dim.h);
     return Math.min(cap, Math.max(1, max));
 }
 
 const ARRAY_FORMAT: GPUTextureFormat = "rgba8unorm-srgb";
 
-// the mipmap-blit pipeline, cached per (device, format) — a fullscreen triangle sampling the previous mip
-// with a linear filter and writing the next. One pipeline per format: srgb for color slots (albedo,
-// emissive), linear `rgba8unorm` for data slots (normal, metallic-roughness, occlusion) where an sRGB
-// decode would corrupt the values
-const _blit = new Map<string, { device: GPUDevice; pipeline: GPURenderPipeline }>();
+// the mipmap-blit kernel: a fullscreen triangle sampling the previous mip with a linear filter and
+// writing the next. `blitVs`/`blitFs` are format-independent (the target format only affects the
+// pipeline's color target, not the shading), so one kernel pair serves every format; `blitPipeline`
+// below compiles one pipeline per format — srgb for color slots (albedo, emissive), linear `rgba8unorm`
+// for data slots (normal, metallic-roughness, occlusion) where an sRGB decode would corrupt the values.
+const blitLayout = tgpu.bindGroupLayout({
+    src: { texture: d.texture2d(d.f32) },
+    samp: { sampler: "filtering" },
+});
 
-async function blitPipeline(
-    device: GPUDevice,
-    format: GPUTextureFormat,
-): Promise<GPURenderPipeline> {
+const blitVs = tgpu.vertexFn({
+    in: { vi: d.builtin.vertexIndex },
+    out: { pos: d.builtin.position, uv: d.vec2f },
+})((input) => {
+    "use gpu";
+    // a single triangle covering the viewport; uv 0..1 across the covered quad
+    const uv = d.vec2f(d.f32((input.vi << 1) & 2), d.f32(input.vi & 2));
+    return {
+        pos: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1),
+        uv: d.vec2f(uv.x, 1 - uv.y),
+    };
+});
+
+const blitFs = tgpu.fragmentFn({
+    in: { uv: d.vec2f },
+    out: d.vec4f,
+})((input) => {
+    "use gpu";
+    return std.textureSample(blitLayout.$.src, blitLayout.$.samp, input.uv);
+});
+
+// pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
+// stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format plus
+// the device identity it was built against.
+const _blit = new Map<string, { device: GPUDevice; pipeline: TgpuRenderPipeline }>();
+
+function blitPipeline(device: GPUDevice, format: GPUTextureFormat): TgpuRenderPipeline {
+    // the pipeline comes from `Compute.root`, which is scoped to `Compute.device`, while the caller's
+    // encoder / sampler / views come from the device it passed — so a mismatch is a cross-device pass,
+    // a validation error at draw time with nothing pointing here. One root per device lands at 4a
+    // (the typed extension surface); until then the contract is explicit rather than silent
+    if (device !== Compute.device)
+        throw new Error(
+            "[render] the image array path builds its blit pipeline on Compute.device — pass that device, " +
+                "or call requestGPU with yours first",
+        );
     const cached = _blit.get(format);
     if (cached && cached.device === device) return cached.pipeline;
-    const module = device.createShaderModule({
-        label: "image-mipmap",
-        code: /* wgsl */ `
-struct Out { @builtin(position) clip: vec4<f32>, @location(0) uv: vec2<f32> }
-@vertex
-fn vs(@builtin(vertex_index) vi: u32) -> Out {
-    // a single triangle covering the viewport; uv 0..1 across the covered quad
-    let uv = vec2<f32>(f32((vi << 1u) & 2u), f32(vi & 2u));
-    var out: Out;
-    out.clip = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-    out.uv = vec2<f32>(uv.x, 1.0 - uv.y);
-    return out;
-}
-@group(0) @binding(0) var src: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
-@fragment
-fn fs(in: Out) -> @location(0) vec4<f32> {
-    return textureSample(src, samp, in.uv);
-}`,
-    });
-    const pipeline = await device.createRenderPipelineAsync({
-        label: "image-mipmap",
-        layout: "auto",
-        vertex: { module, entryPoint: "vs" },
-        fragment: { module, entryPoint: "fs", targets: [{ format }] },
-        primitive: { topology: "triangle-list" },
-    });
+    const pipeline = Compute.root
+        .createRenderPipeline({
+            vertex: blitVs,
+            fragment: blitFs,
+            targets: { format },
+            primitive: { topology: "triangle-list" },
+        })
+        .$name("image-mipmap");
     _blit.set(format, { device, pipeline });
     return pipeline;
+}
+
+/** the emitted mipmap-blit WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function blitWgsl(): string {
+    return tgpu.resolve([blitVs, blitFs], { names: "strict" });
 }
 
 // fill mips 1..levels of ONE layer by blitting from the level above, one render pass per level, one submit.
 // Sampling decodes sRGB→linear and the store re-encodes, so the downsample averages in linear (gamma-correct).
 // Per-layer so a staged builder can budget a layer's blit chain as one frame's unit (the union upload spread).
-async function genMipmapsLayer(
+function genMipmapsLayer(
     device: GPUDevice,
     texture: GPUTexture,
     layer: number,
     levels: number,
     format: GPUTextureFormat,
-) {
+): void {
     if (levels <= 1) return;
-    const pipeline = await blitPipeline(device, format);
+    const pipeline = blitPipeline(device, format);
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     const encoder = device.createCommandEncoder({ label: "image-mipmap" });
     const sub = (level: number) =>
@@ -96,19 +122,14 @@ async function genMipmapsLayer(
             arrayLayerCount: 1,
         });
     for (let level = 1; level < levels; level++) {
-        const bind = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: sub(level - 1) },
-                { binding: 1, resource: sampler },
-            ],
+        const group = Compute.root.createBindGroup(blitLayout, {
+            src: sub(level - 1),
+            samp: sampler,
         });
         const pass = encoder.beginRenderPass({
             colorAttachments: [{ view: sub(level), loadOp: "clear", storeOp: "store" }],
         });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bind);
-        pass.draw(3);
+        pipeline.with(group).with(pass).draw(3);
         pass.end();
     }
     device.queue.submit([encoder.finish()]);
@@ -117,8 +138,7 @@ async function genMipmapsLayer(
 /**
  * decode `blobs` to a `texture_2d_array`: one layer per blob, all resized to a common (capped) square
  * size, sRGB-encoded, with a full mip chain. The returned texture binds as a surface's `texture-2d-array`
- * and is sampled `array[layer]`. Async (decode + pipeline compile + blit); call from a load path, not a
- * hot frame.
+ * and is sampled `array[layer]`. Async (decode); call from a load path, not a hot frame.
  *
  * @example
  * const atlas = await imageArray(device, blobs);
@@ -197,7 +217,7 @@ export async function uploadLayer(
         { texture, origin: { x: 0, y: 0, z: layer } },
         { width: size, height: size },
     );
-    await genMipmapsLayer(device, texture, layer, levels, format);
+    genMipmapsLayer(device, texture, layer, levels, format);
 }
 
 /**

@@ -16,6 +16,7 @@ export {
     CLUSTER_Z,
     Clusters,
     clusterAabb,
+    clusterCell,
     clusterCoord,
     clusterIndex,
     clusterView,
@@ -45,7 +46,9 @@ export {
     LIGHTING_UNIFORM_SIZE,
     Lighting,
     MAX_POINT_LIGHTS,
-    POINT_LIGHTS_STRUCT_WGSL,
+    PointLightGpu,
+    pointLightsWgsl,
+    spotFactor,
     spotParams,
 } from "./lighting";
 export type { Mesh, QuantStreams } from "./mesh";
@@ -65,7 +68,8 @@ export {
     attachCanvas,
     attachView,
     detachCanvas,
-    LINEAR_TO_SRGB_WGSL,
+    linearToSrgb,
+    linearToSrgbWgsl,
     MAX_SLOTS,
     MAX_VIEWS,
     sceneTransform,

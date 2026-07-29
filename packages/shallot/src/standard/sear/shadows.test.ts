@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
+import * as d from "typegpu/data";
 import { lookAt, multiply, perspective, State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Camera, CameraMode, DirectionalLight, PointLight } from "../render";
 import { computeViewProj, FRUSTUM_FLOATS, frustumPlanes, Views } from "../render/core";
 import { Slab } from "../slab";
 import { Transform, TransformsPlugin } from "../transforms";
+import { pointFaceOf, pointReceiver } from "./shade";
 import {
     cascadeAtlasSize,
     cascadeComboEids,
@@ -23,10 +25,8 @@ import {
     pointCasters,
     pointComboCount,
     pointComboEids,
-    pointFace,
     pointFaceVP,
     pointFov,
-    pointReceiver,
     pointTanHalf,
     pointTileRects,
     resetCascades,
@@ -510,12 +510,15 @@ describe("point shadows", () => {
     }
 
     test("face coordinates reconstruct the direction (roundtrip)", () => {
-        for (const d of dirs) {
-            const { face, s, t, z } = pointFace(d);
+        for (const dir of dirs) {
+            const { face, stz } = pointFaceOf(d.vec3f(...dir));
+            const [s, t, z] = [stz.x, stz.y, stz.z];
             const f = POINT_FACES[face];
             for (let i = 0; i < 3; i++) {
                 const r = f.right[i] * s + f.up[i] * t + f.fwd[i] * z;
-                expect(r).toBeCloseTo(d[i], 10); // orthonormal axis basis — f64-exact decomposition
+                // an orthonormal axis basis, so the decomposition is exact on the f32 lattice the
+                // vector constructor rounds the direction onto — compare against that, not the f64 input
+                expect(r).toBe(Math.fround(dir[i]));
             }
             // the dominant axis is forward: z bounds |s|, |t| (a face never sees past its 45° edge)
             expect(z).toBeGreaterThan(0);
@@ -533,7 +536,7 @@ describe("point shadows", () => {
             [0, 0, 1],
             [0, 0, -1],
         ];
-        for (const [i, d] of axes.entries()) expect(pointFace(d).face).toBe(i);
+        for (const [i, axis] of axes.entries()) expect(pointFaceOf(d.vec3f(...axis)).face).toBe(i);
     });
 
     // the FS's receiver depth + ndc must equal what a tile's face camera wrote into the atlas — pin both

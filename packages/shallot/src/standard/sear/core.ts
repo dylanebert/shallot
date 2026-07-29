@@ -7,16 +7,11 @@ export type { Background } from "./forward";
 export {
     Backgrounds,
     ColorSystem,
-    casterWgsl,
     DEPTH_FORMAT,
     Depth,
-    LIGHT_EVAL_WGSL,
+    lightEvalWgsl,
     PrepassSystem,
     pointAtlasView,
-    pointShadowWgsl,
-    SAMPLE_SUN_SHADOW_WGSL,
-    SHADOW_PARAMS_BYTES,
-    SUN_SHADOW_STRUCT_WGSL,
     shadowSampler,
     sunShadowParams,
     sunShadowView,
@@ -24,6 +19,16 @@ export {
     TAG_NONE,
     Tag,
 } from "./forward";
+// the relocatable shadow chunks + the uniform layouts they resolve from: the sun pair (struct then
+// sampler) and the point/spot pair (caster structs then receiver), each spliced around the group-1
+// declarations the consumer makes
+export {
+    casterWgsl,
+    pointShadowWgsl,
+    SHADOW_PARAMS_BYTES,
+    sunShadowWgsl,
+    sunStructWgsl,
+} from "./shade";
 // the shadow-caster diagnostic surface: the pooled cascade/combo cull-slot eids + resolved atlas sizing a
 // GPU-readback oracle pins per-cascade / per-combo survivor counts against (a custom shadow tool reads the
 // same). sear owns the render; these are read-only introspection, so they live at the extension tier.

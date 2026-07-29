@@ -26,6 +26,7 @@ import { PrepassSystem } from "../../standard/sear/core";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import { createGlyphAtlas, ensureString, type GlyphAtlas, layoutText } from "./atlas";
 import { type Font, loadFont } from "./font";
+import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS, glyphWgsl } from "./glyph";
 
 // Inter, the default face when the consumer registers no font of its own
 const DEFAULT_FONT =
@@ -90,41 +91,6 @@ export const Text = {
     color: sparse(f32),
 };
 
-// one glyph instance = a glyph-local quad origin + owning eid, the atlas uv rect, the world-space quad
-// size, and a packed sRGBA color. 48 bytes / three vec4 reads. `pos.xyz` shares its 16-byte slot with
-// `eid` (matching the line segment's pos+width packing)
-const GLYPH_FLOATS = 12;
-const GLYPH_BYTES = 48;
-// initial glyph capacity; the CPU staging + GPU buffer double on demand (long paragraphs push thousands)
-const INITIAL = 1 << 12;
-
-// struct + helpers spliced at module scope. Single-channel SDF decode (Valve, exponent-encoded like the
-// legacy text shader) and the sRGB→linear the packed color needs before blending into the linear target
-const GLYPH_WGSL = /* wgsl */ `
-struct Glyph {
-    pos: vec3<f32>,
-    eid: u32,
-    uvRect: vec4<f32>,
-    size: vec2<f32>,
-    color: u32,
-    _pad: u32,
-}
-
-const SDF_EXPONENT: f32 = 9.0;
-
-fn sdfToSignedDistance(sdf: f32, maxDimension: f32) -> f32 {
-    let a = select(sdf, 1.0 - sdf, sdf > 0.5);
-    let absDist = (1.0 - pow(2.0 * a, 1.0 / SDF_EXPONENT)) * maxDimension;
-    return absDist * select(1.0, -1.0, sdf > 0.5);
-}
-
-fn textSrgbToLinear(c: vec3<f32>) -> vec3<f32> {
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
-    return select(hi, lo, c <= vec3<f32>(0.04045));
-}
-`;
-
 // localPos.xy is the quad corner (0,0)..(1,1). Build the glyph's local rect, apply the owning entity's
 // world matrix (sear projects `view.viewProj * world` after), and interpolate the atlas uv across the
 // corner. `gsize` carries the world quad size for the FS antialias; `gcolor` the packed sRGBA
@@ -171,7 +137,7 @@ function textSurface(id: number) {
             textSamp: { type: "sampler" as const },
         },
         interpolators: { gsize: "vec2<f32>", gcolor: "u32" },
-        preamble: GLYPH_WGSL,
+        preamble: glyphWgsl(),
         vs: TEXT_VS,
         fs: textFs(atlas),
     };
@@ -183,6 +149,9 @@ const QUAD_VERTS = new Float32Array([
     0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 1, 0,
 ]);
 const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
+
+// initial glyph capacity; the CPU staging + GPU buffer double on demand (long paragraphs push thousands)
+const INITIAL = 1 << 12;
 
 let _loaded: (Font | null)[] = [];
 let _atlases: (GlyphAtlas | null)[] = [];
@@ -302,17 +271,17 @@ function rebuild(state: State, device: GPUDevice): void {
         _ranges[id].start = n;
         for (const g of _byFont[id] ?? []) {
             const o = n * GLYPH_FLOATS;
-            _f32[o] = g.x;
-            _f32[o + 1] = g.y;
-            _f32[o + 2] = 0;
-            _u32[o + 3] = g.eid;
-            _f32[o + 4] = g.u0;
-            _f32[o + 5] = g.v0;
-            _f32[o + 6] = g.u1;
-            _f32[o + 7] = g.v1;
-            _f32[o + 8] = g.w;
-            _f32[o + 9] = g.h;
-            _u32[o + 10] = g.color;
+            _f32[o + GLYPH_AT.pos] = g.x;
+            _f32[o + GLYPH_AT.pos + 1] = g.y;
+            _f32[o + GLYPH_AT.pos + 2] = 0;
+            _u32[o + GLYPH_AT.eid] = g.eid;
+            _f32[o + GLYPH_AT.uvRect] = g.u0;
+            _f32[o + GLYPH_AT.uvRect + 1] = g.v0;
+            _f32[o + GLYPH_AT.uvRect + 2] = g.u1;
+            _f32[o + GLYPH_AT.uvRect + 3] = g.v1;
+            _f32[o + GLYPH_AT.size] = g.w;
+            _f32[o + GLYPH_AT.size + 1] = g.h;
+            _u32[o + GLYPH_AT.color] = g.color;
             n++;
         }
         _ranges[id].count = n - _ranges[id].start;

@@ -159,10 +159,11 @@ export const bitcastF32toU32 = tgpu.fn(
     return isBeingTranspiled() ? bitcastF32toU32Wgsl(v) : f32Bits(v);
 });
 
-/** integer division. TGSL emits float `/` for integer operands, which is silently wrong above 2²⁴ —
- *  reach for this wherever the operand range isn't provably small (gpu.md; the BVH bounds path is the
- *  live case). A zero divisor is the one input the two arms disagree on: WGSL's `u32` `/` returns the
- *  dividend, the CPU arm returns `Infinity`. Don't divide by a value that can be zero.
+/** integer division — the only correct way to divide integers in TGSL. `a / b` on integer operands
+ *  transpiles to `f32(a) / f32(b)`: a *fractional* quotient, so it is wrong for any inexact division
+ *  (not merely above 2²⁴, where even an exact quotient loses bits). Audit every `/` in a ported kernel.
+ *  A zero divisor is the one input the two arms disagree on: WGSL's `u32` `/` returns the dividend, the
+ *  CPU arm returns `Infinity`. Don't divide by a value that can be zero.
  *  @example const lane = idiv(index, 32); */
 export const idiv = tgpu.fn(
     [d.u32, d.u32],
@@ -172,15 +173,26 @@ export const idiv = tgpu.fn(
     return isBeingTranspiled() ? idivWgsl(a, b) : Math.floor(a / b);
 });
 
+const uniformLoadFn = tgpu
+    .fn(
+        [d.ptrWorkgroup(d.u32)],
+        d.u32,
+    )(/* wgsl */ `(p: ptr<workgroup, u32>) -> u32 { return workgroupUniformLoad(p); }`)
+    .$name("uniformLoad");
+
 /** WGSL `workgroupUniformLoad(p)`: a control barrier whose result the uniformity analysis treats as
  *  uniform, which is what makes a `workgroupBarrier` inside a flag-gated loop legal (the decoupled-
  *  fallback scan's early-exit, gpu.md "the decoupled-scan exception"). GPU-only — a workgroup pointer
- *  has no CPU meaning.
- *  @example if (uniformLoad(&flag) == 1u) { break; } */
-export const uniformLoad = tgpu.fn(
-    [d.ptrWorkgroup(d.u32)],
-    d.u32,
-)(/* wgsl */ `(p: ptr<workgroup, u32>) -> u32 { return workgroupUniformLoad(p); }`);
+ *  has no CPU meaning. Pass the variable's `.$`, which the transpiler emits as `&flag`.
+ *
+ *  The widened call signature is an upstream typing gap, not a choice: typegpu types a scalar
+ *  `TgpuVar.$` as `number` rather than the `ref<number>` its own `ptrWorkgroup` param declares, and
+ *  `d.ref` rejects a scalar outright. A runtime wrapper can't narrow it either — the transpiler has to
+ *  see the `tgpu.fn` call at the site, so a JS forwarder resolves as an untranspiled function. That
+ *  leaves the type as the only lever, and `number` is the only type there is; `uniformLoad(5)` compiles
+ *  and emits nonsense. On the upstream-PR list with the other escape leaves.
+ *  @example const n = uniformLoad(flag.$); */
+export const uniformLoad = uniformLoadFn as typeof uniformLoadFn & ((flag: number) => number);
 
 /** WGSL `atomicCompareExchangeWeak(p, cmp, val).old_value`: the compare-and-swap a chained scan's
  *  publish/claim step needs. Returns the prior value — equal to `cmp` exactly when the exchange took.
@@ -196,14 +208,28 @@ export const compareExchange = tgpu.fn(
 );
 
 /**
+ * the shared dedup scope for the chunks a raw-WGSL consumer splices *together*: the storage codecs
+ * (`octEncodeWgsl` / `quatSnorm16x4Wgsl`), the clustered-light primitives (`pointLightsWgsl` /
+ * `lightEvalWgsl`), and sear's relocatable shadow chunks. A shared dependency is emitted into whichever
+ * chunk resolves first, so every chunk in here **forces its base chunks first** — then a dependency
+ * always lands in the lowest chunk of the dependency order, and a consumer splicing a chunk already
+ * splices the base that carries the dependency. Without the shared scope each chunk would re-emit the
+ * dependency and the two splices would define it twice (a WGSL error).
+ * @internal
+ */
+export const spliceNs = tgpu["~unstable"].namespace({ names: "strict" });
+
+/**
  * a lazily-resolved, memoized WGSL chunk: `chunk(...)` returns the thunk, and the first call resolves
  * the given TGSL resources under `names: "strict"` so the emitted function names are the authored ones
  * and a raw-WGSL splice site can call them.
  *
  * Lazy on purpose. Resolution needs the build transform, so resolving at module scope would make
  * *importing* a codec module fail in any tool that never touches the GPU (the scene formatter is the
- * live case). Pass a shared `ns` when two chunks are always spliced together and must not both emit a
- * shared dependency — the namespace emits it into whichever chunk resolves first.
+ * live case). Pass the items as a thunk when a schema's shape depends on a config value that is only
+ * final after this module loads (sear's caster-count-sized uniforms). Pass a shared `ns` when two
+ * chunks are always spliced together and must not both emit a shared dependency — the namespace emits
+ * it into whichever chunk resolves first ({@link spliceNs} is the engine-wide one).
  *
  * The rethrow names the likely cause: without the plugin the failure is otherwise an opaque resolution
  * error from deep inside typegpu.
@@ -211,14 +237,15 @@ export const compareExchange = tgpu.fn(
  */
 export function chunk(
     label: string,
-    items: Parameters<typeof tgpu.resolve>[0],
+    items: Parameters<typeof tgpu.resolve>[0] | (() => Parameters<typeof tgpu.resolve>[0]),
     ns?: Namespace,
 ): () => string {
     let wgsl: string | undefined;
     return () => {
         if (wgsl !== undefined) return wgsl;
         try {
-            wgsl = tgpu.resolve(items as never, { names: ns ?? "strict" });
+            const resolved = typeof items === "function" ? items() : items;
+            wgsl = tgpu.resolve(resolved as never, { names: ns ?? "strict" });
         } catch (cause) {
             throw new Error(
                 `the "${label}" WGSL chunk failed to resolve — most likely this bundle was built ` +

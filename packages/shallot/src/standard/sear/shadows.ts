@@ -842,27 +842,6 @@ export const POINT_FACES: PointFaceBasis[] = [
     basis([0, 0, -1], [0, 1, 0]),
 ];
 
-/** the face a light→fragment direction falls in (dominant axis, X≥Y≥Z precedence) plus its
- * face-camera coordinates: `s`/`t` along the face's right/up, `z` the forward distance the
- * projection divides by. Pure; the TS oracle the WGSL twin ({@link POINT_FACE_WGSL}) is pinned to */
-export function pointFace(d: readonly [number, number, number]): {
-    face: number;
-    s: number;
-    t: number;
-    z: number;
-} {
-    const ax = Math.abs(d[0]);
-    const ay = Math.abs(d[1]);
-    const az = Math.abs(d[2]);
-    let face: number;
-    if (ax >= ay && ax >= az) face = d[0] >= 0 ? 0 : 1;
-    else if (ay >= az) face = d[1] >= 0 ? 2 : 3;
-    else face = d[2] >= 0 ? 4 : 5;
-    const f = POINT_FACES[face];
-    const dot = (v: readonly [number, number, number]) => d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
-    return { face, s: dot(f.right), t: dot(f.up), z: dot(f.fwd) };
-}
-
 /**
  * the clip-space tile-placement matrix `D` for an atlas-UV rect `[u0, v0, du, dv]`: left-multiplying a
  * face's viewProj by it lands the face's projection inside that atlas tile, with the divide and the y-flip
@@ -890,66 +869,6 @@ export function tileTransform(
     out[15] = 1;
     return out;
 }
-
-// a unit-axis vector as a WGSL component expression ("d.z", "-d.y") — the face bases are all
-// axis-aligned, so each dot product folds to a signed component pick
-function axisExpr(v: readonly [number, number, number]): string {
-    const i = v.findIndex((c) => c !== 0);
-    return `${v[i] < 0 ? "-" : ""}d.${"xyz"[i]}`;
-}
-
-function faceReturn(face: number): string {
-    const f = POINT_FACES[face];
-    return `return PointFace(vec3<f32>(${axisExpr(f.right)}, ${axisExpr(f.up)}, ${axisExpr(f.fwd)}), ${face}u);`;
-}
-
-/** the WGSL twin of {@link pointFace}: dominant-axis face selection returning the face-camera
- * coordinates (`stz`) and the face index (the receiver indexes its tile rect by `caster·6 + face`).
- * Generated from {@link POINT_FACES}, so the selection and the face-camera orientations share one source */
-export const POINT_FACE_WGSL = /* wgsl */ `
-struct PointFace {
-    stz: vec3<f32>,
-    face: u32,
-}
-
-fn pointFaceOf(d: vec3<f32>) -> PointFace {
-    let a = abs(d);
-    if (a.x >= a.y && a.x >= a.z) {
-        if (d.x >= 0.0) { ${faceReturn(0)} }
-        ${faceReturn(1)}
-    }
-    if (a.y >= a.z) {
-        if (d.y >= 0.0) { ${faceReturn(2)} }
-        ${faceReturn(3)}
-    }
-    if (d.z >= 0.0) { ${faceReturn(4)} }
-    ${faceReturn(5)}
-}`;
-
-/**
- * the depth a point/spot shadow receiver compares against, biased toward the light. `z` is the receiver's
- * view-space forward distance (already normal-offset), `near`/`far` the caster's clip planes, `depthBias`
- * the residual lift. The bias is applied in **linear** depth: `z` is pulled toward the light by
- * `depthBias·(far−near)` world units *before* the perspective remap, so the world-space lift is constant
- * across distance. A fixed offset in the hyperbolic NDC depth (what an orthographic sun gets for
- * free, its depth being linear) instead grows with z² under perspective and detaches far contact shadows
- * (peter-panning). The remap is reverse-Z (near→1, far→0), matching the {@link perspective} the atlas
- * renders through. Pure; the oracle the WGSL twin {@link POINT_RECEIVER_WGSL} mirrors, and the sun's
- * linear-depth lift (`l.z + depthBias` over its `2·cover`-deep box) restated for the perspective path.
- */
-export function pointReceiver(z: number, near: number, far: number, depthBias: number): number {
-    const zb = Math.max(z - depthBias * (far - near), near);
-    return (near * (far - zb)) / (zb * (far - near));
-}
-
-/** the WGSL twin of {@link pointReceiver}: both the cube-face and spot branches of `pointShadowOf` route
- * their receiver depth through it, so the linear-depth bias lives at one site. Mirrors the oracle exactly
- * (pinned by `surfaceCode` structural test); spliced into sear's color FS by `pointShadowWgsl` */
-export const POINT_RECEIVER_WGSL = /* wgsl */ `
-fn pointReceiver(z: f32, near: f32, far: f32, depthBias: f32) -> f32 {
-    let zb = max(z - depthBias * (far - near), near);
-    return near * (far - zb) / (zb * (far - near));
-}`;
 
 /** one shadowed caster's per-frame placement the renderer needs: the caster slot, the light's pose +
  * range-derived clip planes, the bias knobs, and the importance fields the atlas allocator reads (`score`

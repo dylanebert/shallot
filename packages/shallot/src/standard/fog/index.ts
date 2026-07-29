@@ -7,8 +7,8 @@
 // glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off — the same pre-glaze slot
 // orrstead's fog uses. A scene opts in with one `Fog` singleton; a camera opts in with sear's `Depth` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
-// uniform layout live in `./march`, shared verbatim with the fog probe and pinned by a TS oracle (extinction
-// + clustered + sun in-scatter).
+// uniform layout live in `./march` as TGSL functions + a schema: the chunks spliced below and the CPU-side
+// oracle the gym fog probe diffs against are the same source (extinction + clustered + sun in-scatter).
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, u32 } from "../../engine";
 import { octEncodeWgsl } from "../../engine/utils/core";
@@ -20,7 +20,7 @@ import {
     LightCull,
     Lighting,
     OverlaySystem,
-    POINT_LIGHTS_STRUCT_WGSL,
+    pointLightsWgsl,
     Render,
     sceneTransform,
     VIEW_BYTES,
@@ -32,23 +32,23 @@ import { Sear, SearPlugin } from "../sear";
 import {
     ColorSystem,
     casterWgsl,
-    LIGHT_EVAL_WGSL,
+    lightEvalWgsl,
     pointAtlasView,
     pointShadowWgsl,
-    SAMPLE_SUN_SHADOW_WGSL,
     SHADOW_PARAMS_BYTES,
-    SUN_SHADOW_STRUCT_WGSL,
     shadowSampler,
     sunShadowParams,
     sunShadowView,
+    sunShadowWgsl,
+    sunStructWgsl,
 } from "../sear/core";
 import {
     FOG_BYTES,
     FOG_FLOATS,
-    FOG_INSCATTER_WGSL,
-    FOG_MARCH_WGSL,
     FOG_MAX_STEPS,
-    FOG_STRUCT_WGSL,
+    fogInScatterWgsl,
+    fogMarchWgsl,
+    fogStructWgsl,
     WORKGROUP,
 } from "./march";
 import { packFog } from "./pack";
@@ -91,10 +91,10 @@ export const Fog = {
 function code(): string {
     return /* wgsl */ `
 ${VIEW_STRUCT_WGSL}
-${FOG_STRUCT_WGSL}
-${POINT_LIGHTS_STRUCT_WGSL}
+${fogStructWgsl()}
+${pointLightsWgsl()}
 ${LIGHTING_STRUCT_WGSL}
-${SUN_SHADOW_STRUCT_WGSL}
+${sunStructWgsl()}
 
 @group(0) @binding(0) var scene: texture_2d<f32>;
 @group(0) @binding(1) var depthTex: texture_depth_2d;
@@ -120,22 +120,11 @@ ${casterWgsl()}
 @group(1) @binding(9) var<uniform> tileRects: TileRects;
 
 ${octEncodeWgsl()}
-${LIGHT_EVAL_WGSL}
+${lightEvalWgsl()}
 ${pointShadowWgsl()}
-${SAMPLE_SUN_SHADOW_WGSL}
-${FOG_MARCH_WGSL}
-${FOG_INSCATTER_WGSL}
-
-fn reconstructWorld(uv: vec2<f32>, depth: f32) -> vec3<f32> {
-    let ndc = vec3<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, depth);
-    let h = view.invViewProj * vec4<f32>(ndc, 1.0);
-    return h.xyz / h.w;
-}
-
-// interleaved gradient noise (Jimenez 2014) — a cheap per-pixel offset that turns march banding into noise
-fn ign(p: vec2<f32>) -> f32 {
-    return fract(52.9829189 * fract(dot(p, vec2<f32>(0.06711056, 0.00583715))));
-}
+${sunShadowWgsl()}
+${fogMarchWgsl()}
+${fogInScatterWgsl()}
 
 @compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -150,8 +139,8 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Reverse-Z: the near plane is NDC z=1 (near→1, far→0), so reconstruct it at depth 1.0 — depth 0.0 is the
     // far plane, which would invert the march (close fragments over-extincted, far ones not fogged at all)
     let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dim);
-    let nearWorld = reconstructWorld(uv, 1.0);
-    let fragWorld = reconstructWorld(uv, depth);
+    let nearWorld = reconstructWorld(view.invViewProj, uv, 1.0);
+    let fragWorld = reconstructWorld(view.invViewProj, uv, depth);
     let seg = fragWorld - nearWorld;
     let dist = length(seg);
     let dir = seg / max(dist, 1e-6);

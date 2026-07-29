@@ -39,7 +39,9 @@ export interface Profile {
     readonly indirectCount: ReadonlyMap<string, number>;
     /** cumulative frame count per pass: how many frames the pass reported indirect draws. */
     readonly indirectFires: ReadonlyMap<string, number>;
-    /** per-pipeline compile durations from app startup, in milliseconds */
+    /** per-pipeline compile durations from app startup, in milliseconds. A raw-WGSL pipeline's entry is
+     *  a direct await of `create*PipelineAsync`; a typed (typegpu) pipeline's is measured by the
+     *  `precompile` drain (`Compute.precompiled`, whose JSDoc carries the why) */
     readonly compile: ReadonlyMap<string, number>;
     /** wall-clock span from the first pipeline build start to the last build end */
     readonly compileMs: number;
@@ -343,7 +345,8 @@ class ProfileImpl implements Profile {
         }
     }
 
-    private recordCompile(label: string, start: number, end: number): void {
+    /** @internal — also the `Compute.precompiled` sink for typed pipelines */
+    recordCompile(label: string, start: number, end: number): void {
         this.compile.set(label, end - start);
         if (start < this._compileEarliest) this._compileEarliest = start;
         if (end > this._compileLatest) this._compileLatest = end;
@@ -1045,6 +1048,7 @@ export const ProfilePlugin: Plugin = {
 
         compute.span = (name) => _profile.span(name);
         compute.indirect = (name, count) => _profile.recordIndirect(name, count);
+        compute.precompiled = (label, start, end) => _profile.recordCompile(label, start, end);
         state.recordSink = (name, ms) => _profile.record(name, ms);
         state.fenceWaitSink = (ms) => {
             _profile.fenceWaitMs = ms;
@@ -1087,6 +1091,7 @@ export const ProfilePlugin: Plugin = {
         if (compute) {
             compute.span = undefined;
             compute.indirect = undefined;
+            compute.precompiled = undefined;
         }
         state.recordSink = undefined;
         state.fenceWaitSink = undefined;

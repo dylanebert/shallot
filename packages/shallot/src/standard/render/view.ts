@@ -1,4 +1,8 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute, pixelRatio, type State } from "../../engine";
+import { chunk, spliceNs } from "../../engine/utils/core";
 import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
@@ -55,17 +59,27 @@ struct View {
 export const VIEW_BYTES = 208;
 
 /**
- * linear→sRGB encode for a compute composite writing `view.present`. The swapchain is a base-format
- * storage view (a storage view can't be sRGB), so the composite encodes the transfer the hardware would
- * apply on a render-attachment write. One source of truth so every composite (glaze + consumer-fused)
- * agrees, and the present gamma can't drift between them.
+ * linear→sRGB encode (IEC 61966-2-1) for a compute composite writing `view.present`. The swapchain is a
+ * base-format storage view (a storage view can't be sRGB), so the composite encodes the transfer the
+ * hardware would apply on a render-attachment write. One source of truth so every composite (glaze +
+ * consumer-fused) agrees, and the present gamma can't drift between them. The per-channel scalar twin is
+ * `linearToSrgb1` (`utils/core`), which the LDR color codec packs through.
+ *
+ * @example let encoded = linearToSrgb(max(color, vec3f()));
  */
-export const LINEAR_TO_SRGB_WGSL = /* wgsl */ `
-fn linearToSrgb(c: vec3<f32>) -> vec3<f32> {
-    let lo = c * 12.92;
-    let hi = 1.055 * pow(max(c, vec3<f32>(0.0)), vec3<f32>(1.0 / 2.4)) - 0.055;
-    return select(hi, lo, c <= vec3<f32>(0.0031308));
-}`;
+export const linearToSrgb = tgpu.fn(
+    [d.vec3f],
+    d.vec3f,
+)((c) => {
+    "use gpu";
+    const lo = std.mul(c, 12.92);
+    const hi = std.sub(std.mul(1.055, std.pow(std.max(c, d.vec3f(0)), d.vec3f(1 / 2.4))), 0.055);
+    return std.select(hi, lo, std.le(c, d.vec3f(0.0031308)));
+});
+
+/** WGSL `linearToSrgb(c: vec3f) -> vec3f`: the present-gamma encode a compute composite writing the
+ *  swapchain splices. */
+export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb], spliceNs);
 
 /**
  * a camera's per-frame view state. `framebuffer` + `present` + `slot` are set by `BeginFrameSystem`

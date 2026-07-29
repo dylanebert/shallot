@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import * as d from "typegpu/data";
 import { compose, invert, multiply } from "../../engine";
 import { bakeVat, type SkinInput } from "../gltf/vat";
 import {
@@ -6,11 +7,14 @@ import {
     HEADER_VEC4,
     jwVec4,
     LiveSkin,
+    liveTintWgsl,
     PALETTE_STRIDE,
     paletteEntry,
     SKIN_SHEAR_EPSILON,
+    SkinParams,
     skinMatrix,
     skinNormal,
+    skinParamsWgsl,
     skinPoint,
     writeHeader,
 } from "./live";
@@ -30,6 +34,28 @@ const Z90 = [0, 0, Math.SQRT1_2, Math.SQRT1_2] as const;
 
 beforeEach(() => LiveSkin.reset());
 
+// The per-mesh uniform's layout is the schema now, and both the surface WGSL and `writeParams`' flat
+// Uint32Array read it — so the offsets are pinned against the numbers the hand-written struct had.
+describe("SkinParams layout", () => {
+    test("two u32 fields plus two pad words, 16 bytes, at the offsets the WGSL struct had", () => {
+        expect(d.sizeOf(SkinParams)).toBe(16);
+        expect(d.memoryLayoutOf(SkinParams, (p) => p.jwBase).offset).toBe(0);
+        expect(d.memoryLayoutOf(SkinParams, (p) => p.vertCount).offset).toBe(4);
+        expect(d.memoryLayoutOf(SkinParams, (p) => p.pad0).offset).toBe(8);
+        expect(d.memoryLayoutOf(SkinParams, (p) => p.pad1).offset).toBe(12);
+    });
+
+    test("the chunks emit the struct + the tint helper a surface references by name", () => {
+        expect(skinParamsWgsl()).toContain("struct SkinParams {");
+        // the tint helper names `skinData` / `skin` / `unpackLdrColor` — all consumer-declared, so the
+        // chunk must define liveTint and nothing else
+        const tint = liveTintWgsl();
+        expect(tint).toContain("fn liveTint(e: u32) -> vec4f {");
+        expect(tint).toContain("unpackLdrColor(skinData[u32(skin[e].x)].x)");
+        expect(tint).not.toContain("fn unpackLdrColor");
+    });
+});
+
 describe("block layout arithmetic", () => {
     test("blockVec4 = header + 3 vec4 per joint; jwVec4 = 2 verts per vec4", () => {
         expect(blockVec4(0)).toBe(HEADER_VEC4);
@@ -43,7 +69,7 @@ describe("block layout arithmetic", () => {
     test("the header packs color + jointCount + flags into the block's leading vec4", () => {
         const u32 = new Uint32Array(8);
         writeHeader(u32, 1, 0xdeadbeef, 7, 0b101);
-        // lane order is the GPU contract: LIVE_TINT_WGSL reads the packed color as `skinData[base].x`
+        // lane order is the GPU contract: `liveTint` reads the packed color as `skinData[base].x`
         expect(Array.from(u32.subarray(4, 8))).toEqual([0xdeadbeef, 7, 0b101, 0]);
     });
 
@@ -99,6 +125,32 @@ describe("block layout arithmetic", () => {
         // recycle the eid to instance B (bumped stamp): free + realloc + reseed the bind pose
         expect(LiveSkin.alloc(0, 2, 2)).toBe(base);
         expect(LiveSkin.palette[posX]).toBe(0); // B renders the bind pose, not A's 999 — red without the stamp
+    });
+});
+
+// `reset()` (a build boundary) destroys every per-mesh `skinParams` buffer; `dispose()` (process teardown,
+// `SkinPlugin.dispose`, ecs.md "process/module-lifetime teardown") must free the same set — it's the last
+// chance, not a lesser one. A dispose that only frees `buffer` / `fallbackParams` leaks one GPUBuffer per
+// registered skinned mesh past the module's own lifetime.
+describe("LiveSkin.dispose", () => {
+    test("destroys every per-mesh skinParams buffer, not just the main + fallback buffers", () => {
+        const destroyed: string[] = [];
+        const fakeDevice = {
+            createBuffer: (desc: { label?: string }) => ({
+                label: desc.label,
+                destroy: () => destroyed.push(desc.label ?? ""),
+            }),
+            queue: { writeBuffer: () => {} },
+        } as unknown as GPUDevice;
+
+        LiveSkin.registerMesh(0, new Uint32Array(2), new Uint32Array(2));
+        const buf = LiveSkin.paramsBuffer(fakeDevice, 0);
+        expect(LiveSkin.params.get(0)).toBe(buf);
+
+        LiveSkin.dispose();
+
+        expect(destroyed).toContain("skin-params:0");
+        expect(LiveSkin.params.size).toBe(0);
     });
 });
 

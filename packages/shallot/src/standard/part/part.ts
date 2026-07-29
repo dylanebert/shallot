@@ -1,17 +1,20 @@
+import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import type { State, System } from "../../engine";
 import { Compute, capacity, srgb8x4, u32 } from "../../engine";
-import { xformWgsl } from "../../engine/utils/core";
-import {
-    BeginFrameSystem,
-    CULL_FRUSTUM,
-    CULL_VOLUME_FLOATS,
-    Draws,
-    Meshes,
-    Render,
-    Surfaces,
-} from "../render/core";
+import { precompile } from "../../engine/runtime";
+import { BeginFrameSystem, Draws, Meshes, Render, Surfaces } from "../render/core";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
+import {
+    CullParams,
+    countKernel,
+    countLayout,
+    cullLayout,
+    scanKernel,
+    scanLayout,
+    scatterKernel,
+    scatterLayout,
+} from "./pack";
 
 const DRAW_ARG_STRIDE = 20;
 
@@ -57,17 +60,14 @@ export const Color = {
 // lazily with the active camera count, the pair dimension with mesh count.
 let _counts: GPUBuffer | null = null;
 let _meshBounds: GPUBuffer | null = null;
-let _cullParams: GPUBuffer | null = null;
-let _cullStaging: Uint32Array | null = null;
-let _countPipe: GPUComputePipeline | null = null;
-let _scanPipe: GPUComputePipeline | null = null;
-let _scatterPipe: GPUComputePipeline | null = null;
-let _countLayout: GPUBindGroupLayout | null = null;
-let _scanLayout: GPUBindGroupLayout | null = null;
-let _scatterLayout: GPUBindGroupLayout | null = null;
-let _countGroup: GPUBindGroup | null = null;
-let _scanGroup: GPUBindGroup | null = null;
-let _scatterGroup: GPUBindGroup | null = null;
+let _cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;
+let _cullGroup: TgpuBindGroup<(typeof cullLayout)["entries"]> | null = null;
+let _countPipe: TgpuComputePipeline | null = null;
+let _scanPipe: TgpuComputePipeline | null = null;
+let _scatterPipe: TgpuComputePipeline | null = null;
+let _countBound: TgpuComputePipeline | null = null;
+let _scanBound: TgpuComputePipeline | null = null;
+let _scatterBound: TgpuComputePipeline | null = null;
 let _surfaceCount = 0;
 let _meshCount = 0;
 let _pairCount = 0;
@@ -118,22 +118,20 @@ export const PartSystem: System = {
         if (!Render.encoder || !_countPipe || !_scanPipe || !_scatterPipe) return;
         syncBuffers();
         if (_pairCount === 0) return;
-        _countGroup ??= countGroup();
-        _scanGroup ??= scanGroup();
-        _scatterGroup ??= scatterGroup();
+        const count = bindCount();
+        const scan = bindScan();
+        const scatter = bindScatter();
+        if (!count || !scan || !scatter) return;
 
         // viewCount + pairCount let the cull shader find a view's frustum and
         // index its slot's slice; slot ≥ viewCount means no frustum (headless),
         // packed unculled. Queued before EndFrameSystem submits the encoder, so
         // it lands before the pack executes
         const views = Math.max(1, Render.viewCount);
-        _cullStaging![0] = Render.viewCount;
-        _cullStaging![1] = _pairCount;
-        Compute.device.queue.writeBuffer(
-            _cullParams!,
-            0,
-            _cullStaging! as Uint32Array<ArrayBuffer>,
-        );
+        // a two-word uniform written once a frame: the typed write is the idiomatic path here. The
+        // "CPU truth stays typed arrays" law (gpu.md) governs the per-entity firehoses, where the
+        // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
+        _cullParams!.write({ viewCount: Render.viewCount, pairCount: _pairCount });
 
         Render.encoder.clearBuffer(_counts!);
         const pass = Render.encoder.beginComputePass({
@@ -141,36 +139,24 @@ export const PartSystem: System = {
             timestampWrites: Compute.span?.("part:pack"),
         });
         const rows = Math.ceil(capacity / 64);
-        pass.setPipeline(_countPipe);
-        pass.setBindGroup(0, _countGroup);
-        pass.dispatchWorkgroups(rows, views);
+        count.with(pass).dispatchWorkgroups(rows, views);
         // one workgroup per allocated view slot (the counts buffer spans _viewDim ×
         // pairCount); slots past the active views carry zero counts → zero instanceCount
-        pass.setPipeline(_scanPipe);
-        pass.setBindGroup(0, _scanGroup!);
-        pass.dispatchWorkgroups(_viewDim);
-        pass.setPipeline(_scatterPipe);
-        pass.setBindGroup(0, _scatterGroup);
-        pass.dispatchWorkgroups(rows, views);
+        scan.with(pass).dispatchWorkgroups(_viewDim);
+        scatter.with(pass).dispatchWorkgroups(rows, views);
         pass.end();
     },
 };
 
-// the buffers the cull reads: per-entity slabs + membership mirror, plus the
-// world-matrix firehose and the per-view cull volumes the visibility test
-// needs. All stable, fixed-capacity identities — the slab `.gpu` from
-// SlabPlugin.warm, membership/transforms/cullVolumes published by their owners
-// before any draw-group consumer runs. Read when the pack first builds its bind
-// groups (and on growth); a missing one is a wiring bug, not a frame to skip
-interface CullInputs {
-    surface: GPUBuffer;
-    mesh: GPUBuffer;
-    membership: GPUBuffer;
-    transforms: GPUBuffer;
-    cullVolumes: GPUBuffer;
-}
-
-function partInputs(): CullInputs {
+// the one shared cull bind group both count and scatter reference. Its inputs are the per-entity slabs +
+// membership mirror, the world-transform firehose and the per-view cull volumes — all stable,
+// fixed-capacity identities published by their owners before any draw-group consumer runs, so a missing
+// one is a wiring bug and throws. `_cullParams` / `_meshBounds` are this module's own and genuinely late
+// (`syncBuffers` sizes them off the final mesh count), which is the one null the callers tolerate.
+// A typed bind group takes a raw GPUBuffer, which is what keeps those publishers' reach-in open
+function cullGroup(): TgpuBindGroup<(typeof cullLayout)["entries"]> | null {
+    if (_cullGroup) return _cullGroup;
+    if (!_cullParams || !_meshBounds) return null;
     const surface = Part.surface.gpu;
     const mesh = Part.mesh.gpu;
     const membership = Compute.buffers.get("membership");
@@ -181,45 +167,62 @@ function partInputs(): CullInputs {
             "[part] cull inputs missing — declare RenderPlugin + SlabPlugin as dependencies",
         );
     }
-    return { surface, mesh, membership, transforms, cullVolumes };
-}
-
-function bind(buffers: GPUBuffer[], label: string, layout: GPUBindGroupLayout): GPUBindGroup {
-    return Compute.device.createBindGroup({
-        label,
-        layout,
-        entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })),
+    _cullGroup = Compute.root.createBindGroup(cullLayout, {
+        surfaceField: surface,
+        meshField: mesh,
+        membership,
+        transforms,
+        meshBounds: _meshBounds,
+        cullVolumes,
+        params: _cullParams,
     });
+    return _cullGroup;
 }
 
-// count + scatter share the same cull inputs in the same binding order; scatter
-// appends drawArgs + packedEids after the read-write counts
-function cullPrefix(inp: CullInputs): GPUBuffer[] {
-    return [
-        inp.surface,
-        inp.mesh,
-        inp.membership,
-        inp.transforms,
-        _meshBounds!,
-        inp.cullVolumes,
-        _cullParams!,
-    ];
+function bindCount(): TgpuComputePipeline | null {
+    if (_countBound) return _countBound;
+    const cull = cullGroup();
+    if (!_countPipe || !cull || !_counts) return null;
+    _countBound = _countPipe
+        .with(cull)
+        .with(Compute.root.createBindGroup(countLayout, { counts: _counts }));
+    return _countBound;
 }
 
-function countGroup(): GPUBindGroup {
-    return bind([...cullPrefix(partInputs()), _counts!], "kitchen-part-count", _countLayout!);
-}
-
-function scanGroup(): GPUBindGroup {
-    return bind([_counts!, Parts.drawArgs!, _cullParams!], "kitchen-part-scan", _scanLayout!);
-}
-
-function scatterGroup(): GPUBindGroup {
-    return bind(
-        [...cullPrefix(partInputs()), Parts.drawArgs!, _counts!, Parts.packedEids!],
-        "kitchen-part-scatter",
-        _scatterLayout!,
+function bindScan(): TgpuComputePipeline | null {
+    if (_scanBound) return _scanBound;
+    if (!_scanPipe || !_counts || !Parts.drawArgs || !_cullParams) return null;
+    _scanBound = _scanPipe.with(
+        Compute.root.createBindGroup(scanLayout, {
+            counts: _counts,
+            drawArgs: Parts.drawArgs,
+            params: _cullParams,
+        }),
     );
+    return _scanBound;
+}
+
+function bindScatter(): TgpuComputePipeline | null {
+    if (_scatterBound) return _scatterBound;
+    const cull = cullGroup();
+    if (!_scatterPipe || !cull || !_counts || !Parts.drawArgs || !Parts.packedEids) return null;
+    _scatterBound = _scatterPipe.with(cull).with(
+        Compute.root.createBindGroup(scatterLayout, {
+            drawArgs: Parts.drawArgs,
+            counts: _counts,
+            packedEids: Parts.packedEids,
+        }),
+    );
+    return _scatterBound;
+}
+
+// every bound pipeline names at least one buffer `syncBuffers` can reallocate, so growth drops all of
+// them together rather than tracking which buffer each one holds
+function unbind(): void {
+    _cullGroup = null;
+    _countBound = null;
+    _scanBound = null;
+    _scatterBound = null;
 }
 
 /**
@@ -287,9 +290,7 @@ function syncBuffers(): void {
         _meshBounds = writeMeshBounds(device);
     }
 
-    _countGroup = null;
-    _scanGroup = null;
-    _scatterGroup = null;
+    unbind();
     registerDraws();
 
     const stale = [...staleArgs, stalePacked, staleBounds];
@@ -374,9 +375,7 @@ export function initPart(): void {
     // non-Part slot is skipped regardless of the stale ids it holds.
     for (let i = 0; i < capacity; i++) Color.rgba.set(i, 1, 0, 1, 1);
 
-    _countGroup = null;
-    _scanGroup = null;
-    _scatterGroup = null;
+    unbind();
 }
 
 /**
@@ -389,9 +388,10 @@ export function initPart(): void {
  * (`syncBuffers`), not here: neither `Meshes.size` nor the camera count is
  * final at warm
  */
-export async function warmPart(state: State): Promise<void> {
+export function warmPart(state: State): void {
     if (!Compute.device) return;
     const device = Compute.device;
+    const root = Compute.root;
     _surfaceCount = Surfaces.size;
     _meshCount = 0;
     _pairCount = 0;
@@ -399,6 +399,7 @@ export async function warmPart(state: State): Promise<void> {
     Parts.drawArgs = null;
     _counts = null;
     _meshBounds = null;
+    unbind();
 
     // one capacity-sized region (slot 0); syncBuffers grows it as cameras attach.
     // COPY_SRC for GPU-debug readback (gpu.md) + the pack tests
@@ -409,208 +410,39 @@ export async function warmPart(state: State): Promise<void> {
     });
     Compute.buffers.set("eids", Parts.packedEids);
 
-    // { viewCount, pairCount } — written each frame, read by all three passes
-    _cullParams = device.createBuffer({
-        label: "kitchen-part-cull-params",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _cullStaging = new Uint32Array(4);
+    _cullParams = root.createBuffer(CullParams).$usage("uniform").$name("kitchen-part-cull-params");
     if (_surfaceCount === 0) return;
 
     const part = state.membership.bit(Part);
-    _countLayout = layout("kitchen-part-count", "rrrrrruw");
-    _scanLayout = layout("kitchen-part-scan", "wwu");
-    _scatterLayout = layout("kitchen-part-scatter", "rrrrrrurww");
+    const base = part.gen * capacity;
+    _countPipe = root
+        .createComputePipeline({ compute: countKernel(base, part.mask, _surfaceCount) })
+        .$name("kitchen-part-count");
+    _scanPipe = root.createComputePipeline({ compute: scanKernel }).$name("kitchen-part-scan");
+    _scatterPipe = root
+        .createComputePipeline({ compute: scatterKernel(base, part.mask, _surfaceCount) })
+        .$name("kitchen-part-scatter");
 
-    const gate = `if ((membership[${part.gen}u * ${capacity}u + eid] & ${part.mask}u) == 0u) { return; }`;
-    // resolve the entity's within-view (surface, mesh) pair. surfaceCount is
-    // baked (stable); pairCount comes from cullParams, so a late mesh whose pair
-    // sits past the current grid is skipped until syncBuffers grows it
-    const readPair = `
-    let sid = surfaceField[eid];
-    let mid = meshField[eid];
-    if (sid >= ${_surfaceCount}u) { return; }
-    let pair = mid * ${_surfaceCount}u + sid;
-    if (pair >= params.pairCount) { return; }`;
-
-    // the cull inputs (bindings 0..6) + the frustum test, shared by count +
-    // scatter. `visible` transforms the mesh's local bounding sphere by the
-    // instance transform (center by `xformPoint`, radius by the largest |scale|
-    // axis — conservative for non-uniform scale) and tests it against this
-    // view's six planes. slot ≥ viewCount means no frustum exists (headless or a
-    // synthetic slot): keep everything, so the pack degrades to plain compaction
-    const cullDecls =
-        xformWgsl() +
-        /* wgsl */ `
-struct CullParams { viewCount: u32, pairCount: u32 }
-
-@group(0) @binding(0) var<storage, read> surfaceField: array<u32>;
-@group(0) @binding(1) var<storage, read> meshField: array<u32>;
-@group(0) @binding(2) var<storage, read> membership: array<u32>;
-@group(0) @binding(3) var<storage, read> transforms: array<Xform>;
-@group(0) @binding(4) var<storage, read> meshBounds: array<vec4<f32>>;
-@group(0) @binding(5) var<storage, read> cullVolumes: array<vec4<f32>>;
-@group(0) @binding(6) var<uniform> params: CullParams;
-
-const CULL_STRIDE: u32 = ${CULL_VOLUME_FLOATS / 4}u; // header vec4 + the 6 frustum planes
-
-// test the instance's world bounding sphere against this slot's frustum cull volume, dispatched on the
-// leading tag word. tag ${CULL_FRUSTUM} = a 6-plane AND (every camera, the sun, and each point/spot shadow
-// combo's depth view). An unknown tag (an unwritten slot) keeps the instance.
-fn visible(eid: u32, mid: u32, slot: u32) -> bool {
-    if (slot >= params.viewCount) { return true; }
-    let xf = transforms[eid];
-    let b = meshBounds[mid];
-    let center = xformPoint(xf, b.xyz);
-    let radius = b.w * max(abs(xf.scale.x), max(abs(xf.scale.y), abs(xf.scale.z)));
-    let base = slot * CULL_STRIDE;
-    let header = cullVolumes[base];
-    switch u32(header.x) {
-        case ${CULL_FRUSTUM}u: {
-            // planes follow the header vec4 at base + 1
-            for (var i = 0u; i < 6u; i = i + 1u) {
-                let pl = cullVolumes[base + 1u + i];
-                if (dot(pl.xyz, center) + pl.w < -radius) { return false; }
-            }
-            return true;
-        }
-        default: { return true; }
-    }
-}`;
-
-    const countWgsl = /* wgsl */ `
-${cullDecls}
-@group(0) @binding(7) var<storage, read_write> counts: array<atomic<u32>>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let eid = gid.x;
-    let slot = gid.y;
-    if (eid >= ${capacity}u) { return; }
-    ${gate}
-    ${readPair}
-    if (!visible(eid, mid, slot)) { return; }
-    atomicAdd(&counts[slot * params.pairCount + pair], 1u);
-}
-`;
-
-    // exclusive prefix sum, one workgroup per view slot — `dispatchWorkgroups(viewDim)`.
-    // Each slot's row is scanned in parallel: a `SCAN_WG`-wide LDS Hillis-Steele scan
-    // walks the row in tiles, a `carry` threading the running offset across tiles, so
-    // the slot's packedEids region starts at slot * capacity. Writes instanceCount +
-    // compacted firstInstance, resets counts so scatter reuses it as a cursor, and
-    // leaves the static indexCount / firstIndex (lanes 0, 2) alone. Pure LDS (no
-    // subgroup ops) — the part pack stays inside the base feature floor, so a
-    // physics-free app never needs `subgroups`. One workgroup per slot keeps the
-    // pass independent of the view-slot count: every slot's row scans concurrently
-    const scanWgsl = /* wgsl */ `
-struct CullParams { viewCount: u32, pairCount: u32 }
-@group(0) @binding(0) var<storage, read_write> counts: array<atomic<u32>>;
-@group(0) @binding(1) var<storage, read_write> drawArgs: array<u32>;
-@group(0) @binding(2) var<uniform> params: CullParams;
-
-const SCAN_WG: u32 = 256u;
-var<workgroup> temp: array<u32, SCAN_WG>;
-var<workgroup> carry: u32;
-
-@compute @workgroup_size(SCAN_WG)
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-    let slot = wid.x;
-    let pairCount = params.pairCount;
-    let local = lid.x;
-    let base = slot * pairCount;
-
-    if (local == 0u) { carry = 0u; }
-    workgroupBarrier();
-
-    // tile the row: each pass scans SCAN_WG counts, carry holds the prefix of all
-    // prior tiles. Outer condition is workgroup-uniform (params + constants), so the
-    // in-loop barriers are legal
-    var tileBase = 0u;
-    loop {
-        if (tileBase >= pairCount) { break; }
-        let p = tileBase + local;
-        let inRange = p < pairCount;
-        let idx = base + p;
-        var c = 0u;
-        if (inRange) { c = atomicLoad(&counts[idx]); }
-
-        // inclusive Hillis-Steele scan of c across the workgroup into temp
-        temp[local] = c;
-        workgroupBarrier();
-        var offset = 1u;
-        loop {
-            if (offset >= SCAN_WG) { break; }
-            var add = 0u;
-            if (local >= offset) { add = temp[local - offset]; }
-            workgroupBarrier();
-            temp[local] = temp[local] + add;
-            workgroupBarrier();
-            offset = offset * 2u;
-        }
-        let excl = temp[local] - c;            // inclusive − own = exclusive prefix
-        let tileTotal = temp[SCAN_WG - 1u];    // every out-of-range lane added 0
-
-        if (inRange) {
-            drawArgs[idx * 5u + 1u] = c;
-            drawArgs[idx * 5u + 4u] = slot * ${capacity}u + carry + excl;
-            atomicStore(&counts[idx], 0u);
-        }
-        workgroupBarrier();
-        if (local == 0u) { carry = carry + tileTotal; }
-        workgroupBarrier();
-
-        tileBase = tileBase + SCAN_WG;
-    }
-}
-`;
-
-    const scatterWgsl = /* wgsl */ `
-${cullDecls}
-@group(0) @binding(7) var<storage, read> drawArgs: array<u32>;
-@group(0) @binding(8) var<storage, read_write> counts: array<atomic<u32>>;
-@group(0) @binding(9) var<storage, read_write> packedEids: array<u32>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let eid = gid.x;
-    let slot = gid.y;
-    if (eid >= ${capacity}u) { return; }
-    ${gate}
-    ${readPair}
-    if (!visible(eid, mid, slot)) { return; }
-    let idx = slot * params.pairCount + pair;
-    let local = atomicAdd(&counts[idx], 1u);
-    packedEids[drawArgs[idx * 5u + 4u] + local] = eid;
-}
-`;
-
-    const compile = (label: string, code: string, l: GPUBindGroupLayout) =>
-        device.createComputePipelineAsync({
-            label,
-            layout: device.createPipelineLayout({ bindGroupLayouts: [l] }),
-            compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
-        });
-    [_countPipe, _scanPipe, _scatterPipe] = await Promise.all([
-        compile("kitchen-part-count", countWgsl, _countLayout),
-        compile("kitchen-part-scan", scanWgsl, _scanLayout),
-        compile("kitchen-part-scatter", scatterWgsl, _scatterLayout),
-    ]);
-}
-
-// build a compute bind-group layout from a kinds string: `r` = read-only
-// storage, `w` = read-write storage, `u` = uniform, one char per binding
-function layout(label: string, kinds: string): GPUBindGroupLayout {
-    return Compute.device.createBindGroupLayout({
-        label,
-        entries: [...kinds].map((k, binding) => ({
-            binding,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: {
-                type: k === "u" ? "uniform" : k === "w" ? "storage" : "read-only-storage",
-            } as const,
-        })),
+    // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
+    // after every plugin's warm has resolved (warm hooks run under `Promise.all`), which is the first
+    // moment `Meshes` is flushed and `membership` / `transforms` / `cullVolumes` are published — so
+    // `syncBuffers` can size the pack's buffers there, and the dispatch that forces the compile has
+    // something to bind. One forcer per pipeline, so each gets its own row in the compile table
+    precompile("kitchen-part-count", () => {
+        syncBuffers();
+        const bound = bindCount();
+        bound?.dispatchWorkgroups(0);
+        return bound;
+    });
+    precompile("kitchen-part-scan", () => {
+        const bound = bindScan();
+        bound?.dispatchWorkgroups(0);
+        return bound;
+    });
+    precompile("kitchen-part-scatter", () => {
+        const bound = bindScatter();
+        bound?.dispatchWorkgroups(0);
+        return bound;
     });
 }
 

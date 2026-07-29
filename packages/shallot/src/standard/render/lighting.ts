@@ -1,5 +1,9 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import type { State } from "../../engine";
 import { Compute, f32, sparse, unpackColor, vec4 } from "../../engine";
+import { bitcastF32toU32, chunk, octDecodeNormal, spliceNs } from "../../engine/utils/core";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
 
@@ -176,43 +180,89 @@ export function writeLighting(state: State): void {
  * exists for every surface; overflow warns, never silently truncates. */
 export const MAX_POINT_LIGHTS = 256;
 
-const POINT_LIGHT_FLOATS = 12; // posRange vec4 + color vec4 + params vec4
-const POINT_HEADER_FLOATS = 4; // count, padded to 16B
-export const POINT_LIGHTS_BUFFER_SIZE =
-    (POINT_HEADER_FLOATS + MAX_POINT_LIGHTS * POINT_LIGHT_FLOATS) * 4;
+/**
+ * one compacted point light. `posRange` is xyz world position, w = 1/range²; `color` is linear rgb with
+ * intensity baked in, `a` = the source entity id as f32 (the per-entity hook sear matches shadowed casters
+ * on); `params` is x = source radius, y = the spot cone axis oct-packed via bitcast, z/w = the Frostbite
+ * spot angular scale/offset (a non-spot writes `(radius, 0, 0, 1)` so the angular factor is 1)
+ */
+export const PointLightGpu = d.struct({
+    posRange: d.vec4f,
+    color: d.vec4f,
+    params: d.vec4f,
+});
 
 /**
- * the compacted point-light list's WGSL struct (`PointLightGpu[]` + count header), spliced by sear's
- * clustered loop and the fog march. Per light: `posRange` (xyz world position, w = 1/range²), `color`
- * (linear rgb intensity-baked, `a` = source entity id as f32: the per-entity hook sear matches shadowed
- * casters on), `params` (x = source radius; y = the spot cone axis oct-packed via bitcast; z/w = the
- * Frostbite spot angular scale/offset: a non-spot writes `(radius, 0, 0, 1)` so the angular factor is 1).
- * GPU-written by the light compact pass (`cluster.ts`) from the PointLight + Spot slabs + the transforms
- * firehose. There is no CPU light list.
+ * the compacted point-light list: a count header plus the fixed-cap light array, GPU-written by the light
+ * compact pass (`cluster.ts`) from the PointLight + Spot slabs + the transforms firehose, and read by
+ * sear's clustered loop and the fog march. There is no CPU light list.
  */
-export const POINT_LIGHTS_STRUCT_WGSL = /* wgsl */ `
-struct PointLightGpu {
-    posRange: vec4<f32>,
-    color: vec4<f32>,
-    params: vec4<f32>,
-}
-struct PointLights {
-    count: vec4<u32>,
-    lights: array<PointLightGpu>,
-}`;
+export const PointLights = d.struct({
+    count: d.vec4u,
+    lights: d.arrayOf(PointLightGpu, MAX_POINT_LIGHTS),
+});
+
+/**
+ * the compact pass's write view of {@link PointLights}: byte-identical, with the count header's first
+ * word atomic so the membership scan can reserve slots. WGSL forbids `atomic` in a read-only binding, so
+ * the reader and the writer need distinct schemas; `lighting.test.ts` pins their layouts equal.
+ * @internal
+ */
+export const PointLightsRw = d.struct({
+    count: d.arrayOf(d.atomic(d.u32), 4),
+    lights: d.arrayOf(PointLightGpu, MAX_POINT_LIGHTS),
+});
+
+/** the compacted light list's buffer size, from the schema — the one source of truth for the layout */
+export const POINT_LIGHTS_BUFFER_SIZE = d.sizeOf(PointLights);
+
+/**
+ * the compacted point-light list's WGSL, spliced by sear's clustered loop and the fog march: the
+ * {@link PointLightGpu} + {@link PointLights} struct declarations, emitted under strict naming so a raw
+ * splice site reads `lights.count.x` / `lights.lights[i].posRange` by those exact names.
+ */
+export const pointLightsWgsl = chunk("pointLightsWgsl", [PointLights], spliceNs);
 
 /**
  * the point-light falloff (Bevy `getDistanceAttenuation`): inverse-square with a smooth
  * window (`smooth = saturate(1 − (d²/r²)²)`, attenuation `smooth² / max(d², radiusSq)`),
  * exactly zero at and past the range, and flat at `1/radiusSq` inside the source sphere
- * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). Pure; the
- * oracle sear's WGSL twin is pinned to
+ * (Karis representative point: `radiusSq = 0` would spike toward ∞ at the bulb). One
+ * function, both sides: sear's clustered loop and the fog march splice it (`lightEvalWgsl`,
+ * `sear/core`), the CPU oracles call it directly — there is no WGSL twin to drift from.
+ *
+ * @example const atten = distanceAttenuation(distSq, 1 / (range * range), radius * radius);
  */
-export function distanceAttenuation(distSq: number, invRangeSq: number, radiusSq: number): number {
+export const distanceAttenuation = tgpu.fn(
+    [d.f32, d.f32, d.f32],
+    d.f32,
+)((distSq, invRangeSq, radiusSq) => {
+    "use gpu";
     const factor = distSq * invRangeSq;
-    const smooth = Math.min(Math.max(1 - factor * factor, 0), 1);
-    return (smooth * smooth) / Math.max(distSq, radiusSq);
-}
+    const smoothFactor = std.saturate(1 - factor * factor);
+    return (smoothFactor * smoothFactor) / std.max(distSq, radiusSq);
+});
+
+/**
+ * the spot cone's angular attenuation (Frostbite `getAngleAtt`) for one compacted light and the
+ * fragment→light direction `L`: `saturate(cd·scale + offset)²`, 1 inside the inner cone and smoothly 0 at
+ * the outer. A plain point light carries `(0, 1)` in `params.zw`, so the early-out returns 1 and the
+ * multiply is a no-op. `cd` is the cosine between the oct-packed cone axis (`params.y`) and `-L`.
+ * {@link spotParams} is the CPU twin that bakes the `(scale, offset)` pair the compact pass stores.
+ *
+ * @example let f = spotFactor(light, L);
+ */
+export const spotFactor = tgpu.fn(
+    [PointLightGpu, d.vec3f],
+    d.f32,
+)((light, L) => {
+    "use gpu";
+    if (light.params.z === 0) return 1;
+    const axis = octDecodeNormal(bitcastF32toU32(light.params.y));
+    const cd = -std.dot(axis, L);
+    const a = std.saturate(cd * light.params.z + light.params.w);
+    return a * a;
+});
 
 /**
  * the spot cone's angular-attenuation coefficients (Frostbite `getAngleAtt`, Lagarde 2014) from the

@@ -1,6 +1,6 @@
 import type { GltfMaterial } from "./gltf";
 import { ALBEDO_BUCKETS, ALBEDO_NAMES } from "./image";
-import { MATERIAL_DATA_WGSL } from "./palette";
+import { materialDataWgsl } from "./palette";
 
 // baseColor lives in one of ALBEDO_BUCKETS size-bucketed arrays (image.ts); `sampleAlbedo` switches on the
 // per-material `albedoBucket` to sample the right one. The switch is dynamically uniform per draw — each glTF
@@ -72,7 +72,7 @@ export function mapSet(m: GltfMaterial | undefined): number {
 export function materialPreamble(mapset: number): string {
     const has = (bit: number) => (mapset & bit) !== 0;
     return /* wgsl */ `
-${MATERIAL_DATA_WGSL}
+${materialDataWgsl()}
 ${SAMPLE_ALBEDO}
 
 fn pbrOf(mid: u32, uv: vec2<f32>, baseRgb: vec3<f32>) -> Pbr {

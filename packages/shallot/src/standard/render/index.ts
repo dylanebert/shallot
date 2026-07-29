@@ -392,8 +392,9 @@ export const RenderPlugin: Plugin = {
 
     // pack the static meshes staged by `mesh()` during initialize into the
     // shared family buffer (runs after every initialize, before first render)
-    async warm(state) {
+    warm(state) {
         flushMeshes();
-        await Promise.all([warmClusters(), warmLightCull(state)]);
+        warmClusters();
+        warmLightCull(state);
     },
 };

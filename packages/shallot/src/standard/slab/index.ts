@@ -376,7 +376,10 @@ export class Slab {
             if (!s._bound || forced.has(key)) continue;
             forced.add(key);
             const bound = s._bound;
-            precompile(`slab-scatter-${key}`, () => bound.dispatchWorkgroups(0));
+            precompile(`slab-scatter-${key}`, () => {
+                bound.dispatchWorkgroups(0);
+                return bound;
+            });
         }
     }
 

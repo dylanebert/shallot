@@ -18,6 +18,7 @@ import {
     packUnorm2x16,
     packUnorm4x8,
     snorm16,
+    spliceNs,
     unorm8,
     unorm16,
     unpackSnorm2x16,
@@ -36,14 +37,13 @@ import {
 //   - A chunk is self-contained (its own resolve, its own dependencies) — EXCEPT two pairs that share a
 //     dependency, and each shares a namespace so the dependency is emitted exactly once, into the half
 //     named here. The position quantizers share `quantNs` (`MeshQuant`, emitted into posQuantWgsl());
-//     the two snorm16 codecs share `snormNs` (the snorm pack/unpack leaves, emitted into
-//     octEncodeWgsl()). Both pinned by the dependent half resolving its base half first, so the strings
+//     the two snorm16 codecs share the engine-wide `spliceNs` (the snorm pack/unpack leaves, emitted
+//     into octEncodeWgsl()). Both pinned by the dependent half resolving its base half first, so the strings
 //     are the same whatever order a consumer asks in — and the dependent half is spliced after its base.
 //   - Splicing two chunks that share a dependency would otherwise define it twice, which is a WGSL
 //     error. `encode.test.ts` asserts every pair of chunks stays duplicate-free.
 
 const quantNs = tgpu["~unstable"].namespace({ names: "strict" });
-const snormNs = tgpu["~unstable"].namespace({ names: "strict" });
 
 /** the decomposed per-entity world transform the `transforms` firehose stores (48 B AoS: pos, quat,
  *  scale), reconstructed on read rather than stored as a matrix — the VS reads it scattered per
@@ -106,7 +106,7 @@ export const octDecodeNormal = tgpu.fn(
 /** WGSL `octEncodeNormal(n) -> u32` + `octDecodeNormal(enc) -> vec3<f32>`: the snorm16x2 storage-normal
  *  codec. Splice into a producer that packs a normal or a reader that unpacks one; bit-identical to the
  *  CPU-callable {@link octEncodeNormal}, since it *is* that function. */
-export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeNormal], snormNs);
+export const octEncodeWgsl = chunk("octEncodeWgsl", [octEncodeNormal, octDecodeNormal], spliceNs);
 
 // snorm16x4 quaternion: 4 components packed into 2 u32 via pack2x16snorm. Per-component error bound
 // 1/32767 ≈ 3.05e-5 (uniform across [-1, 1]). Identity (0,0,0,1) and the six 180° axis-aligned rotations
@@ -137,7 +137,7 @@ export const unpackQuatSnorm16x4 = tgpu.fn(
     return normalize(d.vec4f(xy.x, xy.y, zw.x, zw.y));
 });
 
-const quatChunk = chunk("quatSnorm16x4Wgsl", [packQuatSnorm16x4, unpackQuatSnorm16x4], snormNs);
+const quatChunk = chunk("quatSnorm16x4Wgsl", [packQuatSnorm16x4, unpackQuatSnorm16x4], spliceNs);
 
 /** WGSL `packQuatSnorm16x4(q) -> vec2<u32>` + `unpackQuatSnorm16x4(p) -> vec4<f32>`: the quaternion
  *  storage codec for a field whose precision feeds a finite-difference downstream (a body quat read

@@ -1,12 +1,23 @@
+import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute, capacity } from "../../engine";
-import { octEncodeWgsl, xformWgsl } from "../../engine/utils/core";
+import { precompile } from "../../engine/runtime";
+import {
+    idiv,
+    octEncodeNormal,
+    srgbToLinear1,
+    uniformLoad,
+    Xform,
+    xformQuat,
+} from "../../engine/utils/core";
 import { Camera, CameraMode } from "./camera";
 import {
     MAX_POINT_LIGHTS,
-    POINT_LIGHTS_BUFFER_SIZE,
-    POINT_LIGHTS_STRUCT_WGSL,
     PointLight,
+    PointLights,
+    PointLightsRw,
     Spot,
     Volumetric,
     warnLightOverflow,
@@ -85,6 +96,33 @@ export function clusterCoord(index: number): { x: number; y: number; z: number }
 export function sliceDepth(view: ClusterView, z: number): number {
     return view.near * (view.far / view.near) ** (z / CLUSTER_Z);
 }
+
+/**
+ * the slot-major froxel index for a pixel at `(fx, fy)` in `[0,1]` (y-down) and positive view depth
+ * `viewZ`: the {@link zSlice} log slice, the screen tile, and the view's slot folded into the one index
+ * the light cull binned into. Tile `(0, 0)` is NDC `(-1, -1)` — bottom-left — so the y tile flips from
+ * the top-down screen y. Sear's color FS passes fragCoord-derived args; the fog march passes its pixel
+ * plus the per-step view depth (the tile xy is fixed along the ray, the z slice moves per step).
+ * Relocatable, spliced by both (`lightEvalWgsl`, `sear/core`).
+ *
+ * @example let cell = clusterCell(fx, fy, viewZ, near, far, slot);
+ */
+export const clusterCell = tgpu.fn(
+    [d.f32, d.f32, d.f32, d.f32, d.f32, d.u32],
+    d.u32,
+)((fx, fy, viewZ, near, far, slot) => {
+    "use gpu";
+    const zs = std.clamp(
+        d.i32((std.log(viewZ / near) / std.log(far / near)) * CLUSTER_Z),
+        0,
+        CLUSTER_Z - 1,
+    );
+    const tx = std.min(d.u32(fx * CLUSTER_X), d.u32(CLUSTER_X - 1));
+    const tyTop = std.min(d.u32(fy * CLUSTER_Y), d.u32(CLUSTER_Y - 1));
+    const ty = d.u32(CLUSTER_Y - 1) - tyTop;
+    const cluster = (ty * d.u32(CLUSTER_X) + tx) * d.u32(CLUSTER_Z) + d.u32(zs);
+    return slot * d.u32(CLUSTER_COUNT) + cluster;
+});
 
 /** the slice containing a positive view-space depth, clamped to the grid */
 export function zSlice(view: ClusterView, viewZ: number): number {
@@ -193,8 +231,66 @@ export function packClusterView(eid: number, aspect: number, slot: number): Clus
     return v;
 }
 
-let _pipe: GPUComputePipeline | null = null;
-let _group: GPUBindGroup | null = null;
+const gridLayout = tgpu.bindGroupLayout({
+    clusterViews: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+    aabbs: { storage: d.arrayOf(d.vec4f), access: "mutable" },
+});
+
+// the TGSL twin of clusterAabb — one thread per (cluster, view slot). The grid dimensions are module
+// constants, so they fold to literals; `idiv` is the integer division (TGSL's `/` is float division —
+// `idiv` is not an over-2²⁴ precaution here, it's what makes the quotient integral at all)
+const gridKernel = tgpu.computeFn({
+    workgroupSize: [64],
+    in: { gid: d.builtin.globalInvocationId },
+})((input) => {
+    "use gpu";
+    const cluster = input.gid.x;
+    if (cluster >= CLUSTER_COUNT) return;
+    const slot = input.gid.y;
+    const p = gridLayout.$.clusterViews[slot * 2];
+    const perspective = gridLayout.$.clusterViews[slot * 2 + 1].x > 0.5;
+
+    const z = cluster % CLUSTER_Z;
+    const xy = idiv(cluster, CLUSTER_Z);
+    const x = xy % CLUSTER_X;
+    const y = idiv(xy, CLUSTER_X);
+
+    const near = p.z;
+    const far = p.w;
+    const dNear = near * std.pow(far / near, d.f32(z) / CLUSTER_Z);
+    const dFar = near * std.pow(far / near, d.f32(z + 1) / CLUSTER_Z);
+
+    const half = d.vec2f(p.x, p.y);
+    const lo = std.mul(
+        d.vec2f(-1 + (2 * d.f32(x)) / CLUSTER_X, -1 + (2 * d.f32(y)) / CLUSTER_Y),
+        half,
+    );
+    const hi = std.mul(
+        d.vec2f(-1 + (2 * d.f32(x + 1)) / CLUSTER_X, -1 + (2 * d.f32(y + 1)) / CLUSTER_Y),
+        half,
+    );
+
+    let mn = d.vec2f(lo);
+    let mx = d.vec2f(hi);
+    if (perspective) {
+        mn = std.min(std.mul(lo, dNear), std.mul(lo, dFar));
+        mx = std.max(std.mul(hi, dNear), std.mul(hi, dFar));
+    }
+    const base = (slot * CLUSTER_COUNT + cluster) * 2;
+    gridLayout.$.aabbs[base] = d.vec4f(mn.x, mn.y, -dFar, 0);
+    gridLayout.$.aabbs[base + 1] = d.vec4f(mx.x, mx.y, -dNear, 0);
+});
+
+/** the emitted cluster-AABB WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function gridWgsl(): string {
+    return tgpu.resolve([gridKernel], { names: "strict" });
+}
+
+let _pipe: TgpuComputePipeline | null = null;
+let _bound: TgpuComputePipeline | null = null;
+let _typedViews: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
+let _typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
 
 /**
  * rebuilds the cluster AABB buffer when any active view's projection changed
@@ -229,95 +325,58 @@ export const ClusterSystem: System = {
             label: "kitchen-cluster-aabbs",
             timestampWrites: Compute.span?.("cluster:aabbs"),
         });
-        pass.setPipeline(_pipe);
-        pass.setBindGroup(0, _group!);
-        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
+        bindGrid()
+            .with(pass)
+            .dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
     },
 };
 
-/** allocate the cluster buffers + compile the AABB-build pipeline */
-export async function warmClusters(): Promise<void> {
-    if (!Compute.device) return;
-    const device = Compute.device;
-    Clusters.last.fill(0);
-
-    Clusters.views = device.createBuffer({
-        label: "kitchen-cluster-views",
-        size: MAX_VIEWS * CLUSTER_VIEW_FLOATS * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    // COPY_SRC for the gym Mirror assert against the TS oracle
-    Clusters.aabbs = device.createBuffer({
-        label: "kitchen-cluster-aabbs",
-        size: MAX_VIEWS * CLUSTER_COUNT * 32,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    Compute.buffers.set("clusterAabbs", Clusters.aabbs);
-
-    // the WGSL twin of clusterAabb — one thread per (cluster, view slot)
-    const code = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> clusterViews: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> aabbs: array<vec4<f32>>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let cluster = gid.x;
-    if (cluster >= ${CLUSTER_COUNT}u) { return; }
-    let slot = gid.y;
-    let p = clusterViews[slot * 2u];
-    let perspective = clusterViews[slot * 2u + 1u].x > 0.5;
-
-    let z = cluster % ${CLUSTER_Z}u;
-    let xy = cluster / ${CLUSTER_Z}u;
-    let x = xy % ${CLUSTER_X}u;
-    let y = xy / ${CLUSTER_X}u;
-
-    let near = p.z;
-    let far = p.w;
-    let dNear = near * pow(far / near, f32(z) / ${CLUSTER_Z}.0);
-    let dFar = near * pow(far / near, f32(z + 1u) / ${CLUSTER_Z}.0);
-
-    let lo = vec2<f32>(-1.0 + 2.0 * f32(x) / ${CLUSTER_X}.0, -1.0 + 2.0 * f32(y) / ${CLUSTER_Y}.0) * p.xy;
-    let hi = vec2<f32>(-1.0 + 2.0 * f32(x + 1u) / ${CLUSTER_X}.0, -1.0 + 2.0 * f32(y + 1u) / ${CLUSTER_Y}.0) * p.xy;
-
-    var mn = vec2<f32>(lo);
-    var mx = vec2<f32>(hi);
-    if (perspective) {
-        mn = min(lo * dNear, lo * dFar);
-        mx = max(hi * dNear, hi * dFar);
-    }
-    let base = (slot * ${CLUSTER_COUNT}u + cluster) * 2u;
-    aabbs[base] = vec4<f32>(mn, -dFar, 0.0);
-    aabbs[base + 1u] = vec4<f32>(mx, -dNear, 0.0);
+// bound once, on the forced precompile (which drains after every plugin has warmed). Every input is
+// this module's own, allocated in `warmClusters` before the forcer is registered — so a missing one is
+// a wiring bug and throws, never a silently skipped frame (`ecs.md` Anti-patterns)
+function bindGrid(): TgpuComputePipeline {
+    if (_bound) return _bound;
+    if (!_pipe || !_typedViews || !_typedAabbs)
+        throw new Error("[render] cluster grid used before warmClusters");
+    _bound = _pipe.with(
+        Compute.root.createBindGroup(gridLayout, {
+            clusterViews: _typedViews,
+            aabbs: _typedAabbs,
+        }),
+    );
+    return _bound;
 }
-`;
-    const layout = device.createBindGroupLayout({
-        label: "kitchen-cluster-aabbs",
-        entries: [
-            {
-                binding: 0,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: { type: "read-only-storage" },
-            },
-            { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } },
-        ],
-    });
-    _pipe = await device.createComputePipelineAsync({
-        label: "kitchen-cluster-aabbs",
-        layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        compute: {
-            module: device.createShaderModule({ label: "kitchen-cluster-aabbs", code }),
-            entryPoint: "main",
-        },
-    });
-    _group = device.createBindGroup({
-        label: "kitchen-cluster-aabbs",
-        layout,
-        entries: [
-            { binding: 0, resource: { buffer: Clusters.views } },
-            { binding: 1, resource: { buffer: Clusters.aabbs } },
-        ],
+
+/** allocate the cluster buffers + compile the AABB-build pipeline */
+export function warmClusters(): void {
+    if (!Compute.device) return;
+    const root = Compute.root;
+    Clusters.last.fill(0);
+    _bound = null;
+
+    _typedViews = root
+        .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * (CLUSTER_VIEW_FLOATS / 4)))
+        .$usage("storage")
+        .$name("kitchen-cluster-views");
+    Clusters.views = root.unwrap(_typedViews);
+    // typegpu grants COPY_SRC on every buffer it creates, which is what the gym Mirror assert against
+    // the TS oracle reads the AABBs back through
+    _typedAabbs = root
+        .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
+        .$usage("storage")
+        .$name("kitchen-cluster-aabbs");
+    Clusters.aabbs = root.unwrap(_typedAabbs);
+    Compute.buffers.set("clusterAabbs", Clusters.aabbs);
+    Compute.typed.set("clusterAabbs", _typedAabbs);
+
+    _pipe = root.createComputePipeline({ compute: gridKernel }).$name("kitchen-cluster-aabbs");
+    // the bind, not just the dispatch, is deferred into the forcer: it runs after every plugin's warm
+    // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
+    precompile("kitchen-cluster-aabbs", () => {
+        const bound = bindGrid();
+        bound.dispatchWorkgroups(0);
+        return bound;
     });
 }
 
@@ -367,12 +426,224 @@ export const LightCull: LightCull = {
     viewStaging: new Float32Array(MAX_VIEWS * 16),
 };
 
-let _compactPipe: GPUComputePipeline | null = null;
-let _cullPipe: GPUComputePipeline | null = null;
-let _compactLayout: GPUBindGroupLayout | null = null;
-let _cullLayout: GPUBindGroupLayout | null = null;
-let _compactGroup: GPUBindGroup | null = null;
-let _cullGroup: GPUBindGroup | null = null;
+const compactLayout = tgpu.bindGroupLayout({
+    membership: { storage: d.arrayOf(d.u32), access: "readonly" },
+    transforms: { storage: d.arrayOf(Xform), access: "readonly" },
+    colorF: { storage: d.arrayOf(d.f32), access: "readonly" },
+    intensityF: { storage: d.arrayOf(d.f32), access: "readonly" },
+    rangeF: { storage: d.arrayOf(d.f32), access: "readonly" },
+    radiusF: { storage: d.arrayOf(d.f32), access: "readonly" },
+    spotInnerF: { storage: d.arrayOf(d.f32), access: "readonly" },
+    spotOuterF: { storage: d.arrayOf(d.f32), access: "readonly" },
+    lights: { storage: PointLightsRw, access: "mutable" },
+});
+
+const cullLayout = tgpu.bindGroupLayout({
+    aabbs: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+    lights: { storage: PointLights, access: "readonly" },
+    viewMats: { storage: d.arrayOf(d.mat4x4f), access: "readonly" },
+    grid: { storage: d.arrayOf(d.vec2u), access: "mutable" },
+    pool: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+});
+
+// the GPU twin of the deleted CPU pack: membership-gated scan over capacity, world position from the
+// transforms firehose, hex sRGB color decoded to linear with intensity pre-baked, posRange.w = 1/range².
+// The three membership gates (PointLight, Spot, Volumetric) come in as captured row bases + masks, so
+// they fold to literals — no uniform to bind.
+function compactKernel(
+    light: { base: number; mask: number },
+    spot: { base: number; mask: number },
+    vol: { base: number; mask: number },
+) {
+    // a factory-returned kernel has no binding for `names: "strict"` to read, so it resolves to `fn item`
+    // unless named — and that name is what a Tint compile error and every GPU `console.log` line reports
+    return tgpu
+        .computeFn({
+            workgroupSize: [64],
+            in: { gid: d.builtin.globalInvocationId },
+        })((input) => {
+            "use gpu";
+            const eid = input.gid.x;
+            if (eid >= capacity) return;
+            if ((compactLayout.$.membership[light.base + eid] & light.mask) === 0) return;
+            const range = compactLayout.$.rangeF[eid];
+            if (range <= 0) return;
+            const i = std.atomicAdd(compactLayout.$.lights.count[0], 1);
+            if (i >= MAX_POINT_LIGHTS) return;
+            const hex = d.u32(compactLayout.$.colorF[eid]);
+            const intensity = compactLayout.$.intensityF[eid];
+            const rgb = std.mul(
+                d.vec3f(
+                    srgbToLinear1(d.f32((hex >> 16) & 0xff) / 255),
+                    srgbToLinear1(d.f32((hex >> 8) & 0xff) / 255),
+                    srgbToLinear1(d.f32(hex & 0xff) / 255),
+                ),
+                intensity,
+            );
+            const pos = compactLayout.$.transforms[eid].pos;
+            compactLayout.$.lights.lights[i].posRange = d.vec4f(
+                pos.x,
+                pos.y,
+                pos.z,
+                1 / (range * range),
+            );
+            // color.a carries the source entity id (exact in f32 up to 2^24 ≫ capacity) — the hook a
+            // consumer matches per-entity light extensions on (sear's point-shadow casters)
+            compactLayout.$.lights.lights[i].color = d.vec4f(rgb.x, rgb.y, rgb.z, d.f32(eid));
+
+            // params.x = source radius (the soft-sphere falloff clamp + representative-point spec). Its sign
+            // is the Volumetric opt-in flag: the lit path only ever reads radiusSq = params.x·params.x
+            // (sign-immune), so a negated radius leaves shading unchanged while the fog march reads
+            // params.x < 0 as "scatter this light" through the haze. max(.,1e-4) keeps the flag a nonzero
+            // negative for a radius-0 light
+            let radius = compactLayout.$.radiusF[eid];
+            if ((compactLayout.$.membership[vol.base + eid] & vol.mask) !== 0) {
+                radius = -std.max(radius, 1e-4);
+            }
+            // the spot lanes (y = cone-axis oct, z/w = angular scale/offset) are (0, 0, 1) for a plain point
+            // light so the FS angular factor is 1; a Spot bakes the cone here (axis = the entity's forward,
+            // scale/offset = Frostbite getAngleAtt from the inner/outer half-angles — the spotParams oracle's
+            // twin)
+            let params = d.vec4f(radius, 0, 0, 1);
+            if ((compactLayout.$.membership[spot.base + eid] & spot.mask) !== 0) {
+                const dir = std.normalize(
+                    xformQuat(compactLayout.$.transforms[eid].quat, d.vec3f(0, 0, -1)),
+                );
+                const cosInner = std.cos(std.radians(compactLayout.$.spotInnerF[eid]));
+                const cosOuter = std.cos(std.radians(compactLayout.$.spotOuterF[eid]));
+                const scale = 1 / std.max(cosInner - cosOuter, 1e-4);
+                params = d.vec4f(
+                    radius,
+                    std.bitcastU32toF32(octEncodeNormal(dir)),
+                    scale,
+                    -cosOuter * scale,
+                );
+            }
+            compactLayout.$.lights.lights[i].params = d.vec4f(params);
+        })
+        .$name("lightCompact");
+}
+
+const wgCount = tgpu.workgroupVar(d.u32);
+const batch = tgpu.workgroupVar(d.arrayOf(d.vec4f, 64));
+
+// view-space sphere vs cluster AABB: squared distance from the box to the center against range²
+// (posRange.w carries 1/range²)
+const hits = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec4f],
+    d.bool,
+)((mn, mx, l) => {
+    "use gpu";
+    const c = d.vec3f(l.x, l.y, l.z);
+    const p = std.clamp(c, mn, mx);
+    const delta = std.sub(p, c);
+    return std.dot(delta, delta) * l.w <= 1;
+});
+
+// one thread per (cluster, view slot). Lights batch through shared memory: each thread of the workgroup
+// transforms one light to this view's space, then every thread tests the whole batch against its cluster
+// AABB — the mat4 transform runs once per workgroup, not once per cluster. Two sweeps (count, then
+// reserve + write) avoid a function-private index array (the Metal dynamically-indexed-private-array
+// miscompile, gpu.md). The batch loop bound comes through `uniformLoad` so the in-loop barriers pass
+// uniformity analysis; out-of-range threads mask on `live` instead of returning, for the same reason.
+const cullKernel = tgpu.computeFn({
+    workgroupSize: [64],
+    in: { gid: d.builtin.globalInvocationId, lid: d.builtin.localInvocationId },
+})((input) => {
+    "use gpu";
+    const cluster = input.gid.x;
+    // the dispatch's y covers the shading slots alone (depth-only shadow views sit above
+    // Render.shadeCount and never bin — binning them would overflow the shared index pool)
+    const slot = input.gid.y;
+    const live = cluster < CLUSTER_COUNT;
+    if (input.lid.x === 0) wgCount.$ = std.min(cullLayout.$.lights.count.x, MAX_POINT_LIGHTS);
+    const n = uniformLoad(wgCount.$);
+    const base = (slot * CLUSTER_COUNT + std.min(cluster, CLUSTER_COUNT - 1)) * 2;
+    const lo = cullLayout.$.aabbs[base];
+    const hi = cullLayout.$.aabbs[base + 1];
+    const mn = d.vec3f(lo.x, lo.y, lo.z);
+    const mx = d.vec3f(hi.x, hi.y, hi.z);
+    const viewMat = cullLayout.$.viewMats[slot];
+
+    let cnt = d.u32(0);
+    let b = d.u32(0);
+    while (b < n) {
+        const li = b + input.lid.x;
+        if (li < n) {
+            const l = cullLayout.$.lights.lights[li];
+            const v = std.mul(viewMat, d.vec4f(l.posRange.x, l.posRange.y, l.posRange.z, 1));
+            batch.$[input.lid.x] = d.vec4f(v.x, v.y, v.z, l.posRange.w);
+        }
+        std.workgroupBarrier();
+        const m = std.min(n - b, 64);
+        if (live) {
+            let j = d.u32(0);
+            while (j < m) {
+                if (hits(mn, mx, batch.$[j])) cnt = cnt + 1;
+                j = j + 1;
+            }
+        }
+        std.workgroupBarrier();
+        b = b + 64;
+    }
+
+    let off = d.u32(0);
+    let take = d.u32(0);
+    if (live && cnt > 0) {
+        off = std.atomicAdd(cullLayout.$.pool[0], cnt);
+        const avail = std.select(d.u32(0), LIGHT_POOL - off, off < LIGHT_POOL);
+        take = std.min(cnt, avail);
+        if (cnt > take) std.atomicAdd(cullLayout.$.pool[1], cnt - take);
+    }
+
+    let w = d.u32(0);
+    let b2 = d.u32(0);
+    while (b2 < n) {
+        const li = b2 + input.lid.x;
+        if (li < n) {
+            const l = cullLayout.$.lights.lights[li];
+            const v = std.mul(viewMat, d.vec4f(l.posRange.x, l.posRange.y, l.posRange.z, 1));
+            batch.$[input.lid.x] = d.vec4f(v.x, v.y, v.z, l.posRange.w);
+        }
+        std.workgroupBarrier();
+        const m = std.min(n - b2, 64);
+        if (live) {
+            let j = d.u32(0);
+            while (j < m) {
+                if (w < take && hits(mn, mx, batch.$[j])) {
+                    std.atomicStore(cullLayout.$.pool[POOL_HEADER + off + w], b2 + j);
+                    w = w + 1;
+                }
+                j = j + 1;
+            }
+        }
+        std.workgroupBarrier();
+        b2 = b2 + 64;
+    }
+
+    if (live) {
+        cullLayout.$.grid[slot * CLUSTER_COUNT + cluster] = d.vec2u(POOL_HEADER + off, take);
+    }
+});
+
+/** the emitted light compact + cull WGSL — the device-free structural seam their tests resolve.
+ *  @internal */
+export function lightCullWgsl(
+    light: { base: number; mask: number },
+    spot: { base: number; mask: number },
+    vol: { base: number; mask: number },
+): { compact: string; cull: string } {
+    return {
+        compact: tgpu.resolve([compactKernel(light, spot, vol)], { names: "strict" }),
+        cull: tgpu.resolve([cullKernel], { names: "strict" }),
+    };
+}
+
+let _typedLights: (TgpuBuffer<typeof PointLightsRw> & StorageFlag) | null = null;
+let _compactPipe: TgpuComputePipeline | null = null;
+let _cullPipe: TgpuComputePipeline | null = null;
+let _compactBound: TgpuComputePipeline | null = null;
+let _cullBound: TgpuComputePipeline | null = null;
 
 // pool-overflow surfacing: the reserve counter lives GPU-side, so a throttled
 // 8-byte readback (copy one frame, map the next) carries the warn — never
@@ -383,58 +654,57 @@ let _overflowInFlight = false;
 let _overflowWarned = false;
 const OVERFLOW_PERIOD = 240;
 
-function compactGroup(): GPUBindGroup {
-    const membership = Compute.buffers.get("membership");
-    const transforms = Compute.buffers.get("transforms");
-    const color = PointLight.color.gpu;
-    const intensity = PointLight.intensity.gpu;
-    const range = PointLight.range.gpu;
-    const radius = PointLight.radius.gpu;
-    const spotInner = Spot.inner.gpu;
-    const spotOuter = Spot.outer.gpu;
-    if (
-        !membership ||
-        !transforms ||
-        !color ||
-        !intensity ||
-        !range ||
-        !radius ||
-        !spotInner ||
-        !spotOuter
-    ) {
+// bound once, on the forced precompile. A typed bind group takes a raw GPUBuffer, which is what keeps
+// the slab mirrors' and `membership`'s reach-in open. Every input is stable post-warm, so a missing one
+// is a wiring bug and gets the named throw — never a skipped frame (`ecs.md` Anti-patterns)
+function bindCompact(): TgpuComputePipeline {
+    if (_compactBound) return _compactBound;
+    if (!_compactPipe || !_typedLights)
+        throw new Error("[render] light compact used before warmLightCull");
+    const inputs = {
+        membership: Compute.buffers.get("membership"),
+        transforms: Compute.buffers.get("transforms"),
+        colorF: PointLight.color.gpu,
+        intensityF: PointLight.intensity.gpu,
+        rangeF: PointLight.range.gpu,
+        radiusF: PointLight.radius.gpu,
+        spotInnerF: Spot.inner.gpu,
+        spotOuterF: Spot.outer.gpu,
+    };
+    const missing = Object.entries(inputs)
+        .filter(([, buffer]) => !buffer)
+        .map(([name]) => name);
+    if (missing.length > 0) {
         throw new Error(
-            "[render] light compact inputs missing — SlabPlugin + TransformsPlugin must be loaded",
+            `[render] light compact inputs missing (${missing.join(", ")}) — SlabPlugin + TransformsPlugin must be loaded`,
         );
     }
-    return Compute.device.createBindGroup({
-        label: "kitchen-light-compact",
-        layout: _compactLayout!,
-        entries: [
-            membership,
-            transforms,
-            color,
-            intensity,
-            range,
-            radius,
-            spotInner,
-            spotOuter,
-            LightCull.lights!,
-        ].map((buffer, binding) => ({ binding, resource: { buffer } })),
-    });
+    _compactBound = _compactPipe.with(
+        Compute.root.createBindGroup(compactLayout, {
+            ...(inputs as Required<{ [K in keyof typeof inputs]: GPUBuffer }>),
+            lights: _typedLights,
+        }),
+    );
+    return _compactBound;
 }
 
-function cullGroup(): GPUBindGroup {
-    return Compute.device.createBindGroup({
-        label: "kitchen-light-cull",
-        layout: _cullLayout!,
-        entries: [
-            Clusters.aabbs!,
-            LightCull.lights!,
-            LightCull.viewMats!,
-            LightCull.grid!,
-            LightCull.indices!,
-        ].map((buffer, binding) => ({ binding, resource: { buffer } })),
-    });
+function bindCull(): TgpuComputePipeline {
+    if (_cullBound) return _cullBound;
+    if (!_cullPipe || !_typedAabbs || !LightCull.lights)
+        throw new Error("[render] light cull used before warmLightCull");
+    // the light list binds RAW here and typed in the compact group: same buffer, two schemas (the
+    // writer's count word is atomic, which WGSL forbids in a read-only binding — `PointLightsRw` vs
+    // `PointLights`, layouts pinned equal in lighting.test.ts)
+    _cullBound = _cullPipe.with(
+        Compute.root.createBindGroup(cullLayout, {
+            aabbs: _typedAabbs,
+            lights: LightCull.lights,
+            viewMats: LightCull.viewMats!,
+            grid: LightCull.grid!,
+            pool: LightCull.indices!,
+        }),
+    );
+    return _cullBound;
 }
 
 function checkOverflow(): void {
@@ -477,8 +747,6 @@ export const LightCullSystem: System = {
     update(state) {
         if (!Render.encoder || !_compactPipe || !_cullPipe || Render.shadeCount === 0) return;
         warnLightOverflow(state);
-        _compactGroup ??= compactGroup();
-        _cullGroup ??= cullGroup();
 
         Compute.device.queue.writeBuffer(
             LightCull.viewMats!,
@@ -493,12 +761,12 @@ export const LightCullSystem: System = {
             label: "kitchen-light-cull",
             timestampWrites: Compute.span?.("light:cull"),
         });
-        pass.setPipeline(_compactPipe);
-        pass.setBindGroup(0, _compactGroup);
-        pass.dispatchWorkgroups(Math.ceil(capacity / 64));
-        pass.setPipeline(_cullPipe);
-        pass.setBindGroup(0, _cullGroup!);
-        pass.dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
+        bindCompact()
+            .with(pass)
+            .dispatchWorkgroups(Math.ceil(capacity / 64));
+        bindCull()
+            .with(pass)
+            .dispatchWorkgroups(Math.ceil(CLUSTER_COUNT / 64), Render.shadeCount);
         pass.end();
 
         if (_overflowPending) {
@@ -512,19 +780,18 @@ export const LightCullSystem: System = {
 };
 
 /** allocate the light-cull buffers + compile the compact and cull pipelines */
-export async function warmLightCull(state: State): Promise<void> {
+export function warmLightCull(state: State): void {
     if (!Compute.device) return;
     const device = Compute.device;
-    _compactGroup = null;
-    _cullGroup = null;
+    const root = Compute.root;
+    _compactBound = null;
+    _cullBound = null;
     _overflowPending = false;
 
-    // COPY_SRC throughout for the gym Mirror asserts against the TS oracle
-    LightCull.lights = device.createBuffer({
-        label: "kitchen-lights",
-        size: POINT_LIGHTS_BUFFER_SIZE,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
+    _typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("kitchen-lights");
+    LightCull.lights = root.unwrap(_typedLights);
+    // COPY_SRC throughout for the gym Mirror asserts against the TS oracle (typegpu grants it on the
+    // buffers it creates)
     LightCull.grid = device.createBuffer({
         label: "kitchen-light-grid",
         size: MAX_VIEWS * CLUSTER_COUNT * 8,
@@ -552,189 +819,24 @@ export async function warmLightCull(state: State): Promise<void> {
     const bit = state.membership.bit(PointLight);
     const spotBit = state.membership.bit(Spot);
     const volBit = state.membership.bit(Volumetric);
-
-    // the GPU twin of the deleted CPU pack: membership-gated scan over capacity,
-    // world position from the transforms firehose, hex sRGB color decoded to
-    // linear with intensity pre-baked, posRange.w = 1/range². `octEncodeWgsl()` is
-    // spliced for octEncodeNormal (the spot cone axis packs into one params lane)
-    const compactCode =
-        xformWgsl() +
-        octEncodeWgsl() +
-        /* wgsl */ `
-${POINT_LIGHTS_STRUCT_WGSL.replace("count: vec4<u32>", "count: atomic<u32>,\n    _pad0: u32,\n    _pad1: u32,\n    _pad2: u32")}
-
-@group(0) @binding(0) var<storage, read> membership: array<u32>;
-@group(0) @binding(1) var<storage, read> transforms: array<Xform>;
-@group(0) @binding(2) var<storage, read> colorF: array<f32>;
-@group(0) @binding(3) var<storage, read> intensityF: array<f32>;
-@group(0) @binding(4) var<storage, read> rangeF: array<f32>;
-@group(0) @binding(5) var<storage, read> radiusF: array<f32>;
-@group(0) @binding(6) var<storage, read> spotInnerF: array<f32>;
-@group(0) @binding(7) var<storage, read> spotOuterF: array<f32>;
-@group(0) @binding(8) var<storage, read_write> lights: PointLights;
-
-fn srgb1(c: f32) -> f32 {
-    return select(pow(max((c + 0.055) / 1.055, 0.0), 2.4), c / 12.92, c <= 0.04045);
-}
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let eid = gid.x;
-    if (eid >= ${capacity}u) { return; }
-    if ((membership[${bit.gen}u * ${capacity}u + eid] & ${bit.mask}u) == 0u) { return; }
-    let range = rangeF[eid];
-    if (range <= 0.0) { return; }
-    let i = atomicAdd(&lights.count, 1u);
-    if (i >= ${MAX_POINT_LIGHTS}u) { return; }
-    let hex = u32(colorF[eid]);
-    let intensity = intensityF[eid];
-    let rgb = vec3<f32>(
-        srgb1(f32((hex >> 16u) & 0xffu) / 255.0),
-        srgb1(f32((hex >> 8u) & 0xffu) / 255.0),
-        srgb1(f32(hex & 0xffu) / 255.0)) * intensity;
-    lights.lights[i].posRange = vec4<f32>(transforms[eid].pos, 1.0 / (range * range));
-    // color.a carries the source entity id (exact in f32 up to 2^24 ≫ capacity) — the hook a
-    // consumer matches per-entity light extensions on (sear's point-shadow casters)
-    lights.lights[i].color = vec4<f32>(rgb, f32(eid));
-    // params.x = source radius (the soft-sphere falloff clamp + representative-point spec). Its sign is the
-    // Volumetric opt-in flag: the lit path only ever reads radiusSq = params.x·params.x (sign-immune), so a
-    // negated radius leaves shading unchanged while the fog march reads params.x < 0 as "scatter this light"
-    // through the haze. max(.,1e-4) keeps the flag a nonzero negative for a radius-0 light
-    var radius = radiusF[eid];
-    if ((membership[${volBit.gen}u * ${capacity}u + eid] & ${volBit.mask}u) != 0u) {
-        radius = -max(radius, 1e-4);
-    }
-    // the spot lanes (y = cone-axis oct, z/w = angular scale/offset) are (0, 0, 1) for a plain point light
-    // so the FS angular factor is 1; a Spot bakes the cone here (axis = the entity's forward, scale/offset =
-    // Frostbite getAngleAtt from the inner/outer half-angles — the spotParams oracle's twin)
-    var params = vec4<f32>(radius, 0.0, 0.0, 1.0);
-    if ((membership[${spotBit.gen}u * ${capacity}u + eid] & ${spotBit.mask}u) != 0u) {
-        let dir = normalize(xformQuat(transforms[eid].quat, vec3<f32>(0.0, 0.0, -1.0)));
-        let cosInner = cos(radians(spotInnerF[eid]));
-        let cosOuter = cos(radians(spotOuterF[eid]));
-        let scale = 1.0 / max(cosInner - cosOuter, 1e-4);
-        params.y = bitcast<f32>(octEncodeNormal(dir));
-        params.z = scale;
-        params.w = -cosOuter * scale;
-    }
-    lights.lights[i].params = params;
-}`;
-
-    // one thread per (cluster, view slot). Lights batch through shared memory:
-    // each thread of the workgroup transforms one light to this view's space,
-    // then every thread tests the whole batch against its cluster AABB — the
-    // mat4 transform runs once per workgroup, not once per cluster. Two sweeps
-    // (count, then reserve + write) avoid a function-private index array (the
-    // Metal dynamically-indexed-private-array miscompile, gpu.md). The batch
-    // loop bound comes through workgroupUniformLoad so the in-loop barriers
-    // pass uniformity analysis; out-of-range threads mask on `active` instead
-    // of returning, for the same reason
-    const cullCode = /* wgsl */ `
-${POINT_LIGHTS_STRUCT_WGSL}
-
-@group(0) @binding(0) var<storage, read> aabbs: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> lights: PointLights;
-@group(0) @binding(2) var<storage, read> viewMats: array<mat4x4<f32>>;
-@group(0) @binding(3) var<storage, read_write> grid: array<vec2<u32>>;
-@group(0) @binding(4) var<storage, read_write> pool: array<atomic<u32>>;
-
-var<workgroup> wgCount: u32;
-var<workgroup> batch: array<vec4<f32>, 64>;
-
-// view-space sphere vs cluster AABB: squared distance from the box to the
-// center against range² (posRange.w carries 1/range²)
-fn hits(mn: vec3<f32>, mx: vec3<f32>, l: vec4<f32>) -> bool {
-    let d = clamp(l.xyz, mn, mx) - l.xyz;
-    return dot(d, d) * l.w <= 1.0;
-}
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-    let cluster = gid.x;
-    // the dispatch's y covers the shading slots alone (depth-only shadow views sit above
-    // Render.shadeCount and never bin — binning them would overflow the shared index pool)
-    let slot = gid.y;
-    let live = cluster < ${CLUSTER_COUNT}u;
-    if (lid.x == 0u) { wgCount = min(lights.count.x, ${MAX_POINT_LIGHTS}u); }
-    let n = workgroupUniformLoad(&wgCount);
-    let base = (slot * ${CLUSTER_COUNT}u + min(cluster, ${CLUSTER_COUNT - 1}u)) * 2u;
-    let mn = aabbs[base].xyz;
-    let mx = aabbs[base + 1u].xyz;
-    let viewMat = viewMats[slot];
-
-    var cnt = 0u;
-    for (var b = 0u; b < n; b = b + 64u) {
-        let li = b + lid.x;
-        if (li < n) {
-            let l = lights.lights[li];
-            batch[lid.x] = vec4<f32>((viewMat * vec4<f32>(l.posRange.xyz, 1.0)).xyz, l.posRange.w);
-        }
-        workgroupBarrier();
-        let m = min(n - b, 64u);
-        if (live) {
-            for (var j = 0u; j < m; j = j + 1u) {
-                if (hits(mn, mx, batch[j])) { cnt = cnt + 1u; }
-            }
-        }
-        workgroupBarrier();
-    }
-
-    var off = 0u;
-    var take = 0u;
-    if (live && cnt > 0u) {
-        off = atomicAdd(&pool[0], cnt);
-        let avail = select(0u, ${LIGHT_POOL}u - off, off < ${LIGHT_POOL}u);
-        take = min(cnt, avail);
-        if (cnt > take) { atomicAdd(&pool[1], cnt - take); }
-    }
-
-    var w = 0u;
-    for (var b = 0u; b < n; b = b + 64u) {
-        let li = b + lid.x;
-        if (li < n) {
-            let l = lights.lights[li];
-            batch[lid.x] = vec4<f32>((viewMat * vec4<f32>(l.posRange.xyz, 1.0)).xyz, l.posRange.w);
-        }
-        workgroupBarrier();
-        let m = min(n - b, 64u);
-        if (live) {
-            for (var j = 0u; j < m; j = j + 1u) {
-                if (w < take && hits(mn, mx, batch[j])) {
-                    atomicStore(&pool[${POOL_HEADER}u + off + w], b + j);
-                    w = w + 1u;
-                }
-            }
-        }
-        workgroupBarrier();
-    }
-
-    if (live) {
-        grid[slot * ${CLUSTER_COUNT}u + cluster] = vec2<u32>(${POOL_HEADER}u + off, take);
-    }
-}`;
-
-    const layout = (label: string, kinds: string) =>
-        device.createBindGroupLayout({
-            label,
-            entries: [...kinds].map((k, binding) => ({
-                binding,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: {
-                    type: k === "w" ? "storage" : "read-only-storage",
-                } as GPUBufferBindingLayout,
-            })),
-        });
-    _compactLayout = layout("kitchen-light-compact", "rrrrrrrrw");
-    _cullLayout = layout("kitchen-light-cull", "rrrww");
-
-    const pipe = (label: string, code: string, l: GPUBindGroupLayout) =>
-        device.createComputePipelineAsync({
-            label,
-            layout: device.createPipelineLayout({ bindGroupLayouts: [l] }),
-            compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
-        });
-    [_compactPipe, _cullPipe] = await Promise.all([
-        pipe("kitchen-light-compact", compactCode, _compactLayout),
-        pipe("kitchen-light-cull", cullCode, _cullLayout),
-    ]);
+    _compactPipe = root
+        .createComputePipeline({
+            compute: compactKernel(
+                { base: bit.gen * capacity, mask: bit.mask },
+                { base: spotBit.gen * capacity, mask: spotBit.mask },
+                { base: volBit.gen * capacity, mask: volBit.mask },
+            ),
+        })
+        .$name("kitchen-light-compact");
+    _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("kitchen-light-cull");
+    precompile("kitchen-light-compact", () => {
+        const bound = bindCompact();
+        bound.dispatchWorkgroups(0);
+        return bound;
+    });
+    precompile("kitchen-light-cull", () => {
+        const bound = bindCull();
+        bound.dispatchWorkgroups(0);
+        return bound;
+    });
 }

@@ -43,11 +43,13 @@ export {
 } from "./encode";
 export {
     bitcastF32toU32,
+    chunk,
     compareExchange,
     idiv,
     packSnorm2x16,
     packUnorm2x16,
     packUnorm4x8,
+    spliceNs,
     subgroupUniformityOff,
     uniformLoad,
     unpackSnorm2x16,

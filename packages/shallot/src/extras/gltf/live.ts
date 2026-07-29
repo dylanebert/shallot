@@ -1,6 +1,6 @@
 import type { Binding, Surface } from "../../standard/render/core";
 import { Surfaces } from "../../standard/render/core";
-import { LIVE_SKIN_VS, LIVE_TINT_WGSL, SKIN_PARAMS_WGSL, skinBindings } from "../skin/core";
+import { LIVE_SKIN_VS, liveTintWgsl, skinBindings, skinParamsWgsl } from "../skin/core";
 import { ALBEDO_NAMES } from "./image";
 import { materialPreamble } from "./shade";
 
@@ -18,7 +18,7 @@ import { materialPreamble } from "./shade";
 // substrate's three (`skin` / `skinData` / `skinParams`, skin/core) + the shared material palette + the
 // material's texture arrays/sampler (shared with the textured + VAT paths). Storage count is 5
 // (eids/transforms/skin/materialData/skinData) + sear's shared 5 = 10, the ceiling (gpu.md), zero headroom:
-// folding `color` into the palette header (LIVE_TINT_WGSL) is what buys the room for `skinData` versus the
+// folding `color` into the palette header (`liveTintWgsl`) is what buys the room for `skinData` versus the
 // VAT skin surface's `color` binding. The texture arrays + the `skinParams` uniform are separate limits, not
 // storage. Declaration order is binding order, so the substrate's three are placed individually rather than
 // spread.
@@ -40,7 +40,7 @@ const liveSkinBindings: Record<string, Binding> = {
 // SkinParams + the tint helper (both the substrate's) + the material map-set helpers (shadePbr /
 // sampleAlbedo, specialized per material map-set — the same specialization the VAT + textured surfaces use)
 const liveSkinPreamble = (variant: number) =>
-    SKIN_PARAMS_WGSL + LIVE_TINT_WGSL + materialPreamble(variant);
+    `${skinParamsWgsl()}\n${liveTintWgsl()}\n${materialPreamble(variant)}`;
 
 // the three alpha-mode surfaces share LIVE_SKIN_VS (the substrate's palette blend) + the `shadePbr` material
 // path; only the blend mode + cutout discard differ, exactly like the VAT `skin*` trio. `mid` is the folded

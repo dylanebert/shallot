@@ -1,4 +1,18 @@
+import tgpu, { type TgpuRenderPipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute } from "../../engine";
+
+// The glyph SDF generator: two raster passes per glyph, both authored in TGSL over explicit bind group
+// layouts. The distance pass rasterizes one instanced fullscreen triangle per outline segment into a
+// shared `rgba8unorm` intermediate, additively accumulating an exponent-encoded distance falloff in
+// alpha (blend op `max`, so the nearest segment wins) and the even-odd winding crossings in r/g. The
+// finalize pass reads that intermediate, flips the falloff where the crossings disagree (inside), and
+// writes the single-channel result into one `sdfSize` tile of the caller's atlas — placed by the pass's
+// viewport + scissor rect, which is why the finalize draw goes through a pass this file owns.
+
+/** the SDF falloff exponent the atlas bakes and {@link sdfToSignedDistance} inverts. @internal */
+export const SDF_EXPONENT = 9;
 
 interface LineSegment {
     x1: number;
@@ -126,97 +140,185 @@ export function segmentPath(pathString: string, curvePoints = 16): LineSegment[]
     return segments;
 }
 
-const distanceShader = /* wgsl */ `
-struct Uniforms {
-    glyphBounds: vec4<f32>,
-    maxDistance: f32,
-    exponent: f32,
-    _pad: vec2<f32>,
-}
+/** the per-glyph distance-pass uniform: the padded glyph bounds the triangle rasterizes across (xy = min,
+ *  zw = max), the max distance the falloff normalizes by, and the SDF exponent. @internal */
+export const SdfUniforms = d.struct({
+    glyphBounds: d.vec4f,
+    maxDistance: d.f32,
+    exponent: d.f32,
+    pad: d.vec2f,
+});
 
-@group(0) @binding(0) var<uniform> uniforms: Uniforms;
-@group(0) @binding(1) var<storage, read> segments: array<vec4<f32>>;
+/** the distance pass's I/O: the per-glyph uniform + the glyph's flattened outline segments (each
+ *  `(x1, y1, x2, y2)`), one instance per segment. The stages are pinned rather than defaulted —
+ *  `segments` reaches only the fs, and a vertex-visible storage binding is what a device reporting
+ *  `maxStorageBuffersInVertexStage: 0` rejects (the `layout: "auto"` this replaced derived the same
+ *  narrow visibility from use). @internal */
+export const distanceLayout = tgpu.bindGroupLayout({
+    uniforms: { uniform: SdfUniforms, visibility: ["vertex", "fragment"] },
+    segments: {
+        storage: (n: number) => d.arrayOf(d.vec4f, n),
+        access: "readonly",
+        visibility: ["fragment"],
+    },
+});
 
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) glyphXY: vec2<f32>,
-    @location(1) @interpolate(flat) segmentIdx: u32,
-}
+/** the finalize pass's I/O: the accumulated intermediate + the nearest-filter sampler. @internal */
+export const finalizeLayout = tgpu.bindGroupLayout({
+    intermediate: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
+    samp: { sampler: "non-filtering", visibility: ["fragment"] },
+});
 
-@vertex
-fn vs_distance(
-    @builtin(vertex_index) vid: u32,
-    @builtin(instance_index) segmentIdx: u32
-) -> VertexOutput {
-    let uv = vec2<f32>(
-        f32((vid << 1u) & 2u),
-        f32(vid & 2u)
+// a fullscreen triangle covering the viewport, uv 0..1 across the covered quad — the same three-vertex
+// form the mipmap blit uses (`standard/render/image.ts`)
+const fullscreenUv = tgpu.fn(
+    [d.u32],
+    d.vec2f,
+)((vid) => {
+    "use gpu";
+    return d.vec2f(d.f32((vid << 1) & 2), d.f32(vid & 2));
+});
+
+const distanceVs = tgpu.vertexFn({
+    in: { vid: d.builtin.vertexIndex, segmentIdx: d.builtin.instanceIndex },
+    out: {
+        pos: d.builtin.position,
+        glyphXY: d.vec2f,
+        segmentIdx: d.interpolate("flat", d.u32),
+    },
+})((input) => {
+    "use gpu";
+    const uv = fullscreenUv(input.vid);
+    const b = distanceLayout.$.uniforms.glyphBounds;
+    return {
+        pos: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1),
+        glyphXY: std.mix(b.xy, b.zw, uv),
+        segmentIdx: input.segmentIdx,
+    };
+});
+
+// one segment's contribution at this glyph-space point: an exponent-encoded distance falloff in alpha
+// (blended `max`, so the nearest segment wins) plus the even-odd crossing counters in r/g (blended
+// `add`, one 1/255 step per crossing — the finalize pass compares the two to classify inside/outside)
+const distanceFs = tgpu.fragmentFn({
+    in: { glyphXY: d.vec2f, segmentIdx: d.interpolate("flat", d.u32) },
+    out: d.vec4f,
+})((input) => {
+    "use gpu";
+    const seg = distanceLayout.$.segments[input.segmentIdx];
+    const p = input.glyphXY;
+
+    const lineDir = std.sub(seg.zw, seg.xy);
+    const lenSq = std.dot(lineDir, lineDir);
+    // a degenerate segment divides 0/0; both select arms evaluate, and the NaN is discarded by the cond
+    const t = std.select(
+        0,
+        std.clamp(std.dot(std.sub(p, seg.xy), lineDir) / lenSq, 0, 1),
+        lenSq > 0,
     );
+    const closest = std.add(seg.xy, std.mul(t, lineDir));
+    const dist = std.distance(p, closest);
 
-    var out: VertexOutput;
-    out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-    out.glyphXY = mix(uniforms.glyphBounds.xy, uniforms.glyphBounds.zw, uv);
-    out.segmentIdx = segmentIdx;
-    return out;
-}
+    const val =
+        std.pow(
+            1 - std.clamp(dist / distanceLayout.$.uniforms.maxDistance, 0, 1),
+            distanceLayout.$.uniforms.exponent,
+        ) * 0.5;
 
-@fragment
-fn fs_distance(input: VertexOutput) -> @location(0) vec4<f32> {
-    let seg = segments[input.segmentIdx];
-    let p = input.glyphXY;
+    const crosses = seg.y > p.y !== seg.w > p.y;
+    const crossX = ((seg.z - seg.x) * (p.y - seg.y)) / (seg.w - seg.y) + seg.x;
+    const crossingUp = crosses && p.x < crossX && seg.y < seg.w;
+    const crossingDown = crosses && p.x < crossX && seg.y > seg.w;
 
-    let lineDir = seg.zw - seg.xy;
-    let lenSq = dot(lineDir, lineDir);
-    let t = select(0.0, clamp(dot(p - seg.xy, lineDir) / lenSq, 0.0, 1.0), lenSq > 0.0);
-    let closest = seg.xy + t * lineDir;
-    let dist = distance(p, closest);
-
-    let val = pow(1.0 - clamp(dist / uniforms.maxDistance, 0.0, 1.0), uniforms.exponent) * 0.5;
-
-    let crosses = (seg.y > p.y) != (seg.w > p.y);
-    let crossX = (seg.z - seg.x) * (p.y - seg.y) / (seg.w - seg.y) + seg.x;
-    let crossingUp = crosses && (p.x < crossX) && (seg.y < seg.w);
-    let crossingDown = crosses && (p.x < crossX) && (seg.y > seg.w);
-
-    return vec4<f32>(
-        select(0.0, 1.0/255.0, crossingUp),
-        select(0.0, 1.0/255.0, crossingDown),
-        0.0,
-        val
+    return d.vec4f(
+        std.select(0, 1 / 255, crossingUp),
+        std.select(0, 1 / 255, crossingDown),
+        0,
+        val,
     );
+});
+
+const finalizeVs = tgpu.vertexFn({
+    in: { vid: d.builtin.vertexIndex },
+    out: { pos: d.builtin.position, uv: d.vec2f },
+})((input) => {
+    "use gpu";
+    const uv = fullscreenUv(input.vid);
+    return { pos: d.vec4f(uv.x * 2 - 1, uv.y * 2 - 1, 0, 1), uv: uv };
+});
+
+// inside ⇔ the two crossing counters disagree (odd winding), which flips the falloff
+const finalizeFs = tgpu.fragmentFn({
+    in: { uv: d.vec2f },
+    out: d.vec4f,
+})((input) => {
+    "use gpu";
+    const color = std.textureSample(finalizeLayout.$.intermediate, finalizeLayout.$.samp, input.uv);
+    const inside = color.x !== color.y;
+    const val = std.select(color.w, 1 - color.w, inside);
+    return d.vec4f(val, val, val, val);
+});
+
+/** the emitted SDF-pass WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function sdfWgsl(): { distance: string; finalize: string } {
+    return {
+        distance: tgpu.resolve([distanceVs, distanceFs], { names: "strict" }),
+        finalize: tgpu.resolve([finalizeVs, finalizeFs], { names: "strict" }),
+    };
 }
-`;
 
-const finalizeShader = /* wgsl */ `
-@group(0) @binding(0) var intermediate: texture_2d<f32>;
-@group(0) @binding(1) var samp: sampler;
+// pipelines come from `Compute.root`, which is device-scoped, so a stale entry from a torn-down device
+// must not be reused — keyed by the device identity it was built against, like the mipmap blit's cache.
+// Shared across generators (one per font), which the per-instance pair they replaced was not.
+let _pipelines: {
+    device: GPUDevice;
+    distance: TgpuRenderPipeline;
+    finalize: TgpuRenderPipeline;
+} | null = null;
 
-struct VertexOutput {
-    @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+function pipelines(device: GPUDevice) {
+    if (_pipelines && _pipelines.device === device) return _pipelines;
+    // the generator's own resources (sampler, intermediate target, encoder) still come from the passed
+    // device; only the pipelines are root-bound, and `Compute.root` is scoped to `Compute.device`. So a
+    // foreign device would silently mix two devices in one pass. One root per device lands at 4a with
+    // `image.ts`'s identical narrowing (the typed extension surface); until then the contract is explicit
+    // rather than silent
+    if (device !== Compute.device)
+        throw new Error(
+            "[text] the SDF generator builds its pipelines on Compute.device — pass that device, " +
+                "or call requestGPU with yours first",
+        );
+    const root = Compute.root;
+    _pipelines = {
+        device,
+        distance: root
+            .createRenderPipeline({
+                vertex: distanceVs,
+                fragment: distanceFs,
+                targets: {
+                    format: "rgba8unorm",
+                    blend: {
+                        // alpha accumulates as `max` — the nearest segment's falloff wins; r/g add up
+                        // one 1/255 step per winding crossing
+                        color: { srcFactor: "one", dstFactor: "one", operation: "add" },
+                        alpha: { srcFactor: "one", dstFactor: "one", operation: "max" },
+                    },
+                },
+                primitive: { topology: "triangle-list" },
+            })
+            .$name("text-sdf-distance"),
+        finalize: root
+            .createRenderPipeline({
+                vertex: finalizeVs,
+                fragment: finalizeFs,
+                targets: { format: "r8unorm" },
+                primitive: { topology: "triangle-list" },
+            })
+            .$name("text-sdf-finalize"),
+    };
+    return _pipelines;
 }
-
-@vertex
-fn vs_finalize(@builtin(vertex_index) vid: u32) -> VertexOutput {
-    let uv = vec2<f32>(
-        f32((vid << 1u) & 2u),
-        f32(vid & 2u)
-    );
-
-    var out: VertexOutput;
-    out.position = vec4<f32>(uv * 2.0 - 1.0, 0.0, 1.0);
-    out.uv = uv;
-    return out;
-}
-
-@fragment
-fn fs_finalize(input: VertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(intermediate, samp, input.uv);
-    let inside = color.r != color.g;
-    let val = select(color.a, 1.0 - color.a, inside);
-    return vec4<f32>(val, val, val, val);
-}
-`;
 
 export interface SDFGeneratorConfig {
     device: GPUDevice;
@@ -231,8 +333,7 @@ export class SDFGenerator {
     private _exponent: number;
     private _curveSubdivisions: number;
 
-    private _distancePipeline: GPURenderPipeline | null = null;
-    private _finalizePipeline: GPURenderPipeline | null = null;
+    private _pipelines: ReturnType<typeof pipelines> | null = null;
 
     private _intermediateTexture: GPUTexture | null = null;
     private _sampler: GPUSampler;
@@ -249,68 +350,12 @@ export class SDFGenerator {
     constructor(config: SDFGeneratorConfig) {
         this._device = config.device;
         this._sdfSize = config.sdfSize ?? 64;
-        this._exponent = config.exponent ?? 9;
+        this._exponent = config.exponent ?? SDF_EXPONENT;
         this._curveSubdivisions = config.curveSubdivisions ?? 16;
 
         this._sampler = this._device.createSampler({
             magFilter: "nearest",
             minFilter: "nearest",
-        });
-    }
-
-    private ensurePipelines(): void {
-        if (this._distancePipeline) return;
-
-        const distanceModule = this._device.createShaderModule({ code: distanceShader });
-
-        this._distancePipeline = this._device.createRenderPipeline({
-            layout: "auto",
-            vertex: {
-                module: distanceModule,
-                entryPoint: "vs_distance",
-            },
-            fragment: {
-                module: distanceModule,
-                entryPoint: "fs_distance",
-                targets: [
-                    {
-                        format: "rgba8unorm",
-                        blend: {
-                            color: {
-                                srcFactor: "one",
-                                dstFactor: "one",
-                                operation: "add",
-                            },
-                            alpha: {
-                                srcFactor: "one",
-                                dstFactor: "one",
-                                operation: "max",
-                            },
-                        },
-                    },
-                ],
-            },
-            primitive: {
-                topology: "triangle-list",
-            },
-        });
-
-        const finalizeModule = this._device.createShaderModule({ code: finalizeShader });
-
-        this._finalizePipeline = this._device.createRenderPipeline({
-            layout: "auto",
-            vertex: {
-                module: finalizeModule,
-                entryPoint: "vs_finalize",
-            },
-            fragment: {
-                module: finalizeModule,
-                entryPoint: "fs_finalize",
-                targets: [{ format: "r8unorm" }],
-            },
-            primitive: {
-                topology: "triangle-list",
-            },
         });
     }
 
@@ -325,7 +370,10 @@ export class SDFGenerator {
     }
 
     begin(): void {
-        this.ensurePipelines();
+        // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
+        // `precompile` thunk drains after warm, long after these draws already went out (the load-path
+        // blit's refuted precompile, spec Approach 2a)
+        this._pipelines = pipelines(this._device);
         this.ensureIntermediateTexture();
         this._pending = [];
     }
@@ -342,9 +390,16 @@ export class SDFGenerator {
 
     flush(): void {
         if (this._pending.length === 0) return;
+        const pipes = this._pipelines;
+        const intermediate = this._intermediateTexture;
+        if (!pipes || !intermediate) throw new Error("[text] SDFGenerator.flush before begin");
 
-        const encoder = this._device.createCommandEncoder();
-        const tempBuffers: GPUBuffer[] = [];
+        const root = Compute.root;
+        const encoder = this._device.createCommandEncoder({ label: "text-sdf" });
+        // one uniform + one segment buffer per glyph, all read within the single submit below — a shared
+        // buffer overwritten per glyph would hand every pass the last glyph's data, since the queue
+        // writes all land before the submit. Destroyed once that submit is in flight.
+        const tempBuffers: { destroy(): void }[] = [];
 
         for (const entry of this._pending) {
             const segments = segmentPath(entry.path, this._curveSubdivisions);
@@ -359,30 +414,21 @@ export class SDFGenerator {
             const [xMin, yMin, xMax, yMax] = entry.bounds;
             const maxDist = Math.max(xMax - xMin, yMax - yMin) / 2;
 
-            const uniformBuffer = this._device.createBuffer({
-                size: 32,
-                usage: GPUBufferUsage.UNIFORM,
-                mappedAtCreation: true,
-            });
-            new Float32Array(uniformBuffer.getMappedRange()).set([
-                xMin,
-                yMin,
-                xMax,
-                yMax,
-                maxDist,
-                this._exponent,
-                0,
-                0,
-            ]);
-            uniformBuffer.unmap();
+            // the uniform writes through the schema, so no lane index is hand-counted
+            const uniformBuffer = root
+                .createBuffer(SdfUniforms, {
+                    glyphBounds: d.vec4f(xMin, yMin, xMax, yMax),
+                    maxDistance: maxDist,
+                    exponent: this._exponent,
+                    pad: d.vec2f(),
+                })
+                .$usage("uniform")
+                .$name("text-sdf-uniforms");
             tempBuffers.push(uniformBuffer);
 
-            const segmentBuffer = this._device.createBuffer({
-                size: segments.length * 16,
-                usage: GPUBufferUsage.STORAGE,
-                mappedAtCreation: true,
-            });
-            const segmentData = new Float32Array(segmentBuffer.getMappedRange());
+            // the ArrayBuffer write path, never the schema-array form (gpu.md: the serializer is ~480×
+            // `Float32Array.set`) — CPU truth stays a typed array
+            const segmentData = new Float32Array(segments.length * 4);
             for (let i = 0; i < segments.length; i++) {
                 const seg = segments[i];
                 segmentData[i * 4] = seg.x1;
@@ -390,21 +436,23 @@ export class SDFGenerator {
                 segmentData[i * 4 + 2] = seg.x2;
                 segmentData[i * 4 + 3] = seg.y2;
             }
-            segmentBuffer.unmap();
+            const segmentBuffer = root
+                .createBuffer(d.arrayOf(d.vec4f, segments.length))
+                .$usage("storage")
+                .$name("text-sdf-segments");
+            segmentBuffer.write(segmentData.buffer);
             tempBuffers.push(segmentBuffer);
 
-            const distanceBindGroup = this._device.createBindGroup({
-                layout: this._distancePipeline!.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: { buffer: uniformBuffer } },
-                    { binding: 1, resource: { buffer: segmentBuffer } },
-                ],
+            const distanceGroup = root.createBindGroup(distanceLayout, {
+                uniforms: uniformBuffer,
+                segments: segmentBuffer,
             });
 
             const distancePass = encoder.beginRenderPass({
+                label: "text-sdf-distance",
                 colorAttachments: [
                     {
-                        view: this._intermediateTexture!.createView(),
+                        view: intermediate.createView(),
                         clearValue: { r: 0, g: 0, b: 0, a: 0 },
                         loadOp: "clear",
                         storeOp: "store",
@@ -413,17 +461,12 @@ export class SDFGenerator {
                 timestampWrites: Compute.span?.("text:sdf-distance"),
             });
 
-            distancePass.setPipeline(this._distancePipeline!);
-            distancePass.setBindGroup(0, distanceBindGroup);
-            distancePass.draw(3, segments.length);
+            pipes.distance.with(distanceGroup).with(distancePass).draw(3, segments.length);
             distancePass.end();
 
-            const finalizeBindGroup = this._device.createBindGroup({
-                layout: this._finalizePipeline!.getBindGroupLayout(0),
-                entries: [
-                    { binding: 0, resource: this._intermediateTexture!.createView() },
-                    { binding: 1, resource: this._sampler },
-                ],
+            const finalizeGroup = root.createBindGroup(finalizeLayout, {
+                intermediate: intermediate.createView(),
+                samp: this._sampler,
             });
 
             const outputView = entry.outputTexture.createView({
@@ -434,6 +477,7 @@ export class SDFGenerator {
             });
 
             const finalizePass = encoder.beginRenderPass({
+                label: "text-sdf-finalize",
                 colorAttachments: [
                     {
                         view: outputView,
@@ -444,6 +488,9 @@ export class SDFGenerator {
                 timestampWrites: Compute.span?.("text:sdf-finalize"),
             });
 
+            // the viewport + scissor are what place this glyph in its atlas tile, and a typed pipeline
+            // exposes neither — `.with(pass)` records into the pass this file already owns, so they stay
+            // raw calls on it, set before the draw
             finalizePass.setViewport(
                 entry.outputX,
                 entry.outputY,
@@ -453,15 +500,13 @@ export class SDFGenerator {
                 1,
             );
             finalizePass.setScissorRect(entry.outputX, entry.outputY, this._sdfSize, this._sdfSize);
-            finalizePass.setPipeline(this._finalizePipeline!);
-            finalizePass.setBindGroup(0, finalizeBindGroup);
-            finalizePass.draw(3);
+            pipes.finalize.with(finalizeGroup).with(finalizePass).draw(3);
             finalizePass.end();
         }
 
         this._device.queue.submit([encoder.finish()]);
 
-        for (const column of tempBuffers) column.destroy();
+        for (const buffer of tempBuffers) buffer.destroy();
         this._pending = [];
     }
 
