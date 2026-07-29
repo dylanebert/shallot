@@ -49,7 +49,7 @@
 // consolidation #1). Per-body CSR adjacency feeds the primal: each body reads only its own contacts.
 
 import { Compute, checkStorageBinding } from "../../engine";
-import { XFORM_WGSL } from "../../engine/utils/core";
+import { xformWgsl } from "../../engine/utils/core";
 // the shared LBVH builder (roadmap "Subgroup-first algorithms": physics is a consumer of the same
 // rendering-unaware builder a native-RT path would use). standard → extras is the documented exception
 // for this shared GPU primitive (exports.md `bvh/core`), not the onion default.
@@ -1897,7 +1897,7 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 // body eid; this pass runs after it and overwrites `transforms[eids[d]]` with the live pose. Scale is
 // 2·halfExtents — the cube mesh is unit (-0.5..0.5), so the render box matches the collision box (the
 // body pose itself is scale-free; this is render-only). Writes the decomposed `Xform` (the same struct
-// the Transform compose gathers); readers reconstruct the world transform via XFORM_WGSL.
+// the Transform compose gathers); readers reconstruct the world transform via xformWgsl().
 //
 // Render interpolation (Phase 5): the solver steps at the fixed
 // rate but compose runs every render frame, so at >60Hz it would repeat a fixed-step pose then jump
@@ -1906,9 +1906,9 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 // pose = last frame's settled pose) into B_INITL/B_INITQ before warmstart mutates B_POS, so prev = bInit*,
 // curr = bPos/bQuat. lerp position, nlerp quat on the shortest arc. For a static or freshly-seeded body
 // B_INITL == B_POS, so it's a no-op; at alpha = 1 this is exactly the bare current pose.
-const COMPOSE_PASS_WGSL =
+const composePassWgsl = (): string =>
     SHARED_WGSL +
-    XFORM_WGSL +
+    xformWgsl() +
     /* wgsl */ `
 struct Interp { alpha: f32 };
 @group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
@@ -3511,7 +3511,7 @@ export class PhysicsStep {
                 { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
                 buf(2, ro),
             ]),
-            buildPass(device, "phys-compose", COMPOSE_PASS_WGSL, [
+            buildPass(device, "phys-compose", composePassWgsl(), [
                 buf(0, ro),
                 buf(1, ro),
                 buf(2, rw),

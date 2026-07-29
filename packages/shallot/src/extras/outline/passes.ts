@@ -1,4 +1,4 @@
-import { POS_QUANT_WGSL, XFORM_WGSL } from "../../engine/utils/core";
+import { posQuantWgsl, xformWgsl } from "../../engine/utils/core";
 import { VIEW_STRUCT_WGSL } from "../../standard/render/core";
 
 // The pure CPU logic behind the outline's three passes: the JFA step ladder, the mesh-group batching for
@@ -54,8 +54,8 @@ export function groupByMesh(
 export function maskCode(occlude: boolean): string {
     return /* wgsl */ `
 ${VIEW_STRUCT_WGSL}
-${POS_QUANT_WGSL}
-${XFORM_WGSL}
+${posQuantWgsl()}
+${xformWgsl()}
 @group(0) @binding(0) var<uniform> view: View;
 @group(0) @binding(1) var<storage, read> position: array<vec2<u32>>;
 @group(0) @binding(2) var<storage, read> indices: array<u32>;

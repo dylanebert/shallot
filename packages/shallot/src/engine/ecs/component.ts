@@ -1,4 +1,4 @@
-import { packLdrColor } from "../utils/core";
+import { packColor4 } from "../utils/core";
 import type { Entity } from "./entity";
 
 /** SoA component: keys map to typed arrays indexed by entity */
@@ -215,7 +215,7 @@ export const srgb8x4: Type<Float32Array> & { readonly lanes: 4 } = {
         wgsl: "u32",
         bytes: 4,
         pack: (out, at, r, g, b, a) => {
-            out[at] = packLdrColor(r, g, b, a);
+            out[at] = packColor4(r, g, b, a);
         },
     },
 };

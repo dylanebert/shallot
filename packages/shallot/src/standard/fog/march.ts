@@ -68,7 +68,7 @@ fn fogComposite(scene: vec3<f32>, fogColor: vec3<f32>, transmittance: f32) -> ve
  * point/spot light's radiance at a march point (`lightColor · distanceAttenuation · spotFactor · phase`),
  * the same per-light terms sear's lit path uses; `sunInScatter` is the directional sun's `sunColor ·
  * phase`, no falloff/cone. Both shadow-free (the caller multiplies the shadow factor). Splice
- * POINT_LIGHTS_STRUCT_WGSL + OCT_ENCODE_WGSL + LIGHT_EVAL_WGSL (sear/core, for `distanceAttenuation` /
+ * POINT_LIGHTS_STRUCT_WGSL + octEncodeWgsl() + LIGHT_EVAL_WGSL (sear/core, for `distanceAttenuation` /
  * `spotFactor`) before it.
  */
 export const FOG_INSCATTER_WGSL = /* wgsl */ `

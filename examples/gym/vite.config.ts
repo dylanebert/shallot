@@ -1,6 +1,10 @@
-import { defineConfig } from "vite";
+import typegpu from "unplugin-typegpu/vite";
 
-export default defineConfig({
+// an ejected project owns its bundler, so it declares the typegpu transform itself — the engine's
+// TGSL kernels carry no runtime fallback, and exactly one instance may run (a second pass re-wraps
+// the metadata and corrupts it)
+export default {
+    plugins: [typegpu()],
     base: "./",
     server: {
         port: 3000,
@@ -10,4 +14,4 @@ export default defineConfig({
         outDir: "dist",
         emptyOutDir: true,
     },
-});
+};

@@ -10,11 +10,7 @@
 import { Compute, type Plugin, RenderPlugin, type System } from "@dylanebert/shallot";
 import { BeginFrameSystem, Draws, Meshes, Render, Surfaces } from "@dylanebert/shallot/render/core";
 import { PrepassSystem } from "@dylanebert/shallot/sear/core";
-import {
-    OCT_ENCODE_WGSL,
-    POS_QUANT_PACK_WGSL,
-    POS_QUANT_WGSL,
-} from "@dylanebert/shallot/utils/core";
+import { octEncodeWgsl, posQuantPackWgsl, posQuantWgsl } from "@dylanebert/shallot/utils/core";
 import { addressingWgsl, BINDING_FLOOR, BYTES, CHUNK_CELLS, DIM, ISO, VOXEL } from "./grid";
 
 const VERTS_PER_QUAD = 4;
@@ -142,9 +138,9 @@ col = vec4<f32>(lit(base, worldNormal), 1.0);
 
 function emitWgsl(): string {
     return /* wgsl */ `
-${OCT_ENCODE_WGSL}
-${POS_QUANT_WGSL}
-${POS_QUANT_PACK_WGSL}
+${octEncodeWgsl()}
+${posQuantWgsl()}
+${posQuantPackWgsl()}
 ${addressingWgsl()}
 
 @group(0) @binding(0) var<storage, read> voxels: array<f32>;

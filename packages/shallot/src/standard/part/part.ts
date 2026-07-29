@@ -1,6 +1,6 @@
 import type { State, System } from "../../engine";
 import { Compute, capacity, srgb8x4, u32 } from "../../engine";
-import { XFORM_WGSL } from "../../engine/utils/core";
+import { xformWgsl } from "../../engine/utils/core";
 import {
     BeginFrameSystem,
     CULL_FRUSTUM,
@@ -441,7 +441,7 @@ export async function warmPart(state: State): Promise<void> {
     // view's six planes. slot ≥ viewCount means no frustum exists (headless or a
     // synthetic slot): keep everything, so the pack degrades to plain compaction
     const cullDecls =
-        XFORM_WGSL +
+        xformWgsl() +
         /* wgsl */ `
 struct CullParams { viewCount: u32, pairCount: u32 }
 

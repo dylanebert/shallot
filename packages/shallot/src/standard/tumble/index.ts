@@ -296,7 +296,7 @@ const backendHandle: PhysicsBackend = {
     },
 };
 
-// one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — XFORM_WGSL) —
+// one reused Xform-shaped record (48 B / 12 f32: pos.xyz+pad, quat.xyzw, scale.xyz+pad — the `Xform` schema) —
 // zero per-mover allocation in `compose`'s steady state.
 const _record = new Float32Array(12);
 

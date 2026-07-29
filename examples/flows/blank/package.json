@@ -5,5 +5,8 @@
     "type": "module",
     "dependencies": {
         "@dylanebert/shallot": "workspace:*"
+    },
+    "devDependencies": {
+        "unplugin-typegpu": "~0.11.6"
     }
 }

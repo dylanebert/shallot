@@ -1,17 +1,55 @@
-// engine/utils extension surface: the WGSL codec chunks a custom producer or surface splices, and their
-// CPU-side pack/unpack twins (bit-identical to the intrinsics, so a value round-trips CPU↔GPU). The
-// author math + color + trait-authoring helpers ride the main barrel; this is what an extender building a
-// pipeline reaches for.
+// engine/utils extension surface: the GPU storage codecs — each a TGSL function callable on the CPU and
+// resolvable into a shader — plus the pre-resolved WGSL chunks a raw-WGSL producer or surface splices,
+// and the escape vocabulary for the WGSL constructs TGSL has no binding for. The author math + color +
+// trait-authoring helpers ride the main barrel; this is what an extender building a pipeline reaches for.
 export { LINEAR_TO_OKLAB_WGSL, OKLAB_TO_LINEAR_WGSL, packColor } from "./color";
 export {
-    LDR_COLOR_UNPACK_WGSL,
-    OCT_ENCODE_WGSL,
+    decodePos,
+    decodeUv,
+    encodePos,
+    encodeUv,
+    hdrColorPackWgsl,
+    hdrColorUnpackWgsl,
+    ldrColorPackWgsl,
+    ldrColorUnpackWgsl,
+    linearToSrgb1,
+    MeshQuant,
+    meshIdOf,
     octDecodeNormal,
+    octEncode,
     octEncodeNormal,
-    POS_QUANT_PACK_WGSL,
-    POS_QUANT_WGSL,
-    pack2x16unorm,
+    octEncodeWgsl,
+    packColor4,
+    packHdrColor,
     packLdrColor,
-    unpack2x16unorm,
-    XFORM_WGSL,
+    packQuatSmallest3,
+    packQuatSnorm16x4,
+    packUnorm2,
+    posQuantPackWgsl,
+    posQuantWgsl,
+    quatSnorm16x4Wgsl,
+    smallest3Wgsl,
+    srgbToLinear1,
+    unpackHdrColor,
+    unpackLdrColor,
+    unpackQuatSmallest3,
+    unpackQuatSnorm16x4,
+    Xform,
+    xformMat,
+    xformNormal,
+    xformPoint,
+    xformQuat,
+    xformWgsl,
 } from "./encode";
+export {
+    bitcastF32toU32,
+    compareExchange,
+    idiv,
+    packSnorm2x16,
+    packUnorm2x16,
+    packUnorm4x8,
+    subgroupUniformityOff,
+    uniformLoad,
+    unpackSnorm2x16,
+    unpackUnorm2x16,
+} from "./tgsl";

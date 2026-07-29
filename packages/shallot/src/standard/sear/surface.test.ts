@@ -557,7 +557,7 @@ describe("mesh() vertex contract", () => {
     });
 
     // The quantized GPU streams (gpu.md rule 6). The CPU encode here pairs with the WGSL decode
-    // (POS_QUANT_WGSL) — the lattice must match, so this pins the round-trip bound (extent/65535
+    // (posQuantWgsl()) — the lattice must match, so this pins the round-trip bound (extent/65535
     // per axis, derived) the shader decodes against, plus the meshId pack + the position-stream
     // mirror. Two meshes in one family so meshId 0/1 both exercise; non-trivial position + uv AABBs.
     test("quantizeMeshes round-trips pos+uv within extent/65535, packs meshId, mirrors the position stream", () => {
@@ -610,6 +610,51 @@ describe("mesh() vertex contract", () => {
                 );
             }
         }
+    });
+
+    // All three position lanes must land on ONE lattice. x/y ride `packUnorm2`, which rounds the
+    // normalized coordinate to f32 first (the schema and the GPU both store f32); a z lane rounding the
+    // f64 value instead lands on the other lattice point wherever the two straddle a midpoint, and the
+    // shader's `decodePos` has no way to tell. 1.4384299516677856 over the [-2, 3] box is such a value.
+    test("quantizeMeshes puts x, y and z on the same unorm16 lattice", () => {
+        const straddle = 1.4384299516677856;
+        const packed = packMeshes([
+            {
+                name: "a",
+                vertices: new Float32Array([
+                    -2,
+                    -2,
+                    -2,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
+                    straddle,
+                    straddle,
+                    straddle,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
+                    3,
+                    3,
+                    3,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
+                ]),
+                indices: new Uint32Array([0, 1, 2]),
+            },
+        ]);
+        const { main } = quantizeMeshes(packed.vertices, packed.slices);
+        const w0 = main[1 * 4];
+        const w1 = main[1 * 4 + 1];
+        expect(w0 >>> 16).toBe(w0 & 0xffff); // y === x
+        expect(w1 & 0xffff).toBe(w0 & 0xffff); // z === x
     });
 });
 

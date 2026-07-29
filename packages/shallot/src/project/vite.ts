@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { dirname, isAbsolute, join, relative, resolve } from "path";
+import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
 import { KNOWN_ENGINE_PLUGINS } from "./engine";
 import { generateModule } from "./generate";
@@ -20,6 +21,21 @@ export const CROSS_ORIGIN_ISOLATION = {
     "Cross-Origin-Opener-Policy": "same-origin",
     "Cross-Origin-Embedder-Policy": "require-corp",
 };
+
+/**
+ * the TGSL build transform (`unplugin-typegpu`). The engine's shaders are JS function bodies
+ * transpiled to WGSL at build time — typegpu parses nothing at runtime — so every bundle carrying
+ * engine code needs it, reaching engine source inside `node_modules` too. `shallot dev` / `shallot
+ * build` install it for a manifest project, which owns no vite config. An ejected project that owns
+ * one imports `typegpu` from `unplugin-typegpu/vite` itself — a vite config is loaded by node, which
+ * can't read this module's TypeScript. Exactly **one** instance may run in a bundle: a second pass
+ * re-wraps the emitted metadata and corrupts it.
+ * @example
+ * plugins: [typegpuPlugin(), projectPlugin(dir)]
+ */
+export function typegpuPlugin(): Plugin {
+    return typegpu() as unknown as Plugin;
+}
 
 /** a project's `shallot.json` manifest path — the project descriptor the toolchain reads. */
 export function manifestPath(dir: string): string {

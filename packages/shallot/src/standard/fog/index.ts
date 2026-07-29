@@ -11,7 +11,7 @@
 // + clustered + sun in-scatter).
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, u32 } from "../../engine";
-import { OCT_ENCODE_WGSL } from "../../engine/utils/core";
+import { octEncodeWgsl } from "../../engine/utils/core";
 import { GlazeSystem } from "../glaze";
 import { Camera, RenderPlugin } from "../render";
 import {
@@ -119,7 +119,7 @@ ${casterWgsl()}
 @group(1) @binding(8) var<uniform> lighting: Lighting;
 @group(1) @binding(9) var<uniform> tileRects: TileRects;
 
-${OCT_ENCODE_WGSL}
+${octEncodeWgsl()}
 ${LIGHT_EVAL_WGSL}
 ${pointShadowWgsl()}
 ${SAMPLE_SUN_SHADOW_WGSL}

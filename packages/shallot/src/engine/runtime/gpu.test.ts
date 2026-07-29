@@ -1,12 +1,19 @@
 import { describe, expect, test } from "bun:test";
+import tgpu from "typegpu";
 import { GltfPlugin } from "../../extras/gltf";
 import { ProfilePlugin } from "../../extras/profile";
 import {
     BASE_FEATURES,
+    Compute,
     checkStorageBinding,
     checkTextureLimits,
+    checkTgsl,
     deviceLimits,
+    precompile,
+    precompileAll,
+    requestGPU,
     resolveFeatures,
+    tgslCanary,
     UnsupportedError,
 } from "./gpu";
 
@@ -258,5 +265,108 @@ describe("checkTextureLimits", () => {
         expect(() =>
             checkTextureLimits("x", { width: 1, height: 1, layers: 257 }, limits(), "r"),
         ).toThrow(UnsupportedError);
+    });
+});
+
+describe("TGSL metadata", () => {
+    test("the canary resolves to its WGSL body when the build ran the typegpu transform", () => {
+        // the whole distribution contract in one assertion: a body the transform must have
+        // transpiled at build time. Delete the bunfig preload and this goes red.
+        const wgsl = tgpu.resolve([tgslCanary]);
+        expect(wgsl).toContain("(x + 1u)");
+        expect(wgsl).toContain("-> u32");
+    });
+
+    // the throwing arm can't be built here — the transform runs over this file too, so any fn
+    // declared in it carries metadata. Its red proof is the no-plugin arm of `bun run test:install`
+    test("checkTgsl passes under a transformed build", () => {
+        expect(() => checkTgsl()).not.toThrow();
+    });
+
+    // the other failure checkTgsl guards: a second typegpu copy loaded after the engine's, observable
+    // only via the version snapshot taken at module load — mutate the global read at check time and
+    // restore it, rather than the snapshot itself (which no test can rewind).
+    test("checkTgsl throws when a second typegpu copy's version differs from the engine's", () => {
+        const globals = globalThis as unknown as Record<string, string | undefined>;
+        const prior = globals.__TYPEGPU_VERSION__;
+        globals.__TYPEGPU_VERSION__ = `${prior ?? "0.11.9"}-other-copy`;
+        try {
+            expect(() => checkTgsl()).toThrow(/Two copies of typegpu are loaded/);
+        } finally {
+            globals.__TYPEGPU_VERSION__ = prior;
+        }
+    });
+});
+
+// a device stand-in: `initFromDevice` only stores the handle and nothing here submits work, so root
+// identity and the build boundary are testable with no adapter (testing.md — never bind a device in
+// `bun test`). `Compute` is a process singleton every other test file also writes, so each test that
+// drives `requestGPU` restores what it found.
+const fakeDevice = () => ({ queue: {}, features: new Set(), limits: {} }) as unknown as GPUDevice;
+
+describe("the TypeGPU root", () => {
+    test("is memoized per device; a rebuild keeps it, a new device mints a new one", async () => {
+        const saved = { ...Compute };
+        try {
+            const device = fakeDevice();
+            await requestGPU(device);
+            const root = Compute.root;
+            expect(root).toBeDefined();
+
+            // the rebuild case: a host reusing one device across builds (the cross-build memo law)
+            // must find its typed resources still alive, so the root has to survive the rebuild —
+            // while the publish maps wipe, typed beside raw
+            Compute.typed.set("transforms", {} as never);
+            await requestGPU(device);
+            expect(Compute.root).toBe(root);
+            expect(Compute.typed.size).toBe(0);
+
+            await requestGPU(fakeDevice());
+            expect(Compute.root).not.toBe(root);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+// One test, walked in order, because the queue is module state whose "before the drain" half exists
+// only until the first `precompileAll` — `requestGPU` is what re-opens it, once per build. Splitting
+// these into separate tests would make them pass or fail on file order.
+describe("precompile", () => {
+    test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {
+        const saved = { ...Compute };
+        // a build began: that, and only that, re-opens the queue
+        await requestGPU(fakeDevice());
+        const order: string[] = [];
+        precompile("a", () => order.push("a"));
+        precompile("b", () => order.push("b"));
+        // nothing runs during warm — a dispatch here could hit a bind group whose dependency another
+        // plugin's warm hasn't published yet
+        expect(order).toEqual([]);
+
+        precompile("broken", () => {
+            throw new Error("createComputePipeline failed");
+        });
+        precompile("c", () => order.push("c"));
+
+        // the throw names the pipeline, so a build failure points at the kernel, not at `build`
+        expect(() => precompileAll()).toThrow(/precompile "broken" failed/);
+        // "c" was never shifted off, so the throw costs one pipeline, not the rest of the queue
+        expect(order).toEqual(["a", "b"]);
+        precompileAll();
+        expect(order).toEqual(["a", "b", "c"]);
+        precompileAll();
+        expect(order).toEqual(["a", "b", "c"]);
+
+        // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
+        // which would surface as a multi-second first-frame stall with nothing pointing at it
+        precompile("late", () => order.push("late"));
+        expect(order).toEqual(["a", "b", "c", "late"]);
+        expect(() => {
+            precompile("late-broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+        }).toThrow(/precompile "late-broken" failed/);
+        Object.assign(Compute, saved);
     });
 });

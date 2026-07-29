@@ -1,4 +1,14 @@
+import { isBuffer, type TgpuBuffer } from "typegpu";
+import type { AnyData } from "typegpu/data";
 import { Compute, type Plugin, type State, type System } from "../../engine";
+
+/** what {@link mirror} reads back: a raw `GPUBuffer` or its typed twin. Mirror is byte-granular either
+ *  way — a typed source is unwrapped at construction and the snapshot stays opaque bytes. */
+export type MirrorSource = GPUBuffer | TgpuBuffer<AnyData>;
+
+function unwrap(source: MirrorSource): GPUBuffer {
+    return isBuffer(source) ? Compute.root.unwrap(source) : source;
+}
 
 /**
  * buffer-level GPU→CPU readback. Construct with a source buffer;
@@ -43,9 +53,9 @@ export class Mirror {
     private _owned: ArrayBuffer | null = null;
     private _disposed: boolean = false;
 
-    constructor(source: GPUBuffer, opts?: { ring?: number }) {
-        this.source = source;
-        this.size = source.size;
+    constructor(source: MirrorSource, opts?: { ring?: number }) {
+        this.source = unwrap(source);
+        this.size = this.source.size;
         this._ringSize = opts?.ring ?? 2;
         Mirror._all.push(this);
     }
@@ -142,8 +152,8 @@ export class Mirror {
     }
 }
 
-/** construct a buffer-level mirror; registers with {@link MirrorSystem} */
-export function mirror(source: GPUBuffer, opts?: { ring?: number }): Mirror {
+/** construct a buffer-level mirror over a raw or typed buffer; registers with {@link MirrorSystem} */
+export function mirror(source: MirrorSource, opts?: { ring?: number }): Mirror {
     return new Mirror(source, opts);
 }
 

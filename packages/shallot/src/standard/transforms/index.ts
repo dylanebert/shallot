@@ -1,18 +1,44 @@
+import type { StorageFlag, TgpuBuffer, TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
 import { Compute, capacity, type Plugin, vec4 } from "../../engine";
+import { precompile } from "../../engine/runtime";
 import { eulerAlias } from "../../engine/utils";
-import { XFORM_WGSL } from "../../engine/utils/core";
+import { Xform } from "../../engine/utils/core";
 import { SlabPlugin, slab } from "../slab";
+import { composeKernel, composeLayout } from "./compose";
 
 // the transform firehose: one capacity-sized buffer of decomposed per-entity {pos, quat, scale} (`Xform`,
 // 48 B) the compose pass gathers from the pos/rot/scale slabs; readers reconstruct the world transform on
-// read (`XFORM_WGSL`), keeping the per-instance read one AoS cache line. Published to `Compute.buffers` as
+// read (`xformWgsl()`), keeping the per-instance read one AoS cache line. Published to `Compute.buffers` as
 // "transforms" (the access path — surfaces resolve it by name). A derived GPU buffer, not a per-entity
 // field, so it lives here, not on the Transform component (mirrors `Lighting` vs `DirectionalLight` in
 // render/). null until initialize (headless: stays null).
 let _transforms: GPUBuffer | null = null;
-let _composeLayout: GPUBindGroupLayout | null = null;
-let _composePipeline: GPUComputePipeline | null = null;
-let _composeBindGroup: GPUBindGroup | null = null;
+let _typed: (TgpuBuffer<d.WgslArray<typeof Xform>> & StorageFlag) | null = null;
+let _composePipeline: TgpuComputePipeline | null = null;
+// the compose pipeline with its bind group bound, built on first use — the slab mirrors and the
+// membership buffer it reads are published by another plugin's `warm`, and `warm` hooks run
+// concurrently (`Promise.all` in `build`), so nothing may read them from inside a sibling's warm
+let _bound: TgpuComputePipeline | null = null;
+
+// build once, on the first call that has every buffer: the forced precompile (drained after every
+// plugin has warmed) or, failing that, the first frame's dispatch.
+function bind(): TgpuComputePipeline | null {
+    if (_bound) return _bound;
+    if (!_composePipeline || !_typed) return null;
+    // the firehose binds typed; the slab mirrors and `membership` are raw handles their owning modules
+    // publish — a typed bind group takes either, which is what keeps the raw reach-in open. A missing
+    // one is a wiring bug: let the bind group creation throw, never skip a frame
+    const group = Compute.root.createBindGroup(composeLayout, {
+        pos: Transform.pos.gpu!,
+        rot: Transform.rot.gpu!,
+        scale: Transform.scale.gpu!,
+        transforms: _typed,
+        membership: Compute.buffers.get("membership")!,
+    });
+    _bound = _composePipeline.with(group);
+    return _bound;
+}
 
 /**
  * per-entity transform: pos, rot, scale as direct {@link Quad} fields. Lanes
@@ -32,62 +58,20 @@ export const Transform = {
     scale: slab(vec4),
 };
 
-// gather the pos/rot/scale slabs into the decomposed `Xform` firehose. No matrix math — readers
-// reconstruct on demand (XFORM_WGSL); the gather just lays the three SoA slabs into one AoS record so a
-// reader's per-instance read is a single cache line. Gated on Transform MEMBERSHIP (`gate`, the part-pack
-// shape): the firehose has a second writer — a physics backend composes `Body` poses into the same buffer
-// (`Body` excludes `Transform`, so the two writers partition by slot) — and a CPU backend's
-// `queue.writeBuffer` executes in queue order BEFORE this frame's encoder, so an ungated scatter would
-// stomp every physics record with the unset Transform slab (zero scale — an invisible Body+Part).
-const composeWgsl = (gate: string): string =>
-    XFORM_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> pos: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> rot: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> scale: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read_write> transforms: array<Xform>;
-@group(0) @binding(4) var<storage, read> membership: array<u32>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= arrayLength(&transforms)) { return; }
-    ${gate}
-    transforms[i] = Xform(pos[i].xyz, rot[i], scale[i].xyz);
-}
-`;
-
 /**
  * record the per-frame world-matrix compose dispatch onto `encoder`. Reads
  * the slab canonical GPU buffers (populated by the prior frame's SlabSystem
- * submit), writes the `"transforms"` firehose. The bind group is built
- * lazily on the first call so it can reference the slab `.gpu` buffers
- * allocated during SlabPlugin's warm
+ * submit), writes the `"transforms"` firehose. Headless (no device) leaves the
+ * pipeline unbuilt and the call is a no-op
  */
 export function composeTransforms(encoder: GPUCommandEncoder): void {
-    if (!_composePipeline || !_composeLayout || !_transforms) return;
-    if (!_composeBindGroup) {
-        _composeBindGroup = Compute.device.createBindGroup({
-            label: "kitchen-transforms-compose",
-            layout: _composeLayout,
-            entries: [
-                { binding: 0, resource: { buffer: Transform.pos.gpu! } },
-                { binding: 1, resource: { buffer: Transform.rot.gpu! } },
-                { binding: 2, resource: { buffer: Transform.scale.gpu! } },
-                { binding: 3, resource: { buffer: _transforms } },
-                // published by SlabPlugin's MembershipSystem before any draw frame; a missing
-                // one is a wiring bug — let the bind group creation throw, never skip a frame
-                { binding: 4, resource: { buffer: Compute.buffers.get("membership")! } },
-            ],
-        });
-    }
+    const bound = bind();
+    if (!bound) return;
     const pass = encoder.beginComputePass({
         label: "kitchen-transforms-compose",
         timestampWrites: Compute.span?.("transforms:compose"),
     });
-    pass.setPipeline(_composePipeline);
-    pass.setBindGroup(0, _composeBindGroup);
-    pass.dispatchWorkgroups(Math.ceil(capacity / 64));
+    bound.with(pass).dispatchWorkgroups(Math.ceil(capacity / 64));
     pass.end();
 }
 
@@ -166,65 +150,36 @@ export const TransformsPlugin: Plugin = {
         },
     },
 
-    async initialize(state) {
+    initialize(state) {
         _transforms = null;
-        _composeLayout = null;
+        _typed = null;
         _composePipeline = null;
-        _composeBindGroup = null;
+        _bound = null;
 
         if (!Compute.device) return;
-        const { device } = Compute;
 
-        _transforms = device.createBuffer({
-            label: "kitchen-transforms",
-            size: capacity * 48, // sizeof(Xform): pos + quat + scale, vec4-aligned
-            // COPY_DST: a CPU physics backend (tumble) writes a mover's interpolated pose straight in via
-            // `queue.writeBuffer` (standard/tumble ComposeSystem) — the GPU-only AVBD backend's compose is
-            // a compute pass and needs no CPU write, but the buffer is shared, so the usage covers both.
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST,
-        });
+        // COPY_DST (typegpu grants it, with COPY_SRC, on every buffer it creates): a CPU physics backend
+        // (tumble) writes a mover's interpolated pose straight in via `queue.writeBuffer` (standard/tumble
+        // ComposeSystem). The GPU-only AVBD backend's compose is a compute pass and needs no CPU write,
+        // but the buffer is shared, so the usage covers both.
+        _typed = Compute.root
+            .createBuffer(d.arrayOf(Xform, capacity))
+            .$usage("storage")
+            .$name("kitchen-transforms");
+        _transforms = Compute.root.unwrap(_typed);
         Compute.buffers.set("transforms", _transforms);
-        _composeLayout = device.createBindGroupLayout({
-            label: "kitchen-transforms-compose",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "storage" },
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-            ],
-        });
+        Compute.typed.set("transforms", _typed);
+
         const t = state.membership.bit(Transform);
-        const module = device.createShaderModule({
-            label: "kitchen-transforms-compose",
-            code: composeWgsl(
-                `if ((membership[${t.gen}u * ${capacity}u + i] & ${t.mask}u) == 0u) { return; }`,
-            ),
-        });
-        _composePipeline = await device.createComputePipelineAsync({
-            label: "kitchen-transforms-compose",
-            layout: device.createPipelineLayout({ bindGroupLayouts: [_composeLayout] }),
-            compute: { module, entryPoint: "main" },
-        });
+        _composePipeline = Compute.root
+            .createComputePipeline({ compute: composeKernel(t.gen * capacity, t.mask, capacity) })
+            .$name("kitchen-transforms-compose");
+    },
+
+    warm() {
+        if (!_composePipeline) return;
+        // the bind, not just the dispatch, is deferred into the forcer: the drain runs after every
+        // plugin's warm has resolved, which is the first moment the buffers this reads are all up
+        precompile("kitchen-transforms-compose", () => bind()?.dispatchWorkgroups(0));
     },
 };

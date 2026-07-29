@@ -1,3 +1,5 @@
+import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
 import {
     Compute,
     capacity,
@@ -11,99 +13,24 @@ import {
     type TypedArray,
 } from "../../engine";
 import { entries } from "../../engine/ecs/core";
-import { MembershipSystem } from "./membership";
+import { precompile } from "../../engine/runtime";
+import { allocMembership, MembershipSystem } from "./membership";
+import {
+    compiled,
+    elementBytes,
+    elementOf,
+    resetPipelines,
+    scatterKey,
+    scatterPipeline,
+} from "./scatter";
 
-// Toji's persistent-staging pattern — packing dirty bits straight into a
-// mapped buffer beats `writeBuffer` ~2× at production K because there's no
-// JS-heap intermediate. Validated on the real GPU by the `render` gym scenario (transport
-// round-trip assert + `slab:flush` span).
+// Toji's persistent-staging pattern — packing dirty bits straight into a mapped buffer, then scattering
+// them on the GPU, beats a per-slot `writeBuffer` at every K measured: CPU-side pack+encode+submit is
+// 0.020 ms vs 0.240 ms at K=1024 and 0.68 ms vs 59.7 ms at K=65536 (lovelace, 2026-07-29, a throwaway
+// gym microbench). Validated on the real GPU by the `render` gym scenario (transport round-trip assert
+// + `slab:flush` span).
 
-// Types absent from this map aren't native WGSL storage primitives — `slab(...)`
-// warns and skips GPU allocation.
-const GPU_ELEMENT_BYTES: Record<string, number> = {
-    f32: 4,
-    i32: 4,
-    u32: 4,
-    f16: 2,
-    vec2: 8,
-    vec4: 16,
-};
-
-function gpuElementBytes(type: Type): number | null {
-    return type.gpu?.bytes ?? GPU_ELEMENT_BYTES[type.name] ?? null;
-}
-
-// the scatter shader + pipeline key off the GPU element type, not the slab's name: a packed `srgb8x4`
-// color mirrors as a `u32`, so it shares the one `u32` scatter pipeline with every other u32 slab — the
-// copy is identical regardless of what the bits decode to. (`f16x4` keys on its own `vec2<u32>` element.)
-function scatterKey(type: Type): string {
-    return type.gpu?.wgsl ?? type.wgsl ?? type.name;
-}
-
-function scatterWGSL(type: Type): string {
-    const t = type.gpu?.wgsl ?? type.wgsl;
-    // `shader-f16` is not on the platform floor, so this arm is the consumer opt-in path: a `slab(f16)`
-    // only compiles for an app whose plugin declares `shader-f16` in `Plugin.features`. No engine slab
-    // takes it — `f16x4` mirrors as `vec2<u32>`.
-    const enableF16 = (t ?? "").includes("f16") ? "enable f16;\n" : "";
-    return `${enableF16}
-@group(0) @binding(0) var<storage, read> slots: array<u32>;
-@group(0) @binding(1) var<storage, read> values: array<${t}>;
-@group(0) @binding(2) var<storage, read_write> canonical: array<${t}>;
-
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    let count = slots[0];
-    if (i >= count) { return; }
-    canonical[slots[i + 1u]] = values[i];
-}
-`;
-}
-
-interface ScatterPipeline {
-    layout: GPUBindGroupLayout;
-    pipeline: GPUComputePipeline;
-}
-
-const pipelines = new Map<string, ScatterPipeline>();
 const warned = new Set<string>();
-
-async function compile(device: GPUDevice, type: Type): Promise<ScatterPipeline> {
-    const key = scatterKey(type);
-    const cached = pipelines.get(key);
-    if (cached) return cached;
-    const label = `slab-scatter-${key}`;
-    const layout = device.createBindGroupLayout({
-        label,
-        entries: [
-            {
-                binding: 0,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: { type: "read-only-storage" },
-            },
-            {
-                binding: 1,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: { type: "read-only-storage" },
-            },
-            {
-                binding: 2,
-                visibility: GPUShaderStage.COMPUTE,
-                buffer: { type: "storage" },
-            },
-        ],
-    });
-    const module = device.createShaderModule({ code: scatterWGSL(type), label });
-    const pipeline = await device.createComputePipelineAsync({
-        label,
-        layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-        compute: { module, entryPoint: "main" },
-    });
-    const ctx = { layout, pipeline };
-    pipelines.set(key, ctx);
-    return ctx;
-}
 
 // WebGPU constraint: MAP_WRITE buffers can only combine with COPY_SRC. The
 // stager can't itself be a STORAGE binding, hence the separate scatter
@@ -122,7 +49,7 @@ function createStager(device: GPUDevice, bytes: number): GPUBuffer {
  * types yield a {@link Single}, `vec2` yields a {@link Pair}, `vec4` yields
  * a {@link Quad}. {@link SlabSystem} flushes dirty slots into the canonical
  * GPU buffer once per frame via Toji's persistent-staging + scatter compute
- * (~2× faster than `writeBuffer` at production K; the `render` gym
+ * (far cheaper than a per-slot `writeBuffer` at any K; the `render` gym
  * scenario exercises this)
  *
  * write-only by design. GPU→CPU readback is a different shape
@@ -161,9 +88,16 @@ export class Slab {
 
     /** canonical GPU buffer; null until the first flush prepares it */
     gpu: GPUBuffer | null = null;
-    private _slots: GPUBuffer | null = null;
-    private _values: GPUBuffer | null = null;
-    private _bindGroup: GPUBindGroup | null = null;
+    /** the typed twin of {@link gpu} — published to `Compute.typed` under {@link name} */
+    typed: TgpuBuffer<d.AnyWgslData> | null = null;
+    private _slots: TgpuBuffer<d.AnyWgslData> | null = null;
+    private _values: TgpuBuffer<d.AnyWgslData> | null = null;
+    private _rawSlots: GPUBuffer | null = null;
+    private _rawValues: GPUBuffer | null = null;
+    private _bindGroup: TgpuBindGroup | null = null;
+    // the pipeline with this slab's bind group already bound. `.with(...)` returns a fresh wrapper each
+    // call, so binding once at prepare keeps the per-frame flush to one allocation per dispatch
+    private _bound: TgpuComputePipeline | null = null;
     private readonly _stagingPool: GPUBuffer[] = [];
     // bumped by release(): a stager whose mapAsync resolves after its epoch ended belongs to a
     // torn-down build (prior size, possibly prior device) and must be destroyed, not re-pooled
@@ -264,42 +198,46 @@ export class Slab {
         return out;
     }
 
-    prepare(device: GPUDevice): void {
+    prepare(): void {
         if (this.gpu || !this.gpuSupported) return;
-        const elementBytes = gpuElementBytes(this.type)!;
-        const valuesBytes = capacity * elementBytes;
-        const ctx = pipelines.get(scatterKey(this.type));
+        const element = elementOf(this.type)!;
+        const ctx = compiled(this.type);
         if (!ctx) {
             throw new Error(
                 `[slab] scatter pipeline for "${this.type.name}" not compiled — ` +
                     `declare SlabPlugin as a dependency so warm() compiles the pipeline.`,
             );
         }
-        this.gpu = device.createBuffer({
-            label: `slab-canonical-${this.type.name}`,
-            size: valuesBytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-        });
-        this._slots = device.createBuffer({
-            label: `slab-slots-${this.type.name}`,
-            size: (capacity + 1) * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this._values = device.createBuffer({
-            label: `slab-values-${this.type.name}`,
-            size: valuesBytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        this._bindGroup = device.createBindGroup({
-            label: `slab-scatter-${this.type.name}`,
-            layout: ctx.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this._slots } },
-                { binding: 1, resource: { buffer: this._values } },
-                { binding: 2, resource: { buffer: this.gpu } },
-            ],
-        });
-        if (this.name) Compute.buffers.set(this.name, this.gpu);
+        const root = Compute.root;
+        const values = d.arrayOf(element, capacity);
+        this.typed = root
+            .createBuffer(values)
+            .$usage("storage")
+            .$name(`slab-canonical-${this.type.name}`);
+        this._slots = root
+            .createBuffer(d.arrayOf(d.u32, capacity + 1))
+            .$usage("storage")
+            .$name(`slab-slots-${this.type.name}`);
+        this._values = root
+            .createBuffer(values)
+            .$usage("storage")
+            .$name(`slab-values-${this.type.name}`);
+        this.gpu = root.unwrap(this.typed);
+        this._rawSlots = root.unwrap(this._slots);
+        this._rawValues = root.unwrap(this._values);
+        // the layout and these buffers are built from the same `element`, so they agree by construction —
+        // but `element` is a runtime value, so TS sees a bare `AnyWgslData` against the layout's inferred
+        // element union and can't check the pairing.
+        this._bindGroup = root.createBindGroup(ctx.layout, {
+            slots: this._slots,
+            values: this._values,
+            canonical: this.typed,
+        } as never);
+        this._bound = ctx.pipeline.with(this._bindGroup);
+        if (this.name) {
+            Compute.buffers.set(this.name, this.gpu);
+            Compute.typed.set(this.name, this.typed);
+        }
     }
 
     // Multi-lane types copy `lanes` consecutive CPU elements per slot — any lane set dirties the whole
@@ -379,15 +317,20 @@ export class Slab {
     private release(): void {
         if (this.name && Compute.buffers?.get(this.name) === this.gpu) {
             Compute.buffers.delete(this.name);
+            Compute.typed?.delete(this.name);
         }
-        this.gpu?.destroy();
+        this.typed?.destroy();
         this._slots?.destroy();
         this._values?.destroy();
         for (const s of this._stagingPool) s.destroy();
         this.gpu = null;
+        this.typed = null;
         this._slots = null;
         this._values = null;
+        this._rawSlots = null;
+        this._rawValues = null;
         this._bindGroup = null;
+        this._bound = null;
         this._stagingPool.length = 0;
         this._epoch++;
     }
@@ -399,7 +342,7 @@ export class Slab {
         // Pipelines bind to the device they were compiled against; clearing
         // on reset forces recompile when a new build comes up with a fresh
         // device (every test).
-        pipelines.clear();
+        resetPipelines();
     }
 
     /**
@@ -422,9 +365,19 @@ export class Slab {
         }
     }
 
-    /** allocate the canonical buffer + scatter bind group for every live slab */
-    static prepareAll(device: GPUDevice): void {
-        for (const s of Slab._all) if (s.gpuSupported) s.prepare(device);
+    /** allocate the canonical buffer + scatter bind group for every live slab, then queue one forced
+     *  compile per element type — typegpu creates pipelines synchronously and Dawn defers the real
+     *  compile to the first dispatch, so without this the first frame pays it */
+    static prepareAll(): void {
+        for (const s of Slab._all) if (s.gpuSupported) s.prepare();
+        const forced = new Set<string>();
+        for (const s of Slab._all) {
+            const key = scatterKey(s.type);
+            if (!s._bound || forced.has(key)) continue;
+            forced.add(key);
+            const bound = s._bound;
+            precompile(`slab-scatter-${key}`, () => bound.dispatchWorkgroups(0));
+        }
     }
 
     /** unique gpu-supported types across every live slab — used at warm time */
@@ -453,39 +406,31 @@ export class Slab {
                 }
             }
             if (!anyDirty) continue;
-            const elementBytes = gpuElementBytes(slab.type)!;
-            const stagerBytes = (capacity + 1) * 4 + capacity * elementBytes;
+            const bytes = elementBytes(slab.type)!;
+            const stagerBytes = (capacity + 1) * 4 + capacity * bytes;
             const stager = slab._stagingPool.pop() ?? createStager(device, stagerBytes);
             const count = slab.pack(stager);
-            encoder.copyBufferToBuffer(stager, 0, slab._slots!, 0, (count + 1) * 4);
+            encoder.copyBufferToBuffer(stager, 0, slab._rawSlots!, 0, (count + 1) * 4);
             encoder.copyBufferToBuffer(
                 stager,
                 (capacity + 1) * 4,
-                slab._values!,
+                slab._rawValues!,
                 0,
-                count * elementBytes,
+                count * bytes,
             );
             used.push({ slab, stager, count });
         }
 
         if (used.length === 0) return;
 
-        // One compute pass for all slabs — pipeline switches only when type
-        // changes; bind group changes per slab. Saves N-1 beginComputePass/
-        // endPass round-trips.
+        // One compute pass for all slabs — each dispatch rebinds its own group; the pass is shared, which
+        // saves N-1 beginComputePass/endPass round-trips.
         const pass = encoder.beginComputePass({
             label: "slab-scatter",
             timestampWrites: Compute.span?.("slab:flush"),
         });
-        let lastPipeline: GPUComputePipeline | null = null;
         for (const { slab, count } of used) {
-            const ctx = pipelines.get(scatterKey(slab.type))!;
-            if (ctx.pipeline !== lastPipeline) {
-                pass.setPipeline(ctx.pipeline);
-                lastPipeline = ctx.pipeline;
-            }
-            pass.setBindGroup(0, slab._bindGroup!);
-            pass.dispatchWorkgroups(Math.ceil(count / 64));
+            slab._bound!.with(pass).dispatchWorkgroups(Math.ceil(count / 64));
         }
         pass.end();
 
@@ -509,8 +454,10 @@ export class Slab {
  * `vec2` returns a {@link Pair}; `vec4` returns a {@link Quad}. Bulk `set`
  * matches the lane count; partial writes go through the lane accessors.
  * Pass an optional `name` to publish the canonical GPU buffer under that
- * name in `Compute.buffers` once allocated; surfaces resolve bindings
- * against that registry, so named slabs become shader-visible by name
+ * name in `Compute.buffers` once allocated — and its typed twin under the
+ * same name in `Compute.typed`, for a consumer binding through a schema;
+ * surfaces resolve bindings against that registry, so named slabs become
+ * shader-visible by name
  *
  * @example
  * const Health = { current: slab(f32), max: slab(f32) };
@@ -563,10 +510,12 @@ export const SlabPlugin: Plugin = {
         Slab.collect();
     },
 
-    async warm() {
-        const device = Compute.device;
-        await Promise.all(Slab.gpuTypes().map((t) => compile(device, t)));
-        Slab.prepareAll(device);
+    // `warm` is the GPU-setup phase, so a device is assumed here — every call below allocates against
+    // it, and a headless build with a gpu-supported slab registered fails loud at the first one
+    warm(state) {
+        for (const t of Slab.gpuTypes()) scatterPipeline(t);
+        Slab.prepareAll();
+        allocMembership(state);
     },
 
     dispose() {

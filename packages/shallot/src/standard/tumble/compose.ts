@@ -4,8 +4,8 @@ import { ShapeKind } from "../physics";
 // `COMPOSE_PASS_WGSL` (avbd/step.ts). Factored out so the shortest-arc nlerp + per-shape render scale are
 // unit-testable without a GPU device or a live tumble World.
 
-/** shortest-arc nlerp from `prev` to `curr` at `t` (`XFORM_WGSL`'s `nlerpShortest`, ported to CPU): flip
- *  `prev` into `curr`'s hemisphere, lerp, renormalize. Returns the identity quat if the blend degenerates. */
+/** shortest-arc nlerp from `prev` to `curr` at `t`: flip `prev` into `curr`'s hemisphere, lerp,
+ *  renormalize. Returns the identity quat if the blend degenerates. */
 export function nlerpShortest(
     prev: readonly [number, number, number, number],
     curr: readonly [number, number, number, number],

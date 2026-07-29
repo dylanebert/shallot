@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
 import { createServer } from "vite";
-import type { Verdict } from "../src/harness";
+import type { GpuLog } from "../src/engine/runtime/log";
+import type { Check, Verdict } from "../src/harness";
 import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 import { devConfig } from "./dev";
 import { composeViteConfig, isProject, loadProjectConfig } from "./toolchain";
@@ -249,6 +250,26 @@ export function harnessPass(
     errorCount: number,
 ): boolean {
     return verdict.ok === true && rendered !== false && errorCount === 0;
+}
+
+// A GPU-side `console.log` prints only when its kernel's ring buffer is read back, which is why the
+// lines are worth surfacing at all: they are the one channel a shader has, and they otherwise scroll
+// past in a headless browser nobody is watching. Errors are the free assert — a kernel that detects a
+// bad state can say so and fail the gate from inside the shader.
+const GPU_LOG_SHOWN = 8;
+
+/** fold what GPU kernels printed into the verdict: one informational check carrying the lines, plus a
+ *  failing check when any of them came through `console.error`. Empty when nothing logged. */
+export function gpuLogChecks(log: GpuLog | null | undefined): Check[] {
+    if (!log || log.lines.length === 0) return [];
+    const shown = log.lines.slice(0, GPU_LOG_SHOWN);
+    const more = log.lines.length - shown.length;
+    const detail = shown.join(" | ") + (more > 0 ? ` | (+${more} more)` : "");
+    const checks: Check[] = [{ name: "gpu.log", ok: true, detail }];
+    if (log.errors.length > 0) {
+        checks.push({ name: "gpu.error", ok: false, detail: log.errors.join(" | ") });
+    }
+    return checks;
 }
 
 /** no-harness path passes when the scene booted, rendered a settled frame, and threw no page errors. */
@@ -683,7 +704,7 @@ async function serveDev(projectDir: string, port: number): Promise<Booter> {
         composeViteConfig(
             devConfig(projectDir, name, { port, strictPort: true, open: false }),
             project,
-            new Set(["shallot-project", "shallot-synth-index"]),
+            new Set(["shallot-project", "shallot-synth-index", "unplugin-typegpu"]),
         ),
     );
     await server.listen();
@@ -898,6 +919,15 @@ async function drive(
         errors,
     };
 
+    // The engine tees GPU log lines here, and only when this object already exists — presence is the
+    // opt-in, so a normal app never pays for a wrapped console. It has to land before the page's own
+    // scripts run: typegpu binds the console method at shader-generation time.
+    await page
+        .addInitScript(() => {
+            (window as unknown as { __gpuLog: unknown }).__gpuLog = { lines: [], errors: [] };
+        })
+        .catch(() => {});
+
     // retry the goto once only if the first attempt itself failed (a cold vite server can re-optimize
     // deps mid-load and strand it — the flows launcher's proven shape). Never re-navigate a page that
     // loaded: a second goto re-runs the app and diverges its first-load state.
@@ -946,19 +976,41 @@ async function drive(
     // read the adapter identity once the wait has concluded; a broken page returns "unknown", never a crash.
     base.hardware = await readHardware(page).catch(() => "unknown");
 
-    if (outcome === "harness") return driveHarness(page, base, args, errors);
+    if (outcome === "harness")
+        return withGpuLog(page, await driveHarness(page, base, args, errors));
 
     await maybeScreenshot(page, args.screenshot);
     // settled = the verdict; timed out structured-but-never-stable = an animated scene, rendered
     // (the caller's own gates judge motion); never structured = a blank canvas.
     const rendered = outcome === "settled" || st.prev != null;
-    return {
+    return withGpuLog(page, {
         ...base,
         booted: st.booted,
         rendered,
         // --memory needs a harness run() to measure across; a settle-only page has no steady state.
         ...(args.memory ? { memory: null } : {}),
         pass: settlePass(st.booted, rendered, errors.length),
+    });
+}
+
+/** merge the page's captured GPU log into a finished result. A GPU `console.error` fails the run
+ *  outright — a shader-side assert is a real verdict, not a note. */
+async function withGpuLog(page: Page, result: Result): Promise<Result> {
+    const log = (await page
+        .evaluate(() => (window as unknown as { __gpuLog?: GpuLog }).__gpuLog)
+        .catch(() => null)) as GpuLog | null;
+    const checks = gpuLogChecks(log);
+    if (checks.length === 0) return result;
+    const failed = checks.some((c) => !c.ok);
+    const prior = result.verdict ?? { ok: result.pass };
+    return {
+        ...result,
+        verdict: {
+            ...prior,
+            ok: prior.ok && !failed,
+            checks: [...(prior.checks ?? []), ...checks],
+        },
+        pass: result.pass && !failed,
     };
 }
 

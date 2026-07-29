@@ -15,9 +15,14 @@ let _mirror: Uint32Array<ArrayBuffer> | null = null;
  * allocate the mirror + CPU staging. Sized from the generation count, which
  * `build` fixes (it assigns every registered component its bit up front), so
  * the size never changes after this. COPY_SRC is for readback in tests/debug;
- * production only reads it in shaders
+ * production only reads it in shaders.
+ *
+ * Called from `SlabPlugin.warm`, not the system's `setup`: a consumer that binds `"membership"` builds
+ * its bind group at warm (the transform compose, so its pipeline can be force-compiled there), and a
+ * lazily-allocated buffer wouldn't exist yet.
+ * @internal
  */
-function alloc(state: State): void {
+export function allocMembership(state: State): void {
     _gpu?.destroy();
     _mirror = new Uint32Array(state.membership.generations * capacity);
     _gpu = Compute.device.createBuffer({
@@ -55,16 +60,12 @@ function release(): void {
  * flushes the component-membership bitset to the `"membership"` GPU buffer.
  * Draw-group head, before any index-scan consumer (the Part pack) reads it.
  * `mode: "always"` so it runs in edit mode too; the pack it feeds does.
- * Owns the buffer: allocates at setup (generation count is fixed by `build`),
- * releases on dispose
+ * The buffer is allocated by `SlabPlugin.warm` ({@link allocMembership}) and released here on dispose
  */
 export const MembershipSystem: System = {
     group: "draw",
     first: true,
     annotations: { mode: "always" },
-    setup(state) {
-        alloc(state);
-    },
     update(state) {
         flush(state);
     },

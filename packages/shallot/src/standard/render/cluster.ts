@@ -1,6 +1,6 @@
 import type { State, System } from "../../engine";
 import { Compute, capacity } from "../../engine";
-import { OCT_ENCODE_WGSL, XFORM_WGSL } from "../../engine/utils/core";
+import { octEncodeWgsl, xformWgsl } from "../../engine/utils/core";
 import { Camera, CameraMode } from "./camera";
 import {
     MAX_POINT_LIGHTS,
@@ -555,11 +555,11 @@ export async function warmLightCull(state: State): Promise<void> {
 
     // the GPU twin of the deleted CPU pack: membership-gated scan over capacity,
     // world position from the transforms firehose, hex sRGB color decoded to
-    // linear with intensity pre-baked, posRange.w = 1/range². OCT_ENCODE_WGSL is
+    // linear with intensity pre-baked, posRange.w = 1/range². `octEncodeWgsl()` is
     // spliced for octEncodeNormal (the spot cone axis packs into one params lane)
     const compactCode =
-        XFORM_WGSL +
-        OCT_ENCODE_WGSL +
+        xformWgsl() +
+        octEncodeWgsl() +
         /* wgsl */ `
 ${POINT_LIGHTS_STRUCT_WGSL.replace("count: vec4<u32>", "count: atomic<u32>,\n    _pad0: u32,\n    _pad1: u32,\n    _pad2: u32")}
 

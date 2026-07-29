@@ -130,10 +130,10 @@ import {
 // nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
 import { nlerpShortest } from "@dylanebert/shallot/tumble/core";
 import {
-    OCT_ENCODE_WGSL,
     octDecodeNormal,
-    octEncodeNormal,
-    packLdrColor,
+    octEncode,
+    octEncodeWgsl,
+    packColor4,
 } from "@dylanebert/shallot/utils/core";
 import {
     type Check,
@@ -824,7 +824,7 @@ async function transportCheck(): Promise<Check> {
     // the color slab mirrors as one sRGB-packed u32 per entity (srgb8x4); compare in the packed
     // domain — the scatter is a lossless u32 copy, so the readback equals the CPU pack of the sentinel
     const packed = new Uint32Array(snap.bytes);
-    const expected = packLdrColor(...SENTINEL);
+    const expected = packColor4(...SENTINEL);
     const near = (eid: number) => packed[eid] === expected;
     for (let i = 0; i < gridEids.length; i += 2) {
         if (!near(gridEids[i])) {
@@ -955,7 +955,9 @@ async function buildCull(state: State, p: Params): Promise<void> {
     // exist); then mirror them for the assert + live HUD readback.
     await frames(2);
     drawArgs = mirror(Parts.drawArgs!);
-    colorBuf = mirror(Color.rgba.gpu!); // allocated by SlabPlugin.warm, non-null by now
+    // through the typed twin, not the raw handle: `mirror()` takes either, and the transport check
+    // below is what proves the typed path reads back the same bytes on a real device
+    colorBuf = mirror(Compute.typed.get("color")!);
     clusterBuf = mirror(Clusters.aabbs!); // allocated by RenderPlugin.warm
     lightsBuf = mirror(LightCull.lights!);
     gridBuf = mirror(LightCull.grid!);
@@ -1634,7 +1636,7 @@ const SPOT_AXIS: [number, number, number] = [0, -1, 0];
 const SPOT_INNER = 30;
 const SPOT_OUTER = 55;
 const { scale: SPOT_SCALE, offset: SPOT_OFFSET } = spotParams(SPOT_INNER, SPOT_OUTER);
-const SPOT_AXIS_ENC = octEncodeNormal({ x: SPOT_AXIS[0], y: SPOT_AXIS[1], z: SPOT_AXIS[2] });
+const SPOT_AXIS_ENC = octEncode(SPOT_AXIS[0], SPOT_AXIS[1], SPOT_AXIS[2]);
 const SPOT_AXIS_DEC = octDecodeNormal(SPOT_AXIS_ENC);
 
 // the oracle's light in the decoded terms the GPU march reads — coneAxis is the oct round-trip the FS applies
@@ -1663,7 +1665,7 @@ function fogProbeCode(): string {
     return /* wgsl */ `
 ${FOG_STRUCT_WGSL}
 ${POINT_LIGHTS_STRUCT_WGSL}
-${OCT_ENCODE_WGSL}
+${octEncodeWgsl()}
 ${LIGHT_EVAL_WGSL}
 ${FOG_MARCH_WGSL}
 ${FOG_INSCATTER_WGSL}

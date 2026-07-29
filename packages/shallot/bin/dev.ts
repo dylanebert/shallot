@@ -1,6 +1,11 @@
 import { basename, relative, resolve } from "node:path";
 import { createServer, searchForWorkspaceRoot, type Plugin as VitePlugin } from "vite";
-import { CROSS_ORIGIN_ISOLATION, findPublicDirs, projectPlugin } from "../src/project/vite";
+import {
+    CROSS_ORIGIN_ISOLATION,
+    findPublicDirs,
+    projectPlugin,
+    typegpuPlugin,
+} from "../src/project/vite";
 import { synthIndex } from "./build";
 import { composeViteConfig, loadProjectConfig, requireProject } from "./toolchain";
 
@@ -32,7 +37,9 @@ export function devConfig(
     return {
         root: absProjectDir,
         configFile: false as const,
-        plugins: [projectPlugin(absProjectDir), synthIndexPlugin(name)],
+        // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback, and
+        // the engine's own kernels live in node_modules, so the transform must reach there too
+        plugins: [typegpuPlugin(), projectPlugin(absProjectDir), synthIndexPlugin(name)],
         server: {
             port: opts.port,
             strictPort: opts.strictPort,
@@ -81,7 +88,7 @@ export async function startDev(projectDir: string, opts: { port?: number; strict
         composeViteConfig(
             devConfig(absProjectDir, name, opts),
             project,
-            new Set(["shallot-project", "shallot-synth-index"]),
+            new Set(["shallot-project", "shallot-synth-index", "unplugin-typegpu"]),
         ),
     );
     await server.listen();

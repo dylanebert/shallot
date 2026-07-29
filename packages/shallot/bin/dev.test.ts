@@ -21,10 +21,13 @@ describe("devConfig", () => {
     const dir = mkdtempSync(join(tmpdir(), "shallot-dev-"));
     writeFileSync(join(dir, "shallot.json"), '{ "scene": null, "plugins": {} }\n');
 
-    test("roots vite at the project with the project + synth-index plugins", () => {
+    test("roots vite at the project with the TGSL transform + project + synth-index plugins", () => {
         const config = devConfig(dir, "demo", { open: false });
         expect(config.root).toBe(dir);
+        // a manifest project ships no vite config of its own, so the CLI is the only place the TGSL
+        // transform can come from — without it every engine shader resolves with no metadata
         expect(config.plugins.map((p) => p.name)).toEqual([
+            "unplugin-typegpu",
             "shallot-project",
             "shallot-synth-index",
         ]);

@@ -7,7 +7,7 @@ import { registerSkinSurfaces } from "./skin";
 
 // Structural validation of the `skin-live` surface's WGSL codegen (`surfaceCode` is pure — no GPU, the
 // sprite.test.ts pattern). The vs must decode the packed joints/weights, blend the Xform-shaped palette via
-// the spliced XFORM_WGSL, and apply the instance transform; the fs reads the tint from the palette header
+// the spliced `xformWgsl()` chunk, and apply the instance transform; the fs reads the tint from the palette header
 // (the color fold), never a `color` binding. The substrate those chunks come from (`extras/skin`) is spec'd
 // in its own tests — the equivalence gate that licenses the blend math included. Real-GPU compile + the
 // deform/shadow/bounds behavior live in the gym `render` `skin-live` mode.
@@ -15,7 +15,7 @@ import { registerSkinSurfaces } from "./skin";
 describe("skin-live surface trio", () => {
     beforeEach(() => registerLiveSkinSurfaces());
 
-    test("the vs decodes packed JW and blends the palette through the spliced XFORM_WGSL", () => {
+    test("the vs decodes packed JW and blends the palette through the spliced xformWgsl()", () => {
         const code = surfaceCode(Surfaces.get("skin-live")!);
         // JW region B is keyed by vidx, 2 verts per vec4 (gpu.md rule 6): the mesh's jwBase + the vertex's
         // half, then the 4×u8 joint unpack + the 4×unorm8 weight unpack

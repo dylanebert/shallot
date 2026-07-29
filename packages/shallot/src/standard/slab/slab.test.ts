@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
     build,
+    entity,
     f16x4,
     f32,
     type Plugin,
@@ -15,6 +16,7 @@ import {
 } from "../..";
 import { clear, lanes, register } from "../../engine/ecs/core";
 import { Slab, SlabPlugin } from "./";
+import { elementBytes, scatterWgsl } from "./scatter";
 
 // Pure-CPU slab logic (no device): CPU-storage alloc, set/get + dirty bits, defaults-through-.set,
 // and the sub-32-bit warn. The real-GPU scatter flush (dirty slots → the canonical buffer, per type,
@@ -256,5 +258,38 @@ describe("packed-mirror slabs (srgb8x4 / f16x4)", () => {
             .map((t) => t.gpu?.wgsl ?? t.wgsl)
             .sort();
         expect(keys).toEqual(["u32", "vec2<u32>"]); // srgb8x4 + u32 collapse to "u32"; f16x4 separate
+    });
+});
+
+describe("scatter kernel", () => {
+    // the emitted WGSL, resolved with no device (testing.md: structural validation is the `bun test`
+    // tier; the kernel actually running is the gym `render` transport round-trip).
+    test("the element schema drives every array binding", () => {
+        const wgsl = scatterWgsl(vec4);
+        expect(wgsl).toContain("var<storage, read> slots: array<u32>");
+        expect(wgsl).toContain("var<storage, read> values: array<vec4f>");
+        expect(wgsl).toContain("var<storage, read_write> canonical: array<vec4f>");
+        expect(wgsl).toContain("canonical[slots[(i + 1u)]] = values[i]");
+        // the count guard is what keeps a dispatch's padding threads off the buffer
+        expect(wgsl).toContain("if ((i >= count))");
+    });
+
+    test("a packed type emits its mirror's element, not its CPU lanes", () => {
+        // srgb8x4 is four lossless CPU floats mirrored as one u32 — the kernel copies the mirror
+        expect(scatterWgsl(srgb8x4)).toBe(scatterWgsl(u32));
+        expect(scatterWgsl(f16x4)).toContain("array<vec2u>");
+    });
+
+    test("element bytes match the packer's word count", () => {
+        // `Type.gpu.bytes` drives `pack`'s stride into the stager and the schema drives the buffer size;
+        // a disagreement would scatter a slot's words into the wrong slot
+        expect(elementBytes(srgb8x4)).toBe(srgb8x4.gpu!.bytes);
+        expect(elementBytes(f16x4)).toBe(f16x4.gpu!.bytes);
+        expect(elementBytes(vec4)).toBe(16);
+        expect(elementBytes(f32)).toBe(4);
+        // keyed by the WGSL element, not the descriptor's name: `entity` is a u32 that a name-keyed
+        // lookup misses, and a slab of one would size its stager off a missing element width
+        expect(elementBytes(entity)).toBe(4);
+        expect(elementBytes(u8)).toBeNull();
     });
 });

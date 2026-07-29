@@ -7,6 +7,7 @@ import {
     coerceVerdict,
     type FrameSample,
     fitMemory,
+    gpuLogChecks,
     gridDiff,
     harnessPass,
     hasStructure,
@@ -313,5 +314,32 @@ describe("benchTimeout", () => {
 
     test("an explicit --timeout is honored on an undeclared scenario too", () => {
         expect(benchTimeout("render", 5_000)).toBe(5_000);
+    });
+});
+
+describe("gpuLogChecks", () => {
+    test("nothing logged means no checks — verdicts stay unchanged", () => {
+        expect(gpuLogChecks(null)).toEqual([]);
+        expect(gpuLogChecks({ lines: [], errors: [] })).toEqual([]);
+    });
+
+    test("lines surface as one informational check, truncated past 8", () => {
+        const lines = Array.from({ length: 11 }, (_, i) => `line ${i}`);
+        const [check, ...rest] = gpuLogChecks({ lines, errors: [] });
+        expect(rest).toEqual([]);
+        expect(check.name).toBe("gpu.log");
+        expect(check.ok).toBe(true);
+        expect(check.detail).toContain("line 0");
+        expect(check.detail).toContain("(+3 more)");
+        expect(check.detail).not.toContain("line 8");
+    });
+
+    test("a GPU console.error is a failing check — the shader-side assert channel", () => {
+        const checks = gpuLogChecks({ lines: ["ok", "bad normal"], errors: ["bad normal"] });
+        expect(checks.map((c) => [c.name, c.ok])).toEqual([
+            ["gpu.log", true],
+            ["gpu.error", false],
+        ]);
+        expect(checks[1].detail).toBe("bad normal");
     });
 });

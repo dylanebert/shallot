@@ -1,6 +1,6 @@
 import type { Plugin, System } from "../../engine";
 import { Compute, compose, decompose, multiply, vec4 } from "../../engine";
-import { packLdrColor } from "../../engine/utils/core";
+import { packColor4 } from "../../engine/utils/core";
 import { Color } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
 import type { Binding } from "../../standard/render/core";
@@ -46,7 +46,7 @@ export const skinTraits = {
 
 // skinData element = one 16-byte vec4 (u32 lanes for the header/JW, f32 lanes bitcast for the palette Xforms).
 const VEC4_BYTES = 16;
-// a palette entry is an Xform (XFORM_WGSL: pos+pad, quat, scale+pad) = 12 floats = 3 vec4.
+// a palette entry is an Xform (the `Xform` schema: pos+pad, quat, scale+pad) = 12 floats = 3 vec4.
 export const PALETTE_STRIDE = 3;
 // each instance block leads with a header vec4 (packed color, jointCount, flags) — color folded here so the
 // separate `color` slab binding can be dropped (consolidation #3), keeping the surface at 10 storage buffers.
@@ -188,7 +188,7 @@ export function skinMatrix(
     return multiply(_posed, invBind, out ?? new Float32Array(16));
 }
 
-// rotate `v` by quaternion `q` (xyzw) — the CPU twin of XFORM_WGSL's `xformQuat`.
+// rotate `v` by quaternion `q` (xyzw) — a CPU-local twin of the codec's `xformQuat`.
 function qRotate(
     qx: number,
     qy: number,
@@ -407,7 +407,7 @@ export const LiveSkin = {
         const size = blockVec4(jointCount);
         const base = this.take(size);
         this.blocks.set(eid, { base, jointCount, size, stamp });
-        writeHeader(this.paletteU32, base, packLdrColor(1, 1, 1, 1), jointCount, 0);
+        writeHeader(this.paletteU32, base, packColor4(1, 1, 1, 1), jointCount, 0);
         for (let j = 0; j < jointCount; j++) {
             const o = (base + HEADER_VEC4 + j * PALETTE_STRIDE) * 4;
             // identity Xform: pos 0, quat (0,0,0,1), scale 1
@@ -550,7 +550,7 @@ export const LiveSkin = {
         if (!device) return;
         for (const [eid, block] of this.blocks) {
             Color.rgba.read(eid, _color);
-            const packed = packLdrColor(_color[0], _color[1], _color[2], _color[3]);
+            const packed = packColor4(_color[0], _color[1], _color[2], _color[3]);
             if (this.paletteU32[block.base * 4] !== packed) {
                 this.paletteU32[block.base * 4] = packed;
                 this.dirty.add(eid);
@@ -720,7 +720,7 @@ fn liveTint(e: u32) -> vec4<f32> {
  *  skinned mesh's local vertex index — 2 verts per vec4, 8 B/vertex, gpu.md rule 6), then blend the
  *  instance's palette Xforms (region A, based at `skin[eid].x`). `p' = Σ wᵢ·xformPoint(palette[base+1+jᵢ],
  *  localPos)` — algebraically the matrix LBS `bakeVat` bakes (the equivalence gate pins them equal), so the
- *  palette entries being Xform-shaped lets the VS reuse the spliced XFORM_WGSL `xformPoint`/`xformNormal`
+ *  palette entries being Xform-shaped lets the VS reuse the spliced xformWgsl() `xformPoint`/`xformNormal`
  *  verbatim (zero new transform WGSL). The normal blends as a plain vec3 and renormalizes — never oct across
  *  a blend (gpu.md rule 9, the VAT lesson). Palettes are object-space (root-relative), so the standard
  *  instance transform (`transforms[eid]`, applied here after the blend) still carries the skinned pose to

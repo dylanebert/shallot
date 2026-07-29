@@ -2,7 +2,13 @@ import { execSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import { basename, relative, resolve } from "node:path";
 import { build as viteBuild } from "vite";
-import { discoverScenes, findPublicDirs, manifestPath, projectPlugin } from "../src/project/vite";
+import {
+    discoverScenes,
+    findPublicDirs,
+    manifestPath,
+    projectPlugin,
+    typegpuPlugin,
+} from "../src/project/vite";
 import { requiredFeatures, verdict } from "./features";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 import { composeViteConfig, loadProjectConfig } from "./toolchain";
@@ -72,12 +78,20 @@ export async function buildWeb(projectDir: string): Promise<void> {
             base: "./",
             configFile: false as const,
             logLevel: "warn" as const,
-            plugins: [projectPlugin(resolve(projectDir))],
+            // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback,
+            // and the engine's own kernels live in node_modules, so the transform must reach there too
+            plugins: [typegpuPlugin(), projectPlugin(resolve(projectDir))],
             build: { target: "esnext", outDir: "dist", emptyOutDir: true },
         };
         // drop a project's own copy of the host plugin (a project may declare `projectPlugin` for an
         // ejected harness; the build host provides it).
-        await viteBuild(composeViteConfig(buildConfig, project, new Set(["shallot-project"])));
+        await viteBuild(
+            composeViteConfig(
+                buildConfig,
+                project,
+                new Set(["shallot-project", "unplugin-typegpu"]),
+            ),
+        );
     } finally {
         rmSync(entry, { force: true });
     }

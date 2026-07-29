@@ -1,6 +1,14 @@
 import { type Component, State, type System } from "../ecs";
 import { entries, fields, register, type Traits } from "../ecs/core";
-import { Compute, now, Runtime, readFile, requestFrame, requestGPU } from "../runtime";
+import {
+    Compute,
+    now,
+    precompileAll,
+    Runtime,
+    readFile,
+    requestFrame,
+    requestGPU,
+} from "../runtime";
 import { diagnose, load, parse } from "../scene";
 import { preload } from "../scene/core";
 import { coalesce, median } from "./coalesce";
@@ -260,6 +268,11 @@ export async function build(config: Config): Promise<App> {
                 loading?.update((warmBase + warmDone) / total);
             }),
         );
+
+        // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
+        // so every registered pipeline is forced to compile here — under the loading screen, not as a
+        // multi-second stall on the first frame
+        precompileAll();
 
         if (cleanup) {
             loading?.update(1);

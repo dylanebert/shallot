@@ -1,5 +1,5 @@
 import { Compute, Registry } from "../../engine";
-import { octEncodeNormal, pack2x16unorm } from "../../engine/utils/core";
+import { octEncode, packUnorm2 } from "../../engine/utils/core";
 
 /**
  * registered vertex-pull geometry: a slice descriptor into the quantized vertex
@@ -16,7 +16,7 @@ import { octEncodeNormal, pack2x16unorm } from "../../engine/utils/core";
  * set — every static mesh is a slice (its own `indexBase` + meshId) of the same
  * buffers, so sear binds geometry once and the layout is `multi-draw-indirect`
  * ready. Procedural producers (compute-driven terrain, particle ribbons) allocate
- * their own `GPUBuffer`s (emitting the same quantized format via `POS_QUANT_PACK_WGSL`)
+ * their own `GPUBuffer`s (emitting the same quantized format via `posQuantPackWgsl()`)
  * and register directly. Meshes sharing a buffer set share a bind group in sear
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
@@ -85,7 +85,7 @@ export const Meshes: Registry<Mesh> = new Registry<Mesh>();
 
 /** bytes per vertex in the **f32 staging array** producers fill (8 floats × 4 = 32 B). The lossless
  *  authoring layout. {@link quantizeMeshes} packs it to the 16 B GPU main stream + 8 B position stream
- *  (gpu.md rule 6); a GPU producer writes those directly via `POS_QUANT_PACK_WGSL`. */
+ *  (gpu.md rule 6); a GPU producer writes those directly via `posQuantPackWgsl()`. */
 export const VERTEX_STRIDE = 32;
 
 /** f32 lanes per vertex in the staging array: `px py pz u  nx ny nz v` (the `posU` + `normalV` authoring layout) */
@@ -272,7 +272,7 @@ export interface QuantStreams {
  * so the decode selects the right `MeshQuant` from a plain storage table: no
  * per-draw uniform, works unchanged in render bundles. Pure: the single emitter
  * both `flushMeshes` and the glTF importer call, paired with the WGSL `decodePos`
- * (`POS_QUANT_WGSL`) so the lattice can't drift between writer and reader.
+ * (`posQuantWgsl()`) so the lattice can't drift between writer and reader.
  */
 export function quantizeMeshes(
     vertices: Float32Array,
@@ -321,20 +321,17 @@ export function quantizeMeshes(
         for (let v = 0; v < s.vertexCount; v++) {
             const i = (s.vertexBase + v) * VERTEX_FLOATS;
             const vi = s.vertexBase + v;
-            const w0 = pack2x16unorm(
+            const w0 = packUnorm2(
                 norm(vertices[i], pmin[0], pext[0]),
                 norm(vertices[i + 1], pmin[1], pext[1]),
             );
-            const z16 = Math.round(
-                Math.max(0, Math.min(1, norm(vertices[i + 2], pmin[2], pext[2]))) * 65535,
-            );
-            const w1 = ((z16 & 0xffff) | (meshId << 16)) >>> 0;
-            const w2 = octEncodeNormal({
-                x: vertices[i + 4],
-                y: vertices[i + 5],
-                z: vertices[i + 6],
-            });
-            const w3 = pack2x16unorm(
+            // the z lane rides the same unorm16 lattice as w0's x/y — pack it as a lane and keep the
+            // low half, so all three position lanes round on one lattice (a bare f64 round here lands
+            // on the other lattice point wherever the f32 product straddles a midpoint)
+            const z16 = packUnorm2(norm(vertices[i + 2], pmin[2], pext[2]), 0) & 0xffff;
+            const w1 = (z16 | (meshId << 16)) >>> 0;
+            const w2 = octEncode(vertices[i + 4], vertices[i + 5], vertices[i + 6]);
+            const w3 = packUnorm2(
                 norm(vertices[i + 3], umin[0], uext[0]),
                 norm(vertices[i + 7], umin[1], uext[1]),
             );

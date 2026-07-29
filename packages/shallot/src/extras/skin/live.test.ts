@@ -19,7 +19,7 @@ import {
 // load-bearing case is the EQUIVALENCE GATE: the Xform-decomposed palette path (decompose each skin matrix
 // → blend the Xforms per vertex) must reproduce `bakeVat`'s matrix linear-blend skinning on the same hand
 // rigs, byte-for-byte to f32. That equivalence is what licenses the surface `vs` to reuse the spliced
-// XFORM_WGSL `xformPoint` (a decomposed-Xform blend) as its skinning math. `bakeVat` is the glTF importer's
+// `xformPoint` (a decomposed-Xform blend) as its skinning math. `bakeVat` is the glTF importer's
 // clip baker — the substrate's reference lives across the module boundary on purpose: it's the independently
 // derived truth, not a second copy of this file's math. The rest pins the block layout arithmetic (both grow
 // paths, hole reuse, base stability) + the header fold + the shear residual guard. The `skin-live` surface

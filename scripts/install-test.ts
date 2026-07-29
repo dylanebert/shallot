@@ -202,6 +202,70 @@ function recipeFlow(work: string, engineTgz: string) {
     );
 }
 
+// The engine's shaders are TGSL: JS function bodies transpiled to WGSL at BUILD time by
+// `unplugin-typegpu`, with no runtime fallback. A consumer whose bundler lacks the transform gets no
+// metadata at all — silently wrong shaders, NaN out of CPU-called kernels — and nothing about the
+// packaging surface shows it, so this flow is the only place the contract is checked end to end. It
+// runs an engine TGSL fn through `tgpu.resolve` in the installed project and asserts the emitted
+// WGSL, both with the transform (green) and without it (red — the metadata really does come from the
+// plugin, not from anything shipped in the tarball).
+// the canary's transpiled body, quote-agnostic (a minifier picks the quote style). NOT
+// `__TYPEGPU_META__` — typegpu's own runtime reads that name, so it ships either way and a check on it
+// passes with no transform at all (measured, 2026-07-29).
+const TRANSPILED =
+    /["'`]?body["'`]?:\[0,\[\[10,\[1,["'`]x["'`],["'`]\+["'`],\[5,["'`]1["'`]\]\]\]\]\]/;
+
+function tgslFlow(sandbox: string, dist: string) {
+    console.log("TGSL distribution (the build transform + an executing resolve)…");
+
+    // the vite arm: the sandbox's own sources carry no typegpu, so any metadata in dist came from
+    // engine source inside node_modules — what the CLI's synthesized config has to reach
+    const assets = existsSync(join(dist, "assets")) ? readdirSync(join(dist, "assets")) : [];
+    const bundled = assets
+        .filter((f) => f.endsWith(".js"))
+        .map((f) => readFileSync(join(dist, "assets", f), "utf8"))
+        .join("");
+    check(
+        "the vite build transformed engine TGSL inside node_modules",
+        TRANSPILED.test(bundled) && bundled.includes("externalNames"),
+        assets.join(", ") || "(no assets dir)",
+    );
+
+    // the recipe a plain bun/node consumer follows, exactly as the repo runs it (packages/shallot/
+    // tests/tgsl.ts): `.ts` only, because the bun arm re-emits every file its filter matches with an
+    // explicit loader — including the ones it prunes — which strips CJS default-export interop from a
+    // plain `.js` dependency. Shipping the unfiltered form here would document a recipe that breaks
+    // the moment the consumer imports a CJS package.
+    writeFileSync(
+        join(sandbox, "tgsl-preload.ts"),
+        `import { plugin } from "bun";\n` +
+            `import typegpu from "unplugin-typegpu/bun";\n` +
+            `plugin(typegpu({ include: /\\.tsx?$/ }));\n`,
+    );
+    writeFileSync(
+        join(sandbox, "tgsl-check.ts"),
+        `import tgpu from "typegpu";\n` +
+            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
+            `const wgsl = tgpu.resolve([tgslCanary]);\n` +
+            `if (!wgsl.includes("(x + 1u)")) { console.error("unexpected WGSL:\\n" + wgsl); process.exit(1); }\n` +
+            `console.log("TGSL_OK " + wgsl.replace(/\\s+/g, " "));\n`,
+    );
+
+    const green = run(["bun", "--preload", "./tgsl-preload.ts", "tgsl-check.ts"], sandbox);
+    check(
+        "an installed engine TGSL fn resolves to its WGSL under the transform",
+        green.ok && /TGSL_OK .*fn \w+\(x: u32\) -> u32/.test(green.out),
+        green.ok ? green.out.trim().slice(0, 200) : green.out.slice(-400),
+    );
+    // the red arm — without it the check above passes on a tarball that shipped no metadata at all
+    const red = run(["bun", "tgsl-check.ts"], sandbox);
+    check(
+        "the same resolve fails without the transform (metadata comes from the plugin)",
+        !red.ok && /Missing metadata/.test(red.out),
+        red.ok ? "resolved without the plugin — the check proves nothing" : "",
+    );
+}
+
 // realpath: macOS tmpdir is a symlink (/var → /private/var); vite realpaths files before the
 // fs.allow prefix check, so the sandbox paths must be the resolved form or /@fs requests 403
 const work = realpathSync(mkdtempSync(join(tmpdir(), "shallot-install-")));
@@ -342,6 +406,8 @@ try {
             assets.join(", ") || "(no assets dir)",
         );
 
+        tgslFlow(sandbox, dist);
+
         // the dev server: live resolution + asset serving over vite (a different path than the build
         // bundle — it's where the cross-repo fs.allow / wasm-serving lives).
         console.log("shallot dev (boot + resolve + serve the wasm)…");
@@ -392,6 +458,20 @@ try {
                 const res = await fetch(`http://localhost:${port}/@fs${wasmFs}`);
                 const magic = new Uint8Array(
                     (res.ok ? await res.arrayBuffer() : new ArrayBuffer(0)).slice(0, 4),
+                );
+                // the dev arm of the TGSL contract: `shallot dev` synthesizes its own vite config, a
+                // different path than the build above, and it must transform engine source in
+                // node_modules too. Ask the server for the module the page imports and read what it
+                // serves. (It does not cover a prebundled `.vite/deps` copy — dep optimization runs on
+                // page load, which this headless boot never performs.)
+                const engineMod = await fetch(
+                    `http://localhost:${port}/node_modules/@dylanebert/shallot/src/engine/runtime/gpu.ts`,
+                );
+                const served = engineMod.ok ? await engineMod.text() : "";
+                check(
+                    "dev serves engine TGSL through the transform",
+                    TRANSPILED.test(served),
+                    engineMod.ok ? "" : `HTTP ${engineMod.status}`,
                 );
                 check(
                     "dev serves the audio wasm (fs.allow ok, valid magic 0061736d)",

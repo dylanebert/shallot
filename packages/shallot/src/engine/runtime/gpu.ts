@@ -1,3 +1,7 @@
+import tgpu, { type TgpuBuffer, type TgpuRoot } from "typegpu";
+import { type AnyData, u32 } from "typegpu/data";
+import { captureGpuLog } from "./log";
+
 /**
  * thrown when the device can't meet a required WebGPU feature or limit. `missing` names the absent
  * feature(s); {@link requestGPU} throws it before any plugin loads, so an unsupported device fails loud
@@ -73,6 +77,15 @@ export function checkTextureLimits(
 export interface Compute {
     /** active GPU device */
     readonly device: GPUDevice;
+    /**
+     * TypeGPU root adopting {@link device} — the handle every typed buffer, bind group, and pipeline
+     * is created through, and the reach-back out (`root.unwrap(...)`) to the raw WebGPU handle.
+     * Created by {@link requestGPU} (never at import time — the module stays side-effect free) and
+     * **memoized per device**: a rebuild on the same device keeps the same root, so a cross-build memo
+     * may hold a typed resource exactly like a raw one. It has no teardown of its own — typed
+     * resources die with the device, and an adopted device's lifetime is the host's
+     */
+    readonly root: TgpuRoot;
     /** monotonically incremented per frame */
     frame: number;
     /** frames submitted but not yet retired by the GPU */
@@ -99,6 +112,13 @@ export interface Compute {
      * binding resolve the name here at bind-group build time
      */
     readonly samplers: Map<string, GPUSampler>;
+    /**
+     * typed twins of {@link buffers}, keyed by the same names: a producer that owns a schema
+     * publishes the {@link TgpuBuffer} here beside the raw handle, so a typed consumer binds it
+     * without re-declaring the layout and a raw consumer keeps reading `buffers`. Wiped with the
+     * raw maps on every {@link requestGPU}, so a producer re-publishes each build
+     */
+    readonly typed: Map<string, TgpuBuffer<AnyData>>;
     /** optional GPU timestamp slot allocator hook; returns writes for a pass descriptor */
     span?: (
         name: string,
@@ -162,22 +182,145 @@ export function resolveFeatures(
 }
 
 /**
+ * the TGSL build-metadata canary. A TGSL function body is transpiled at **build** time by
+ * `unplugin-typegpu` (typegpu parses nothing at runtime), so a bundle built without the plugin carries
+ * no metadata at all — resolution throws deep inside a pipeline and CPU-called kernels silently return
+ * NaN. Resolve it to prove your build ran the transform; {@link checkTgsl} does exactly that.
+ * @example
+ * const wgsl = tgpu.resolve([tgslCanary]); // "fn canary(x: u32) -> u32 { return (x + 1u); }"
+ */
+export const tgslCanary = tgpu.fn(
+    [u32],
+    u32,
+)((x) => {
+    "use gpu";
+    return x + 1;
+});
+
+// the version our copy of typegpu stamped when this module imported it. Two copies in one bundle share
+// the `__TYPEGPU_META__` global AND delete from it, so they race; typegpu only console.warns. Snapshot
+// it here and compare at check time — that catches a second copy loaded *after* the engine's, the
+// direction module evaluation makes observable.
+const _globals = globalThis as unknown as Record<string, string | undefined>;
+const _typegpuVersion = _globals.__TYPEGPU_VERSION__;
+
+/**
+ * fail loud when the engine's own TGSL carries no build metadata, the one failure mode of the mandatory
+ * build plugin and otherwise a silent wrong-answer class. {@link requestGPU} calls it before touching
+ * the adapter.
+ *
+ * It proves exactly one thing: the engine's `.ts` modules went through the transform. It says nothing
+ * about *your* TGSL — a config that reaches `node_modules` but skips your source (or a `.svelte` /
+ * `.vue` block outside the transform's file filter) still passes here and fails at your own kernel.
+ */
+export function checkTgsl(): void {
+    const version = _globals.__TYPEGPU_VERSION__;
+    if (version !== _typegpuVersion) {
+        throw new Error(
+            `Two copies of typegpu are loaded (${_typegpuVersion} and ${version}). They share one ` +
+                "metadata map and delete from it, so kernels resolve empty at random. Dedupe typegpu " +
+                "to a single copy — it is a peerDependency of the engine for exactly this reason.",
+        );
+    }
+    try {
+        tgpu.resolve([tgslCanary]);
+    } catch (cause) {
+        throw new Error(
+            "TGSL metadata is missing — this bundle was built without the typegpu transform, so every " +
+                "engine shader would resolve wrong. Add `typegpu()` from `unplugin-typegpu/vite` to your " +
+                "vite config (`shallot dev` / `shallot build` projects already have it), or register " +
+                "`unplugin-typegpu/bun` in a bun preload.",
+            { cause },
+        );
+    }
+}
+
+interface Forcer {
+    label: string;
+    force: () => void;
+}
+
+// pipelines queued for a forced compile at the end of warm, and whether that drain has already run for
+// this build (see `precompile`)
+const _precompile: Forcer[] = [];
+let _drained = false;
+
+function compile({ label, force }: Forcer): void {
+    try {
+        force();
+    } catch (cause) {
+        throw new Error(`precompile "${label}" failed — its pipeline did not compile`, { cause });
+    }
+}
+
+/**
+ * force a pipeline to compile before the first frame. typegpu has no async pipeline creation —
+ * unwrapping a pipeline calls the synchronous `create*Pipeline`, and Dawn defers the real compile to
+ * the first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers a
+ * 0-workgroup dispatch from its `warm`; `build` drains the queue once every plugin has warmed, so the
+ * compile is paid under the loading screen. Registered *after* that drain (a lazily-built pipeline, a
+ * post-warm producer), the dispatch runs immediately instead — late is better than silently dropped.
+ * `label` names the pipeline in the failure when the dispatch throws.
+ * @example
+ * precompile("narrowphase", () => pipeline.dispatchWorkgroups(0));
+ * @internal
+ */
+export function precompile(label: string, force: () => void): void {
+    if (_drained) compile({ label, force });
+    else _precompile.push({ label, force });
+}
+
+/**
+ * drain the {@link precompile} queue. `build` calls it after every plugin `warm`; a forcer registered
+ * afterwards runs on arrival. Entries leave the queue one at a time, so a throwing forcer names itself
+ * and leaves the rest queued rather than taking them down with it.
+ * @internal
+ */
+export function precompileAll(): void {
+    _drained = true;
+    while (_precompile.length > 0) compile(_precompile.shift()!);
+}
+
+// the root is device-scoped, not build-scoped. A device outlives any one build (a host sharing one
+// across builds is the cross-build memo case), and `initFromDevice`'s `destroy` frees nothing but the
+// texture cache — so a per-build teardown would buy no cleanup and leave a window where `Compute.root`
+// is undefined. One root per device, memoized; it dies with the device, exactly like a raw GPUBuffer.
+let _rootDevice: GPUDevice | undefined;
+let _root: TgpuRoot | undefined;
+
+function adopt(device: GPUDevice): TgpuRoot {
+    if (_root && _rootDevice === device) return _root;
+    _precompile.length = 0;
+    _rootDevice = device;
+    _root = tgpu.initFromDevice({ device });
+    return _root;
+}
+
+/**
  * populate the {@link Compute} singleton. With no argument, acquires a device
  * via `navigator.gpu` and enforces shallot's feature floor (the base floor plus
  * any `features` the active plugins require), throwing {@link UnsupportedError}
  * otherwise. `preferred` features are requested only where the adapter has them
  * (never gating the device). Pass an external device to adopt it as-is; the caller
- * is responsible for feature support.
+ * is responsible for feature support. Either way the device is adopted by {@link Compute.root}, the
+ * TypeGPU handle typed resources are created through — memoized per device, so only a *new* device
+ * mints a new root.
  */
 export async function requestGPU(
     device?: GPUDevice,
     features: readonly GPUFeatureName[] = [],
     preferred: readonly GPUFeatureName[] = [],
 ): Promise<Compute> {
+    // before anything resolves: typegpu binds the console method a TGSL `console.log` calls at
+    // shader-generation time, so a capture installed later never sees that kernel's lines.
+    captureGpuLog();
+    checkTgsl();
     const d = device ?? (await acquireDevice(features, preferred));
+    _drained = false;
     let inFlight = 0;
     return Object.assign(Compute, {
         device: d,
+        root: adopt(d),
         frame: 0,
         pending: () => inFlight,
         sync: () => {
@@ -189,6 +332,7 @@ export async function requestGPU(
         buffers: new Map<string, GPUBuffer>(),
         textures: new Map<string, GPUTexture>(),
         samplers: new Map<string, GPUSampler>(),
+        typed: new Map<string, TgpuBuffer<AnyData>>(),
     });
 }
 

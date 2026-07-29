@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Slab } from "../slab";
+import { composeWgsl } from "./compose";
 import { composeTransform, Transform } from "./index";
 
 // Pre-test gate for the transform-firehose decompose-on-read change (roadmap render-perf Stage 1).
@@ -156,5 +157,26 @@ describe("transform firehose decompose-on-read (pre-test gate)", () => {
             const correct = normalize(mul3(invTranspose3(mat3(m)), n));
             for (let i = 0; i < 3; i++) expect(current[i]).toBeCloseTo(correct[i], 5);
         }
+    });
+});
+
+describe("compose kernel", () => {
+    // the emitted WGSL, resolved with no device. The pass actually running is the gym `render`
+    // scenario's transport + survivor asserts (testing.md: real-GPU truth lives there).
+    test("the membership gate folds to literals", () => {
+        const wgsl = composeWgsl(65536, 4, 65536);
+        // an ungated compose would stomp the physics backend's records in the shared firehose
+        expect(wgsl).toContain("if (((membership[(65536u + i)] & 4u) == 0u))");
+        expect(wgsl).toContain("if ((i >= 65536u))");
+    });
+
+    test("the firehose element is Xform, gathered from the three slabs", () => {
+        const wgsl = composeWgsl(0, 1, 8);
+        expect(wgsl).toContain("var<storage, read_write> transforms: array<Xform>");
+        expect(wgsl).toContain("struct Xform");
+        for (const slab of ["pos", "rot", "scale"]) {
+            expect(wgsl).toContain(`var<storage, read> ${slab}: array<vec4f>`);
+        }
+        expect(wgsl).toContain("transforms[i] = Xform(");
     });
 });

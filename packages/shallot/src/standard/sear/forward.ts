@@ -25,10 +25,10 @@ import {
     unpackColor,
 } from "../../engine";
 import {
-    LDR_COLOR_UNPACK_WGSL,
-    OCT_ENCODE_WGSL,
-    POS_QUANT_WGSL,
-    XFORM_WGSL,
+    ldrColorUnpackWgsl,
+    octEncodeWgsl,
+    posQuantWgsl,
+    xformWgsl,
 } from "../../engine/utils/core";
 import { GlazeSystem } from "../glaze";
 import { Camera, RenderPlugin } from "../render";
@@ -341,7 +341,7 @@ const BG_BASE = 3;
 // color FS and the fog volumetric march splice them. `distanceAttenuation` is Bevy's getDistanceAttenuation
 // (the TS oracle is `distanceAttenuation` in render/lighting.ts); `spotFactor` is Frostbite getAngleAtt over
 // the cone params (params.zw); `clusterCell` maps a pixel fraction + view depth to the slot-major froxel the
-// light cull binned into. Spliced after POINT_LIGHTS_STRUCT_WGSL + OCT_ENCODE_WGSL (it reads PointLightGpu +
+// light cull binned into. Spliced after POINT_LIGHTS_STRUCT_WGSL + octEncodeWgsl() (it reads PointLightGpu +
 // octDecodeNormal)
 /** relocatable clustered-light WGSL (`distanceAttenuation` / `spotFactor` / `clusterCell`) so a screen-space consumer evaluates the same froxel lights sear's color FS does */
 export const LIGHT_EVAL_WGSL = /* wgsl */ `
@@ -569,7 +569,7 @@ fn litPbr(s: Pbr, normal: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
 // the shared group-0 bindings. Slot 3 is pass-specific: the color module reads the 16 B main stream
 // (`vertices`, `vec4<u32>` — pos + meshId / oct normal / uv), the prepass + shadow module reads the
 // 8 B position-only stream (`position`, `vec2<u32>` — pos + meshId), bound at the same slot by the two
-// per-draw bind groups. `meshQuant` (MESH_QUANT_WGSL) is spliced after POS_QUANT_WGSL defines MeshQuant
+// per-draw bind groups. `meshQuant` (MESH_QUANT_WGSL) is spliced after posQuantWgsl() defines MeshQuant
 const uniformWgsl = (pass: "color" | "prepass") => /* wgsl */ `
 @group(0) @binding(${FRAME}) var<uniform> frame: Frame;
 @group(0) @binding(${VIEW}) var<uniform> view: View;
@@ -583,7 +583,7 @@ ${
 @group(0) @binding(${LIGHT_GRID}) var<storage, read> lightGrid: array<vec2<u32>>;
 @group(0) @binding(${LIGHT_INDICES}) var<storage, read> lightIndices: array<u32>;`;
 
-// the per-mesh dequant table — spliced after POS_QUANT_WGSL (it references the MeshQuant struct it defines)
+// the per-mesh dequant table — spliced after posQuantWgsl() (it references the MeshQuant struct it defines)
 const MESH_QUANT_WGSL = /* wgsl */ `@group(0) @binding(${MESH_QUANT}) var<storage, read> meshQuant: array<MeshQuant>;`;
 
 // the byte size of the SunShadow params uniform: MAX_CASCADES Cascade structs (96 B each — mat4 lightViewProj
@@ -982,7 +982,7 @@ function interp(record: Record<string, string>, name: string, base: number) {
 // passing through coordinates that decode to garbage normals (the symptom: jagged normal zigzag on the faces
 // of curved/draped geometry oriented to straddle the seam, e.g. one wall's banners but not the other's).
 // A `vec2` oct field fills a full `@location` slot anyway, so the `vec3` costs no extra interpolator — oct
-// here only bought the seam bug. (Oct stays correct for per-vertex *storage* `OCT_ENCODE_WGSL`, which decodes
+// here only bought the seam bug. (Oct stays correct for per-vertex *storage* `octEncodeWgsl()`, which decodes
 // once per vertex without interpolating — the same seam hazard is why the VAT normal texture is a plain vec3.)
 function builtinFields(fs: string) {
     const needsUv = /\buv\b/.test(fs);
@@ -1063,11 +1063,11 @@ ${POINT_LIGHTS_STRUCT_WGSL}
 ${LIGHT_EVAL_WGSL}
 ${LIGHT_WGSL}
 ${uniformWgsl(pass)}
-${OCT_ENCODE_WGSL}
-${POS_QUANT_WGSL}
+${octEncodeWgsl()}
+${posQuantWgsl()}
 ${MESH_QUANT_WGSL}
-${XFORM_WGSL}
-${LDR_COLOR_UNPACK_WGSL}
+${xformWgsl()}
+${ldrColorUnpackWgsl()}
 ${pass === "color" ? shadowWgsl() : SHADOW_STUB_WGSL}
 ${decls}
 ${preamble}
@@ -1323,11 +1323,11 @@ ${POINT_LIGHTS_STRUCT_WGSL}
 ${LIGHT_EVAL_WGSL}
 ${LIGHT_WGSL}
 ${uniformWgsl("prepass")}
-${OCT_ENCODE_WGSL}
-${POS_QUANT_WGSL}
+${octEncodeWgsl()}
+${posQuantWgsl()}
 ${MESH_QUANT_WGSL}
-${XFORM_WGSL}
-${LDR_COLOR_UNPACK_WGSL}
+${xformWgsl()}
+${ldrColorUnpackWgsl()}
 ${SHADOW_STUB_WGSL}
 ${decls}
 ${preamble}
