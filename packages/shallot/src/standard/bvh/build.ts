@@ -49,7 +49,13 @@
 // failed). Exact topology is not the gate — the oracle build is PLOC, so only the
 // structural + ray + SAH-ratio checks are compared.
 
+import tgpu, { type TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute } from "../../engine";
+import { precompile } from "../../engine/runtime";
+import { bitcastF32toU32, idiv } from "../../engine/utils/core";
+import { rootOf } from "./root";
 
 const WG_INIT = 256; // leaf-init: embarrassingly parallel, one thread per node
 const WG_TOPO = 128; // topology: one thread per internal node, each a small binary search
@@ -62,8 +68,8 @@ const NODE_U32 = 8; // u32 per 32B node
 // `boundsSteps` derives a tighter bound from `maxPrims` (30 + ceil(log2 N)); this is the
 // ceiling for any N a 30-bit-Morton build allows. 64-bit Morton (future) would raise it.
 const MAX_BOUNDS_STEPS = 64;
-// Bottom-up levels each relaxation sweep climbs. SWEEP_WGSL generates the resolve0..resolve(LEVELS-1)
-// chain from it; boundsSteps = ceil(height / LEVELS). 1 = the plain per-level fit (a node completes
+// Bottom-up levels each relaxation sweep climbs. `resolveChain` generates the resolve0..resolve(LEVELS-1)
+// chain from it; `sweepCount` derives the sweep total as ceil(height / LEVELS). 1 = the plain per-level fit (a node completes
 // when both children completed a prior sweep); each extra level lets a node resolve a child from one
 // level deeper of prior-sweep descendants, so the sweep (dispatch) count drops as 1/LEVELS at the cost
 // of more frontier reads per sweep. Coherence-safe at any value — every bounds read still gates on a
@@ -79,37 +85,120 @@ const LEVELS = 3;
 // stay put through the relaxation + a refit. NODE_BASE (count[1]) shifts the physical
 // address into a sub-region of a larger shared buffer (the in-place caster concatenation);
 // child pointers stored in a node stay local, so base 0 (standalone) is byte-identical.
-const NODE_WGSL = /* wgsl */ `
-const INVALID = 0xffffffffu;        // leaf sentinel in leftChild; also "no node"
-var<private> NODE_BASE: u32 = 0u;
-fn nodeMin(n: u32) -> vec3<f32> {
-    let o = (NODE_BASE + n) * ${NODE_U32}u;
-    return vec3<f32>(bitcast<f32>(nodes[o]), bitcast<f32>(nodes[o + 1u]), bitcast<f32>(nodes[o + 2u]));
-}
-fn nodeMax(n: u32) -> vec3<f32> {
-    let o = (NODE_BASE + n) * ${NODE_U32}u;
-    return vec3<f32>(bitcast<f32>(nodes[o + 4u]), bitcast<f32>(nodes[o + 5u]), bitcast<f32>(nodes[o + 6u]));
-}
-fn nodeLeft(n: u32) -> u32 { return nodes[(NODE_BASE + n) * ${NODE_U32}u + 3u]; }
-fn nodeRight(n: u32) -> u32 { return nodes[(NODE_BASE + n) * ${NODE_U32}u + 7u]; }
-fn writeLeaf(j: u32, mn: vec3<f32>, mx: vec3<f32>) {
-    let o = (NODE_BASE + j) * ${NODE_U32}u;
-    nodes[o] = bitcast<u32>(mn.x); nodes[o + 1u] = bitcast<u32>(mn.y); nodes[o + 2u] = bitcast<u32>(mn.z);
-    nodes[o + 3u] = INVALID;
-    nodes[o + 4u] = bitcast<u32>(mx.x); nodes[o + 5u] = bitcast<u32>(mx.y); nodes[o + 6u] = bitcast<u32>(mx.z);
-    nodes[o + 7u] = j;
-}
-fn writeChildren(n: u32, left: u32, right: u32) {
-    let o = (NODE_BASE + n) * ${NODE_U32}u;
-    nodes[o + 3u] = left;
-    nodes[o + 7u] = right;
-}
-fn writeBounds(n: u32, mn: vec3<f32>, mx: vec3<f32>) {
-    let o = (NODE_BASE + n) * ${NODE_U32}u;
-    nodes[o] = bitcast<u32>(mn.x); nodes[o + 1u] = bitcast<u32>(mn.y); nodes[o + 2u] = bitcast<u32>(mn.z);
-    nodes[o + 4u] = bitcast<u32>(mx.x); nodes[o + 5u] = bitcast<u32>(mx.y); nodes[o + 6u] = bitcast<u32>(mx.z);
-}
-`;
+const INVALID = 0xffffffff; // leaf sentinel in leftChild; also "no node"
+
+/**
+ * the node buffer + the control buffer — the prefix leaf-init, topology and the relaxation all share.
+ * One layout for the shared prefix, so the node accessors below resolve against a single declaration and
+ * the three passes cannot drift; each pass binds this group plus its own I/O.
+ * @internal
+ */
+export const nodeLayout = tgpu.bindGroupLayout({
+    nodes: { storage: d.arrayOf(d.u32), access: "mutable" },
+    countBuf: { storage: d.arrayOf(d.u32), access: "readonly" }, // [0] = prim count, [1] = node-write base
+});
+
+// NODE_BASE (count[1]) shifts the physical address into a sub-region of a larger shared buffer (the
+// in-place caster concatenation); child pointers stored in a node stay local, so base 0 (standalone) is
+// byte-identical. Read from the control buffer once per thread rather than on every accessor call.
+const nodeBase = tgpu.privateVar(d.u32, 0);
+
+const wordOf = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((n) => {
+        "use gpu";
+        return (nodeBase.$ + n) * NODE_U32;
+    })
+    .$name("nodeWord");
+
+const nodeMin = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )((n) => {
+        "use gpu";
+        const o = wordOf(n);
+        return d.vec3f(
+            std.bitcastU32toF32(nodeLayout.$.nodes[o]),
+            std.bitcastU32toF32(nodeLayout.$.nodes[o + 1]),
+            std.bitcastU32toF32(nodeLayout.$.nodes[o + 2]),
+        );
+    })
+    .$name("nodeMin");
+
+const nodeMax = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )((n) => {
+        "use gpu";
+        const o = wordOf(n);
+        return d.vec3f(
+            std.bitcastU32toF32(nodeLayout.$.nodes[o + 4]),
+            std.bitcastU32toF32(nodeLayout.$.nodes[o + 5]),
+            std.bitcastU32toF32(nodeLayout.$.nodes[o + 6]),
+        );
+    })
+    .$name("nodeMax");
+
+const nodeLeft = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((n) => {
+        "use gpu";
+        return nodeLayout.$.nodes[wordOf(n) + 3];
+    })
+    .$name("nodeLeft");
+
+const nodeRight = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((n) => {
+        "use gpu";
+        return nodeLayout.$.nodes[wordOf(n) + 7];
+    })
+    .$name("nodeRight");
+
+const writeLeaf = tgpu
+    .fn([d.u32, d.vec3f, d.vec3f])((j, mn, mx) => {
+        "use gpu";
+        const o = wordOf(j);
+        nodeLayout.$.nodes[o] = bitcastF32toU32(mn.x);
+        nodeLayout.$.nodes[o + 1] = bitcastF32toU32(mn.y);
+        nodeLayout.$.nodes[o + 2] = bitcastF32toU32(mn.z);
+        nodeLayout.$.nodes[o + 3] = INVALID;
+        nodeLayout.$.nodes[o + 4] = bitcastF32toU32(mx.x);
+        nodeLayout.$.nodes[o + 5] = bitcastF32toU32(mx.y);
+        nodeLayout.$.nodes[o + 6] = bitcastF32toU32(mx.z);
+        nodeLayout.$.nodes[o + 7] = j;
+    })
+    .$name("writeLeaf");
+
+const writeChildren = tgpu
+    .fn([d.u32, d.u32, d.u32])((n, left, right) => {
+        "use gpu";
+        const o = wordOf(n);
+        nodeLayout.$.nodes[o + 3] = left;
+        nodeLayout.$.nodes[o + 7] = right;
+    })
+    .$name("writeChildren");
+
+const writeBounds = tgpu
+    .fn([d.u32, d.vec3f, d.vec3f])((n, mn, mx) => {
+        "use gpu";
+        const o = wordOf(n);
+        nodeLayout.$.nodes[o] = bitcastF32toU32(mn.x);
+        nodeLayout.$.nodes[o + 1] = bitcastF32toU32(mn.y);
+        nodeLayout.$.nodes[o + 2] = bitcastF32toU32(mn.z);
+        nodeLayout.$.nodes[o + 4] = bitcastF32toU32(mx.x);
+        nodeLayout.$.nodes[o + 5] = bitcastF32toU32(mx.y);
+        nodeLayout.$.nodes[o + 6] = bitcastF32toU32(mx.z);
+    })
+    .$name("writeBounds");
 
 // Prepare the build's indirect dispatch args from the GPU count: one workgroup writes
 // [ceil((2N−1)/WG_INIT)] for leaf-init (over every node) and [ceil((N−1)/WG_TOPO)] for the
@@ -117,18 +206,27 @@ fn writeBounds(n: u32, mn: vec3<f32>, mx: vec3<f32>) {
 // separate dispatch from the indirect passes (a buffer can't be a storage-write target and
 // an indirect source at once), so the writes are visible across the boundary. The relaxation
 // sweeps dispatch direct (a fixed cap-sized count), so they need no indirect arg here.
-const PREPARE_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> countBuf: array<u32>;
-@group(0) @binding(1) var<storage, read_write> indirect: array<u32>;
-@compute @workgroup_size(1)
-fn main() {
-    let n = countBuf[0];
-    let total = 2u * n - 1u;
-    let nInternal = select(0u, n - 1u, n > 1u);
-    indirect[0] = (total + ${WG_INIT - 1}u) / ${WG_INIT}u; indirect[1] = 1u; indirect[2] = 1u;        // leaf-init
-    indirect[3] = (nInternal + ${WG_TOPO - 1}u) / ${WG_TOPO}u; indirect[4] = 1u; indirect[5] = 1u;    // topology
-}
-`;
+/** the prepare pass's own I/O — it derives dispatch sizes, so it never touches the node buffer.
+ *  @internal */
+export const prepareLayout = tgpu.bindGroupLayout({
+    countBuf: { storage: d.arrayOf(d.u32), access: "readonly" },
+    indirect: { storage: d.arrayOf(d.u32), access: "mutable" },
+});
+
+const prepareKernel = tgpu
+    .computeFn({ workgroupSize: [1] })(() => {
+        "use gpu";
+        const n = prepareLayout.$.countBuf[0];
+        const total = 2 * n - 1;
+        const nInternal = std.select(d.u32(0), n - 1, n > 1);
+        prepareLayout.$.indirect[0] = idiv(total + (WG_INIT - 1), WG_INIT); // leaf-init
+        prepareLayout.$.indirect[1] = 1;
+        prepareLayout.$.indirect[2] = 1;
+        prepareLayout.$.indirect[3] = idiv(nInternal + (WG_TOPO - 1), WG_TOPO); // topology
+        prepareLayout.$.indirect[4] = 1;
+        prepareLayout.$.indirect[5] = 1;
+    })
+    .$name("buildPrepare");
 
 // Leaf-init: write each leaf node (slots [0, N)) from its prim AABB (leftChild = INVALID,
 // rightChild = the prim index), seed valid for both flag buffers. Shared by build and refit —
@@ -138,30 +236,32 @@ fn main() {
 // input — both must hold 1. Internal nodes seed 0: validA is the first sweep's input (must read
 // clear); validB's internal seed is don't-care (every sweep overwrites the internal validOut) but
 // cleared for symmetry.
-const LEAF_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> prims: array<vec4<f32>>;   // 2 vec4/prim: min.xyz+pad, max.xyz+pad
-@group(0) @binding(1) var<storage, read_write> nodes: array<u32>;
-@group(0) @binding(2) var<storage, read_write> validA: array<u32>;  // sweep ping-pong A
-@group(0) @binding(3) var<storage, read> countBuf: array<u32>;      // [0] = prim count, [1] = node-write base
-@group(0) @binding(4) var<storage, read_write> validB: array<u32>;  // sweep ping-pong B; leaves stay 1 here too
-${NODE_WGSL}
-@compute @workgroup_size(${WG_INIT})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    NODE_BASE = countBuf[1];
-    let primCount = countBuf[0];
-    let total = 2u * primCount - 1u;
-    let j = gid.x;
-    if (j >= total) { return; }
-    if (j < primCount) {
-        writeLeaf(j, prims[j * 2u].xyz, prims[j * 2u + 1u].xyz);
-        validA[j] = 1u;
-        validB[j] = 1u;
-    } else {
-        validA[j] = 0u;
-        validB[j] = 0u;
-    }
-}
-`;
+/** leaf-init's own I/O: the prim AABBs it bounds each leaf from, and both ping-pong flag buffers.
+ *  @internal */
+export const leafLayout = tgpu.bindGroupLayout({
+    prims: { storage: d.arrayOf(d.vec4f), access: "readonly" }, // 2 vec4/prim: min.xyz+pad, max.xyz+pad
+    validA: { storage: d.arrayOf(d.u32), access: "mutable" }, // sweep ping-pong A
+    validB: { storage: d.arrayOf(d.u32), access: "mutable" }, // sweep ping-pong B; leaves stay 1 here too
+});
+
+const leafKernel = tgpu
+    .computeFn({ workgroupSize: [WG_INIT], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        nodeBase.$ = nodeLayout.$.countBuf[1];
+        const primCount = nodeLayout.$.countBuf[0];
+        const total = 2 * primCount - 1;
+        const j = input.gid.x;
+        if (j >= total) return;
+        if (j < primCount) {
+            writeLeaf(j, leafLayout.$.prims[j * 2].xyz, leafLayout.$.prims[j * 2 + 1].xyz);
+            leafLayout.$.validA[j] = 1;
+            leafLayout.$.validB[j] = 1;
+        } else {
+            leafLayout.$.validA[j] = 0;
+            leafLayout.$.validB[j] = 0;
+        }
+    })
+    .$name("buildLeaf");
 
 // Karras radix-tree topology (reference/hip-bvh-construction TwoPassLbvh `BvhBuild`). One
 // thread per internal node `i`: `determineRange` finds its sorted-key range by the
@@ -171,24 +271,42 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // (Morton << 32 | sortedPos), emulated without u64: equal codes fall back to the index bits.
 // Remap to the engine layout: internal `i` → slot 2N−2−i (root i=0 → 2N−2); a leaf child at
 // sorted position `s` → slot payload[s] (= prim index, the slot leaf-init filled).
-const TOPO_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> keys: array<u32>;          // sorted Morton codes, by sorted position
-@group(0) @binding(1) var<storage, read> payload: array<u32>;       // sorted prim index, by sorted position
-@group(0) @binding(2) var<storage, read_write> nodes: array<u32>;
-@group(0) @binding(3) var<storage, read> countBuf: array<u32>;      // [0] = prim count, [1] = node-write base
-${NODE_WGSL}
+/** topology's own inputs: the sorted keys it derives every range from, and the payload that maps a
+ *  sorted position back to its prim slot. Both immutable through the pass. @internal */
+export const topoLayout = tgpu.bindGroupLayout({
+    keys: { storage: d.arrayOf(d.u32), access: "readonly" }, // sorted Morton codes, by sorted position
+    payload: { storage: d.arrayOf(d.u32), access: "readonly" }, // sorted prim index, by sorted position
+});
 
-fn clz32(x: u32) -> u32 { return select(31u - firstLeadingBit(x), 32u, x == 0u); }
+// WGSL has `firstLeadingBit`, not a count-leading-zeros; the x == 0 arm is what the subtraction can't
+// express (firstLeadingBit(0) is 0xffffffff).
+const clz32 = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((x) => {
+        "use gpu";
+        return std.select(31 - std.firstLeadingBit(x), d.u32(32), x === 0);
+    })
+    .$name("clz32");
 
 // common-prefix length of the extended key (Morton << 32 | sortedPos) at sorted positions a
 // (code ca, hoisted by the caller — it stays fixed across a search) and b, or -1 when b is
 // outside [0, n). Equal Morton codes tie-break on the position bits (the << 32 emulation).
-fn delta(ca: u32, a: i32, b: i32, n: i32) -> i32 {
-    if (b < 0 || b >= n) { return -1; }
-    let cb = keys[u32(b)];
-    if (ca == cb) { return 32 + i32(clz32(u32(a) ^ u32(b))); }
-    return i32(clz32(ca ^ cb));
-}
+// Signed throughout: -1 is the out-of-range answer the two searches terminate on, so this is the one
+// place in the builder where i32 is the correct type rather than a stray literal.
+const delta = tgpu
+    .fn(
+        [d.u32, d.i32, d.i32, d.i32],
+        d.i32,
+    )((ca, a, b, n) => {
+        "use gpu";
+        if (b < 0 || b >= n) return -1;
+        const cb = topoLayout.$.keys[d.u32(b)];
+        if (ca === cb) return 32 + d.i32(clz32(d.u32(a) ^ d.u32(b)));
+        return d.i32(clz32(ca ^ cb));
+    })
+    .$name("delta");
 
 // The two searches use genuine dynamic loops, not for-loops capped at a small constant: a
 // constant bound is a DXC unroll target, and an unrolled binary search issues every
@@ -197,85 +315,142 @@ fn delta(ca: u32, a: i32, b: i32, n: i32) -> i32 {
 // real iterations. Both provably terminate — lMax doubles only while in range (delta = -1
 // past the ends stops it), and t halves to 0 — so no hang-guard counter is needed (adding
 // one risks re-enabling the unroll).
-fn determineRange(idx: u32, n: i32) -> vec2<u32> {
-    if (idx == 0u) { return vec2<u32>(0u, u32(n - 1)); }
-    let i = i32(idx);
-    let ci = keys[idx];                      // the node's own code, fixed across every delta below
-    let dL = delta(ci, i, i - 1, n);
-    let dR = delta(ci, i, i + 1, n);
-    let d = select(-1, 1, dR > dL);
-    let deltaMin = min(dL, dR);
-    var lMax = 2;
-    loop {
-        if (delta(ci, i, i + d * lMax, n) <= deltaMin) { break; }
-        lMax = lMax << 1u;
-    }
-    var l = 0;
-    var t = lMax >> 1u;
-    loop {
-        if (t <= 0) { break; }
-        if (delta(ci, i, i + (l + t) * d, n) > deltaMin) { l += t; }
-        t = t >> 1u;
-    }
-    let jdx = i + l * d;
-    if (d < 0) { return vec2<u32>(u32(jdx), idx); }
-    return vec2<u32>(idx, u32(jdx));
-}
+const determineRange = tgpu
+    .fn(
+        [d.u32, d.i32],
+        d.vec2u,
+    )((idx, n) => {
+        "use gpu";
+        if (idx === 0) return d.vec2u(0, d.u32(n - 1));
+        const i = d.i32(idx);
+        const ci = topoLayout.$.keys[idx]; // the node's own code, fixed across every delta below
+        const dL = delta(ci, i, i - 1, n);
+        const dR = delta(ci, i, i + 1, n);
+        const dir = std.select(-1, 1, dR > dL);
+        const deltaMin = std.min(dL, dR);
+        let lMax = d.i32(2);
+        while (delta(ci, i, i + dir * lMax, n) > deltaMin) {
+            lMax = lMax << 1;
+        }
+        let l = d.i32(0);
+        let t = lMax >> 1;
+        while (t > 0) {
+            if (delta(ci, i, i + (l + t) * dir, n) > deltaMin) l = l + t;
+            t = t >> 1;
+        }
+        const jdx = i + l * dir;
+        if (dir < 0) return d.vec2u(d.u32(jdx), idx);
+        return d.vec2u(idx, d.u32(jdx));
+    })
+    .$name("determineRange");
 
-fn findSplit(first: u32, last: u32, n: i32) -> u32 {
-    let firstCode = keys[first];             // fixed across the search
-    let deltaNode = delta(firstCode, i32(first), i32(last), n);
-    var split = i32(first);
-    var stride = i32(last) - i32(first);
-    loop {
-        stride = (stride + 1) >> 1u;
-        let middle = split + stride;
-        if (middle < i32(last) && delta(firstCode, i32(first), middle, n) > deltaNode) { split = middle; }
-        if (stride <= 1) { break; }
-    }
-    return u32(split);
-}
+// the split is the last position whose prefix with `first` is longer than the node's own — a binary
+// search that must run its body once before the stride test, so the exit condition rides a flag rather
+// than the `while` head (WGSL's `loop` has no TGSL form).
+const findSplit = tgpu
+    .fn(
+        [d.u32, d.u32, d.i32],
+        d.u32,
+    )((first, last, n) => {
+        "use gpu";
+        const firstCode = topoLayout.$.keys[first]; // fixed across the search
+        const deltaNode = delta(firstCode, d.i32(first), d.i32(last), n);
+        let split = d.i32(first);
+        let stride = d.i32(last) - d.i32(first);
+        let more = true;
+        while (more) {
+            stride = (stride + 1) >> 1;
+            const middle = split + stride;
+            if (middle < d.i32(last) && delta(firstCode, d.i32(first), middle, n) > deltaNode)
+                split = middle;
+            more = stride > 1;
+        }
+        return d.u32(split);
+    })
+    .$name("findSplit");
 
-@compute @workgroup_size(${WG_TOPO})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    NODE_BASE = countBuf[1];
-    let primCount = countBuf[0];
-    let i = gid.x;
-    if (primCount <= 1u || i >= primCount - 1u) { return; }
-    let n = i32(primCount);
-    let last = 2u * primCount - 2u;            // root slot; internal i maps to last - i
-    let range = determineRange(i, n);
-    let split = findSplit(range.x, range.y, n);
-    let leftSlot = select(last - split, payload[split], split == range.x);
-    let rightSlot = select(last - (split + 1u), payload[split + 1u], split + 1u == range.y);
-    writeChildren(last - i, leftSlot, rightSlot);
-}
-`;
+const topoKernel = tgpu
+    .computeFn({ workgroupSize: [WG_TOPO], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        nodeBase.$ = nodeLayout.$.countBuf[1];
+        const primCount = nodeLayout.$.countBuf[0];
+        const i = input.gid.x;
+        if (primCount <= 1 || i >= primCount - 1) return;
+        const n = d.i32(primCount);
+        const last = 2 * primCount - 2; // root slot; internal i maps to last - i
+        const range = determineRange(i, n);
+        const split = findSplit(range.x, range.y, n);
+        const leftSlot = std.select(last - split, topoLayout.$.payload[split], split === range.x);
+        const rightSlot = std.select(
+            last - (split + 1),
+            topoLayout.$.payload[split + 1],
+            split + 1 === range.y,
+        );
+        writeChildren(last - i, leftSlot, rightSlot);
+    })
+    .$name("buildTopo");
 
 // The relaxation's bottom-up resolver, generated for LEVELS (WGSL has no recursion, so the chain
 // unrolls into fixed functions). resolveK(c) returns c's final bounds when c's subtree completed
 // within K levels of a prior sweep: validIn[c] (c itself done), else the union of resolve(K-1) over
 // c's two children. A sweep thread resolves each of its node's two children to depth LEVELS-1, so the
-// node climbs LEVELS levels per dispatch. The coherence + bit-identity argument is in SWEEP_WGSL.
-function resolveChain(levels: number): string {
-    const fns: string[] = [];
-    for (let k = 0; k < levels; k++) {
-        const deeper =
-            k === 0
-                ? ""
-                : `
-    let l = resolve${k - 1}(nodeLeft(c));
-    let r = resolve${k - 1}(nodeRight(c));
-    if (l.ok && r.ok) { return Resolved(true, min(l.mn, r.mn), max(l.mx, r.mx)); }`;
-        fns.push(`fn resolve${k}(c: u32) -> Resolved {
-    if (validIn[c] == 1u) { return Resolved(true, nodeMin(c), nodeMax(c)); }${deeper}
-    return Resolved(false, vec3<f32>(0.0), vec3<f32>(0.0));
-}`);
-    }
-    return fns.join("\n");
+// node climbs LEVELS levels per dispatch. The coherence + bit-identity argument is above `sweepKernel`.
+/** the relaxation sweep's own I/O: the double-buffered completion flags. `validIn` is the prior sweep's
+ *  state (a dispatch boundary back, so visible and stable), `validOut` this sweep's. @internal */
+export const sweepLayout = tgpu.bindGroupLayout({
+    validIn: { storage: d.arrayOf(d.u32), access: "readonly" },
+    validOut: { storage: d.arrayOf(d.u32), access: "mutable" },
+});
+
+/** a child's final bounds resolved from prior-sweep state, looking up to LEVELS-1 levels past it.
+ *  `ok` is false when the child's subtree hasn't reached this thread yet (a later sweep completes it). */
+const Resolved = d.struct({ ok: d.bool, mn: d.vec3f, mx: d.vec3f }).$name("Resolved");
+
+const resolve0 = tgpu
+    .fn(
+        [d.u32],
+        Resolved,
+    )((c) => {
+        "use gpu";
+        if (sweepLayout.$.validIn[c] === 1)
+            return Resolved({ ok: true, mn: nodeMin(c), mx: nodeMax(c) });
+        return Resolved({ ok: false, mn: d.vec3f(), mx: d.vec3f() });
+    })
+    .$name("resolve0");
+
+// one authored body per level, re-emitted per captured `deeper` — WGSL has no recursion, so the chain
+// is what unrolls it into LEVELS fixed functions.
+function deeperResolve(k: number, deeper: typeof resolve0): typeof resolve0 {
+    return tgpu
+        .fn(
+            [d.u32],
+            Resolved,
+        )((c) => {
+            "use gpu";
+            if (sweepLayout.$.validIn[c] === 1)
+                return Resolved({ ok: true, mn: nodeMin(c), mx: nodeMax(c) });
+            const l = deeper(nodeLeft(c));
+            const r = deeper(nodeRight(c));
+            if (l.ok && r.ok)
+                return Resolved({
+                    ok: true,
+                    mn: std.min(l.mn, r.mn),
+                    mx: std.max(l.mx, r.mx),
+                });
+            return Resolved({ ok: false, mn: d.vec3f(), mx: d.vec3f() });
+        })
+        .$name(`resolve${k}`);
 }
 
-// Relaxation sweep: one INTERNAL node per thread, ${LEVELS} bottom-up levels per sweep. The
+function resolveChain(levels: number): typeof resolve0 {
+    let chain = resolve0;
+    for (let k = 1; k < levels; k++) chain = deeperResolve(k, chain);
+    return chain;
+}
+
+const resolveTop = resolveChain(LEVELS);
+
+// Relaxation sweep: one INTERNAL node per thread, LEVELS bottom-up levels per sweep. The
 // dispatch covers internal slots [N, 2N−1) only (node index `primCount + gid.x`); leaves are
 // never a sweep thread, since leaf-init seeds their flag = 1 in both buffers and their bounds
 // once, so a leaf child reads valid = 1 from whichever buffer is the input. That double seed is
@@ -286,8 +461,8 @@ function resolveChain(levels: number): string {
 // form (LEVELS=1) completes a node only when BOTH its children were valid a sweep ago, so the root
 // needs one dispatch per tree level. The generated resolve0..resolve(LEVELS-1) chain (above) instead
 // resolves a child from its own prior-sweep bounds OR, when it isn't valid yet, from progressively
-// deeper prior-sweep descendants (down to LEVELS levels below the node), so a node climbs ${LEVELS}
-// levels per dispatch and the worst-case sweep count drops by ${LEVELS}×. The coherence-safety
+// deeper prior-sweep descendants (down to LEVELS levels below the node), so a node climbs LEVELS
+// levels per dispatch and the worst-case sweep count drops by LEVELS×. The coherence-safety
 // argument is unchanged from the 1-level form, by the same two invariants:
 //   (1) each node's bounds are written by exactly one thread (its own), the sweep it completes; the
 //       resolver only READS, it never writes a descendant, so there is still no second writer;
@@ -300,45 +475,73 @@ function resolveChain(levels: number): string {
 //
 // validIn/validOut ping-pong between the two flag buffers each sweep (build/refit alternate the
 // bind group). The caller dispatches a fixed cap-sized count of these (a CPU constant — direct
-// dispatch, no per-sweep prepare/indirect), enough to exceed ceil(worst-case height / ${LEVELS});
+// dispatch, no per-sweep prepare/indirect), enough to exceed ceil(worst-case height / LEVELS);
 // sweeps past convergence just carry, so the result is stable. Threads past the live internal
 // range early-out. A non-valid child is internal (leaves carry validIn = 1), so its child
 // pointers are real topology, safe to read.
-const SWEEP_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> nodes: array<u32>;
-@group(0) @binding(1) var<storage, read> validIn: array<u32>;
-@group(0) @binding(2) var<storage, read_write> validOut: array<u32>;
-@group(0) @binding(3) var<storage, read> countBuf: array<u32>;      // [0] = prim count, [1] = node-write base
-${NODE_WGSL}
+const sweepKernel = tgpu
+    .computeFn({ workgroupSize: [WG_BOUNDS], in: { gid: d.builtin.globalInvocationId } })(
+        (input) => {
+            "use gpu";
+            nodeBase.$ = nodeLayout.$.countBuf[1];
+            const primCount = nodeLayout.$.countBuf[0];
+            if (primCount <= 1) return; // single prim: the leaf is the root, no internal nodes
+            const n = primCount + input.gid.x; // internal slot [N, 2N−1)
+            if (n > 2 * primCount - 2) return; // past the root
+            if (sweepLayout.$.validIn[n] === 1) {
+                sweepLayout.$.validOut[n] = 1; // already done, carry
+                return;
+            }
+            const lc = resolveTop(nodeLeft(n));
+            if (!lc.ok) {
+                sweepLayout.$.validOut[n] = 0; // not ready yet; a later sweep completes it
+                return;
+            }
+            const rc = resolveTop(nodeRight(n));
+            if (!rc.ok) {
+                sweepLayout.$.validOut[n] = 0;
+                return;
+            }
+            writeBounds(n, std.min(lc.mn, rc.mn), std.max(lc.mx, rc.mx));
+            sweepLayout.$.validOut[n] = 1;
+        },
+    )
+    .$name("buildSweep");
 
-// a child's final bounds resolved from prior-sweep state, looking up to LEVELS-1 levels past it.
-// ok = false when the child's subtree hasn't reached this thread yet (a later sweep completes it).
-struct Resolved { ok: bool, mn: vec3<f32>, mx: vec3<f32> }
-${resolveChain(LEVELS)}
-
-@compute @workgroup_size(${WG_BOUNDS})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    NODE_BASE = countBuf[1];
-    let primCount = countBuf[0];
-    if (primCount <= 1u) { return; }                   // single prim: the leaf is the root, no internal nodes
-    let n = primCount + gid.x;                         // internal slot [N, 2N−1)
-    if (n > 2u * primCount - 2u) { return; }           // past the root
-    if (validIn[n] == 1u) { validOut[n] = 1u; return; } // already done, carry
-    let lc = resolve${LEVELS - 1}(nodeLeft(n));
-    if (!lc.ok) { validOut[n] = 0u; return; }          // not ready yet; a later sweep completes it
-    let rc = resolve${LEVELS - 1}(nodeRight(n));
-    if (!rc.ok) { validOut[n] = 0u; return; }
-    writeBounds(n, min(lc.mn, rc.mn), max(lc.mx, rc.mx));
-    validOut[n] = 1u;
-}
-`;
-
-function storageEntry(binding: number, readonly: boolean): GPUBindGroupLayoutEntry {
+/** the emitted build WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function buildWgsl(): {
+    prepare: string;
+    leaf: string;
+    topo: string;
+    sweep: string;
+} {
+    const names = { names: "strict" } as const;
     return {
-        binding,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: readonly ? "read-only-storage" : "storage" },
+        prepare: tgpu.resolve([prepareKernel], names),
+        leaf: tgpu.resolve([leafKernel], names),
+        topo: tgpu.resolve([topoKernel], names),
+        sweep: tgpu.resolve([sweepKernel], names),
     };
+}
+
+/**
+ * how many relaxation sweeps a builder sized for `maxPrims` runs. The worst-case radix-tree height is
+ * 30 Morton bits plus the index tiebreak's `ceil(log2 N)` (the all-equal-code case), and each sweep
+ * climbs {@link LEVELS} levels, so this is `ceil(height / LEVELS)` — enough that the deepest node's
+ * bounds reach the root. Sweeps past convergence just carry, so the result is stable; a fixed count is
+ * what avoids the per-sweep prepare + indirect early-out (its pass count, ~2× the sweep count, was the
+ * build's dominant cost).
+ *
+ * Under-counting is the silent failure mode — internal nodes keep unfinished bounds and the traverser
+ * returns wrong hits, with nothing thrown and no fixture deep enough to notice — so the invariant
+ * `sweepCount(n) * LEVELS >= 30 + ceil(log2 n)` is unit-tested rather than read.
+ * @internal
+ */
+export function sweepCount(maxPrims: number): number {
+    const cap = Math.max(1, maxPrims);
+    const height = Math.min(MAX_BOUNDS_STEPS, 30 + Math.ceil(Math.log2(Math.max(2, cap))));
+    return Math.ceil(height / LEVELS);
 }
 
 /** buffers {@link createBvh} threads through so the stages share one set; an omitted field is allocated internally */
@@ -407,6 +610,8 @@ export async function createBuild(
     maxPrims: number,
     shared: BuildShared = {},
 ): Promise<Build> {
+    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
+    const root = rootOf(device, "createBuild");
     const cap = Math.max(1, maxPrims);
     const nodeCount = 2 * cap; // 2N−1 rounded up; the extra node is never addressed
     // every pass is one thread per node/internal-node (no grid-stride), so the worst-case
@@ -446,138 +651,69 @@ export async function createBuild(
         GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_SRC,
     );
 
-    // The bounds relaxation runs a fixed sweep count: the worst-case radix-tree height for this
-    // builder (30 Morton bits + the index tiebreak's ceil(log2 N), the all-equal-code worst case)
-    // divided by the levels each sweep climbs — enough that the deepest node's bounds reach the
-    // root. Sweeps past convergence just carry, so the result is stable; this avoids the per-sweep
-    // prepare + indirect early-out (its pass count, ~2× the sweep count, was the build's dominant
-    // cost). Direct dispatch over a cap-sized workgroup count (a CPU constant): a build sized to
-    // its workload over-dispatches nothing, and a small mesh in a shared builder over-dispatches
-    // threads that early-out cheaply.
-    const heightBound = Math.min(MAX_BOUNDS_STEPS, 30 + Math.ceil(Math.log2(Math.max(2, cap))));
-    const boundsSteps = Math.ceil(heightBound / LEVELS);
+    const boundsSteps = sweepCount(cap);
     // each sweep covers the internal nodes only ([N, 2N−1) ≈ half the tree); leaves never need a
     // thread (leaf-init seeds their flag in both buffers), so the dispatch is sized to cap−1, not
     // 2·cap−1. max(1, …) keeps a ≥1 dispatch for cap = 1 (no internal nodes; threads all early-out).
     const sweepWG = Math.max(1, Math.ceil((cap - 1) / WG_BOUNDS));
 
-    const prepareLayout = device.createBindGroupLayout({
-        label: "build-prepare",
-        entries: [storageEntry(0, true), storageEntry(1, false)],
-    });
-    const leafLayout = device.createBindGroupLayout({
-        label: "build-leaf",
-        entries: [
-            storageEntry(0, true),
-            storageEntry(1, false),
-            storageEntry(2, false),
-            storageEntry(3, true),
-            storageEntry(4, false),
-        ],
-    });
-    const topoLayout = device.createBindGroupLayout({
-        label: "build-topo",
-        entries: [
-            storageEntry(0, true),
-            storageEntry(1, true),
-            storageEntry(2, false),
-            storageEntry(3, true),
-        ],
-    });
-    const sweepLayout = device.createBindGroupLayout({
-        label: "build-sweep",
-        entries: [
-            storageEntry(0, false),
-            storageEntry(1, true),
-            storageEntry(2, false),
-            storageEntry(3, true),
-        ],
-    });
-
-    const pipe = (
-        label: string,
-        code: string,
-        layout: GPUBindGroupLayout,
-    ): Promise<GPUComputePipeline> =>
-        device.createComputePipelineAsync({
-            label,
-            layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-            compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
-        });
-
-    const [preparePipe, leafPipe, topoPipe, sweepPipe] = await Promise.all([
-        pipe("build-prepare", PREPARE_WGSL, prepareLayout),
-        pipe("build-leaf", LEAF_WGSL, leafLayout),
-        pipe("build-topo", TOPO_WGSL, topoLayout),
-        pipe("build-sweep", SWEEP_WGSL, sweepLayout),
-    ]);
-
-    const prepareBg = device.createBindGroup({
-        layout: prepareLayout,
-        entries: [
-            { binding: 0, resource: { buffer: count } },
-            { binding: 1, resource: { buffer: indirect } },
-        ],
-    });
-    const leafBg = device.createBindGroup({
-        layout: leafLayout,
-        entries: [
-            { binding: 0, resource: { buffer: prims } },
-            { binding: 1, resource: { buffer: nodes } },
-            { binding: 2, resource: { buffer: validA } },
-            { binding: 3, resource: { buffer: count } },
-            { binding: 4, resource: { buffer: validB } },
-        ],
-    });
-    const topoBg = device.createBindGroup({
-        layout: topoLayout,
-        entries: [
-            { binding: 0, resource: { buffer: keys } },
-            { binding: 1, resource: { buffer: payload } },
-            { binding: 2, resource: { buffer: nodes } },
-            { binding: 3, resource: { buffer: count } },
-        ],
-    });
+    // one shared node group every pass binds, plus each pass's own I/O — the node accessors resolve
+    // against `nodeLayout`, so the three kernels reference the same declaration
+    const nodeGroup = root.createBindGroup(nodeLayout, { nodes, countBuf: count });
+    const prepare = root
+        .createComputePipeline({ compute: prepareKernel })
+        .$name("build-prepare")
+        .with(root.createBindGroup(prepareLayout, { countBuf: count, indirect }));
+    const leaf = root
+        .createComputePipeline({ compute: leafKernel })
+        .$name("build-leaf")
+        .with(nodeGroup)
+        .with(root.createBindGroup(leafLayout, { prims, validA, validB }));
+    const topo = root
+        .createComputePipeline({ compute: topoKernel })
+        .$name("build-topo")
+        .with(nodeGroup)
+        .with(root.createBindGroup(topoLayout, { keys, payload }));
     // two sweep bind groups ping-pong the double-buffered flags: even sweeps read A write B,
     // odd sweeps read B write A. The first sweep reads validA (leaf-init's output).
-    const sweepBg = (vin: GPUBuffer, vout: GPUBuffer): GPUBindGroup =>
-        device.createBindGroup({
-            layout: sweepLayout,
-            entries: [
-                { binding: 0, resource: { buffer: nodes } },
-                { binding: 1, resource: { buffer: vin } },
-                { binding: 2, resource: { buffer: vout } },
-                { binding: 3, resource: { buffer: count } },
-            ],
+    const sweepPipe = root.createComputePipeline({ compute: sweepKernel }).$name("build-sweep");
+    const sweepBound = (vin: GPUBuffer, vout: GPUBuffer) =>
+        sweepPipe
+            .with(nodeGroup)
+            .with(root.createBindGroup(sweepLayout, { validIn: vin, validOut: vout }));
+    const sweepAB = sweepBound(validA, validB);
+    const sweepBA = sweepBound(validB, validA);
+
+    for (const [label, bound] of [
+        ["build-prepare", prepare],
+        ["build-leaf", leaf],
+        ["build-topo", topo],
+        ["build-sweep", sweepAB],
+    ] as const) {
+        precompile(label, () => {
+            bound.dispatchWorkgroups(0);
+            return bound;
         });
-    const sweepAB = sweepBg(validA, validB);
-    const sweepBA = sweepBg(validB, validA);
+    }
 
     const dispatch = (
         encoder: GPUCommandEncoder,
-        pipeline: GPUComputePipeline,
-        bg: GPUBindGroup,
+        bound: TgpuComputePipeline,
         wg: number,
         span: string,
     ): void => {
         const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.(span) });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bg);
-        pass.dispatchWorkgroups(wg);
+        bound.with(pass).dispatchWorkgroups(wg);
         pass.end();
     };
     const indirectPass = (
         encoder: GPUCommandEncoder,
-        pipeline: GPUComputePipeline,
-        bg: GPUBindGroup,
-        args: GPUBuffer,
+        bound: TgpuComputePipeline,
         offset: number,
         span: string,
     ): void => {
         const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.(span) });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bg);
-        pass.dispatchWorkgroupsIndirect(args, offset);
+        bound.with(pass).dispatchWorkgroupsIndirect(indirect, offset);
         pass.end();
     };
 
@@ -586,7 +722,7 @@ export async function createBuild(
     // the deepest node's bounds reach the root; later sweeps carry, leaving the result stable.
     const relax = (encoder: GPUCommandEncoder, span: string): void => {
         for (let k = 0; k < boundsSteps; k++) {
-            dispatch(encoder, sweepPipe, k % 2 === 0 ? sweepAB : sweepBA, sweepWG, span);
+            dispatch(encoder, k % 2 === 0 ? sweepAB : sweepBA, sweepWG, span);
         }
     };
 
@@ -599,16 +735,16 @@ export async function createBuild(
         indirect,
         maxPrims,
         build(encoder: GPUCommandEncoder): void {
-            dispatch(encoder, preparePipe, prepareBg, 1, "bvh:build");
-            indirectPass(encoder, leafPipe, leafBg, indirect, 0, "bvh:build");
-            indirectPass(encoder, topoPipe, topoBg, indirect, 12, "bvh:build");
+            dispatch(encoder, prepare, 1, "bvh:build");
+            indirectPass(encoder, leaf, 0, "bvh:build");
+            indirectPass(encoder, topo, 12, "bvh:build");
             relax(encoder, "bvh:build");
         },
         refit(encoder: GPUCommandEncoder): void {
             // topology persists in `nodes`; re-bound the leaves from the moved prims (and reset
             // the flags), then re-run the relaxation over the fixed topology
-            dispatch(encoder, preparePipe, prepareBg, 1, "bvh:refit");
-            indirectPass(encoder, leafPipe, leafBg, indirect, 0, "bvh:refit");
+            dispatch(encoder, prepare, 1, "bvh:refit");
+            indirectPass(encoder, leaf, 0, "bvh:refit");
             relax(encoder, "bvh:refit");
         },
         destroy(): void {

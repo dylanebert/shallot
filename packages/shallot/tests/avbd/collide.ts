@@ -37,7 +37,7 @@ import {
 // Phase 4.8.1 reduces to 4, halving the GPU pairContacts store.
 const MAX_CONTACTS = 4;
 // candidate cap before reduction: a quad clipped by 4 ref-face half-planes gains ≤1 vertex per plane
-// (4→8), the exact Sutherland-Hodgman bound. Kept in sync with collide.ts COLLIDE_WGSL, where the same
+// (4→8), the exact Sutherland-Hodgman bound. Kept in sync with collide.ts's `collideWgsl()` chunk, where the same
 // bound is load-bearing on Metal.
 const MAX_CANDIDATES = 8;
 const MAX_POLY_VERTS = 8;

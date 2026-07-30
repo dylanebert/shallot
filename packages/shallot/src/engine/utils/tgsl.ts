@@ -194,18 +194,29 @@ const uniformLoadFn = tgpu
  *  @example const n = uniformLoad(flag.$); */
 export const uniformLoad = uniformLoadFn as typeof uniformLoadFn & ((flag: number) => number);
 
-/** WGSL `atomicCompareExchangeWeak(p, cmp, val).old_value`: the compare-and-swap a chained scan's
- *  publish/claim step needs. Returns the prior value — equal to `cmp` exactly when the exchange took.
- *  GPU-only.
- *  @example const prev = compareExchange(&slot, 0, claim); */
-export const compareExchange = tgpu.fn(
-    [d.ptrStorage(d.atomic(d.u32), "read-write"), d.u32, d.u32],
-    d.u32,
-)(
-    /* wgsl */ `(p: ptr<storage, atomic<u32>, read_write>, cmp: u32, val: u32) -> u32 {
+const compareExchangeFn = tgpu
+    .fn(
+        [d.ptrStorage(d.atomic(d.u32), "read-write"), d.u32, d.u32],
+        d.u32,
+    )(
+        /* wgsl */ `(p: ptr<storage, atomic<u32>, read_write>, cmp: u32, val: u32) -> u32 {
     return atomicCompareExchangeWeak(p, cmp, val).old_value;
 }`,
-);
+    )
+    // the widening below moves the public name off the declaration typegpu would read it from
+    .$name("compareExchange");
+
+/** WGSL `atomicCompareExchangeWeak(p, cmp, val).old_value`: the compare-and-swap a chained scan's
+ *  publish/claim step needs. Returns the prior value — equal to `cmp` exactly when the exchange took.
+ *  GPU-only. Pass the atomic array element; the transpiler emits it as `&slot`.
+ *
+ *  The widened call signature is the same upstream typing gap {@link uniformLoad} carries: typegpu
+ *  types an atomic storage element as its own `atomic` instance rather than the `ref` its `ptrStorage`
+ *  param declares, and a JS forwarder can't narrow it (the transpiler has to see the `tgpu.fn` call at
+ *  the site). `std.atomicAdd` and friends accept that instance type, so the leaf accepts it too.
+ *  @example const prev = compareExchange(layout.$.slots[i], 0, claim); */
+export const compareExchange = compareExchangeFn as typeof compareExchangeFn &
+    ((slot: d.atomicU32, cmp: number, val: number) => number);
 
 /**
  * the shared dedup scope for the chunks a raw-WGSL consumer splices *together*: the storage codecs
@@ -262,9 +273,15 @@ export function chunk(
  *  WGSL's uniformity analysis rejecting a subgroup op inside a loop whose condition derives from a
  *  subgroup reduction (gpu.md "Subgroup ops in data-dependent loops"). **Always pair it with a fixed
  *  iteration cap**, so a logic error degrades to a wrong result instead of a GPU watchdog hang.
- *  Not a function: pass it alongside the kernel being resolved, since `$uses` is unavailable on a
- *  function whose metadata came from `unplugin-typegpu`.
- *  @example tgpu.resolve([subgroupUniformityOff, myKernel]) */
+ *
+ *  Not a function, and how you attach it depends on what consumes the WGSL. A bare `tgpu.resolve` takes
+ *  it as a resolve item. A **pipeline cannot**: its descriptor is `{ compute }` and nothing else, so
+ *  there is no hook — and `$uses` throws on a kernel whose metadata came from `unplugin-typegpu`. There,
+ *  the directive rides a no-argument WGSL-bodied `tgpu.fn` called as the kernel's *first* statement:
+ *  typegpu emits declarations in first-use order and WGSL requires every directive ahead of every global
+ *  declaration, so anything later emits invalid WGSL. `uniformityOptOut` in `standard/bvh/sort.ts` is
+ *  the worked case.
+ *  @example tgpu.resolve([subgroupUniformityOff, myKernel]) // resolve only — see above for a pipeline */
 export const subgroupUniformityOff = tgpu["~unstable"].declare(
     "diagnostic(off, subgroup_uniformity);",
 );

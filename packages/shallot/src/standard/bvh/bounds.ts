@@ -27,131 +27,229 @@
 // reduce assumes the per-subgroup partials fit one subgroup (numSub <= sgsize, true
 // for sgsize >= 16); software/sub-16 subgroups are out of scope.
 
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute } from "../../engine";
+import { precompile } from "../../engine/runtime";
+import { bitcastF32toU32, idiv } from "../../engine/utils/core";
+import { rootOf } from "./root";
 
 const WG = 256; // workgroup size, both kernels
-const MAX_SUB = 64; // max subgroup size on the floor — sizes the partials array so wg_min[sid] never reads OOB
+const MAX_SUB = 64; // max subgroup size on the floor — sizes the partials array so wgMin[sid] never reads OOB
 const MAX_WG = 1024; // workgroup cap; the grid-stride loop folds any larger prim count
+const HALF_WG = WG >> 1; // the LDS tree's first stride
 const SCRATCH_U32 = 6; // ordered-u32 axis extremes: [min.xyz, max.xyz]
+const F32_MAX_BITS = 0x7f7fffff; // neutral element: empty lanes don't move the extreme
 
-// IEEE float → order-preserving u32 and back. Positive (sign 0): set the sign bit, so
-// it sorts above every negative. Negative (sign 1): flip all bits, reversing magnitude
-// order. Bijective, so the decode is exact.
-const ORDER_WGSL = /* wgsl */ `
-fn orderU32(f: f32) -> u32 {
-    let u = bitcast<u32>(f);
-    return select(~u, u | 0x80000000u, (u >> 31u) == 0u);
-}
-fn unorderU32(o: u32) -> f32 {
-    return bitcast<f32>(select(~o, o ^ 0x80000000u, (o >> 31u) == 1u));
-}
-`;
+/** the reduce's bindings: prim AABBs in, the six ordered-u32 extremes out, the GPU count gating the
+ *  grid-stride loop. Shared by both arms — they differ only in how the WG lanes cooperate. @internal */
+export const reduceLayout = tgpu.bindGroupLayout({
+    prims: { storage: d.arrayOf(d.vec4f), access: "readonly" }, // 2 vec4/prim: min.xyz+pad, max.xyz+pad
+    scratch: { storage: d.arrayOf(d.atomic(d.u32), SCRATCH_U32), access: "mutable" },
+    countBuf: { storage: d.arrayOf(d.u32), access: "readonly" }, // [0] = GPU-driven prim count
+});
 
-// the workgroup reduce — subgroup-first by default, a canonical LDS tree reduce when
-// subgroups are absent. Both fold the per-lane (lmin, lmax) into (tmin, tmax) before
-// the single per-axis atomic, the only difference being how the WG lanes cooperate.
-const subgroupReduce = /* wgsl */ `
-    // level 1: reduce across the subgroup; lane 0 publishes the partial
-    let sgid = tid / sgsize;
-    let smin = subgroupMin(lmin);
-    let smax = subgroupMax(lmax);
-    if (sid == 0u) { wg_min[sgid] = smin; wg_max[sgid] = smax; }
-    workgroupBarrier();
+/** the finalize pass's bindings: the same scratch read non-atomically, decoded into the scene AABB.
+ *  @internal */
+export const finalizeLayout = tgpu.bindGroupLayout({
+    scratch: { storage: d.arrayOf(d.u32), access: "readonly" },
+    bounds: { storage: d.arrayOf(d.vec4f, 2), access: "mutable" },
+});
 
-    // level 2: every subgroup redundantly folds the numSub partials (they fit one
-    // subgroup since numSub = WG/sgsize <= sgsize for sgsize >= 16). No second barrier,
-    // no LDS tree — the subgroup op is the whole reduce.
-    let numSub = ${WG}u / sgsize;
-    let vmin = select(vec3<f32>(FMAX), wg_min[sid], sid < numSub);
-    let vmax = select(vec3<f32>(-FMAX), wg_max[sid], sid < numSub);
-    let tmin = subgroupMin(vmin);
-    let tmax = subgroupMax(vmax);
-`;
+/**
+ * IEEE float → order-preserving u32. Positive (sign 0): set the sign bit, so it sorts above every
+ * negative. Negative (sign 1): flip all bits, reversing magnitude order. Bijective, so {@link
+ * unorderU32} decodes it exactly — which is what lets WebGPU's integer-only atomicMin/Max agree with
+ * float ordering across the whole range.
+ * @example const key = orderU32(-1); // sorts below orderU32(0)
+ */
+export const orderU32 = tgpu.fn(
+    [d.f32],
+    d.u32,
+)((f) => {
+    "use gpu";
+    const u = bitcastF32toU32(f);
+    // both arms carry the same formula; JS bitwise ops are signed 32-bit, so the CPU arm needs the
+    // `>>> 0` the transpiler rejects (the `tgsl.ts` dual shape — the ternary folds at shader-gen)
+    return std.isBeingTranspiled()
+        ? std.select(~u, u | 0x80000000, u >> 31 === 0)
+        : u >>> 31 === 0
+          ? (u | 0x80000000) >>> 0
+          : ~u >>> 0;
+});
 
-// LDS tree reduce over the WG lanes: each lane seeds its slot, then a halving tree folds
-// to slot 0. The canonical no-subgroup reduce (the gpu.md rule's pre-subgroup form).
-const ldsReduce = /* wgsl */ `
-    wg_min[tid] = lmin;
-    wg_max[tid] = lmax;
-    workgroupBarrier();
-    for (var s = ${WG >> 1}u; s > 0u; s >>= 1u) {
-        if (tid < s) {
-            wg_min[tid] = min(wg_min[tid], wg_min[tid + s]);
-            wg_max[tid] = max(wg_max[tid], wg_max[tid + s]);
-        }
-        workgroupBarrier();
-    }
-    let tmin = wg_min[0];
-    let tmax = wg_max[0];
-`;
-
-function reduceWgsl(subgroups: boolean): string {
-    // the LDS path sizes its scratch to one slot per WG lane; the subgroup path needs
-    // only one per subgroup (numSub <= MAX_SUB).
-    const slots = subgroups ? MAX_SUB : WG;
-    const sgParams = subgroups
-        ? ", @builtin(subgroup_invocation_id) sid: u32, @builtin(subgroup_size) sgsize: u32"
-        : "";
-    return (
-        (subgroups ? "enable subgroups;\n" : "") +
-        ORDER_WGSL +
-        /* wgsl */ `
-@group(0) @binding(0) var<storage, read> prims: array<vec4<f32>>;   // 2 vec4/prim: min.xyz+pad, max.xyz+pad
-@group(0) @binding(1) var<storage, read_write> scratch: array<atomic<u32>, ${SCRATCH_U32}>;
-@group(0) @binding(2) var<storage, read> countBuf: array<u32>;       // [0] = GPU-driven prim count
-
-var<workgroup> wg_min: array<vec3<f32>, ${slots}>;
-var<workgroup> wg_max: array<vec3<f32>, ${slots}>;
-
-@compute @workgroup_size(${WG})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>,
-        @builtin(num_workgroups) nwg: vec3<u32>${sgParams}) {
-    let tid = lid.x;
-    let stride = nwg.x * ${WG}u;
-    let count = countBuf[0];
-    let FMAX = bitcast<f32>(0x7f7fffffu);   // neutral element: empty lanes don't move the extreme
-
-    // grid-stride fold of this lane's slice
-    var lmin = vec3<f32>(FMAX);
-    var lmax = vec3<f32>(-FMAX);
-    for (var i = gid.x; i < count; i += stride) {
-        lmin = min(lmin, prims[i * 2u].xyz);
-        lmax = max(lmax, prims[i * 2u + 1u].xyz);
-    }
-${subgroups ? subgroupReduce : ldsReduce}
-    // one global atomic per axis per workgroup
-    if (tid == 0u) {
-        atomicMin(&scratch[0], orderU32(tmin.x));
-        atomicMin(&scratch[1], orderU32(tmin.y));
-        atomicMin(&scratch[2], orderU32(tmin.z));
-        atomicMax(&scratch[3], orderU32(tmax.x));
-        atomicMax(&scratch[4], orderU32(tmax.y));
-        atomicMax(&scratch[5], orderU32(tmax.z));
-    }
-}
-`
+/**
+ * the inverse of {@link orderU32}: an order-preserving u32 back to its f32. Exact — the encode is
+ * bijective and min/max introduce no rounding, so a reduced scene AABB is bit-identical to the CPU
+ * oracle's.
+ * @example unorderU32(orderU32(x)) === x
+ */
+export const unorderU32 = tgpu.fn(
+    [d.u32],
+    d.f32,
+)((o) => {
+    "use gpu";
+    return std.bitcastU32toF32(
+        std.isBeingTranspiled()
+            ? std.select(~o, o ^ 0x80000000, o >> 31 === 1)
+            : o >>> 31 === 1
+              ? (o ^ 0x80000000) >>> 0
+              : ~o >>> 0,
     );
-}
+});
 
-const FINALIZE_WGSL =
-    ORDER_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> scratch: array<u32>;
-@group(0) @binding(1) var<storage, read_write> bounds: array<vec4<f32>, 2>;
+/** one lane's folded slice of the prim range */
+const Extremes = d.struct({ mn: d.vec3f, mx: d.vec3f }).$name("Extremes");
+
+// grid-stride fold of this lane's slice. The neutral element is ±f32 max, so a lane with no prims
+// contributes nothing to either extreme.
+const fold = tgpu
+    .fn(
+        [d.u32, d.u32],
+        Extremes,
+    )((start, stride) => {
+        "use gpu";
+        const fmax = std.bitcastU32toF32(F32_MAX_BITS);
+        let mn = d.vec3f(fmax);
+        let mx = d.vec3f(-fmax);
+        const count = reduceLayout.$.countBuf[0];
+        let i = start;
+        while (i < count) {
+            mn = std.min(mn, reduceLayout.$.prims[i * 2].xyz);
+            mx = std.max(mx, reduceLayout.$.prims[i * 2 + 1].xyz);
+            i = i + stride;
+        }
+        return Extremes({ mn, mx });
+    })
+    .$name("foldSlice");
+
+// one global atomic per axis per workgroup — the gpu.md "reduce in the workgroup, then ONE atomic"
+// rule's publish step. Six ordered-u32 slots: [min.xyz, max.xyz].
+const publish = tgpu
+    .fn([Extremes])((t) => {
+        "use gpu";
+        std.atomicMin(reduceLayout.$.scratch[0], orderU32(t.mn.x));
+        std.atomicMin(reduceLayout.$.scratch[1], orderU32(t.mn.y));
+        std.atomicMin(reduceLayout.$.scratch[2], orderU32(t.mn.z));
+        std.atomicMax(reduceLayout.$.scratch[3], orderU32(t.mx.x));
+        std.atomicMax(reduceLayout.$.scratch[4], orderU32(t.mx.y));
+        std.atomicMax(reduceLayout.$.scratch[5], orderU32(t.mx.z));
+    })
+    .$name("publishExtremes");
+
+// The two arms are two entry points, not one kernel behind a flag or a slot: the subgroup arm's
+// `subgroup_invocation_id` / `subgroup_size` are *entry-point parameters*, and declaring them at all
+// needs `enable subgroups` — which the subgroup-free tier can't have. So the fork has to sit above the
+// builtin list, and everything below it (the fold, the ordered-u32 publish) is shared verbatim.
+
+// the subgroup path's partials: one slot per subgroup (numSub = WG/sgsize <= MAX_SUB)
+const sgMin = tgpu.workgroupVar(d.arrayOf(d.vec3f, MAX_SUB));
+const sgMax = tgpu.workgroupVar(d.arrayOf(d.vec3f, MAX_SUB));
+
+const subgroupReduce = tgpu
+    .computeFn({
+        workgroupSize: [WG],
+        in: {
+            gid: d.builtin.globalInvocationId,
+            lid: d.builtin.localInvocationId,
+            nwg: d.builtin.numWorkgroups,
+            sid: d.builtin.subgroupInvocationId,
+            sgsize: d.builtin.subgroupSize,
+        },
+    })((input) => {
+        "use gpu";
+        const tid = input.lid.x;
+        const t = fold(input.gid.x, input.nwg.x * WG);
+
+        // level 1: reduce across the subgroup; lane 0 publishes the partial
+        const sgid = idiv(tid, input.sgsize);
+        const smin = std.subgroupMin(t.mn);
+        const smax = std.subgroupMax(t.mx);
+        if (input.sid === 0) {
+            sgMin.$[sgid] = d.vec3f(smin);
+            sgMax.$[sgid] = d.vec3f(smax);
+        }
+        std.workgroupBarrier();
+
+        // level 2: every subgroup redundantly folds the numSub partials (they fit one subgroup since
+        // numSub = WG/sgsize <= sgsize for sgsize >= 16). No second barrier, no LDS tree — the
+        // subgroup op is the whole reduce.
+        const numSub = idiv(WG, input.sgsize);
+        const fmax = std.bitcastU32toF32(F32_MAX_BITS);
+        const vmin = std.select(d.vec3f(fmax), sgMin.$[input.sid], input.sid < numSub);
+        const vmax = std.select(d.vec3f(-fmax), sgMax.$[input.sid], input.sid < numSub);
+        // both reduces run on every lane: a subgroup op inside the `tid == 0` guard is
+        // non-uniform control flow, which Tint rejects outright
+        const tmin = std.subgroupMin(vmin);
+        const tmax = std.subgroupMax(vmax);
+        if (tid === 0) publish(Extremes({ mn: tmin, mx: tmax }));
+    })
+    .$name("boundsReduceSubgroup");
+
+// the LDS path's scratch: one slot per WG lane, halved down the tree
+const ldsMin = tgpu.workgroupVar(d.arrayOf(d.vec3f, WG));
+const ldsMax = tgpu.workgroupVar(d.arrayOf(d.vec3f, WG));
+
+const ldsReduce = tgpu
+    .computeFn({
+        workgroupSize: [WG],
+        in: {
+            gid: d.builtin.globalInvocationId,
+            lid: d.builtin.localInvocationId,
+            nwg: d.builtin.numWorkgroups,
+        },
+    })((input) => {
+        "use gpu";
+        const tid = input.lid.x;
+        const t = fold(input.gid.x, input.nwg.x * WG);
+
+        // LDS tree reduce over the WG lanes: each lane seeds its slot, then a halving tree folds to
+        // slot 0. The canonical no-subgroup reduce (the gpu.md rule's pre-subgroup form).
+        ldsMin.$[tid] = d.vec3f(t.mn);
+        ldsMax.$[tid] = d.vec3f(t.mx);
+        std.workgroupBarrier();
+        let s = d.u32(HALF_WG);
+        while (s > 0) {
+            if (tid < s) {
+                ldsMin.$[tid] = std.min(ldsMin.$[tid], ldsMin.$[tid + s]);
+                ldsMax.$[tid] = std.max(ldsMax.$[tid], ldsMax.$[tid + s]);
+            }
+            std.workgroupBarrier();
+            s = s >> 1;
+        }
+        if (tid === 0) publish(Extremes({ mn: ldsMin.$[0], mx: ldsMax.$[0] }));
+    })
+    .$name("boundsReduceLds");
 
 // decode the six ordered-u32 extremes into the f32 scene AABB (2 vec4: min.xyz+pad, max.xyz+pad)
-@compute @workgroup_size(1)
-fn main() {
-    bounds[0] = vec4<f32>(unorderU32(scratch[0]), unorderU32(scratch[1]), unorderU32(scratch[2]), 0.0);
-    bounds[1] = vec4<f32>(unorderU32(scratch[3]), unorderU32(scratch[4]), unorderU32(scratch[5]), 0.0);
-}
-`;
+const finalize = tgpu
+    .computeFn({ workgroupSize: [1] })(() => {
+        "use gpu";
+        const s = finalizeLayout.$.scratch;
+        finalizeLayout.$.bounds[0] = d.vec4f(
+            unorderU32(s[0]),
+            unorderU32(s[1]),
+            unorderU32(s[2]),
+            0,
+        );
+        finalizeLayout.$.bounds[1] = d.vec4f(
+            unorderU32(s[3]),
+            unorderU32(s[4]),
+            unorderU32(s[5]),
+            0,
+        );
+    })
+    .$name("boundsFinalize");
 
-function storageEntry(binding: number, readonly: boolean): GPUBindGroupLayoutEntry {
+/** the emitted bounds WGSL — the device-free structural seam its test resolves. Both reduce arms plus
+ *  the shared finalize, so a test can diff the arms against each other.
+ *  @internal */
+export function boundsWgsl(): { subgroup: string; lds: string; finalize: string } {
     return {
-        binding,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: readonly ? "read-only-storage" : "storage" },
+        subgroup: tgpu.resolve([subgroupReduce], { names: "strict" }),
+        lds: tgpu.resolve([ldsReduce], { names: "strict" }),
+        finalize: tgpu.resolve([finalize], { names: "strict" }),
     };
 }
 
@@ -207,6 +305,8 @@ export async function createSceneBounds(
     shared: SceneBoundsShared = {},
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<SceneBounds> {
+    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
+    const root = rootOf(device, "createSceneBounds");
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -222,46 +322,28 @@ export async function createSceneBounds(
         shared.bounds ?? own("bounds-out", 32, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const count = shared.count ?? own("bounds-count", 4, StoreDst);
 
-    const reduceLayout = device.createBindGroupLayout({
-        label: "bounds-reduce",
-        entries: [storageEntry(0, true), storageEntry(1, false), storageEntry(2, true)],
-    });
-    const finalizeLayout = device.createBindGroupLayout({
-        label: "bounds-finalize",
-        entries: [storageEntry(0, true), storageEntry(1, false)],
-    });
-
-    const pipe = (
-        label: string,
-        code: string,
-        layout: GPUBindGroupLayout,
-    ): Promise<GPUComputePipeline> =>
-        device.createComputePipelineAsync({
-            label,
-            layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-            compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
+    // the two arms are separate entry points (the subgroup builtins can't be declared without the
+    // feature), so the pick is a branch on the pipeline, not a value inside one kernel
+    const reduce = (
+        subgroups
+            ? root.createComputePipeline({ compute: subgroupReduce })
+            : root.createComputePipeline({ compute: ldsReduce })
+    )
+        .$name("bounds-reduce")
+        .with(root.createBindGroup(reduceLayout, { prims, scratch, countBuf: count }));
+    const finalizeBound = root
+        .createComputePipeline({ compute: finalize })
+        .$name("bounds-finalize")
+        .with(root.createBindGroup(finalizeLayout, { scratch, bounds }));
+    for (const [label, bound] of [
+        ["bounds-reduce", reduce],
+        ["bounds-finalize", finalizeBound],
+    ] as const) {
+        precompile(label, () => {
+            bound.dispatchWorkgroups(0);
+            return bound;
         });
-
-    const [reducePipe, finalizePipe] = await Promise.all([
-        pipe("bounds-reduce", reduceWgsl(subgroups), reduceLayout),
-        pipe("bounds-finalize", FINALIZE_WGSL, finalizeLayout),
-    ]);
-
-    const reduceBg = device.createBindGroup({
-        layout: reduceLayout,
-        entries: [
-            { binding: 0, resource: { buffer: prims } },
-            { binding: 1, resource: { buffer: scratch } },
-            { binding: 2, resource: { buffer: count } },
-        ],
-    });
-    const finalizeBg = device.createBindGroup({
-        layout: finalizeLayout,
-        entries: [
-            { binding: 0, resource: { buffer: scratch } },
-            { binding: 1, resource: { buffer: bounds } },
-        ],
-    });
+    }
 
     // scratch reset before each reduce: min axes start above every value, max below.
     const init = new Uint32Array([0xffffffff, 0xffffffff, 0xffffffff, 0, 0, 0]);
@@ -281,17 +363,13 @@ export async function createSceneBounds(
             const reducePass = encoder.beginComputePass({
                 timestampWrites: Compute.span?.("bvh:bounds"),
             });
-            reducePass.setPipeline(reducePipe);
-            reducePass.setBindGroup(0, reduceBg);
-            reducePass.dispatchWorkgroups(numWg);
+            reduce.with(reducePass).dispatchWorkgroups(numWg);
             reducePass.end();
 
             const finalizePass = encoder.beginComputePass({
                 timestampWrites: Compute.span?.("bvh:bounds"),
             });
-            finalizePass.setPipeline(finalizePipe);
-            finalizePass.setBindGroup(0, finalizeBg);
-            finalizePass.dispatchWorkgroups(1);
+            finalizeBound.with(finalizePass).dispatchWorkgroups(1);
             finalizePass.end();
         },
         destroy(): void {

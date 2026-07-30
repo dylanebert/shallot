@@ -1,7 +1,7 @@
 // AVBD extension surface — the GPU step pipeline + the SAT WGSL, for custom tooling, tests, and the gym
 // scenario. The happy path (the `Body` component + `AvbdPlugin`) ships on the `avbd` barrel.
 
-export { COLLIDE_WGSL, HULL_WGSL, MAX_CONTACTS, SPECULATIVE_DISTANCE } from "./collide";
+export { collideWgsl, hullWgsl, MAX_CONTACTS, SPECULATIVE_DISTANCE } from "./collide";
 export { HULL_FACE_STRIDE, HULL_HEADER, packHulls } from "./hull";
 export { Avbd } from "./index";
 export {

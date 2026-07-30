@@ -31,8 +31,8 @@ import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import {
     Avbd,
     BODY_VEC4,
-    COLLIDE_WGSL,
-    HULL_WGSL,
+    collideWgsl,
+    hullWgsl,
     type JointDef,
     LDS_CAP,
     LDS_N,
@@ -1739,12 +1739,12 @@ const roundedConfigs: Cfg[] = [
 // so a capsule-box's 2nd endpoint is gated too.
 const ROUNDED_OUT_STRIDE = 1 + 3 + MAX_CONTACTS * 7; // count, normal(3), MAX × (feat, rA.xyz, rB.xyz)
 const ROUNDED_CFG_STRIDE = 32; // 8 vec4: posA, quatA, sizeRadA, posB, quatB, sizeRadB, dRel, shapes
-const ROUNDED_KERNEL_WGSL = `${COLLIDE_WGSL}${HULL_WGSL}
+const roundedKernelWgsl = () => `${collideWgsl()}${hullWgsl()}
 struct Cfg { posA: vec4<f32>, quatA: vec4<f32>, sizeRadA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeRadB: vec4<f32>, dRel: vec4<f32>, shapes: vec4<f32> };
 @group(0) @binding(0) var<storage, read> cfgs: array<Cfg>;
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
 @group(0) @binding(2) var<uniform> params: vec4<u32>;
-@group(0) @binding(3) var<storage, read> hullData: array<u32>; // unused here (box polys), declared for HULL_WGSL
+@group(0) @binding(3) var<storage, read> hullData: array<u32>; // unused here (box polys), declared for hullWgsl()
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
@@ -1817,7 +1817,7 @@ async function runRoundedKernel(): Promise<GpuRounded[]> {
         size: n * ROUNDED_OUT_STRIDE * 4,
         usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
     });
-    // these configs are all box/sphere/capsule (box polys → no hull read), but HULL_WGSL declares the binding,
+    // these configs are all box/sphere/capsule (box polys → no hull read), but hullWgsl() declares the binding,
     // so bind the packed registry (a 1-u32 stub when no hulls are registered) to satisfy it.
     const hullBytes = packHulls();
     const hullBuf = device.createBuffer({
@@ -1835,7 +1835,7 @@ async function runRoundedKernel(): Promise<GpuRounded[]> {
         compute: {
             module: device.createShaderModule({
                 label: "rounded-module",
-                code: ROUNDED_KERNEL_WGSL,
+                code: roundedKernelWgsl(),
             }),
             entryPoint: "main",
         },

@@ -3,7 +3,7 @@
 // neither bodies nor draws, neither triangles nor instances. {@link createBvh} is the
 // whole pipeline behind one prim-AABB input buffer and one BVH2 output buffer; the
 // per-stage factories (re-exported below) stay available for isolated validation, and
-// {@link BVH_TRAVERSE_WGSL} is the single-level ray-AABB traverser its consumers splice
+// {@link bvhTraverseWgsl} is the single-level ray-AABB traverser its consumers splice
 // in (the physics broadphase / raycast; a native-RT lighting path when WebGPU ships RT).
 // Consumer-specific layers — ray-triangle leaf tests, two-level BLAS/TLAS instancing —
 // live with the consumer that needs them, not in the builder.
@@ -19,6 +19,7 @@ import { checkStorageBinding } from "../../engine";
 import { createSceneBounds } from "./bounds";
 import { createBuild } from "./build";
 import { createMorton } from "./morton";
+import { checkDevice } from "./root";
 import { createRadixSort, KEYS_PER_BLOCK } from "./sort";
 
 export type { SceneBounds } from "./bounds";
@@ -32,10 +33,13 @@ export { createRadixSort, KEYS_PER_BLOCK } from "./sort";
 export {
     BVH_INVALID,
     BVH_NODE_BYTES,
-    BVH_ROOT_WGSL,
     BVH_TRAIL_LEVELS,
-    BVH_TRAVERSE_WGSL,
+    BvhHit,
+    bvhAnyHit,
+    bvhClosestHit,
     bvhRoot,
+    bvhRootWgsl,
+    bvhTraverseWgsl,
 } from "./traverse";
 
 /**
@@ -65,7 +69,7 @@ export interface Bvh {
      * Bvh.build} / {@link Bvh.refit}: a fixed-count producer via `writeBuffer`, a
      * GPU producer by writing it from its own compute. Read on the GPU into bounds,
      * Morton (gating), the build (indirect dispatch + the `2N−1` node range), and the
-     * trace root (`bvhRoot`, {@link BVH_ROOT_WGSL}); it never crosses to the CPU.
+     * trace root (`bvhRoot`, {@link bvhRootWgsl}); it never crosses to the CPU.
      */
     readonly count: GPUBuffer;
     /** capacity the buffers are sized for */
@@ -114,6 +118,9 @@ export async function createBvh(
     sharedNodes?: GPUBuffer,
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<Bvh> {
+    // the builder's pipelines come from the root scoped to `Compute.device`, so reject a foreign
+    // device before allocating anything — the six buffers below would otherwise leak
+    checkDevice(device, "createBvh");
     const cap = Math.max(1, maxPrims);
     const inPlace = sharedNodes !== undefined;
     // the sort pads keys to a block multiple, so the shared key/payload buffers must

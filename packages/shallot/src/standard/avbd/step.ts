@@ -14,7 +14,7 @@
 //   colorize   — incremental-greedy body coloring, capped at maxColors (folds past it); publishes the
 //                used-color count to `colorCount` for the readback-bounded color loop (Phase 4.9 Lever 1).
 //                In the small-N regime the CSR build + coloring run as ONE fused single-WG dispatch
-//                (CSR_COLOR_SMALL_WGSL — C1.1); the multi-WG passes are the at-scale regime
+//                (csrColorSmallWgsl — C1.1); the multi-WG passes are the at-scale regime
 //   primal     — colored Gauss-Seidel: `boundColors`-many color-passes/iter (min(maxColors, usedColors +
 //                COLOR_MARGIN), the frame-stale readback count), each dispatched DIRECT off the
 //                frame-stale live count + BODY_MARGIN (`boundBodies`, rung 0), force stamp + 6×6 LDLᵀ
@@ -48,20 +48,24 @@
 // quantization deferred per gpu.md rule 8). The body + contact buffers are SoA cols-buffers (gpu.md
 // consolidation #1). Per-body CSR adjacency feeds the primal: each body reads only its own contacts.
 
+import tgpu, { type TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute, checkStorageBinding } from "../../engine";
-import { xformWgsl } from "../../engine/utils/core";
+import { precompile } from "../../engine/runtime";
+import { bitcastF32toU32, chunk, idiv, uniformLoad, Xform } from "../../engine/utils/core";
 // the shared LBVH builder (roadmap "Subgroup-first algorithms": physics is a consumer of the same
 // rendering-unaware builder a native-RT path would use). standard → extras is the documented exception
 // for this shared GPU primitive (exports.md `bvh/core`), not the onion default.
-import { BVH_ROOT_WGSL, type Bvh, createBvh } from "../bvh/core";
+import { BVH_INVALID, type Bvh, bvhRoot, createBvh } from "../bvh/core";
 import {
-    BOXBOX_WGSL,
-    HELPERS_WGSL,
-    HULL_CORE_WGSL,
-    HULL_SAT_WGSL,
+    collideBoxBox,
+    collideHull,
+    collideRounded,
+    collideRoundedPolytope,
     MAX_CONTACTS,
-    ROUNDED_POLY_WGSL,
-    ROUNDED_WGSL,
+    polyMake,
+    SatResult,
     SPECULATIVE_DISTANCE,
 } from "./collide";
 
@@ -265,244 +269,1656 @@ export const LDS_CAP = 512;
  * raising it toward {@link LDS_CAP}. */
 export const LDS_N = 64;
 
-// Math + the Step uniform struct, no buffer refs — prepended to every pass before its bindings.
-const SHARED_WGSL = /* wgsl */ `
-struct Step {
-    recordCap: u32, iterations: u32, eidCap: u32, maxColors: u32,
-    dt: f32, gravity: f32, alpha: f32, penalty: f32,
-    invDt2: f32, betaLin: f32, gamma: f32, betaAng: f32,
-    jointCount: u32, substeps: u32, _pad2: u32, _pad3: u32,
-};
-const KIND_SPRING: u32 = ${KIND_SPRING}u;
-const KIND_JOINT: u32 = ${KIND_JOINT}u;
-const CONSTRAINT_VEC4: u32 = ${CONSTRAINT_VEC4}u;
-const JOINT_REC_VEC4: u32 = ${JOINT_REC_VEC4}u;
-const RIGID_THRESHOLD: f32 = 1.0e29;
-// a joint endpoint of WORLD_ANCHOR is the WORLD (no body): its rA is a world-space point, its orientation is
-// identity, its mass/size are 0 (static). The grab pins a box to a world cursor point with no anchor body —
-// hence no anchor↔box contact (joint.cpp bodyA == null). The CPU side gives it no constraint-list entry.
-const WORLD_ANCHOR: u32 = 0xffffffffu;
-// PAIRS_PER_BODY = the per-eid FIXED block size: body eid owns slots [eid*PAIRS_PER_BODY, …) in pairList.
-// CONTACTS_PER_PAIR contact records per pair slot: a pair at slot s (= owner eid*PAIRS_PER_BODY + k) keeps
-// its manifold at recordBase = s*CONTACTS_PER_PAIR in the persistent pairContacts SoA. The slot is a function
-// of the owner's eid alone, so it's stable across frames unless the owner's own candidate set flickers
-// (local warmstart fragility — Phase 4.9 robustness, avbd.md), not the global churn a prefix-sum had.
-const PAIRS_PER_BODY: u32 = ${PAIRS_PER_BODY}u;
-const CONTACTS_PER_PAIR: u32 = ${CONTACTS_PER_PAIR}u;
+/**
+ * the per-step uniform (`params` in every kernel). The schema is the one source of the layout on BOTH
+ * sides: the WGSL struct resolves from it, and `configure`'s staging write sizes + offsets derive from
+ * `d.sizeOf` / `d.memoryLayoutOf` (`step.test.ts` pins them), so reordering a field can't leave the CPU
+ * writer stamping the old offsets.
+ * @internal
+ */
+export const Step = d
+    .struct({
+        recordCap: d.u32,
+        iterations: d.u32,
+        eidCap: d.u32,
+        maxColors: d.u32,
+        dt: d.f32,
+        gravity: d.f32,
+        alpha: d.f32,
+        penalty: d.f32,
+        invDt2: d.f32,
+        betaLin: d.f32,
+        gamma: d.f32,
+        betaAng: d.f32,
+        jointCount: d.u32,
+        substeps: d.u32,
+        pad2: d.u32,
+        pad3: d.u32,
+    })
+    .$name("Step");
 
+/** the step uniform's byte size + the `jointCount` byte offset, from the schema — `configure` /
+ * `setJoints` stage their write against these rather than hand-counted numbers */
+const STEP_BYTES = d.sizeOf(Step);
+const STEP_JOINT_COUNT = d.memoryLayoutOf(Step, (s) => s.jointCount).offset;
+
+/** logical columns in the eid-indexed `bodies` SoA cols-buffer (`bodies[col*eidCap + eid]`). A ported
+ * chunk folds every constant into the expression that uses it, so a kernel writing a column by
+ * hand interpolates these instead of naming a spliced const. */
+const B_POS = 0;
+const B_QUAT = 1;
+const B_INERTL = 2;
+const B_INERTQ = 3;
+const B_INITL = 4;
+const B_INITQ = 5;
+const B_VELL = 6;
+const B_VELA = 7;
+const B_PREVV = 8;
+const B_MM = 9;
+const B_HF = 10;
+const B_ROUND = 11;
+
+/** contact-record columns (SoA, `pairContacts[col*recordCap + rec]`): a record's `C_META` is
+ * (type, a, b, feature) — type 0 = inactive (cleared slot), {@link CONSTRAINT_CONTACT} = live; a/b are the
+ * body eids, so a record is self-describing (the collide's warmstart pair-identity gate). */
+const C_META = 0;
+const C_NORMAL = 1;
+const C_RA = 2;
+const C_RB = 3;
+const C_C0 = 4;
+const C_PEN = 5;
+const C_LAMBDA = 6;
+
+/** `solveOut` columns (`solveOut[col*eidCap + bid]`): the primal's double-buffer scratch */
+const SO_POS = 0;
+const SO_QUAT = 1;
+
+const RIGID_THRESHOLD = 1.0e29;
+/** a joint endpoint of `WORLD_ANCHOR` is the WORLD (no body): its rA is a world-space point, its
+ * orientation is identity, its mass/size are 0 (static). The grab pins a box to a world cursor point with
+ * no anchor body — hence no anchor↔box contact (joint.cpp bodyA == null). The CPU side gives it no
+ * constraint-list entry. */
+const WORLD_ANCHOR = 0xffffffff;
 const COLLISION_MARGIN = 0.01;
-const PENALTY_MIN: f32 = ${PENALTY_MIN.toFixed(1)};
-const PENALTY_MAX: f32 = 1.0e10;
+const PENALTY_MAX = 1.0e10;
+/** an unused per-eid block slot in `pairList` (the collide/dual/CSR skip it) */
+const INVALID_PAIR = 0xffffffff;
 
-fn qConjW(q: vec4<f32>) -> vec4<f32> { return vec4<f32>(-q.xyz, q.w); }
-fn qMulW(a: vec4<f32>, b: vec4<f32>) -> vec4<f32> {
-    return vec4<f32>(
-        a.w*b.x + a.x*b.w + a.y*b.z - a.z*b.y,
-        a.w*b.y - a.x*b.z + a.y*b.w + a.z*b.x,
-        a.w*b.z + a.x*b.y - a.y*b.x + a.z*b.w,
-        a.w*b.w - a.x*b.x - a.y*b.y - a.z*b.z);
+// The `bodies` cols-buffer column indices `packCountWgsl`'s still-raw `seedBody` names. A ported chunk
+// emits no WGSL consts — every constant folds into the expression that uses it — so the pack kernel, the
+// last raw consumer, reaches them by interpolating this TS-side block (the ported-chunk-emits-no-consts
+// law, Approach 3b-iv part 2b). Solve/dual/joint-record constants live only in the TGSL call sites they fold into.
+const PACK_B_CONSTS_WGSL = /* wgsl */ `
+const B_POS: u32 = ${B_POS}u;
+const B_QUAT: u32 = ${B_QUAT}u;
+const B_INERTL: u32 = ${B_INERTL}u;
+const B_INERTQ: u32 = ${B_INERTQ}u;
+const B_INITL: u32 = ${B_INITL}u;
+const B_INITQ: u32 = ${B_INITQ}u;
+const B_VELL: u32 = ${B_VELL}u;
+const B_VELA: u32 = ${B_VELA}u;
+const B_PREVV: u32 = ${B_PREVV}u;
+const B_MM: u32 = ${B_MM}u;
+const B_HF: u32 = ${B_HF}u;
+const B_ROUND: u32 = ${B_ROUND}u;
+`;
+
+// ── the shared solver bindings, one layout per storage access-mode combination ─────────────────────────
+// `params` + `bodies` + `pairContacts` are what nearly every kernel binds, so they live in ONE shared
+// layout at group 1 and every kernel's own I/O keeps group 0 (the 3a `nodeLayout` shape, bind-by-layout-
+// object). WGSL access mode is part of a binding's type, so a read-only reader and a read-write writer
+// need distinct layouts — hence one variant per (bodies, pairContacts) access pair, and the accessors
+// below are FACTORIES over the variant (the 1c factory-closure law: one authored accessor re-emits per
+// layout). A variant's chunks carry their own `Namespace`, so every variant emits the shared math + the
+// accessors under the authored names and a raw splice site calls `bPos` / `cc` by those names.
+//
+// Three variants cover the step: `roRo` (aabb / broadphase / primal / coloring / compose / CSR),
+// `roRw` (collide / dual — read poses, write manifolds), `rwRw` (inertial / commit / velocity / joint /
+// solve-lds — write poses). A kernel that never touches one of the three bindings simply doesn't
+// reference it, so nothing is emitted for it; the bind group still binds the buffer (a layout may be a
+// superset of what the shader declares).
+type Access = "readonly" | "mutable";
+
+/** the shared solver bind group's group index; every kernel's own I/O is group 0. @internal */
+export const SOLVER_GROUP = 1;
+/** the shared layout's storage-buffer count (`bodies` + `pairContacts`) — they count toward
+ * `maxStorageBuffersPerShaderStage` in every pass that binds the group, declared or not. @internal */
+export const SHARED_STORAGE = 2;
+
+const solverLayout = (bodies: Access, pairContacts: Access) =>
+    tgpu
+        .bindGroupLayout({
+            params: { uniform: Step },
+            bodies: { storage: d.arrayOf(d.vec4f), access: bodies },
+            pairContacts: { storage: d.arrayOf(d.vec4f), access: pairContacts },
+        })
+        .$idx(SOLVER_GROUP);
+
+type SolverLayout = ReturnType<typeof solverLayout>;
+
+/**
+ * the shared quaternion math (oracle math.ts) + the body/contact accessors over one shared-layout
+ * variant. Everything here is pure TGSL, so each function is also the CPU truth for its arithmetic.
+ * Exported for the chunk-forcing test, which needs a variant no other test has resolved.
+ * @internal
+ */
+export function accessors(bodiesAccess: Access, contactsAccess: Access) {
+    const L: SolverLayout = solverLayout(bodiesAccess, contactsAccess);
+    const ns = tgpu["~unstable"].namespace({ names: "strict" });
+
+    const qConjW = tgpu
+        .fn(
+            [d.vec4f],
+            d.vec4f,
+        )((q) => {
+            "use gpu";
+            return d.vec4f(std.neg(q.xyz), q.w);
+        })
+        .$name("qConjW");
+
+    const qMulW = tgpu
+        .fn(
+            [d.vec4f, d.vec4f],
+            d.vec4f,
+        )((a, b) => {
+            "use gpu";
+            return d.vec4f(
+                a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+                a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+                a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+                a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+            );
+        })
+        .$name("qMulW");
+
+    const qInvW = tgpu
+        .fn(
+            [d.vec4f],
+            d.vec4f,
+        )((q) => {
+            "use gpu";
+            return std.div(qConjW(q), std.dot(q, q));
+        })
+        .$name("qInvW");
+
+    /** the reference's overloaded quat `operator-`, RIGHT-multiplied (avbd.md "Velocity recovery") */
+    const qSubW = tgpu
+        .fn(
+            [d.vec4f, d.vec4f],
+            d.vec3f,
+        )((a, b) => {
+            "use gpu";
+            return std.mul(qMulW(a, qInvW(b)).xyz, d.f32(2));
+        })
+        .$name("qSubW");
+
+    const qRotateW = tgpu
+        .fn(
+            [d.vec4f, d.vec3f],
+            d.vec3f,
+        )((q, v) => {
+            "use gpu";
+            const t = std.mul(d.f32(2), std.cross(q.xyz, v));
+            return std.add(std.add(v, std.mul(q.w, t)), std.cross(q.xyz, t));
+        })
+        .$name("qRotateW");
+
+    /** quat + omega vector → integrated, renormalized quat (math.ts qadd) */
+    const qAddW = tgpu
+        .fn(
+            [d.vec4f, d.vec3f],
+            d.vec4f,
+        )((a, w) => {
+            "use gpu";
+            const dq = std.mul(d.f32(0.5), qMulW(d.vec4f(w, 0), a));
+            return std.normalize(std.add(a, dq));
+        })
+        .$name("qAddW");
+
+    // Body-state accessors over the shared `bodies` cols-buffer. `bCol` is the one SoA index site: a warp
+    // reading sequential `i` per column coalesces to one cache line (gpu.md cols-buffer pattern).
+    // Everything below bPos/bQuat is loop-constant during the solve, so it always reads storage; bPos/bQuat
+    // are their own chunk so the LDS-resident solve kernel can declare workgroup-memory readers of the same
+    // names instead — the pose is the per-color dependent chain, the one thing that must not round-trip
+    // storage there.
+    const bCol = tgpu
+        .fn(
+            [d.u32, d.u32],
+            d.vec4f,
+        )((col, i) => {
+            "use gpu";
+            return L.$.bodies[col * L.$.params.eidCap + i];
+        })
+        .$name("bCol");
+
+    const bInertL = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_INERTL, i).xyz;
+        })
+        .$name("bInertL");
+    const bInertQ = tgpu
+        .fn(
+            [d.u32],
+            d.vec4f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_INERTQ, i);
+        })
+        .$name("bInertQ");
+    const bInitL = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_INITL, i).xyz;
+        })
+        .$name("bInitL");
+    const bInitQ = tgpu
+        .fn(
+            [d.u32],
+            d.vec4f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_INITQ, i);
+        })
+        .$name("bInitQ");
+    const bVelL = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_VELL, i).xyz;
+        })
+        .$name("bVelL");
+    const bVelA = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_VELA, i).xyz;
+        })
+        .$name("bVelA");
+    const bPrevV = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_PREVV, i).xyz;
+        })
+        .$name("bPrevV");
+    const bMass = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((i) => {
+            "use gpu";
+            return bCol(B_MM, i).w;
+        })
+        .$name("bMass");
+    const bHalf = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_HF, i).xyz;
+        })
+        .$name("bHalf");
+    const bFriction = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((i) => {
+            "use gpu";
+            return bCol(B_HF, i).w;
+        })
+        .$name("bFriction");
+    // B_ROUND packs the shape tag (x, a bitcast ShapeKind) + the rounding radius (y, sphere/capsule) + the
+    // hull id (z, a bitcast registry index for ShapeKind.Hull). Read together with bHalf (the core extents)
+    // by the narrowphase + compose. A box has kind 0 + radius 0 + id 0, so a fresh box's bRound(i) is
+    // all-zero and the box path stays bit-identical.
+    const bShape = tgpu
+        .fn(
+            [d.u32],
+            d.u32,
+        )((i) => {
+            "use gpu";
+            return bitcastF32toU32(bCol(B_ROUND, i).x);
+        })
+        .$name("bShape");
+    const bRadius = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((i) => {
+            "use gpu";
+            return bCol(B_ROUND, i).y;
+        })
+        .$name("bRadius");
+    const bHullId = tgpu
+        .fn(
+            [d.u32],
+            d.u32,
+        )((i) => {
+            "use gpu";
+            return bitcastF32toU32(bCol(B_ROUND, i).z);
+        })
+        .$name("bHullId");
+    /** the static predicate the solver checks everywhere — a real static / kinematic body (mass ≤ 0),
+     *  skipped in the primal + velocity passes and the dual/joint all-static gate */
+    const solverStatic = tgpu
+        .fn(
+            [d.u32],
+            d.bool,
+        )((i) => {
+            "use gpu";
+            return bMass(i) <= 0;
+        })
+        .$name("solverStatic");
+
+    const bPos = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_POS, i).xyz;
+        })
+        .$name("bPos");
+    const bQuat = tgpu
+        .fn(
+            [d.u32],
+            d.vec4f,
+        )((i) => {
+            "use gpu";
+            return bCol(B_QUAT, i);
+        })
+        .$name("bQuat");
+
+    /** the contact-record SoA reader (`pairContacts[col*recordCap + rec]`) */
+    const cc = tgpu
+        .fn(
+            [d.u32, d.u32],
+            d.vec4f,
+        )((rec, col) => {
+            "use gpu";
+            return L.$.pairContacts[col * L.$.params.recordCap + rec];
+        })
+        .$name("cc");
+
+    // the oriented-box world-AABB half-extent (|R|·h, R = the body's rotation) inflated by the rounding
+    // radius — a capsule/sphere's core extents are 0 along the round axes, so the radius is what bounds
+    // them (Phase 6.3); a box (radius 0) is unchanged. Tighter than the sphere bound |h|, so a settled pile
+    // overlaps only its real neighbors (keeps the per-body pair block small). Still a valid broadphase
+    // superset: two boxes that touch have overlapping box-AABBs, so the narrowphase (sphere test + SAT)
+    // never loses a contact the oracle keeps. Shared by the aabb prim + the broadphase query.
+    const boxExtent = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((i) => {
+            "use gpu";
+            const q = bQuat(i);
+            const h = bHalf(i);
+            const ax0 = std.abs(qRotateW(q, d.vec3f(1, 0, 0)));
+            const ax1 = std.abs(qRotateW(q, d.vec3f(0, 1, 0)));
+            const ax2 = std.abs(qRotateW(q, d.vec3f(0, 0, 1)));
+            return std.add(
+                std.add(std.add(std.mul(ax0, h.x), std.mul(ax1, h.y)), std.mul(ax2, h.z)),
+                d.vec3f(bRadius(i)),
+            );
+        })
+        .$name("boxExtent");
+
+    // one chunk per definition tier, each forcing its base first so a shared definition lands in the
+    // lowest chunk that needs it (the collide.ts chunk-forcing law) — a kernel splices only the tiers it
+    // calls, so the aabb pass never compiles the contact reader.
+    const mathChunk = chunk("avbd-math", [qConjW, qMulW, qInvW, qSubW, qRotateW, qAddW], ns);
+    const bodyRestChunk = chunk(
+        "avbd-body-rest",
+        [
+            bCol,
+            bInertL,
+            bInertQ,
+            bInitL,
+            bInitQ,
+            bVelL,
+            bVelA,
+            bPrevV,
+            bMass,
+            bHalf,
+            bFriction,
+            bShape,
+            bRadius,
+            bHullId,
+            solverStatic,
+        ],
+        ns,
+    );
+    const bodyPoseChunk = chunk("avbd-body-pose", [bPos, bQuat], ns);
+    const contactChunk = chunk("avbd-contact", [cc], ns);
+    const boxExtentChunk = chunk("avbd-box-extent", [boxExtent], ns);
+
+    /** the shared quat math (`qConjW` … `qAddW`) — every kernel splices it first */
+    const mathWgsl = (): string => mathChunk();
+    /** the body accessors EXCEPT `bPos`/`bQuat` — the LDS-resident solve declares its own pose readers */
+    const bodyRestWgsl = (): string => {
+        mathWgsl();
+        return bodyRestChunk();
+    };
+    /** the body accessors including the storage `bPos`/`bQuat` */
+    const bodyWgsl = (): string => `${bodyRestWgsl()}\n${bodyPoseChunk()}`;
+    /** the contact-record reader `cc`. Forces the body accessors, which then own the shared `params`
+     *  declaration whatever order a process resolves in — so a contact consumer splices
+     *  {@link bodyRestWgsl} (or {@link bodyWgsl}) ahead of this, never this alone. */
+    const contactWgsl = (): string => {
+        bodyRestWgsl();
+        return contactChunk();
+    };
+    /** `boxExtent` — the broadphase prim + query half-extent */
+    const boxExtentWgsl = (): string => {
+        bodyWgsl();
+        return boxExtentChunk();
+    };
+
+    return {
+        layout: L,
+        qConjW,
+        qMulW,
+        qInvW,
+        qSubW,
+        qRotateW,
+        qAddW,
+        bCol,
+        bInertL,
+        bInertQ,
+        bInitL,
+        bInitQ,
+        bVelL,
+        bVelA,
+        bPrevV,
+        bMass,
+        bHalf,
+        bFriction,
+        bShape,
+        bRadius,
+        bHullId,
+        solverStatic,
+        bPos,
+        bQuat,
+        cc,
+        boxExtent,
+        mathWgsl,
+        bodyRestWgsl,
+        bodyWgsl,
+        contactWgsl,
+        boxExtentWgsl,
+    };
 }
-fn qInvW(q: vec4<f32>) -> vec4<f32> { return qConjW(q) / dot(q, q); }
-fn qSubW(a: vec4<f32>, b: vec4<f32>) -> vec3<f32> { return qMulW(a, qInvW(b)).xyz * 2.0; }
-fn qRotateW(q: vec4<f32>, v: vec3<f32>) -> vec3<f32> {
-    let t = 2.0 * cross(q.xyz, v);
-    return v + q.w * t + cross(q.xyz, t);
+
+/** bodies read-only, manifolds read-only: aabb / broadphase / primal / coloring / compose / CSR */
+const roRo = accessors("readonly", "readonly");
+/** bodies read-only, manifolds read-write: collide / dual */
+const roRw = accessors("readonly", "mutable");
+/** bodies read-write, manifolds read-write: inertial / commit / velocity / joint / solve-lds */
+const rwRw = accessors("mutable", "mutable");
+
+// ── the shared solver factory (3b-iv part 2a) ──────────────────────────────────────────────────────
+// MAT3 / CONTACT_FORCE / JOINT_REC ported to TGSL fns, parameterized by a pose-reader set (the 1c
+// factory-closure law: one authored kernel re-emits per reader set — storage readers now, 2b adds the
+// LDS set solve-lds shadows bPos/bQuat with). Unlike the typed kernels below, these are plain `tgpu.fn`
+// definitions with no manual chunk()/ns bookkeeping: nothing here produces standalone spliced WGSL text
+// the way the raw *PassWgsl() functions do, so `tgpu.resolve([kernel], {names:"strict"})` — one clean
+// call per consuming kernel — walks the whole call graph itself with no forcing needed.
+
+/**
+ * the persistent per-joint record group's index. `jointRecords` needs its own bind group — solve-lds
+ * sits exactly at the 10-storage floor within group 0 + the shared solver group, so a third binding has
+ * nowhere else to go. joint-init / joint-dual (this stage) and 2b's primal / solve-lds all bind it here.
+ * @internal
+ */
+export const JOINT_GROUP = 2;
+
+const jointLayout = (access: Access) =>
+    tgpu
+        .bindGroupLayout({ jointRecords: { storage: d.arrayOf(d.vec4f), access } })
+        .$idx(JOINT_GROUP);
+
+type JointLayout = ReturnType<typeof jointLayout>;
+
+/**
+ * the per-joint record accessors (`JOINT_REC_VEC4` AoS layout) over one shared-layout variant — the
+ * `jointRecords` analogue of {@link accessors}. Exported for the chunk-forcing test.
+ * @internal
+ */
+export function jointAccessors(access: Access) {
+    const L: JointLayout = jointLayout(access);
+
+    const jrec = tgpu
+        .fn(
+            [d.u32, d.u32],
+            d.vec4f,
+        )((rec, col) => {
+            "use gpu";
+            return L.$.jointRecords[rec * d.u32(JOINT_REC_VEC4) + col];
+        })
+        .$name("jrec");
+    const jActive = tgpu
+        .fn(
+            [d.u32],
+            d.u32,
+        )((rec) => {
+            "use gpu";
+            return bitcastF32toU32(jrec(rec, 3).y);
+        })
+        .$name("jActive");
+    const jTorqueArm = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 3).x;
+        })
+        .$name("jTorqueArm");
+    const jPenLin = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 4).xyz;
+        })
+        .$name("jPenLin");
+    const jPenAng = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 5).xyz;
+        })
+        .$name("jPenAng");
+    const jLamLin = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 6).xyz;
+        })
+        .$name("jLamLin");
+    const jLamAng = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 7).xyz;
+        })
+        .$name("jLamAng");
+    const jC0Lin = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 8).xyz;
+        })
+        .$name("jC0Lin");
+    const jC0Ang = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 9).xyz;
+        })
+        .$name("jC0Ang");
+    const jMotorAxis = tgpu
+        .fn(
+            [d.u32],
+            d.vec3f,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 10).xyz;
+        })
+        .$name("jMotorAxis");
+    const jMotorMax = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 10).w;
+        })
+        .$name("jMotorMax");
+    const jMotorSpeed = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 11).x;
+        })
+        .$name("jMotorSpeed");
+    const jMotorLam = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 11).y;
+        })
+        .$name("jMotorLam");
+    const jMotorPen = tgpu
+        .fn(
+            [d.u32],
+            d.f32,
+        )((rec) => {
+            "use gpu";
+            return jrec(rec, 11).z;
+        })
+        .$name("jMotorPen");
+
+    return {
+        layout: L,
+        jrec,
+        jActive,
+        jTorqueArm,
+        jPenLin,
+        jPenAng,
+        jLamLin,
+        jLamAng,
+        jC0Lin,
+        jC0Ang,
+        jMotorAxis,
+        jMotorMax,
+        jMotorSpeed,
+        jMotorLam,
+        jMotorPen,
+    };
 }
-// quat + omega vector -> integrated, renormalized quat (math.ts qadd)
-fn qAddW(a: vec4<f32>, w: vec3<f32>) -> vec4<f32> {
-    let d = 0.5 * qMulW(vec4<f32>(w, 0.0), a);
-    return normalize(a + d);
+
+/** joint records read-only — 2b's primal / solve-lds. */
+export const jointRo = jointAccessors("readonly");
+/** joint records read-write — this stage's joint-init / joint-dual. */
+export const jointRw = jointAccessors("mutable");
+
+/**
+ * the primal / solve-lds own-group bindings ({@link solvePose}'s CSR adjacency + authored constraints) —
+ * not consumed by any 2a pipeline (primal / solve-lds stay raw this stage), but `solvePose` /
+ * `jointContrib` need concrete bindings to resolve + CPU-differential now. 2b's typed primal / solve-lds
+ * reuse this layout unchanged.
+ * @internal
+ */
+const primalOwnLayout = tgpu
+    .bindGroupLayout({
+        csr: { storage: d.arrayOf(d.u32), access: "readonly" },
+        csrList: { storage: d.arrayOf(d.u32), access: "readonly" },
+        constraintCsr: { storage: d.arrayOf(d.u32), access: "readonly" },
+        constraintList: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+    })
+    .$idx(0);
+
+/** row-major 3×3, matching the oracle's math.ts — the TGSL twin of the trio's matrix algebra.
+ *  @internal */
+const SolverMat3 = d.struct({ r0: d.vec3f, r1: d.vec3f, r2: d.vec3f }).$name("Mat3");
+
+const mZero = tgpu
+    .fn(
+        [],
+        SolverMat3,
+    )(() => {
+        "use gpu";
+        return SolverMat3({ r0: d.vec3f(), r1: d.vec3f(), r2: d.vec3f() });
+    })
+    .$name("mZero");
+const mDiag = tgpu
+    .fn(
+        [d.vec3f],
+        SolverMat3,
+    )((v) => {
+        "use gpu";
+        return SolverMat3({
+            r0: d.vec3f(v.x, 0, 0),
+            r1: d.vec3f(0, v.y, 0),
+            r2: d.vec3f(0, 0, v.z),
+        });
+    })
+    .$name("mDiag");
+const mAdd = tgpu
+    .fn(
+        [SolverMat3, SolverMat3],
+        SolverMat3,
+    )((a, b) => {
+        "use gpu";
+        return SolverMat3({
+            r0: std.add(a.r0, b.r0),
+            r1: std.add(a.r1, b.r1),
+            r2: std.add(a.r2, b.r2),
+        });
+    })
+    .$name("mAdd");
+const mNeg = tgpu
+    .fn(
+        [SolverMat3],
+        SolverMat3,
+    )((m) => {
+        "use gpu";
+        return SolverMat3({ r0: std.neg(m.r0), r1: std.neg(m.r1), r2: std.neg(m.r2) });
+    })
+    .$name("mNeg");
+const mScale = tgpu
+    .fn(
+        [SolverMat3, d.f32],
+        SolverMat3,
+    )((m, s) => {
+        "use gpu";
+        return SolverMat3({ r0: std.mul(m.r0, s), r1: std.mul(m.r1, s), r2: std.mul(m.r2, s) });
+    })
+    .$name("mScale");
+/** outer product a ⊗ b (M[i][j] = a[i]·b[j]) — the single-row Hessian block a spring Jacobian stamps
+ *  (maths.h `outer`). */
+const outer3 = tgpu
+    .fn(
+        [d.vec3f, d.vec3f],
+        SolverMat3,
+    )((a, b) => {
+        "use gpu";
+        return SolverMat3({ r0: std.mul(b, a.x), r1: std.mul(b, a.y), r2: std.mul(b, a.z) });
+    })
+    .$name("outer3");
+const mMulV = tgpu
+    .fn(
+        [SolverMat3, d.vec3f],
+        d.vec3f,
+    )((m, v) => {
+        "use gpu";
+        return d.vec3f(std.dot(m.r0, v), std.dot(m.r1, v), std.dot(m.r2, v));
+    })
+    .$name("mMulV");
+const mT = tgpu
+    .fn(
+        [SolverMat3],
+        SolverMat3,
+    )((m) => {
+        "use gpu";
+        return SolverMat3({
+            r0: d.vec3f(m.r0.x, m.r1.x, m.r2.x),
+            r1: d.vec3f(m.r0.y, m.r1.y, m.r2.y),
+            r2: d.vec3f(m.r0.z, m.r1.z, m.r2.z),
+        });
+    })
+    .$name("mT");
+const mMul = tgpu
+    .fn(
+        [SolverMat3, SolverMat3],
+        SolverMat3,
+    )((a, b) => {
+        "use gpu";
+        return SolverMat3({
+            r0: std.add(
+                std.add(std.mul(b.r0, a.r0.x), std.mul(b.r1, a.r0.y)),
+                std.mul(b.r2, a.r0.z),
+            ),
+            r1: std.add(
+                std.add(std.mul(b.r0, a.r1.x), std.mul(b.r1, a.r1.y)),
+                std.mul(b.r2, a.r1.z),
+            ),
+            r2: std.add(
+                std.add(std.mul(b.r0, a.r2.x), std.mul(b.r1, a.r2.y)),
+                std.mul(b.r2, a.r2.z),
+            ),
+        });
+    })
+    .$name("mMul");
+const orthoBasis = tgpu
+    .fn(
+        [d.vec3f],
+        SolverMat3,
+    )((n) => {
+        "use gpu";
+        let t1 = d.vec3f();
+        if (std.abs(n.x) > std.abs(n.y)) t1 = d.vec3f(std.neg(n.z), 0, n.x);
+        else t1 = d.vec3f(0, n.z, std.neg(n.y));
+        t1 = std.normalize(t1);
+        return SolverMat3({ r0: n, r1: t1, r2: std.cross(t1, n) });
+    })
+    .$name("orthoBasis");
+/** the joint's angular Jacobian + geometric-stiffness terms (maths.h skew/diagonalize, joint.cpp
+ *  geometricStiffnessBallSocket) — row-major, matching the oracle math.ts. */
+const skew = tgpu
+    .fn(
+        [d.vec3f],
+        SolverMat3,
+    )((r) => {
+        "use gpu";
+        return SolverMat3({
+            r0: d.vec3f(0, std.neg(r.z), r.y),
+            r1: d.vec3f(r.z, 0, std.neg(r.x)),
+            r2: d.vec3f(std.neg(r.y), r.x, 0),
+        });
+    })
+    .$name("skew");
+/** diag of each column's length (the joint's diagonal higher-order approximation) */
+const diagonalize = tgpu
+    .fn(
+        [SolverMat3],
+        SolverMat3,
+    )((m) => {
+        "use gpu";
+        return mDiag(
+            d.vec3f(
+                std.length(d.vec3f(m.r0.x, m.r1.x, m.r2.x)),
+                std.length(d.vec3f(m.r0.y, m.r1.y, m.r2.y)),
+                std.length(d.vec3f(m.r0.z, m.r1.z, m.r2.z)),
+            ),
+        );
+    })
+    .$name("diagonalize");
+/** geometricStiffnessBallSocket(k, v): diag(-v[k]) with v added into column k. Dynamic vector indexing
+ *  (`v[k]`, `k` a runtime u32) — TGSL can't express it (the smallest-3 codec precedent), so this stays a
+ *  raw-WGSL-bodied leaf; every caller (jointContrib → solvePose) loses CPU-callability transitively,
+ *  precedented and accepted (the f64 oracle stays the gate). */
+const geomStiffness = tgpu
+    .fn(
+        [d.u32, d.vec3f],
+        SolverMat3,
+    )(/* wgsl */ `(k: u32, v: vec3f) -> Mat3 {
+    let d = -v[k];
+    var c0 = vec3f(d, 0.0, 0.0); var c1 = vec3f(0.0, d, 0.0); var c2 = vec3f(0.0, 0.0, d);
+    if (k == 0u) { c0 = c0 + v; } else if (k == 1u) { c1 = c1 + v; } else { c2 = c2 + v; }
+    return Mat3(vec3f(c0.x, c1.x, c2.x), vec3f(c0.y, c1.y, c2.y), vec3f(c0.z, c1.z, c2.z));
+}`)
+    .$name("geomStiffness");
+
+/** one contact's constraint C, its four Jacobian blocks, the diagonal penalty k, and the cone-clamped
+ *  force F — the shared core of the primal stamp and the dual update (manifold.ts `contactForce`, which
+ *  the reference inlines in both `updatePrimal` and `updateDual`). */
+const CForce = d
+    .struct({
+        constraint: d.vec3f,
+        force: d.vec3f,
+        jALin: SolverMat3,
+        jBLin: SolverMat3,
+        jAAng: SolverMat3,
+        jBAng: SolverMat3,
+        k: SolverMat3,
+        // the *pre-clamp* friction magnitude + the cone bound — the dual ramp gate reads these
+        // (manifold.ts contactForce / manifold.cpp:156,169), never the post-clamp force.yz.
+        frictionScale: d.f32,
+        bounds: d.f32,
+    })
+    .$name("CForce");
+
+const Contrib = d
+    .struct({
+        lhsLin: SolverMat3,
+        lhsAng: SolverMat3,
+        lhsCross: SolverMat3,
+        rhsLin: d.vec3f,
+        rhsAng: d.vec3f,
+    })
+    .$name("Contrib");
+
+const Sol = d.struct({ xLin: d.vec3f, xAng: d.vec3f }).$name("Sol");
+const NewPose = d.struct({ pos: d.vec3f, quat: d.vec4f }).$name("NewPose");
+
+const solve6 = tgpu
+    .fn(
+        [SolverMat3, SolverMat3, SolverMat3, d.vec3f, d.vec3f],
+        Sol,
+    )((aLin, aAng, aCross, bLin, bAng) => {
+        "use gpu";
+        const A11 = aLin.r0.x;
+        const A21 = aLin.r1.x;
+        const A22 = aLin.r1.y;
+        const A31 = aLin.r2.x;
+        const A32 = aLin.r2.y;
+        const A33 = aLin.r2.z;
+        const A41 = aCross.r0.x;
+        const A42 = aCross.r0.y;
+        const A43 = aCross.r0.z;
+        const A44 = aAng.r0.x;
+        const A51 = aCross.r1.x;
+        const A52 = aCross.r1.y;
+        const A53 = aCross.r1.z;
+        const A54 = aAng.r1.x;
+        const A55 = aAng.r1.y;
+        const A61 = aCross.r2.x;
+        const A62 = aCross.r2.y;
+        const A63 = aCross.r2.z;
+        const A64 = aAng.r2.x;
+        const A65 = aAng.r2.y;
+        const A66 = aAng.r2.z;
+        const L21 = A21 / A11;
+        const L31 = A31 / A11;
+        const L41 = A41 / A11;
+        const L51 = A51 / A11;
+        const L61 = A61 / A11;
+        const D1 = A11;
+        const D2 = A22 - L21 * L21 * D1;
+        const L32 = (A32 - L21 * L31 * D1) / D2;
+        const L42 = (A42 - L21 * L41 * D1) / D2;
+        const L52 = (A52 - L21 * L51 * D1) / D2;
+        const L62 = (A62 - L21 * L61 * D1) / D2;
+        const D3 = A33 - (L31 * L31 * D1 + L32 * L32 * D2);
+        const L43 = (A43 - L31 * L41 * D1 - L32 * L42 * D2) / D3;
+        const L53 = (A53 - L31 * L51 * D1 - L32 * L52 * D2) / D3;
+        const L63 = (A63 - L31 * L61 * D1 - L32 * L62 * D2) / D3;
+        const D4 = A44 - (L41 * L41 * D1 + L42 * L42 * D2 + L43 * L43 * D3);
+        const L54 = (A54 - L41 * L51 * D1 - L42 * L52 * D2 - L43 * L53 * D3) / D4;
+        const L64 = (A64 - L41 * L61 * D1 - L42 * L62 * D2 - L43 * L63 * D3) / D4;
+        const D5 = A55 - (L51 * L51 * D1 + L52 * L52 * D2 + L53 * L53 * D3 + L54 * L54 * D4);
+        const L65 = (A65 - L51 * L61 * D1 - L52 * L62 * D2 - L53 * L63 * D3 - L54 * L64 * D4) / D5;
+        const D6 =
+            A66 -
+            (L61 * L61 * D1 + L62 * L62 * D2 + L63 * L63 * D3 + L64 * L64 * D4 + L65 * L65 * D5);
+        const y1 = bLin.x;
+        const y2 = bLin.y - L21 * y1;
+        const y3 = bLin.z - L31 * y1 - L32 * y2;
+        const y4 = bAng.x - L41 * y1 - L42 * y2 - L43 * y3;
+        const y5 = bAng.y - L51 * y1 - L52 * y2 - L53 * y3 - L54 * y4;
+        const y6 = bAng.z - L61 * y1 - L62 * y2 - L63 * y3 - L64 * y4 - L65 * y5;
+        const z1 = y1 / D1;
+        const z2 = y2 / D2;
+        const z3 = y3 / D3;
+        const z4 = y4 / D4;
+        const z5 = y5 / D5;
+        const z6 = y6 / D6;
+        const xAng = d.vec3f(0, 0, 0);
+        const xLin = d.vec3f(0, 0, 0);
+        xAng.z = z6;
+        xAng.y = z5 - L65 * xAng.z;
+        xAng.x = z4 - L54 * xAng.y - L64 * xAng.z;
+        xLin.z = z3 - L43 * xAng.x - L53 * xAng.y - L63 * xAng.z;
+        xLin.y = z2 - L32 * xLin.z - L42 * xAng.x - L52 * xAng.y - L62 * xAng.z;
+        xLin.x = z1 - L21 * xLin.y - L31 * xLin.z - L41 * xAng.x - L51 * xAng.y - L61 * xAng.z;
+        return Sol({ xLin, xAng });
+    })
+    .$name("solve6");
+
+/**
+ * the shared contact stamp over one pose-reader set (storage readers this stage; 2b's LDS set repeats
+ * this factory call with solve-lds's workgroup-memory readers instead). @internal
+ */
+export function contactMath(A: ReturnType<typeof accessors>) {
+    const contactForce = tgpu
+        .fn(
+            [d.u32],
+            CForce,
+        )((ci) => {
+            "use gpu";
+            const m0 = A.cc(ci, C_META);
+            const a = bitcastF32toU32(m0.y);
+            const b = bitcastF32toU32(m0.z);
+            const basis = orthoBasis(A.cc(ci, C_NORMAL).xyz);
+            const rA = A.cc(ci, C_RA).xyz;
+            const rB = A.cc(ci, C_RB).xyz;
+            const c0 = A.cc(ci, C_C0).xyz;
+            const pen = A.cc(ci, C_PEN);
+            const friction = pen.w;
+            const lambda = A.cc(ci, C_LAMBDA).xyz;
+
+            const aQuat = A.bQuat(a);
+            const bQ = A.bQuat(b);
+            const dALin = std.sub(A.bPos(a), A.bInitL(a));
+            const dAAng = A.qSubW(aQuat, A.bInitQ(a));
+            const dBLin = std.sub(A.bPos(b), A.bInitL(b));
+            const dBAng = A.qSubW(bQ, A.bInitQ(b));
+
+            // the arm anchors the CORE feature; apply the geometric ±radius·normal offset HERE so the
+            // radius part never rotates with the body's spin (avbd.md "the core arm rule")
+            const n = basis.r0;
+            const rAW = std.sub(A.qRotateW(aQuat, rA), std.mul(n, A.bRadius(a)));
+            const rBW = std.add(A.qRotateW(bQ, rB), std.mul(n, A.bRadius(b)));
+            const jALin = basis;
+            const jBLin = mNeg(basis);
+            const jAAng = SolverMat3({
+                r0: std.cross(rAW, basis.r0),
+                r1: std.cross(rAW, basis.r1),
+                r2: std.cross(rAW, basis.r2),
+            });
+            const jBAng = SolverMat3({
+                r0: std.cross(rBW, jBLin.r0),
+                r1: std.cross(rBW, jBLin.r1),
+                r2: std.cross(rBW, jBLin.r2),
+            });
+            const k = mDiag(pen.xyz);
+
+            const t1 = std.mul(c0, std.sub(1, A.layout.$.params.alpha));
+            const t2 = mMulV(jALin, dALin);
+            const t3 = mMulV(jBLin, dBLin);
+            const t4 = mMulV(jAAng, dAAng);
+            const t5 = mMulV(jBAng, dBAng);
+            const constraint = std.add(std.add(std.add(std.add(t1, t2), t3), t4), t5);
+            // force = k·C + λ, clamped: normal repulsion-only, friction inside the Coulomb cone
+            let force = std.add(mMulV(k, constraint), lambda);
+            force.x = std.min(force.x, 0);
+            const bounds = std.mul(std.abs(force.x), friction);
+            const fs = std.length(force.yz);
+            if (fs > bounds && fs > 0) {
+                force = d.vec3f(force.x, (force.y * bounds) / fs, (force.z * bounds) / fs);
+            }
+
+            return CForce({
+                constraint,
+                force,
+                jALin,
+                jBLin,
+                jAAng,
+                jBAng,
+                k,
+                frictionScale: fs,
+                bounds,
+            });
+        })
+        .$name("contactForce");
+
+    return { contactForce };
 }
-`;
 
-// Body column indices (SoA `bodies[col*step.bodyCap + i]`). The consts alone are enough to write a
-// column; the readers below add the typed getters. Split so the compaction pass can template just the
-// consts without pulling in the readers (which reference the per-pass `bodies` binding).
-const BODY_COLS_WGSL = /* wgsl */ `
-const B_POS: u32 = 0u;
-const B_QUAT: u32 = 1u;
-const B_INERTL: u32 = 2u;
-const B_INERTQ: u32 = 3u;
-const B_INITL: u32 = 4u;
-const B_INITQ: u32 = 5u;
-const B_VELL: u32 = 6u;
-const B_VELA: u32 = 7u;
-const B_PREVV: u32 = 8u;
-const B_MM: u32 = 9u;
-const B_HF: u32 = 10u;
-const B_ROUND: u32 = 11u;
-`;
+/**
+ * the primal stamp's three per-constraint contributions (contact / spring / joint), plus `solvePose`
+ * itself — over one (bodies, joints) pose-reader pair.
+ * @internal
+ */
+export function contribMath(
+    A: ReturnType<typeof accessors>,
+    J: ReturnType<typeof jointAccessors>,
+    contactForce: ReturnType<typeof contactMath>["contactForce"],
+) {
+    /** stamp one contact's force + Hessian into `bid`'s system (manifold.ts updatePrimal). `bid` is the
+     *  body being solved; `ownerIsA` selects `bid`'s Jacobian from the shared `contactForce`. */
+    const contactContrib = tgpu
+        .fn(
+            [d.u32, d.u32],
+            Contrib,
+        )((bid, ci) => {
+            "use gpu";
+            const cf = contactForce(ci);
+            const ownerIsA = bitcastF32toU32(A.cc(ci, C_META).y) === bid;
+            let jLin = SolverMat3(cf.jBLin);
+            let jAng = SolverMat3(cf.jBAng);
+            if (ownerIsA) {
+                jLin = SolverMat3(cf.jALin);
+                jAng = SolverMat3(cf.jAAng);
+            }
+            const jLinT = mT(jLin);
+            const jAngT = mT(jAng);
+            const jAngTk = mMul(jAngT, cf.k);
+            return Contrib({
+                lhsLin: mMul(mMul(jLinT, cf.k), jLin),
+                lhsAng: mMul(jAngTk, jAng),
+                lhsCross: mMul(jAngTk, jLin),
+                rhsLin: mMulV(jLinT, cf.force),
+                rhsAng: mMulV(jAngT, cf.force),
+            });
+        })
+        .$name("contactContrib");
 
-// Body-state accessors — appended AFTER a pass declares the `bodies` binding + the `step` uniform
-// (the binding's access mode differs per pass: `read` in collide/compose, `read_write` elsewhere;
-// these readers suit both). `bCol` is the one SoA index site: a warp reading sequential `i` per
-// column coalesces to one cache line (gpu.md cols-buffer pattern). Total bindings unchanged from AoS.
-// Everything below bPos/bQuat is loop-constant during the solve, so it always reads storage. bPos/bQuat
-// are split out so the LDS-resident solve kernel (SOLVE_LDS_WGSL) can swap in workgroup-memory readers —
-// the pose is the per-color dependent chain, the one thing that must not round-trip storage there.
-const BODY_REST_WGSL = /* wgsl */ `
-fn bCol(col: u32, i: u32) -> vec4<f32> { return bodies[col*step.eidCap + i]; }
-fn bInertL(i: u32) -> vec3<f32>   { return bCol(B_INERTL, i).xyz; }
-fn bInertQ(i: u32) -> vec4<f32>   { return bCol(B_INERTQ, i); }
-fn bInitL(i: u32) -> vec3<f32>    { return bCol(B_INITL, i).xyz; }
-fn bInitQ(i: u32) -> vec4<f32>    { return bCol(B_INITQ, i); }
-fn bVelL(i: u32) -> vec3<f32>     { return bCol(B_VELL, i).xyz; }
-fn bVelA(i: u32) -> vec3<f32>     { return bCol(B_VELA, i).xyz; }
-fn bPrevV(i: u32) -> vec3<f32>    { return bCol(B_PREVV, i).xyz; }
-fn bMass(i: u32) -> f32           { return bCol(B_MM, i).w; }
-fn bHalf(i: u32) -> vec3<f32>     { return bCol(B_HF, i).xyz; }
-fn bFriction(i: u32) -> f32       { return bCol(B_HF, i).w; }
-// B_ROUND packs the shape tag (x, a bitcast ShapeKind) + the rounding radius (y, sphere/capsule) + the
-// hull id (z, a bitcast registry index for ShapeKind.Hull). Read together with bHalf (the core extents) by
-// the narrowphase + compose. A box has kind 0 + radius 0 + id 0, so a fresh box's bRound(i) is all-zero and
-// the box path stays bit-identical.
-fn bShape(i: u32) -> u32          { return bitcast<u32>(bCol(B_ROUND, i).x); }
-fn bRadius(i: u32) -> f32         { return bCol(B_ROUND, i).y; }
-fn bHullId(i: u32) -> u32         { return bitcast<u32>(bCol(B_ROUND, i).z); }
-// solverStatic is the static predicate the solver checks everywhere — a real static / kinematic body
-// (mass ≤ 0), skipped in the primal + velocity passes and the dual/joint all-static gate.
-fn solverStatic(i: u32) -> bool   { return bMass(i) <= 0.0; }
-`;
+    /** stamp one spring's force + Hessian into `bid`'s system (spring.ts stampSpring). The soft Force:
+     *  f = stiffness·C, no dual. Symmetric — both endpoints stamp jLin = normalize(pSelf − pOther). */
+    const springContrib = tgpu
+        .fn(
+            [d.u32, d.u32],
+            Contrib,
+        )((bid, e) => {
+            "use gpu";
+            const base = e * d.u32(CONSTRAINT_VEC4);
+            const s0 = primalOwnLayout.$.constraintList[base]; // rSelf.xyz, stiffness
+            const s1 = primalOwnLayout.$.constraintList[base + 1]; // rOther.xyz, rest
+            const other = bitcastF32toU32(primalOwnLayout.$.constraintList[base + 2].x);
+            const stiffness = s0.w;
+            const rW = A.qRotateW(A.bQuat(bid), s0.xyz); // bid's anchor in world — pSelf offset AND torque arm
+            const pSelf = std.add(A.bPos(bid), rW);
+            const pOther = std.add(A.bPos(other), A.qRotateW(A.bQuat(other), s1.xyz));
+            const diff = std.sub(pSelf, pOther);
+            const dLen = std.length(diff);
+            if (dLen <= 1e-6) {
+                return Contrib({
+                    lhsLin: mZero(),
+                    lhsAng: mZero(),
+                    lhsCross: mZero(),
+                    rhsLin: d.vec3f(0, 0, 0),
+                    rhsAng: d.vec3f(0, 0, 0),
+                });
+            }
+            const n = std.div(diff, dLen);
+            const f = stiffness * (dLen - s1.w);
+            const jLin = n;
+            const jAng = std.cross(rW, n);
+            return Contrib({
+                lhsLin: mScale(outer3(jLin, jLin), stiffness),
+                lhsAng: mScale(outer3(jAng, jAng), stiffness),
+                lhsCross: mScale(outer3(jAng, jLin), stiffness),
+                rhsLin: std.mul(jLin, f),
+                rhsAng: std.mul(jAng, f),
+            });
+        })
+        .$name("springContrib");
 
-const BODY_WGSL =
-    BODY_COLS_WGSL +
-    /* wgsl */ `
-fn bPos(i: u32) -> vec3<f32>      { return bCol(B_POS, i).xyz; }
-fn bQuat(i: u32) -> vec4<f32>     { return bCol(B_QUAT, i); }
-` +
-    BODY_REST_WGSL;
+    /** stamp one joint's force + Hessian into `bid`'s system (joint.ts stampJoint). The hard Force: a
+     *  linear anchor-pin row triple + an angular relative-orientation row triple + an optional 1-DOF
+     *  motor, carrying warmstartable λ + a per-iteration penalty ramp read off the per-joint RECORD
+     *  (the single source of truth — a moving WORLD anchor is seen here, not the list entry). */
+    const jointContrib = tgpu
+        .fn(
+            [d.u32, d.u32],
+            Contrib,
+        )((bid, e) => {
+            "use gpu";
+            const zero = Contrib({
+                lhsLin: mZero(),
+                lhsAng: mZero(),
+                lhsCross: mZero(),
+                rhsLin: d.vec3f(0, 0, 0),
+                rhsAng: d.vec3f(0, 0, 0),
+            });
+            const base = e * d.u32(CONSTRAINT_VEC4);
+            const e2 = primalOwnLayout.$.constraintList[base + 2];
+            const other = bitcastF32toU32(e2.x);
+            const rec = bitcastF32toU32(e2.z);
+            const isA = bitcastF32toU32(e2.w) !== 0;
+            if (J.jActive(rec) !== 1) return zero;
+            const rA = J.jrec(rec, 1).xyz;
+            const rB = J.jrec(rec, 2).xyz;
+            const rSelf = std.select(rB, rA, isA);
+            const rOther = std.select(rA, rB, isA);
 
-// Contact column indices + the SoA reader (`pairContacts[col*step.recordCap + rec]`), appended after a
-// pass declares the `pairContacts` binding + the `step` uniform. `cc` reads a read or read_write binding.
-// A record's C_META is (type, a, b, feature): type 0 = inactive (cleared slot), CONSTRAINT_CONTACT = live;
-// a/b are the body eids, so a record is self-describing — the collide checks (a,b) for the warmstart
-// pair-identity match (no hash, no probe — the slot itself is the key, Phase 4.7).
-const CONTACT_WGSL = /* wgsl */ `
-const C_META: u32 = 0u;
-const C_NORMAL: u32 = 1u;
-const C_RA: u32 = 2u;
-const C_RB: u32 = 3u;
-const C_C0: u32 = 4u;
-const C_PEN: u32 = 5u;
-const C_LAMBDA: u32 = 6u;
-fn cc(rec: u32, col: u32) -> vec4<f32> { return pairContacts[col*step.recordCap + rec]; }
-`;
+            const rigidLin = J.jrec(rec, 1).w > RIGID_THRESHOLD;
+            const rigidAng = J.jrec(rec, 2).w > RIGID_THRESHOLD;
+            const torqueArm = J.jTorqueArm(rec);
+            const alpha = A.layout.$.params.alpha;
 
-// the oriented-box world-AABB half-extent (|R|·h, R = the body's rotation). Tighter than the sphere bound
-// |h|, so a settled pile overlaps only its real neighbors (keeps the per-body pair block small). Still a
-// valid broadphase superset: two boxes that touch have overlapping box-AABBs, so the narrowphase (sphere
-// test + SAT) never loses a contact the oracle keeps. Shared by the aabb prim + the broadphase query.
-const BOX_EXTENT_WGSL = /* wgsl */ `
-// the speculative band (Phase 4.8.3, collide.ts SPECULATIVE_DISTANCE): the aabb pass pads each broadphase
-// prim by this so a pair within the band is found before contact. Mirrors the f64 oracle + C++ broadphase.
-const SPECULATIVE_DISTANCE: f32 = ${SPECULATIVE_DISTANCE};
-// world-AABB half-extent of the body's oriented CORE box (|R|·h) inflated by the rounding radius — a
-// capsule/sphere's core extents are 0 along the round axes, so the radius is what bounds them (Phase 6.3).
-// A box (radius 0) is unchanged. Shared by the aabb prim + the broadphase query, so both stay a valid superset.
-fn boxExtent(i: u32) -> vec3<f32> {
-    let q = bQuat(i);
-    let h = bHalf(i);
-    let ax0 = abs(qRotateW(q, vec3<f32>(1.0, 0.0, 0.0)));
-    let ax1 = abs(qRotateW(q, vec3<f32>(0.0, 1.0, 0.0)));
-    let ax2 = abs(qRotateW(q, vec3<f32>(0.0, 0.0, 1.0)));
-    return ax0 * h.x + ax1 * h.y + ax2 * h.z + vec3<f32>(bRadius(i));
+            const otherWorld = other === WORLD_ANCHOR;
+            const qSelf = A.bQuat(bid);
+            const qOther = std.select(A.bQuat(other), d.vec4f(0, 0, 0, 1), otherWorld);
+            const rSelfW = A.qRotateW(qSelf, rSelf);
+            const pSelf = std.add(A.bPos(bid), rSelfW);
+            const pOther = std.select(
+                std.add(A.bPos(other), A.qRotateW(qOther, rOther)),
+                rOther,
+                otherWorld,
+            );
+
+            const acc = Contrib(zero);
+
+            const penLin = J.jPenLin(rec);
+            if (std.dot(penLin, penLin) > 0) {
+                const K = mDiag(penLin);
+                let C = std.select(std.sub(pOther, pSelf), std.sub(pSelf, pOther), isA);
+                if (rigidLin) C = std.sub(C, std.mul(J.jC0Lin(rec), alpha));
+                const F = std.add(mMulV(K, C), J.jLamLin(rec));
+                const jLin = mDiag(d.vec3f(std.select(d.f32(-1), d.f32(1), isA)));
+                const jAng = skew(std.select(rSelfW, std.neg(rSelfW), isA));
+                const jLinT = mT(jLin);
+                const jAngT = mT(jAng);
+                const jAngTk = mMul(jAngT, K);
+                acc.lhsLin = mAdd(acc.lhsLin, mMul(mMul(jLinT, K), jLin));
+                acc.lhsAng = mAdd(acc.lhsAng, mMul(jAngTk, jAng));
+                acc.lhsCross = mAdd(acc.lhsCross, mMul(jAngTk, jLin));
+                const r = std.select(std.neg(rSelfW), rSelfW, isA);
+                const h1 = mScale(geomStiffness(0, r), F.x);
+                const h2 = mScale(geomStiffness(1, r), F.y);
+                const h3 = mScale(geomStiffness(2, r), F.z);
+                const H = mAdd(mAdd(h1, h2), h3);
+                acc.lhsAng = mAdd(acc.lhsAng, diagonalize(H));
+                acc.rhsLin = std.add(acc.rhsLin, mMulV(jLinT, F));
+                acc.rhsAng = std.add(acc.rhsAng, mMulV(jAngT, F));
+            }
+            const penAng = J.jPenAng(rec);
+            if (std.dot(penAng, penAng) > 0) {
+                const K = mDiag(penAng);
+                const qA = std.select(qOther, qSelf, isA);
+                const qB = std.select(qSelf, qOther, isA);
+                let C = std.mul(A.qSubW(qA, qB), torqueArm);
+                if (rigidAng) C = std.sub(C, std.mul(J.jC0Ang(rec), alpha));
+                const F = std.add(mMulV(K, C), J.jLamAng(rec));
+                const sgn = std.select(std.neg(torqueArm), torqueArm, isA);
+                acc.lhsAng = mAdd(acc.lhsAng, mScale(K, sgn * sgn));
+                acc.rhsAng = std.add(acc.rhsAng, std.mul(F, sgn));
+            }
+            const motorMax = J.jMotorMax(rec);
+            if (motorMax > 0) {
+                const axis = J.jMotorAxis(rec);
+                const dSelf = std.dot(A.qSubW(qSelf, A.bInitQ(bid)), axis);
+                const dOther = std.select(
+                    std.dot(A.qSubW(qOther, A.bInitQ(other)), axis),
+                    d.f32(0),
+                    otherWorld,
+                );
+                const dB = std.select(dSelf, dOther, isA);
+                const dA = std.select(dOther, dSelf, isA);
+                const c = dB - dA - J.jMotorSpeed(rec) * A.layout.$.params.dt;
+                const f = std.clamp(
+                    J.jMotorPen(rec) * c + J.jMotorLam(rec),
+                    std.neg(motorMax),
+                    motorMax,
+                );
+                const sgn = std.select(d.f32(1), d.f32(-1), isA);
+                acc.lhsAng = mAdd(acc.lhsAng, mScale(outer3(axis, axis), J.jMotorPen(rec)));
+                acc.rhsAng = std.add(acc.rhsAng, std.mul(axis, sgn * f));
+            }
+            return acc;
+        })
+        .$name("jointContrib");
+
+    /** the per-body primal step: stamp `bid`'s CSR contacts + authored constraints into one 6×6 block
+     *  system, add the inertial term, LDLᵀ-solve, integrate. Pose reads go through `A.bPos`/`A.bQuat`, so
+     *  the composing kernel picks the backing — storage for the typed primal (2b), workgroup memory for
+     *  solve-lds's LDS reader set. Differential-tested on CPU against the f64 oracle math. */
+    const solvePose = tgpu
+        .fn(
+            [d.u32],
+            NewPose,
+        )((bid) => {
+            "use gpu";
+            const acc = Contrib({
+                lhsLin: mZero(),
+                lhsAng: mZero(),
+                lhsCross: mZero(),
+                rhsLin: d.vec3f(0, 0, 0),
+                rhsAng: d.vec3f(0, 0, 0),
+            });
+            const lo = primalOwnLayout.$.csr[bid];
+            const hi = lo + primalOwnLayout.$.csr[A.layout.$.params.eidCap + bid];
+            for (let k = lo; k < hi; k++) {
+                const c = contactContrib(bid, primalOwnLayout.$.csrList[k]);
+                acc.lhsLin = mAdd(acc.lhsLin, c.lhsLin);
+                acc.lhsAng = mAdd(acc.lhsAng, c.lhsAng);
+                acc.lhsCross = mAdd(acc.lhsCross, c.lhsCross);
+                acc.rhsLin = std.add(acc.rhsLin, c.rhsLin);
+                acc.rhsAng = std.add(acc.rhsAng, c.rhsAng);
+            }
+            const slo = primalOwnLayout.$.constraintCsr[bid];
+            const shi = slo + primalOwnLayout.$.constraintCsr[A.layout.$.params.eidCap + bid];
+            for (let e = slo; e < shi; e++) {
+                const kind = bitcastF32toU32(
+                    primalOwnLayout.$.constraintList[e * d.u32(CONSTRAINT_VEC4) + 2].y,
+                );
+                let c = Contrib(springContrib(bid, e));
+                if (kind === KIND_JOINT) c = Contrib(jointContrib(bid, e));
+                acc.lhsLin = mAdd(acc.lhsLin, c.lhsLin);
+                acc.lhsAng = mAdd(acc.lhsAng, c.lhsAng);
+                acc.lhsCross = mAdd(acc.lhsCross, c.lhsCross);
+                acc.rhsLin = std.add(acc.rhsLin, c.rhsLin);
+                acc.rhsAng = std.add(acc.rhsAng, c.rhsAng);
+            }
+
+            const mm = A.bCol(B_MM, bid);
+            const mLin = mDiag(std.mul(d.vec3f(mm.w), A.layout.$.params.invDt2));
+            const mAng = mDiag(std.mul(mm.xyz, A.layout.$.params.invDt2));
+            const lhsLin = mAdd(acc.lhsLin, mLin);
+            const lhsAng = mAdd(acc.lhsAng, mAng);
+            const rhsLin = std.add(acc.rhsLin, mMulV(mLin, std.sub(A.bPos(bid), A.bInertL(bid))));
+            const rhsAng = std.add(acc.rhsAng, mMulV(mAng, A.qSubW(A.bQuat(bid), A.bInertQ(bid))));
+            const r = solve6(lhsLin, lhsAng, acc.lhsCross, std.neg(rhsLin), std.neg(rhsAng));
+            return NewPose({
+                pos: std.add(A.bPos(bid), r.xLin),
+                quat: A.qAddW(A.bQuat(bid), r.xAng),
+            });
+        })
+        .$name("solvePose");
+
+    return { contactContrib, springContrib, jointContrib, solvePose };
 }
-`;
+
+const STICK_THRESH = 1.0e-5;
+
+/**
+ * one pair slot's dual update (manifold.ts updateDual), shared by the standalone dual pass and 2b's
+ * LDS-resident kernel: loop its `CONTACTS_PER_PAIR` records, dual-update each active one in place.
+ * @internal
+ */
+export function dualMath(
+    A: ReturnType<typeof accessors>,
+    contactForce: ReturnType<typeof contactMath>["contactForce"],
+) {
+    const dualSlot = tgpu
+        .fn([d.u32])((slot) => {
+            "use gpu";
+            const rc = A.layout.$.params.recordCap;
+            const recBase = slot * d.u32(CONTACTS_PER_PAIR);
+            for (let ls = d.u32(0); ls < CONTACTS_PER_PAIR; ls++) {
+                const ci = recBase + ls;
+                const m0 = A.cc(ci, C_META);
+                if (bitcastF32toU32(m0.x) !== CONSTRAINT_CONTACT) continue; // inactive record
+                // dual-ramp gate (avbd.md): an all-static manifold is never satisfiable by the primal
+                if (A.solverStatic(bitcastF32toU32(m0.y)) && A.solverStatic(bitcastF32toU32(m0.z)))
+                    continue;
+                const cf = contactForce(ci);
+                const pen = A.cc(ci, C_PEN);
+                const friction = pen.w;
+                const k = pen.xyz;
+                // pre-clamp magnitude + bound (cf), not the post-clamp force.yz — avbd.md "friction ramp"
+                const bounds = cf.bounds;
+                const fs = cf.frictionScale;
+                if (cf.force.x < 0) {
+                    k.x = std.min(
+                        k.x + A.layout.$.params.betaLin * std.abs(cf.constraint.x),
+                        PENALTY_MAX,
+                    );
+                }
+                let stick = d.f32(0);
+                if (fs <= bounds) {
+                    k.y = std.min(
+                        k.y + A.layout.$.params.betaLin * std.abs(cf.constraint.y),
+                        PENALTY_MAX,
+                    );
+                    k.z = std.min(
+                        k.z + A.layout.$.params.betaLin * std.abs(cf.constraint.z),
+                        PENALTY_MAX,
+                    );
+                    if (std.length(cf.constraint.yz) < STICK_THRESH) stick = d.f32(1);
+                }
+                A.layout.$.pairContacts[C_LAMBDA * rc + ci] = d.vec4f(cf.force, stick);
+                A.layout.$.pairContacts[C_PEN * rc + ci] = d.vec4f(k, friction);
+            }
+        })
+        .$name("dualSlot");
+
+    return { dualSlot };
+}
+
+/**
+ * one joint's dual update (joint.ts updateJointDual), shared by the standalone joint-dual pass and 2b's
+ * LDS-resident kernel. The rigid (∞-stiffness) rows store λ ← K·C + λ; both row triples ramp the penalty
+ * by β|C|, clamped to `PENALTY_MAX`.
+ * @internal
+ */
+export function jointDualMath(
+    A: ReturnType<typeof accessors>,
+    J: ReturnType<typeof jointAccessors>,
+) {
+    const jointDualOne = tgpu
+        .fn([d.u32])((jid) => {
+            "use gpu";
+            if (J.jActive(jid) !== 1) return;
+            const recBase = jid * d.u32(JOINT_REC_VEC4);
+            const a = bitcastF32toU32(J.jrec(jid, 0).x);
+            const b = bitcastF32toU32(J.jrec(jid, 0).y);
+            const aWorld = a === WORLD_ANCHOR;
+            // all-static gate (joint.ts updateJointDual): mirrors the construction-time both-static
+            // rejection (jointInit) — the world anchor counts as static, aWorld short-circuits so
+            // solverStatic never reads the sentinel eid.
+            if (A.solverStatic(b) && (aWorld || A.solverStatic(a))) return;
+            const qA = std.select(A.bQuat(a), d.vec4f(0, 0, 0, 1), aWorld);
+            const rA = J.jrec(jid, 1).xyz;
+            const stiffLin = J.jrec(jid, 1).w;
+            const rB = J.jrec(jid, 2).xyz;
+            const stiffAng = J.jrec(jid, 2).w;
+            const torqueArm = J.jTorqueArm(jid);
+            const alpha = A.layout.$.params.alpha;
+
+            let penLin = d.vec3f(J.jPenLin(jid));
+            if (std.dot(penLin, penLin) > 0) {
+                const pA = std.select(std.add(A.bPos(a), A.qRotateW(qA, rA)), rA, aWorld);
+                const pB = std.add(A.bPos(b), A.qRotateW(A.bQuat(b), rB));
+                let C = d.vec3f(std.sub(pA, pB));
+                if (stiffLin > RIGID_THRESHOLD) {
+                    C = std.sub(C, std.mul(J.jC0Lin(jid), alpha));
+                    J.layout.$.jointRecords[recBase + 6] = d.vec4f(
+                        std.add(std.mul(penLin, C), J.jLamLin(jid)),
+                        0,
+                    ); // λ ← K·C + λ
+                }
+                penLin = std.min(
+                    std.add(penLin, std.mul(std.abs(C), A.layout.$.params.betaLin)),
+                    d.vec3f(std.min(stiffLin, PENALTY_MAX)),
+                );
+                J.layout.$.jointRecords[recBase + 4] = d.vec4f(penLin, 0);
+            }
+            let penAng = d.vec3f(J.jPenAng(jid));
+            if (std.dot(penAng, penAng) > 0) {
+                let C = d.vec3f(std.mul(A.qSubW(qA, A.bQuat(b)), torqueArm));
+                if (stiffAng > RIGID_THRESHOLD) {
+                    C = std.sub(C, std.mul(J.jC0Ang(jid), alpha));
+                    J.layout.$.jointRecords[recBase + 7] = d.vec4f(
+                        std.add(std.mul(penAng, C), J.jLamAng(jid)),
+                        0,
+                    );
+                }
+                penAng = std.min(
+                    std.add(penAng, std.mul(std.abs(C), A.layout.$.params.betaAng)),
+                    d.vec3f(std.min(stiffAng, PENALTY_MAX)),
+                );
+                J.layout.$.jointRecords[recBase + 5] = d.vec4f(penAng, 0);
+            }
+            // motor dual — λ clamped to ±maxTorque; the penalty ramps toward PENALTY_MAX only while λ is
+            // strictly inside the force bounds (solver.cpp's lambda-inside-bounds gate)
+            const motorMax = J.jMotorMax(jid);
+            if (motorMax > 0) {
+                const axis = J.jMotorAxis(jid);
+                const dB = std.dot(A.qSubW(A.bQuat(b), A.bInitQ(b)), axis);
+                const dA = std.select(
+                    std.dot(A.qSubW(A.bQuat(a), A.bInitQ(a)), axis),
+                    d.f32(0),
+                    aWorld,
+                );
+                const c = dB - dA - J.jMotorSpeed(jid) * A.layout.$.params.dt;
+                const lam = std.clamp(
+                    J.jMotorLam(jid) + J.jMotorPen(jid) * c,
+                    std.neg(motorMax),
+                    motorMax,
+                );
+                let pen = J.jMotorPen(jid);
+                if (lam > std.neg(motorMax) && lam < motorMax) {
+                    pen = std.min(pen + std.abs(c) * A.layout.$.params.betaAng, PENALTY_MAX);
+                }
+                J.layout.$.jointRecords[recBase + 11] = d.vec4f(J.jMotorSpeed(jid), lam, pen, 0);
+            }
+        })
+        .$name("jointDualOne");
+
+    return { jointDualOne };
+}
+
+/** the shared factory instantiations the typed kernels consume. The `roRo`-backed instance
+ *  (`contactContrib`/`springContrib`/`jointContrib`/`solvePose`) is both CPU-differential-testable and the
+ *  typed primal's real pipeline consumer. @internal */
+const cfRoRo = contactMath(roRo);
+const cfRoRw = contactMath(roRw);
+export const solverRoRo = {
+    ...cfRoRo,
+    ...contribMath(roRo, jointRo, cfRoRo.contactForce),
+};
+/** the dual pass's variant: bodies read-only, manifolds read-write. */
+export const solverRoRw = {
+    ...cfRoRw,
+    ...dualMath(roRw, cfRoRw.contactForce),
+};
+/** the joint-dual pass's variant: bodies read-only, joint records read-write. */
+export const solverJointRw = jointDualMath(roRo, jointRw);
+
+/**
+ * every pass's WGSL, for the device-free structural tests + the emitted-WGSL differential
+ * (`step.test.ts`). Each raw entry is the exact text its pipeline compiles; `aabb` is a fresh resolve of
+ * the typed kernel rather than the pipeline's own (same text, its own namespace — the kernel splices no
+ * raw WGSL, so a suffixed name would be self-consistent).
+ * @internal
+ */
+export const stepWgsl = {
+    aabb: (): string => tgpu.resolve([aabbKernel], { names: "strict" }),
+    broadphase: (): string => tgpu.resolve([broadphaseKernel], { names: "strict" }),
+    broadphaseSmall: (): string => tgpu.resolve([broadphaseSmallKernel], { names: "strict" }),
+    collideBox: (): string => tgpu.resolve([collideBoxKernel], { names: "strict" }),
+    collideRounded: (): string => tgpu.resolve([collideRoundedKernel], { names: "strict" }),
+    collideHull: (): string => tgpu.resolve([collideHullKernel], { names: "strict" }),
+    collideRoundedPoly: (): string => tgpu.resolve([collideRoundedPolyKernel], { names: "strict" }),
+    inertial: (): string => tgpu.resolve([inertialKernel], { names: "strict" }),
+    primal: (): string => tgpu.resolve([primalKernel], { names: "strict" }),
+    commit: (): string => tgpu.resolve([commitKernel], { names: "strict" }),
+    dual: (): string => tgpu.resolve([dualKernel], { names: "strict" }),
+    solveLds: (): string => tgpu.resolve([solveLdsKernel], { names: "strict" }),
+    coloring: (): string => tgpu.resolve([coloringKernel], { names: "strict" }),
+    repair: (): string => tgpu.resolve([repairKernel], { names: "strict" }),
+    jointInit: (): string => tgpu.resolve([jointInitKernel], { names: "strict" }),
+    jointDual: (): string => tgpu.resolve([jointDualKernel], { names: "strict" }),
+    velocity: (): string => tgpu.resolve([velocityKernel], { names: "strict" }),
+    compose: (): string => tgpu.resolve([composeKernel], { names: "strict" }),
+    csrCount: (): string => tgpu.resolve([csrCountKernel], { names: "strict" }),
+    csrScatter: (): string => tgpu.resolve([csrScatterKernel], { names: "strict" }),
+    csrColorSmall: (): string => tgpu.resolve([csrColorSmallKernel], { names: "strict" }),
+    // the four size-parameterized passes: representative arguments, since the structural properties
+    // (duplicate declarations, integer discipline, what each pass declares of the shared group) are
+    // size-independent
+    csrScan: (): string => csrScanWgsl(1024, 1024),
+    packCount: (): string => packCountWgsl({ gen: 0, mask: 1 }, 1024),
+    packScan: (): string => packScanWgsl(4, 1024),
+    packScatter: (): string => packScatterWgsl({ gen: 0, mask: 1 }, 1024, 1024),
+};
+
+/** the shared accessor variants, for the structural tests: one instantiation per storage access pair.
+ * @internal */
+export const solverVariants = { roRo, roRw, rwRw };
 
 // ── aabb: dense body oriented-box AABB → the bvh prim buffer (the broadphase BVH input) ──
 // Each prim is the body's world-AABB [pos − e, pos + e], e = the oriented-box extent (boxExtent). 2
 // vec4/prim (min.xyz+pad, max.xyz+pad — bvh/core prim layout). Only [0, count) is written; the build
 // sentinel-pads the tail.
-const AABB_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> prims: array<vec4<f32>>;
-@group(0) @binding(2) var<uniform> step: Step;
-@group(0) @binding(3) var<storage, read> eids: array<u32>;
-${BODY_WGSL}
-${BOX_EXTENT_WGSL}
-// one thread per dense slot d in [0, count); prim index = d, body = the eid at eids[1+d]. So prim d
-// is body eids[1+d]'s box-AABB, and the broadphase maps a leaf's prim index back through eids.
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let i = eids[1u + d];
-    let p = bPos(i);
-    // pad the prim by the speculative band (static skin) + the per-axis velocity sweep |vel|·dt (Phase
-    // 4.8.4, the webphysics velocity-fattened-tree form) so the broadphase finds a fast approaching pair
-    // before contact. The static skin is prim-only (the query box stays tight on it → combined static slack
-    // = SPECULATIVE_DISTANCE); the velocity pad is on both prim + query → combined ≈ (|vA|+|vB|)·dt ≥ |vRel|·dt.
-    let e = boxExtent(i) + vec3<f32>(SPECULATIVE_DISTANCE) + abs(bVelL(i)) * step.dt;
-    prims[2u*d] = vec4<f32>(p - e, 0.0);
-    prims[2u*d + 1u] = vec4<f32>(p + e, 0.0);
-}
-`;
+const aabbLayout = tgpu
+    .bindGroupLayout({
+        prims: { storage: d.arrayOf(d.vec4f), access: "mutable" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" }, // [0] = live count, [1+d] = the d-th live eid
+    })
+    .$idx(0);
+
+// one thread per dense slot in [0, count); prim index = the slot, body = the eid at eids[1+slot]. So
+// prim s is body eids[1+s]'s box-AABB, and the broadphase maps a leaf's prim index back through eids.
+const aabbKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= aabbLayout.$.eids[0]) return;
+        const i = aabbLayout.$.eids[1 + slot];
+        const p = roRo.bPos(i);
+        // pad the prim by the speculative band (static skin) + the per-axis velocity sweep |vel|·dt (Phase
+        // 4.8.4, the webphysics velocity-fattened-tree form) so the broadphase finds a fast approaching pair
+        // before contact. The static skin is prim-only (the query box stays tight on it → combined static
+        // slack = SPECULATIVE_DISTANCE); the velocity pad is on both prim + query → combined
+        // ≈ (|vA|+|vB|)·dt ≥ |vRel|·dt.
+        const e = std.add(
+            std.add(roRo.boxExtent(i), d.vec3f(SPECULATIVE_DISTANCE)),
+            std.mul(std.abs(roRo.bVelL(i)), roRo.layout.$.params.dt),
+        );
+        aabbLayout.$.prims[2 * slot] = d.vec4f(std.sub(p, e), 0);
+        aabbLayout.$.prims[2 * slot + 1] = d.vec4f(std.add(p, e), 0);
+    })
+    .$name("aabbMain");
 
 // ── broadphase per-candidate accumulate + block emit (shared by the descent + the small-N scan) ──
-// Interpolated into both broadphase mains, so the ownership rule, the nearest-K + static-pin prune, the
-// sort, and the block write are one source of truth — the small-N O(n²) scan differs ONLY in how it
-// enumerates candidates, the precondition for warmstart carrying across a regime flip (identical blocks).
-// Operates on the mains' locals: d (own dense slot), pi (own center), nbr/nd2/count (the accumulator);
-// consumes `dj` (the candidate's dense slot, != d).
-const BROADPHASE_CANDIDATE_WGSL = /* wgsl */ `
-            let je = eids[1u + dj];
-            let staticJ = bMass(je) <= 0.0;
-            // d (dynamic) owns: every dyn-static pair, and a dyn-dyn pair only when dj has the lower
-            // slot (so the higher-slot body owns it — emitted once).
-            if (staticJ || dj < d) {
-                let dc = pi - bPos(je);
-                var d2 = dot(dc, dc);
-                if (staticJ) { d2 = -1.0; }         // pin: a big static's center is far, but it must never be evicted
-                if (count < PAIRS_PER_BODY) {
-                    nbr[count] = dj; nd2[count] = d2; count = count + 1u;
-                } else {
-                    atomicAdd(&counters[3], 1u);    // loud: a candidate exceeded the cap (now a graceful nearest-K drop)
-                    // farthest kept candidate (tie → higher slot, deterministic); replace only if the
-                    // newcomer is nearer, so the dropped one is always the least-important (farthest).
-                    var wi = 0u; var wd2 = nd2[0]; var wdj = nbr[0];
-                    for (var w = 1u; w < PAIRS_PER_BODY; w = w + 1u) {
-                        if (nd2[w] > wd2 || (nd2[w] == wd2 && nbr[w] > wdj)) { wi = w; wd2 = nd2[w]; wdj = nbr[w]; }
-                    }
-                    if (d2 < wd2 || (d2 == wd2 && dj < wdj)) {
-                        if (bMass(eids[1u + wdj]) <= 0.0) { atomicAdd(&counters[7], 1u); } // evicted a static — only if > K statics (the pin keeps this 0 with one ground)
-                        nbr[wi] = dj; nd2[wi] = d2;
-                    } else if (staticJ) {
-                        atomicAdd(&counters[7], 1u); // a static newcomer was dropped — same > K-statics edge case
+// TGSL functions over `nbr`/`nd2`/`count` — the mains' accumulator — threaded by `d.ref` pointer (arrays)
+// and the `uniformLoad`-style widened-signature escape (the scalar `count`, which `d.ref` refuses). Both
+// mains call the SAME two functions, so the ownership rule, the nearest-K + static-pin prune, the sort, and
+// the block write are one source of truth — the small-N O(n²) scan differs ONLY in how it enumerates
+// candidates, the precondition for warmstart carrying across a regime flip (identical blocks). Broadphase
+// (descent) and broadphase-small (scan) each declare their own group-0 layout (different extra bindings —
+// `nodes` vs `prims`), so this factory closes over whichever layout its caller passes — the 1c
+// factory-closure law, applied to a group-0 layout rather than the shared solver group.
+const NbrArr = d.arrayOf(d.u32, PAIRS_PER_BODY);
+const Nd2Arr = d.arrayOf(d.f32, PAIRS_PER_BODY);
+
+/** the two group-0 layouts `broadOutput` closes over — identical `pairList`/`counters`/`eids` shape,
+ *  differing only in `nodes` (the descent) vs `prims` (the small-N scan). */
+type BroadLayout = typeof broadphaseLayout | typeof broadphaseSmallLayout;
+
+function broadOutput(layout: BroadLayout) {
+    const broadCandidateFn = tgpu
+        .fn([d.u32, d.vec3f, d.u32, d.ptrFn(NbrArr), d.ptrFn(Nd2Arr), d.ptrFn(d.u32)])(
+            (dOwn, pi, dj, nbr, nd2, count) => {
+                "use gpu";
+                const je = layout.$.eids[1 + dj];
+                const staticJ = roRo.bMass(je) <= 0;
+                // dOwn (dynamic) owns: every dyn-static pair, and a dyn-dyn pair only when dj has the
+                // lower slot (so the higher-slot body owns it — emitted once).
+                if (staticJ || dj < dOwn) {
+                    const dc = std.sub(pi, roRo.bPos(je));
+                    let d2 = std.dot(dc, dc);
+                    if (staticJ) d2 = d.f32(-1); // pin: a big static's center is far, never evicted
+                    if (count.$ < PAIRS_PER_BODY) {
+                        nbr.$[count.$] = dj;
+                        nd2.$[count.$] = d2;
+                        count.$ = count.$ + 1;
+                    } else {
+                        // loud: a candidate exceeded the cap (now a graceful nearest-K drop)
+                        std.atomicAdd(layout.$.counters[3], 1);
+                        // farthest kept candidate (tie → higher slot, deterministic); replace only if the
+                        // newcomer is nearer, so the dropped one is always the least-important (farthest).
+                        let wi = d.u32(0);
+                        let wd2 = nd2.$[0];
+                        let wdj = nbr.$[0];
+                        for (let w = d.u32(1); w < PAIRS_PER_BODY; w++) {
+                            if (nd2.$[w] > wd2 || (nd2.$[w] === wd2 && nbr.$[w] > wdj)) {
+                                wi = w;
+                                wd2 = nd2.$[w];
+                                wdj = nbr.$[w];
+                            }
+                        }
+                        if (d2 < wd2 || (d2 === wd2 && dj < wdj)) {
+                            // evicted a static — only if > K statics (the pin keeps this 0 with one ground)
+                            if (roRo.bMass(layout.$.eids[1 + wdj]) <= 0)
+                                std.atomicAdd(layout.$.counters[7], 1);
+                            nbr.$[wi] = dj;
+                            nd2.$[wi] = d2;
+                        } else if (staticJ) {
+                            std.atomicAdd(layout.$.counters[7], 1); // a static newcomer was dropped
+                        }
                     }
                 }
-            }
-`;
-const BROADPHASE_EMIT_WGSL = /* wgsl */ `
-    // insertion-sort the neighbor slots ascending (stable order ⇒ stable per-pair slot across frames)
-    for (var s = 1u; s < count; s = s + 1u) {
-        let key = nbr[s];
-        var k = s;
-        loop {
-            if (k == 0u) { break; }
-            if (nbr[k - 1u] <= key) { break; }
-            nbr[k] = nbr[k - 1u];
-            k = k - 1u;
-        }
-        nbr[k] = key;
-    }
+            },
+        )
+        .$name("broadCandidate");
+    // the widened call signature is the uniformLoad / considerCapAxis typing gap (engine/utils/tgsl.ts):
+    // `d.ref` refuses a scalar, so `count` (mutated only through this pointer) is passed bare — nbr/nd2 go
+    // through real `d.ref` (arrays), so only the last param needs widening.
+    const broadCandidate = broadCandidateFn as typeof broadCandidateFn &
+        ((dOwn: number, pi: d.v3f, dj: number, nbr: unknown, nd2: unknown, count: number) => void);
 
-    // write the per-eid block: [0, count) the owned pairs (oriented a > b by eid), [count, PAIRS_PER_BODY)
-    // cleared to INVALID so a stale record (a prior frame / a recycled eid) is never read as a live pair.
-    for (var k = 0u; k < PAIRS_PER_BODY; k = k + 1u) {
-        if (k < count) {
-            let je = eids[1u + nbr[k]];
-            pairList[blockBase + k] = vec2<u32>(max(i, je), min(i, je));
-        } else {
-            pairList[blockBase + k] = vec2<u32>(INVALID_PAIR);
-        }
-    }
-`;
+    const broadEmit = tgpu
+        .fn([d.u32, d.u32, d.ptrFn(NbrArr), d.u32])((i, blockBase, nbr, count) => {
+            "use gpu";
+            // insertion-sort the neighbor slots ascending (stable order ⇒ stable per-pair slot across frames)
+            for (let s = d.u32(1); s < count; s++) {
+                const key = nbr.$[s];
+                let k = s;
+                while (true) {
+                    if (k === 0) break;
+                    if (nbr.$[k - 1] <= key) break;
+                    nbr.$[k] = nbr.$[k - 1];
+                    k = k - 1;
+                }
+                nbr.$[k] = key;
+            }
+            // write the per-eid block: [0, count) the owned pairs (oriented a > b by eid),
+            // [count, PAIRS_PER_BODY) cleared to INVALID so a stale record (a prior frame / a recycled
+            // eid) is never read as a live pair.
+            for (let k = d.u32(0); k < PAIRS_PER_BODY; k++) {
+                if (k < count) {
+                    const je = layout.$.eids[1 + nbr.$[k]];
+                    layout.$.pairList[blockBase + k] = d.vec2u(std.max(i, je), std.min(i, je));
+                } else {
+                    layout.$.pairList[blockBase + k] = d.vec2u(INVALID_PAIR, INVALID_PAIR);
+                }
+            }
+        })
+        .$name("broadEmit");
+
+    return { broadCandidate, broadEmit };
+}
 
 // ── broadphase: LBVH box-overlap descent → each live body's per-eid FIXED pair block ──
-// One thread per dense body d (the block owner) descends the BVH built over the sphere-AABBs and writes
-// d's overlapping neighbors into ITS OWN fixed block `pairList[eid·PAIRS_PER_BODY …]` (a cheap `vec2<u32>`
+// One thread per dense body dOwn (the block owner) descends the BVH built over the sphere-AABBs and writes
+// dOwn's overlapping neighbors into ITS OWN fixed block `pairList[eid·PAIRS_PER_BODY …]` (a cheap `vec2u`
 // pair, NOT the manifold), the unused slots cleared to INVALID. The block is insertion-SORTED by the
 // neighbor's dense slot (deterministic), so each pair lands at a deterministic slot in the owner eid's block
 // — stable across frames unless the owner's candidate set flickers, the precondition the in-place warmstart
@@ -514,84 +1930,137 @@ const BROADPHASE_EMIT_WGSL = /* wgsl */ `
 // + bumps the loud counter (counters[3]) — a graceful drop of the farthest, not an arbitrary traversal drop.
 // The SAT (a large fn) stays OUT of this descent (gpu.md "never call large functions inside dynamic loops")
 // — the narrowphase SATs the per-eid slots. Stack depth is the derived LBVH bound (≤62, 64 covers it).
-const BROADPHASE_PASS_WGSL =
-    SHARED_WGSL +
-    BVH_ROOT_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> nodes: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read_write> pairList: array<vec2<u32>>;
-@group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
-@group(0) @binding(4) var<uniform> step: Step;
-@group(0) @binding(5) var<storage, read> eids: array<u32>;
-const INVALID_PAIR: u32 = 0xffffffffu; // an unused per-eid block slot (the collide/dual/CSR skip it)
-${BODY_WGSL}
-${BOX_EXTENT_WGSL}
-fn nodeLeft(n: u32) -> u32 { return bitcast<u32>(nodes[2u*n].w); }
-fn nodeRight(n: u32) -> u32 { return bitcast<u32>(nodes[2u*n + 1u].w); }
-fn nodeMin(n: u32) -> vec3<f32> { return nodes[2u*n].xyz; }
-fn nodeMax(n: u32) -> vec3<f32> { return nodes[2u*n + 1u].xyz; }
-fn aabbOverlap(qmin: vec3<f32>, qmax: vec3<f32>, n: u32) -> bool {
-    return all(qmin <= nodeMax(n)) && all(qmax >= nodeMin(n));
-}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let i = eids[1u + d];                                // i = this body's eid
-    let blockBase = i * PAIRS_PER_BODY;                  // the owner-EID fixed block — the stable warmstart slot
-    // static bodies own no pair — the dynamic partner owns every dyn-static pair (so a ground touching N
-    // boxes never owns a huge block). Clear the block to INVALID + return.
-    if (bMass(i) <= 0.0) {
-        for (var k = 0u; k < PAIRS_PER_BODY; k = k + 1u) { pairList[blockBase + k] = vec2<u32>(INVALID_PAIR); }
-        return;
-    }
-    let pi = bPos(i);
-    // the query box is the tight box-extent + the velocity sweep |vel|·dt (Phase 4.8.4); the static
-    // SPECULATIVE_DISTANCE skin lives on the prim only (the aabb pass), so combined static slack stays
-    // SPECULATIVE_DISTANCE while the velocity slack ≈ (|vA|+|vB|)·dt covers the relative closing.
-    let ei = boxExtent(i) + abs(bVelL(i)) * step.dt;
-    let qmin = pi - ei;
-    let qmax = pi + ei;
+const broadphaseLayout = tgpu
+    .bindGroupLayout({
+        nodes: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        pairList: { storage: d.arrayOf(d.vec2u), access: "mutable" },
+        counters: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+    })
+    .$idx(0);
 
-    // collect d's owned neighbors as the K NEAREST by center-dist² (importance prune, webphysics
-    // broadPhase.ts ~560-694): when a tight pile gives a body > PAIRS_PER_BODY band-neighbors, keep the
-    // nearest (the ones that actually become contacts) and drop the farthest, NOT an arbitrary
-    // BVH-traversal-order drop — that drop can evict a real support, the root of the dense-pile churn AND
-    // the static-ground fall-through (4.8.6's "the floor is never dropped" was disproven by a tall dense
-    // pile). Static supports are pinned (d2 = −1, never the farthest) so the ground is never evicted.
-    // Sorted ascending below for a stable per-pair slot.
-    var nbr: array<u32, ${PAIRS_PER_BODY}>;
-    var nd2: array<f32, ${PAIRS_PER_BODY}>;       // center-dist² per kept neighbor (static = −1, pinned)
-    var count = 0u;
+const nodeLeft = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((n) => {
+        "use gpu";
+        return bitcastF32toU32(broadphaseLayout.$.nodes[2 * n].w);
+    })
+    .$name("nodeLeft");
+const nodeRight = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((n) => {
+        "use gpu";
+        return bitcastF32toU32(broadphaseLayout.$.nodes[2 * n + 1].w);
+    })
+    .$name("nodeRight");
+const nodeMin = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )((n) => {
+        "use gpu";
+        return broadphaseLayout.$.nodes[2 * n].xyz;
+    })
+    .$name("nodeMin");
+const nodeMax = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )((n) => {
+        "use gpu";
+        return broadphaseLayout.$.nodes[2 * n + 1].xyz;
+    })
+    .$name("nodeMax");
+const aabbOverlap = tgpu
+    .fn(
+        [d.vec3f, d.vec3f, d.u32],
+        d.bool,
+    )((qmin, qmax, n) => {
+        "use gpu";
+        return std.all(std.le(qmin, nodeMax(n))) && std.all(std.ge(qmax, nodeMin(n)));
+    })
+    .$name("aabbOverlap");
 
-    var stack: array<u32, 64>;
-    var sp = 0u;
-    var node = bvhRoot(eids[0u]);
-    loop {
-        if (nodeLeft(node) == 0xffffffffu) {            // leaf — overlap confirmed by the descent above
-            let dj = nodeRight(node);                   // neighbor's dense slot (prim index)
-            if (dj != d) {
-${BROADPHASE_CANDIDATE_WGSL}
+const { broadCandidate: descendCandidate, broadEmit: descendEmit } = broadOutput(broadphaseLayout);
+
+const broadphaseKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const dOwn = input.gid.x; // this body's dense slot
+        if (dOwn >= broadphaseLayout.$.eids[0]) return;
+        const i = broadphaseLayout.$.eids[1 + dOwn]; // i = this body's eid
+        const blockBase = i * d.u32(PAIRS_PER_BODY); // the owner-EID fixed block — the stable warmstart slot
+        // static bodies own no pair — the dynamic partner owns every dyn-static pair (so a ground touching
+        // N boxes never owns a huge block). Clear the block to INVALID + return.
+        if (roRo.bMass(i) <= 0) {
+            for (let k = d.u32(0); k < PAIRS_PER_BODY; k++) {
+                broadphaseLayout.$.pairList[blockBase + k] = d.vec2u(INVALID_PAIR, INVALID_PAIR);
             }
-            if (sp == 0u) { break; }
-            sp -= 1u; node = stack[sp]; continue;
+            return;
         }
-        let l = nodeLeft(node);
-        let r = nodeRight(node);
-        let okL = aabbOverlap(qmin, qmax, l);
-        let okR = aabbOverlap(qmin, qmax, r);
-        if (okL && okR) {
-            if (sp < 64u) { stack[sp] = r; sp += 1u; }
-            node = l;
-        } else if (okL) { node = l; }
-        else if (okR) { node = r; }
-        else { if (sp == 0u) { break; } sp -= 1u; node = stack[sp]; }
-    }
+        const pi = roRo.bPos(i);
+        // the query box is the tight box-extent + the velocity sweep |vel|·dt (Phase 4.8.4); the static
+        // SPECULATIVE_DISTANCE skin lives on the prim only (the aabb pass), so combined static slack stays
+        // SPECULATIVE_DISTANCE while the velocity slack ≈ (|vA|+|vB|)·dt covers the relative closing.
+        const ei = std.add(
+            roRo.boxExtent(i),
+            std.mul(std.abs(roRo.bVelL(i)), roRo.layout.$.params.dt),
+        );
+        const qmin = std.sub(pi, ei);
+        const qmax = std.add(pi, ei);
 
-${BROADPHASE_EMIT_WGSL}
-}
-`;
+        // collect dOwn's owned neighbors as the K NEAREST by center-dist² (importance prune, webphysics
+        // broadPhase.ts ~560-694): when a tight pile gives a body > PAIRS_PER_BODY band-neighbors, keep the
+        // nearest (the ones that actually become contacts) and drop the farthest, NOT an arbitrary
+        // BVH-traversal-order drop — that drop can evict a real support, the root of the dense-pile churn
+        // AND the static-ground fall-through. Static supports are pinned (d2 = −1, never the farthest) so
+        // the ground is never evicted. Sorted ascending below for a stable per-pair slot.
+        const nbr = NbrArr();
+        const nd2 = Nd2Arr();
+        let count = d.u32(0);
+        count = 0; // force `var` (pointerDiscipline) — mutated only through broadCandidate's pointer
+
+        const stack = d.arrayOf(d.u32, 64)();
+        let sp = d.u32(0);
+        let node = bvhRoot(broadphaseLayout.$.eids[0]);
+        while (true) {
+            if (nodeLeft(node) === BVH_INVALID) {
+                // leaf — overlap confirmed by the descent above
+                const dj = nodeRight(node); // neighbor's dense slot (prim index)
+                if (dj !== dOwn) descendCandidate(dOwn, pi, dj, d.ref(nbr), d.ref(nd2), count);
+                if (sp === 0) break;
+                sp = sp - 1;
+                node = stack[sp];
+                continue;
+            }
+            const l = nodeLeft(node);
+            const r = nodeRight(node);
+            const okL = aabbOverlap(qmin, qmax, l);
+            const okR = aabbOverlap(qmin, qmax, r);
+            if (okL && okR) {
+                if (sp < 64) {
+                    stack[sp] = r;
+                    sp = sp + 1;
+                }
+                node = l;
+            } else if (okL) {
+                node = l;
+            } else if (okR) {
+                node = r;
+            } else {
+                if (sp === 0) break;
+                sp = sp - 1;
+                node = stack[sp];
+            }
+        }
+
+        descendEmit(i, blockBase, d.ref(nbr), count);
+    })
+    .$name("broadphaseMain");
 
 // ── broadphase (small-N regime, C1.0): one-dispatch O(n²) scan → the same per-eid FIXED pair blocks ──
 // At a live count ≤ the smallN threshold, record() replaces the whole BVH build + descent (~29 dependent
@@ -600,721 +2069,593 @@ ${BROADPHASE_EMIT_WGSL}
 // carry, so the overlap test, pads, ownership, prune, and block write are identical to the descent and the
 // pair blocks come out byte-identical — warmstart carries across a regime flip. O(n²) is exact at any N
 // (only slow past the threshold), so the frame-stale regime switch is correctness-safe in both directions.
-const BROADPHASE_SMALL_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> prims: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read_write> pairList: array<vec2<u32>>;
-@group(0) @binding(3) var<storage, read_write> counters: array<atomic<u32>>;
-@group(0) @binding(4) var<uniform> step: Step;
-@group(0) @binding(5) var<storage, read> eids: array<u32>;
-const INVALID_PAIR: u32 = 0xffffffffu; // an unused per-eid block slot (the collide/dual/CSR skip it)
-const SPECULATIVE_DISTANCE: f32 = ${SPECULATIVE_DISTANCE};
-const TILE: u32 = 64u;
-${BODY_WGSL}
+const TILE = 64;
+
+const broadphaseSmallLayout = tgpu
+    .bindGroupLayout({
+        prims: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        pairList: { storage: d.arrayOf(d.vec2u), access: "mutable" },
+        counters: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+    })
+    .$idx(0);
+
 // the n-body LDS tiling (Bullet 3 / GPU-gems n² pattern): each round the workgroup cooperatively stages
 // TILE prims into workgroup memory, then every lane tests its own query box against the staged tile — a
 // naive per-lane serial scan of global prims is latency-bound (measured 0.2–0.4 ms at 1k, worse than the
 // BVH front-end it replaces), the staged form reads each prim from global memory once per workgroup.
-var<workgroup> tMin: array<vec4<f32>, TILE>;
-var<workgroup> tMax: array<vec4<f32>, TILE>;
-var<workgroup> wgN: u32;
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(local_invocation_id) lid: vec3<u32>) {
-    // every lane must reach the tile barriers, so out-of-range / static lanes stay in the loop as
-    // inactive rather than returning. workgroupUniformLoad makes the live count uniform for Tint's
-    // uniformity analysis (eids[0] is workgroup-uniform in fact, but a raw storage read can't prove it).
-    if (lid.x == 0u) { wgN = eids[0u]; }
-    let n = workgroupUniformLoad(&wgN);
-    let d = gid.x;
-    let inRange = d < n;
-    let i = select(0u, eids[1u + min(d, n - 1u)], inRange); // i = this body's eid (0 placeholder when idle)
-    let blockBase = i * PAIRS_PER_BODY;                  // the owner-EID fixed block — the stable warmstart slot
-    // static bodies own no pair — the dynamic partner owns every dyn-static pair (so a ground touching N
-    // boxes never owns a huge block); their block is cleared to INVALID by the emit below (count stays 0).
-    let act = inRange && bMass(i) > 0.0;
-    let pi = bPos(i);
-    // own query box = own prim shrunk by the static skin: the prim is pos ± (boxExtent + SPECULATIVE_DISTANCE
-    // + |vel|·dt), and the skin is prim-only (the descent's query stays tight on it), so shrinking recovers
-    // exactly the descent's query box — combined static slack stays SPECULATIVE_DISTANCE, velocity slack
-    // ≈ (|vA|+|vB|)·dt. A candidate's prim is what the BVH leaf bounds were, so the test below is the
-    // descent's leaf test verbatim.
-    let dq = select(0u, d, inRange); // idle tail lanes read prim 0 (unused) — keeps the access in bounds
-    let qmin = prims[2u*dq].xyz + vec3<f32>(SPECULATIVE_DISTANCE);
-    let qmax = prims[2u*dq + 1u].xyz - vec3<f32>(SPECULATIVE_DISTANCE);
+const tMin = tgpu.workgroupVar(d.arrayOf(d.vec4f, TILE));
+const tMax = tgpu.workgroupVar(d.arrayOf(d.vec4f, TILE));
+const wgN = tgpu.workgroupVar(d.u32);
 
-    var nbr: array<u32, ${PAIRS_PER_BODY}>;
-    var nd2: array<f32, ${PAIRS_PER_BODY}>;       // center-dist² per kept neighbor (static = −1, pinned)
-    var count = 0u;
+const { broadCandidate: scanCandidate, broadEmit: scanEmit } = broadOutput(broadphaseSmallLayout);
 
-    for (var base = 0u; base < n; base = base + TILE) {
-        let src = base + lid.x;
-        if (src < n) {
-            tMin[lid.x] = prims[2u*src];
-            tMax[lid.x] = prims[2u*src + 1u];
-        }
-        workgroupBarrier();
-        let len = min(TILE, n - base);
-        if (act) {
-            for (var t = 0u; t < len; t = t + 1u) {
-                let dj = base + t;
-                if (dj == d) { continue; }
-                if (!(all(qmin <= tMax[t].xyz) && all(qmax >= tMin[t].xyz))) { continue; }
-${BROADPHASE_CANDIDATE_WGSL}
+const broadphaseSmallKernel = tgpu
+    .computeFn({
+        workgroupSize: [64],
+        in: { gid: d.builtin.globalInvocationId, lid: d.builtin.localInvocationId },
+    })((input) => {
+        "use gpu";
+        // every lane must reach the tile barriers, so out-of-range / static lanes stay in the loop as
+        // inactive rather than returning. workgroupUniformLoad makes the live count uniform for Tint's
+        // uniformity analysis (eids[0] is workgroup-uniform in fact, but a raw storage read can't prove it).
+        if (input.lid.x === 0) wgN.$ = broadphaseSmallLayout.$.eids[0];
+        const n = uniformLoad(wgN.$);
+        const dOwn = input.gid.x;
+        const inRange = dOwn < n;
+        // i = this body's eid (0 placeholder when idle)
+        const i = std.select(0, broadphaseSmallLayout.$.eids[1 + std.min(dOwn, n - 1)], inRange);
+        const blockBase = i * d.u32(PAIRS_PER_BODY); // the owner-EID fixed block — the stable warmstart slot
+        // static bodies own no pair — the dynamic partner owns every dyn-static pair (so a ground touching
+        // N boxes never owns a huge block); their block is cleared to INVALID by the emit below (count stays 0).
+        const act = inRange && roRo.bMass(i) > 0;
+        const pi = roRo.bPos(i);
+        // own query box = own prim shrunk by the static skin: the prim is pos ± (boxExtent +
+        // SPECULATIVE_DISTANCE + |vel|·dt), and the skin is prim-only (the descent's query stays tight on
+        // it), so shrinking recovers exactly the descent's query box — combined static slack stays
+        // SPECULATIVE_DISTANCE, velocity slack ≈ (|vA|+|vB|)·dt. A candidate's prim is what the BVH leaf
+        // bounds were, so the test below is the descent's leaf test verbatim.
+        const dq = std.select(0, dOwn, inRange); // idle tail lanes read prim 0 (unused) — keeps access in bounds
+        const qmin = std.add(
+            broadphaseSmallLayout.$.prims[2 * dq].xyz,
+            d.vec3f(d.f32(SPECULATIVE_DISTANCE)),
+        );
+        const qmax = std.sub(
+            broadphaseSmallLayout.$.prims[2 * dq + 1].xyz,
+            d.vec3f(d.f32(SPECULATIVE_DISTANCE)),
+        );
+
+        const nbr = NbrArr();
+        const nd2 = Nd2Arr();
+        let count = d.u32(0);
+        count = 0; // force `var` (pointerDiscipline) — mutated only through broadCandidate's pointer
+
+        for (let base = d.u32(0); base < n; base = base + TILE) {
+            const src = base + input.lid.x;
+            if (src < n) {
+                tMin.$[input.lid.x] = d.vec4f(broadphaseSmallLayout.$.prims[2 * src]);
+                tMax.$[input.lid.x] = d.vec4f(broadphaseSmallLayout.$.prims[2 * src + 1]);
             }
+            std.workgroupBarrier();
+            const len = std.min(TILE, n - base);
+            if (act) {
+                for (let t = d.u32(0); t < len; t++) {
+                    const dj = base + t;
+                    if (dj === dOwn) continue;
+                    if (
+                        !(
+                            std.all(std.le(qmin, tMax.$[t].xyz)) &&
+                            std.all(std.ge(qmax, tMin.$[t].xyz))
+                        )
+                    )
+                        continue;
+                    scanCandidate(dOwn, pi, dj, d.ref(nbr), d.ref(nd2), count);
+                }
+            }
+            std.workgroupBarrier();
         }
-        workgroupBarrier();
-    }
-    if (!inRange) { return; }
-${BROADPHASE_EMIT_WGSL}
-}
-`;
+        if (!inRange) return;
+        scanEmit(i, blockBase, d.ref(nbr), count);
+    })
+    .$name("broadphaseSmallMain");
 
-// ── narrowphase (collide): box-box SAT over the per-eid pair blocks; in-place warmstart ──
+// ── narrowphase (collide): shape-pair SAT over the per-eid pair blocks; in-place warmstart ──
 // One thread per pair SLOT in the live bodies' fixed blocks: the dispatch is `liveCount · PAIRS_PER_BODY`
-// lanes, lane → (d = lane/K, k = lane%K), owner eid = eids[1+d], slot = eid·K + k (the fixed per-eid block
-// base — webphysics `bodyBase`). The slot's manifold lives at recBase = slot*CONTACTS_PER_PAIR in
+// lanes, lane → (dOwn = lane/K, k = lane%K), owner eid = eids[1+dOwn], slot = eid·K + k (the fixed per-eid
+// block base — webphysics `bodyBase`). The slot's manifold lives at recBase = slot*CONTACTS_PER_PAIR in
 // `pairContacts`, persistent across frames; because the base is the owner's eid (not a prefix-sum offset),
 // the slot is STABLE unless the owner's own candidate set flickers — local warmstart fragility, not the
 // global collapse a compaction has (avbd.md "Storage"). Per slot: read pairList[slot]; an
-// INVALID (unused) slot or a separating / 0-contact pair clears the block (kind 0, so the solve skips it +
-// it cold-starts
-// next frame, matching the oracle dropping a 0-contact manifold). Otherwise SAT, then for each fresh contact
-// scan THIS SLOT's prev records (read before any write — loop 1) for a record with the SAME pair (a,b) +
-// feature key, and carry its λ/k decayed (Eq. 19) + sticking arms (manifold.ts initManifold). The (a,b)
-// identity gate is what replaces the hash: a slot reused by a different pair fails it → cold-start, no probe,
-// no separate store. Loop 2 then overwrites the slot's records in place. The sphere test (dot(dp,dp) <= r²,
-// r = radiusA + radiusB) filters the AABB-overlap superset back to the exact reference contact set.
-// Built as FOUR pipelines by shape-pair class — box×box, rounded×rounded, polytope×polytope (collideHull),
-// and rounded×polytope (collideRoundedPolytope) — each compiling only its own SAT chunk (HELPERS_WGSL +
-// BOXBOX_WGSL | ROUNDED_WGSL | HULL_CORE+HULL_SAT | HULL_CORE+ROUNDED_POLY). DXC compile is superlinear in
-// kernel size, so the monolithic kernel paid the full cost on Chrome/Windows; the hull SAT and the rounded
-// segment-clip — the two halves of the old combined ~920 ms long pole — now compile apart (gpu.md "DXC
-// shader compilation": dead code isn't free, optimize via pipeline splits). All four build async-parallel
-// (one Promise.all), so the wall-clock compile ≈ the largest single chunk, not the sum. All four dispatch
-// over the SAME live pair slots (indirect off pairArgs) and act only on their class; the BOX pipeline OWNS
-// slot lifecycle — it clears every INVALID + separated slot regardless of class (the sphere filter is
-// shape-aware), so the other three only fill/clear their OWN class's live slots and every slot is written
-// exactly once (the gates are mutually exclusive + exhaustive). The cost is 3 extra cheap early-out
-// dispatches per step (collide runs once per fixed step, not per iteration), traded for not needing a
-// per-class partition pass. `ownsLifecycle` injects the dead-slot policy; `gate`/`call` inject the class
-// check + the SAT call.
-const collidePass = (chunk: string, gate: string, call: string, ownsLifecycle: boolean): string => {
-    const dead = ownsLifecycle ? "clearBlock(recBase); return;" : "return;";
-    return (
-        SHARED_WGSL +
-        HELPERS_WGSL +
-        chunk +
-        /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> pairContacts: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read_write> counters: array<atomic<u32>>;
-@group(0) @binding(3) var<uniform> step: Step;
-@group(0) @binding(4) var<storage, read> pairList: array<vec2<u32>>;
-@group(0) @binding(5) var<storage, read> eids: array<u32>; // [0] = live count, [1+d] = the d-th live eid
-@group(0) @binding(6) var<storage, read> hullData: array<u32>; // packed convex-hull geometry (./hull packHulls)
-${BODY_WGSL}
-${CONTACT_WGSL}
+// INVALID (unused) slot or a separating pair clears the block (kind 0, so the solve skips it + it cold-starts
+// next frame, matching the oracle dropping a 0-contact manifold) — gated by `ownsLifecycle` (only the box
+// pipeline owns dead-slot clearing). A 0-contact SAT result always clears (every pipeline reaching that
+// point owns this pair for the frame, by the class gate). Otherwise, for each fresh contact scan THIS
+// SLOT's prev records (read before any write — `mergeWarmstart`) for a record with the SAME pair (a,b) +
+// feature key, and carry its λ/k decayed (Eq. 19) + sticking arms (manifold.ts initManifold); `writeContacts`
+// then overwrites the slot's records in place. The sphere test (dot(dp,dp) <= r², r = radiusA + radiusB)
+// filters the AABB-overlap superset back to the exact reference contact set.
+// Built as FOUR kernels by shape-pair class — box×box, rounded×rounded, polytope×polytope (collideHull),
+// and rounded×polytope (collideRoundedPolytope) — each calling its SAT fn directly rather than splicing a
+// chunk: `tgpu.resolve` walks each kernel's own call graph, so a box-only kernel never pulls in the hull
+// SAT's `hullData` dependency (the DXC pipeline split falls out of one resolve per kernel, not manual
+// chunk composition). All four dispatch over the SAME live pair slots (indirect off pairArgs) and act only
+// on their class; the BOX kernel OWNS slot lifecycle — it clears every INVALID + separated slot regardless
+// of class (the sphere filter is shape-aware), so the other three only fill/clear their OWN class's live
+// slots and every slot is written exactly once (the gates are mutually exclusive + exhaustive). The cost is
+// 3 extra cheap early-out dispatches per step (collide runs once per fixed step, not per iteration), traded
+// for not needing a per-class partition pass.
+const collideLayout = tgpu
+    .bindGroupLayout({
+        counters: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        pairList: { storage: d.arrayOf(d.vec2u), access: "readonly" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        hullData: { storage: d.arrayOf(d.u32), access: "readonly" }, // packed convex-hull geometry (./hull packHulls)
+    })
+    .$idx(0);
+
+/**
+ * a real TGSL reference into `hullData`, called (its result discarded) by the two kernels that reach the
+ * hull SAT. `collideHull`/`collideRoundedPolytope` reach `hullData` only through the WGSL-BODIED hull-geometry
+ * readers (`hullRef`/`hVertL`/…, collide.ts), which name it as a free identifier invisible to
+ * `tgpu.resolve`'s dependency walk (no `.$uses` can carry an external binding) — so nothing in either
+ * kernel's traced call graph would otherwise make the resolver emit `hullData`'s own binding declaration.
+ * This is the one genuine reference that does — an inert `& 0` fold keeps the add a true no-op, routed to
+ * `counters[15]` (reserved, unread by any real logic — avbd.md's `counters[0..7]` are all live gauges) so
+ * the touch adds no atomic contention on a counter every lane actually contends on.
+ */
+const touchHullData = tgpu
+    .fn([d.u32])((i) => {
+        "use gpu";
+        std.atomicAdd(collideLayout.$.counters[15], collideLayout.$.hullData[i] & 0);
+    })
+    .$name("touchHullData");
+
 // clear a slot's whole manifold block to inactive (kind 0) — the solve + warmstart skip a 0-meta record.
-fn clearBlock(recBase: u32) {
-    let rc = step.recordCap;
-    for (var s = 0u; s < CONTACTS_PER_PAIR; s = s + 1u) { pairContacts[C_META*rc + recBase + s] = vec4<f32>(0.0); }
-}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let lane = gid.x;
-    let d = lane / PAIRS_PER_BODY;
-    if (d >= eids[0u]) { return; } // past the live body count (the tail of the last workgroup)
-    let slot = eids[1u + d] * PAIRS_PER_BODY + (lane % PAIRS_PER_BODY); // the owner-eid fixed-block slot
-    let recBase = slot * CONTACTS_PER_PAIR;
-    let pair = pairList[slot];
-    if (pair.x == 0xffffffffu) { ${dead} } // INVALID — unused block slot (box pipeline keeps it inactive)
-    let ia = pair.x;
-    let ib = pair.y;
+const clearBlock = tgpu
+    .fn([d.u32])((recBase) => {
+        "use gpu";
+        const rc = roRw.layout.$.params.recordCap;
+        for (let s = d.u32(0); s < CONTACTS_PER_PAIR; s++) {
+            roRw.layout.$.pairContacts[C_META * rc + recBase + s] = d.vec4f(0);
+        }
+    })
+    .$name("clearBlock");
 
-    let pa = bPos(ia); let pb = bPos(ib);
-    // the bounding-sphere radius is shape-aware: core span + the rounding radius (Phase 6.3). A box's
-    // radius is 0, so this is length(bHalf) unchanged.
-    let ra = length(bHalf(ia)) + bRadius(ia); let rb = length(bHalf(ib)) + bRadius(ib);
-    let dp = pa - pb;
-    // dRel = (vA−vB)·dt — the velocity sweep (Phase 4.8.4): widens the sphere filter + the SAT band so a
-    // fast approaching pair reaches the SAT and generates its swept contact (mirrors the C++ + oracle).
-    let dRel = (bVelL(ia) - bVelL(ib)) * step.dt;
-    // the sphere filter is the reference broadphase (mirrors the C++ + oracle); the static band (Phase
-    // 4.8.3) + the relative sweep |vRel|·dt (4.8.4) let a pair within reach this step pass to the SAT.
-    let r = ra + rb + SPECULATIVE_DISTANCE + length(dRel);
-    if (dot(dp, dp) > r * r) { ${dead} } // separated past the band → cold next frame (box pipeline clears it)
+/** the prelude every shape-pair class shares: the pair's poses/shapes + the sphere-filter separation test
+ *  (Phase 4.8.3/4.8.4). `live: false` means separated past the band — the caller clears (box) or returns
+ *  (the other three). qa/qb/sa/sb are pure reads with no side effect, so reading them unconditionally
+ *  (rather than only on the live branch) keeps one construction site — a deviation from the reference's
+ *  read order, not its behavior. */
+const CollidePrelude = d
+    .struct({
+        live: d.bool,
+        pa: d.vec3f,
+        qa: d.vec4f,
+        sa: d.u32,
+        pb: d.vec3f,
+        qb: d.vec4f,
+        sb: d.u32,
+        roundedA: d.bool,
+        roundedB: d.bool,
+        dRel: d.vec3f,
+    })
+    .$name("CollidePrelude");
 
-    let qa = bQuat(ia); let qb = bQuat(ib);
-    let sa = bShape(ia); let sb = bShape(ib);
-    let roundedA = (sa == 1u || sa == 2u);
-    let roundedB = (sb == 1u || sb == 2u);
-    // class gate: this pipeline handles only its shape-pair class; another pipeline owns the rest (the box
-    // pipeline owns dead-slot clearing), so each live slot is written exactly once. The gate returns early
-    // for a pair this pipeline doesn't own; the call then runs the matching SAT (the oracle narrowphase
-    // matrix, tests/avbd/rounded.ts). A/B-oriented so passing (ia, ib) returns ia-as-A.
-    ${gate}
-    var sat: SatResult;
-    ${call}
-    if (sat.count == 0u) { clearBlock(recBase); return; }
+const collidePrelude = tgpu
+    .fn(
+        [d.u32, d.u32],
+        CollidePrelude,
+    )((ia, ib) => {
+        "use gpu";
+        const pa = roRw.bPos(ia);
+        const pb = roRw.bPos(ib);
+        // the bounding-sphere radius is shape-aware: core span + the rounding radius (Phase 6.3). A box's
+        // radius is 0, so this is length(bHalf) unchanged.
+        const ra = std.length(roRw.bHalf(ia)) + roRw.bRadius(ia);
+        const rb = std.length(roRw.bHalf(ib)) + roRw.bRadius(ib);
+        const dp = std.sub(pa, pb);
+        // dRel = (vA−vB)·dt — the velocity sweep (Phase 4.8.4): widens the sphere filter + the SAT band so
+        // a fast approaching pair reaches the SAT and generates its swept contact (mirrors the C++ + oracle).
+        const dRel = std.mul(std.sub(roRw.bVelL(ia), roRw.bVelL(ib)), roRw.layout.$.params.dt);
+        // the sphere filter is the reference broadphase (mirrors the C++ + oracle); the static band (Phase
+        // 4.8.3) + the relative sweep |vRel|·dt (4.8.4) let a pair within reach this step pass to the SAT.
+        const r = ra + rb + d.f32(SPECULATIVE_DISTANCE) + std.length(dRel);
+        const qa = roRw.bQuat(ia);
+        const qb = roRw.bQuat(ib);
+        const sa = roRw.bShape(ia);
+        const sb = roRw.bShape(ib);
+        const roundedA = sa === 1 || sa === 2;
+        const roundedB = sb === 1 || sb === 2;
+        const live = std.dot(dp, dp) <= r * r;
+        return CollidePrelude({ live, pa, qa, sa, pb, qb, sb, roundedA, roundedB, dRel });
+    })
+    .$name("collidePrelude");
 
-    let friction = sqrt(bFriction(ia) * bFriction(ib));
-    let rc = step.recordCap;
+/** the per-contact warmstart merge (loop 1, avbd.md "Storage"): per fresh SAT contact, scan THIS slot's
+ *  prev records for the same pair (a,b) + feature key and carry its λ/k decayed + sticking arms. */
+const Warmstart = d
+    .struct({
+        lam: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR),
+        pen: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR),
+        rA: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR),
+        rB: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR),
+        merged: d.u32,
+    })
+    .$name("Warmstart");
 
-    // loop 1: per fresh contact, scan THIS slot's prev records (intact — no write yet) for the same pair
-    // (a,b) + feature key, carry λ/k decayed + sticking arms. Carried into per-contact locals so loop 2 can
-    // overwrite the slot. Pair-identity gate (a==ia && b==ib) is the hash replacement.
-    var cLam: array<vec3<f32>, ${CONTACTS_PER_PAIR}>;
-    var cPen: array<vec3<f32>, ${CONTACTS_PER_PAIR}>;
-    var cRA: array<vec3<f32>, ${CONTACTS_PER_PAIR}>;
-    var cRB: array<vec3<f32>, ${CONTACTS_PER_PAIR}>;
-    var merged = 0u;
-    for (var k = 0u; k < sat.count; k = k + 1u) {
-        let feat = sat.feat[k];
-        var lam3 = vec3<f32>(0.0);
-        var pen3 = vec3<f32>(step.penalty);
-        var rA = sat.rA[k];
-        var rB = sat.rB[k];
-        for (var ls = 0u; ls < CONTACTS_PER_PAIR; ls = ls + 1u) {
-            let wm = cc(recBase + ls, C_META);
-            if (bitcast<u32>(wm.x) == ${CONSTRAINT_CONTACT}u
-                && bitcast<u32>(wm.y) == ia && bitcast<u32>(wm.z) == ib
-                && bitcast<u32>(wm.w) == feat) {
-                let oldLam = cc(recBase + ls, C_LAMBDA);
-                lam3 = oldLam.xyz * (step.alpha * step.gamma);
-                pen3 = clamp(cc(recBase + ls, C_PEN).xyz * step.gamma, vec3<f32>(PENALTY_MIN), vec3<f32>(PENALTY_MAX));
-                // a sticking contact keeps its frozen arms ONLY for box-box pairs, where the feature key
-                // identifies a persistent vertex/edge. Any pair INVOLVING a rounded (sphere/capsule) shape —
-                // even vs a box — has a sliding closest point under a constant feature key, so freezing its
-                // arm anchors a stale point: any spin rotates the frozen arm → a tangential c0 → torque →
-                // runaway spin (Phase 6.3). A rounded shape re-collides fresh arms vs a box too.
-                if (oldLam.w > 0.5 && !(roundedA || roundedB)) { rA = cc(recBase + ls, C_RA).xyz; rB = cc(recBase + ls, C_RB).xyz; }
-                merged = merged + 1u;
-                break;
+const mergeWarmstart = tgpu
+    .fn(
+        [SatResult, d.u32, d.u32, d.bool, d.bool, d.u32],
+        Warmstart,
+    )((sat, ia, ib, roundedA, roundedB, recBase) => {
+        "use gpu";
+        const out = Warmstart({
+            lam: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR)(),
+            pen: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR)(),
+            rA: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR)(),
+            rB: d.arrayOf(d.vec3f, CONTACTS_PER_PAIR)(),
+            merged: 0,
+        });
+        for (let k = d.u32(0); k < sat.count; k++) {
+            const feat = sat.feat[k];
+            let lam3 = d.vec3f(0);
+            let pen3 = d.vec3f(roRw.layout.$.params.penalty);
+            let rA = d.vec3f(sat.rA[k]);
+            let rB = d.vec3f(sat.rB[k]);
+            for (let ls = d.u32(0); ls < CONTACTS_PER_PAIR; ls++) {
+                const wm = roRw.cc(recBase + ls, C_META);
+                if (
+                    bitcastF32toU32(wm.x) === CONSTRAINT_CONTACT &&
+                    bitcastF32toU32(wm.y) === ia &&
+                    bitcastF32toU32(wm.z) === ib &&
+                    bitcastF32toU32(wm.w) === feat
+                ) {
+                    const oldLam = roRw.cc(recBase + ls, C_LAMBDA);
+                    lam3 = std.mul(
+                        oldLam.xyz,
+                        roRw.layout.$.params.alpha * roRw.layout.$.params.gamma,
+                    );
+                    pen3 = std.clamp(
+                        std.mul(roRw.cc(recBase + ls, C_PEN).xyz, roRw.layout.$.params.gamma),
+                        d.vec3f(PENALTY_MIN),
+                        d.vec3f(PENALTY_MAX),
+                    );
+                    // a sticking contact keeps its frozen arms ONLY for box-box pairs, where the feature key
+                    // identifies a persistent vertex/edge. Any pair INVOLVING a rounded (sphere/capsule)
+                    // shape — even vs a box — has a sliding closest point under a constant feature key, so
+                    // freezing its arm anchors a stale point: any spin rotates the frozen arm → a tangential
+                    // c0 → torque → runaway spin (Phase 6.3). A rounded shape re-collides fresh arms vs a
+                    // box too.
+                    if (oldLam.w > 0.5 && !(roundedA || roundedB)) {
+                        rA = roRw.cc(recBase + ls, C_RA).xyz;
+                        rB = roRw.cc(recBase + ls, C_RB).xyz;
+                    }
+                    out.merged = out.merged + 1;
+                    break;
+                }
             }
+            out.lam[k] = d.vec3f(lam3);
+            out.pen[k] = d.vec3f(pen3);
+            out.rA[k] = d.vec3f(rA);
+            out.rB[k] = d.vec3f(rB);
         }
-        cLam[k] = lam3; cPen[k] = pen3; cRA[k] = rA; cRB[k] = rB;
-    }
+        return out;
+    })
+    .$name("mergeWarmstart");
 
-    // loop 2: overwrite the slot's records in place — [0, sat.count) live, the rest inactive (kind 0)
-    let n0 = sat.basis.r0;
-    for (var k = 0u; k < CONTACTS_PER_PAIR; k = k + 1u) {
-        let rec = recBase + k;
-        if (k < sat.count) {
-            let rA = cRA[k];
-            let rB = cRB[k];
-            // the arms anchor the CORE feature point; the contact surface is offset ±radius along the
-            // normal (rounded narrowphase, Phase 6.3 — keeps the radius part geometric, off the spin).
-            // Reconstruct the surface points for the true gap. A box has radius 0, so this is the bare arm.
-            let xA = pa + qRotateW(qa, rA) - n0 * bRadius(ia);
-            let xB = pb + qRotateW(qb, rB) + n0 * bRadius(ib);
-            let dlt = xA - xB;
-            let c0 = vec3<f32>(dot(sat.basis.r0, dlt) + COLLISION_MARGIN, dot(sat.basis.r1, dlt), dot(sat.basis.r2, dlt));
-            pairContacts[C_META*rc + rec] = vec4<f32>(bitcast<f32>(${CONSTRAINT_CONTACT}u), bitcast<f32>(ia), bitcast<f32>(ib), bitcast<f32>(sat.feat[k]));
-            pairContacts[C_NORMAL*rc + rec] = vec4<f32>(n0, 0.0);
-            pairContacts[C_RA*rc + rec] = vec4<f32>(rA, 0.0);
-            pairContacts[C_RB*rc + rec] = vec4<f32>(rB, 0.0);
-            pairContacts[C_C0*rc + rec] = vec4<f32>(c0, 0.0);
-            pairContacts[C_PEN*rc + rec] = vec4<f32>(cPen[k], friction);
-            pairContacts[C_LAMBDA*rc + rec] = vec4<f32>(cLam[k], 0.0);
-        } else {
-            pairContacts[C_META*rc + rec] = vec4<f32>(0.0); // inactive
-        }
-    }
-    atomicAdd(&counters[0], sat.count);          // total active contacts (the GPU correctness gates read this)
-    if (merged > 0u) { atomicAdd(&counters[6], merged); } // warmstarted-contact count (exact-persistence gate)
-}
-`
-    );
-};
+/** loop 2: overwrite the slot's records in place — [0, sat.count) live, the rest inactive (kind 0) */
+const writeContacts = tgpu
+    .fn([SatResult, Warmstart, d.u32, d.u32, d.u32, d.vec3f, d.vec4f, d.vec3f, d.vec4f, d.f32])(
+        (sat, w, ia, ib, recBase, pa, qa, pb, qb, friction) => {
+            "use gpu";
+            const rc = roRw.layout.$.params.recordCap;
+            const n0 = sat.basis.r0;
+            for (let k = d.u32(0); k < CONTACTS_PER_PAIR; k++) {
+                const rec = recBase + k;
+                if (k < sat.count) {
+                    const rA = w.rA[k];
+                    const rB = w.rB[k];
+                    // the arms anchor the CORE feature point; the contact surface is offset ±radius along
+                    // the normal (rounded narrowphase, Phase 6.3 — keeps the radius part geometric, off the
+                    // spin). Reconstruct the surface points for the true gap. A box has radius 0, so this
+                    // is the bare arm.
+                    const xA = std.sub(
+                        std.add(pa, roRw.qRotateW(qa, rA)),
+                        std.mul(n0, roRw.bRadius(ia)),
+                    );
+                    const xB = std.add(
+                        std.add(pb, roRw.qRotateW(qb, rB)),
+                        std.mul(n0, roRw.bRadius(ib)),
+                    );
+                    const dlt = std.sub(xA, xB);
+                    const c0 = d.vec3f(
+                        std.dot(sat.basis.r0, dlt) + d.f32(COLLISION_MARGIN),
+                        std.dot(sat.basis.r1, dlt),
+                        std.dot(sat.basis.r2, dlt),
+                    );
+                    roRw.layout.$.pairContacts[C_META * rc + rec] = d.vec4f(
+                        std.bitcastU32toF32(CONSTRAINT_CONTACT),
+                        std.bitcastU32toF32(ia),
+                        std.bitcastU32toF32(ib),
+                        std.bitcastU32toF32(sat.feat[k]),
+                    );
+                    roRw.layout.$.pairContacts[C_NORMAL * rc + rec] = d.vec4f(n0, 0);
+                    roRw.layout.$.pairContacts[C_RA * rc + rec] = d.vec4f(rA, 0);
+                    roRw.layout.$.pairContacts[C_RB * rc + rec] = d.vec4f(rB, 0);
+                    roRw.layout.$.pairContacts[C_C0 * rc + rec] = d.vec4f(c0, 0);
+                    roRw.layout.$.pairContacts[C_PEN * rc + rec] = d.vec4f(w.pen[k], friction);
+                    roRw.layout.$.pairContacts[C_LAMBDA * rc + rec] = d.vec4f(w.lam[k], 0);
+                } else {
+                    roRw.layout.$.pairContacts[C_META * rc + rec] = d.vec4f(0); // inactive
+                }
+            }
+        },
+    )
+    .$name("writeContacts");
 
 // box×box — the common case + the slot-lifecycle owner (clears INVALID + separated slots for every class).
-const COLLIDE_BOX_WGSL = collidePass(
-    BOXBOX_WGSL,
-    "if (!(sa == 0u && sb == 0u)) { return; }",
-    "sat = collideBoxBox(pa, qa, bHalf(ia) * 2.0, pb, qb, bHalf(ib) * 2.0, dRel);",
-    true,
-);
+const collideBoxKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= collideLayout.$.eids[0]) return; // past the live body count (the tail of the last workgroup)
+        const slot =
+            collideLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY);
+        const recBase = slot * d.u32(CONTACTS_PER_PAIR);
+        const pair = collideLayout.$.pairList[slot];
+        if (pair.x === INVALID_PAIR) {
+            clearBlock(recBase); // INVALID — unused block slot; box owns dead-slot clearing
+            return;
+        }
+        const ia = pair.x;
+        const ib = pair.y;
+        const p = collidePrelude(ia, ib);
+        if (!p.live) {
+            clearBlock(recBase); // separated past the band → cold next frame
+            return;
+        }
+        if (!(p.sa === 0 && p.sb === 0)) return; // class gate: box×box only
+        const sat = collideBoxBox(
+            p.pa,
+            p.qa,
+            std.mul(roRw.bHalf(ia), 2),
+            p.pb,
+            p.qb,
+            std.mul(roRw.bHalf(ib), 2),
+            p.dRel,
+        );
+        if (sat.count === 0) {
+            clearBlock(recBase);
+            return;
+        }
+        const w = mergeWarmstart(sat, ia, ib, p.roundedA, p.roundedB, recBase);
+        const friction = std.sqrt(roRw.bFriction(ia) * roRw.bFriction(ib));
+        writeContacts(sat, w, ia, ib, recBase, p.pa, p.qa, p.pb, p.qb, friction);
+        std.atomicAdd(collideLayout.$.counters[0], sat.count); // total active contacts (the GPU correctness gates read this)
+        if (w.merged > 0) std.atomicAdd(collideLayout.$.counters[6], w.merged); // warmstarted-contact count
+    })
+    .$name("collideBoxMain");
+
 // rounded×rounded — sphere/capsule pairs (one segment-segment closest point).
-const COLLIDE_ROUNDED_WGSL = collidePass(
-    ROUNDED_WGSL,
-    "if (!(roundedA && roundedB)) { return; }",
-    "sat = collideRounded(pa, qa, bHalf(ia) * 2.0, bRadius(ia), pb, qb, bHalf(ib) * 2.0, bRadius(ib), dRel);",
-    false,
-);
-// hull — box×hull, hull×hull (collideHull). The polytope×polytope SAT, its own pipeline (the 4-way split,
-// gpu.md "DXC shader compilation"): collideHull's big face/edge SAT compiles apart from the rounded segment-
-// clip below, so neither kernel pays the other's superlinear compile cost (the combined hull kernel was the
-// standing ~920 ms long pole). Gate: both non-rounded, not both box ⇒ at least one hull.
-const COLLIDE_HULL_WGSL = collidePass(
-    HULL_CORE_WGSL + HULL_SAT_WGSL,
-    "if (!(!roundedA && !roundedB && !(sa == 0u && sb == 0u))) { return; }",
-    "sat = collideHull(polyMake(sa, pa, qa, bHalf(ia) * 2.0, bHullId(ia)), polyMake(sb, pb, qb, bHalf(ib) * 2.0, bHullId(ib)), dRel);",
-    false,
-);
+const collideRoundedKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= collideLayout.$.eids[0]) return;
+        const slot =
+            collideLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY);
+        const recBase = slot * d.u32(CONTACTS_PER_PAIR);
+        const pair = collideLayout.$.pairList[slot];
+        if (pair.x === INVALID_PAIR) return;
+        const ia = pair.x;
+        const ib = pair.y;
+        const p = collidePrelude(ia, ib);
+        if (!p.live) return;
+        if (!(p.roundedA && p.roundedB)) return; // class gate: both rounded only
+        const sat = collideRounded(
+            p.pa,
+            p.qa,
+            std.mul(roRw.bHalf(ia), 2),
+            roRw.bRadius(ia),
+            p.pb,
+            p.qb,
+            std.mul(roRw.bHalf(ib), 2),
+            roRw.bRadius(ib),
+            p.dRel,
+        );
+        if (sat.count === 0) {
+            clearBlock(recBase);
+            return;
+        }
+        const w = mergeWarmstart(sat, ia, ib, p.roundedA, p.roundedB, recBase);
+        const friction = std.sqrt(roRw.bFriction(ia) * roRw.bFriction(ib));
+        writeContacts(sat, w, ia, ib, recBase, p.pa, p.qa, p.pb, p.qb, friction);
+        std.atomicAdd(collideLayout.$.counters[0], sat.count);
+        if (w.merged > 0) std.atomicAdd(collideLayout.$.counters[6], w.merged);
+    })
+    .$name("collideRoundedMain");
+
+// hull — box×hull, hull×hull (collideHull). The polytope×polytope SAT, its own kernel (the 4-way split,
+// gpu.md "DXC shader compilation"): collideHull's big face/edge SAT resolves apart from the rounded
+// segment-clip below, so neither pipeline pays the other's superlinear compile cost (the combined hull
+// kernel was the standing ~920 ms long pole). Gate: both non-rounded, not both box ⇒ at least one hull.
+const collideHullKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= collideLayout.$.eids[0]) return;
+        const slot =
+            collideLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY);
+        const recBase = slot * d.u32(CONTACTS_PER_PAIR);
+        const pair = collideLayout.$.pairList[slot];
+        if (pair.x === INVALID_PAIR) return;
+        const ia = pair.x;
+        const ib = pair.y;
+        const p = collidePrelude(ia, ib);
+        if (!p.live) return;
+        if (!(!p.roundedA && !p.roundedB && !(p.sa === 0 && p.sb === 0))) return; // at least one hull
+        touchHullData(0); // forces hullData's binding into scope (see touchHullData)
+        const sat = collideHull(
+            polyMake(p.sa, p.pa, p.qa, std.mul(roRw.bHalf(ia), 2), roRw.bHullId(ia)),
+            polyMake(p.sb, p.pb, p.qb, std.mul(roRw.bHalf(ib), 2), roRw.bHullId(ib)),
+            p.dRel,
+        );
+        if (sat.count === 0) {
+            clearBlock(recBase);
+            return;
+        }
+        const w = mergeWarmstart(sat, ia, ib, p.roundedA, p.roundedB, recBase);
+        const friction = std.sqrt(roRw.bFriction(ia) * roRw.bFriction(ib));
+        writeContacts(sat, w, ia, ib, recBase, p.pa, p.qa, p.pb, p.qb, friction);
+        std.atomicAdd(collideLayout.$.counters[0], sat.count);
+        if (w.merged > 0) std.atomicAdd(collideLayout.$.counters[6], w.merged);
+    })
+    .$name("collideHullMain");
+
 // rounded×polytope — sphere/capsule vs box/hull (collideRoundedPolytope). The other half of the old hull
 // kernel, its own pipeline. Gate: exactly one shape is rounded. Mutually exclusive with the box/rounded/hull
 // gates, so every live slot is still written by exactly one pipeline.
-const COLLIDE_ROUNDEDPOLY_WGSL = collidePass(
-    HULL_CORE_WGSL + ROUNDED_POLY_WGSL,
-    "if (roundedA == roundedB) { return; }",
-    "sat = collideRoundedPolytope(pa, qa, bHalf(ia) * 2.0, bRadius(ia), sa, bHullId(ia), pb, qb, bHalf(ib) * 2.0, bRadius(ib), sb, bHullId(ib), dRel);",
-    false,
-);
+const collideRoundedPolyKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= collideLayout.$.eids[0]) return;
+        const slot =
+            collideLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY);
+        const recBase = slot * d.u32(CONTACTS_PER_PAIR);
+        const pair = collideLayout.$.pairList[slot];
+        if (pair.x === INVALID_PAIR) return;
+        const ia = pair.x;
+        const ib = pair.y;
+        const p = collidePrelude(ia, ib);
+        if (!p.live) return;
+        if (p.roundedA === p.roundedB) return; // exactly one shape is rounded
+        touchHullData(0); // forces hullData's binding into scope (see touchHullData)
+        const sat = collideRoundedPolytope(
+            p.pa,
+            p.qa,
+            std.mul(roRw.bHalf(ia), 2),
+            roRw.bRadius(ia),
+            p.sa,
+            roRw.bHullId(ia),
+            p.pb,
+            p.qb,
+            std.mul(roRw.bHalf(ib), 2),
+            roRw.bRadius(ib),
+            p.sb,
+            roRw.bHullId(ib),
+            p.dRel,
+        );
+        if (sat.count === 0) {
+            clearBlock(recBase);
+            return;
+        }
+        const w = mergeWarmstart(sat, ia, ib, p.roundedA, p.roundedB, recBase);
+        const friction = std.sqrt(roRw.bFriction(ia) * roRw.bFriction(ib));
+        writeContacts(sat, w, ia, ib, recBase, p.pa, p.qa, p.pb, p.qb, friction);
+        std.atomicAdd(collideLayout.$.counters[0], sat.count);
+        if (w.merged > 0) std.atomicAdd(collideLayout.$.counters[6], w.merged);
+    })
+    .$name("collideRoundedPolyMain");
 
 // ── inertial: inertial target (Eq. 2) + adaptive warmstart reposition (solver.cpp step 3) ──
-const INERTIAL_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<uniform> step: Step;
-@group(0) @binding(2) var<storage, read> eids: array<u32>;
-${BODY_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let i = eids[1u + d];
-    let dt = step.dt;
-    let g = step.gravity;
-    let dynamic = !solverStatic(i);
+const inertialLayout = tgpu
+    .bindGroupLayout({ eids: { storage: d.arrayOf(d.u32), access: "readonly" } })
+    .$idx(0);
 
-    let pos = bPos(i);
-    let quat = bQuat(i);
-    let vel = bVelL(i);
-    let velA = bVelA(i);
-    let prevV = bPrevV(i);
+const inertialKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= inertialLayout.$.eids[0]) return;
+        const i = inertialLayout.$.eids[1 + slot];
+        const dt = rwRw.layout.$.params.dt;
+        const g = rwRw.layout.$.params.gravity;
+        const dynamic = !rwRw.solverStatic(i);
 
-    // a static / kinematic body (solverStatic): no gravity in the inertial target, no
-    // warmstart reposition — frozen inertial = initial = current pose, so dq = 0 (oracle solver.ts).
-    // inertial target: full gravity (Eq. 2). The warmstart-start pos reuses the same predicted
-    // step, scaling only the gravity term by accelWeight; the angular warmstart equals inertialQ.
-    let predicted = pos + vel * dt;
-    let inertialQ = qAddW(quat, velA * dt);
-    var inertialL = predicted;
-    if (dynamic) { inertialL = inertialL + vec3<f32>(0.0, g * dt * dt, 0.0); }
+        const pos = rwRw.bPos(i);
+        const quat = rwRw.bQuat(i);
+        const vel = rwRw.bVelL(i);
+        const velA = rwRw.bVelA(i);
+        const prevV = rwRw.bPrevV(i);
 
-    // adaptive accelWeight (VBD): scales the warmstart-start gravity term, not the inertial target
-    let accel = (vel - prevV) / dt;
-    var accelWeight = clamp((accel.y * sign(g)) / abs(g), 0.0, 1.0);
-    if (!(accelWeight == accelWeight)) { accelWeight = 0.0; } // NaN -> 0
+        // a static / kinematic body (solverStatic): no gravity in the inertial target, no
+        // warmstart reposition — frozen inertial = initial = current pose, so dq = 0 (oracle solver.ts).
+        // inertial target: full gravity (Eq. 2). The warmstart-start pos reuses the same predicted
+        // step, scaling only the gravity term by accelWeight; the angular warmstart equals inertialQ.
+        const predicted = std.add(pos, std.mul(vel, dt));
+        const inertialQ = rwRw.qAddW(quat, std.mul(velA, dt));
+        let inertialL = d.vec3f(predicted); // copy — `predicted` is itself a reference, needs a real `var`
+        if (dynamic) inertialL = std.add(inertialL, d.vec3f(0, g * dt * dt, 0));
 
-    let cap = step.eidCap;
-    bodies[B_INERTL*cap + i] = vec4<f32>(inertialL, 0.0);
-    bodies[B_INERTQ*cap + i] = inertialQ;
-    bodies[B_INITL*cap + i] = vec4<f32>(pos, 0.0);  // initialLin = x⁻ (the contact constraint reads this as dq=0)
-    bodies[B_INITQ*cap + i] = quat;                  // initialAng
+        // adaptive accelWeight (VBD): scales the warmstart-start gravity term, not the inertial target
+        const accel = std.div(std.sub(vel, prevV), dt);
+        let accelWeight = std.clamp((accel.y * std.sign(g)) / std.abs(g), 0, 1);
+        // biome-ignore lint/suspicious/noSelfCompare: the WGSL NaN idiom (x != x), transpiled verbatim
+        if (accelWeight !== accelWeight) accelWeight = 0; // NaN -> 0
 
-    if (dynamic) {
-        let warmPos = predicted + vec3<f32>(0.0, g * accelWeight * dt * dt, 0.0);
-        bodies[B_POS*cap + i] = vec4<f32>(warmPos, 0.0);
-        bodies[B_QUAT*cap + i] = inertialQ;
-    }
-}
-`;
+        const cap = rwRw.layout.$.params.eidCap;
+        rwRw.layout.$.bodies[B_INERTL * cap + i] = d.vec4f(inertialL, 0);
+        rwRw.layout.$.bodies[B_INERTQ * cap + i] = d.vec4f(inertialQ); // copy — reference-yielding call result
+        // initialLin = x⁻ (the contact constraint reads this as dq=0)
+        rwRw.layout.$.bodies[B_INITL * cap + i] = d.vec4f(pos, 0);
+        rwRw.layout.$.bodies[B_INITQ * cap + i] = d.vec4f(quat); // initialAng
 
-// Mat3 (row-major, matching the oracle math.ts) + the helpers the contact force law + the 6×6
-// stamp need. Appended after a pass declares its bindings — pure, binding-free. The collide pass
-// has its own Mat3 in HELPERS_WGSL; primal/dual concatenate this one instead (no narrowphase chunk).
-const MAT3_WGSL = /* wgsl */ `
-struct Mat3 { r0: vec3<f32>, r1: vec3<f32>, r2: vec3<f32> };
-fn mZero() -> Mat3 { return Mat3(vec3<f32>(0.0), vec3<f32>(0.0), vec3<f32>(0.0)); }
-fn mDiag(v: vec3<f32>) -> Mat3 { return Mat3(vec3<f32>(v.x,0.0,0.0), vec3<f32>(0.0,v.y,0.0), vec3<f32>(0.0,0.0,v.z)); }
-fn mAdd(a: Mat3, b: Mat3) -> Mat3 { return Mat3(a.r0 + b.r0, a.r1 + b.r1, a.r2 + b.r2); }
-fn mNeg(m: Mat3) -> Mat3 { return Mat3(-m.r0, -m.r1, -m.r2); }
-fn mScale(m: Mat3, s: f32) -> Mat3 { return Mat3(m.r0 * s, m.r1 * s, m.r2 * s); }
-// outer product a ⊗ b (M[i][j] = a[i]·b[j]) — the single-row Hessian block a spring Jacobian stamps (maths.h outer)
-fn outer3(a: vec3<f32>, b: vec3<f32>) -> Mat3 { return Mat3(b * a.x, b * a.y, b * a.z); }
-fn mMulV(m: Mat3, v: vec3<f32>) -> vec3<f32> { return vec3<f32>(dot(m.r0, v), dot(m.r1, v), dot(m.r2, v)); }
-fn mT(m: Mat3) -> Mat3 { return Mat3(vec3<f32>(m.r0.x,m.r1.x,m.r2.x), vec3<f32>(m.r0.y,m.r1.y,m.r2.y), vec3<f32>(m.r0.z,m.r1.z,m.r2.z)); }
-fn mMul(a: Mat3, b: Mat3) -> Mat3 {
-    return Mat3(a.r0.x*b.r0 + a.r0.y*b.r1 + a.r0.z*b.r2,
-                a.r1.x*b.r0 + a.r1.y*b.r1 + a.r1.z*b.r2,
-                a.r2.x*b.r0 + a.r2.y*b.r1 + a.r2.z*b.r2);
-}
-fn orthoBasis(n: vec3<f32>) -> Mat3 {
-    var t1: vec3<f32>;
-    if (abs(n.x) > abs(n.y)) { t1 = vec3<f32>(-n.z, 0.0, n.x); } else { t1 = vec3<f32>(0.0, n.z, -n.y); }
-    t1 = normalize(t1);
-    return Mat3(n, t1, cross(t1, n));
-}
-// the joint's angular Jacobian + geometric-stiffness terms (maths.h skew/diagonalize, joint.cpp
-// geometricStiffnessBallSocket) — row-major, matching the oracle math.ts.
-fn skew(r: vec3<f32>) -> Mat3 { return Mat3(vec3<f32>(0.0, -r.z, r.y), vec3<f32>(r.z, 0.0, -r.x), vec3<f32>(-r.y, r.x, 0.0)); }
-// diag of each column's length (the joint's diagonal higher-order approximation)
-fn diagonalize(m: Mat3) -> Mat3 {
-    return mDiag(vec3<f32>(
-        length(vec3<f32>(m.r0.x, m.r1.x, m.r2.x)),
-        length(vec3<f32>(m.r0.y, m.r1.y, m.r2.y)),
-        length(vec3<f32>(m.r0.z, m.r1.z, m.r2.z))));
-}
-// geometricStiffnessBallSocket(k, v): diag(-v[k]) with v added into column k (k literal at the call sites)
-fn geomStiffness(k: u32, v: vec3<f32>) -> Mat3 {
-    let d = -v[k];
-    var c0 = vec3<f32>(d, 0.0, 0.0); var c1 = vec3<f32>(0.0, d, 0.0); var c2 = vec3<f32>(0.0, 0.0, d);
-    if (k == 0u) { c0 = c0 + v; } else if (k == 1u) { c1 = c1 + v; } else { c2 = c2 + v; }
-    return Mat3(vec3<f32>(c0.x, c1.x, c2.x), vec3<f32>(c0.y, c1.y, c2.y), vec3<f32>(c0.z, c1.z, c2.z));
-}
-`;
+        if (dynamic) {
+            const warmPos = std.add(predicted, d.vec3f(0, g * accelWeight * dt * dt, 0));
+            rwRw.layout.$.bodies[B_POS * cap + i] = d.vec4f(warmPos, 0);
+            rwRw.layout.$.bodies[B_QUAT * cap + i] = d.vec4f(inertialQ);
+        }
+    })
+    .$name("inertialMain");
 
-// One contact's constraint C, its four Jacobian blocks, the diagonal penalty k, and the
-// cone-clamped force F — the shared core of the primal stamp and the dual update (manifold.ts
-// `contactForce`, which the reference inlines in both updatePrimal and updateDual). Reads the
-// contact row + the two bodies' poses/deltas; appended after MAT3_WGSL + BODY_WGSL + CONTACT_WGSL.
-const CONTACT_FORCE_WGSL = /* wgsl */ `
-struct CForce {
-    constraint: vec3<f32>, force: vec3<f32>,
-    jALin: Mat3, jBLin: Mat3, jAAng: Mat3, jBAng: Mat3, k: Mat3,
-    // the *pre-clamp* friction magnitude + the cone bound — the dual ramp gate reads these (manifold.ts
-    // contactForce / manifold.cpp:156,169). Gating on the post-clamp force.yz (always == bounds when
-    // saturated) ramps a sliding contact's tangent penalty unboundedly, fading kinetic friction.
-    frictionScale: f32, bounds: f32,
-};
-fn contactForce(ci: u32) -> CForce {
-    let m0 = cc(ci, C_META);
-    let a = bitcast<u32>(m0.y);
-    let b = bitcast<u32>(m0.z);
-    let basis = orthoBasis(cc(ci, C_NORMAL).xyz);
-    let rA = cc(ci, C_RA).xyz;
-    let rB = cc(ci, C_RB).xyz;
-    let c0 = cc(ci, C_C0).xyz;
-    let pen = cc(ci, C_PEN);
-    let friction = pen.w;
-    let lambda = cc(ci, C_LAMBDA).xyz;
-
-    let aQuat = bQuat(a); let bQ = bQuat(b);
-    let dALin = bPos(a) - bInitL(a);
-    let dAAng = qSubW(aQuat, bInitQ(a));
-    let dBLin = bPos(b) - bInitL(b);
-    let dBAng = qSubW(bQ, bInitQ(b));
-
-    // the arm anchors the CORE feature; apply the geometric ±radius·normal offset HERE (not in the stored
-    // arm) so the radius part never rotates with the body's spin — a rounded contact's normal Jacobian
-    // then stays cross(−r·n, n) = 0 (a sphere's normal force passes through its centre → no torque). A box
-    // has radius 0, so rAW/rBW are the bare material arms, bit-identical to before. roadmap §6.3.
-    let n = basis.r0;
-    let rAW = qRotateW(aQuat, rA) - n * bRadius(a);
-    let rBW = qRotateW(bQ, rB) + n * bRadius(b);
-    let jALin = basis;
-    let jBLin = mNeg(basis);
-    let jAAng = Mat3(cross(rAW, basis.r0), cross(rAW, basis.r1), cross(rAW, basis.r2));
-    let jBAng = Mat3(cross(rBW, jBLin.r0), cross(rBW, jBLin.r1), cross(rBW, jBLin.r2));
-    let k = mDiag(pen.xyz);
-
-    let constraint = c0 * (1.0 - step.alpha)
-        + mMulV(jALin, dALin) + mMulV(jBLin, dBLin) + mMulV(jAAng, dAAng) + mMulV(jBAng, dBAng);
-    // force = k·C + λ, clamped: normal repulsion-only, friction inside the Coulomb cone
-    var force = mMulV(k, constraint) + lambda;
-    force.x = min(force.x, 0.0);
-    let bounds = abs(force.x) * friction;
-    let fs = length(force.yz);
-    if (fs > bounds && fs > 0.0) { force = vec3<f32>(force.x, force.y * bounds / fs, force.z * bounds / fs); }
-
-    return CForce(constraint, force, jALin, jBLin, jAAng, jBAng, k, fs, bounds);
-}
-`;
-
-// per-joint record accessors (JOINT_REC_VEC4 SoA-free AoS layout — see JOINT_REC_VEC4 doc). Appended after
-// a pass declares its `jointRecords` binding; the init/dual passes also write the vec4s directly.
-const JOINT_REC_WGSL = /* wgsl */ `
-fn jrec(rec: u32, col: u32) -> vec4<f32> { return jointRecords[rec * JOINT_REC_VEC4 + col]; }
-fn jActive(rec: u32) -> u32 { return bitcast<u32>(jrec(rec, 3u).y); }
-fn jTorqueArm(rec: u32) -> f32 { return jrec(rec, 3u).x; }
-fn jPenLin(rec: u32) -> vec3<f32> { return jrec(rec, 4u).xyz; }
-fn jPenAng(rec: u32) -> vec3<f32> { return jrec(rec, 5u).xyz; }
-fn jLamLin(rec: u32) -> vec3<f32> { return jrec(rec, 6u).xyz; }
-fn jLamAng(rec: u32) -> vec3<f32> { return jrec(rec, 7u).xyz; }
-fn jC0Lin(rec: u32) -> vec3<f32> { return jrec(rec, 8u).xyz; }
-fn jC0Ang(rec: u32) -> vec3<f32> { return jrec(rec, 9u).xyz; }
-fn jMotorAxis(rec: u32) -> vec3<f32> { return jrec(rec, 10u).xyz; }
-fn jMotorMax(rec: u32) -> f32 { return jrec(rec, 10u).w; }   // > 0 ⇒ the motor is active
-fn jMotorSpeed(rec: u32) -> f32 { return jrec(rec, 11u).x; }
-fn jMotorLam(rec: u32) -> f32 { return jrec(rec, 11u).y; }
-fn jMotorPen(rec: u32) -> f32 { return jrec(rec, 11u).z; }
-`;
-
-// the double-buffer scratch the colored primal solves into (paper Algorithm 1 lines 22-24, webphysics
-// `bodySolveOutputPose`, oracle `primalColored`): 2 cols, eid-indexed SoA (`solveOut[col*eidCap + bid]`),
-// col 0 = solved pos, col 1 = solved quat. The primal reads the *committed* `bodies` and writes its result
-// here; a separate commit pass copies the current color's slots into `bodies`. Reading committed poses +
-// writing scratch is what makes a same-color contact pair a clean Jacobi (both read the color-start pose),
-// not an order-dependent read-write race on `bodies` — the grounding Phase 4.5 Stage B adds.
-const SOLVE_OUT_WGSL = /* wgsl */ `
-const SO_POS: u32 = 0u;
-const SO_QUAT: u32 = 1u;
-`;
+/** the color index commit + primal read at a per-color STATIC bind group (the locked design, Approach
+ *  3b-iv part 2a/2b): typegpu 0.11.9 has no dynamic-offset uniform binding, so `COLOR_CAP` one-buffer
+ *  immutable groups replace the raw dynamic-offset UBO — one physical buffer each dodges the 256-B
+ *  256-byte `minUniformBufferOffsetAlignment` rule. */
+const ColorIdx = d.struct({ value: d.u32 }).$name("ColorIdx");
 
 // ── primal: colored Gauss-Seidel, contact-force stamp + 6×6 LDLᵀ → the double-buffer scratch ──
 // The primal reads the committed `bodies` (read-only) and writes each solved body's new pose into the
-// `solveOut` scratch, NOT back into `bodies`; the commit pass below applies it for the current color.
-// So within one color's dispatch no body's `bodies` slot is both read (by a contact) and written, and a
-// same-color pair reduces to the paper's deferred-within-color (clean Jacobi), not a racy write-in-place.
-const PRIMAL_BINDINGS_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> pairContacts: array<vec4<f32>>;
-// CSR adjacency in one binding (Phase 4.9 hygiene): offsets in [0, eidCap), counts in [eidCap, 2·eidCap)
-@group(0) @binding(2) var<storage, read> csr: array<u32>;
-@group(0) @binding(3) var<storage, read> csrList: array<u32>;
-@group(0) @binding(4) var<storage, read> colors: array<u32>;
-@group(0) @binding(5) var<uniform> step: Step;
-@group(0) @binding(6) var<uniform> color: vec4<u32>;  // dynamic-offset: .x = current color
-@group(0) @binding(7) var<storage, read> eids: array<u32>;
-@group(0) @binding(8) var<storage, read_write> solveOut: array<vec4<f32>>;
-// authored-constraint adjacency (springs Phase 6.1 + joints Phase 6.2 — built CPU-side on setSprings /
-// setJoints): per-body offsets/counts in [0,eidCap)/[eidCap,2·eidCap), the inline kind-tagged entries in
-// constraintList (CONSTRAINT_VEC4 vec4 each, AoS). A constraint-less scene has all-zero counts ⇒ the loop
-// no-ops, so the path is always present, zero cost. binding 11 = the per-joint records (λ/penalty/c0/active),
-// read by the joint stamp; springs are stateless so they stamp from the entry alone (springContrib).
-@group(0) @binding(9) var<storage, read> constraintCsr: array<u32>;
-@group(0) @binding(10) var<storage, read> constraintList: array<vec4<f32>>;
-@group(0) @binding(11) var<storage, read> jointRecords: array<vec4<f32>>;
-${BODY_WGSL}
-${CONTACT_WGSL}
-${MAT3_WGSL}
-${CONTACT_FORCE_WGSL}
-${JOINT_REC_WGSL}
-${SOLVE_OUT_WGSL}
-`;
+// `solveOut` scratch, NOT back into `bodies`; the commit pass applies it for the current color. So within
+// one color's dispatch no body's `bodies` slot is both read (by a contact) and written, and a same-color
+// pair reduces to the paper's deferred-within-color (clean Jacobi), not a racy write-in-place.
+//
+// Own I/O splits across two groups: `primalOwnLayout` (group 0, unchanged since 3b-iii — csr/csrList/
+// constraintCsr/constraintList, forced by `solverRoRo.solvePose`'s internal reads, so the primal needs no
+// explicit reference of its own) + `primalColorLayout` (group {@link PRIMAL_COLOR_GROUP} — colors/eids/
+// solveOut + the per-color static uniform, group 0's commit shape repeated since group 0 is taken here).
+export const PRIMAL_COLOR_GROUP = 3;
 
-// the per-body primal step, shared verbatim by the looped color pass (PRIMAL_PASS_WGSL) and the
-// LDS-resident kernel (SOLVE_LDS_WGSL): stamp the body's CSR contacts + authored constraints into one
-// 6×6 block system, add the inertial term, LDLᵀ-solve, integrate. Pose reads go through bPos/bQuat, so
-// the composing kernel picks the backing (storage in the looped pass, workgroup memory in the LDS one).
-const SOLVE_MATH_WGSL = /* wgsl */ `
-struct Contrib { lhsLin: Mat3, lhsAng: Mat3, lhsCross: Mat3, rhsLin: vec3<f32>, rhsAng: vec3<f32> };
+const primalColorLayout = tgpu
+    .bindGroupLayout({
+        colors: { storage: d.arrayOf(d.u32), access: "readonly" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        solveOut: { storage: d.arrayOf(d.vec4f), access: "mutable" },
+        color: { uniform: ColorIdx },
+    })
+    .$idx(PRIMAL_COLOR_GROUP);
 
-// stamp one contact's force + Hessian into bid's system (manifold.ts updatePrimal). bid is the body
-// being solved; ownerIsA selects bid's Jacobian from the shared contactForce.
-fn contactContrib(bid: u32, ci: u32) -> Contrib {
-    let cf = contactForce(ci);
-    let ownerIsA = bitcast<u32>(cc(ci, C_META).y) == bid;
-    var jLin = cf.jBLin; var jAng = cf.jBAng;
-    if (ownerIsA) { jLin = cf.jALin; jAng = cf.jAAng; }
-    let jLinT = mT(jLin);
-    let jAngT = mT(jAng);
-    let jAngTk = mMul(jAngT, cf.k);
-    return Contrib(mMul(mMul(jLinT, cf.k), jLin), mMul(jAngTk, jAng), mMul(jAngTk, jLin),
-                   mMulV(jLinT, cf.force), mMulV(jAngT, cf.force));
-}
-
-// stamp one spring's force + Hessian into bid's system (spring.ts stampSpring, a port of spring.cpp).
-// The soft Force: f = stiffness·C, no dual. Symmetric — both endpoints stamp jLin = normalize(pSelf −
-// pOther), so the entry carries bid's own anchor (rSelf) + the partner eid/anchor, no isA branch. The
-// 6×6 contributions are the single-row outer products (the contact's Mat3 form specialized to one row).
-fn springContrib(bid: u32, e: u32) -> Contrib {
-    let base = e * CONSTRAINT_VEC4;
-    let s0 = constraintList[base];          // rSelf.xyz, stiffness
-    let s1 = constraintList[base + 1u];     // rOther.xyz, rest
-    let other = bitcast<u32>(constraintList[base + 2u].x);
-    let stiffness = s0.w;
-    let rW = qRotateW(bQuat(bid), s0.xyz); // bid's anchor in world — the pSelf offset AND the torque arm
-    let pSelf = bPos(bid) + rW;
-    let pOther = bPos(other) + qRotateW(bQuat(other), s1.xyz);
-    let d = pSelf - pOther;
-    let dLen = length(d);
-    if (dLen <= 1.0e-6) { return Contrib(mZero(), mZero(), mZero(), vec3<f32>(0.0), vec3<f32>(0.0)); }
-    let n = d / dLen;
-    let f = stiffness * (dLen - s1.w);
-    let jLin = n;
-    let jAng = cross(rW, n);
-    return Contrib(mScale(outer3(jLin, jLin), stiffness), mScale(outer3(jAng, jAng), stiffness),
-                   mScale(outer3(jAng, jLin), stiffness), jLin * f, jAng * f);
-}
-
-// stamp one joint's force + Hessian into bid's system (joint.ts stampJoint, a port of joint.cpp). The
-// hard Force: a linear anchor-pin row triple + an angular relative-orientation row triple, carrying
-// warmstartable λ + a per-iteration penalty ramp, the rigid form adding the stabilization C −= α·C₀.
-// Geometry comes from the per-body entry (rSelf/rOther/otherEid/isA); the mutable lambda/penalty/c0 + the
-// GPU-computed torqueArm come from the per-joint record (recordIndex). The constraint C uses canonical
-// (a minus b) order regardless of which endpoint bid is, selected by isA.
-fn jointContrib(bid: u32, e: u32) -> Contrib {
-    let zero = Contrib(mZero(), mZero(), mZero(), vec3<f32>(0.0), vec3<f32>(0.0));
-    let base = e * CONSTRAINT_VEC4;
-    let e2 = constraintList[base + 2u];
-    let other = bitcast<u32>(e2.x);
-    let rec = bitcast<u32>(e2.z);
-    let isA = bitcast<u32>(e2.w) != 0u;
-    if (jActive(rec) != 1u) { return zero; }   // version-mismatch / construction-guard deactivated
-    // read the anchors from the RECORD (jrec 1 = rA, jrec 2 = rB), not the list entry — the record is the
-    // single source of truth, so a moving WORLD anchor (setJointAnchor writes rA into the record each frame) is
-    // seen by the primal. isA picks self/other: body A's self is rA, body B's self is rB. (Equal to the list
-    // entry's rSelf/rOther for a static joint, so non-world joints are unchanged.)
-    let rA = jrec(rec, 1u).xyz;
-    let rB = jrec(rec, 2u).xyz;
-    let rSelf = select(rB, rA, isA);
-    let rOther = select(rA, rB, isA);
-
-    let rigidLin = jrec(rec, 1u).w > RIGID_THRESHOLD;   // stiffnessLin (∞ sentinel) ⇒ rigid stabilization
-    let rigidAng = jrec(rec, 2u).w > RIGID_THRESHOLD;
-    let torqueArm = jTorqueArm(rec);
-    let alpha = step.alpha;
-
-    // the WORLD anchor (other == WORLD_ANCHOR): rOther is a world-space point, orientation identity, no body
-    // to read. The grab pins to it (no anchor body → no contact). bid is always a real body (the world has no
-    // constraint entry), so qSelf/pSelf read normally.
-    let otherWorld = other == WORLD_ANCHOR;
-    let qSelf = bQuat(bid);
-    let qOther = select(bQuat(other), vec4<f32>(0.0, 0.0, 0.0, 1.0), otherWorld);
-    let rSelfW = qRotateW(qSelf, rSelf);
-    let pSelf = bPos(bid) + rSelfW;
-    let pOther = select(bPos(other) + qRotateW(qOther, rOther), rOther, otherWorld);
-
-    var acc = zero;
-
-    // linear anchor-pin rows
-    let penLin = jPenLin(rec);
-    if (dot(penLin, penLin) > 0.0) {
-        let K = mDiag(penLin);
-        var C = select(pOther - pSelf, pSelf - pOther, isA);   // canonical pA − pB
-        if (rigidLin) { C = C - jC0Lin(rec) * alpha; }
-        let F = mMulV(K, C) + jLamLin(rec);
-        let jLin = mDiag(vec3<f32>(select(-1.0, 1.0, isA)));    // ±I
-        let jAng = skew(select(rSelfW, -rSelfW, isA));          // isA ? skew(−rA_w) : skew(rB_w)
-        let jLinT = mT(jLin); let jAngT = mT(jAng); let jAngTk = mMul(jAngT, K);
-        acc.lhsLin = mAdd(acc.lhsLin, mMul(mMul(jLinT, K), jLin));
-        acc.lhsAng = mAdd(acc.lhsAng, mMul(jAngTk, jAng));
-        acc.lhsCross = mAdd(acc.lhsCross, mMul(jAngTk, jLin));
-        let r = select(-rSelfW, rSelfW, isA);                  // geometric-stiffness arm
-        let H = mAdd(mAdd(mScale(geomStiffness(0u, r), F.x), mScale(geomStiffness(1u, r), F.y)),
-                     mScale(geomStiffness(2u, r), F.z));
-        acc.lhsAng = mAdd(acc.lhsAng, diagonalize(H));
-        acc.rhsLin = acc.rhsLin + mMulV(jLinT, F);
-        acc.rhsAng = acc.rhsAng + mMulV(jAngT, F);
-    }
-    // angular relative-orientation rows (spherical: penaltyAng 0 ⇒ skipped, rotation free)
-    let penAng = jPenAng(rec);
-    if (dot(penAng, penAng) > 0.0) {
-        let K = mDiag(penAng);
-        let qA = select(qOther, qSelf, isA);
-        let qB = select(qSelf, qOther, isA);
-        var C = qSubW(qA, qB) * torqueArm;
-        if (rigidAng) { C = C - jC0Ang(rec) * alpha; }
-        let F = mMulV(K, C) + jLamAng(rec);
-        let sgn = select(-torqueArm, torqueArm, isA);          // jAng = (±I)·torqueArm (diagonal)
-        acc.lhsAng = mAdd(acc.lhsAng, mScale(K, sgn * sgn));   // jAngᵀ·K·jAng = K·sgn²
-        acc.rhsAng = acc.rhsAng + F * sgn;                     // jAngᵀ·F = sgn·F
-    }
-    // motor — a 1-DOF force-clamped angular drive about jMotorAxis (avbd-demo2d motor.cpp; maxTorque > 0
-    // activates it). The angular force competes inside each iteration, clamped to ±maxTorque, so a driven body
-    // holds its target ω under a load that stalls a forced-velocity drive. deltaAngle is each body's INCREMENTAL
-    // rotation about the axis SINCE STEP START (bInitQ = the BDF1 step-start pose), not an absolute qSub against
-    // a fixed reference — that reads 2·sin(θ/2), nonlinear far from identity, so a continuously-spinning rotor
-    // would over-rotate to null it. Jacobian J = ±axis (unit), Hessian 0 (motor.cpp computeDerivatives).
-    let motorMax = jMotorMax(rec);
-    if (motorMax > 0.0) {
-        let axis = jMotorAxis(rec);
-        let dSelf = dot(qSubW(qSelf, bInitQ(bid)), axis);
-        let dOther = select(dot(qSubW(qOther, bInitQ(other)), axis), 0.0, otherWorld);
-        let dB = select(dSelf, dOther, isA);                   // bid == A ⇒ b is the OTHER endpoint
-        let dA = select(dOther, dSelf, isA);
-        let c = (dB - dA) - jMotorSpeed(rec) * step.dt;        // deltaAngle(b − a) − speed·dt
-        let f = clamp(jMotorPen(rec) * c + jMotorLam(rec), -motorMax, motorMax);
-        let sgn = select(1.0, -1.0, isA);                      // ∂C/∂θ = +axis on b, −axis on a
-        acc.lhsAng = mAdd(acc.lhsAng, mScale(outer3(axis, axis), jMotorPen(rec)));
-        acc.rhsAng = acc.rhsAng + axis * (sgn * f);
-    }
-    return acc;
-}
-
-struct Sol { xLin: vec3<f32>, xAng: vec3<f32> };
-fn solve6(aLin: Mat3, aAng: Mat3, aCross: Mat3, bLin: vec3<f32>, bAng: vec3<f32>) -> Sol {
-    let A11 = aLin.r0.x; let A21 = aLin.r1.x; let A22 = aLin.r1.y;
-    let A31 = aLin.r2.x; let A32 = aLin.r2.y; let A33 = aLin.r2.z;
-    let A41 = aCross.r0.x; let A42 = aCross.r0.y; let A43 = aCross.r0.z; let A44 = aAng.r0.x;
-    let A51 = aCross.r1.x; let A52 = aCross.r1.y; let A53 = aCross.r1.z; let A54 = aAng.r1.x; let A55 = aAng.r1.y;
-    let A61 = aCross.r2.x; let A62 = aCross.r2.y; let A63 = aCross.r2.z; let A64 = aAng.r2.x; let A65 = aAng.r2.y; let A66 = aAng.r2.z;
-    let L21 = A21 / A11; let L31 = A31 / A11; let L41 = A41 / A11; let L51 = A51 / A11; let L61 = A61 / A11; let D1 = A11;
-    let D2 = A22 - L21*L21*D1;
-    let L32 = (A32 - L21*L31*D1) / D2; let L42 = (A42 - L21*L41*D1) / D2; let L52 = (A52 - L21*L51*D1) / D2; let L62 = (A62 - L21*L61*D1) / D2;
-    let D3 = A33 - (L31*L31*D1 + L32*L32*D2);
-    let L43 = (A43 - L31*L41*D1 - L32*L42*D2) / D3; let L53 = (A53 - L31*L51*D1 - L32*L52*D2) / D3; let L63 = (A63 - L31*L61*D1 - L32*L62*D2) / D3;
-    let D4 = A44 - (L41*L41*D1 + L42*L42*D2 + L43*L43*D3);
-    let L54 = (A54 - L41*L51*D1 - L42*L52*D2 - L43*L53*D3) / D4; let L64 = (A64 - L41*L61*D1 - L42*L62*D2 - L43*L63*D3) / D4;
-    let D5 = A55 - (L51*L51*D1 + L52*L52*D2 + L53*L53*D3 + L54*L54*D4);
-    let L65 = (A65 - L51*L61*D1 - L52*L62*D2 - L53*L63*D3 - L54*L64*D4) / D5;
-    let D6 = A66 - (L61*L61*D1 + L62*L62*D2 + L63*L63*D3 + L64*L64*D4 + L65*L65*D5);
-    let y1 = bLin.x;
-    let y2 = bLin.y - L21*y1;
-    let y3 = bLin.z - L31*y1 - L32*y2;
-    let y4 = bAng.x - L41*y1 - L42*y2 - L43*y3;
-    let y5 = bAng.y - L51*y1 - L52*y2 - L53*y3 - L54*y4;
-    let y6 = bAng.z - L61*y1 - L62*y2 - L63*y3 - L64*y4 - L65*y5;
-    let z1 = y1/D1; let z2 = y2/D2; let z3 = y3/D3; let z4 = y4/D4; let z5 = y5/D5; let z6 = y6/D6;
-    var xAng = vec3<f32>(0.0); var xLin = vec3<f32>(0.0);
-    xAng.z = z6;
-    xAng.y = z5 - L65*xAng.z;
-    xAng.x = z4 - L54*xAng.y - L64*xAng.z;
-    xLin.z = z3 - L43*xAng.x - L53*xAng.y - L63*xAng.z;
-    xLin.y = z2 - L32*xLin.z - L42*xAng.x - L52*xAng.y - L62*xAng.z;
-    xLin.x = z1 - L21*xLin.y - L31*xLin.z - L41*xAng.x - L51*xAng.y - L61*xAng.z;
-    return Sol(xLin, xAng);
-}
-
-struct NewPose { pos: vec3<f32>, quat: vec4<f32> };
-fn solvePose(bid: u32) -> NewPose {
-    // CSR adjacency: read only this body's own contacts (csrList[off .. off+count]), not a scan of every
-    // contact — the O(count·contacts) → O(valence) collapse (physics.md "Dispatch"). offsets + counts share
-    // one binding: csr[bid] = offset, csr[eidCap + bid] = count.
-    var acc = Contrib(mZero(), mZero(), mZero(), vec3<f32>(0.0), vec3<f32>(0.0));
-    let lo = csr[bid];
-    let hi = lo + csr[step.eidCap + bid];
-    for (var k = lo; k < hi; k = k + 1u) {
-        let c = contactContrib(bid, csrList[k]);
-        acc.lhsLin = mAdd(acc.lhsLin, c.lhsLin);
-        acc.lhsAng = mAdd(acc.lhsAng, c.lhsAng);
-        acc.lhsCross = mAdd(acc.lhsCross, c.lhsCross);
-        acc.rhsLin = acc.rhsLin + c.rhsLin;
-        acc.rhsAng = acc.rhsAng + c.rhsAng;
-    }
-    // authored constraints (springs + joints): same per-body adjacency shape as contacts, the static
-    // authored list (constraintCsr) — additive into the same 6×6, so order is irrelevant. A constraint-less
-    // body has count 0 ⇒ no iterations. The kind tag (entry vec4[2].y) picks the soft (spring) or hard (joint) stamp.
-    let slo = constraintCsr[bid];
-    let shi = slo + constraintCsr[step.eidCap + bid];
-    for (var e = slo; e < shi; e = e + 1u) {
-        let kind = bitcast<u32>(constraintList[e * CONSTRAINT_VEC4 + 2u].y);
-        var c: Contrib;
-        if (kind == KIND_JOINT) { c = jointContrib(bid, e); } else { c = springContrib(bid, e); }
-        acc.lhsLin = mAdd(acc.lhsLin, c.lhsLin);
-        acc.lhsAng = mAdd(acc.lhsAng, c.lhsAng);
-        acc.lhsCross = mAdd(acc.lhsCross, c.lhsCross);
-        acc.rhsLin = acc.rhsLin + c.rhsLin;
-        acc.rhsAng = acc.rhsAng + c.rhsAng;
-    }
-
-    let mm = bCol(B_MM, bid);
-    let mLin = mDiag(vec3<f32>(mm.w) * step.invDt2);
-    let mAng = mDiag(mm.xyz * step.invDt2);
-    let lhsLin = mAdd(acc.lhsLin, mLin);
-    let lhsAng = mAdd(acc.lhsAng, mAng);
-    let rhsLin = acc.rhsLin + mMulV(mLin, bPos(bid) - bInertL(bid));
-    let rhsAng = acc.rhsAng + mMulV(mAng, qSubW(bQuat(bid), bInertQ(bid)));
-    let r = solve6(lhsLin, lhsAng, acc.lhsCross, -rhsLin, -rhsAng);
-    return NewPose(bPos(bid) + r.xLin, qAddW(bQuat(bid), r.xAng));
-}
-`;
-
-const PRIMAL_PASS_WGSL =
-    SHARED_WGSL +
-    PRIMAL_BINDINGS_WGSL +
-    SOLVE_MATH_WGSL +
-    /* wgsl */ `
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let bid = eids[1u + d];
-    if (solverStatic(bid)) { return; }          // static / kinematic — no primal
-    if (colors[bid] != color.x) { return; }  // colored GS: only this color commits
-    let np = solvePose(bid);
-    // double-buffer: write the solved pose to the scratch, not back into bodies. bodies is read-only in
-    // this pass, so a same-color contact pair never races on the pose; the commit applies it per color.
-    let cap = step.eidCap;
-    solveOut[SO_POS*cap + bid] = vec4<f32>(np.pos, 0.0);
-    solveOut[SO_QUAT*cap + bid] = np.quat;
-}
-`;
+const primalKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= primalColorLayout.$.eids[0]) return;
+        const bid = primalColorLayout.$.eids[1 + slot];
+        if (roRo.solverStatic(bid)) return; // static / kinematic — no primal
+        if (primalColorLayout.$.colors[bid] !== primalColorLayout.$.color.value) return; // colored GS
+        const np = solverRoRo.solvePose(bid);
+        // double-buffer: write the solved pose to the scratch, not back into bodies — bodies is read-only
+        // in this pass, so a same-color contact pair never races on the pose; the commit applies it per color.
+        const cap = roRo.layout.$.params.eidCap;
+        primalColorLayout.$.solveOut[SO_POS * cap + bid] = d.vec4f(np.pos, 0);
+        primalColorLayout.$.solveOut[SO_QUAT * cap + bid] = d.vec4f(np.quat);
+    })
+    .$name("primalMain");
 
 // ── commit: apply the current color's solved poses from the scratch into `bodies` (the deferred commit) ──
 // The write half of the double-buffer (paper Algorithm 1 lines 22-24, webphysics `commitBodySolveKernel`).
@@ -1323,29 +2664,32 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // color), so every body it writes the primal just solved into `solveOut` this color — no stale read, no
 // clear needed. A same-color pair is now a clean Jacobi: both solved from the color-start pose, committed
 // together, matching the oracle's `primalColored`.
-const COMMIT_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> solveOut: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> colors: array<u32>;
-@group(0) @binding(2) var<storage, read_write> bodies: array<vec4<f32>>;
-@group(0) @binding(3) var<storage, read> eids: array<u32>;
-@group(0) @binding(4) var<uniform> step: Step;
-@group(0) @binding(5) var<uniform> color: vec4<u32>;  // dynamic-offset: .x = current color
-${BODY_WGSL}
-${SOLVE_OUT_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let bid = eids[1u + d];
-    if (solverStatic(bid)) { return; }        // static / kinematic — no primal, no commit
-    if (colors[bid] != color.x) { return; }  // only this color commits (the deferred-within-color apply)
-    let cap = step.eidCap;
-    bodies[B_POS*cap + bid] = solveOut[SO_POS*cap + bid];
-    bodies[B_QUAT*cap + bid] = solveOut[SO_QUAT*cap + bid];
-}
-`;
+const commitLayout = tgpu
+    .bindGroupLayout({
+        solveOut: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        colors: { storage: d.arrayOf(d.u32), access: "readonly" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        color: { uniform: ColorIdx },
+    })
+    .$idx(0);
+
+const commitKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= commitLayout.$.eids[0]) return;
+        const bid = commitLayout.$.eids[1 + slot];
+        if (rwRw.solverStatic(bid)) return; // static / kinematic — no primal, no commit
+        if (commitLayout.$.colors[bid] !== commitLayout.$.color.value) return; // only this color commits
+        const cap = rwRw.layout.$.params.eidCap;
+        rwRw.layout.$.bodies[B_POS * cap + bid] = d.vec4f(
+            commitLayout.$.solveOut[SO_POS * cap + bid],
+        );
+        rwRw.layout.$.bodies[B_QUAT * cap + bid] = d.vec4f(
+            commitLayout.$.solveOut[SO_QUAT * cap + bid],
+        );
+    })
+    .$name("commitMain");
 
 // ── dual: λ ← F + the conditional penalty ramp + the friction stick flag (manifold.ts updateDual) ──
 // One dispatch over the contact rows, once per iteration after the primal colors.
@@ -1353,67 +2697,22 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // λ, and ramps the penalty: the normal stiffness only while the contact is active (F[0] < 0), the
 // tangent stiffness only inside the friction cone (sticking). The stick flag rides λ.w for the
 // Phase-3 warmstart merge (unused within a frame). Each contact is independent — one thread, no race.
-// one pair SLOT's dual update, shared verbatim by the standalone dual pass and the LDS-resident kernel:
-// loop its CONTACTS_PER_PAIR records, dual-update each active one in place (an INVALID/unused slot is all
-// kind-0 records → every record continues, a no-op).
-const DUAL_MATH_WGSL = /* wgsl */ `
-const STICK_THRESH: f32 = 1.0e-5;
-fn dualSlot(slot: u32) {
-    let rc = step.recordCap;
-    let recBase = slot * CONTACTS_PER_PAIR;
-    for (var ls = 0u; ls < CONTACTS_PER_PAIR; ls = ls + 1u) {
-        let ci = recBase + ls;
-        let m0 = cc(ci, C_META);
-        if (bitcast<u32>(m0.x) != ${CONSTRAINT_CONTACT}u) { continue; } // inactive record
-        // dual-ramp gate (roadmap §6.4): an all-static manifold — both solverStatic (mass <= 0:
-        // a kinematic character against a static wall) — is unsatisfiable by any primal, so the
-        // reference's unconditional ramp would escalate its penalty unbounded (the legacy
-        // kinematic-pushing blow-up). Skip it, mirroring the oracle (manifold.ts updateDual).
-        if (solverStatic(bitcast<u32>(m0.y)) && solverStatic(bitcast<u32>(m0.z))) { continue; }
-        let cf = contactForce(ci);
-        let pen = cc(ci, C_PEN);
-        let friction = pen.w;
-        var k = pen.xyz;
-        // pre-clamp magnitude + bound (cf), not the post-clamp force.yz — a sliding contact (fs > bounds)
-        // must skip the tangent ramp so its penalty stays bounded and kinetic friction holds at μ|F_n|.
-        let bounds = cf.bounds;
-        let fs = cf.frictionScale;
-        if (cf.force.x < 0.0) {
-            k.x = min(k.x + step.betaLin * abs(cf.constraint.x), PENALTY_MAX);
-        }
-        var stick = 0.0;
-        if (fs <= bounds) {
-            k.y = min(k.y + step.betaLin * abs(cf.constraint.y), PENALTY_MAX);
-            k.z = min(k.z + step.betaLin * abs(cf.constraint.z), PENALTY_MAX);
-            if (length(cf.constraint.yz) < STICK_THRESH) { stick = 1.0; }
-        }
-        pairContacts[C_LAMBDA*rc + ci] = vec4<f32>(cf.force, stick);
-        pairContacts[C_PEN*rc + ci] = vec4<f32>(k, friction);
-    }
-}
-`;
+const dualLayout = tgpu
+    .bindGroupLayout({ eids: { storage: d.arrayOf(d.u32), access: "readonly" } })
+    .$idx(0);
 
-const DUAL_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> pairContacts: array<vec4<f32>>;
-@group(0) @binding(2) var<uniform> step: Step;
-@group(0) @binding(3) var<storage, read> eids: array<u32>; // [0] = live count, [1+d] = the d-th live eid
-${BODY_WGSL}
-${CONTACT_WGSL}
-${MAT3_WGSL}
-${CONTACT_FORCE_WGSL}
-${DUAL_MATH_WGSL}
 // one thread per pair SLOT in the live bodies' per-eid blocks (lane → d → owner eid → slot = eid·K + k)
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let lane = gid.x;
-    let d = lane / PAIRS_PER_BODY;
-    if (d >= eids[0u]) { return; } // past the live body count
-    dualSlot(eids[1u + d] * PAIRS_PER_BODY + (lane % PAIRS_PER_BODY));
-}
-`;
+const dualKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= dualLayout.$.eids[0]) return; // past the live body count
+        solverRoRw.dualSlot(
+            dualLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY),
+        );
+    })
+    .$name("dualMain");
 
 // ── coloring: incremental-greedy body coloring (the Phase-4 crux, validated standalone) ──
 // Ported from webphysics `greedyBodyColorsShader`: one thread per body, no atomics. Each body reads a
@@ -1426,86 +2725,94 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // are never solved, so they impose no scheduling constraint and are skipped; a static body itself is
 // left uncolored (0xffffffff — the primal early-returns on mass before reading its color).
 //
-// The cap (`step.maxColors`) is separate from the 32-wide mask (avbd.md — two
+// The cap (`params.maxColors`) is separate from the 32-wide mask (avbd.md — two
 // numbers): a body that finds no free color within the cap folds to `bid % maxColors`, degrading that
 // pair to Jacobi for the step (a soft-contact conflict the iterative primal tolerates — the invariant
 // is a low *measured* conflict rate, not zero). The neighbor scan reads the body's CSR contact list
 // (csrList[csr[bid] .. +csr[eidCap+bid]]), not every contact — the same O(valence) read the primal
 // does. Deterministic integer logic; the CPU reference is tests/avbd/coloring.ts (the executable
 // spec) and the GPU reproduces it in the gym `pile` scenario (coloring-conflict counter).
-const COLORING_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> pairContacts: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> csr: array<u32>;  // [0, eidCap) offsets, [eidCap, 2·eidCap) counts
-@group(0) @binding(3) var<storage, read> csrList: array<u32>;
-@group(0) @binding(4) var<storage, read_write> colors: array<u32>;
-@group(0) @binding(5) var<storage, read> colorScratch: array<u32>;
-@group(0) @binding(6) var<uniform> step: Step;
-@group(0) @binding(7) var<storage, read> eids: array<u32>;
-// colorCount[0] = the used-color count this step (max dynamic color + 1), the readback-bounded color
-// loop's input (Phase 4.9 Lever 1). Cleared each step before this pass; each dynamic body atomicMaxes
-// its chosen color + 1. One slot, low contention (one op/body, one dispatch/step) — the counters class.
-@group(0) @binding(8) var<storage, read_write> colorCount: array<atomic<u32>>;
-// authored-constraint adjacency (springs Phase 6.1 + joints Phase 6.2) — the edge enters the coloring so a
-// constraint-connected dynamic pair prefers different colors (avoidance, kind-agnostic). A soft spring
-// tolerates a same-color clean-Jacobi pair; a hard joint must NOT be same-color, so the joint edge gets a
-// second repair pass (REPAIR_PASS_WGSL) on top of this avoidance. constraintList[e+2].x = the partner eid.
-@group(0) @binding(9) var<storage, read> constraintCsr: array<u32>;
-@group(0) @binding(10) var<storage, read> constraintList: array<vec4<f32>>;
-${BODY_WGSL}
-${CONTACT_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let bid = eids[1u + d];
-    if (bMass(bid) <= 0.0) { colors[bid] = 0xffffffffu; return; } // static — uncolored, not dispatched
+const coloringLayout = tgpu
+    .bindGroupLayout({
+        // [0, eidCap) offsets, [eidCap, 2·eidCap) counts
+        csr: { storage: d.arrayOf(d.u32), access: "readonly" },
+        csrList: { storage: d.arrayOf(d.u32), access: "readonly" },
+        colors: { storage: d.arrayOf(d.u32), access: "mutable" },
+        colorScratch: { storage: d.arrayOf(d.u32), access: "readonly" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        // colorCount[0] = the used-color count this step (max dynamic color + 1), the readback-bounded
+        // color loop's input (Phase 4.9 Lever 1). Cleared each step before this pass; each dynamic body
+        // atomicMaxes its chosen color + 1. One slot, low contention — the counters class.
+        colorCount: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        // authored-constraint adjacency (springs Phase 6.1 + joints Phase 6.2) — the edge enters the
+        // coloring so a constraint-connected dynamic pair prefers different colors (avoidance, kind-
+        // agnostic). A soft spring tolerates a same-color clean-Jacobi pair; a hard joint must NOT be
+        // same-color, so the joint edge gets a second repair pass on top of this avoidance.
+        constraintCsr: { storage: d.arrayOf(d.u32), access: "readonly" },
+        constraintList: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+    })
+    .$idx(0);
 
-    let colorsN = max(1u, min(step.maxColors, 32u));
-    let lo = csr[bid];
-    let hi = lo + csr[step.eidCap + bid];
-    var usedMask = 0u;
-    for (var k = lo; k < hi; k = k + 1u) {
-        let m = cc(csrList[k], C_META);
-        let a = bitcast<u32>(m.y);
-        let b = bitcast<u32>(m.z);
-        var other = a;                          // every CSR contact touches bid; pick the neighbor
-        if (a == bid) { other = b; }
-        if (other <= bid) { continue; }        // higher-id symmetry break — no atomics
-        if (solverStatic(other)) { continue; }  // static / kinematic neighbor: never solved, no scheduling constraint
-        let pc = colorScratch[other];
-        if (pc < 32u) { usedMask = usedMask | (1u << pc); }
-    }
-    // authored-constraint neighbors (springs + joints): same higher-id-symmetry avoidance as contacts, kind-
-    // agnostic (the partner eid is constraintList[e+2].x for both). A constraint-less body has count 0.
-    let slo = constraintCsr[bid];
-    let shi = slo + constraintCsr[step.eidCap + bid];
-    for (var e = slo; e < shi; e = e + 1u) {
-        let other = bitcast<u32>(constraintList[e * CONSTRAINT_VEC4 + 2u].x);
-        if (other <= bid) { continue; }
-        if (solverStatic(other)) { continue; } // static / kinematic neighbor: never solved, no scheduling constraint
-        let pc = colorScratch[other];
-        if (pc < 32u) { usedMask = usedMask | (1u << pc); }
-    }
-
-    var chosen = colorScratch[bid];             // incremental: keep the prior color when still free
-    var needsNew = chosen >= colorsN;
-    if (!needsNew) { needsNew = (usedMask & (1u << chosen)) != 0u; }
-    if (needsNew) {
-        var found = false;
-        for (var c = 0u; c < colorsN; c = c + 1u) {
-            if ((usedMask & (1u << c)) == 0u) { chosen = c; found = true; break; }
+const coloringKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= coloringLayout.$.eids[0]) return;
+        const bid = coloringLayout.$.eids[1 + slot];
+        if (roRo.bMass(bid) <= 0) {
+            coloringLayout.$.colors[bid] = d.u32(0xffffffff); // static — uncolored, not dispatched
+            return;
         }
-        if (!found) { chosen = bid % colorsN; } // fold past the cap — a tolerated same-color conflict
-    }
-    colors[bid] = chosen;
-    // publish the used-color count (max dynamic color + 1) for the readback-bounded color loop — the
-    // primal next frame dispatches min(maxColors, usedColors + COLOR_MARGIN) color-passes (Phase 4.9 Lever 1).
-    atomicMax(&colorCount[0], chosen + 1u);
-}
-`;
+
+        const colorsN = std.max(d.u32(1), std.min(roRo.layout.$.params.maxColors, d.u32(32)));
+        const lo = coloringLayout.$.csr[bid];
+        const hi = lo + coloringLayout.$.csr[roRo.layout.$.params.eidCap + bid];
+        let usedMask = d.u32(0);
+        for (let k = lo; k < hi; k++) {
+            const m = roRo.cc(coloringLayout.$.csrList[k], C_META);
+            const a = bitcastF32toU32(m.y);
+            const b = bitcastF32toU32(m.z);
+            let other = a; // every CSR contact touches bid; pick the neighbor
+            if (a === bid) other = b;
+            if (other <= bid) continue; // higher-id symmetry break — no atomics
+            if (roRo.solverStatic(other)) continue; // static / kinematic neighbor: no scheduling constraint
+            const pc = coloringLayout.$.colorScratch[other];
+            if (pc < 32) usedMask = usedMask | (d.u32(1) << pc);
+        }
+        // authored-constraint neighbors (springs + joints): same higher-id-symmetry avoidance as contacts,
+        // kind-agnostic (the partner eid is constraintList[e+2].x for both). A constraint-less body has count 0.
+        const slo = coloringLayout.$.constraintCsr[bid];
+        const shi = slo + coloringLayout.$.constraintCsr[roRo.layout.$.params.eidCap + bid];
+        for (let e = slo; e < shi; e++) {
+            const other = bitcastF32toU32(
+                coloringLayout.$.constraintList[e * d.u32(CONSTRAINT_VEC4) + 2].x,
+            );
+            if (other <= bid) continue;
+            if (roRo.solverStatic(other)) continue;
+            const pc = coloringLayout.$.colorScratch[other];
+            if (pc < 32) usedMask = usedMask | (d.u32(1) << pc);
+        }
+
+        let chosen = coloringLayout.$.colorScratch[bid]; // incremental: keep the prior color when still free
+        let needsNew = chosen >= colorsN;
+        if (!needsNew) needsNew = (usedMask & (d.u32(1) << chosen)) !== 0;
+        if (needsNew) {
+            let found = false;
+            for (let c = d.u32(0); c < colorsN; c++) {
+                if ((usedMask & (d.u32(1) << c)) === 0) {
+                    chosen = c;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) chosen = bid % colorsN; // fold past the cap — a tolerated same-color conflict
+        }
+        coloringLayout.$.colors[bid] = chosen;
+        // publish the used-color count (max dynamic color + 1) for the readback-bounded color loop — the
+        // primal next frame dispatches min(maxColors, usedColors + COLOR_MARGIN) color-passes (Lever 1).
+        std.atomicMax(coloringLayout.$.colorCount[0], chosen + 1);
+    })
+    .$name("coloringMain");
 
 // ── repair: the joint hard-conflict coloring repair (Phase 6.2, webphysics repairHardBodyColors) ──
 // The greedy avoids ALL constraint neighbors but folds past the cap (a tolerated same-color Jacobi). A SOFT
@@ -1515,242 +2822,220 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // neighbors). Reading the stable snapshot keeps it race-free + deterministic, like the greedy. GPU==oracle
 // can't validate this (the oracle runs the GPU's coloring), so the gym gates the observable invariant: a
 // dynamic joint pair ends colors[a] != colors[b].
-const REPAIR_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> colors: array<u32>;
-@group(0) @binding(2) var<storage, read> colorScratch: array<u32>;
-@group(0) @binding(3) var<storage, read> constraintCsr: array<u32>;
-@group(0) @binding(4) var<storage, read> constraintList: array<vec4<f32>>;
-@group(0) @binding(5) var<uniform> step: Step;
-@group(0) @binding(6) var<storage, read> eids: array<u32>;
-@group(0) @binding(7) var<storage, read_write> colorCount: array<atomic<u32>>;
-${BODY_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let bid = eids[1u + d];
-    if (bMass(bid) <= 0.0) { return; }                  // static — uncolored, never a hard mover
+const repairLayout = tgpu
+    .bindGroupLayout({
+        colors: { storage: d.arrayOf(d.u32), access: "mutable" },
+        colorScratch: { storage: d.arrayOf(d.u32), access: "readonly" },
+        constraintCsr: { storage: d.arrayOf(d.u32), access: "readonly" },
+        constraintList: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        colorCount: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+    })
+    .$idx(0);
 
-    let colorsN = max(1u, min(step.maxColors, 32u));
-    let myColor = colorScratch[bid];
-    let slo = constraintCsr[bid];
-    let shi = slo + constraintCsr[step.eidCap + bid];
-    var usedMask = 0u;
-    var hardConflict = false;
-    for (var e = slo; e < shi; e = e + 1u) {
-        let base = e * CONSTRAINT_VEC4;
-        let other = bitcast<u32>(constraintList[base + 2u].x);
-        let kind = bitcast<u32>(constraintList[base + 2u].y);
-        if (other >= step.eidCap || bMass(other) <= 0.0) { continue; } // static neighbor: no constraint
-        let oc = colorScratch[other];
-        if (oc < 32u) { usedMask = usedMask | (1u << oc); }
-        // the lower-eid endpoint of a same-color joint pair is the one that moves (higher-id stays fixed)
-        if (kind == KIND_JOINT && other > bid && oc == myColor) { hardConflict = true; }
-    }
-    if (!hardConflict) { return; }                      // already conflict-free — its color stays counted
-    var chosen = myColor;
-    var found = false;
-    for (var c = 0u; c < colorsN; c = c + 1u) {
-        if ((usedMask & (1u << c)) == 0u) { chosen = c; found = true; break; }
-    }
-    if (!found) { chosen = bid % colorsN; }             // fold (a tolerated soft conflict — no free color left)
-    colors[bid] = chosen;
-    atomicMax(&colorCount[0], chosen + 1u);             // keep the readback-bounded loop's count ≥ the repaired max
-}
-`;
+const repairKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= repairLayout.$.eids[0]) return;
+        const bid = repairLayout.$.eids[1 + slot];
+        if (roRo.bMass(bid) <= 0) return; // static — uncolored, never a hard mover
+
+        const colorsN = std.max(d.u32(1), std.min(roRo.layout.$.params.maxColors, d.u32(32)));
+        const myColor = repairLayout.$.colorScratch[bid];
+        const slo = repairLayout.$.constraintCsr[bid];
+        const shi = slo + repairLayout.$.constraintCsr[roRo.layout.$.params.eidCap + bid];
+        let usedMask = d.u32(0);
+        let hardConflict = false;
+        for (let e = slo; e < shi; e++) {
+            const base = e * d.u32(CONSTRAINT_VEC4);
+            const other = bitcastF32toU32(repairLayout.$.constraintList[base + 2].x);
+            const kind = bitcastF32toU32(repairLayout.$.constraintList[base + 2].y);
+            if (other >= roRo.layout.$.params.eidCap || roRo.bMass(other) <= 0) continue; // static: no constraint
+            const oc = repairLayout.$.colorScratch[other];
+            if (oc < 32) usedMask = usedMask | (d.u32(1) << oc);
+            // the lower-eid endpoint of a same-color joint pair is the one that moves (higher-id stays fixed)
+            if (kind === KIND_JOINT && other > bid && oc === myColor) hardConflict = true;
+        }
+        if (!hardConflict) return; // already conflict-free — its color stays counted
+        let chosen = myColor;
+        let found = false;
+        for (let c = d.u32(0); c < colorsN; c++) {
+            if ((usedMask & (d.u32(1) << c)) === 0) {
+                chosen = c;
+                found = true;
+                break;
+            }
+        }
+        if (!found) chosen = bid % colorsN; // fold (a tolerated soft conflict — no free color left)
+        repairLayout.$.colors[bid] = chosen;
+        std.atomicMax(repairLayout.$.colorCount[0], chosen + 1); // keep the readback-bounded loop's count ≥ this
+    })
+    .$name("repairMain");
 
 // ── joint init: warmstart the per-joint dual state + capture C(x⁻) (Phase 6.2, joint.ts initJoint) ──
 // One thread per joint, before the main loop (after the contact collide, before inertial init so it reads
 // the step-start pose x⁻). Runs the recycle-version guard + the one-time construction guard, computes the
 // torque arm GPU-side, captures C₀, then decays λ/penalty (Eq. 19) and clamps to material stiffness.
-const JOINT_INIT_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> jointRecords: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> jointVersions: array<u32>;
-@group(0) @binding(3) var<uniform> step: Step;
-@group(0) @binding(4) var<storage, read_write> counters: array<atomic<u32>>;
-// per-eid seed flag (the pack sets it after seeding a body's slot from its slabs): a joint must not read a
-// body's pose until it's seeded. jointInit is per-JOINT, NOT gated on the live count, so on the very first
-// fixed step (which can run before the first pack at 60 Hz) the bodies slots are still zero-init — without
-// this gate the fresh anchor guard would see half = 0 (reach a tiny margin) + offset anchors and WRONGLY
-// reject every valid joint. Skipping until both ends are seeded defers the guard to a frame with real poses.
-@group(0) @binding(5) var<storage, read> seeded: array<u32>;
-${BODY_WGSL}
-${JOINT_REC_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let jid = gid.x;
-    if (jid >= step.jointCount) { return; }
-    let r0 = jrec(jid, 0u);
-    let a = bitcast<u32>(r0.x);
-    let b = bitcast<u32>(r0.y);
-    let recBase = jid * JOINT_REC_VEC4;
-    // a == WORLD_ANCHOR is the world (no body): rA is a world point, orientation identity, mass/size/radius 0,
-    // always seeded, no version. The grab pins to it (no anchor body → no contact). b is always a real body.
-    let aWorld = a == WORLD_ANCHOR;
+// ── joint init: warmstart the per-joint dual state + capture C(x⁻) (Phase 6.2, joint.ts initJoint) ──
+// One thread per joint, before the main loop (after the contact collide, before inertial init so it reads
+// the step-start pose x⁻). Runs the recycle-version guard + the one-time construction guard, computes the
+// torque arm GPU-side, captures C₀, then decays λ/penalty (Eq. 19) and clamps to material stiffness.
+const jointInitLayout = tgpu
+    .bindGroupLayout({
+        jointVersions: { storage: d.arrayOf(d.u32), access: "readonly" },
+        counters: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        // per-eid seed flag (the pack sets it after seeding a body's slot from its slabs): a joint must
+        // not read a body's pose until it's seeded. jointInit is per-JOINT, NOT gated on the live count,
+        // so on the very first fixed step (which can run before the first pack at 60 Hz) the bodies slots
+        // are still zero-init — without this gate the fresh anchor guard would see half = 0 (reach a tiny
+        // margin) + offset anchors and WRONGLY reject every valid joint.
+        seeded: { storage: d.arrayOf(d.u32), access: "readonly" },
+    })
+    .$idx(0);
 
-    // recycle-version guard (project_stable_identity): a despawned-then-recycled endpoint must not realias
-    // the joint to a new body. A version mismatch deactivates it (its primal stamp + dual then no-op). The
-    // world anchor has no version (skip its side).
-    let aBad = !aWorld && jointVersions[a] != bitcast<u32>(r0.z);
-    if (aBad || jointVersions[b] != bitcast<u32>(r0.w)) {
-        jointRecords[recBase + 3u].y = bitcast<f32>(0u);
-        return;
-    }
-    if ((!aWorld && seeded[a] == 0u) || seeded[b] == 0u) { return; } // not seeded yet — retry after the pack
+const jointInitKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const jid = input.gid.x;
+        if (jid >= roRo.layout.$.params.jointCount) return;
+        const r0 = jointRw.jrec(jid, 0);
+        const a = bitcastF32toU32(r0.x);
+        const b = bitcastF32toU32(r0.y);
+        const recBase = jid * d.u32(JOINT_REC_VEC4);
+        // a == WORLD_ANCHOR is the world (no body): rA is a world point, orientation identity,
+        // mass/size/radius 0, always seeded, no version. b is always a real body.
+        const aWorld = a === WORLD_ANCHOR;
 
-    // both-static guard (the GPU analog of joint()'s both-static throw — graceful + loud, since the GPU can't
-    // throw): a joint NO dynamic body can resolve — both endpoints mass <= 0 (static/kinematic; the world is
-    // static) — is never satisfiable by the primal, so its dual ramps penalty + lambda unbounded (energy
-    // injection, the joint analog of the contact all-static dual guard). Checked EVERY frame (a both-static
-    // joint is permanently unsatisfiable, not just at construction), so counters[1] is a persistent gauge of
-    // the condition, not a one-frame blip a lagged Mirror readback can miss. Gated behind the seed gate so the
-    // zero-init mass of an unseeded body can't false-trigger it. Runs before the act==0 early-out so a
-    // still-present bad joint keeps being counted (deactivation alone would silence it after frame 1).
-    let aStatic = aWorld || bMass(a) <= 0.0;
-    if (aStatic && bMass(b) <= 0.0) {
-        jointRecords[recBase + 3u].y = bitcast<f32>(0u);
-        atomicAdd(&counters[1], 1u);                    // observable: a both-endpoints-static joint, deactivated
-        return;
-    }
-    let act = jActive(jid);
-    if (act == 0u) { return; }                          // already deactivated — stays off until re-authored
-
-    let rA = jrec(jid, 1u).xyz; let stiffLin = jrec(jid, 1u).w;
-    let rB = jrec(jid, 2u).xyz; let stiffAng = jrec(jid, 2u).w;
-    // torqueArm = ‖sizeA + sizeB‖² (full size = 2·halfExtents) — GPU-computed so the CPU needn't carry sizes.
-    // The world anchor contributes size 0 + identity orientation + its world point rA.
-    let sizeA = select(2.0 * bHalf(a), vec3<f32>(0.0), aWorld);
-    let sizeB = 2.0 * bHalf(b);
-    let torqueArm = dot(sizeA + sizeB, sizeA + sizeB);
-    let qA = select(bQuat(a), vec4<f32>(0.0, 0.0, 0.0, 1.0), aWorld);
-    let pA = select(bPos(a) + qRotateW(qA, rA), rA, aWorld);
-    let pB = bPos(b) + qRotateW(bQuat(b), rB);
-
-    if (act == 2u) {
-        // anchor-coincidence guard (the other GPU analog of joint()'s throw): the anchors must START coincident;
-        // a gross mismatch injects energy through BDF1 recovery (the rope explosion). Reject + count rather than
-        // explode 50 frames in. Reach = length(halfExtents) + the rounded radius — a sphere/capsule carries its
-        // size in bRadius with halfExtents (0,0,0), so a reach off bHalf alone rejects every sphere joint at
-        // the slightest offset. Pose-dependent, so only on the fresh frame.
-        let reachA = select(length(bHalf(a)) + bRadius(a), 0.0, aWorld);
-        let reach = reachA + length(bHalf(b)) + bRadius(b) + COLLISION_MARGIN;
-        if (length(pA - pB) > reach) {
-            jointRecords[recBase + 3u].y = bitcast<f32>(0u);
-            atomicAdd(&counters[2], 1u);                // observable: joints rejected by the anchor guard
+        // recycle-version guard: a despawned-then-recycled endpoint must not realias the joint to a new
+        // body. A version mismatch deactivates it (its primal stamp + dual then no-op).
+        const aBad = !aWorld && jointInitLayout.$.jointVersions[a] !== bitcastF32toU32(r0.z);
+        if (aBad || jointInitLayout.$.jointVersions[b] !== bitcastF32toU32(r0.w)) {
+            jointRw.layout.$.jointRecords[recBase + 3].y = std.bitcastU32toF32(0);
             return;
         }
-    }
-    jointRecords[recBase + 3u] = vec4<f32>(torqueArm, bitcast<f32>(1u), 0.0, 0.0);
+        if ((!aWorld && jointInitLayout.$.seeded[a] === 0) || jointInitLayout.$.seeded[b] === 0)
+            return; // not seeded yet — retry after the pack
 
-    // C(x⁻) at the step-start pose (this pass runs before inertial init predicts the pose)
-    jointRecords[recBase + 8u] = vec4<f32>(pA - pB, 0.0);
-    jointRecords[recBase + 9u] = vec4<f32>(qSubW(qA, bQuat(b)) * torqueArm, 0.0);
+        // both-static guard: a joint NO dynamic body can resolve is never satisfiable by the primal, so
+        // its dual ramps penalty + lambda unbounded (avbd.md "Joint guards"). Checked EVERY frame — a
+        // persistent gauge, not a one-frame blip a lagged Mirror readback can miss.
+        const aStatic = aWorld || roRo.bMass(a) <= 0;
+        if (aStatic && roRo.bMass(b) <= 0) {
+            jointRw.layout.$.jointRecords[recBase + 3].y = std.bitcastU32toF32(0);
+            std.atomicAdd(jointInitLayout.$.counters[1], 1); // observable: a both-endpoints-static joint, deactivated
+            return;
+        }
+        const act = jointRw.jActive(jid);
+        if (act === 0) return; // already deactivated — stays off until re-authored
 
-    // warmstart λ + penalty (Eq. 19): λ ← α·γ·λ, k ← clamp(γ·k, MIN, MAX) then clamp to material stiffness
-    let ag = step.alpha * step.gamma;
-    jointRecords[recBase + 6u] = vec4<f32>(jLamLin(jid) * ag, 0.0);
-    jointRecords[recBase + 7u] = vec4<f32>(jLamAng(jid) * ag, 0.0);
-    let penLin = min(clamp(jPenLin(jid) * step.gamma, vec3<f32>(PENALTY_MIN), vec3<f32>(PENALTY_MAX)), vec3<f32>(stiffLin));
-    let penAng = min(clamp(jPenAng(jid) * step.gamma, vec3<f32>(PENALTY_MIN), vec3<f32>(PENALTY_MAX)), vec3<f32>(stiffAng));
-    jointRecords[recBase + 4u] = vec4<f32>(penLin, 0.0);
-    jointRecords[recBase + 5u] = vec4<f32>(penAng, 0.0);
+        const rA = jointRw.jrec(jid, 1).xyz;
+        const stiffLin = jointRw.jrec(jid, 1).w;
+        const rB = jointRw.jrec(jid, 2).xyz;
+        const stiffAng = jointRw.jrec(jid, 2).w;
+        // torqueArm = ‖sizeA + sizeB‖² (full size = 2·halfExtents) — GPU-computed so the CPU needn't carry
+        // sizes. The world anchor contributes size 0 + identity orientation + its world point rA.
+        const sizeA = std.select(std.mul(roRo.bHalf(a), 2), d.vec3f(0, 0, 0), aWorld);
+        const sizeB = std.mul(roRo.bHalf(b), 2);
+        const sizeSum = std.add(sizeA, sizeB);
+        const torqueArm = std.dot(sizeSum, sizeSum);
+        const qA = std.select(roRo.bQuat(a), d.vec4f(0, 0, 0, 1), aWorld);
+        const pA = std.select(std.add(roRo.bPos(a), roRo.qRotateW(qA, rA)), rA, aWorld);
+        const pB = std.add(roRo.bPos(b), roRo.qRotateW(roRo.bQuat(b), rB));
 
-    // motor warmstart (Eq. 19): decay λ + penalty. The static axis/speed/maxTorque (col 10, 11.x) are not
-    // rewritten by this pass, so they persist from setJoints across frames.
-    if (jMotorMax(jid) > 0.0) {
-        let mp = clamp(jMotorPen(jid) * step.gamma, PENALTY_MIN, PENALTY_MAX);
-        jointRecords[recBase + 11u] = vec4<f32>(jMotorSpeed(jid), jMotorLam(jid) * ag, mp, 0.0);
-    }
-}
-`;
+        if (act === 2) {
+            // anchor-coincidence guard: the anchors must START coincident; a gross mismatch injects
+            // energy through BDF1 recovery. Reach = length(halfExtents) + the rounded radius. Pose-
+            // dependent, so only on the fresh frame.
+            const reachA = std.select(
+                std.length(roRo.bHalf(a)) + roRo.bRadius(a),
+                d.f32(0),
+                aWorld,
+            );
+            const reach = reachA + std.length(roRo.bHalf(b)) + roRo.bRadius(b) + COLLISION_MARGIN;
+            if (std.length(std.sub(pA, pB)) > reach) {
+                jointRw.layout.$.jointRecords[recBase + 3].y = std.bitcastU32toF32(0);
+                std.atomicAdd(jointInitLayout.$.counters[2], 1); // observable: joints rejected by the anchor guard
+                return;
+            }
+        }
+        jointRw.layout.$.jointRecords[recBase + 3] = d.vec4f(
+            torqueArm,
+            std.bitcastU32toF32(1),
+            0,
+            0,
+        );
+
+        // C(x⁻) at the step-start pose (this pass runs before inertial init predicts the pose)
+        jointRw.layout.$.jointRecords[recBase + 8] = d.vec4f(std.sub(pA, pB), 0);
+        jointRw.layout.$.jointRecords[recBase + 9] = d.vec4f(
+            std.mul(roRo.qSubW(qA, roRo.bQuat(b)), torqueArm),
+            0,
+        );
+
+        // warmstart λ + penalty (Eq. 19): λ ← α·γ·λ, k ← clamp(γ·k, MIN, MAX) then clamp to material stiffness
+        const ag = roRo.layout.$.params.alpha * roRo.layout.$.params.gamma;
+        jointRw.layout.$.jointRecords[recBase + 6] = d.vec4f(std.mul(jointRw.jLamLin(jid), ag), 0);
+        jointRw.layout.$.jointRecords[recBase + 7] = d.vec4f(std.mul(jointRw.jLamAng(jid), ag), 0);
+        const penLin = std.min(
+            std.clamp(
+                std.mul(jointRw.jPenLin(jid), roRo.layout.$.params.gamma),
+                d.vec3f(PENALTY_MIN),
+                d.vec3f(PENALTY_MAX),
+            ),
+            d.vec3f(stiffLin),
+        );
+        const penAng = std.min(
+            std.clamp(
+                std.mul(jointRw.jPenAng(jid), roRo.layout.$.params.gamma),
+                d.vec3f(PENALTY_MIN),
+                d.vec3f(PENALTY_MAX),
+            ),
+            d.vec3f(stiffAng),
+        );
+        jointRw.layout.$.jointRecords[recBase + 4] = d.vec4f(penLin, 0);
+        jointRw.layout.$.jointRecords[recBase + 5] = d.vec4f(penAng, 0);
+
+        // motor warmstart (Eq. 19): decay λ + penalty. The static axis/speed/maxTorque (col 10, 11.x) are
+        // not rewritten by this pass, so they persist from setJoints across frames.
+        if (jointRw.jMotorMax(jid) > 0) {
+            const mp = std.clamp(
+                jointRw.jMotorPen(jid) * roRo.layout.$.params.gamma,
+                PENALTY_MIN,
+                PENALTY_MAX,
+            );
+            jointRw.layout.$.jointRecords[recBase + 11] = d.vec4f(
+                jointRw.jMotorSpeed(jid),
+                jointRw.jMotorLam(jid) * ag,
+                mp,
+                0,
+            );
+        }
+    })
+    .$name("jointInitMain");
 
 // ── joint dual: advance λ + the penalty ramp per joint each iteration (Phase 6.2, joint.ts updateJointDual) ──
 // One thread per joint, after each iteration's primal (like the contact dual). The rigid (∞-stiffness)
 // rows store λ ← K·C + λ; both row triples ramp the penalty by β|C|, clamped to PENALTY_MAX.
-// one joint's dual update, shared verbatim by the standalone joint-dual pass and the LDS-resident kernel
-const JOINT_DUAL_MATH_WGSL = /* wgsl */ `
-fn jointDualOne(jid: u32) {
-    if (jActive(jid) != 1u) { return; }
-    let recBase = jid * JOINT_REC_VEC4;
-    let a = bitcast<u32>(jrec(jid, 0u).x);
-    let b = bitcast<u32>(jrec(jid, 0u).y);
-    let aWorld = a == WORLD_ANCHOR;                      // the world anchor: rA a world point, orientation identity
-    // all-static gate (joint.ts updateJointDual): both endpoints static (the world anchor counting
-    // as static) — no dynamic body can satisfy it, so ramping its λ/penalty injects energy. Mirrors the
-    // construction-time both-static REJECTION (jointInit). aWorld short-circuits so solverStatic never
-    // reads the sentinel eid.
-    if (solverStatic(b) && (aWorld || solverStatic(a))) { return; }
-    let qA = select(bQuat(a), vec4<f32>(0.0, 0.0, 0.0, 1.0), aWorld);
-    let rA = jrec(jid, 1u).xyz; let stiffLin = jrec(jid, 1u).w;
-    let rB = jrec(jid, 2u).xyz; let stiffAng = jrec(jid, 2u).w;
-    let torqueArm = jTorqueArm(jid);
-    let alpha = step.alpha;
+// joint-dual has no own I/O (its only inputs are the shared roRo group + jointRecords) — typegpu's
+// resolve only tracks a bind group layout that the emitted WGSL actually references, so an empty group-0
+// layout with no touch is invisible to it and the pipeline compiles with a missing bind group at runtime
+// (real-device only — no resolve-time signal). `counters` (fixed-size, already bound this way by the
+// collide pass's `touchHullData`) gives group 0 a real reference; the forcing touch adds 0 to the same
+// reserved never-read slot, so it's a no-op wherever it lands.
+const jointDualLayout = tgpu
+    .bindGroupLayout({ counters: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" } })
+    .$idx(0);
 
-    var penLin = jPenLin(jid);
-    if (dot(penLin, penLin) > 0.0) {
-        let pA = select(bPos(a) + qRotateW(qA, rA), rA, aWorld);
-        let pB = bPos(b) + qRotateW(bQuat(b), rB);
-        var C = pA - pB;
-        if (stiffLin > RIGID_THRESHOLD) {
-            C = C - jC0Lin(jid) * alpha;
-            jointRecords[recBase + 6u] = vec4<f32>(penLin * C + jLamLin(jid), 0.0); // λ ← K·C + λ
-        }
-        penLin = min(penLin + abs(C) * step.betaLin, vec3<f32>(min(stiffLin, PENALTY_MAX)));
-        jointRecords[recBase + 4u] = vec4<f32>(penLin, 0.0);
-    }
-    var penAng = jPenAng(jid);
-    if (dot(penAng, penAng) > 0.0) {
-        var C = qSubW(qA, bQuat(b)) * torqueArm;
-        if (stiffAng > RIGID_THRESHOLD) {
-            C = C - jC0Ang(jid) * alpha;
-            jointRecords[recBase + 7u] = vec4<f32>(penAng * C + jLamAng(jid), 0.0);
-        }
-        penAng = min(penAng + abs(C) * step.betaAng, vec3<f32>(min(stiffAng, PENALTY_MAX)));
-        jointRecords[recBase + 5u] = vec4<f32>(penAng, 0.0);
-    }
-    // motor dual — λ clamped to ±maxTorque (the bounded-constraint update). The penalty ramps toward
-    // PENALTY_MAX (stiffness ∞) ONLY while λ is strictly inside the force bounds (solver.cpp's lambda-inside
-    // -fmin/fmax gate): a saturated motor keeps a small penalty so it stays a constant-torque drive (accel
-    // maxTorque/I); ramping it there over-stiffens the Hessian and drags the spin-up below that rate. The
-    // rigid rows above need no such gate — their bounds are unbounded, so λ is always inside.
-    let motorMax = jMotorMax(jid);
-    if (motorMax > 0.0) {
-        let axis = jMotorAxis(jid);
-        let dB = dot(qSubW(bQuat(b), bInitQ(b)), axis);
-        let dA = select(dot(qSubW(bQuat(a), bInitQ(a)), axis), 0.0, aWorld);
-        let c = (dB - dA) - jMotorSpeed(jid) * step.dt;
-        let lam = clamp(jMotorLam(jid) + jMotorPen(jid) * c, -motorMax, motorMax);
-        var pen = jMotorPen(jid);
-        if (lam > -motorMax && lam < motorMax) {
-            pen = min(pen + abs(c) * step.betaAng, PENALTY_MAX);
-        }
-        jointRecords[recBase + 11u] = vec4<f32>(jMotorSpeed(jid), lam, pen, 0.0);
-    }
-}
-`;
-
-const JOINT_DUAL_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> jointRecords: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(2) var<uniform> step: Step;
-${BODY_WGSL}
-${JOINT_REC_WGSL}
-${JOINT_DUAL_MATH_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let jid = gid.x;
-    if (jid >= step.jointCount) { return; }
-    jointDualOne(jid);
-}
-`;
+const jointDualKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const jid = input.gid.x;
+        if (jid >= roRo.layout.$.params.jointCount) return;
+        std.atomicAdd(jointDualLayout.$.counters[15], 0);
+        solverJointRw.jointDualOne(jid);
+    })
+    .$name("jointDualMain");
 
 // ── LDS-resident solve (C1.2): the whole iters × colors primal/commit/dual block as ONE dispatch ──
 // The small-N solve is latency-bound on a serial phase chain: each color phase's cost is its dependent
@@ -1772,124 +3057,174 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // for LDS, and touched once per iteration, not per color). The color count is computed in-kernel
 // (atomicMax over the live dynamics' colors), fresher than the looped path's readback bound and one
 // binding cheaper — the kernel is exactly AT the 10-storage-buffer floor.
-const SOLVE_LDS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> pairContacts: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read> csr: array<u32>;
-@group(0) @binding(3) var<storage, read> csrList: array<u32>;
-@group(0) @binding(4) var<storage, read> colors: array<u32>;
-@group(0) @binding(5) var<uniform> step: Step;
-@group(0) @binding(6) var<storage, read> eids: array<u32>;
-@group(0) @binding(7) var<storage, read_write> denseMap: array<u32>;
-@group(0) @binding(8) var<storage, read> constraintCsr: array<u32>;
-@group(0) @binding(9) var<storage, read> constraintList: array<vec4<f32>>;
-@group(0) @binding(10) var<storage, read_write> jointRecords: array<vec4<f32>>;
+// solve-lds's own I/O: `colors`/`eids` (the looped path's own bindings) + `denseMap`, the eid → LDS-slot
+// map REBOUND over the `solveOut` scratch (unused by this path — 2·eidCap vec4s ≥ the eidCap u32s the map
+// needs; the kernel sits exactly at the 10-storage floor, so the map can't be a new buffer without
+// evicting one). `csr`/`csrList`/`constraintCsr`/`constraintList` need no binding here — `solvePose`
+// (below) already references them via `primalOwnLayout`, the same group 0 the typed primal reuses.
+export const LDS_IO_GROUP = 3;
 
-const LDSN: u32 = ${LDS_CAP}u;
-const SOLVE_WG: u32 = 256u;
-var<workgroup> lpx: array<f32, LDSN>;
-var<workgroup> lpy: array<f32, LDSN>;
-var<workgroup> lpz: array<f32, LDSN>;
-var<workgroup> lq: array<vec4<f32>, LDSN>;
-var<workgroup> wgCount: u32;
-var<workgroup> wgColorMax: atomic<u32>;
-var<workgroup> wgColors: u32;
+const ldsLayout = tgpu
+    .bindGroupLayout({
+        colors: { storage: d.arrayOf(d.u32), access: "readonly" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        denseMap: { storage: d.arrayOf(d.u32), access: "mutable" },
+    })
+    .$idx(LDS_IO_GROUP);
 
-// the LDS-backed pose readers the shared solve/dual math goes through. Every live eid's denseMap entry
-// is written at kernel start, so a slot ≥ LDSN means the body overflowed residency → its storage pose
-// (constant this step: an overflow body is never solved) is the consistent fallback.
-fn bPos(i: u32) -> vec3<f32> {
-    let s = denseMap[i];
-    if (s < LDSN) { return vec3<f32>(lpx[s], lpy[s], lpz[s]); }
-    return bCol(B_POS, i).xyz;
-}
-fn bQuat(i: u32) -> vec4<f32> {
-    let s = denseMap[i];
-    if (s < LDSN) { return lq[s]; }
-    return bCol(B_QUAT, i);
-}
-` +
-    BODY_COLS_WGSL +
-    BODY_REST_WGSL +
-    CONTACT_WGSL +
-    MAT3_WGSL +
-    CONTACT_FORCE_WGSL +
-    JOINT_REC_WGSL +
-    SOLVE_MATH_WGSL +
-    DUAL_MATH_WGSL +
-    JOINT_DUAL_MATH_WGSL +
-    /* wgsl */ `
-@compute @workgroup_size(SOLVE_WG)
-fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
-    let lane = lid.x;
-    if (lane == 0u) { wgCount = eids[0u]; }
-    let count = workgroupUniformLoad(&wgCount);
-    let n = min(count, LDSN);
+const SOLVE_WG = 256;
 
-    // load: eid → dense map + the resident poses + the used-color count (max dynamic color + 1 — the
-    // looped path's readback-bounded count, computed GPU-fresh; colors past it hold no bodies, so the
-    // loop bound is a dispatch-count choice, never a math change)
-    for (var d = lane; d < count; d = d + SOLVE_WG) {
-        let eid = eids[1u + d];
-        denseMap[eid] = d;
-        if (d < LDSN) {
-            let p = bCol(B_POS, eid).xyz;
-            lpx[d] = p.x; lpy[d] = p.y; lpz[d] = p.z;
-            lq[d] = bCol(B_QUAT, eid);
-        }
-        if (bMass(eid) > 0.0) { atomicMax(&wgColorMax, colors[eid] + 1u); }
-    }
-    storageBarrier();   // denseMap visible before any bPos/bQuat routes through it
-    workgroupBarrier(); // resident poses + wgColorMax
-    if (lane == 0u) { wgColors = min(atomicLoad(&wgColorMax), step.maxColors); }
-    let colorsToRun = workgroupUniformLoad(&wgColors);
+const lpx = tgpu.workgroupVar(d.arrayOf(d.f32, LDS_CAP));
+const lpy = tgpu.workgroupVar(d.arrayOf(d.f32, LDS_CAP));
+const lpz = tgpu.workgroupVar(d.arrayOf(d.f32, LDS_CAP));
+const lq = tgpu.workgroupVar(d.arrayOf(d.vec4f, LDS_CAP));
+const wgCount = tgpu.workgroupVar(d.u32);
+const wgColorMax = tgpu.workgroupVar(d.atomic(d.u32));
+const wgColors = tgpu.workgroupVar(d.u32);
 
-    for (var it = 0u; it < step.iterations; it = it + 1u) {
-        for (var c = 0u; c < colorsToRun; c = c + 1u) {
-            // primal: each lane solves its ≤2 bodies of this color from the committed LDS poses,
-            // staging the results in registers — the double-buffer (a folded same-color pair reads the
-            // color-start pose on both sides, the clean Jacobi the looped solveOut/commit pair gives)
-            var np0: NewPose; var w0 = false;
-            let d0 = lane;
-            if (d0 < n) {
-                let bid = eids[1u + d0];
-                if (!solverStatic(bid) && colors[bid] == c) { np0 = solvePose(bid); w0 = true; }
+// the LDS-backed pose readers the shared solve/dual math goes through (the 1c factory-closure law: one
+// authored kernel re-emits per reader set — storage this stage's other kernels, workgroup memory here).
+// Every live eid's denseMap entry is written at kernel start, so a slot ≥ LDS_CAP means the body
+// overflowed residency → its storage pose (constant this step: an overflow body is never solved) is the
+// consistent fallback.
+const ldsBPos = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )((i) => {
+        "use gpu";
+        const s = ldsLayout.$.denseMap[i];
+        if (s < d.u32(LDS_CAP)) return d.vec3f(lpx.$[s], lpy.$[s], lpz.$[s]);
+        return rwRw.bCol(B_POS, i).xyz;
+    })
+    .$name("bPos");
+
+const ldsBQuat = tgpu
+    .fn(
+        [d.u32],
+        d.vec4f,
+    )((i) => {
+        "use gpu";
+        const s = ldsLayout.$.denseMap[i];
+        if (s < d.u32(LDS_CAP)) return d.vec4f(lq.$[s]);
+        return rwRw.bCol(B_QUAT, i);
+    })
+    .$name("bQuat");
+
+/** the LDS-resident solver instantiation — `contactMath`/`contribMath`/`dualMath`/`jointDualMath` re-run
+ *  over a reader set whose `bPos`/`bQuat` shadow `rwRw`'s storage readers with the workgroup-memory ones
+ *  above; everything else (bMass, bHalf, solverStatic, cc, the quat math, `layout`) stays `rwRw`'s. @internal */
+const ldsA = { ...rwRw, bPos: ldsBPos, bQuat: ldsBQuat };
+const ldsContactForce = contactMath(ldsA).contactForce;
+const solverLds = {
+    contactForce: ldsContactForce,
+    ...contribMath(ldsA, jointRw, ldsContactForce),
+    ...dualMath(ldsA, ldsContactForce),
+    ...jointDualMath(ldsA, jointRw),
+};
+
+const solveLdsKernel = tgpu
+    .computeFn({ workgroupSize: [SOLVE_WG], in: { lid: d.builtin.localInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.lid.x;
+        if (lane === 0) wgCount.$ = ldsLayout.$.eids[0];
+        const count = uniformLoad(wgCount.$);
+        const n = std.min(count, d.u32(LDS_CAP));
+
+        // load: eid → dense map + the resident poses + the used-color count (max dynamic color + 1 — the
+        // looped path's readback-bounded count, computed GPU-fresh; colors past it hold no bodies, so the
+        // loop bound is a dispatch-count choice, never a math change)
+        for (let dOwn = lane; dOwn < count; dOwn = dOwn + d.u32(SOLVE_WG)) {
+            const eid = ldsLayout.$.eids[1 + dOwn];
+            ldsLayout.$.denseMap[eid] = dOwn;
+            if (dOwn < d.u32(LDS_CAP)) {
+                const p = rwRw.bCol(B_POS, eid).xyz;
+                lpx.$[dOwn] = p.x;
+                lpy.$[dOwn] = p.y;
+                lpz.$[dOwn] = p.z;
+                lq.$[dOwn] = rwRw.bCol(B_QUAT, eid);
             }
-            var np1: NewPose; var w1 = false;
-            let d1 = lane + SOLVE_WG;
-            if (d1 < n) {
-                let bid = eids[1u + d1];
-                if (!solverStatic(bid) && colors[bid] == c) { np1 = solvePose(bid); w1 = true; }
-            }
-            workgroupBarrier();
-            // commit: the color's staged poses land in LDS together
-            if (w0) { lpx[d0] = np0.pos.x; lpy[d0] = np0.pos.y; lpz[d0] = np0.pos.z; lq[d0] = np0.quat; }
-            if (w1) { lpx[d1] = np1.pos.x; lpy[d1] = np1.pos.y; lpz[d1] = np1.pos.z; lq[d1] = np1.quat; }
-            workgroupBarrier();
+            if (rwRw.bMass(eid) > 0)
+                std.atomicMax(wgColorMax.$, ldsLayout.$.colors[eid] + d.u32(1));
         }
-        // dual + joint dual: the standalone passes' lane mappings, strided over one workgroup. They
-        // read the post-color LDS poses and write λ/penalty into the persistent storage records, which
-        // the next iteration's primal reads — once-per-iteration storage traffic, not per color.
-        let slots = count * PAIRS_PER_BODY;
-        for (var s = lane; s < slots; s = s + SOLVE_WG) {
-            dualSlot(eids[1u + s / PAIRS_PER_BODY] * PAIRS_PER_BODY + (s % PAIRS_PER_BODY));
-        }
-        for (var j = lane; j < step.jointCount; j = j + SOLVE_WG) { jointDualOne(j); }
-        storageBarrier(); // record λ/penalty writes → the next iteration's contactForce reads
-    }
+        std.storageBarrier(); // denseMap visible before any bPos/bQuat routes through it
+        std.workgroupBarrier(); // resident poses + wgColorMax
+        if (lane === 0)
+            wgColors.$ = std.min(std.atomicLoad(wgColorMax.$), rwRw.layout.$.params.maxColors);
+        const colorsToRun = uniformLoad(wgColors.$);
 
-    // write back the solved poses. Statics (incl. kinematic characters) are skipped — the looped path
-    // never writes them either, and a character's char-pass pose must not be re-stamped with w = 0.
-    for (var d = lane; d < n; d = d + SOLVE_WG) {
-        let eid = eids[1u + d];
-        if (solverStatic(eid)) { continue; }
-        bodies[B_POS*step.eidCap + eid] = vec4<f32>(lpx[d], lpy[d], lpz[d], 0.0);
-        bodies[B_QUAT*step.eidCap + eid] = lq[d];
-    }
-}
-`;
+        for (let it = d.u32(0); it < rwRw.layout.$.params.iterations; it++) {
+            for (let c = d.u32(0); c < colorsToRun; c++) {
+                // primal: each lane solves its ≤2 bodies of this color from the committed LDS poses,
+                // staging the results in registers — the double-buffer (a folded same-color pair reads
+                // the color-start pose on both sides, the clean Jacobi the looped solveOut/commit pair gives)
+                let np0 = NewPose({ pos: d.vec3f(0, 0, 0), quat: d.vec4f(0, 0, 0, 0) });
+                let w0 = false;
+                const d0 = lane;
+                if (d0 < n) {
+                    const bid = ldsLayout.$.eids[1 + d0];
+                    if (!rwRw.solverStatic(bid) && ldsLayout.$.colors[bid] === c) {
+                        np0 = NewPose(solverLds.solvePose(bid));
+                        w0 = true;
+                    }
+                }
+                let np1 = NewPose({ pos: d.vec3f(0, 0, 0), quat: d.vec4f(0, 0, 0, 0) });
+                let w1 = false;
+                const d1 = lane + d.u32(SOLVE_WG);
+                if (d1 < n) {
+                    const bid = ldsLayout.$.eids[1 + d1];
+                    if (!rwRw.solverStatic(bid) && ldsLayout.$.colors[bid] === c) {
+                        np1 = NewPose(solverLds.solvePose(bid));
+                        w1 = true;
+                    }
+                }
+                std.workgroupBarrier();
+                // commit: the color's staged poses land in LDS together
+                if (w0) {
+                    lpx.$[d0] = np0.pos.x;
+                    lpy.$[d0] = np0.pos.y;
+                    lpz.$[d0] = np0.pos.z;
+                    lq.$[d0] = d.vec4f(np0.quat);
+                }
+                if (w1) {
+                    lpx.$[d1] = np1.pos.x;
+                    lpy.$[d1] = np1.pos.y;
+                    lpz.$[d1] = np1.pos.z;
+                    lq.$[d1] = d.vec4f(np1.quat);
+                }
+                std.workgroupBarrier();
+            }
+            // dual + joint dual: the standalone passes' lane mappings, strided over one workgroup. They
+            // read the post-color LDS poses and write λ/penalty into the persistent storage records,
+            // which the next iteration's primal reads — once-per-iteration storage traffic, not per color.
+            const slots = count * d.u32(PAIRS_PER_BODY);
+            for (let s = lane; s < slots; s = s + d.u32(SOLVE_WG)) {
+                solverLds.dualSlot(
+                    ldsLayout.$.eids[1 + idiv(s, PAIRS_PER_BODY)] * d.u32(PAIRS_PER_BODY) +
+                        (s % d.u32(PAIRS_PER_BODY)),
+                );
+            }
+            for (let j = lane; j < rwRw.layout.$.params.jointCount; j = j + d.u32(SOLVE_WG)) {
+                solverLds.jointDualOne(j);
+            }
+            std.storageBarrier(); // record λ/penalty writes → the next iteration's contactForce reads
+        }
+
+        // write back the solved poses. Statics (incl. kinematic characters) are skipped — the looped path
+        // never writes them either, and a character's char-pass pose must not be re-stamped with w = 0.
+        for (let dOwn = lane; dOwn < n; dOwn = dOwn + d.u32(SOLVE_WG)) {
+            const eid = ldsLayout.$.eids[1 + dOwn];
+            if (rwRw.solverStatic(eid)) continue;
+            rwRw.layout.$.bodies[B_POS * rwRw.layout.$.params.eidCap + eid] = d.vec4f(
+                lpx.$[dOwn],
+                lpy.$[dOwn],
+                lpz.$[dOwn],
+                0,
+            );
+            rwRw.layout.$.bodies[B_QUAT * rwRw.layout.$.params.eidCap + eid] = d.vec4f(lq.$[dOwn]);
+        }
+    })
+    .$name("solveLdsMain");
 
 // ── compose: scatter the interpolated body pose into the eid-indexed transform firehose ──
 // The bodied-entity half of the Body/Transform contract (roadmap): a `Body` is a `Part` whose world
@@ -1906,70 +3241,81 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 // pose = last frame's settled pose) into B_INITL/B_INITQ before warmstart mutates B_POS, so prev = bInit*,
 // curr = bPos/bQuat. lerp position, nlerp quat on the shortest arc. For a static or freshly-seeded body
 // B_INITL == B_POS, so it's a no-op; at alpha = 1 this is exactly the bare current pose.
-const composePassWgsl = (): string =>
-    SHARED_WGSL +
-    xformWgsl() +
-    /* wgsl */ `
-struct Interp { alpha: f32 };
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> eids: array<u32>;
-@group(0) @binding(2) var<storage, read_write> transforms: array<Xform>;
-@group(0) @binding(3) var<uniform> step: Step;
-@group(0) @binding(4) var<uniform> interp: Interp;
-${BODY_WGSL}
+/** interpolation alpha uniform — `time.fixedAlpha`, the fraction past the last fixed tick */
+const Interp = d.struct({ alpha: d.f32 }).$name("Interp");
+
 // nlerp toward the shortest arc: flip prev into curr's hemisphere, lerp, renormalize (legacy interpolate.wgsl)
-fn nlerpShortest(prev: vec4<f32>, curr: vec4<f32>, t: f32) -> vec4<f32> {
-    let flip = select(1.0, -1.0, dot(prev, curr) < 0.0);
-    let q = mix(prev * flip, curr, t);
-    let len = length(q);
-    return select(vec4<f32>(0.0, 0.0, 0.0, 1.0), q / len, len > 1e-12);
-}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let i = eids[1u + d];
-    let a = interp.alpha;
-    let p = mix(bInitL(i), bPos(i), a);          // prev = x⁻ (pre-warmstart), curr = solved pose
-    let q = nlerpShortest(bInitQ(i), bQuat(i), a);
-    // render scale maps the unit mesh to the body's shape (Phase 6.3): the cube/sphere meshes are unit
-    // half-extent 0.5 → scale 2·extent; the capsule mesh is y∈[-1,1] (half-extents 0.5,1,0.5), so its
-    // bounding box (2r, hc+r, 2r) maps with y-scale hc+r (the caps distort under a non-proportional
-    // ratio — a fixed-mesh limitation, render-only; the collider is exact).
-    let shape = bShape(i);
-    let radius = bRadius(i);
-    var s = bHalf(i) * 2.0;
-    if (shape == 1u) {
-        s = vec3<f32>(2.0 * radius, 2.0 * radius, 2.0 * radius);
-    } else if (shape == 2u) {
-        s = vec3<f32>(2.0 * radius, bHalf(i).y + radius, 2.0 * radius);
-    }
-    transforms[i] = Xform(p, q, s);
-}
-`;
+const nlerpShortest = tgpu
+    .fn(
+        [d.vec4f, d.vec4f, d.f32],
+        d.vec4f,
+    )((prev, curr, t) => {
+        "use gpu";
+        const flip = std.select(d.f32(1), d.f32(-1), std.dot(prev, curr) < 0);
+        const q = std.mix(std.mul(prev, flip), curr, t);
+        const len = std.length(q);
+        return std.select(d.vec4f(0, 0, 0, 1), std.div(q, len), len > 1e-12);
+    })
+    .$name("nlerpShortest");
+
+const composeLayout = tgpu
+    .bindGroupLayout({
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        transforms: { storage: d.arrayOf(Xform), access: "mutable" },
+        interp: { uniform: Interp },
+    })
+    .$idx(0);
+
+const composeKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= composeLayout.$.eids[0]) return;
+        const i = composeLayout.$.eids[1 + slot];
+        const a = composeLayout.$.interp.alpha;
+        const p = std.mix(roRo.bInitL(i), roRo.bPos(i), a); // prev = x⁻ (pre-warmstart), curr = solved pose
+        const q = nlerpShortest(roRo.bInitQ(i), roRo.bQuat(i), a);
+        // render scale maps the unit mesh to the body's shape (Phase 6.3): the cube/sphere meshes are unit
+        // half-extent 0.5 → scale 2·extent; the capsule mesh is y∈[-1,1] (half-extents 0.5,1,0.5), so its
+        // bounding box (2r, hc+r, 2r) maps with y-scale hc+r (the caps distort under a non-proportional
+        // ratio — a fixed-mesh limitation, render-only; the collider is exact).
+        const shape = roRo.bShape(i);
+        const radius = roRo.bRadius(i);
+        let s = std.mul(roRo.bHalf(i), 2);
+        if (shape === 1) {
+            s = d.vec3f(2 * radius, 2 * radius, 2 * radius);
+        } else if (shape === 2) {
+            s = d.vec3f(2 * radius, roRo.bHalf(i).y + radius, 2 * radius);
+        }
+        // element-schema copy — p/q/s are reference-yielding call results (mix/nlerpShortest/select)
+        composeLayout.$.transforms[i] = Xform({
+            pos: d.vec3f(p),
+            quat: d.vec4f(q),
+            scale: d.vec3f(s),
+        });
+    })
+    .$name("composeMain");
 
 // ── velocity: BDF1 recovery (solver.cpp step 5). prevVel updated for the next adaptive warmstart ──
-const VELOCITY_PASS_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<uniform> step: Step;
-@group(0) @binding(2) var<storage, read> eids: array<u32>;
-${BODY_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let d = gid.x;
-    if (d >= eids[0u]) { return; }
-    let i = eids[1u + d];
-    let cap = step.eidCap;
-    bodies[B_PREVV*cap + i] = vec4<f32>(bVelL(i), 0.0); // prevVel = vel
-    if (solverStatic(i)) { return; }                    // static / kinematic — keep the frozen velocity
-    let velL = (bPos(i) - bInitL(i)) / step.dt;
-    let velA = qSubW(bQuat(i), bInitQ(i)) / step.dt;
-    bodies[B_VELL*cap + i] = vec4<f32>(velL, 0.0);
-    bodies[B_VELA*cap + i] = vec4<f32>(velA, 0.0);
-}
-`;
+const velocityLayout = tgpu
+    .bindGroupLayout({ eids: { storage: d.arrayOf(d.u32), access: "readonly" } })
+    .$idx(0);
+
+const velocityKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const slot = input.gid.x;
+        if (slot >= velocityLayout.$.eids[0]) return;
+        const i = velocityLayout.$.eids[1 + slot];
+        const cap = rwRw.layout.$.params.eidCap;
+        rwRw.layout.$.bodies[B_PREVV * cap + i] = d.vec4f(rwRw.bVelL(i), 0); // prevVel = vel
+        if (rwRw.solverStatic(i)) return; // static / kinematic — keep the frozen velocity
+        const velL = std.div(std.sub(rwRw.bPos(i), rwRw.bInitL(i)), rwRw.layout.$.params.dt);
+        const velA = std.div(rwRw.qSubW(rwRw.bQuat(i), rwRw.bInitQ(i)), rwRw.layout.$.params.dt);
+        rwRw.layout.$.bodies[B_VELL * cap + i] = d.vec4f(velL, 0);
+        rwRw.layout.$.bodies[B_VELA * cap + i] = d.vec4f(velA, 0);
+    })
+    .$name("velocityMain");
 
 // ── CSR adjacency: per-body contact lists, so the primal + coloring read only a body's own contacts ──
 // From the persistent `pairContacts` (the collide wrote this frame's manifolds in place), build a
@@ -1983,28 +3329,36 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // they scan only the live blocks; the scan (resetting count to the scatter cursor) is the single-workgroup
 // parallel prefix sum.
 
-const CSR_COUNT_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> pairContacts: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read_write> csr: array<atomic<u32>>; // counts in [eidCap, 2·eidCap)
-@group(0) @binding(2) var<uniform> step: Step;
-@group(0) @binding(3) var<storage, read> eids: array<u32>; // [0] = live count, [1+d] = the d-th live eid
-${CONTACT_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let lane = gid.x;
-    let d = lane / PAIRS_PER_BODY;
-    if (d >= eids[0u]) { return; } // past the live body count
-    let recBase = (eids[1u + d] * PAIRS_PER_BODY + (lane % PAIRS_PER_BODY)) * CONTACTS_PER_PAIR;
-    for (var ls = 0u; ls < CONTACTS_PER_PAIR; ls = ls + 1u) {
-        let m = cc(recBase + ls, C_META);
-        if (bitcast<u32>(m.x) != ${CONSTRAINT_CONTACT}u) { continue; } // inactive record
-        atomicAdd(&csr[step.eidCap + bitcast<u32>(m.y)], 1u); // body a
-        atomicAdd(&csr[step.eidCap + bitcast<u32>(m.z)], 1u); // body b
-    }
-}
-`;
+const csrCountLayout = tgpu
+    .bindGroupLayout({
+        csr: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" }, // counts in [eidCap, 2·eidCap)
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" }, // [0] = live count, [1+d] = the d-th live eid
+    })
+    .$idx(0);
+
+const csrCountKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= csrCountLayout.$.eids[0]) return; // past the live body count
+        const recBase =
+            (csrCountLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY)) *
+            d.u32(CONTACTS_PER_PAIR);
+        for (let ls = d.u32(0); ls < CONTACTS_PER_PAIR; ls++) {
+            const m = roRo.cc(recBase + ls, C_META);
+            if (bitcastF32toU32(m.x) !== CONSTRAINT_CONTACT) continue; // inactive record
+            std.atomicAdd(
+                csrCountLayout.$.csr[roRo.layout.$.params.eidCap + bitcastF32toU32(m.y)],
+                1,
+            ); // body a
+            std.atomicAdd(
+                csrCountLayout.$.csr[roRo.layout.$.params.eidCap + bitcastF32toU32(m.z)],
+                1,
+            ); // body b
+        }
+    })
+    .$name("csrCountMain");
 
 // exclusive prefix sum over the live (dense) eids → each body's csrList slice start; resets the count region to 0
 // so the scatter can reuse it as the per-body append cursor (the part-pack scan shape). Single-workgroup
@@ -2059,33 +3413,41 @@ fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
 `;
 }
 
-const CSR_SCATTER_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> pairContacts: array<vec4<f32>>;
-// CSR in one binding: [0,eidCap) offsets (read via atomicLoad — same binding, atomic type), [eidCap,…) append cursor
-@group(0) @binding(1) var<storage, read_write> csr: array<atomic<u32>>;
-@group(0) @binding(2) var<storage, read_write> csrList: array<u32>;
-@group(0) @binding(3) var<uniform> step: Step;
-@group(0) @binding(4) var<storage, read> eids: array<u32>; // [0] = live count, [1+d] = the d-th live eid
-${CONTACT_WGSL}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let lane = gid.x;
-    let d = lane / PAIRS_PER_BODY;
-    if (d >= eids[0u]) { return; } // past the live body count
-    let recBase = (eids[1u + d] * PAIRS_PER_BODY + (lane % PAIRS_PER_BODY)) * CONTACTS_PER_PAIR;
-    for (var ls = 0u; ls < CONTACTS_PER_PAIR; ls = ls + 1u) {
-        let ci = recBase + ls;
-        let m = cc(ci, C_META);
-        if (bitcast<u32>(m.x) != ${CONSTRAINT_CONTACT}u) { continue; } // inactive record
-        let a = bitcast<u32>(m.y);
-        let b = bitcast<u32>(m.z);
-        csrList[atomicLoad(&csr[a]) + atomicAdd(&csr[step.eidCap + a], 1u)] = ci;
-        csrList[atomicLoad(&csr[b]) + atomicAdd(&csr[step.eidCap + b], 1u)] = ci;
-    }
-}
-`;
+const csrScatterLayout = tgpu
+    .bindGroupLayout({
+        // [0,eidCap) offsets (read via atomicLoad — same binding, atomic type), [eidCap,…) append cursor
+        csr: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        csrList: { storage: d.arrayOf(d.u32), access: "mutable" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" }, // [0] = live count, [1+d] = the d-th live eid
+    })
+    .$idx(0);
+
+const csrScatterKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const lane = input.gid.x;
+        const dOwn = idiv(lane, PAIRS_PER_BODY);
+        if (dOwn >= csrScatterLayout.$.eids[0]) return; // past the live body count
+        const recBase =
+            (csrScatterLayout.$.eids[1 + dOwn] * d.u32(PAIRS_PER_BODY) + (lane % PAIRS_PER_BODY)) *
+            d.u32(CONTACTS_PER_PAIR);
+        for (let ls = d.u32(0); ls < CONTACTS_PER_PAIR; ls++) {
+            const ci = recBase + ls;
+            const m = roRo.cc(ci, C_META);
+            if (bitcastF32toU32(m.x) !== CONSTRAINT_CONTACT) continue; // inactive record
+            const a = bitcastF32toU32(m.y);
+            const b = bitcastF32toU32(m.z);
+            csrScatterLayout.$.csrList[
+                std.atomicLoad(csrScatterLayout.$.csr[a]) +
+                    std.atomicAdd(csrScatterLayout.$.csr[roRo.layout.$.params.eidCap + a], 1)
+            ] = ci;
+            csrScatterLayout.$.csrList[
+                std.atomicLoad(csrScatterLayout.$.csr[b]) +
+                    std.atomicAdd(csrScatterLayout.$.csr[roRo.layout.$.params.eidCap + b], 1)
+            ] = ci;
+        }
+    })
+    .$name("csrScatterMain");
 
 // the single-workgroup scan width for the pack + CSR scan: one workgroup of PACK_WG lanes scans the whole
 // eid/body range, each lane owning a contiguous chunk (the O(N) work parallel across the chunks, the
@@ -2112,149 +3474,188 @@ const PACK_WG = 256;
 // `csr` binds as atomic throughout (the scan uses atomicLoad/Store — same memory, one binding type).
 // 10 storage buffers — at the binding floor like the primal (physics.md "phase ladder"): a new
 // constraint type must reuse the merged adjacency, never add a binding here.
-const CSR_COLOR_SMALL_WGSL =
-    SHARED_WGSL +
-    /* wgsl */ `
-@group(0) @binding(0) var<storage, read> bodies: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> pairContacts: array<vec4<f32>>;
-@group(0) @binding(2) var<storage, read_write> csr: array<atomic<u32>>;
-@group(0) @binding(3) var<storage, read_write> csrList: array<u32>;
-@group(0) @binding(4) var<storage, read_write> colors: array<u32>;
-@group(0) @binding(5) var<storage, read_write> colorScratch: array<u32>;
-@group(0) @binding(6) var<uniform> step: Step;
-@group(0) @binding(7) var<storage, read> eids: array<u32>;
-@group(0) @binding(8) var<storage, read_write> colorCount: array<atomic<u32>>;
-@group(0) @binding(9) var<storage, read> constraintCsr: array<u32>;
-@group(0) @binding(10) var<storage, read> constraintList: array<vec4<f32>>;
-const PACK_WG: u32 = ${PACK_WG}u;
-${BODY_WGSL}
-${CONTACT_WGSL}
-var<workgroup> wgN: u32;
-var<workgroup> csrSum: array<u32, ${PACK_WG}>;
-var<workgroup> wgMax: atomic<u32>; // max dynamic color + 1 (workgroup memory zero-inits per dispatch)
-@compute @workgroup_size(${PACK_WG})
-fn main(@builtin(local_invocation_id) lid: vec3<u32>) {
-    // every lane reaches every barrier (no early returns — idle lanes skip strided loops), and the live
-    // count flows through workgroupUniformLoad for Tint's uniformity analysis (the small-broadphase pattern).
-    if (lid.x == 0u) { wgN = eids[0u]; }
-    let n = workgroupUniformLoad(&wgN);
-    let t = lid.x;
+const csrColorSmallLayout = tgpu
+    .bindGroupLayout({
+        csr: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        csrList: { storage: d.arrayOf(d.u32), access: "mutable" },
+        colors: { storage: d.arrayOf(d.u32), access: "mutable" },
+        colorScratch: { storage: d.arrayOf(d.u32), access: "mutable" },
+        eids: { storage: d.arrayOf(d.u32), access: "readonly" },
+        colorCount: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
+        constraintCsr: { storage: d.arrayOf(d.u32), access: "readonly" },
+        constraintList: { storage: d.arrayOf(d.vec4f), access: "readonly" },
+    })
+    .$idx(0);
 
-    // clear: live eids' counts (the only counts the scan reads — see the header)
-    for (var d = t; d < n; d = d + PACK_WG) {
-        atomicStore(&csr[step.eidCap + eids[1u + d]], 0u);
-    }
-    storageBarrier();
+const csrColorWgN = tgpu.workgroupVar(d.u32);
+const csrColorSum = tgpu.workgroupVar(d.arrayOf(d.u32, PACK_WG));
+const csrColorWgMax = tgpu.workgroupVar(d.atomic(d.u32)); // max dynamic color + 1 (zero-inits per dispatch)
 
-    // count
-    let slots = n * PAIRS_PER_BODY;
-    for (var s = t; s < slots; s = s + PACK_WG) {
-        let recBase = (eids[1u + s / PAIRS_PER_BODY] * PAIRS_PER_BODY + (s % PAIRS_PER_BODY)) * CONTACTS_PER_PAIR;
-        for (var ls = 0u; ls < CONTACTS_PER_PAIR; ls = ls + 1u) {
-            let m = cc(recBase + ls, C_META);
-            if (bitcast<u32>(m.x) != ${CONSTRAINT_CONTACT}u) { continue; } // inactive record
-            atomicAdd(&csr[step.eidCap + bitcast<u32>(m.y)], 1u); // body a
-            atomicAdd(&csr[step.eidCap + bitcast<u32>(m.z)], 1u); // body b
-        }
-    }
-    storageBarrier();
+const csrColorSmallKernel = tgpu
+    .computeFn({ workgroupSize: [PACK_WG], in: { lid: d.builtin.localInvocationId } })((input) => {
+        "use gpu";
+        // every lane reaches every barrier (no early returns — idle lanes skip strided loops), and the live
+        // count flows through uniformLoad for Tint's uniformity analysis (the small-broadphase pattern).
+        const t = input.lid.x;
+        if (t === 0) csrColorWgN.$ = csrColorSmallLayout.$.eids[0];
+        const n = uniformLoad(csrColorWgN.$);
 
-    // scan: exclusive prefix over the live counts → offsets; counts reset to 0 (the scatter cursor)
-    let chunk = (n + PACK_WG - 1u) / PACK_WG;
-    let lo = t * chunk;
-    let hi = min(lo + chunk, n);
-    var sum = 0u;
-    for (var d = lo; d < hi; d = d + 1u) {
-        sum = sum + atomicLoad(&csr[step.eidCap + eids[1u + d]]);
-    }
-    csrSum[t] = sum;
-    workgroupBarrier();
-    if (t == 0u) {
-        var acc0 = 0u;
-        for (var i = 0u; i < PACK_WG; i = i + 1u) {
-            let c = csrSum[i];
-            csrSum[i] = acc0;
-            acc0 = acc0 + c;
+        // clear: live eids' counts (the only counts the scan reads — see the header)
+        for (let dOwn = t; dOwn < n; dOwn = dOwn + PACK_WG) {
+            std.atomicStore(
+                csrColorSmallLayout.$.csr[
+                    roRo.layout.$.params.eidCap + csrColorSmallLayout.$.eids[1 + dOwn]
+                ],
+                0,
+            );
         }
-    }
-    workgroupBarrier();
-    var acc = csrSum[t];
-    for (var d = lo; d < hi; d = d + 1u) {
-        let e = eids[1u + d];
-        atomicStore(&csr[e], acc);
-        acc = acc + atomicLoad(&csr[step.eidCap + e]);
-        atomicStore(&csr[step.eidCap + e], 0u);
-    }
-    storageBarrier();
+        std.storageBarrier();
 
-    // scatter
-    for (var s = t; s < slots; s = s + PACK_WG) {
-        let recBase = (eids[1u + s / PAIRS_PER_BODY] * PAIRS_PER_BODY + (s % PAIRS_PER_BODY)) * CONTACTS_PER_PAIR;
-        for (var ls = 0u; ls < CONTACTS_PER_PAIR; ls = ls + 1u) {
-            let ci = recBase + ls;
-            let m = cc(ci, C_META);
-            if (bitcast<u32>(m.x) != ${CONSTRAINT_CONTACT}u) { continue; } // inactive record
-            let a = bitcast<u32>(m.y);
-            let b = bitcast<u32>(m.z);
-            csrList[atomicLoad(&csr[a]) + atomicAdd(&csr[step.eidCap + a], 1u)] = ci;
-            csrList[atomicLoad(&csr[b]) + atomicAdd(&csr[step.eidCap + b], 1u)] = ci;
-        }
-    }
-    storageBarrier();
-
-    // greedy: the incremental coloring (COLORING_PASS_WGSL's logic), priors read from colors (untouched
-    // this step), chosen staged in colorScratch so every lane's prior reads complete before any commit
-    for (var d = t; d < n; d = d + PACK_WG) {
-        let bid = eids[1u + d];
-        if (bMass(bid) <= 0.0) { colorScratch[bid] = 0xffffffffu; continue; } // static — uncolored
-        let colorsN = max(1u, min(step.maxColors, 32u));
-        let clo = atomicLoad(&csr[bid]);
-        let chi = clo + atomicLoad(&csr[step.eidCap + bid]);
-        var usedMask = 0u;
-        for (var k = clo; k < chi; k = k + 1u) {
-            let m = cc(csrList[k], C_META);
-            let a = bitcast<u32>(m.y);
-            let b = bitcast<u32>(m.z);
-            var other = a;                          // every CSR contact touches bid; pick the neighbor
-            if (a == bid) { other = b; }
-            if (other <= bid) { continue; }         // higher-id symmetry break — no atomics
-            if (bMass(other) <= 0.0) { continue; }  // static neighbor: no scheduling constraint
-            let pc = colors[other];
-            if (pc < 32u) { usedMask = usedMask | (1u << pc); }
-        }
-        let slo = constraintCsr[bid];
-        let shi = slo + constraintCsr[step.eidCap + bid];
-        for (var e = slo; e < shi; e = e + 1u) {
-            let other = bitcast<u32>(constraintList[e * CONSTRAINT_VEC4 + 2u].x);
-            if (other <= bid) { continue; }
-            if (bMass(other) <= 0.0) { continue; }
-            let pc = colors[other];
-            if (pc < 32u) { usedMask = usedMask | (1u << pc); }
-        }
-        var chosen = colors[bid];                   // incremental: keep the prior color when still free
-        var needsNew = chosen >= colorsN;
-        if (!needsNew) { needsNew = (usedMask & (1u << chosen)) != 0u; }
-        if (needsNew) {
-            var found = false;
-            for (var c = 0u; c < colorsN; c = c + 1u) {
-                if ((usedMask & (1u << c)) == 0u) { chosen = c; found = true; break; }
+        // count
+        const slots = n * d.u32(PAIRS_PER_BODY);
+        for (let s = t; s < slots; s = s + PACK_WG) {
+            const recBase =
+                (csrColorSmallLayout.$.eids[1 + idiv(s, PAIRS_PER_BODY)] * d.u32(PAIRS_PER_BODY) +
+                    (s % PAIRS_PER_BODY)) *
+                d.u32(CONTACTS_PER_PAIR);
+            for (let ls = d.u32(0); ls < CONTACTS_PER_PAIR; ls++) {
+                const m = roRo.cc(recBase + ls, C_META);
+                if (bitcastF32toU32(m.x) !== CONSTRAINT_CONTACT) continue; // inactive record
+                std.atomicAdd(
+                    csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + bitcastF32toU32(m.y)],
+                    1,
+                ); // body a
+                std.atomicAdd(
+                    csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + bitcastF32toU32(m.z)],
+                    1,
+                ); // body b
             }
-            if (!found) { chosen = bid % colorsN; } // fold past the cap — a tolerated same-color conflict
         }
-        colorScratch[bid] = chosen;
-        atomicMax(&wgMax, chosen + 1u);
-    }
-    storageBarrier();
-    workgroupBarrier();
+        std.storageBarrier();
 
-    // commit the staged colors + publish the used-color count (word 0; word 1 is packScan's live count)
-    for (var d = t; d < n; d = d + PACK_WG) {
-        let bid = eids[1u + d];
-        colors[bid] = colorScratch[bid];
-    }
-    if (t == 0u) { atomicStore(&colorCount[0], atomicLoad(&wgMax)); }
-}
-`;
+        // scan: exclusive prefix over the live counts → offsets; counts reset to 0 (the scatter cursor)
+        const chunkSz = idiv(n + d.u32(PACK_WG) - 1, d.u32(PACK_WG));
+        const lo = t * chunkSz;
+        const hi = std.min(lo + chunkSz, n);
+        let sum = d.u32(0);
+        for (let dOwn = lo; dOwn < hi; dOwn++) {
+            sum =
+                sum +
+                std.atomicLoad(
+                    csrColorSmallLayout.$.csr[
+                        roRo.layout.$.params.eidCap + csrColorSmallLayout.$.eids[1 + dOwn]
+                    ],
+                );
+        }
+        csrColorSum.$[t] = sum;
+        std.workgroupBarrier();
+        if (t === 0) {
+            let acc0 = d.u32(0);
+            for (let i = d.u32(0); i < PACK_WG; i++) {
+                const c = csrColorSum.$[i];
+                csrColorSum.$[i] = acc0;
+                acc0 = acc0 + c;
+            }
+        }
+        std.workgroupBarrier();
+        let acc = csrColorSum.$[t];
+        for (let dOwn = lo; dOwn < hi; dOwn++) {
+            const e = csrColorSmallLayout.$.eids[1 + dOwn];
+            std.atomicStore(csrColorSmallLayout.$.csr[e], acc);
+            acc = acc + std.atomicLoad(csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + e]);
+            std.atomicStore(csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + e], 0);
+        }
+        std.storageBarrier();
+
+        // scatter
+        for (let s = t; s < slots; s = s + PACK_WG) {
+            const recBase =
+                (csrColorSmallLayout.$.eids[1 + idiv(s, PAIRS_PER_BODY)] * d.u32(PAIRS_PER_BODY) +
+                    (s % PAIRS_PER_BODY)) *
+                d.u32(CONTACTS_PER_PAIR);
+            for (let ls = d.u32(0); ls < CONTACTS_PER_PAIR; ls++) {
+                const ci = recBase + ls;
+                const m = roRo.cc(ci, C_META);
+                if (bitcastF32toU32(m.x) !== CONSTRAINT_CONTACT) continue; // inactive record
+                const a = bitcastF32toU32(m.y);
+                const b = bitcastF32toU32(m.z);
+                csrColorSmallLayout.$.csrList[
+                    std.atomicLoad(csrColorSmallLayout.$.csr[a]) +
+                        std.atomicAdd(csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + a], 1)
+                ] = ci;
+                csrColorSmallLayout.$.csrList[
+                    std.atomicLoad(csrColorSmallLayout.$.csr[b]) +
+                        std.atomicAdd(csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + b], 1)
+                ] = ci;
+            }
+        }
+        std.storageBarrier();
+
+        // greedy: the incremental coloring (coloringKernel's logic), priors read from colors (untouched
+        // this step), chosen staged in colorScratch so every lane's prior reads complete before any commit
+        for (let dOwn = t; dOwn < n; dOwn = dOwn + PACK_WG) {
+            const bid = csrColorSmallLayout.$.eids[1 + dOwn];
+            if (roRo.bMass(bid) <= 0) {
+                csrColorSmallLayout.$.colorScratch[bid] = d.u32(0xffffffff); // static — uncolored
+                continue;
+            }
+            const colorsN = std.max(d.u32(1), std.min(roRo.layout.$.params.maxColors, d.u32(32)));
+            const clo = std.atomicLoad(csrColorSmallLayout.$.csr[bid]);
+            const chi =
+                clo + std.atomicLoad(csrColorSmallLayout.$.csr[roRo.layout.$.params.eidCap + bid]);
+            let usedMask = d.u32(0);
+            for (let k = clo; k < chi; k++) {
+                const m = roRo.cc(csrColorSmallLayout.$.csrList[k], C_META);
+                const a = bitcastF32toU32(m.y);
+                const b = bitcastF32toU32(m.z);
+                let other = a; // every CSR contact touches bid; pick the neighbor
+                if (a === bid) other = b;
+                if (other <= bid) continue; // higher-id symmetry break — no atomics
+                if (roRo.bMass(other) <= 0) continue; // static neighbor: no scheduling constraint
+                const pc = csrColorSmallLayout.$.colors[other];
+                if (pc < 32) usedMask = usedMask | (d.u32(1) << pc);
+            }
+            const slo = csrColorSmallLayout.$.constraintCsr[bid];
+            const shi =
+                slo + csrColorSmallLayout.$.constraintCsr[roRo.layout.$.params.eidCap + bid];
+            for (let e = slo; e < shi; e++) {
+                const other = bitcastF32toU32(
+                    csrColorSmallLayout.$.constraintList[e * d.u32(CONSTRAINT_VEC4) + 2].x,
+                );
+                if (other <= bid) continue;
+                if (roRo.bMass(other) <= 0) continue;
+                const pc = csrColorSmallLayout.$.colors[other];
+                if (pc < 32) usedMask = usedMask | (d.u32(1) << pc);
+            }
+            let chosen = csrColorSmallLayout.$.colors[bid]; // incremental: keep the prior color when still free
+            let needsNew = chosen >= colorsN;
+            if (!needsNew) needsNew = (usedMask & (d.u32(1) << chosen)) !== 0;
+            if (needsNew) {
+                let found = false;
+                for (let c = d.u32(0); c < colorsN; c++) {
+                    if ((usedMask & (d.u32(1) << c)) === 0) {
+                        chosen = c;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) chosen = bid % colorsN; // fold past the cap — a tolerated same-color conflict
+            }
+            csrColorSmallLayout.$.colorScratch[bid] = chosen;
+            std.atomicMax(csrColorWgMax.$, chosen + 1);
+        }
+        std.storageBarrier();
+        std.workgroupBarrier();
+
+        // commit the staged colors + publish the used-color count (word 0; word 1 is packScan's live count)
+        for (let dOwn = t; dOwn < n; dOwn = dOwn + PACK_WG) {
+            const bid = csrColorSmallLayout.$.eids[1 + dOwn];
+            csrColorSmallLayout.$.colors[bid] = csrColorSmallLayout.$.colorScratch[bid];
+        }
+        if (t === 0)
+            std.atomicStore(csrColorSmallLayout.$.colorCount[0], std.atomicLoad(csrColorWgMax.$));
+    })
+    .$name("csrColorSmallMain");
 
 // ── pack: GPU membership-scan → the dense→eid map (the Part-pack firehose) ──
 // One lane per eid over scene capacity, gated on the Body membership bit (the mirror the Part pack
@@ -2287,7 +3688,7 @@ interface PackGate {
 
 function packCountWgsl(gate: PackGate, eidCap: number): string {
     return (
-        BODY_COLS_WGSL +
+        PACK_B_CONSTS_WGSL +
         /* wgsl */ `
 @group(0) @binding(0) var<storage, read> membership: array<u32>;
 @group(0) @binding(1) var<storage, read_write> packSums: array<u32>;
@@ -2558,77 +3959,44 @@ export interface JointDef {
     };
 }
 
-// 256-byte minimum dynamic-uniform-offset alignment (the colorUbo stride)
-const UBO_ALIGN = 256;
-
 interface Pass {
     pipeline: GPUComputePipeline;
     layout: GPUBindGroupLayout;
+    /** which shared solver variant this kernel's accessors resolved against — the bind group the
+     *  dispatch helpers set at {@link SOLVER_GROUP}. `undefined` = a kernel that splices no accessor
+     *  (the CSR scan, the pack passes, which address `bodies` by column through their own binding). */
+    variant?: VariantTag;
 }
+
+type VariantTag = "roRo" | "roRw" | "rwRw";
+
+const variants: Record<VariantTag, ReturnType<typeof accessors>> = { roRo, roRw, rwRw };
 
 async function buildPass(
     device: GPUDevice,
     label: string,
     code: string,
     entries: GPUBindGroupLayoutEntry[],
+    variant?: VariantTag,
 ): Promise<Pass> {
     const layout = device.createBindGroupLayout({ label, entries });
+    const groups = [layout];
+    if (variant) groups.push(Compute.root.unwrap(variants[variant].layout));
     const pipeline = await device.createComputePipelineAsync({
         label,
-        layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
+        layout: device.createPipelineLayout({ bindGroupLayouts: groups }),
         compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
     });
-    return { pipeline, layout };
+    return { pipeline, layout, variant };
 }
 
 const ro: GPUBufferBindingType = "read-only-storage";
 const rw: GPUBufferBindingType = "storage";
-const uni = (hasDynamicOffset = false): GPUBufferBindingLayout => ({
-    type: "uniform",
-    hasDynamicOffset,
-});
 const buf = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEntry => ({
     binding,
     visibility: GPUShaderStage.COMPUTE,
     buffer: { type },
 });
-
-// the four narrowphase pipelines (box / rounded / hull / rounded-poly) share ONE bind-group layout + bind
-// group; each compiles only its own shape-pair SAT chunk (the DXC pipeline split, see `collidePass`). The
-// four `createComputePipelineAsync` calls run concurrently, so the wall-clock compile ≈ the largest single
-// chunk — the hull SAT + the rounded segment-clip split apart so neither is the old combined long pole.
-async function buildCollide(
-    device: GPUDevice,
-): Promise<{ layout: GPUBindGroupLayout; pipelines: GPUComputePipeline[] }> {
-    const layout = device.createBindGroupLayout({
-        label: "phys-collide",
-        entries: [
-            buf(0, ro),
-            buf(1, rw),
-            buf(2, rw),
-            { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-            buf(4, ro),
-            buf(5, ro),
-            buf(6, ro),
-        ],
-    });
-    const pipelineLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-    const make = (label: string, code: string): Promise<GPUComputePipeline> =>
-        device.createComputePipelineAsync({
-            label,
-            layout: pipelineLayout,
-            compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
-        });
-    // box first — it's the lifecycle owner, dispatched first each step (see record()). The class gates are
-    // mutually exclusive, so the fill order of the other three (rounded / hull / rounded-poly) doesn't matter.
-    const pipelines = await Promise.all([
-        make("phys-collide-box", COLLIDE_BOX_WGSL),
-        make("phys-collide-rounded", COLLIDE_ROUNDED_WGSL),
-        make("phys-collide-hull", COLLIDE_HULL_WGSL),
-        make("phys-collide-rounded-poly", COLLIDE_ROUNDEDPOLY_WGSL),
-    ]);
-    return { layout, pipelines };
-}
 
 /**
  * the GPU AVBD step pipeline. Solver state is eid-indexed over `eidCap` (the scene capacity), persistent
@@ -2723,7 +4091,6 @@ export class PhysicsStep {
     /** indirect body-pass dispatch args `[ceil(count/64), 1, 1]` — written by packScan / gateSetCount */
     readonly dispatchArgs: GPUBuffer;
     private readonly _stepUbo: GPUBuffer;
-    private readonly _colorUbo: GPUBuffer;
     /** the render-interpolation alpha (= time.fixedAlpha) the compose pass blends prev→curr by; rewritten
      * each compose call (the one per-render-frame uniform — distinct from the per-step `_stepUbo.alpha`) */
     private readonly _interpUbo: GPUBuffer;
@@ -2756,72 +4123,85 @@ export class PhysicsStep {
     private readonly _anchorScratch = new Float32Array(3); // reused per-frame world-anchor write (setJointAnchor)
     /** the shared LBVH builder over body sphere-AABBs — the broadphase acceleration structure */
     private readonly _bvh: Bvh;
-    private readonly _aabb: Pass;
-    private readonly _broadphase: Pass;
-    private readonly _broadphaseSmall: Pass;
-    // the narrowphase is four pipelines (box / rounded / hull / rounded-poly) sharing one bind-group layout + bind group,
-    // each compiling only its shape-pair SAT chunk (the DXC pipeline split). Dispatched in order each step.
-    private readonly _collideLayout: GPUBindGroupLayout;
-    private readonly _collidePipelines: GPUComputePipeline[];
-    private readonly _inertial: Pass;
-    private readonly _primal: Pass;
-    /** the per-color commit: applies `solveOut` → `bodies` for the current color (the double-buffer write) */
-    private readonly _commit: Pass;
-    private readonly _dual: Pass;
-    private readonly _solveLds: Pass;
-    private readonly _coloring: Pass;
-    /** the joint hard-conflict coloring repair (Phase 6.2), run JOINT_REPAIR_ROUNDS times after the greedy */
-    private readonly _repair: Pass;
-    /** per-joint warmstart + C₀ capture (Phase 6.2), before the main loop */
-    private readonly _jointInit: Pass;
-    /** per-joint dual update (Phase 6.2), after each iteration's primal */
-    private readonly _jointDual: Pass;
-    private readonly _velocity: Pass;
-    private readonly _compose: Pass;
-    private readonly _csrCount: Pass;
+    /** the aabb prim pass — a typed pipeline, bound to its own I/O + the shared solver group */
+    private readonly _aabbPipe: TgpuComputePipeline;
+    /** the two broadphase regimes (C1.0) — typed pipelines, bound to their own I/O + the shared roRo group */
+    private readonly _broadphasePipe: TgpuComputePipeline;
+    private readonly _broadphaseSmallPipe: TgpuComputePipeline;
+    // the narrowphase is four typed pipelines (box / rounded / hull / rounded-poly), each calling only its
+    // own shape-pair SAT fn (`tgpu.resolve`'s per-kernel call-graph walk is the DXC pipeline split — no
+    // manual chunk composition). Dispatched in order each step; rebuilt (re-`.with()`'d, not recompiled)
+    // whenever `setHulls` grows the `hullData` buffer.
+    private _collidePipes: TgpuComputePipeline[];
+    /** the inertial target + adaptive warmstart pass — a typed pipeline, own I/O + the shared rwRw group */
+    private readonly _inertialPipe: TgpuComputePipeline;
+    /** the per-color primal: `COLOR_CAP` per-color STATIC bind groups (typegpu has no dynamic-offset
+     * uniform binding), like `_commitColorPipes` — own I/O splits across `primalOwnLayout` (group 0),
+     * the shared roRo group, `jointRo` (read-only joint records), and `primalColorLayout` (colors/eids/
+     * solveOut/color); rebuilt in `buildSolveBindGroups` alongside the growable csr/constraint buffers. */
+    private _primalColorPipes!: TgpuComputePipeline[];
+    private _primalBase?: TgpuComputePipeline;
+    /** the per-color commit: applies `solveOut` → `bodies` for the current color (the double-buffer
+     * write) — a typed pipeline. `COLOR_CAP` per-color STATIC bind groups (typegpu has no dynamic-offset
+     * uniform binding) let the color loop select `_commitColorPipes[c]` by index at encode; one physical
+     * buffer per color dodges the 256-byte `minUniformBufferOffsetAlignment` rule. */
+    private readonly _commitColorPipes: TgpuComputePipeline[];
+    /** one 4-byte uniform buffer per color, seeded once at construction with its own index — shared by
+     * `_commitColorPipes` and `_primalColorPipes`. */
+    private readonly _colorIdxBufs: GPUBuffer[];
+    /** the contact dual update — a typed pipeline, own I/O + the shared roRw group. */
+    private readonly _dualPipe: TgpuComputePipeline;
+    /** the LDS-resident solve (C1.2) — a typed pipeline; own I/O splits across `primalOwnLayout` (group 0,
+     * forced by `solverLds.solvePose`'s internal reads), the shared rwRw group, `jointRw`, and `ldsLayout`
+     * (colors/eids/denseMap). Rebuilt in `buildSolveBindGroups` alongside the same growable buffers. */
+    private _solveLdsPipe!: TgpuComputePipeline;
+    private _solveLdsBase?: TgpuComputePipeline;
+    /** the incremental-greedy body coloring — a typed pipeline; re-`.with()`'d (never recompiled) whenever
+     * `setSprings`/`setJoints` grows `constraintList` (the collide-pipe growth precedent) */
+    private _coloringPipe!: TgpuComputePipeline;
+    /** the joint hard-conflict coloring repair (Phase 6.2), run JOINT_REPAIR_ROUNDS times after the greedy —
+     * a typed pipeline, re-`.with()`'d alongside `_coloringPipe` */
+    private _repairPipe!: TgpuComputePipeline;
+    /** per-joint warmstart + C₀ capture (Phase 6.2), before the main loop — a typed pipeline; re-`.with()`'d
+     * (never recompiled) whenever `setJoints` grows `jointRecords` (the `_jointBG` regrowth, alongside
+     * `_coloringPipe`/`_repairPipe`'s `constraintList` regrowth). */
+    private _jointInitPipe!: TgpuComputePipeline;
+    /** per-joint dual update (Phase 6.2), after each iteration's primal — a typed pipeline, re-`.with()`'d
+     * alongside `_jointInitPipe`. */
+    private _jointDualPipe!: TgpuComputePipeline;
+    private readonly _velocityPipe: TgpuComputePipeline;
+    /** the compose pipeline — built lazily on the first `compose()` call (needs the external firehose
+     * buffer's identity, like the raw-era `_composeBG`); `!` = assigned there. */
+    private _composePipe!: TgpuComputePipeline;
+    private readonly _csrCountPipe: TgpuComputePipeline;
     private readonly _csrScan: Pass;
-    private readonly _csrScatter: Pass;
-    /** the fused small-N CSR + coloring tail (C1.1) — replaces the 3 CSR passes + colorize in the small regime */
-    private readonly _csrColorSmall: Pass;
+    private readonly _csrScatterPipe: TgpuComputePipeline;
+    /** the fused small-N CSR + coloring tail (C1.1) — replaces the 3 CSR passes + colorize in the small
+     * regime. A typed pipeline; re-`.with()`'d alongside `_coloringPipe`/`_repairPipe` (binds the same
+     * growable `constraintCsr`/`constraintList`). */
+    private _csrColorSmallPipe!: TgpuComputePipeline;
     // the pack (membership-scan compaction + one-time seed; count → scan → scatter, C1.3) is plugin-only
     // (membership-gated / slab-sourced); null for the standalone gates, which set `eids` via
     // `gateSetCount` + seed `bodies` by `writeBuffer` directly.
     private readonly _packCount: Pass | null;
     private readonly _packScan: Pass | null;
     private readonly _packScatter: Pass | null;
-    private readonly _aabbBG: GPUBindGroup;
-    private readonly _broadphaseBG: GPUBindGroup;
-    private readonly _broadphaseSmallBG: GPUBindGroup;
-    // rebuilt by `setHulls` when the hullData buffer grows (the `!` = assigned via `_makeCollideBG`)
-    private _collideBG!: GPUBindGroup;
-    private readonly _inertialBG: GPUBindGroup;
-    // the solve block (coloring / primal / commit) binds the dense `eids` map in its dense-map slot — the
-    // iters × colors solve iterates every live body. primal + coloring bind the growable constraintList, so
-    // they're (re)built by buildSolveBindGroups (the `!`); commit binds fixed buffers (constructor, `readonly`).
-    private _primalBG!: GPUBindGroup;
-    private _solveLdsBG!: GPUBindGroup;
-    private readonly _commitBG: GPUBindGroup;
-    private readonly _dualBG: GPUBindGroup;
-    private _coloringBG!: GPUBindGroup;
-    // the repair + joint passes bind the growable constraintList / jointRecords, so they're (re)built by
-    // buildSolveBindGroups alongside primal + coloring (the `!` = assigned via that helper)
-    private _repairBG!: GPUBindGroup;
-    private _csrColorSmallBG!: GPUBindGroup;
-    private _jointInitBG!: GPUBindGroup;
-    private _jointDualBG!: GPUBindGroup;
-    private readonly _velocityBG: GPUBindGroup;
-    private readonly _csrCountBG: GPUBindGroup;
+    private readonly _sharedBG: Record<VariantTag, GPUBindGroup>;
+    // the joint-records group (JOINT_GROUP): jointRecords grows on `setJoints`, so both are rebuilt
+    // (alongside `_jointInitPipe`/`_jointDualPipe`/`_primalColorPipes`/`_solveLdsPipe`'s re-`.with()`)
+    // whenever it does. `_jointBG` is mutable (joint-init/joint-dual/solve-lds write it); `_jointBGRo` is
+    // read-only (the typed primal only reads it).
+    private _jointBG!: GPUBindGroup;
+    private _jointBGRo!: GPUBindGroup;
     private readonly _csrScanBG: GPUBindGroup;
-    private readonly _csrScatterBG: GPUBindGroup;
     // built lazily on the first pack call (the slab .gpu + membership buffers aren't allocated at warm —
     // parallel warms); rebuilt if a source identity changes (stable in practice — allocated once)
     private _packCountBG: GPUBindGroup | null = null;
     private _packScanBG: GPUBindGroup | null = null;
     private _packScatterBG: GPUBindGroup | null = null;
     private _gatherInputs: Inputs | null = null;
-    // built lazily on the first compose call (needs the external firehose buffer); rebuilt if its
-    // identity changes (it doesn't in practice — TransformsPlugin allocates it once)
-    private _composeBG: GPUBindGroup | null = null;
+    // rebuilt if the external firehose buffer's identity changes (it doesn't in practice —
+    // TransformsPlugin allocates it once); tracks `_composePipe`'s built-against identity
     private _composeDst: GPUBuffer | null = null;
     private _iterations = 10;
     // dispatched-color cap: the primal dispatches `_maxColors` color-passes per iteration (empty colors
@@ -2863,25 +4243,7 @@ export class PhysicsStep {
         maxBodies: number,
         bvh: Bvh,
         passes: {
-            aabb: Pass;
-            broadphase: Pass;
-            broadphaseSmall: Pass;
-            collide: { layout: GPUBindGroupLayout; pipelines: GPUComputePipeline[] };
-            inertial: Pass;
-            primal: Pass;
-            commit: Pass;
-            dual: Pass;
-            solveLds: Pass;
-            coloring: Pass;
-            repair: Pass;
-            jointInit: Pass;
-            jointDual: Pass;
-            velocity: Pass;
-            compose: Pass;
-            csrCount: Pass;
             csrScan: Pass;
-            csrScatter: Pass;
-            csrColorSmall: Pass;
             packCount: Pass | null;
             packScan: Pass | null;
             packScatter: Pass | null;
@@ -3058,14 +4420,7 @@ export class PhysicsStep {
         });
         this._stepUbo = device.createBuffer({
             label: "phys-step",
-            size: 64,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        // one 256-byte slot per dispatched color (slot c holds u32 c, read at dynamic offset c·256 by
-        // the primal). COLOR_CAP slots is exact — `maxColors` clamps to it, so c never exceeds it.
-        this._colorUbo = device.createBuffer({
-            label: "phys-color-ubo",
-            size: COLOR_CAP * UBO_ALIGN,
+            size: STEP_BYTES,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
         this._interpUbo = device.createBuffer({
@@ -3073,119 +4428,160 @@ export class PhysicsStep {
             size: 16,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
-        const colorSeed = new Uint32Array((COLOR_CAP * UBO_ALIGN) / 4);
-        for (let c = 0; c < COLOR_CAP; c++) colorSeed[(c * UBO_ALIGN) / 4] = c;
-        device.queue.writeBuffer(this._colorUbo, 0, colorSeed);
 
-        this._aabb = passes.aabb;
-        this._broadphase = passes.broadphase;
-        this._broadphaseSmall = passes.broadphaseSmall;
-        this._collideLayout = passes.collide.layout;
-        this._collidePipelines = passes.collide.pipelines;
-        this._inertial = passes.inertial;
-        this._primal = passes.primal;
-        this._commit = passes.commit;
-        this._dual = passes.dual;
-        this._solveLds = passes.solveLds;
-        this._coloring = passes.coloring;
-        this._repair = passes.repair;
-        this._jointInit = passes.jointInit;
-        this._jointDual = passes.jointDual;
-        this._velocity = passes.velocity;
-        this._compose = passes.compose;
-        this._csrCount = passes.csrCount;
         this._csrScan = passes.csrScan;
-        this._csrScatter = passes.csrScatter;
-        this._csrColorSmall = passes.csrColorSmall;
         this._packCount = passes.packCount;
         this._packScan = passes.packScan;
         this._packScatter = passes.packScatter;
 
-        this._aabbBG = device.createBindGroup({
-            label: "phys-aabb",
-            layout: this._aabb.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: bvh.prims } },
-                { binding: 2, resource: { buffer: this._stepUbo } },
-                { binding: 3, resource: { buffer: this.eids } },
-            ],
+        // the shared solver group (params + bodies + pairContacts), one bind group per access variant —
+        // every kernel's accessors resolved against one of these, so the dispatch helpers set it at
+        // SOLVER_GROUP and no kernel re-declares the three bindings.
+        const root = Compute.root;
+        const shared = {
+            params: this._stepUbo,
+            bodies: this.bodies,
+            pairContacts: this.pairContacts,
+        };
+        this._sharedBG = {
+            roRo: root.unwrap(root.createBindGroup(roRo.layout, shared)),
+            roRw: root.unwrap(root.createBindGroup(roRw.layout, shared)),
+            rwRw: root.unwrap(root.createBindGroup(rwRw.layout, shared)),
+        };
+        this._aabbPipe = root
+            .createComputePipeline({ compute: aabbKernel })
+            .$name("phys-aabb")
+            .with(root.createBindGroup(aabbLayout, { prims: bvh.prims, eids: this.eids }))
+            .with(roRo.layout, this._sharedBG.roRo);
+        // a typed pipeline is created synchronously, so Dawn defers its shader compile to the first
+        // dispatch — a first-frame hitch where the raw passes' `createComputePipelineAsync` compiled at
+        // build. Force it at warm with a 0-workgroup dispatch, the shipped drain (1a). Both groups are
+        // already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates its
+        // own buffers must return the *dispatch* for that guard to fire (2a).
+        precompile("phys-aabb", () => {
+            this._aabbPipe.dispatchWorkgroups(0);
+            return this._aabbPipe;
         });
-        this._broadphaseBG = device.createBindGroup({
-            label: "phys-broadphase",
-            layout: this._broadphase.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: bvh.nodes } },
-                { binding: 2, resource: { buffer: this.pairList } },
-                { binding: 3, resource: { buffer: this.counters } },
-                { binding: 4, resource: { buffer: this._stepUbo } },
-                { binding: 5, resource: { buffer: this.eids } },
-            ],
+        this._broadphasePipe = root
+            .createComputePipeline({ compute: broadphaseKernel })
+            .$name("phys-broadphase")
+            .with(
+                root.createBindGroup(broadphaseLayout, {
+                    nodes: bvh.nodes,
+                    pairList: this.pairList,
+                    counters: this.counters,
+                    eids: this.eids,
+                }),
+            )
+            .with(roRo.layout, this._sharedBG.roRo);
+        precompile("phys-broadphase", () => {
+            this._broadphasePipe.dispatchWorkgroups(0);
+            return this._broadphasePipe;
         });
-        this._broadphaseSmallBG = device.createBindGroup({
-            label: "phys-broadphase-small",
-            layout: this._broadphaseSmall.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: bvh.prims } },
-                { binding: 2, resource: { buffer: this.pairList } },
-                { binding: 3, resource: { buffer: this.counters } },
-                { binding: 4, resource: { buffer: this._stepUbo } },
-                { binding: 5, resource: { buffer: this.eids } },
-            ],
+        this._broadphaseSmallPipe = root
+            .createComputePipeline({ compute: broadphaseSmallKernel })
+            .$name("phys-broadphase-small")
+            .with(
+                root.createBindGroup(broadphaseSmallLayout, {
+                    prims: bvh.prims,
+                    pairList: this.pairList,
+                    counters: this.counters,
+                    eids: this.eids,
+                }),
+            )
+            .with(roRo.layout, this._sharedBG.roRo);
+        precompile("phys-broadphase-small", () => {
+            this._broadphaseSmallPipe.dispatchWorkgroups(0);
+            return this._broadphaseSmallPipe;
         });
-        this._collideBG = this._makeCollideBG();
-        this._inertialBG = device.createBindGroup({
-            label: "phys-inertial",
-            layout: this._inertial.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this._stepUbo } },
-                { binding: 2, resource: { buffer: this.eids } },
-            ],
+        this._collidePipes = this._makeCollidePipes();
+        for (const [i, label] of ["box", "rounded", "hull", "rounded-poly"].entries()) {
+            precompile(`phys-collide-${label}`, () => {
+                const pipe = this._collidePipes[i];
+                pipe.dispatchWorkgroups(0);
+                return pipe;
+            });
+        }
+        this._inertialPipe = root
+            .createComputePipeline({ compute: inertialKernel })
+            .$name("phys-inertial")
+            .with(root.createBindGroup(inertialLayout, { eids: this.eids }))
+            .with(rwRw.layout, this._sharedBG.rwRw);
+        precompile("phys-inertial", () => {
+            this._inertialPipe.dispatchWorkgroups(0);
+            return this._inertialPipe;
         });
-        // the commit binds the dense `eids` map in the dense-map slot — the solve iterates every live body.
-        this._commitBG = device.createBindGroup({
-            label: "phys-commit",
-            layout: this._commit.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.solveOut } },
-                { binding: 1, resource: { buffer: this.colors } },
-                { binding: 2, resource: { buffer: this.bodies } },
-                { binding: 3, resource: { buffer: this.eids } },
-                { binding: 4, resource: { buffer: this._stepUbo } },
-                { binding: 5, resource: { buffer: this._colorUbo, size: 16 } },
-            ],
+        this._velocityPipe = root
+            .createComputePipeline({ compute: velocityKernel })
+            .$name("phys-velocity")
+            .with(root.createBindGroup(velocityLayout, { eids: this.eids }))
+            .with(rwRw.layout, this._sharedBG.rwRw);
+        precompile("phys-velocity", () => {
+            this._velocityPipe.dispatchWorkgroups(0);
+            return this._velocityPipe;
         });
-        this._dualBG = device.createBindGroup({
-            label: "phys-dual",
-            layout: this._dual.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.pairContacts } },
-                { binding: 2, resource: { buffer: this._stepUbo } },
-                { binding: 3, resource: { buffer: this.eids } },
-            ],
+        this._csrCountPipe = root
+            .createComputePipeline({ compute: csrCountKernel })
+            .$name("phys-csr-count")
+            .with(root.createBindGroup(csrCountLayout, { csr: this.csr, eids: this.eids }))
+            .with(roRo.layout, this._sharedBG.roRo);
+        precompile("phys-csr-count", () => {
+            this._csrCountPipe.dispatchWorkgroups(0);
+            return this._csrCountPipe;
         });
-        this._velocityBG = device.createBindGroup({
-            label: "phys-velocity",
-            layout: this._velocity.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this._stepUbo } },
-                { binding: 2, resource: { buffer: this.eids } },
-            ],
+        this._csrScatterPipe = root
+            .createComputePipeline({ compute: csrScatterKernel })
+            .$name("phys-csr-scatter")
+            .with(
+                root.createBindGroup(csrScatterLayout, {
+                    csr: this.csr,
+                    csrList: this.csrList,
+                    eids: this.eids,
+                }),
+            )
+            .with(roRo.layout, this._sharedBG.roRo);
+        precompile("phys-csr-scatter", () => {
+            this._csrScatterPipe.dispatchWorkgroups(0);
+            return this._csrScatterPipe;
         });
-        this._csrCountBG = device.createBindGroup({
-            label: "phys-csr-count",
-            layout: this._csrCount.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.pairContacts } },
-                { binding: 1, resource: { buffer: this.csr } },
-                { binding: 2, resource: { buffer: this._stepUbo } },
-                { binding: 3, resource: { buffer: this.eids } },
-            ],
+        this._colorIdxBufs = [];
+        for (let c = 0; c < COLOR_CAP; c++) {
+            const buf = device.createBuffer({
+                label: `phys-color-idx-${c}`,
+                size: d.sizeOf(ColorIdx),
+                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+            });
+            device.queue.writeBuffer(buf, 0, new Uint32Array([c]));
+            this._colorIdxBufs.push(buf);
+        }
+        const commitBase = root
+            .createComputePipeline({ compute: commitKernel })
+            .$name("phys-commit");
+        this._commitColorPipes = this._colorIdxBufs.map((color) =>
+            commitBase
+                .with(
+                    root.createBindGroup(commitLayout, {
+                        solveOut: this.solveOut,
+                        colors: this.colors,
+                        eids: this.eids,
+                        color,
+                    }),
+                )
+                .with(rwRw.layout, this._sharedBG.rwRw),
+        );
+        precompile("phys-commit", () => {
+            const pipe = this._commitColorPipes[0];
+            pipe.dispatchWorkgroups(0);
+            return pipe;
+        });
+        this._dualPipe = root
+            .createComputePipeline({ compute: dualKernel })
+            .$name("phys-dual")
+            .with(root.createBindGroup(dualLayout, { eids: this.eids }))
+            .with(roRw.layout, this._sharedBG.roRw);
+        precompile("phys-dual", () => {
+            this._dualPipe.dispatchWorkgroups(0);
+            return this._dualPipe;
         });
         this._csrScanBG = device.createBindGroup({
             label: "phys-csr-scan",
@@ -3195,45 +4591,114 @@ export class PhysicsStep {
                 { binding: 1, resource: { buffer: this.csr } },
             ],
         });
-        this._csrScatterBG = device.createBindGroup({
-            label: "phys-csr-scatter",
-            layout: this._csrScatter.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.pairContacts } },
-                { binding: 1, resource: { buffer: this.csr } },
-                { binding: 2, resource: { buffer: this.csrList } },
-                { binding: 3, resource: { buffer: this._stepUbo } },
-                { binding: 4, resource: { buffer: this.eids } },
-            ],
-        });
-        // the solve bind groups last — they bind the growable constraintList / jointRecords, so a set* that grows
-        // either rebuilds them (primal + coloring + csrColorSmall + repair + jointInit + jointDual)
+        // the solve bind groups last — they bind the growable constraintList / jointRecords, so a set* that
+        // grows either rebuilds them (primal + solve-lds + csrColorSmall + jointInit + jointDual)
         this.buildSolveBindGroups();
+        // force-compiled once here (like the collide pipes) — a later constraintList/jointRecords grow
+        // re-`.with()`s these pipelines in buildSolveBindGroups without re-registering a precompile
+        // forcer, matching setHulls' growth policy for the collide pipes.
+        precompile("phys-primal", () => {
+            const pipe = this._primalColorPipes[0];
+            pipe.dispatchWorkgroups(0);
+            return pipe;
+        });
+        precompile("phys-solve-lds", () => {
+            this._solveLdsPipe.dispatchWorkgroups(0);
+            return this._solveLdsPipe;
+        });
+        precompile("phys-coloring", () => {
+            this._coloringPipe.dispatchWorkgroups(0);
+            return this._coloringPipe;
+        });
+        precompile("phys-repair", () => {
+            this._repairPipe.dispatchWorkgroups(0);
+            return this._repairPipe;
+        });
+        precompile("phys-csr-color-small", () => {
+            this._csrColorSmallPipe.dispatchWorkgroups(0);
+            return this._csrColorSmallPipe;
+        });
+        precompile("phys-joint-init", () => {
+            this._jointInitPipe.dispatchWorkgroups(0);
+            return this._jointInitPipe;
+        });
+        precompile("phys-joint-dual", () => {
+            this._jointDualPipe.dispatchWorkgroups(0);
+            return this._jointDualPipe;
+        });
     }
 
-    // (re)build the bind groups that reference the growable constraintList / jointRecords (primal, coloring,
-    // csrColorSmall, repair, jointInit, jointDual) — from the constructor and again whenever a set* reallocates either past
-    // its cap. The primal binds jointRecords (binding 11) — 10 storage buffers, exactly the floor.
-    private _makeCollideBG(): GPUBindGroup {
-        return this.device.createBindGroup({
-            label: "phys-collide",
-            layout: this._collideLayout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.pairContacts } },
-                { binding: 2, resource: { buffer: this.counters } },
-                { binding: 3, resource: { buffer: this._stepUbo } },
-                { binding: 4, resource: { buffer: this.pairList } },
-                { binding: 5, resource: { buffer: this.eids } },
-                { binding: 6, resource: { buffer: this.hullData } },
-            ],
+    // the coloring + repair pipelines bind the growable `constraintList` (setSprings/setJoints), so — like
+    // the collide pipes' `hullData` growth — a grow re-`.with()`s onto the new buffer without recompiling.
+    private _makeColoringPipe(): TgpuComputePipeline {
+        const root = Compute.root;
+        this._coloringBase ??= root
+            .createComputePipeline({ compute: coloringKernel })
+            .$name("phys-coloring");
+        const group0 = root.createBindGroup(coloringLayout, {
+            csr: this.csr,
+            csrList: this.csrList,
+            colors: this.colors,
+            colorScratch: this.colorScratch,
+            eids: this.eids,
+            colorCount: this.colorCount,
+            constraintCsr: this.constraintCsr,
+            constraintList: this.constraintList,
         });
+        return this._coloringBase.with(group0).with(roRo.layout, this._sharedBG.roRo);
+    }
+    private _coloringBase?: TgpuComputePipeline;
+
+    private _makeRepairPipe(): TgpuComputePipeline {
+        const root = Compute.root;
+        this._repairBase ??= root
+            .createComputePipeline({ compute: repairKernel })
+            .$name("phys-repair");
+        const group0 = root.createBindGroup(repairLayout, {
+            colors: this.colors,
+            colorScratch: this.colorScratch,
+            constraintCsr: this.constraintCsr,
+            constraintList: this.constraintList,
+            eids: this.eids,
+            colorCount: this.colorCount,
+        });
+        return this._repairBase.with(group0).with(roRo.layout, this._sharedBG.roRo);
+    }
+    private _repairBase?: TgpuComputePipeline;
+
+    // the four collide kernels compile once (memoized here); only the group-0 bind group depends on
+    // `hullData`, which grows (a new buffer) on demand — so a `setHulls` growth re-`.with()`s the four
+    // pipelines onto the new bind group without recompiling any of them.
+    private _collideBase?: TgpuComputePipeline[];
+
+    private _makeCollidePipes(): TgpuComputePipeline[] {
+        const root = Compute.root;
+        this._collideBase ??= [
+            root.createComputePipeline({ compute: collideBoxKernel }).$name("phys-collide-box"),
+            root
+                .createComputePipeline({ compute: collideRoundedKernel })
+                .$name("phys-collide-rounded"),
+            root.createComputePipeline({ compute: collideHullKernel }).$name("phys-collide-hull"),
+            root
+                .createComputePipeline({ compute: collideRoundedPolyKernel })
+                .$name("phys-collide-rounded-poly"),
+        ];
+        const group0 = root.createBindGroup(collideLayout, {
+            counters: this.counters,
+            pairList: this.pairList,
+            eids: this.eids,
+            hullData: this.hullData,
+        });
+        return this._collideBase.map((pipe) =>
+            pipe.with(group0).with(roRw.layout, this._sharedBG.roRw),
+        );
     }
 
     /**
      * Upload the packed convex-hull geometry (`./hull` packHulls) the collide pass reads for ShapeKind.Hull
-     * bodies. The buffer grows on demand (rebuilding the collide bind group). Idempotent — a no-op when the
-     * data is unchanged is the caller's job (the plugin uploads only when the `Hulls` registry changes).
+     * bodies. The buffer grows on demand (rebinding the four collide pipelines onto the new buffer).
+     * Idempotent — a no-op when the data is unchanged is the caller's job (the plugin uploads only when the
+     * `Hulls` registry changes).
      */
     setHulls(data: Uint32Array): void {
         const bytes = Math.max(4, data.byteLength);
@@ -3244,122 +4709,120 @@ export class PhysicsStep {
                 size: bytes,
                 usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
             });
-            this._collideBG = this._makeCollideBG();
+            this._collidePipes = this._makeCollidePipes();
         }
         this.device.queue.writeBuffer(this.hullData, 0, data as Uint32Array<ArrayBuffer>);
     }
 
     private buildSolveBindGroups(): void {
-        // the primal binds the dense `eids` map in the dense-map slot (7) — the looped color solve iterates
-        // every live body.
-        this._primalBG = this.device.createBindGroup({
-            label: "phys-primal",
-            layout: this._primal.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.pairContacts } },
-                { binding: 2, resource: { buffer: this.csr } },
-                { binding: 3, resource: { buffer: this.csrList } },
-                { binding: 4, resource: { buffer: this.colors } },
-                { binding: 5, resource: { buffer: this._stepUbo } },
-                { binding: 6, resource: { buffer: this._colorUbo, size: 16 } },
-                { binding: 7, resource: { buffer: this.eids } },
-                { binding: 8, resource: { buffer: this.solveOut } },
-                { binding: 9, resource: { buffer: this.constraintCsr } },
-                { binding: 10, resource: { buffer: this.constraintList } },
-                { binding: 11, resource: { buffer: this.jointRecords } },
-            ],
+        const root = Compute.root;
+        // `primalOwnLayout` (csr/csrList/constraintCsr/constraintList) is forced onto both the typed
+        // primal and solve-lds by `solverRoRo`/`solverLds`'s internal reads — one bind group, shared.
+        const ownGroup = root.createBindGroup(primalOwnLayout, {
+            csr: this.csr,
+            csrList: this.csrList,
+            constraintCsr: this.constraintCsr,
+            constraintList: this.constraintList,
         });
-        this._solveLdsBG = this.device.createBindGroup({
-            label: "phys-solve-lds",
-            layout: this._solveLds.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.pairContacts } },
-                { binding: 2, resource: { buffer: this.csr } },
-                { binding: 3, resource: { buffer: this.csrList } },
-                { binding: 4, resource: { buffer: this.colors } },
-                { binding: 5, resource: { buffer: this._stepUbo } },
-                { binding: 6, resource: { buffer: this.eids } },
-                // the eid → dense map rides the solveOut scratch (unused by the LDS path; 2·eidCap
-                // vec4s ≥ the eidCap u32s the map needs), rebound as array<u32> — the kernel is at the
-                // 10-storage-binding floor, so the map can't be a new buffer without evicting one
-                { binding: 7, resource: { buffer: this.solveOut } },
-                { binding: 8, resource: { buffer: this.constraintCsr } },
-                { binding: 9, resource: { buffer: this.constraintList } },
-                { binding: 10, resource: { buffer: this.jointRecords } },
-            ],
+        // the joint-records group grows with `jointRecords` (setJoints) — rebuilt here alongside every
+        // pipeline that binds it (mirroring the constraintList regrowth above).
+        this._jointBG = root.unwrap(
+            root.createBindGroup(jointRw.layout, { jointRecords: this.jointRecords }),
+        );
+        this._jointBGRo = root.unwrap(
+            root.createBindGroup(jointRo.layout, { jointRecords: this.jointRecords }),
+        );
+
+        this._primalBase ??= root
+            .createComputePipeline({ compute: primalKernel })
+            .$name("phys-primal");
+        this._primalColorPipes = this._colorIdxBufs.map((color) =>
+            this._primalBase!.with(ownGroup)
+                .with(roRo.layout, this._sharedBG.roRo)
+                .with(jointRo.layout, this._jointBGRo)
+                .with(
+                    root.createBindGroup(primalColorLayout, {
+                        colors: this.colors,
+                        eids: this.eids,
+                        solveOut: this.solveOut,
+                        color,
+                    }),
+                ),
+        );
+
+        this._solveLdsBase ??= root
+            .createComputePipeline({ compute: solveLdsKernel })
+            .$name("phys-solve-lds");
+        this._solveLdsPipe = this._solveLdsBase
+            .with(ownGroup)
+            .with(rwRw.layout, this._sharedBG.rwRw)
+            .with(jointRw.layout, this._jointBG)
+            .with(
+                root.createBindGroup(ldsLayout, {
+                    colors: this.colors,
+                    eids: this.eids,
+                    // the eid → dense map rides the solveOut scratch (unused by the LDS path; 2·eidCap
+                    // vec4s ≥ the eidCap u32s the map needs), rebound as array<u32>
+                    denseMap: this.solveOut,
+                }),
+            );
+
+        // the coloring + repair + csrColorSmall pipelines bind the same growable constraintCsr/constraintList
+        // — re-`.with()`'d here too (a no-op the first time this runs, from the constructor, before
+        // `_coloringBase`/`_repairBase`/`_csrColorSmallBase` exist)
+        this._coloringPipe = this._makeColoringPipe();
+        this._repairPipe = this._makeRepairPipe();
+        this._csrColorSmallPipe = this._makeCsrColorSmallPipe();
+        this._jointInitPipe = this._makeJointInitPipe();
+        this._jointDualPipe = this._makeJointDualPipe();
+    }
+
+    private _csrColorSmallBase?: TgpuComputePipeline;
+    private _makeCsrColorSmallPipe(): TgpuComputePipeline {
+        const root = Compute.root;
+        this._csrColorSmallBase ??= root
+            .createComputePipeline({ compute: csrColorSmallKernel })
+            .$name("phys-csr-color-small");
+        const group0 = root.createBindGroup(csrColorSmallLayout, {
+            csr: this.csr,
+            csrList: this.csrList,
+            colors: this.colors,
+            colorScratch: this.colorScratch,
+            eids: this.eids,
+            colorCount: this.colorCount,
+            constraintCsr: this.constraintCsr,
+            constraintList: this.constraintList,
         });
-        // the coloring binds the dense `eids` map in the dense-map slot (7): it colors every live body.
-        this._coloringBG = this.device.createBindGroup({
-            label: "phys-coloring",
-            layout: this._coloring.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.pairContacts } },
-                { binding: 2, resource: { buffer: this.csr } },
-                { binding: 3, resource: { buffer: this.csrList } },
-                { binding: 4, resource: { buffer: this.colors } },
-                { binding: 5, resource: { buffer: this.colorScratch } },
-                { binding: 6, resource: { buffer: this._stepUbo } },
-                { binding: 7, resource: { buffer: this.eids } },
-                { binding: 8, resource: { buffer: this.colorCount } },
-                { binding: 9, resource: { buffer: this.constraintCsr } },
-                { binding: 10, resource: { buffer: this.constraintList } },
-            ],
+        return this._csrColorSmallBase.with(group0).with(roRo.layout, this._sharedBG.roRo);
+    }
+
+    private _jointInitBase?: TgpuComputePipeline;
+    private _makeJointInitPipe(): TgpuComputePipeline {
+        const root = Compute.root;
+        this._jointInitBase ??= root
+            .createComputePipeline({ compute: jointInitKernel })
+            .$name("phys-joint-init");
+        const group0 = root.createBindGroup(jointInitLayout, {
+            jointVersions: this.jointVersions,
+            counters: this.counters,
+            seeded: this.seeded,
         });
-        this._csrColorSmallBG = this.device.createBindGroup({
-            label: "phys-csr-color-small",
-            layout: this._csrColorSmall.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.pairContacts } },
-                { binding: 2, resource: { buffer: this.csr } },
-                { binding: 3, resource: { buffer: this.csrList } },
-                { binding: 4, resource: { buffer: this.colors } },
-                { binding: 5, resource: { buffer: this.colorScratch } },
-                { binding: 6, resource: { buffer: this._stepUbo } },
-                { binding: 7, resource: { buffer: this.eids } },
-                { binding: 8, resource: { buffer: this.colorCount } },
-                { binding: 9, resource: { buffer: this.constraintCsr } },
-                { binding: 10, resource: { buffer: this.constraintList } },
-            ],
-        });
-        this._repairBG = this.device.createBindGroup({
-            label: "phys-repair",
-            layout: this._repair.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.bodies } },
-                { binding: 1, resource: { buffer: this.colors } },
-                { binding: 2, resource: { buffer: this.colorScratch } },
-                { binding: 3, resource: { buffer: this.constraintCsr } },
-                { binding: 4, resource: { buffer: this.constraintList } },
-                { binding: 5, resource: { buffer: this._stepUbo } },
-                { binding: 6, resource: { buffer: this.eids } },
-                { binding: 7, resource: { buffer: this.colorCount } },
-            ],
-        });
-        this._jointInitBG = this.device.createBindGroup({
-            label: "phys-joint-init",
-            layout: this._jointInit.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.jointRecords } },
-                { binding: 1, resource: { buffer: this.bodies } },
-                { binding: 2, resource: { buffer: this.jointVersions } },
-                { binding: 3, resource: { buffer: this._stepUbo } },
-                { binding: 4, resource: { buffer: this.counters } },
-                { binding: 5, resource: { buffer: this.seeded } },
-            ],
-        });
-        this._jointDualBG = this.device.createBindGroup({
-            label: "phys-joint-dual",
-            layout: this._jointDual.layout,
-            entries: [
-                { binding: 0, resource: { buffer: this.jointRecords } },
-                { binding: 1, resource: { buffer: this.bodies } },
-                { binding: 2, resource: { buffer: this._stepUbo } },
-            ],
-        });
+        return this._jointInitBase
+            .with(group0)
+            .with(roRo.layout, this._sharedBG.roRo)
+            .with(jointRw.layout, this._jointBG);
+    }
+
+    private _jointDualBase?: TgpuComputePipeline;
+    private _makeJointDualPipe(): TgpuComputePipeline {
+        const root = Compute.root;
+        this._jointDualBase ??= root
+            .createComputePipeline({ compute: jointDualKernel })
+            .$name("phys-joint-dual");
+        return this._jointDualBase
+            .with(root.createBindGroup(jointDualLayout, { counters: this.counters }))
+            .with(roRo.layout, this._sharedBG.roRo)
+            .with(jointRw.layout, this._jointBG);
     }
 
     /**
@@ -3377,176 +4840,10 @@ export class PhysicsStep {
     ): Promise<PhysicsStep> {
         // the broadphase BVH over body sphere-AABBs — sized to the body pool, one prim per live body
         const bvh = await createBvh(device, maxBodies);
-        const [
-            aabb,
-            broadphase,
-            broadphaseSmall,
-            collide,
-            inertial,
-            primal,
-            commit,
-            dual,
-            solveLds,
-            coloring,
-            repair,
-            jointInit,
-            jointDual,
-            velocity,
-            compose,
-            csrCount,
-            csrScan,
-            csrScatter,
-            csrColorSmall,
-            packCount,
-            packScan,
-            packScatter,
-        ] = await Promise.all([
-            buildPass(device, "phys-aabb", AABB_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, rw),
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(3, ro),
-            ]),
-            buildPass(device, "phys-broadphase", BROADPHASE_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, rw),
-                buf(3, rw),
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(5, ro),
-            ]),
-            buildPass(device, "phys-broadphase-small", BROADPHASE_SMALL_WGSL, [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, rw),
-                buf(3, rw),
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(5, ro),
-            ]),
-            buildCollide(device),
-            buildPass(device, "phys-inertial", INERTIAL_PASS_WGSL, [
-                buf(0, rw),
-                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(2, ro),
-            ]),
-            buildPass(device, "phys-primal", PRIMAL_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, ro),
-                buf(3, ro),
-                buf(4, ro),
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: uni(true) },
-                buf(7, ro),
-                buf(8, rw),
-                buf(9, ro),
-                buf(10, ro),
-                buf(11, ro),
-            ]),
-            buildPass(device, "phys-commit", COMMIT_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, rw),
-                buf(3, ro),
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: uni(true) },
-            ]),
-            buildPass(device, "phys-dual", DUAL_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, rw),
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(3, ro),
-            ]),
-            buildPass(device, "phys-solve-lds", SOLVE_LDS_WGSL, [
-                buf(0, rw),
-                buf(1, rw),
-                buf(2, ro),
-                buf(3, ro),
-                buf(4, ro),
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(6, ro),
-                buf(7, rw),
-                buf(8, ro),
-                buf(9, ro),
-                buf(10, rw),
-            ]),
-            buildPass(device, "phys-coloring", COLORING_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, ro),
-                buf(3, ro),
-                buf(4, rw),
-                buf(5, ro),
-                { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(7, ro),
-                buf(8, rw),
-                buf(9, ro),
-                buf(10, ro),
-            ]),
-            buildPass(device, "phys-repair", REPAIR_PASS_WGSL, [
-                buf(0, ro),
-                buf(1, rw),
-                buf(2, ro),
-                buf(3, ro),
-                buf(4, ro),
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(6, ro),
-                buf(7, rw),
-            ]),
-            buildPass(device, "phys-joint-init", JOINT_INIT_PASS_WGSL, [
-                buf(0, rw),
-                buf(1, ro),
-                buf(2, ro),
-                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(4, rw),
-                buf(5, ro),
-            ]),
-            buildPass(device, "phys-joint-dual", JOINT_DUAL_PASS_WGSL, [
-                buf(0, rw),
-                buf(1, ro),
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-            ]),
-            buildPass(device, "phys-velocity", VELOCITY_PASS_WGSL, [
-                buf(0, rw),
-                { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(2, ro),
-            ]),
-            buildPass(device, "phys-compose", composePassWgsl(), [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, rw),
-                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-            ]),
-            buildPass(device, "phys-csr-count", CSR_COUNT_WGSL, [
-                buf(0, ro),
-                buf(1, rw),
-                { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(3, ro),
-            ]),
+        const [csrScan, packCount, packScan, packScatter] = await Promise.all([
             buildPass(device, "phys-csr-scan", csrScanWgsl(maxBodies, eidCap), [
                 buf(0, ro),
                 buf(1, rw),
-            ]),
-            buildPass(device, "phys-csr-scatter", CSR_SCATTER_WGSL, [
-                buf(0, ro),
-                buf(1, rw),
-                buf(2, rw),
-                { binding: 3, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(4, ro),
-            ]),
-            buildPass(device, "phys-csr-color-small", CSR_COLOR_SMALL_WGSL, [
-                buf(0, ro),
-                buf(1, ro),
-                buf(2, rw),
-                buf(3, rw),
-                buf(4, rw),
-                buf(5, rw),
-                { binding: 6, visibility: GPUShaderStage.COMPUTE, buffer: uni() },
-                buf(7, ro),
-                buf(8, rw),
-                buf(9, ro),
-                buf(10, ro),
             ]),
             packGate
                 ? buildPass(device, "phys-pack-count", packCountWgsl(packGate, eidCap), [
@@ -3588,25 +4885,7 @@ export class PhysicsStep {
                 : Promise.resolve(null),
         ]);
         return new PhysicsStep(device, eidCap, maxBodies, bvh, {
-            aabb,
-            broadphase,
-            broadphaseSmall,
-            collide,
-            inertial,
-            primal,
-            commit,
-            dual,
-            solveLds,
-            coloring,
-            repair,
-            jointInit,
-            jointDual,
-            velocity,
-            compose,
-            csrCount,
             csrScan,
-            csrScatter,
-            csrColorSmall,
             packCount,
             packScan,
             packScatter,
@@ -3632,15 +4911,15 @@ export class PhysicsStep {
         // dispatch every color over the full pool).
         this._colorsToRun = this._maxColors;
         this._bodyGroups = this._fullGroups;
-        const ab = new ArrayBuffer(64);
+        const ab = new ArrayBuffer(STEP_BYTES);
         new Uint32Array(ab, 0, 4).set([this.recordCap, p.iterations, this.eidCap, this._maxColors]);
         new Float32Array(ab, 16, 4).set([h, p.gravity, p.alpha, p.penalty]);
         // betaAng (the joint angular ramp, Phase 6.2) defaults to the canonical 100 when unset (contacts/springs
         // don't read it); jointCount is preserved (setJoints writes it separately, so a reconfigure mustn't zero it).
         new Float32Array(ab, 32, 4).set([1 / (h * h), p.betaLin, p.gamma, p.betaAng ?? 100]);
         // jointCount (48) + substeps (52). setJoints rewrites only jointCount (48), preserving substeps (52).
-        new Uint32Array(ab, 48, 2).set([this._jointCount, this._substeps]);
-        // offsets 56/60 (_pad2/_pad3) stay 0 — the ArrayBuffer is zero-init.
+        new Uint32Array(ab, STEP_JOINT_COUNT, 2).set([this._jointCount, this._substeps]);
+        // offsets 56/60 (pad2/pad3) stay 0 — the ArrayBuffer is zero-init.
         this.device.queue.writeBuffer(this._stepUbo, 0, ab);
     }
 
@@ -3998,7 +5277,11 @@ export class PhysicsStep {
         this.device.queue.writeBuffer(this.constraintCsr, 0, csr);
         if (entries > 0) this.device.queue.writeBuffer(this.constraintList, 0, list);
         // publish the joint count into the step uniform (jointInit/jointDual dispatch + early-out off it)
-        this.device.queue.writeBuffer(this._stepUbo, 48, new Uint32Array([this._jointCount]));
+        this.device.queue.writeBuffer(
+            this._stepUbo,
+            STEP_JOINT_COUNT,
+            new Uint32Array([this._jointCount]),
+        );
     }
 
     /**
@@ -4120,7 +5403,6 @@ export class PhysicsStep {
             this.jointVersions,
             this.dispatchArgs,
             this._stepUbo,
-            this._colorUbo,
         ]) {
             total += b.size;
         }
@@ -4142,21 +5424,15 @@ export class PhysicsStep {
         this.bindPack(inputs);
         this.pass(
             encoder,
-            this._packCount.pipeline,
+            this._packCount!,
             this._packCountBG!,
             this._packWgs,
             Compute.span?.("phys:pack"),
         );
+        this.pass(encoder, this._packScan!, this._packScanBG!, 1, Compute.span?.("phys:pack"));
         this.pass(
             encoder,
-            this._packScan!.pipeline,
-            this._packScanBG!,
-            1,
-            Compute.span?.("phys:pack"),
-        );
-        this.pass(
-            encoder,
-            this._packScatter!.pipeline,
+            this._packScatter!,
             this._packScatterBG!,
             this._packWgs,
             Compute.span?.("phys:pack"),
@@ -4273,12 +5549,13 @@ export class PhysicsStep {
             // (the BVH builds over it; the small-N scan tiles it). Shares this encoder, so the regime that
             // runs sees this step's prims; either writes each live body's per-eid fixed block
             // `pairList[eid·PAIRS_PER_BODY + k]` directly (nearest-K + static-pin, unused slots INVALID).
-            this.passIndirect(
-                encoder,
-                this._aabb.pipeline,
-                this._aabbBG,
-                Compute.span?.("phys:aabb"),
-            );
+            {
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:aabb"),
+                });
+                this._aabbPipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+                pass.end();
+            }
             // broadphase regime (C1.0): at a frame-stale live count ≤ smallN the one-dispatch O(n²) scan
             // covers the whole front-end (the BVH build's ~28 dependent phases are structure tax at gameplay
             // counts); past it, the BVH build + descent. Both write identical
@@ -4288,55 +5565,55 @@ export class PhysicsStep {
             const small = this._liveBound > 0 && this._liveBound <= this._smallN;
             this._smallRan = small;
             if (small) {
-                this.passIndirect(
-                    encoder,
-                    this._broadphaseSmall.pipeline,
-                    this._broadphaseSmallBG,
-                    Compute.span?.("phys:broadphase"),
-                );
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:broadphase"),
+                });
+                this._broadphaseSmallPipe
+                    .with(pass)
+                    .dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+                pass.end();
             } else {
                 this._bvh.build(encoder);
-                this.passIndirect(
-                    encoder,
-                    this._broadphase.pipeline,
-                    this._broadphaseBG,
-                    Compute.span?.("phys:broadphase"),
-                );
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:broadphase"),
+                });
+                this._broadphasePipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+                pass.end();
             }
             // narrowphase (collide): SAT + in-place warmstart over the live bodies' per-eid pair blocks. FOUR
-            // pipelines (box / rounded / hull / rounded-poly) by shape-pair class, the DXC pipeline split (see collidePass).
-            // All dispatch indirect off pairArgs (= ceil(liveCount·PAIRS_PER_BODY/64) workgroups, written by
-            // packScan) over the SAME slots; each lane → d → owner eid → slot = eid·K + k, early-out past the
-            // live body count + the class gate. One compute pass with the shared bind group: the consecutive
-            // dispatches' write→read hazards on pairContacts are barrier-ordered (the box pipeline clears dead
-            // slots first), as with the primal/commit pair below. Same span name → the profiler sums all four.
+            // typed pipelines (box / rounded / hull / rounded-poly) by shape-pair class (the DXC pipeline
+            // split falls out of `tgpu.resolve`'s per-kernel call graph). All dispatch indirect off pairArgs
+            // (= ceil(liveCount·PAIRS_PER_BODY/64) workgroups, written by packScan) over the SAME slots; each
+            // lane → d → owner eid → slot = eid·K + k, early-out past the live body count + the class gate.
+            // One compute pass — each pipeline carries its own pre-bound groups (`.with()`), so the
+            // consecutive dispatches' write→read hazards on pairContacts are barrier-ordered (the box
+            // pipeline clears dead slots first), as with the primal/commit pair below. Same span name → the
+            // profiler sums all four.
             {
                 const pass = encoder.beginComputePass({
                     timestampWrites: Compute.span?.("phys:collide"),
                 });
-                pass.setBindGroup(0, this._collideBG);
-                for (const pipeline of this._collidePipelines) {
-                    pass.setPipeline(pipeline);
-                    pass.dispatchWorkgroupsIndirect(this.pairArgs, 0);
+                for (const pipe of this._collidePipes) {
+                    pipe.with(pass).dispatchWorkgroupsIndirect(this.pairArgs, 0);
                 }
                 pass.end();
             }
 
             // CSR + coloring tail: the small regime runs ONE single-WG fused dispatch (C1.1 — the multi-WG
-            // passes' boundaries are near-pure structure tax at gameplay counts; see CSR_COLOR_SMALL_WGSL).
+            // passes' boundaries are near-pure structure tax at gameplay counts; see csrColorSmallWgsl()).
             // The fused coloring runs before jointInit/inertial while the BVH regime's colorize runs after —
             // safe, the coloring reads only mass + this step's contact/constraint adjacency, none of which
             // those passes write. The joint hard-conflict repair keeps its own snapshot+pass rounds in both
             // regimes. The BVH regime keeps the multi-WG passes (work-bound at scale, where a single WG
             // would serialize).
             if (small) {
-                this.pass(
-                    encoder,
-                    this._csrColorSmall.pipeline,
-                    this._csrColorSmallBG,
-                    1,
-                    Compute.span?.("phys:csr"),
-                );
+                {
+                    const pass = encoder.beginComputePass({
+                        timestampWrites: Compute.span?.("phys:csr"),
+                    });
+                    this._csrColorSmallPipe.with(pass).dispatchWorkgroups(1);
+                    pass.end();
+                }
                 if (this._jointCount > 0) this.repairColors(encoder);
             } else {
                 this.buildCsr(encoder);
@@ -4346,21 +5623,20 @@ export class PhysicsStep {
             // x⁻ (the contact warmstart in collide above reads it the same way). One thread per joint, direct
             // dispatch (the count is CPU-authored, not GPU-resident); skipped entirely when there are no joints.
             if (this._jointCount > 0) {
-                this.pass(
-                    encoder,
-                    this._jointInit.pipeline,
-                    this._jointInitBG,
-                    Math.ceil(this._jointCount / 64),
-                    Compute.span?.("phys:joint"),
-                );
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:joint"),
+                });
+                this._jointInitPipe.with(pass).dispatchWorkgroups(Math.ceil(this._jointCount / 64));
+                pass.end();
             }
 
-            this.passIndirect(
-                encoder,
-                this._inertial.pipeline,
-                this._inertialBG,
-                Compute.span?.("phys:inertial"),
-            );
+            {
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:inertial"),
+                });
+                this._inertialPipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+                pass.end();
+            }
 
             // real incremental-greedy coloring ahead of the primal — the dispatch collapse: the primal
             // loops `maxColors` colors, not one per body (physics.md "Dispatch count"). The coloring reads
@@ -4370,20 +5646,18 @@ export class PhysicsStep {
 
             // LDS-resident solve regime (C1.2): at a frame-stale live count ≤ ldsN the whole iters × colors
             // primal/commit/dual block below runs as ONE single-workgroup dispatch with every live body's
-            // pose in workgroup memory (SOLVE_LDS_WGSL — the per-color dependent round trip the looped path
+            // pose in workgroup memory (solveLdsKernel — the per-color dependent round trip the looped path
             // pays in storage becomes an in-kernel barrier on LDS). Same solve math (solvePose / dualSlot /
             // jointDualOne are shared chunks), so GPU == oracle holds on either path; the full block reports
             // under phys:primal (phys:dual / phys:joint read 0 in this regime, the phys:csr precedent).
             const lds = this._liveBound > 0 && this._liveBound <= this._ldsN;
             this._ldsRan = lds;
             if (lds) {
-                this.pass(
-                    encoder,
-                    this._solveLds.pipeline,
-                    this._solveLdsBG,
-                    1,
-                    Compute.span?.("phys:primal"),
-                );
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:primal"),
+                });
+                this._solveLdsPipe.with(pass).dispatchWorkgroups(1);
+                pass.end();
             } else {
                 for (let it = 0; it < this._iterations; it++) {
                     // timestamp every iteration — the profiler sums same-named spans, so this reports the FULL
@@ -4392,22 +5666,19 @@ export class PhysicsStep {
                         timestampWrites: Compute.span?.("phys:primal"),
                     });
                     // `_colorsToRun` colors/iteration (the readback-bounded count, Phase 4.9 Lever 1 — full cap until
-                    // boundColors is fed a usedColors readback), one compute pass (the color rides a dynamic uniform
-                    // offset, no advanceColor dispatch). Each color is primal-then-commit: the primal solves that
-                    // color's bodies into `solveOut` reading the committed `bodies`, then the commit applies `solveOut`
-                    // → `bodies` for that color so the next color's primal sees it (the double-buffer, Phase 4.5
-                    // Stage B). Consecutive same-pass dispatches with a write→read hazard (primal→commit on
-                    // solveOut, commit→next-primal on bodies) are ordered by the implementation's barrier — the
-                    // single-step gate confirms. Each dispatches DIRECT off `_bodyGroups` (the frame-stale live count
-                    // + BODY_MARGIN, rung 0 — an indirect dispatch costs ≈ 2× and this loop is the dominant block);
-                    // over-dispatched workgroups and colors past the live set early-out on `eids[0]` and no-op.
+                    // boundColors is fed a usedColors readback), one compute pass (the color rides a per-color
+                    // static bind group, no advanceColor dispatch). Each color is primal-then-commit: the primal
+                    // solves that color's bodies into `solveOut` reading the committed `bodies`, then the commit
+                    // applies `solveOut` → `bodies` for that color so the next color's primal sees it (the
+                    // double-buffer, Phase 4.5 Stage B). Consecutive same-pass dispatches with a write→read hazard
+                    // (primal→commit on solveOut, commit→next-primal on bodies) are ordered by the implementation's
+                    // barrier — the single-step gate confirms. Each dispatches DIRECT off `_bodyGroups` (the
+                    // frame-stale live count + BODY_MARGIN, rung 0 — an indirect dispatch costs ≈ 2× and this loop
+                    // is the dominant block); over-dispatched workgroups and colors past the live set early-out on
+                    // `eids[0]` and no-op.
                     for (let c = 0; c < this._colorsToRun; c++) {
-                        pass.setPipeline(this._primal.pipeline);
-                        pass.setBindGroup(0, this._primalBG, [c * UBO_ALIGN]);
-                        pass.dispatchWorkgroups(this._bodyGroups);
-                        pass.setPipeline(this._commit.pipeline);
-                        pass.setBindGroup(0, this._commitBG, [c * UBO_ALIGN]);
-                        pass.dispatchWorkgroups(this._bodyGroups);
+                        this._primalColorPipes[c].with(pass).dispatchWorkgroups(this._bodyGroups);
+                        this._commitColorPipes[c].with(pass).dispatchWorkgroups(this._bodyGroups);
                     }
                     pass.end();
 
@@ -4415,34 +5686,35 @@ export class PhysicsStep {
                     // colors just wrote. One thread per per-eid pair slot (indirect off pairArgs, looping its records,
                     // inactive records early-out). Updates λ/k in place in pairContacts — which IS the persistent
                     // store, so next frame's collide warmstarts off it.
-                    this.passIndirect(
-                        encoder,
-                        this._dual.pipeline,
-                        this._dualBG,
-                        Compute.span?.("phys:dual"),
-                        this.pairArgs,
-                    );
+                    {
+                        const dualPass = encoder.beginComputePass({
+                            timestampWrites: Compute.span?.("phys:dual"),
+                        });
+                        this._dualPipe.with(dualPass).dispatchWorkgroupsIndirect(this.pairArgs, 0);
+                        dualPass.end();
+                    }
 
                     // joint dual: advance λ + the penalty ramp per joint, reading the pose this iteration's primal
                     // wrote (like the contact dual). One thread per joint, in place in the persistent jointRecords.
                     if (this._jointCount > 0) {
-                        this.pass(
-                            encoder,
-                            this._jointDual.pipeline,
-                            this._jointDualBG,
-                            Math.ceil(this._jointCount / 64),
-                            Compute.span?.("phys:joint"),
-                        );
+                        const jointPass = encoder.beginComputePass({
+                            timestampWrites: Compute.span?.("phys:joint"),
+                        });
+                        this._jointDualPipe
+                            .with(jointPass)
+                            .dispatchWorkgroups(Math.ceil(this._jointCount / 64));
+                        jointPass.end();
                     }
                 }
             }
 
-            this.passIndirect(
-                encoder,
-                this._velocity.pipeline,
-                this._velocityBG,
-                Compute.span?.("phys:velocity"),
-            );
+            {
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("phys:velocity"),
+                });
+                this._velocityPipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+                pass.end();
+            }
             // No cache pass: warmstart is in place — the dual wrote this sub-step's final λ/k into pairContacts,
             // the persistent store, so the next sub-step's (or frame's) collide reads it at the same slot (Phase 4.7).
         }
@@ -4461,26 +5733,31 @@ export class PhysicsStep {
     compose(encoder: GPUCommandEncoder, transforms: GPUBuffer, alpha = 1): void {
         if (this._composeDst !== transforms) {
             this._composeDst = transforms;
-            this._composeBG = this.device.createBindGroup({
-                label: "phys-compose",
-                layout: this._compose.layout,
-                entries: [
-                    { binding: 0, resource: { buffer: this.bodies } },
-                    { binding: 1, resource: { buffer: this.eids } },
-                    { binding: 2, resource: { buffer: transforms } },
-                    { binding: 3, resource: { buffer: this._stepUbo } },
-                    { binding: 4, resource: { buffer: this._interpUbo } },
-                ],
+            const root = Compute.root;
+            this._composePipe = root
+                .createComputePipeline({ compute: composeKernel })
+                .$name("phys-compose")
+                .with(
+                    root.createBindGroup(composeLayout, {
+                        eids: this.eids,
+                        transforms,
+                        interp: this._interpUbo,
+                    }),
+                )
+                .with(roRo.layout, this._sharedBG.roRo);
+            // force-compiled on first bind rather than at warm (the transforms buffer's identity, and so
+            // this pipeline's existence, isn't known until the first real compose() call — the 1a
+            // late/re-entrant registration executes immediately once warm has already passed).
+            precompile("phys-compose", () => {
+                this._composePipe.dispatchWorkgroups(0);
+                return this._composePipe;
             });
         }
         this._interpData[0] = alpha;
         this.device.queue.writeBuffer(this._interpUbo, 0, this._interpData);
-        this.passIndirect(
-            encoder,
-            this._compose.pipeline,
-            this._composeBG!,
-            Compute.span?.("phys:compose"),
-        );
+        const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.("phys:compose") });
+        this._composePipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+        pass.end();
     }
 
     /**
@@ -4498,13 +5775,13 @@ export class PhysicsStep {
         // count packScan owns (the direct color-loop dispatch's input).
         encoder.clearBuffer(this.colorCount, 0, 4);
         // color every live body — indirect off the live count (dispatchArgs).
-        this.passIndirect(
-            encoder,
-            this._coloring.pipeline,
-            this._coloringBG,
-            Compute.span?.("phys:coloring"),
-            this.dispatchArgs,
-        );
+        {
+            const pass = encoder.beginComputePass({
+                timestampWrites: Compute.span?.("phys:coloring"),
+            });
+            this._coloringPipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+            pass.end();
+        }
         // joint hard-conflict repair (Phase 6.2): skipped without joints (no hard edges)
         if (this._jointCount > 0) this.repairColors(encoder);
     }
@@ -4517,19 +5794,18 @@ export class PhysicsStep {
     private repairColors(encoder: GPUCommandEncoder): void {
         for (let r = 0; r < JOINT_REPAIR_ROUNDS; r++) {
             encoder.copyBufferToBuffer(this.colors, 0, this.colorScratch, 0, this.eidCap * 4);
-            this.passIndirect(
-                encoder,
-                this._repair.pipeline,
-                this._repairBG,
-                Compute.span?.("phys:coloring"),
-            );
+            const pass = encoder.beginComputePass({
+                timestampWrites: Compute.span?.("phys:coloring"),
+            });
+            this._repairPipe.with(pass).dispatchWorkgroupsIndirect(this.dispatchArgs, 0);
+            pass.end();
         }
     }
 
     /**
      * build the per-body CSR contact adjacency from this step's contacts (count → scan → scatter), so
      * the primal + coloring read only a body's own contacts. Run by `record` after the collide in the
-     * BVH regime (the small regime fuses CSR + coloring into one dispatch — CSR_COLOR_SMALL_WGSL); also the
+     * BVH regime (the small regime fuses CSR + coloring into one dispatch — csrColorSmallWgsl()); also the
      * standalone entry the coloring crux test calls (it seeds the contact graph, then builds the CSR the
      * coloring reads). The count + scatter dispatch indirect off pairArgs (one thread per per-eid pair slot,
      * looping its records, skipping inactive records); the scan is the single-workgroup parallel prefix.
@@ -4537,51 +5813,31 @@ export class PhysicsStep {
     buildCsr(encoder: GPUCommandEncoder): void {
         // zero only the count region [eidCap, 2·eidCap); the offset region is fully rewritten by the scan
         encoder.clearBuffer(this.csr, this.eidCap * 4, this.eidCap * 4);
-        this.passIndirect(
-            encoder,
-            this._csrCount.pipeline,
-            this._csrCountBG,
-            Compute.span?.("phys:csr"),
-            this.pairArgs,
-        );
-        this.pass(encoder, this._csrScan.pipeline, this._csrScanBG, 1, Compute.span?.("phys:csr"));
-        this.passIndirect(
-            encoder,
-            this._csrScatter.pipeline,
-            this._csrScatterBG,
-            Compute.span?.("phys:csr"),
-            this.pairArgs,
-        );
+        {
+            const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.("phys:csr") });
+            this._csrCountPipe.with(pass).dispatchWorkgroupsIndirect(this.pairArgs, 0);
+            pass.end();
+        }
+        this.pass(encoder, this._csrScan, this._csrScanBG, 1, Compute.span?.("phys:csr"));
+        {
+            const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.("phys:csr") });
+            this._csrScatterPipe.with(pass).dispatchWorkgroupsIndirect(this.pairArgs, 0);
+            pass.end();
+        }
     }
 
     private pass(
         encoder: GPUCommandEncoder,
-        pipeline: GPUComputePipeline,
+        p: Pass,
         bg: GPUBindGroup,
         groups: number,
         timestampWrites?: GPUComputePassTimestampWrites,
     ): void {
         const pass = encoder.beginComputePass({ timestampWrites });
-        pass.setPipeline(pipeline);
+        pass.setPipeline(p.pipeline);
         pass.setBindGroup(0, bg);
+        if (p.variant) pass.setBindGroup(SOLVER_GROUP, this._sharedBG[p.variant]);
         pass.dispatchWorkgroups(groups);
-        pass.end();
-    }
-
-    // a pass dispatched indirect off an args buffer ([wgX,1,1] at offset 0). Default `dispatchArgs` =
-    // the live body count (packScan / gateSetCount write it); the per-eid-block passes pass `pairArgs`
-    // (= ceil(liveCount·PAIRS_PER_BODY/64) lanes) — exactly the live bodies' blocks, never the whole pool.
-    private passIndirect(
-        encoder: GPUCommandEncoder,
-        pipeline: GPUComputePipeline,
-        bg: GPUBindGroup,
-        timestampWrites?: GPUComputePassTimestampWrites,
-        args: GPUBuffer = this.dispatchArgs,
-    ): void {
-        const pass = encoder.beginComputePass({ timestampWrites });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bg);
-        pass.dispatchWorkgroupsIndirect(args, 0);
         pass.end();
     }
 
@@ -4608,7 +5864,7 @@ export class PhysicsStep {
         this.jointVersions.destroy();
         this.dispatchArgs.destroy();
         this._stepUbo.destroy();
-        this._colorUbo.destroy();
         this._interpUbo.destroy();
+        for (const buf of this._colorIdxBufs) buf.destroy();
     }
 }

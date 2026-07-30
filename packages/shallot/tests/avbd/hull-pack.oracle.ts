@@ -3,7 +3,7 @@ import { HULL_FACE_STRIDE, HULL_HEADER, packHulls } from "../../src/standard/avb
 import { type Hull, Hulls, UNIT_CUBE_ID } from "../../src/standard/physics/hull";
 import { boxHull, tetHull } from "./hull";
 
-// The flat `hullData` layout the GPU collide pass (collide.ts HULL_WGSL) reads — a serialization boundary,
+// The flat `hullData` layout the GPU collide pass (collide.ts's `hullWgsl()` chunk) reads — a serialization boundary,
 // so a round-trip test pins it before the WGSL accessors index it on the real GPU. Decode the packed
 // buffer the same way the WGSL does (header stride 8, face stride 6) and assert it reproduces the source
 // hull's verts / faces / edges. Catches an offset/stride bug deterministically on CPU.

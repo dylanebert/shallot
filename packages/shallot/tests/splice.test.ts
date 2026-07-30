@@ -16,6 +16,15 @@ import { liveTintWgsl, skinParamsWgsl } from "../src/extras/skin/core";
 // the glyph preamble is a text-module sibling, not a barrel export (a WGSL chunk on the public `extras`
 // barrel would break exports.md's barrel rules) — the same reason `pbrWgsl` below is reached directly
 import { glyphWgsl } from "../src/extras/text/glyph";
+import {
+    boxBoxWgsl,
+    helpersWgsl,
+    hullCoreWgsl,
+    hullSatWgsl,
+    roundedPolyWgsl,
+    roundedWgsl,
+} from "../src/standard/avbd/collide";
+import { bvhRootWgsl, bvhTraverseWgsl } from "../src/standard/bvh/core";
 import { fogInScatterWgsl, fogMarchWgsl, fogStructWgsl } from "../src/standard/fog/core";
 import { tonemapWgsl } from "../src/standard/glaze/tonemap";
 import { linearToSrgbWgsl, pointLightsWgsl } from "../src/standard/render/core";
@@ -69,6 +78,14 @@ const chunks: [string, () => string][] = [
     ["skinParamsWgsl", skinParamsWgsl],
     ["liveTintWgsl", liveTintWgsl],
     ["materialDataWgsl", materialDataWgsl],
+    ["bvhRootWgsl", bvhRootWgsl],
+    ["bvhTraverseWgsl", bvhTraverseWgsl],
+    ["helpersWgsl", helpersWgsl],
+    ["boxBoxWgsl", boxBoxWgsl],
+    ["roundedWgsl", roundedWgsl],
+    ["hullCoreWgsl", hullCoreWgsl],
+    ["hullSatWgsl", hullSatWgsl],
+    ["roundedPolyWgsl", roundedPolyWgsl],
 ];
 
 const defs = (wgsl: string): string[] =>

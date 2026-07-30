@@ -1,5 +1,5 @@
 import { Compute } from "@dylanebert/shallot";
-import { BVH_ROOT_WGSL, BVH_TRAVERSE_WGSL } from "@dylanebert/shallot/bvh/core";
+import { bvhRootWgsl, bvhTraverseWgsl } from "@dylanebert/shallot/bvh/core";
 // the BVH oracle + fixtures are test scaffolding (tests/, out of the published src/), so the
 // scenarios reach them by relative path.
 import { PRIM_F32, type Prims } from "../../../../packages/shallot/tests/bvh/fixtures";
@@ -68,15 +68,15 @@ const MAX_RAYS = 1 << 16;
 // the root is computed on the GPU from the count buffer (bvhRoot, the GPU-count contract) — no CPU
 // root crosses to the shader. closest-hit (mode 0) writes bitcast(t) + prim; any-hit (mode 1) writes
 // 1/0 occlusion. The pass carries `bvh:trace` so ProfilePlugin times it alongside the build stages.
-const TRACE_WGSL = /* wgsl */ `
+const traceWgsl = (): string => /* wgsl */ `
 struct Params { rayCount: u32, mode: u32, pad0: u32, pad1: u32 };
 @group(0) @binding(0) var<storage, read> nodes: array<vec4<f32>>;
 @group(0) @binding(1) var<storage, read> rayData: array<vec4<f32>>; // 2 vec4/ray: origin.xyz, dir.xyz
 @group(0) @binding(2) var<storage, read_write> hits: array<vec2<u32>>; // x = bitcast(t), y = prim
 @group(0) @binding(3) var<storage, read> countBuf: array<u32>; // [0] = GPU-driven prim count
 @group(1) @binding(0) var<uniform> P: Params;
-${BVH_ROOT_WGSL}
-${BVH_TRAVERSE_WGSL}
+${bvhRootWgsl()}
+${bvhTraverseWgsl()}
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let i = gid.x;
@@ -141,7 +141,7 @@ export async function createTracer(
         label: "gym-trace",
         layout: device.createPipelineLayout({ bindGroupLayouts: [ioLayout, uniformLayout] }),
         compute: {
-            module: device.createShaderModule({ label: "gym-trace", code: TRACE_WGSL }),
+            module: device.createShaderModule({ label: "gym-trace", code: traceWgsl() }),
             entryPoint: "main",
         },
     });

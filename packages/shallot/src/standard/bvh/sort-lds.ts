@@ -24,186 +24,258 @@
 // indirect prepare. Scaling the dispatch down to the live count would cut the small-N cost but
 // isn't built here (the reference masks at capacity too).
 
+import tgpu, { type TgpuComputePipeline } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute } from "../../engine";
+import { precompile } from "../../engine/runtime";
+import { rootOf } from "./root";
 import type { RadixSort, RadixSortShared } from "./sort";
 
 const THREADS = 256; // workgroup size, every kernel
 const EPT = 14; // elements per thread in histogram/reorder
 const EPW = THREADS * EPT; // 3584 — keys per block, == sort.ts PART_SIZE
 const RADIX = 16; // 4-bit digit
+const DIGIT_MASK = RADIX - 1;
+const MASK_WORDS = 8; // 256 bits of lane flags per digit
 const PASSES = 8; // 8 × 4 bits = full u32
 const SCAN_ITEMS = 2 * THREADS; // 512 — elements one scan workgroup folds (2 per thread)
+const SCAN_HALF = SCAN_ITEMS >> 1; // the up-sweep's first stride
 const MAX_DISPATCH = 65535;
 
-// histogram + reorder uniform: workgroupCount sizes the digit-major stride, shift selects the
-// 4-bit window. One per pass (shift differs); workgroupCount is constant.
-const HIST_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> keys: array<u32>;
-@group(0) @binding(1) var<storage, read_write> blockSums: array<u32>;
-struct U { workgroupCount: u32, shift: u32 };
-@group(0) @binding(2) var<uniform> u: U;
-@group(0) @binding(3) var<storage, read> countBuf: array<u32>;
+/** the histogram + reorder uniform: `workgroupCount` sizes the digit-major stride, `shift` selects the
+ *  4-bit window. One per pass (the shift differs); the count is constant. @internal */
+export const PassParams = d.struct({ workgroupCount: d.u32, shift: d.u32 }).$name("PassParams");
 
-var<workgroup> hist: array<atomic<u32>, ${RADIX}>;
+/** the scan + add uniform: how many of the digit-major block sums are live. @internal */
+export const ScanParams = d.struct({ elementCount: d.u32 }).$name("ScanParams");
 
-@compute @workgroup_size(${THREADS})
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
-    let block = wid.x;
-    let base = block * ${EPW}u;
-    if (tid < ${RADIX}u) { atomicStore(&hist[tid], 0u); }
-    workgroupBarrier();
-    let count = countBuf[0];
-    for (var r = 0u; r < ${EPT}u; r++) {
-        let gid = base + r * ${THREADS}u + tid;
-        if (gid < count) {
-            let digit = (keys[gid] >> u.shift) & ${RADIX - 1}u;
-            atomicAdd(&hist[digit], 1u);
+/** per-block digit histogram: keys in, digit-major block sums out. @internal */
+export const histLayout = tgpu.bindGroupLayout({
+    keys: { storage: d.arrayOf(d.u32), access: "readonly" },
+    blockSums: { storage: d.arrayOf(d.u32), access: "mutable" },
+    params: { uniform: PassParams },
+    countBuf: { storage: d.arrayOf(d.u32), access: "readonly" },
+});
+
+/** the Blelloch scan's I/O: the array it scans in place plus the per-chunk totals it emits. @internal */
+export const scanLayout = tgpu.bindGroupLayout({
+    items: { storage: d.arrayOf(d.u32), access: "mutable" },
+    chunkSums: { storage: d.arrayOf(d.u32), access: "mutable" },
+    params: { uniform: ScanParams },
+});
+
+/** the add-back pass: the scanned chunk totals folded into each chunk's elements. @internal */
+export const addLayout = tgpu.bindGroupLayout({
+    items: { storage: d.arrayOf(d.u32), access: "mutable" },
+    chunkSums: { storage: d.arrayOf(d.u32), access: "readonly" },
+    params: { uniform: ScanParams },
+});
+
+/** the ranked scatter's I/O: source keys/values, the scanned global prefix, destination pair.
+ *  @internal */
+export const reorderLayout = tgpu.bindGroupLayout({
+    inKeys: { storage: d.arrayOf(d.u32), access: "readonly" },
+    outKeys: { storage: d.arrayOf(d.u32), access: "mutable" },
+    prefix: { storage: d.arrayOf(d.u32), access: "readonly" },
+    inVals: { storage: d.arrayOf(d.u32), access: "readonly" },
+    outVals: { storage: d.arrayOf(d.u32), access: "mutable" },
+    params: { uniform: PassParams },
+    countBuf: { storage: d.arrayOf(d.u32), access: "readonly" },
+});
+
+const hist = tgpu.workgroupVar(d.arrayOf(d.atomic(d.u32), RADIX));
+
+// digit-major: digit d's per-block counts occupy [d*workgroupCount, (d+1)*workgroupCount), so a flat
+// exclusive scan over blockSums is exactly the global digit base each block needs.
+const histKernel = tgpu
+    .computeFn({
+        workgroupSize: [THREADS],
+        in: { wid: d.builtin.workgroupId, tid: d.builtin.localInvocationIndex },
+    })((input) => {
+        "use gpu";
+        const lane = input.tid;
+        const base = input.wid.x * EPW;
+        if (lane < RADIX) std.atomicStore(hist.$[lane], 0);
+        std.workgroupBarrier();
+        const count = histLayout.$.countBuf[0];
+        let r = d.u32(0);
+        while (r < EPT) {
+            const gid = base + r * THREADS + lane;
+            if (gid < count) {
+                std.atomicAdd(
+                    hist.$[(histLayout.$.keys[gid] >> histLayout.$.params.shift) & DIGIT_MASK],
+                    1,
+                );
+            }
+            r = r + 1;
         }
-    }
-    workgroupBarrier();
-    // digit-major: digit d's per-block counts occupy [d*workgroupCount, (d+1)*workgroupCount)
-    if (tid < ${RADIX}u) { blockSums[tid * u.workgroupCount + block] = atomicLoad(&hist[tid]); }
-}
-`;
+        std.workgroupBarrier();
+        if (lane < RADIX)
+            histLayout.$.blockSums[lane * histLayout.$.params.workgroupCount + input.wid.x] =
+                std.atomicLoad(hist.$[lane]);
+    })
+    .$name("radixLdsHist");
 
-// Blelloch work-efficient exclusive scan over one chunk of SCAN_ITEMS, writing the chunk total
-// to chunkSums[chunk]. Run over every chunk (level 0), then once over the chunk totals (level 1).
-const SCAN_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> items: array<u32>;
-@group(0) @binding(1) var<storage, read_write> chunkSums: array<u32>;
-struct U { elementCount: u32 };
-@group(0) @binding(2) var<uniform> u: U;
+const temp = tgpu.workgroupVar(d.arrayOf(d.u32, SCAN_ITEMS));
 
-var<workgroup> temp: array<u32, ${SCAN_ITEMS}>;
+// Blelloch work-efficient exclusive scan over one chunk of SCAN_ITEMS, writing the chunk total to
+// chunkSums[chunk]. Run over every chunk (level 0), then once over the chunk totals (level 1).
+const scanKernel = tgpu
+    .computeFn({
+        workgroupSize: [THREADS],
+        in: { wid: d.builtin.workgroupId, tid: d.builtin.localInvocationIndex },
+    })((input) => {
+        "use gpu";
+        const lane = input.tid;
+        const n = scanLayout.$.params.elementCount;
+        const e0 = lane * 2;
+        const g0 = input.wid.x * SCAN_ITEMS + e0;
+        temp.$[e0] = std.select(d.u32(0), scanLayout.$.items[g0], g0 < n);
+        temp.$[e0 + 1] = std.select(d.u32(0), scanLayout.$.items[g0 + 1], g0 + 1 < n);
 
-@compute @workgroup_size(${THREADS})
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
-    let chunk = wid.x;
-    let e0 = tid * 2u;
-    let g0 = chunk * ${SCAN_ITEMS}u + e0;
-    temp[e0] = select(0u, items[g0], g0 < u.elementCount);
-    temp[e0 + 1u] = select(0u, items[g0 + 1u], (g0 + 1u) < u.elementCount);
-
-    var offset = 1u;
-    for (var d = ${SCAN_ITEMS >> 1}u; d > 0u; d >>= 1u) {
-        workgroupBarrier();
-        if (tid < d) {
-            let ai = offset * (e0 + 1u) - 1u;
-            let bi = offset * (e0 + 2u) - 1u;
-            temp[bi] += temp[ai];
+        let offset = d.u32(1);
+        let up = d.u32(SCAN_HALF);
+        while (up > 0) {
+            std.workgroupBarrier();
+            if (lane < up) {
+                const ai = offset * (e0 + 1) - 1;
+                const bi = offset * (e0 + 2) - 1;
+                temp.$[bi] = temp.$[bi] + temp.$[ai];
+            }
+            offset = offset * 2;
+            up = up >> 1;
         }
-        offset *= 2u;
-    }
-    if (tid == 0u) {
-        chunkSums[chunk] = temp[${SCAN_ITEMS - 1}u];
-        temp[${SCAN_ITEMS - 1}u] = 0u;
-    }
-    for (var d = 1u; d < ${SCAN_ITEMS}u; d *= 2u) {
-        offset >>= 1u;
-        workgroupBarrier();
-        if (tid < d) {
-            let ai = offset * (e0 + 1u) - 1u;
-            let bi = offset * (e0 + 2u) - 1u;
-            let t = temp[ai];
-            temp[ai] = temp[bi];
-            temp[bi] += t;
+        if (lane === 0) {
+            scanLayout.$.chunkSums[input.wid.x] = temp.$[SCAN_ITEMS - 1];
+            temp.$[SCAN_ITEMS - 1] = 0;
         }
-    }
-    workgroupBarrier();
-    if (g0 < u.elementCount) { items[g0] = temp[e0]; }
-    if ((g0 + 1u) < u.elementCount) { items[g0 + 1u] = temp[e0 + 1u]; }
-}
-`;
+        let down = d.u32(1);
+        while (down < SCAN_ITEMS) {
+            offset = offset >> 1;
+            std.workgroupBarrier();
+            if (lane < down) {
+                const ai = offset * (e0 + 1) - 1;
+                const bi = offset * (e0 + 2) - 1;
+                const t = temp.$[ai];
+                temp.$[ai] = temp.$[bi];
+                temp.$[bi] = temp.$[bi] + t;
+            }
+            down = down * 2;
+        }
+        std.workgroupBarrier();
+        if (g0 < n) scanLayout.$.items[g0] = temp.$[e0];
+        if (g0 + 1 < n) scanLayout.$.items[g0 + 1] = temp.$[e0 + 1];
+    })
+    .$name("radixLdsScan");
 
 // add each chunk's scanned total back into its elements → the global exclusive prefix.
-const ADD_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read_write> items: array<u32>;
-@group(0) @binding(1) var<storage, read> chunkSums: array<u32>;
-struct U { elementCount: u32 };
-@group(0) @binding(2) var<uniform> u: U;
+const addKernel = tgpu
+    .computeFn({
+        workgroupSize: [THREADS],
+        in: { wid: d.builtin.workgroupId, tid: d.builtin.localInvocationIndex },
+    })((input) => {
+        "use gpu";
+        const n = addLayout.$.params.elementCount;
+        const g0 = input.wid.x * SCAN_ITEMS + input.tid * 2;
+        if (g0 >= n) return;
+        const add = addLayout.$.chunkSums[input.wid.x];
+        addLayout.$.items[g0] = addLayout.$.items[g0] + add;
+        if (g0 + 1 >= n) return;
+        addLayout.$.items[g0 + 1] = addLayout.$.items[g0 + 1] + add;
+    })
+    .$name("radixLdsAdd");
 
-@compute @workgroup_size(${THREADS})
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
-    let chunk = wid.x;
-    let g0 = chunk * ${SCAN_ITEMS}u + tid * 2u;
-    if (g0 >= u.elementCount) { return; }
-    let add = chunkSums[chunk];
-    items[g0] += add;
-    if ((g0 + 1u) >= u.elementCount) { return; }
-    items[g0 + 1u] += add;
-}
-`;
+const masks = tgpu.workgroupVar(d.arrayOf(d.atomic(d.u32), RADIX * MASK_WORDS)); // 16 digits × 256 bits
+const offsets = tgpu.workgroupVar(d.arrayOf(d.u32, RADIX)); // cumulative per-digit rank across rounds
 
-// rank each key within its block by digit (16 × 256-bit LDS bitmasks + popcount), scatter to
-// the scanned global base + local rank. Stable: a lane's rank counts only earlier lanes.
-const REORDER_WGSL = /* wgsl */ `
-@group(0) @binding(0) var<storage, read> inKeys: array<u32>;
-@group(0) @binding(1) var<storage, read_write> outKeys: array<u32>;
-@group(0) @binding(2) var<storage, read> prefix: array<u32>;
-@group(0) @binding(3) var<storage, read> inVals: array<u32>;
-@group(0) @binding(4) var<storage, read_write> outVals: array<u32>;
-struct U { workgroupCount: u32, shift: u32 };
-@group(0) @binding(5) var<uniform> u: U;
-@group(0) @binding(6) var<storage, read> countBuf: array<u32>;
+// rank each key within its block by digit (16 × 256-bit LDS bitmasks + popcount), scatter to the
+// scanned global base + local rank. Stable: a lane's rank counts only earlier lanes.
+const reorderKernel = tgpu
+    .computeFn({
+        workgroupSize: [THREADS],
+        in: { wid: d.builtin.workgroupId, tid: d.builtin.localInvocationIndex },
+    })((input) => {
+        "use gpu";
+        const lane = input.tid;
+        const base = input.wid.x * EPW;
+        const word = lane >> 5;
+        const bit = lane & 31;
+        if (lane < RADIX) offsets.$[lane] = 0;
+        if (lane < RADIX * MASK_WORDS) std.atomicStore(masks.$[lane], 0);
+        std.workgroupBarrier();
+        const count = reorderLayout.$.countBuf[0];
 
-var<workgroup> masks: array<atomic<u32>, ${RADIX * 8}>;  // 16 digits × 8 words = 256 bits each
-var<workgroup> offsets: array<u32, ${RADIX}>;            // cumulative per-digit rank across rounds
-
-@compute @workgroup_size(${THREADS})
-fn main(@builtin(workgroup_id) wid: vec3<u32>, @builtin(local_invocation_index) tid: u32) {
-    let block = wid.x;
-    let base = block * ${EPW}u;
-    let word = tid >> 5u;
-    let bit = tid & 31u;
-    if (tid < ${RADIX}u) { offsets[tid] = 0u; }
-    if (tid < ${RADIX * 8}u) { atomicStore(&masks[tid], 0u); }
-    workgroupBarrier();
-    let count = countBuf[0];
-
-    for (var r = 0u; r < ${EPT}u; r++) {
-        let gid = base + r * ${THREADS}u + tid;
-        let valid = gid < count;
-        let k = select(0u, inKeys[gid], valid);
-        let digit = select(${RADIX}u, (k >> u.shift) & ${RADIX - 1}u, valid);
-        let v = select(0u, inVals[gid], valid);
-        if (valid) { atomicOr(&masks[digit * 8u + word], 1u << bit); }
-        workgroupBarrier();
-        if (valid) {
-            let mbase = digit * 8u;
-            var local = offsets[digit];
-            for (var w = 0u; w < word; w++) { local += countOneBits(atomicLoad(&masks[mbase + w])); }
-            local += countOneBits(atomicLoad(&masks[mbase + word]) & ((1u << bit) - 1u));
-            let pos = prefix[digit * u.workgroupCount + block] + local;
-            outKeys[pos] = k;
-            outVals[pos] = v;
-        }
-        // fold this round's per-digit counts into the cumulative offsets, then clear for the next
-        if (r < ${EPT - 1}u) {
-            workgroupBarrier();
-            if (tid < ${RADIX}u) {
-                var c = 0u;
-                for (var w = 0u; w < 8u; w++) {
-                    let idx = tid * 8u + w;
-                    c += countOneBits(atomicLoad(&masks[idx]));
-                    atomicStore(&masks[idx], 0u);
+        let r = d.u32(0);
+        while (r < EPT) {
+            const gid = base + r * THREADS + lane;
+            const valid = gid < count;
+            const k = std.select(d.u32(0), reorderLayout.$.inKeys[gid], valid);
+            // an invalid lane parks on the out-of-range digit RADIX, so it flags no real digit's mask
+            const digit = std.select(
+                d.u32(RADIX),
+                (k >> reorderLayout.$.params.shift) & DIGIT_MASK,
+                valid,
+            );
+            const v = std.select(d.u32(0), reorderLayout.$.inVals[gid], valid);
+            if (valid) std.atomicOr(masks.$[digit * MASK_WORDS + word], d.u32(1) << bit);
+            std.workgroupBarrier();
+            if (valid) {
+                const mbase = digit * MASK_WORDS;
+                let local = offsets.$[digit];
+                let w = d.u32(0);
+                while (w < word) {
+                    local = local + std.countOneBits(std.atomicLoad(masks.$[mbase + w]));
+                    w = w + 1;
                 }
-                offsets[tid] += c;
+                local =
+                    local +
+                    std.countOneBits(
+                        std.atomicLoad(masks.$[mbase + word]) & ((d.u32(1) << bit) - 1),
+                    );
+                const pos =
+                    reorderLayout.$.prefix[
+                        digit * reorderLayout.$.params.workgroupCount + input.wid.x
+                    ] + local;
+                reorderLayout.$.outKeys[pos] = k;
+                reorderLayout.$.outVals[pos] = v;
             }
-            workgroupBarrier();
+            // fold this round's per-digit counts into the cumulative offsets, then clear for the next
+            if (r < EPT - 1) {
+                std.workgroupBarrier();
+                if (lane < RADIX) {
+                    let c = d.u32(0);
+                    let w = d.u32(0);
+                    while (w < MASK_WORDS) {
+                        const idx = lane * MASK_WORDS + w;
+                        c = c + std.countOneBits(std.atomicLoad(masks.$[idx]));
+                        std.atomicStore(masks.$[idx], 0);
+                        w = w + 1;
+                    }
+                    offsets.$[lane] = offsets.$[lane] + c;
+                }
+                std.workgroupBarrier();
+            }
+            r = r + 1;
         }
-    }
-}
-`;
+    })
+    .$name("radixLdsReorder");
 
-function storageEntry(binding: number, readonly: boolean): GPUBindGroupLayoutEntry {
+/** the emitted subgroup-free sort WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function radixLdsWgsl(): {
+    hist: string;
+    scan: string;
+    add: string;
+    reorder: string;
+} {
+    const names = { names: "strict" } as const;
     return {
-        binding,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: readonly ? "read-only-storage" : "storage" },
+        hist: tgpu.resolve([histKernel], names),
+        scan: tgpu.resolve([scanKernel], names),
+        add: tgpu.resolve([addKernel], names),
+        reorder: tgpu.resolve([reorderKernel], names),
     };
-}
-function uniformEntry(binding: number): GPUBindGroupLayoutEntry {
-    return { binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } };
 }
 
 /**
@@ -216,6 +288,8 @@ export async function createRadixSortLds(
     maxKeys: number,
     shared: RadixSortShared = {},
 ): Promise<RadixSort> {
+    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
+    const root = rootOf(device, "createRadixSortLds");
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / EPW));
     if (maxBlocks > MAX_DISPATCH) {
         throw new Error(
@@ -266,59 +340,12 @@ export async function createRadixSortLds(
     const chunksLenU = u16("radix-lds-chunks-len");
     device.queue.writeBuffer(chunksLenU, 0, new Uint32Array([nChunks]));
 
-    const histLayout = device.createBindGroupLayout({
-        label: "radix-lds-hist",
-        entries: [
-            storageEntry(0, true),
-            storageEntry(1, false),
-            uniformEntry(2),
-            storageEntry(3, true),
-        ],
-    });
-    const scanLayout = device.createBindGroupLayout({
-        label: "radix-lds-scan",
-        entries: [storageEntry(0, false), storageEntry(1, false), uniformEntry(2)],
-    });
-    const addLayout = device.createBindGroupLayout({
-        label: "radix-lds-add",
-        entries: [storageEntry(0, false), storageEntry(1, true), uniformEntry(2)],
-    });
-    const reorderLayout = device.createBindGroupLayout({
-        label: "radix-lds-reorder",
-        entries: [
-            storageEntry(0, true),
-            storageEntry(1, false),
-            storageEntry(2, true),
-            storageEntry(3, true),
-            storageEntry(4, false),
-            uniformEntry(5),
-            storageEntry(6, true),
-        ],
-    });
-
-    const pipe = (
-        label: string,
-        code: string,
-        layout: GPUBindGroupLayout,
-    ): Promise<GPUComputePipeline> =>
-        device.createComputePipelineAsync({
-            label,
-            layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }),
-            compute: { module: device.createShaderModule({ label, code }), entryPoint: "main" },
-        });
-
-    const [histPipe, scanPipe, addPipe, reorderPipe] = await Promise.all([
-        pipe("radix-lds-hist", HIST_WGSL, histLayout),
-        pipe("radix-lds-scan", SCAN_WGSL, scanLayout),
-        pipe("radix-lds-add", ADD_WGSL, addLayout),
-        pipe("radix-lds-reorder", REORDER_WGSL, reorderLayout),
-    ]);
-
-    const bg = (layout: GPUBindGroupLayout, buffers: GPUBuffer[]): GPUBindGroup =>
-        device.createBindGroup({
-            layout,
-            entries: buffers.map((buffer, binding) => ({ binding, resource: { buffer } })),
-        });
+    const histPipe = root.createComputePipeline({ compute: histKernel }).$name("radix-lds-hist");
+    const scanPipe = root.createComputePipeline({ compute: scanKernel }).$name("radix-lds-scan");
+    const addPipe = root.createComputePipeline({ compute: addKernel }).$name("radix-lds-add");
+    const reorderPipe = root
+        .createComputePipeline({ compute: reorderKernel })
+        .$name("radix-lds-reorder");
 
     // pass i reads from keys when i is even, alt when odd (8 passes → result back in keys)
     const src = (i: number): [GPUBuffer, GPUBuffer] =>
@@ -326,27 +353,64 @@ export async function createRadixSortLds(
     const dst = (i: number): [GPUBuffer, GPUBuffer] =>
         i % 2 === 0 ? [altKeys, altPayload] : [keys, payload];
 
-    const histBg = Array.from({ length: PASSES }, (_, i) =>
-        bg(histLayout, [src(i)[0], blockSums, passU[i], count]),
+    const histBound = Array.from({ length: PASSES }, (_, i) =>
+        histPipe.with(
+            root.createBindGroup(histLayout, {
+                keys: src(i)[0],
+                blockSums,
+                params: passU[i],
+                countBuf: count,
+            }),
+        ),
     );
-    const reorderBg = Array.from({ length: PASSES }, (_, i) =>
-        bg(reorderLayout, [src(i)[0], dst(i)[0], blockSums, src(i)[1], dst(i)[1], passU[i], count]),
+    const reorderBound = Array.from({ length: PASSES }, (_, i) =>
+        reorderPipe.with(
+            root.createBindGroup(reorderLayout, {
+                inKeys: src(i)[0],
+                outKeys: dst(i)[0],
+                prefix: blockSums,
+                inVals: src(i)[1],
+                outVals: dst(i)[1],
+                params: passU[i],
+                countBuf: count,
+            }),
+        ),
     );
-    const scanL0Bg = bg(scanLayout, [blockSums, chunkSums, sumsLenU]);
-    const scanL1Bg = bg(scanLayout, [chunkSums, chunkScratch, chunksLenU]);
-    const addBg = bg(addLayout, [blockSums, chunkSums, sumsLenU]);
+    const scanL0 = scanPipe.with(
+        root.createBindGroup(scanLayout, { items: blockSums, chunkSums, params: sumsLenU }),
+    );
+    // level 1 folds the chunk totals in one workgroup, so its own total lands in a scratch slot
+    const scanL1 = scanPipe.with(
+        root.createBindGroup(scanLayout, {
+            items: chunkSums,
+            chunkSums: chunkScratch,
+            params: chunksLenU,
+        }),
+    );
+    const addBound = addPipe.with(
+        root.createBindGroup(addLayout, { items: blockSums, chunkSums, params: sumsLenU }),
+    );
+
+    for (const [label, bound] of [
+        ["radix-lds-hist", histBound[0]],
+        ["radix-lds-scan", scanL0],
+        ["radix-lds-add", addBound],
+        ["radix-lds-reorder", reorderBound[0]],
+    ] as const) {
+        precompile(label, () => {
+            bound.dispatchWorkgroups(0);
+            return bound;
+        });
+    }
 
     const span = (): GPUComputePassTimestampWrites | undefined => Compute.span?.("bvh:sort");
     const pass = (
         encoder: GPUCommandEncoder,
-        pipeline: GPUComputePipeline,
-        group: GPUBindGroup,
+        bound: TgpuComputePipeline,
         workgroups: number,
     ): void => {
         const p = encoder.beginComputePass({ timestampWrites: span() });
-        p.setPipeline(pipeline);
-        p.setBindGroup(0, group);
-        p.dispatchWorkgroups(workgroups);
+        bound.with(p).dispatchWorkgroups(workgroups);
         p.end();
     };
 
@@ -356,11 +420,11 @@ export async function createRadixSortLds(
         maxKeys,
         sortIndirect(encoder: GPUCommandEncoder): void {
             for (let i = 0; i < PASSES; i++) {
-                pass(encoder, histPipe, histBg[i], maxBlocks); // per-block digit histograms
-                pass(encoder, scanPipe, scanL0Bg, nChunks); // per-chunk exclusive scan
-                pass(encoder, scanPipe, scanL1Bg, 1); // scan the chunk totals
-                pass(encoder, addPipe, addBg, nChunks); // add back → global prefix
-                pass(encoder, reorderPipe, reorderBg[i], maxBlocks); // ranked scatter
+                pass(encoder, histBound[i], maxBlocks); // per-block digit histograms
+                pass(encoder, scanL0, nChunks); // per-chunk exclusive scan
+                pass(encoder, scanL1, 1); // scan the chunk totals
+                pass(encoder, addBound, nChunks); // add back → global prefix
+                pass(encoder, reorderBound[i], maxBlocks); // ranked scatter
             }
         },
         destroy(): void {

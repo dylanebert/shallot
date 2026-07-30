@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import * as d from "typegpu/data";
+// the shipped narrowphase, called on the CPU — the same TGSL source the GPU collide pass splices
+import { collideBoxBox, MAX_CONTACTS } from "../../src/standard/avbd/collide";
 import { type Box, type Contact, collide } from "./collide";
 import { add, type Quat, scale, sub, transform, type Vec3 } from "./math";
 import gold from "./sat-gold-vectors.json";
@@ -214,5 +217,100 @@ describe("box-box SAT — reduced manifold keeps clip ordinals, not post-reducti
         // contacts never collide on a key.
         const keys = contacts.map((c) => c.feature >>> 0);
         expect(new Set(keys).size).toBe(keys.length);
+    });
+});
+
+// The SHIPPED narrowphase against the same gold, on the CPU. `collideBoxBox` (src/standard/avbd/
+// collide.ts) is a TGSL function: the WGSL the GPU collide pass splices and a plain JS function are the
+// same source, so calling it here gates the production SAT's own logic — the arithmetic, the clip order,
+// the feature keys — against the C++ vectors, with no device. What it does NOT gate is the emitted WGSL
+// (structural: collide.test.ts) or its execution on real hardware (the gym `sat` kernel gate, GPU ==
+// oracle); this closes the logic half deterministically, which is why the same TOL applies: on f64 JS
+// numbers the TGSL body carries the oracle's precision, so the only error is f32-vs-f64 on the gold.
+//
+// That f64 CPU arm is also the coverage BOUNDARY: running on JS numbers it cannot see f32 reassociation at
+// all — a reordered sum passes here and diverges on the device. The guard against op-order drift is the
+// emitted-WGSL differential (reviewed per port) plus the gym gates, never this tier.
+describe("the shipped TGSL SAT vs C++ gold vectors", () => {
+    for (const cfg of gold.configs as GoldConfig[]) {
+        test(cfg.name, () => {
+            const dr = dRel(cfg);
+            const r = collideBoxBox(
+                d.vec3f(...(cfg.a.pos as [number, number, number])),
+                d.vec4f(...(cfg.a.quat as [number, number, number, number])),
+                d.vec3f(...(cfg.a.size as [number, number, number])),
+                d.vec3f(...(cfg.b.pos as [number, number, number])),
+                d.vec4f(...(cfg.b.quat as [number, number, number, number])),
+                d.vec3f(...(cfg.b.size as [number, number, number])),
+                d.vec3f(dr[0], dr[1], dr[2]),
+            );
+
+            expect(r.count).toBe(cfg.numContacts);
+            if (cfg.numContacts === 0) return;
+
+            const gb = cfg.basis as number[];
+            const rows = [r.basis.r0, r.basis.r1, r.basis.r2];
+            for (let row = 0; row < 3; row++) {
+                near(rows[row].x, gb[row * 3]);
+                near(rows[row].y, gb[row * 3 + 1]);
+                near(rows[row].z, gb[row * 3 + 2]);
+            }
+
+            // feature keys bit-identical, matched order-independently like the oracle block above
+            for (const want of cfg.contacts) {
+                const k = [...r.feat].slice(0, r.count).indexOf(want.feature >>> 0);
+                expect(k, `missing feature 0x${(want.feature >>> 0).toString(16)}`).toBeGreaterThan(
+                    -1,
+                );
+                if (k < 0) continue;
+                near(r.rA[k].x, want.rA[0]);
+                near(r.rA[k].y, want.rA[1]);
+                near(r.rA[k].z, want.rA[2]);
+                near(r.rB[k].x, want.rB[0]);
+                near(r.rB[k].y, want.rB[1]);
+                near(r.rB[k].z, want.rB[2]);
+            }
+        });
+    }
+});
+
+// The gold configs all clip to ≤ 4 candidates, so the block above never reaches the Jolt reduction. This
+// does: two equal unit boxes with B yawed about the contact normal clip to an octagon (the config the
+// "keeps clip ordinals" test above uses), so `pruneContacts` runs and its spread selection — which point
+// is p1, which is its farthest partner, which side of that line p3/p4 fall on — has to match the f64
+// oracle exactly, key for key. A wrong selection silently changes which 4 of the 8 contacts survive.
+describe("the shipped TGSL SAT reduces the over-produced clip like the oracle", () => {
+    test("the same 4 of 8 candidates, same keys, same arms", () => {
+        const h = (35 * Math.PI) / 360;
+        const a: Box = { size: [1, 1, 1], pos: [0, 0, 0], quat: [0, 0, 0, 1] };
+        const b: Box = {
+            size: [1, 1, 1],
+            pos: [0, 1 - 0.03, 0],
+            quat: [0, Math.sin(h), 0, Math.cos(h)],
+        };
+        const want = collide(a, b).contacts;
+        expect(want.length).toBe(MAX_CONTACTS); // the reduction ran
+
+        const got = collideBoxBox(
+            d.vec3f(...(a.pos as [number, number, number])),
+            d.vec4f(...(a.quat as [number, number, number, number])),
+            d.vec3f(...(a.size as [number, number, number])),
+            d.vec3f(...(b.pos as [number, number, number])),
+            d.vec4f(...(b.quat as [number, number, number, number])),
+            d.vec3f(...(b.size as [number, number, number])),
+            d.vec3f(),
+        );
+        expect(got.count).toBe(want.length);
+        // the kept set is order-sensitive here: the reduce writes p1, p3, p2, p4 in that order, so the
+        // sequence itself is the claim (a differently-selected quad would reorder or replace a key)
+        expect([...got.feat].slice(0, got.count)).toEqual(want.map((c) => c.feature >>> 0));
+        for (let k = 0; k < got.count; k++) {
+            near(got.rA[k].x, want[k].rA[0]);
+            near(got.rA[k].y, want[k].rA[1]);
+            near(got.rA[k].z, want[k].rA[2]);
+            near(got.rB[k].x, want[k].rB[0]);
+            near(got.rB[k].y, want[k].rB[1]);
+            near(got.rB[k].z, want[k].rB[2]);
+        }
     });
 });

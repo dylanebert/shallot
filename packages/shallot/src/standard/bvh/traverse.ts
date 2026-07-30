@@ -2,9 +2,10 @@
 // the builder (build.ts) emits and its bounds relaxation keeps current. WebGPU has no
 // hardware ray-query, so any consumer that wants spatial queries descends the LBVH tree
 // in software. This is the unopinionated query: it knows only AABBs (the builder's input
-// is an AABB array), names no leaf geometry and no consumer. The physics broadphase /
-// raycast and sear's RT lighting both splice it; the RT-specific layers (ray-triangle
-// leaf tests, two-level BLAS/TLAS instancing) live with their consumer (shadow/), not here.
+// is an AABB array), names no leaf geometry and no consumer. The physics broadphase splices
+// `bvhRootWgsl` and hand-writes its own descent (its per-body nearest-K prune is not a ray
+// query); the gym tracer is the traversal chunk's consumer. Consumer-specific layers —
+// ray-triangle leaf tests, two-level BLAS/TLAS instancing — live with the consumer, not here.
 //
 // The chunk reads a `nodes: array<vec4<f32>>` binding the consumer declares — node `n`
 // is two sequential `vec4<f32>`: `nodes[2n]` = (min.xyz, bitcast leftChild) and
@@ -17,6 +18,18 @@
 // traverses far less. Both prune a subtree whose node AABB the ray enters beyond the
 // current limit, matching the CPU oracle's `nearestHitBvh` (tests/bvh/oracle.ts), the
 // spec the GPU traverser is gated against.
+//
+// TGSL, with the four node accessors WGSL-bodied: they read `nodes` as a module-scope
+// global the *consumer* declares by name (the relocatable contract, sear's shadow-sampler
+// shape), which has no TGSL spelling until the consumer contract itself is typed. Every
+// layer above them — the slab test, the restart trail, both queries — is TGSL over the
+// accessors, so the arithmetic has one source. Not CPU-callable: every entry point either
+// reads `nodes` or a `private` var.
+
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
+import { chunk, spliceNs } from "../../engine/utils/core";
 
 /** bytes per BVH2 node (2 × vec4<f32>) */
 export const BVH_NODE_BYTES = 32;
@@ -57,64 +70,105 @@ const BVH_TRAIL_WORDS = Math.ceil((BVH_TRAIL_LEVELS * 2) / 32);
  */
 const BVH_SHORT_STACK = 8;
 
-/** the BVH2 root node index for `primCount` primitives (the last-allocated node) */
-export function bvhRoot(primCount: number): number {
-    return primCount <= 1 ? 0 : 2 * primCount - 2;
-}
+/** slab-miss sentinel, above any finite tMax */
+const BVH_MISS = 3.0e38;
+
+/** trail code for "both children entered" */
+const BVH_N = 2;
 
 /**
- * WGSL form of {@link bvhRoot}: `fn bvhRoot(primCount: u32) -> u32`. Splice into a
- * consumer that reads the prim count from the GPU-driven count buffer so the trace's
- * root is computed on the GPU rather than passed as a CPU uniform.
+ * the BVH2 root node index for `primCount` primitives (the last-allocated node). One source for
+ * both sides: called on the CPU as a plain function, and spliced as WGSL by {@link bvhRootWgsl}
+ * for a consumer that reads the count from the GPU-driven count buffer (so the trace's root is
+ * computed on the GPU rather than passed as a CPU uniform).
+ * @example const root = bvhRoot(primCount);
  */
-export const BVH_ROOT_WGSL = /* wgsl */ `
-fn bvhRoot(primCount: u32) -> u32 { return select(0u, 2u * primCount - 2u, primCount > 1u); }
-`;
+export const bvhRoot = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((primCount) => {
+        "use gpu";
+        // both arms evaluate (typegpu's select is a call, not a short-circuit); the discarded arm
+        // underflows at primCount 0, which is harmless on integers — no non-finite intermediate
+        return std.select(0, 2 * primCount - 2, primCount > 1);
+    })
+    .$name("bvhRoot");
 
-/**
- * WGSL traversal chunk. Splice into a module that declares
- * `var<storage, read> nodes: array<vec4<f32>>`. Exposes `BvhHit`, `bvhClosestHit`,
- * and `bvhAnyHit`. `dir` need not be normalized (the hit distance is then in `dir`
- * lengths); pass `1.0 / dir` as `invDir`. `tMax` bounds the ray interval and seeds
- * the closest distance. Pass a finite limit (a true miss returns `prim == INVALID`
- * / `false`).
- *
- * @example
- * ```wgsl
- * @group(0) @binding(3) var<storage, read> nodes: array<vec4<f32>>;
- * // BVH_TRAVERSE_WGSL here
- * let hit = bvhClosestHit(root, ro, 1.0 / rd, 1e30);
- * if (hit.prim != 0xffffffffu) { shade(hit.t, hit.prim); }
- * ```
- */
-export const BVH_TRAVERSE_WGSL = /* wgsl */ `
-const BVH_INVALID = ${BVH_INVALID}u;
-const BVH_MISS = 3.0e38;          // slab-miss sentinel, above any finite tMax
+/** returns the `bvhRoot(primCount)` WGSL — splice into a consumer computing the trace root on the
+ *  GPU from the count buffer. */
+export const bvhRootWgsl = chunk("bvhRootWgsl", [bvhRoot], spliceNs);
 
-struct BvhHit {
-    t: f32,                       // hit distance in \`dir\` lengths, clamped at 0
-    prim: u32,                    // primitive index, or BVH_INVALID on a miss
-    visits: u32,                  // nodes visited — the heatmap signal
-};
+/** one traversal result: hit distance, primitive, and the node-visit count (the heatmap signal) */
+export const BvhHit = d
+    .struct({
+        /** hit distance in `dir` lengths, clamped at 0 */
+        t: d.f32,
+        /** primitive index, or {@link BVH_INVALID} on a miss */
+        prim: d.u32,
+        /** nodes visited — the heatmap signal */
+        visits: d.u32,
+    })
+    .$name("BvhHit");
 
-fn bvhNodeMin(n: u32) -> vec3<f32> { return nodes[2u * n].xyz; }
-fn bvhNodeMax(n: u32) -> vec3<f32> { return nodes[2u * n + 1u].xyz; }
-fn bvhLeft(n: u32) -> u32 { return bitcast<u32>(nodes[2u * n].w); }
-fn bvhRight(n: u32) -> u32 { return bitcast<u32>(nodes[2u * n + 1u].w); }
-fn bvhIsLeaf(n: u32) -> bool { return bvhLeft(n) == BVH_INVALID; }
+// The four node readers — WGSL-bodied, because `nodes` is a module-scope global the *consumer*
+// declares by name (the relocatable contract; no TGSL spelling until that contract is typed, 4a).
+const bvhNodeMin = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )(/* wgsl */ `(n: u32) -> vec3f { return nodes[2u * n].xyz; }`)
+    .$name("bvhNodeMin");
+
+const bvhNodeMax = tgpu
+    .fn(
+        [d.u32],
+        d.vec3f,
+    )(/* wgsl */ `(n: u32) -> vec3f { return nodes[2u * n + 1u].xyz; }`)
+    .$name("bvhNodeMax");
+
+const bvhLeft = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )(/* wgsl */ `(n: u32) -> u32 { return bitcast<u32>(nodes[2u * n].w); }`)
+    .$name("bvhLeft");
+
+const bvhRight = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )(/* wgsl */ `(n: u32) -> u32 { return bitcast<u32>(nodes[2u * n + 1u].w); }`)
+    .$name("bvhRight");
+
+const bvhIsLeaf = tgpu
+    .fn(
+        [d.u32],
+        d.bool,
+    )((n) => {
+        "use gpu";
+        return bvhLeft(n) === BVH_INVALID;
+    })
+    .$name("bvhIsLeaf");
 
 // Ray-AABB slab entry distance, or BVH_MISS when the interval [tEnter, tExit] does
-// not overlap [0, +inf). Matches the oracle's intersectAabb; \`inv\` is 1/dir.
-fn bvhSlab(n: u32, ro: vec3<f32>, inv: vec3<f32>) -> f32 {
-    let t1 = (bvhNodeMin(n) - ro) * inv;
-    let t2 = (bvhNodeMax(n) - ro) * inv;
-    let lo = min(t1, t2);
-    let hi = max(t1, t2);
-    let tEnter = max(max(lo.x, lo.y), lo.z);
-    let tExit = min(min(hi.x, hi.y), hi.z);
-    if (tExit < max(tEnter, 0.0)) { return BVH_MISS; }
-    return tEnter;
-}
+// not overlap [0, +inf). Matches the oracle's intersectAabb; `inv` is 1/dir.
+const bvhSlab = tgpu
+    .fn(
+        [d.u32, d.vec3f, d.vec3f],
+        d.f32,
+    )((n, ro, inv) => {
+        "use gpu";
+        const t1 = std.mul(std.sub(bvhNodeMin(n), ro), inv);
+        const t2 = std.mul(std.sub(bvhNodeMax(n), ro), inv);
+        const lo = std.min(t1, t2);
+        const hi = std.max(t1, t2);
+        const tEnter = std.max(std.max(lo.x, lo.y), lo.z);
+        const tExit = std.min(std.min(hi.x, hi.y), hi.z);
+        if (tExit < std.max(tEnter, 0)) return BVH_MISS;
+        return tEnter;
+    })
+    .$name("bvhSlab");
 
 // --- restart-trail + short-stack state for the occlusion query bvhAnyHit (per invocation;
 // it zeroes them at entry). bvhClosestHit uses a plain stack instead — see there. A full
@@ -126,176 +180,279 @@ fn bvhSlab(n: u32, ro: vec3<f32>, inv: vec3<f32>) -> f32 {
 // BVH_TRAIL_LEVELS, the provable LBVH depth bound — correct for any tree. Occlusion is the
 // occupancy-bound query (early-exit, few node reads), so the smaller footprint wins big
 // (the accel scenario: ~1.6× over a full stack on the 1M any-hit row).
-const BVH_N = 2u;
-const BVH_TRAIL_WORDS = ${BVH_TRAIL_WORDS}u;
-const BVH_SHORT_STACK = ${BVH_SHORT_STACK}u;
+const bvhTrail = tgpu.privateVar(d.arrayOf(d.u32, BVH_TRAIL_WORDS));
+/** ring of recent far ("last") children */
+const bvhSS = tgpu.privateVar(d.arrayOf(d.u32, BVH_SHORT_STACK));
+/** ring base; advances as the bottom is evicted */
+const bvhSSHead = tgpu.privateVar(d.u32);
+const bvhSSCount = tgpu.privateVar(d.u32);
 
-var<private> bvhTrail: array<u32, ${BVH_TRAIL_WORDS}>;
-var<private> bvhSS: array<u32, ${BVH_SHORT_STACK}>;       // ring of recent far ("last") children
-var<private> bvhSSHead: u32;                              // ring base; advances as the bottom is evicted
-var<private> bvhSSCount: u32;
+const bvhTrailGet = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((level) => {
+        "use gpu";
+        return (bvhTrail.$[level >> 4] >> ((level & 15) * 2)) & 3;
+    })
+    .$name("bvhTrailGet");
 
-fn bvhTrailGet(level: u32) -> u32 { return (bvhTrail[level >> 4u] >> ((level & 15u) * 2u)) & 3u; }
-fn bvhTrailSet(level: u32, v: u32) {
-    let w = level >> 4u;
-    let s = (level & 15u) * 2u;
-    bvhTrail[w] = (bvhTrail[w] & ~(3u << s)) | (v << s);
-}
+const bvhTrailSet = tgpu
+    .fn([d.u32, d.u32])((level, v) => {
+        "use gpu";
+        const w = level >> 4;
+        const s = (level & 15) * 2;
+        // d.u32 on the mask literals is load-bearing: a bare `3`/`1` materializes i32, so at level 15
+        // (s = 30) `3 << s` overflows signed and the `&` becomes a mixed-sign implicit conversion
+        bvhTrail.$[w] = (bvhTrail.$[w] & ~(d.u32(3) << s)) | (v << s);
+    })
+    .$name("bvhTrailSet");
+
 // clear every level deeper than pl — its subtrees are about to be re-walked
-fn bvhTrailResetBelow(pl: u32) {
-    let w0 = pl >> 4u;
-    let sub = pl & 15u;
-    if (sub != 15u) { bvhTrail[w0] = bvhTrail[w0] & ((1u << ((sub + 1u) * 2u)) - 1u); }
-    for (var w = w0 + 1u; w < BVH_TRAIL_WORDS; w = w + 1u) { bvhTrail[w] = 0u; }
-}
-// highest ancestor level (scanning up) with a child still to enter, or -1 when traversal is done
-fn bvhFindParent(level: u32) -> i32 {
-    for (var i = i32(level) - 1; i >= 0; i = i - 1) {
-        if (bvhTrailGet(u32(i)) != BVH_N) { return i; }
-    }
-    return -1;
-}
-fn bvhPushFar(far: u32) {
-    if (bvhSSCount < BVH_SHORT_STACK) {
-        bvhSS[(bvhSSHead + bvhSSCount) & (BVH_SHORT_STACK - 1u)] = far;
-        bvhSSCount += 1u;
-    } else {
-        bvhSS[bvhSSHead] = far;                            // evict oldest; the trail recovers it
-        bvhSSHead = (bvhSSHead + 1u) & (BVH_SHORT_STACK - 1u);
-    }
-}
-
-// Nearest primitive the ray hits within [0, tMax]. A node entered at or beyond the closest
-// hit so far is pruned; a leaf's slab test is its primitive hit.
-//
-// Explicit far-child stack, NOT the restart trail bvhAnyHit uses. Measured (the accel
-// scenario, Lovelace, ×3): the restart trail regresses closest-hit ~1.5× — its per-pop
-// O(depth) parent-level scan is expensive on a deep binary tree (the trail technique targets
-// shallow wide BVHs), and closest-hit is occupancy-insensitive here anyway (a 64→40 stack
-// shrink moved it ~3%), so it gains nothing from the trail's smaller footprint. So closest
-// keeps the simple stack. The stack is sized to BVH_TRAIL_LEVELS — the *derived* provable
-// depth bound (62 ≤ this), not a tuned constant — so the push guard never trips and a hit is
-// never dropped. Occupancy being null on desktop, the stack might still help on an integrated
-// GPU; that's the unmeasured case, not this one.
-//
-// Front-to-back ordered descent: both children are slab-tested, the nearer descended
-// directly, the farther pushed; the nearer subtree tightens hit.t first, so the farther is
-// pruned (entered beyond hit.t) far more often than an unordered push. The stack carries only
-// far children (one u32/slot).
-fn bvhClosestHit(root: u32, ro: vec3<f32>, inv: vec3<f32>, tMax: f32) -> BvhHit {
-    var hit: BvhHit;
-    hit.t = tMax;
-    hit.prim = BVH_INVALID;
-    hit.visits = 0u;
-
-    var stack: array<u32, ${BVH_TRAIL_LEVELS}>;
-    var sp = 0u;
-    var node = root;
-    loop {
-        hit.visits += 1u;
-        if (bvhIsLeaf(node)) {
-            let t = bvhSlab(node, ro, inv);
-            let d = max(t, 0.0);
-            if (t < BVH_MISS && d < hit.t) {
-                hit.t = d;
-                hit.prim = bvhRight(node);
-            }
-            if (sp == 0u) { break; }
-            sp -= 1u;
-            node = stack[sp];
-            continue;
+const bvhTrailResetBelow = tgpu
+    .fn([d.u32])((pl) => {
+        "use gpu";
+        const w0 = pl >> 4;
+        const sub = pl & 15;
+        if (sub !== 15) bvhTrail.$[w0] = bvhTrail.$[w0] & ((d.u32(1) << ((sub + 1) * 2)) - 1);
+        let w = w0 + 1;
+        while (w < BVH_TRAIL_WORDS) {
+            bvhTrail.$[w] = 0;
+            w = w + 1;
         }
-        let l = bvhLeft(node);
-        let r = bvhRight(node);
-        let tl = bvhSlab(l, ro, inv);
-        let tr = bvhSlab(r, ro, inv);
-        let okL = tl < BVH_MISS && max(tl, 0.0) < hit.t;
-        let okR = tr < BVH_MISS && max(tr, 0.0) < hit.t;
-        if (okL && okR) {
-            let leftNear = tl <= tr;        // descend the nearer, push the farther
-            if (sp < ${BVH_TRAIL_LEVELS}u) { stack[sp] = select(l, r, leftNear); sp += 1u; }
-            node = select(r, l, leftNear);
-        } else if (okL) {
-            node = l;
-        } else if (okR) {
-            node = r;
-        } else {
-            if (sp == 0u) { break; }
-            sp -= 1u;
-            node = stack[sp];
-        }
-    }
-    return hit;
-}
+    })
+    .$name("bvhTrailResetBelow");
 
-// True if any primitive lies within (0, tMax) — the occlusion query. Returns at the first
-// leaf hit. Uses the restart trail + short stack (the helpers above): tMax is fixed (no
-// closest tightening), so the live-child set never shrinks and the trail count is trivially
-// stable; front-to-back order is then irrelevant to correctness, kept only for code symmetry
-// with the trail's general form. This is the query the stackless rewrite wins on.
-fn bvhAnyHit(root: u32, ro: vec3<f32>, inv: vec3<f32>, tMax: f32) -> bool {
-    for (var w = 0u; w < BVH_TRAIL_WORDS; w = w + 1u) { bvhTrail[w] = 0u; }
-    bvhSSHead = 0u;
-    bvhSSCount = 0u;
-    var level = 0u;
-    var node = root;
-    loop {
-        var needPop = false;
-        if (bvhIsLeaf(node)) {
-            let t = bvhSlab(node, ro, inv);
-            if (t < BVH_MISS && max(t, 0.0) < tMax) { return true; }
-            needPop = true;
+// highest ancestor level (scanning up) with a child still to enter, or BVH_INVALID when
+// traversal is done. Unsigned throughout: the shipped WGSL scanned down from `i32(level) - 1`
+// and returned -1, which is the signed-arithmetic trap the 3a port found; the sentinel is the
+// same scan with the same visit order and the same results.
+const bvhFindParent = tgpu
+    .fn(
+        [d.u32],
+        d.u32,
+    )((level) => {
+        "use gpu";
+        let i = level;
+        while (i > 0) {
+            i = i - 1;
+            if (bvhTrailGet(i) !== BVH_N) return i;
+        }
+        return d.u32(BVH_INVALID);
+    })
+    .$name("bvhFindParent");
+
+const bvhPushFar = tgpu
+    .fn([d.u32])((far) => {
+        "use gpu";
+        if (bvhSSCount.$ < BVH_SHORT_STACK) {
+            bvhSS.$[(bvhSSHead.$ + bvhSSCount.$) & (BVH_SHORT_STACK - 1)] = far;
+            bvhSSCount.$ = bvhSSCount.$ + 1;
         } else {
-            let l = bvhLeft(node);
-            let r = bvhRight(node);
-            let tl = bvhSlab(l, ro, inv);
-            let tr = bvhSlab(r, ro, inv);
-            let okL = tl < BVH_MISS && max(tl, 0.0) < tMax;
-            let okR = tr < BVH_MISS && max(tr, 0.0) < tMax;
-            let leftNear = tl <= tr;
-            let nearNode = select(r, l, leftNear);
-            let farNode = select(l, r, leftNear);
-            let bothOk = okL && okR;
-            let anyOk = okL || okR;
-            let c = bvhTrailGet(level);
-            var nextNode = BVH_INVALID;
-            var pushFar = false;
-            var setLast = false;
-            if (c == 0u) {
-                if (bothOk) { nextNode = nearNode; pushFar = true; }
-                else if (anyOk) { nextNode = nearNode; setLast = true; }
-            } else if (c == 1u) {
-                if (bothOk) { nextNode = farNode; setLast = true; }
-            } else {
-                if (bothOk) { nextNode = farNode; setLast = true; }
-                else if (anyOk) { nextNode = nearNode; setLast = true; }
+            bvhSS.$[bvhSSHead.$] = far; // evict oldest; the trail recovers it
+            bvhSSHead.$ = (bvhSSHead.$ + 1) & (BVH_SHORT_STACK - 1);
+        }
+    })
+    .$name("bvhPushFar");
+
+// the closest-hit far-child stack. `private`, not a function-local `var` as the shipped WGSL had
+// it: TGSL has no spelling for a local fixed-size array. Semantically identical — `sp` is zeroed
+// at entry, so nothing carries across calls, and a `private` array and a function-local one both
+// live in the same per-invocation storage class.
+const bvhStack = tgpu.privateVar(d.arrayOf(d.u32, BVH_TRAIL_LEVELS));
+
+/**
+ * nearest primitive the ray hits within [0, tMax]. A node entered at or beyond the closest
+ * hit so far is pruned; a leaf's slab test is its primitive hit. `dir` need not be normalized
+ * (the hit distance is then in `dir` lengths); pass `1.0 / dir` as `inv`, and a finite `tMax`
+ * (a true miss returns `prim == BVH_INVALID`).
+ *
+ * Explicit far-child stack, NOT the restart trail {@link bvhAnyHit} uses. Measured (the accel
+ * scenario, Lovelace, ×3): the restart trail regresses closest-hit ~1.5× — its per-pop
+ * O(depth) parent-level scan is expensive on a deep binary tree (the trail technique targets
+ * shallow wide BVHs), and closest-hit is occupancy-insensitive here anyway (a 64→40 stack
+ * shrink moved it ~3%), so it gains nothing from the trail's smaller footprint. So closest
+ * keeps the simple stack. The stack is sized to {@link BVH_TRAIL_LEVELS} — the *derived*
+ * provable depth bound (62 ≤ this), not a tuned constant — so the push guard never trips and a
+ * hit is never dropped. Occupancy being null on desktop, the stack might still help on an
+ * integrated GPU; that's the unmeasured case, not this one.
+ *
+ * Front-to-back ordered descent: both children are slab-tested, the nearer descended
+ * directly, the farther pushed; the nearer subtree tightens hit.t first, so the farther is
+ * pruned (entered beyond hit.t) far more often than an unordered push. The stack carries only
+ * far children (one u32/slot).
+ * @example const hit = bvhClosestHit(root, ro, 1.0 / rd, 1e30);
+ */
+export const bvhClosestHit = tgpu
+    .fn(
+        [d.u32, d.vec3f, d.vec3f, d.f32],
+        BvhHit,
+    )((root, ro, inv, tMax) => {
+        "use gpu";
+        let hitT = tMax;
+        let hitPrim = d.u32(BVH_INVALID);
+        let visits = d.u32(0);
+
+        let sp = d.u32(0);
+        let node = root;
+        while (true) {
+            visits = visits + 1;
+            if (bvhIsLeaf(node)) {
+                const t = bvhSlab(node, ro, inv);
+                const dist = std.max(t, 0);
+                if (t < BVH_MISS && dist < hitT) {
+                    hitT = dist;
+                    hitPrim = bvhRight(node);
+                }
+                if (sp === 0) break;
+                sp = sp - 1;
+                node = bvhStack.$[sp];
+                continue;
             }
-            if (nextNode != BVH_INVALID) {
-                if (pushFar) { bvhPushFar(farNode); }
-                if (setLast) { bvhTrailSet(level, BVH_N); }
-                node = nextNode;
-                level += 1u;
+            const l = bvhLeft(node);
+            const r = bvhRight(node);
+            const tl = bvhSlab(l, ro, inv);
+            const tr = bvhSlab(r, ro, inv);
+            const okL = tl < BVH_MISS && std.max(tl, 0) < hitT;
+            const okR = tr < BVH_MISS && std.max(tr, 0) < hitT;
+            if (okL && okR) {
+                const leftNear = tl <= tr; // descend the nearer, push the farther
+                if (sp < BVH_TRAIL_LEVELS) {
+                    bvhStack.$[sp] = std.select(l, r, leftNear);
+                    sp = sp + 1;
+                }
+                node = std.select(r, l, leftNear);
+            } else if (okL) {
+                node = l;
+            } else if (okR) {
+                node = r;
             } else {
+                if (sp === 0) break;
+                sp = sp - 1;
+                node = bvhStack.$[sp];
+            }
+        }
+        return BvhHit({ t: hitT, prim: hitPrim, visits: visits });
+    })
+    .$name("bvhClosestHit");
+
+/**
+ * true if any primitive lies within (0, tMax) — the occlusion query. Returns at the first
+ * leaf hit. Uses the restart trail + short stack: tMax is fixed (no closest tightening), so
+ * the live-child set never shrinks and the trail count is trivially stable; front-to-back
+ * order is then irrelevant to correctness, kept only for code symmetry with the trail's
+ * general form. This is the query the stackless rewrite wins on.
+ * @example if (bvhAnyHit(root, ro, 1.0 / rd, dist)) { shadowed(); }
+ */
+export const bvhAnyHit = tgpu
+    .fn(
+        [d.u32, d.vec3f, d.vec3f, d.f32],
+        d.bool,
+    )((root, ro, inv, tMax) => {
+        "use gpu";
+        let w = d.u32(0);
+        while (w < BVH_TRAIL_WORDS) {
+            bvhTrail.$[w] = 0;
+            w = w + 1;
+        }
+        bvhSSHead.$ = 0;
+        bvhSSCount.$ = 0;
+        let level = d.u32(0);
+        let node = root;
+        while (true) {
+            let needPop = false;
+            if (bvhIsLeaf(node)) {
+                const t = bvhSlab(node, ro, inv);
+                if (t < BVH_MISS && std.max(t, 0) < tMax) return true;
                 needPop = true;
-            }
-        }
-        if (needPop) {
-            let pl = bvhFindParent(level);
-            if (pl < 0) { break; }
-            let plu = u32(pl);
-            bvhTrailSet(plu, bvhTrailGet(plu) + 1u);
-            bvhTrailResetBelow(plu);
-            if (bvhSSCount == 0u) {
-                node = root;
-                level = 0u;
             } else {
-                bvhSSCount -= 1u;
-                node = bvhSS[(bvhSSHead + bvhSSCount) & (BVH_SHORT_STACK - 1u)];
-                bvhTrailSet(plu, BVH_N);
-                level = plu + 1u;
+                const l = bvhLeft(node);
+                const r = bvhRight(node);
+                const tl = bvhSlab(l, ro, inv);
+                const tr = bvhSlab(r, ro, inv);
+                const okL = tl < BVH_MISS && std.max(tl, 0) < tMax;
+                const okR = tr < BVH_MISS && std.max(tr, 0) < tMax;
+                const leftNear = tl <= tr;
+                const nearNode = std.select(r, l, leftNear);
+                const farNode = std.select(l, r, leftNear);
+                const bothOk = okL && okR;
+                const anyOk = okL || okR;
+                const c = bvhTrailGet(level);
+                let nextNode = d.u32(BVH_INVALID);
+                let pushFar = false;
+                let setLast = false;
+                if (c === 0) {
+                    if (bothOk) {
+                        nextNode = nearNode;
+                        pushFar = true;
+                    } else if (anyOk) {
+                        nextNode = nearNode;
+                        setLast = true;
+                    }
+                } else if (c === 1) {
+                    if (bothOk) {
+                        nextNode = farNode;
+                        setLast = true;
+                    }
+                } else {
+                    if (bothOk) {
+                        nextNode = farNode;
+                        setLast = true;
+                    } else if (anyOk) {
+                        nextNode = nearNode;
+                        setLast = true;
+                    }
+                }
+                if (nextNode !== BVH_INVALID) {
+                    if (pushFar) bvhPushFar(farNode);
+                    if (setLast) bvhTrailSet(level, BVH_N);
+                    node = nextNode;
+                    level = level + 1;
+                } else {
+                    needPop = true;
+                }
+            }
+            if (needPop) {
+                const pl = bvhFindParent(level);
+                if (pl === BVH_INVALID) break;
+                bvhTrailSet(pl, bvhTrailGet(pl) + 1);
+                bvhTrailResetBelow(pl);
+                if (bvhSSCount.$ === 0) {
+                    node = root;
+                    level = 0;
+                } else {
+                    bvhSSCount.$ = bvhSSCount.$ - 1;
+                    node = bvhSS.$[(bvhSSHead.$ + bvhSSCount.$) & (BVH_SHORT_STACK - 1)];
+                    bvhTrailSet(pl, BVH_N);
+                    level = pl + 1;
+                }
             }
         }
-    }
-    return false;
-}
-`;
+        return false;
+    })
+    .$name("bvhAnyHit");
+
+/**
+ * returns the traversal WGSL. Splice into a module that declares
+ * `var<storage, read> nodes: array<vec4<f32>>`. Exposes exactly three definitions —
+ * `struct BvhHit`, `fn bvhClosestHit`, `fn bvhAnyHit` — and **no WGSL consts**: every
+ * constant folds to a literal, so compare a miss against the {@link BVH_INVALID} export
+ * interpolated into your own template rather than a spliced `BVH_INVALID` name.
+ *
+ * `dir` need not be normalized (the hit distance is then in `dir` lengths); pass
+ * `1.0 / dir` as `invDir`. `tMax` bounds the ray interval and seeds the closest distance.
+ * Pass a finite limit (a true miss returns `prim == BVH_INVALID` / `false`).
+ *
+ * @example
+ * ```wgsl
+ * @group(0) @binding(3) var<storage, read> nodes: array<vec4<f32>>;
+ * // bvhTraverseWgsl() here
+ * let hit = bvhClosestHit(root, ro, 1.0 / rd, 1e30);
+ * if (hit.prim != 0xffffffffu) { shade(hit.t, hit.prim); }
+ * ```
+ */
+export const bvhTraverseWgsl = chunk(
+    "bvhTraverseWgsl",
+    [BvhHit, bvhClosestHit, bvhAnyHit],
+    spliceNs,
+);

@@ -29,8 +29,8 @@ import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import {
     Avbd,
     BODY_VEC4,
-    COLLIDE_WGSL,
-    HULL_WGSL,
+    collideWgsl,
+    hullWgsl,
     MAX_CONTACTS,
     PENALTY_MIN,
     packHulls,
@@ -58,7 +58,7 @@ import { narrowphase } from "../../../../packages/shallot/tests/avbd/rounded";
 import gold from "../../../../packages/shallot/tests/avbd/sat-gold-vectors.json";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
-// sat — the SAT gate on the real GPU. Runs the production `COLLIDE_WGSL` over the 14 C++ gold configs
+// sat — the SAT gate on the real GPU. Runs the production `collideWgsl()` over the 14 C++ gold configs
 // (sat-gold-vectors.json, the same spec sat.test.ts and the software-adapter cross-check use), reads
 // back contact count + basis + feature key + manifold arms, diffs byte-exact (f32 tol 1e-4, ~5× margin
 // derived from accumulated f32 rounding).
@@ -100,7 +100,7 @@ const CFG_VEC4 = 7; // posA, quatA, sizeA, posB, quatB, sizeB, dRel
 
 // The main SAT kernel — production shape (workgroup_size 64, one thread per config). Matches the
 // standard/avbd/step.ts narrowphase pass that calls collideBoxBox per broadphase candidate.
-const KERNEL_WGSL = `${COLLIDE_WGSL}
+const kernelWgsl = () => `${collideWgsl()}
 struct Cfg { posA: vec4<f32>, quatA: vec4<f32>, sizeA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeB: vec4<f32>, dRel: vec4<f32> };
 @group(0) @binding(0) var<storage, read> cfgs: array<Cfg>;
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
@@ -130,7 +130,7 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 // control: it was already bit-correct on apple/metal-3 while the multi-lane main-kernel diverged, which
 // pinned the (now-fixed) Phase 4.5 spill to the multi-lane execution shape rather than the SAT math.
 const REF_OUT_LEN = 1 + MAX_CONTACTS * 4; // count + MAX × (feat, rA.xyz)
-const REF_KERNEL_WGSL = `${COLLIDE_WGSL}
+const refKernelWgsl = () => `${collideWgsl()}
 @group(0) @binding(0) var<storage, read_write> out: array<f32>;
 
 @compute @workgroup_size(32)
@@ -202,7 +202,7 @@ async function runSat(): Promise<GpuResult[]> {
         label: "sat-main",
         layout: "auto",
         compute: {
-            module: device.createShaderModule({ label: "sat-main-module", code: KERNEL_WGSL }),
+            module: device.createShaderModule({ label: "sat-main-module", code: kernelWgsl() }),
             entryPoint: "main",
         },
     });
@@ -270,7 +270,7 @@ async function runRef(): Promise<{ count: number; entries: { feat: number; rA: n
         label: "sat-ref",
         layout: "auto",
         compute: {
-            module: device.createShaderModule({ label: "sat-ref-module", code: REF_KERNEL_WGSL }),
+            module: device.createShaderModule({ label: "sat-ref-module", code: refKernelWgsl() }),
             entryPoint: "main",
         },
     });
@@ -500,7 +500,7 @@ function hullConfigs(): HCfg[] {
 
 const H_OUT_STRIDE = 1 + 3 + MAX_CONTACTS * 7; // count, normal(3), MAX × (feat, rA.xyz, rB.xyz)
 const H_CFG_STRIDE = 32; // 8 vec4: posA, quatA, sizeRadA, posB, quatB, sizeRadB, dRel, shapes(sA,sB,hA,hB)
-const HULL_KERNEL_WGSL = `${COLLIDE_WGSL}${HULL_WGSL}
+const hullKernelWgsl = () => `${collideWgsl()}${hullWgsl()}
 struct HCfg { posA: vec4<f32>, quatA: vec4<f32>, sizeRadA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeRadB: vec4<f32>, dRel: vec4<f32>, shapes: vec4<f32> };
 @group(0) @binding(0) var<storage, read> cfgs: array<HCfg>;
 @group(0) @binding(1) var<storage, read_write> out: array<f32>;
@@ -596,7 +596,7 @@ async function runHullKernel(cfgs: HCfg[]): Promise<GpuHull[]> {
         label: "hull-kernel",
         layout: "auto",
         compute: {
-            module: device.createShaderModule({ label: "hull-module", code: HULL_KERNEL_WGSL }),
+            module: device.createShaderModule({ label: "hull-module", code: hullKernelWgsl() }),
             entryPoint: "main",
         },
     });

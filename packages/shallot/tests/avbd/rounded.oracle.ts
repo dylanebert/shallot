@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import * as tg from "typegpu/data";
+// the shipped rounded narrowphase, called on the CPU — the same TGSL source the GPU pipeline splices
+import { collideRounded as tgslCollideRounded } from "../../src/standard/avbd/collide";
 import { SPECULATIVE_DISTANCE } from "./collide";
 import { boxHull, tetHull } from "./hull";
 import { COLLISION_MARGIN } from "./manifold";
@@ -592,4 +595,102 @@ describe("rounded × hull — through the solver", () => {
         expect(length(ball.velAng)).toBeLessThan(5e-2); // no spurious spin (fresh arms on the hull pair)
         expect(Math.abs(ball.posLin[1] - (0.5 + 0.5 - CollMargin))).toBeLessThan(2e-3);
     });
+});
+
+// The SHIPPED rounded narrowphase against this file's f64 oracle, on the CPU. `collideRounded`
+// (src/standard/avbd/collide.ts) is a TGSL function, so the WGSL the GPU rounded pipeline splices and the
+// JS called here are one source — this gates its logic (the segment closest-point, the band, the core
+// arms, the constant feature key) against the oracle deterministically, with no device. The GPU's
+// execution of the same source is the gym `pile` rounded narrowphase gate.
+describe("the shipped TGSL rounded narrowphase vs the f64 oracle", () => {
+    // Derived, not tuned: both sides run f64 arithmetic in the same op order, so the only divergence is
+    // the vector schema storing the TGSL inputs as f32 — a ~6e-8 relative perturbation at these unit-scale
+    // coordinates, carried through the ~20 ops of the segment closest-point (≈1.2e-6 worst case at unit
+    // magnitude; the observed max is ~1e-7). 1e-6 sits inside that bound — it is the input-quantization
+    // limit, not a threshold picked to pass.
+    const DiffTol = 1e-6;
+    const tgslArgs = (b: Body) =>
+        [
+            tg.vec3f(b.posLin[0], b.posLin[1], b.posLin[2]),
+            tg.vec4f(b.posAng[0], b.posAng[1], b.posAng[2], b.posAng[3]),
+            tg.vec3f(b.size[0], b.size[1], b.size[2]),
+            b.roundRadius,
+        ] as const;
+
+    const cases: [string, Body, Body, Vec3][] = [
+        [
+            "sphere-sphere resting",
+            sphere(0.5, 1, 0.5, [0, 0, 0]),
+            sphere(0.5, 1, 0.5, [0, 0.99, 0]),
+            [0, 0, 0],
+        ],
+        [
+            "sphere-sphere separated past the band",
+            sphere(0.5, 1, 0.5, [0, 0, 0]),
+            sphere(0.5, 1, 0.5, [0, 1.4, 0]),
+            [0, 0, 0],
+        ],
+        [
+            "sphere-sphere inside the speculative band",
+            sphere(0.5, 1, 0.5, [0, 0, 0]),
+            sphere(0.5, 1, 0.5, [0, 1.02, 0]),
+            [0, 0, 0],
+        ],
+        [
+            "sphere-sphere swept (a fast closer beyond the band)",
+            sphere(0.5, 1, 0.5, [0, 0, 0]),
+            sphere(0.5, 1, 0.5, [0, 1.4, 0]),
+            [0, 0.5, 0],
+        ],
+        [
+            "sphere-capsule off-axis",
+            sphere(0.4, 1, 0.5, [0.2, 1.1, 0.1]),
+            capsule(0.6, 0.3, 1, 0.5, [0, 0, 0]),
+            [0, 0, 0],
+        ],
+        [
+            "capsule-capsule crossed",
+            capsule(0.5, 0.25, 1, 0.5, [0, 0, 0]),
+            capsule(0.5, 0.25, 1, 0.5, [0, 0.45, 0], [0, 0, 0], Z90),
+            [0, 0, 0],
+        ],
+        [
+            "capsule-capsule parallel (the segment-parallel branch)",
+            capsule(0.5, 0.25, 1, 0.5, [0, 0, 0]),
+            capsule(0.5, 0.25, 1, 0.5, [0.45, 0.2, 0]),
+            [0, 0, 0],
+        ],
+        [
+            "concentric cores (the degenerate normal fallback)",
+            sphere(0.5, 1, 0.5, [0, 0, 0]),
+            sphere(0.5, 1, 0.5, [0, 0, 0]),
+            [0, 0, 0],
+        ],
+    ];
+
+    for (const [name, a, b, dRel] of cases) {
+        test(name, () => {
+            const want = collideRounded(a, b, dRel);
+            const got = tgslCollideRounded(
+                ...tgslArgs(a),
+                ...tgslArgs(b),
+                tg.vec3f(dRel[0], dRel[1], dRel[2]),
+            );
+            expect(got.count).toBe(want.contacts.length);
+            if (want.contacts.length === 0) return;
+            expect(got.feat[0]).toBe(ROUND_FEATURE >>> 0);
+            const rows = [got.basis.r0, got.basis.r1, got.basis.r2];
+            for (let r = 0; r < 3; r++)
+                for (let c = 0; c < 3; c++)
+                    expect(
+                        Math.abs([rows[r].x, rows[r].y, rows[r].z][c] - want.basis[r][c]),
+                    ).toBeLessThan(DiffTol);
+            const arms: [number[], Vec3][] = [
+                [[got.rA[0].x, got.rA[0].y, got.rA[0].z], want.contacts[0].rA],
+                [[got.rB[0].x, got.rB[0].y, got.rB[0].z], want.contacts[0].rB],
+            ];
+            for (const [g, w] of arms)
+                for (let i = 0; i < 3; i++) expect(Math.abs(g[i] - w[i])).toBeLessThan(DiffTol);
+        });
+    }
 });

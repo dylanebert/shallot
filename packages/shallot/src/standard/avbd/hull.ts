@@ -1,5 +1,5 @@
 // AVBD's GPU packing of the substrate's `Hulls` registry (`../physics/hull`) — the flat `hullData` buffer
-// `collide.ts`'s HULL_WGSL reads. The registry + geometry types are backend-neutral; this format (the
+// `collide.ts`'s `hullWgsl()` chunk reads. The registry + geometry types are backend-neutral; this format (the
 // header table + concatenated verts/faces/edges) is specific to this backend's narrowphase layout.
 
 import { type Hull, Hulls } from "../physics/core";

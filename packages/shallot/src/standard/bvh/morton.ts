@@ -7,9 +7,12 @@
 // Per prim: centroid = AABB midpoint, normalize by the scene extent into [0,1] per
 // axis, quantize to 10 bits (×1023), interleave x | y<<1 | z<<2 into a 30-bit code.
 // Bit-identical to NexusBVH's ComputeMortonCodesKernel + MortonCode<uint32_t>
-// (reference/NexusBVH). A zero-extent axis (coplanar scene) normalizes to 0 rather
-// than 0/0 = NaN — the defined-code requirement of Phase 3, matching the oracle's
-// `if (ext <= 0) return 0` branch (tests/bvh/oracle.ts mortonCodes).
+// (reference/NexusBVH). A degenerate extent yields a defined code rather than a NaN one:
+// the divisor is guarded as well as the result, so a coplanar axis (ext = 0) codes as 0
+// and a NaN extent no longer reaches the quantizer at all. That matches the oracle's
+// `if (ext <= 0) return 0` branch (tests/bvh/oracle.ts mortonCodes), and it is the
+// deterministic-consumer exception gpu.md's NaN policy names for the BVH centroid — every
+// other path here computes through.
 //
 // Embarrassingly parallel — no subgroup ops, no shared memory, one grid-stride loop.
 // The one float subtlety is the normalize divide. The oracle models it in f32
@@ -26,70 +29,105 @@
 // 8-pass sort variant that sort.ts (4×8-bit, u32-only) does not provide. Adding an
 // unsortable key here would be a half-built feature, so the seam waits for that sort.
 
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute } from "../../engine";
+import { precompile } from "../../engine/runtime";
+import { rootOf } from "./root";
 
 const WG = 256; // workgroup size; the grid-stride loop folds any count past one dispatch
 const MAX_DISPATCH = 65535; // maxComputeWorkgroupsPerDimension floor
+const SENTINEL = 0xffffffff; // above any 30-bit code → sorts past the live prims
 
-// Spread the low 10 bits of x to every third bit (two zeros between bits). Bit-
-// identical to NexusBVH InterleaveBits32 and the oracle's interleaveBits32; every
-// intermediate stays within 32 bits.
-const INTERLEAVE_WGSL = /* wgsl */ `
-fn interleaveBits32(x: u32) -> u32 {
-    var v = x & 0x3ffu;
-    v = (v | (v << 16u)) & 0x30000ffu;
-    v = (v | (v << 8u)) & 0x300f00fu;
-    v = (v | (v << 4u)) & 0x30c30c3u;
-    v = (v | (v << 2u)) & 0x9249249u;
+/** the pass's one bind group: prim AABBs + the scene AABB in, keys + payload out, the GPU count gating
+ *  the live range. @internal */
+export const mortonLayout = tgpu.bindGroupLayout({
+    prims: { storage: d.arrayOf(d.vec4f), access: "readonly" }, // 2 vec4/prim: min.xyz+pad, max.xyz+pad
+    bounds: { storage: d.arrayOf(d.vec4f, 2), access: "readonly" }, // scene AABB: min.xyz+pad, max.xyz+pad
+    keys: { storage: d.arrayOf(d.u32), access: "mutable" }, // out: 30-bit Morton code / sentinel
+    payload: { storage: d.arrayOf(d.u32), access: "mutable" }, // out: primIndex = identity
+    countBuf: { storage: d.arrayOf(d.u32), access: "readonly" }, // [0] = GPU-driven prim count
+});
+
+/**
+ * spread the low 10 bits of `x` to every third bit (two zeros between bits). Bit-identical to NexusBVH
+ * `InterleaveBits32` and the oracle's `interleaveBits32`; every intermediate stays within 32 bits, and
+ * under 2³¹ at that — so the CPU arm's JS bit ops (signed 32-bit) agree with the shader's.
+ * @example const spread = interleaveBits32(0x3ff); // 0x9249249
+ */
+export const interleaveBits32 = tgpu.fn(
+    [d.u32],
+    d.u32,
+)((x) => {
+    "use gpu";
+    let v = x & 0x3ff;
+    v = (v | (v << 16)) & 0x30000ff;
+    v = (v | (v << 8)) & 0x300f00f;
+    v = (v | (v << 4)) & 0x30c30c3;
+    v = (v | (v << 2)) & 0x9249249;
     return v;
-}
-`;
+});
 
-// `maxPrims` is baked as a const: the pass fills the whole [0, maxPrims) key range every
-// run — a real 30-bit code for a live prim (`i < count`), a max-Morton sentinel for the
-// padding tail (`i >= count`). The sentinel sorts above every real code, so the radix
+/**
+ * one primitive's 30-bit Morton code: normalize the centroid by the scene extent into [0,1] per axis,
+ * quantize to 10 bits (×1023), interleave `x | y<<1 | z<<2`. A zero-extent axis (coplanar scene)
+ * normalizes to 0 rather than 0/0 = NaN — the defined-code requirement, matching the oracle's
+ * `if (ext <= 0) return 0` branch.
+ * @example const key = mortonCode(centroid, sceneMin, sceneExtent);
+ */
+export const mortonCode = tgpu.fn(
+    [d.vec3f, d.vec3f, d.vec3f],
+    d.u32,
+)((centroid, bmin, ext) => {
+    "use gpu";
+    // the divisor is guarded as well as the result: a zero-extent axis would otherwise compute 0/0,
+    // which the select discards on the GPU but which the CPU arm cannot even evaluate (typegpu holds
+    // WGSL's finite-math assumption and throws on a non-finite intermediate). Guarding the divisor
+    // changes no live axis — it substitutes 1 only where the result is thrown away
+    const safe = std.select(d.vec3f(1), ext, std.gt(ext, d.vec3f()));
+    const t = std.select(std.div(std.sub(centroid, bmin), safe), d.vec3f(), std.le(ext, d.vec3f()));
+    const c = std.clamp(t, d.vec3f(), d.vec3f(1));
+    const q = d.vec3u(std.floor(std.mul(c, 1023)));
+    return interleaveBits32(q.x) | (interleaveBits32(q.y) << 1) | (interleaveBits32(q.z) << 2);
+});
+
+// `maxPrims` is baked as a captured constant (it folds to a literal): the pass fills the whole
+// [0, maxPrims) key range every run — a real 30-bit code for a live prim (`i < count`), a max-Morton
+// sentinel for the padding tail (`i >= count`). The sentinel sorts above every real code, so the radix
 // pushes padding to the end with no CPU tail-pad — the count stays GPU-resident.
-const mortonWgsl = (maxPrims: number): string =>
-    INTERLEAVE_WGSL +
-    /* wgsl */ `
-const MAX_PRIMS = ${Math.max(1, maxPrims)}u;
-@group(0) @binding(0) var<storage, read> prims: array<vec4<f32>>;     // 2 vec4/prim: min.xyz+pad, max.xyz+pad
-@group(0) @binding(1) var<storage, read> bounds: array<vec4<f32>, 2>; // scene AABB: min.xyz+pad, max.xyz+pad
-@group(0) @binding(2) var<storage, read_write> keys: array<u32>;      // out: 30-bit Morton code / sentinel
-@group(0) @binding(3) var<storage, read_write> payload: array<u32>;   // out: primIndex = identity
-@group(0) @binding(4) var<storage, read> countBuf: array<u32>;        // [0] = GPU-driven prim count
-
-@compute @workgroup_size(${WG})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>, @builtin(num_workgroups) nwg: vec3<u32>) {
-    let bmin = bounds[0].xyz;
-    let ext = bounds[1].xyz - bmin;
-    let stride = nwg.x * ${WG}u;
-    let count = countBuf[0];
-    for (var i = gid.x; i < MAX_PRIMS; i += stride) {
-        if (i < count) {
-            let mn = prims[i * 2u].xyz;
-            let mx = prims[i * 2u + 1u].xyz;
-            let centroid = (mn + mx) * 0.5;
-            // normalize into [0,1]; a zero-extent axis yields 0 (the divide there is
-            // discarded), not NaN — defined codes on degenerate scenes
-            let t = select((centroid - bmin) / ext, vec3<f32>(0.0), ext <= vec3<f32>(0.0));
-            let c = clamp(t, vec3<f32>(0.0), vec3<f32>(1.0));
-            let q = vec3<u32>(floor(c * 1023.0));
-            keys[i] = interleaveBits32(q.x) | (interleaveBits32(q.y) << 1u) | (interleaveBits32(q.z) << 2u);
-        } else {
-            keys[i] = 0xffffffffu; // above any 30-bit code → sorts past the live prims
-        }
-        payload[i] = i;
-    }
+function mortonKernel(maxPrims: number) {
+    const cap = Math.max(1, maxPrims);
+    return tgpu
+        .computeFn({
+            workgroupSize: [WG],
+            in: { gid: d.builtin.globalInvocationId, nwg: d.builtin.numWorkgroups },
+        })((input) => {
+            "use gpu";
+            const bmin = mortonLayout.$.bounds[0].xyz;
+            const ext = std.sub(mortonLayout.$.bounds[1].xyz, bmin);
+            const stride = input.nwg.x * WG;
+            const count = mortonLayout.$.countBuf[0];
+            let i = input.gid.x;
+            while (i < cap) {
+                if (i < count) {
+                    const mn = mortonLayout.$.prims[i * 2].xyz;
+                    const mx = mortonLayout.$.prims[i * 2 + 1].xyz;
+                    mortonLayout.$.keys[i] = mortonCode(std.mul(std.add(mn, mx), 0.5), bmin, ext);
+                } else {
+                    mortonLayout.$.keys[i] = SENTINEL;
+                }
+                mortonLayout.$.payload[i] = i;
+                i = i + stride;
+            }
+        })
+        .$name("morton");
 }
-`;
 
-function storageEntry(binding: number, readonly: boolean): GPUBindGroupLayoutEntry {
-    return {
-        binding,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: readonly ? "read-only-storage" : "storage" },
-    };
+/** the emitted Morton WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function mortonWgsl(maxPrims: number): string {
+    return tgpu.resolve([mortonKernel(maxPrims)], { names: "strict" });
 }
 
 /**
@@ -157,6 +195,8 @@ export async function createMorton(
     maxPrims: number,
     shared: MortonShared = {},
 ): Promise<Morton> {
+    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
+    const root = rootOf(device, "createMorton");
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -173,35 +213,15 @@ export async function createMorton(
     const payload = shared.payload ?? own("morton-payload", cap * 4, StoreSrc);
     const count = shared.count ?? own("morton-count", 4, StoreDst);
 
-    const ioLayout = device.createBindGroupLayout({
-        label: "morton-io",
-        entries: [
-            storageEntry(0, true),
-            storageEntry(1, true),
-            storageEntry(2, false),
-            storageEntry(3, false),
-            storageEntry(4, true),
-        ],
-    });
-
-    const pipeline = await device.createComputePipelineAsync({
-        label: "morton",
-        layout: device.createPipelineLayout({ bindGroupLayouts: [ioLayout] }),
-        compute: {
-            module: device.createShaderModule({ label: "morton", code: mortonWgsl(cap) }),
-            entryPoint: "main",
-        },
-    });
-
-    const ioBg = device.createBindGroup({
-        layout: ioLayout,
-        entries: [
-            { binding: 0, resource: { buffer: prims } },
-            { binding: 1, resource: { buffer: bounds } },
-            { binding: 2, resource: { buffer: keys } },
-            { binding: 3, resource: { buffer: payload } },
-            { binding: 4, resource: { buffer: count } },
-        ],
+    const bound = root
+        .createComputePipeline({ compute: mortonKernel(cap) })
+        .$name("morton")
+        .with(
+            root.createBindGroup(mortonLayout, { prims, bounds, keys, payload, countBuf: count }),
+        );
+    precompile("morton", () => {
+        bound.dispatchWorkgroups(0);
+        return bound;
     });
 
     // dispatch is a CPU constant — the kernel fills the whole [0, maxPrims) key range,
@@ -219,9 +239,7 @@ export async function createMorton(
             const pass = encoder.beginComputePass({
                 timestampWrites: Compute.span?.("bvh:morton"),
             });
-            pass.setPipeline(pipeline);
-            pass.setBindGroup(0, ioBg);
-            pass.dispatchWorkgroups(numWg);
+            bound.with(pass).dispatchWorkgroups(numWg);
             pass.end();
         },
         destroy(): void {
