@@ -6,6 +6,7 @@ import {
     buildUrl,
     coerceVerdict,
     type FrameSample,
+    failureArtifacts,
     fitMemory,
     gpuLogChecks,
     gridDiff,
@@ -14,6 +15,7 @@ import {
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
+    report,
     settlePass,
     stepWait,
     structured,
@@ -341,5 +343,65 @@ describe("gpuLogChecks", () => {
             ["gpu.error", false],
         ]);
         expect(checks[1].detail).toBe("bad normal");
+    });
+});
+
+describe("shader artifacts", () => {
+    const capture = {
+        artifacts: [
+            {
+                label: "forward",
+                stage: "vertex+fragment",
+                source: "@vertex fn vs() {}",
+                hash: "0123456789abcdef",
+                messages: [
+                    {
+                        type: "error",
+                        message: "invalid shader",
+                        lineNum: 1,
+                        linePos: 2,
+                        offset: 3,
+                        length: 4,
+                    },
+                ],
+            },
+        ],
+    };
+
+    test("verify retains exact shader records only for failures", () => {
+        expect(failureArtifacts(true, capture)).toBeUndefined();
+        expect(failureArtifacts(false, capture)).toEqual(capture.artifacts);
+        expect(failureArtifacts(false, { artifacts: [] })).toBeUndefined();
+    });
+
+    test("human and JSON failure output carry the exact artifact", () => {
+        const result = {
+            project: "/tmp/gpu-diagnostic",
+            mode: "dev",
+            url: "http://localhost/gpu-diagnostic",
+            hardware: "test-gpu",
+            harness: true,
+            booted: true,
+            rendered: "opt-out",
+            errors: [],
+            pass: false,
+            artifacts: capture.artifacts,
+        };
+        const lines: string[] = [];
+        const original = console.log;
+        console.log = (...args: unknown[]) => lines.push(args.join(" "));
+        try {
+            report(result as never, false);
+            const human = lines.join("\n");
+            expect(human).toContain("forward [vertex+fragment] 0123456789abcdef");
+            expect(human).toContain("error 1:2 invalid shader");
+            expect(human).toContain("@vertex fn vs() {}");
+
+            lines.length = 0;
+            report(result as never, true);
+            expect(JSON.parse(lines[0]).artifacts).toEqual(capture.artifacts);
+        } finally {
+            console.log = original;
+        }
     });
 });

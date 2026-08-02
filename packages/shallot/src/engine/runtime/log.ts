@@ -17,6 +17,8 @@ const MARK = "%c GPU %c ";
 const captured = (): GpuLog | undefined => (globalThis as { __gpuLog?: GpuLog }).__gpuLog;
 
 let patched = false;
+let drainTail: Promise<void> = Promise.resolve();
+let drainPoison: Error | undefined;
 
 function text(args: unknown[]): string {
     const head = String(args[0]).slice(MARK.length);
@@ -54,33 +56,57 @@ export function captureGpuLog(): void {
     }
 }
 
-/**
- * force a logging pipeline's ring buffer to read back, and return the lines it produced.
- *
- * The readback fires only on a typegpu-*owned* dispatch, and shallot owns its own encoders and passes
- * (`.with(encoder)`), so a kernel's logs would otherwise never surface. A zero-workgroup dispatch runs
- * no threads but still triggers the drain. Keep it a deliberate debugging call — never frame wiring: a
- * present-but-unfired log taxes every owned dispatch 3.5–8×, while a log-free kernel pays nothing.
- *
- * The wait is a poll, because there is nothing to await: typegpu maps the ring buffer and prints from a
- * `.then` it never hands back, and that lands well after `onSubmittedWorkDone`. One drained dispatch
- * deserializes its whole ring in a single callback, so the first line landing means the batch has —
- * `timeoutMs` only bounds the case where the kernel logged nothing at all.
- * @example
- * const lines = await drainLog(pipeline); // ["hit count 42"]
- * @internal
- */
-export async function drainLog(
-    pipeline: { dispatchWorkgroups(x: number): void },
-    timeoutMs = 1000,
-): Promise<string[]> {
+async function drain(trigger: () => void, timeoutMs: number): Promise<string[]> {
     const log = captured();
     const at = log?.lines.length ?? 0;
-    pipeline.dispatchWorkgroups(0);
+    trigger();
     if (!log) return [];
     const deadline = performance.now() + timeoutMs;
     while (log.lines.length === at && performance.now() < deadline) {
         await new Promise((resolve) => setTimeout(resolve, 1));
     }
+    if (log.lines.length === at) {
+        drainPoison ??= new Error(
+            `drainLog timed out after ${timeoutMs}ms; this capture session is poisoned`,
+        );
+        throw drainPoison;
+    }
     return log.lines.slice(at);
+}
+
+/**
+ * run one TypeGPU-owned logging trigger and return the GPU-log batch its readback drains.
+ *
+ * The readback fires only when TypeGPU owns and submits the dispatch or draw. A pipeline invoked through
+ * `.with(encoder)` or `.with(pass)` cannot drain. A later TypeGPU-owned replay reads the same ring, so
+ * its batch includes both the external-pass backlog and the replay's own lines; this API cannot assign
+ * those lines to one draw after the fact. Replay only when that duplication is safe. Otherwise inspect
+ * the pass-adjacent resource with `probeBuffer` / `probeTexture`. Keep this a deliberate debugging call,
+ * never frame wiring: logging injects atomics and extra bindings.
+ *
+ * Calls are single-flight. An overlapping call waits to trigger until the prior batch finishes, because
+ * TypeGPU exposes one fire-and-forget map callback rather than a per-trigger completion promise. The wait
+ * polls the captured console: one readback deserializes its whole ring synchronously, so the first new
+ * line means that batch has landed. Lines already printed before this call are excluded; lines queued in
+ * the GPU ring by an external pass are necessarily included. Single-flight covers calls through this API,
+ * not an uncoordinated TypeGPU-owned draw.
+ *
+ * A timeout rejects and permanently poisons this page's capture session. Every queued or later call then
+ * rejects before its trigger, so a late callback can never be returned as a trustworthy later batch. A
+ * fresh page/module instance is the recovery boundary; there is deliberately no in-page reset.
+ * @example
+ * const lines = await drainLog(() => pipeline.dispatchThreads()); // ["hit count 42"]
+ * const fragment = await drainLog(() => pipeline.withColorAttachment(target).draw(3));
+ * @internal
+ */
+export function drainLog(trigger: () => void, timeoutMs = 1000): Promise<string[]> {
+    const batch = drainTail.then(() => {
+        if (drainPoison) throw drainPoison;
+        return drain(trigger, timeoutMs);
+    });
+    drainTail = batch.then(
+        () => undefined,
+        () => undefined,
+    );
+    return batch;
 }

@@ -9,14 +9,583 @@ import {
     checkTextureLimits,
     checkTgsl,
     deviceLimits,
+    GpuDiagnosticError,
+    observeDevice,
     precompile,
     precompileAll,
     precompileScope,
     requestGPU,
     resolveFeatures,
+    type ShaderArtifact,
+    shaderHash,
     tgslCanary,
     UnsupportedError,
+    validateGpu,
 } from "./gpu";
+
+describe("device failure listeners", () => {
+    test("an adopted device composes uncaptured errors and loss once without replacing the host", async () => {
+        const host = () => {};
+        let listener: ((event: GPUUncapturedErrorEvent) => void) | undefined;
+        let lose!: (info: GPUDeviceLostInfo) => void;
+        const device = {
+            lost: new Promise<GPUDeviceLostInfo>((resolve) => {
+                lose = resolve;
+            }),
+            onuncapturederror: host,
+            addEventListener(type: string, callback: (event: GPUUncapturedErrorEvent) => void) {
+                if (type === "uncapturederror") listener = callback;
+            },
+        } as unknown as GPUDevice;
+        const reported: string[] = [];
+
+        observeDevice(device, (message) => reported.push(message));
+        observeDevice(device, (message) => reported.push(`duplicate:${message}`));
+
+        expect(device.onuncapturederror).toBe(host);
+        listener?.({ error: new Error("bad binding") } as unknown as GPUUncapturedErrorEvent);
+        lose({ reason: "destroyed", message: "host closed" } as GPUDeviceLostInfo);
+        await Promise.resolve();
+        expect(reported).toEqual([
+            "GPU uncaptured Error: bad binding",
+            "GPU device lost destroyed: host closed",
+        ]);
+    });
+});
+
+describe("GPU validation scopes", () => {
+    test("a thrown or scoped validation failure pops the balanced scope and names one diagnostic", async () => {
+        const events: string[] = [];
+        let scoped: Error | null = null;
+        const device = {
+            pushErrorScope(filter: GPUErrorFilter) {
+                events.push(`push:${filter}`);
+            },
+            async popErrorScope() {
+                events.push("pop");
+                return scoped;
+            },
+        } as unknown as GPUDevice;
+
+        const rejected = validateGpu(device, "forward", async () => {
+            throw Object.assign(new Error("pipeline rejected"), { name: "OperationError" });
+        });
+        await expect(rejected).rejects.toMatchObject({
+            name: "GpuDiagnosticError",
+            label: "forward",
+            errorClass: "OperationError",
+            message: 'GPU "forward" OperationError: pipeline rejected',
+        });
+        expect(events).toEqual(["push:validation", "pop"]);
+
+        events.length = 0;
+        scoped = Object.assign(new Error("binding mismatch"), { name: "GPUValidationError" });
+        const invalid = validateGpu(device, "shadow", async () => true);
+        await expect(invalid).rejects.toBeInstanceOf(GpuDiagnosticError);
+        await expect(invalid).rejects.toMatchObject({
+            label: "shadow",
+            errorClass: "GPUValidationError",
+            message: 'GPU "shadow" GPUValidationError: binding mismatch',
+        });
+        expect(events).toEqual(["push:validation", "pop"]);
+    });
+
+    test("nested scopes stay balanced and preserve the inner diagnostic", async () => {
+        const events: string[] = [];
+        const results = [
+            Object.assign(new Error("bad inner pipeline"), { name: "GPUValidationError" }),
+            null,
+        ];
+        const device = {
+            pushErrorScope(filter: GPUErrorFilter) {
+                events.push(`push:${filter}`);
+            },
+            async popErrorScope() {
+                events.push("pop");
+                return results.shift() ?? null;
+            },
+        } as unknown as GPUDevice;
+
+        const nested = validateGpu(device, "outer", () =>
+            validateGpu(device, "inner", async () => true),
+        );
+        await expect(nested).rejects.toMatchObject({
+            name: "GpuDiagnosticError",
+            label: "inner",
+            errorClass: "GPUValidationError",
+        });
+        expect(events).toEqual(["push:validation", "push:validation", "pop", "pop"]);
+    });
+});
+
+describe("shader artifacts", () => {
+    test("source interception is opt-in, hashed, compilation-aware, and bounded", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: unknown[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const original = (() => ({
+            getCompilationInfo: async () => ({ messages: [] }),
+        })) as unknown as GPUDevice["createShaderModule"];
+        const offDevice = {
+            ...fakeDevice(),
+            createShaderModule: original,
+        } as unknown as GPUDevice;
+        try {
+            delete globals.__gpuDiagnostics;
+            await requestGPU(offDevice);
+            expect(offDevice.createShaderModule).toBe(original);
+
+            globals.__gpuDiagnostics = { artifacts: [] };
+            let compilationCalls = 0;
+            const device = {
+                ...fakeDevice(),
+                createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                    label: descriptor.label,
+                    getCompilationInfo: async () => {
+                        compilationCalls++;
+                        return {
+                            messages:
+                                descriptor.label === "shader-0"
+                                    ? [
+                                          {
+                                              type: "error",
+                                              message: "invalid shader-0",
+                                              lineNum: 2,
+                                              linePos: 3,
+                                              offset: 4,
+                                              length: 5,
+                                          },
+                                      ]
+                                    : [],
+                        };
+                    },
+                }),
+            } as unknown as GPUDevice;
+            await requestGPU(device);
+            await requestGPU(device);
+            const source = "@compute @workgroup_size(1) fn main() {}";
+            await expect(
+                validateGpu(device, "seed-error", () => {
+                    device.createShaderModule({ label: "shader-0", code: source });
+                }),
+            ).rejects.toMatchObject({ label: "shader-0", errorClass: "GPUCompilationError" });
+            await validateGpu(device, "success-flood", () => {
+                for (let i = 1; i < 19; i++) {
+                    device.createShaderModule({ label: `shader-${i}`, code: source });
+                }
+            });
+
+            // Once compilation proves an error it is monotonic/pinned; a later pending/success flood
+            // stays bounded by evicting non-errors while preserving the exact failing source.
+            expect(compilationCalls).toBe(19);
+            const artifacts = globals.__gpuDiagnostics.artifacts as ShaderArtifact[];
+            expect(artifacts).toHaveLength(16);
+            expect(artifacts[0]).toMatchObject({
+                label: "shader-0",
+                source,
+                messages: [{ type: "error", message: "invalid shader-0" }],
+            });
+            expect(artifacts.some((artifact) => artifact.label === "shader-1")).toBe(false);
+            expect(artifacts.at(-1)).toEqual({
+                label: "shader-18",
+                stage: "compute",
+                source,
+                hash: shaderHash(source),
+                messages: [],
+            });
+            expect(shaderHash(source)).toBe("e372f38edd1acebc");
+            expect(shaderHash(`${source}\n`)).not.toBe(shaderHash(source));
+        } finally {
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a broad active scope admits and retains a failing module beyond the cap", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const source = "@compute @workgroup_size(1) fn main() {}";
+        let resolveLast!: (info: GPUCompilationInfo) => void;
+        const lastInfo = new Promise<GPUCompilationInfo>((resolve) => {
+            resolveLast = resolve;
+        });
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                getCompilationInfo: () =>
+                    descriptor.label === "broad-19"
+                        ? lastInfo
+                        : Promise.resolve({ messages: [] } as unknown as GPUCompilationInfo),
+            }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "broad-warm", () => {
+                for (let i = 0; i < 20; i++) {
+                    device.createShaderModule({ label: `broad-${i}`, code: source });
+                }
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(
+                globals.__gpuDiagnostics.artifacts.some(
+                    (artifact) => artifact.label === "broad-19",
+                ),
+            ).toBe(false);
+            resolveLast({
+                messages: [
+                    {
+                        type: "error",
+                        message: "last module failed",
+                        lineNum: 1,
+                        linePos: 1,
+                        offset: 0,
+                        length: 1,
+                    },
+                ],
+            } as unknown as GPUCompilationInfo);
+
+            await expect(validation).rejects.toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "broad-19",
+                errorClass: "GPUCompilationError",
+            });
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(globals.__gpuDiagnostics.artifacts.at(-1)).toMatchObject({
+                label: "broad-19",
+                source,
+                messages: [{ type: "error", message: "last module failed" }],
+            });
+            expect(
+                globals.__gpuDiagnostics.artifacts.some((artifact) => artifact.label === "broad-0"),
+            ).toBe(false);
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a failing pipeline retains its cross-scope module when all labels differ", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const source = "@compute @workgroup_size(1) fn main() {}";
+        let popCount = 0;
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                label: descriptor.label,
+                getCompilationInfo: async () => ({ messages: [] }),
+            }),
+            createComputePipeline: (descriptor: GPUComputePipelineDescriptor) => descriptor,
+            popErrorScope: async () => {
+                popCount++;
+                return popCount === 1
+                    ? null
+                    : Object.assign(new Error("pipeline validation failed"), {
+                          name: "GPUValidationError",
+                      });
+            },
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            let module!: GPUShaderModule;
+            await validateGpu(device, "module-scope", () => {
+                module = device.createShaderModule({
+                    label: "module-label",
+                    code: source,
+                });
+            });
+            await expect(
+                validateGpu(device, "precompile-label", () => {
+                    device.createComputePipeline({
+                        label: "pipeline-label",
+                        layout: "auto",
+                        compute: { module, entryPoint: "main" },
+                    });
+                    for (let i = 0; i < 20; i++) {
+                        device.createShaderModule({
+                            label: `unrelated-${i}`,
+                            code: source,
+                        });
+                    }
+                }),
+            ).rejects.toMatchObject({
+                label: "precompile-label",
+                errorClass: "GPUValidationError",
+            });
+
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(
+                globals.__gpuDiagnostics.artifacts.find(
+                    (artifact) => artifact.label === "module-label",
+                ),
+            ).toMatchObject({ source, hash: shaderHash(source) });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("an active scope pins its correlated artifact until a delayed pipeline failure arrives", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const source = "@compute @workgroup_size(1) fn correlated() {}";
+        let resolvePop!: (error: GPUError | null) => void;
+        let popStarted = false;
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: () => ({
+                getCompilationInfo: async () => ({ messages: [] }),
+            }),
+            popErrorScope: () => {
+                popStarted = true;
+                return new Promise<GPUError | null>((resolve) => {
+                    resolvePop = resolve;
+                });
+            },
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "correlated", () => {
+                device.createShaderModule({ label: "correlated", code: source });
+                for (let i = 0; i < 20; i++) {
+                    device.createShaderModule({ label: `ordinary-${i}`, code: source });
+                }
+            });
+            while (!popStarted) await Promise.resolve();
+
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(globals.__gpuDiagnostics.artifacts[0]).toMatchObject({
+                label: "correlated",
+                source,
+                hash: shaderHash(source),
+            });
+
+            resolvePop(
+                Object.assign(new Error("delayed pipeline failure"), {
+                    name: "GPUValidationError",
+                }) as unknown as GPUError,
+            );
+            await expect(validation).rejects.toMatchObject({
+                label: "correlated",
+                errorClass: "GPUValidationError",
+            });
+            expect(globals.__gpuDiagnostics.artifacts[0]).toMatchObject({
+                label: "correlated",
+                source,
+                hash: shaderHash(source),
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a delayed successful compilation result cannot unpin a scoped pipeline failure", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        let resolveInfo!: (info: GPUCompilationInfo) => void;
+        const delayed = new Promise<GPUCompilationInfo>((resolve) => {
+            resolveInfo = resolve;
+        });
+        const source = "@compute @workgroup_size(1) fn main() {}";
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: (descriptor: GPUShaderModuleDescriptor) => ({
+                getCompilationInfo: () =>
+                    descriptor.label === "delayed"
+                        ? delayed
+                        : Promise.resolve({ messages: [] } as unknown as GPUCompilationInfo),
+            }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "delayed", () => {
+                device.createShaderModule({ label: "delayed", code: source });
+                throw Object.assign(new Error("pipeline rejected"), { name: "OperationError" });
+            });
+            resolveInfo({ messages: [] } as unknown as GPUCompilationInfo);
+            await expect(validation).rejects.toMatchObject({
+                label: "delayed",
+                errorClass: "OperationError",
+            });
+
+            await validateGpu(device, "later-context", () => {
+                for (let i = 0; i < 20; i++) {
+                    device.createShaderModule({ label: `later-${i}`, code: source });
+                }
+            });
+            expect(globals.__gpuDiagnostics.artifacts).toHaveLength(16);
+            expect(globals.__gpuDiagnostics.artifacts[0]).toMatchObject({
+                label: "delayed",
+                source,
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a compilation-info rejection before settlement is retained by its raw scope", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        let rejectInfo!: (reason?: unknown) => void;
+        const info = new Promise<GPUCompilationInfo>((_, reject) => {
+            rejectInfo = reject;
+        });
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: () => ({ getCompilationInfo: () => info }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validation = validateGpu(device, "raw-before", async () => {
+                device.createShaderModule({
+                    label: "shader-info-before",
+                    code: "@compute fn main() {}",
+                });
+                rejectInfo(
+                    Object.assign(new Error("compiler unavailable"), { name: "OperationError" }),
+                );
+                await Promise.resolve();
+                await Promise.resolve();
+            });
+
+            await expect(validation).rejects.toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "shader-info-before",
+                errorClass: "OperationError",
+            });
+            expect(globals.__gpuDiagnostics.artifacts[0].compilationError).toMatchObject({
+                errorClass: "OperationError",
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a compilation-info rejection during settlement rejects its raw validation scope", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        let rejectInfo!: (reason?: unknown) => void;
+        const info = new Promise<GPUCompilationInfo>((_, reject) => {
+            rejectInfo = reject;
+        });
+        const device = {
+            ...fakeDevice(),
+            createShaderModule: () => ({ getCompilationInfo: () => info }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = { artifacts: [] };
+            await requestGPU(device);
+            const validating = validateGpu(device, "raw-during", () => {
+                device.createShaderModule({
+                    label: "shader-info-during",
+                    code: "@compute fn main() {}",
+                });
+            });
+            const outcome = validating.then(
+                () => null,
+                (error: unknown) => error,
+            );
+            await Promise.resolve();
+            rejectInfo(
+                Object.assign(new Error("compiler disconnected"), { name: "OperationError" }),
+            );
+            expect(await outcome).toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "shader-info-during",
+                errorClass: "OperationError",
+            });
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+
+    test("a retired active scope cannot populate its replacement session", async () => {
+        const globals = globalThis as unknown as {
+            __gpuDiagnostics?: { artifacts: ShaderArtifact[] };
+        };
+        const prior = globals.__gpuDiagnostics;
+        const saved = { ...Compute };
+        const oldCapture = { artifacts: [] as ShaderArtifact[] };
+        let resolveOld!: (info: GPUCompilationInfo) => void;
+        const oldInfo = new Promise<GPUCompilationInfo>((resolve) => {
+            resolveOld = resolve;
+        });
+        const oldDevice = {
+            ...fakeDevice(),
+            createShaderModule: () => ({
+                getCompilationInfo: () => oldInfo,
+            }),
+        } as unknown as GPUDevice;
+        try {
+            globals.__gpuDiagnostics = oldCapture;
+            await requestGPU(oldDevice);
+            const validation = validateGpu(oldDevice, "old", () => {
+                oldDevice.createShaderModule({ label: "old", code: "@compute fn old() {}" });
+            });
+
+            const replacement = { artifacts: [] as ShaderArtifact[] };
+            globals.__gpuDiagnostics = replacement;
+            await requestGPU({
+                ...fakeDevice(),
+                createShaderModule: () => ({
+                    getCompilationInfo: async () => ({ messages: [] }),
+                }),
+            } as unknown as GPUDevice);
+            resolveOld({
+                messages: [
+                    {
+                        type: "error",
+                        message: "stale compiler result",
+                    },
+                ],
+            } as unknown as GPUCompilationInfo);
+            await validation;
+
+            expect(oldCapture.artifacts).toEqual([]);
+            expect(replacement.artifacts).toEqual([]);
+        } finally {
+            Object.assign(Compute, saved);
+            if (prior) globals.__gpuDiagnostics = prior;
+            else delete globals.__gpuDiagnostics;
+        }
+    });
+});
 
 // a mobile-shaped adapter: the core WebGPU 1.0 limits are present, but the 2024 split-stage storage
 // limits are absent (undefined), as reported by older mobile WebGPU implementations.
@@ -303,7 +872,15 @@ describe("TGSL metadata", () => {
 // identity and the build boundary are testable with no adapter (testing.md — never bind a device in
 // `bun test`). `Compute` is a process singleton every other test file also writes, so each test that
 // drives `requestGPU` restores what it found.
-const fakeDevice = () => ({ queue: {}, features: new Set(), limits: {} }) as unknown as GPUDevice;
+const fakeDevice = () =>
+    ({
+        queue: { onSubmittedWorkDone: async () => {} },
+        features: new Set(),
+        limits: {},
+        lost: new Promise(() => {}),
+        pushErrorScope: () => {},
+        popErrorScope: async () => null,
+    }) as unknown as GPUDevice;
 
 describe("the TypeGPU root", () => {
     test("is memoized per device; a rebuild keeps it, a new device mints a new one", async () => {
@@ -333,6 +910,30 @@ describe("the TypeGPU root", () => {
 // The queue is module state whose "before the drain" half exists only until `precompileAll`.
 // Each test opens a fresh build with `requestGPU`, the same boundary production uses.
 describe("precompile", () => {
+    test("the normal drain validates and fences each forcer without ProfilePlugin", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            events.push("pop");
+            return null;
+        };
+        device.queue.onSubmittedWorkDone = async () => {
+            events.push("fence");
+        };
+        try {
+            await requestGPU(device);
+            precompile("forward", () => events.push("force"));
+            await precompileAll();
+            expect(events).toEqual(["push:validation", "force", "fence", "pop"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
     test("dependencies drain in stable topological order and reject invalid graphs", async () => {
         const saved = { ...Compute };
         try {
@@ -413,17 +1014,17 @@ describe("precompile", () => {
 
         // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
         // which would surface as a multi-second first-frame stall with nothing pointing at it
-        precompile("late", () => order.push("late"));
+        await precompile("late", () => order.push("late"));
         expect(order).toEqual(["a", "b", "c", "late"]);
-        expect(() => {
+        await expect(
             precompile("late-broken", () => {
                 throw new Error("createComputePipeline failed");
-            });
-        }).toThrow(/precompile "late-broken" failed/);
+            }),
+        ).rejects.toThrow(/precompile "late-broken" failed/);
 
         // a forcer that binds nothing dispatches nothing, so its pipeline silently falls through to the
         // first frame — the multi-second stall the queue exists to prevent. The drain refuses it
-        expect(() => precompile("unbound", () => null)).toThrow(
+        await expect(precompile("unbound", () => null)).rejects.toThrow(
             /precompile "unbound" bound nothing/,
         );
         Object.assign(Compute, saved);

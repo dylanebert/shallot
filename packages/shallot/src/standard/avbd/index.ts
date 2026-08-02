@@ -269,6 +269,8 @@ export const AvbdPlugin: Plugin = {
             gen,
             mask,
         });
+        const transforms = Compute.buffers.get("transforms");
+        if (transforms) await Avbd.step.prepareCompose(transforms);
         // static per-step params — the live count is GPU-resident (the pack writes it), not a config field.
         Avbd.step.configure({
             dt: Time.FIXED_DT,

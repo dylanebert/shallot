@@ -218,7 +218,7 @@ export async function createMorton(
             root.createBindGroup(mortonLayout, { prims, bounds, keys, payload, countBuf: count }),
         );
     // per-instance label — an app can build more than one BVH, and the queue rejects a duplicate label
-    precompile(precompileScope("morton"), () => {
+    await precompile(precompileScope("morton"), () => {
         bound.dispatchWorkgroups(0);
         return bound;
     });

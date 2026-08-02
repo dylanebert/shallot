@@ -87,19 +87,14 @@ When you hit it, don't silently exceed (Chrome fails with no diagnostics). Conso
 
 ### Debug methodology
 
-Shaders can't print. The only way to know what a shader computed is write-to-buffer + readback.
+Climb one boundary at a time: CPU-call a pure TGSL function where possible; inspect the labeled resolved-WGSL artifact and compilation/API diagnostic; use TypeGPU `console.*` only for a safe TypeGPU-owned fragment/compute trigger; inspect typed buffers with `.read()` or raw/color/depth resources with one-shot `probeBuffer` / `probeTexture`; then keep the final `shallot verify` observable. No rung proves the next.
 
-1. Pick the exact value you're uncertain about ("`body.pos.y` for entity 0 after primal", not "is broadphase working")
-2. `atomicStore(&debug[SLOT], bitcast<u32>(value))`
-3. Read it back via `readBuffer` / `readFloat32` / `readUint32` from `@dylanebert/shallot`
-4. Compare actual vs expected. Apply one fix at a time
-
-Verify via readback BEFORE changing shader code. Off-by-one, wrong binding, stale bind group all look correct in source.
+Treat shader logging as perturbing: it injects atomics/bindings, is bounded and delayed, cannot log vertex work, and an externally-owned `.with(pass)` draw does not drain it without replay. Prefer a resource probe when replay could change the path. `Mirror` is for continuous delayed telemetry, not a submission-causal diagnosis. Do not invent an atomic debug buffer where TypeGPU logging answers the same question; use native capture last, after a runnable probe has named the pass/draw.
 
 ### Pipelines
 
 - Always `createComputePipelineAsync` + `Promise.all`. Sync creation blocks sequentially
-- Every pipeline must include a `label` — appears in the stats overlay and bench output
+- Every raw shader module and sync/async pipeline must include a stable `label`; every TypeGPU pipeline must carry a stable `.$name()` — these join error scopes, exact WGSL artifacts/hashes, stats, and capture markers
 - Don't hardcode `bgra8unorm`; use `navigator.gpu.getPreferredCanvasFormat()`
 - DXC (Chrome on Windows) doesn't DCE and stalls on large functions inside dynamic loops. Constant upper bounds with dynamic `break` are fine
 

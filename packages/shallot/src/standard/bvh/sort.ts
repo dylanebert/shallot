@@ -810,7 +810,7 @@ export async function createRadixSort(
         ["binning", binBound[0]],
         ...(prepare ? ([["prepare", prepare.bound]] as const) : []),
     ] as const) {
-        precompile(`${scope}-${label}`, () => {
+        await precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

@@ -9,7 +9,7 @@ import {
     noIntegerDivision,
     pointerDiscipline,
 } from "../../../tests/wgsl";
-import { Compute, precompile, requestGPU } from "../../engine/runtime";
+import { Compute, precompile, precompileAll, requestGPU } from "../../engine/runtime";
 import {
     JOINT_GROUP,
     LDS_IO_GROUP,
@@ -444,7 +444,7 @@ describe("per-instance precompile labels", () => {
         }
     });
 
-    test("the lazily-registered compose label rides the same instance scope", async () => {
+    test("the prepared compose label rides the same instance scope", async () => {
         const saved = { ...Compute };
         try {
             const device = stub();
@@ -452,14 +452,14 @@ describe("per-instance precompile labels", () => {
             const first = await PhysicsStep.create(device, 64, 64);
             const second = await PhysicsStep.create(device, 64, 64);
 
-            // `compose` registers its forcer, then dispatches — and the stub buffer carries no schema for
-            // the indirect dispatch to read. Swallow that, never a duplicate label: the collision this
-            // guards against surfaces exactly there.
-            const composeOnce = (step: PhysicsStep) => {
+            // The stub buffer carries no schema for the indirect dispatch to read. Swallow that dispatch,
+            // never a duplicate label: the collision this guards against surfaces at preparation.
+            const composeOnce = async (step: PhysicsStep) => {
                 const transforms = device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE });
                 const encoder = {
                     beginComputePass: () => ({ end() {} }),
                 } as unknown as GPUCommandEncoder;
+                await step.prepareCompose(transforms);
                 try {
                     step.compose(encoder, transforms);
                 } catch (err) {
@@ -467,10 +467,161 @@ describe("per-instance precompile labels", () => {
                 }
             };
 
-            composeOnce(first);
+            await composeOnce(first);
             expect(() => precompile("phys-compose", () => true)).toThrow(/duplicate/);
-            composeOnce(second);
+            await composeOnce(second);
             expect(() => precompile("phys-2-compose", () => true)).toThrow(/duplicate/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("late compose preparation settles validation before the pipeline can be used", async () => {
+        const saved = { ...Compute };
+        let rejectFence!: (error: Error) => void;
+        const fence = new Promise<void>((_, reject) => {
+            rejectFence = reject;
+        });
+        let lateFence: Promise<void> | undefined;
+        try {
+            const device = {
+                ...stub(),
+                queue: {
+                    writeBuffer() {},
+                    onSubmittedWorkDone: () => lateFence ?? Promise.resolve(),
+                },
+                pushErrorScope() {},
+                popErrorScope: async () => null,
+            } as unknown as GPUDevice;
+            await requestGPU(device);
+            const bound = {
+                $name() {
+                    return this;
+                },
+                with() {
+                    return this;
+                },
+                dispatchWorkgroups() {
+                    return this;
+                },
+                dispatchWorkgroupsIndirect() {
+                    return this;
+                },
+            };
+            Object.assign(Compute, {
+                root: {
+                    createComputePipeline: () => bound,
+                    createBindGroup: () => ({}),
+                    unwrap: (value: unknown) => value,
+                },
+            });
+            const step = await PhysicsStep.create(device, 64, 64);
+            await precompileAll();
+            lateFence = fence;
+
+            const transforms = device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE });
+            const preparing = step.prepareCompose(transforms);
+            const encoder = {
+                beginComputePass: () => {
+                    throw new Error("compose encoded before validation settled");
+                },
+            } as unknown as GPUCommandEncoder;
+            expect(() => step.compose(encoder, transforms)).toThrow(
+                "await prepareCompose(transforms)",
+            );
+
+            rejectFence(new Error("late compose fence failed"));
+            const failure = await preparing.catch((error: unknown) => error);
+            expect(failure).toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "phys-compose",
+            });
+            expect(String(failure)).toContain("late compose fence failed");
+            expect(() => step.compose(encoder, transforms)).toThrow("late compose fence failed");
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("the public factory propagates a late precompile fence failure", async () => {
+        const saved = { ...Compute };
+        let physicsAllocated = false;
+        let physicsFences = 0;
+        let rejectFirst!: (error: Error) => void;
+        let releaseRest!: () => void;
+        const firstFence = new Promise<void>((_, reject) => {
+            rejectFirst = reject;
+        });
+        const restFence = new Promise<void>((resolve) => {
+            releaseRest = resolve;
+        });
+        try {
+            const base = stub();
+            const createBuffer = base.createBuffer.bind(base);
+            const device = {
+                ...base,
+                queue: {
+                    writeBuffer() {},
+                    onSubmittedWorkDone() {
+                        if (!physicsAllocated) return Promise.resolve();
+                        physicsFences++;
+                        return physicsFences === 1 ? firstFence : restFence;
+                    },
+                },
+                pushErrorScope() {},
+                popErrorScope: async () => null,
+                createBuffer(descriptor: GPUBufferDescriptor) {
+                    if (descriptor.label === "phys-bodies") physicsAllocated = true;
+                    return createBuffer(descriptor);
+                },
+            } as unknown as GPUDevice;
+            await requestGPU(device);
+            await precompileAll();
+            const bound = {
+                $name() {
+                    return this;
+                },
+                with() {
+                    return this;
+                },
+                dispatchWorkgroups() {
+                    return this;
+                },
+            };
+            Object.assign(Compute, {
+                root: {
+                    createComputePipeline: () => bound,
+                    createBindGroup: () => ({}),
+                    unwrap: (value: unknown) => value,
+                },
+            });
+
+            const creation = PhysicsStep.create(device, 64, 64);
+            while (!physicsAllocated) await Promise.resolve();
+            let returned = false;
+            void creation.then(
+                () => {
+                    returned = true;
+                },
+                () => {
+                    returned = true;
+                },
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(returned).toBe(false);
+
+            rejectFirst(new Error("late physics fence failed"));
+            while (physicsFences < 2) await Promise.resolve();
+            await Promise.resolve();
+            expect(returned).toBe(false);
+
+            releaseRest();
+            await expect(creation).rejects.toMatchObject({
+                name: "GpuDiagnosticError",
+                label: "phys-aabb",
+                message: expect.stringContaining("late physics fence failed"),
+            });
         } finally {
             Object.assign(Compute, saved);
         }

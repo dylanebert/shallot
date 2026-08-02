@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
 import { createServer } from "vite";
+import type { GpuDiagnostics, ShaderArtifact } from "../src/engine/runtime/gpu";
 import type { GpuLog } from "../src/engine/runtime/log";
 import type { Check, Verdict } from "../src/harness";
 import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
@@ -272,6 +273,16 @@ export function gpuLogChecks(log: GpuLog | null | undefined): Check[] {
     return checks;
 }
 
+/** retain generated WGSL only on a failed verify result. */
+export function failureArtifacts(
+    pass: boolean,
+    diagnostics: GpuDiagnostics | null | undefined,
+): ShaderArtifact[] | undefined {
+    return !pass && diagnostics && diagnostics.artifacts.length > 0
+        ? diagnostics.artifacts
+        : undefined;
+}
+
 /** no-harness path passes when the scene booted, rendered a settled frame, and threw no page errors. */
 export function settlePass(booted: boolean, rendered: boolean, errorCount: number): boolean {
     return booted && rendered && errorCount === 0;
@@ -364,6 +375,8 @@ interface Result {
      *  to fit — no harness run() (settle path), too few samples, or any CDP failure. Informational, never
      *  gates. */
     memory?: MemoryStats | null;
+    /** bounded generated WGSL records, present only on failure. */
+    artifacts?: ShaderArtifact[];
     errors: string[];
     pass: boolean;
 }
@@ -919,12 +932,13 @@ async function drive(
         errors,
     };
 
-    // The engine tees GPU log lines here, and only when this object already exists — presence is the
-    // opt-in, so a normal app never pays for a wrapped console. It has to land before the page's own
-    // scripts run: typegpu binds the console method at shader-generation time.
+    // Presence is the opt-in for both GPU log and shader artifact capture, before any app shader resolves.
     await page
         .addInitScript(() => {
             (window as unknown as { __gpuLog: unknown }).__gpuLog = { lines: [], errors: [] };
+            (window as unknown as { __gpuDiagnostics: unknown }).__gpuDiagnostics = {
+                artifacts: [],
+            };
         })
         .catch(() => {});
 
@@ -1000,18 +1014,26 @@ async function withGpuLog(page: Page, result: Result): Promise<Result> {
         .evaluate(() => (window as unknown as { __gpuLog?: GpuLog }).__gpuLog)
         .catch(() => null)) as GpuLog | null;
     const checks = gpuLogChecks(log);
-    if (checks.length === 0) return result;
     const failed = checks.some((c) => !c.ok);
-    const prior = result.verdict ?? { ok: result.pass };
-    return {
-        ...result,
-        verdict: {
-            ...prior,
-            ok: prior.ok && !failed,
-            checks: [...(prior.checks ?? []), ...checks],
-        },
-        pass: result.pass && !failed,
-    };
+    const completed =
+        checks.length === 0
+            ? result
+            : {
+                  ...result,
+                  verdict: {
+                      ...(result.verdict ?? { ok: result.pass }),
+                      ok: (result.verdict?.ok ?? result.pass) && !failed,
+                      checks: [...(result.verdict?.checks ?? []), ...checks],
+                  },
+                  pass: result.pass && !failed,
+              };
+    const diagnostics = (await page
+        .evaluate(
+            () => (window as unknown as { __gpuDiagnostics?: GpuDiagnostics }).__gpuDiagnostics,
+        )
+        .catch(() => null)) as GpuDiagnostics | null;
+    const artifacts = failureArtifacts(completed.pass, diagnostics);
+    return artifacts ? { ...completed, artifacts } : completed;
 }
 
 // the harness path: await ready with the full --timeout budget, probe + call run(), interpret the
@@ -1169,7 +1191,8 @@ async function maybeScreenshot(page: Page, path: string | undefined): Promise<vo
     }
 }
 
-function report(result: Result, json: boolean): void {
+/** render one completed verify result for the human or JSON CLI boundary. @internal */
+export function report(result: Result, json: boolean): void {
     if (json) {
         console.log(JSON.stringify(result));
         return;
@@ -1198,6 +1221,23 @@ function report(result: Result, json: boolean): void {
     if (result.errors.length) {
         console.log(`  errors:`);
         for (const e of result.errors.slice(0, 5)) console.log(`    ${e.split("\n")[0]}`);
+    }
+    if (result.artifacts) {
+        console.log(`  shader artifacts:`);
+        for (const artifact of result.artifacts) {
+            console.log(`    ${artifact.label} [${artifact.stage}] ${artifact.hash}`);
+            if (artifact.compilationError) {
+                console.log(
+                    `      compilation ${artifact.compilationError.errorClass}: ${artifact.compilationError.message}`,
+                );
+            }
+            for (const message of artifact.messages) {
+                console.log(
+                    `      ${message.type} ${message.lineNum}:${message.linePos} ${message.message}`,
+                );
+            }
+            console.log(artifact.source);
+        }
     }
     console.log(`  => ${result.pass ? "PASS" : "FAIL"}\n`);
 }

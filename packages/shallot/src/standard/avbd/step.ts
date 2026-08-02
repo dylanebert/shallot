@@ -4170,9 +4170,9 @@ export class PhysicsStep {
      * alongside `_jointInitPipe`. */
     private _jointDualPipe!: TgpuComputePipeline;
     private readonly _velocityPipe: TgpuComputePipeline;
-    /** the compose pipeline — built lazily on the first `compose()` call (needs the external firehose
-     * buffer's identity, like the raw-era `_composeBG`); `!` = assigned there. */
-    private _composePipe!: TgpuComputePipeline;
+    /** the compose pipeline, bound by {@link prepareCompose} once the external firehose exists. */
+    private _composePipe: TgpuComputePipeline | null = null;
+    private _composeBase?: TgpuComputePipeline;
     private readonly _csrCountPipe: TgpuComputePipeline;
     private readonly _csrScan: Pass;
     private readonly _csrScatterPipe: TgpuComputePipeline;
@@ -4203,6 +4203,9 @@ export class PhysicsStep {
     // rebuilt if the external firehose buffer's identity changes (it doesn't in practice —
     // TransformsPlugin allocates it once); tracks `_composePipe`'s built-against identity
     private _composeDst: GPUBuffer | null = null;
+    private _composeCompiled = false;
+    private _composePreparation: Promise<void> | null = null;
+    private _composeError: unknown;
     private _iterations = 10;
     // dispatched-color cap: the primal dispatches `_maxColors` color-passes per iteration (empty colors
     // no-op via the early-out), the coloring folds bodies past it (avbd.md "Dispatch count"). 32 = no cap.
@@ -4240,6 +4243,7 @@ export class PhysicsStep {
     // two, `constraints` three) and the queue rejects a duplicate label. Captured once at construction
     // because `phys-compose` registers lazily on the first `compose()`, long after it.
     private readonly _scope: string;
+    private readonly _registrations: Promise<void>[] = [];
 
     private constructor(
         device: GPUDevice,
@@ -4255,6 +4259,9 @@ export class PhysicsStep {
     ) {
         this.device = device;
         this._scope = precompileScope("phys");
+        const register = (label: string, force: () => unknown): void => {
+            this._registrations.push(precompile(label, force));
+        };
         this.eidCap = eidCap;
         this.maxBodies = maxBodies;
         this._fullGroups = Math.ceil(maxBodies / 64);
@@ -4463,7 +4470,7 @@ export class PhysicsStep {
         // build. Force it at warm with a 0-workgroup dispatch, the shipped drain (1a). Both groups are
         // already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates its
         // own buffers must return the *dispatch* for that guard to fire (2a).
-        precompile(`${this._scope}-aabb`, () => {
+        register(`${this._scope}-aabb`, () => {
             this._aabbPipe.dispatchWorkgroups(0);
             return this._aabbPipe;
         });
@@ -4479,7 +4486,7 @@ export class PhysicsStep {
                 }),
             )
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile(`${this._scope}-broadphase`, () => {
+        register(`${this._scope}-broadphase`, () => {
             this._broadphasePipe.dispatchWorkgroups(0);
             return this._broadphasePipe;
         });
@@ -4495,13 +4502,13 @@ export class PhysicsStep {
                 }),
             )
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile(`${this._scope}-broadphase-small`, () => {
+        register(`${this._scope}-broadphase-small`, () => {
             this._broadphaseSmallPipe.dispatchWorkgroups(0);
             return this._broadphaseSmallPipe;
         });
         this._collidePipes = this._makeCollidePipes();
         for (const [i, label] of ["box", "rounded", "hull", "rounded-poly"].entries()) {
-            precompile(`${this._scope}-collide-${label}`, () => {
+            register(`${this._scope}-collide-${label}`, () => {
                 const pipe = this._collidePipes[i];
                 pipe.dispatchWorkgroups(0);
                 return pipe;
@@ -4512,7 +4519,7 @@ export class PhysicsStep {
             .$name("phys-inertial")
             .with(root.createBindGroup(inertialLayout, { eids: this.eids }))
             .with(rwRw.layout, this._sharedBG.rwRw);
-        precompile(`${this._scope}-inertial`, () => {
+        register(`${this._scope}-inertial`, () => {
             this._inertialPipe.dispatchWorkgroups(0);
             return this._inertialPipe;
         });
@@ -4521,7 +4528,7 @@ export class PhysicsStep {
             .$name("phys-velocity")
             .with(root.createBindGroup(velocityLayout, { eids: this.eids }))
             .with(rwRw.layout, this._sharedBG.rwRw);
-        precompile(`${this._scope}-velocity`, () => {
+        register(`${this._scope}-velocity`, () => {
             this._velocityPipe.dispatchWorkgroups(0);
             return this._velocityPipe;
         });
@@ -4530,7 +4537,7 @@ export class PhysicsStep {
             .$name("phys-csr-count")
             .with(root.createBindGroup(csrCountLayout, { csr: this.csr, eids: this.eids }))
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile(`${this._scope}-csr-count`, () => {
+        register(`${this._scope}-csr-count`, () => {
             this._csrCountPipe.dispatchWorkgroups(0);
             return this._csrCountPipe;
         });
@@ -4545,7 +4552,7 @@ export class PhysicsStep {
                 }),
             )
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile(`${this._scope}-csr-scatter`, () => {
+        register(`${this._scope}-csr-scatter`, () => {
             this._csrScatterPipe.dispatchWorkgroups(0);
             return this._csrScatterPipe;
         });
@@ -4574,7 +4581,7 @@ export class PhysicsStep {
                 )
                 .with(rwRw.layout, this._sharedBG.rwRw),
         );
-        precompile(`${this._scope}-commit`, () => {
+        register(`${this._scope}-commit`, () => {
             const pipe = this._commitColorPipes[0];
             pipe.dispatchWorkgroups(0);
             return pipe;
@@ -4584,7 +4591,7 @@ export class PhysicsStep {
             .$name("phys-dual")
             .with(root.createBindGroup(dualLayout, { eids: this.eids }))
             .with(roRw.layout, this._sharedBG.roRw);
-        precompile(`${this._scope}-dual`, () => {
+        register(`${this._scope}-dual`, () => {
             this._dualPipe.dispatchWorkgroups(0);
             return this._dualPipe;
         });
@@ -4602,32 +4609,32 @@ export class PhysicsStep {
         // force-compiled once here (like the collide pipes) — a later constraintList/jointRecords grow
         // re-`.with()`s these pipelines in buildSolveBindGroups without re-registering a precompile
         // forcer, matching setHulls' growth policy for the collide pipes.
-        precompile(`${this._scope}-primal`, () => {
+        register(`${this._scope}-primal`, () => {
             const pipe = this._primalColorPipes[0];
             pipe.dispatchWorkgroups(0);
             return pipe;
         });
-        precompile(`${this._scope}-solve-lds`, () => {
+        register(`${this._scope}-solve-lds`, () => {
             this._solveLdsPipe.dispatchWorkgroups(0);
             return this._solveLdsPipe;
         });
-        precompile(`${this._scope}-coloring`, () => {
+        register(`${this._scope}-coloring`, () => {
             this._coloringPipe.dispatchWorkgroups(0);
             return this._coloringPipe;
         });
-        precompile(`${this._scope}-repair`, () => {
+        register(`${this._scope}-repair`, () => {
             this._repairPipe.dispatchWorkgroups(0);
             return this._repairPipe;
         });
-        precompile(`${this._scope}-csr-color-small`, () => {
+        register(`${this._scope}-csr-color-small`, () => {
             this._csrColorSmallPipe.dispatchWorkgroups(0);
             return this._csrColorSmallPipe;
         });
-        precompile(`${this._scope}-joint-init`, () => {
+        register(`${this._scope}-joint-init`, () => {
             this._jointInitPipe.dispatchWorkgroups(0);
             return this._jointInitPipe;
         });
-        precompile(`${this._scope}-joint-dual`, () => {
+        register(`${this._scope}-joint-dual`, () => {
             this._jointDualPipe.dispatchWorkgroups(0);
             return this._jointDualPipe;
         });
@@ -4889,12 +4896,18 @@ export class PhysicsStep {
                   )
                 : Promise.resolve(null),
         ]);
-        return new PhysicsStep(device, eidCap, maxBodies, bvh, {
+        const step = new PhysicsStep(device, eidCap, maxBodies, bvh, {
             csrScan,
             packCount,
             packScan,
             packScatter,
         });
+        const registrations = await Promise.allSettled(step._registrations.splice(0));
+        const rejected = registrations.find(
+            (result): result is PromiseRejectedResult => result.status === "rejected",
+        );
+        if (rejected) throw rejected.reason;
+        return step;
     }
 
     /** set the per-step constants (the step uniform). The live body count is GPU-resident (`eids[0]`). */
@@ -5725,6 +5738,51 @@ export class PhysicsStep {
         }
     }
 
+    /** bind and validate the compose pipeline once the external transforms firehose exists. */
+    async prepareCompose(transforms: GPUBuffer): Promise<void> {
+        if (this._composeDst === transforms && this._composePipe) return;
+        if (this._composeError) throw this._composeError;
+        if (this._composePreparation) {
+            await this._composePreparation;
+            if (this._composeDst === transforms && this._composePipe) return;
+        }
+        const root = Compute.root;
+        this._composeBase ??= root
+            .createComputePipeline({ compute: composeKernel })
+            .$name("phys-compose");
+        const pipe = this._composeBase
+            .with(
+                root.createBindGroup(composeLayout, {
+                    eids: this.eids,
+                    transforms,
+                    interp: this._interpUbo,
+                }),
+            )
+            .with(roRo.layout, this._sharedBG.roRo);
+        if (!this._composeCompiled) {
+            const preparation = precompile(`${this._scope}-compose`, () => {
+                pipe.dispatchWorkgroups(0);
+                return pipe;
+            }).then(() => {
+                this._composeCompiled = true;
+                this._composePipe = pipe;
+                this._composeDst = transforms;
+            });
+            this._composePreparation = preparation;
+            try {
+                await preparation;
+            } catch (error) {
+                this._composeError = error;
+                throw error;
+            } finally {
+                if (this._composePreparation === preparation) this._composePreparation = null;
+            }
+            return;
+        }
+        this._composePipe = pipe;
+        this._composeDst = transforms;
+    }
+
     /**
      * scatter the live pose into `transforms` (the eid-indexed mat4 firehose), so a `Body`+`Part`
      * entity renders at the pose physics owns. Dispatches over the body pool (early-out past the live
@@ -5734,29 +5792,12 @@ export class PhysicsStep {
      * `alpha` (= time.fixedAlpha, default 1) blends the previous settled pose → the current one for render
      * interpolation (Phase 5): at >60Hz this stops a fixed-step pose repeating then jumping. 1 = the bare
      * current pose. The standalone gates read raw `bodies`, not the composed transform, so leave it default.
+     * Await {@link prepareCompose} with this `transforms` buffer before the first call.
      */
     compose(encoder: GPUCommandEncoder, transforms: GPUBuffer, alpha = 1): void {
-        if (this._composeDst !== transforms) {
-            this._composeDst = transforms;
-            const root = Compute.root;
-            this._composePipe = root
-                .createComputePipeline({ compute: composeKernel })
-                .$name("phys-compose")
-                .with(
-                    root.createBindGroup(composeLayout, {
-                        eids: this.eids,
-                        transforms,
-                        interp: this._interpUbo,
-                    }),
-                )
-                .with(roRo.layout, this._sharedBG.roRo);
-            // force-compiled on first bind rather than at warm (the transforms buffer's identity, and so
-            // this pipeline's existence, isn't known until the first real compose() call — the 1a
-            // late/re-entrant registration executes immediately once warm has already passed).
-            precompile(`${this._scope}-compose`, () => {
-                this._composePipe.dispatchWorkgroups(0);
-                return this._composePipe;
-            });
+        if (this._composeError) throw this._composeError;
+        if (this._composeDst !== transforms || !this._composePipe) {
+            throw new Error("PhysicsStep.compose: await prepareCompose(transforms) before use");
         }
         this._interpData[0] = alpha;
         this.device.queue.writeBuffer(this._interpUbo, 0, this._interpData);

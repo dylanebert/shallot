@@ -25,6 +25,12 @@ The real-GPU truth lives once, in the gym (Playwright → real device). The `ren
 
 A unit readback's finer edges — the survivor identity / per-view slot offset / per-type scatter / Mirror staging-ring orchestration the gym's coarser assert doesn't reach — move into the gym scenario (the consolidated atom, or a narrow real-device check alongside it), not a device-binding unit test.
 
+### GPU evidence ladder in stage gates
+
+Every GPU implementation or migration stage names the evidence it needs at each applicable boundary: **CPU logic**, **resolution/compilation**, **WebGPU API**, **resource**, and **product**. Omit a rung only when it genuinely does not apply, and say why. No rung substitutes for another: exact generated WGSL does not prove the pipeline validated; a shader log does not prove the target resource changed; a correct resource does not prove the final framebuffer/behavior consumed it.
+
+Shader-side diagnostics are perturbing until a one-shot resource boundary or final-output gate agrees. TypeGPU `console.*` injects atomics/bindings and changes pipeline layout; an externally-owned pass also cannot drain it without replay. Use CPU-callable TGSL and resolved artifacts first, labeled error scopes for API truth, TypeGPU `.read()` or `probeBuffer` / `probeTexture` for a one-shot resource boundary, and the targeted gym scenario for product truth. `Mirror` remains continuous delayed telemetry, not a submission-causal probe. Record the first failing boundary and the exact shader/pipeline label + artifact hash in the active spec before attempting a fix.
+
 **Preload — import shim, no adapter.** `tests/setup.ts` installs bun-webgpu's GPU enum constants (`GPUShaderStage`, `GPUBufferUsage`, …) so modules referencing them at module scope import cleanly. Run `bun test` from the repo root (`shallot/`), where the `bunfig.toml` preload resolves; from elsewhere, modules die at import with `GPUShaderStage is not defined`. bun-webgpu exposes a constants-only `globals()` (no adapter) alongside the adapter-installing `setupGlobals()` — once every pure-logic test that still bootstraps via `build()` (plugin/ECS/tween) moves to a headless `build({gpu:false})` mode or `new State()`, swap the preload to `globals()` to drop the lavapipe adapter entirely, so a stray device-binding `bun test` fails fast and loud instead of flaking.
 
 ### `requestGPU` policy
@@ -75,7 +81,7 @@ Most bugs come from 2-factor interactions. For combinatorial feature spaces (sur
 
 ## Structural validation over visual regression
 
-Prefer: (a) structural validation of generated WGSL (expected functions, bindings, dispatch cases), (b) GPU compilation validation (shader compiles, pipeline creates without errors), (c) GPU readback validation (run the actual compute, read results back). CPU cross-validation is optional for isolated debugging. Reserve screenshot comparison for integration-level Playwright tests only. Structural tests are fast, deterministic, pinpoint failures.
+Prefer the smallest applicable observation ladder: (a) CPU-callable TGSL or structural validation of generated WGSL, (b) exact resolved WGSL + compilation/API validation, (c) one-shot buffer/texture resource validation, and (d) the final gym observable. CPU cross-validation is optional only where no meaningful pure oracle exists. Reserve screenshot comparison for integration-level Playwright tests. Structural tests are fast and pinpoint failures, but never promote them into real-device evidence.
 
 ## `.test.ts` vs `.oracle.ts` vs `.lab.ts`
 

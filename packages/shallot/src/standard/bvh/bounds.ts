@@ -322,13 +322,12 @@ export async function createSceneBounds(
 
     // the two arms are separate entry points (the subgroup builtins can't be declared without the
     // feature), so the pick is a branch on the pipeline, not a value inside one kernel
-    const reduce = (
-        subgroups
-            ? root.createComputePipeline({ compute: subgroupReduce })
-            : root.createComputePipeline({ compute: ldsReduce })
-    )
-        .$name("bounds-reduce")
-        .with(root.createBindGroup(reduceLayout, { prims, scratch, countBuf: count }));
+    const reducePipeline = subgroups
+        ? root.createComputePipeline({ compute: subgroupReduce }).$name("bounds-reduce")
+        : root.createComputePipeline({ compute: ldsReduce }).$name("bounds-reduce");
+    const reduce = reducePipeline.with(
+        root.createBindGroup(reduceLayout, { prims, scratch, countBuf: count }),
+    );
     const finalizeBound = root
         .createComputePipeline({ compute: finalize })
         .$name("bounds-finalize")
@@ -339,7 +338,7 @@ export async function createSceneBounds(
         ["reduce", reduce],
         ["finalize", finalizeBound],
     ] as const) {
-        precompile(`${scope}-${label}`, () => {
+        await precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

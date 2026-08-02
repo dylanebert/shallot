@@ -17,6 +17,19 @@ export class UnsupportedError extends Error {
     }
 }
 
+/** one labeled WebGPU failure crossing a validation boundary. @internal */
+export class GpuDiagnosticError extends Error {
+    readonly label: string;
+    readonly errorClass: string;
+    constructor(label: string, cause: unknown) {
+        const detail = failure(cause);
+        super(`GPU "${label}" ${detail.errorClass}: ${detail.message}`, { cause });
+        this.name = "GpuDiagnosticError";
+        this.label = label;
+        this.errorClass = detail.errorClass;
+    }
+}
+
 const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
 
 /**
@@ -139,15 +152,423 @@ export interface Compute {
      * `create*Pipeline`), and Dawn defers the real shader compile to the forced {@link precompile}
      * dispatch — so timing the creation call would report a number that reads like a compile time and
      * isn't one. {@link precompileAll} instead measures each forcer's dispatch through its own
-     * completion fence and reports it here. A `?.` no-op without the plugin; when it IS installed the
-     * drain serializes on that fence, which is what makes the per-pipeline split real rather than every
-     * row reading the whole drain.
+     * completion fence and reports it here. The validation drain always waits for that fence; a `?.`
+     * no-op without the plugin means only timing attribution is conditional.
      */
     precompiled?: (label: string, start: number, end: number) => void;
 }
 
 /** active GPU compute singleton, populated by {@link requestGPU} */
 export const Compute: Compute = {} as Compute;
+
+/** a verify/debug-only generated shader record. @internal */
+export interface ShaderArtifact {
+    label: string;
+    stage: string;
+    source: string;
+    hash: string;
+    messages: Array<{
+        type: string;
+        message: string;
+        lineNum: number;
+        linePos: number;
+        offset: number;
+        length: number;
+    }>;
+    compilationError?: { errorClass: string; message: string };
+}
+
+/** the page-side artifact capture `shallot verify` opts into before application code runs. @internal */
+export interface GpuDiagnostics {
+    artifacts: ShaderArtifact[];
+}
+
+const ARTIFACT_LIMIT = 16;
+const _instrumentedDevices = new WeakSet<GPUDevice>();
+
+type ArtifactState = "pending" | "success" | "error";
+interface ArtifactScope {
+    owner: ArtifactSession;
+    label: string;
+    artifacts: Set<ShaderArtifact>;
+    correlated: Set<ShaderArtifact>;
+    pending: Set<Promise<void>>;
+    failure?: GpuDiagnosticError;
+    active: boolean;
+}
+interface ArtifactSession {
+    device: GPUDevice;
+    capture: GpuDiagnostics;
+    states: Map<ShaderArtifact, ArtifactState>;
+    owners: Map<ShaderArtifact, ArtifactScope>;
+    modules: WeakMap<GPUShaderModule, ShaderArtifact>;
+    scopes: ArtifactScope[];
+}
+let _artifactSession: ArtifactSession | undefined;
+
+const artifactCapture = (): GpuDiagnostics | undefined =>
+    (globalThis as { __gpuDiagnostics?: GpuDiagnostics }).__gpuDiagnostics;
+
+/** stable 64-bit FNV-1a identity for generated WGSL. @internal */
+export function shaderHash(source: string): string {
+    let hash = 0xcbf29ce484222325n;
+    for (const byte of new TextEncoder().encode(source)) {
+        hash ^= BigInt(byte);
+        hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+    }
+    return hash.toString(16).padStart(16, "0");
+}
+
+function shaderStage(source: string): string {
+    const stages = ["vertex", "fragment", "compute"].filter((stage) =>
+        new RegExp(`@${stage}\\b`).test(source),
+    );
+    return stages.join("+") || "unknown";
+}
+
+function retireArtifactSession(): void {
+    const session = _artifactSession;
+    if (!session) return;
+    // A replaced build/device must not keep exact WGSL alive behind an old hung compilation-info call.
+    for (const artifact of session.capture.artifacts) artifact.source = "";
+    session.capture.artifacts.length = 0;
+    session.states.clear();
+    session.owners.clear();
+    for (const scope of session.scopes) {
+        for (const artifact of scope.artifacts) artifact.source = "";
+        scope.active = false;
+        scope.artifacts.clear();
+        scope.correlated.clear();
+        scope.pending.clear();
+    }
+    session.scopes.length = 0;
+    _artifactSession = undefined;
+}
+
+function beginArtifactSession(device: GPUDevice): void {
+    retireArtifactSession();
+    const capture = artifactCapture();
+    if (!capture) return;
+    capture.artifacts.length = 0;
+    const session: ArtifactSession = {
+        device,
+        capture,
+        states: new Map(),
+        owners: new Map(),
+        modules: new WeakMap(),
+        scopes: [],
+    };
+    _artifactSession = session;
+
+    if (_instrumentedDevices.has(device)) return;
+    _instrumentedDevices.add(device);
+    const original = device.createShaderModule.bind(device);
+    device.createShaderModule = (descriptor: GPUShaderModuleDescriptor) => {
+        const active = _artifactSession;
+        if (!active || active.device !== device || active.capture !== artifactCapture()) {
+            return original(descriptor);
+        }
+        const scope = active.scopes.at(-1);
+        // Exact unresolved WGSL is retained only inside a bounded-lifetime validation scope.
+        if (!scope) return original(descriptor);
+        const source = descriptor.code;
+        const artifact: ShaderArtifact = {
+            label: descriptor.label || "<unlabeled shader module>",
+            stage: shaderStage(source),
+            source,
+            hash: shaderHash(source),
+            messages: [],
+        };
+        active.states.set(artifact, "pending");
+        active.owners.set(artifact, scope);
+        scope.artifacts.add(artifact);
+
+        let module: GPUShaderModule;
+        try {
+            module = original(descriptor);
+        } catch (error) {
+            artifact.compilationError = failure(error);
+            markArtifactError(active, artifact);
+            promoteArtifact(active, artifact);
+            throw error;
+        }
+        active.modules.set(module, artifact);
+        let pending!: Promise<void>;
+        pending = module
+            .getCompilationInfo()
+            .then((info) => {
+                if (!ownsArtifactScope(active, scope)) return;
+                artifact.messages = info.messages.map((message) => ({
+                    type: message.type,
+                    message: message.message,
+                    lineNum: message.lineNum,
+                    linePos: message.linePos,
+                    offset: message.offset,
+                    length: message.length,
+                }));
+                const errors = artifact.messages.filter((message) => message.type === "error");
+                if (errors.length > 0) {
+                    markArtifactError(active, artifact);
+                    const error = Object.assign(
+                        new Error(errors.map((message) => message.message).join(" | ")),
+                        { name: "GPUCompilationError" },
+                    );
+                    scope.failure ??= new GpuDiagnosticError(artifact.label, error);
+                } else if (active.states.has(artifact) && active.states.get(artifact) !== "error") {
+                    active.states.set(artifact, "success");
+                }
+                promoteArtifact(active, artifact);
+            })
+            .catch((error) => {
+                if (!ownsArtifactScope(active, scope)) return;
+                const diagnostic = new GpuDiagnosticError(artifact.label, error);
+                artifact.compilationError = failure(error);
+                markArtifactError(active, artifact);
+                scope.failure ??= diagnostic;
+                promoteArtifact(active, artifact);
+            })
+            .finally(() => scope.pending.delete(pending));
+        scope.pending.add(pending);
+        return module;
+    };
+
+    const correlate = (modules: readonly GPUShaderModule[]) => {
+        const active = _artifactSession;
+        if (!active || active.device !== device || active.capture !== artifactCapture()) return;
+        const scope = active.scopes.at(-1);
+        if (!scope) return;
+        for (const module of modules) {
+            const artifact = active.modules.get(module);
+            if (artifact) scope.correlated.add(artifact);
+        }
+    };
+    if (typeof device.createComputePipeline === "function") {
+        const create = device.createComputePipeline.bind(device);
+        device.createComputePipeline = (descriptor) => {
+            correlate([descriptor.compute.module]);
+            return create(descriptor);
+        };
+    }
+    if (typeof device.createComputePipelineAsync === "function") {
+        const create = device.createComputePipelineAsync.bind(device);
+        device.createComputePipelineAsync = (descriptor) => {
+            correlate([descriptor.compute.module]);
+            return create(descriptor);
+        };
+    }
+    if (typeof device.createRenderPipeline === "function") {
+        const create = device.createRenderPipeline.bind(device);
+        device.createRenderPipeline = (descriptor) => {
+            correlate(
+                descriptor.fragment
+                    ? [descriptor.vertex.module, descriptor.fragment.module]
+                    : [descriptor.vertex.module],
+            );
+            return create(descriptor);
+        };
+    }
+    if (typeof device.createRenderPipelineAsync === "function") {
+        const create = device.createRenderPipelineAsync.bind(device);
+        device.createRenderPipelineAsync = (descriptor) => {
+            correlate(
+                descriptor.fragment
+                    ? [descriptor.vertex.module, descriptor.fragment.module]
+                    : [descriptor.vertex.module],
+            );
+            return create(descriptor);
+        };
+    }
+}
+
+function promoteArtifact(session: ArtifactSession, artifact: ShaderArtifact): void {
+    if (session.capture.artifacts.includes(artifact)) return;
+    const state = session.states.get(artifact);
+    if (!state || state === "pending") return;
+
+    const prior = session.capture.artifacts.find((entry) => entry.label === artifact.label);
+    if (prior) {
+        if (session.states.get(prior) === "error" && state !== "error") {
+            artifact.source = "";
+            session.states.delete(artifact);
+            session.owners.delete(artifact);
+            return;
+        }
+        removeArtifact(session, prior);
+    }
+    if (session.capture.artifacts.length >= ARTIFACT_LIMIT) {
+        const evict = session.capture.artifacts.find((entry) => !pinsArtifact(session, entry));
+        if (!evict && !pinsArtifact(session, artifact)) {
+            removeArtifact(session, artifact);
+            return;
+        }
+        removeArtifact(session, evict ?? session.capture.artifacts[0]);
+    }
+    session.capture.artifacts.push(artifact);
+}
+
+function pinsArtifact(session: ArtifactSession, artifact: ShaderArtifact): boolean {
+    if (session.states.get(artifact) === "error") return true;
+    if (session.scopes.some((scope) => scope.active && scope.correlated.has(artifact))) return true;
+    const owner = session.owners.get(artifact);
+    return !!owner && ownsArtifactScope(session, owner) && artifact.label === owner.label;
+}
+
+function removeArtifact(session: ArtifactSession, artifact: ShaderArtifact): void {
+    const at = session.capture.artifacts.indexOf(artifact);
+    if (at >= 0) session.capture.artifacts.splice(at, 1);
+    artifact.source = "";
+    session.states.delete(artifact);
+    session.owners.get(artifact)?.artifacts.delete(artifact);
+    session.owners.delete(artifact);
+}
+
+function markArtifactError(session: ArtifactSession, artifact: ShaderArtifact): void {
+    if (session.states.has(artifact)) session.states.set(artifact, "error");
+}
+
+function ownsArtifactScope(session: ArtifactSession, scope: ArtifactScope): boolean {
+    return _artifactSession === session && scope.owner === session && scope.active;
+}
+
+async function settleArtifactScope(scope: ArtifactScope | undefined): Promise<void> {
+    if (!scope || !ownsArtifactScope(scope.owner, scope)) return;
+    await Promise.all([...scope.pending]);
+    if (!ownsArtifactScope(scope.owner, scope)) return;
+    if (scope.failure) throw scope.failure;
+}
+
+function beginArtifactScope(device: GPUDevice, label: string): ArtifactScope | undefined {
+    const session = _artifactSession;
+    if (!session || session.device !== device) return;
+    const scope: ArtifactScope = {
+        owner: session,
+        label,
+        artifacts: new Set(),
+        correlated: new Set(),
+        pending: new Set(),
+        active: true,
+    };
+    session.scopes.push(scope);
+    return scope;
+}
+
+function markFailingArtifact(scope: ArtifactScope | undefined): void {
+    if (!scope || !ownsArtifactScope(scope.owner, scope)) return;
+    for (const artifact of scope.artifacts) {
+        if (artifact.label === scope.label) {
+            markArtifactError(scope.owner, artifact);
+            promoteArtifact(scope.owner, artifact);
+        }
+    }
+    for (const artifact of scope.correlated) {
+        markArtifactError(scope.owner, artifact);
+        promoteArtifact(scope.owner, artifact);
+    }
+}
+
+function endArtifactScope(scope: ArtifactScope | undefined): void {
+    if (!scope || !ownsArtifactScope(scope.owner, scope)) return;
+    const session = scope.owner;
+    const at = session.scopes.lastIndexOf(scope);
+    if (at >= 0) session.scopes.splice(at, 1);
+    scope.active = false;
+    scope.pending.clear();
+    scope.correlated.clear();
+    for (const artifact of scope.artifacts) {
+        if (!session.capture.artifacts.includes(artifact)) {
+            artifact.source = "";
+            session.states.delete(artifact);
+        }
+        session.owners.delete(artifact);
+    }
+    scope.artifacts.clear();
+}
+
+const _observedDevices = new WeakSet<GPUDevice>();
+
+function failure(error: unknown): { errorClass: string; message: string } {
+    if (error instanceof Error) return { errorClass: error.name, message: error.message };
+    if (typeof error === "object" && error !== null) {
+        const value = error as { constructor?: { name?: string }; message?: unknown };
+        return {
+            errorClass: value.constructor?.name ?? "Error",
+            message: String(value.message ?? error),
+        };
+    }
+    return { errorClass: "Error", message: String(error) };
+}
+
+/** run one labeled operation inside a balanced WebGPU validation scope. @internal */
+export async function validateGpu<T>(
+    device: GPUDevice,
+    label: string,
+    operation: () => T | Promise<T>,
+): Promise<T> {
+    device.pushErrorScope("validation");
+    const artifactScope = beginArtifactScope(device, label);
+    let value: T | undefined;
+    let thrown: unknown;
+    let didThrow = false;
+    try {
+        value = await operation();
+    } catch (error) {
+        thrown = error;
+        didThrow = true;
+    }
+    if (didThrow) markFailingArtifact(artifactScope);
+
+    try {
+        await settleArtifactScope(artifactScope);
+    } catch (error) {
+        if (!didThrow) {
+            thrown = error;
+            didThrow = true;
+        }
+    }
+
+    let scoped: GPUError | null = null;
+    try {
+        scoped = await device.popErrorScope();
+    } catch (error) {
+        if (!didThrow) {
+            thrown = error;
+            didThrow = true;
+        }
+    }
+    const failed = didThrow || scoped !== null;
+    if (failed) markFailingArtifact(artifactScope);
+    endArtifactScope(artifactScope);
+    if (thrown instanceof GpuDiagnosticError) throw thrown;
+    if (failed) throw new GpuDiagnosticError(label, didThrow ? thrown : scoped);
+    return value as T;
+}
+
+/** install the device-wide failure channel without replacing a host's listener. @internal */
+export function observeDevice(
+    device: GPUDevice,
+    report: (message: string) => void = (message) => console.error(message),
+): void {
+    if (_observedDevices.has(device)) return;
+    _observedDevices.add(device);
+
+    void device.lost?.then((info) => {
+        report(`GPU device lost ${info.reason}: ${info.message}`);
+    });
+
+    const uncaptured = (event: GPUUncapturedErrorEvent) => {
+        const error = failure(event.error);
+        report(`GPU uncaptured ${error.errorClass}: ${error.message}`);
+    };
+    if (typeof device.addEventListener === "function") {
+        device.addEventListener("uncapturederror", uncaptured);
+    } else {
+        const host = device.onuncapturederror;
+        device.onuncapturederror = (event) => {
+            host?.call(device, event);
+            uncaptured(event);
+        };
+    }
+}
 
 // the base floor every shallot app needs (the default renderer + slab substrate). It gates device
 // acquisition before any plugin loads, so **a floor entry earns its place only by being a
@@ -261,6 +682,7 @@ const _precompileLabels = new Set<string>();
 let _precompileOrder = 0;
 let _draining = false;
 let _drained = false;
+let _latePrecompile = Promise.resolve();
 
 function compile({ label, force }: Forcer): void {
     let forced: unknown;
@@ -283,7 +705,8 @@ function compile({ label, force }: Forcer): void {
  * the first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers a
  * 0-workgroup dispatch from its `warm`; `build` drains the queue once every plugin has warmed, so the
  * compile is paid under the loading screen. Registered *after* that drain (a lazily-built pipeline, a
- * post-warm producer), the dispatch runs immediately instead — late is better than silently dropped.
+ * post-warm producer), the dispatch starts immediately and the returned promise must be awaited — late
+ * is better than silently dropped, but it still owes the same validation and completion fence.
  *
  * `force` **returns what it dispatched**: the drain throws on a nullish return, because a forcer whose
  * buffers aren't up yet no-ops and hands the compile back to frame one without a word. Allocate inside
@@ -301,14 +724,24 @@ export function precompile(
     label: string,
     force: () => unknown,
     options: { after?: readonly string[] } = {},
-): void {
+): Promise<void> {
     if (_precompileLabels.has(label)) {
         throw new Error(`duplicate precompile label "${label}"`);
     }
     _precompileLabels.add(label);
     const forcer = { label, force, after: options.after ?? [], order: _precompileOrder++ };
-    if (_drained) compile(forcer);
-    else _precompile.push(forcer);
+    if (_drained) {
+        const completion = _latePrecompile.then(
+            () => compileValidated(forcer),
+            () => compileValidated(forcer),
+        );
+        // Device error scopes are a stack: serialize unrelated late factories so their pops stay LIFO.
+        _latePrecompile = completion.catch(() => {});
+        return completion;
+    }
+    _precompile.push(forcer);
+    // During warm, build owns the completion contract through precompileAll; registration itself is done.
+    return Promise.resolve();
 }
 
 // per-prefix instance counts for `precompileScope`, cleared with the label set they keep unique
@@ -383,20 +816,22 @@ export async function precompileAll(): Promise<void> {
         while (_precompile.length > 0) {
             _precompile.splice(0, _precompile.length, ...ordered(_precompile));
             const forcer = _precompile.shift()!;
-            const start = now();
-            compile(forcer);
-            // without the profiler there is nothing to attribute, so the drain stays one batched submit;
-            // with it, each forcer settles behind its own fence, which is the only way the per-pipeline
-            // numbers mean anything (back-to-back submits all resolve together and every row reads the same)
-            if (Compute.precompiled) {
-                await Compute.device.queue.onSubmittedWorkDone();
-                Compute.precompiled(forcer.label, start, now());
-            }
+            await compileValidated(forcer);
         }
         _drained = true;
     } finally {
         _draining = false;
     }
+}
+
+async function compileValidated(forcer: Forcer): Promise<void> {
+    const start = now();
+    await validateGpu(Compute.device, forcer.label, async () => {
+        compile(forcer);
+        await Compute.device.queue.onSubmittedWorkDone();
+    });
+    // validation always fences what precompile claims; only attribution stays profiler-owned
+    Compute.precompiled?.(forcer.label, start, now());
 }
 
 // the root is device-scoped, not build-scoped. A device outlives any one build (a host sharing one
@@ -434,12 +869,15 @@ export async function requestGPU(
     captureGpuLog();
     checkTgsl();
     const d = device ?? (await acquireDevice(features, preferred));
+    observeDevice(d);
+    beginArtifactSession(d);
     _precompile.length = 0;
     _precompileLabels.clear();
     _precompileScopes.clear();
     _precompileOrder = 0;
     _draining = false;
     _drained = false;
+    _latePrecompile = Promise.resolve();
     let inFlight = 0;
     return Object.assign(Compute, {
         device: d,
@@ -482,12 +920,6 @@ async function acquireDevice(
         requiredFeatures: [...required, ...granted],
         requiredLimits: deviceLimits(adapter.limits),
     });
-
-    device.lost.then((info) => console.error(`GPU device lost: ${info.reason}`, info.message));
-    device.onuncapturederror = (event) => {
-        const msg = event.error instanceof GPUValidationError ? event.error.message : event.error;
-        console.error("GPU uncaptured error:", msg);
-    };
 
     return device;
 }

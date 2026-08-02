@@ -107,6 +107,7 @@ import "./elevator";
 import "./falling-ragdolls";
 import "./filter";
 import "./gltf";
+import "./gpu-diagnostic";
 import "./hit";
 import "./hull-reduction";
 import "./inclined-plane";

@@ -46,27 +46,67 @@ describe("GPU log capture", () => {
         log.errors.length = 0;
         console.log(`${MARK}from an earlier dispatch`, STYLE, "");
 
-        const dispatched: number[] = [];
-        const lines = await drainLog({
-            dispatchWorkgroups(x) {
-                dispatched.push(x);
-                setTimeout(() => {
-                    console.log(`${MARK}drained`, STYLE, "");
-                    console.log(`${MARK}and its second line`, STYLE, "");
-                }, 20);
-            },
+        let triggered = 0;
+        const lines = await drainLog(() => {
+            triggered++;
+            setTimeout(() => {
+                console.log(`${MARK}drained`, STYLE, "");
+                console.log(`${MARK}and its second line`, STYLE, "");
+            }, 20);
         });
 
-        expect(dispatched).toEqual([0]);
+        expect(triggered).toBe(1);
         expect(lines).toEqual(["drained", "and its second line"]);
     });
 
-    test("a dispatch that logs nothing returns empty at the deadline, never hangs", async () => {
+    test("overlapping drains serialize their triggers and keep delayed batches separate", async () => {
         const log = globals.__gpuLog as GpuLog;
         log.lines.length = 0;
+        const order: string[] = [];
+        const first = drainLog(() => {
+            order.push("first-trigger");
+            setTimeout(() => {
+                order.push("first-line");
+                console.log(`${MARK}first-batch`, STYLE, "");
+            }, 20);
+        });
+        const second = drainLog(() => {
+            order.push("second-trigger");
+            setTimeout(() => console.log(`${MARK}second-batch`, STYLE, ""), 5);
+        });
+
+        const [firstLines, secondLines] = await Promise.all([first, second]);
+        expect(firstLines).toEqual(["first-batch"]);
+        expect(secondLines).toEqual(["second-batch"]);
+        expect(order).toEqual(["first-trigger", "first-line", "second-trigger"]);
+    });
+
+    // Poison is intentionally monotonic for the module/page lifetime, so this must remain the final drain
+    // test. Replacing the page (and therefore this module instance) is the only recovery boundary.
+    test("a timeout rejects, poisons later calls before trigger, and never attributes a late line", async () => {
+        const log = globals.__gpuLog as GpuLog;
+        log.lines.length = 0;
+        let laterTriggers = 0;
         const started = performance.now();
-        const lines = await drainLog({ dispatchWorkgroups() {} }, 30);
-        expect(lines).toEqual([]);
-        expect(performance.now() - started).toBeGreaterThanOrEqual(25);
+        const timedOut = drainLog(() => {
+            setTimeout(() => console.log(`${MARK}too-late`, STYLE, ""), 30);
+        }, 10);
+        const queued = drainLog(() => {
+            laterTriggers++;
+        });
+
+        await expect(timedOut).rejects.toThrow("capture session is poisoned");
+        await expect(queued).rejects.toThrow("capture session is poisoned");
+        expect(performance.now() - started).toBeGreaterThanOrEqual(8);
+        expect(laterTriggers).toBe(0);
+
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        expect(log.lines).toEqual(["too-late"]);
+        await expect(
+            drainLog(() => {
+                laterTriggers++;
+            }),
+        ).rejects.toThrow("capture session is poisoned");
+        expect(laterTriggers).toBe(0);
     });
 });

@@ -1107,7 +1107,7 @@ async function prepareSear(device: GPUDevice): Promise<void> {
     // point + cascade atlases share them). Specializing variants queue after Part publishes its draws;
     // a specializing mesh registered after warm remains lazy.
     await Promise.all([prepareRegather(device), preparePipelines(device, Backgrounds)]);
-    precompileTypedVariants();
+    await precompileTypedVariants();
 }
 
 function unwrapTypedVariant(surface: TypedSurface, variant: number): unknown[] {
@@ -1133,8 +1133,8 @@ export function precompileTypedVariants(
     warm: (surface: TypedSurface, variant: number) => unknown = unwrapTypedVariant,
     surfaces: Iterable<TypedSurface> = TypedSurfaces,
     variants: (surface: TypedSurface) => number[] = knownTypedVariants,
-): void {
-    precompile(
+): Promise<void> {
+    return precompile(
         "sear-typed-variants",
         () => {
             const warmed: unknown[] = [];

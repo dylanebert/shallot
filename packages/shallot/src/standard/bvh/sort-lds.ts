@@ -397,7 +397,7 @@ export async function createRadixSortLds(
         ["add", addBound],
         ["reorder", reorderBound[0]],
     ] as const) {
-        precompile(`${scope}-${label}`, () => {
+        await precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

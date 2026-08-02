@@ -268,27 +268,42 @@ Don't branch around NaN/Inf unless a downstream consumer requires deterministic 
 
 ## GPU debugging
 
-GPU shaders can't print, log, or break. The **only** way to know what a shader computed is to write values to a buffer and read them back.
+Localize a failure by climbing the observation ladder. Pick one exact claim at each rung ("cascade atlas depth changes when caster 6 hides", not "shadows work") and stop at the first failing boundary:
 
-### Methodology
+1. **CPU/TGSL logic truth.** Call a pure TGSL kernel on the CPU and compare it with a deterministic oracle where the function is CPU-callable.
+2. **Resolution/compilation truth.** Inspect the exact generated WGSL, stable names, source hash, and compilation messages retained by a labeled `validateGpu` / precompile scope. The TypeGPU Runtime Inspector below is useful for isolated exports; `shallot verify` artifacts are authoritative for the full app.
+3. **WebGPU API truth.** Read the labeled error-scope diagnostic plus composed device-loss / uncaptured-error channel. Use a targeted debug group around the selected draw when a later native capture needs a marker.
+4. **Shader runtime values.** Prefer TypeGPU `console.log` / `warn` / `error` in fragment or compute TGSL when TypeGPU owns a safe trigger. Treat the result as perturbing evidence: logging injects atomics and bindings, changes the pipeline layout, and may change timing or behavior. Do not add a bespoke atomic debug buffer where TypeGPU logging answers the same question.
+5. **Resource-boundary truth.** Use a typed TypeGPU buffer's `.read()` for a one-shot ordered typed read. Use `probeBuffer` / `probeTexture` for raw ranges, color/depth textures, and exact pass-adjacent encode → submit → fence → map copies. The returned bytes are owned by that submission. This is preferred when shader instrumentation could perturb the path.
+6. **Product truth.** Keep the final framebuffer or behavioral assert in `shallot verify`. A correct intermediate value never substitutes for this gate.
 
-1. **Pick the exact value you're uncertain about.** Not "is broadphase working" but "what is `body.pos.y` for entity 0 after the primal pass"
-2. **Write it to a debug slot.** `atomicStore(&debug[SLOT], bitcast<u32>(value))` in solver WGSL
-3. **Read it back.** `gpu.debug[SLOT]` — the debug buffer is read back every frame as a `Float32Array`
-4. **Compare actual vs expected.** Fix assumptions or trace upstream
-5. **Repeat upstream** until actual matches expected
-6. **Clean up.** Remove debug writes
+No rung proves an adjacent rung: a correct sampled alpha does not prove the depth attachment changed, and correct atlas depth does not prove the receiver consumed it. Report the chain together. Apply one mutation or fix at a time, re-run the same boundary, and use native Metal/PIX/RenderDoc capture only after the runnable probes have named the pass/draw.
 
-### Discipline
+### TypeGPU log limits
 
-- Verify actual values via readback before changing shader code. Off-by-one, wrong binding, stale bind group all look correct in source.
-- Apply one fix at a time. Confirm the bug, then change.
+- GPU logging is fragment/compute-only; it cannot observe vertex work. Its ring is bounded to 64 entries with at most 252 payload bytes per entry. Overflow is diagnostic loss, not evidence that later code did not run.
+- Readback occurs after a **TypeGPU-owned** draw/dispatch. A pipeline invoked through Shallot's externally-owned `.with(pass)` / `.with(encoder)` path does not drain. `drainLog` may use a safe owned replay, but that batch contains the external backlog plus the replay's own lines and cannot causally distinguish them. Use a resource probe when replay would duplicate or perturb the behavior.
+- Log order is the drained batch's order, not a frame/submission timestamp. Logging is delayed, allocation/binding/atomic-heavy, and deliberately absent from normal frame wiring. A GPU `console.error` fails `shallot verify`.
 
-### Existing infrastructure
+### Continuous telemetry is different
 
-- **Physics readback:** `requestReadback` dispatches a compact compute shader (extracts pos+quat → 7 floats/body), then copies counters + compact buffer to staging. `processReadback` warns on all overflow/saturation conditions and syncs transforms to ECS. Tick is captured at dispatch time
-- **General:** `readBuffer`, `readFloat32`, `readUint32` in `engine/utils/readback.ts`
-- **Profiling:** opt-in via `ProfilePlugin` (`extras/profile/index.ts`); see the "Types and constants" section above
+`Mirror` is the bounded persistent staging-ring primitive for per-frame GPU→CPU telemetry. It carries `fixedTick` / frame stamps and intentionally lags. Never poll TypeGPU `.read()` into an allocation-heavy imitation of Mirror, and never use Mirror settling as proof that one particular submission caused a value. One-shot causal diagnosis uses `.read()` or `probeBuffer` / `probeTexture`; production telemetry uses Mirror.
+
+### TypeGPU Runtime Inspector
+
+The experimental `typegpu-runtime-inspector-mcp` is an authoring aid for isolated TypeGPU exports, not
+a Shallot gate. The 0.4.1 trial resolved the exported `tgslCanary` with a synthesized `u32` argument and
+compiled the exported `glazeKernel` through a probe (requesting `bgra8unorm-storage`); both reports
+included exact generated WGSL, compilation summaries, and recorded creation calls, and the pipeline
+report also included bind-layout counts. Use `list_typegpu_exports`, then inspect a symbol or a small
+probe with the feature set its pipeline declares.
+
+Do not point it at a full Shallot app or add adapter scaffolding for it. The inspector owns a fresh
+browser device and isolated module realm: it cannot reproduce Shallot's adopted device, external render
+passes, full resource graph, or host lifecycle. Its default SwiftShader device also exposes 8 storage
+buffers per shader stage, below Shallot's floor of 10. The MCP package requires Node 20+ and its own
+Playwright Chromium; if the configured server is unavailable, use `shallot verify` and the repo-native
+failure artifacts rather than changing application architecture to satisfy the inspector.
 
 ## GPU profiling
 
@@ -300,9 +315,11 @@ Timestamps bracket **pass begin→end only** — there is no `writeTimestamp` (r
 
 **Localize the untimed cost in-repo by ablating its trigger against fence wait — a native capture is the last resort, not the first.** The fence (`pendingFenceWaitMs`, on the bench/`__benchmark` measure) is GPU-completion latency, so a controlled swap that changes one suspected cause and re-measures fence attributes the gap without a capture. The injected indirect-draw validation (the common case) is isolated by a **direct-vs-indirect** swap (issue the same draws as `drawIndexed` instead of `drawIndexedIndirect`) or a **buffer-count** swap (consolidate vs split args); the point-shadow regression was attributed this way 2026-06-14 (the ~3 ms collapsed to ~0.2 ms under direct draws — "WebGPU-specific traps"). A native capture (RenderDoc / PIX / Nsight on the GPU process, or webgpu_inspector) is for *reading the absolute breakdown* once the ablation has named the cause — not for the localization itself.
 
-## Pipeline labels
+## Diagnostic names and labels
 
-Every `createComputePipelineAsync` and `createRenderPipelineAsync` call must include a `label` property. Labels appear in the stats overlay startup section and bench output. Use the entry point name or a short descriptive name (`"narrowphase"`, `"forward"`, `"bvh-tree"`).
+Every raw `createShaderModule`, sync/async `createComputePipeline`, and sync/async `createRenderPipeline` call must carry a stable `label`. Every TypeGPU compute/render pipeline carries a stable `.$name()`; name TGSL functions and schemas whose identifiers must be recognizable in resolved WGSL or compilation diagnostics. Use the precompile/validation scope's label for the correlated module/pipeline where possible, or a short hierarchical name (`"narrowphase"`, `"sear-typed-cascade-sprite-screen"`). The label is a join key across the error scope, exact WGSL artifact/hash, profiler, verify output, and capture marker—not decorative prose.
+
+`engine/runtime/gpu-labels.test.ts` structurally enforces only shader and pipeline creation in `packages/shallot/src`; it deliberately does not lint every WebGPU resource. Extend that narrow creation list when a new diagnostic-bearing shader/pipeline API enters the engine.
 
 ## WebGPU-specific traps
 

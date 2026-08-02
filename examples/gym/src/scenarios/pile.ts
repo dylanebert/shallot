@@ -1498,6 +1498,7 @@ async function interpolation(phys: PhysicsStep): Promise<Check> {
         set(1, 10, 0.5, 0.5, 0.5, 0.5);
         device.queue.writeBuffer(phys.bodies, 0, arr);
         phys.gateSetCount(2);
+        await phys.prepareCompose(xforms);
 
         let posErr = 0;
         let rotErr = 0;

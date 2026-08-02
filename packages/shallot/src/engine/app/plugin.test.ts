@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { build, type Plugin, type System, serialize, sparse, stringify, swap, u32 } from "../..";
 import { clear, getComponent, getTraits } from "../ecs/core";
-import { Compute } from "../runtime";
+import { Compute, requestGPU } from "../runtime";
+import { warmPlugins } from ".";
 
 describe("Plugin", () => {
     describe("withPlugins", () => {
@@ -666,6 +667,53 @@ describe("Plugin", () => {
     // the State (its system dispose hooks included), so the caller can rebuild against clean
     // module singletons
     describe("build failure", () => {
+        test("a failed warm keeps the device scope open until every started sibling settles", async () => {
+            const saved = { ...Compute };
+            const events: string[] = [];
+            let release!: () => void;
+            const sibling = new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            const device = {
+                queue: { onSubmittedWorkDone: async () => {} },
+                features: new Set(),
+                limits: {},
+                pushErrorScope: () => events.push("push"),
+                popErrorScope: async () => {
+                    events.push("pop");
+                    return null;
+                },
+            } as unknown as GPUDevice;
+            const plugins: Plugin[] = [
+                {
+                    name: "fails",
+                    warm: async () => {
+                        events.push("fail");
+                        throw new Error("warm failed");
+                    },
+                },
+                {
+                    name: "deferred",
+                    warm: async () => {
+                        events.push("sibling-start");
+                        await sibling;
+                        events.push("sibling-end");
+                    },
+                },
+            ];
+            try {
+                await requestGPU(device);
+                const warming = warmPlugins(device, {} as never, plugins);
+                await Promise.resolve();
+                expect(events).toEqual(["push", "fail", "sibling-start"]);
+                release();
+                await expect(warming).rejects.toThrow("warm failed");
+                expect(events).toEqual(["push", "fail", "sibling-start", "sibling-end", "pop"]);
+            } finally {
+                Object.assign(Compute, saved);
+            }
+        });
+
         test("a failed initialize disposes the initialized plugins in reverse, then the State", async () => {
             clear();
             const log: string[] = [];

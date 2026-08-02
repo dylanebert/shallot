@@ -690,7 +690,7 @@ export async function createBuild(
         ["topo", topo],
         ["sweep", sweepAB],
     ] as const) {
-        precompile(`${scope}-${label}`, () => {
+        await precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

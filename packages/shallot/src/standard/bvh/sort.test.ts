@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat, IDIV_LEAF, integerDiscipline, noDivision } from "../../../tests/wgsl";
-import { Compute, precompile, requestGPU } from "../../engine/runtime";
+import { Compute, precompile, precompileAll, requestGPU } from "../../engine/runtime";
 import { createSceneBounds } from "./bounds";
 import { createBuild } from "./build";
 import { createBvh } from "./core";
@@ -238,6 +238,69 @@ describe("per-instance precompile labels", () => {
             queue: { writeBuffer() {} },
             createBuffer: (d: GPUBufferDescriptor) => ({ ...d, destroy() {} }),
         }) as unknown as GPUDevice;
+
+    test("a public factory created after the build drain awaits its scoped fence", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        let release!: () => void;
+        const fence = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const device = {
+            features: new Set(["subgroups"]),
+            limits: {},
+            queue: {
+                writeBuffer() {},
+                onSubmittedWorkDone() {
+                    events.push("fence");
+                    return fence;
+                },
+            },
+            createBuffer: (d: GPUBufferDescriptor) => ({ ...d, destroy() {} }),
+            pushErrorScope: () => events.push("push"),
+            popErrorScope: async () => {
+                events.push("pop");
+                return null;
+            },
+        } as unknown as GPUDevice;
+        const bound = {
+            $name() {
+                return this;
+            },
+            with() {
+                return this;
+            },
+            dispatchWorkgroups() {
+                events.push("force");
+                return this;
+            },
+        };
+        try {
+            await requestGPU(device);
+            await precompileAll();
+            Object.assign(Compute, {
+                root: {
+                    createComputePipeline: () => bound,
+                    createBindGroup: () => ({}),
+                },
+            });
+
+            let resolved = false;
+            const creating = createMorton(device, 8).then((value) => {
+                resolved = true;
+                return value;
+            });
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(resolved).toBe(false);
+            expect(events).toEqual(["push", "force", "fence"]);
+            release();
+            await creating;
+            expect(events).toEqual(["push", "force", "fence", "pop"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
 
     test("a second sorter on one device takes a scoped label instead of colliding", async () => {
         const saved = { ...Compute };

@@ -585,7 +585,11 @@ test("Sear warms Part-published specializing variants; post-build variants stay 
     };
     const saved = { ...Compute };
     try {
-        await requestGPU({ queue: {} } as GPUDevice);
+        await requestGPU({
+            queue: { onSubmittedWorkDone: async () => {} },
+            pushErrorScope: () => {},
+            popErrorScope: async () => null,
+        } as unknown as GPUDevice);
         await producer.initialize?.({} as never);
 
         const events: string[] = [];

@@ -8,6 +8,7 @@ import {
     readFile,
     requestFrame,
     requestGPU,
+    validateGpu,
 } from "../runtime";
 import { diagnose, load, parse } from "../scene";
 import { preload } from "../scene/core";
@@ -123,6 +124,36 @@ export interface App {
      */
     readonly skipped: readonly string[];
     dispose(): void;
+}
+
+/** settle every started warm before closing the shared device error scope. @internal */
+export async function warmPlugins(
+    device: GPUDevice,
+    state: State,
+    plugins: readonly Plugin[],
+    onProgress?: (completed: number, progress?: number) => void,
+): Promise<void> {
+    await validateGpu(device, "pipeline warm", async () => {
+        let completed = 0;
+        const results = await Promise.allSettled(
+            plugins.map(async (plugin) => {
+                try {
+                    await plugin.warm!(state, (progress) => onProgress?.(completed, progress));
+                } finally {
+                    completed++;
+                    onProgress?.(completed);
+                }
+            }),
+        );
+        const rejected = results.find(
+            (result): result is PromiseRejectedResult => result.status === "rejected",
+        );
+        if (rejected) throw rejected.reason;
+
+        // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
+        // so every registered pipeline is forced here — under the loading screen, not on frame one.
+        await precompileAll();
+    });
 }
 
 // runaway backstop: the most frames the loop may run ahead of the GPU before skipping a step, so the CPU
@@ -258,21 +289,9 @@ export async function build(config: Config): Promise<App> {
 
         const warmable = sorted.filter((p) => p.warm);
         const warmBase = sorted.length + scenes.length;
-        let warmDone = 0;
-        await Promise.all(
-            warmable.map(async (plugin) => {
-                await plugin.warm!(state, (progress: number) => {
-                    loading?.update((warmBase + warmDone + progress) / total);
-                });
-                warmDone++;
-                loading?.update((warmBase + warmDone) / total);
-            }),
-        );
-
-        // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
-        // so every registered pipeline is forced to compile here — under the loading screen, not as a
-        // multi-second stall on the first frame
-        await precompileAll();
+        await warmPlugins(Compute.device, state, warmable, (completed, progress) => {
+            loading?.update((warmBase + completed + (progress ?? 0)) / total);
+        });
 
         if (cleanup) {
             loading?.update(1);
