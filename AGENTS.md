@@ -43,9 +43,9 @@ Single modern WebGPU feature floor. No conditional fallback paths — a plugin h
 ## Commands
 
 ```bash
-bun test                                           # Fast unit tests (bun-webgpu) — excludes the .oracle.ts physics-oracle tier
-bun run test:oracle                                # The f64 AVBD physics oracle (tests/avbd/*.oracle.ts) — slow, deterministic, run separately
-bun run test:full                                  # test + test:oracle — the complete gate before a commit / PR
+bun test                                           # Fast unit tests (bun-webgpu) — the default gate, runs every time
+bun test ./packages/shallot/tests/avbd/*.oracle.ts # The f64 AVBD physics oracle — slow, run when you touch AVBD/physics
+bun test ./examples/gym/src                        # Gym host-layer + tumble gold oracle — run when you touch the engine, host layer, or a twin
 bun bench [--scenario <name> --seed --count --warmup --frames --param k=v --screenshot <path>]  # Gym scenario via `shallot verify` on a real device (default: render); the scenario roster lives in the examples/gym/src/scenarios/index.ts barrel header. --screenshot writes a post-run canvas PNG (visual validation — checks gate numbers, not pixels)
 bun run scripts/physics-bench.ts                    # AVBD physics perf + scaling sweep (drives the gym pile scenario + constraints/character rows)
 bun check                                          # Format + type check (Biome + tsc)
@@ -67,7 +67,7 @@ Gym is the single real-device surface: `bun bench` drives `examples/gym` (defaul
 
 ### Verification
 
-Run `bun run format`, `bun check`, `bun test` before completing work (`bun run test:full` to also run the slow f64 physics oracle — the complete gate before a commit / PR). `cargo test` after Rust audio changes (run from `packages/shallot/rust/audio`). `bun bench` required after GPU code changes. `bun run flows` after changes to the serialize/restore path, `config.ui` / `mountOverlay`, or the `shallot dev` server — the standalone-app Playwright flows (display-gated, self-terminating; run alone, never concurrent with other heavy work). `bun run recipes` after changes to a physics recipe or the substrate/tumble path it exercises — the physics recipes' dynamics smoke (display-gated, same shape as flows). On WSL these three run for real against the Windows host's GPU via `scripts/wsl-bridge.ts` (a host-launched browser server + reverse tunnel, driving the verify CLI as `--connect`); they skip only when the host lacks the node/bun the bridge provisions with. `bun run test:install` after packaging / CLI / manifest-resolution / asset-shipping changes and after `packages/create-shallot` changes — the dev symlink hides real-install bugs (it caught a devDep import that broke `shallot build` for every installed user).
+Run `bun run format`, `bun check`, `bun test` before completing work. The slow gates are separate files run by path, each when you touch what it gates, never as a routine sweep: `bun test ./packages/shallot/tests/avbd/*.oracle.ts` for AVBD/physics, `bun test ./examples/gym/src` for engine / host-layer / twin changes, and the tumble fixture gates from `packages/shallot` (`tumble.md`). `cargo test` after Rust audio changes (run from `packages/shallot/rust/audio`). `bun bench` required after GPU code changes. `bun run flows` after changes to the serialize/restore path, `config.ui` / `mountOverlay`, or the `shallot dev` server — the standalone-app Playwright flows (display-gated, self-terminating; run alone, never concurrent with other heavy work). `bun run recipes` after changes to a physics recipe or the substrate/tumble path it exercises — the physics recipes' dynamics smoke (display-gated, same shape as flows). On WSL these three run for real against the Windows host's GPU via `scripts/wsl-bridge.ts` (a host-launched browser server + reverse tunnel, driving the verify CLI as `--connect`); they skip only when the host lacks the node/bun the bridge provisions with. `bun run test:install` after packaging / CLI / manifest-resolution / asset-shipping changes and after `packages/create-shallot` changes — the dev symlink hides real-install bugs (it caught a devDep import that broke `shallot build` for every installed user).
 
 ---
 

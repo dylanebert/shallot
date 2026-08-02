@@ -8,6 +8,8 @@ import { Slab } from "../slab";
 import { Transform } from "../transforms";
 import {
     distanceAttenuation,
+    LIGHTING_UNIFORM_SIZE,
+    LightingGpu,
     MAX_POINT_LIGHTS,
     PointLight,
     PointLightGpu,
@@ -140,6 +142,16 @@ describe("warnLightOverflow", () => {
         warnLightOverflow(state);
         expect(warn).toHaveBeenCalledTimes(2); // a new episode warns again
         warn.mockRestore();
+    });
+});
+
+// `LightingGpu` is the one schema both a typed pipeline's layout entry (the fog march's `lighting`
+// binding) and sear's own splice (`lightingWgsl()`) read — a field reorder with no matching edit on the
+// CPU staging writer compiles fine on both sides and reads garbage across the boundary, so the byte size
+// is pinned here rather than left to the bench.
+describe("LightingGpu schema", () => {
+    test("matches LIGHTING_UNIFORM_SIZE — the CPU staging array's byte length", () => {
+        expect(d.sizeOf(LightingGpu)).toBe(LIGHTING_UNIFORM_SIZE);
     });
 });
 

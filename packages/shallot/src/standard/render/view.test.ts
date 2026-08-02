@@ -1,8 +1,35 @@
 import { describe, expect, spyOn, test } from "bun:test";
+import * as d from "typegpu/data";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Camera } from "./camera";
-import { attachView, backingSize, devEnabled, pruneViews, trackCanvasOwner, Views } from "./view";
+import {
+    attachView,
+    backingSize,
+    devEnabled,
+    pruneViews,
+    trackCanvasOwner,
+    VIEW_BYTES,
+    View,
+    Views,
+} from "./view";
+
+// the View schema is the one source of truth on both sides: BeginFrameSystem's CPU staging writer stages
+// against these exact byte offsets (index.ts, the pack closure), and the emitted WGSL struct resolves from
+// the same schema — reordering a field must move the CPU write, not silently shift the WGSL struct out
+// from under it (the layout-mismatch class the port exists to kill, the Step precedent).
+test("the View schema pins the uniform layout the CPU writer stages against", () => {
+    expect(d.sizeOf(View)).toBe(208);
+    expect(VIEW_BYTES).toBe(208);
+    const at = (f: keyof (typeof View)["propTypes"]) => d.memoryLayoutOf(View, (s) => s[f]).offset;
+    expect(at("viewProj")).toBe(0);
+    expect(at("resolution")).toBe(64);
+    expect(at("right")).toBe(80);
+    expect(at("up")).toBe(96);
+    expect(at("cluster")).toBe(112);
+    expect(at("eye")).toBe(128);
+    expect(at("invViewProj")).toBe(144);
+});
 
 // backingSize derives a view's render backing (device px) from its CSS display size, a Resolution pin
 // (resW/resH, 0 = that axis unset), and the pixelRatio fit-ratio. The aspect derivation + the

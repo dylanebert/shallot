@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat, IDIV_LEAF, integerDiscipline, noDivision } from "../../../tests/wgsl";
-import { radixWgsl } from "./sort";
+import { Compute, precompile, requestGPU } from "../../engine/runtime";
+import { createSceneBounds } from "./bounds";
+import { createBuild } from "./build";
+import { createBvh } from "./core";
+import { createMorton } from "./morton";
+import { createRadixSort, radixWgsl } from "./sort";
+import { createRadixSortLds } from "./sort-lds";
 
 // The Onesweep arm's real gate is the `accel` gym scenario's `subgroup sort` rows on the device (sorted
 // + stable over eleven distributions). Device-free, what's checkable is that the port kept the four
@@ -215,5 +221,103 @@ describe("params", () => {
         for (const src of [wgsl.init, wgsl.scan, wgsl.binning])
             expect(src).toContain(`@workgroup_size(${WG})`);
         expect(WG).toBe(RADIX);
+    });
+});
+
+// One app stands up more than one sorter — the `accel` gym scenario runs two arms, each a BVH whose
+// builder sorts internally plus a standalone sort beside it — and the precompile queue rejects a
+// duplicate label. So the labels are per-instance: the first keeps the bare names (stable profiler
+// rows for the single-sorter apps), each later one takes a numbered scope.
+describe("per-instance precompile labels", () => {
+    // no adapter (testing.md): the sorters are built against a recording stub, which is enough to
+    // reach the precompile registrations — nothing here dispatches.
+    const stub = (): GPUDevice =>
+        ({
+            features: new Set(["subgroups"]),
+            limits: {},
+            queue: { writeBuffer() {} },
+            createBuffer: (d: GPUBufferDescriptor) => ({ ...d, destroy() {} }),
+        }) as unknown as GPUDevice;
+
+    test("a second sorter on one device takes a scoped label instead of colliding", async () => {
+        const saved = { ...Compute };
+        try {
+            const device = stub();
+            await requestGPU(device);
+            const count = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE });
+
+            await createRadixSort(device, 1 << 14, { count }, true);
+            expect(() => precompile("radix-init", () => true)).toThrow(/duplicate/);
+
+            await createRadixSort(device, 1 << 14, { count }, true);
+            expect(() => precompile("radix-2-init", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("radix-2-binning", () => true)).toThrow(/duplicate/);
+
+            // the subgroup-free sibling is the same class of factory, on its own scope
+            await createRadixSortLds(device, 1 << 14, { count });
+            expect(() => precompile("radix-lds-hist", () => true)).toThrow(/duplicate/);
+            await createRadixSortLds(device, 1 << 14, { count });
+            expect(() => precompile("radix-lds-2-hist", () => true)).toThrow(/duplicate/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a BVH's internal sort keeps the bare label; a sibling sort beside it takes the scoped one", async () => {
+        // the reported shape: the `accel` gym scenario's makeArm builds one createBvh (whose builder
+        // sorts internally) plus a standalone createRadixSort beside it, on the same device
+        const saved = { ...Compute };
+        try {
+            const device = stub();
+            await requestGPU(device);
+
+            await createBvh(device, 1 << 10);
+            expect(() => precompile("radix-init", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("bounds-reduce", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("morton", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("build-prepare", () => true)).toThrow(/duplicate/);
+
+            const count = device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE });
+            await createRadixSort(device, 1 << 14, { count }, true);
+            expect(() => precompile("radix-2-init", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("radix-2-binning", () => true)).toThrow(/duplicate/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a second bounds/build/morton instance on one device takes its scoped label", async () => {
+        const saved = { ...Compute };
+        try {
+            const device = stub();
+            await requestGPU(device);
+            const shared = {
+                prims: device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE }),
+                bounds: device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE }),
+                keys: device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
+                payload: device.createBuffer({ size: 4, usage: GPUBufferUsage.STORAGE }),
+                nodes: device.createBuffer({ size: 32, usage: GPUBufferUsage.STORAGE }),
+                count: device.createBuffer({ size: 8, usage: GPUBufferUsage.STORAGE }),
+            };
+
+            await createSceneBounds(device, 1 << 10, shared, true);
+            expect(() => precompile("bounds-reduce", () => true)).toThrow(/duplicate/);
+            await createSceneBounds(device, 1 << 10, shared, true);
+            expect(() => precompile("bounds-2-reduce", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("bounds-2-finalize", () => true)).toThrow(/duplicate/);
+
+            await createBuild(device, 1 << 10, shared);
+            expect(() => precompile("build-prepare", () => true)).toThrow(/duplicate/);
+            await createBuild(device, 1 << 10, shared);
+            expect(() => precompile("build-2-prepare", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("build-2-sweep", () => true)).toThrow(/duplicate/);
+
+            await createMorton(device, 1 << 10, shared);
+            expect(() => precompile("morton", () => true)).toThrow(/duplicate/);
+            await createMorton(device, 1 << 10, shared);
+            expect(() => precompile("morton-2", () => true)).toThrow(/duplicate/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
     });
 });

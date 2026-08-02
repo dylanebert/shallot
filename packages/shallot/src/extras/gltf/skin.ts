@@ -1,10 +1,22 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute, checkTextureLimits } from "../../engine";
+import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils/core";
 import type { Binding } from "../../standard/render/core";
 import { Surfaces } from "../../standard/render/core";
+import {
+    fsCtxSchema,
+    registerSurface,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "../../standard/sear/core";
 import { Skin } from "../skin";
 import { ALBEDO_NAMES } from "./image";
-import { materialPreamble } from "./shade";
+import { MaterialData } from "./palette";
+import { materialFns } from "./shade";
 import type { GltfVat } from "./vat";
 
 // The skinned/animated glTF render path — the GPU half of VAT. A skinned
@@ -20,24 +32,6 @@ import type { GltfVat } from "./vat";
 // VAT path reads its lanes as (play time, material index, phase, clip duration) — the meaning {@link
 // SkinSystem} advances; the live path reads x as the palette base instead, and leaves w at 0 so that system
 // skips it.
-
-// the per-skinned-mesh VAT params the surface decodes against: the object-space AABB the f16 positions remap
-// from, the effective sample fps, and the texture's frame/vertex extents. Each skinned mesh binds its own VAT
-// textures + this uniform per-draw (via `Mesh.bindings`), so N skinned meshes coexist. Declared
-// in the preamble (after the binding decl that references it — module-scope types resolve order-free, like
-// MaterialData)
-const VAT_PARAMS_WGSL = /* wgsl */ `
-struct VatParams {
-    aabbMin: vec3<f32>,
-    fps: f32,
-    aabbSize: vec3<f32>,
-    frameCount: f32,
-    vertCount: f32,
-    frameMax: f32,
-    pad0: f32,
-    pad1: f32,
-}
-`;
 
 // the bindings every skin surface declares: the instancing convention (eids + transforms) + baseColorFactor
 // (color) + the folded `skin` slab (time + material index) + the per-material palette + the baseColor size
@@ -65,69 +59,117 @@ const vatBindings: Record<string, Binding> = {
     vatParams: { type: "uniform", struct: "VatParams" },
 };
 
-// the VAT_PARAMS struct + the shade helpers specialized to a material map-set — sear compiles one pipeline
-// per map-set a scene draws (the mesh's `variant`), so a sparse-map skinned material samples only the maps
-// it carries. The VS reads the VAT normal as a plain f16 vec3 (renormalized), so there's no oct decode here.
-const skinPreamble = (variant: number) => VAT_PARAMS_WGSL + materialPreamble(variant);
+const VatParams = d
+    .struct({
+        aabbMin: d.vec3f,
+        fps: d.f32,
+        aabbSize: d.vec3f,
+        frameCount: d.f32,
+        vertCount: d.f32,
+        frameMax: d.f32,
+        pad0: d.f32,
+        pad1: d.f32,
+    })
+    .$name("VatParams");
+const vatLayout = surfaceLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+    skin: { type: "storage", element: d.vec4f },
+    materialData: { type: "storage", element: MaterialData },
+    albedo0: { type: "texture-2d-array" },
+    albedo1: { type: "texture-2d-array" },
+    albedo2: { type: "texture-2d-array" },
+    albedo3: { type: "texture-2d-array" },
+    mr: { type: "texture-2d-array" },
+    normalTex: { type: "texture-2d-array" },
+    occlusion: { type: "texture-2d-array" },
+    emissive: { type: "texture-2d-array" },
+    albedoSamp: { type: "sampler" },
+    vatPos: { type: "texture-2d" },
+    vatNorm: { type: "texture-2d" },
+    vatSamp: { type: "sampler" },
+    vatParams: { type: "uniform", struct: VatParams },
+});
+const VatPatch = vsPatchSchema();
+const VatCtx = fsCtxSchema();
 
-// sample the VAT at this vertex's row for the instance's play time, decode position (AABB-remapped f16)
-// + normal (a plain f16 vec3, renormalized — NOT oct: the sampler hardware-lerps adjacent frame rows, and
-// oct interpolation is invalid across the octahedral seam, so a vertex whose normal rotates across the seam
-// between two frames would lerp to a garbage direction; gpu.md rule 9), then compose the instance transform
-// (option a — self-contained, so no sear scaffold change). `vidx` (the hardware vertex index, sear draws
-// indexed) is the unique-vertex index the VAT row is keyed by (the skinned mesh owns its buffers, indices
-// local [0, vertCount), baseVertex 0); textureSampleLevel because the VS has no implicit LOD, and the
-// filtering sampler hardware-lerps the two adjacent frame rows (fractional `fc`).
-const SKIN_VS = /* wgsl */ `
-    let vid = vidx;
-    let fc = clamp(skin[eid].x * vatParams.fps, 0.0, vatParams.frameMax);
-    let suv = vec2<f32>((f32(vid) + 0.5) / vatParams.vertCount, (fc + 0.5) / vatParams.frameCount);
-    let p = vatParams.aabbMin + textureSampleLevel(vatPos, vatSamp, suv, 0.0).xyz * vatParams.aabbSize;
-    let n = normalize(textureSampleLevel(vatNorm, vatSamp, suv, 0.0).xyz);
-    let xf = transforms[eid];
-    world = vec4<f32>(xformPoint(xf, p), 1.0);
-    worldNormal = xformNormal(xf, n);
-    localPos = p;`;
+const vatVs = tgpu
+    .fn(
+        [VsIn],
+        VatPatch,
+    )((vsIn) => {
+        "use gpu";
+        const params = vatLayout.$.vatParams;
+        const fc = std.clamp(vatLayout.$.skin[vsIn.eid].x * params.fps, 0, params.frameMax);
+        const suv = d.vec2f(
+            (d.f32(vsIn.vidx) + 0.5) / params.vertCount,
+            (fc + 0.5) / params.frameCount,
+        );
+        const p = std.add(
+            params.aabbMin,
+            std.mul(
+                std.textureSampleLevel(vatLayout.$.vatPos, vatLayout.$.vatSamp, suv, 0).xyz,
+                params.aabbSize,
+            ),
+        );
+        const n = std.normalize(
+            std.textureSampleLevel(vatLayout.$.vatNorm, vatLayout.$.vatSamp, suv, 0).xyz,
+        );
+        const xf = vsIn.xform;
+        return VatPatch({
+            world: d.vec4f(xformPoint(xf, p), 1),
+            worldNormal: xformNormal(xf, n),
+            clip: d.vec4f(0),
+        } as never);
+    })
+    .$name("skinVs");
+
+function vatFs(variant: number, mode: "opaque" | "clip" | "blend") {
+    const { sampleAlbedo, shadePbr } = materialFns(vatLayout, variant);
+    const clip = mode === "clip";
+    const blend = mode === "blend";
+    return tgpu
+        .fn(
+            [VatCtx],
+            d.vec4f,
+        )((ctx) => {
+            "use gpu";
+            const mid = d.u32(vatLayout.$.skin[ctx.eid].y);
+            const tex = sampleAlbedo(mid, ctx.uv);
+            const tint = unpackLdrColor(vatLayout.$.color[ctx.eid]);
+            const rgb = shadePbr(
+                mid,
+                ctx.uv,
+                std.mul(tex.xyz, tint.xyz),
+                std.normalize(ctx.worldNormal),
+                ctx.world,
+            );
+            if (clip && tex.w * tint.w < vatLayout.$.materialData[mid].cutoff) std.discard();
+            return d.vec4f(rgb, blend ? tex.w * tint.w : 1);
+        })
+        .$name("skinFs");
+}
 
 // register the three alpha-mode skin surfaces — opaque / MASK (clip cutout → holed shadows) / BLEND. They
 // share SKIN_VS (the VAT deform) + the `shadePbr` path; only the blend mode + cutout discard differ, exactly
 // like the textured `gltf-albedo*` trio. `mid` (the palette index) is the folded `skin[eid].y` lane.
-export function registerSkinSurfaces(): void {
-    Surfaces.register({
-        name: "skin",
-        bindings: vatBindings,
-        specialize: (variant) => ({ preamble: skinPreamble(variant) }),
-        vs: SKIN_VS,
-        fs: /* wgsl */ `
-        let mid = u32(skin[eid].y);
-        let base = sampleAlbedo(mid, uv).rgb * unpackLdrColor(color[eid]).rgb;
-        col = vec4<f32>(shadePbr(mid, uv, base, normalize(worldNormal), world), 1.0);`,
-    });
-    Surfaces.register({
-        name: "skin-clip",
-        blend: "clip",
-        bindings: vatBindings,
-        specialize: (variant) => ({ preamble: skinPreamble(variant) }),
-        vs: SKIN_VS,
-        fs: /* wgsl */ `
-        let mid = u32(skin[eid].y);
-        let tex = sampleAlbedo(mid, uv);
-        let c = unpackLdrColor(color[eid]);
-        let rgb = shadePbr(mid, uv, tex.rgb * c.rgb, normalize(worldNormal), world);
-        if (tex.a * c.a < materialData[mid].cutoff) { discard; }
-        col = vec4<f32>(rgb, 1.0);`,
-    });
-    Surfaces.register({
-        name: "skin-blend",
-        blend: "alpha",
-        bindings: vatBindings,
-        specialize: (variant) => ({ preamble: skinPreamble(variant) }),
-        vs: SKIN_VS,
-        fs: /* wgsl */ `
-        let mid = u32(skin[eid].y);
-        let tex = sampleAlbedo(mid, uv) * unpackLdrColor(color[eid]);
-        col = vec4<f32>(shadePbr(mid, uv, tex.rgb, normalize(worldNormal), world), tex.a);`,
-    });
+export function registerSkinSurfaces(state: State): void {
+    for (const [name, blend, mode] of [
+        ["skin", undefined, "opaque"],
+        ["skin-clip", "clip", "clip"],
+        ["skin-blend", "alpha", "blend"],
+    ] as const) {
+        Surfaces.register({ name, bindings: vatBindings, blend });
+        registerSurface(state, {
+            name,
+            layout: vatLayout,
+            blend,
+            vs: vatVs,
+            fs: vatFs(0, mode),
+            specialize: (variant) => ({ vs: vatVs, fs: vatFs(variant, mode) }),
+        });
+    }
 }
 
 // the surface name per glTF alphaMode — the importer routes each skinned instance by its material's mode

@@ -11,6 +11,7 @@ import {
     deviceLimits,
     precompile,
     precompileAll,
+    precompileScope,
     requestGPU,
     resolveFeatures,
     tgslCanary,
@@ -329,10 +330,62 @@ describe("the TypeGPU root", () => {
     });
 });
 
-// One test, walked in order, because the queue is module state whose "before the drain" half exists
-// only until the first `precompileAll` — `requestGPU` is what re-opens it, once per build. Splitting
-// these into separate tests would make them pass or fail on file order.
+// The queue is module state whose "before the drain" half exists only until `precompileAll`.
+// Each test opens a fresh build with `requestGPU`, the same boundary production uses.
 describe("precompile", () => {
+    test("dependencies drain in stable topological order and reject invalid graphs", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("first", () => order.push("first"));
+            precompile("dependent-a", () => order.push("dependent-a"), { after: ["publish"] });
+            precompile("independent", () => order.push("independent"));
+            precompile("dependent-b", () => order.push("dependent-b"), { after: ["publish"] });
+            precompile("publish", () => order.push("publish"));
+            precompile("optional", () => order.push("optional"), { after: ["missing"] });
+
+            await precompileAll();
+            expect(order).toEqual([
+                "first",
+                "independent",
+                "publish",
+                "dependent-a",
+                "dependent-b",
+                "optional",
+            ]);
+
+            await requestGPU(fakeDevice());
+            precompile("duplicate", () => true);
+            expect(() => precompile("duplicate", () => true)).toThrow(
+                /duplicate precompile label "duplicate"/,
+            );
+
+            await requestGPU(fakeDevice());
+            precompile("cycle-a", () => true, { after: ["cycle-b"] });
+            precompile("cycle-b", () => true, { after: ["cycle-a"] });
+            await expect(precompileAll()).rejects.toThrow(/precompile cycle.*cycle-a.*cycle-b/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a scope numbers repeat instances, and resets with the label set it keeps unique", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            // the single-instance app is the common one — its labels (and profiler rows) stay bare
+            expect(precompileScope("radix")).toBe("radix");
+            expect(precompileScope("radix")).toBe("radix-2");
+            expect(precompileScope("bounds")).toBe("bounds");
+            // the counts belong to the label set, so a rebuild names its stages the same way again
+            await requestGPU(fakeDevice());
+            expect(precompileScope("radix")).toBe("radix");
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
     test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {
         const saved = { ...Compute };
         // a build began: that, and only that, re-opens the queue

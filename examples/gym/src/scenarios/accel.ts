@@ -35,7 +35,8 @@ import {
     type RadixSort,
 } from "@dylanebert/shallot/bvh/core";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
-import { BeginFrameSystem, Render } from "@dylanebert/shallot/render/core";
+import { BeginFrameSystem, Render, Views } from "@dylanebert/shallot/render/core";
+import { ColorSystem } from "@dylanebert/shallot/sear/core";
 // test scaffolding (tests/, out of the published src/) reached by relative path — the executable spec.
 import {
     allFixtures,
@@ -141,6 +142,96 @@ let payloadMirror: Mirror | null = null;
 
 function liveMode(): number {
     return assertMode ?? (params?.mode === "any" ? 1 : 0);
+}
+
+// ============================ framebuffer probe (the line draw's positive gate) ============================
+
+// Lines are the ONLY geometry this scene draws, so the offscreen scene color is the line draw's output and
+// nothing else. out[0] = peak linear luminance over a 128×128 sample grid, out[1] = the minimum, out[2] =
+// the count of sampled texels carrying real chroma. The camera's default clear (0x2e2b28) is a near-neutral
+// dark grey — linear ≈ (0.026, 0.023, 0.019), luminance ≈ 0.023, channel spread ≈ 0.007 — so both the peak
+// and the chroma count read zero-signal on an empty frame and light up only where a colored line landed
+// (the viz palette is saturated blue / amber / green). One thread, no atomics. `view.framebuffer` is the
+// HDR linear color the color pass resolved, pre-tonemap.
+const CHROMA = 0.05; // ≫ the clear color's own 0.007 channel spread, ≪ any palette line's
+const PROBE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var fb: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<f32>;
+@compute @workgroup_size(1)
+fn main() {
+    let dim = vec2<f32>(textureDimensions(fb));
+    let luma = vec3<f32>(0.2126, 0.7152, 0.0722);
+    let N = 128;
+    var peak = 0.0;
+    var lo = 1e9;
+    var chroma = 0.0;
+    for (var y = 0; y < N; y = y + 1) {
+        for (var x = 0; x < N; x = x + 1) {
+            let uv = vec2<f32>(f32(x) + 0.5, f32(y) + 0.5) / f32(N);
+            let rgb = textureLoad(fb, vec2<i32>(uv * dim), 0).rgb;
+            let lum = dot(rgb, luma);
+            peak = max(peak, lum);
+            lo = min(lo, lum);
+            let spread = max(rgb.r, max(rgb.g, rgb.b)) - min(rgb.r, min(rgb.g, rgb.b));
+            if (spread > ${CHROMA}) { chroma = chroma + 1.0; }
+        }
+    }
+    out[0] = peak;
+    out[1] = lo;
+    out[2] = chroma;
+}`;
+
+let probePipeline: GPUComputePipeline | null = null;
+let probeBuf: GPUBuffer | null = null;
+let probeBg: GPUBindGroup | null = null;
+let probeMirror: Mirror | null = null;
+
+const ProbeSystem: System = {
+    name: "accel-probe",
+    group: "draw",
+    after: [ColorSystem],
+    update(state) {
+        if (!Render.encoder || !probePipeline || !probeBuf) return;
+        for (const eid of state.query([Camera, Sear])) {
+            const view = Views.get(eid);
+            if (!view?.framebuffer) continue;
+            if (!probeBg) {
+                probeBg = Compute.device.createBindGroup({
+                    label: "accel-probe",
+                    layout: probePipeline.getBindGroupLayout(0),
+                    entries: [
+                        { binding: 0, resource: view.framebuffer },
+                        { binding: 1, resource: { buffer: probeBuf } },
+                    ],
+                });
+            }
+            const pass = Render.encoder.beginComputePass({ label: "accel-probe" });
+            pass.setPipeline(probePipeline);
+            pass.setBindGroup(0, probeBg);
+            pass.dispatchWorkgroups(1);
+            pass.end();
+            return;
+        }
+    },
+};
+
+// the line draw's positive framebuffer gate: resource counts and pass timestamps say a pipeline exists,
+// not that it put color on screen. Red-proven by mutating the `lines` fs (a transparent output, or a
+// collapsed quad) — both drop the peak to the clear color and the chroma count to zero.
+async function assertLineDraw(): Promise<Check> {
+    if (!probeMirror) return { name: "line draw", pass: false, detail: "no probe mirror" };
+    await settle(probeMirror);
+    const snap = probeMirror.snapshot;
+    if (!snap) return { name: "line draw", pass: false, detail: "no probe snapshot" };
+    const out = new Float32Array(snap.bytes);
+    const [peak, lo, chroma] = [out[0], out[1], out[2]];
+    return {
+        name: "line draw framebuffer",
+        // the clear's own luminance is ~0.023 and it is flat, so a frame with no line draw reads
+        // peak ≈ lo ≈ 0.023 with zero chroma. A drawn palette line is ≥10× that in peak.
+        pass: peak > 0.2 && peak > lo * 4 && chroma > 0,
+        detail: `peak ${peak.toFixed(4)}, min ${lo.toFixed(4)}, chroma texels ${chroma} / 16384`,
+    };
 }
 
 function uploadScene(prims: Prims): void {
@@ -721,6 +812,27 @@ const scenario: Scenario = {
         hits = mirror(tracer!.hits);
         keysMirror = mirror(rs!.keys);
         payloadMirror = mirror(rs!.payload);
+
+        probePipeline = await Compute.device.createComputePipelineAsync({
+            label: "accel-probe",
+            layout: "auto",
+            compute: {
+                module: Compute.device.createShaderModule({
+                    label: "accel-probe",
+                    code: PROBE_WGSL,
+                }),
+                entryPoint: "main",
+            },
+        });
+        probeBuf = Compute.device.createBuffer({
+            label: "accel-probe",
+            size: 16, // 3 floats, padded to 16-byte alignment
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        probeBg = null;
+        state.addSystem(ProbeSystem);
+        await frames(4);
+        probeMirror = mirror(probeBuf);
         await frames(3);
         // warm allocates raw GPU structures outside State — destroy them on teardown (before the State
         // dispose, while the device is live) so an HMR reload doesn't leak a builder + tracer + sort set.
@@ -731,6 +843,7 @@ const scenario: Scenario = {
                 tracer?.destroy();
                 rs?.destroy();
                 countBuf?.destroy();
+                probeBuf?.destroy();
                 dispose();
             },
         };
@@ -799,6 +912,10 @@ const scenario: Scenario = {
             uploadRays(vizRays);
             await pump(scene);
         }
+        // the overlay draws the restored live scene, so the framebuffer probe reads the line surface's
+        // real output — sampled last, after the restore has had frames to land
+        await frames(4);
+        checks.push(await assertLineDraw());
         return checks;
     },
 

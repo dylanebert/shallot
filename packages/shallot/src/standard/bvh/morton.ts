@@ -33,8 +33,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { precompile } from "../../engine/runtime";
-import { rootOf } from "./root";
+import { precompile, precompileScope } from "../../engine/runtime";
 
 const WG = 256; // workgroup size; the grid-stride loop folds any count past one dispatch
 const MAX_DISPATCH = 65535; // maxComputeWorkgroupsPerDimension floor
@@ -195,8 +194,7 @@ export async function createMorton(
     maxPrims: number,
     shared: MortonShared = {},
 ): Promise<Morton> {
-    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
-    const root = rootOf(device, "createMorton");
+    const root = Compute.root;
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -219,7 +217,8 @@ export async function createMorton(
         .with(
             root.createBindGroup(mortonLayout, { prims, bounds, keys, payload, countBuf: count }),
         );
-    precompile("morton", () => {
+    // per-instance label — an app can build more than one BVH, and the queue rejects a duplicate label
+    precompile(precompileScope("morton"), () => {
         bound.dispatchWorkgroups(0);
         return bound;
     });

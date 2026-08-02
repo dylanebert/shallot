@@ -4,16 +4,17 @@
 // Everything draws as one instanced 6-vertex quad per segment, rendered as a sear `"alpha"` surface
 // inside the color pass — translucent, depth-tested, depth-write off, no overlay pass. Screen-space
 // constant-pixel width: the surface projects each segment's endpoints itself (sear's `screen` mode)
-// and writes `clipPos`, expanding the quad by a pixel half-width read from `view.resolution`. Bevy's
-// gizmo model; arrows are folded in (a shaft segment + segment-fletched head), no separate primitive.
-// The segment staging + upload + immediate API live in `segments.ts`.
+// and writes its own clip position, expanding the quad by a pixel half-width read from `view.resolution`.
+// Bevy's gizmo model; arrows are folded in (a shaft segment + segment-fletched head), no separate
+// primitive. The segment staging + upload + immediate API live in `segments.ts`, the surface in
+// `surface.ts`.
 
 import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils/core";
 import { mesh, RenderPlugin } from "../../standard/render";
 import { BeginFrameSystem, Draws, Meshes, Surfaces } from "../../standard/render/core";
-import { PrepassSystem } from "../../standard/sear/core";
+import { PrepassSystem, registerSurface } from "../../standard/sear/core";
 import { composeTransform, Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     disposeSegments,
@@ -25,6 +26,7 @@ import {
     resetCount,
     warmSegments,
 } from "./segments";
+import { lineFs, lineLayout, lineVaryings, lineVs } from "./surface";
 
 export { arrow, box, segment } from "./segments";
 
@@ -67,78 +69,6 @@ export const Arrow = {
     /** head size relative to the shaft length */
     size: sparse(f32),
 };
-
-const SEGMENT_WGSL = /* wgsl */ `
-struct Segment {
-    a: vec3<f32>,
-    width: f32,
-    b: vec3<f32>,
-    color: u32,
-}
-
-fn lineSrgbToLinear(c: vec3<f32>) -> vec3<f32> {
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, vec3<f32>(2.4));
-    return select(hi, lo, c <= vec3<f32>(0.04045));
-}
-`;
-
-// localPos.xy carries the quad corner: x = t (0 start, 1 end), y = edge (-1, +1). The chunk projects
-// both endpoints, near-plane-clips, then offsets the chosen endpoint perpendicular by a pixel half-width
-// (constant-pixel: pixels → NDC is × 2/resolution). 1px of AA pad each side; a sub-pixel width clamps the
-// geometry to 1px and fades the alpha to keep its energy. world = the chosen endpoint so the (unused,
-// DCE'd) shadow sample reads a valid position
-const LINE_VS = /* wgsl */ `
-let seg = lineSegments[iid];
-let t = localPos.x;
-let edge = localPos.y;
-let widthPx = seg.width;
-
-var sClip = view.viewProj * vec4<f32>(seg.a, 1.0);
-var eClip = view.viewProj * vec4<f32>(seg.b, 1.0);
-let nearW = 1e-5;
-if (sClip.w < nearW && eClip.w < nearW) {
-    // both endpoints behind the camera — collapse offscreen (z < 0 clips)
-    clipPos = vec4<f32>(0.0, 0.0, -1.0, 1.0);
-    lineRgba = vec4<f32>(0.0);
-    edgeDist = 0.0;
-    halfPx = 0.0;
-    world = vec4<f32>(seg.a, 1.0);
-} else {
-    if (sClip.w < nearW) {
-        let k = (nearW - sClip.w) / (eClip.w - sClip.w);
-        sClip = mix(sClip, eClip, k);
-    } else if (eClip.w < nearW) {
-        let k = (nearW - eClip.w) / (sClip.w - eClip.w);
-        eClip = mix(eClip, sClip, k);
-    }
-    let sNdc = sClip.xy / sClip.w;
-    let eNdc = eClip.xy / eClip.w;
-    let res = view.resolution;
-    let dirPx = (eNdc - sNdc) * res;
-    let lenPx = length(dirPx);
-    let dir = select(vec2<f32>(1.0, 0.0), dirPx / lenPx, lenPx > 1e-4);
-    let perp = vec2<f32>(-dir.y, dir.x);
-    let halfW = max(widthPx, 1.0) * 0.5;
-    let total = halfW + 1.0;
-    let useEnd = t > 0.5;
-    let baseNdc = select(sNdc, eNdc, useEnd);
-    let baseClip = select(sClip, eClip, useEnd);
-    let ndc = baseNdc + perp * (edge * total) * 2.0 / res;
-    clipPos = vec4<f32>(ndc, baseClip.z / baseClip.w, 1.0);
-    let unp = unpack4x8unorm(seg.color);
-    lineRgba = vec4<f32>(lineSrgbToLinear(unp.rgb), unp.a * min(widthPx, 1.0));
-    edgeDist = edge * total;
-    halfPx = halfW;
-    world = vec4<f32>(select(seg.a, seg.b, useEnd), 1.0);
-}
-`;
-
-// signed-distance edge AA: fade over one screen-space derivative either side of the half-width
-const LINE_FS = /* wgsl */ `
-let aa = 1.0 - smoothstep(halfPx - fwidth(edgeDist), halfPx + fwidth(edgeDist), abs(edgeDist));
-col = vec4<f32>(lineRgba.rgb, lineRgba.a * aa);
-`;
 
 // the canonical quad: posU.xyz = (t, edge, 0); normalV unused. sear pulls these as localPos, the
 // chunk expands. 4 corners, 6 indices (two triangles)
@@ -232,18 +162,27 @@ export const LinesPlugin: Plugin = {
         },
     },
 
-    initialize() {
+    initialize(state) {
         resetCount();
         mesh({ name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
+        // the string-registry shell (bindings only — no code): the surface's own draw is registered by
+        // `LinesSystem.setup`, so this exists purely to keep `lines` in the surface-id space every
+        // string-era consumer still enumerates. The code is the typed registration below, which
+        // `record()` consults first
         Surfaces.register({
             name: "lines",
             blend: "alpha",
             screen: true,
             bindings: { lineSegments: { type: "storage", element: "Segment" } },
-            interpolators: { lineRgba: "vec4<f32>", edgeDist: "f32", halfPx: "f32" },
-            preamble: SEGMENT_WGSL,
-            vs: LINE_VS,
-            fs: LINE_FS,
+        });
+        registerSurface(state, {
+            name: "lines",
+            layout: lineLayout,
+            blend: "alpha",
+            screen: true,
+            varyings: lineVaryings,
+            vs: lineVs,
+            fs: lineFs,
         });
     },
 

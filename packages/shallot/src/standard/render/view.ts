@@ -7,6 +7,25 @@ import { Camera, Resolution } from "./camera";
 import { Render } from "./render";
 
 /**
+ * the per-camera `View` UBO schema — the single source of truth for both sides of the layout
+ * (`d.sizeOf` / `d.memoryLayoutOf` size {@link VIEW_BYTES} and every CPU staging write, `view.test.ts`
+ * red-proven against a field reorder, the `Step` precedent). One instance per shading slot lives in its
+ * own static uniform buffer ({@link Render.viewBuffers}); a raw-WGSL splice site (sear, the backdrop)
+ * still needs the struct text, so {@link viewWgsl} resolves it lazily under strict naming.
+ */
+export const View = d
+    .struct({
+        viewProj: d.mat4x4f,
+        resolution: d.vec2f,
+        right: d.vec4f,
+        up: d.vec4f,
+        cluster: d.vec4f,
+        eye: d.vec4f,
+        invViewProj: d.mat4x4f,
+    })
+    .$name("View");
+
+/**
  * dynamic-offset uniform stride. WebGPU `minUniformBufferOffsetAlignment` ≥ 256
  * forces this even though only the leading bytes carry data
  */
@@ -23,28 +42,16 @@ export const MAX_VIEWS = 8;
 
 /** total view slots per frame: shading cameras + depth-only views (the sun's light camera + the
  * point-shadow member-compaction "union" camera). Sizes only the cheap per-slot state
- * ({@link Render.viewBuffer}, `Render.cullVolumes`), so it's generous */
+ * (`Render.viewStaging`, `Render.cullVolumes` — depth-only slots allocate no {@link Render.viewBuffers}
+ * entry, only the shading prefix does), so it's generous */
 export const MAX_SLOTS = 64;
 
 export const VIEW_UNIFORM_SIZE = VIEW_STRIDE * MAX_SLOTS;
 
-/** the per-camera `View` UBO's WGSL struct, spliced by sear for every surface and by any relocatable
- * screen-space consumer (the fog march) that binds `view`; layout mirrors {@link VIEW_BYTES}. */
-export const VIEW_STRUCT_WGSL = /* wgsl */ `
-struct View {
-    viewProj: mat4x4<f32>,
-    resolution: vec2<f32>,
-    right: vec4<f32>,
-    up: vec4<f32>,
-    cluster: vec4<f32>,
-    eye: vec4<f32>,
-    invViewProj: mat4x4<f32>,
-}`;
-
 /**
- * the byte size of the {@link View} uniform a surface statically reads: `mat4` (64) + `vec2`
- * resolution (8, padded to 16 by the vec4 that follows) + two `vec4` camera-basis columns (right at
- * byte 80, up at 96: the camera's normalized world-space right/up, packed by `BeginFrameSystem`;
+ * the byte size of the {@link View} uniform a surface statically reads, from the schema: `mat4` (64) +
+ * `vec2` resolution (8, padded to 16 by the vec4 that follows) + two `vec4` camera-basis columns (right
+ * at byte 80, up at 96: the camera's normalized world-space right/up, packed by `BeginFrameSystem`;
  * forward derives as `-cross(right, up)`) + the `cluster` vec4 at 112 (near, far, perspective flag,
  * view slot: what sear's FS needs to map a fragment to its froxel cluster and index the slot-major
  * light grid) + the `eye` vec4 at 128 (the camera's world-space position, for view-dependent shading
@@ -52,11 +59,15 @@ struct View {
  * the shadow light camera packs through the same path, so a billboard in the shadow pass faces the
  * light (Godot-consistent). Then `invViewProj` at byte 144 (the inverse of `viewProj`). A screen-space
  * pass (fog / volumetrics) reconstructs a fragment's world position from its depth: `ndc(uv, depth)`
- * → `invViewProj` → world. The renderer's bind-group layout declares this as the View binding's
- * `minBindingSize`; the bound range is the full {@link VIEW_STRIDE} slot. Bump this in lockstep
- * with {@link VIEW_STRUCT_WGSL} when the struct grows.
+ * → `invViewProj` → world. Each shading slot binds its own whole {@link Render.viewBuffers} buffer of
+ * exactly this size — no dynamic offset, no `minBindingSize` needed.
  */
-export const VIEW_BYTES = 208;
+export const VIEW_BYTES = d.sizeOf(View);
+
+/** the per-camera `View` UBO's WGSL struct text, spliced by sear + the backdrop (still raw-layout this
+ * stage) and any other relocatable screen-space consumer that reads `view` by name; emitted under
+ * strict naming from {@link View} so the struct text and the schema can never drift. */
+export const viewWgsl = chunk("viewWgsl", [View], spliceNs);
 
 /**
  * linear→sRGB encode (IEC 61966-2-1) for a compute composite writing `view.present`. The swapchain is a
@@ -84,7 +95,8 @@ export const linearToSrgbWgsl = chunk("linearToSrgbWgsl", [linearToSrgb], splice
 /**
  * a camera's per-frame view state. `framebuffer` + `present` + `slot` are set by `BeginFrameSystem`
  * each frame and read by the renderers. `slot` is the camera's index into the packed View UBO; use it
- * as the dynamic offset (`slot * VIEW_STRIDE`) when binding. `framebuffer` is the per-camera **offscreen**
+ * to index {@link Render.viewBuffers} (`Render.viewBuffers[slot]`) when binding. `framebuffer` is the
+ * per-camera **offscreen**
  * scene-color target the renderer draws into (sear resolves its MSAA color into it; the `Custom` renderer
  * draws straight into it single-sample): sampleable (`TEXTURE_BINDING`), in `Render.format`, sized to
  * the view; a composite `textureLoad`s it and writes the result into `present`. `present` is the swapchain
@@ -284,7 +296,7 @@ export function sizeView(state: State, eid: number, view: View): void {
  * is packed from its `Camera` + `Transform` like any camera, but it has no canvas and `framebuffer`
  * stays null; the caller renders it to its own target. A directional shadow's light-space camera is
  * one (so is each point/spot shadow combo's depth view). 1:1 per eid, like {@link attachCanvas}; the
- * caller draws to the `slot * VIEW_STRIDE` offset. Frustum-culls from its viewProj like any camera.
+ * caller indexes {@link Render.viewBuffers} by its slot. Frustum-culls from its viewProj like any camera.
  */
 export function attachView(eid: number): void {
     if (Views.has(eid)) throw new Error(`attachView: eid ${eid} already has a view`);

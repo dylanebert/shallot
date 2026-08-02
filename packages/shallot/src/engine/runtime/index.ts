@@ -5,6 +5,7 @@ export {
     checkTgsl,
     precompile,
     precompileAll,
+    precompileScope,
     requestGPU,
     tgslCanary,
     UnsupportedError,

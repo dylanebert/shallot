@@ -4,7 +4,7 @@
 // The GPU readback and the scan that feed it need a real device; the DECISION doesn't, so it's factored out
 // and pinned here without one. A break rule that never went red on the very condition it guards pins nothing.
 //
-// Outside bunfig's `bun test` scope (rooted at `packages/shallot`) — run via `bun run test:gym`, or:
+// Outside bunfig's `bun test` scope (rooted at `packages/shallot`) — run via `bun test ./examples/gym/src`, or:
 //   bun test ./examples/gym/src/tumble-watch.test.ts
 
 import { expect, test } from "bun:test";

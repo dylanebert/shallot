@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as m from "../../../tests/avbd/math";
@@ -9,9 +9,11 @@ import {
     noIntegerDivision,
     pointerDiscipline,
 } from "../../../tests/wgsl";
+import { Compute, precompile, requestGPU } from "../../engine/runtime";
 import {
     JOINT_GROUP,
     LDS_IO_GROUP,
+    PhysicsStep,
     PRIMAL_COLOR_GROUP,
     SHARED_STORAGE,
     SOLVER_GROUP,
@@ -400,4 +402,77 @@ test("the shared solver structs emit byte-identical text in every pass that uses
         const bodies = new Set(Object.values(seen));
         expect(bodies.size, `${name} drifted: ${JSON.stringify(seen)}`).toBe(1);
     }
+});
+
+// One app stands up more than one PhysicsStep — the gym `pile` scenario builds two, `constraints` three —
+// and the precompile queue rejects a duplicate label. So the labels are per-instance: the first keeps the
+// bare `phys-*` names (stable profiler rows for the single-world apps), each later one takes a numbered
+// scope. `phys-compose` registers lazily on the first `compose()`, long after construction, so it must read
+// the same stored scope rather than minting a second one.
+describe("per-instance precompile labels", () => {
+    // no adapter (testing.md): the step is built against a recording stub, which is enough to reach the
+    // precompile registrations — nothing here dispatches.
+    const stub = (): GPUDevice =>
+        ({
+            features: new Set(["subgroups"]),
+            limits: { maxStorageBufferBindingSize: 1 << 30 },
+            queue: { writeBuffer() {} },
+            createBuffer: (desc: GPUBufferDescriptor) => ({ ...desc, destroy() {} }),
+            createBindGroupLayout: (desc: unknown) => desc,
+            createBindGroup: (desc: unknown) => desc,
+            createPipelineLayout: (desc: unknown) => desc,
+            createShaderModule: (desc: unknown) => desc,
+            createComputePipeline: (desc: unknown) => desc,
+            createComputePipelineAsync: async (desc: unknown) => desc,
+        }) as unknown as GPUDevice;
+
+    test("a second PhysicsStep on one device takes a scoped label instead of colliding", async () => {
+        const saved = { ...Compute };
+        try {
+            const device = stub();
+            await requestGPU(device);
+
+            await PhysicsStep.create(device, 64, 64);
+            expect(() => precompile("phys-aabb", () => true)).toThrow(/duplicate/);
+
+            await PhysicsStep.create(device, 64, 64);
+            expect(() => precompile("phys-2-aabb", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("phys-2-collide-box", () => true)).toThrow(/duplicate/);
+            expect(() => precompile("phys-2-joint-dual", () => true)).toThrow(/duplicate/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("the lazily-registered compose label rides the same instance scope", async () => {
+        const saved = { ...Compute };
+        try {
+            const device = stub();
+            await requestGPU(device);
+            const first = await PhysicsStep.create(device, 64, 64);
+            const second = await PhysicsStep.create(device, 64, 64);
+
+            // `compose` registers its forcer, then dispatches — and the stub buffer carries no schema for
+            // the indirect dispatch to read. Swallow that, never a duplicate label: the collision this
+            // guards against surfaces exactly there.
+            const composeOnce = (step: PhysicsStep) => {
+                const transforms = device.createBuffer({ size: 64, usage: GPUBufferUsage.STORAGE });
+                const encoder = {
+                    beginComputePass: () => ({ end() {} }),
+                } as unknown as GPUCommandEncoder;
+                try {
+                    step.compose(encoder, transforms);
+                } catch (err) {
+                    if (String(err).includes("duplicate precompile")) throw err;
+                }
+            };
+
+            composeOnce(first);
+            expect(() => precompile("phys-compose", () => true)).toThrow(/duplicate/);
+            composeOnce(second);
+            expect(() => precompile("phys-2-compose", () => true)).toThrow(/duplicate/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
 });

@@ -121,18 +121,23 @@ import {
     // tile rects' invariants; the pooled cull-slot eids pin per-cascade/per-combo survivor counts
     cascadeComboEids,
     cascadeCount,
+    fsCtxSchema,
+    getCompiledTyped,
     lightEvalWgsl,
     pointAtlasSize,
     pointCasters,
     pointComboCount,
     pointComboEids,
+    registerSurface,
+    surfaceLayout,
 } from "@dylanebert/shallot/sear/core";
 // the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
 // nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
 import { nlerpShortest } from "@dylanebert/shallot/tumble/core";
-import { octEncode, octEncodeWgsl, packColor4 } from "@dylanebert/shallot/utils/core";
+import { octEncode, octEncodeWgsl, packColor4, Xform } from "@dylanebert/shallot/utils/core";
 // the fog oracle takes the engine's own schema values (a `PointLightGpu` light, `vec3f` rays) — the march
 // primitives are TGSL functions, so the CPU arm reads exactly what the shader reads
+import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import {
     type Check,
@@ -1061,7 +1066,8 @@ const RANGE = 30;
 const FIXTURE_R = 0.2; // the caster sphere colocated with the light — the self-occlusion trigger
 
 // out[0] = the average linear luminance of the offscreen scene color over a 96×96 sample grid (the lit
-// check); out[1..4] = the peak luminance in the left / right / top / bottom screen half (the spec check).
+// check); out[1..4] = the peak luminance in the left / right / top / bottom screen half (the spec check);
+// out[8..10] = average linear RGB (the imported-texture color-integrity check).
 // Both axes are reported because the top-down camera's straight-down look has a degenerate up, so which
 // world axis the two spheres separate along on screen isn't known a priori — the assert reads whichever
 // axis actually splits them. One thread, no atomics. `view.framebuffer` is the HDR linear color the color
@@ -1075,17 +1081,23 @@ fn main() {
     let luma = vec3<f32>(0.2126, 0.7152, 0.0722);
     let N = 96;
     var sum = 0.0;
+    var sumRgb = vec3<f32>(0.0);
     var pL = 0.0; var pR = 0.0; var pT = 0.0; var pB = 0.0;
     for (var y = 0; y < N; y = y + 1) {
         for (var x = 0; x < N; x = x + 1) {
             let uv = vec2<f32>(f32(x) + 0.5, f32(y) + 0.5) / f32(N);
-            let lum = dot(textureLoad(fb, vec2<i32>(uv * dim), 0).rgb, luma);
+            let rgb = textureLoad(fb, vec2<i32>(uv * dim), 0).rgb;
+            let lum = dot(rgb, luma);
             sum = sum + lum;
+            sumRgb = sumRgb + rgb;
             if (uv.x < 0.5) { pL = max(pL, lum); } else { pR = max(pR, lum); }
             if (uv.y < 0.5) { pT = max(pT, lum); } else { pB = max(pB, lum); }
         }
     }
     out[0] = sum / f32(N * N);
+    out[8] = sumRgb.r / f32(N * N);
+    out[9] = sumRgb.g / f32(N * N);
+    out[10] = sumRgb.b / f32(N * N);
     out[1] = pL; out[2] = pR; out[3] = pT; out[4] = pB;
     // spot row: the cone hits the floor under the spot (screen centre); the screen corner is the far floor
     // outside the cone, lit by ambient only. The gap between them is the cone confinement. The centre
@@ -1451,7 +1463,7 @@ async function setupFramebufferProbe(state: State): Promise<void> {
     });
     probeBuf = Compute.device.createBuffer({
         label: "render-probe",
-        size: 32, // 8 floats: avg + 4 half-peaks (L/R/T/B) + centre + corner + acne min
+        size: 48, // 11 floats: luminance probe + average RGB, padded to 16-byte alignment
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     probeBg = null;
@@ -2446,6 +2458,9 @@ async function assertGltfModel(state: State): Promise<Check[]> {
     const cull = Profile.gpu.has("light:cull");
     const color = Profile.gpu.has("sear:color");
     const point = Profile.gpu.has("sear:pointshadow");
+    await settle(probeMirror!);
+    const probe = probeMirror?.snapshot ? new Float32Array(probeMirror.snapshot.bytes) : null;
+    const rgb = probe ? probe.slice(8, 11) : null;
     return [
         {
             name: "sponza imported",
@@ -2487,6 +2502,18 @@ async function assertGltfModel(state: State): Promise<Check[]> {
             pass: cull && color && point,
             detail: `light:cull ${cull}, sear:color ${color}, sear:pointshadow ${point}`,
         },
+        {
+            name: "typed Sponza framebuffer",
+            pass:
+                !!probe &&
+                probe[0] > 0.01 &&
+                Math.max(...probe.slice(1, 5)) > 0.05 &&
+                !!rgb &&
+                Math.min(...rgb) > 0.005,
+            detail: probe
+                ? `avg ${probe[0].toFixed(4)}, peak ${Math.max(...probe.slice(1, 5)).toFixed(3)}, rgb ${[...rgb!].map((v) => v.toFixed(3)).join("/")}`
+                : "no framebuffer probe",
+        },
     ];
 }
 
@@ -2501,6 +2528,20 @@ async function assertGltfAnimated(state: State): Promise<Check[]> {
     const albedo = Compute.textures.get("albedo0");
     await frames(4);
     const color = Profile.gpu.has("sear:color");
+    await settle(probeMirror!);
+    const first = probeMirror?.snapshot
+        ? new Float32Array(probeMirror.snapshot.bytes).slice()
+        : null;
+    await frames(20);
+    if (probeMirror) await settle(probeMirror);
+    const second = probeMirror?.snapshot
+        ? new Float32Array(probeMirror.snapshot.bytes).slice()
+        : null;
+    const rgb = first ? first.slice(8, 11) : null;
+    const motion =
+        first && second
+            ? Math.max(...first.slice(0, 5).map((value, i) => Math.abs(value - second[i])))
+            : 0;
     return [
         { name: "fox imported", pass: parts === 1, detail: `${parts} Part entities (expected 1)` },
         {
@@ -2534,6 +2575,14 @@ async function assertGltfAnimated(state: State): Promise<Check[]> {
             detail: `vatParams ${vatParams ? `${vatParams.size}B` : "—"}, albedo ${albedo ? "yes" : "no"}`,
         },
         { name: "skin surface draws", pass: color, detail: `sear:color ${color}` },
+        {
+            name: "typed VAT framebuffer deforms",
+            pass:
+                !!first && first[0] > 0.001 && motion > 0.0001 && !!rgb && Math.min(...rgb) > 0.005,
+            detail: first
+                ? `avg ${first[0].toFixed(4)}, rgb ${[...rgb!].map((v) => v.toFixed(3)).join("/")}, 20-frame probe delta ${motion.toFixed(5)}`
+                : "no framebuffer probe",
+        },
     ];
 }
 
@@ -4145,11 +4194,225 @@ async function assertRagdoll(): Promise<Check[]> {
 
 // ============================================================================
 
+// dependency-aware typed-variant warm: one real packed cube is cloned with a nonzero material variant
+// during warm, then a second variant joins after build. The surface colors the two variants differently,
+// so the framebuffer proves both production pipelines draw; cache snapshots pin when each one compiled.
+const TYPED_VARIANT_SURFACE = "gym-typed-variant";
+const TYPED_WARM_MESH = "gym-typed-warm";
+const TYPED_LATE_MESH = "gym-typed-late";
+const TYPED_WARM_VARIANT = 7;
+const TYPED_LATE_VARIANT = 11;
+const typedVariantLayout = surfaceLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+});
+const typedVariantBaseFs = tgpu
+    .fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(0, 0, 0, 1);
+    })
+    .$name("typedVariantBaseFs");
+const typedVariantWarmFs = tgpu
+    .fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(0, 1, 0, 1);
+    })
+    .$name("typedVariantWarmFs");
+const typedVariantLateFs = tgpu
+    .fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(1, 0, 0, 1);
+    })
+    .$name("typedVariantLateFs");
+
+function registerVariantMesh(name: string, variant: number): number {
+    const cube = Meshes.get("cube");
+    if (!cube)
+        throw new Error("typed-variant gate: built-in cube was not packed before producer warm");
+    return Meshes.register({ ...cube, name, variant });
+}
+
+const TypedVariantPlugin: Plugin = {
+    name: "GymTypedVariant",
+    dependencies: [RenderPlugin],
+    initialize(state) {
+        Surfaces.register({
+            name: TYPED_VARIANT_SURFACE,
+            bindings: {
+                eids: { type: "storage", element: "u32" },
+                transforms: { type: "storage", element: "Xform" },
+            },
+        });
+        registerSurface(state, {
+            name: TYPED_VARIANT_SURFACE,
+            layout: typedVariantLayout,
+            fs: typedVariantBaseFs,
+            specialize: (variant) => ({
+                fs: variant === TYPED_WARM_VARIANT ? typedVariantWarmFs : typedVariantLateFs,
+            }),
+        });
+    },
+    warm() {
+        registerVariantMesh(TYPED_WARM_MESH, TYPED_WARM_VARIANT);
+    },
+};
+
+let typedWarmCached = false;
+let typedLateLazy = false;
+let typedLateCompiled = false;
+let typedVariantProbe: Mirror | null = null;
+let typedVariantProbePipeline: GPUComputePipeline | null = null;
+let typedVariantProbeBg: GPUBindGroup | null = null;
+let typedVariantProbeBuf: GPUBuffer | null = null;
+
+const TYPED_VARIANT_PROBE_WGSL = /* wgsl */ `
+@group(0) @binding(0) var fb: texture_2d<f32>;
+@group(0) @binding(1) var<storage, read_write> out: array<u32>;
+
+@compute @workgroup_size(1)
+fn main() {
+    let dim = textureDimensions(fb);
+    var green = 0u;
+    var red = 0u;
+    for (var y = 0u; y < 32u; y++) {
+        for (var x = 0u; x < 32u; x++) {
+            let uv = (vec2<f32>(f32(x), f32(y)) + 0.5) / 32.0;
+            let c = textureLoad(fb, vec2<i32>(uv * vec2<f32>(dim)), 0).rgb;
+            if (c.g > 0.5 && c.g > c.r * 2.0) { green++ ; }
+            if (c.r > 0.5 && c.r > c.g * 2.0) { red++ ; }
+        }
+    }
+    out[0] = green;
+    out[1] = red;
+}`;
+
+const TypedVariantProbeSystem: System = {
+    name: "typed-variant-probe",
+    group: "draw",
+    after: [ColorSystem],
+    update() {
+        if (!Render.encoder || !typedVariantProbePipeline || !typedVariantProbeBuf) return;
+        const view = Views.get(cam);
+        if (!view?.framebuffer) return;
+        typedVariantProbeBg ??= Compute.device.createBindGroup({
+            label: "typed-variant-probe",
+            layout: typedVariantProbePipeline.getBindGroupLayout(0),
+            entries: [
+                { binding: 0, resource: view.framebuffer },
+                { binding: 1, resource: { buffer: typedVariantProbeBuf } },
+            ],
+        });
+        const pass = Render.encoder.beginComputePass({ label: "typed-variant-probe" });
+        pass.setPipeline(typedVariantProbePipeline);
+        pass.setBindGroup(0, typedVariantProbeBg);
+        pass.dispatchWorkgroups(1);
+        pass.end();
+    },
+};
+
+async function setupTypedVariantProbe(state: State): Promise<void> {
+    typedVariantProbePipeline = await Compute.device.createComputePipelineAsync({
+        label: "typed-variant-probe",
+        layout: "auto",
+        compute: {
+            module: Compute.device.createShaderModule({
+                label: "typed-variant-probe",
+                code: TYPED_VARIANT_PROBE_WGSL,
+            }),
+            entryPoint: "main",
+        },
+    });
+    typedVariantProbeBuf = Compute.device.createBuffer({
+        label: "typed-variant-probe",
+        size: 8,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    typedVariantProbeBg = null;
+    state.addSystem(TypedVariantProbeSystem);
+    await frames(4);
+    typedVariantProbe = mirror(typedVariantProbeBuf);
+    await frames(3);
+}
+
+function typedVariantPart(state: State, x: number, meshName: string): void {
+    const eid = state.create();
+    state.add(eid, Transform);
+    Transform.pos.set(eid, x, 0, 0, 0);
+    Transform.scale.set(eid, 2.5, 2.5, 2.5, 0);
+    state.add(eid, Part);
+    Part.surface.set(eid, Surfaces.id(TYPED_VARIANT_SURFACE)!);
+    Part.mesh.set(eid, Meshes.id(meshName)!);
+}
+
+async function buildTypedVariant(state: State): Promise<void> {
+    typedWarmCached = !!getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_WARM_VARIANT);
+    typedLateLazy = !getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
+
+    registerVariantMesh(TYPED_LATE_MESH, TYPED_LATE_VARIANT);
+    typedLateLazy &&= !getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
+    typedVariantPart(state, -2, TYPED_WARM_MESH);
+    typedVariantPart(state, 2, TYPED_LATE_MESH);
+
+    cam = state.create();
+    state.add(cam, Transform);
+    state.add(cam, Camera);
+    state.add(cam, Sear);
+    state.add(cam, Orbit);
+    Camera.clearColor.set(cam, 0x000000);
+    Camera.fov.set(cam, 60);
+    Orbit.distance.set(cam, 7);
+    Orbit.pitch.set(cam, Math.PI / 2);
+    Orbit.maxPitch.set(cam, Math.PI / 2);
+
+    await setupTypedVariantProbe(state);
+    typedLateCompiled = !!getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
+}
+
+async function assertTypedVariant(): Promise<Check[]> {
+    if (!typedVariantProbe)
+        return [{ name: "typed variant render", pass: false, detail: "no probe mirror" }];
+    await settle(typedVariantProbe);
+    if (!typedVariantProbe.snapshot)
+        return [{ name: "typed variant render", pass: false, detail: "no snapshot" }];
+    const out = new Uint32Array(typedVariantProbe.snapshot.bytes);
+    const green = out[0];
+    const red = out[1];
+    return [
+        {
+            name: "nonzero variant cached at build completion",
+            pass: typedWarmCached,
+            detail: `variant ${TYPED_WARM_VARIANT} cached ${typedWarmCached}`,
+        },
+        {
+            name: "post-build variant stays lazy until draw",
+            pass: typedLateLazy && typedLateCompiled,
+            detail: `missing before draw ${typedLateLazy}, cached after draw ${typedLateCompiled}`,
+        },
+        {
+            name: "both specialized variants render",
+            pass: green > 8 && red > 8,
+            detail: `classified green/red pixels ${green} / ${red} (want both > 8)`,
+        },
+    ];
+}
+
+// ============================================================================
+
 // the modes grouped by the build path each drives — the select lists their union (one home for the list)
 // and each knob's `when` shows it only for the modes whose scene actually reads it. `shaded` is the
 // code-authored probe set (lit through zfight); the rest map one mode-prefix to one builder.
 const MODES = {
     cull: ["cull"],
+    typedVariant: ["typed-variant"],
     shaded: [
         "lit",
         "spec",
@@ -4311,6 +4574,7 @@ const scenario: Scenario = {
         else if (mode === "transparency") plugins.push(TransparencyPlugin);
         else if (mode === "background") plugins.push(BackgroundPlugin);
         else if (mode === "sky") plugins.push(SkyPlugin);
+        else if (mode === "typed-variant") plugins.push(TypedVariantPlugin);
 
         // gltf modes author only the env + camera in the scene; the asset is imported imperatively after
         // build (placeGltfAssets), except gltf-worker which authors both boxes by name (the declarative
@@ -4320,10 +4584,15 @@ const scenario: Scenario = {
         const { state, dispose } = await run({ defaults: false, plugins, scene });
 
         if (mode === "cull") await buildCull(state, p);
+        else if (mode === "typed-variant") await buildTypedVariant(state);
         else if (mode === "fog") await buildFog(state, p);
         else if (gltf) {
             await placeGltfAssets(state, p);
             await frames(2); // settle a couple frames before asserting
+            if (mode === "gltf-model" || mode === "gltf-animated") {
+                cam = [...state.query([Camera])][0] ?? 0;
+                await setupFramebufferProbe(state);
+            }
         } else if (skinLive) await buildSkinLive(state);
         else if (ragdoll) await buildRagdoll(state);
         else if (mode === "transparency") {
@@ -4342,6 +4611,7 @@ const scenario: Scenario = {
 
     assert(state): Promise<Check[]> {
         if (mode === "cull") return assertCull(state);
+        if (mode === "typed-variant") return assertTypedVariant();
         if (mode === "fog") return assertFog();
         if (mode === "gltf-model") return assertGltfModel(state);
         if (mode === "gltf-animated") return assertGltfAnimated(state);

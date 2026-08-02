@@ -53,9 +53,8 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, precompileScope } from "../../engine/runtime";
 import { bitcastF32toU32, idiv } from "../../engine/utils/core";
-import { rootOf } from "./root";
 
 const WG_INIT = 256; // leaf-init: embarrassingly parallel, one thread per node
 const WG_TOPO = 128; // topology: one thread per internal node, each a small binary search
@@ -610,8 +609,7 @@ export async function createBuild(
     maxPrims: number,
     shared: BuildShared = {},
 ): Promise<Build> {
-    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
-    const root = rootOf(device, "createBuild");
+    const root = Compute.root;
     const cap = Math.max(1, maxPrims);
     const nodeCount = 2 * cap; // 2N−1 rounded up; the extra node is never addressed
     // every pass is one thread per node/internal-node (no grid-stride), so the worst-case
@@ -684,13 +682,15 @@ export async function createBuild(
     const sweepAB = sweepBound(validA, validB);
     const sweepBA = sweepBound(validB, validA);
 
+    // per-instance labels — an app can build more than one BVH, and the queue rejects a duplicate label
+    const scope = precompileScope("build");
     for (const [label, bound] of [
-        ["build-prepare", prepare],
-        ["build-leaf", leaf],
-        ["build-topo", topo],
-        ["build-sweep", sweepAB],
+        ["prepare", prepare],
+        ["leaf", leaf],
+        ["topo", topo],
+        ["sweep", sweepAB],
     ] as const) {
-        precompile(label, () => {
+        precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

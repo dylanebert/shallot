@@ -268,30 +268,18 @@ export function sdfWgsl(): { distance: string; finalize: string } {
     };
 }
 
-// pipelines come from `Compute.root`, which is device-scoped, so a stale entry from a torn-down device
-// must not be reused — keyed by the device identity it was built against, like the mipmap blit's cache.
-// Shared across generators (one per font), which the per-instance pair they replaced was not.
+// pipelines come from `Compute.root`, which is device-scoped and memoized per device (`engine/runtime/
+// gpu.ts`), so `Compute.root` always matches whichever device is currently adopted — one cache entry is
+// enough. Shared across generators (one per font), which the per-instance pair they replaced was not.
 let _pipelines: {
-    device: GPUDevice;
     distance: TgpuRenderPipeline;
     finalize: TgpuRenderPipeline;
 } | null = null;
 
-function pipelines(device: GPUDevice) {
-    if (_pipelines && _pipelines.device === device) return _pipelines;
-    // the generator's own resources (sampler, intermediate target, encoder) still come from the passed
-    // device; only the pipelines are root-bound, and `Compute.root` is scoped to `Compute.device`. So a
-    // foreign device would silently mix two devices in one pass. One root per device lands at 4a with
-    // `image.ts`'s identical narrowing (the typed extension surface); until then the contract is explicit
-    // rather than silent
-    if (device !== Compute.device)
-        throw new Error(
-            "[text] the SDF generator builds its pipelines on Compute.device — pass that device, " +
-                "or call requestGPU with yours first",
-        );
+function pipelines() {
+    if (_pipelines) return _pipelines;
     const root = Compute.root;
     _pipelines = {
-        device,
         distance: root
             .createRenderPipeline({
                 vertex: distanceVs,
@@ -373,7 +361,7 @@ export class SDFGenerator {
         // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
         // `precompile` thunk drains after warm, long after these draws already went out (the load-path
         // blit's refuted precompile, spec Approach 2a)
-        this._pipelines = pipelines(this._device);
+        this._pipelines = pipelines();
         this.ensureIntermediateTexture();
         this._pending = [];
     }

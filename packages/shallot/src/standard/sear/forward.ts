@@ -7,13 +7,18 @@
 // light) are all sear-internal features, gated by data the way Bevy gates a shadow map on light data —
 // not composed plugins coordinating through a singleton.
 //
-// Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; this file
-// owns the GPU half (the shadow map, its render through sear's own depth pipelines, and the group-1
-// binding the FS samples). Sear renders its own map and reads its own `_sun` state directly — nothing
-// publishes into it. Add a `Shadow` to the sun to cast; omit it for the fully-lit bare path (no map
-// allocated), exactly like a camera without a lane marker runs no prepass.
+// Sun shadows: the CPU/ECS half (the off-screen light camera + placement) lives in ./shadows; the GPU half
+// (the shadow map, its render through sear's compiled prepass depth pipelines, and the group-1 binding the
+// FS samples) lives in ./atlas. This file owns the WGSL-scaffold-agnostic renderer plumbing: components +
+// registries, per-draw bind-group resolution, per-camera targets, the systems, and the plugin — the pure
+// codegen lives in ./codegen, pipeline compilation in ./pipelines. Sear renders its own map and reads its
+// own shadow state directly — nothing publishes into it. Add a `Shadow` to the sun to cast; omit it for the
+// fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
+import type { TgpuBindGroupLayout } from "typegpu";
+import tgpu from "typegpu";
 import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import type { Plugin, State, System } from "../../engine";
 import {
     Compute,
@@ -25,122 +30,113 @@ import {
     u32,
     unpackColor,
 } from "../../engine";
-import {
-    chunk,
-    ldrColorUnpackWgsl,
-    octEncodeWgsl,
-    posQuantWgsl,
-    spliceNs,
-    xformWgsl,
-} from "../../engine/utils/core";
+import { precompile } from "../../engine/runtime";
+import { unpackLdrColor, Xform } from "../../engine/utils/core";
 import { GlazeSystem } from "../glaze";
 import { Camera, RenderPlugin } from "../render";
-import type { Binding, Draw, Surface, View } from "../render/core";
+import type { Binding, Draw, View } from "../render/core";
 import {
     BeginFrameSystem,
-    clusterCell,
     Draws,
-    distanceAttenuation,
-    FRAME_STRUCT_WGSL,
     Frame,
-    LIGHTING_STRUCT_WGSL,
     LightCull,
     Lighting,
     Meshes,
-    pointLightsWgsl,
     Render,
     Surfaces,
-    spotFactor,
-    VIEW_BYTES,
-    VIEW_STRIDE,
-    VIEW_STRUCT_WGSL,
     Views,
 } from "../render/core";
 import { SlabPlugin, slab } from "../slab";
 import {
-    COMBO_SHIFT,
-    createRegather,
-    EID_MASK,
-    prepareRegather,
-    SHADOW_ARG_STRIDE,
-} from "./regather";
+    cascadeRegather,
+    disposeShadowAtlas,
+    pointRegather,
+    renderCascades,
+    renderPointShadows,
+    resetShadowAtlas,
+    setPointFrames,
+    shadowGroup,
+    shadowGroupTyped,
+    shadowLayoutTyped,
+    shadowReady,
+} from "./atlas";
 import {
-    CASCADE_FLOATS,
-    casterWgsl,
-    checkShadowConfig,
-    POINT_CASTER_FLOATS,
-    pbrWgsl,
-    pointCastersSchema,
-    pointShadowWgsl,
-    SHADOW_PARAMS_BYTES,
-    SUN_PARAMS,
-    sunShadowWgsl,
-    sunStructWgsl,
-    tileRectsSchema,
-} from "./shade";
+    BG_BASE,
+    COLOR_LANES,
+    type ColorLane,
+    DEPTH_FORMAT,
+    FRAME,
+    LIGHT_GRID,
+    LIGHT_INDICES,
+    LIGHTING,
+    laneKey,
+    MESH_QUANT,
+    POINT_LIGHTS,
+    SAMPLE_COUNT,
+    SURFACE_BASE,
+    Tag,
+    VERTICES,
+    VIEW,
+} from "./codegen";
 import {
-    cascadeAtlasSize,
-    cascadeComboEids,
+    fsCtxSchema,
+    type TypedBackground,
+    TypedBackgrounds,
+    type Binding as TypedContractBinding,
+    type TypedSurface,
+    TypedSurfaces,
+    surfaceLayout as typedLayout,
+    registerSurface as typedRegister,
+    VsIn,
+    vsPatchSchema,
+} from "./contract";
+import { engineLayout, litPbr } from "./engine";
+import {
+    type BindResource,
+    bgQuant,
+    type Compiled,
+    type CompiledBg,
+    type CompiledTyped,
+    type CompiledTypedBg,
+    clearBackgrounds,
+    clearGroups,
+    compileTypedBg,
+    compileTypedVariant,
+    ensureSingle,
+    ensureTypedSingle,
+    ensureVariant,
+    type GroupEntry,
+    getBackground,
+    getCompiled,
+    getCompiledTyped,
+    getGroup,
+    getTypedBg,
+    getTypedGroup,
+    knownTypedVariants,
+    preparePipelines,
+    resetPipelineCaches,
+    setGroup,
+    setTypedGroup,
+    type TypedGroupEntry,
+    typedEngineGroup,
+} from "./pipelines";
+import { prepareRegather } from "./regather";
+import { checkShadowConfig, Pbr } from "./shade";
+import {
     cascadeCount,
-    cascadeCovers,
-    cascadeFaceVP,
-    cascadeFars,
-    cascadeMeta,
-    cascadeRecvVP,
-    cascadeTileRects,
     destroyCascades,
     destroyPointShadows,
     MAX_CASCADES,
-    type PointShadowFrame,
-    pointAtlasSize,
     pointCasters,
-    pointComboCount,
-    pointComboEids,
-    pointComboMeta,
-    pointFaceVP,
-    pointTileRects,
     resetCascades,
     resetPointShadows,
     SHADOW_DEFAULTS,
     Shadow,
-    SunShadows,
-    sunBias,
-    sunCascades,
-    sunResolution,
     updateCascades,
     updatePointShadows,
 } from "./shadows";
 
-const VS_FS = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
-
-// the depth format shared by the color pass's own 4× MSAA depth, the 1× prepass depth, and the shadow
-// map. depth32float is sampleable and the reverse-Z precision win needs a float buffer (an integer depth
-// gains nothing from reverse-Z); one source of truth for every depth-stencil state — and the shadow map
-// renders through sear's compiled prepass depth pipeline, so one format keeps them sharing it
-/** the depth-stencil format for every sear depth target (color pass, prepass, shadow atlases): one format so they share the compiled prepass depth pipeline */
-export const DEPTH_FORMAT: GPUTextureFormat = "depth32float";
-
-// the geometric-AA sample count when a camera's `Camera.antialias` is on (the default); off renders
-// single-sample straight into the offscreen, no resolve. Per-camera + runtime-toggleable, sample-based
-// only (no post-process blur). The prepass + shadow map stay single-sample regardless — an id can't
-// MSAA-resolve and a render pass can't mix counts, so they own their own 1× depth, never varying by this
-const SAMPLE_COUNT = 4;
-
-// the id lane's screen-space target, published per camera as `view.tag`. r32uint holds the front-most
-// fragment's tag per pixel, filled by the single-sample prepass (not the color MRT — see PrepassSystem)
-// for cameras carrying the `Tag` marker. The tag is surface-authored — a mutable fs local defaulting to
-// the entity's eid for an instanced surface and TAG_NONE otherwise, which a surface's fs overrides
-// (terrain → `capacity + cell`). A consumer reads `view.tag` to know which surface owns each pixel
-// (hover, outline, debug)
-/** the id-lane texture format (`r32uint`): an integer id can't MSAA-resolve, which forces the single-sample prepass */
-export const TAG_FORMAT: GPUTextureFormat = "r32uint";
-
-// the reserved tag sentinel: the default for a non-instanced surface that authors no tag, and the
-// value the tag target clears to (the background). eids are bounded by `capacity`, so 0xffffffff
-// never collides with a real one — a reader takes any other value as a literal surface tag. Exported
-// so a consumer interprets the readback without re-deriving the sentinel
-/** the reserved id-lane sentinel: a pixel no surface owns. A consumer decoding `view.tag` reads any other value as a literal surface tag */
-export const TAG_NONE = 0xffffffff;
+export { DEPTH_FORMAT, TAG_FORMAT, TAG_NONE, Tag } from "./codegen";
 
 /**
  * marker selecting Sear as the active renderer on a Camera entity. A camera carrying it renders through
@@ -154,22 +150,6 @@ export const TAG_NONE = 0xffffffff;
  * ```
  */
 export const Sear = {};
-
-/**
- * opt a Sear camera into the **id lane**: the `view.tag` target {@link PrepassSystem} fills. Unreal's
- * `CustomStencil` generalized from an 8-bit stencil to a u32 lane; Bevy's prepass carries no id (it
- * CPU-raycasts), so the id rides this single-sample pass because it's the same rasterization. A marker
- * in the spirit of Bevy's `DepthPrepass` / `NormalPrepass`: add it to enable one extra camera output;
- * omit it and the lane is absent (no target allocated). Per-camera, so a minimap opts out while the main
- * view opts in. A consumer that reads `view.tag` (hover, outline, picking) wants this on its camera; the
- * engine itself stays tag-agnostic.
- *
- * @example
- * ```
- * <a camera sear tag transform />
- * ```
- */
-export const Tag = {};
 
 /**
  * opt a Sear camera into the **depth lane**: the prepass *stores* its single-sample depth and publishes
@@ -237,6 +217,35 @@ export interface Background {
 /** every registered background, keyed by name with a stable numeric ID; cleared on `SearPlugin.initialize` */
 export const Backgrounds: Registry<Background> = new Registry<Background>();
 
+function isTypedBg(spec: Background | TypedBackground): spec is TypedBackground {
+    // the same two-part discriminant `contract.ts`'s `isTyped` uses for surfaces: `layout` presence alone
+    // would misroute a legacy spec carrying an incidental `layout` key, so `fs`'s shape is the load-bearing
+    // second conjunct (legacy `fs` is always a WGSL string, typed `fs` always a TgpuFn).
+    return "layout" in spec && typeof spec.fs !== "string";
+}
+
+/**
+ * the background dual-accept shim (4a-ii-c-3a-4, `contract.ts`'s `register()` precedent for surfaces):
+ * accepts either the legacy string-contract {@link Background} or a typed spec, discriminated the same way.
+ * Lives here rather than in `contract.ts` because the legacy `Background` type + the real `Backgrounds`
+ * registry it delegates to are owned by this module, which already imports `contract.ts` — the reverse
+ * import would cycle. A legacy spec delegates straight to `Backgrounds.register` (unchanged behavior); a
+ * typed spec lands in `contract.ts`'s `TypedBackgrounds` for a future consumer conversion to compile
+ * against. Sanctioned until the string path retires.
+ *
+ * @example
+ * registerBackground({ name: "gradient", fs: "col = vec3<f32>(dir.y);" }); // legacy
+ * registerBackground({ name: "typed-gradient", layout, fs }); // typed
+ */
+export function registerBackground<B extends Record<string, TypedContractBinding>>(
+    spec: TypedBackground<B>,
+): number;
+export function registerBackground(spec: Background): number;
+export function registerBackground(spec: Background | TypedBackground): number {
+    if (isTypedBg(spec)) return TypedBackgrounds.register(spec);
+    return Backgrounds.register(spec);
+}
+
 /**
  * select a Sear camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
  * view-ray → color fill on the un-rendered pixels. Without it the camera shows the flat `Camera.clearColor`
@@ -253,2042 +262,27 @@ export const Backdrop = {
     name: sparse(u32),
 };
 
-// name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored)
+// name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).
+// The two registries are separate id spaces during dual-accept, so a typed background's id stores offset
+// by BACKDROP_TYPED_BASE — an unambiguous discriminant (the legacy registry can never reach 2^31 entries),
+// where consulting both registries at the same raw id could misroute
+const BACKDROP_TYPED_BASE = 0x80000000;
 const BackdropTraits = {
-    parse: { name: (value: string) => Backgrounds.id(value) },
-    format: { name: (value: number) => Backgrounds.name(value) },
-};
-
-// ---- prepass lanes: opt-in screen-space outputs, a closed engine-owned union (not a consumer registry).
-// Each lane is gated by a camera marker (Bevy's DepthPrepass / NormalPrepass shape). Two ship: the `depth`
-// lane (the depth-stencil itself, marker `Depth`, published as `view.depth`) and the id lane (a color
-// attachment, marker `Tag`, published as `view.tag`). normal / motion are the future rows — adding one is
-// a COLOR_LANES entry + a `View.*` field, and the subset codegen in `surfaceCode` + the prepass already
-// iterate it; never a new pass. `depth` isn't a color attachment (it's the depth-stencil), so it's stored
-// or discarded by the `Depth` marker, separate from COLOR_LANES (the color attachments the prepass MRTs)
-interface ColorLane {
-    // the `view.*` field + lane identity ("tag"); `set` publishes the rendered texture onto that field
-    name: string;
-    marker: object;
-    format: GPUTextureFormat;
-    usage: number;
-    clear: GPUColor;
-    // the mutable fs local a surface authors (symmetric with `col`), its WGSL type, and its per-surface
-    // default (the fs chunk may override it)
-    local: string;
-    type: string;
-    init(instanced: boolean): string;
-    set(view: View, texture: GPUTexture): void;
-}
-
-// the id lane: the front-most opaque / `clip` surface's tag per pixel. r32uint (an integer id can't
-// MSAA-resolve — what forces the prepass single-sample), COPY_SRC for a hover readback + TEXTURE_BINDING
-// for an outline sample, cleared to TAG_NONE (the "no surface" background). The tag local defaults to the
-// instance's eid (instanced) or TAG_NONE (a world-space producer like terrain authors its own)
-const COLOR_LANES: ColorLane[] = [
-    {
-        name: "tag",
-        marker: Tag,
-        format: TAG_FORMAT,
-        usage:
-            GPUTextureUsage.RENDER_ATTACHMENT |
-            GPUTextureUsage.TEXTURE_BINDING |
-            GPUTextureUsage.COPY_SRC,
-        clear: { r: TAG_NONE, g: 0, b: 0, a: 0 },
-        local: "tag",
-        type: "u32",
-        init: (instanced) => (instanced ? "eid" : `${TAG_NONE}u`),
-        set: (view, texture) => {
-            view.tag = texture;
+    parse: {
+        name: (value: string) => {
+            const legacy = Backgrounds.id(value);
+            if (legacy !== undefined) return legacy;
+            const typed = TypedBackgrounds.id(value);
+            return typed !== undefined ? typed + BACKDROP_TYPED_BASE : undefined;
         },
     },
-];
-
-// every subset of the color lanes (the requestable MRT lane-sets — each lane has its own marker, so any
-// combination is valid), smallest first: [] then [tag]. The empty set is the position-only depth prepass
-// (the shadow map reuses it); [tag] is the id lane. `surfaceCode` emits one prepass fragment per subset;
-// `prepareSear` compiles one pipeline per subset — bounded, since the lane set is engine-closed
-function laneSubsets(): ColorLane[][] {
-    return COLOR_LANES.reduce<ColorLane[][]>(
-        (acc, lane) => acc.concat(acc.map((s) => [...s, lane])),
-        [[]],
-    );
-}
-
-// a lane-set's stable key (the prepass pipeline-map key): "" for the empty depth-only set, "tag" for the
-// id lane, "tag-normal" when normal lands
-function laneKey(lanes: ColorLane[]): string {
-    return lanes.map((l) => l.name).join("-");
-}
-
-// a lane-set's WGSL fragment entry point: fsPrepass (empty depth-only set), fsPrepassTag (id lane)
-function prepassEntry(lanes: ColorLane[]): string {
-    return `fsPrepass${lanes.map((l) => l.name[0].toUpperCase() + l.name.slice(1)).join("")}`;
-}
-
-// frame/view/lighting + vertex pull + the clustered point-light bindings (0..7), then the
-// surface's own bindings
-const FRAME = 0;
-const VIEW = 1;
-const LIGHTING = 2;
-// slot 3 is the vertex stream: the color pipelines bind the 16 B main stream (`array<vec4<u32>>`), the
-// prepass/shadow pipelines bind the 8 B position-only stream (`array<vec2<u32>>`) — same slot, distinct
-// buffers via the two bind groups (the layout entry is `read-only-storage` either way). `meshQuant` is the
-// one net-new shared binding: it pushes the heaviest surfaces (skin / glTF-textured) to exactly the
-// 10-storage-per-stage ceiling (gpu.md), no headroom — reuse a cols-buffer lane before adding another
-const VERTICES = 3;
-const POINT_LIGHTS = 4;
-const LIGHT_GRID = 5;
-const LIGHT_INDICES = 6;
-const MESH_QUANT = 7;
-const SURFACE_BASE = 8;
-
-/** storage bindings every sear color pass shares (indices `VERTICES..SURFACE_BASE`): vertices, pointLights, lightGrid, lightIndices, meshQuant. A surface's own storage plus this must fit the 10-per-stage ceiling (gpu.md), so a surface has `10 − SHARED_STORAGE_COUNT` for its own. Derived from the binding indices so a sixth shared binding (which bumps `SURFACE_BASE`) updates it automatically — the gltf storage-ceiling audit (`extras/gltf/live.test.ts`) imports it. */
-export const SHARED_STORAGE_COUNT = SURFACE_BASE - VERTICES;
-
-// a background's own bindings start here — after frame/view/lighting (0/1/2). A backdrop needs none of
-// the surface group's vertex-pull / light-grid bindings, so its group 0 is just the three uniforms + these
-const BG_BASE = 3;
-
-// the clustered point/spot evaluation primitives, relocatable (no view / fragCoord globals): both sear's
-// color FS and the fog volumetric march splice them. `distanceAttenuation` + `spotFactor` live with the
-// compacted light list they read (render/lighting.ts), `clusterCell` with the froxel grid it indexes
-// (render/cluster.ts) — this chunk is the relocatable bundle a consumer splices
-/** relocatable clustered-light WGSL (`distanceAttenuation` / `spotFactor` / `clusterCell`) so a screen-space consumer evaluates the same froxel lights sear's color FS does */
-export function lightEvalWgsl(): string {
-    // force the base chunks first: `PointLightGpu` belongs to the light-list chunk and `octDecodeNormal`
-    // to the oct chunk, and every consumer splices both ahead of this one
-    pointLightsWgsl();
-    octEncodeWgsl();
-    return lightEvalChunk();
-}
-
-const lightEvalChunk = chunk(
-    "lightEvalWgsl",
-    [distanceAttenuation, spotFactor, clusterCell],
-    spliceNs,
-);
-
-// the lighting helpers sear exposes to surface chunks: `lightFactor(normal)`
-// is ambient + sun·ndl·shadow + the point-light sum (callable in the vs for per-vertex
-// shading), `lit(base, normal)` applies it to a base color (per-fragment). A surface
-// shades by calling them, or writes `col` directly to stay unlit.
-//
-// `sunVisibility` is the sun-shadow seam: the visibility of the sun at this fragment,
-// multiplied into the sun term only (ambient stays unshadowed, matching niagara's
-// ndotl·shadow·sun + ambient). The fragment scaffold sets it by projecting the fragment's
-// world position into the shadow map inline (`sampleSunShadow`, see SHADOW_WGSL) before
-// splicing the surface chunk; it defaults to 1.0, so the vertex stage (no world fragment)
-// and shadowless frames are fully lit — the no-op fallback.
-//
-// `fragWorld` + `fragCoord` + `pointScale` are the point-light seam, the same scaffold-filled
-// shape: the color FS sets the fragment's world position + screen coords and enables the
-// cluster loop; the defaults (pointScale 0) make the vs and the prepass entries a no-op. So
-// per-vertex shading (lightFactor in the vs) receives NEITHER sun shadows NOR point lights;
-// per-pixel lit() gets both. The loop reads only the fragment's froxel cluster's lights —
-// `clusterOf` maps (fragCoord.xy, view depth) to the grid cell the light cull binned into
-// (view.cluster carries near/far/perspective/slot). The falloff is Bevy's
-// getDistanceAttenuation — inverse-square windowed smoothly to exactly zero at the range;
-// `distanceAttenuation` is the one function both this shader and the CPU oracles call
-// (render/lighting.ts, via lightEvalWgsl).
-//
-// What stays raw WGSL here is exactly what reads a *binding* by name — `view` / `lighting` /
-// `lightGrid` / `lightIndices` / `pointLights` and the `var<private>` seams. The pure lobe
-// (`halfLambert`, the GGX / Smith / Schlick terms, `brdf` / `brdfSphere` over the `Pbr` struct) is
-// TGSL in ./shade, spliced as `pbrWgsl()` — so `lit` / `litPbr` below are thin binding-readers
-// over functions a `bun test` calls directly
-const LIGHT_WGSL = /* wgsl */ `
-var<private> sunVisibility: f32 = 1.0;
-var<private> fragWorld: vec3<f32> = vec3<f32>(0.0);
-var<private> fragCoord: vec4<f32> = vec4<f32>(0.0);
-var<private> pointScale: f32 = 0.0;
-
-// the fragment's slot-major cluster index (clusterCell, lightEvalWgsl). View depth recovers from the
-// position builtin: perspective clip.w is the view depth (fragCoord.w = 1/clip.w); orthographic depth is
-// linear in fragCoord.z
-fn clusterOf() -> u32 {
-    let near = view.cluster.x;
-    let far = view.cluster.y;
-    var viewZ = 1.0 / fragCoord.w;
-    if (view.cluster.z < 0.5) { viewZ = near + fragCoord.z * (far - near); }
-    return clusterCell(
-        fragCoord.x / view.resolution.x, fragCoord.y / view.resolution.y, viewZ, near, far, u32(view.cluster.w));
-}
-
-fn pointFactor(normal: vec3<f32>) -> vec3<f32> {
-    var sum = vec3<f32>(0.0);
-    if (pointScale == 0.0) { return sum; }
-    let entry = lightGrid[clusterOf()];
-    for (var i = 0u; i < entry.y; i = i + 1u) {
-        let light = pointLights.lights[lightIndices[entry.x + i]];
-        let toLight = light.posRange.xyz - fragWorld;
-        let distSq = dot(toLight, toLight);
-        let radiusSq = light.params.x * light.params.x;
-        let L = toLight * inverseSqrt(max(distSq, 0.0001));
-        let diff = halfLambert(dot(normal, L));
-        sum += light.color.rgb
-            * (distanceAttenuation(distSq, light.posRange.w, radiusSq) * diff * spotFactor(light, L) * pointShadowOf(light, normal, fragWorld));
-    }
-    return sum;
-}
-
-fn lightFactor(normal: vec3<f32>) -> vec3<f32> {
-    let L = -lighting.sunDirection.xyz;
-    let sun = halfLambert(dot(normal, L));
-    return lighting.ambientColor.rgb * lighting.ambientColor.a
-        + lighting.sunColor.rgb * sun * sunVisibility
-        + pointFactor(normal);
-}
-
-fn lit(baseColor: vec3<f32>, normal: vec3<f32>) -> vec3<f32> {
-    return baseColor * lightFactor(normal);
-}
-
-// per-pixel (or per-vertex) metallic-roughness shading. Shares the sun-shadow / point-cluster seam with
-// \`lightFactor\`: \`sunVisibility\` and \`pointScale\`/\`fragWorld\` are the same fs-scaffold privates, so a
-// vs-side call (pointScale 0, sunVisibility 1) gets neither point lights nor sun shadows, same as the
-// diffuse path. At metallic 0 / roughness 1 / dielectric 0 this reduces to \`lit(albedo, normal)\` exactly.
-fn litPbr(s: Pbr, normal: vec3<f32>, world: vec3<f32>) -> vec3<f32> {
-    let V = normalize(view.eye.xyz - world);
-    var radiance = lighting.ambientColor.rgb * lighting.ambientColor.a * s.albedo * s.occlusion;
-    radiance += lighting.sunColor.rgb * sunVisibility * brdf(s, normal, V, -lighting.sunDirection.xyz);
-    if (pointScale != 0.0) {
-        let entry = lightGrid[clusterOf()];
-        for (var i = 0u; i < entry.y; i = i + 1u) {
-            let light = pointLights.lights[lightIndices[entry.x + i]];
-            let toLight = light.posRange.xyz - fragWorld;
-            let distSq = dot(toLight, toLight);
-            let radiusSq = light.params.x * light.params.x;
-            let dist = sqrt(max(distSq, 1e-8));
-            let L = toLight / dist;
-            let f = distanceAttenuation(distSq, light.posRange.w, radiusSq) * spotFactor(light, L) * pointShadowOf(light, normal, fragWorld);
-            radiance += light.color.rgb * f * brdfSphere(s, normal, V, L, dist, light.params.x);
-        }
-    }
-    return radiance;
-}
-`;
-
-// the shared group-0 bindings. Slot 3 is pass-specific: the color module reads the 16 B main stream
-// (`vertices`, `vec4<u32>` — pos + meshId / oct normal / uv), the prepass + shadow module reads the
-// 8 B position-only stream (`position`, `vec2<u32>` — pos + meshId), bound at the same slot by the two
-// per-draw bind groups. `meshQuant` (MESH_QUANT_WGSL) is spliced after posQuantWgsl() defines MeshQuant
-const uniformWgsl = (pass: "color" | "prepass") => /* wgsl */ `
-@group(0) @binding(${FRAME}) var<uniform> frame: Frame;
-@group(0) @binding(${VIEW}) var<uniform> view: View;
-@group(0) @binding(${LIGHTING}) var<uniform> lighting: Lighting;
-${
-    pass === "color"
-        ? `@group(0) @binding(${VERTICES}) var<storage, read> vertices: array<vec4<u32>>;`
-        : `@group(0) @binding(${VERTICES}) var<storage, read> position: array<vec2<u32>>;`
-}
-@group(0) @binding(${POINT_LIGHTS}) var<storage, read> pointLights: PointLights;
-@group(0) @binding(${LIGHT_GRID}) var<storage, read> lightGrid: array<vec2<u32>>;
-@group(0) @binding(${LIGHT_INDICES}) var<storage, read> lightIndices: array<u32>;`;
-
-// the per-mesh dequant table — spliced after posQuantWgsl() (it references the MeshQuant struct it defines)
-const MESH_QUANT_WGSL = /* wgsl */ `@group(0) @binding(${MESH_QUANT}) var<storage, read> meshQuant: array<MeshQuant>;`;
-
-// the relocatable shadow chunks the color FS splices (via `shadowWgsl`) are in ./shade, and a
-// screen-space consumer's pass (the fog volumetric march) splices the same ones — one source of truth,
-// each consumer declaring the group-1 bindings they reference by name. The color pass's opaque +
-// transparent pipelines call `sampleSunShadow` / `pointShadowOf`; the tag + depth pipelines omit group 1,
-// so their fragments never reference these and stay valid. `enabled: 0` / an empty caster slot is the
-// no-cast fallback → fully lit.
-const shadowWgsl = () => /* wgsl */ `
-${sunStructWgsl()}
-@group(1) @binding(0) var shadowMap: texture_depth_2d;
-@group(1) @binding(1) var shadowSamp: sampler_comparison;
-@group(1) @binding(2) var<uniform> sunShadow: SunShadow;
-${sunShadowWgsl()}
-
-${casterWgsl()}
-@group(1) @binding(3) var pointAtlas: texture_depth_2d;
-@group(1) @binding(4) var<uniform> pointShadows: PointCasters;
-@group(1) @binding(5) var<uniform> tileRects: TileRects;
-${pointShadowWgsl()}`;
-
-// the prepass module's shadow seam: stubs with the color module's signatures, no group-1
-// declarations. The prepass entries splice the same surface chunk as the color fs, and a chunk's
-// `lit()` reaches `pointFactor` → `pointShadowOf` — a real atlas read there would statically pull
-// group 1 into the prepass pipelines (which bind group 0 alone) and make the atlas render's own
-// `clip` discard pass sample the very texture it's writing. The stubs keep the prepass module
-// group-1-free; at runtime the chunk's lighting result is discarded anyway (pointScale stays 0)
-const SHADOW_STUB_WGSL = /* wgsl */ `
-fn sampleSunShadow(worldPos: vec3<f32>, normal: vec3<f32>) -> f32 { return 1.0; }
-fn pointShadowOf(light: PointLightGpu, normal: vec3<f32>, fragWorld: vec3<f32>) -> f32 { return 1.0; }`;
-
-// the standard instance transform. A surface declaring `eids` + `transforms` storage
-// bindings is instanced: sear reads this instance's entity id and applies its world
-// transform to position + normal, before splicing the surface's own vs chunk. The normal
-// uses the inverse-transpose (`xformNormal`), correct under non-uniform scale. A surface
-// without those bindings (a producer whose geometry is already world-space) stays identity.
-// This is the instancing convention — nothing here is Part-specific; Part is one producer
-// that publishes `eids`, and any producer publishing them gets the transform
-const INSTANCE_VS = /* wgsl */ `eid = eids[iid];
-    let xf = transforms[eid];
-    world = vec4<f32>(xformPoint(xf, world.xyz), world.w);
-    worldNormal = xformNormal(xf, worldNormal);`;
-
-// a Binding maps to a WGSL declaration and a matching layout entry; both number
-// the slot identically so they stay in lockstep
-function bindingDecl(name: string, b: Binding, i: number): string {
-    switch (b.type) {
-        case "uniform":
-            return `@group(0) @binding(${i}) var<uniform> ${name}: ${b.struct};`;
-        case "storage": {
-            const access = b.access === "read_write" ? "read_write" : "read";
-            return `@group(0) @binding(${i}) var<storage, ${access}> ${name}: array<${b.element}>;`;
-        }
-        case "texture-2d":
-            return `@group(0) @binding(${i}) var ${name}: texture_2d<f32>;`;
-        case "texture-2d-array":
-            return `@group(0) @binding(${i}) var ${name}: texture_2d_array<f32>;`;
-        case "texture-depth-2d":
-            return `@group(0) @binding(${i}) var ${name}: texture_depth_2d;`;
-        case "sampler":
-            return `@group(0) @binding(${i}) var ${name}: sampler;`;
-        case "sampler-comparison":
-            return `@group(0) @binding(${i}) var ${name}: sampler_comparison;`;
-    }
-}
-
-function bindingEntry(b: Binding, i: number): GPUBindGroupLayoutEntry {
-    switch (b.type) {
-        case "uniform":
-            return { binding: i, visibility: VS_FS, buffer: { type: "uniform" } };
-        case "storage": {
-            const type = b.access === "read_write" ? "storage" : "read-only-storage";
-            return { binding: i, visibility: VS_FS, buffer: { type } };
-        }
-        case "texture-2d":
-            return { binding: i, visibility: VS_FS, texture: { sampleType: "float" } };
-        case "texture-2d-array":
-            return {
-                binding: i,
-                visibility: VS_FS,
-                texture: { sampleType: "float", viewDimension: "2d-array" },
-            };
-        case "texture-depth-2d":
-            return { binding: i, visibility: VS_FS, texture: { sampleType: "depth" } };
-        case "sampler":
-            return { binding: i, visibility: VS_FS, sampler: { type: "filtering" } };
-        case "sampler-comparison":
-            return { binding: i, visibility: VS_FS, sampler: { type: "comparison" } };
-    }
-}
-
-const UNIFORM_LAYOUT: GPUBindGroupLayoutEntry[] = [
-    { binding: FRAME, visibility: VS_FS, buffer: { type: "uniform" } },
-    {
-        binding: VIEW,
-        visibility: VS_FS,
-        buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: VIEW_BYTES },
+    format: {
+        name: (value: number) =>
+            value >= BACKDROP_TYPED_BASE
+                ? TypedBackgrounds.name(value - BACKDROP_TYPED_BASE)
+                : Backgrounds.name(value),
     },
-    { binding: LIGHTING, visibility: VS_FS, buffer: { type: "uniform" } },
-    // slot 3 (the vertex stream) — same layout entry for both bind groups; the color group binds the
-    // 16 B main buffer here, the prepass group the 8 B position buffer (the element type is shader-side)
-    { binding: VERTICES, visibility: VS_FS, buffer: { type: "read-only-storage" } },
-    { binding: POINT_LIGHTS, visibility: VS_FS, buffer: { type: "read-only-storage" } },
-    { binding: LIGHT_GRID, visibility: VS_FS, buffer: { type: "read-only-storage" } },
-    { binding: LIGHT_INDICES, visibility: VS_FS, buffer: { type: "read-only-storage" } },
-    { binding: MESH_QUANT, visibility: VS_FS, buffer: { type: "read-only-storage" } },
-];
-
-// built-in inter-stage varyings lead the struct; custom interpolators follow, capped at 16 total. The
-// set is per-surface, not fixed: `worldNormal` (a plain vec3, renormalized in the fs — oct-encoding a
-// normal for interpolation breaks across the octahedral seam, and a vec2 fills a full @location slot
-// anyway, so oct bought nothing here; see `builtinFields`) + `eid` + `world` always cross (the color
-// scaffold's sampleSunShadow / fragWorld / tag default reach them), but `uv` + `localPos` cross only when
-// the surface's fs reads them — an unread interpolator is per-fragment varying bandwidth, pruned on desktop
-const MAX_INTERSTAGE = 16;
-
-const RESERVED = new Set([
-    "clip",
-    "clipPos",
-    "worldNormal",
-    "uv",
-    "localPos",
-    "localNormal",
-    "eid",
-    "world",
-    "vidx",
-    "iid",
-    "v",
-    "out",
-    "fin",
-    "col",
-    "tag",
-    "lit",
-    "lightFactor",
-    "sunVisibility",
-    "fragWorld",
-    "fragCoord",
-    "pointScale",
-    "pointFactor",
-    "pointLights",
-    "lightGrid",
-    "lightIndices",
-    "clusterOf",
-    "distanceAttenuation",
-    "sampleSunShadow",
-    "shadowMap",
-    "shadowSamp",
-    "sunShadow",
-    "pointShadowOf",
-    "pointFaceOf",
-    "pointAtlas",
-    "pointShadows",
-    "tileRects",
-    "position",
-    "meshQuant",
-    "octEncodeNormal",
-    "octDecodeNormal",
-    "decodePos",
-    "decodeUv",
-    "meshIdOf",
-]);
-
-// lower a surface's custom interpolators into the WGSL fragments the scaffold splices, so the vs chunk
-// and the fs see the same varyings. `base` is the @location the customs start at — the builtin count,
-// which varies per surface now that uv/localPos prune (see builtinFields)
-function interp(record: Record<string, string>, name: string, base: number) {
-    const fields = Object.entries(record);
-    if (base + fields.length > MAX_INTERSTAGE) {
-        throw new Error(
-            `sear: surface "${name}" declares ${fields.length} interpolators; max ${MAX_INTERSTAGE - base} (inter-stage limit)`,
-        );
-    }
-    for (const [n] of fields) {
-        if (RESERVED.has(n)) {
-            throw new Error(
-                `sear: surface "${name}" interpolator "${n}" collides with a reserved name`,
-            );
-        }
-    }
-    return {
-        // integer varyings must be flat — the rasterizer can't interpolate them
-        out: fields
-            .map(
-                ([n, t], i) =>
-                    `    @location(${base + i}) ${/\b(u32|i32)\b/.test(t) ? "@interpolate(flat) " : ""}${n}: ${t},`,
-            )
-            .join("\n"),
-        decls: fields.map(([n, t]) => `    var ${n}: ${t};`).join("\n"),
-        toOut: fields.map(([n]) => `    out.${n} = ${n};`).join("\n"),
-        fromOut: fields.map(([n]) => `    let ${n} = fin.${n};`).join("\n"),
-    };
-}
-
-// the built-in interstage fields a surface carries, in struct order. `worldNormal`, `eid`, and `world`
-// always cross — the color scaffold (sampleSunShadow / fragWorld) and the tag default reach them regardless
-// of the chunk. `uv` / `localPos` cross only when the fs reads them (the fs rebinds `fin.uv` / `fin.localPos`;
-// an unread one is pure per-fragment varying waste). Returns the field list + the rebind fragments the vs
-// and fs splice.
-//
-// The normal crosses as a **plain vec3, renormalized in the fs** — NOT oct-encoded. Oct-encoding a normal
-// for *interpolation* is invalid across the octahedral seam: a triangle whose world normals straddle the
-// z=0 equator interpolates between the inner diamond (z>0) and the outer corners (z<0) of the oct square,
-// passing through coordinates that decode to garbage normals (the symptom: jagged normal zigzag on the faces
-// of curved/draped geometry oriented to straddle the seam, e.g. one wall's banners but not the other's).
-// A `vec2` oct field fills a full `@location` slot anyway, so the `vec3` costs no extra interpolator — oct
-// here only bought the seam bug. (Oct stays correct for per-vertex *storage* `octEncodeWgsl()`, which decodes
-// once per vertex without interpolating — the same seam hazard is why the VAT normal texture is a plain vec3.)
-function builtinFields(fs: string) {
-    const needsUv = /\buv\b/.test(fs);
-    const needsLocal = /\blocalPos\b/.test(fs);
-    const out = [`    @location(0) worldNormal: vec3<f32>,`];
-    let loc = 1;
-    if (needsUv) out.push(`    @location(${loc++}) uv: vec2<f32>,`);
-    if (needsLocal) out.push(`    @location(${loc++}) localPos: vec3<f32>,`);
-    out.push(`    @location(${loc++}) @interpolate(flat) eid: u32,`);
-    out.push(`    @location(${loc++}) world: vec3<f32>,`);
-    return {
-        count: loc,
-        struct: out.join("\n"),
-        toOut: [
-            `    out.worldNormal = normalize(worldNormal);`,
-            ...(needsUv ? [`    out.uv = uv;`] : []),
-            ...(needsLocal ? [`    out.localPos = localPos;`] : []),
-            `    out.eid = eid;`,
-            `    out.world = world.xyz;`,
-        ].join("\n"),
-        // fs rebinds the present fields as locals (the chunk + scaffold read these names). renormalize the
-        // normal — linear interpolation of a unit vector across the triangle denormalizes it.
-        fromOut: [
-            `    let eid = fin.eid;`,
-            `    let world = fin.world;`,
-            `    let worldNormal = normalize(fin.worldNormal);`,
-            ...(needsUv ? [`    let uv = fin.uv;`] : []),
-            ...(needsLocal ? [`    let localPos = fin.localPos;`] : []),
-        ].join("\n"),
-    };
-}
-
-/**
- * the WGSL module for a surface: the shared frame/view/lighting + vertex pull, then the surface's bindings,
- * vs chunk, and fs chunk (which writes `col`). Two `pass` modules: `"color"` carries the real group-1 shadow
- * bindings + the color fs; `"prepass"` carries the prepass entry points with shadow **stubs** (see
- * SHADOW_STUB_WGSL: a surface chunk's `lit()` statically reaches the shadow samplers, and the prepass
- * pipelines bind group 0 alone). `variant` is the material map-set a specializing surface compiles a pipeline
- * per (the glTF importer; `surface.specialize(variant)` overrides the preamble/fs); a non-specializing surface
- * ignores it. Pure: exported for structural tests
- */
-export function surfaceCode(
-    surface: Surface,
-    pass: "color" | "prepass" = "color",
-    variant = 0,
-): string {
-    // a specializing surface splices the variant's preamble / fs (Bevy's on-demand `specialize`); its own
-    // `preamble` / `fs` are the fallback. The glTF importer returns only a `preamble` (the map-set helpers
-    // for `variant`), so the surface's own `fs` stands; a surface with no `specialize` ignores `variant`.
-    const spec = surface.specialize?.(variant);
-    const preamble = spec?.preamble ?? surface.preamble ?? "";
-    const fsChunk = spec?.fs ?? surface.fs ?? "";
-    const built = builtinFields(fsChunk);
-    const i = interp(surface.interpolators ?? {}, surface.name, built.count);
-    const binds = surface.bindings ?? {};
-    // the instancing convention: declaring both bindings opts the surface into sear's
-    // standard per-instance transform (see INSTANCE_VS)
-    const instanced = !!(binds.eids && binds.transforms);
-    // a screen-space surface (lines) projects its own endpoints: the vs chunk writes `clipPos` and
-    // sear emits `out.clip = clipPos`. A world-space surface (the default) gets `view.viewProj * world`
-    // computed after the chunk, so a chunk that displaces `world` projects correctly
-    const screen = surface.screen === true;
-    const decls = Object.entries(binds)
-        .map(([n, b], k) => bindingDecl(n, b, k + SURFACE_BASE))
-        .join("\n");
-    // a surface that binds an f16 storage element needs the directive, which must lead the module. No
-    // engine surface does — sear's `material` mirror binds `vec2<u32>` and decodes with the core
-    // `unpack2x16float` — so this is the consumer opt-in path: a surface declaring an f16 element must
-    // also declare `shader-f16` in its plugin's `Plugin.features`, since it is not on the platform floor.
-    const enableF16 = Object.values(binds).some(
-        (b) => "element" in b && (b.element ?? "").includes("f16"),
-    );
-    return /* wgsl */ `${enableF16 ? "enable f16;\n" : ""}
-${FRAME_STRUCT_WGSL}
-${VIEW_STRUCT_WGSL}
-${LIGHTING_STRUCT_WGSL}
-${pointLightsWgsl()}
-${lightEvalWgsl()}
-${pbrWgsl()}
-${LIGHT_WGSL}
-${uniformWgsl(pass)}
-${octEncodeWgsl()}
-${posQuantWgsl()}
-${MESH_QUANT_WGSL}
-${xformWgsl()}
-${ldrColorUnpackWgsl()}
-${pass === "color" ? shadowWgsl() : SHADOW_STUB_WGSL}
-${decls}
-${preamble}
-struct VertexOut {
-    @builtin(position) clip: vec4<f32>,
-${built.struct}
-${i.out}
-}
-
-@vertex
-fn vs(@builtin(vertex_index) vidx: u32, @builtin(instance_index) iid: u32) -> VertexOut {
-${
-    // color decodes the full quantized vertex (pos + oct normal + uv) from the 16 B main stream; the
-    // prepass decodes only position from the 8 B stream (depth needs no normal / uv — defaulted), both
-    // dequantizing against the meshId-selected MeshQuant. A surface vs chunk may still override any of them
-    pass === "color"
-        ? `    let v = vertices[vidx];
-    let mq = meshQuant[meshIdOf(v.y)];
-    var localPos = decodePos(v.x, v.y, mq);
-    var localNormal = octDecodeNormal(v.z);
-    var uv = decodeUv(v.w, mq);`
-        : `    let v = position[vidx];
-    var localPos = decodePos(v.x, v.y, meshQuant[meshIdOf(v.y)]);
-    var localNormal = vec3<f32>(0.0, 0.0, 1.0);
-    var uv = vec2<f32>(0.0);`
-}
-    var eid: u32 = 0u;
-    var world = vec4<f32>(localPos, 1.0);
-    var worldNormal = localNormal;
-${screen ? "    var clipPos = vec4<f32>(0.0);" : ""}
-${i.decls}
-${instanced ? `    { ${INSTANCE_VS} }` : ""}
-${surface.vs ? `    { ${surface.vs} }` : ""}
-    var out: VertexOut;
-    out.clip = ${screen ? "clipPos" : "view.viewProj * world"};
-${built.toOut}
-${i.toOut}
-    return out;
-}
-
-${pass === "color" ? colorFragment(fsChunk, built.fromOut, i.fromOut, instanced) : ""}
-${
-    // alpha writes no prepass lanes (no id, no depth-write, no shadow cast); every other mode emits one
-    // prepass fragment per color-lane subset (the empty subset is depth-only — a fragment only for `clip`)
-    pass === "color" || surface.blend === "alpha"
-        ? ""
-        : laneSubsets()
-              .map((s) =>
-                  prepassFragment(
-                      fsChunk,
-                      built.fromOut,
-                      i.fromOut,
-                      instanced,
-                      surface.blend === "clip",
-                      s,
-                  ),
-              )
-              .join("\n")
-}
-`;
-}
-
-/**
- * the WGSL module for a background: frame/view/lighting uniforms + the background's own bindings, a
- * fullscreen-triangle VS at the reverse-Z far plane, and an fs that reconstructs the world-space view ray
- * `dir` per-pixel then splices the chunk (which writes the HDR `col: vec3<f32>`). `dir` comes from
- * `@builtin(position)` + `view.invViewProj` (the fog reconstruct), **not** an interstage interpolator:
- * the view ray is derivable from the pixel, so crossing it would waste a varying slot (gpu.md rule 9). Pure:
- * exported for structural tests.
- */
-export function backgroundCode(bg: Background): string {
-    const binds = bg.bindings ?? {};
-    const decls = Object.entries(binds)
-        .map(([n, b], k) => bindingDecl(n, b, k + BG_BASE))
-        .join("\n");
-    const enableF16 = Object.values(binds).some(
-        (b) => "element" in b && (b.element ?? "").includes("f16"),
-    );
-    return /* wgsl */ `${enableF16 ? "enable f16;\n" : ""}
-${FRAME_STRUCT_WGSL}
-${VIEW_STRUCT_WGSL}
-${LIGHTING_STRUCT_WGSL}
-@group(0) @binding(${FRAME}) var<uniform> frame: Frame;
-@group(0) @binding(${VIEW}) var<uniform> view: View;
-@group(0) @binding(${LIGHTING}) var<uniform> lighting: Lighting;
-${decls}
-${bg.preamble ?? ""}
-struct VertexOut {
-    @builtin(position) clip: vec4<f32>,
-}
-
-// a fullscreen triangle (the three corners are the vertex index — no vertex pull), emitted at the
-// reverse-Z far plane (clip z = 0) so the depth-equal test admits only un-rendered (background) pixels
-@vertex
-fn vs(@builtin(vertex_index) vidx: u32) -> VertexOut {
-    let c = vec2<f32>(f32((vidx << 1u) & 2u), f32(vidx & 2u));
-    var out: VertexOut;
-    out.clip = vec4<f32>(c * 2.0 - 1.0, 0.0, 1.0);
-    return out;
-}
-
-@fragment
-fn fs(fin: VertexOut) -> @location(0) vec4<f32> {
-    // reconstruct the world-space view ray from the pixel + the inverse view-projection at the far plane
-    // (reverse-Z far = 0) — projection-agnostic, and derived from @builtin(position) (gpu.md rule 9)
-    let uv = fin.clip.xy / view.resolution;
-    let ndc = vec3<f32>(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0);
-    let far = view.invViewProj * vec4<f32>(ndc, 1.0);
-    let dir = normalize(far.xyz / far.w - view.eye.xyz);
-    var col = vec3<f32>(0.0);
-    { ${bg.fs} }
-    return vec4<f32>(col, 1.0);
-}
-`;
-}
-
-// the shared fragment interior every entry point splices: rebind varyings as locals, declare `col` (the
-// shaded color) + every color lane's mutable local (`tag`, …), then splice the surface chunk which writes
-// `col` and may override any lane local (symmetric with `col` — `tag` defaults to the instance's `eid`
-// for an instanced surface and TAG_NONE otherwise, which terrain overrides to `capacity + cell`).
-// `shaded` entries also sample the sun shadow inline (lit()/lightFactor multiply the sun term by it); the
-// prepass entries discard without lighting and bind no shadow map, so they omit the sample. `col` is
-// unused in the prepass entries, the lane locals in the color entry — the chunk is one source, spliced
-// into each entry that returns a slice of its output
-function fragmentBody(
-    fs: string,
-    builtinFrom: string,
-    fromOut: string,
-    shaded: boolean,
-    instanced: boolean,
-): string {
-    // project the fragment's world position into the shadow map and PCF-compare (1.0 when no light
-    // casts — see sampleSunShadow); the sun term in lit()/lightFactor reads it
-    const sun = shaded
-        ? `    sunVisibility = sampleSunShadow(world, worldNormal);\n    fragWorld = world;\n    fragCoord = fin.clip;\n    pointScale = 1.0;\n`
-        : "";
-    const lanes = COLOR_LANES.map(
-        (l) => `    var ${l.local}: ${l.type} = ${l.init(instanced)};`,
-    ).join("\n");
-    return `${builtinFrom}
-${fromOut}
-${sun}    var col = vec4<f32>(0.0, 0.0, 0.0, 1.0);
-${lanes}
-${fs ? `    { ${fs} }` : ""}`;
-}
-
-// the color fragment — one single-target shape for opaque, `clip`, and `alpha` alike (they differ
-// only in pipeline blend + depth policy, never in fragment output). No forced lighting: surfaces
-// shade via `lit` / `lightFactor`, or write a flat `col`. The lane locals (tag, …) are NOT returned
-// here — they ride the prepass (see prepassFragment / PrepassSystem), so the color pass is the
-// engine's one blendable, postfx-fed lane
-function colorFragment(
-    fs: string,
-    builtinFrom: string,
-    fromOut: string,
-    instanced: boolean,
-): string {
-    return /* wgsl */ `@fragment
-fn fs(fin: VertexOut) -> @location(0) vec4<f32> {
-${fragmentBody(fs, builtinFrom, fromOut, true, instanced)}
-    return col;
-}`;
-}
-
-// the prepass fragment for one color-lane subset (opaque + `clip` surfaces), spliced per subset by
-// surfaceCode. Runs the surface chunk for its authored lane locals (and a `clip` chunk's `discard`),
-// then returns the subset's lanes. The empty subset is position-only depth: a fragment is emitted only
-// for a `clip` surface (to discard) — a plain opaque surface's empty-subset pipeline has no fragment
-// stage. One lane returns a scalar at @location(0); two or more an MRT output struct. Binds group 0
-// only — no shadow read (the prepass carries no lighting), so the group-1 bindings stay unreferenced
-function prepassFragment(
-    fs: string,
-    builtinFrom: string,
-    fromOut: string,
-    instanced: boolean,
-    clip: boolean,
-    lanes: ColorLane[],
-): string {
-    const body = fragmentBody(fs, builtinFrom, fromOut, false, instanced);
-    if (lanes.length === 0) {
-        if (!clip) return ""; // position-only depth — no fragment stage
-        return /* wgsl */ `@fragment
-fn ${prepassEntry(lanes)}(fin: VertexOut) {
-${body}
-}`;
-    }
-    if (lanes.length === 1) {
-        const l = lanes[0];
-        return /* wgsl */ `@fragment
-fn ${prepassEntry(lanes)}(fin: VertexOut) -> @location(0) ${l.type} {
-${body}
-    return ${l.local};
-}`;
-    }
-    const out = `PrepassOut${lanes.map((l) => l.name[0].toUpperCase() + l.name.slice(1)).join("")}`;
-    return /* wgsl */ `struct ${out} {
-${lanes.map((l, k) => `    @location(${k}) ${l.local}: ${l.type},`).join("\n")}
-}
-@fragment
-fn ${prepassEntry(lanes)}(fin: VertexOut) -> ${out} {
-${body}
-    var out: ${out};
-${lanes.map((l) => `    out.${l.local} = ${l.local};`).join("\n")}
-    return out;
-}`;
-}
-
-/**
- * the point-shadow atlas module for a surface (depth-only): one indirect draw per casting mesh, the VS
- * reading the **re-gathered** instance list: each combo (cube face / spot cone) culled independently
- * through the Part pack (its own depth-only view slot), then concatenated mesh-major into one contiguous
- * run + a per-instance combo index (`renderPointShadows`). The list is packed `(combo << COMBO_SHIFT) | eid`
- * and bound at the surface's `eids` lane (so no new storage binding past the 10-ceiling, gpu.md). The VS
- * reads each instance's (caster, face) from `comboMeta[combo]`, transforms by that combo's CPU-computed
- * viewProj (`faceVP[combo]`), and remaps clip XY into the face's atlas tile (the tile placement folded into
- * the viewProj, so the hardware does the divide + near-plane clip and the depth matches `pointShadowOf`'s
- * analytic receiver). The FS discards fragments outside the tile rect (seam bleed): depth-only, so a kept
- * fragment writes its face's depth into exactly its tile. Reuses the prepass group-0 (position-only stream +
- * the instance bindings, `eids` → the re-gathered list, SHADOW_STUB so no group-1 sampler), adds a
- * point-only group 1 (face viewProjs + combo meta + the caster rects, all uniforms). `screen` surfaces have
- * no atlas placement and `alpha` casts nothing: the caller compiles neither.
- */
-function pointShadowCode(surface: Surface, variant: number, cascade = false): string {
-    const spec = surface.specialize?.(variant);
-    const preamble = spec?.preamble ?? surface.preamble ?? "";
-    const fsChunk = spec?.fs ?? surface.fs ?? "";
-    const clip = surface.blend === "clip";
-    // a clip cutout runs its chunk's discard so it casts a holed shadow — cross the varyings the chunk
-    // reads (matching the prepass; the position-only decode means uv is 0, the same prepass limitation).
-    // An opaque surface is the tile discard alone — no chunk, no builtin varyings
-    const built = clip ? builtinFields(fsChunk) : { count: 0, struct: "", toOut: "", fromOut: "" };
-    const customs = surface.interpolators ?? {};
-    const i = interp(customs, surface.name, built.count);
-    const tileLoc = built.count + Object.keys(customs).length;
-    const binds = surface.bindings ?? {};
-    const instanced = !!(binds.eids && binds.transforms);
-    const decls = Object.entries(binds)
-        .map(([n, b], k) => bindingDecl(n, b, k + SURFACE_BASE))
-        .join("\n");
-    const enableF16 = Object.values(binds).some(
-        (b) => "element" in b && (b.element ?? "").includes("f16"),
-    );
-    // point: one tile per (caster, face) — 6·casters slots, rect indexed slot·6 + face. cascade: one tile per
-    // cascade — MAX_CASCADES slots, rect indexed by the cascade index (meta.x). Same VS, the count + index differ
-    const slots = cascade ? MAX_CASCADES : 6 * pointCasters();
-    const atlas = cascade ? cascadeAtlasSize(sunResolution(), sunCascades()) : pointAtlasSize();
-    const rectExpr = cascade ? "m.x" : "m.x * 6u + m.y";
-    return /* wgsl */ `${enableF16 ? "enable f16;\n" : ""}
-${FRAME_STRUCT_WGSL}
-${VIEW_STRUCT_WGSL}
-${LIGHTING_STRUCT_WGSL}
-${pointLightsWgsl()}
-${lightEvalWgsl()}
-${pbrWgsl()}
-${LIGHT_WGSL}
-${uniformWgsl("prepass")}
-${octEncodeWgsl()}
-${posQuantWgsl()}
-${MESH_QUANT_WGSL}
-${xformWgsl()}
-${ldrColorUnpackWgsl()}
-${SHADOW_STUB_WGSL}
-${decls}
-${preamble}
-// each combo viewProj has its atlas tile placement folded in (tileTransform), so the VS needs no manual
-// divide — it reads faceVP for the clip position and tileRects (indexed by comboMeta's caster·6+face) only
-// for the tile-discard bounds. The receiver samples the same tileRects on the color pass's group 1
-struct FaceVPs { m: array<mat4x4<f32>, ${slots}> }
-// the per-combo meta the VS reads to index its tile rect — dense, one per active combo (point: (casterSlot,
-// face), 6 per caster / 1 per spot; cascade: (cascadeIndex, …), one per cascade)
-struct ComboMeta { m: array<vec4<u32>, ${slots}> }
-// the allocated atlas-UV rects (point: per (caster, face), slot·6 + face; cascade: per cascade index)
-struct TileRects { rects: array<vec4<f32>, ${slots}> }
-@group(1) @binding(0) var<uniform> faceVP: FaceVPs;
-@group(1) @binding(1) var<uniform> comboMeta: ComboMeta;
-@group(1) @binding(2) var<uniform> tileRects: TileRects;
-
-struct VertexOut {
-    @builtin(position) clip: vec4<f32>,
-${built.struct}
-${i.out}
-    // the tile's pixel rect (origin.xy, size, _) for the seam discard — the tile sizes vary per caster now
-    @location(${tileLoc}) @interpolate(flat) tileBox: vec4<f32>,
-}
-
-@vertex
-fn vs(@builtin(vertex_index) vidx: u32, @builtin(instance_index) iid: u32) -> VertexOut {
-    let v = position[vidx];
-    var localPos = decodePos(v.x, v.y, meshQuant[meshIdOf(v.y)]);
-    var localNormal = vec3<f32>(0.0, 0.0, 1.0);
-    var uv = vec2<f32>(0.0);
-    // the re-gathered instance list (bound at the eids slot): one entry per (combo, surviving member),
-    // packed eid in the low ${COMBO_SHIFT} bits + the dense combo index above. instance_index starts at the
-    // record's firstInstance (indirect-first-instance, base floor), so it indexes the mesh's run directly.
-    // comboMeta maps the combo to its (caster slot, face); faceVP[combo] carries the tile-folded projection
-    let packed = eids[iid];
-    var eid: u32 = packed & ${EID_MASK}u;
-    let combo = packed >> ${COMBO_SHIFT}u;
-    let xf = transforms[eid];
-    var world = vec4<f32>(xformPoint(xf, localPos), 1.0);
-    var worldNormal = xformNormal(xf, localNormal);
-${i.decls}
-${surface.vs ? `    { ${surface.vs} }` : ""}
-    let m = comboMeta.m[combo];
-    let rect = tileRects.rects[${rectExpr}]; // the allocated atlas-UV rect (point: caster·6+face; cascade: index)
-    var out: VertexOut;
-    // the combo viewProj has its atlas tile placement folded in (tileTransform), so this projects straight
-    // into the tile — the hardware does the perspective divide AND the near-plane clip. A manual fc.xy/fc.w
-    // here can't clip: a triangle behind the face near plane (fc.w ≤ 0) divides to garbage and lands in-tile
-    out.clip = faceVP.m[combo] * world;
-    out.tileBox = vec4<f32>(rect.xy * ${atlas}.0, rect.z * ${atlas}.0, 0.0);
-${built.toOut}
-${i.toOut}
-    return out;
-}
-
-@fragment
-fn fsPoint(fin: VertexOut) {
-    // tile-seam discard: a triangle outside its face frustum remaps outside the tile (but inside the
-    // atlas, so the hardware doesn't clip it) — discard it so each tile gets exactly its face's depth
-    let p = fin.clip.xy;
-    let mn = fin.tileBox.xy;
-    let sz = fin.tileBox.z;
-    if (p.x < mn.x || p.x >= mn.x + sz || p.y < mn.y || p.y >= mn.y + sz) { discard; }
-${clip ? fragmentBody(fsChunk, built.fromOut, i.fromOut, false, instanced) : ""}
-}
-`;
-}
-
-interface Compiled {
-    // a surface compiles to one shape, by render mode. Opaque + `clip` cutout: `color` (the
-    // single-target framebuffer) + `prepass` (one pipeline per color-lane subset — `""` is the
-    // position-only depth pipeline the shadow map renders casters through, `"tag"` writes the id lane;
-    // a `clip` surface's `""` runs the fragment to discard so it casts a holed shadow). `alpha`:
-    // `transparent` alone — one blended color target, no prepass lanes (a transparent pixel has no
-    // single owner, writes no prepass depth, casts nothing). The unused slots are null / an empty map,
-    // so the shadow-map, prepass, and color passes each pick the pipeline that's theirs (the color pass
-    // draws both `color` opaque and `transparent` blended, in that order, within one render pass)
-    color: GPURenderPipeline | null;
-    transparent: GPURenderPipeline | null;
-    // the single-sample (AA-off) twin, compiled lazily by `ensureSingle` the first time a camera with
-    // `Camera.antialias` off renders — null until then. An all-AA-on scene (the default) never touches it.
-    // Differs from `color`/`transparent` only in `multisample.count` (1 vs SAMPLE_COUNT); `lazy` carries
-    // the shared inputs to compile it
-    single: { color: GPURenderPipeline | null; transparent: GPURenderPipeline | null } | null;
-    singlePending: boolean;
-    colorArgs: ColorArgs;
-    prepass: Map<string, GPURenderPipeline>;
-    // the point-shadow atlas pipeline (depth-only): one indirect draw per casting mesh, the VS reading the
-    // re-gathered packed instance list (per-combo culled, concatenated mesh-major) at the eids lane and
-    // remapping clip XY into each combo's atlas tile. null for `alpha` (a transparent pixel casts nothing)
-    // and `screen` surfaces (2D overlays have no atlas placement)
-    point: GPURenderPipeline | null;
-    // the CSM cascade atlas pipeline (depth-only): the point pipeline's twin, the VS reading the cascade
-    // re-gathered list and remapping clip XY into each cascade's atlas tile. Same gating as `point` (null for
-    // `alpha`/`screen`/non-instanced); they differ only in the per-cascade vs per-(caster, face) tile index
-    cascade: GPURenderPipeline | null;
-    layout: GPUBindGroupLayout;
-    slots: { name: string; type: Binding["type"] }[];
-}
-
-// straight (non-premultiplied) alpha. The swapchain is sRGB, so the blend unit linearizes the
-// stored color before compositing — `src·α + dst·(1−α)` is gamma-correct with the fs writing
-// linear `col`. The alpha channel keeps the framebuffer's coverage sensible for a later read
-const ALPHA_BLEND: GPUBlendState = {
-    color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
-    alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
-
-type BindResource = GPUBuffer | GPUTexture | GPUSampler;
-type GroupCache = Map<
-    string,
-    {
-        group: GPUBindGroup;
-        prepassGroup: GPUBindGroup;
-        // the point-shadow pass's group 0 — the prepass group with the `eids` lane swapped to the point
-        // re-gathered packed instance list (`_pointRegather.eids()`); null for a non-casting surface, or
-        // until the re-gather buffer is allocated (first casting frame)
-        pointGroup: GPUBindGroup | null;
-        // the cascade-atlas pass's group 0 — the same swap, to the cascade re-gathered list
-        cascadeGroup: GPUBindGroup | null;
-        resources: BindResource[];
-    }
->;
-
-// pipelines keyed `${surface}#${variant}` — one entry per (surface, material map-set) a scene actually
-// draws (Bevy's on-demand specialization). A non-specializing surface is always variant 0 (compiled eagerly
-// at warm); a specializing surface (the glTF importer) compiles each map-set variant lazily on first draw
-const _compiled = new Map<string, Compiled>();
-// the variant keys whose async compile is in flight (or permanently failed), so `record` triggers each
-// compile once — the draw skips (returns null) until the pipeline lands, the same shape as an unpublished
-// texture. A failed key stays in the set: a variant's WGSL is fixed for the State's life, so retrying would
-// recompile + re-warn every frame; a fresh build clears the set (prepareSear)
-const _compiling = new Set<string>();
-const variantKey = (surface: string, variant: number) => `${surface}#${variant}`;
-const _groups: GroupCache = new Map();
-
-// a compiled background: the 4× MSAA + single-sample backdrop pipelines (one camera picks one by AA mode),
-// the shared group-0 layout, and its binding slots. `group` builds lazily on first use in `renderColor`
-// and holds for the State's life — the frame/view/lighting + bg-binding buffers are stable post-warm, and a
-// rebuild recompiles from scratch (`_backgrounds.clear()` in prepareSear), so no in-build invalidation
-type CompiledBg = {
-    name: string;
-    color: GPURenderPipeline;
-    single: GPURenderPipeline;
-    layout: GPUBindGroupLayout;
-    slots: { name: string; type: Binding["type"] }[];
-    group: GPUBindGroup | null;
-};
-const _backgrounds = new Map<string, CompiledBg>();
-
-// the frame's draw list, resolved once by PrepassSystem (the first geometry pass) and shared across the
-// prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving per-pass
-// (the old 3×) was wasted work
-let _frameDraws: { draw: Draw; r: Recorded }[] = [];
-
-// ---- sun shadows: the GPU half — the CSM cascade atlas (the CPU/ECS half — cascade cameras + fit — is in
-// ./shadows). The single directional map is gone: the sun renders through the cascade atlas like the point
-// atlas, and the receiver selects a cascade by view-z ----
-
-// the sun-shadow seam, sear-internal: the cascade atlas view + the per-cascade SunShadow params the color
-// pass's opaque + transparent draws sample inline via group 1. Set by `renderCascades` after it renders the
-// caster depth, or `null` when no sun casts (fallback → fully lit). Sear owns the atlas and reads its own
-// state directly — no cross-module seam
-let _sun: { map: GPUTextureView; params: GPUBuffer } | null = null;
-
-// the no-shadow fallback bound when no light casts: a 1×1 depth texture (never sampled — `enabled: 0`
-// in the all-zero params short-circuits `sampleSunShadow`) + that params buffer. Sear owns the
-// comparison sampler too — one config, shared by the fallback and the real map
-let _shadowSampler: GPUSampler | null = null;
-let _fallbackDepth: GPUTexture | null = null;
-let _fallbackView: GPUTextureView | null = null;
-let _fallbackParams: GPUBuffer | null = null;
-
-// group 1 (sun shadow) — one layout shared across surfaces: the map depth texture + the comparison
-// sampler + the params uniform. The color + transparent pipelines bind it; the tag + depth pipelines
-// omit it. One global bind group (one sun), cached on the bound map + params identity
-let _shadowBgl: GPUBindGroupLayout | null = null;
-let _shadowGroup: {
-    map: GPUTextureView;
-    params: GPUBuffer;
-    atlas: GPUTextureView;
-    group: GPUBindGroup;
-} | null = null;
-
-// the real SunShadow params sear writes each casting frame (created at warm); `_shadowReady` gates the
-// render until warm has run
-let _shadowReady = false;
-let _sunParams: GPUBuffer | null = null;
-
-// the SunShadow params staging: MAX_CASCADES Cascade rows (CASCADE_FLOATS each) then the globals tail,
-// every field index derived from the schemas (SUN_PARAMS, ./shade)
-const _paramsBuf = new ArrayBuffer(SHADOW_PARAMS_BYTES);
-const _paramsF32 = new Float32Array(_paramsBuf);
-
-// ---- point-light shadows: the GPU half (face viewProjs + tile math in ./shadows) ----
-//
-// One fixed-size depth atlas shared by every shadowed point light (cube faces as tiles, the
-// PlayCanvas model), allocated lazily on the first casting frame. `_pointParams` is the PointCaster
-// uniform array the FS matches compacted lights against — always bound on group 1 (an empty slot's
-// pos.w = -1 never matches a real eid, so the no-caster path reads the fallback atlas never).
-// Published as "pointShadows" so the gym Mirror can pin the metadata to the TS oracle.
-// `_pointAtlasView` doubles as the seam: non-null once the atlas exists.
-//
-// The atlas renders in one pass, one indirect draw per casting mesh (the re-gather concatenates each mesh's
-// per-combo culled members into one run — gpu.md "WebGPU-specific traps"). `_faceVP` is the combo-major
-// face viewProj uniform the VS projects by; the re-gather state (`_shadowEids` etc) is below
-let _pointAtlas: GPUTexture | null = null;
-let _pointAtlasView: GPUTextureView | null = null;
-let _pointParams: GPUBuffer | null = null;
-// the per-(caster, face) allocated atlas-UV rects, indexed slot·6 + face — the receiver samples it (color
-// group 1) and the atlas VS reads it for the tile-discard bounds (point group 1). Published "pointTileRects"
-// so the gym Mirror can pin the allocation; (re)sized at warm when the PointShadows config is final
-let _pointTileRects: GPUBuffer | null = null;
-let _pointFrames: PointShadowFrame[] = [];
-// pos + nf + spotA/B/C vec4s per caster — (re)sized at warm, when the PointShadows config is final
-let _pointBuf = new ArrayBuffer(0);
-let _pointF32 = new Float32Array(_pointBuf);
-
-/** the point-shadow atlas depth view a screen-space consumer (the fog volumetric march) binds to sample
- * the casters' shadows: the real atlas once a point/spot light casts, else the 1×1 fallback (whose empty
- * caster slots never match a light, so the march reads it as fully lit). Pairs with {@link shadowSampler}
- * + the published `"pointShadows"` caster uniform. */
-export function pointAtlasView(): GPUTextureView | null {
-    return _pointAtlasView ?? _fallbackView;
-}
-
-/** the shared shadow comparison sampler (less-equal + linear PCF): a screen-space consumer binds it to
- * comparison-sample {@link pointAtlasView} or {@link sunShadowView}. */
-export function shadowSampler(): GPUSampler | null {
-    return _shadowSampler;
-}
-
-/** the sun (directional) shadow map depth view a screen-space consumer (the fog volumetric march) binds
- * to sample shadowed sun shafts: the real map once the sun casts (a `Shadow` on the directional light),
- * else the 1×1 fallback (whose `enabled: 0` params make {@link sunShadowWgsl} return 1.0, so the
- * march scatters the sun unshadowed). Pairs with {@link shadowSampler} + {@link sunShadowParams}. */
-export function sunShadowView(): GPUTextureView | null {
-    return _sun?.map ?? _fallbackView;
-}
-
-/** the {@link sunStructWgsl} params uniform a screen-space consumer binds: the real
- * light viewProj + bias when the sun casts, else the all-zero `enabled: 0` fallback. Pairs with
- * {@link sunShadowView}. */
-export function sunShadowParams(): GPUBuffer | null {
-    return _sun?.params ?? _fallbackParams;
-}
-
-// the point pipeline's group 1: the combo tile-viewProjs + the per-combo (caster, face) meta + the
-// per-(caster, face) tile rects (shared with the color group, read for the VS's tile-discard bounds), all
-// uniforms. The tile placement is folded into the viewProjs, so the VS's rect read is only for the seam
-// discard; the per-instance (eid, combo) rides the re-gathered list at the surface's `eids` lane
-let _pointBgl: GPUBindGroupLayout | null = null;
-let _faceVP: GPUBuffer | null = null; // dense per-combo viewProjs (≤ 6 · casters mat4), uploaded per frame
-let _comboMeta: GPUBuffer | null = null; // dense per-combo (caster slot, face) the VS tile-decodes
-let _pointGroup1: {
-    faceVP: GPUBuffer;
-    combo: GPUBuffer;
-    rects: GPUBuffer;
-    group: GPUBindGroup;
-} | null = null;
-
-// the point atlas's re-gather instance: concatenates each casting mesh's per-combo culled members (the Part
-// pack output) into one contiguous run + a per-instance combo index, so the atlas renders in one indirect
-// draw per mesh. Its packed list (`_pointRegather.eids()`) binds at the point pass's `eids` lane. The CSM
-// cascade atlas owns a second instance (`regather.ts`); both share the singleton A/B pipelines.
-const _pointRegather = createRegather("point");
-// the casting draws this frame (those whose surface compiled a point pipeline), filled in renderPointShadows
-const _castDraws: { draw: Draw; r: Recorded }[] = [];
-// per-frame re-gather meta scratch (no per-frame alloc): the view slot each dense combo culled into, and the
-// (surface,mesh) pair each casting draw owns — `Regather.run` reads these. Shared across the point + cascade
-// renders (each fills then consumes them in turn within ShadowMapSystem)
-const _comboSlots: number[] = [];
-const _drawPairs: number[] = [];
-
-// ---- CSM cascade atlas: the GPU half (the cascade combo cameras + fit are in ./shadows) ----
-//
-// A dedicated depth atlas (separate from the point atlas — Bevy's directional/point split), N cascade tiles
-// in a fixed grid. Each cascade is its own frustum-culled depth view (the per-cascade cull, ./shadows poses
-// the cameras); the cascade `Regather` instance concatenates each casting mesh's per-cascade culled members
-// into one indirect draw per mesh, the cascade pipeline's VS projecting each into its tile. Mirrors the point
-// atlas exactly, the per-cascade vs per-(caster, face) tile index the only difference.
-let _cascadeAtlas: GPUTexture | null = null;
-let _cascadeAtlasView: GPUTextureView | null = null;
-// the cascade pipeline's group 1 (same 3-uniform shape as the point group 1, reuses `_pointBgl`): the dense
-// per-cascade folded tile viewProjs the VS projects by, the per-cascade meta (tile index), and the tile rects
-let _cascadeVPBuf: GPUBuffer | null = null;
-let _cascadeMetaBuf: GPUBuffer | null = null;
-let _cascadeRectsBuf: GPUBuffer | null = null;
-let _cascadeGroup1: {
-    faceVP: GPUBuffer;
-    combo: GPUBuffer;
-    rects: GPUBuffer;
-    group: GPUBindGroup;
-} | null = null;
-const _cascadeRegather = createRegather("cascade");
-// the casting draws this frame whose surface compiled a cascade pipeline, filled in renderCascades
-const _cascadeCastDraws: { draw: Draw; r: Recorded }[] = [];
-
-// every slot empty: pos.w = -1 (eids are non-negative, so nothing matches)
-function clearPointParams(): void {
-    _pointF32.fill(0);
-    for (let k = 0; k < pointCasters(); k++) _pointF32[k * POINT_CASTER_FLOATS + 3] = -1;
-}
-
-function shadowGroup(): GPUBindGroup {
-    const map = _sun?.map ?? _fallbackView!;
-    const params = _sun?.params ?? _fallbackParams!;
-    const atlas = _pointAtlasView ?? _fallbackView!;
-    if (
-        _shadowGroup &&
-        _shadowGroup.map === map &&
-        _shadowGroup.params === params &&
-        _shadowGroup.atlas === atlas
-    ) {
-        return _shadowGroup.group;
-    }
-    const group = Compute.device.createBindGroup({
-        label: "sear-shadow",
-        layout: _shadowBgl!,
-        entries: [
-            { binding: 0, resource: map },
-            { binding: 1, resource: _shadowSampler! },
-            { binding: 2, resource: { buffer: params } },
-            { binding: 3, resource: atlas },
-            { binding: 4, resource: { buffer: _pointParams! } },
-            { binding: 5, resource: { buffer: _pointTileRects! } },
-        ],
-    });
-    _shadowGroup = { map, params, atlas, group };
-    return group;
-}
-
-/**
- * compile the forward pipelines for every registered surface, sharing one shader module: a 4× MSAA
- * single-target color pipeline (its own depth, `less` + write) that writes shaded color resolved into
- * the offscreen framebuffer, a 1× tag pipeline (its own single-sample depth, `less` + write, single
- * `r32uint` target) that stamps the front-most fragment's surface tag into `view.tag`, and a 1× depth
- * pipeline (position-only, the shadow map renders through it). Color is one camera-independent shape
- * across opaque / `clip` / `alpha`: no MRT; the tag is its own single-sample lane. Color samples the
- * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
- * omit group 1. Sear declares the vertex-pull bindings itself; each draw selects its mesh via
- * `Draw.mesh`. Uniform across surfaces: no "Part-shaped" detection. Also (re)creates the sun-shadow
- * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
- * params buffer), surviving HMR re-warms
- */
-async function prepareSear(device: GPUDevice): Promise<void> {
-    // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
-    // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
-    checkShadowConfig();
-    _compiled.clear();
-    _compiling.clear();
-    _groups.clear();
-    _backgrounds.clear();
-    _shadowGroup = null;
-    _warned.clear();
-    // drop any seam a prior State left behind (module-level survives HMR)
-    _sun = null;
-    // the comparison sampler — `greater-equal` (reverse-Z: a lit receiver is at or in front of the
-    // stored occluder, i.e. ≥ its depth) + linear filtering, so each `textureSampleCompareLevel` tap is
-    // a 2×2 hardware PCF. Shared by the fallback and a real shadow map
-    _shadowSampler = device.createSampler({
-        label: "sear-shadow-cmp",
-        compare: "greater-equal",
-        magFilter: "linear",
-        minFilter: "linear",
-    });
-    // the 1×1 fallback depth + all-zero params (enabled: 0) bound when no light casts. The map is never
-    // sampled (the enabled gate short-circuits), so its undefined contents don't matter
-    _fallbackDepth?.destroy();
-    _fallbackDepth = device.createTexture({
-        label: "sear-shadow-fallback",
-        size: { width: 1, height: 1 },
-        format: DEPTH_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    });
-    _fallbackView = _fallbackDepth.createView();
-    _fallbackParams?.destroy();
-    _fallbackParams = device.createBuffer({
-        label: "sear-shadow-fallback-params",
-        size: SHADOW_PARAMS_BYTES,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(_fallbackParams, 0, new Float32Array(SHADOW_PARAMS_BYTES / 4));
-    // the real params buffer sear writes each shadowed frame (viewProj + texel + depth/normal bias)
-    _sunParams?.destroy();
-    _sunParams = device.createBuffer({
-        label: "sear-shadow-params",
-        size: SHADOW_PARAMS_BYTES,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    // the point-shadow atlas also allocates lazily; the params buffer always exists (always bound on
-    // group 1, cleared to empty slots). COPY_SRC + published by name for the gym's metadata Mirror
-    _pointAtlas?.destroy();
-    _pointAtlas = null;
-    _pointAtlasView = null;
-    _pointFrames = [];
-    _pointParams?.destroy();
-    // both uniforms are sized from the schemas the shadow WGSL emits, so the binding and the struct the
-    // receiver reads can't drift apart (checkShadowConfig catches a config change after that resolve)
-    _pointBuf = new ArrayBuffer(d.sizeOf(pointCastersSchema()));
-    _pointF32 = new Float32Array(_pointBuf);
-    _pointParams = device.createBuffer({
-        label: "sear-point-shadow-params",
-        size: _pointBuf.byteLength,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
-    clearPointParams();
-    device.queue.writeBuffer(_pointParams, 0, _pointBuf);
-    Compute.buffers.set("pointShadows", _pointParams);
-    // the per-(caster, face) tile rects — bound on both the color shadow group (the receiver) and the point
-    // group (the atlas VS's discard bounds). Always exists (cleared to zero), COPY_SRC + published for the
-    // gym Mirror. 6 vec4 per caster
-    _pointTileRects?.destroy();
-    _pointTileRects = device.createBuffer({
-        label: "sear-point-tilerects",
-        size: d.sizeOf(tileRectsSchema(pointCasters() * 6)),
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
-    device.queue.writeBuffer(_pointTileRects, 0, new Float32Array(pointCasters() * 6 * 4));
-    Compute.buffers.set("pointTileRects", _pointTileRects);
-    _shadowBgl = device.createBindGroupLayout({
-        label: "sear-shadow",
-        entries: [
-            { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
-            // the sampler + point-shadow bindings are vertex-visible too: a per-vertex surface's vs
-            // chunk calls lightFactor → pointFactor → pointShadowOf, so they're statically reachable
-            // from the vertex stage (it early-outs on pointScale == 0 at runtime, and
-            // textureSampleCompareLevel is vertex-legal — the reason the FS uses the Level variant).
-            // The sun map + params (0, 2) stay fragment-only: sampleSunShadow is scaffold-called,
-            // never reachable from a vs chunk. The tile rects (5) are part of pointShadowOf, so vertex-visible
-            { binding: 1, visibility: VS_FS, sampler: { type: "comparison" } },
-            { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-            { binding: 3, visibility: VS_FS, texture: { sampleType: "depth" } },
-            { binding: 4, visibility: VS_FS, buffer: { type: "uniform" } },
-            { binding: 5, visibility: VS_FS, buffer: { type: "uniform" } },
-        ],
-    });
-
-    // the point pipeline's group 1 buffers: the combo-major face viewProjs + the per-combo meta (the tile
-    // rects bind alongside, all uniforms the point VS reads)
-    _faceVP?.destroy();
-    _faceVP = device.createBuffer({
-        label: "sear-point-facevp",
-        size: pointCasters() * 6 * 64,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _comboMeta?.destroy();
-    _comboMeta = device.createBuffer({
-        label: "sear-point-combometa",
-        size: pointCasters() * 6 * 16, // vec4<u32> per combo
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _pointBgl = device.createBindGroupLayout({
-        label: "sear-point",
-        entries: [
-            { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-            { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-        ],
-    });
-    _pointGroup1 = null;
-    // the cascade pipeline's group 1 buffers (same shape as the point group 1, reuses `_pointBgl`): the dense
-    // per-cascade folded tile viewProjs, the per-cascade meta, and the tile rects — all MAX_CASCADES-sized
-    _cascadeVPBuf?.destroy();
-    _cascadeVPBuf = device.createBuffer({
-        label: "sear-cascade-vp",
-        size: MAX_CASCADES * 64,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _cascadeMetaBuf?.destroy();
-    _cascadeMetaBuf = device.createBuffer({
-        label: "sear-cascade-meta",
-        size: MAX_CASCADES * 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _cascadeRectsBuf?.destroy();
-    _cascadeRectsBuf = device.createBuffer({
-        label: "sear-cascade-rects",
-        size: MAX_CASCADES * 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    _cascadeGroup1 = null;
-    // both atlases' re-gather: (re)create the per-instance buffers + clear caches. The lazily-allocated packed
-    // list binds at each atlas pipeline's `eids` lane, so allocating it clears `_groups` to rebuild the bind
-    // groups with it
-    _pointRegather.reset(() => _groups.clear());
-    _cascadeRegather.reset(() => _groups.clear());
-
-    _shadowReady = true;
-    // eager-compile variant 0 for every non-specializing surface (the Part materials, lines, sprite, …) so
-    // the bare happy path renders on the first frame, plus the shared re-gather A/B pipelines (idempotent —
-    // the point + cascade atlases share them). A specializing surface (the glTF importer) defers — its draws
-    // lazily compile their material map-set variant in `record`, known only once meshes load
-    await Promise.all([
-        prepareRegather(device),
-        ...Array.from(Surfaces, (surface) =>
-            surface.specialize ? null : compileVariant(device, surface, 0),
-        ),
-        // backdrops are registered in code at initialize (like surfaces), so the set is final at warm
-        ...Array.from(Backgrounds, (bg) => compileBackground(device, bg)),
-    ]);
-}
-
-// the inputs to build a surface's color/transparent pipelines at any sample count. Fixed per variant
-// (only the count varies), so `compileVariant` stashes them on `Compiled` for `ensureSingle` to compile
-// the single-sample twin without re-deriving the shader module (the expensive part)
-type ColorArgs = {
-    name: string;
-    variant: number;
-    module: GPUShaderModule;
-    colorLayout: GPUPipelineLayout;
-    primitive: GPUPrimitiveState;
-    blend: Surface["blend"];
-};
-
-// build the color pass's pipelines at a given sample count — the opaque `color` (a `clip` surface is
-// opaque too) or the blended `transparent` (`alpha`), whichever the surface's blend mode selects; the
-// other stays null. `multisample.count` is the only thing that varies with AA mode, so the same shader
-// module + pipeline layout produce both the 4× (`compileVariant`) and 1× (`ensureSingle`) twins
-async function colorPipelines(
-    device: GPUDevice,
-    args: ColorArgs,
-    samples: number,
-): Promise<{ color: GPURenderPipeline | null; transparent: GPURenderPipeline | null }> {
-    const { name, variant, module, colorLayout, primitive, blend } = args;
-    const suffix = samples === 1 ? "-1x" : "";
-    if (blend === "alpha") {
-        const transparent = await device.createRenderPipelineAsync({
-            label: `sear-transparent-${name}#${variant}${suffix}`,
-            layout: colorLayout,
-            vertex: { module, entryPoint: "vs" },
-            fragment: {
-                module,
-                entryPoint: "fs",
-                targets: [{ format: Render.format, blend: ALPHA_BLEND }],
-            },
-            primitive,
-            depthStencil: {
-                format: DEPTH_FORMAT,
-                depthWriteEnabled: false,
-                depthCompare: "greater-equal",
-            },
-            multisample: { count: samples },
-        });
-        return { color: null, transparent };
-    }
-    const color = await device.createRenderPipelineAsync({
-        label: `sear-${name}#${variant}${suffix}`,
-        layout: colorLayout,
-        vertex: { module, entryPoint: "vs" },
-        fragment: { module, entryPoint: "fs", targets: [{ format: Render.format }] },
-        primitive,
-        depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "greater" },
-        multisample: { count: samples },
-    });
-    return { color, transparent: null };
-}
-
-/**
- * compile one background's backdrop pipelines into `_backgrounds`: the 4× MSAA + single-sample twins
- * (a camera binds whichever its `Camera.antialias` selects), sharing one shader module + group-0 layout
- * (frame / view-with-dynamic-offset / lighting + the background's own bindings at {@link BG_BASE}). The
- * pipeline draws the fullscreen triangle at the reverse-Z far plane with `depthCompare: "greater-equal"`
- * and **no depth write**: at clip z = 0 an un-rendered pixel (cleared depth 0) passes `0 >= 0`, a
- * geometry pixel (depth > 0) fails, so the backdrop fills only background pixels with no readback. Under
- * MSAA the per-sample test resolves the sky↔geometry silhouette antialiased. Both twins compile eagerly
- * (backgrounds are few; the camera's AA mode is known only at draw time).
- */
-async function compileBackground(device: GPUDevice, bg: Background): Promise<void> {
-    const entries = Object.entries(bg.bindings ?? {});
-    const slots = entries.map(([n, b]) => ({ name: n, type: b.type }));
-    const layout = device.createBindGroupLayout({
-        label: `sear-bg-${bg.name}`,
-        entries: [
-            { binding: FRAME, visibility: VS_FS, buffer: { type: "uniform" } },
-            {
-                binding: VIEW,
-                visibility: VS_FS,
-                buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: VIEW_BYTES },
-            },
-            { binding: LIGHTING, visibility: VS_FS, buffer: { type: "uniform" } },
-            ...entries.map(([, b], k) => bindingEntry(b, k + BG_BASE)),
-        ],
-    });
-    const module = device.createShaderModule({
-        label: `sear-bg-${bg.name}`,
-        code: backgroundCode(bg),
-    });
-    // group 1 is the shadow seam — the background shader never references it, but the layout declares it
-    // (unused) so the bg pipeline has the same two-group shape every color pipeline does. That keeps the
-    // shadow group (bound once per pass) alive across the opaque → backdrop → blend pipeline switches: a
-    // bg pipeline with only group 0 would be a group-count mismatch that drops group 1 for the blend draws
-    const pipelineLayout = device.createPipelineLayout({
-        bindGroupLayouts: [layout, _shadowBgl!],
-    });
-    const pipe = (samples: number) =>
-        device.createRenderPipelineAsync({
-            label: `sear-bg-${bg.name}${samples === 1 ? "-1x" : ""}`,
-            layout: pipelineLayout,
-            vertex: { module, entryPoint: "vs" },
-            fragment: { module, entryPoint: "fs", targets: [{ format: Render.format }] },
-            // a fullscreen triangle has no consistent winding — disable back-face culling
-            primitive: { topology: "triangle-list", cullMode: "none" },
-            depthStencil: {
-                format: DEPTH_FORMAT,
-                depthWriteEnabled: false,
-                depthCompare: "greater-equal",
-            },
-            multisample: { count: samples },
-        });
-    const [color, single] = await Promise.all([pipe(SAMPLE_COUNT), pipe(1)]);
-    _backgrounds.set(bg.name, { name: bg.name, color, single, layout, slots, group: null });
-}
-
-/**
- * compile one surface's pipelines for a material map-set `variant` (the color + transparent + per-lane-set
- * prepass pipelines + the shared bind-group layout), keyed `${surface}#${variant}` in `_compiled`. A
- * non-specializing surface only ever uses variant 0 (compiled eagerly at warm); a specializing surface (the
- * glTF importer) gets one entry per map-set a scene draws (Bevy's on-demand specialization). The bindings are
- * variant-invariant, so every variant shares the same layout shape and `record`'s one cached bind group.
- * The color pipelines compile at 4× (the AA-on default); the single-sample twin compiles lazily in `ensureSingle`.
- */
-async function compileVariant(device: GPUDevice, surface: Surface, variant: number): Promise<void> {
-    const name = surface.name;
-    const entries = Object.entries(surface.bindings ?? {});
-    const slots = entries.map(([n, b]) => ({ name: n, type: b.type }));
-
-    const layout = device.createBindGroupLayout({
-        label: `sear-${name}`,
-        entries: [
-            ...UNIFORM_LAYOUT,
-            ...entries.map(([, b], k) => bindingEntry(b, k + SURFACE_BASE)),
-        ],
-    });
-    // color binds group 0 (per-draw, camera-independent) + group 1 (the sun shadow map +
-    // sampler + params); the prepass pipelines bind group 0 alone, since their fragments never
-    // reference the group-1 shadow bindings, so the missing group 1 is valid
-    const colorLayout = device.createPipelineLayout({
-        bindGroupLayouts: [layout, _shadowBgl!],
-    });
-    const prepassLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-    // two modules: the color entries reference the real group-1 shadow bindings; the
-    // prepass entries compile against stubs so their group-0-only layout stays valid (and
-    // the atlas render never samples the texture it's writing). `alpha` has no prepass
-    // entries, so it compiles the color module alone
-    const module = device.createShaderModule({
-        label: `sear-${name}#${variant}`,
-        code: surfaceCode(surface, "color", variant),
-    });
-    // a screen-space surface builds its own quads in clip space (lines), so their winding
-    // flips with segment direction — back-face culling would drop half of them. World-space
-    // surfaces keep back-face culling (the overdraw win + correct cutout/shadow facing)
-    const primitive: GPUPrimitiveState = {
-        topology: "triangle-list",
-        cullMode: surface.screen ? "none" : "back",
-        frontFace: "ccw",
-    };
-    const colorArgs: ColorArgs = {
-        name,
-        variant,
-        module,
-        colorLayout,
-        primitive,
-        blend: surface.blend,
-    };
-
-    // a `blend` surface is one non-opaque pipeline: a single blended color target, depth-*tested*
-    // (`less-equal`) against the color pass's depth so nearer opaque geometry occludes it, but never
-    // depth-*written* so it occludes nothing itself. No prepass lanes (a transparent pixel has no
-    // single owner, writes no prepass depth, casts nothing) — `color` stays null, `prepass` an empty map
-    if (surface.blend === "alpha") {
-        const { color, transparent } = await colorPipelines(device, colorArgs, SAMPLE_COUNT);
-        _compiled.set(variantKey(name, variant), {
-            color,
-            transparent,
-            single: null,
-            singlePending: false,
-            colorArgs,
-            prepass: new Map(),
-            point: null, // a transparent pixel casts nothing
-            cascade: null,
-            layout,
-            slots,
-        });
-        return;
-    }
-
-    // opaque and masked-opaque cutout (`clip`) share the color pipeline + the per-lane-set prepass
-    // pipelines; they differ only in the empty-set prepass fragment stage (a `clip` surface runs
-    // `fsPrepass` to discard, an opaque one is position-only)
-    const clip = surface.blend === "clip";
-    const prepassModule = device.createShaderModule({
-        label: `sear-prepass-${name}#${variant}`,
-        code: surfaceCode(surface, "prepass", variant),
-    });
-    // the prepass depth-stencil (reverse-Z `greater` + write, its own single-sample depth cleared each
-    // frame). The color pass's depth lives inside `colorPipelines`; both are `greater` + write, never
-    // cross-compared
-    const depthStencil: GPUDepthStencilState = {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: true,
-        depthCompare: "greater",
-    };
-    // the point-shadow atlas pipeline (depth-only): one indirect draw per casting mesh into the shared
-    // atlas, the VS reading the re-gathered per-combo culled instances + remapping clip XY to the tile.
-    // cullMode "back" (as the depth pass): the tile remap applies two y-flips (face-NDC → atlas-uv →
-    // atlas-NDC) that cancel, so the net winding is unchanged and back-face cull drops the same faces. It
-    // must — a light sitting inside a caster (a lamp fixture sphere, a light marker) sees only that mesh's
-    // back faces, so culling them is what stops the fixture from occluding its own light in every
-    // direction (receiver-side bias carries the acne). Only an **instanced** surface casts (the re-gathered
-    // list keys on the per-instance `eids` + `transforms`); a non-instanced producer or a `screen` overlay
-    // has no per-instance member list, so it gets no point pipeline
-    const instanced = !!(surface.bindings?.eids && surface.bindings?.transforms);
-    const castable = !surface.screen && instanced;
-    const pointModule = castable
-        ? device.createShaderModule({
-              label: `sear-point-${name}#${variant}`,
-              code: pointShadowCode(surface, variant),
-          })
-        : null;
-    // the cascade atlas pipeline is the point pipeline's twin (same depth-only shape + group-1 layout, the
-    // per-cascade tile index the only difference), so it gates + compiles the same way
-    const cascadeModule = castable
-        ? device.createShaderModule({
-              label: `sear-cascade-${name}#${variant}`,
-              code: pointShadowCode(surface, variant, true),
-          })
-        : null;
-    const castLayout = castable
-        ? device.createPipelineLayout({ bindGroupLayouts: [layout, _pointBgl!] })
-        : null;
-
-    const prepass = new Map<string, GPURenderPipeline>();
-    const [{ color, transparent }, point, cascade] = await Promise.all([
-        // single-target color at the AA-on sample count, resolved into the offscreen framebuffer. Owns
-        // its own depth (`less` + write); the single-sample twin compiles lazily in `ensureSingle`
-        colorPipelines(device, colorArgs, SAMPLE_COUNT),
-        pointModule && castLayout
-            ? device.createRenderPipelineAsync({
-                  label: `sear-point-${name}#${variant}`,
-                  layout: castLayout,
-                  vertex: { module: pointModule, entryPoint: "vs" },
-                  fragment: { module: pointModule, entryPoint: "fsPoint", targets: [] },
-                  primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
-                  depthStencil,
-                  multisample: { count: 1 },
-              })
-            : Promise.resolve(null),
-        cascadeModule && castLayout
-            ? device.createRenderPipelineAsync({
-                  label: `sear-cascade-${name}#${variant}`,
-                  layout: castLayout,
-                  vertex: { module: cascadeModule, entryPoint: "vs" },
-                  fragment: { module: cascadeModule, entryPoint: "fsPoint", targets: [] },
-                  primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
-                  depthStencil,
-                  multisample: { count: 1 },
-              })
-            : Promise.resolve(null),
-        // one single-sample prepass pipeline per color-lane subset (`less` + write, its own depth
-        // cleared each frame so the front-most fragment stamps with no prepass below it). The
-        // empty subset is position-only depth (the shadow map + a depth-only camera render through
-        // it; a `clip` surface adds the `fsPrepass` discard so it holes the depth and casts a
-        // holed shadow); `tag` writes the id lane. Binds the group-0 layout alone — the prepass
-        // fragments never reference the group-1 shadow bindings, so they carry no lighting
-        ...laneSubsets().map((laneSet) =>
-            device
-                .createRenderPipelineAsync({
-                    label: `sear-prepass-${laneKey(laneSet) || "depth"}-${name}#${variant}`,
-                    layout: prepassLayout,
-                    vertex: { module: prepassModule, entryPoint: "vs" },
-                    ...(laneSet.length > 0 || clip
-                        ? {
-                              fragment: {
-                                  module: prepassModule,
-                                  entryPoint: prepassEntry(laneSet),
-                                  targets: laneSet.map((l) => ({ format: l.format })),
-                              },
-                          }
-                        : {}),
-                    primitive,
-                    depthStencil,
-                })
-                .then((p) => {
-                    prepass.set(laneKey(laneSet), p);
-                    return p;
-                }),
-        ),
-    ]);
-    _compiled.set(variantKey(name, variant), {
-        color,
-        transparent,
-        single: null,
-        singlePending: false,
-        colorArgs,
-        prepass,
-        point,
-        cascade,
-        layout,
-        slots,
-    });
-}
-
-// trigger the lazy compile of a specializing surface's `variant` once (the draw skips until it lands).
-// Deduped via `_compiling`; on success the key drops so `_compiled` is the sole record, on failure it stays
-// (warn once, never retry — the WGSL is deterministic, so a recompile would just fail + spam again)
-function ensureVariant(surface: Surface, variant: number): void {
-    const key = variantKey(surface.name, variant);
-    if (_compiled.has(key) || _compiling.has(key)) return;
-    const device = Compute.device;
-    if (!device || !_shadowReady) return;
-    _compiling.add(key);
-    compileVariant(device, surface, variant).then(
-        () => _compiling.delete(key),
-        (e) =>
-            console.warn(`sear: surface "${surface.name}" variant ${variant} failed to compile`, e),
-    );
-}
-
-// compile a variant's single-sample (AA-off) twin, once, the first frame a no-AA camera draws it (deduped
-// via `singlePending`; until it lands the draw skips for that camera, the same shape as a lazy variant).
-// The shader module + layout are already compiled, so this is just the 1× pipeline. An all-AA-on scene
-// never calls this — `renderColor` invokes it only for a camera whose `Camera.antialias` is off
-function ensureSingle(c: Compiled): void {
-    if (c.single || c.singlePending) return;
-    const device = Compute.device;
-    if (!device) return;
-    c.singlePending = true;
-    colorPipelines(device, c.colorArgs, 1).then(
-        (pipes) => {
-            c.single = pipes;
-            c.singlePending = false;
-        },
-        (e) => {
-            c.singlePending = false;
-            const msg = `sear: surface "${c.colorArgs.name}" single-sample pipeline failed to compile`;
-            console.warn(msg, e);
-        },
-    );
-}
-
-// the point-shadow atlas, fixed-size, allocated on the first casting frame (the bare path — no
-// `Shadow` on any point light — never allocates it)
-function ensureAtlas(): void {
-    if (_pointAtlas) return;
-    const side = pointAtlasSize();
-    _pointAtlas = Compute.device.createTexture({
-        label: "sear-point-shadow-atlas",
-        size: { width: side, height: side },
-        format: DEPTH_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    });
-    _pointAtlasView = _pointAtlas.createView();
-}
-
-// the cascade atlas, fixed-size (the per-cascade resolution × the grid), allocated on the first casting frame
-// — the bare path (no `Shadow` on the sun) never allocates it
-function ensureCascadeAtlas(): void {
-    if (_cascadeAtlas) return;
-    const side = cascadeAtlasSize(sunResolution(), sunCascades());
-    _cascadeAtlas = Compute.device.createTexture({
-        label: "sear-cascade-shadow-atlas",
-        size: { width: side, height: side },
-        format: DEPTH_FORMAT,
-        usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
-    });
-    _cascadeAtlasView = _cascadeAtlas.createView();
-}
-
-// the cascade pipeline's group 1 — per-cascade tile viewProjs + meta + rects, the point group 1's twin
-// (reuses `_pointBgl`). Cached on the bound identities (the buffers are stable post-warm, so this hits once)
-function cascadeGroup1(): GPUBindGroup {
-    if (
-        _cascadeGroup1 &&
-        _cascadeGroup1.faceVP === _cascadeVPBuf &&
-        _cascadeGroup1.combo === _cascadeMetaBuf &&
-        _cascadeGroup1.rects === _cascadeRectsBuf
-    ) {
-        return _cascadeGroup1.group;
-    }
-    const group = Compute.device.createBindGroup({
-        label: "sear-cascade-group1",
-        layout: _pointBgl!,
-        entries: [
-            { binding: 0, resource: { buffer: _cascadeVPBuf! } },
-            { binding: 1, resource: { buffer: _cascadeMetaBuf! } },
-            { binding: 2, resource: { buffer: _cascadeRectsBuf! } },
-        ],
-    });
-    _cascadeGroup1 = {
-        faceVP: _cascadeVPBuf!,
-        combo: _cascadeMetaBuf!,
-        rects: _cascadeRectsBuf!,
-        group,
-    };
-    return group;
-}
-
-// the point pipeline's group 1 — combo tile-viewProjs + combo meta + the tile rects, all uniforms (the
-// per-instance (eid, combo) rides the re-gathered list at the eids lane). Cached on the bound identities
-function pointGroup1(): GPUBindGroup {
-    if (
-        _pointGroup1 &&
-        _pointGroup1.faceVP === _faceVP &&
-        _pointGroup1.combo === _comboMeta &&
-        _pointGroup1.rects === _pointTileRects
-    ) {
-        return _pointGroup1.group;
-    }
-    const group = Compute.device.createBindGroup({
-        label: "sear-point-group1",
-        layout: _pointBgl!,
-        entries: [
-            { binding: 0, resource: { buffer: _faceVP! } },
-            { binding: 1, resource: { buffer: _comboMeta! } },
-            { binding: 2, resource: { buffer: _pointTileRects! } },
-        ],
-    });
-    _pointGroup1 = { faceVP: _faceVP!, combo: _comboMeta!, rects: _pointTileRects!, group };
-    return group;
-}
-
-/**
- * render every shadowed caster's depth into the atlas in **one pass, one indirect draw per casting mesh**.
- * Each combo (cube face / spot cone) culled independently through the Part pack into its own depth-only
- * view slot (the per-combo cull, `updatePointShadows` poses the cameras), then a two-pass **re-gather**
- * concatenates each casting mesh's per-combo culled members into one contiguous mesh-major run + a
- * per-instance combo index: so one indirect draw per mesh covers all its combos (the property the deleted
- * amplify trick bought, now reading per-combo *culled* counts, no over-amplification). The VS reads the
- * re-gathered packed list at the eids lane. Writes the PointCaster params the FS matches lights against,
- * uploads the CPU face viewProjs. No casters → params cleared, no pass, no atlas allocated
- */
-function renderPointShadows(): void {
-    const encoder = Render.encoder;
-    if (!encoder || !_shadowReady) return;
-    if (_pointFrames.length === 0) {
-        if (_pointF32[3] !== -1) {
-            clearPointParams();
-            Compute.device.queue.writeBuffer(_pointParams!, 0, _pointBuf);
-        }
-        return;
-    }
-    ensureAtlas();
-    _pointRegather.ensure(pointCasters() * 6);
-
-    // the caster params the FS samples (pos + source eid, clip planes + bias, + the spot basis —
-    // right.xyz/coneTanHalf, up.xyz, fwd.xyz; coneTanHalf 0 routes the FS to the cube-face path). The tile
-    // rects ride a separate uniform (uploaded below), indexed slot·6 + face
-    clearPointParams();
-    for (const frame of _pointFrames) {
-        const o = frame.slot * POINT_CASTER_FLOATS;
-        _pointF32[o] = frame.pos[0];
-        _pointF32[o + 1] = frame.pos[1];
-        _pointF32[o + 2] = frame.pos[2];
-        _pointF32[o + 3] = frame.light;
-        _pointF32[o + 4] = frame.near;
-        _pointF32[o + 5] = frame.far;
-        _pointF32[o + 6] = frame.depthBias;
-        _pointF32[o + 7] = frame.normalBias;
-        _pointF32[o + 8] = frame.right[0];
-        _pointF32[o + 9] = frame.right[1];
-        _pointF32[o + 10] = frame.right[2];
-        _pointF32[o + 11] = frame.coneTanHalf;
-        _pointF32[o + 12] = frame.up[0];
-        _pointF32[o + 13] = frame.up[1];
-        _pointF32[o + 14] = frame.up[2];
-        _pointF32[o + 16] = frame.fwd[0];
-        _pointF32[o + 17] = frame.fwd[1];
-        _pointF32[o + 18] = frame.fwd[2];
-    }
-    Compute.device.queue.writeBuffer(_pointParams!, 0, _pointBuf);
-    // the per-(caster, face) tile rects (sparse, slot·6 + face) the receiver samples + the VS discards by
-    const tileRects = pointTileRects();
-    Compute.device.queue.writeBuffer(
-        _pointTileRects!,
-        0,
-        tileRects as Float32Array<ArrayBuffer>,
-        0,
-        tileRects.length,
-    );
-    // the combo viewProjs the VS projects by + their (caster, face) meta (dense, CPU-side in updatePointShadows)
-    const faceVP = pointFaceVP();
-    Compute.device.queue.writeBuffer(
-        _faceVP!,
-        0,
-        faceVP as Float32Array<ArrayBuffer>,
-        0,
-        faceVP.length,
-    );
-    const comboMeta = pointComboMeta();
-    Compute.device.queue.writeBuffer(
-        _comboMeta!,
-        0,
-        comboMeta as Uint32Array<ArrayBuffer>,
-        0,
-        comboMeta.length,
-    );
-
-    // the casting draws (a compiled point pipeline + its point bind group) sharing the Part pack's one
-    // indirect buffer — read from the Draws, not Part (sear stays part-agnostic). A producer owning its own
-    // indirect buffer can't ride the shared-buffer re-gather, so it's skipped (a non-Part caster is unusual)
-    _castDraws.length = 0;
-    let drawArgs: GPUBuffer | null = null;
-    let pairCount = 0;
-    for (const item of _frameDraws) {
-        if (!item.r.c.point || !item.r.pointGroup) continue;
-        const buf = item.draw.args.indirect;
-        if (!drawArgs) {
-            drawArgs = buf;
-            pairCount = Math.floor((item.draw.args.viewStride ?? 0) / SHADOW_ARG_STRIDE);
-        } else if (buf !== drawArgs) {
-            continue;
-        }
-        _castDraws.push(item);
-    }
-    const D = _castDraws.length;
-    const C = pointComboCount();
-    const packed = Compute.buffers.get("eids");
-    if (D === 0 || C === 0 || !drawArgs || !packed || pairCount === 0) return;
-
-    // the re-gather inputs: the view slot each dense combo culled into, and the (surface,mesh) pair each
-    // casting draw owns. `Regather.run` concatenates each mesh's per-combo culled members into one run +
-    // a per-instance combo index (Pass A per-mesh args → Pass B scatter), in one compute pass
-    const combos = pointComboEids();
-    _comboSlots.length = 0;
-    for (let c = 0; c < C; c++) _comboSlots.push(Views.get(combos[c])?.slot ?? 0);
-    _drawPairs.length = 0;
-    for (let i = 0; i < D; i++)
-        _drawPairs.push(Math.floor((_castDraws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE));
-    const cpass = encoder.beginComputePass({
-        label: "sear:pointregather",
-        timestampWrites: Compute.span?.("sear:pointregather"),
-    });
-    _pointRegather.run(cpass, drawArgs, packed, _comboSlots, _drawPairs, pairCount);
-    cpass.end();
-
-    // one pass into the whole atlas — one indirect draw per casting mesh, the VS placing each re-gathered
-    // instance into its combo's tile. The point VS projects by faceVP (not view), so the view dynamic
-    // offset is an unused slot-0 placeholder
-    const pass = encoder.beginRenderPass({
-        label: "sear-pointshadow",
-        timestampWrites: Compute.span?.("sear:pointshadow"),
-        colorAttachments: [],
-        depthStencilAttachment: {
-            view: _pointAtlasView!,
-            depthLoadOp: "clear",
-            depthStoreOp: "store",
-            depthClearValue: 0,
-        },
-    });
-    const offset = [0];
-    const group1 = pointGroup1();
-    for (let i = 0; i < D; i++) {
-        const { r } = _castDraws[i];
-        pass.setPipeline(r.c.point!);
-        pass.setBindGroup(0, r.pointGroup!, offset);
-        pass.setBindGroup(1, group1);
-        pass.setIndexBuffer(r.index, "uint32");
-        pass.drawIndexedIndirect(_pointRegather.args()!, i * SHADOW_ARG_STRIDE);
-    }
-    pass.end();
-    // one indirect draw per casting mesh — the Dawn indirect-validation floor (gpu.md); the per-combo
-    // fan-out is collapsed by the re-gather, not amplified
-    Compute.indirect?.("sear:pointshadow", D);
-}
-
-/**
- * render the CSM cascades into the dedicated cascade atlas, then publish the sun seam (`_sun` → the cascade
- * atlas + the per-cascade {@link SunShadow} params) for the color pass to sample inline: the sun's twin of
- * {@link renderPointShadows}. Each cascade is its own frustum-culled depth view (`updateCascades` poses the
- * cameras); the cascade {@link Regather} concatenates each casting mesh's per-cascade culled members into one
- * indirect draw per mesh, the cascade VS projecting each into its atlas tile. No casting sun
- * ({@link cascadeCount} 0) or no casting geometry → `_sun = null` (the fully-lit fallback), no atlas allocated.
- */
-function renderCascades(): void {
-    const encoder = Render.encoder;
-    if (!encoder || !_shadowReady) return;
-    const C = cascadeCount();
-    if (C === 0) {
-        _sun = null;
-        return;
-    }
-    ensureCascadeAtlas();
-    _cascadeRegather.ensure(MAX_CASCADES);
-
-    // upload the per-cascade folded tile viewProjs + meta + rects (CPU-computed in updateCascades)
-    const vp = cascadeFaceVP();
-    Compute.device.queue.writeBuffer(_cascadeVPBuf!, 0, vp as Float32Array<ArrayBuffer>, 0, C * 16);
-    const meta = cascadeMeta();
-    Compute.device.queue.writeBuffer(
-        _cascadeMetaBuf!,
-        0,
-        meta as Uint32Array<ArrayBuffer>,
-        0,
-        C * 4,
-    );
-    const rects = cascadeTileRects();
-    Compute.device.queue.writeBuffer(
-        _cascadeRectsBuf!,
-        0,
-        rects as Float32Array<ArrayBuffer>,
-        0,
-        C * 4,
-    );
-
-    // the casting draws (a compiled cascade pipeline + its cascade bind group) sharing the Part pack's one
-    // indirect buffer — same part-agnostic gather as the point path
-    _cascadeCastDraws.length = 0;
-    let drawArgs: GPUBuffer | null = null;
-    let pairCount = 0;
-    for (const item of _frameDraws) {
-        if (!item.r.c.cascade || !item.r.cascadeGroup) continue;
-        const buf = item.draw.args.indirect;
-        if (!drawArgs) {
-            drawArgs = buf;
-            pairCount = Math.floor((item.draw.args.viewStride ?? 0) / SHADOW_ARG_STRIDE);
-        } else if (buf !== drawArgs) {
-            continue;
-        }
-        _cascadeCastDraws.push(item);
-    }
-    const D = _cascadeCastDraws.length;
-    const packed = Compute.buffers.get("eids");
-    if (D === 0 || !drawArgs || !packed || pairCount === 0) {
-        _sun = null; // a casting sun with no casting geometry — fully lit, like the no-cast path
-        return;
-    }
-
-    // the re-gather inputs: the view slot each cascade culled into, the (surface,mesh) pair each casting draw owns
-    const combos = cascadeComboEids();
-    _comboSlots.length = 0;
-    for (let c = 0; c < C; c++) _comboSlots.push(Views.get(combos[c])?.slot ?? 0);
-    _drawPairs.length = 0;
-    for (let i = 0; i < D; i++)
-        _drawPairs.push(
-            Math.floor((_cascadeCastDraws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE),
-        );
-    const cpass = encoder.beginComputePass({
-        label: "sear:cascaderegather",
-        timestampWrites: Compute.span?.("sear:cascaderegather"),
-    });
-    _cascadeRegather.run(cpass, drawArgs, packed, _comboSlots, _drawPairs, pairCount);
-    cpass.end();
-
-    // one pass into the cascade atlas — one indirect draw per casting mesh, the VS placing each re-gathered
-    // instance into its cascade's tile. The cascade VS projects by the folded tile viewProj (not view), so
-    // the view dynamic offset is an unused slot-0 placeholder
-    const pass = encoder.beginRenderPass({
-        label: "sear-cascadeshadow",
-        timestampWrites: Compute.span?.("sear:cascadeshadow"),
-        colorAttachments: [],
-        depthStencilAttachment: {
-            view: _cascadeAtlasView!,
-            depthLoadOp: "clear",
-            depthStoreOp: "store",
-            depthClearValue: 0,
-        },
-    });
-    const offset = [0];
-    const group1 = cascadeGroup1();
-    for (let i = 0; i < D; i++) {
-        const { r } = _cascadeCastDraws[i];
-        pass.setPipeline(r.c.cascade!);
-        pass.setBindGroup(0, r.cascadeGroup!, offset);
-        pass.setBindGroup(1, group1);
-        pass.setIndexBuffer(r.index, "uint32");
-        pass.drawIndexedIndirect(_cascadeRegather.args()!, i * SHADOW_ARG_STRIDE);
-    }
-    pass.end();
-    Compute.indirect?.("sear:cascadeshadow", D);
-
-    // write the per-cascade SunShadow params + publish the seam: the receiver selects a cascade by view-z and
-    // samples the cascade atlas (`sampleSunShadow`). One atlas pixel in uv (`texel`) is the PCF tap step; each
-    // cascade carries its own world texel size (2·cover/resolution) for the normal-offset bias
-    const recv = cascadeRecvVP();
-    const tileRects = cascadeTileRects();
-    const fars = cascadeFars();
-    const covers = cascadeCovers();
-    const res = sunResolution();
-    _paramsF32.fill(0);
-    for (let i = 0; i < C; i++) {
-        const base = i * CASCADE_FLOATS;
-        _paramsF32.set(recv.subarray(i * 16, i * 16 + 16), base + SUN_PARAMS.cascade.viewProj);
-        _paramsF32.set(tileRects.subarray(i * 4, i * 4 + 4), base + SUN_PARAMS.cascade.rect);
-        _paramsF32[base + SUN_PARAMS.cascade.far] = fars[i];
-        _paramsF32[base + SUN_PARAMS.cascade.texelWorld] = (2 * covers[i]) / res;
-    }
-    const bias = sunBias();
-    _paramsF32[SUN_PARAMS.globals.count] = C;
-    _paramsF32[SUN_PARAMS.globals.overlap] = SunShadows.overlap;
-    _paramsF32[SUN_PARAMS.globals.depthBias] = bias.depthBias;
-    _paramsF32[SUN_PARAMS.globals.enabled] = 1;
-    _paramsF32[SUN_PARAMS.globals.normalBias] = bias.normalBias;
-    // one atlas pixel in uv — the actual texture side (allocated for the fixed sunCascades()), not the live
-    // count: an ortho main camera runs C = 1 into the whole atlas, so its PCF tap step is still 1 physical pixel
-    _paramsF32[SUN_PARAMS.globals.texel] = 1 / cascadeAtlasSize(res, sunCascades());
-    Compute.device.queue.writeBuffer(_sunParams!, 0, _paramsBuf, 0, SHADOW_PARAMS_BYTES);
-    _sun = { map: _cascadeAtlasView!, params: _sunParams! };
-}
-
-// free every GPU resource sear owns (at plugin dispose): the shadow atlases (point + cascade) + their params,
-// and the per-camera prepass depth / lane targets / MSAA color+depth. The cascade Camera entities live in a
-// State, so destroyCascades (./shadows) tears those down separately
-function disposeSear(): void {
-    _fallbackDepth?.destroy();
-    _fallbackParams?.destroy();
-    _sunParams?.destroy();
-    _pointAtlas?.destroy();
-    _pointParams?.destroy();
-    _pointTileRects?.destroy();
-    _faceVP?.destroy();
-    _comboMeta?.destroy();
-    _pointRegather.dispose();
-    _cascadeAtlas?.destroy();
-    _cascadeVPBuf?.destroy();
-    _cascadeMetaBuf?.destroy();
-    _cascadeRectsBuf?.destroy();
-    _cascadeRegather.dispose();
-    _cascadeAtlas = null;
-    _cascadeAtlasView = null;
-    _cascadeVPBuf = null;
-    _cascadeMetaBuf = null;
-    _cascadeRectsBuf = null;
-    _cascadeGroup1 = null;
-    _faceVP = null;
-    _comboMeta = null;
-    _pointGroup1 = null;
-    _pointAtlas = null;
-    _pointAtlasView = null;
-    _pointParams = null;
-    _pointTileRects = null;
-    _pointFrames = [];
-    _fallbackDepth = null;
-    _fallbackView = null;
-    _fallbackParams = null;
-    _sunParams = null;
-    _sun = null;
-    _shadowReady = false;
-    for (const c of _depth.values()) c.texture.destroy();
-    for (const c of _laneTargets.values()) c.texture.destroy();
-    for (const c of _colorTargets.values()) {
-        c.color?.destroy();
-        c.depth.destroy();
-    }
-    _depth.clear();
-    _laneTargets.clear();
-    _colorTargets.clear();
-    _backgrounds.clear();
-}
 
 // a draw resolving to null is a silent skip — usually a typo'd binding or an
 // unpublished resource. Warn once per draw so it's visible without spamming
@@ -2320,34 +314,82 @@ const bindResource = (type: Binding["type"], res: BindResource): GPUBindingResou
             ? (res as GPUSampler)
             : { buffer: res as GPUBuffer };
 
-type Recorded = {
+type RecordedLegacy = {
     // the compiled surface — the color pass reads `color`/`transparent` (or the single-sample `single`
     // twin for a no-AA camera); the prepass + shadow passes read `prepass`. Carried whole so the per-camera
     // AA selection happens at draw time without baking each pipeline ref per draw
     c: Compiled;
-    // the color pass binds `group` (slot 3 = the 16 B main stream); the prepass + shadow passes bind
-    // `prepassGroup` (slot 3 = the 8 B position stream). Two groups, one shared group-0 layout — the
-    // only per-pass difference is which vertex buffer sits at slot 3 (gpu.md 10-storage ceiling)
-    group: GPUBindGroup;
-    prepassGroup: GPUBindGroup;
-    // the point-shadow pass's group 0 (the prepass group with `eids` → the point re-gathered list); null for
-    // a non-casting surface or before the re-gather buffer is allocated
-    pointGroup: GPUBindGroup | null;
-    // the cascade-atlas pass's group 0 (the prepass group with `eids` → the cascade re-gathered list)
-    cascadeGroup: GPUBindGroup | null;
+    // the per-draw group-0 state: the shared bindings (everything but slot 3, the vertex stream, and
+    // VIEW) plus the two per-slot caches `colorGroup`/`prepassGroup` build against — one whole
+    // `Render.viewBuffers[slot]` buffer per bind, no dynamic offset (Approach 4a's per-slot-buffer design)
+    entry: GroupEntry;
     // the mesh's index buffer, bound via setIndexBuffer before each drawIndexedIndirect (geometry pulls
     // vertices from the storage binding, but the hardware index buffer drives vertex reuse)
     index: GPUBuffer;
 };
 
+// a draw resolved through the typed contract (4a-ii-c-3b): the compiled typed pipeline set + the
+// per-draw group-2 state (engine group 0 resolves per slot at draw time via `typedEngineGroup`;
+// group 1 is the pass's — `shadowGroupTyped` for color, the atlas layouts' own for point/cascade)
+type RecordedTyped = { t: CompiledTyped; g: TypedGroupEntry; index: GPUBuffer };
+
+// the two shapes discriminate on `"c" in r` — a draw is exactly one of them, decided by `record()`'s
+// typed-registry-first lookup (the built-in flip: a name registered in both draws typed)
+export type Recorded = RecordedLegacy | RecordedTyped;
+
 /**
- * the color + transparent + per-lane-set prepass pipelines and the bind group sear records a draw
+ * the color pass's group 0 for a recorded draw at a given view slot (slot 3 = the 16 B main vertex
+ * stream, VIEW = `Render.viewBuffers[slot]`) — lazily built and cached per slot on the draw's
+ * {@link GroupEntry} (typically one entry: a scene usually has one shading camera).
+ */
+function colorGroup(r: RecordedLegacy, slot: number): GPUBindGroup {
+    return slotGroup(r.entry, r.entry.main, r.entry.colorCache, slot, `sear-color-${slot}`);
+}
+
+/**
+ * the prepass + shadow-map pass's group 0 for a recorded draw at a given view slot (slot 3 = the 8 B
+ * position-only stream). Same per-slot caching as {@link colorGroup}.
+ */
+function prepassGroupOf(r: RecordedLegacy, slot: number): GPUBindGroup {
+    return slotGroup(r.entry, r.entry.position, r.entry.prepassCache, slot, `sear-prepass-${slot}`);
+}
+
+function slotGroup(
+    entry: GroupEntry,
+    vertex: GPUBuffer,
+    cache: Map<number, GPUBindGroup>,
+    slot: number,
+    label: string,
+): GPUBindGroup {
+    const cached = cache.get(slot);
+    if (cached) return cached;
+    const group = Compute.device.createBindGroup({
+        label,
+        layout: entry.layout,
+        entries: [
+            { binding: VERTICES, resource: { buffer: vertex } },
+            { binding: VIEW, resource: { buffer: Render.viewBuffers[slot] } },
+            ...entry.shared,
+        ],
+    });
+    cache.set(slot, group);
+    return group;
+}
+
+/**
+ * the color + transparent + per-lane-set prepass pipelines and the bind-group state sear records a draw
  * with, or null to skip it. All pipelines share one bind group (same group-0 layout). A surface with
  * no compiled pipeline isn't sear's (silent skip); a missing mesh or unpublished binding warns once.
- * Bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms are
- * stable, so untracked
+ * The per-slot bind groups cache per draw, rebuilt only on a resource identity change; the fixed uniforms
+ * are stable, so untracked
  */
 function record(draw: Draw): Recorded | null {
+    // the typed registry wins (the built-in flip, 4a-ii-c-3b): a surface registered in both — the
+    // built-ins during dual-accept — draws through the typed path in EVERY pass; a partial (per-pass)
+    // flip would break shadow casting. The string registration stays for Part's automatic draw
+    // registration + any legacy consumer reading `Surfaces`
+    const typed = TypedSurfaces.get(draw.surface);
+    if (typed) return recordTyped(draw, typed);
     const surface = Surfaces.get(draw.surface);
     if (!surface) return null; // not a sear surface — silent skip
     const mesh = Meshes.get(draw.mesh);
@@ -2356,7 +398,7 @@ function record(draw: Draw): Recorded | null {
     // surface is variant 0. The variant is constant per mesh, so the cached bind group (variant-invariant)
     // stays valid across frames
     const variant = surface.specialize ? (mesh.variant ?? 0) : 0;
-    const c = _compiled.get(variantKey(draw.surface, variant));
+    const c = getCompiled(draw.surface, variant);
     if (!c) {
         ensureVariant(surface, variant); // kick off the lazy compile; skip the draw until it lands
         return null;
@@ -2380,26 +422,18 @@ function record(draw: Draw): Recorded | null {
         resources.push(res);
     }
 
-    const prev = _groups.get(draw.name);
+    const prev = getGroup(draw.name);
     if (
         prev &&
         prev.resources.length === resources.length &&
         prev.resources.every((b, k) => b === resources[k])
     ) {
-        return {
-            c,
-            group: prev.group,
-            prepassGroup: prev.prepassGroup,
-            pointGroup: prev.pointGroup,
-            cascadeGroup: prev.cascadeGroup,
-            index: mesh.indices,
-        };
+        return { c, entry: prev, index: mesh.indices };
     }
 
-    // the bindings shared by both groups (everything but slot 3, the vertex stream)
+    // the bindings shared by both groups (everything but slot 3, the vertex stream, and VIEW)
     const shared: GPUBindGroupEntry[] = [
         { binding: FRAME, resource: { buffer: Frame.buffer } },
-        { binding: VIEW, resource: { buffer: Render.viewBuffer, size: VIEW_STRIDE } },
         { binding: LIGHTING, resource: { buffer: Lighting.buffer } },
         { binding: POINT_LIGHTS, resource: { buffer: LightCull.lights! } },
         { binding: LIGHT_GRID, resource: { buffer: LightCull.grid! } },
@@ -2411,19 +445,24 @@ function record(draw: Draw): Recorded | null {
         shared.push({ binding: k + SURFACE_BASE, resource: bindResource(type, resources[k + 4]) });
     });
 
-    // two groups, one layout — slot 3 is the only difference (color: 16 B main, prepass: 8 B position)
-    const makeGroup = (vertex: GPUBuffer) =>
-        Compute.device.createBindGroup({
-            label: `sear-${draw.name}`,
-            layout: c.layout,
-            entries: [{ binding: VERTICES, resource: { buffer: vertex } }, ...shared],
-        });
-    const group = makeGroup(main);
-    const prepassGroup = makeGroup(position);
+    const entry: GroupEntry = {
+        main,
+        position,
+        layout: c.layout,
+        shared,
+        colorCache: new Map(),
+        prepassCache: new Map(),
+        pointGroup: null,
+        cascadeGroup: null,
+        resources,
+    };
+
     // a shadow-atlas group 0: the prepass group with the `eids` lane bound to a re-gathered packed instance
-    // list (the point atlas's or the cascade atlas's). Reusing the lane keeps the atlas pipelines at zero new
-    // storage bindings, so the heaviest surfaces stay within the 10-per-stage ceiling (gpu.md). Built only for
-    // a casting surface, and only once that atlas's packed list exists (its alloc clears `_groups`, rebuilding)
+    // list (the point atlas's or the cascade atlas's), and VIEW bound to slot 0's buffer as an unread
+    // placeholder (the point/cascade VS projects by its own tile viewProj, never `view`). Reusing the eids
+    // lane keeps the atlas pipelines at zero new storage bindings, so the heaviest surfaces stay within the
+    // 10-per-stage ceiling (gpu.md). Built only for a casting surface, and only once that atlas's packed
+    // list exists (its alloc clears the group cache, rebuilding)
     const eidsK = c.slots.findIndex((s) => s.name === "eids");
     const eidsSwap = (
         pipe: GPURenderPipeline | null,
@@ -2432,6 +471,7 @@ function record(draw: Draw): Recorded | null {
         if (!pipe || !listEids || eidsK < 0) return null;
         const entries: GPUBindGroupEntry[] = [
             { binding: VERTICES, resource: { buffer: position } },
+            { binding: VIEW, resource: { buffer: Render.viewBuffers[0] } },
             ...shared,
         ].map((e) =>
             e.binding === SURFACE_BASE + eidsK
@@ -2444,16 +484,140 @@ function record(draw: Draw): Recorded | null {
             entries,
         });
     };
-    const pointGroup = eidsSwap(c.point, _pointRegather.eids());
-    const cascadeGroup = eidsSwap(c.cascade, _cascadeRegather.eids());
-    _groups.set(draw.name, { group, prepassGroup, pointGroup, cascadeGroup, resources });
-    return { c, group, prepassGroup, pointGroup, cascadeGroup, index: mesh.indices };
+    entry.pointGroup = eidsSwap(c.point, pointRegather.eids());
+    entry.cascadeGroup = eidsSwap(c.cascade, cascadeRegather.eids());
+    setGroup(draw.name, entry);
+    return { c, entry, index: mesh.indices };
+}
+
+// resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
+// entry's kind — the typed twin of `record`'s `registryFor`/`bindResource` walk, with the same per-mesh
+// override + warn-once skip semantics. Returns the createBindGroup value record + the identity list, or
+// the missing binding's name
+function typedResources(
+    entries: Record<string, object>,
+    override?: Record<string, BindResource>,
+): { values: Record<string, unknown>; resources: BindResource[] } | string {
+    const values: Record<string, unknown> = {};
+    const resources: BindResource[] = [];
+    for (const [name, entry] of Object.entries(entries)) {
+        if (name === "vertices") continue;
+        const registry =
+            "texture" in entry
+                ? Compute.textures
+                : "sampler" in entry
+                  ? Compute.samplers
+                  : Compute.buffers;
+        const res = override?.[name] ?? registry.get(name);
+        if (!res) return name;
+        resources.push(res);
+        // a texture binds a view of the schema's own dimension (the legacy `bindResource` shape)
+        values[name] =
+            "texture" in entry
+                ? (res as GPUTexture).createView({
+                      dimension: (entry as { texture: { dimension: GPUTextureViewDimension } })
+                          .texture.dimension,
+                  })
+                : res;
+    }
+    return { values, resources };
+}
+
+/**
+ * the typed twin of {@link record}: compiled typed pipelines + the per-draw group-2 state (the two
+ * layout-object caches the c-2 verdict names — `color` against `layout`; opaque depth-side groups against
+ * `layout.depthVariant`; clip depth-side groups against the full layout so cutoff sees material UVs —
+ * plus the atlas `eids` swaps and the slot-0 engine group the atlas passes bind).
+ */
+function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
+    const mesh = Meshes.get(draw.mesh);
+    if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
+    if (!mesh.position || !mesh.quant)
+        return warnSkip(draw.name, `mesh "${draw.mesh}" has no quantized position/quant stream`);
+    const variant = surface.specialize ? (mesh.variant ?? 0) : 0;
+    let t = getCompiledTyped(surface.name, variant);
+    if (!t || t.owner !== surface || t.layout !== surface.layout) {
+        // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
+        // throwing compile (a contract guard, or shader/device validation) must not take down the frame
+        // loop, so it degrades to the warn-once skip
+        try {
+            t = compileTypedVariant(surface, variant);
+        } catch (e) {
+            return warnSkip(draw.name, `typed surface "${surface.name}" failed to compile: ${e}`);
+        }
+    }
+
+    const resolved = typedResources(
+        surface.layout.entries as Record<string, object>,
+        mesh.bindings as Record<string, BindResource> | undefined,
+    );
+    if (typeof resolved === "string")
+        return warnSkip(draw.name, `binding "${resolved}" not published`);
+    const pointList = pointRegather.eids();
+    const cascadeList = cascadeRegather.eids();
+    // geometry + the atlas packed lists join the identity check (a re-gather realloc also clears the
+    // whole cache via `clearGroups` — the lists here make the entry self-consistent even without it)
+    const resources: BindResource[] = [
+        mesh.vertices,
+        mesh.position,
+        mesh.quant,
+        mesh.indices,
+        ...resolved.resources,
+    ];
+    if (pointList) resources.push(pointList);
+    if (cascadeList) resources.push(cascadeList);
+
+    const prev = getTypedGroup(draw.name, surface);
+    if (
+        prev &&
+        prev.resources.length === resources.length &&
+        prev.resources.every((b, k) => b === resources[k])
+    ) {
+        return { t, g: prev, index: mesh.indices };
+    }
+
+    const root = Compute.root;
+    // the two layout objects share one loose signature here — the color/depth `vertices` element split
+    // is real at authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class)
+    const group = (lay: unknown, vertices: GPUBuffer, override?: Record<string, BindResource>) =>
+        root.unwrap(
+            root.createBindGroup(
+                lay as TgpuBindGroupLayout,
+                {
+                    ...resolved.values,
+                    ...override,
+                    vertices,
+                } as never,
+            ),
+        );
+    const engineCache = new Map<number, GPUBindGroup>();
+    const clip = surface.blend === "clip";
+    const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
+    const depthVertices = clip ? mesh.vertices : mesh.position;
+    const entry: TypedGroupEntry = {
+        owner: surface,
+        layout: surface.layout,
+        quant: mesh.quant,
+        color: group(surface.layout, mesh.vertices),
+        // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
+        depth: surface.blend === "alpha" ? null : group(depthLayout, depthVertices),
+        point: t.point && pointList ? group(depthLayout, depthVertices, { eids: pointList }) : null,
+        cascade:
+            t.cascade && cascadeList
+                ? group(depthLayout, depthVertices, { eids: cascadeList })
+                : null,
+        engineCache,
+        atlasG0: typedEngineGroup(engineCache, 0, mesh.quant),
+        resources,
+    };
+    setTypedGroup(draw.name, entry);
+    return { t, g: entry, index: mesh.indices };
 }
 
 /**
  * the frame's draw list: every registered {@link Draw} with a compiled surface + published
- * bindings, paired with its cached bind group. View-independent (group 0 binds the whole view
- * buffer; the per-view slice is a dynamic offset applied at bind time), so {@link PrepassSystem}
+ * bindings, paired with its cached group-0 state. Camera-independent (the per-slot bind groups it builds
+ * against are cached lazily by slot, not baked per camera), so {@link PrepassSystem}
  * resolves it once per frame into `_frameDraws` and the prepass, shadow map, and color pass all
  * render every camera against that one list
  */
@@ -2615,21 +779,20 @@ function beginColor(
     });
 }
 
-// set the pipeline + per-draw group 0 (with the view's dynamic offset) and issue the indirect
-// draw. Shared by the prepass and the color pass's opaque + transparent draws — they differ in pipeline
-// and in which group-0 bind group (the color pass binds `r.group`, the prepass `r.prepassGroup`); the
-// color pass additionally binds group 1, its caller's concern, not here
+// set the pipeline + per-draw, per-slot group 0 and issue the indirect draw. Shared by the prepass and
+// the color pass's opaque + transparent draws — they differ in pipeline and in which group-0 bind group
+// (the color pass binds `colorGroup(r, slot)`, the prepass `prepassGroupOf(r, slot)`); the color pass
+// additionally binds group 1, its caller's concern, not here
 function bind(
     pass: GPURenderPassEncoder,
     pipeline: GPURenderPipeline,
     draw: Draw,
-    r: Recorded,
+    r: RecordedLegacy,
     group: GPUBindGroup,
-    offset: number[],
     slot: number,
 ): void {
     pass.setPipeline(pipeline);
-    pass.setBindGroup(0, group, offset);
+    pass.setBindGroup(0, group);
     pass.setIndexBuffer(r.index, "uint32");
     // per-view-culled producers lay DrawIndexedIndirect records out slot-major (`viewStride`
     // bytes/camera); a view-independent draw leaves it 0
@@ -2658,7 +821,6 @@ function renderPrepass(
     storeDepth: boolean,
 ): void {
     if (!Render.encoder || !view.framebuffer) return;
-    const offset = [view.slot * VIEW_STRIDE];
     const depth = depthView(eid, view.width, view.height);
     const key = laneKey(lanes);
     const colorAttachments = lanes.map((lane) => {
@@ -2686,10 +848,33 @@ function renderPrepass(
     });
     let draws = 0;
     for (const { draw, r } of items) {
-        const pipe = r.c.prepass.get(key);
-        if (pipe) {
-            bind(pass, pipe, draw, r, r.prepassGroup, offset, view.slot);
-            draws++;
+        if ("c" in r) {
+            const pipe = r.c.prepass.get(key);
+            if (pipe) {
+                bind(pass, pipe, draw, r, prepassGroupOf(r, view.slot), view.slot);
+                draws++;
+            }
+        } else {
+            const pipe = r.t.prepass.get(key);
+            if (pipe && r.g.depth) {
+                // the depth-shape group registers under BOTH group-2 layout objects: a vs-chunk
+                // surface's own reads resolve against `layout`, the depth vertex pull against
+                // `layout.depthVariant`, and the resolution records only one of the two (structurally
+                // identical, WebGPU-group-equivalent) at idx 2
+                pipe.with(pass)
+                    .with(engineLayout, typedEngineGroup(r.g.engineCache, view.slot, r.g.quant))
+                    // inert group-1 fill (the stub receiver samples nothing) — the typed prepass
+                    // pipelines declare it only to keep typegpu's group-indexed pipeline layout dense
+                    .with(shadowLayoutTyped, shadowGroupTyped())
+                    .with(r.g.layout, r.g.depth)
+                    .with(r.g.layout.depthVariant, r.g.depth)
+                    .withIndexBuffer(r.index, "uint32")
+                    .drawIndexedIndirect(
+                        draw.args.indirect,
+                        (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
+                    );
+                draws++;
+            }
         }
     }
     pass.end();
@@ -2697,14 +882,16 @@ function renderPrepass(
     view.depth = storeDepth ? depth : null;
 }
 
-// build (and cache) a background's group 0 — frame / view (whole buffer, the per-camera slice is the
-// setBindGroup dynamic offset) / lighting + its own bindings resolved by name. Lazy: the buffers are stable
-// post-warm, so it builds once on first use and caches on the CompiledBg (a missing binding skips the draw)
-function bgGroup(cb: CompiledBg): GPUBindGroup | null {
-    if (cb.group) return cb.group;
+// build (and cache) a background's group 0 for one view slot — frame / view (one whole per-slot buffer,
+// no dynamic offset) / lighting + its own bindings resolved by name. Lazy, keyed on (bg × slot): the
+// buffers are stable post-warm, so a slot builds once on first use and caches on the CompiledBg (a
+// missing binding skips the draw)
+function bgGroup(cb: CompiledBg, slot: number): GPUBindGroup | null {
+    const cached = cb.groupCache.get(slot);
+    if (cached) return cached;
     const entries: GPUBindGroupEntry[] = [
         { binding: FRAME, resource: { buffer: Frame.buffer } },
-        { binding: VIEW, resource: { buffer: Render.viewBuffer, size: VIEW_STRIDE } },
+        { binding: VIEW, resource: { buffer: Render.viewBuffers[slot] } },
         { binding: LIGHTING, resource: { buffer: Lighting.buffer } },
     ];
     for (let k = 0; k < cb.slots.length; k++) {
@@ -2714,21 +901,59 @@ function bgGroup(cb: CompiledBg): GPUBindGroup | null {
             return warnSkip(`background:${cb.name}`, `binding "${name}" (${type}) not published`);
         entries.push({ binding: k + BG_BASE, resource: bindResource(type, res) });
     }
-    cb.group = Compute.device.createBindGroup({
-        label: `sear-bg-${cb.name}`,
+    const group = Compute.device.createBindGroup({
+        label: `sear-bg-${cb.name}-${slot}`,
         layout: cb.layout,
         entries,
     });
-    return cb.group;
+    cb.groupCache.set(slot, group);
+    return group;
 }
 
-// the camera's selected backdrop, or null (no `Backdrop` component, or its name isn't a compiled
-// background). Membership-gated — a bare `Backdrop.name.get` reads 0 for a non-member, which would alias
-// the first registered background, so the `state.has` check is what keeps the no-backdrop path on the clear
-function backdrop(state: State, eid: number): CompiledBg | null {
+// the camera's selected backdrop — legacy or typed, discriminated by the stored id's
+// BACKDROP_TYPED_BASE offset (BackdropTraits) — or null (no `Backdrop` component, or its name isn't a
+// compiled background). Membership-gated — a bare `Backdrop.name.get` reads 0 for a non-member, which
+// would alias the first registered background, so the `state.has` check is what keeps the no-backdrop
+// path on the clear
+type BackdropPick = { cb: CompiledBg } | { bg: TypedBackground; ct: CompiledTypedBg };
+function backdrop(state: State, eid: number): BackdropPick | null {
     if (!state.has(eid, Backdrop)) return null;
-    const name = Backgrounds.name(Backdrop.name.get(eid));
-    return (name && _backgrounds.get(name)) || null;
+    const id = Backdrop.name.get(eid);
+    if (id >= BACKDROP_TYPED_BASE) {
+        const name = TypedBackgrounds.name(id - BACKDROP_TYPED_BASE);
+        const bg = name ? TypedBackgrounds.get(name) : undefined;
+        if (!bg) return null;
+        const ct = getTypedBg(bg.name) ?? compileTypedBg(bg);
+        return { bg, ct };
+    }
+    const name = Backgrounds.name(id);
+    const cb = name ? getBackground(name) : undefined;
+    return cb ? { cb } : null;
+}
+
+// build (and cache on the CompiledTypedBg) a typed background's own group-2 bind group — slot-invariant
+// (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip, like
+// `bgGroup`); a binding-free background carries no group at all (its empty layout never enters the
+// pipeline layout)
+function typedBgGroup(bg: TypedBackground, ct: CompiledTypedBg): GPUBindGroup | null | "none" {
+    const entries = bg.layout.entries as Record<string, object>;
+    if (Object.keys(entries).length === 0) return "none";
+    const resolved = typedResources(entries);
+    if (typeof resolved === "string") {
+        return warnSkip(`background:${bg.name}`, `binding "${resolved}" not published`);
+    }
+    if (
+        ct.group2 &&
+        ct.group2.resources.length === resolved.resources.length &&
+        ct.group2.resources.every((b, k) => b === resolved.resources[k])
+    ) {
+        return ct.group2.group;
+    }
+    const group = Compute.root.unwrap(
+        Compute.root.createBindGroup(bg.layout, resolved.values as never),
+    );
+    ct.group2 = { group, resources: resolved.resources };
+    return group;
 }
 
 /**
@@ -2748,50 +973,181 @@ function renderColor(
     eid: number,
     view: View,
     items: { draw: Draw; r: Recorded }[],
-    bg: CompiledBg | null = null,
+    bg: BackdropPick | null = null,
 ): void {
     if (!Render.encoder || !view.framebuffer) return;
     // per-camera AA: 4× MSAA when `Camera.antialias` is on (the default the Camera trait seeds), else
     // single-sample. A scene attribute or a runtime `Camera.antialias.set(eid, 0)` flips it live
     const aa = Camera.antialias.get(eid) !== 0;
     const clear = unpackColor(Camera.clearColor.get(eid));
-    const offset = [view.slot * VIEW_STRIDE];
     const { color: msaaColor, depth } = colorTargets(eid, view.width, view.height, aa);
     const pass = beginColor(eid, msaaColor, depth, view.framebuffer, clear);
     pass.setBindGroup(1, shadowGroup());
+    // a typed draw sets its own group 1 (`shadowLayoutTyped`'s group — structurally different, so NOT
+    // group-equivalent to the raw one), which invalidates the raw group bound at the pass top for any
+    // legacy draw after it; track and re-set on the typed→legacy switch
+    let rawG1 = true;
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
     // validation floor (gpu.md); the honest count is post the `if (pipe)` skip
     let draws = 0;
+    const drawTyped = (draw: Draw, r: RecordedTyped, pipe: (typeof r.t)["color"]): void => {
+        pipe!
+            .with(pass)
+            .with(engineLayout, typedEngineGroup(r.g.engineCache, view.slot, r.g.quant))
+            .with(shadowLayoutTyped, shadowGroupTyped())
+            .with(r.g.layout, r.g.color)
+            .withIndexBuffer(r.index, "uint32")
+            .drawIndexedIndirect(
+                draw.args.indirect,
+                (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
+            );
+        rawG1 = false;
+        draws++;
+    };
     for (const { draw, r } of items) {
-        if (!aa) ensureSingle(r.c); // lazy-compile this surface's single-sample twin for the no-AA camera
-        const pipe = aa ? r.c.color : r.c.single?.color;
-        if (pipe) {
-            bind(pass, pipe, draw, r, r.group, offset, view.slot);
-            draws++;
+        if ("c" in r) {
+            if (!aa) ensureSingle(r.c); // lazy-compile the single-sample twin for the no-AA camera
+            const pipe = aa ? r.c.color : r.c.single?.color;
+            if (pipe) {
+                if (!rawG1) {
+                    pass.setBindGroup(1, shadowGroup());
+                    rawG1 = true;
+                }
+                bind(pass, pipe, draw, r, colorGroup(r, view.slot), view.slot);
+                draws++;
+            }
+        } else {
+            if (!aa) ensureTypedSingle(r.t);
+            const pipe = aa ? r.t.color : r.t.single?.color;
+            if (pipe) drawTyped(draw, r, pipe);
         }
     }
     // the backdrop: a fullscreen triangle at the far plane, after opaque (the depth test masks it to
     // un-rendered pixels) and before blend (so transparent draws composite over it). The bg pipeline
     // carries the shadow group 1 in its layout (unused) like every color pipeline, so the group bound at
     // the pass top survives the switch for the blend draws after it
-    if (bg) {
-        const pipe = aa ? bg.color : bg.single;
-        const group = bgGroup(bg);
+    if (bg && "cb" in bg) {
+        const pipe = aa ? bg.cb.color : bg.cb.single;
+        const group = bgGroup(bg.cb, view.slot);
         if (group) {
+            if (!rawG1) {
+                pass.setBindGroup(1, shadowGroup());
+                rawG1 = true;
+            }
             pass.setPipeline(pipe);
-            pass.setBindGroup(0, group, offset);
+            pass.setBindGroup(0, group);
             pass.draw(3);
+        }
+    } else if (bg) {
+        // a typed backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
+        // slot — a background pulls no mesh), the typed shadow group 1 (declared-but-unused, the
+        // group-count-compatibility reason `compileBackground` documents), and its own group 2
+        const group = typedBgGroup(bg.bg, bg.ct);
+        if (group) {
+            const pipe = aa ? bg.ct.color : bg.ct.single;
+            let bound = pipe
+                .with(pass)
+                .with(engineLayout, typedEngineGroup(bg.ct.engineCache, view.slot, bgQuant()))
+                .with(shadowLayoutTyped, shadowGroupTyped());
+            if (group !== "none") bound = bound.with(bg.bg.layout, group);
+            bound.draw(3);
+            rawG1 = false;
         }
     }
     for (const { draw, r } of items) {
-        const pipe = aa ? r.c.transparent : r.c.single?.transparent;
-        if (pipe) {
-            bind(pass, pipe, draw, r, r.group, offset, view.slot);
-            draws++;
+        if ("c" in r) {
+            const pipe = aa ? r.c.transparent : r.c.single?.transparent;
+            if (pipe) {
+                if (!rawG1) {
+                    pass.setBindGroup(1, shadowGroup());
+                    rawG1 = true;
+                }
+                bind(pass, pipe, draw, r, colorGroup(r, view.slot), view.slot);
+                draws++;
+            }
+        } else {
+            const pipe = aa ? r.t.transparent : r.t.single?.transparent;
+            if (pipe) drawTyped(draw, r, pipe);
         }
     }
     pass.end();
     Compute.indirect?.("sear:color", draws);
+}
+
+// the frame's draw list, resolved once by PrepassSystem (the first geometry pass) and shared across the
+// prepass, shadow atlases, and color pass — they all draw the same resolved records, so resolving per-pass
+// (the old 3×) was wasted work
+let _frameDraws: { draw: Draw; r: Recorded }[] = [];
+
+/**
+ * compile the forward pipelines for every registered surface, sharing one shader module: a 4× MSAA
+ * single-target color pipeline (its own depth, `less` + write) that writes shaded color resolved into
+ * the offscreen framebuffer, a 1× tag pipeline (its own single-sample depth, `less` + write, single
+ * `r32uint` target) that stamps the front-most fragment's surface tag into `view.tag`, and a 1× depth
+ * pipeline (position-only, the shadow map renders through it). Color is one camera-independent shape
+ * across opaque / `clip` / `alpha`: no MRT; the tag is its own single-sample lane. Color samples the
+ * sun shadow inline (group 1 = the map + comparison sampler + light params); the tag + depth pipelines
+ * omit group 1. Sear declares the vertex-pull bindings itself; each draw selects its mesh via
+ * `Draw.mesh`. Uniform across surfaces: no "Part-shaped" detection. Also (re)creates the sun-shadow
+ * GPU resources sear owns (the comparison sampler, the 1×1 fallback, the group-1 layout, and the real
+ * params buffer — `./atlas`), surviving HMR re-warms
+ */
+async function prepareSear(device: GPUDevice): Promise<void> {
+    // the caster count + atlas size fold into the shadow WGSL at its first resolve and the uniforms below
+    // size from the same schemas, so a config mutated between builds is a hard error, not a silent mismatch
+    checkShadowConfig();
+    resetPipelineCaches();
+    _warned.clear();
+    resetShadowAtlas(device);
+    // the lazily-allocated packed list binds at each atlas pipeline's `eids` lane, so allocating it clears
+    // the resolved-bind-group cache to rebuild with it
+    pointRegather.reset(() => clearGroups());
+    cascadeRegather.reset(() => clearGroups());
+    // eager-compile non-specializing surfaces plus the shared re-gather A/B pipelines (idempotent — the
+    // point + cascade atlases share them). Specializing variants queue after Part publishes its draws;
+    // a specializing mesh registered after warm remains lazy.
+    await Promise.all([prepareRegather(device), preparePipelines(device, Backgrounds)]);
+    precompileTypedVariants();
+}
+
+function unwrapTypedVariant(surface: TypedSurface, variant: number): unknown[] {
+    const typed = compileTypedVariant(surface, variant);
+    const warmed: unknown[] = [];
+    for (const pipeline of [
+        typed.color,
+        typed.transparent,
+        typed.point,
+        typed.cascade,
+        ...typed.prepass.values(),
+    ]) {
+        if (pipeline) warmed.push(Compute.root.unwrap(pipeline));
+    }
+    return warmed;
+}
+
+/** queue specializing typed-surface discovery after Part publishes its draw/mesh pairs.
+ * `warm` is injectable so the ordering contract stays device-free in unit tests; production unwraps
+ * every discovered variant's real pipelines.
+ * @internal */
+export function precompileTypedVariants(
+    warm: (surface: TypedSurface, variant: number) => unknown = unwrapTypedVariant,
+    surfaces: Iterable<TypedSurface> = TypedSurfaces,
+    variants: (surface: TypedSurface) => number[] = knownTypedVariants,
+): void {
+    precompile(
+        "sear-typed-variants",
+        () => {
+            const warmed: unknown[] = [];
+            for (const surface of surfaces) {
+                if (!surface.specialize) continue;
+                for (const variant of variants(surface)) {
+                    warmed.push(warm(surface, variant));
+                }
+            }
+            return warmed;
+        },
+        { after: ["kitchen-part-count"] },
+    );
 }
 
 /**
@@ -2874,13 +1230,15 @@ const ShadowCameraSystem: System = {
             main = eid;
             break;
         }
-        _pointFrames = updatePointShadows(state, main);
+        const frames = updatePointShadows(state, main);
+        setPointFrames(frames);
         updateCascades(state, main);
         // allocate each atlas's re-gather list here, before record() (PrepassSystem) builds the cast bind
-        // groups that bind it — so the first casting frame's groups include it (the alloc clears _groups), no
-        // one-frame delay. Idempotent once allocated; the render fns call it again harmlessly
-        if (_pointFrames.length > 0 && _shadowReady) _pointRegather.ensure(pointCasters() * 6);
-        if (cascadeCount() > 0 && _shadowReady) _cascadeRegather.ensure(MAX_CASCADES);
+        // groups that bind it — so the first casting frame's groups include it (the alloc clears the
+        // resolved-bind-group cache), no one-frame delay. Idempotent once allocated; the render fns call it
+        // again harmlessly
+        if (frames.length > 0 && shadowReady()) pointRegather.ensure(pointCasters() * 6);
+        if (cascadeCount() > 0 && shadowReady()) cascadeRegather.ensure(MAX_CASCADES);
     },
 };
 
@@ -2898,8 +1256,8 @@ const ShadowMapSystem: System = {
     after: [PrepassSystem],
     before: [ColorSystem],
     update() {
-        renderPointShadows();
-        renderCascades();
+        renderPointShadows(_frameDraws);
+        renderCascades(_frameDraws);
     },
 };
 
@@ -2923,6 +1281,105 @@ const litBindings: Record<string, Binding> = {
     ...colorBindings,
     material: { type: "storage", element: "vec2<u32>" },
 };
+
+// the typed twin of `litBindings`, group 2 (`layout()`'s $idx(2) synthesis) — same four bindings, same
+// element shapes, feeding the typed `default` surface below (4a-ii-c-2's template port).
+const typedDefaultLayout = typedLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+    material: { type: "storage", element: d.vec2u },
+});
+
+// the typed twin of the raw `default` fs (`matOf`/`emissiveOf`/`litPbr`, string-registered above):
+// `Pbr(albedo, metallic, roughness, occlusion, dielectric)` from the packed `material` lanes — word x
+// (metallic, roughness), word y (emissive, occlusion) — same f16-via-`unpack2x16float` shape, no
+// `shader-f16` needed. `litPbr` (`sear/engine.ts`) reads the fs-scaffold privates the typed pipeline
+// builder (`pipelines.ts`) fills before calling this.
+const typedDefaultFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    const m = typedDefaultLayout.$.material[ctx.eid];
+    const mr = std.unpack2x16float(m.x);
+    const eo = std.unpack2x16float(m.y);
+    const albedo = unpackLdrColor(typedDefaultLayout.$.color[ctx.eid]).xyz;
+    const pbr = Pbr({ albedo, metallic: mr.x, roughness: mr.y, occlusion: eo.y, dielectric: 0 });
+    const emissive = std.mul(albedo, eo.x);
+    return d.vec4f(std.add(litPbr(pbr, ctx.worldNormal, ctx.world), emissive), 1);
+});
+
+// the typed twin of `colorBindings` — `unlit`'s three bindings, no `material` (it never shades).
+const typedColorLayout = typedLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+});
+
+// the typed twin of the raw `unlit` fs above (4a-ii-c-3): `unpackLdrColor(color[eid]).rgb` verbatim, no
+// lighting call — the simplest surface the typed template carries.
+const typedUnlitFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    return d.vec4f(unpackLdrColor(typedColorLayout.$.color[ctx.eid]).xyz, 1);
+});
+
+// the typed twin of the raw `vertex` surface (per-vertex Gouraud): `litColor` crosses vs→fs as a custom
+// varying through the `typedVaryingVs`/`typedVaryingFs` copier pair (`pipelines.ts`), so this `vs` runs
+// `litPbr` once per vertex. `sunVisibility`/`pointScale`/`fragWorld` sit at their defaults here (per-vertex
+// shading runs before the fs scaffold fills them) — the same fully-lit sun / zero-point-contribution the
+// raw path's per-vertex mode gets (render.md "Surface authoring").
+const typedVertexVaryings = { litColor: d.vec3f };
+const typedVertexPatch = vsPatchSchema(typedVertexVaryings);
+const typedVertexVs = tgpu.fn(
+    [VsIn],
+    typedVertexPatch,
+)((vsIn) => {
+    "use gpu";
+    const m = typedDefaultLayout.$.material[vsIn.eid];
+    const mr = std.unpack2x16float(m.x);
+    const eo = std.unpack2x16float(m.y);
+    const albedo = unpackLdrColor(typedDefaultLayout.$.color[vsIn.eid]).xyz;
+    const pbr = Pbr({ albedo, metallic: mr.x, roughness: mr.y, occlusion: eo.y, dielectric: 0 });
+    const emissive = std.mul(albedo, eo.x);
+    const litColor = std.add(
+        litPbr(pbr, std.normalize(vsIn.worldNormal), vsIn.world.xyz),
+        emissive,
+    );
+    return typedVertexPatch({
+        world: vsIn.world,
+        worldNormal: vsIn.worldNormal,
+        clip: d.vec4f(0),
+        litColor,
+    });
+});
+const typedVertexFs = tgpu.fn(
+    [fsCtxSchema(typedVertexVaryings)],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    return d.vec4f(ctx.litColor, 1);
+});
+
+// free every GPU resource sear owns (at plugin dispose): the shadow atlases (point + cascade, ./atlas) +
+// their params, and the per-camera prepass depth / lane targets / MSAA color+depth. The cascade Camera
+// entities live in a State, so destroyCascades (./shadows) tears those down separately
+function disposeSear(): void {
+    disposeShadowAtlas();
+    for (const c of _depth.values()) c.texture.destroy();
+    for (const c of _laneTargets.values()) c.texture.destroy();
+    for (const c of _colorTargets.values()) {
+        c.color?.destroy();
+        c.depth.destroy();
+    }
+    _depth.clear();
+    _laneTargets.clear();
+    _colorTargets.clear();
+    clearBackgrounds();
+}
 
 /**
  * Sear: the one kitchen renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
@@ -2960,7 +1417,7 @@ export const SearPlugin: Plugin = {
     // transform is sear's convention — these declare the bindings and omit a transform vs chunk. `pbr()`
     // builds the Pbr struct from the packed `material` lanes; the engine default has no specular until a
     // Material sets metallic > 0 (dielectric 0), so a bare Part shades exactly like the pre-PBR diffuse.
-    initialize() {
+    initialize(state) {
         // a fresh State recreates its own off-screen shadow cameras lazily — drop any eids cached by
         // a prior build so this re-run never aliases recycled entities (ecs.md module-scope contract)
         resetPointShadows();
@@ -2989,6 +1446,18 @@ export const SearPlugin: Plugin = {
             preamble: PbrPreamble,
             fs: /* wgsl */ `col = vec4<f32>(litPbr(matOf(eid), worldNormal, world) + emissiveOf(eid), 1.0);`,
         });
+        // the typed twin of the string `default` above, registered ADDITIONALLY into `TypedSurfaces`
+        // under the same name — a separate registry (`contract.ts`), so it doesn't collide with the
+        // string one. `record()` consults the typed registry first, so `default` DRAWS through the typed
+        // path in every pass (the built-in flip); the string registration stays for Part's automatic
+        // draw registration + legacy consumers until 4a-ii-d. `matOf`/`emissiveOf` above stay
+        // string-only helpers; this is their TGSL equivalent, statement-for-statement
+        // (`engine.test.ts`-style differential in `pipelines.test.ts`).
+        typedRegister(state, {
+            name: "default",
+            layout: typedDefaultLayout,
+            fs: typedDefaultFs,
+        });
         Surfaces.register({
             name: "vertex",
             bindings: litBindings,
@@ -2997,10 +1466,26 @@ export const SearPlugin: Plugin = {
             vs: /* wgsl */ `litColor = litPbr(matOf(eid), normalize(worldNormal), world.xyz) + emissiveOf(eid);`,
             fs: /* wgsl */ `col = vec4<f32>(litColor, 1.0);`,
         });
+        // the typed twin — the varyings mechanism's first live consumer (`litColor` crosses vs→fs
+        // through `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`); drawn typed
+        // in every pass, like `default` above.
+        typedRegister(state, {
+            name: "vertex",
+            layout: typedDefaultLayout,
+            varyings: typedVertexVaryings,
+            vs: typedVertexVs,
+            fs: typedVertexFs,
+        });
         Surfaces.register({
             name: "unlit",
             bindings: colorBindings,
             fs: /* wgsl */ `col = vec4<f32>(unpackLdrColor(color[eid]).rgb, 1.0);`,
+        });
+        // the typed twin, drawn typed in every pass like `default` above.
+        typedRegister(state, {
+            name: "unlit",
+            layout: typedColorLayout,
+            fs: typedUnlitFs,
         });
     },
 

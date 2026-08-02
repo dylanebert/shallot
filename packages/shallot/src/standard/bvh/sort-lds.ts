@@ -28,8 +28,7 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { precompile } from "../../engine/runtime";
-import { rootOf } from "./root";
+import { precompile, precompileScope } from "../../engine/runtime";
 import type { RadixSort, RadixSortShared } from "./sort";
 
 const THREADS = 256; // workgroup size, every kernel
@@ -288,8 +287,7 @@ export async function createRadixSortLds(
     maxKeys: number,
     shared: RadixSortShared = {},
 ): Promise<RadixSort> {
-    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
-    const root = rootOf(device, "createRadixSortLds");
+    const root = Compute.root;
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / EPW));
     if (maxBlocks > MAX_DISPATCH) {
         throw new Error(
@@ -391,13 +389,15 @@ export async function createRadixSortLds(
         root.createBindGroup(addLayout, { items: blockSums, chunkSums, params: sumsLenU }),
     );
 
+    // per-sorter labels — an app can hold several sorters, and the queue rejects a duplicate label
+    const scope = precompileScope("radix-lds");
     for (const [label, bound] of [
-        ["radix-lds-hist", histBound[0]],
-        ["radix-lds-scan", scanL0],
-        ["radix-lds-add", addBound],
-        ["radix-lds-reorder", reorderBound[0]],
+        ["hist", histBound[0]],
+        ["scan", scanL0],
+        ["add", addBound],
+        ["reorder", reorderBound[0]],
     ] as const) {
-        precompile(label, () => {
+        precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

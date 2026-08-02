@@ -7,51 +7,29 @@
 // glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off — the same pre-glaze slot
 // orrstead's fog uses. A scene opts in with one `Fog` singleton; a camera opts in with sear's `Depth` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
-// uniform layout live in `./march` as TGSL functions + a schema: the chunks spliced below and the CPU-side
-// oracle the gym fog probe diffs against are the same source (extinction + clustered + sun in-scatter).
+// uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
+// calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle the gym fog probe diffs
+// against are the same TGSL source (extinction + clustered + sun in-scatter) — this file is the ECS/system/
+// plugin half: the component, the per-frame uniform pack, and the per-camera dispatch.
+import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
 import type { Plugin, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, u32 } from "../../engine";
-import { octEncodeWgsl } from "../../engine/utils/core";
+import { precompile } from "../../engine/runtime";
 import { GlazeSystem } from "../glaze";
 import { Camera, RenderPlugin } from "../render";
-import {
-    LIGHTING_STRUCT_WGSL,
-    LIGHTING_UNIFORM_SIZE,
-    LightCull,
-    Lighting,
-    OverlaySystem,
-    pointLightsWgsl,
-    Render,
-    sceneTransform,
-    VIEW_BYTES,
-    VIEW_STRIDE,
-    VIEW_STRUCT_WGSL,
-    Views,
-} from "../render/core";
+import { LightCull, Lighting, OverlaySystem, Render, sceneTransform, Views } from "../render/core";
 import { Sear, SearPlugin } from "../sear";
 import {
     ColorSystem,
-    casterWgsl,
-    lightEvalWgsl,
+    DEPTH_FORMAT,
     pointAtlasView,
-    pointShadowWgsl,
-    SHADOW_PARAMS_BYTES,
     shadowSampler,
     sunShadowParams,
     sunShadowView,
-    sunShadowWgsl,
-    sunStructWgsl,
 } from "../sear/core";
-import {
-    FOG_BYTES,
-    FOG_FLOATS,
-    FOG_MAX_STEPS,
-    fogInScatterWgsl,
-    fogMarchWgsl,
-    fogStructWgsl,
-    WORKGROUP,
-} from "./march";
+import { FOG_FLOATS, FogGpu, WORKGROUP } from "./march";
 import { packFog } from "./pack";
+import { fogKernel, fogLayout0, fogLayout1 } from "./pipeline";
 
 /**
  * the scene's volumetric atmosphere: one per scene (a singleton). The fog pass marches each pixel from the
@@ -88,152 +66,38 @@ export const Fog = {
     scatterIntensity: sparse(f32),
 };
 
-function code(): string {
-    return /* wgsl */ `
-${VIEW_STRUCT_WGSL}
-${fogStructWgsl()}
-${pointLightsWgsl()}
-${LIGHTING_STRUCT_WGSL}
-${sunStructWgsl()}
-
-@group(0) @binding(0) var scene: texture_2d<f32>;
-@group(0) @binding(1) var depthTex: texture_depth_2d;
-@group(0) @binding(2) var output: texture_storage_2d<rgba16float, write>;
-@group(0) @binding(3) var<uniform> view: View;
-@group(0) @binding(4) var<uniform> fog: Fog;
-
-// group 1: the clustered-light + shadow service. The compacted lights + light grid are render's (the same
-// buffers sear's color FS binds, the cull already ran this frame); the point atlas + caster uniform + the
-// sun shadow map + params + the comparison sampler are sear's, handed over by sear/core; the Lighting UBO
-// is render's (the sun dir/color + the volumetric opt-in flag). The fog march evaluates the same lit,
-// shadowed cones + sun shaft sear does — one source of truth, the relocatable chunks below
-@group(1) @binding(0) var<storage, read> pointLights: PointLights;
-@group(1) @binding(1) var<storage, read> lightGrid: array<vec2<u32>>;
-@group(1) @binding(2) var<storage, read> lightIndices: array<u32>;
-${casterWgsl()}
-@group(1) @binding(3) var pointAtlas: texture_depth_2d;
-@group(1) @binding(4) var<uniform> pointShadows: PointCasters;
-@group(1) @binding(5) var shadowSamp: sampler_comparison;
-@group(1) @binding(6) var shadowMap: texture_depth_2d;
-@group(1) @binding(7) var<uniform> sunShadow: SunShadow;
-@group(1) @binding(8) var<uniform> lighting: Lighting;
-@group(1) @binding(9) var<uniform> tileRects: TileRects;
-
-${octEncodeWgsl()}
-${lightEvalWgsl()}
-${pointShadowWgsl()}
-${sunShadowWgsl()}
-${fogMarchWgsl()}
-${fogInScatterWgsl()}
-
-@compute @workgroup_size(${WORKGROUP}, ${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let dim = textureDimensions(output);
-    if (gid.x >= dim.x || gid.y >= dim.y) { return; }
-    let px = vec2<i32>(gid.xy);
-    let scn = textureLoad(scene, px, 0).rgb;
-    let depth = textureLoad(depthTex, px, 0);
-
-    // reconstruct the camera→fragment segment from the near plane to the fragment depth. Going through both
-    // planes (not eye→fragment) is correct for an orthographic camera too — its rays don't share one eye.
-    // Reverse-Z: the near plane is NDC z=1 (near→1, far→0), so reconstruct it at depth 1.0 — depth 0.0 is the
-    // far plane, which would invert the march (close fragments over-extincted, far ones not fogged at all)
-    let uv = (vec2<f32>(gid.xy) + 0.5) / vec2<f32>(dim);
-    let nearWorld = reconstructWorld(view.invViewProj, uv, 1.0);
-    let fragWorld = reconstructWorld(view.invViewProj, uv, depth);
-    let seg = fragWorld - nearWorld;
-    let dist = length(seg);
-    let dir = seg / max(dist, 1e-6);
-
-    let density = fog.march.x;
-    let base = fog.march.y;
-    let falloff = fog.march.z;
-    let jitter = fog.march.w;
-    let steps = max(u32(fog.extra.x), 1u);
-    let g = fog.extra.y;
-    let absorption = fog.extra.z;
-    let gain = fog.extra.w;
-    let offset = mix(0.5, ign(vec2<f32>(gid.xy)), jitter);
-
-    // the froxel lookup along this pixel's ray: tile-xy is the pixel (fixed along the ray), the z-slice is
-    // the step's view depth = its distance along the camera forward (matches sear's clusterOf for the same
-    // world point, perspective + ortho alike)
-    let near = view.cluster.x;
-    let far = view.cluster.y;
-    let forward = -cross(view.right.xyz, view.up.xyz);
-    let slot = u32(view.cluster.w);
-
-    // the extinction + in-scatter march, fused on one front-to-back midpoint sweep. trans is the
-    // transmittance to the current step's start (the product of per-step exp(-density·ds) = exp(-sum), the
-    // same extinction integral fogTransmittance closes). Per step: gather this froxel's volumetric lights'
-    // source, then integrate the in-scatter over the step analytically
-    let ds = dist / f32(steps);
-    let albedo = 1.0 - absorption;
-    var trans = 1.0;
-    var inScatter = vec3<f32>(0.0);
-    for (var i = 0u; i < ${FOG_MAX_STEPS}u; i = i + 1u) {
-        if (i >= steps) { break; }
-        let p = nearWorld + dir * ((f32(i) + offset) * ds);
-        let dens = fogDensity(p, density, base, falloff);
-        let sampleTrans = exp(-dens * ds);
-        let viewZ = max(dot(p - view.eye.xyz, forward), near);
-        let entry = lightGrid[clusterCell(uv.x, uv.y, viewZ, near, far, slot)];
-        var lstep = vec3<f32>(0.0);
-        for (var j = 0u; j < entry.y; j = j + 1u) {
-            let light = pointLights.lights[lightIndices[entry.x + j]];
-            // params.x < 0 is the Volumetric flag; a plain light has no shaft (skip it). A volumetric point
-            // light with no surface normal passes vec3(0) to the shadow lookup — zero normal-bias offset
-            if (light.params.x >= 0.0) { continue; }
-            let shadow = pointShadowOf(light, vec3<f32>(0.0), p);
-            lstep += inScatterContribution(light, p, dir, g) * shadow;
-        }
-        // the sun (directional) shaft, additive with the clustered cones on the same accumulator (so it gets
-        // the same transmittance · scattering weighting). sunDirection.w is the Volumetric opt-in flag; the
-        // sun shadow map darkens it behind occluders (vec3(0) normal = zero bias, in-volume), reading the
-        // enabled:0 fallback as fully lit when the sun has no Shadow
-        if (lighting.sunDirection.w > 0.0) {
-            lstep += sunInScatter(lighting.sunColor.rgb, lighting.sunDirection.xyz, dir, g)
-                * sampleSunShadow(p, vec3<f32>(0.0));
-        }
-        // energy-conserving in-scatter (Hillaire/Frostbite): the source integrated over the step with its
-        // own extinction = albedo·(1−e^{−σ_t·ds})·gain, the analytic twin of the haze's (1−T), weighted by
-        // the transmittance to the step start. Brightness is step-count-stable (a coarse march converges to
-        // the same value as a fine one) and consistent with the fogComposite extinction half
-        inScatter += trans * albedo * gain * lstep * (1.0 - sampleTrans);
-        trans = trans * sampleTrans;
-    }
-
-    let t = trans;
-    let outc = fogComposite(scn, fog.color.rgb, t) + inScatter;
-    textureStore(output, px, vec4<f32>(outc, 1.0));
-}
-`;
-}
-
 const _fog = {
-    pipeline: null as GPUComputePipeline | null,
-    layout: null as GPUBindGroupLayout | null,
-    light: null as GPUBindGroupLayout | null,
-    buffer: null as GPUBuffer | null,
+    pipeline: null as TgpuComputePipeline | null,
+    buffer: null as (TgpuBuffer<typeof FogGpu> & UniformFlag) | null,
 };
 
 const _staging = new Float32Array(FOG_FLOATS);
+
+type LightsGroup = TgpuBindGroup<(typeof fogLayout1)["entries"]>;
+type ViewGroup = TgpuBindGroup<(typeof fogLayout0)["entries"]>;
 
 // the camera-independent light + shadow service group (group 1), cached on the identities of the resources
 // it binds. The cull already binned every shading view this frame, so one group serves all cameras; sear's
 // shadow resources can flip identity (the atlas allocates lazily, the sun map toggles with a casting frame),
 // so rebuild only when one changes — sear's `shadowGroup` idiom, not a per-frame allocation
-let _lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: GPUBindGroup } | null =
+let _lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: LightsGroup } | null =
     null;
 
 // per-camera group 0 (scene / depth / output / view / fog), cached per eid on the `sceneTransform` read +
-// write + the depth view — all three reallocate only on a resize, so the group rebuilds then, not every frame
+// write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
+// frame) and the view slot (the per-slot View buffer it binds — Approach 4a's per-slot-buffer design)
 const _views = new Map<
     number,
-    { read: GPUTextureView; write: GPUTextureView; depth: GPUTextureView; group: GPUBindGroup }
+    {
+        read: GPUTextureView;
+        write: GPUTextureView;
+        depth: GPUTextureView;
+        slot: number;
+        group: ViewGroup;
+    }
 >();
 
-function fogLights(device: GPUDevice): GPUBindGroup {
+function fogLights(): LightsGroup {
     const atlas = pointAtlasView()!;
     const casters = Compute.buffers.get("pointShadows")!;
     const tileRects = Compute.buffers.get("pointTileRects")!;
@@ -254,21 +118,17 @@ function fogLights(device: GPUDevice): GPUBindGroup {
     ];
     const cached = _lights;
     if (cached && keys.every((k, i) => cached.keys[i] === k)) return cached.group;
-    const group = device.createBindGroup({
-        label: "fog-lights",
-        layout: _fog.light!,
-        entries: [
-            { binding: 0, resource: { buffer: LightCull.lights! } },
-            { binding: 1, resource: { buffer: LightCull.grid! } },
-            { binding: 2, resource: { buffer: LightCull.indices! } },
-            { binding: 3, resource: atlas },
-            { binding: 4, resource: { buffer: casters } },
-            { binding: 5, resource: sampler },
-            { binding: 6, resource: sunMap },
-            { binding: 7, resource: { buffer: sunParams } },
-            { binding: 8, resource: { buffer: Lighting.buffer } },
-            { binding: 9, resource: { buffer: tileRects } },
-        ],
+    const group = Compute.root.createBindGroup(fogLayout1, {
+        pointLights: LightCull.lights!,
+        lightGrid: LightCull.grid!,
+        lightIndices: LightCull.indices!,
+        pointAtlas: atlas,
+        pointShadows: casters,
+        shadowSamp: sampler,
+        shadowMap: sunMap,
+        sunShadow: sunParams,
+        lighting: Lighting.buffer,
+        tileRects,
     });
     _lights = { keys, group };
     return group;
@@ -291,38 +151,36 @@ export const FogSystem: System = {
     before: [GlazeSystem, OverlaySystem],
     update(state) {
         const encoder = Render.encoder;
-        const device = Compute.device;
-        if (!encoder || !device || !_fog.pipeline || !_fog.layout || !_fog.light || !_fog.buffer)
-            return;
+        if (!encoder || !Compute.device || !_fog.pipeline || !_fog.buffer) return;
         const fogEid = state.only([Fog]);
         if (fogEid < 0) return;
         packFog(fogEid, _staging);
-        device.queue.writeBuffer(_fog.buffer, 0, _staging as Float32Array<ArrayBuffer>);
+        _fog.buffer.write(_staging.buffer as ArrayBuffer);
         // a null resource is a wiring bug, not a frame to skip (gpu firehose rule) — fogLights asserts them
-        const lights = fogLights(device);
+        const lights = fogLights();
         for (const eid of state.query([Camera, Sear])) {
             const view = Views.get(eid);
             if (!view?.framebuffer || !view.depth) continue;
             const { read, write } = sceneTransform(view, eid);
             let cam = _views.get(eid);
-            if (!cam || cam.read !== read || cam.write !== write || cam.depth !== view.depth) {
+            if (
+                !cam ||
+                cam.read !== read ||
+                cam.write !== write ||
+                cam.depth !== view.depth ||
+                cam.slot !== view.slot
+            ) {
                 cam = {
                     read,
                     write,
                     depth: view.depth,
-                    group: device.createBindGroup({
-                        label: `fog/${eid}`,
-                        layout: _fog.layout,
-                        entries: [
-                            { binding: 0, resource: read },
-                            { binding: 1, resource: view.depth },
-                            { binding: 2, resource: write },
-                            {
-                                binding: 3,
-                                resource: { buffer: Render.viewBuffer, size: VIEW_BYTES },
-                            },
-                            { binding: 4, resource: { buffer: _fog.buffer, size: FOG_BYTES } },
-                        ],
+                    slot: view.slot,
+                    group: Compute.root.createBindGroup(fogLayout0, {
+                        sceneTex: read,
+                        depthTex: view.depth,
+                        output: write,
+                        view: Render.viewBuffers[view.slot],
+                        fog: _fog.buffer,
                     }),
                 };
                 _views.set(eid, cam);
@@ -331,13 +189,14 @@ export const FogSystem: System = {
                 label: `fog/${eid}`,
                 timestampWrites: Compute.span?.("fog:march"),
             });
-            pass.setPipeline(_fog.pipeline);
-            pass.setBindGroup(0, cam.group, [view.slot * VIEW_STRIDE]);
-            pass.setBindGroup(1, lights);
-            pass.dispatchWorkgroups(
-                Math.ceil(view.width / WORKGROUP),
-                Math.ceil(view.height / WORKGROUP),
-            );
+            _fog.pipeline
+                .with(cam.group)
+                .with(lights)
+                .with(pass)
+                .dispatchWorkgroups(
+                    Math.ceil(view.width / WORKGROUP),
+                    Math.ceil(view.height / WORKGROUP),
+                );
             pass.end();
         }
     },
@@ -373,106 +232,60 @@ export const FogPlugin: Plugin = {
     dependencies: [RenderPlugin, SearPlugin],
 
     async warm() {
-        const { device } = Compute;
+        const device = Compute.device;
         if (!device) return;
         _fog.buffer?.destroy();
-        _fog.buffer = device.createBuffer({
-            label: "fog-config",
-            size: FOG_BYTES,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        _fog.layout = device.createBindGroupLayout({
-            label: "fog",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "float" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "depth" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    storageTexture: { access: "write-only", format: "rgba16float" },
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: VIEW_BYTES },
-                },
-                {
-                    binding: 4,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform", minBindingSize: FOG_BYTES },
-                },
-            ],
-        });
-        // group 1: the clustered-light + point/spot shadow service (render's compacted lights + light grid,
-        // sear's atlas + caster uniform + comparison sampler) — the live resources bound via `fogLights`
-        _fog.light = device.createBindGroupLayout({
-            label: "fog-lights",
-            entries: [
-                {
-                    binding: 0,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 1,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 2,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "read-only-storage" },
-                },
-                {
-                    binding: 3,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "depth" },
-                },
-                { binding: 4, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-                { binding: 5, visibility: GPUShaderStage.COMPUTE, sampler: { type: "comparison" } },
-                {
-                    binding: 6,
-                    visibility: GPUShaderStage.COMPUTE,
-                    texture: { sampleType: "depth" },
-                },
-                {
-                    binding: 7,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform", minBindingSize: SHADOW_PARAMS_BYTES },
-                },
-                {
-                    binding: 8,
-                    visibility: GPUShaderStage.COMPUTE,
-                    buffer: { type: "uniform", minBindingSize: LIGHTING_UNIFORM_SIZE },
-                },
-                { binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } },
-            ],
-        });
-        const module = device.createShaderModule({ label: "fog", code: code() });
-        _fog.pipeline = await device.createComputePipelineAsync({
-            label: "fog",
-            layout: device.createPipelineLayout({ bindGroupLayouts: [_fog.layout, _fog.light] }),
-            compute: { module, entryPoint: "main" },
-        });
-        // the layouts just changed identity — drop any group cached against the prior build
+        _fog.buffer = Compute.root.createBuffer(FogGpu).$usage("uniform").$name("fog-config");
+        _fog.pipeline = Compute.root.createComputePipeline({ compute: fogKernel }).$name("fog");
+        // the pipeline just changed identity — drop any group cached against the prior build
         _lights = null;
         _views.clear();
+
+        // typegpu has no async pipeline creation, so Dawn defers the real compile to first dispatch — and
+        // the march runs every frame `Fog` + `Depth` are both present, so an unfired compile would land the
+        // stall on whichever frame that is. Group 1's real resources (the light/shadow service) exist by the
+        // time this runs (deferred past every plugin's `warm`, the 1c law); group 0 is genuinely per-camera,
+        // so the forcer stands in 1×1 throwaways, like glaze's / outline's
+        precompile("fog", () => {
+            const src = device.createTexture({
+                label: "fog-precompile-scene",
+                size: { width: 1, height: 1 },
+                format: "rgba16float",
+                usage: GPUTextureUsage.TEXTURE_BINDING,
+            });
+            const depth = device.createTexture({
+                label: "fog-precompile-depth",
+                size: { width: 1, height: 1 },
+                format: DEPTH_FORMAT,
+                usage: GPUTextureUsage.TEXTURE_BINDING,
+            });
+            const dst = device.createTexture({
+                label: "fog-precompile-out",
+                size: { width: 1, height: 1 },
+                format: "rgba16float",
+                usage: GPUTextureUsage.STORAGE_BINDING,
+            });
+            const group0 = Compute.root.createBindGroup(fogLayout0, {
+                sceneTex: src.createView(),
+                depthTex: depth.createView(),
+                output: dst.createView(),
+                view: Render.viewBuffers[0],
+                fog: _fog.buffer!,
+            });
+            const bound = _fog.pipeline!.with(group0).with(fogLights());
+            bound.dispatchWorkgroups(0);
+            // the dispatch is already submitted and ran no invocation, so the throwaways are dead here
+            src.destroy();
+            depth.destroy();
+            dst.destroy();
+            return bound;
+        });
     },
 
     dispose() {
         _fog.buffer?.destroy();
         _fog.buffer = null;
         _fog.pipeline = null;
-        _fog.layout = null;
-        _fog.light = null;
         _lights = null;
         _views.clear();
     },

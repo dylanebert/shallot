@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { font, TextPlugin, text } from "./";
-import { Glyph, glyphWgsl, sdfToSignedDistance, textSrgbToLinear } from "./glyph";
+import { Glyph, sdfToSignedDistance, textSrgbToLinear } from "./glyph";
 import { SDF_EXPONENT, SdfUniforms, sdfWgsl } from "./sdf";
 
 // The registries are the CPU codec boundary the scene parse/format trait crosses — the glyph layout + GPU
@@ -62,8 +63,12 @@ describe("Glyph layout", () => {
         expect(offset((g) => g.pad)).toBe(44);
     });
 
-    test("the preamble chunk emits the struct + both decode helpers under their authored names", () => {
-        const wgsl = glyphWgsl();
+    test("resolving the struct + both decode helpers emits them under their authored names", () => {
+        // no `glyphWgsl` preamble chunk anymore (the surface is a typed `typedTextSurface`, not a raw
+        // WGSL splice site) — resolve the same three resources directly, same names, same substance
+        const wgsl = tgpu.resolve([Glyph, sdfToSignedDistance, textSrgbToLinear], {
+            names: "strict",
+        });
         expect(wgsl).toContain("struct Glyph {");
         expect(wgsl).toContain("fn sdfToSignedDistance(sdf: f32, maxDimension: f32) -> f32 {");
         expect(wgsl).toContain("fn textSrgbToLinear(c: vec3f) -> vec3f {");

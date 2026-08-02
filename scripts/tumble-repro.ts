@@ -16,7 +16,7 @@ import { type Bridge, start as startBridge } from "./wsl-bridge";
 //   • --gate  — the F3 STANDING GATE: two real-device asserts over one bridge session. (1) a trusted-input
 //     violent reversing whip must fling NO pair out of frustum under the grab-energy cap (tumble-grab.ts
 //     driveGrab) — a smoke; the DETERMINISTIC cap red→green + regression is the headless whip-cap unit test
-//     (examples/gym/src/tumble-pilot.test.ts, in `bun run test:gym`). (2) `--inject far` must STILL drop
+//     (examples/gym/src/tumble-pilot.test.ts, in `bun test ./examples/gym/src`). (2) `--inject far` must STILL drop
 //     pairs (it bypasses the grab entirely, proving the frustum-cull detector still detects — the
 //     discriminating half). Exits nonzero if either fails.
 //
@@ -410,7 +410,7 @@ Modes:
   --gate             STANDING GATE (spec 6b/F3): two real-device asserts over one bridge session —
                      (1) a trusted-input violent reversing whip must NOT fling any pair out of frustum under
                          the grab-energy cap (a smoke; the deterministic cap red→green is the headless
-                         whip-cap unit test in \`bun run test:gym\`); (2) --inject far must STILL produce the
+                         whip-cap unit test in \`bun test ./examples/gym/src\`); (2) --inject far must STILL produce the
                          multi-pair loss (it bypasses the grab, proving the frustum-cull detector still
                          detects — the discriminating half). Exits nonzero if either fails.
 

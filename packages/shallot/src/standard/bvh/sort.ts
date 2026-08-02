@@ -33,9 +33,8 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, precompileScope } from "../../engine/runtime";
 import { compareExchange, idiv, subgroupUniformityOff, uniformLoad } from "../../engine/utils/core";
-import { rootOf } from "./root";
 import { createRadixSortLds } from "./sort-lds";
 
 const RADIX = 256;
@@ -690,8 +689,7 @@ export async function createRadixSort(
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<RadixSort> {
     if (!subgroups) return createRadixSortLds(device, maxKeys, shared);
-    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
-    const root = rootOf(device, "createRadixSort");
+    const root = Compute.root;
     const maxBlocks = Math.max(1, Math.ceil(maxKeys / PART_SIZE));
     if (maxBlocks * RADIX_PASSES > MAX_DISPATCH) {
         throw new Error(
@@ -802,14 +800,17 @@ export async function createRadixSort(
         }
     }
 
+    // labels are per-sorter: one app can stand up several (a BVH sorts internally, and a consumer may
+    // hold its own beside it), and the precompile queue rejects a duplicate label
+    const scope = precompileScope("radix");
     for (const [label, bound] of [
-        ["radix-init", initBound],
-        ["radix-global-hist", histBound],
-        ["radix-scan", scanBound],
-        ["radix-binning", binBound[0]],
-        ...(prepare ? ([["radix-prepare", prepare.bound]] as const) : []),
+        ["init", initBound],
+        ["global-hist", histBound],
+        ["scan", scanBound],
+        ["binning", binBound[0]],
+        ...(prepare ? ([["prepare", prepare.bound]] as const) : []),
     ] as const) {
-        precompile(label, () => {
+        precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

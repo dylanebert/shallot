@@ -5,14 +5,13 @@ import { register } from "../../engine/ecs/core";
 import { Surfaces } from "../render/core";
 import { mesh, packMeshes, quantizeMeshes } from "../render/mesh";
 import { Slab } from "../slab";
-import { backgroundCode, lightEvalWgsl, Material, SearPlugin, surfaceCode } from "./forward";
+import { backgroundCode, bindingEntry, lightEvalWgsl, surfaceCode } from "./codegen";
+import { Material, SearPlugin } from "./forward";
 
-// Structural validation of sear's per-surface WGSL codegen. `surfaceCode` is
-// pure (no GPU), so the contract — explicit `col` output, the `lit` /
-// `lightFactor` lighting helpers, custom interpolators, and the binding layout —
-// is checked by reading the generated source. GPU compilation of these pipelines
-// lives in `bun bench`.
-describe("sear surfaceCode", () => {
+// Structural validation of the legacy string surface adapter, accepted beside the typed contract until
+// the consumer-migration sweep deletes it. Typed entry/pipeline differentials live in pipelines.test.ts;
+// this file pins only the raw adapter behavior its remaining consumers still exercise.
+describe("legacy surfaceCode", () => {
     test("emits the explicit-color contract, not a forced lighting wrapper", () => {
         const code = surfaceCode({ name: "t", fs: "col = vec4<f32>(1.0);" });
         // surfaces write `col`; sear returns it verbatim from a single-target color fragment (no MRT)
@@ -45,7 +44,7 @@ describe("sear surfaceCode", () => {
         expect(code).toContain("fn distributionGGX(");
         expect(code).toContain("fn fresnelSchlick(");
         // view-dependent specular reads the camera world position from the View uniform
-        expect(code).toContain("eye: vec4<f32>");
+        expect(code).toContain("eye: vec4f");
         expect(code).toContain("view.eye.xyz");
         // the engine-default flat look: dielectric F0 0 → f90 0 → zero specular at metallic 0, so a bare
         // material reduces to the diffuse lit() — the f90-from-F0 (Frostbite) term is the discriminator
@@ -257,13 +256,19 @@ describe("sear surfaceCode", () => {
     });
 
     test("a read_write storage binding declares its access mode", () => {
+        const binding = {
+            type: "storage" as const,
+            element: "u32",
+            access: "read_write" as const,
+        };
         const code = surfaceCode({
             name: "t",
-            bindings: { counters: { type: "storage", element: "u32", access: "read_write" } },
+            bindings: { counters: binding },
         });
         expect(code).toContain(
             "@group(0) @binding(8) var<storage, read_write> counters: array<u32>;",
         );
+        expect(bindingEntry(binding, 8).visibility).toBe(GPUShaderStage.FRAGMENT);
     });
 
     test("texture-depth-2d and sampler-comparison bindings emit their WGSL declarations", () => {
@@ -488,7 +493,7 @@ describe("sear surfaceCode", () => {
     // the View struct carries resolution (pixels) so a screen-space producer sizes constant-pixel geometry
     test("the View struct carries resolution", () => {
         const code = surfaceCode({ name: "t" });
-        expect(code).toContain("resolution: vec2<f32>,");
+        expect(code).toContain("resolution: vec2f,");
     });
 
     // a specializing surface (the glTF importer) splices `specialize(variant)`'s preamble/fs per material

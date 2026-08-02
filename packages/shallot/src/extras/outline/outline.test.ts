@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { groupByMesh, jfaSteps, maskCode, outlineWgsl } from "./passes";
+import { body, noIntegerDivision } from "../../../tests/wgsl";
+import { groupByMesh, jfaSteps, maskWgsl, outlineWgsl } from "./passes";
 
 // The JFA step ladder decides how many fullscreen passes the outline runs (the screen × log(width) cost),
 // and the mesh grouping decides the scoped instanced draws. Both are pure CPU logic the GPU passes build
@@ -51,22 +52,53 @@ describe("outline groupByMesh", () => {
     });
 });
 
-describe("outline maskCode", () => {
+// The mask kernels are TGSL, resolved device-free here (the `outlineWgsl`/`packWgsl` shape). What these pin:
+// the reverse-Z occlusion comparison, the vertex pull's decode + transform-firehose call chain (real TGSL
+// references, not a spliced chunk — the 3b-iii resolve-call-graph precedent), and the fs's seed/attr writes.
+describe("outline mask kernel", () => {
+    const plain = maskWgsl(false);
+    const occlude = maskWgsl(true);
+
     // the occlusion gate discards a highlighted fragment that's behind the visible scene. The engine is
     // reverse-Z (near→1/far→0, depthCompare greater), so "behind" = the fragment's depth is LESS than the
     // nearest stored scene depth. A `>` here (forward-Z) never fires, so an occluded outline draws over the
     // wall — the regression this guards (a reverse-Z site silently inverted).
     test("the occlude variant discards with the reverse-Z comparison (clip.z < scene)", () => {
-        const occ = maskCode(true);
-        expect(occ).toContain("textureLoad(sceneDepth");
-        expect(occ).toMatch(/in\.clip\.z\s*<\s*scene/); // reverse-Z: behind = lesser depth
-        expect(occ).not.toMatch(/in\.clip\.z\s*>\s*scene/); // forward-Z comparison = the bug
+        expect(occlude).toContain("var sceneDepth: texture_depth_2d;");
+        expect(occlude).toMatch(/\(clip\.z < \(scene - 1e-4f\)\)/); // reverse-Z: behind = lesser depth
+        expect(occlude).not.toMatch(/clip\.z\s*>\s*scene/); // forward-Z comparison = the bug
+        expect(occlude).toContain("discard;");
     });
 
     test("the plain variant has no depth gate (always-on-top)", () => {
-        const plain = maskCode(false);
         expect(plain).not.toContain("sceneDepth");
         expect(plain).not.toContain("discard");
+    });
+
+    test("the vs decodes the quantized position stream and applies the transform firehose", () => {
+        // the array-element read is a pointer (3b-ii) — only fields are read off it, never reassigned or
+        // passed on whole, so no explicit copy wrap is needed here (unlike the meshQuant/Xform reads it feeds)
+        expect(plain).toContain("let raw = (&position[indices[vidx]]);");
+        expect(plain).toContain("let quant = meshQuant[meshIdOf((*raw).y)];");
+        expect(plain).toContain("let p = decodePos((*raw).x, (*raw).y, quant);");
+        expect(plain).toContain("let world = vec4f(xformPoint(x, p), 1f);");
+        expect(plain).toContain("(view.viewProj * world)");
+    });
+
+    test("the fs writes the pixel coordinate as the integer seed and the instance color+width as attr", () => {
+        // typegpu types a fragment target as a 4-component vector; the rg16uint attachment consumes xy
+        expect(plain).toContain("vec4u(vec2u(clip.xy), 0u, 0u)");
+        expect(plain).toContain("vec4f((*color).xyz, (*params).x)");
+    });
+
+    // scoped to the mask entry points, not the whole resolve: the spliced `decodePos` helper has its own
+    // real f32 unorm-decode division (`f32(w1 & 0xffff) / 65535f`) that `noIntegerDivision`'s mixed-operand
+    // pattern can't distinguish from a bug at this call shape, and it's already covered by encode's own tests
+    test("no integer division in the mask entry points themselves", () => {
+        noIntegerDivision(body(plain, "fn maskVs("));
+        noIntegerDivision(body(plain, "fn maskFs("));
+        noIntegerDivision(body(occlude, "fn maskVsOcclude("));
+        noIntegerDivision(body(occlude, "fn maskFsOcclude("));
     });
 });
 

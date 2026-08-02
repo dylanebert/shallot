@@ -26,7 +26,7 @@ export {
     sliceDepth,
     zSlice,
 } from "./cluster";
-export { FRAME_STRUCT_WGSL, Frame } from "./frame";
+export { Frame, FrameGpu, frameWgsl } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
 // the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas
 // both sample, inward of both extras so neither reaches sideways into the other
@@ -42,11 +42,13 @@ export { BeginFrameSystem, OverlaySystem } from "./index";
 
 export {
     distanceAttenuation,
-    LIGHTING_STRUCT_WGSL,
     LIGHTING_UNIFORM_SIZE,
     Lighting,
+    LightingGpu,
+    lightingWgsl,
     MAX_POINT_LIGHTS,
     PointLightGpu,
+    PointLights,
     pointLightsWgsl,
     spotFactor,
     spotParams,
@@ -63,7 +65,6 @@ export {
 export type { Binding, Draw, Surface } from "./registry";
 export { Draws, Surfaces } from "./registry";
 export { Render } from "./render";
-export type { View } from "./view";
 export {
     attachCanvas,
     attachView,
@@ -75,6 +76,7 @@ export {
     sceneTransform,
     VIEW_BYTES,
     VIEW_STRIDE,
-    VIEW_STRUCT_WGSL,
+    View,
     Views,
+    viewWgsl,
 } from "./view";

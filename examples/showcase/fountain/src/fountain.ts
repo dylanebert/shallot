@@ -2,8 +2,8 @@ import { Compute, mesh, type Plugin, RenderPlugin, type System } from "@dylanebe
 import {
     BeginFrameSystem,
     Draws,
-    FRAME_STRUCT_WGSL,
     Frame,
+    frameWgsl,
     Meshes,
     Render,
     Surfaces,
@@ -201,7 +201,7 @@ const FountainSystem: System = {
 
         const module = device.createShaderModule({
             label: "fountain-integrate",
-            code: `${FRAME_STRUCT_WGSL}\n${PARTICLE_WGSL}`,
+            code: `${frameWgsl()}\n${PARTICLE_WGSL}`,
         });
         Fountain.pipeline = await device.createComputePipelineAsync({
             label: "fountain-integrate",

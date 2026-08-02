@@ -1,8 +1,8 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { posQuantWgsl, xformWgsl } from "../../engine/utils/core";
-import { VIEW_STRUCT_WGSL } from "../../standard/render/core";
+import { decodePos, MeshQuant, meshIdOf, Xform, xformPoint } from "../../engine/utils/core";
+import { View } from "../../standard/render/core";
 
 // The outline's pass internals: the JFA + composite kernels with their bind group layouts, plus the pure
 // CPU logic the three passes build on (the JFA step ladder, the mesh-group batching for the scoped mask
@@ -46,72 +46,102 @@ export function groupByMesh(
     return groups;
 }
 
+/** the always-on-top mask layout: view/position/indices/transforms/maskEids/maskAttrs/meshQuant.
+ *  @internal */
+export const maskLayoutPlain = tgpu.bindGroupLayout({
+    view: { uniform: View, visibility: ["vertex"] },
+    position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
+    indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    transforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
+    maskEids: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    maskAttrs: { storage: d.arrayOf(d.vec4f), access: "readonly", visibility: ["fragment"] },
+    meshQuant: { storage: d.arrayOf(MeshQuant), access: "readonly", visibility: ["vertex"] },
+});
+
+/** the occlusion-aware mask layout: {@link maskLayoutPlain}'s entries (duplicated, not spread — the
+ *  visibility-array literal types don't survive a factory-returned intermediate) plus sear's `view.depth`
+ *  lane, so the fs can discard a fragment behind the visible scene. A second layout, not a 1×1 dummy depth
+ *  on the plain one: an out-of-bounds `textureLoad` returns 0 = far under reverse-Z, which would silently
+ *  read every fragment as un-occluded. @internal */
+export const maskLayoutOcclude = tgpu.bindGroupLayout({
+    view: { uniform: View, visibility: ["vertex"] },
+    position: { storage: d.arrayOf(d.vec2u), access: "readonly", visibility: ["vertex"] },
+    indices: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    transforms: { storage: d.arrayOf(Xform), access: "readonly", visibility: ["vertex"] },
+    maskEids: { storage: d.arrayOf(d.u32), access: "readonly", visibility: ["vertex"] },
+    maskAttrs: { storage: d.arrayOf(d.vec4f), access: "readonly", visibility: ["fragment"] },
+    meshQuant: { storage: d.arrayOf(MeshQuant), access: "readonly", visibility: ["vertex"] },
+    sceneDepth: { texture: d.textureDepth2d(), visibility: ["fragment"] },
+});
+
+type MaskLayout = typeof maskLayoutPlain | typeof maskLayoutOcclude;
+
 /**
- * the JFA seed-mask shader for the outline pass. The vs pulls the highlighted instances' position stream +
- * applies the `transforms` firehose; the fs writes the pixel's own coordinate as the JFA seed + the
- * instance's color/width into the attr texture. `occlude` adds the depth gate: sample sear's `view.depth`
- * and discard fragments behind the visible scene (reverse-Z, an occluded fragment's depth is *less* than
- * the nearest scene depth), so an occluded object contributes no silhouette. Two pipeline variants, not a
- * 1×1 dummy depth: an out-of-bounds textureLoad returns 0 = far under reverse-Z, which would silently make
- * every fragment read as un-occluded. Pure codegen.
+ * the mask vs, over a specific mask layout (plain or occlude — the 1c factory-closure law, one authored
+ * kernel re-emitting per layout). Pulls the highlighted instance's 8 B position stream, dequantizes against
+ * its meshId's {@link MeshQuant}, and applies the `transforms` firehose ({@link xformPoint}). @internal
  */
-export function maskCode(occlude: boolean): string {
-    return /* wgsl */ `
-${VIEW_STRUCT_WGSL}
-${posQuantWgsl()}
-${xformWgsl()}
-@group(0) @binding(0) var<uniform> view: View;
-@group(0) @binding(1) var<storage, read> position: array<vec2<u32>>;
-@group(0) @binding(2) var<storage, read> indices: array<u32>;
-@group(0) @binding(3) var<storage, read> transforms: array<Xform>;
-@group(0) @binding(4) var<storage, read> maskEids: array<u32>;
-@group(0) @binding(5) var<storage, read> maskAttrs: array<vec4<f32>>;
-@group(0) @binding(7) var<storage, read> meshQuant: array<MeshQuant>;
-${occlude ? "@group(0) @binding(6) var sceneDepth: texture_depth_2d;" : ""}
-
-struct VOut {
-    @builtin(position) clip: vec4<f32>,
-    @location(0) @interpolate(flat) iid: u32,
+export function maskVertex(layout: MaskLayout) {
+    return tgpu
+        .vertexFn({
+            in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
+            out: { pos: d.builtin.position, iid: d.interpolate("flat", d.u32) },
+        })((input) => {
+            "use gpu";
+            const raw = layout.$.position[layout.$.indices[input.vidx]];
+            // the array-element reads are pointers, not copies (3b-ii) — wrap in the element schema before
+            // passing them by value into decodePos / xformPoint
+            const quant = MeshQuant(layout.$.meshQuant[meshIdOf(raw.y)]);
+            const p = decodePos(raw.x, raw.y, quant);
+            const x = Xform(layout.$.transforms[layout.$.maskEids[input.iid]]);
+            const world = d.vec4f(xformPoint(x, p), 1);
+            return { pos: std.mul(layout.$.view.viewProj, world), iid: input.iid };
+        })
+        .$name(layout === maskLayoutOcclude ? "maskVsOcclude" : "maskVs");
 }
 
-// the mask only needs position — pull the 8 B position stream + dequantize against the meshId's MeshQuant
-@vertex
-fn vs(@builtin(vertex_index) vidx: u32, @builtin(instance_index) iid: u32) -> VOut {
-    let raw = position[indices[vidx]];
-    let p = decodePos(raw.x, raw.y, meshQuant[meshIdOf(raw.y)]);
-    let eid = maskEids[iid];
-    let world = vec4<f32>(xformPoint(transforms[eid], p), 1.0);
-    var out: VOut;
-    out.clip = view.viewProj * world;
-    out.iid = iid;
-    return out;
+/**
+ * the mask fs, over a specific mask layout: writes the pixel's own coordinate as the JFA seed
+ * (`typegpu` types a fragment target as a 4-component vector — the `rg16uint` attachment consumes `xy`) plus
+ * the instance's color/width into the attr texture. The occlude variant discards a fragment behind the
+ * visible scene (reverse-Z: occluded ⇔ its depth is *less* than the nearest stored scene depth).
+ * @internal
+ */
+export function maskFragment(layout: MaskLayout, occlude: boolean) {
+    return tgpu
+        .fragmentFn({
+            in: { clip: d.builtin.position, iid: d.interpolate("flat", d.u32) },
+            out: { seed: d.vec4u, attr: d.vec4f },
+        })((input) => {
+            "use gpu";
+            const color = layout.$.maskAttrs[input.iid * 2];
+            const params = layout.$.maskAttrs[input.iid * 2 + 1]; // (width, occlude, _, _)
+            // `occlude` is a captured JS boolean (the factory's own argument, not a GPU value) — the
+            // transpiler folds this branch at build time exactly like the pre-port `${occlude ? … : ""}`
+            // template did, so the plain variant never even sees the depth read
+            if (occlude) {
+                if (params.y > 0.5) {
+                    const scene = std.textureLoad(
+                        (layout as typeof maskLayoutOcclude).$.sceneDepth,
+                        d.vec2i(input.clip.xy),
+                        0,
+                    );
+                    if (input.clip.z < scene - 1e-4) std.discard();
+                }
+            }
+            return {
+                seed: d.vec4u(d.vec2u(input.clip.xy), 0, 0),
+                attr: d.vec4f(color.xyz, params.x),
+            };
+        })
+        .$name(occlude ? "maskFsOcclude" : "maskFs");
 }
 
-struct MaskOut {
-    @location(0) seed: vec2<u32>,
-    @location(1) attr: vec4<f32>,
-}
-
-@fragment
-fn fs(in: VOut) -> MaskOut {
-    let color = maskAttrs[in.iid * 2u];
-    let params = maskAttrs[in.iid * 2u + 1u]; // (width, occlude, _, _)
-${
-    occlude
-        ? `    if (params.y > 0.5) {
-        let scene = textureLoad(sceneDepth, vec2<i32>(in.clip.xy), 0);
-        // reverse-Z (near→1/far→0): the object is occluded where its depth is behind (less than) the
-        // nearest scene depth, so discard the mask there
-        if (in.clip.z < scene - 1e-4) { discard; }
-    }`
-        : ""
-}
-    var out: MaskOut;
-    out.seed = vec2<u32>(in.clip.xy);
-    out.attr = vec4<f32>(color.rgb, params.x);
-    return out;
-}
-`;
+/** the emitted mask WGSL for one variant — the device-free structural seam the outline test resolves.
+ *  @internal */
+export function maskWgsl(occlude: boolean): string {
+    const layout = occlude ? maskLayoutOcclude : maskLayoutPlain;
+    return tgpu.resolve([maskVertex(layout), maskFragment(layout, occlude)], { names: "strict" });
 }
 
 /** compute workgroup tile — 8×8 = 64 threads, matching glaze/fog's screen-space composite @internal */

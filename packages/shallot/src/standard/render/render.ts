@@ -1,7 +1,12 @@
 /**
  * device-level render state owned by `RenderPlugin`. `encoder` is transient
- * per-frame state set by `BeginFrameSystem`; `viewBuffer` is the multi-slot
- * view UBO consumed by each renderer. `cullVolumes` packs one per-slot cull
+ * per-frame state set by `BeginFrameSystem`; `viewBuffers` is one static
+ * `View`-struct uniform buffer per shading slot (`MAX_VIEWS` of them — the
+ * per-slot-buffer design, replacing the old single dynamic-offset UBO: a
+ * depth-only slot's shadow-atlas passes never read `view`, so only the shading
+ * prefix needs a real buffer). `viewStaging` stays the full per-slot pack
+ * (shading + depth-only), unchanged — the writer sources each shading slot's
+ * 208 B from the same subrange it always did. `cullVolumes` packs one per-slot cull
  * volume per active view (a tagged descriptor carrying a frustum's six clip-space planes;
  * published to `Compute.buffers` as `"cullVolumes"`); a GPU cull pass tests instance bounds
  * for `cullVolumes[slot]`.
@@ -18,7 +23,7 @@
 export interface Render {
     format: GPUTextureFormat;
     encoder: GPUCommandEncoder | null;
-    viewBuffer: GPUBuffer;
+    viewBuffers: GPUBuffer[];
     viewStaging: Float32Array;
     cullVolumes: GPUBuffer;
     cullVolumeStaging: Float32Array;
@@ -29,7 +34,7 @@ export interface Render {
 export const Render: Render = {
     format: "" as GPUTextureFormat,
     encoder: null,
-    viewBuffer: null!,
+    viewBuffers: [],
     viewStaging: null!,
     cullVolumes: null!,
     cullVolumeStaging: null!,

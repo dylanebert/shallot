@@ -19,7 +19,6 @@ import { checkStorageBinding } from "../../engine";
 import { createSceneBounds } from "./bounds";
 import { createBuild } from "./build";
 import { createMorton } from "./morton";
-import { checkDevice } from "./root";
 import { createRadixSort, KEYS_PER_BLOCK } from "./sort";
 
 export type { SceneBounds } from "./bounds";
@@ -118,9 +117,6 @@ export async function createBvh(
     sharedNodes?: GPUBuffer,
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<Bvh> {
-    // the builder's pipelines come from the root scoped to `Compute.device`, so reject a foreign
-    // device before allocating anything — the six buffers below would otherwise leak
-    checkDevice(device, "createBvh");
     const cap = Math.max(1, maxPrims);
     const inPlace = sharedNodes !== undefined;
     // the sort pads keys to a block multiple, so the shared key/payload buffers must

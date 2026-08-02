@@ -43,12 +43,10 @@ import {
     OverlaySystem,
     Render,
     sceneTransform,
-    VIEW_BYTES,
-    VIEW_STRIDE,
     type View,
     Views,
 } from "../../standard/render/core";
-import { ColorSystem } from "../../standard/sear/core";
+import { ColorSystem, DEPTH_FORMAT } from "../../standard/sear/core";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     compositeKernel,
@@ -59,7 +57,10 @@ import {
     jfaLayout,
     jfaSteps,
     MAX_WIDTH,
-    maskCode,
+    maskFragment,
+    maskLayoutOcclude,
+    maskLayoutPlain,
+    maskVertex,
     WORKGROUP,
 } from "./passes";
 
@@ -105,13 +106,13 @@ const MAX_JFA_PASSES = Math.ceil(Math.log2(MAX_WIDTH)) + 1;
 
 type StepBuffer = TgpuBuffer<typeof d.f32> & UniformFlag;
 
+type MaskTargets = { seed: d.Vec4u; attr: d.Vec4f };
+
 const _gpu = {
-    maskPlain: null as GPURenderPipeline | null,
-    maskOcclude: null as GPURenderPipeline | null,
+    maskPlain: null as TgpuRenderPipeline<MaskTargets> | null,
+    maskOcclude: null as TgpuRenderPipeline<MaskTargets> | null,
     jfa: null as TgpuRenderPipeline<d.Vec4u> | null,
     composite: null as TgpuComputePipeline | null,
-    maskLayoutPlain: null as GPUBindGroupLayout | null,
-    maskLayoutOcclude: null as GPUBindGroupLayout | null,
     eids: null as GPUBuffer | null,
     attrs: null as GPUBuffer | null,
     steps: [] as StepBuffer[],
@@ -242,10 +243,7 @@ function renderOutline(
 ): void {
     const encoder = Render.encoder;
     if (!encoder || !view.framebuffer) return;
-    const device = Compute.device;
     const t = targets(camEid, view.width, view.height);
-    const maskPipe = occlude ? _gpu.maskOcclude! : _gpu.maskPlain!;
-    const maskLayout = occlude ? _gpu.maskLayoutOcclude! : _gpu.maskLayoutPlain!;
     const seedClear = { r: SENTINEL, g: SENTINEL, b: 0, a: 0 };
 
     // 1. mask — the scoped instanced draw, grouped by mesh, into seed + attr (MRT, no depth attachment)
@@ -262,30 +260,36 @@ function renderOutline(
             },
         ],
     });
-    mask.setPipeline(maskPipe);
-    const viewOffset = [view.slot * VIEW_STRIDE];
     for (const g of groups) {
         if (!g.mesh.position || !g.mesh.quant) continue; // un-quantized producer — nothing to outline
-        const entries: GPUBindGroupEntry[] = [
-            { binding: 0, resource: { buffer: Render.viewBuffer, size: VIEW_STRIDE } },
-            { binding: 1, resource: { buffer: g.mesh.position } },
-            { binding: 2, resource: { buffer: g.mesh.indices } },
-            { binding: 3, resource: { buffer: transforms } },
-            { binding: 4, resource: { buffer: _gpu.eids! } },
-            { binding: 5, resource: { buffer: _gpu.attrs! } },
-            { binding: 7, resource: { buffer: g.mesh.quant } },
-        ];
-        if (occlude) entries.push({ binding: 6, resource: view.depth! });
-        mask.setBindGroup(
-            0,
-            device.createBindGroup({
-                label: `outline-mask/${camEid}`,
-                layout: maskLayout,
-                entries,
-            }),
-            viewOffset,
-        );
-        mask.draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
+        if (occlude) {
+            const group = Compute.root.createBindGroup(maskLayoutOcclude, {
+                view: Render.viewBuffers[view.slot],
+                position: g.mesh.position,
+                indices: g.mesh.indices,
+                transforms,
+                maskEids: _gpu.eids!,
+                maskAttrs: _gpu.attrs!,
+                meshQuant: g.mesh.quant,
+                sceneDepth: view.depth!,
+            });
+            _gpu.maskOcclude!.with(group)
+                .with(mask)
+                .draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
+        } else {
+            const group = Compute.root.createBindGroup(maskLayoutPlain, {
+                view: Render.viewBuffers[view.slot],
+                position: g.mesh.position,
+                indices: g.mesh.indices,
+                transforms,
+                maskEids: _gpu.eids!,
+                maskAttrs: _gpu.attrs!,
+                meshQuant: g.mesh.quant,
+            });
+            _gpu.maskPlain!.with(group)
+                .with(mask)
+                .draw(g.mesh.indexCount, g.count, g.mesh.indexBase, g.first);
+        }
     }
     mask.end();
 
@@ -389,62 +393,7 @@ const OutlineSystem: System = {
     },
 };
 
-async function prepareOutline(device: GPUDevice): Promise<void> {
-    const maskEntries = (occlude: boolean): GPUBindGroupLayoutEntry[] => {
-        const e: GPUBindGroupLayoutEntry[] = [
-            {
-                binding: 0,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: VIEW_BYTES },
-            },
-            {
-                binding: 1,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: { type: "read-only-storage" },
-            },
-            {
-                binding: 2,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: { type: "read-only-storage" },
-            },
-            {
-                binding: 3,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: { type: "read-only-storage" },
-            },
-            {
-                binding: 4,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: { type: "read-only-storage" },
-            },
-            {
-                binding: 5,
-                visibility: GPUShaderStage.FRAGMENT,
-                buffer: { type: "read-only-storage" },
-            },
-            // the per-mesh quant table — the vs dequantizes the position stream against it
-            {
-                binding: 7,
-                visibility: GPUShaderStage.VERTEX,
-                buffer: { type: "read-only-storage" },
-            },
-        ];
-        if (occlude)
-            e.push({
-                binding: 6,
-                visibility: GPUShaderStage.FRAGMENT,
-                texture: { sampleType: "depth" },
-            });
-        return e;
-    };
-    _gpu.maskLayoutPlain = device.createBindGroupLayout({
-        label: "outline-mask",
-        entries: maskEntries(false),
-    });
-    _gpu.maskLayoutOcclude = device.createBindGroupLayout({
-        label: "outline-mask-occlude",
-        entries: maskEntries(true),
-    });
+function prepareOutline(): void {
     // the JFA + composite layouts are the typed `jfaLayout` / `compositeLayout` in passes.ts — declared
     // beside the kernels that read them, bound by layout object, never by group index. Only the per-pass
     // step uniforms are this module's: rebuilt here (not reused) so a re-warm on a fresh device can't hold a
@@ -457,20 +406,10 @@ async function prepareOutline(device: GPUDevice): Promise<void> {
         );
     }
 
-    const maskTargets: GPUColorTargetState[] = [{ format: SEED_FORMAT }, { format: ATTR_FORMAT }];
+    const maskTargets = { seed: { format: SEED_FORMAT }, attr: { format: ATTR_FORMAT } } as const;
     const maskPrimitive: GPUPrimitiveState = { topology: "triangle-list", cullMode: "back" };
     const fullscreen: GPUPrimitiveState = { topology: "triangle-list", cullMode: "none" };
 
-    const maskModule = device.createShaderModule({ label: "outline-mask", code: maskCode(false) });
-    const maskOccludeModule = device.createShaderModule({
-        label: "outline-mask-occlude",
-        code: maskCode(true),
-    });
-    // the JFA + composite halves are typed pipelines (sync-created, force-compiled below); the two mask
-    // pipelines stay on the raw async path and are gated on Phase 4a — their group 0 binding 0 is
-    // `Render.viewBuffer` bound at a *dynamic offset* (`view.slot * VIEW_STRIDE`), and a typegpu bind group
-    // layout supports neither a dynamic offset nor a sub-range of a buffer. They still splice the already-
-    // ported `posQuantWgsl()` / `xformWgsl()` chunks, so the two idioms meet only at this seam
     _gpu.jfa = Compute.root
         .createRenderPipeline({
             vertex: fullscreenVs,
@@ -482,25 +421,25 @@ async function prepareOutline(device: GPUDevice): Promise<void> {
     _gpu.composite = Compute.root
         .createComputePipeline({ compute: compositeKernel })
         .$name("outline-composite");
-
-    const [maskPlain, maskOcclude] = await Promise.all([
-        device.createRenderPipelineAsync({
-            label: "outline-mask",
-            layout: device.createPipelineLayout({ bindGroupLayouts: [_gpu.maskLayoutPlain] }),
-            vertex: { module: maskModule, entryPoint: "vs" },
-            fragment: { module: maskModule, entryPoint: "fs", targets: maskTargets },
+    // the two mask variants: same vs/fs shape over the plain / occlude layout (the 1c factory-closure
+    // law — `maskVertex`/`maskFragment` re-emit per layout), splicing the already-typed `decodePos` /
+    // `xformPoint` real references (the 3b-iii resolve-call-graph precedent — no chunk splice needed)
+    _gpu.maskPlain = Compute.root
+        .createRenderPipeline({
+            vertex: maskVertex(maskLayoutPlain),
+            fragment: maskFragment(maskLayoutPlain, false),
+            targets: maskTargets,
             primitive: maskPrimitive,
-        }),
-        device.createRenderPipelineAsync({
-            label: "outline-mask-occlude",
-            layout: device.createPipelineLayout({ bindGroupLayouts: [_gpu.maskLayoutOcclude] }),
-            vertex: { module: maskOccludeModule, entryPoint: "vs" },
-            fragment: { module: maskOccludeModule, entryPoint: "fs", targets: maskTargets },
+        })
+        .$name("outline-mask");
+    _gpu.maskOcclude = Compute.root
+        .createRenderPipeline({
+            vertex: maskVertex(maskLayoutOcclude),
+            fragment: maskFragment(maskLayoutOcclude, true),
+            targets: maskTargets,
             primitive: maskPrimitive,
-        }),
-    ]);
-    _gpu.maskPlain = maskPlain;
-    _gpu.maskOcclude = maskOcclude;
+        })
+        .$name("outline-mask-occlude");
 
     forceCompile();
 }
@@ -555,6 +494,88 @@ function forceCompile(): void {
         out.destroy();
         return _gpu.composite;
     });
+
+    // the mask buffers (position/indices/transforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
+    // textures — 4-byte throwaways, same shape as `stand()`'s texture stand-ins
+    const buf = (size: number) =>
+        Compute.device.createBuffer({
+            label: "outline-mask-warm",
+            size,
+            usage: GPUBufferUsage.STORAGE,
+        });
+
+    precompile("outline-mask", () => {
+        const position = buf(8);
+        const indices = buf(4);
+        const transformsBuf = buf(48);
+        const eids = buf(4);
+        const attrs = buf(32);
+        const quant = buf(48);
+        const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
+        const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
+        const group = Compute.root.createBindGroup(maskLayoutPlain, {
+            view: Render.viewBuffers[0],
+            position,
+            indices,
+            transforms: transformsBuf,
+            maskEids: eids,
+            maskAttrs: attrs,
+            meshQuant: quant,
+        });
+        _gpu.maskPlain!.with(group)
+            .withColorAttachment({
+                seed: { view: seed.createView() },
+                attr: { view: attr.createView() },
+            })
+            .draw(0);
+        position.destroy();
+        indices.destroy();
+        transformsBuf.destroy();
+        eids.destroy();
+        attrs.destroy();
+        quant.destroy();
+        seed.destroy();
+        attr.destroy();
+        return _gpu.maskPlain;
+    });
+
+    precompile("outline-mask-occlude", () => {
+        const position = buf(8);
+        const indices = buf(4);
+        const transformsBuf = buf(48);
+        const eids = buf(4);
+        const attrs = buf(32);
+        const quant = buf(48);
+        const seed = stand(SEED_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
+        const attr = stand(ATTR_FORMAT, GPUTextureUsage.RENDER_ATTACHMENT);
+        const depth = stand(DEPTH_FORMAT, 0);
+        const group = Compute.root.createBindGroup(maskLayoutOcclude, {
+            view: Render.viewBuffers[0],
+            position,
+            indices,
+            transforms: transformsBuf,
+            maskEids: eids,
+            maskAttrs: attrs,
+            meshQuant: quant,
+            sceneDepth: depth.createView(),
+        });
+        _gpu.maskOcclude!.with(group)
+            .withColorAttachment({
+                seed: { view: seed.createView() },
+                attr: { view: attr.createView() },
+            })
+            .draw(0);
+        position.destroy();
+        indices.destroy();
+        transformsBuf.destroy();
+        eids.destroy();
+        attrs.destroy();
+        quant.destroy();
+        seed.destroy();
+        attr.destroy();
+        depth.destroy();
+        return _gpu.maskOcclude;
+    });
 }
 
 function disposeOutline(): void {
@@ -604,7 +625,7 @@ export const OutlinePlugin: Plugin = {
 
     async warm() {
         if (!Compute.device) return;
-        await prepareOutline(Compute.device);
+        prepareOutline();
     },
 
     dispose() {

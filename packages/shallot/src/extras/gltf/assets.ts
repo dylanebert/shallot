@@ -1,7 +1,11 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { Compute, type Plugin, type State, type System } from "../../engine";
 import { readBinary, UnsupportedError } from "../../engine/runtime";
 import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene/core";
+import { unpackLdrColor, Xform } from "../../engine/utils/core";
 import { Color, Part } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
 import type { Binding } from "../../standard/render/core";
@@ -16,6 +20,7 @@ import {
     Surfaces,
     VERTEX_FLOATS,
 } from "../../standard/render/core";
+import { fsCtxSchema, registerSurface, surfaceLayout } from "../../standard/sear/core";
 import { SlabPlugin } from "../../standard/slab";
 import { Transform } from "../../standard/transforms";
 import { LiveSkin, LiveSkinSystem, Skin, skinTraits } from "../skin";
@@ -32,9 +37,10 @@ import {
 } from "./gltf";
 import { ALBEDO_NAMES } from "./image";
 import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
+import { MaterialData } from "./palette";
 import { abortDecodes, poolDecode } from "./pool";
 import { RouteSystem, routes, scanRefs, Textured } from "./routes";
-import { mapSet, materialPreamble } from "./shade";
+import { mapSet, materialFns } from "./shade";
 import {
     type AssembledVat,
     assembleVat,
@@ -82,47 +88,69 @@ const texturedBindings: Record<string, Binding> = {
     albedoSamp: { type: "sampler" },
 };
 
+const texturedLayout = surfaceLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+    materialIndex: { type: "storage", element: d.u32 },
+    materialData: { type: "storage", element: MaterialData },
+    albedo0: { type: "texture-2d-array" },
+    albedo1: { type: "texture-2d-array" },
+    albedo2: { type: "texture-2d-array" },
+    albedo3: { type: "texture-2d-array" },
+    mr: { type: "texture-2d-array" },
+    normalTex: { type: "texture-2d-array" },
+    occlusion: { type: "texture-2d-array" },
+    emissive: { type: "texture-2d-array" },
+    albedoSamp: { type: "sampler" },
+});
+const TexturedCtx = fsCtxSchema();
+
+function texturedFs(variant: number, mode: "opaque" | "clip" | "blend") {
+    const { sampleAlbedo, shadePbr } = materialFns(texturedLayout, variant);
+    const clip = mode === "clip";
+    const blend = mode === "blend";
+    return tgpu
+        .fn(
+            [TexturedCtx],
+            d.vec4f,
+        )((ctx) => {
+            "use gpu";
+            const mid = texturedLayout.$.materialIndex[ctx.eid];
+            const tex = sampleAlbedo(mid, ctx.uv);
+            const tint = unpackLdrColor(texturedLayout.$.color[ctx.eid]);
+            const base = std.mul(tex.xyz, tint.xyz);
+            const rgb = shadePbr(mid, ctx.uv, base, std.normalize(ctx.worldNormal), ctx.world);
+            if (clip && tex.w * tint.w < texturedLayout.$.materialData[mid].cutoff) std.discard();
+            return d.vec4f(rgb, blend ? tex.w * tint.w : 1);
+        })
+        .$name("gltfAlbedoFs");
+}
+
 // register the three alpha-mode variants of the textured surface — opaque, MASK (clip cutout → holed
 // shadows), BLEND (alpha). They share the bindings + the `shadePbr` metallic-roughness path, and each
-// `specialize`s per material map-set (`materialPreamble`): sear compiles one pipeline per distinct map-set a
+// `specialize`s per material map-set (`materialFns`): sear compiles one pipeline per distinct map-set a
 // scene draws (keyed by the mesh's `variant`, the importer's `mapSet`), so a sparse-map material samples only
 // the maps it carries — no throwaway off-L2 fetch. Only the blend mode + cutout discard differ between the
 // three. Registered in GltfPlugin.initialize; a draw stays skipped until loadGltf publishes the arrays +
 // `materialData` and its map-set variant compiles (both sear-lazy). `mid` is the per-instance `materialIndex[eid]`.
-export function registerTexturedSurfaces(): void {
-    Surfaces.register({
-        name: "gltf-albedo",
-        bindings: texturedBindings,
-        specialize: (variant) => ({ preamble: materialPreamble(variant) }),
-        fs: /* wgsl */ `
-        let mid = materialIndex[eid];
-        let base = sampleAlbedo(mid, uv).rgb * unpackLdrColor(color[eid]).rgb;
-        col = vec4<f32>(shadePbr(mid, uv, base, normalize(worldNormal), world), 1.0);`,
-    });
-    Surfaces.register({
-        name: "gltf-albedo-clip",
-        blend: "clip",
-        bindings: texturedBindings,
-        specialize: (variant) => ({ preamble: materialPreamble(variant) }),
-        fs: /* wgsl */ `
-        let mid = materialIndex[eid];
-        let tex = sampleAlbedo(mid, uv);
-        let c = unpackLdrColor(color[eid]);
-        // shade (and its map samples) before the discard, so a killed lane never poisons a derivative
-        let rgb = shadePbr(mid, uv, tex.rgb * c.rgb, normalize(worldNormal), world);
-        if (tex.a * c.a < materialData[mid].cutoff) { discard; }
-        col = vec4<f32>(rgb, 1.0);`,
-    });
-    Surfaces.register({
-        name: "gltf-albedo-blend",
-        blend: "alpha",
-        bindings: texturedBindings,
-        specialize: (variant) => ({ preamble: materialPreamble(variant) }),
-        fs: /* wgsl */ `
-        let mid = materialIndex[eid];
-        let tex = sampleAlbedo(mid, uv) * unpackLdrColor(color[eid]);
-        col = vec4<f32>(shadePbr(mid, uv, tex.rgb, normalize(worldNormal), world), tex.a);`,
-    });
+export function registerTexturedSurfaces(state: State): void {
+    for (const [name, blend, mode] of [
+        ["gltf-albedo", undefined, "opaque"],
+        ["gltf-albedo-clip", "clip", "clip"],
+        ["gltf-albedo-blend", "alpha", "blend"],
+    ] as const) {
+        // Part's migration-era draw registration still enumerates the legacy registry. The descriptor is
+        // data-only; record() resolves the same name from the typed registry first and compiles these fns.
+        Surfaces.register({ name, bindings: texturedBindings, blend });
+        registerSurface(state, {
+            name,
+            layout: texturedLayout,
+            blend,
+            fs: texturedFs(0, mode),
+            specialize: (variant) => ({ fs: texturedFs(variant, mode) }),
+        });
+    }
 }
 
 // the stable registry name for one decoded primitive — `url#index`, namespaced by the asset's url (and clip,
@@ -1417,10 +1445,10 @@ export const GltfPlugin: Plugin = {
     // plugin's `initialize` (after this one, via the dependency) so the registered mesh names resolve at scene
     // parse. Publishing the fallbacks at warm would clobber a union an `initialize`-time import already
     // published (both write the same `Compute.textures` names) — so they sit here, before any import.
-    initialize() {
-        registerTexturedSurfaces();
-        registerSkinSurfaces();
-        registerLiveSkinSurfaces();
+    initialize(state) {
+        registerTexturedSurfaces(state);
+        registerSkinSurfaces(state);
+        registerLiveSkinSurfaces(state);
         // the declarative-load seam: scenes naming glTF meshes import them before load resolves the names.
         // Registered here / deleted in dispose, so a disabled plugin leaves no stale resolver.
         Preloads.register({ name: "gltf", resolve: resolveRefs });

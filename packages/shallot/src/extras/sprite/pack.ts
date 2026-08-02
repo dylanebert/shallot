@@ -1,5 +1,7 @@
 // the Sprite component + the CPU half of the producer: bucket every visible sprite by
-// (billboard, blend), pack the buckets contiguously into one shared staging buffer (each variant's
+// (billboard, blend), pack each instance into a shared eid-indexed staging buffer (the shadow atlas
+// re-gather preserves only `eid`, so instance data can't be slot-major once a surface casts — see
+// surface.ts), a slot-major `eids` array parallel to the bucket-contiguous ranges (each variant's
 // draw indexes its range via firstInstance), and the FNV signature that gates the rebuild. Pure
 // over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
@@ -86,10 +88,17 @@ export const INITIAL = 1 << 8;
 /** six buckets, billboard-major: bucket = billboard * 2 + blend */
 export const BUCKETS = 6;
 
+// `_staging`/`_f32`/`_u32` are eid-indexed (a sprite's instance lands at `eid * SPRITE_FLOATS`, not
+// its slot) — the shadow atlas re-gathers instances mesh-major across combos and preserves only
+// `eid`, so a slot-major buffer reads garbage there. Sized off `maxEid + 1`, never the live count.
 let _staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
 let _f32 = new Float32Array(_staging);
 let _u32 = new Uint32Array(_staging);
-let _cap = INITIAL;
+let _dataCap = INITIAL;
+// the slot-major eids array, parallel to the bucket-contiguous ranges (one u32/slot) — the
+// instancing convention's `eids` binding. Stays sized off the live slot count, not eid capacity.
+let _eids = new Uint32Array(INITIAL);
+let _slotCap = INITIAL;
 let _count = 0;
 const _byBucket: Instance[][] = Array.from({ length: BUCKETS }, () => []);
 const _ranges = Array.from({ length: BUCKETS }, () => ({ start: 0, count: 0 }));
@@ -143,41 +152,55 @@ export function signature(state: State): number {
     return h;
 }
 
-function grow(min: number): void {
-    let cap = _cap;
+function growData(min: number): void {
+    let cap = _dataCap;
     while (cap < min) cap *= 2;
     const next = new ArrayBuffer(cap * SPRITE_BYTES);
-    new Uint8Array(next).set(new Uint8Array(_staging, 0, _count * SPRITE_BYTES));
+    new Uint8Array(next).set(new Uint8Array(_staging, 0, _dataCap * SPRITE_BYTES));
     _staging = next;
     _f32 = new Float32Array(next);
     _u32 = new Uint32Array(next);
-    _cap = cap;
+    _dataCap = cap;
+}
+
+function growSlots(min: number): void {
+    let cap = _slotCap;
+    while (cap < min) cap *= 2;
+    const next = new Uint32Array(cap);
+    next.set(_eids.subarray(0, _slotCap));
+    _eids = next;
+    _slotCap = cap;
 }
 
 /** restore the staging to its initial capacity: the producer's `warm` reset */
 export function resetPack(): void {
-    _cap = INITIAL;
+    _dataCap = INITIAL;
     _staging = new ArrayBuffer(INITIAL * SPRITE_BYTES);
     _f32 = new Float32Array(_staging);
     _u32 = new Uint32Array(_staging);
+    _slotCap = INITIAL;
+    _eids = new Uint32Array(INITIAL);
     _count = 0;
 }
 
 export function packSprites(state: State): {
     ranges: { start: number; count: number }[];
     count: number;
-    cap: number;
+    dataCap: number;
     f32: Float32Array<ArrayBuffer>;
     u32: Uint32Array<ArrayBuffer>;
+    eids: Uint32Array<ArrayBuffer>;
 } {
     for (const bucket of _byBucket) bucket.length = 0;
 
+    let maxEid = -1;
     for (const eid of state.query([Sprite, Transform])) {
         if (!Sprite.visible.get(eid)) continue;
         const w = Sprite.size.x.get(eid);
         const h = Sprite.size.y.get(eid);
         const billboard = Math.min(Sprite.billboard.get(eid), 2);
         const blend = Math.min(Sprite.blend.get(eid), 1);
+        if (eid > maxEid) maxEid = eid;
         _byBucket[billboard * 2 + blend].push({
             eid,
             ox: -w * Sprite.anchor.x.get(eid),
@@ -192,13 +215,14 @@ export function packSprites(state: State): {
 
     let total = 0;
     for (const bucket of _byBucket) total += bucket.length;
-    if (total > _cap) grow(total);
+    if (total > _slotCap) growSlots(total);
+    if (maxEid + 1 > _dataCap) growData(maxEid + 1);
 
     let n = 0;
     for (let b = 0; b < BUCKETS; b++) {
         _ranges[b].start = n;
         for (const s of _byBucket[b]) {
-            const o = n * SPRITE_FLOATS;
+            const o = s.eid * SPRITE_FLOATS;
             _f32[o] = s.ox;
             _f32[o + 1] = s.oy;
             _f32[o + 2] = s.w;
@@ -207,10 +231,11 @@ export function packSprites(state: State): {
             _u32[o + 5] = s.layer;
             _u32[o + 6] = s.color;
             _u32[o + 7] = s.fill;
+            _eids[n] = s.eid;
             n++;
         }
         _ranges[b].count = n - _ranges[b].start;
     }
     _count = n;
-    return { ranges: _ranges, count: _count, cap: _cap, f32: _f32, u32: _u32 };
+    return { ranges: _ranges, count: _count, dataCap: _dataCap, f32: _f32, u32: _u32, eids: _eids };
 }

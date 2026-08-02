@@ -13,9 +13,6 @@ import {
 } from "../src/engine/utils/core";
 import { materialDataWgsl } from "../src/extras/gltf/palette";
 import { liveTintWgsl, skinParamsWgsl } from "../src/extras/skin/core";
-// the glyph preamble is a text-module sibling, not a barrel export (a WGSL chunk on the public `extras`
-// barrel would break exports.md's barrel rules) — the same reason `pbrWgsl` below is reached directly
-import { glyphWgsl } from "../src/extras/text/glyph";
 import {
     boxBoxWgsl,
     helpersWgsl,
@@ -27,7 +24,12 @@ import {
 import { bvhRootWgsl, bvhTraverseWgsl } from "../src/standard/bvh/core";
 import { fogInScatterWgsl, fogMarchWgsl, fogStructWgsl } from "../src/standard/fog/core";
 import { tonemapWgsl } from "../src/standard/glaze/tonemap";
-import { linearToSrgbWgsl, pointLightsWgsl } from "../src/standard/render/core";
+import {
+    frameWgsl,
+    lightingWgsl,
+    linearToSrgbWgsl,
+    pointLightsWgsl,
+} from "../src/standard/render/core";
 import {
     casterWgsl,
     lightEvalWgsl,
@@ -52,6 +54,8 @@ import { pbrWgsl } from "../src/standard/sear/shade";
 // the namespace actually spans. Add a chunk here when you add one to `spliceNs`.
 
 const chunks: [string, () => string][] = [
+    ["frameWgsl", frameWgsl],
+    ["lightingWgsl", lightingWgsl],
     ["octEncodeWgsl", octEncodeWgsl],
     ["quatSnorm16x4Wgsl", quatSnorm16x4Wgsl],
     ["smallest3Wgsl", smallest3Wgsl],
@@ -74,7 +78,6 @@ const chunks: [string, () => string][] = [
     ["fogInScatterWgsl", fogInScatterWgsl],
     ["tonemapWgsl", tonemapWgsl],
     ["linearToSrgbWgsl", linearToSrgbWgsl],
-    ["glyphWgsl", glyphWgsl],
     ["skinParamsWgsl", skinParamsWgsl],
     ["liveTintWgsl", liveTintWgsl],
     ["materialDataWgsl", materialDataWgsl],

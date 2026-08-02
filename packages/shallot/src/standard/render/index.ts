@@ -36,9 +36,10 @@ import {
     offscreen,
     pruneViews,
     sizeView,
+    VIEW_BYTES,
     VIEW_STRIDE,
     VIEW_UNIFORM_SIZE,
-    type View,
+    type View as ViewSlot,
     Views,
 } from "./view";
 
@@ -101,7 +102,7 @@ export const BeginFrameSystem: System = {
         // and world→view matrix — into the same slot index; a depth-only view (a shadow light's
         // off-screen camera) never does, so the cluster substrate is sized by MAX_VIEWS while the
         // cheap slots run to MAX_SLOTS
-        const pack = (eid: number, view: View, shading: boolean) => {
+        const pack = (eid: number, view: ViewSlot, shading: boolean) => {
             // record the live camera's create-stamp so next frame's pruneViews detects a realias
             view.stamp = state.stamp(eid);
             view.slot = count;
@@ -162,7 +163,7 @@ export const BeginFrameSystem: System = {
 
         // shading views first, so they own the low slots the cluster + light-cull substrate is
         // sized for; depth-only views stack above them out of the cheap MAX_SLOTS budget
-        const depthOnly: [number, View][] = [];
+        const depthOnly: [number, ViewSlot][] = [];
         for (const eid of state.query([Camera])) {
             // auto-bind to the first <canvas> the frame it exists; an explicitly attachCanvas'd
             // camera is already in Views, so this is a no-op for it. Retried each frame until mount
@@ -211,14 +212,21 @@ export const BeginFrameSystem: System = {
         }
 
         Render.viewCount = count;
-        if (count > 0) {
+        // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real View buffer — the
+        // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot
+        // gets no write at all (design lock, Approach 4a). Each write sources VIEW_BYTES from the same
+        // per-slot viewStaging subrange the pack loop above always wrote
+        const viewFloats = VIEW_BYTES / 4;
+        for (let slot = 0; slot < Render.shadeCount; slot++) {
             device.queue.writeBuffer(
-                Render.viewBuffer,
+                Render.viewBuffers[slot],
                 0,
                 Render.viewStaging as Float32Array<ArrayBuffer>,
-                0,
-                count * slotFloats,
+                slot * slotFloats,
+                viewFloats,
             );
+        }
+        if (count > 0) {
             device.queue.writeBuffer(
                 Render.cullVolumes,
                 0,
@@ -298,7 +306,10 @@ async function initRender(): Promise<void> {
         });
 
     Render.encoder = null;
-    Render.viewBuffer = uniform("kitchen-view", VIEW_UNIFORM_SIZE);
+    for (const b of Render.viewBuffers) b.destroy();
+    Render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
+        uniform(`kitchen-view-${slot}`, VIEW_BYTES),
+    );
     Render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
     Frame.buffer = uniform("kitchen-frame", FRAME_UNIFORM_SIZE);
     Lighting.buffer = uniform("kitchen-lighting", LIGHTING_UNIFORM_SIZE);

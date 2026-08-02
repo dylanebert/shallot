@@ -67,12 +67,10 @@
         "build": "bun run ./scripts/build.ts",
         "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",
         "test": "bun test",
-        "test:oracle": "bun test ./tests/avbd/*.oracle.ts",
         "test:fixture": "bun run scripts/run-tumble-fixtures.ts",
         "test:fixture:mt": "TUMBLE_THREADS=${TUMBLE_THREADS:-4} bun run scripts/run-tumble-fixtures.ts",
         "test:fixture:auto": "TUMBLE_THREADS=auto bun run scripts/run-tumble-fixtures.ts",
         "test:exit": "bun run scripts/tumble-exit-test.ts",
-        "test:full": "bun run test && bun run test:oracle && bun run test:fixture",
         "gen-tumble-fixtures": "bun run scripts/gen-tumble-fixtures.ts",
         "gen-tumble-gold": "bun run scripts/gen-tumble-gold.ts"
     },

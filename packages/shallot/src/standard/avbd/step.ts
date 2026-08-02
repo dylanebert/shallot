@@ -52,7 +52,7 @@ import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, checkStorageBinding } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, precompileScope } from "../../engine/runtime";
 import { bitcastF32toU32, chunk, idiv, uniformLoad, Xform } from "../../engine/utils/core";
 // the shared LBVH builder (roadmap "Subgroup-first algorithms": physics is a consumer of the same
 // rendering-unaware builder a native-RT path would use). standard → extras is the documented exception
@@ -4236,6 +4236,10 @@ export class PhysicsStep {
     // (so a new scene's slots don't read the prior scene's records). The plugin never sets it — a fresh
     // PhysicsStep's pairContacts is zero-init (all kind 0) so it cold-starts naturally.
     private _coldNext = false;
+    // this instance's precompile label prefix — an app can stand up several worlds (the gym `pile` builds
+    // two, `constraints` three) and the queue rejects a duplicate label. Captured once at construction
+    // because `phys-compose` registers lazily on the first `compose()`, long after it.
+    private readonly _scope: string;
 
     private constructor(
         device: GPUDevice,
@@ -4250,6 +4254,7 @@ export class PhysicsStep {
         },
     ) {
         this.device = device;
+        this._scope = precompileScope("phys");
         this.eidCap = eidCap;
         this.maxBodies = maxBodies;
         this._fullGroups = Math.ceil(maxBodies / 64);
@@ -4458,7 +4463,7 @@ export class PhysicsStep {
         // build. Force it at warm with a 0-workgroup dispatch, the shipped drain (1a). Both groups are
         // already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates its
         // own buffers must return the *dispatch* for that guard to fire (2a).
-        precompile("phys-aabb", () => {
+        precompile(`${this._scope}-aabb`, () => {
             this._aabbPipe.dispatchWorkgroups(0);
             return this._aabbPipe;
         });
@@ -4474,7 +4479,7 @@ export class PhysicsStep {
                 }),
             )
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile("phys-broadphase", () => {
+        precompile(`${this._scope}-broadphase`, () => {
             this._broadphasePipe.dispatchWorkgroups(0);
             return this._broadphasePipe;
         });
@@ -4490,13 +4495,13 @@ export class PhysicsStep {
                 }),
             )
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile("phys-broadphase-small", () => {
+        precompile(`${this._scope}-broadphase-small`, () => {
             this._broadphaseSmallPipe.dispatchWorkgroups(0);
             return this._broadphaseSmallPipe;
         });
         this._collidePipes = this._makeCollidePipes();
         for (const [i, label] of ["box", "rounded", "hull", "rounded-poly"].entries()) {
-            precompile(`phys-collide-${label}`, () => {
+            precompile(`${this._scope}-collide-${label}`, () => {
                 const pipe = this._collidePipes[i];
                 pipe.dispatchWorkgroups(0);
                 return pipe;
@@ -4507,7 +4512,7 @@ export class PhysicsStep {
             .$name("phys-inertial")
             .with(root.createBindGroup(inertialLayout, { eids: this.eids }))
             .with(rwRw.layout, this._sharedBG.rwRw);
-        precompile("phys-inertial", () => {
+        precompile(`${this._scope}-inertial`, () => {
             this._inertialPipe.dispatchWorkgroups(0);
             return this._inertialPipe;
         });
@@ -4516,7 +4521,7 @@ export class PhysicsStep {
             .$name("phys-velocity")
             .with(root.createBindGroup(velocityLayout, { eids: this.eids }))
             .with(rwRw.layout, this._sharedBG.rwRw);
-        precompile("phys-velocity", () => {
+        precompile(`${this._scope}-velocity`, () => {
             this._velocityPipe.dispatchWorkgroups(0);
             return this._velocityPipe;
         });
@@ -4525,7 +4530,7 @@ export class PhysicsStep {
             .$name("phys-csr-count")
             .with(root.createBindGroup(csrCountLayout, { csr: this.csr, eids: this.eids }))
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile("phys-csr-count", () => {
+        precompile(`${this._scope}-csr-count`, () => {
             this._csrCountPipe.dispatchWorkgroups(0);
             return this._csrCountPipe;
         });
@@ -4540,7 +4545,7 @@ export class PhysicsStep {
                 }),
             )
             .with(roRo.layout, this._sharedBG.roRo);
-        precompile("phys-csr-scatter", () => {
+        precompile(`${this._scope}-csr-scatter`, () => {
             this._csrScatterPipe.dispatchWorkgroups(0);
             return this._csrScatterPipe;
         });
@@ -4569,7 +4574,7 @@ export class PhysicsStep {
                 )
                 .with(rwRw.layout, this._sharedBG.rwRw),
         );
-        precompile("phys-commit", () => {
+        precompile(`${this._scope}-commit`, () => {
             const pipe = this._commitColorPipes[0];
             pipe.dispatchWorkgroups(0);
             return pipe;
@@ -4579,7 +4584,7 @@ export class PhysicsStep {
             .$name("phys-dual")
             .with(root.createBindGroup(dualLayout, { eids: this.eids }))
             .with(roRw.layout, this._sharedBG.roRw);
-        precompile("phys-dual", () => {
+        precompile(`${this._scope}-dual`, () => {
             this._dualPipe.dispatchWorkgroups(0);
             return this._dualPipe;
         });
@@ -4597,32 +4602,32 @@ export class PhysicsStep {
         // force-compiled once here (like the collide pipes) — a later constraintList/jointRecords grow
         // re-`.with()`s these pipelines in buildSolveBindGroups without re-registering a precompile
         // forcer, matching setHulls' growth policy for the collide pipes.
-        precompile("phys-primal", () => {
+        precompile(`${this._scope}-primal`, () => {
             const pipe = this._primalColorPipes[0];
             pipe.dispatchWorkgroups(0);
             return pipe;
         });
-        precompile("phys-solve-lds", () => {
+        precompile(`${this._scope}-solve-lds`, () => {
             this._solveLdsPipe.dispatchWorkgroups(0);
             return this._solveLdsPipe;
         });
-        precompile("phys-coloring", () => {
+        precompile(`${this._scope}-coloring`, () => {
             this._coloringPipe.dispatchWorkgroups(0);
             return this._coloringPipe;
         });
-        precompile("phys-repair", () => {
+        precompile(`${this._scope}-repair`, () => {
             this._repairPipe.dispatchWorkgroups(0);
             return this._repairPipe;
         });
-        precompile("phys-csr-color-small", () => {
+        precompile(`${this._scope}-csr-color-small`, () => {
             this._csrColorSmallPipe.dispatchWorkgroups(0);
             return this._csrColorSmallPipe;
         });
-        precompile("phys-joint-init", () => {
+        precompile(`${this._scope}-joint-init`, () => {
             this._jointInitPipe.dispatchWorkgroups(0);
             return this._jointInitPipe;
         });
-        precompile("phys-joint-dual", () => {
+        precompile(`${this._scope}-joint-dual`, () => {
             this._jointDualPipe.dispatchWorkgroups(0);
             return this._jointDualPipe;
         });
@@ -5748,7 +5753,7 @@ export class PhysicsStep {
             // force-compiled on first bind rather than at warm (the transforms buffer's identity, and so
             // this pipeline's existence, isn't known until the first real compose() call — the 1a
             // late/re-entrant registration executes immediately once warm has already passed).
-            precompile("phys-compose", () => {
+            precompile(`${this._scope}-compose`, () => {
                 this._composePipe.dispatchWorkgroups(0);
                 return this._composePipe;
             });

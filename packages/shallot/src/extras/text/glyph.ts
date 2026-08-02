@@ -6,7 +6,6 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { chunk, spliceNs } from "../../engine/utils/core";
 import { SDF_EXPONENT } from "./sdf";
 
 /**
@@ -77,11 +76,3 @@ export const textSrgbToLinear = tgpu.fn(
     const hi = std.pow(std.div(std.add(c, d.vec3f(0.055)), 1.055), d.vec3f(2.4));
     return std.select(hi, lo, std.le(c, d.vec3f(0.04045)));
 });
-
-/** the glyph surface's module-scope preamble: the {@link Glyph} instance struct plus the SDF decode +
- *  sRGB transfer its fs calls. @internal */
-export const glyphWgsl = chunk(
-    "glyphWgsl",
-    [Glyph, sdfToSignedDistance, textSrgbToLinear],
-    spliceNs,
-);

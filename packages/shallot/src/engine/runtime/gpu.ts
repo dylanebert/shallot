@@ -250,11 +250,16 @@ export function checkTgsl(): void {
 interface Forcer {
     label: string;
     force: () => unknown;
+    after: readonly string[];
+    order: number;
 }
 
 // pipelines queued for a forced compile at the end of warm, and whether that drain has already run for
 // this build (see `precompile`)
 const _precompile: Forcer[] = [];
+const _precompileLabels = new Set<string>();
+let _precompileOrder = 0;
+let _draining = false;
 let _drained = false;
 
 function compile({ label, force }: Forcer): void {
@@ -283,35 +288,114 @@ function compile({ label, force }: Forcer): void {
  * `force` **returns what it dispatched**: the drain throws on a nullish return, because a forcer whose
  * buffers aren't up yet no-ops and hands the compile back to frame one without a word. Allocate inside
  * the thunk if the buffers are late — the drain runs after every plugin's warm, which is the point.
- * `label` names the pipeline in either failure.
+ * `label` names the pipeline in either failure and must be unique within the build. `options.after`
+ * names other queued labels that must drain first. Unknown labels are ignored because the plugin that
+ * owns a predecessor may be absent.
  * @example
- * precompile("narrowphase", () => bind()?.dispatchWorkgroups(0) ?? null);
+ * precompile("narrowphase", () => bind()?.dispatchWorkgroups(0) ?? null, {
+ *     after: ["publish-inputs"],
+ * });
  * @internal
  */
-export function precompile(label: string, force: () => unknown): void {
-    if (_drained) compile({ label, force });
-    else _precompile.push({ label, force });
+export function precompile(
+    label: string,
+    force: () => unknown,
+    options: { after?: readonly string[] } = {},
+): void {
+    if (_precompileLabels.has(label)) {
+        throw new Error(`duplicate precompile label "${label}"`);
+    }
+    _precompileLabels.add(label);
+    const forcer = { label, force, after: options.after ?? [], order: _precompileOrder++ };
+    if (_drained) compile(forcer);
+    else _precompile.push(forcer);
+}
+
+// per-prefix instance counts for `precompileScope`, cleared with the label set they keep unique
+const _precompileScopes = new Map<string, number>();
+
+/**
+ * a unique {@link precompile} label prefix for a factory an app can instantiate more than once (the
+ * BVH stages: a scene builds one BVH, the physics broadphase another). The first instance keeps the
+ * bare `prefix`, so a single-instance app's labels — and their profiler rows — read unchanged; every
+ * later one gets `prefix-2`, `prefix-3`, … Counts clear with the label set, on `requestGPU`.
+ *
+ * A scoped label is therefore not a fixed string, so it can't be named by another forcer's `after`
+ * (which would silently degrade to the missing-predecessor case). Scope only a factory nothing
+ * orders against.
+ * @example
+ * const scope = precompileScope("radix"); // "radix", then "radix-2", …
+ * precompile(`${scope}-init`, () => initBound.dispatchWorkgroups(0) ?? initBound);
+ * @internal
+ */
+export function precompileScope(prefix: string): string {
+    const n = (_precompileScopes.get(prefix) ?? 0) + 1;
+    _precompileScopes.set(prefix, n);
+    return n === 1 ? prefix : `${prefix}-${n}`;
+}
+
+function ordered(forcers: readonly Forcer[]): Forcer[] {
+    const byLabel = new Map(forcers.map((forcer) => [forcer.label, forcer]));
+    const outgoing = new Map(forcers.map((forcer) => [forcer.label, [] as Forcer[]]));
+    const incoming = new Map(forcers.map((forcer) => [forcer.label, 0]));
+    for (const forcer of forcers) {
+        for (const label of new Set(forcer.after)) {
+            if (!byLabel.has(label)) continue;
+            outgoing.get(label)!.push(forcer);
+            incoming.set(forcer.label, incoming.get(forcer.label)! + 1);
+        }
+    }
+
+    const ready = forcers.filter((forcer) => incoming.get(forcer.label) === 0);
+    ready.sort((a, b) => a.order - b.order);
+    const result: Forcer[] = [];
+    while (ready.length > 0) {
+        const forcer = ready.shift()!;
+        result.push(forcer);
+        for (const dependent of outgoing.get(forcer.label)!) {
+            const count = incoming.get(dependent.label)! - 1;
+            incoming.set(dependent.label, count);
+            if (count === 0) {
+                const at = ready.findIndex((entry) => entry.order > dependent.order);
+                ready.splice(at < 0 ? ready.length : at, 0, dependent);
+            }
+        }
+    }
+    if (result.length !== forcers.length) {
+        const cycle = forcers
+            .filter((forcer) => incoming.get(forcer.label)! > 0)
+            .map((forcer) => forcer.label);
+        throw new Error(`precompile cycle: ${cycle.join(" -> ")}`);
+    }
+    return result;
 }
 
 /**
- * drain the {@link precompile} queue. `build` calls it after every plugin `warm`; a forcer registered
- * afterwards runs on arrival. Entries leave the queue one at a time, so a throwing forcer names itself
- * and leaves the rest queued rather than taking them down with it.
+ * drain the {@link precompile} queue in stable topological order. `build` calls it after every plugin
+ * `warm`; a forcer registered afterwards runs on arrival. Entries leave the queue one at a time, so a
+ * throwing forcer names itself and leaves the rest queued rather than taking them down with it.
  * @internal
  */
 export async function precompileAll(): Promise<void> {
-    _drained = true;
-    while (_precompile.length > 0) {
-        const forcer = _precompile.shift()!;
-        const start = now();
-        compile(forcer);
-        // without the profiler there is nothing to attribute, so the drain stays one batched submit;
-        // with it, each forcer settles behind its own fence, which is the only way the per-pipeline
-        // numbers mean anything (back-to-back submits all resolve together and every row reads the same)
-        if (Compute.precompiled) {
-            await Compute.device.queue.onSubmittedWorkDone();
-            Compute.precompiled(forcer.label, start, now());
+    if (_draining) return;
+    _draining = true;
+    try {
+        while (_precompile.length > 0) {
+            _precompile.splice(0, _precompile.length, ...ordered(_precompile));
+            const forcer = _precompile.shift()!;
+            const start = now();
+            compile(forcer);
+            // without the profiler there is nothing to attribute, so the drain stays one batched submit;
+            // with it, each forcer settles behind its own fence, which is the only way the per-pipeline
+            // numbers mean anything (back-to-back submits all resolve together and every row reads the same)
+            if (Compute.precompiled) {
+                await Compute.device.queue.onSubmittedWorkDone();
+                Compute.precompiled(forcer.label, start, now());
+            }
         }
+        _drained = true;
+    } finally {
+        _draining = false;
     }
 }
 
@@ -350,6 +434,11 @@ export async function requestGPU(
     captureGpuLog();
     checkTgsl();
     const d = device ?? (await acquireDevice(features, preferred));
+    _precompile.length = 0;
+    _precompileLabels.clear();
+    _precompileScopes.clear();
+    _precompileOrder = 0;
+    _draining = false;
     _drained = false;
     let inFlight = 0;
     return Object.assign(Compute, {

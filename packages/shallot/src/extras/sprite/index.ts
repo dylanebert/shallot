@@ -2,16 +2,20 @@
 // anchor, tint, billboard mode) draws textured unit quads instanced from one shared buffer, one
 // indirect draw per (billboard, blend) variant. Images register into one `texture_2d_array` (the
 // glTF binding model — per-instance layer index, one bind group, one draw), so adding an icon never
-// adds a draw. The instance buffer holds quad-local data + the owning eid; the VS reads
-// `transforms[eid]` per frame, so moving a sprite flows through the Transform slab and triggers no
-// rebuild — the buffer rebuilds only when a layout-affecting field changes, gated by a per-frame
-// signature (the text producer's shape). The packing substance is pack.ts, the surface variants
-// surface.ts, the billboard math spec billboard.ts; this file is the surface + producer around them.
+// adds a draw. Sprite rides the `eids`+`transforms` instancing convention: a slot-major eids buffer
+// (packSprites' bucket-contiguous ranges) publishes each slot's owning entity, and the engine
+// resolves the per-instance transform from the global entity-transform firehose — so moving a
+// sprite flows through the Transform slab and triggers no rebuild, only the buffer rebuilds when a
+// layout-affecting field changes, gated by a per-frame signature (the text producer's shape). The
+// per-instance sprite data itself is eid-indexed, not slot-indexed (see surface.ts) — the shadow
+// atlas re-gather preserves only `eid`, so both the vs and fs look it up by `VsIn.eid`/`ctx.eid`.
+// The packing substance is pack.ts, the surface variants surface.ts, the billboard math spec
+// billboard.ts; this file is the surface + producer around them.
 
 import { Compute, formatHex, type Plugin, Registry, type State, type System } from "../../engine";
 import { mesh, RenderPlugin } from "../../standard/render";
 import { BeginFrameSystem, Draws, imageArray, Meshes, Surfaces } from "../../standard/render/core";
-import { PrepassSystem } from "../../standard/sear/core";
+import { PrepassSystem, registerSurface } from "../../standard/sear/core";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import {
     BUCKETS,
@@ -69,25 +73,49 @@ const QUAD_INDICES = new Uint32Array([0, 1, 2, 0, 2, 3]);
 let _atlas: GPUTexture | null = null;
 let _sampler: GPUSampler | null = null;
 let _spriteBuf: GPUBuffer | null = null;
+// the slot-major eids buffer (the instancing convention's `eids` binding; `_spriteBuf` is
+// eid-indexed instead, sized independently — see pack.ts) — overridden per-draw via `spriteQuad`'s
+// `mesh.bindings` since it's sprite's own packed instance list, not the global entity-transform
+// firehose (`transforms` stays unoverridden, resolving to that global)
+let _eidsBuf: GPUBuffer | null = null;
 let _argBuf: GPUBuffer | null = null;
 let _quadBase = 0;
 let _sig = -1;
 const _args = new Uint32Array(5);
 
 function rebuild(state: State, device: GPUDevice): void {
-    const { ranges, count, cap, f32 } = packSprites(state);
+    const { ranges, count, dataCap, f32, eids } = packSprites(state);
 
-    if (cap * SPRITE_BYTES > _spriteBuf!.size) {
+    // `dataCap` is eid-indexed (sized off `maxEid + 1`), not slot count — a sprite's instance data
+    // lands at `eid * SPRITE_BYTES`, so the whole eid-addressable range must upload, not just the
+    // first `count` records
+    if (dataCap * SPRITE_BYTES > _spriteBuf!.size) {
         const stale = _spriteBuf!;
         _spriteBuf = device.createBuffer({
             label: "kitchen-sprites",
-            size: cap * SPRITE_BYTES,
+            size: dataCap * SPRITE_BYTES,
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         Compute.buffers.set("spriteData", _spriteBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (count > 0) device.queue.writeBuffer(_spriteBuf!, 0, f32, 0, count * (SPRITE_BYTES / 4));
+    // eid-indexed, so the whole capacity uploads every rebuild — a dead eid's stale slot is never
+    // read (only an eid appearing in `eids` this rebuild is), so uploading it costs bandwidth, not
+    // correctness
+    device.queue.writeBuffer(_spriteBuf!, 0, f32, 0, dataCap * (SPRITE_BYTES / 4));
+
+    if (eids.length * 4 > _eidsBuf!.size) {
+        const stale = _eidsBuf!;
+        _eidsBuf = device.createBuffer({
+            label: "kitchen-sprite-eids",
+            size: eids.length * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        const quad = Meshes.get("spriteQuad");
+        if (quad) quad.bindings = { ...quad.bindings, eids: _eidsBuf };
+        device.queue.onSubmittedWorkDone().then(() => stale.destroy());
+    }
+    if (count > 0) device.queue.writeBuffer(_eidsBuf!, 0, eids, 0, count * 4);
 
     for (let b = 0; b < BUCKETS; b++) {
         _args[0] = 6;
@@ -118,7 +146,7 @@ const SpriteSystem: System = {
         }
     },
     update(state) {
-        if (!Compute.device || !_spriteBuf || !_argBuf) return;
+        if (!Compute.device || !_spriteBuf || !_eidsBuf || !_argBuf) return;
         const sig = signature(state);
         if (sig === _sig) return;
         _sig = sig;
@@ -164,14 +192,31 @@ export const SpritePlugin: Plugin = {
         },
     },
 
-    initialize() {
+    initialize(state) {
         _atlas = null;
         _sampler = null;
         _spriteBuf = null;
+        _eidsBuf = null;
         _argBuf = null;
         _sig = -1;
 
-        for (let b = 0; b < BUCKETS; b++) Surfaces.register(spriteSurface(b));
+        for (let b = 0; b < BUCKETS; b++) {
+            // the string-registry shell (bindings only — no code): keeps `sprite-*` in the surface-id
+            // space every string-era consumer still enumerates. The code is the typed registration
+            // below, which `record()` consults first (4a-ii-d dual-accept)
+            Surfaces.register({
+                name: surfaceName(b),
+                blend: b & 1 ? ("alpha" as const) : ("clip" as const),
+                bindings: {
+                    spriteData: { type: "storage" as const, element: "SpriteData" },
+                    eids: { type: "storage" as const, element: "u32" },
+                    transforms: { type: "storage" as const, element: "Xform" },
+                    spriteAtlas: { type: "texture-2d-array" as const },
+                    spriteSamp: { type: "sampler" as const },
+                },
+            });
+            registerSurface(state, spriteSurface(b));
+        }
 
         if (!Compute.device) return;
         mesh({ name: "spriteQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
@@ -230,6 +275,13 @@ export const SpritePlugin: Plugin = {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
         });
         Compute.buffers.set("spriteData", _spriteBuf);
+        _eidsBuf = device.createBuffer({
+            label: "kitchen-sprite-eids",
+            size: INITIAL * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        const quad = Meshes.get("spriteQuad");
+        if (quad) quad.bindings = { ...quad.bindings, eids: _eidsBuf };
         _argBuf = device.createBuffer({
             label: "kitchen-sprite-args",
             // one DrawIndexedIndirect record per bucket; COPY_SRC so a gym Mirror can read back instanceCount
@@ -240,9 +292,11 @@ export const SpritePlugin: Plugin = {
 
     dispose() {
         _spriteBuf?.destroy();
+        _eidsBuf?.destroy();
         _argBuf?.destroy();
         _atlas?.destroy();
         _spriteBuf = null;
+        _eidsBuf = null;
         _argBuf = null;
         _atlas = null;
         _sampler = null;

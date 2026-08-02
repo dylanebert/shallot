@@ -6,13 +6,13 @@
 //
 // GPU-free + DOM-free: the render bodies only read the world and call the Overlay surface, so a counting stub
 // (the same string3d/text output `overlayLayer.labelCount()` counts) exercises them without a device or a
-// canvas — exactly what the headless `bun run test:gym` tier can run.
+// canvas — exactly what the headless `examples/gym/src` suite can run.
 //
 // Red-first (spec gate): the check is nonzero labels from the render. With the render disconnected (a no-op,
 // the "adapter disconnected" shape) the count is 0 and every assertion below fails; wired, it is 6. Proven
 // red by stubbing renderJointBreak to a no-op before implementing it.
 //
-// Outside bunfig's `bun test` scope (rooted at packages/shallot) — run via `bun run test:gym`, or explicitly:
+// Outside bunfig's `bun test` scope (rooted at packages/shallot) — run via `bun test ./examples/gym/src`, or a single file:
 //   bun test ./examples/gym/src/tumble-overlay.test.ts
 
 import { expect, test } from "bun:test";

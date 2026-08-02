@@ -102,18 +102,24 @@ export const Volumetric = {};
  * (the fog march) sizes its `lighting` binding to match. */
 export const LIGHTING_UNIFORM_SIZE = 48;
 
-/** the `Lighting` UBO's WGSL struct, spliced by sear + any relocatable consumer (the fog march) that
- * reads the shared lighting uniform; layout mirrors {@link Lighting}. */
-export const LIGHTING_STRUCT_WGSL = /* wgsl */ `
-struct Lighting {
-    ambientColor: vec4<f32>,
-    sunDirection: vec4<f32>,
-    sunColor: vec4<f32>,
-}`;
+/** the `Lighting` UBO's typegpu schema — the single source of truth for the layout; sear's own pipeline
+ * splices its emitted text ({@link lightingWgsl}) rather than a hand-written struct. */
+export const LightingGpu = d
+    .struct({
+        ambientColor: d.vec4f,
+        sunDirection: d.vec4f,
+        sunColor: d.vec4f,
+    })
+    .$name("Lighting");
+
+/** the `Lighting` UBO's WGSL struct text, spliced by sear for every surface and by any relocatable
+ * consumer that binds `lighting`; emitted from {@link LightingGpu} under strict naming so the struct
+ * text and the schema can never drift. */
+export const lightingWgsl = chunk("lightingWgsl", [LightingGpu], spliceNs);
 
 /**
  * GPU Lighting UBO + CPU staging mirror, written once per frame by
- * {@link writeLighting}. Layout matches {@link LIGHTING_STRUCT_WGSL}:
+ * {@link writeLighting}. Layout matches {@link LightingGpu}:
  * `ambientColor.rgb` is linear color, `ambientColor.a` is intensity (shader
  * multiplies); `sunColor.rgb` has intensity pre-baked; `sunDirection.xyz` is
  * the normalized travel direction (light-to-surface)

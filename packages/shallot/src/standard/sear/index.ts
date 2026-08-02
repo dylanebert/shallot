@@ -5,6 +5,9 @@
 // extension surface (surface codegen, the relocatable shading chunks, the backdrop registry, the ordering
 // anchors) lives behind `sear/core`, drawn from the same `forward.ts` impl.
 // re-export each name from its definition site (one hop, so the reference generator resolves the JSDoc):
-// the renderer + its components live in forward.ts, the shadow config + cast opt-in in shadows.ts.
-export { Backdrop, Depth, Material, Sear, SearPlugin, Tag } from "./forward";
+// the renderer + most of its components live in forward.ts, `Tag` in codegen.ts (it's part of the
+// COLOR_LANES table there), the shadow config + cast opt-in in shadows.ts.
+
+export { Tag } from "./codegen";
+export { Backdrop, Depth, Material, Sear, SearPlugin } from "./forward";
 export { MAX_CASCADES, MAX_POINT_CASTERS, PointShadows, Shadow, SunShadows } from "./shadows";

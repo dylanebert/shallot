@@ -1,7 +1,8 @@
 import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
-import type { State, System } from "../../engine";
+import type { Registry, State, System } from "../../engine";
 import { Compute, capacity, srgb8x4, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
+import type { Draw, Mesh, Surface } from "../render/core";
 import { BeginFrameSystem, Draws, Meshes, Render, Surfaces } from "../render/core";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
@@ -341,27 +342,49 @@ function writeMeshBounds(device: GPUDevice): GPUBuffer {
  * every slot and repoints the Draws at the freshly grown `drawArgs`. The pair
  * offset is `mid * surfaceCount + sid`, so a new mesh only appends slots
  */
-function registerDraws(): void {
-    if (!Compute.device || _pairCount === 0) return;
-    const viewStride = _pairCount * DRAW_ARG_STRIDE;
-    for (const surface of Surfaces) {
+/** publish Part's `(surface, mesh)` draw pairs and return the indirect records the GPU buffer needs.
+ * Device-free so ordering tests can exercise the production publication seam without an adapter.
+ * @internal */
+export function publishPartDraws(
+    drawArgs: GPUBuffer,
+    surfaceCount: number,
+    pairCount: number,
+    registries: {
+        surfaces: Registry<Surface>;
+        meshes: Registry<Mesh>;
+        draws: Registry<Draw>;
+    } = { surfaces: Surfaces, meshes: Meshes, draws: Draws },
+): { offset: number; args: Uint32Array }[] {
+    const { surfaces, meshes, draws } = registries;
+    const writes: { offset: number; args: Uint32Array }[] = [];
+    const viewStride = pairCount * DRAW_ARG_STRIDE;
+    for (const surface of surfaces) {
         if (!surface.bindings?.eids || !surface.bindings?.transforms) continue;
-        const sid = Surfaces.id(surface.name)!;
-        for (const m of Meshes) {
-            const pair = Meshes.id(m.name)! * _surfaceCount + sid;
+        const sid = surfaces.id(surface.name)!;
+        for (const m of meshes) {
+            const pair = meshes.id(m.name)! * surfaceCount + sid;
             const offset = pair * DRAW_ARG_STRIDE;
             // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
             // are absolute vertex positions), firstInstance (pack)
             const args = new Uint32Array([m.indexCount, 0, m.indexBase, 0, 0]);
-            for (let slot = 0; slot < _viewDim; slot++) {
-                Compute.device.queue.writeBuffer(Parts.drawArgs!, slot * viewStride + offset, args);
-            }
-            Draws.register({
+            writes.push({ offset, args });
+            draws.register({
                 name: `part:${surface.name}:${m.name}`,
                 surface: surface.name,
                 mesh: m.name,
-                args: { indirect: Parts.drawArgs!, offset, viewStride },
+                args: { indirect: drawArgs, offset, viewStride },
             });
+        }
+    }
+    return writes;
+}
+
+function registerDraws(): void {
+    if (!Compute.device || !Parts.drawArgs || _pairCount === 0) return;
+    const viewStride = _pairCount * DRAW_ARG_STRIDE;
+    for (const { offset, args } of publishPartDraws(Parts.drawArgs, _surfaceCount, _pairCount)) {
+        for (let slot = 0; slot < _viewDim; slot++) {
+            Compute.device.queue.writeBuffer(Parts.drawArgs, slot * viewStride + offset, args);
         }
     }
 }

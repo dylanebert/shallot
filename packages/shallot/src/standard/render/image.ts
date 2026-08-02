@@ -65,22 +65,13 @@ const blitFs = tgpu.fragmentFn({
 });
 
 // pipelines bind to the root that created them (device-scoped, memoized — `engine/runtime/gpu.ts`), so a
-// stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format plus
-// the device identity it was built against.
-const _blit = new Map<string, { device: GPUDevice; pipeline: TgpuRenderPipeline }>();
+// stale entry from a torn-down device must not be reused; keyed like the pre-port cache, by format alone
+// (the per-device root memo means `Compute.root` always matches whichever device is currently adopted).
+const _blit = new Map<string, TgpuRenderPipeline>();
 
-function blitPipeline(device: GPUDevice, format: GPUTextureFormat): TgpuRenderPipeline {
-    // the pipeline comes from `Compute.root`, which is scoped to `Compute.device`, while the caller's
-    // encoder / sampler / views come from the device it passed — so a mismatch is a cross-device pass,
-    // a validation error at draw time with nothing pointing here. One root per device lands at 4a
-    // (the typed extension surface); until then the contract is explicit rather than silent
-    if (device !== Compute.device)
-        throw new Error(
-            "[render] the image array path builds its blit pipeline on Compute.device — pass that device, " +
-                "or call requestGPU with yours first",
-        );
+function blitPipeline(format: GPUTextureFormat): TgpuRenderPipeline {
     const cached = _blit.get(format);
-    if (cached && cached.device === device) return cached.pipeline;
+    if (cached) return cached;
     const pipeline = Compute.root
         .createRenderPipeline({
             vertex: blitVs,
@@ -89,7 +80,7 @@ function blitPipeline(device: GPUDevice, format: GPUTextureFormat): TgpuRenderPi
             primitive: { topology: "triangle-list" },
         })
         .$name("image-mipmap");
-    _blit.set(format, { device, pipeline });
+    _blit.set(format, pipeline);
     return pipeline;
 }
 
@@ -110,7 +101,7 @@ function genMipmapsLayer(
     format: GPUTextureFormat,
 ): void {
     if (levels <= 1) return;
-    const pipeline = blitPipeline(device, format);
+    const pipeline = blitPipeline(format);
     const sampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
     const encoder = device.createCommandEncoder({ label: "image-mipmap" });
     const sub = (level: number) =>

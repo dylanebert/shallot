@@ -249,6 +249,26 @@ export function tileRectsSchema(slots: number) {
     return d.struct({ rects: d.arrayOf(d.vec4f, slots) }).$name("TileRects");
 }
 
+/**
+ * the atlas VS's per-combo tile-folded view-projections (`codegen.ts`'s `pointShadowCode`, group 1): each
+ * combo's viewProj has its atlas tile placement folded in (`tileTransform`), so the VS projects straight
+ * into its tile with no manual divide. `slots` is `6 · casters` for the point atlas, `MAX_CASCADES` for
+ * the cascade atlas — the same config-folded sizing {@link tileRectsSchema} takes, so the three schemas
+ * always agree on slot count for one atlas pass.
+ */
+export function faceVPsSchema(slots: number) {
+    return d.struct({ m: d.arrayOf(d.mat4x4f, slots) }).$name("FaceVPs");
+}
+
+/**
+ * the atlas VS's per-combo meta (`codegen.ts`'s `pointShadowCode`, group 1): the (caster slot, face) — or
+ * (cascade index, …) for the cascade atlas — each dense combo maps to, which the VS reads to index its
+ * tile rect. Same config-folded `slots` as {@link faceVPsSchema} / {@link tileRectsSchema}.
+ */
+export function comboMetaSchema(slots: number) {
+    return d.struct({ m: d.arrayOf(d.vec4u, slots) }).$name("ComboMeta");
+}
+
 /** the face a light→fragment direction falls in: `face` is the dominant axis (X≥Y≥Z precedence), `stz`
  *  the face-camera coordinates — `s`/`t` along that face's right/up and `z` the forward distance the
  *  projection divides by. */
@@ -324,11 +344,12 @@ export const casterWgsl = chunk(
 // built lazily: its body folds the `PointShadows` config (the atlas size + the caster cap), which is only
 // final after this module loads — the same reason the chunk itself is a thunk
 function pointShadowFn() {
-    return tgpu
-        .fn(
-            [PointLightGpu, d.vec3f, d.vec3f],
-            d.f32,
-        )(/* wgsl */ `(light: PointLightGpu, normal: vec3f, fragWorld: vec3f) -> f32 {
+    return (
+        tgpu
+            .fn(
+                [PointLightGpu, d.vec3f, d.vec3f],
+                d.f32,
+            )(/* wgsl */ `(light: PointLightGpu, normal: vec3f, fragWorld: vec3f) -> f32 {
     let atlas = ${pointAtlasSize()}.0;
     let texel = 1.0 / atlas; // one atlas pixel in uv — tile-size-independent
     for (var k = 0u; k < ${pointCasters()}u; k = k + 1u) {
@@ -380,12 +401,34 @@ function pointShadowFn() {
     }
     return 1.0;
 }`)
-        .$name("pointShadowOf");
+            // `pointFaceOf`/`pointReceiver` are its only *function* dependencies (portable across any consumer,
+            // unlike the atlas/sampler/caster/rect bindings below, which differ by consumer layout and stay
+            // free names for the caller to declare) — naming them here is what lets a real-reference caller
+            // (a typed pipeline, not just the raw-splice chunk below) pull them in via `tgpu.resolve`'s call
+            // graph without also re-listing them by hand
+            .$uses({ pointFaceOf, pointReceiver })
+            .$name("pointShadowOf")
+    );
+}
+
+// the real reference, memoized so a raw-splice consumer (`pointShadowChunk` below) and a real-reference
+// consumer (a typed pipeline's kernel calling it as a function, not splicing text) share the exact same
+// object — `pointShadowFn()` is a factory only because its body folds the `PointShadows` config (the atlas
+// size + caster cap), which must stay fixed to one instance regardless of caller.
+let _pointShadowOf: ReturnType<typeof pointShadowFn> | undefined;
+
+/** the point/spot shadow receiver as a real callable reference: `pointShadowOf(light, normal, fragWorld)`.
+ * Its body still reads `pointAtlas` / `shadowSamp` / `pointShadows` / `tileRects` as free names (the
+ * relocatable-global law) — a real-reference caller must force those bindings into scope itself (its own
+ * layout's binding declarations are invisible to `tgpu.resolve`'s call-graph walk, same as the `hullData`
+ * forcing touch), while `pointFaceOf`/`pointReceiver` resolve for free via the `$uses` above. */
+export function pointShadowRef() {
+    return (_pointShadowOf ??= pointShadowFn());
 }
 
 const pointShadowChunk = chunk(
     "pointShadowWgsl",
-    () => [pointFaceOf, pointReceiver, pointShadowFn()],
+    () => [pointFaceOf, pointReceiver, pointShadowRef()],
     spliceNs,
 );
 
@@ -523,7 +566,14 @@ export const viewDepth = tgpu.fn(
     return std.dot(std.sub(worldPos, eye), fwd);
 });
 
-const sampleSunShadow = tgpu
+/**
+ * the sun-shadow receiver as a real callable reference: `sampleSunShadow(worldPos, normal)` selects a
+ * cascade by linear view-z (via {@link viewDepth}, reading `view` as a free name), PCF-samples it (via
+ * {@link sampleCascade}, reading `shadowMap` / `shadowSamp` / `sunShadow`), and blends across the overlap
+ * band. A real-reference caller forces `view` / `shadowMap` / `shadowSamp` / `sunShadow` into scope itself
+ * (the {@link pointShadowRef} law); `viewDepth` / `sampleCascade` resolve for free via `$uses`.
+ */
+export const sampleSunShadow = tgpu
     .fn(
         [d.vec3f, d.vec3f],
         d.f32,
@@ -550,6 +600,9 @@ const sampleSunShadow = tgpu
     }
     return shadow;
 }`)
+    // its function dependencies (portable across any consumer); `sunShadow` stays a free name — a
+    // real-reference caller forces it into scope itself, same as the point-shadow path above
+    .$uses({ viewDepth, sampleCascade })
     .$name("sampleSunShadow");
 
 const sunShadowChunk = chunk(

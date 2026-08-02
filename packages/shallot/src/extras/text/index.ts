@@ -7,6 +7,9 @@
 // font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the kitchen
 // surface + producer around it. Single-channel SDF (Valve "Improved Alpha-Tested Magnification").
 
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import {
     Compute,
     f32,
@@ -19,14 +22,28 @@ import {
     u32,
     vec2,
 } from "../../engine";
-import { packColor } from "../../engine/utils/core";
+import { packColor, Xform, xformPoint } from "../../engine/utils/core";
 import { mesh, RenderPlugin } from "../../standard/render";
 import { BeginFrameSystem, Draws, Meshes, Surfaces } from "../../standard/render/core";
-import { PrepassSystem } from "../../standard/sear/core";
+import {
+    fsCtxSchema,
+    PrepassSystem,
+    registerSurface,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "../../standard/sear/core";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
 import { createGlyphAtlas, ensureString, type GlyphAtlas, layoutText } from "./atlas";
 import { type Font, loadFont } from "./font";
-import { GLYPH_AT, GLYPH_BYTES, GLYPH_FLOATS, glyphWgsl } from "./glyph";
+import {
+    GLYPH_AT,
+    GLYPH_BYTES,
+    GLYPH_FLOATS,
+    Glyph,
+    sdfToSignedDistance,
+    textSrgbToLinear,
+} from "./glyph";
 
 // Inter, the default face when the consumer registers no font of its own
 const DEFAULT_FONT =
@@ -91,56 +108,97 @@ export const Text = {
     color: sparse(f32),
 };
 
-// localPos.xy is the quad corner (0,0)..(1,1). Build the glyph's local rect, apply the owning entity's
-// world matrix (sear projects `view.viewProj * world` after), and interpolate the atlas uv across the
-// corner. `gsize` carries the world quad size for the FS antialias; `gcolor` the packed sRGBA
-const TEXT_VS = /* wgsl */ `
-let g = textGlyphs[iid];
-let corner = localPos.xy;
-let gp = vec3<f32>(g.pos.x + corner.x * g.size.x, g.pos.y + corner.y * g.size.y, g.pos.z);
-world = vec4<f32>(xformPoint(transforms[g.eid], gp), 1.0);
-uv = mix(g.uvRect.xy, g.uvRect.zw, corner);
-gsize = g.size;
-gcolor = g.color;
-`;
-
-// signed-distance edge AA: the SDF decodes to a world-space signed distance, faded over one screen-space
-// derivative either side of the glyph edge (Valve). Fully-transparent texels discard before the blend
-function textFs(atlas: string): string {
-    return /* wgsl */ `
-let sdf = textureSample(${atlas}, textSamp, uv).r;
-let maxDim = max(gsize.x, gsize.y);
-let signedDist = sdfToSignedDistance(sdf, maxDim);
-let aa = length(fwidth(localPos.xy * gsize)) * 0.5;
-let alpha = smoothstep(aa, -aa, signedDist);
-if (alpha < 0.01) { discard; }
-let unp = unpack4x8unorm(gcolor);
-col = vec4<f32>(textSrgbToLinear(unp.rgb), unp.a * alpha);
-`;
-}
-
 // one surface + draw + atlas texture per font. The glyph buffer + sampler are shared (one name each); only
 // the atlas texture binding is per-font, so its name carries the id. The default single-font case is one
 // surface "text0" binding "textAtlas0"
 const surfaceName = (id: number) => `text${id}`;
 const atlasName = (id: number) => `textAtlas${id}`;
 
-function textSurface(id: number) {
-    const atlas = atlasName(id);
-    return {
-        name: surfaceName(id),
-        blend: "alpha" as const,
-        bindings: {
-            textGlyphs: { type: "storage" as const, element: "Glyph" },
-            transforms: { type: "storage" as const, element: "Xform" },
-            [atlas]: { type: "texture-2d" as const },
-            textSamp: { type: "sampler" as const },
-        },
-        interpolators: { gsize: "vec2<f32>", gcolor: "u32" },
-        preamble: glyphWgsl(),
-        vs: TEXT_VS,
-        fs: textFs(atlas),
-    };
+// the two custom interstage slots (gpu.md rule 9's 4-slot budget): `uvSize` folds the mixed atlas uv
+// (`.xy`) and the world quad size (`.zw`, what the fs's AA math scales `fwidth(localPos)` by) into one
+// vec4 — `vsPatchSchema` has no `uv` field to override (only `world`/`worldNormal`/`clip` + varyings), so
+// the atlas uv can't ride the built-in. `gcolor` unpacks `unpack4x8unorm` in the vs (a per-instance
+// constant, so it interpolates exactly) rather than crossing the packed u32 and unpacking per-fragment.
+const textVaryings = { uvSize: d.vec4f, gcolor: d.vec4f };
+
+// per-font typed surface: a fresh `surfaceLayout` per id (the atlas texture binding's name carries the
+// id, so each font gets its own layout object, and a vs/fs built against one layout can't be shared with
+// another's). localPos.xy is the quad corner (0,0)..(1,1); signed-distance edge AA decodes the SDF to a
+// world-space signed distance, faded over one screen-space derivative either side of the glyph edge
+// (Valve "Improved Alpha-Tested Magnification"); fully-transparent texels discard before the blend
+function typedTextSurface(id: number) {
+    const atlasKey = atlasName(id);
+    const layout = surfaceLayout({
+        textGlyphs: { type: "storage", element: Glyph },
+        transforms: { type: "storage", element: Xform },
+        textSamp: { type: "sampler" },
+        [atlasKey]: { type: "texture-2d" },
+    });
+    // `vsPatchSchema`/`fsCtxSchema` are plain host functions (no "use gpu"), so they must be called OUTSIDE
+    // any traced body — a call from inside a "use gpu" closure throws "not marked with the 'use gpu'
+    // directive" at pipeline-resolution time (`standard/sear/forward.ts`'s `typedVertexPatch` is the
+    // reference pattern). Hoisted once here, the vs body below references the constructor only
+    const VertexPatch = vsPatchSchema(textVaryings);
+    const vs = tgpu
+        .fn(
+            [VsIn],
+            VertexPatch,
+        )((vsIn) => {
+            "use gpu";
+            const g = Glyph(layout.$.textGlyphs[vsIn.iid]);
+            const x = Xform(layout.$.transforms[g.eid]);
+            const corner = vsIn.localPos.xy;
+            const gp = d.vec3f(
+                g.pos.x + corner.x * g.size.x,
+                g.pos.y + corner.y * g.size.y,
+                g.pos.z,
+            );
+            const uv = std.mix(g.uvRect.xy, g.uvRect.zw, corner);
+            return VertexPatch({
+                world: d.vec4f(xformPoint(x, gp), 1),
+                worldNormal: vsIn.worldNormal,
+                clip: d.vec4f(0),
+                uvSize: d.vec4f(uv, g.size),
+                gcolor: std.unpack4x8unorm(g.color),
+            } as never);
+        })
+        .$name(`text${id}Vs`);
+
+    const fs = tgpu
+        .fn(
+            [fsCtxSchema(textVaryings)],
+            d.vec4f,
+        )((ctx) => {
+            "use gpu";
+            // the atlas texture key is per-font (computed), so `layout.$`'s mapped type can't narrow it
+            // the way a fixed key like `layout.$.textSamp` resolves automatically — one cast to the
+            // runtime texture-sample representation `$` exposes for a fixed `texture-2d` binding. Read
+            // here, inside the traced body: `layout.$[atlasKey]` executes the TypeGPU view accessor for
+            // real, which only resolves inside an active codegen/dispatch context — reading it at
+            // factory-call time (module JS, before any trace) throws "outside of codegen mode" on a real
+            // device (the untyped resolve path bun test exercises doesn't reach the accessor at all).
+            // Passed straight into the call, never bound to a `const` first — a texture/sampler handle's
+            // snippet origin is untyped-pointer-incompatible ("handle"), and TypeGPU's const-declaration
+            // codegen tries to take a pointer to any aliased (non-copyable) RHS, so a `const atlas = ...`
+            // binding throws "Creating pointer type from origin handle" at pipeline-resolution time.
+            const sdf = std.textureSample(
+                (layout.$ as unknown as Record<string, d.texture2d<d.F32>>)[atlasKey],
+                layout.$.textSamp,
+                ctx.uvSize.xy,
+            ).x;
+            const gsize = ctx.uvSize.zw;
+            const maxDim = std.max(gsize.x, gsize.y);
+            const signedDist = sdfToSignedDistance(sdf, maxDim);
+            const aa = std.length(std.fwidth(std.mul(ctx.localPos.xy, gsize))) * 0.5;
+            const alpha = std.smoothstep(aa, -aa, signedDist);
+            if (alpha < 0.01) {
+                std.discard();
+            }
+            return d.vec4f(textSrgbToLinear(ctx.gcolor.xyz), ctx.gcolor.w * alpha);
+        })
+        .$name(`text${id}Fs`);
+
+    return { layout, vs, fs };
 }
 
 // the unit quad sear instances per glyph: posU.xyz = (corner.x, corner.y, 0); normalV unused
@@ -167,11 +225,11 @@ let _quadBase = 0;
 // the last signature an upload was built for; -1 forces the first frame's build
 let _sig = -1;
 // per-font glyph staging lists, rebuilt each dirty frame, then packed into the shared buffer in id order
-const _byFont: Glyph[][] = [];
+const _byFont: LabelGlyph[][] = [];
 const _ranges: { start: number; count: number }[] = [];
 const _args = new Uint32Array(5);
 
-interface Glyph {
+interface LabelGlyph {
     eid: number;
     x: number;
     y: number;
@@ -375,7 +433,7 @@ export const TextPlugin: Plugin = {
         },
     },
 
-    async initialize() {
+    async initialize(state) {
         _loaded = [];
         _atlases = [];
         _glyphBuf = null;
@@ -415,7 +473,29 @@ export const TextPlugin: Plugin = {
             const atlas = createGlyphAtlas(device, loaded);
             _atlases[id] = atlas;
             Compute.textures.set(atlasName(id), atlas.texture);
-            Surfaces.register(textSurface(id));
+            // the string-registry shell (bindings only — no code): the surface's own draw is
+            // registered by `TextSystem.setup`, so this exists purely to keep `text{id}` in the
+            // surface-id space every string-era consumer still enumerates. The code is the typed
+            // registration below, which `record()` consults first
+            Surfaces.register({
+                name: surfaceName(id),
+                blend: "alpha" as const,
+                bindings: {
+                    textGlyphs: { type: "storage" as const, element: "Glyph" },
+                    transforms: { type: "storage" as const, element: "Xform" },
+                    [atlasName(id)]: { type: "texture-2d" as const },
+                    textSamp: { type: "sampler" as const },
+                },
+            });
+            const { layout, vs, fs } = typedTextSurface(id);
+            registerSurface(state, {
+                name: surfaceName(id),
+                layout,
+                blend: "alpha",
+                varyings: textVaryings,
+                vs,
+                fs,
+            });
         }
     },
 

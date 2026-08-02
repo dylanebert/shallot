@@ -31,9 +31,8 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute } from "../../engine";
-import { precompile } from "../../engine/runtime";
+import { precompile, precompileScope } from "../../engine/runtime";
 import { bitcastF32toU32, idiv } from "../../engine/utils/core";
-import { rootOf } from "./root";
 
 const WG = 256; // workgroup size, both kernels
 const MAX_SUB = 64; // max subgroup size on the floor — sizes the partials array so wgMin[sid] never reads OOB
@@ -305,8 +304,7 @@ export async function createSceneBounds(
     shared: SceneBoundsShared = {},
     subgroups: boolean = device.features.has("subgroups"),
 ): Promise<SceneBounds> {
-    // before any allocation: a wrong-device call would otherwise leak everything allocated below it
-    const root = rootOf(device, "createSceneBounds");
+    const root = Compute.root;
     const cap = Math.max(1, maxPrims);
     const owned: GPUBuffer[] = [];
     const own = (label: string, size: number, usage: number): GPUBuffer => {
@@ -335,11 +333,13 @@ export async function createSceneBounds(
         .createComputePipeline({ compute: finalize })
         .$name("bounds-finalize")
         .with(root.createBindGroup(finalizeLayout, { scratch, bounds }));
+    // per-instance labels — an app can build more than one BVH, and the queue rejects a duplicate label
+    const scope = precompileScope("bounds");
     for (const [label, bound] of [
-        ["bounds-reduce", reduce],
-        ["bounds-finalize", finalizeBound],
+        ["reduce", reduce],
+        ["finalize", finalizeBound],
     ] as const) {
-        precompile(label, () => {
+        precompile(`${scope}-${label}`, () => {
             bound.dispatchWorkgroups(0);
             return bound;
         });

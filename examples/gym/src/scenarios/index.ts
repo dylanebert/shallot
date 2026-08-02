@@ -2,7 +2,8 @@
 // line in this barrel. main.ts imports this for the side effects. The scenes carry the engine's GPU-driven
 // coverage: `render` (the forward-pipeline atom — `mode`-selected: the structural cull/cluster/light/shadow
 // metadata oracles + transport + prepass lanes, the shaded-look framebuffer probe rows lit / spec /
-// spot / spotShadow / pointShadow / cascade / cascade-ortho / cascade-boundary / acne / zfight — the
+// spot / spotShadow / pointShadow / cascade / cascade-ortho / cascade-boundary / acne / zfight, plus
+// typed-variant (nonzero build-time specialization warm + post-build lazy draw compilation) — the
 // cascade trio covers the CSM receiver: perspective N-cascade, the ortho single-box fit, and no
 // boundary bleed — and the asset-import rows gltf-model / gltf-animated / gltf-spill / gltf-multi
 // (multi-asset palette + VAT accumulation) / gltf-worker (off-thread decode-pool byte-identity + codec
@@ -20,7 +21,9 @@
 // color/width, the reverse-Z occlusion gate, the fog post-color seam), `sat` (the validation-only GPU-SAT
 // codegen gate the f64 oracle can't reach — the 14 C++ gold configs + the hull/rounded narrowphase matrix
 // vs byte-exact readback), `accel` (the acceleration-structure pipeline: sort → build → traverse, gated on
-// both the subgroup and LDS-fallback builder arms each run), and the
+// both the subgroup and LDS-fallback builder arms each run), `text` (the typed SDF text producer's
+// real-GPU draw — a local-fixture-font label, gated by the same chroma-against-clear framebuffer probe
+// pattern `accel`'s line draw uses), and the
 // three §6 physics scenarios by simulation type — `pile` (contact-settling
 // rigidbodies), `constraints` (springs + joints), `character` (the kinematic controller), each gated
 // against the f64 oracle. `backend` is the substrate swap gate (specs/tumble-shallot.md stage 4): one
@@ -133,5 +136,6 @@ import "./sprite";
 import "./stress";
 import "./suspension";
 import "./terrain";
+import "./text";
 import "./thin-wall";
 import "./torus";
