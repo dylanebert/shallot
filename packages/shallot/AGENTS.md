@@ -13,7 +13,7 @@ bunx shallot run [dir]      # build + preview (add --target to build and run nat
 bunx shallot verify [dir]   # boot in a headless browser, check it renders, exit 0/nonzero
 ```
 
-The check is `bunx tsc --noEmit` — run it after every change. `--portable` bundles Chromium (CEF) instead of the system webview; required on Linux, optional elsewhere.
+The check is `bunx tsc --noEmit` — run it after every change. `--portable` bundles Chromium (CEF) instead of the system webview; required on Linux, optional elsewhere. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
 
 A project is pure data: `shallot.json` (the manifest: scene + plugin enablement) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
 
@@ -37,8 +37,8 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 
 - `@dylanebert/shallot` — public API: components, types, plugins, shape factories. The default plugins (`RenderPlugin`, `SearPlugin`, `GlazePlugin`, `TransformsPlugin`, `PartPlugin`, `InputPlugin`, `SlabPlugin`) auto-register; components register through `Plugin.components`, parse-time metadata via `Plugin.traits`. The orbit camera is opt-in (`OrbitPlugin`, in `extras`)
 - `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `text`, `tween`, `audio`, `mirror`, `profile`, `gltf`, `skin` (also reachable on the bare barrel)
-- `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`)
-- `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs,skin}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. WGSL constants, surface internals, GPU buffer layouts
+- `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`) plus the adopted TypeGPU root (`Compute.root`), build check (`checkTgsl`), pipeline warm queue (`precompile`), and GPU probes
+- `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs,skin,utils}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. Schemas, TGSL/WGSL chunks, typed surface contracts, GPU buffer layouts
 
 Don't deep-import from `src/`. If something you need isn't in a barrel or `*/core` subpath, file an issue.
 
@@ -79,6 +79,26 @@ DOM UI mounts into **one engine-provided container, sandboxed to the canvas regi
 
 Custom render producers and compute passes are normal extension points — register against `render/core` (`Surfaces` / `Meshes` / `Draws`) and run compute on `Render.encoder` from a system.
 
+### TypeGPU transform
+
+TGSL needs exactly one transform: CLI-installed, or one direct `unplugin-typegpu/vite` in ejected Vite (never CLI-only `typegpuPlugin()`). The default excludes compiled Svelte/Vue; run component TGSL after its framework transform and include its id. `checkTgsl()` covers only engine TS, so test a consumer component function. Missing transforms yield `NaN`; doubles corrupt metadata. Recipes: [MIGRATION.md](./MIGRATION.md).
+
+### Schemas and typed resources
+
+CPU↔GPU layouts belong to schemas beside their data. Create/wrap via `Compute.root`; `unwrap` only for raw consumers. For dual identity, publish typed in `Compute.typed`, raw in `Compute.buffers`; only allocator destroys. Keep CPU truth in typed arrays/`ArrayBuffer`, not per-frame schema objects.
+
+### TGSL authoring
+
+Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Pure functions run in tests; use WGSL strings only when needed. Every factory-returned kernel calls `.$name()`; name factory-built schemas/pipelines too.
+
+TGSL integer division uses `idiv` from `utils/core`, never `/`; initialize integer locals with `d.u32(...)` or `d.i32(...)`. Apply `eslint-plugin-typegpu` to every `"use gpu"` file.
+
+Force pipeline creation during loading: from `warm`, queue a zero-workgroup `precompile(label, force)`. Allocate late inputs in its callback and return the dispatched non-null bound pipeline.
+
+### Typed surfaces
+
+Build `surfaceLayout` first, close TGSL over `layout.$`, then register that exact spec against its `State`. One `varyings` object builds both `vsPatchSchema` and `fsCtxSchema`. List mesh fields read by `fs` in `fragmentInputs`; omitted fields are zero-filled and use no interpolator.
+
 ### Binding limits
 
 `maxStorageBuffersPerShaderStage` is **10 — hard ceiling.** 99.6% of devices support 10; only 64% support 16. Requesting more rejects `requestDevice()` on a third of users. Per shader stage across all bind groups — splitting groups doesn't help. Both `storage` and `read-only-storage` count.
@@ -93,8 +113,8 @@ Treat shader logging as perturbing: it injects atomics/bindings, is bounded and 
 
 ### Pipelines
 
-- Always `createComputePipelineAsync` + `Promise.all`. Sync creation blocks sequentially
-- Every raw shader module and sync/async pipeline must include a stable `label`; every TypeGPU pipeline must carry a stable `.$name()` — these join error scopes, exact WGSL artifacts/hashes, stats, and capture markers
+- Raw WebGPU pipelines use `createComputePipelineAsync` / `createRenderPipelineAsync` and batch through `Promise.all`. TypeGPU pipelines use the warm queue described above
+- Every raw shader module and pipeline must include a stable `label`; every TypeGPU pipeline must carry a stable `.$name()` — these join error scopes, exact WGSL artifacts/hashes, stats, and capture markers
 - Don't hardcode `bgra8unorm`; use `navigator.gpu.getPreferredCanvasFormat()`
 - DXC (Chrome on Windows) doesn't DCE and stalls on large functions inside dynamic loops. Constant upper bounds with dynamic `break` are fine
 

@@ -37,8 +37,7 @@ const BootSystem: System = {
         armed = false;
         indirect = mirror(Voxels.indirect);
         const m = indirect;
-        window.__voxelGate = () => gate(m);
-        void boot(state);
+        void boot(state, m);
     },
     dispose() {
         teardownUi();
@@ -48,11 +47,13 @@ const BootSystem: System = {
     },
 };
 
-async function boot(state: State): Promise<void> {
+async function boot(state: State, m: Mirror): Promise<void> {
     await generate(SEED);
     await syncGrid();
+    if (state.signal.aborted) return;
     initCarve(state, document.querySelector("canvas"), SEED);
     mountUi(state);
+    window.__voxelGate = () => gate(m);
 }
 
 function mountUi(state: State): void {

@@ -1,10 +1,21 @@
-import { Compute, mesh, type Plugin, RenderPlugin, type System } from "@dylanebert/shallot";
+import {
+    Compute,
+    mesh,
+    type Plugin,
+    precompile,
+    precompileScope,
+    RenderPlugin,
+    type State,
+    type System,
+} from "@dylanebert/shallot";
 import {
     BeginFrameSystem,
+    type Draw,
     DrawIndexedIndirect,
+    type DrawIndirectBuffer,
     Draws,
     Frame,
-    frameWgsl,
+    FrameGpu,
     Meshes,
     Render,
 } from "@dylanebert/shallot/render/core";
@@ -16,282 +27,360 @@ import {
     VsIn,
     vsPatchSchema,
 } from "@dylanebert/shallot/sear/core";
-import type { TgpuBuffer } from "typegpu";
-import tgpu from "typegpu";
+import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import {
+    integrateKernel,
+    PARTICLE_BYTES,
+    PARTICLE_COUNT,
+    PARTICLE_WORKGROUP,
+    Particle,
+    ParticleArray,
+    type ParticleBuffer,
+    particleLayout,
+} from "./kernel";
+import {
+    cleanupFountainGeneration,
+    createFountainLifecycle,
+    withOwnedFountainBuffers,
+} from "./lifecycle";
 
-// The canonical GPU-driven particle path as a producer: a compute pass integrates
-// N particles (launch, gravity, ground collision, recycle) in a single STORAGE buffer,
-// and a sear surface draws one cube per particle from it — instanced, indirect, all on
-// the GPU. No Part, no Transform: the count never crosses CPU↔GPU, and the only CPU work
-// per frame is encoding one dispatch. This is the pure-compute escape hatch the kitchen
-// contract leaves open for simulation that writes its own buffers. The ground plane it
-// lands on is a plain Part in the scene (main.ts): the happy path alongside the producer.
+const DISPATCH = Math.ceil(PARTICLE_COUNT / PARTICLE_WORKGROUP);
 
-const COUNT = 50_000;
-const WORKGROUP = 64;
-const DISPATCH = Math.ceil(COUNT / WORKGROUP);
-const PARTICLE_STRIDE = 32; // posSeed: vec4 + vel: vec4
+const SIZE = 0.06;
+const TAU = 6.2831853;
 
-// fountain shape — tuned by hot-reload, not runtime inputs (no live sliders here)
-const SIZE = 0.06; // cube edge in world units
-const GRAVITY = 9.8;
-const UP_MIN = 6.5;
-const UP_MAX = 8.0;
-const SPREAD = 1.5; // lateral launch speed (cone radius)
-const SPAWN_Y = 0.05; // spout height — just above the ground so spawned cubes don't z-fight it
-const GROUND_Y = 0.0; // particles recycle when they fall back to this plane
+const fountainLayout = surfaceLayout({
+    fountainParticles: { type: "storage", element: Particle },
+});
+const fountainVaryings = { tint: d.vec3f };
+const fountainPatch = vsPatchSchema(fountainVaryings);
 
-const Fountain = {
-    particles: null as unknown as GPUBuffer,
-    args: null as unknown as TgpuBuffer<typeof DrawIndexedIndirect> & {
-        usableAsIndirect: true;
-    },
-    pipeline: null as GPUComputePipeline | null,
-    bindGroup: null as GPUBindGroup | null,
-};
+const palette = tgpu.fn(
+    [d.f32],
+    d.vec3f,
+)((t) => {
+    "use gpu";
+    const phase = d.vec3f(t, t + d.f32(0.33), t + d.f32(0.67));
+    return std.add(d.vec3f(0.5), std.mul(d.vec3f(0.5), std.cos(std.mul(phase, d.f32(TAU)))));
+});
 
-// shared hash + jet, used by both the first-frame seed and the per-frame relaunch so the
-// fountain's launch distribution has one source of truth
-const PARTICLE_WGSL = /* wgsl */ `
-const COUNT: u32 = ${COUNT}u;
-const GRAVITY: f32 = ${GRAVITY};
-const UP_MIN: f32 = ${UP_MIN};
-const UP_MAX: f32 = ${UP_MAX};
-const SPREAD: f32 = ${SPREAD};
-const SPAWN: vec3<f32> = vec3<f32>(0.0, ${SPAWN_Y}, 0.0);
-const GROUND_Y: f32 = ${GROUND_Y};
-const TAU: f32 = 6.2831853;
-const GOLDEN: u32 = 0x9e3779b9u;
+const fountainVs = tgpu.fn(
+    [VsIn],
+    fountainPatch,
+)((input) => {
+    "use gpu";
+    const tint = palette(std.fract(d.f32(input.iid) * d.f32(0.6180339887)));
+    const pos = fountainLayout.$.fountainParticles[input.iid].posSeed.xyz;
+    return fountainPatch({
+        world: d.vec4f(std.add(std.mul(input.localPos, d.f32(SIZE)), pos), d.f32(1)),
+        worldNormal: input.worldNormal,
+        clip: d.vec4f(0),
+        tint,
+    });
+});
 
-struct Particle {
-    posSeed: vec4<f32>,
-    vel: vec4<f32>,
-}
-
-@group(0) @binding(0) var<uniform> frame: Frame;
-@group(0) @binding(1) var<storage, read_write> particles: array<Particle>;
-
-fn hashU32(x: u32) -> u32 {
-    var h = x;
-    h ^= h >> 16u;
-    h *= 0x7feb352du;
-    h ^= h >> 15u;
-    h *= 0x846ca68bu;
-    h ^= h >> 16u;
-    return h;
-}
-
-fn rnd(s: u32) -> f32 {
-    return f32(hashU32(s)) * (1.0 / 4294967296.0);
-}
-
-// upward jet inside a cone: uniform azimuth, sqrt radius for a uniform disk, lerped speed
-fn jet(seed: u32) -> vec3<f32> {
-    let ang = rnd(seed) * TAU;
-    let rad = sqrt(rnd(seed + GOLDEN)) * SPREAD;
-    let up = mix(UP_MIN, UP_MAX, rnd(seed + 0x85ebca6bu));
-    return vec3<f32>(cos(ang) * rad, up, sin(ang) * rad);
-}
-
-@compute @workgroup_size(${WORKGROUP})
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= COUNT) { return; }
-
-    let g = vec3<f32>(0.0, -GRAVITY, 0.0);
-    var p = particles[i];
-    var pos = p.posSeed.xyz;
-    var vel = p.vel.xyz;
-
-    // a freshly-created buffer is zero-filled, so the seed flag (posSeed.w) reads 0 on an
-    // un-seeded slot. Place it along its arc at a random fraction of its flight time (closed
-    // form, constant gravity) so the fountain is full on frame one; seeding everything at the
-    // spout would burst as one synchronized jet.
-    if (p.posSeed.w < 0.5) {
-        let v0 = jet(i + 0x1234567u);
-        let flight = 2.0 * v0.y / GRAVITY; // time to fall back to spout height
-        let t = rnd(i * 2u + 1u) * flight; // mid-arc → above the ground
-        pos = SPAWN + v0 * t + 0.5 * g * t * t;
-        vel = v0 + g * t;
-    } else {
-        let dt = frame.dt;
-        vel += g * dt;
-        pos += vel * dt;
-        // terminate on the ground, descending only (a particle launches from the spout moving
-        // up, so the gate fires only as it arcs back down), then relaunch with a fresh jet
-        // seeded by the frame for cycle-to-cycle variety
-        if (pos.y <= GROUND_Y && vel.y < 0.0) {
-            vel = jet(i ^ (frame.frame * GOLDEN));
-            pos = SPAWN;
-        }
-    }
-
-    particles[i] = Particle(vec4<f32>(pos, 1.0), vec4<f32>(vel, 0.0));
-}
-`;
-
-// 8-corner unit cube, CCW-outward (sear culls back faces). normals point out of each
-// corner, unused by the unlit surface but non-zero so sear's normalize() never sees 0
-const CORNERS: [number, number, number][] = [
-    [-0.5, -0.5, -0.5],
-    [0.5, -0.5, -0.5],
-    [0.5, 0.5, -0.5],
-    [-0.5, 0.5, -0.5],
-    [-0.5, -0.5, 0.5],
-    [0.5, -0.5, 0.5],
-    [0.5, 0.5, 0.5],
-    [-0.5, 0.5, 0.5],
-];
-
-// two CCW-outward triangles per face: +Z, -Z, +X, -X, +Y, -Y
-// biome-ignore format: one face per line reads as the cube it is
-const CUBE_INDICES = new Uint32Array([
-    4, 5, 6, 4, 6, 7,
-    1, 0, 3, 1, 3, 2,
-    5, 1, 2, 5, 2, 6,
-    0, 4, 7, 0, 7, 3,
-    7, 6, 2, 7, 2, 3,
-    0, 1, 5, 0, 5, 4,
-]);
+const fountainFs = tgpu.fn(
+    [fsCtxSchema(fountainVaryings)],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    return d.vec4f(ctx.tint, d.f32(1));
+});
 
 function cubeVertices(): Float32Array {
-    const v = new Float32Array(CORNERS.length * 8); // stride 8: posXYZ uvX normalXYZ uvY
-    for (let i = 0; i < CORNERS.length; i++) {
-        const [x, y, z] = CORNERS[i];
+    const corners: [number, number, number][] = [
+        [-0.5, -0.5, -0.5],
+        [0.5, -0.5, -0.5],
+        [0.5, 0.5, -0.5],
+        [-0.5, 0.5, -0.5],
+        [-0.5, -0.5, 0.5],
+        [0.5, -0.5, 0.5],
+        [0.5, 0.5, 0.5],
+        [-0.5, 0.5, 0.5],
+    ];
+    const v = new Float32Array(corners.length * 8);
+    for (let i = 0; i < corners.length; i++) {
+        const [x, y, z] = corners[i];
         const inv = 1 / Math.hypot(x, y, z);
         v.set([x, y, z, 0, x * inv, y * inv, z * inv, 0], i * 8);
     }
     return v;
 }
 
-const fountainLayout = surfaceLayout({
-    fountainParticles: { type: "storage", element: d.vec4f },
-});
-const fountainVaryings = { tint: d.vec3f };
-const fountainPatch = vsPatchSchema(fountainVaryings);
-const palette = tgpu.fn(
-    [d.f32],
-    d.vec3f,
-)((t) => {
-    "use gpu";
-    const phase = d.vec3f(t, t + 0.33, t + 0.67);
-    return std.add(d.vec3f(0.5), std.mul(d.vec3f(0.5), std.cos(std.mul(phase, 6.2831853))));
-});
-const fountainVs = tgpu.fn(
-    [VsIn],
-    fountainPatch,
-)((input) => {
-    "use gpu";
-    const tint = palette(std.fract(d.f32(input.iid) * 0.6180339887));
-    const pos = fountainLayout.$.fountainParticles[input.iid * 2].xyz;
-    return fountainPatch({
-        world: d.vec4f(std.add(std.mul(input.localPos, SIZE), pos), 1),
-        worldNormal: input.worldNormal,
-        clip: d.vec4f(0),
-        tint,
-    });
-});
-const fountainFs = tgpu.fn(
-    [fsCtxSchema(fountainVaryings)],
-    d.vec4f,
-)((ctx) => {
-    "use gpu";
-    return d.vec4f(ctx.tint, 1);
-});
+const CUBE_INDICES = new Uint32Array([
+    4, 5, 6, 4, 6, 7, 1, 0, 3, 1, 3, 2, 5, 1, 2, 5, 2, 6, 0, 4, 7, 0, 7, 3, 7, 6, 2, 7, 2, 3, 0, 1,
+    5, 0, 5, 4,
+]);
 
-// Dispatches the integrate pass before sear reads geometry. The surface's vs reads each
-// particle's position to place its cube, so the positions are position-determining: sear
-// reads them in the prepass, the shadow map, and the color pass, and an emit dropped between
-// them would tear new geometry against a stale read (see kitchen.md "System ordering").
-// `before: [PrepassSystem]` pins it ahead of every geometry pass.
-const FountainSystem: System = {
+declare global {
+    interface Window {
+        __fountainGate?: () => Promise<FountainCheck[]>;
+    }
+}
+
+export interface FountainCheck {
+    name: string;
+    pass: boolean;
+    detail: string;
+}
+
+type FountainDraft = { readonly state: State; readonly buffers: GPUBuffer[] };
+type FountainOwner = {
+    readonly state: State;
+    readonly buffers: readonly GPUBuffer[];
+    readonly particlesRaw: GPUBuffer;
+    readonly particles: ParticleBuffer;
+    readonly args: DrawIndirectBuffer;
+    readonly pipeline: TgpuComputePipeline;
+    readonly group: TgpuBindGroup;
+    readonly draw: Draw;
+    readonly gate: () => Promise<FountainCheck[]>;
+    readonly scope: string;
+};
+
+let activeOwner: FountainOwner | null = null;
+const stateOwners = new WeakMap<State, FountainOwner>();
+const dispatchedOwners = new WeakSet<FountainOwner>();
+
+function cleanupOwner(owner: FountainOwner): void {
+    cleanupFountainGeneration(owner, {
+        raw: () => Compute.buffers?.get("fountainParticles"),
+        typed: () => Compute.typed?.get("fountainParticles") as ParticleBuffer | undefined,
+        draw: (name) => Draws.get(name),
+        gate: () => (typeof window === "undefined" ? undefined : window.__fountainGate),
+        deleteRaw: () => Compute.buffers.delete("fountainParticles"),
+        deleteTyped: () => Compute.typed.delete("fountainParticles"),
+        deleteDraw: (name) => Draws.delete(name),
+        deleteGate: () => {
+            delete window.__fountainGate;
+        },
+        destroy: (buffer) => buffer.destroy(),
+        active: () => activeOwner,
+        clearActive: () => {
+            activeOwner = null;
+        },
+    });
+    if (stateOwners.get(owner.state) === owner) stateOwners.delete(owner.state);
+}
+
+async function readParticles(owner: FountainOwner): Promise<Float32Array> {
+    const staging = Compute.device.createBuffer({
+        label: "fountain-readback",
+        size: PARTICLE_BYTES,
+        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+    });
+    let mapped = false;
+    try {
+        const enc = Compute.device.createCommandEncoder({ label: "fountain-readback" });
+        enc.copyBufferToBuffer(owner.particlesRaw, 0, staging, 0, PARTICLE_BYTES);
+        Compute.device.queue.submit([enc.finish()]);
+        await staging.mapAsync(GPUMapMode.READ);
+        mapped = true;
+        return new Float32Array(staging.getMappedRange().slice(0));
+    } finally {
+        if (mapped) staging.unmap();
+        staging.destroy();
+    }
+}
+
+function frames(count: number): Promise<void> {
+    return new Promise((resolve) => {
+        let remaining = count;
+        const tick = () => {
+            remaining--;
+            if (remaining === 0) resolve();
+            else requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+    });
+}
+
+async function checkFountain(owner: FountainOwner): Promise<FountainCheck[]> {
+    if (activeOwner !== owner) throw new Error("fountain: gate owner is stale");
+    const beforeFrame = Compute.frame;
+    const before = await readParticles(owner);
+    await frames(4);
+    const after = await readParticles(owner);
+    const indices = [0, PARTICLE_WORKGROUP + 1, PARTICLE_COUNT - 1];
+    const stride = d.sizeOf(Particle) / 4;
+    const finite = indices.every((i) => {
+        const at = i * stride;
+        return after[at + 3] === 1 && after.slice(at, at + stride).every(Number.isFinite);
+    });
+    const sampled = indices.map((i) => Array.from(after.slice(i * stride, i * stride + stride)));
+    const progressed = indices.some((i) => {
+        const at = i * stride;
+        return (
+            Math.abs(after[at] - before[at]) +
+                Math.abs(after[at + 1] - before[at + 1]) +
+                Math.abs(after[at + 2] - before[at + 2]) >
+            1e-6
+        );
+    });
+    return [
+        {
+            name: "typed-publication",
+            pass:
+                Compute.buffers.get("fountainParticles") === owner.particlesRaw &&
+                Compute.typed.get("fountainParticles") === owner.particles &&
+                Draws.get(owner.draw.name) === owner.draw,
+            detail: "raw and typed particle identities plus the exact draw owner are published",
+        },
+        {
+            name: "multi-workgroup-tail",
+            pass: after.length === PARTICLE_BYTES / 4 && finite,
+            detail: `sampled particles ${indices.join(", ")} across ${after.length} f32 lanes: ${JSON.stringify(sampled)}`,
+        },
+        {
+            name: "ordered-progression",
+            pass: Compute.frame > beforeFrame && progressed,
+            detail: `frames ${beforeFrame} -> ${Compute.frame}; sampled positions ${progressed ? "changed" : "stalled"}`,
+        },
+    ];
+}
+
+export const FountainSystem: System = {
     name: "fountain",
     group: "draw",
     annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
-    async setup() {
-        const { device } = Compute;
-
-        Fountain.particles = device.createBuffer({
-            label: "fountain-particles",
-            size: COUNT * PARTICLE_STRIDE,
-            usage: GPUBufferUsage.STORAGE,
-        });
-        // the surface reads this buffer as array<vec4<f32>>: particle i's position is
-        // element 2*i (posSeed.xyz). Published by name for the surface to resolve
-        Compute.buffers.set("fountainParticles", Fountain.particles);
-
-        // CPU-known draw: a fixed instance count, one record. Everything is indirect, so the
-        // count lives in a buffer rather than literal draw args. firstIndex = the cube's slice
-        // base in the shared family buffer (mesh() packs it at RenderPlugin.warm)
-        const cube = Meshes.get("fountainCube");
-        if (!cube) throw new Error("fountain: cube mesh not registered");
-        const rawArgs = device.createBuffer({
-            label: "fountain-draw-args",
-            size: 20,
-            usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
-        });
-        Fountain.args = Compute.root.createBuffer(DrawIndexedIndirect, rawArgs).$usage("indirect");
-        Fountain.args.write({
-            indexCount: cube.indexCount,
-            instanceCount: COUNT,
-            firstIndex: cube.indexBase,
-            baseVertex: 0,
-            firstInstance: 0,
-        });
-
-        Draws.register({
-            name: "fountain",
-            surface: "fountain",
-            mesh: "fountainCube",
-            args: { indirect: Fountain.args },
-        });
-
-        const module = device.createShaderModule({
-            label: "fountain-integrate",
-            code: `${frameWgsl()}\n${PARTICLE_WGSL}`,
-        });
-        Fountain.pipeline = await device.createComputePipelineAsync({
-            label: "fountain-integrate",
-            layout: "auto",
-            compute: { module, entryPoint: "main" },
-        });
-        Fountain.bindGroup = device.createBindGroup({
-            label: "fountain-integrate",
-            layout: Fountain.pipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: Frame.buffer } },
-                { binding: 1, resource: { buffer: Fountain.particles } },
-            ],
-        });
-    },
     update() {
-        if (!Render.encoder || !Fountain.pipeline || !Fountain.bindGroup) return;
+        const owner = activeOwner;
+        if (!Render.encoder || !owner) return;
+        // Publish the gate only on a frame after this generation first encoded. EndFrame has submitted
+        // that prior dispatch by then, so a boot-time browser poll cannot observe a zero-filled buffer.
+        if (dispatchedOwners.has(owner) && window.__fountainGate !== owner.gate)
+            window.__fountainGate = owner.gate;
         const pass = Render.encoder.beginComputePass({
             label: "fountain-integrate",
             timestampWrites: Compute.span?.("fountain:integrate"),
         });
-        pass.setPipeline(Fountain.pipeline);
-        pass.setBindGroup(0, Fountain.bindGroup);
-        pass.dispatchWorkgroups(DISPATCH);
+        owner.pipeline.with(owner.group).with(pass).dispatchWorkgroups(DISPATCH);
         pass.end();
+        dispatchedOwners.add(owner);
     },
 };
 
-const FountainPlugin: Plugin = {
+function forceCompile(owner: FountainOwner): TgpuComputePipeline {
+    const { device, root } = Compute;
+    return withOwnedFountainBuffers<GPUBuffer, TgpuComputePipeline>(
+        (own) => {
+            const frameRaw = own(
+                device.createBuffer({
+                    label: "fountain-precompile-frame",
+                    size: Math.ceil(d.sizeOf(FrameGpu) / 16) * 16,
+                    usage: GPUBufferUsage.UNIFORM,
+                }),
+            );
+            const particlesRaw = own(
+                device.createBuffer({
+                    label: "fountain-precompile-particles",
+                    size: PARTICLE_BYTES,
+                    usage: GPUBufferUsage.STORAGE,
+                }),
+            );
+            const frame = root.createBuffer(FrameGpu, frameRaw).$usage("uniform");
+            const particles = root.createBuffer(ParticleArray, particlesRaw).$usage("storage");
+            const group = root.createBindGroup(particleLayout, { frame, particles });
+            const enc = device.createCommandEncoder({ label: owner.scope });
+            const pass = enc.beginComputePass({ label: owner.scope });
+            owner.pipeline.with(group).with(pass).dispatchWorkgroups(0);
+            pass.end();
+            device.queue.submit([enc.finish()]);
+            return owner.pipeline;
+        },
+        (buffer) => buffer.destroy(),
+    );
+}
+
+const lifecycle = createFountainLifecycle<State, FountainDraft, FountainOwner>({
+    current: () => activeOwner,
+    owned: (state) => stateOwners.get(state),
+    draft: (state) => ({ state, buffers: [] }),
+    prepare(draft) {
+        const { device, root } = Compute;
+        const particlesRaw = device.createBuffer({
+            label: "fountain-particles",
+            size: PARTICLE_BYTES,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        draft.buffers.push(particlesRaw);
+        const particles = root.createBuffer(ParticleArray, particlesRaw).$usage("storage");
+        const argsRaw = device.createBuffer({
+            label: "fountain-draw-args",
+            size: d.sizeOf(DrawIndexedIndirect),
+            usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+        });
+        draft.buffers.push(argsRaw);
+        const args = root.createBuffer(DrawIndexedIndirect, argsRaw).$usage("indirect");
+        const cube = Meshes.get("fountainCube");
+        if (!cube) throw new Error("fountain: cube mesh not registered");
+        args.write({
+            indexCount: cube.indexCount,
+            instanceCount: PARTICLE_COUNT,
+            firstIndex: cube.indexBase,
+            baseVertex: 0,
+            firstInstance: 0,
+        });
+        const pipeline = root
+            .createComputePipeline({ compute: integrateKernel })
+            .$name("fountain-integrate");
+        const group = root.createBindGroup(particleLayout, {
+            frame: Frame.buffer,
+            particles,
+        });
+        const draw: Draw = {
+            name: "fountain",
+            surface: "fountain",
+            mesh: "fountainCube",
+            args: { indirect: args },
+        };
+        let owner!: FountainOwner;
+        const gate = () => checkFountain(owner);
+        owner = Object.freeze({
+            state: draft.state,
+            buffers: Object.freeze([...draft.buffers]),
+            particlesRaw,
+            particles,
+            args,
+            pipeline,
+            group,
+            draw,
+            gate,
+            scope: precompileScope("fountain-integrate"),
+        });
+        return owner;
+    },
+    activate(state, owner) {
+        activeOwner = owner;
+        stateOwners.set(state, owner);
+    },
+    cleanupDraft(draft) {
+        for (const buffer of draft.buffers) buffer.destroy();
+    },
+    cleanup: cleanupOwner,
+    precompile: (owner, force) => precompile(owner.scope, force),
+    force: forceCompile,
+    publish(owner) {
+        Compute.buffers.set("fountainParticles", owner.particlesRaw);
+        Compute.typed.set("fountainParticles", owner.particles);
+        Draws.register(owner.draw);
+    },
+});
+
+export const warmFountain = lifecycle.warm;
+export const disposeFountain = lifecycle.dispose;
+
+export const FountainPlugin: Plugin = {
     name: "Fountain",
     dependencies: [RenderPlugin],
     systems: [FountainSystem],
     initialize(state) {
-        // a plain static cube in the shared family buffer (registered before warm), and an
-        // unlit surface that offsets each cube by its particle position. No eids/transforms
-        // bindings, so sear applies no per-instance transform; the vs builds `world` itself
-        // from `fountainParticles[iid]`, the producer's own instance buffer. Per-particle color
-        // is a low-discrepancy index → cosine palette, carried as a vs→fs varying (constant
-        // per cube, so it interpolates exact)
+        // One static shared cube is instanced by the GPU-owned draw. Particle transforms never enter Part
+        // or the Transform firehose: the typed particle record is both the compute output and VS input.
         mesh({ name: "fountainCube", vertices: cubeVertices(), indices: CUBE_INDICES });
         registerSurface(state, {
             name: "fountain",
@@ -301,7 +390,8 @@ const FountainPlugin: Plugin = {
             fs: fountainFs,
         });
     },
+    warm: warmFountain,
+    dispose: disposeFountain,
 };
 
-// the manifest references this module by path (`"Fountain": "./src/fountain"`) and imports its default
 export default FountainPlugin;

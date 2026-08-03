@@ -78,11 +78,13 @@ export const octEncodeNormal = tgpu.fn(
     d.u32,
 )((n) => {
     "use gpu";
+    // eslint-disable-next-line typegpu/no-math -- this Math.abs expression transpiles to WGSL abs and is resolution-pinned
     const denom = Math.abs(n.x) + Math.abs(n.y) + Math.abs(n.z);
     const inv = select(1 / denom, 0, denom <= 0);
     const p = d.vec2f(n.x * inv, n.y * inv);
     const signX = select(d.f32(-1), d.f32(1), p.x >= 0);
     const signY = select(d.f32(-1), d.f32(1), p.y >= 0);
+    // eslint-disable-next-line typegpu/no-math -- this Math.abs expression transpiles to WGSL abs and is resolution-pinned
     const folded = d.vec2f((1 - Math.abs(p.y)) * signX, (1 - Math.abs(p.x)) * signY);
     return packSnorm2x16(select(p, folded, n.z < 0));
 });
@@ -96,9 +98,11 @@ export const octDecodeNormal = tgpu.fn(
 )((enc) => {
     "use gpu";
     const p = unpackSnorm2x16(enc);
+    // eslint-disable-next-line typegpu/no-math -- this Math.abs expression transpiles to WGSL abs and is resolution-pinned
     const z = 1 - Math.abs(p.x) - Math.abs(p.y);
     const signX = select(d.f32(-1), d.f32(1), p.x >= 0);
     const signY = select(d.f32(-1), d.f32(1), p.y >= 0);
+    // eslint-disable-next-line typegpu/no-math -- this Math.abs expression transpiles to WGSL abs and is resolution-pinned
     const folded = d.vec3f((1 - Math.abs(p.y)) * signX, (1 - Math.abs(p.x)) * signY, z);
     return normalize(select(d.vec3f(p.x, p.y, z), folded, z < 0));
 });

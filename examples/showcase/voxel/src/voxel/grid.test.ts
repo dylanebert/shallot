@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { flat } from "../../../../../packages/shallot/tests/wgsl";
 import {
+    addressingWgsl,
     BINDING_FLOOR,
     BYTES,
     CHUNK,
@@ -11,6 +13,8 @@ import {
     SLOTS,
     solid,
     TOTAL_CELLS,
+    voxelIndex,
+    voxelIndexWgsl,
 } from "./grid";
 import { checker, recenter, single, slab, solidChunk, sphere, tunnel } from "./patterns";
 
@@ -23,6 +27,43 @@ describe("capacity", () => {
 });
 
 describe("addressing", () => {
+    test("TGSL voxelIndex matches the CPU reference and the emitted WGSL keeps the baked constants", () => {
+        expect(flat(voxelIndexWgsl())).toBe(
+            "fn voxelIndex(x: u32, y: u32, z: u32) -> u32 { " +
+                "let slot = (((((z >> 5u) * 8u) + (y >> 5u)) * 8u) + (x >> 5u)); " +
+                "let local = (((((z & 31u) * 32u) + (y & 31u)) * 32u) + (x & 31u)); " +
+                "return ((slot * 32768u) + local); }",
+        );
+        const samples: [number, number, number][] = [
+            [0, 0, 0],
+            [1, 2, 3],
+            [CHUNK - 1, CHUNK - 1, CHUNK - 1],
+            [CHUNK, CHUNK, CHUNK],
+            [DIM.x - 1, DIM.y - 1, DIM.z - 1],
+        ];
+        let state = 0x9e3779b9;
+        for (let i = 0; i < 4000; i++) {
+            state = (state * 1664525 + 1013904223) >>> 0;
+            const x = state & (DIM.x - 1);
+            state = (state * 1664525 + 1013904223) >>> 0;
+            const y = state & (DIM.y - 1);
+            state = (state * 1664525 + 1013904223) >>> 0;
+            const z = state & (DIM.z - 1);
+            samples.push([x, y, z]);
+        }
+        for (const [x, y, z] of samples) {
+            expect(voxelIndex(x, y, z)).toBe(index(x, y, z));
+        }
+
+        const addrWgsl = addressingWgsl();
+        expect(addrWgsl).toContain(`const DIM_X: i32 = ${DIM.x};`);
+        expect(addrWgsl).toContain(`const DIM_Y: i32 = ${DIM.y};`);
+        expect(addrWgsl).toContain(`const DIM_Z: i32 = ${DIM.z};`);
+        expect(addrWgsl).toContain(`>> 5u`);
+        expect(addrWgsl).toContain(`& 31u`);
+        expect(addrWgsl).toContain(`* 32768u`);
+    });
+
     test("coord ∘ index round-trips at corners, chunk seams, and a random sample", () => {
         const cells: [number, number, number][] = [
             [0, 0, 0],

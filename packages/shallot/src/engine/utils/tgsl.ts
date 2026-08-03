@@ -92,6 +92,7 @@ export const packSnorm2x16 = tgpu.fn(
     d.u32,
 )((v) => {
     "use gpu";
+    // eslint-disable-next-line typegpu/no-unsupported-syntax -- the unsigned shift is confined to the folded-away CPU arm
     return isBeingTranspiled() ? packSnorm2x16Wgsl(v) : ((snorm16(v.y) << 16) | snorm16(v.x)) >>> 0;
 });
 
@@ -105,7 +106,8 @@ export const unpackSnorm2x16 = tgpu.fn(
     "use gpu";
     return isBeingTranspiled()
         ? unpackSnorm2x16Wgsl(e)
-        : d.vec2f(Math.max(-1, ((e << 16) >> 16) / 32767), Math.max(-1, (e >> 16) / 32767));
+        : // eslint-disable-next-line typegpu/no-math -- Math.max is confined to the folded-away CPU arm
+          d.vec2f(Math.max(-1, ((e << 16) >> 16) / 32767), Math.max(-1, (e >> 16) / 32767));
 });
 
 /** pack two [0,1] lanes into a unorm16x2 `u32` (lane x → low 16 bits): WGSL `pack2x16unorm`. Uniform
@@ -116,6 +118,7 @@ export const packUnorm2x16 = tgpu.fn(
     d.u32,
 )((v) => {
     "use gpu";
+    // eslint-disable-next-line typegpu/no-unsupported-syntax -- the unsigned shift is confined to the folded-away CPU arm
     return isBeingTranspiled() ? packUnorm2x16Wgsl(v) : ((unorm16(v.y) << 16) | unorm16(v.x)) >>> 0;
 });
 
@@ -129,7 +132,8 @@ export const unpackUnorm2x16 = tgpu.fn(
     "use gpu";
     return isBeingTranspiled()
         ? unpackUnorm2x16Wgsl(e)
-        : d.vec2f((e & 0xffff) / 65535, (e >>> 16) / 65535);
+        : // eslint-disable-next-line typegpu/no-unsupported-syntax -- the unsigned shift is confined to the folded-away CPU arm
+          d.vec2f((e & 0xffff) / 65535, (e >>> 16) / 65535);
 });
 
 /** pack four [0,1] lanes into a `u32` of four unorm8 bytes (lane x → byte 0): WGSL `pack4x8unorm`.
@@ -145,7 +149,8 @@ export const packUnorm4x8 = tgpu.fn(
     "use gpu";
     return isBeingTranspiled()
         ? packUnorm4x8Wgsl(v)
-        : (unorm8(v.x) | (unorm8(v.y) << 8) | (unorm8(v.z) << 16) | (unorm8(v.w) << 24)) >>> 0;
+        : // eslint-disable-next-line typegpu/no-unsupported-syntax -- the unsigned shift is confined to the folded-away CPU arm
+          (unorm8(v.x) | (unorm8(v.y) << 8) | (unorm8(v.z) << 16) | (unorm8(v.w) << 24)) >>> 0;
 });
 
 /** reinterpret an `f32`'s bits as a `u32`: WGSL `bitcast<u32>(e)`. The f32→u32 direction only;
@@ -170,6 +175,7 @@ export const idiv = tgpu.fn(
     d.u32,
 )((a, b) => {
     "use gpu";
+    // eslint-disable-next-line typegpu/no-math -- Math.floor is confined to the folded-away CPU arm
     return isBeingTranspiled() ? idivWgsl(a, b) : Math.floor(a / b);
 });
 

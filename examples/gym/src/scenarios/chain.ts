@@ -9,6 +9,7 @@ import {
     Orbit,
     OrbitPlugin,
     type Plugin,
+    precompile,
     RenderPlugin,
     run,
     Sear,
@@ -20,6 +21,16 @@ import {
 } from "@dylanebert/shallot";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { BeginFrameSystem, Render } from "@dylanebert/shallot/render/core";
+import type {
+    StorageFlag,
+    TgpuBindGroup,
+    TgpuBuffer,
+    TgpuComputePipeline,
+    UniformFlag,
+} from "typegpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // chain — the per-phase boundary-constant microbench the physics waste audit keys on (roadmap "Physics —
@@ -40,70 +51,156 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 const DEFAULT_PHASES = 70; // ≈ the physics step's phase count at gameplay scale (sparse colors)
 
 let dataMirror: Mirror | null = null;
+let expectedFrames: ReadonlyMap<number, number> | null = null;
 let phasesRun = 0; // the loop count the per-frame pass actually encoded (the assert divides by it)
 let params: Params | null = null;
 
-const KERNEL_WGSL = /* wgsl */ `
-struct ChainParams { phases: u32 }
-@group(0) @binding(0) var<storage, read_write> data: array<u32>;
-@group(0) @binding(1) var<uniform> cp: ChainParams;
+const ChainParams = d
+    .struct({ phases: d.u32, pad0: d.u32, pad1: d.u32, pad2: d.u32 })
+    .$name("ChainParams");
+const ChainData = d.arrayOf(d.u32, 4);
+const chainLayout = tgpu.bindGroupLayout({
+    data: { storage: ChainData, access: "mutable" },
+    cp: { uniform: ChainParams },
+});
 
-// one phase: a dependent read-modify-write of one storage word. Lane 0 only — the chain measures the
-// phase boundary, not parallel work.
-@compute @workgroup_size(64)
-fn phase(@builtin(local_invocation_index) lid: u32) {
-    if (lid == 0u) { data[0] = data[0] + 1u; }
+const phaseKernel = tgpu
+    .computeFn({
+        in: { lid: d.builtin.localInvocationIndex },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        if (input.lid === d.u32(0)) {
+            chainLayout.$.data[d.u32(0)] = chainLayout.$.data[d.u32(0)] + d.u32(1);
+        }
+    })
+    .$name("phase");
+
+const barrierKernel = tgpu
+    .computeFn({
+        in: { lid: d.builtin.localInvocationIndex },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        for (let i = d.u32(0); i < chainLayout.$.cp.phases; i = i + d.u32(1)) {
+            if (input.lid === d.u32(0)) {
+                chainLayout.$.data[d.u32(0)] = chainLayout.$.data[d.u32(0)] + d.u32(1);
+            }
+            std.storageBarrier();
+        }
+    })
+    .$name("barrierChain");
+
+/** the emitted chain WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function chainWgsl(): string {
+    return tgpu.resolve([phaseKernel, barrierKernel], { names: "strict" });
 }
 
-// the same chain as in-kernel barriers: a dynamic loop bound (stays rolled — DXC unrolls only constant
-// bounds), storageBarrier() making each iteration's write visible to the next.
-@compute @workgroup_size(64)
-fn barrierChain(@builtin(local_invocation_index) lid: u32) {
-    for (var i = 0u; i < cp.phases; i = i + 1u) {
-        if (lid == 0u) { data[0] = data[0] + 1u; }
-        storageBarrier();
+type ChainDataBuf = TgpuBuffer<typeof ChainData> & StorageFlag;
+type ChainParamsBuf = TgpuBuffer<typeof ChainParams> & UniformFlag;
+type ChainResources = {
+    readonly dataRaw?: GPUBuffer;
+    readonly params?: ChainParamsBuf;
+    readonly mirror?: Mirror;
+};
+type ChainRun = {
+    uploaded: number;
+    expected: number;
+    readonly frames: Map<number, number>;
+};
+type ChainOwner = ChainResources & {
+    readonly dataRaw: GPUBuffer;
+    readonly data: ChainDataBuf;
+    readonly params: ChainParamsBuf;
+    readonly mirror: Mirror;
+    readonly dispatch: TgpuComputePipeline;
+    readonly barrier: TgpuComputePipeline;
+    readonly group: TgpuBindGroup<typeof chainLayout.entries>;
+    readonly run: ChainRun;
+};
+
+const cleanedChainResources = new WeakSet<object>();
+
+function cleanupChain(resources: ChainResources): void {
+    if (cleanedChainResources.has(resources)) return;
+    cleanedChainResources.add(resources);
+    resources.mirror?.dispose();
+    resources.dataRaw?.destroy();
+    resources.params?.destroy();
+    if (dataMirror === resources.mirror) dataMirror = null;
+}
+
+function forceChain(pipeline: TgpuComputePipeline, label: string): TgpuComputePipeline {
+    const { device, root } = Compute;
+    const owned: { dataRaw?: GPUBuffer; params?: ChainParamsBuf } = {};
+    let submitted = false;
+    const cleanup = () => cleanupChain(owned);
+    try {
+        owned.dataRaw = device.createBuffer({
+            label: `${label}-data`,
+            size: d.sizeOf(ChainData),
+            usage: GPUBufferUsage.STORAGE,
+        });
+        const data = root.createBuffer(ChainData, owned.dataRaw).$usage("storage");
+        owned.params = root.createBuffer(ChainParams).$usage("uniform");
+        const group = root.createBindGroup(chainLayout, { data, cp: owned.params });
+        const encoder = device.createCommandEncoder({ label });
+        const pass = encoder.beginComputePass({ label });
+        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
+        submitted = true;
+        void cleanupAfterFence;
+        return pipeline;
+    } finally {
+        if (!submitted) cleanup();
     }
 }
-`;
+
+/** invoke the two benchmark arms: N separate phase dispatches, then one barrier-chain dispatch.
+ *  @internal */
+export function runChainArms(phases: number, dispatch: () => void, barrier: () => void): void {
+    for (let i = 0; i < phases; i++) dispatch();
+    barrier();
+}
 
 function chainPlugin(): Plugin {
-    let dispatchPipe: GPUComputePipeline | null = null;
-    let barrierPipe: GPUComputePipeline | null = null;
-    let bg: GPUBindGroup | null = null;
-    let dataBuf: GPUBuffer | null = null;
-    let ubo: GPUBuffer | null = null;
-    let uploaded = -1;
+    let active: ChainOwner | null = null;
 
     const pass: System = {
         group: "draw",
         annotations: { mode: "always" },
         after: [BeginFrameSystem],
         update() {
-            if (!dispatchPipe || !barrierPipe || !bg || !ubo || !Render.encoder) return;
+            const owner = active;
+            if (!owner || !Render.encoder) return;
             const n = Math.max(1, Math.round((params?.phases as number) ?? DEFAULT_PHASES));
-            if (n !== uploaded) {
-                Compute.device.queue.writeBuffer(ubo, 0, new Uint32Array([n]));
-                uploaded = n;
+            if (n !== owner.run.uploaded) {
+                owner.params.write({ phases: n, pad0: 0, pad1: 0, pad2: 0 });
+                owner.run.uploaded = n;
             }
             phasesRun = n;
-            {
-                const p = Render.encoder.beginComputePass({
-                    timestampWrites: Compute.span?.("chain:dispatch"),
-                });
-                p.setPipeline(dispatchPipe);
-                p.setBindGroup(0, bg);
-                for (let i = 0; i < n; i++) p.dispatchWorkgroups(1);
-                p.end();
-            }
-            {
-                const p = Render.encoder.beginComputePass({
-                    timestampWrites: Compute.span?.("chain:barrier"),
-                });
-                p.setPipeline(barrierPipe);
-                p.setBindGroup(0, bg);
-                p.dispatchWorkgroups(1);
-                p.end();
-            }
+            owner.run.frames.set(Compute.frame, owner.run.expected);
+            owner.run.frames.delete(Compute.frame - 16);
+            const dispatchPass = Render.encoder.beginComputePass({
+                timestampWrites: Compute.span?.("chain:dispatch"),
+            });
+            const dispatch = owner.dispatch.with(owner.group).with(dispatchPass);
+            runChainArms(
+                n,
+                () => dispatch.dispatchWorkgroups(1, 1, 1),
+                () => {
+                    dispatchPass.end();
+                    const barrierPass = Render.encoder!.beginComputePass({
+                        timestampWrites: Compute.span?.("chain:barrier"),
+                    });
+                    owner.barrier.with(owner.group).with(barrierPass).dispatchWorkgroups(1, 1, 1);
+                    barrierPass.end();
+                },
+            );
+            owner.run.expected = (owner.run.expected + n * 2) >>> 0;
         },
     };
 
@@ -111,61 +208,68 @@ function chainPlugin(): Plugin {
         name: "GymChain",
         systems: [pass],
         dependencies: [RenderPlugin],
-        async warm() {
+        async warm(state) {
+            if (state.disposed) return;
+            const prior = active;
+            if (prior) {
+                cleanupChain(prior);
+                if (active === prior) active = null;
+                if (expectedFrames === prior.run.frames) expectedFrames = null;
+            }
             const device = Compute.device;
-            dataBuf = device.createBuffer({
-                label: "gym-chain-data",
-                size: 16,
-                usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-            });
-            ubo = device.createBuffer({
-                label: "gym-chain-params",
-                size: 16,
-                usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-            });
-            const module = device.createShaderModule({ label: "gym-chain", code: KERNEL_WGSL });
-            // explicit shared layout — the dispatch kernel doesn't read the uniform, so an "auto"
-            // layout would omit binding 1 and the shared bind group would fail validation.
-            const layout = device.createBindGroupLayout({
-                label: "gym-chain",
-                entries: [
-                    {
-                        binding: 0,
-                        visibility: GPUShaderStage.COMPUTE,
-                        buffer: { type: "storage" },
-                    },
-                    {
-                        binding: 1,
-                        visibility: GPUShaderStage.COMPUTE,
-                        buffer: { type: "uniform" },
-                    },
-                ],
-            });
-            const pipelineLayout = device.createPipelineLayout({
-                label: "gym-chain",
-                bindGroupLayouts: [layout],
-            });
-            [dispatchPipe, barrierPipe] = await Promise.all([
-                device.createComputePipelineAsync({
-                    label: "gym-chain-dispatch",
-                    layout: pipelineLayout,
-                    compute: { module, entryPoint: "phase" },
-                }),
-                device.createComputePipelineAsync({
-                    label: "gym-chain-barrier",
-                    layout: pipelineLayout,
-                    compute: { module, entryPoint: "barrierChain" },
-                }),
-            ]);
-            bg = device.createBindGroup({
-                label: "gym-chain",
-                layout,
-                entries: [
-                    { binding: 0, resource: { buffer: dataBuf } },
-                    { binding: 1, resource: { buffer: ubo } },
-                ],
-            });
-            dataMirror = mirror(dataBuf);
+            const root = Compute.root;
+            const draft: { dataRaw?: GPUBuffer; params?: ChainParamsBuf; mirror?: Mirror } = {};
+            let owner: ChainOwner | undefined;
+            try {
+                draft.dataRaw = device.createBuffer({
+                    label: "gym-chain-data",
+                    size: d.sizeOf(ChainData),
+                    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+                });
+                const data = root.createBuffer(ChainData, draft.dataRaw).$usage("storage");
+                draft.params = root
+                    .createBuffer(ChainParams)
+                    .$usage("uniform")
+                    .$name("gym-chain-params");
+                const dispatch = root
+                    .createComputePipeline({ compute: phaseKernel })
+                    .$name("gym-chain-dispatch");
+                const barrier = root
+                    .createComputePipeline({ compute: barrierKernel })
+                    .$name("gym-chain-barrier");
+                const group = root.createBindGroup(chainLayout, { data, cp: draft.params });
+                draft.mirror = mirror(draft.dataRaw);
+                const run = { uploaded: -1, expected: 0, frames: new Map<number, number>() };
+                owner = Object.freeze({
+                    dataRaw: draft.dataRaw,
+                    data,
+                    params: draft.params,
+                    mirror: draft.mirror,
+                    dispatch,
+                    barrier,
+                    group,
+                    run,
+                });
+                active = owner;
+                dataMirror = owner.mirror;
+                expectedFrames = owner.run.frames;
+                state.onDispose(() => {
+                    cleanupChain(owner!);
+                    if (active === owner) active = null;
+                    if (expectedFrames === owner!.run.frames) expectedFrames = null;
+                });
+                await precompile("gym-chain-dispatch", () =>
+                    forceChain(owner!.dispatch, "gym-chain-dispatch"),
+                );
+                await precompile("gym-chain-barrier", () =>
+                    forceChain(owner!.barrier, "gym-chain-barrier"),
+                );
+            } catch (cause) {
+                cleanupChain(owner ?? draft);
+                if (active === owner) active = null;
+                if (owner && expectedFrames === owner.run.frames) expectedFrames = null;
+                throw cause;
+            }
         },
     };
 }
@@ -221,12 +325,17 @@ const scenario: Scenario = {
         const checks: Check[] = [];
         if (dataMirror) {
             await settle(dataMirror);
-            const words = dataMirror.snapshot && new Uint32Array(dataMirror.snapshot.bytes);
+            const snapshot = dataMirror.snapshot;
+            const words = snapshot && new Uint32Array(snapshot.bytes);
             const count = words?.[0] ?? 0;
+            const expected = snapshot ? expectedFrames?.get(snapshot.frame) : undefined;
             checks.push({
-                name: "chain advanced",
-                pass: count > 0,
-                detail: `data[0] = ${count} after both chains`,
+                name: "both chains exact recurrence",
+                pass: expected !== undefined && count === expected,
+                detail:
+                    expected === undefined
+                        ? `no host reference for Mirror frame ${snapshot?.frame ?? "none"}`
+                        : `data[0] = ${count}, expected ${expected} at frame ${snapshot!.frame}`,
             });
         }
         const dispatch = Profile.gpu.get("chain:dispatch") ?? 0;
@@ -239,14 +348,15 @@ const scenario: Scenario = {
             dispatchUs: (dispatch * 1000) / n,
             barrierUs: (barrier * 1000) / n,
         };
+        const spansValid =
+            Number.isFinite(dispatch) && dispatch > 0 && Number.isFinite(barrier) && barrier > 0;
         checks.push({
             name: "measured (chain spans)",
-            pass: true, // a reporter — the bench gates on the payload
-            detail:
-                dispatch > 0
-                    ? `${n} phases: dispatch ${((dispatch * 1000) / n).toFixed(2)} µs/phase, ` +
-                      `barrier ${((barrier * 1000) / n).toFixed(2)} µs/phase`
-                    : "no chain spans resolved",
+            pass: spansValid,
+            detail: spansValid
+                ? `${n} phases: dispatch ${((dispatch * 1000) / n).toFixed(2)} µs/phase, ` +
+                  `barrier ${((barrier * 1000) / n).toFixed(2)} µs/phase`
+                : `invalid chain spans: dispatch=${dispatch}, barrier=${barrier}`,
             data,
         });
         return checks;

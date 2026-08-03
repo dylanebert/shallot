@@ -31,20 +31,21 @@ import { AvbdPlugin } from "@dylanebert/shallot/avbd";
 import {
     Avbd,
     BODY_VEC4,
-    collideWgsl,
-    hullWgsl,
     type JointDef,
     LDS_CAP,
     LDS_N,
     MAX_CONTACTS,
     PENALTY_MIN,
     PhysicsStep,
-    packHulls,
     SMALL_N,
 } from "@dylanebert/shallot/avbd/core";
 import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Hulls } from "@dylanebert/shallot/physics/core";
 import { Meshes } from "@dylanebert/shallot/render/core";
+import type { StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 // the f64 oracle (tests/, out of the published src/) is the executable spec the GPU gates compare against,
 // reached by relative path. accel.ts reaches the BVH oracle the same way.
 import { collide, SPECULATIVE_DISTANCE } from "../../../../packages/shallot/tests/avbd/collide";
@@ -59,6 +60,11 @@ import {
 } from "../../../../packages/shallot/tests/avbd/rigid";
 import { narrowphase } from "../../../../packages/shallot/tests/avbd/rounded";
 import { makeSolver, step as oracleStep } from "../../../../packages/shallot/tests/avbd/solver";
+import {
+    collideRounded,
+    collideRoundedPolytope,
+    SatResult,
+} from "../../../../packages/shallot/tests/avbd/tgsl";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // pile — contact-settling rigidbodies, the AVBD solver's canonical GPU-correctness home (physics.md "GPU
@@ -1735,44 +1741,205 @@ const roundedConfigs: Cfg[] = [
     },
 ];
 
-// the standalone GPU kernel: one thread per config, run the production narrowphase, write count + the shared
-// basis.r0 (one normal per rounded manifold) + every contact's feature key + local arms. All contacts written
-// so a capsule-box's 2nd endpoint is gated too.
-const ROUNDED_OUT_STRIDE = 1 + 3 + MAX_CONTACTS * 7; // count, normal(3), MAX × (feat, rA.xyz, rB.xyz)
-const ROUNDED_CFG_STRIDE = 32; // 8 vec4: posA, quatA, sizeRadA, posB, quatB, sizeRadB, dRel, shapes
-const roundedKernelWgsl = () => `${collideWgsl()}${hullWgsl()}
-struct Cfg { posA: vec4<f32>, quatA: vec4<f32>, sizeRadA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeRadB: vec4<f32>, dRel: vec4<f32>, shapes: vec4<f32> };
-@group(0) @binding(0) var<storage, read> cfgs: array<Cfg>;
-@group(0) @binding(1) var<storage, read_write> out: array<f32>;
-@group(0) @binding(2) var<uniform> params: vec4<u32>;
-@group(0) @binding(3) var<storage, read> hullData: array<u32>; // unused here (box polys), declared for hullWgsl()
+const at = <T extends d.BaseData>(schema: T, field: (value: d.Infer<T>) => unknown): number =>
+    d.memoryLayoutOf(schema, field).offset / 4;
+const RoundedCfg = d
+    .struct({
+        posA: d.vec4f,
+        quatA: d.vec4f,
+        sizeRadA: d.vec4f,
+        posB: d.vec4f,
+        quatB: d.vec4f,
+        sizeRadB: d.vec4f,
+        dRel: d.vec4f,
+        shapes: d.vec4f,
+    })
+    .$name("RoundedCfg");
+const RoundedContact = d.struct({
+    feature: d.f32,
+    rA: d.arrayOf(d.f32, 3),
+    rB: d.arrayOf(d.f32, 3),
+});
+const RoundedReadback = d.struct({
+    count: d.f32,
+    normal: d.arrayOf(d.f32, 3),
+    contacts: d.arrayOf(RoundedContact, MAX_CONTACTS),
+});
+const ROUNDED_CFG_FLOATS = d.sizeOf(RoundedCfg) / 4;
+const ROUNDED_CFG_AT = {
+    posA: at(RoundedCfg, (c) => c.posA),
+    quatA: at(RoundedCfg, (c) => c.quatA),
+    sizeRadA: at(RoundedCfg, (c) => c.sizeRadA),
+    posB: at(RoundedCfg, (c) => c.posB),
+    quatB: at(RoundedCfg, (c) => c.quatB),
+    sizeRadB: at(RoundedCfg, (c) => c.sizeRadB),
+    dRel: at(RoundedCfg, (c) => c.dRel),
+    shapes: at(RoundedCfg, (c) => c.shapes),
+};
+const ROUNDED_READBACK_FLOATS = d.sizeOf(RoundedReadback) / 4;
+const ROUNDED_READBACK_AT = {
+    count: at(RoundedReadback, (r) => r.count),
+    normal: at(RoundedReadback, (r) => r.normal),
+    contacts: at(RoundedReadback, (r) => r.contacts),
+};
+const ROUNDED_CONTACT_FLOATS = d.sizeOf(RoundedContact) / 4;
+const ROUNDED_CONTACT_AT = {
+    feature: at(RoundedContact, (c) => c.feature),
+    rA: at(RoundedContact, (c) => c.rA),
+    rB: at(RoundedContact, (c) => c.rB),
+};
+const RoundedParams = d
+    .struct({ count: d.u32, pad0: d.u32, pad1: d.u32, pad2: d.u32 })
+    .$name("RoundedParams");
+const RoundedCfgs = d.arrayOf(RoundedCfg);
+const RoundedOutput = d.arrayOf(d.f32);
+type RoundedCfgsBuffer = TgpuBuffer<ReturnType<typeof RoundedCfgs>> & StorageFlag;
+type RoundedOutputBuffer = TgpuBuffer<ReturnType<typeof RoundedOutput>> & StorageFlag;
+type RoundedParamsBuffer = TgpuBuffer<typeof RoundedParams> & UniformFlag;
+const roundedLayout = tgpu.bindGroupLayout({
+    cfgs: { storage: RoundedCfgs, access: "readonly" },
+    out: { storage: RoundedOutput, access: "mutable" },
+    params: { uniform: RoundedParams },
+});
+const roundedHull = tgpu
+    .fn(
+        [d.vec3f, d.vec4f, d.vec3f, d.f32, d.vec3f, d.vec4f, d.vec3f, d.f32, d.vec3f],
+        SatResult,
+    )((posA, quatA, sizeA, radA, posB, quatB, sizeB, radB, dRel) => {
+        "use gpu";
+        return collideRounded(posA, quatA, sizeA, radA, posB, quatB, sizeB, radB, dRel);
+    })
+    .$name("roundedHull");
+const roundedMix = tgpu
+    .fn(
+        [
+            d.vec3f,
+            d.vec4f,
+            d.vec3f,
+            d.f32,
+            d.u32,
+            d.u32,
+            d.vec3f,
+            d.vec4f,
+            d.vec3f,
+            d.f32,
+            d.u32,
+            d.u32,
+            d.vec3f,
+        ],
+        SatResult,
+    )((posA, quatA, sizeA, radA, sA, hA, posB, quatB, sizeB, radB, sB, hB, dRel) => {
+        "use gpu";
+        return collideRoundedPolytope(
+            posA,
+            quatA,
+            sizeA,
+            radA,
+            sA,
+            hA,
+            posB,
+            quatB,
+            sizeB,
+            radB,
+            sB,
+            hB,
+            dRel,
+        );
+    })
+    .$name("roundedMix");
+const roundedKernel = tgpu
+    .computeFn({
+        in: { gid: d.builtin.globalInvocationId },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        const i = input.gid.x;
+        if (i >= roundedLayout.$.params.count) return;
+        const c = RoundedCfg(roundedLayout.$.cfgs[i]);
+        const sA = d.u32(c.shapes.x);
+        const sB = d.u32(c.shapes.y);
+        const roundedA = sA === d.u32(1) || sA === d.u32(2);
+        const roundedB = sB === d.u32(1) || sB === d.u32(2);
+        let r = SatResult();
+        if (roundedA && roundedB) {
+            r = roundedHull(
+                c.posA.xyz,
+                c.quatA,
+                c.sizeRadA.xyz,
+                c.sizeRadA.w,
+                c.posB.xyz,
+                c.quatB,
+                c.sizeRadB.xyz,
+                c.sizeRadB.w,
+                c.dRel.xyz,
+            );
+        } else {
+            r = roundedMix(
+                c.posA.xyz,
+                c.quatA,
+                c.sizeRadA.xyz,
+                c.sizeRadA.w,
+                sA,
+                d.u32(0),
+                c.posB.xyz,
+                c.quatB,
+                c.sizeRadB.xyz,
+                c.sizeRadB.w,
+                sB,
+                d.u32(0),
+                c.dRel.xyz,
+            );
+        }
+        const base = i * d.u32(ROUNDED_READBACK_FLOATS);
+        roundedLayout.$.out[base + d.u32(ROUNDED_READBACK_AT.count)] = std.bitcastU32toF32(r.count);
+        const normal = base + d.u32(ROUNDED_READBACK_AT.normal);
+        roundedLayout.$.out[normal] = r.basis.r0.x;
+        roundedLayout.$.out[normal + d.u32(1)] = r.basis.r0.y;
+        roundedLayout.$.out[normal + d.u32(2)] = r.basis.r0.z;
+        for (let k = d.u32(0); k < d.u32(MAX_CONTACTS); k = k + d.u32(1)) {
+            const contact =
+                base + d.u32(ROUNDED_READBACK_AT.contacts) + k * d.u32(ROUNDED_CONTACT_FLOATS);
+            roundedLayout.$.out[contact + d.u32(ROUNDED_CONTACT_AT.feature)] = std.bitcastU32toF32(
+                r.feat[k],
+            );
+            const rA = contact + d.u32(ROUNDED_CONTACT_AT.rA);
+            roundedLayout.$.out[rA] = r.rA[k].x;
+            roundedLayout.$.out[rA + d.u32(1)] = r.rA[k].y;
+            roundedLayout.$.out[rA + d.u32(2)] = r.rA[k].z;
+            const rB = contact + d.u32(ROUNDED_CONTACT_AT.rB);
+            roundedLayout.$.out[rB] = r.rB[k].x;
+            roundedLayout.$.out[rB + d.u32(1)] = r.rB[k].y;
+            roundedLayout.$.out[rB + d.u32(2)] = r.rB[k].z;
+        }
+    })
+    .$name("roundedMain");
 
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= params.x) { return; }
-    let c = cfgs[i];
-    let sA = u32(c.shapes.x);
-    let sB = u32(c.shapes.y);
-    // dispatch like the production collide pass: both rounded → collideRounded, mixed → collideRoundedPolytope
-    var r: SatResult;
-    if (sA != 0u && sB != 0u) {
-        r = collideRounded(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.sizeRadA.w,
-                           c.posB.xyz, c.quatB, c.sizeRadB.xyz, c.sizeRadB.w, c.dRel.xyz);
-    } else {
-        r = collideRoundedPolytope(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.sizeRadA.w, sA, 0u,
-                                   c.posB.xyz, c.quatB, c.sizeRadB.xyz, c.sizeRadB.w, sB, 0u, c.dRel.xyz);
+export const roundedCfgFloats = ROUNDED_CFG_FLOATS;
+export function packRoundedConfigs(configs: readonly Cfg[]): Float32Array<ArrayBuffer> {
+    const packed = new Float32Array(configs.length * ROUNDED_CFG_FLOATS);
+    for (let i = 0; i < configs.length; i++) {
+        const c = configs[i];
+        const o = i * ROUNDED_CFG_FLOATS;
+        packed.set([c.a.posLin[0], c.a.posLin[1], c.a.posLin[2], 0], o + ROUNDED_CFG_AT.posA);
+        packed.set(c.a.posAng, o + ROUNDED_CFG_AT.quatA);
+        packed.set(
+            [c.a.size[0], c.a.size[1], c.a.size[2], c.a.roundRadius],
+            o + ROUNDED_CFG_AT.sizeRadA,
+        );
+        packed.set([c.b.posLin[0], c.b.posLin[1], c.b.posLin[2], 0], o + ROUNDED_CFG_AT.posB);
+        packed.set(c.b.posAng, o + ROUNDED_CFG_AT.quatB);
+        packed.set(
+            [c.b.size[0], c.b.size[1], c.b.size[2], c.b.roundRadius],
+            o + ROUNDED_CFG_AT.sizeRadB,
+        );
+        packed.set([c.dRel[0], c.dRel[1], c.dRel[2], 0], o + ROUNDED_CFG_AT.dRel);
+        packed.set([c.a.shape, c.b.shape, 0, 0], o + ROUNDED_CFG_AT.shapes);
     }
-    let base = i * params.y;
-    out[base] = bitcast<f32>(r.count);
-    out[base + 1u] = r.basis.r0.x; out[base + 2u] = r.basis.r0.y; out[base + 3u] = r.basis.r0.z;
-    for (var k = 0u; k < ${MAX_CONTACTS}u; k = k + 1u) {
-        let o = base + 4u + k * 7u;
-        out[o] = bitcast<f32>(r.feat[k]);
-        out[o + 1u] = r.rA[k].x; out[o + 2u] = r.rA[k].y; out[o + 3u] = r.rA[k].z;
-        out[o + 4u] = r.rB[k].x; out[o + 5u] = r.rB[k].y; out[o + 6u] = r.rB[k].z;
-    }
-}`;
+    return packed;
+}
+export function roundedMainWgsl(): string {
+    return tgpu.resolve([roundedKernel], { names: "strict" });
+}
 
 interface GpuRounded {
     count: number;
@@ -1782,107 +1949,102 @@ interface GpuRounded {
 
 // run all configs once through the production-shape kernel, decode the per-config results.
 async function runRoundedKernel(): Promise<GpuRounded[]> {
-    const device = Compute.device;
+    const { device, root } = Compute;
     const n = roundedConfigs.length;
-    const cfgData = new Float32Array(n * ROUNDED_CFG_STRIDE);
-    for (let i = 0; i < n; i++) {
-        const c = roundedConfigs[i];
-        const o = i * ROUNDED_CFG_STRIDE;
-        cfgData.set([c.a.posLin[0], c.a.posLin[1], c.a.posLin[2], 0], o);
-        cfgData.set(c.a.posAng, o + 4);
-        cfgData.set([c.a.size[0], c.a.size[1], c.a.size[2], c.a.roundRadius], o + 8);
-        cfgData.set([c.b.posLin[0], c.b.posLin[1], c.b.posLin[2], 0], o + 12);
-        cfgData.set(c.b.posAng, o + 16);
-        cfgData.set([c.b.size[0], c.b.size[1], c.b.size[2], c.b.roundRadius], o + 20);
-        cfgData.set([c.dRel[0], c.dRel[1], c.dRel[2], 0], o + 24);
-        cfgData.set([c.a.shape, c.b.shape, 0, 0], o + 28); // shape tags (f32, exact for 0/1/2)
+    const cfgData = packRoundedConfigs(roundedConfigs);
+    const owned: {
+        cfgBuf?: RoundedCfgsBuffer;
+        outRaw?: GPUBuffer;
+        outBuf?: RoundedOutputBuffer;
+        paramBuf?: RoundedParamsBuffer;
+        readBuf?: GPUBuffer;
+    } = {};
+    let mapped = false;
+    let bytes: ArrayBuffer;
+    try {
+        owned.cfgBuf = root.createBuffer(RoundedCfgs(n)).$usage("storage").$name("rounded-cfgs");
+        owned.outRaw = device.createBuffer({
+            label: "rounded-out",
+            size: n * ROUNDED_READBACK_FLOATS * 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        owned.outBuf = root
+            .createBuffer(RoundedOutput(n * ROUNDED_READBACK_FLOATS), owned.outRaw)
+            .$usage("storage");
+        owned.paramBuf = root.createBuffer(RoundedParams).$usage("uniform").$name("rounded-params");
+        owned.readBuf = device.createBuffer({
+            label: "rnd-read",
+            size: n * ROUNDED_READBACK_FLOATS * 4,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+        owned.cfgBuf!.write(cfgData.buffer);
+        owned.paramBuf!.write({ count: n, pad0: 0, pad1: 0, pad2: 0 });
+        const pipeline = root
+            .createComputePipeline({ compute: roundedKernel })
+            .$name("rounded-kernel");
+        const bg = root.createBindGroup(roundedLayout, {
+            cfgs: owned.cfgBuf!,
+            out: owned.outBuf!,
+            params: owned.paramBuf!,
+        });
+        const enc = device.createCommandEncoder({ label: "rounded-enc" });
+        const pass = enc.beginComputePass({ label: "rounded-enc" });
+        pipeline
+            .with(bg)
+            .with(pass)
+            .dispatchWorkgroups(Math.ceil(n / 64), 1, 1);
+        pass.end();
+        enc.copyBufferToBuffer(
+            owned.outRaw!,
+            0,
+            owned.readBuf!,
+            0,
+            n * ROUNDED_READBACK_FLOATS * 4,
+        );
+        device.queue.submit([enc.finish()]);
+        await owned.readBuf!.mapAsync(GPUMapMode.READ);
+        mapped = true;
+        bytes = owned.readBuf!.getMappedRange().slice(0);
+    } finally {
+        if (mapped) owned.readBuf?.unmap();
+        owned.cfgBuf?.destroy();
+        owned.outRaw?.destroy();
+        owned.paramBuf?.destroy();
+        owned.readBuf?.destroy();
     }
-
-    const cfgBuf = device.createBuffer({
-        label: "rnd-cfg",
-        size: cfgData.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const outBuf = device.createBuffer({
-        label: "rnd-out",
-        size: n * ROUNDED_OUT_STRIDE * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    const paramBuf = device.createBuffer({
-        label: "rnd-params",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const readBuf = device.createBuffer({
-        label: "rnd-read",
-        size: n * ROUNDED_OUT_STRIDE * 4,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
-    // these configs are all box/sphere/capsule (box polys → no hull read), but hullWgsl() declares the binding,
-    // so bind the packed registry (a 1-u32 stub when no hulls are registered) to satisfy it.
-    const hullBytes = packHulls();
-    const hullBuf = device.createBuffer({
-        label: "rnd-hulls",
-        size: hullBytes.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(cfgBuf, 0, cfgData);
-    device.queue.writeBuffer(paramBuf, 0, new Uint32Array([n, ROUNDED_OUT_STRIDE, 0, 0]));
-    device.queue.writeBuffer(hullBuf, 0, hullBytes as Uint32Array<ArrayBuffer>);
-
-    const pipeline = await device.createComputePipelineAsync({
-        label: "rounded-kernel",
-        layout: "auto",
-        compute: {
-            module: device.createShaderModule({
-                label: "rounded-module",
-                code: roundedKernelWgsl(),
-            }),
-            entryPoint: "main",
-        },
-    });
-    const bg = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            { binding: 0, resource: { buffer: cfgBuf } },
-            { binding: 1, resource: { buffer: outBuf } },
-            { binding: 2, resource: { buffer: paramBuf } },
-            { binding: 3, resource: { buffer: hullBuf } },
-        ],
-    });
-    const enc = device.createCommandEncoder({ label: "rounded-enc" });
-    const pass = enc.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bg);
-    pass.dispatchWorkgroups(Math.ceil(n / 64));
-    pass.end();
-    enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * ROUNDED_OUT_STRIDE * 4);
-    device.queue.submit([enc.finish()]);
-    await readBuf.mapAsync(GPUMapMode.READ);
-    const bytes = readBuf.getMappedRange().slice(0);
-    readBuf.unmap();
-    cfgBuf.destroy();
-    outBuf.destroy();
-    paramBuf.destroy();
-    hullBuf.destroy();
-    readBuf.destroy();
 
     const f = new Float32Array(bytes);
     const u = new Uint32Array(bytes);
     const out: GpuRounded[] = [];
     for (let i = 0; i < n; i++) {
-        const b = i * ROUNDED_OUT_STRIDE;
-        const count = u[b];
+        const b = i * ROUNDED_READBACK_FLOATS;
+        const count = u[b + ROUNDED_READBACK_AT.count];
         const contacts: GpuRounded["contacts"] = [];
         for (let k = 0; k < count; k++) {
-            const o = b + 4 + k * 7;
+            const o = b + ROUNDED_READBACK_AT.contacts + k * ROUNDED_CONTACT_FLOATS;
             contacts.push({
-                feature: u[o],
-                rA: [f[o + 1], f[o + 2], f[o + 3]],
-                rB: [f[o + 4], f[o + 5], f[o + 6]],
+                feature: u[o + ROUNDED_CONTACT_AT.feature],
+                rA: [
+                    f[o + ROUNDED_CONTACT_AT.rA],
+                    f[o + ROUNDED_CONTACT_AT.rA + 1],
+                    f[o + ROUNDED_CONTACT_AT.rA + 2],
+                ],
+                rB: [
+                    f[o + ROUNDED_CONTACT_AT.rB],
+                    f[o + ROUNDED_CONTACT_AT.rB + 1],
+                    f[o + ROUNDED_CONTACT_AT.rB + 2],
+                ],
             });
         }
-        out.push({ count, normal: [f[b + 1], f[b + 2], f[b + 3]], contacts });
+        out.push({
+            count,
+            normal: [
+                f[b + ROUNDED_READBACK_AT.normal],
+                f[b + ROUNDED_READBACK_AT.normal + 1],
+                f[b + ROUNDED_READBACK_AT.normal + 2],
+            ],
+            contacts,
+        });
     }
     return out;
 }

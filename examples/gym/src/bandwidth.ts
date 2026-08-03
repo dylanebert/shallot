@@ -1,4 +1,14 @@
-import { Compute, type Plugin, type System } from "@dylanebert/shallot";
+import { Compute, type Plugin, precompile, type System } from "@dylanebert/shallot";
+import type {
+    StorageFlag,
+    TgpuBindGroup,
+    TgpuBuffer,
+    TgpuComputePipeline,
+    UniformFlag,
+} from "typegpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 
 // The DRAM-bandwidth burn knob: a streaming read-modify-write over a large (> L2) buffer, `getBandwidth()`
 // sweeps per frame on its own submit, each sweep moving 2× the buffer (read + write). Minimal ALU (one
@@ -25,30 +35,54 @@ const BW_SHIFT = 1048573; // a prime per-sweep rotation; coprime with 2^26 so sw
 // write into a register-resident ALU loop that measures COMPUTE, not bandwidth (caught 2026-06-18: the naive
 // form reported a physically-impossible 4 TB/s on a 1 TB/s-DRAM 4090). The rotation is a permutation, so
 // every sweep still streams all N·16 B > L2 from DRAM. `% N` is a mask (N = 2^26); the wrap is one subtract.
-const BW_WGSL = `
-struct Cfg { sweeps: u32 };
-@group(0) @binding(0) var<storage, read_write> buf: array<vec4<f32>>;
-@group(0) @binding(1) var<uniform> cfg: Cfg;
-@compute @workgroup_size(64)
-fn bandwidth(@builtin(global_invocation_id) gid: vec3<u32>) {
-    for (var s = 0u; s < cfg.sweeps; s = s + 1u) {
-        let off = (s * ${BW_SHIFT}u) % ${BW_VEC4}u;
-        var i = gid.x;
-        loop {
-            if (i >= ${BW_VEC4}u) { break; }
-            var idx = i + off;
-            if (idx >= ${BW_VEC4}u) { idx = idx - ${BW_VEC4}u; }
-            buf[idx] = buf[idx] * 1.0001 + vec4<f32>(0.5);
-            i = i + ${BW_LANES}u;
+const BandwidthCfg = d
+    .struct({ sweeps: d.u32, pad0: d.u32, pad1: d.u32, pad2: d.u32 })
+    .$name("GymBandwidthCfg");
+const BW_SCHEMA = d.arrayOf(d.vec4f, BW_VEC4);
+const bandwidthLayout = tgpu.bindGroupLayout({
+    buf: { storage: BW_SCHEMA, access: "mutable" },
+    cfg: { uniform: BandwidthCfg },
+});
+const bandwidthKernel = tgpu
+    .computeFn({
+        in: { gid: d.builtin.globalInvocationId },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        for (let s = d.u32(0); s < bandwidthLayout.$.cfg.sweeps; s = s + d.u32(1)) {
+            const off = (s * d.u32(BW_SHIFT)) % d.u32(BW_VEC4);
+            let i = input.gid.x;
+            while (true) {
+                if (i >= d.u32(BW_VEC4)) {
+                    break;
+                }
+                let idx = i + off;
+                if (idx >= d.u32(BW_VEC4)) {
+                    idx = idx - d.u32(BW_VEC4);
+                }
+                bandwidthLayout.$.buf[idx] = std.add(
+                    std.mul(bandwidthLayout.$.buf[idx], d.f32(1.0001)),
+                    d.vec4f(d.f32(0.5)),
+                );
+                i = i + d.u32(BW_LANES);
+            }
         }
-    }
-}`;
+    })
+    .$name("bandwidth");
 
-let pipeline: GPUComputePipeline | null = null;
-let bind: GPUBindGroup | null = null;
-let buf: GPUBuffer | null = null;
-let cfgBuf: GPUBuffer | null = null;
-const _cfg = new Uint32Array(1);
+/** the emitted bandwidth WGSL — the device-free structural seam its test resolves.
+ *  @internal */
+export function bandwidthWgsl(): string {
+    return tgpu.resolve([bandwidthKernel], { names: "strict" });
+}
+
+type BwBuf = TgpuBuffer<typeof BW_SCHEMA> & StorageFlag;
+type BwCfgBuf = TgpuBuffer<typeof BandwidthCfg> & UniformFlag;
+
+let pipeline: TgpuComputePipeline | null = null;
+let bind: TgpuBindGroup<typeof bandwidthLayout.entries> | null = null;
+let buf: BwBuf | null = null;
+let cfgBuf: BwCfgBuf | null = null;
 let sweeps = 0;
 
 /** bytes moved per sweep (read + write of the whole buffer) — the per-sweep bandwidth unit. */
@@ -69,30 +103,16 @@ export const BandwidthPlugin: Plugin = {
     async warm() {
         const device = Compute.device;
         if (!device) return;
-        buf = device.createBuffer({
-            label: "bandwidth",
-            size: BW_BYTES,
-            usage: GPUBufferUsage.STORAGE,
-        });
-        cfgBuf = device.createBuffer({
-            label: "bandwidth-cfg",
-            size: 16,
-            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-        });
-        pipeline = await device.createComputePipelineAsync({
-            label: "bandwidth",
-            layout: "auto",
-            compute: {
-                module: device.createShaderModule({ code: BW_WGSL }),
-                entryPoint: "bandwidth",
-            },
-        });
-        bind = device.createBindGroup({
-            layout: pipeline.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: buf } },
-                { binding: 1, resource: { buffer: cfgBuf } },
-            ],
+        const root = Compute.root;
+        buf = root.createBuffer(BW_SCHEMA).$usage("storage").$name("bandwidth");
+        cfgBuf = root.createBuffer(BandwidthCfg).$usage("uniform").$name("bandwidth-cfg");
+        pipeline = root.createComputePipeline({ compute: bandwidthKernel }).$name("bandwidth");
+        bind = root.createBindGroup(bandwidthLayout, { buf, cfg: cfgBuf });
+        const readyBind = bind;
+        const readyPipeline = pipeline;
+        await precompile("gym-bandwidth", () => {
+            readyPipeline.with(readyBind).dispatchWorkgroups(0, 1, 1);
+            return readyPipeline;
         });
     },
     systems: [
@@ -103,16 +123,13 @@ export const BandwidthPlugin: Plugin = {
             update() {
                 const device = Compute.device;
                 if (!device || !pipeline || !bind || !cfgBuf || sweeps <= 0) return;
-                _cfg[0] = sweeps;
-                device.queue.writeBuffer(cfgBuf, 0, _cfg);
+                cfgBuf.write({ sweeps, pad0: 0, pad1: 0, pad2: 0 });
                 const enc = device.createCommandEncoder({ label: "bandwidth" });
                 const pass = enc.beginComputePass({
                     label: "bandwidth",
                     timestampWrites: Compute.span?.("bandwidth"),
                 });
-                pass.setPipeline(pipeline);
-                pass.setBindGroup(0, bind);
-                pass.dispatchWorkgroups(BW_WG, 1, 1);
+                pipeline.with(bind).with(pass).dispatchWorkgroups(BW_WG, 1, 1);
                 pass.end();
                 device.queue.submit([enc.finish()]);
             },

@@ -4,6 +4,7 @@
     "Orbit": true,
     "Text": true,
     "Mirror": true,
-    "Reduce": "./src/reduce"
+    "Reduce": "./src/reduce",
+    "Smoke": "./src/smoke"
   }
 }

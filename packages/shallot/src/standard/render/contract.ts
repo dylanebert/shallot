@@ -256,17 +256,27 @@ export interface Surface<
     B extends Record<string, Binding> = Record<string, Binding>,
     V extends Record<string, AnyWgslData> = Record<string, never>,
 > {
+    /** registry key referenced by a `Draw.surface`. */
     name: string;
+    /** group-2 layout created before the shader functions so they can close over `layout.$`. */
     layout: SurfaceLayout<B>;
     /** optional mesh fields that must cross the rasterizer into {@link fs}. Undeclared fields remain
      * available to {@link vs} but are zero-filled in the fragment context instead of consuming an
-     * interpolator (gpu.md rule 9). */
+     * interpolator. */
     fragmentInputs?: { uv?: true; localPos?: true };
+    /** custom vertex-to-fragment fields; pass the same object to both IO schema factories. */
     varyings?: V;
+    /** optional vertex patch over {@link VsIn}; omit to keep the engine-computed world values. */
     vs?: VsFn<V>;
+    /** fragment shader returning linear HDR RGBA. */
     fs: FsFn<V>;
+    /** compile-time mesh-variant shader factory. */
     specialize?: Specialize<V>;
+    /** alpha blends without depth writes; clip retains opaque depth/shadow routing and honors any
+     * `discard` authored by {@link fs}. */
     blend?: "alpha" | "clip";
+    /** lets {@link vs} author clip space directly instead of using the engine world projection. Requires
+     * {@link vs}; registration without one fails when the variant compiles. */
     screen?: boolean;
 }
 
@@ -294,7 +304,11 @@ function owned<T extends { name: string }>(registry: Registry<T>) {
 
 const ownSurface = owned(Surfaces);
 
-/** register a surface for the lifetime of its owning State. */
+/**
+ * register a surface for the lifetime of its owning State. Disposal removes it only while this exact
+ * spec still owns the name, so a rebuilt State cannot delete its replacement.
+ * @example registerSurface(state, { name: "tinted", layout, fs });
+ */
 export function registerSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
@@ -320,8 +334,11 @@ export type BgFn = TgpuFn<(ctx: typeof BgCtx) => d.Vec3f>;
  * triangle and reconstructs {@link BgCtx.dir} per fragment.
  */
 export interface Background<B extends Record<string, Binding> = Record<string, Binding>> {
+    /** registry key referenced by a camera's `Backdrop.background`. */
     name: string;
+    /** group-2 resources the fragment function closes over. */
     layout: BgLayout<B>;
+    /** fragment shader returning linear HDR RGB for the reconstructed view ray. */
     fs: BgFn;
 }
 
@@ -330,7 +347,10 @@ export const Backgrounds: Registry<Background> = new Registry<Background>();
 
 const ownBackground = owned(Backgrounds);
 
-/** register a background for the lifetime of its owning State. */
+/**
+ * register a background for the lifetime of its owning State.
+ * @example registerBackground(state, { name: "sky", layout, fs });
+ */
 export function registerBackground<B extends Record<string, Binding>>(
     state: State,
     spec: Background<B>,

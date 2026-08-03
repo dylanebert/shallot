@@ -9,18 +9,28 @@
 // stays a full 3D density field — the carve brush sculpts overhangs by hand — but the initial generation is
 // a clean heightmap, not isotropic 3D noise (which read as busy noise pockets, not landform).
 
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { DIM } from "./grid";
 
 // heightmap knobs — design constants tuned by hot-reload, not runtime uniforms. The solid-fraction band
 // derives from them, so they're the single source for both the shader and the gate.
 export const HFREQ = 0.012; // heightmap lattice frequency in cells⁻¹ → ~3 broad hills across the 256 map
 export const RELIEF = 56; // vertical amplitude of the hills in cells; |fbm2| ≤ 1 → surface ∈ GROUND ± RELIEF
-const OCTAVES = 5; // baked into NOISE_WGSL below; broad shapes + medium hills + fine detail — the "layered"
-const PERSISTENCE = 0.5; // each octave's amplitude vs the last → smaller detail rides the big shapes
-const LACUNARITY = 2.0; // each octave's frequency vs the last
+const OCTAVES = 5; // baked into fbm2 below; broad shapes + medium hills + fine detail — the "layered"
+const PERSISTENCE = d.f32(0.5); // each octave's amplitude vs the last → smaller detail rides the big shapes
+const LACUNARITY = d.f32(2.0); // each octave's frequency vs the last
 export const GROUND_LEVEL = 0.5 * DIM.y; // the mean surface height → terrain centred on the grid
 
 const PERM_SIZE = 256;
+const SQRT1_2 = d.f32(Math.SQRT1_2);
+const NEG_SQRT1_2 = d.f32(-Math.SQRT1_2);
+export const PermData = d.arrayOf(d.u32, PERM_SIZE * 2);
+
+export const noiseLayout = tgpu.bindGroupLayout({
+    perm: { storage: PermData, access: "readonly" },
+});
 
 function mulberry32(seed: number): () => number {
     let s = seed >>> 0;
@@ -62,63 +72,98 @@ export function solidFractionBand(): [number, number] {
     return [lo, hi];
 }
 
-/** declares `perlin2(x,y)` and `fbm2(p)`, reading a `perm` storage binding the caller declares at
- *  `@group(0) @binding(0)`. The fbm octave schedule bakes {@link OCTAVES}/{@link PERSISTENCE}/
- *  {@link LACUNARITY} as constants. */
-export const NOISE_WGSL = /* wgsl */ `
-const SQRT1_2: f32 = 0.7071067811865476;
-
-fn fade(t: f32) -> f32 {
-    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-}
-
-// the 8 unit gradient directions selected by the low 3 hash bits — Ken Perlin's 2D improved-noise gradients.
-fn grad2(hash: u32, x: f32, y: f32) -> f32 {
-    let h = hash & 7u;
-    var gx: f32;
-    var gy: f32;
-    switch h {
-        case 0u: { gx =  1.0; gy =  0.0; }
-        case 1u: { gx = -1.0; gy =  0.0; }
-        case 2u: { gx =  0.0; gy =  1.0; }
-        case 3u: { gx =  0.0; gy = -1.0; }
-        case 4u: { gx =  SQRT1_2; gy =  SQRT1_2; }
-        case 5u: { gx = -SQRT1_2; gy =  SQRT1_2; }
-        case 6u: { gx =  SQRT1_2; gy = -SQRT1_2; }
-        default: { gx = -SQRT1_2; gy = -SQRT1_2; }
+/**
+ * TGSL mirror of the 2D improved-noise gradient lattice. The binding comes from {@link noiseLayout},
+ * so the generator can resolve the noise helpers through the same schema-backed layout.
+ */
+export const grad2 = tgpu.fn(
+    [d.u32, d.f32, d.f32],
+    d.f32,
+)((hash, x, y) => {
+    "use gpu";
+    const h = hash & d.u32(7);
+    let gx = d.f32(0.0);
+    let gy = d.f32(0.0);
+    if (h === d.u32(0)) {
+        gx = d.f32(1.0);
+        gy = d.f32(0.0);
+    }
+    if (h === d.u32(1)) {
+        gx = d.f32(-1.0);
+        gy = d.f32(0.0);
+    }
+    if (h === d.u32(2)) {
+        gx = d.f32(0.0);
+        gy = d.f32(1.0);
+    }
+    if (h === d.u32(3)) {
+        gx = d.f32(0.0);
+        gy = d.f32(-1.0);
+    }
+    if (h === d.u32(4)) {
+        gx = SQRT1_2;
+        gy = SQRT1_2;
+    }
+    if (h === d.u32(5)) {
+        gx = NEG_SQRT1_2;
+        gy = SQRT1_2;
+    }
+    if (h === d.u32(6)) {
+        gx = SQRT1_2;
+        gy = NEG_SQRT1_2;
+    }
+    if (h === d.u32(7)) {
+        gx = NEG_SQRT1_2;
+        gy = NEG_SQRT1_2;
     }
     return gx * x + gy * y;
-}
+});
 
-fn perlin2(x: f32, y: f32) -> f32 {
-    let fx = floor(x);
-    let fy = floor(y);
-    let X = u32(i32(fx) & 255);
-    let Y = u32(i32(fy) & 255);
-    let xf = x - fx;
-    let yf = y - fy;
-    let u = fade(xf);
-    let v = fade(yf);
-    let A = perm[X] + Y;
-    let B = perm[X + 1u] + Y;
-    let v00 = grad2(perm[A], xf, yf);
-    let v10 = grad2(perm[B], xf - 1.0, yf);
-    let v01 = grad2(perm[A + 1u], xf, yf - 1.0);
-    let v11 = grad2(perm[B + 1u], xf - 1.0, yf - 1.0);
-    return mix(mix(v00, v10, u), mix(v01, v11, u), v);
-}
+export const perlin2 = tgpu.fn(
+    [d.vec2f],
+    d.f32,
+)((p) => {
+    "use gpu";
+    const x = p.x;
+    const y = p.y;
+    const fx = std.floor(x);
+    const fy = std.floor(y);
+    const X = d.u32(d.i32(fx) & d.i32(255));
+    const Y = d.u32(d.i32(fy) & d.i32(255));
+    const xf = x - fx;
+    const yf = y - fy;
+    const u = xf * xf * xf * (xf * (xf * d.f32(6.0) - d.f32(15.0)) + d.f32(10.0));
+    const v = yf * yf * yf * (yf * (yf * d.f32(6.0) - d.f32(15.0)) + d.f32(10.0));
+    const perm = noiseLayout.$.perm;
+    const A = perm[X] + Y;
+    const B = perm[X + d.u32(1)] + Y;
+    const v00 = grad2(perm[A], xf, yf);
+    const v10 = grad2(perm[B], xf - d.f32(1.0), yf);
+    const v01 = grad2(perm[A + d.u32(1)], xf, yf - d.f32(1.0));
+    const v11 = grad2(perm[B + d.u32(1)], xf - d.f32(1.0), yf - d.f32(1.0));
+    return std.mix(std.mix(v00, v10, u), std.mix(v01, v11, u), v);
+});
 
-fn fbm2(p: vec2<f32>) -> f32 {
-    var amp: f32 = 1.0;
-    var freq: f32 = 1.0;
-    var sum: f32 = 0.0;
-    var norm: f32 = 0.0;
-    for (var i: u32 = 0u; i < ${OCTAVES}u; i = i + 1u) {
-        sum = sum + perlin2(p.x * freq, p.y * freq) * amp;
+export const fbm2 = tgpu.fn(
+    [d.vec2f],
+    d.f32,
+)((p) => {
+    "use gpu";
+    let amp = d.f32(1.0);
+    let freq = d.f32(1.0);
+    let sum = d.f32(0.0);
+    let norm = d.f32(0.0);
+    let i = d.u32(0);
+    for (; i < d.u32(OCTAVES); i = i + d.u32(1)) {
+        sum = sum + perlin2(std.mul(p, freq)) * amp;
         norm = norm + amp;
-        amp = amp * ${PERSISTENCE.toExponential()};
-        freq = freq * ${LACUNARITY.toExponential()};
+        amp = amp * PERSISTENCE;
+        freq = freq * LACUNARITY;
     }
     return sum / norm;
+});
+
+/** the emitted perlin/fbm WGSL — the device-free structural seam the voxel tests resolve. */
+export function noiseWgsl(): string {
+    return tgpu.resolve([grad2, perlin2, fbm2], { names: "strict" });
 }
-`;

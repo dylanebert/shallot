@@ -715,10 +715,13 @@ function compile({ label, force }: Forcer): void {
  * names other queued labels that must drain first. Unknown labels are ignored because the plugin that
  * owns a predecessor may be absent.
  * @example
- * precompile("narrowphase", () => bind()?.dispatchWorkgroups(0) ?? null, {
+ * precompile("narrowphase", () => {
+ *     const bound = bind();
+ *     bound?.dispatchWorkgroups(0);
+ *     return bound;
+ * }, {
  *     after: ["publish-inputs"],
  * });
- * @internal
  */
 export function precompile(
     label: string,
@@ -758,8 +761,10 @@ const _precompileScopes = new Map<string, number>();
  * orders against.
  * @example
  * const scope = precompileScope("radix"); // "radix", then "radix-2", …
- * precompile(`${scope}-init`, () => initBound.dispatchWorkgroups(0) ?? initBound);
- * @internal
+ * precompile(`${scope}-init`, () => {
+ *     initBound.dispatchWorkgroups(0);
+ *     return initBound;
+ * });
  */
 export function precompileScope(prefix: string): string {
     const n = (_precompileScopes.get(prefix) ?? 0) + 1;

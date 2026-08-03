@@ -15,6 +15,7 @@ import {
     OrbitPlugin,
     Part,
     PartPlugin,
+    precompile,
     RenderPlugin,
     run,
     Sear,
@@ -30,7 +31,6 @@ import {
     Avbd,
     BODY_VEC4,
     collideWgsl,
-    hullWgsl,
     MAX_CONTACTS,
     PENALTY_MIN,
     packHulls,
@@ -38,6 +38,17 @@ import {
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Hulls } from "@dylanebert/shallot/physics/core";
 import { Meshes } from "@dylanebert/shallot/render/core";
+import { precompileScope } from "@dylanebert/shallot/runtime";
+import type {
+    StorageFlag,
+    TgpuBindGroup,
+    TgpuBuffer,
+    TgpuComputePipeline,
+    UniformFlag,
+} from "typegpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { boxHull, coneHull, tetHull } from "../../../../packages/shallot/tests/avbd/hull";
 import {
     add,
@@ -56,6 +67,14 @@ import {
 } from "../../../../packages/shallot/tests/avbd/rigid";
 import { narrowphase } from "../../../../packages/shallot/tests/avbd/rounded";
 import gold from "../../../../packages/shallot/tests/avbd/sat-gold-vectors.json";
+import {
+    collideBoxBox,
+    collideHull,
+    collideRounded,
+    collideRoundedPolytope,
+    polyMake,
+    SatResult,
+} from "../../../../packages/shallot/tests/avbd/tgsl";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
 // sat — the SAT gate on the real GPU. Runs the production `collideWgsl()` over the 14 C++ gold configs
@@ -79,8 +98,8 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 
 interface GoldContact {
     feature: number;
-    rA: [number, number, number];
-    rB: [number, number, number];
+    rA: number[];
+    rB: number[];
 }
 interface GoldConfig {
     name: string;
@@ -95,35 +114,132 @@ const TOL = 1e-4;
 // the C++ harness solver dt (gold-sat builds a Solver, dt = 1/60); the velocity sweep reads
 // dRel = (velA − velB)·dt, so the kernel must thread the gold's velocities at this dt to match (sat.test.ts).
 const DT = 1 / 60;
-const OUT_STRIDE = 1 + 9 + MAX_CONTACTS * 7; // count, basis(9), MAX × (feat, rA.xyz, rB.xyz)
-const CFG_VEC4 = 7; // posA, quatA, sizeA, posB, quatB, sizeB, dRel
 
-// The main SAT kernel — production shape (workgroup_size 64, one thread per config). Matches the
-// standard/avbd/step.ts narrowphase pass that calls collideBoxBox per broadphase candidate.
-const kernelWgsl = () => `${collideWgsl()}
-struct Cfg { posA: vec4<f32>, quatA: vec4<f32>, sizeA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeB: vec4<f32>, dRel: vec4<f32> };
-@group(0) @binding(0) var<storage, read> cfgs: array<Cfg>;
-@group(0) @binding(1) var<storage, read_write> out: array<f32>;
-@group(0) @binding(2) var<uniform> params: vec4<u32>;
+const at = <T extends d.BaseData>(schema: T, field: (value: d.Infer<T>) => unknown): number =>
+    d.memoryLayoutOf(schema, field).offset / 4;
 
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= params.x) { return; }
-    let c = cfgs[i];
-    let r = collideBoxBox(c.posA.xyz, c.quatA, c.sizeA.xyz, c.posB.xyz, c.quatB, c.sizeB.xyz, c.dRel.xyz);
-    let base = i * params.y;
-    out[base] = bitcast<f32>(r.count);
-    out[base + 1u] = r.basis.r0.x; out[base + 2u] = r.basis.r0.y; out[base + 3u] = r.basis.r0.z;
-    out[base + 4u] = r.basis.r1.x; out[base + 5u] = r.basis.r1.y; out[base + 6u] = r.basis.r1.z;
-    out[base + 7u] = r.basis.r2.x; out[base + 8u] = r.basis.r2.y; out[base + 9u] = r.basis.r2.z;
-    for (var k = 0u; k < ${MAX_CONTACTS}u; k = k + 1u) {
-        let o = base + 10u + k * 7u;
-        out[o] = bitcast<f32>(r.feat[k]);
-        out[o + 1u] = r.rA[k].x; out[o + 2u] = r.rA[k].y; out[o + 3u] = r.rA[k].z;
-        out[o + 4u] = r.rB[k].x; out[o + 5u] = r.rB[k].y; out[o + 6u] = r.rB[k].z;
-    }
-}`;
+const SatCfg = d
+    .struct({
+        posA: d.vec4f,
+        quatA: d.vec4f,
+        sizeA: d.vec4f,
+        posB: d.vec4f,
+        quatB: d.vec4f,
+        sizeB: d.vec4f,
+        dRel: d.vec4f,
+    })
+    .$name("SatCfg");
+const ResultContact = d.struct({
+    feature: d.f32,
+    rA: d.arrayOf(d.f32, 3),
+    rB: d.arrayOf(d.f32, 3),
+});
+const SatReadback = d.struct({
+    count: d.f32,
+    basis: d.arrayOf(d.f32, 9),
+    contacts: d.arrayOf(ResultContact, MAX_CONTACTS),
+});
+const HullReadback = d.struct({
+    count: d.f32,
+    normal: d.arrayOf(d.f32, 3),
+    contacts: d.arrayOf(ResultContact, MAX_CONTACTS),
+});
+const SAT_CFG_FLOATS = d.sizeOf(SatCfg) / 4;
+const SAT_CFG_AT = {
+    posA: at(SatCfg, (c) => c.posA),
+    quatA: at(SatCfg, (c) => c.quatA),
+    sizeA: at(SatCfg, (c) => c.sizeA),
+    posB: at(SatCfg, (c) => c.posB),
+    quatB: at(SatCfg, (c) => c.quatB),
+    sizeB: at(SatCfg, (c) => c.sizeB),
+    dRel: at(SatCfg, (c) => c.dRel),
+};
+const RESULT_CONTACT_FLOATS = d.sizeOf(ResultContact) / 4;
+const RESULT_CONTACT_AT = {
+    feature: at(ResultContact, (contact) => contact.feature),
+    rA: at(ResultContact, (contact) => contact.rA),
+    rB: at(ResultContact, (contact) => contact.rB),
+};
+const SAT_READBACK_FLOATS = d.sizeOf(SatReadback) / 4;
+const SAT_READBACK_AT = {
+    count: at(SatReadback, (result) => result.count),
+    basis: at(SatReadback, (result) => result.basis),
+    contacts: at(SatReadback, (result) => result.contacts),
+};
+const HULL_READBACK_FLOATS = d.sizeOf(HullReadback) / 4;
+const HULL_READBACK_AT = {
+    count: at(HullReadback, (result) => result.count),
+    normal: at(HullReadback, (result) => result.normal),
+    contacts: at(HullReadback, (result) => result.contacts),
+};
+const SatParams = d
+    .struct({ count: d.u32, pad0: d.u32, pad1: d.u32, pad2: d.u32 })
+    .$name("SatParams");
+const SatConfigs = d.arrayOf(SatCfg);
+const SatOutput = d.arrayOf(d.f32);
+const satLayout = tgpu.bindGroupLayout({
+    cfgs: { storage: SatConfigs, access: "readonly" },
+    out: { storage: SatOutput, access: "mutable" },
+    params: { uniform: SatParams },
+});
+
+const boxSat = tgpu
+    .fn(
+        [d.vec3f, d.vec4f, d.vec3f, d.vec3f, d.vec4f, d.vec3f, d.vec3f],
+        SatResult,
+    )((posA, quatA, sizeA, posB, quatB, sizeB, dRel) => {
+        "use gpu";
+        return collideBoxBox(posA, quatA, sizeA, posB, quatB, sizeB, dRel);
+    })
+    .$name("boxSat");
+
+const satKernel = tgpu
+    .computeFn({
+        in: { gid: d.builtin.globalInvocationId },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        const i = input.gid.x;
+        if (i >= satLayout.$.params.count) return;
+        const c = SatCfg(satLayout.$.cfgs[i]);
+        const r = boxSat(
+            c.posA.xyz,
+            c.quatA,
+            c.sizeA.xyz,
+            c.posB.xyz,
+            c.quatB,
+            c.sizeB.xyz,
+            c.dRel.xyz,
+        );
+        const base = i * d.u32(SAT_READBACK_FLOATS);
+        satLayout.$.out[base + d.u32(SAT_READBACK_AT.count)] = std.bitcastU32toF32(r.count);
+        const basis = base + d.u32(SAT_READBACK_AT.basis);
+        satLayout.$.out[basis] = r.basis.r0.x;
+        satLayout.$.out[basis + d.u32(1)] = r.basis.r0.y;
+        satLayout.$.out[basis + d.u32(2)] = r.basis.r0.z;
+        satLayout.$.out[basis + d.u32(3)] = r.basis.r1.x;
+        satLayout.$.out[basis + d.u32(4)] = r.basis.r1.y;
+        satLayout.$.out[basis + d.u32(5)] = r.basis.r1.z;
+        satLayout.$.out[basis + d.u32(6)] = r.basis.r2.x;
+        satLayout.$.out[basis + d.u32(7)] = r.basis.r2.y;
+        satLayout.$.out[basis + d.u32(8)] = r.basis.r2.z;
+        for (let k = d.u32(0); k < MAX_CONTACTS; k = k + d.u32(1)) {
+            const contact =
+                base + d.u32(SAT_READBACK_AT.contacts) + k * d.u32(RESULT_CONTACT_FLOATS);
+            satLayout.$.out[contact + d.u32(RESULT_CONTACT_AT.feature)] = std.bitcastU32toF32(
+                r.feat[k],
+            );
+            const rA = contact + d.u32(RESULT_CONTACT_AT.rA);
+            satLayout.$.out[rA] = r.rA[k].x;
+            satLayout.$.out[rA + d.u32(1)] = r.rA[k].y;
+            satLayout.$.out[rA + d.u32(2)] = r.rA[k].z;
+            const rB = contact + d.u32(RESULT_CONTACT_AT.rB);
+            satLayout.$.out[rB] = r.rB[k].x;
+            satLayout.$.out[rB + d.u32(1)] = r.rB[k].y;
+            satLayout.$.out[rB + d.u32(2)] = r.rB[k].z;
+        }
+    })
+    .$name("satMain");
 
 // Reference kernel — workgroup_size(32) (matches Apple's SIMD width) with a single active lane on the
 // face-y-overlap config (A unit cube at origin, B unit cube at y=0.97, expected count=4). A single-lane
@@ -155,97 +271,137 @@ interface GpuResult {
     contacts: { feature: number; rA: number[]; rB: number[] }[];
 }
 
-// run all 14 configs once through the production-shape kernel, decode the per-config SatResults.
+/** pack the C++ box configurations into the production seven-vec4 storage record. @internal */
+export function packBoxConfigs(configs: readonly GoldConfig[]): Float32Array<ArrayBuffer> {
+    const data = new Float32Array(configs.length * SAT_CFG_FLOATS);
+    for (let i = 0; i < configs.length; i++) {
+        const c = configs[i];
+        const o = i * SAT_CFG_FLOATS;
+        data.set(c.a.pos, o + SAT_CFG_AT.posA);
+        data.set(c.a.quat, o + SAT_CFG_AT.quatA);
+        data.set(c.a.size, o + SAT_CFG_AT.sizeA);
+        data.set(c.b.pos, o + SAT_CFG_AT.posB);
+        data.set(c.b.quat, o + SAT_CFG_AT.quatB);
+        data.set(c.b.size, o + SAT_CFG_AT.sizeB);
+        for (let k = 0; k < 3; k++) data[o + SAT_CFG_AT.dRel + k] = (c.a.vel[k] - c.b.vel[k]) * DT;
+    }
+    return data;
+}
+
+/** run the exact production TGSL leaf on the CPU for the C++ differential. @internal */
+export function boxResult(config: GoldConfig): GpuResult {
+    const r = boxSat(
+        d.vec3f(config.a.pos[0], config.a.pos[1], config.a.pos[2]),
+        d.vec4f(config.a.quat[0], config.a.quat[1], config.a.quat[2], config.a.quat[3]),
+        d.vec3f(config.a.size[0], config.a.size[1], config.a.size[2]),
+        d.vec3f(config.b.pos[0], config.b.pos[1], config.b.pos[2]),
+        d.vec4f(config.b.quat[0], config.b.quat[1], config.b.quat[2], config.b.quat[3]),
+        d.vec3f(config.b.size[0], config.b.size[1], config.b.size[2]),
+        d.vec3f(
+            (config.a.vel[0] - config.b.vel[0]) * DT,
+            (config.a.vel[1] - config.b.vel[1]) * DT,
+            (config.a.vel[2] - config.b.vel[2]) * DT,
+        ),
+    );
+    const contacts: GpuResult["contacts"] = [];
+    for (let k = 0; k < r.count; k++) {
+        contacts.push({
+            feature: r.feat[k],
+            rA: [r.rA[k].x, r.rA[k].y, r.rA[k].z],
+            rB: [r.rB[k].x, r.rB[k].y, r.rB[k].z],
+        });
+    }
+    return {
+        count: r.count,
+        basis: [
+            r.basis.r0.x,
+            r.basis.r0.y,
+            r.basis.r0.z,
+            r.basis.r1.x,
+            r.basis.r1.y,
+            r.basis.r1.z,
+            r.basis.r2.x,
+            r.basis.r2.y,
+            r.basis.r2.z,
+        ],
+        contacts,
+    };
+}
+
+/** workgroups needed for one 64-lane thread per input record. @internal */
+export function workgroupsFor(count: number): number {
+    return Math.ceil(count / 64);
+}
+
+type SatConfigsBuffer = TgpuBuffer<ReturnType<typeof SatConfigs>> & StorageFlag;
+type SatOutputBuffer = TgpuBuffer<ReturnType<typeof SatOutput>> & StorageFlag;
+type SatParamsBuffer = TgpuBuffer<typeof SatParams> & UniformFlag;
+type SatGroup = TgpuBindGroup<typeof satLayout.entries>;
+
 async function runSat(): Promise<GpuResult[]> {
-    const device = Compute.device;
     const configs = gold.configs as GoldConfig[];
     const n = configs.length;
-
-    const cfgData = new Float32Array(n * CFG_VEC4 * 4);
-    for (let i = 0; i < n; i++) {
-        const c = configs[i];
-        const o = i * CFG_VEC4 * 4;
-        cfgData.set(c.a.pos, o + 0);
-        cfgData.set(c.a.quat, o + 4);
-        cfgData.set(c.a.size, o + 8);
-        cfgData.set(c.b.pos, o + 12);
-        cfgData.set(c.b.quat, o + 16);
-        cfgData.set(c.b.size, o + 20);
-        // velocity sweep input: dRel = (velA − velB)·dt (zero for the static configs)
-        for (let k = 0; k < 3; k++) cfgData[o + 24 + k] = (c.a.vel[k] - c.b.vel[k]) * DT;
+    const { device, root } = Compute;
+    const cfgData = packBoxConfigs(configs);
+    const bytesOut = n * d.sizeOf(SatReadback);
+    let cfgs: SatConfigsBuffer | undefined;
+    let outRaw: GPUBuffer | undefined;
+    let params: SatParamsBuffer | undefined;
+    let read: GPUBuffer | undefined;
+    let bytes: ArrayBuffer;
+    try {
+        cfgs = root.createBuffer(SatConfigs(n)).$usage("storage").$name("sat-configs");
+        cfgs.write(cfgData.buffer);
+        outRaw = device.createBuffer({
+            label: "sat-out",
+            size: bytesOut,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        const out: SatOutputBuffer = root
+            .createBuffer(SatOutput(n * SAT_READBACK_FLOATS), outRaw)
+            .$usage("storage");
+        params = root.createBuffer(SatParams).$usage("uniform").$name("sat-params");
+        params.write({ count: n, pad0: 0, pad1: 0, pad2: 0 });
+        read = device.createBuffer({
+            label: "sat-read",
+            size: bytesOut,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+        const group: SatGroup = root.createBindGroup(satLayout, { cfgs, out, params });
+        const pipelines = await satPipelines(root, device);
+        const encoder = device.createCommandEncoder({ label: "sat-main" });
+        const pass = encoder.beginComputePass({ label: "sat-main" });
+        pipelines.main.with(group).with(pass).dispatchWorkgroups(workgroupsFor(n));
+        pass.end();
+        encoder.copyBufferToBuffer(outRaw, 0, read, 0, bytesOut);
+        device.queue.submit([encoder.finish()]);
+        await read.mapAsync(GPUMapMode.READ);
+        bytes = read.getMappedRange().slice(0);
+        read.unmap();
+    } finally {
+        cfgs?.destroy();
+        outRaw?.destroy();
+        params?.destroy();
+        read?.destroy();
     }
-
-    const cfgBuf = device.createBuffer({
-        label: "sat-cfg",
-        size: cfgData.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const outBuf = device.createBuffer({
-        label: "sat-out",
-        size: n * OUT_STRIDE * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    const paramBuf = device.createBuffer({
-        label: "sat-params",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const readBuf = device.createBuffer({
-        label: "sat-read",
-        size: n * OUT_STRIDE * 4,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(cfgBuf, 0, cfgData);
-    device.queue.writeBuffer(paramBuf, 0, new Uint32Array([n, OUT_STRIDE, 0, 0]));
-
-    const pipeline = await device.createComputePipelineAsync({
-        label: "sat-main",
-        layout: "auto",
-        compute: {
-            module: device.createShaderModule({ label: "sat-main-module", code: kernelWgsl() }),
-            entryPoint: "main",
-        },
-    });
-    const bg = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            { binding: 0, resource: { buffer: cfgBuf } },
-            { binding: 1, resource: { buffer: outBuf } },
-            { binding: 2, resource: { buffer: paramBuf } },
-        ],
-    });
-
-    const encoder = device.createCommandEncoder({ label: "sat-main-encoder" });
-    const pass = encoder.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bg);
-    pass.dispatchWorkgroups(Math.ceil(n / 64));
-    pass.end();
-    encoder.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * OUT_STRIDE * 4);
-    device.queue.submit([encoder.finish()]);
-    await readBuf.mapAsync(GPUMapMode.READ);
-    const bytes = readBuf.getMappedRange().slice(0);
-    readBuf.unmap();
-    cfgBuf.destroy();
-    outBuf.destroy();
-    paramBuf.destroy();
-    readBuf.destroy();
 
     const f = new Float32Array(bytes);
     const u = new Uint32Array(bytes);
     const out: GpuResult[] = [];
     for (let ci = 0; ci < n; ci++) {
-        const base = ci * OUT_STRIDE;
-        const count = u[base];
+        const base = ci * SAT_READBACK_FLOATS;
+        const count = u[base + SAT_READBACK_AT.count];
         const basis: number[] = [];
-        for (let i = 0; i < 9; i++) basis.push(f[base + 1 + i]);
+        for (let i = 0; i < 9; i++) basis.push(f[base + SAT_READBACK_AT.basis + i]);
         const contacts: GpuResult["contacts"] = [];
         for (let k = 0; k < count; k++) {
-            const o = base + 10 + k * 7;
+            const contact = base + SAT_READBACK_AT.contacts + k * RESULT_CONTACT_FLOATS;
+            const rA = contact + RESULT_CONTACT_AT.rA;
+            const rB = contact + RESULT_CONTACT_AT.rB;
             contacts.push({
-                feature: u[o],
-                rA: [f[o + 1], f[o + 2], f[o + 3]],
-                rB: [f[o + 4], f[o + 5], f[o + 6]],
+                feature: u[contact + RESULT_CONTACT_AT.feature],
+                rA: [f[rA], f[rA + 1], f[rA + 2]],
+                rB: [f[rB], f[rB + 1], f[rB + 2]],
             });
         }
         out.push({ count, basis, contacts });
@@ -303,7 +459,8 @@ async function runRef(): Promise<{ count: number; entries: { feat: number; rA: n
 
 // compare one config against its gold twin. Returns "" on agreement, else a one-line detail naming
 // what diverged — count, feature key, basis component, or arm coordinate.
-function diff(cfg: GoldConfig, got: GpuResult): { detail: string; err: number } {
+/** compare one production result with its C++ gold record. @internal */
+export function diff(cfg: GoldConfig, got: GpuResult): { detail: string; err: number } {
     let err = 0;
     if (got.count !== cfg.numContacts) {
         const feats = got.contacts
@@ -498,46 +655,262 @@ function hullConfigs(): HCfg[] {
     return cfgs;
 }
 
-const H_OUT_STRIDE = 1 + 3 + MAX_CONTACTS * 7; // count, normal(3), MAX × (feat, rA.xyz, rB.xyz)
-const H_CFG_STRIDE = 32; // 8 vec4: posA, quatA, sizeRadA, posB, quatB, sizeRadB, dRel, shapes(sA,sB,hA,hB)
-const hullKernelWgsl = () => `${collideWgsl()}${hullWgsl()}
-struct HCfg { posA: vec4<f32>, quatA: vec4<f32>, sizeRadA: vec4<f32>, posB: vec4<f32>, quatB: vec4<f32>, sizeRadB: vec4<f32>, dRel: vec4<f32>, shapes: vec4<f32> };
-@group(0) @binding(0) var<storage, read> cfgs: array<HCfg>;
-@group(0) @binding(1) var<storage, read_write> out: array<f32>;
-@group(0) @binding(2) var<uniform> params: vec4<u32>;
-@group(0) @binding(3) var<storage, read> hullData: array<u32>;
+const HullCfg = d
+    .struct({
+        posA: d.vec4f,
+        quatA: d.vec4f,
+        sizeRadA: d.vec4f,
+        posB: d.vec4f,
+        quatB: d.vec4f,
+        sizeRadB: d.vec4f,
+        dRel: d.vec4f,
+        shapes: d.vec4f,
+    })
+    .$name("HullCfg");
+const HULL_CFG_FLOATS = d.sizeOf(HullCfg) / 4;
+const HULL_CFG_AT = {
+    posA: at(HullCfg, (c) => c.posA),
+    quatA: at(HullCfg, (c) => c.quatA),
+    sizeRadA: at(HullCfg, (c) => c.sizeRadA),
+    posB: at(HullCfg, (c) => c.posB),
+    quatB: at(HullCfg, (c) => c.quatB),
+    sizeRadB: at(HullCfg, (c) => c.sizeRadB),
+    dRel: at(HullCfg, (c) => c.dRel),
+    shapes: at(HullCfg, (c) => c.shapes),
+};
+const HullConfigs = d.arrayOf(HullCfg);
+const HullData = d.arrayOf(d.u32);
+const hullLayout = tgpu.bindGroupLayout({
+    cfgs: { storage: HullConfigs, access: "readonly" },
+    out: { storage: SatOutput, access: "mutable" },
+    params: { uniform: SatParams },
+    hullData: { storage: HullData, access: "readonly" },
+});
 
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= params.x) { return; }
-    let c = cfgs[i];
-    let sA = u32(c.shapes.x); let sB = u32(c.shapes.y);
-    let hA = u32(c.shapes.z); let hB = u32(c.shapes.w);
-    let roundedA = (sA == 1u || sA == 2u); let roundedB = (sB == 1u || sB == 2u);
-    // the production collide-pass dispatch (step.ts), validated here against the oracle narrowphase
-    var r: SatResult;
-    if (roundedA && roundedB) {
-        r = collideRounded(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.sizeRadA.w, c.posB.xyz, c.quatB, c.sizeRadB.xyz, c.sizeRadB.w, c.dRel.xyz);
-    } else if (!roundedA && !roundedB) {
-        if (sA == 0u && sB == 0u) {
-            r = collideBoxBox(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.posB.xyz, c.quatB, c.sizeRadB.xyz, c.dRel.xyz);
+const hullKernel = tgpu
+    .computeFn({
+        in: { gid: d.builtin.globalInvocationId },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        const i = input.gid.x;
+        if (i >= hullLayout.$.params.count) return;
+        const c = HullCfg(hullLayout.$.cfgs[i]);
+        const sA = d.u32(c.shapes.x);
+        const sB = d.u32(c.shapes.y);
+        const hA = d.u32(c.shapes.z);
+        const hB = d.u32(c.shapes.w);
+        const roundedA = sA === d.u32(1) || sA === d.u32(2);
+        const roundedB = sB === d.u32(1) || sB === d.u32(2);
+        let r = SatResult();
+        if (roundedA && roundedB) {
+            r = SatResult(
+                collideRounded(
+                    c.posA.xyz,
+                    c.quatA,
+                    c.sizeRadA.xyz,
+                    c.sizeRadA.w,
+                    c.posB.xyz,
+                    c.quatB,
+                    c.sizeRadB.xyz,
+                    c.sizeRadB.w,
+                    c.dRel.xyz,
+                ),
+            );
         } else {
-            r = collideHull(polyMake(sA, c.posA.xyz, c.quatA, c.sizeRadA.xyz, hA), polyMake(sB, c.posB.xyz, c.quatB, c.sizeRadB.xyz, hB), c.dRel.xyz);
+            if (!(roundedA || roundedB)) {
+                if (sA === d.u32(0) && sB === d.u32(0)) {
+                    r = SatResult(
+                        boxSat(
+                            c.posA.xyz,
+                            c.quatA,
+                            c.sizeRadA.xyz,
+                            c.posB.xyz,
+                            c.quatB,
+                            c.sizeRadB.xyz,
+                            c.dRel.xyz,
+                        ),
+                    );
+                } else {
+                    r = SatResult(
+                        collideHull(
+                            polyMake(sA, c.posA.xyz, c.quatA, c.sizeRadA.xyz, hA),
+                            polyMake(sB, c.posB.xyz, c.quatB, c.sizeRadB.xyz, hB),
+                            c.dRel.xyz,
+                        ),
+                    );
+                }
+            } else {
+                r = SatResult(
+                    collideRoundedPolytope(
+                        c.posA.xyz,
+                        c.quatA,
+                        c.sizeRadA.xyz,
+                        c.sizeRadA.w,
+                        sA,
+                        hA,
+                        c.posB.xyz,
+                        c.quatB,
+                        c.sizeRadB.xyz,
+                        c.sizeRadB.w,
+                        sB,
+                        hB,
+                        c.dRel.xyz,
+                    ),
+                );
+            }
         }
-    } else {
-        r = collideRoundedPolytope(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.sizeRadA.w, sA, hA, c.posB.xyz, c.quatB, c.sizeRadB.xyz, c.sizeRadB.w, sB, hB, c.dRel.xyz);
+        const base = i * d.u32(HULL_READBACK_FLOATS);
+        const hullZero = std.bitcastU32toF32(hullLayout.$.hullData[d.u32(0)] & d.u32(0));
+        hullLayout.$.out[base + d.u32(HULL_READBACK_AT.count)] = std.bitcastU32toF32(r.count);
+        const normal = base + d.u32(HULL_READBACK_AT.normal);
+        hullLayout.$.out[normal] = r.basis.r0.x + hullZero;
+        hullLayout.$.out[normal + d.u32(1)] = r.basis.r0.y;
+        hullLayout.$.out[normal + d.u32(2)] = r.basis.r0.z;
+        for (let k = d.u32(0); k < MAX_CONTACTS; k = k + d.u32(1)) {
+            const contact =
+                base + d.u32(HULL_READBACK_AT.contacts) + k * d.u32(RESULT_CONTACT_FLOATS);
+            hullLayout.$.out[contact + d.u32(RESULT_CONTACT_AT.feature)] = std.bitcastU32toF32(
+                r.feat[k],
+            );
+            const rA = contact + d.u32(RESULT_CONTACT_AT.rA);
+            hullLayout.$.out[rA] = r.rA[k].x;
+            hullLayout.$.out[rA + d.u32(1)] = r.rA[k].y;
+            hullLayout.$.out[rA + d.u32(2)] = r.rA[k].z;
+            const rB = contact + d.u32(RESULT_CONTACT_AT.rB);
+            hullLayout.$.out[rB] = r.rB[k].x;
+            hullLayout.$.out[rB + d.u32(1)] = r.rB[k].y;
+            hullLayout.$.out[rB + d.u32(2)] = r.rB[k].z;
+        }
+    })
+    .$name("satHull");
+
+/** the emitted typed SAT entries and certified collide graph. @internal */
+export function satEntryWgsl(): string {
+    return [satKernel, hullKernel]
+        .map((kernel) => tgpu.resolve([kernel], { names: "strict" }))
+        .join("\n");
+}
+
+interface SatPipelines {
+    readonly main: TgpuComputePipeline;
+    readonly hull: TgpuComputePipeline;
+}
+
+function forceSatMain(
+    root: typeof Compute.root,
+    device: GPUDevice,
+    pipeline: TgpuComputePipeline,
+): TgpuComputePipeline {
+    const owned: { destroy(): void }[] = [];
+    let submitted = false;
+    const cleanup = () => {
+        for (const resource of owned) resource.destroy();
+    };
+    try {
+        const cfgs = root.createBuffer(SatConfigs(1)).$usage("storage");
+        const out = root.createBuffer(SatOutput(SAT_READBACK_FLOATS)).$usage("storage");
+        const params = root.createBuffer(SatParams).$usage("uniform");
+        owned.push(cfgs, out, params);
+        const group: SatGroup = root.createBindGroup(satLayout, { cfgs, out, params });
+        const encoder = device.createCommandEncoder({ label: "sat-main-force" });
+        const pass = encoder.beginComputePass({ label: "sat-main-force" });
+        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
+        submitted = true;
+        void cleanupAfterFence;
+        return pipeline;
+    } finally {
+        if (!submitted) cleanup();
     }
-    let base = i * params.y;
-    out[base] = bitcast<f32>(r.count);
-    out[base + 1u] = r.basis.r0.x; out[base + 2u] = r.basis.r0.y; out[base + 3u] = r.basis.r0.z;
-    for (var k = 0u; k < ${MAX_CONTACTS}u; k = k + 1u) {
-        let o = base + 4u + k * 7u;
-        out[o] = bitcast<f32>(r.feat[k]);
-        out[o + 1u] = r.rA[k].x; out[o + 2u] = r.rA[k].y; out[o + 3u] = r.rA[k].z;
-        out[o + 4u] = r.rB[k].x; out[o + 5u] = r.rB[k].y; out[o + 6u] = r.rB[k].z;
+}
+
+function forceSatHull(
+    root: typeof Compute.root,
+    device: GPUDevice,
+    pipeline: TgpuComputePipeline,
+): TgpuComputePipeline {
+    const owned: { destroy(): void }[] = [];
+    let submitted = false;
+    const cleanup = () => {
+        for (const resource of owned) resource.destroy();
+    };
+    try {
+        const cfgs = root.createBuffer(HullConfigs(1)).$usage("storage");
+        const out = root.createBuffer(SatOutput(HULL_READBACK_FLOATS)).$usage("storage");
+        const params = root.createBuffer(SatParams).$usage("uniform");
+        const hullData = root.createBuffer(HullData(1)).$usage("storage");
+        owned.push(cfgs, out, params, hullData);
+        const group: HullGroup = root.createBindGroup(hullLayout, {
+            cfgs,
+            out,
+            params,
+            hullData,
+        });
+        const encoder = device.createCommandEncoder({ label: "sat-hull-force" });
+        const pass = encoder.beginComputePass({ label: "sat-hull-force" });
+        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
+        submitted = true;
+        void cleanupAfterFence;
+        return pipeline;
+    } finally {
+        if (!submitted) cleanup();
     }
-}`;
+}
+
+/** one retryable single-flight pipeline record per adopted TypeGPU root for post-build callers.
+ *  `initialize` must resolve only after compilation completes; a queued warm-time {@link precompile}
+ *  registration resolves before the build drain and does not satisfy this contract. @internal */
+export function createLateSatPipelineCache<Root extends object, Context, Pipelines>(
+    create: (root: Root, context: Context) => Pipelines,
+    initialize: (root: Root, context: Context, pipelines: Pipelines) => Promise<void>,
+): (root: Root, context: Context) => Promise<Pipelines> {
+    const cache = new WeakMap<Root, { pipelines: Pipelines; ready: Promise<void> }>();
+    return async (root, context) => {
+        let entry = cache.get(root);
+        if (!entry) {
+            const pipelines = create(root, context);
+            const draft = { pipelines, ready: Promise.resolve() };
+            entry = draft;
+            cache.set(root, entry);
+            try {
+                draft.ready = initialize(root, context, pipelines).catch((cause) => {
+                    if (cache.get(root) === draft) cache.delete(root);
+                    throw cause;
+                });
+            } catch (cause) {
+                if (cache.get(root) === draft) cache.delete(root);
+                throw cause;
+            }
+        }
+        await entry.ready;
+        return entry.pipelines;
+    };
+}
+
+const cachedSatPipelines = createLateSatPipelineCache(
+    (root: typeof Compute.root) =>
+        Object.freeze({
+            main: root.createComputePipeline({ compute: satKernel }).$name("sat-main"),
+            hull: root.createComputePipeline({ compute: hullKernel }).$name("sat-hull"),
+        }),
+    async (root, device: GPUDevice, pipelines) => {
+        const scope = precompileScope("gym-sat");
+        await precompile(`${scope}-main`, () => forceSatMain(root, device, pipelines.main));
+        await precompile(`${scope}-hull`, () => forceSatHull(root, device, pipelines.hull));
+    },
+);
+
+function satPipelines(root: typeof Compute.root, device: GPUDevice): Promise<SatPipelines> {
+    // scenario assertions run after build's precompileAll drain, so these late registrations return the
+    // real validation + completion promises rather than warm-time queue acknowledgements.
+    return cachedSatPipelines(root, device);
+}
 
 interface GpuHull {
     count: number;
@@ -545,98 +918,111 @@ interface GpuHull {
     contacts: { rA: Vec3; rB: Vec3 }[];
 }
 
-async function runHullKernel(cfgs: HCfg[]): Promise<GpuHull[]> {
-    const device = Compute.device;
-    const n = cfgs.length;
-    const cfgData = new Float32Array(n * H_CFG_STRIDE);
-    for (let i = 0; i < n; i++) {
+/** pack the f64 hull-oracle cases into the production eight-vec4 storage record. @internal */
+export function packHullConfigs(cfgs: readonly HCfg[]): Float32Array<ArrayBuffer> {
+    const data = new Float32Array(cfgs.length * HULL_CFG_FLOATS);
+    for (let i = 0; i < cfgs.length; i++) {
         const c = cfgs[i];
-        const o = i * H_CFG_STRIDE;
-        cfgData.set([c.a.posLin[0], c.a.posLin[1], c.a.posLin[2], 0], o);
-        cfgData.set(c.a.posAng, o + 4);
-        cfgData.set([c.a.size[0], c.a.size[1], c.a.size[2], c.a.roundRadius], o + 8);
-        cfgData.set([c.b.posLin[0], c.b.posLin[1], c.b.posLin[2], 0], o + 12);
-        cfgData.set(c.b.posAng, o + 16);
-        cfgData.set([c.b.size[0], c.b.size[1], c.b.size[2], c.b.roundRadius], o + 20);
-        cfgData.set([c.dRel[0], c.dRel[1], c.dRel[2], 0], o + 24);
-        cfgData.set([c.a.shape, c.b.shape, c.ha, c.hb], o + 28);
+        const o = i * HULL_CFG_FLOATS;
+        data.set(c.a.posLin, o + HULL_CFG_AT.posA);
+        data.set(c.a.posAng, o + HULL_CFG_AT.quatA);
+        data.set(
+            [c.a.size[0], c.a.size[1], c.a.size[2], c.a.roundRadius],
+            o + HULL_CFG_AT.sizeRadA,
+        );
+        data.set(c.b.posLin, o + HULL_CFG_AT.posB);
+        data.set(c.b.posAng, o + HULL_CFG_AT.quatB);
+        data.set(
+            [c.b.size[0], c.b.size[1], c.b.size[2], c.b.roundRadius],
+            o + HULL_CFG_AT.sizeRadB,
+        );
+        data.set(c.dRel, o + HULL_CFG_AT.dRel);
+        data.set([c.a.shape, c.b.shape, c.ha, c.hb], o + HULL_CFG_AT.shapes);
     }
+    return data;
+}
+
+type HullConfigsBuffer = TgpuBuffer<ReturnType<typeof HullConfigs>> & StorageFlag;
+type HullDataBuffer = TgpuBuffer<ReturnType<typeof HullData>> & StorageFlag;
+type HullGroup = TgpuBindGroup<typeof hullLayout.entries>;
+
+async function runHullKernel(cfgs: HCfg[]): Promise<GpuHull[]> {
+    const n = cfgs.length;
+    const { device, root } = Compute;
+    const cfgData = packHullConfigs(cfgs);
     const hullData = packHulls();
-
-    const cfgBuf = device.createBuffer({
-        label: "hull-cfg",
-        size: cfgData.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const outBuf = device.createBuffer({
-        label: "hull-out",
-        size: n * H_OUT_STRIDE * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    const paramBuf = device.createBuffer({
-        label: "hull-params",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const hullBuf = device.createBuffer({
-        label: "hull-data",
-        size: hullData.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const readBuf = device.createBuffer({
-        label: "hull-read",
-        size: n * H_OUT_STRIDE * 4,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(cfgBuf, 0, cfgData);
-    device.queue.writeBuffer(paramBuf, 0, new Uint32Array([n, H_OUT_STRIDE, 0, 0]));
-    device.queue.writeBuffer(hullBuf, 0, hullData as Uint32Array<ArrayBuffer>);
-
-    const pipeline = await device.createComputePipelineAsync({
-        label: "hull-kernel",
-        layout: "auto",
-        compute: {
-            module: device.createShaderModule({ label: "hull-module", code: hullKernelWgsl() }),
-            entryPoint: "main",
-        },
-    });
-    const bg = device.createBindGroup({
-        layout: pipeline.getBindGroupLayout(0),
-        entries: [
-            { binding: 0, resource: { buffer: cfgBuf } },
-            { binding: 1, resource: { buffer: outBuf } },
-            { binding: 2, resource: { buffer: paramBuf } },
-            { binding: 3, resource: { buffer: hullBuf } },
-        ],
-    });
-    const enc = device.createCommandEncoder({ label: "hull-enc" });
-    const pass = enc.beginComputePass();
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, bg);
-    pass.dispatchWorkgroups(Math.ceil(n / 64));
-    pass.end();
-    enc.copyBufferToBuffer(outBuf, 0, readBuf, 0, n * H_OUT_STRIDE * 4);
-    device.queue.submit([enc.finish()]);
-    await readBuf.mapAsync(GPUMapMode.READ);
-    const bytes = readBuf.getMappedRange().slice(0);
-    readBuf.unmap();
-    for (const b of [cfgBuf, outBuf, paramBuf, hullBuf, readBuf]) b.destroy();
+    const bytesOut = n * d.sizeOf(HullReadback);
+    let configs: HullConfigsBuffer | undefined;
+    let outRaw: GPUBuffer | undefined;
+    let params: SatParamsBuffer | undefined;
+    let hulls: HullDataBuffer | undefined;
+    let read: GPUBuffer | undefined;
+    let bytes: ArrayBuffer;
+    try {
+        configs = root.createBuffer(HullConfigs(n)).$usage("storage").$name("sat-hull-configs");
+        configs.write(cfgData.buffer);
+        outRaw = device.createBuffer({
+            label: "sat-hull-out",
+            size: bytesOut,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        const out: SatOutputBuffer = root
+            .createBuffer(SatOutput(n * HULL_READBACK_FLOATS), outRaw)
+            .$usage("storage");
+        params = root.createBuffer(SatParams).$usage("uniform").$name("sat-hull-params");
+        params.write({ count: n, pad0: 0, pad1: 0, pad2: 0 });
+        hulls = root
+            .createBuffer(HullData(hullData.length))
+            .$usage("storage")
+            .$name("sat-hull-data");
+        hulls.write(hullData.buffer as ArrayBuffer);
+        read = device.createBuffer({
+            label: "sat-hull-read",
+            size: bytesOut,
+            usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
+        });
+        const group: HullGroup = root.createBindGroup(hullLayout, {
+            cfgs: configs,
+            out,
+            params,
+            hullData: hulls,
+        });
+        const pipelines = await satPipelines(root, device);
+        const encoder = device.createCommandEncoder({ label: "sat-hull" });
+        const pass = encoder.beginComputePass({ label: "sat-hull" });
+        pipelines.hull.with(group).with(pass).dispatchWorkgroups(workgroupsFor(n));
+        pass.end();
+        encoder.copyBufferToBuffer(outRaw, 0, read, 0, bytesOut);
+        device.queue.submit([encoder.finish()]);
+        await read.mapAsync(GPUMapMode.READ);
+        bytes = read.getMappedRange().slice(0);
+        read.unmap();
+    } finally {
+        configs?.destroy();
+        outRaw?.destroy();
+        params?.destroy();
+        hulls?.destroy();
+        read?.destroy();
+    }
 
     const f = new Float32Array(bytes);
     const u = new Uint32Array(bytes);
     const out: GpuHull[] = [];
     for (let i = 0; i < n; i++) {
-        const b = i * H_OUT_STRIDE;
-        const count = u[b];
+        const b = i * HULL_READBACK_FLOATS;
+        const count = u[b + HULL_READBACK_AT.count];
         const contacts: GpuHull["contacts"] = [];
         for (let k = 0; k < count; k++) {
-            const oo = b + 4 + k * 7;
+            const contact = b + HULL_READBACK_AT.contacts + k * RESULT_CONTACT_FLOATS;
+            const rA = contact + RESULT_CONTACT_AT.rA;
+            const rB = contact + RESULT_CONTACT_AT.rB;
             contacts.push({
-                rA: [f[oo + 1], f[oo + 2], f[oo + 3]],
-                rB: [f[oo + 4], f[oo + 5], f[oo + 6]],
+                rA: [f[rA], f[rA + 1], f[rA + 2]],
+                rB: [f[rB], f[rB + 1], f[rB + 2]],
             });
         }
-        out.push({ count, normal: [f[b + 1], f[b + 2], f[b + 3]], contacts });
+        const normal = b + HULL_READBACK_AT.normal;
+        out.push({ count, normal: [f[normal], f[normal + 1], f[normal + 2]], contacts });
     }
     return out;
 }

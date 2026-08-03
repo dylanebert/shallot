@@ -25,6 +25,7 @@ const RECIPES: Recipe[] = [
     { dir: "surface-friction", checks: ["friction rates differ"] },
     { dir: "drive-a-vehicle", checks: ["car advances under throttle"] },
     { dir: "measure-performance", checks: ["profiler reports gpu time"] },
+    { dir: "compute-and-readback", checks: ["three charges reduce to 6.00"] },
 ];
 
 async function runRecipe(r: Recipe): Promise<boolean> {

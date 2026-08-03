@@ -345,6 +345,10 @@ try {
     const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
     check("the engine AGENTS.md shipped in the tarball", existsSync(join(shipped, "AGENTS.md")));
     check(
+        "the 0.9 migration guide shipped in the tarball",
+        existsSync(join(shipped, "MIGRATION.md")),
+    );
+    check(
         "the recipes corpus shipped in the tarball (prepack projection)",
         existsSync(join(shipped, "examples/AGENTS.md")) &&
             existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&

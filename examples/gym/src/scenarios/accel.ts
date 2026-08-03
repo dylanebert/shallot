@@ -130,6 +130,7 @@ let rayCount = 0;
 let buildMode: "build" | "refit" = "build"; // the assert flips to refit for that sub-gate
 let assertMode: number | null = null; // the traverse assert locks the trace mode; null → follow params
 let params: Params | null = null; // live values the per-frame pass + viz read
+let activeArm: ArmGpu | null = null;
 
 // the standalone radix sort the sort assert exercises (the DF-sort boundary + stability guard). Kept off
 // the per-frame path — the build's internal sort carries the `bvh:sort` span — and run by hand during the
@@ -263,28 +264,172 @@ interface ArmGpu {
     countBuf: GPUBuffer;
 }
 
+interface GenerationOps<State, Context, Owner extends object> {
+    prepare(state: State, context: Context): Promise<Owner>;
+    current(): Owner | null;
+    activate(owner: Owner): void;
+    clear(owner: Owner): void;
+    initialize(state: State, context: Context, owner: Owner): Promise<void> | void;
+    onDispose(state: State, cleanup: () => void): void;
+    cleanup(owner: Owner): void;
+    valid?(state: State): boolean;
+}
+
+/** latest-started warm wins; superseded drafts and stale State teardown never disturb it. @internal */
+export function createGenerationWarm<State, Context, Owner extends object>(
+    ops: GenerationOps<State, Context, Owner>,
+): (state: State, context: Context) => Promise<Owner | null> {
+    let epoch = 0;
+    const cleaned = new WeakSet<object>();
+    const cleanup = (owner: Owner): void => {
+        if (cleaned.has(owner)) return;
+        cleaned.add(owner);
+        ops.cleanup(owner);
+    };
+    const clear = (owner: Owner): void => {
+        if (ops.current() === owner) ops.clear(owner);
+    };
+    return async (state, context) => {
+        const generation = ++epoch;
+        const owner = await ops.prepare(state, context);
+        if (generation !== epoch || (ops.valid && !ops.valid(state))) {
+            cleanup(owner);
+            return null;
+        }
+        const prior = ops.current();
+        if (prior && prior !== owner) {
+            cleanup(prior);
+            clear(prior);
+        }
+        try {
+            ops.activate(owner);
+            ops.onDispose(state, () => {
+                cleanup(owner);
+                clear(owner);
+            });
+            await ops.initialize(state, context, owner);
+            return owner;
+        } catch (cause) {
+            cleanup(owner);
+            clear(owner);
+            throw cause;
+        }
+    };
+}
+
+interface TemporaryOps<Snapshot, Owner, Resource, Result> {
+    activate(owner: Owner, own: (resource: Resource) => Resource): Promise<void> | void;
+    run(owner: Owner): Promise<Result>;
+    disposeResource(resource: Resource): void;
+    restore(snapshot: Snapshot): void;
+    cleanup(owner: Owner): void;
+}
+
+/** transact a temporary owner swap across partial setup and asynchronous gate failure. @internal */
+export async function withTemporaryOwner<Snapshot, Owner, Resource, Result>(
+    snapshot: Snapshot,
+    owner: Owner,
+    ops: TemporaryOps<Snapshot, Owner, Resource, Result>,
+): Promise<Result> {
+    const resources: Resource[] = [];
+    const own = (resource: Resource): Resource => {
+        resources.push(resource);
+        return resource;
+    };
+    try {
+        await ops.activate(owner, own);
+        return await ops.run(owner);
+    } finally {
+        try {
+            for (let i = resources.length - 1; i >= 0; i--) {
+                ops.disposeResource(resources[i]);
+            }
+        } finally {
+            try {
+                ops.restore(snapshot);
+            } finally {
+                ops.cleanup(owner);
+            }
+        }
+    }
+}
+
 function armName(sub: boolean): string {
     return sub ? "subgroup" : "lds";
 }
 
 async function makeArm(sub: boolean, cap: number): Promise<ArmGpu> {
-    const b = await createBvh(Compute.device, cap, undefined, sub);
-    const t = await createTracer(Compute.device, b.nodes, b.count);
-    const cb = Compute.device.createBuffer({
-        label: "gym-accel-sort-count",
-        size: 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const r = await createRadixSort(Compute.device, MAX_KEYS, { count: cb }, sub);
-    return { bvh: b, tracer: t, rs: r, countBuf: cb };
+    const draft: Partial<ArmGpu> = {};
+    try {
+        draft.bvh = await createBvh(Compute.device, cap, undefined, sub);
+        draft.tracer = await createTracer(Compute.device, draft.bvh.nodes, draft.bvh.count);
+        draft.countBuf = Compute.device.createBuffer({
+            label: "gym-accel-sort-count",
+            size: 4,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        draft.rs = await createRadixSort(Compute.device, MAX_KEYS, { count: draft.countBuf }, sub);
+        return Object.freeze({
+            bvh: draft.bvh,
+            tracer: draft.tracer,
+            rs: draft.rs,
+            countBuf: draft.countBuf,
+        });
+    } catch (cause) {
+        draft.tracer?.destroy();
+        draft.bvh?.destroy();
+        draft.rs?.destroy();
+        draft.countBuf?.destroy();
+        throw cause;
+    }
 }
 
+const disposedArms = new WeakSet<object>();
+
 function disposeArm(a: ArmGpu): void {
+    if (disposedArms.has(a)) return;
+    disposedArms.add(a);
     a.tracer.destroy();
     a.bvh.destroy();
     a.rs.destroy();
     a.countBuf.destroy();
 }
+
+function clearArm(a: ArmGpu): void {
+    if (bvh === a.bvh) bvh = null;
+    if (tracer === a.tracer) tracer = null;
+    if (rs === a.rs) rs = null;
+    if (countBuf === a.countBuf) countBuf = null;
+    if (activeArm === a) activeArm = null;
+}
+
+const warmAccelArm = createGenerationWarm<
+    Parameters<NonNullable<Plugin["warm"]>>[0],
+    { sub: boolean; cap: number },
+    ArmGpu
+>({
+    prepare: (_state, { sub, cap }) => makeArm(sub, cap),
+    current: () => activeArm,
+    activate(arm) {
+        activeArm = arm;
+        bvh = arm.bvh;
+        tracer = arm.tracer;
+        rs = arm.rs;
+        countBuf = arm.countBuf;
+    },
+    clear: clearArm,
+    async initialize() {
+        const dist = (params?.dist as string) ?? "uniform";
+        const n = (params?.count as number) ?? 256;
+        const seed = (params?.seed as number) ?? 1;
+        setScene(fixture(dist, n, seed));
+        vizRays = rays(sceneBounds(scene!), 12, 0x5eed);
+        uploadRays(vizRays);
+    },
+    onDispose: (state, cleanup) => state.onDispose(cleanup),
+    cleanup: disposeArm,
+    valid: (state) => !state.disposed,
+});
 
 function accelPlugin(): Plugin {
     const pass: System = {
@@ -319,18 +464,8 @@ function accelPlugin(): Plugin {
         systems: [pass, draw],
         dependencies: [RenderPlugin, LinesPlugin],
         preferredFeatures: BVH_FEATURES, // best-effort subgroups; both arms build either way
-        async warm() {
-            const arm = await makeArm(sub, cap);
-            bvh = arm.bvh;
-            tracer = arm.tracer;
-            rs = arm.rs;
-            countBuf = arm.countBuf;
-            const dist = (params?.dist as string) ?? "uniform";
-            const n = (params?.count as number) ?? 256;
-            const seed = (params?.seed as number) ?? 1;
-            setScene(fixture(dist, n, seed));
-            vizRays = rays(sceneBounds(scene!), 12, 0x5eed); // 24 rays — a coherent shell batch
-            uploadRays(vizRays);
+        async warm(state) {
+            await warmAccelArm(state, { sub, cap });
         },
     };
 }
@@ -834,16 +969,12 @@ const scenario: Scenario = {
         await frames(4);
         probeMirror = mirror(probeBuf);
         await frames(3);
-        // warm allocates raw GPU structures outside State — destroy them on teardown (before the State
-        // dispose, while the device is live) so an HMR reload doesn't leak a builder + tracer + sort set.
+        const ownedProbeBuf = probeBuf;
         return {
             state,
             dispose() {
-                bvh?.destroy();
-                tracer?.destroy();
-                rs?.destroy();
-                countBuf?.destroy();
-                probeBuf?.destroy();
+                ownedProbeBuf.destroy();
+                if (probeBuf === ownedProbeBuf) probeBuf = null;
                 dispose();
             },
         };
@@ -877,31 +1008,36 @@ const scenario: Scenario = {
         } else {
             const other = await makeArm(otherSub, cap);
             const saved = { bvh, tracer, rs, countBuf, nodes, hits, keysMirror, payloadMirror };
-            bvh = other.bvh;
-            tracer = other.tracer;
-            rs = other.rs;
-            countBuf = other.countBuf;
-            nodes = mirror(other.bvh.nodes);
-            hits = mirror(other.tracer.hits);
-            keysMirror = mirror(other.rs.keys);
-            payloadMirror = mirror(other.rs.payload);
-            await frames(3); // let the per-frame pass build the new arm + its mirrors start resolving
-            checks.push(...(await gate(armName(otherSub))));
-            // stop the opposite-arm mirrors, restore the live globals, then free the opposite arm —
-            // no `await` between restore and dispose, so the frame loop can't build a freed buffer
-            nodes.dispose();
-            hits.dispose();
-            keysMirror.dispose();
-            payloadMirror.dispose();
-            bvh = saved.bvh;
-            tracer = saved.tracer;
-            rs = saved.rs;
-            countBuf = saved.countBuf;
-            nodes = saved.nodes;
-            hits = saved.hits;
-            keysMirror = saved.keysMirror;
-            payloadMirror = saved.payloadMirror;
-            disposeArm(other);
+            checks.push(
+                ...(await withTemporaryOwner<typeof saved, ArmGpu, Mirror, Check[]>(saved, other, {
+                    activate(owner, own) {
+                        bvh = owner.bvh;
+                        tracer = owner.tracer;
+                        rs = owner.rs;
+                        countBuf = owner.countBuf;
+                        nodes = own(mirror(owner.bvh.nodes));
+                        hits = own(mirror(owner.tracer.hits));
+                        keysMirror = own(mirror(owner.rs.keys));
+                        payloadMirror = own(mirror(owner.rs.payload));
+                    },
+                    async run() {
+                        await frames(3);
+                        return gate(armName(otherSub));
+                    },
+                    disposeResource: (resource) => resource.dispose(),
+                    restore(snapshot) {
+                        bvh = snapshot.bvh;
+                        tracer = snapshot.tracer;
+                        rs = snapshot.rs;
+                        countBuf = snapshot.countBuf;
+                        nodes = snapshot.nodes;
+                        hits = snapshot.hits;
+                        keysMirror = snapshot.keysMirror;
+                        payloadMirror = snapshot.payloadMirror;
+                    },
+                    cleanup: disposeArm,
+                })),
+            );
         }
 
         // restore the live scene for the HUD + viz (gate left an adversarial scene + a locked trace mode)

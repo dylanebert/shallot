@@ -1,3 +1,6 @@
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+
 // The voxel data substrate: an f32 DENSITY per cell on a 3D grid partitioned into fixed-size chunks, laid
 // out in one linear buffer with chunk-major addressing. A cell is solid (meshed) where density ≥ ISO; below
 // it is air. A scalar field (not a hard 0/1 flag) is what lets the carve brush *add weight* with a smooth
@@ -26,6 +29,7 @@ export const DIM = { x: SLOTS.x * CHUNK, y: SLOTS.y * CHUNK, z: SLOTS.z * CHUNK 
 
 export const TOTAL_CELLS = SLOTS.x * SLOTS.y * SLOTS.z * CHUNK_CELLS;
 export const BYTES = TOTAL_CELLS * 4;
+export const GridData = d.arrayOf(d.f32, TOTAL_CELLS);
 
 /** the portable single-binding cap: maxStorageBufferBindingSize's spec default. The grid must fit here. */
 export const BINDING_FLOOR = 128 * 1024 * 1024;
@@ -81,6 +85,26 @@ fn voxelIndex(x: u32, y: u32, z: u32) -> u32 {
     return slot * ${CHUNK_CELLS}u + local;
 }
 `;
+}
+
+/** TGSL mirror of {@link index} for the generated density kernel. */
+export const voxelIndex = tgpu.fn(
+    [d.u32, d.u32, d.u32],
+    d.u32,
+)((x, y, z) => {
+    "use gpu";
+    const slot =
+        ((z >> d.u32(LOG2_CHUNK)) * d.u32(SLOTS.y) + (y >> d.u32(LOG2_CHUNK))) * d.u32(SLOTS.x) +
+        (x >> d.u32(LOG2_CHUNK));
+    const local =
+        ((z & d.u32(CHUNK_MASK)) * d.u32(CHUNK) + (y & d.u32(CHUNK_MASK))) * d.u32(CHUNK) +
+        (x & d.u32(CHUNK_MASK));
+    return slot * d.u32(CHUNK_CELLS) + local;
+});
+
+/** the emitted voxelIndex WGSL — the device-free structural seam the voxel tests resolve. */
+export function voxelIndexWgsl(): string {
+    return tgpu.resolve([voxelIndex], { names: "strict" });
 }
 
 export function get(data: Float32Array, x: number, y: number, z: number): number {

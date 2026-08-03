@@ -1,5 +1,17 @@
-import { Compute } from "@dylanebert/shallot";
-import { bvhRootWgsl, bvhTraverseWgsl } from "@dylanebert/shallot/bvh/core";
+import { Compute, precompile } from "@dylanebert/shallot";
+import { bvhAnyHit, bvhClosestHit, bvhRoot } from "@dylanebert/shallot/bvh/core";
+import { precompileScope } from "@dylanebert/shallot/runtime";
+import { bitcastF32toU32 } from "@dylanebert/shallot/utils/core";
+import type {
+    StorageFlag,
+    TgpuBindGroup,
+    TgpuBuffer,
+    TgpuComputePipeline,
+    UniformFlag,
+} from "typegpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 // the BVH oracle + fixtures are test scaffolding (tests/, out of the published src/), so the
 // scenarios reach them by relative path.
 import { PRIM_F32, type Prims } from "../../../../packages/shallot/tests/bvh/fixtures";
@@ -65,34 +77,175 @@ export function packRays(batch: Ray[]): Float32Array<ArrayBuffer> {
 
 const MAX_RAYS = 1 << 16;
 
-// the root is computed on the GPU from the count buffer (bvhRoot, the GPU-count contract) — no CPU
-// root crosses to the shader. closest-hit (mode 0) writes bitcast(t) + prim; any-hit (mode 1) writes
-// 1/0 occlusion. The pass carries `bvh:trace` so ProfilePlugin times it alongside the build stages.
-const traceWgsl = (): string => /* wgsl */ `
-struct Params { rayCount: u32, mode: u32, pad0: u32, pad1: u32 };
-@group(0) @binding(0) var<storage, read> nodes: array<vec4<f32>>;
-@group(0) @binding(1) var<storage, read> rayData: array<vec4<f32>>; // 2 vec4/ray: origin.xyz, dir.xyz
-@group(0) @binding(2) var<storage, read_write> hits: array<vec2<u32>>; // x = bitcast(t), y = prim
-@group(0) @binding(3) var<storage, read> countBuf: array<u32>; // [0] = GPU-driven prim count
-@group(1) @binding(0) var<uniform> P: Params;
-${bvhRootWgsl()}
-${bvhTraverseWgsl()}
-@compute @workgroup_size(64)
-fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
-    if (i >= P.rayCount) { return; }
-    let root = bvhRoot(countBuf[0]);
-    let ro = rayData[i * 2u].xyz;
-    let rd = rayData[i * 2u + 1u].xyz;
-    if (P.mode == 1u) {
-        let occ = bvhAnyHit(root, ro, 1.0 / rd, 1.0e30);
-        hits[i] = vec2<u32>(select(0u, 1u, occ), 0u);
-        return;
-    }
-    let h = bvhClosestHit(root, ro, 1.0 / rd, 1.0e30);
-    hits[i] = vec2<u32>(bitcast<u32>(h.t), h.prim);
+const TraceParams = d
+    .struct({ rayCount: d.u32, mode: d.u32, pad0: d.u32, pad1: d.u32 })
+    .$name("TraceParams");
+const TraceNodes = d.arrayOf(d.vec4f);
+const TraceRays = d.arrayOf(d.vec4f, MAX_RAYS * 2);
+const TraceHits = d.arrayOf(d.vec2u, MAX_RAYS);
+const TraceCount = d.arrayOf(d.u32);
+const traceLayout = tgpu.bindGroupLayout({
+    nodes: { storage: TraceNodes, access: "readonly" },
+    rayData: { storage: TraceRays, access: "readonly" },
+    hits: { storage: TraceHits, access: "mutable" },
+    countBuf: { storage: TraceCount, access: "readonly" },
+    params: { uniform: TraceParams },
+});
+
+// `bvhClosestHit`/`bvhAnyHit` retain the certified traversal graph. Their WGSL-bodied node accessors
+// read the consumer-owned `nodes` declaration by name, so the live zero fold makes that typed binding
+// visible to TypeGPU's resolver and to the traversal without maintaining a second accessor graph here.
+const traceKernel = tgpu
+    .computeFn({
+        in: { gid: d.builtin.globalInvocationId },
+        workgroupSize: [64],
+    })((input) => {
+        "use gpu";
+        const i = input.gid.x;
+        if (i >= traceLayout.$.params.rayCount) return;
+        const ray = i * d.u32(2);
+        const ro = traceLayout.$.rayData[ray].xyz;
+        const rd = traceLayout.$.rayData[ray + d.u32(1)].xyz;
+        const inv = std.div(d.vec3f(1), rd);
+        const root = bvhRoot(traceLayout.$.countBuf[d.u32(0)]);
+        const tMax = d.f32(1e30) + traceLayout.$.nodes[d.u32(0)].x * d.f32(0);
+        if (traceLayout.$.params.mode === d.u32(1)) {
+            const occluded = bvhAnyHit(root, ro, inv, tMax);
+            traceLayout.$.hits[i] = d.vec2u(std.select(d.u32(0), d.u32(1), occluded), d.u32(0));
+            return;
+        }
+        const hit = bvhClosestHit(root, ro, inv, tMax);
+        traceLayout.$.hits[i] = d.vec2u(bitcastF32toU32(hit.t), hit.prim);
+    })
+    .$name("traceBvh");
+
+/** the emitted trace entry and certified traversal graph. @internal */
+export function traceEntryWgsl(): string {
+    return tgpu.resolve([traceKernel], { names: "strict" });
 }
-`;
+
+type TraceNodesBuffer = TgpuBuffer<ReturnType<typeof TraceNodes>> & StorageFlag;
+type TraceRaysBuffer = TgpuBuffer<typeof TraceRays> & StorageFlag;
+type TraceHitsBuffer = TgpuBuffer<typeof TraceHits> & StorageFlag;
+type TraceCountBuffer = TgpuBuffer<ReturnType<typeof TraceCount>> & StorageFlag;
+type TraceParamsBuffer = TgpuBuffer<typeof TraceParams> & UniformFlag;
+type TraceGroup = TgpuBindGroup<typeof traceLayout.entries>;
+type TracePipeline = TgpuComputePipeline;
+
+interface TraceOwner {
+    readonly raws: readonly GPUBuffer[];
+    readonly raysRaw: GPUBuffer;
+    readonly hitsRaw: GPUBuffer;
+    readonly rays: TraceRaysBuffer;
+    readonly hits: TraceHitsBuffer;
+    readonly params: TraceParamsBuffer;
+    readonly group: TraceGroup;
+    readonly pipeline: TracePipeline;
+}
+
+const cleanedTraceOwners = new WeakSet<object>();
+
+function cleanupTrace(owner: { readonly raws: readonly GPUBuffer[] }): void {
+    if (cleanedTraceOwners.has(owner)) return;
+    cleanedTraceOwners.add(owner);
+    for (const raw of owner.raws) raw.destroy();
+}
+
+function forceTrace(
+    root: typeof Compute.root,
+    device: GPUDevice,
+    pipeline: TracePipeline,
+): TracePipeline {
+    const raws: GPUBuffer[] = [];
+    let submitted = false;
+    const cleanup = () => {
+        for (const raw of raws) raw.destroy();
+    };
+    try {
+        const storage = (label: string, size: number): GPUBuffer => {
+            const raw = device.createBuffer({
+                label,
+                size,
+                usage: GPUBufferUsage.STORAGE,
+            });
+            raws.push(raw);
+            return raw;
+        };
+        const nodes = root
+            .createBuffer(TraceNodes(1), storage("gym-trace-force-nodes", 16))
+            .$usage("storage");
+        const rayData = root
+            .createBuffer(TraceRays, storage("gym-trace-force-rays", d.sizeOf(TraceRays)))
+            .$usage("storage");
+        const hits = root
+            .createBuffer(TraceHits, storage("gym-trace-force-hits", d.sizeOf(TraceHits)))
+            .$usage("storage");
+        const countBuf = root
+            .createBuffer(TraceCount(1), storage("gym-trace-force-count", 4))
+            .$usage("storage");
+        const paramsRaw = device.createBuffer({
+            label: "gym-trace-force-params",
+            size: d.sizeOf(TraceParams),
+            usage: GPUBufferUsage.UNIFORM,
+        });
+        raws.push(paramsRaw);
+        const params = root.createBuffer(TraceParams, paramsRaw).$usage("uniform");
+        const group = root.createBindGroup(traceLayout, {
+            nodes,
+            rayData,
+            hits,
+            countBuf,
+            params,
+        });
+        const encoder = device.createCommandEncoder({ label: "gym-trace-force" });
+        const pass = encoder.beginComputePass({ label: "gym-trace-force" });
+        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
+        pass.end();
+        device.queue.submit([encoder.finish()]);
+        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
+        submitted = true;
+        void cleanupAfterFence;
+        return pipeline;
+    } finally {
+        if (!submitted) cleanup();
+    }
+}
+
+/** one exact single-flight initialization record per root; a rejected record is retryable. @internal */
+export function createPipelineCache<Root extends object, Context, Pipeline>(
+    create: (root: Root, context: Context) => Pipeline,
+    initialize: (root: Root, context: Context, pipeline: Pipeline) => Promise<void>,
+): (root: Root, context: Context) => Promise<Pipeline> {
+    const cache = new WeakMap<Root, { pipeline: Pipeline; ready: Promise<void> }>();
+    return async (root, context) => {
+        let entry = cache.get(root);
+        if (!entry) {
+            const pipeline = create(root, context);
+            const draft = { pipeline, ready: Promise.resolve() };
+            entry = draft;
+            cache.set(root, entry);
+            try {
+                draft.ready = initialize(root, context, pipeline).catch((cause) => {
+                    if (cache.get(root) === draft) cache.delete(root);
+                    throw cause;
+                });
+            } catch (cause) {
+                if (cache.get(root) === draft) cache.delete(root);
+                throw cause;
+            }
+        }
+        await entry.ready;
+        return entry.pipeline;
+    };
+}
+
+const tracePipeline = createPipelineCache(
+    (root: typeof Compute.root) =>
+        root.createComputePipeline({ compute: traceKernel }).$name("gym-trace"),
+    async (root, device: GPUDevice, pipeline) => {
+        await precompile(precompileScope("gym-trace"), () => forceTrace(root, device, pipeline));
+    },
+);
 
 export interface Tracer {
     rays: GPUBuffer;
@@ -108,70 +261,77 @@ export async function createTracer(
     nodes: GPUBuffer,
     count: GPUBuffer,
 ): Promise<Tracer> {
-    const rayBuf = device.createBuffer({
-        label: "gym-trace-rays",
-        size: MAX_RAYS * 32,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const hits = device.createBuffer({
-        label: "gym-trace-hits",
-        size: MAX_RAYS * 8,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    const params = device.createBuffer({
-        label: "gym-trace-params",
-        size: 16,
-        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
-    });
-    const ioLayout = device.createBindGroupLayout({
-        label: "gym-trace-io",
-        entries: [0, 1, 2, 3].map((binding) => ({
-            binding,
-            visibility: GPUShaderStage.COMPUTE,
-            buffer: {
-                type: binding === 2 ? "storage" : ("read-only-storage" as GPUBufferBindingType),
+    const root = Compute.root;
+    const raws: GPUBuffer[] = [];
+    const draft = { raws };
+    try {
+        const raysRaw = device.createBuffer({
+            label: "gym-trace-rays",
+            size: d.sizeOf(TraceRays),
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        });
+        raws.push(raysRaw);
+        const rays: TraceRaysBuffer = root.createBuffer(TraceRays, raysRaw).$usage("storage");
+        const hitsRaw = device.createBuffer({
+            label: "gym-trace-hits",
+            size: d.sizeOf(TraceHits),
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
+        raws.push(hitsRaw);
+        const hits: TraceHitsBuffer = root.createBuffer(TraceHits, hitsRaw).$usage("storage");
+        const paramsRaw = device.createBuffer({
+            label: "gym-trace-params",
+            size: d.sizeOf(TraceParams),
+            usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+        });
+        raws.push(paramsRaw);
+        const params: TraceParamsBuffer = root
+            .createBuffer(TraceParams, paramsRaw)
+            .$usage("uniform");
+        const typedNodes: TraceNodesBuffer = root
+            .createBuffer(TraceNodes(nodes.size / d.sizeOf(d.vec4f)), nodes)
+            .$usage("storage");
+        const typedCount: TraceCountBuffer = root
+            .createBuffer(TraceCount(count.size / d.sizeOf(d.u32)), count)
+            .$usage("storage");
+        const pipeline = await tracePipeline(root, device);
+        const group = root.createBindGroup(traceLayout, {
+            nodes: typedNodes,
+            rayData: rays,
+            hits,
+            countBuf: typedCount,
+            params,
+        });
+        const owner: TraceOwner = Object.freeze({
+            raws: Object.freeze([...raws]),
+            raysRaw,
+            hitsRaw,
+            rays,
+            hits,
+            params,
+            group,
+            pipeline,
+        });
+        return {
+            rays: owner.raysRaw,
+            hits: owner.hitsRaw,
+            trace(encoder, rayCount, mode): void {
+                owner.params.write({ rayCount, mode, pad0: 0, pad1: 0 });
+                const pass = encoder.beginComputePass({
+                    timestampWrites: Compute.span?.("bvh:trace"),
+                });
+                owner.pipeline
+                    .with(owner.group)
+                    .with(pass)
+                    .dispatchWorkgroups(Math.ceil(rayCount / 64));
+                pass.end();
             },
-        })),
-    });
-    const uniformLayout = device.createBindGroupLayout({
-        label: "gym-trace-uniform",
-        entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "uniform" } }],
-    });
-    const pipeline = await device.createComputePipelineAsync({
-        label: "gym-trace",
-        layout: device.createPipelineLayout({ bindGroupLayouts: [ioLayout, uniformLayout] }),
-        compute: {
-            module: device.createShaderModule({ label: "gym-trace", code: traceWgsl() }),
-            entryPoint: "main",
-        },
-    });
-    const ioBg = device.createBindGroup({
-        layout: ioLayout,
-        entries: [
-            { binding: 0, resource: { buffer: nodes } },
-            { binding: 1, resource: { buffer: rayBuf } },
-            { binding: 2, resource: { buffer: hits } },
-            { binding: 3, resource: { buffer: count } },
-        ],
-    });
-    const paramsBg = device.createBindGroup({
-        layout: uniformLayout,
-        entries: [{ binding: 0, resource: { buffer: params } }],
-    });
-    return {
-        rays: rayBuf,
-        hits,
-        trace(encoder, rayCount, mode): void {
-            device.queue.writeBuffer(params, 0, new Uint32Array([rayCount, mode, 0, 0]));
-            const pass = encoder.beginComputePass({ timestampWrites: Compute.span?.("bvh:trace") });
-            pass.setPipeline(pipeline);
-            pass.setBindGroup(0, ioBg);
-            pass.setBindGroup(1, paramsBg);
-            pass.dispatchWorkgroups(Math.ceil(rayCount / 64));
-            pass.end();
-        },
-        destroy(): void {
-            for (const b of [rayBuf, hits, params]) b.destroy();
-        },
-    };
+            destroy(): void {
+                cleanupTrace(owner);
+            },
+        };
+    } catch (cause) {
+        cleanupTrace(draft);
+        throw cause;
+    }
 }

@@ -73,9 +73,12 @@ export const orderU32 = tgpu.fn(
     // `>>> 0` the transpiler rejects (the `tgsl.ts` dual shape — the ternary folds at shader-gen)
     return std.isBeingTranspiled()
         ? std.select(~u, u | 0x80000000, u >> 31 === 0)
-        : u >>> 31 === 0
-          ? (u | 0x80000000) >>> 0
-          : ~u >>> 0;
+        : // eslint-disable-next-line typegpu/no-unsupported-syntax -- unsigned shift confined to folded-away CPU arm
+          u >>> 31 === 0
+          ? // eslint-disable-next-line typegpu/no-unsupported-syntax -- unsigned shift confined to folded-away CPU arm
+            (u | 0x80000000) >>> 0
+          : // eslint-disable-next-line typegpu/no-unsupported-syntax -- unsigned shift confined to folded-away CPU arm
+            ~u >>> 0;
 });
 
 /**
@@ -92,9 +95,12 @@ export const unorderU32 = tgpu.fn(
     return std.bitcastU32toF32(
         std.isBeingTranspiled()
             ? std.select(~o, o ^ 0x80000000, o >> 31 === 1)
-            : o >>> 31 === 1
-              ? (o ^ 0x80000000) >>> 0
-              : ~o >>> 0,
+            : // eslint-disable-next-line typegpu/no-unsupported-syntax -- unsigned shift confined to folded-away CPU arm
+              o >>> 31 === 1
+              ? // eslint-disable-next-line typegpu/no-unsupported-syntax -- unsigned shift confined to folded-away CPU arm
+                (o ^ 0x80000000) >>> 0
+              : // eslint-disable-next-line typegpu/no-unsupported-syntax -- unsigned shift confined to folded-away CPU arm
+                ~o >>> 0,
     );
 });
 

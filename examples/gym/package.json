@@ -9,7 +9,8 @@
         "preview": "vite preview"
     },
     "dependencies": {
-        "@dylanebert/shallot": "workspace:*"
+        "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.11.9"
     },
     "devDependencies": {
         "unplugin-typegpu": "~0.11.6",

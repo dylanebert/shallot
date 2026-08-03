@@ -13,10 +13,38 @@ import {
     Text,
     text,
 } from "@dylanebert/shallot";
+import tgpu, {
+    type StorageFlag,
+    type TgpuBindGroup,
+    type TgpuBuffer,
+    type TgpuComputePipeline,
+} from "typegpu";
+import * as d from "typegpu/data";
 
-let pipeline: GPUComputePipeline | null = null;
-let bindGroup: GPUBindGroup | null = null;
-let output: GPUBuffer | null = null;
+const ChargeData = d.arrayOf(d.f32, capacity);
+const TotalData = d.arrayOf(d.f32, 1);
+
+const reduceLayout = tgpu.bindGroupLayout({
+    charge: { storage: ChargeData, access: "readonly" },
+    total: { storage: TotalData, access: "mutable" },
+});
+
+const reduceKernel = tgpu
+    .computeFn({ workgroupSize: [1] })(() => {
+        "use gpu";
+        let sum = d.f32(0);
+        for (let i = d.u32(0); i < d.u32(capacity); i = i + d.u32(1)) {
+            sum += reduceLayout.$.charge[i];
+        }
+        reduceLayout.$.total[0] = sum;
+    })
+    .$name("reduceSum");
+
+let pipeline: TgpuComputePipeline | null = null;
+let charge: (TgpuBuffer<typeof ChargeData> & StorageFlag) | null = null;
+let output: (TgpuBuffer<typeof TotalData> & StorageFlag) | null = null;
+let rawOutput: GPUBuffer | null = null;
+let group: TgpuBindGroup | null = null;
 let readback: Mirror | null = null;
 
 // `slab(f32)` mirrors one float per entity to a GPU buffer each frame — CPU→GPU per-entity data (the
@@ -27,37 +55,17 @@ export const Charge = { amount: slab(f32, "charge") };
 // a no-field marker selects the world-space label the readback total drives live
 export const Readout = {};
 
-// one thread totals every slot. Unwritten slots are zero, so this sums the live charges with no
-// membership gate; a scene that despawns entities would gate each slot on the "membership" buffer. A
-// real reduction parallelizes — standard/bvh's bounds reduce is the reference.
-function sumWgsl(): string {
-    return /* wgsl */ `
-@group(0) @binding(0) var<storage, read> charge: array<f32>;
-@group(0) @binding(1) var<storage, read_write> total: array<f32>;
-
-@compute @workgroup_size(1)
-fn main() {
-    var sum = 0.0;
-    for (var i = 0u; i < ${capacity}u; i++) { sum += charge[i]; }
-    total[0] = sum;
-}
-`;
-}
-
-// `Compute.device` is the raw `GPUDevice`; build pipelines and buffers against it directly. Runs once
-// per build, so nothing here is per-frame.
+// `Compute.root` owns the typed wrappers and pipeline. `setup` runs after `SlabPlugin` warms, so the
+// published charge buffer already exists when we wrap it and bind the compute layout once.
 async function build(): Promise<void> {
-    const device = Compute.device;
-    output = device.createBuffer({
+    const root = Compute.root;
+    rawOutput = Compute.device.createBuffer({
         label: "reduce-total",
-        size: 4,
+        size: d.sizeOf(TotalData),
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
-    pipeline = await device.createComputePipelineAsync({
-        label: "reduce-sum",
-        layout: "auto",
-        compute: { entryPoint: "main", module: device.createShaderModule({ code: sumWgsl() }) },
-    });
+    output = root.createBuffer(TotalData, rawOutput).$usage("storage").$name("reduce-total");
+    pipeline = root.createComputePipeline({ compute: reduceKernel }).$name("reduce-sum");
     readback = mirror(output);
 }
 
@@ -68,23 +76,20 @@ const reduce = {
     name: "reduce",
     group: "simulation",
     setup() {
-        bindGroup = Compute.device.createBindGroup({
-            label: "reduce-sum",
-            layout: pipeline!.getBindGroupLayout(0),
-            entries: [
-                { binding: 0, resource: { buffer: Compute.buffers.get("charge")! } },
-                { binding: 1, resource: { buffer: output! } },
-            ],
+        const source = Compute.buffers.get("charge");
+        if (!source || !output || !pipeline) return;
+        charge = Compute.root.createBuffer(ChargeData, source).$usage("storage");
+        group = Compute.root.createBindGroup(reduceLayout, {
+            charge,
+            total: output,
         });
     },
     update(state: State) {
-        if (!pipeline || !bindGroup || !readback) return;
+        if (!pipeline || !charge || !output || !group || !readback) return;
         const device = Compute.device;
         const encoder = device.createCommandEncoder({ label: "reduce" });
         const pass = encoder.beginComputePass({ label: "reduce-sum" });
-        pass.setPipeline(pipeline);
-        pass.setBindGroup(0, bindGroup);
-        pass.dispatchWorkgroups(1);
+        pipeline.with(group).with(pass).dispatchWorkgroups(1);
         pass.end();
         device.queue.submit([encoder.finish()]);
 
@@ -109,8 +114,10 @@ export const Reduce = {
     dispose() {
         output?.destroy();
         pipeline = null;
-        bindGroup = null;
+        charge = null;
+        group = null;
         output = null;
+        rawOutput = null;
         readback = null;
     },
 } satisfies Plugin;

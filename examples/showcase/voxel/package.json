@@ -8,7 +8,8 @@
         "gate": "playwright test"
     },
     "dependencies": {
-        "@dylanebert/shallot": "workspace:*"
+        "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.11.9"
     },
     "devDependencies": {
         "@playwright/test": "^1.58.2"

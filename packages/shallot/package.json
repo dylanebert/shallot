@@ -59,6 +59,7 @@
         "rust/audio/pkg",
         "examples",
         "AGENTS.md",
+        "MIGRATION.md",
         "shallot.schema.json"
     ],
     "scripts": {

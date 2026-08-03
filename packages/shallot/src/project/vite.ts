@@ -27,11 +27,12 @@ export const CROSS_ORIGIN_ISOLATION = {
  * transpiled to WGSL at build time — typegpu parses nothing at runtime — so every bundle carrying
  * engine code needs it, reaching engine source inside `node_modules` too. `shallot dev` / `shallot
  * build` install it for a manifest project, which owns no vite config. An ejected project that owns
- * one imports `typegpu` from `unplugin-typegpu/vite` itself — a vite config is loaded by node, which
- * can't read this module's TypeScript. Exactly **one** instance may run in a bundle: a second pass
- * re-wraps the emitted metadata and corrupts it.
- * @example
- * plugins: [typegpuPlugin(), projectPlugin(dir)]
+ * one imports `typegpu` from `unplugin-typegpu/vite` itself. `typegpuPlugin` is the CLI's config-synthesis
+ * helper, not the ejected-consumer route. The direct form is also required for options: consumer TGSL
+ * inside compiled `.svelte` / `.vue` blocks needs an `enforce: "post"` plugin whose `include` repeats
+ * the default JS/TS matcher and adds the component extension. Exactly **one** instance may run in a
+ * bundle: a second pass re-wraps the emitted metadata and corrupts it. `checkTgsl` proves the engine's
+ * `.ts` source was transformed, not a consumer component block.
  */
 export function typegpuPlugin(): Plugin {
     return typegpu() as unknown as Plugin;
