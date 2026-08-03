@@ -1,18 +1,21 @@
+import type { IndexFlag, StorageFlag, TgpuBuffer } from "typegpu";
 import tgpu from "typegpu";
+import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, type Plugin, type State, type System } from "../../engine";
 import { readBinary, UnsupportedError } from "../../engine/runtime";
 import type { Node } from "../../engine/scene";
 import { Preloads } from "../../engine/scene/core";
-import { unpackLdrColor, Xform } from "../../engine/utils/core";
+import { MeshQuant, unpackLdrColor, Xform } from "../../engine/utils/core";
 import { Color, Part } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
-import type { Binding } from "../../standard/render/core";
 import {
     BeginFrameSystem,
     type Mesh,
     Meshes,
+    type MeshIndex,
+    type MeshStorage,
     meshBounds,
     packMeshes,
     type QuantStreams,
@@ -35,7 +38,6 @@ import {
     parse,
     quantizeLive,
 } from "./gltf";
-import { ALBEDO_NAMES } from "./image";
 import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
 import { MaterialData } from "./palette";
 import { abortDecodes, poolDecode } from "./pool";
@@ -72,22 +74,6 @@ import { bakeVat, type GltfVat } from "./vat";
 // separate limit), so the surface stays at its 10-storage ceiling (gpu.md). The bindings are
 // variant-invariant — every map-set variant binds the same arrays (an unused one is a 1×1 fallback, never
 // skipped); the `specialize` codegen, not a missing binding, is what drops a sparse-map material's samples.
-const texturedBindings: Record<string, Binding> = {
-    eids: { type: "storage", element: "u32" },
-    transforms: { type: "storage", element: "Xform" },
-    color: { type: "storage", element: "u32" },
-    materialIndex: { type: "storage", element: "u32" },
-    materialData: { type: "storage", element: "MaterialData" },
-    // baseColor is the bandwidth lever, so it stays block-compressed; a `texture_2d_array` is one size, so
-    // varied-size baseColors split across ALBEDO_BUCKETS arrays (`sampleAlbedo` switches per-material)
-    ...Object.fromEntries(ALBEDO_NAMES.map((n) => [n, { type: "texture-2d-array" } as Binding])),
-    mr: { type: "texture-2d-array" },
-    normalTex: { type: "texture-2d-array" },
-    occlusion: { type: "texture-2d-array" },
-    emissive: { type: "texture-2d-array" },
-    albedoSamp: { type: "sampler" },
-};
-
 const texturedLayout = surfaceLayout({
     eids: { type: "storage", element: d.u32 },
     transforms: { type: "storage", element: Xform },
@@ -140,12 +126,10 @@ export function registerTexturedSurfaces(state: State): void {
         ["gltf-albedo-clip", "clip", "clip"],
         ["gltf-albedo-blend", "alpha", "blend"],
     ] as const) {
-        // Part's migration-era draw registration still enumerates the legacy registry. The descriptor is
-        // data-only; record() resolves the same name from the typed registry first and compiles these fns.
-        Surfaces.register({ name, bindings: texturedBindings, blend });
         registerSurface(state, {
             name,
             layout: texturedLayout,
+            fragmentInputs: { uv: true },
             blend,
             fs: texturedFs(0, mode),
             specialize: (variant) => ({ fs: texturedFs(variant, mode) }),
@@ -259,10 +243,31 @@ function assembleGeometry(
     const specs: GeometrySpec[] = [];
     if (geometry.static) {
         const g = geometry.static;
-        const vertices = gpuBuffer(device, "gltf-main", g.quant.main);
-        const position = gpuBuffer(device, "gltf-pos", g.quant.position);
-        const quant = gpuBuffer(device, "gltf-quant", g.quant.quant);
-        const indices = gpuBuffer(device, "gltf-indices", g.indices);
+        const vertices = gpuBuffer(
+            device,
+            "gltf-main",
+            g.quant.main,
+            d.arrayOf(d.vec4u, g.quant.main.length / 4),
+        );
+        const position = gpuBuffer(
+            device,
+            "gltf-pos",
+            g.quant.position,
+            d.arrayOf(d.vec2u, g.quant.position.length / 2),
+        );
+        const quant = gpuBuffer(
+            device,
+            "gltf-quant",
+            g.quant.quant,
+            d.arrayOf(MeshQuant, g.quant.quant.length / 12),
+        );
+        const indices = gpuBuffer(
+            device,
+            "gltf-indices",
+            g.indices,
+            d.arrayOf(d.u32, g.indices.length),
+            true,
+        ) as MeshIndex;
         for (const s of g.slices) {
             specs.push({
                 meshIndex: s.meshIndex,
@@ -286,10 +291,31 @@ function assembleGeometry(
             meshIndex: sk.meshIndex,
             spec: {
                 name,
-                vertices: gpuBuffer(device, `gltf-skin-main:${name}`, sk.quant.main),
-                position: gpuBuffer(device, `gltf-skin-pos:${name}`, sk.quant.position),
-                quant: gpuBuffer(device, `gltf-skin-quant:${name}`, sk.quant.quant),
-                indices: gpuBuffer(device, `gltf-skin-idx:${name}`, sk.indices),
+                vertices: gpuBuffer(
+                    device,
+                    `gltf-skin-main:${name}`,
+                    sk.quant.main,
+                    d.arrayOf(d.vec4u, sk.quant.main.length / 4),
+                ),
+                position: gpuBuffer(
+                    device,
+                    `gltf-skin-pos:${name}`,
+                    sk.quant.position,
+                    d.arrayOf(d.vec2u, sk.quant.position.length / 2),
+                ),
+                quant: gpuBuffer(
+                    device,
+                    `gltf-skin-quant:${name}`,
+                    sk.quant.quant,
+                    d.arrayOf(MeshQuant, sk.quant.quant.length / 12),
+                ),
+                indices: gpuBuffer(
+                    device,
+                    `gltf-skin-idx:${name}`,
+                    sk.indices,
+                    d.arrayOf(d.u32, sk.indices.length),
+                    true,
+                ) as MeshIndex,
                 indexBase: 0,
                 indexCount: sk.indices.length,
                 bounds: sk.bounds,
@@ -308,10 +334,10 @@ function assembleGeometry(
 interface LiveAssembly {
     meshIndex: number;
     name: string;
-    vertices: GPUBuffer;
-    position: GPUBuffer;
-    quant: GPUBuffer;
-    indices: GPUBuffer;
+    vertices: MeshStorage<d.Vec4u>;
+    position: MeshStorage<d.Vec2u>;
+    quant: MeshStorage<typeof MeshQuant>;
+    indices: MeshIndex;
     indexCount: number;
     vertCount: number;
     bounds: [number, number, number, number];
@@ -337,10 +363,31 @@ function assembleLive(
         return {
             meshIndex: g.meshIndex,
             name,
-            vertices: gpuBuffer(device, `gltf-live-main:${name}`, g.quant.main),
-            position: gpuBuffer(device, `gltf-live-pos:${name}`, g.quant.position),
-            quant: gpuBuffer(device, `gltf-live-quant:${name}`, g.quant.quant),
-            indices: gpuBuffer(device, `gltf-live-idx:${name}`, g.indices),
+            vertices: gpuBuffer(
+                device,
+                `gltf-live-main:${name}`,
+                g.quant.main,
+                d.arrayOf(d.vec4u, g.quant.main.length / 4),
+            ),
+            position: gpuBuffer(
+                device,
+                `gltf-live-pos:${name}`,
+                g.quant.position,
+                d.arrayOf(d.vec2u, g.quant.position.length / 2),
+            ),
+            quant: gpuBuffer(
+                device,
+                `gltf-live-quant:${name}`,
+                g.quant.quant,
+                d.arrayOf(MeshQuant, g.quant.quant.length / 12),
+            ),
+            indices: gpuBuffer(
+                device,
+                `gltf-live-idx:${name}`,
+                g.indices,
+                d.arrayOf(d.u32, g.indices.length),
+                true,
+            ) as MeshIndex,
             indexCount: g.indices.length,
             vertCount: lm.joints.length,
             bounds: g.bounds,
@@ -389,16 +436,21 @@ function wireLive(device: GPUDevice, live: LiveAssembly[], meshIds: number[]): v
     }
 }
 
-function gpuBuffer(device: GPUDevice, label: string, data: Float32Array | Uint32Array): GPUBuffer {
-    const buf = device.createBuffer({
-        label,
-        size: data.byteLength,
-        // INDEX so the index buffers this helper makes drive hardware vertex reuse; harmless on the
-        // vertex/skin buffers it also makes (they're never set as an index buffer)
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(buf, 0, data as Float32Array<ArrayBuffer>);
-    return buf;
+function gpuBuffer<T extends AnyWgslData>(
+    device: GPUDevice,
+    label: string,
+    data: Float32Array | Uint32Array,
+    schema: WgslArray<T>,
+    index = false,
+): TgpuBuffer<WgslArray<T>> & StorageFlag & Partial<IndexFlag> {
+    const buffer = Compute.root.createBuffer(schema as never) as TgpuBuffer<WgslArray<T>>;
+    const storage = buffer.$usage("storage" as never) as unknown as TgpuBuffer<WgslArray<T>> &
+        StorageFlag &
+        Partial<IndexFlag>;
+    storage.$name(label);
+    if (index) storage.$usage("index" as never);
+    device.queue.writeBuffer(Compute.root.unwrap(storage), 0, data as Float32Array<ArrayBuffer>);
+    return storage;
 }
 
 /**
@@ -1184,22 +1236,24 @@ const UnionBuildSystem: System = {
 
 // the GPU resources behind one cached asset, for the deferred free — geometry buffers + VATs (the shared
 // textures are the union's, freed separately). Dedupes the shared static-geometry buffers.
-function assetResources(a: AssembledGltf): (GPUTexture | GPUBuffer)[] {
-    const bufs = new Set<GPUBuffer>();
+type GpuResource = GPUTexture | GPUBuffer | TgpuBuffer<AnyData>;
+
+function assetResources(a: AssembledGltf): GpuResource[] {
+    const bufs = new Set<TgpuBuffer<AnyData>>();
     for (const { spec } of a.geometry) {
         bufs.add(spec.vertices);
         if (spec.position) bufs.add(spec.position);
         if (spec.quant) bufs.add(spec.quant);
         bufs.add(spec.indices);
     }
-    const res: (GPUTexture | GPUBuffer)[] = [...bufs];
+    const res: GpuResource[] = [...bufs];
     for (const vat of a.vats) if (vat) res.push(vat.pos, vat.norm, vat.params);
     return res;
 }
 
 // destroy GPU resources behind the submit fence — an in-flight frame may still bind them through sear's cached
 // group; the caller (a live asset-swap) rebuilds before the next frame so the State re-registers.
-function freeBehindFence(res: (GPUTexture | GPUBuffer)[]): void {
+function freeBehindFence(res: GpuResource[]): void {
     const device = Compute.device;
     if (!device) return;
     device.queue.onSubmittedWorkDone().then(() => {

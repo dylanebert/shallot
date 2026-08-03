@@ -24,7 +24,11 @@ import {
     Transform,
 } from "@dylanebert/shallot";
 import { Avbd, type JointDef } from "@dylanebert/shallot/avbd/core";
-import { type Binding, Surfaces } from "@dylanebert/shallot/render/core";
+import { fsCtxSchema, lit, registerSurface, surfaceLayout } from "@dylanebert/shallot/sear/core";
+import { unpackLdrColor, Xform } from "@dylanebert/shallot/utils/core";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { armImpacts, ImpactSystem, registerInstruments } from "./audio";
 import { type Gun, gun } from "./gun";
 import { Brick, box, brickStack, bridge, hex, lamp, pyramid, rope } from "./spawn";
@@ -46,65 +50,141 @@ import { hud, setCrosshair } from "./ui";
 // per-pixel lit(). Walls are world-space grit; props (bricks/rope/bridge) are object-space wood grain and
 // the chain weight is object-space stone — object space (localPos × the instance scale) keeps a tumbling
 // body's texture fixed to it and uniform in density across the differently-sized props.
-const INSTANCED: Record<string, Binding> = {
-    eids: { type: "storage", element: "u32" },
-    transforms: { type: "storage", element: "Xform" },
-    color: { type: "storage", element: "u32" },
-};
+const materialLayout = surfaceLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+});
 
 // Dave Hoskins' sin-free integer hash (shadertoy 4djSRW) + trilinear value noise — robust across the whole
 // scene where fract(sin(dot())) bands out in f32 once the world coord reaches the ±40 the hall spans.
-const NOISE_WGSL = /* wgsl */ `
-    fn hash13(p0: vec3<f32>) -> f32 {
-        var p = fract(p0 * 0.1031);
-        p += dot(p, p.zyx + 31.32);
-        return fract((p.x + p.y) * p.z);
-    }
-    fn valueNoise(p: vec3<f32>) -> f32 {
-        let i = floor(p);
-        let f = fract(p);
-        let u = f * f * (3.0 - 2.0 * f);
-        let c000 = hash13(i);
-        let c100 = hash13(i + vec3<f32>(1.0, 0.0, 0.0));
-        let c010 = hash13(i + vec3<f32>(0.0, 1.0, 0.0));
-        let c110 = hash13(i + vec3<f32>(1.0, 1.0, 0.0));
-        let c001 = hash13(i + vec3<f32>(0.0, 0.0, 1.0));
-        let c101 = hash13(i + vec3<f32>(1.0, 0.0, 1.0));
-        let c011 = hash13(i + vec3<f32>(0.0, 1.0, 1.0));
-        let c111 = hash13(i + vec3<f32>(1.0, 1.0, 1.0));
-        return mix(
-            mix(mix(c000, c100, u.x), mix(c010, c110, u.x), u.y),
-            mix(mix(c001, c101, u.x), mix(c011, c111, u.x), u.y), u.z);
-    }
-    fn fbm(p: vec3<f32>) -> f32 {
-        return valueNoise(p * 3.5) * 0.55 + valueNoise(p * 9.0) * 0.32 + valueNoise(p * 20.0) * 0.13;
-    }
-`;
+const hash13 = tgpu.fn(
+    [d.vec3f],
+    d.f32,
+)((p0) => {
+    "use gpu";
+    let p = d.vec3f(std.fract(std.mul(p0, 0.1031)));
+    p = d.vec3f(std.add(p, std.dot(p, std.add(p.zyx, d.vec3f(31.32)))));
+    return std.fract((p.x + p.y) * p.z);
+});
 
-function registerSurfaces(): void {
+const valueNoise = tgpu.fn(
+    [d.vec3f],
+    d.f32,
+)((p) => {
+    "use gpu";
+    const i = std.floor(p);
+    const f = std.fract(p);
+    const u = std.mul(std.mul(f, f), std.sub(d.vec3f(3), std.mul(f, 2)));
+    const c000 = hash13(i);
+    const c100 = hash13(std.add(i, d.vec3f(1, 0, 0)));
+    const c010 = hash13(std.add(i, d.vec3f(0, 1, 0)));
+    const c110 = hash13(std.add(i, d.vec3f(1, 1, 0)));
+    const c001 = hash13(std.add(i, d.vec3f(0, 0, 1)));
+    const c101 = hash13(std.add(i, d.vec3f(1, 0, 1)));
+    const c011 = hash13(std.add(i, d.vec3f(0, 1, 1)));
+    const c111 = hash13(std.add(i, d.vec3f(1, 1, 1)));
+    return std.mix(
+        std.mix(std.mix(c000, c100, u.x), std.mix(c010, c110, u.x), u.y),
+        std.mix(std.mix(c001, c101, u.x), std.mix(c011, c111, u.x), u.y),
+        u.z,
+    );
+});
+
+const fbm = tgpu.fn(
+    [d.vec3f],
+    d.f32,
+)((p) => {
+    "use gpu";
+    return (
+        valueNoise(std.mul(p, 3.5)) * 0.55 +
+        valueNoise(std.mul(p, 9)) * 0.32 +
+        valueNoise(std.mul(p, 20)) * 0.13
+    );
+});
+
+const gritFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    const big = fbm(std.mul(ctx.world, 0.6));
+    const mid = fbm(std.mul(ctx.world, 2.3));
+    const fine = valueNoise(std.mul(ctx.world, 24));
+    const tooth = valueNoise(std.mul(ctx.world, 48));
+    const body = big * 0.34 + mid * 0.32 + fine * 0.19 + tooth * 0.15;
+    const shade = 0.58 + std.clamp((body - 0.5) * 1.9 + 0.5, 0, 1) * 0.46;
+    const mask = std.smoothstep(0.58, 0.78, fbm(std.mul(ctx.world, 0.45)));
+    const line = 1 - std.smoothstep(0, 0.02, std.abs(valueNoise(std.mul(ctx.world, 2)) - 0.5));
+    const crack = line * mask;
+    const tint = std.mix(
+        d.vec3f(0.95, 0.97, 1.03),
+        d.vec3f(1.05, 1, 0.93),
+        fbm(std.mul(ctx.world, 0.4)),
+    );
+    const base = unpackLdrColor(materialLayout.$.color[ctx.eid]).xyz;
+    const albedo = std.mul(std.mul(base, shade * (1 - crack * 0.3)), tint);
+    return d.vec4f(lit(albedo, ctx.worldNormal), 1);
+});
+
+const woodGrain = tgpu.fn(
+    [d.vec3f, d.vec3f],
+    d.f32,
+)((m, size) => {
+    "use gpu";
+    let axial = d.f32(m.x);
+    let rad = d.vec2f(m.yz);
+    if (size.y >= size.x && size.y >= size.z) {
+        axial = m.y;
+        rad = d.vec2f(m.zx);
+    } else if (size.z >= size.x && size.z >= size.y) {
+        axial = m.z;
+        rad = d.vec2f(m.xy);
+    }
+    const warp = valueNoise(std.mul(m, 5)) - 0.5;
+    const r = std.length(std.sub(rad, d.vec2f(0.4, 2.6))) + warp * 0.22;
+    const rings = std.abs(std.fract(r * 22) - 0.5) * 2;
+    const fiber = valueNoise(d.vec3f(axial * 3, rad.x * 50, rad.y * 50)) - 0.5;
+    return std.clamp(rings * 0.5 + 0.25 + fiber * 0.5, 0, 1);
+});
+
+const woodFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    const size = materialLayout.$.transforms[ctx.eid].scale;
+    const fe = d.f32(ctx.eid);
+    const jitter = std.sub(
+        d.vec3f(hash13(d.vec3f(fe, 2, 5)), hash13(d.vec3f(fe, 7, 11)), hash13(d.vec3f(fe, 13, 17))),
+        d.vec3f(0.5),
+    );
+    const g = woodGrain(std.add(std.mul(ctx.localPos, size), std.mul(jitter, 4)), size);
+    const base = unpackLdrColor(materialLayout.$.color[ctx.eid]).xyz;
+    return d.vec4f(lit(std.mul(base, 0.84 + g * 0.2), ctx.worldNormal), 1);
+});
+
+const stoneFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    const m = std.mul(ctx.localPos, materialLayout.$.transforms[ctx.eid].scale);
+    const n = std.clamp((fbm(m) - 0.5) * 2 + 0.5, 0, 1);
+    const vein = std.smoothstep(0.42, 0.5, std.abs(valueNoise(std.mul(m, 6)) - 0.5));
+    const mottle = (0.74 + n * 0.34) * (1 - vein * 0.35);
+    const base = unpackLdrColor(materialLayout.$.color[ctx.eid]).xyz;
+    return d.vec4f(lit(std.mul(base, mottle), ctx.worldNormal), 1);
+});
+
+function registerSurfaces(state: State): void {
     // GRIT — rough world-space stone for the walls/floor: weathering at three scales (big stains, medium
     // blotches, a fine surface tooth) broken by thin cracks gated to a few weathered patches, plus a subtle
     // warm/cool tint drift, so it reads as aged stone rather than uniform noise. World-space → continuous.
-    Surfaces.register({
+    registerSurface(state, {
         name: "grit",
-        bindings: INSTANCED,
-        preamble: NOISE_WGSL,
-        fs: /* wgsl */ `
-            let big = fbm(world * 0.6);
-            let mid = fbm(world * 2.3);
-            let fine = valueNoise(world * 24.0);
-            let tooth = valueNoise(world * 48.0);
-            let body = big * 0.34 + mid * 0.32 + fine * 0.19 + tooth * 0.15;
-            let shade = 0.58 + clamp((body - 0.5) * 1.9 + 0.5, 0.0, 1.0) * 0.46;
-            // a noise iso-contour tiles the whole plane with closed loops (reads as cracked mud), so a
-            // low-frequency mask concentrates the thin dark fractures into a few weathered patches
-            let mask = smoothstep(0.58, 0.78, fbm(world * 0.45));
-            let line = 1.0 - smoothstep(0.0, 0.02, abs(valueNoise(world * 2.0) - 0.5));
-            let crack = line * mask;
-            let tint = mix(vec3<f32>(0.95, 0.97, 1.03), vec3<f32>(1.05, 1.0, 0.93), fbm(world * 0.4));
-            let albedo = unpackLdrColor(color[eid]).rgb * shade * (1.0 - crack * 0.3) * tint;
-            col = vec4<f32>(lit(albedo, worldNormal), 1.0);
-        `,
+        layout: materialLayout,
+        fs: gritFs,
     });
 
     // WOOD — subtle, low-contrast grain that stays close to the muted base so it sits in the dim palette.
@@ -112,48 +192,20 @@ function registerSurfaces(): void {
     // growth rings read as near-parallel cathedral lines (not bullseye swirls). A per-eid jitter offsets
     // each block's sample so no two are carbon copies, and grain is a SCALAR darkening (hue unchanged) — no
     // warm split that would pull the wood orange under the lamps.
-    Surfaces.register({
+    registerSurface(state, {
         name: "wood",
-        bindings: INSTANCED,
-        preamble:
-            NOISE_WGSL +
-            /* wgsl */ `
-            fn woodGrain(m: vec3<f32>, size: vec3<f32>) -> f32 {
-                var axial = m.x; var rad = m.yz;
-                if (size.y >= size.x && size.y >= size.z) { axial = m.y; rad = m.zx; }
-                else if (size.z >= size.x && size.z >= size.y) { axial = m.z; rad = m.xy; }
-                let warp = valueNoise(m * 5.0) - 0.5;
-                let r = length(rad - vec2<f32>(0.4, 2.6)) + warp * 0.22;
-                let rings = abs(fract(r * 22.0) - 0.5) * 2.0;
-                let fiber = valueNoise(vec3<f32>(axial * 3.0, rad.x * 50.0, rad.y * 50.0)) - 0.5;
-                return clamp(rings * 0.5 + 0.25 + fiber * 0.5, 0.0, 1.0);
-            }
-        `,
-        fs: /* wgsl */ `
-            let size = transforms[eid].scale;
-            let fe = f32(eid);
-            let j = vec3<f32>(hash13(vec3<f32>(fe, 2.0, 5.0)),
-                              hash13(vec3<f32>(fe, 7.0, 11.0)),
-                              hash13(vec3<f32>(fe, 13.0, 17.0))) - 0.5;
-            let g = woodGrain(localPos * size + j * 4.0, size);
-            let albedo = unpackLdrColor(color[eid]).rgb * (0.84 + g * 0.2);
-            col = vec4<f32>(lit(albedo, worldNormal), 1.0);
-        `,
+        layout: materialLayout,
+        fragmentInputs: { localPos: true },
+        fs: woodFs,
     });
 
     // STONE — object-space fbm speckle with a faint pitted vein, color-tuned per instance. Object space
     // (localPos × the instance scale) keeps the grain fixed to the swinging weight.
-    Surfaces.register({
+    registerSurface(state, {
         name: "stone",
-        bindings: INSTANCED,
-        preamble: NOISE_WGSL,
-        fs: /* wgsl */ `
-            let m = localPos * transforms[eid].scale;
-            let n = clamp((fbm(m) - 0.5) * 2.0 + 0.5, 0.0, 1.0);
-            let vein = smoothstep(0.42, 0.5, abs(valueNoise(m * 6.0) - 0.5));
-            let mottle = (0.74 + n * 0.34) * (1.0 - vein * 0.35);
-            col = vec4<f32>(lit(unpackLdrColor(color[eid]).rgb * mottle, worldNormal), 1.0);
-        `,
+        layout: materialLayout,
+        fragmentInputs: { localPos: true },
+        fs: stoneFs,
     });
 }
 
@@ -240,8 +292,8 @@ const SandboxPlugin: Plugin = {
     dependencies: [RenderPlugin],
     components: { Brick },
     systems: [BootSystem, GunSystem, ImpactSystem, FogToggleSystem],
-    initialize() {
-        registerSurfaces();
+    initialize(state) {
+        registerSurfaces(state);
         registerInstruments();
     },
     dispose() {

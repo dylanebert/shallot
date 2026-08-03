@@ -259,12 +259,13 @@ async function drawingPairs(): Promise<number> {
     const device = Compute.device;
     const src = Parts.drawArgs;
     if (!device || !src) return -1;
+    const raw = Compute.root.unwrap(src);
     const staging = device.createBuffer({
-        size: src.size,
+        size: raw.size,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const enc = device.createCommandEncoder();
-    enc.copyBufferToBuffer(src, 0, staging, 0, src.size);
+    enc.copyBufferToBuffer(raw, 0, staging, 0, raw.size);
     device.queue.submit([enc.finish()]);
     await staging.mapAsync(GPUMapMode.READ);
     const args = new Uint32Array(staging.getMappedRange().slice(0));
@@ -430,12 +431,13 @@ export async function deepProbe(ctx: ProbeContext): Promise<DeepReadback> {
     let gpu: Uint32Array | null = null;
     let viewDim = 0;
     if (device && src) {
+        const raw = Compute.root.unwrap(src);
         const st = device.createBuffer({
-            size: src.size,
+            size: raw.size,
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
         });
         const enc = device.createCommandEncoder();
-        enc.copyBufferToBuffer(src, 0, st, 0, src.size);
+        enc.copyBufferToBuffer(raw, 0, st, 0, raw.size);
         device.queue.submit([enc.finish()]);
         await st.mapAsync(GPUMapMode.READ);
         gpu = new Uint32Array(st.getMappedRange().slice(0));

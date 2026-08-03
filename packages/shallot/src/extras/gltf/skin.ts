@@ -4,8 +4,6 @@ import * as std from "typegpu/std";
 import type { State, System } from "../../engine";
 import { Compute, checkTextureLimits } from "../../engine";
 import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils/core";
-import type { Binding } from "../../standard/render/core";
-import { Surfaces } from "../../standard/render/core";
 import {
     fsCtxSchema,
     registerSurface,
@@ -14,7 +12,6 @@ import {
     vsPatchSchema,
 } from "../../standard/sear/core";
 import { Skin } from "../skin";
-import { ALBEDO_NAMES } from "./image";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
 import type { GltfVat } from "./vat";
@@ -41,24 +38,6 @@ import type { GltfVat } from "./vat";
 // headroom: folding (time, materialIndex) into one `skin` vec4 is what buys the room (replacing the textured
 // path's separate `materialIndex` slab) now that the quant table claimed the last shared lane. The texture
 // arrays are a separate limit; the baseColor buckets share the textured path's `sampleAlbedo` switch (shade.ts).
-const vatBindings: Record<string, Binding> = {
-    eids: { type: "storage", element: "u32" },
-    transforms: { type: "storage", element: "Xform" },
-    color: { type: "storage", element: "u32" },
-    skin: { type: "storage", element: "vec4<f32>" },
-    materialData: { type: "storage", element: "MaterialData" },
-    ...Object.fromEntries(ALBEDO_NAMES.map((n) => [n, { type: "texture-2d-array" } as Binding])),
-    mr: { type: "texture-2d-array" },
-    normalTex: { type: "texture-2d-array" },
-    occlusion: { type: "texture-2d-array" },
-    emissive: { type: "texture-2d-array" },
-    albedoSamp: { type: "sampler" },
-    vatPos: { type: "texture-2d" },
-    vatNorm: { type: "texture-2d" },
-    vatSamp: { type: "sampler" },
-    vatParams: { type: "uniform", struct: "VatParams" },
-};
-
 const VatParams = d
     .struct({
         aabbMin: d.vec3f,
@@ -160,10 +139,10 @@ export function registerSkinSurfaces(state: State): void {
         ["skin-clip", "clip", "clip"],
         ["skin-blend", "alpha", "blend"],
     ] as const) {
-        Surfaces.register({ name, bindings: vatBindings, blend });
         registerSurface(state, {
             name,
             layout: vatLayout,
+            fragmentInputs: { uv: true },
             blend,
             vs: vatVs,
             fs: vatFs(0, mode),
@@ -204,6 +183,10 @@ function publishVat(vat: AssembledVat): void {
     Compute.textures.set("vatNorm", vat.norm);
     Compute.samplers.set("vatSamp", vat.sampler);
     Compute.buffers.set("vatParams", vat.params);
+    Compute.typed.set(
+        "vatParams",
+        Compute.root.createBuffer(VatParams, vat.params).$usage("uniform"),
+    );
 }
 
 /**

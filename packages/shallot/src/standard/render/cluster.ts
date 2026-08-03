@@ -815,6 +815,18 @@ export function warmLightCull(state: State): void {
     });
     Compute.buffers.set("lightGrid", LightCull.grid);
     Compute.buffers.set("lightIndices", LightCull.indices);
+    Compute.typed.set(
+        "lightGrid",
+        root
+            .createBuffer(d.arrayOf(d.vec2u, MAX_VIEWS * CLUSTER_COUNT), LightCull.grid)
+            .$usage("storage"),
+    );
+    Compute.typed.set(
+        "lightIndices",
+        root
+            .createBuffer(d.arrayOf(d.u32, POOL_HEADER + LIGHT_POOL), LightCull.indices)
+            .$usage("storage"),
+    );
 
     const bit = state.membership.bit(PointLight);
     const spotBit = state.membership.bit(Spot);

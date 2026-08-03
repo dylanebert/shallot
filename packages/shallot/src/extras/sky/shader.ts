@@ -1,239 +1,317 @@
-// The procedural sky fragment, ported from the engine's earlier `SKY_WGSL` (recovered from git history —
-// our own validated code). It runs behind sear's backdrop seam: a view-ray → HDR color recipe whose `fs`
-// writes `col = sampleSky(dir)`, with the `Sky` uniform (declared by the background's `bindings`) and the
-// sear-provided `lighting` uniform in scope. The sun's *direction* comes from `lighting` (the plugin reads
-// the sun, writes nothing — a day-night cycle is a separate, deferred plugin that writes the sun); its
-// *appearance* comes from the `Sky` config. No moon (it needs a moon-direction source — deferred with the
-// day-night cycle).
+// The procedural sky shader. The full view-ray recipe is one pure TGSL graph: production calls it from
+// the typed background with the Sky uniform + engine lighting, and unit tests call the same function on
+// the CPU. The background wrapper is the only resource-reading leaf.
 
-// the `Sky` uniform — the trimmed descendant of the old struct (no moon, no own sun direction). std140:
-// the leading two f32s + two pad floats fill the first 16-byte slot, then every field is a vec4.
-//   starParams = (intensity, amount, _, _)   cloudParams = (coverage, density, height, _)
-//   sunParams  = (size, _, _, glow)          sunVisualColor = rgb sun tint
-const SKY_STRUCT_WGSL = /* wgsl */ `
-struct Sky {
-    hazeDensity: f32,
-    horizonBand: f32,
-    _pad0: f32,
-    _pad1: f32,
-    hazeColor: vec4<f32>,
-    skyZenith: vec4<f32>,
-    skyHorizon: vec4<f32>,
-    starParams: vec4<f32>,
-    cloudParams: vec4<f32>,
-    cloudColor: vec4<f32>,
-    sunParams: vec4<f32>,
-    sunVisualColor: vec4<f32>,
-}`;
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
+import { type Background, BgCtx, backgroundLayout, engineLayout } from "../../standard/sear/core";
 
-// simplex noise for the cloud FBM (Gustavson 2D simplex)
-const NOISE_WGSL = /* wgsl */ `
-fn hash2(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
+/** the procedural sky uniform. Explicit pad fields preserve the shipped 144-byte contract: the two
+ * leading scalars fill one vec4-aligned row, followed by eight vec4 rows. */
+export const SkyGpu = d
+    .struct({
+        hazeDensity: d.f32,
+        horizonBand: d.f32,
+        pad0: d.f32,
+        pad1: d.f32,
+        hazeColor: d.vec4f,
+        skyZenith: d.vec4f,
+        skyHorizon: d.vec4f,
+        starParams: d.vec4f,
+        cloudParams: d.vec4f,
+        cloudColor: d.vec4f,
+        sunParams: d.vec4f,
+        sunVisualColor: d.vec4f,
+    })
+    .$name("Sky");
 
-fn simplex2(p: vec2<f32>) -> f32 {
-    let K1 = 0.366025404;
-    let K2 = 0.211324865;
+/** exact byte size of the shipped Sky uniform contract. */
+export const SKY_BYTES = d.sizeOf(SkyGpu);
+/** Sky uniform size in f32 lanes. */
+export const SKY_FLOATS = SKY_BYTES / 4;
 
-    let i = floor(p + (p.x + p.y) * K1);
-    let a = p - i + (i.x + i.y) * K2;
+const at = <T extends d.BaseData>(schema: T, field: (p: d.Infer<T>) => unknown) =>
+    d.memoryLayoutOf(schema, field).offset / 4;
 
-    let o = select(vec2(0.0, 1.0), vec2(1.0, 0.0), a.x > a.y);
-    let b = a - o + K2;
-    let c = a - 1.0 + 2.0 * K2;
+/** f32 lane offsets the flat CPU packer writes, derived from {@link SkyGpu}. @internal */
+export const SKY_AT = {
+    hazeDensity: at(SkyGpu, (sky) => sky.hazeDensity),
+    horizonBand: at(SkyGpu, (sky) => sky.horizonBand),
+    hazeColor: at(SkyGpu, (sky) => sky.hazeColor),
+    skyZenith: at(SkyGpu, (sky) => sky.skyZenith),
+    skyHorizon: at(SkyGpu, (sky) => sky.skyHorizon),
+    starParams: at(SkyGpu, (sky) => sky.starParams),
+    cloudParams: at(SkyGpu, (sky) => sky.cloudParams),
+    cloudColor: at(SkyGpu, (sky) => sky.cloudColor),
+    sunParams: at(SkyGpu, (sky) => sky.sunParams),
+    sunVisualColor: at(SkyGpu, (sky) => sky.sunVisualColor),
+} as const;
 
-    let h = max(0.5 - vec3(dot(a, a), dot(b, b), dot(c, c)), vec3(0.0));
-    let h4 = h * h * h * h;
+const hash2 = tgpu
+    .fn(
+        [d.vec2f],
+        d.f32,
+    )((p) => {
+        "use gpu";
+        let p3 = d.vec3f(std.fract(std.mul(d.vec3f(p.x, p.y, p.x), 0.1031)));
+        p3 = d.vec3f(std.add(p3, std.dot(p3, std.add(p3.yzx, 33.33))));
+        return std.fract((p3.x + p3.y) * p3.z);
+    })
+    .$name("hash2");
 
-    let n = vec3(
-        dot(a, vec2(hash2(i) * 2.0 - 1.0, hash2(i + vec2(0.0, 1.0)) * 2.0 - 1.0)),
-        dot(b, vec2(hash2(i + o) * 2.0 - 1.0, hash2(i + o + vec2(0.0, 1.0)) * 2.0 - 1.0)),
-        dot(c, vec2(hash2(i + 1.0) * 2.0 - 1.0, hash2(i + vec2(1.0, 2.0)) * 2.0 - 1.0))
-    );
+const simplex2 = tgpu
+    .fn(
+        [d.vec2f],
+        d.f32,
+    )((p) => {
+        "use gpu";
+        const K1 = d.f32(0.366025404);
+        const K2 = d.f32(0.211324865);
+        const i = std.floor(std.add(p, (p.x + p.y) * K1));
+        const a = std.add(std.sub(p, i), (i.x + i.y) * K2);
+        const o = std.select(d.vec2f(0, 1), d.vec2f(1, 0), a.x > a.y);
+        const b = std.add(std.sub(a, o), K2);
+        const c = std.add(std.sub(a, d.vec2f(1)), 2 * K2);
+        const h = std.max(
+            std.sub(d.vec3f(0.5), d.vec3f(std.dot(a, a), std.dot(b, b), std.dot(c, c))),
+            d.vec3f(0),
+        );
+        const h4 = std.mul(std.mul(std.mul(h, h), h), h);
+        const n = d.vec3f(
+            std.dot(a, d.vec2f(hash2(i) * 2 - 1, hash2(std.add(i, d.vec2f(0, 1))) * 2 - 1)),
+            std.dot(
+                b,
+                d.vec2f(
+                    hash2(std.add(i, o)) * 2 - 1,
+                    hash2(std.add(std.add(i, o), d.vec2f(0, 1))) * 2 - 1,
+                ),
+            ),
+            std.dot(
+                c,
+                d.vec2f(
+                    hash2(std.add(i, d.vec2f(1))) * 2 - 1,
+                    hash2(std.add(i, d.vec2f(1, 2))) * 2 - 1,
+                ),
+            ),
+        );
+        return std.dot(h4, n) * 70;
+    })
+    .$name("simplex2");
 
-    return dot(h4, n) * 70.0;
-}
+const fbm2 = tgpu
+    .fn(
+        [d.vec2f],
+        d.f32,
+    )((p) => {
+        "use gpu";
+        let value = d.f32(0);
+        let amplitude = d.f32(0.5);
+        let frequency = d.f32(1);
+        for (let i = d.u32(0); i < 5; i++) {
+            value = value + amplitude * simplex2(std.mul(p, frequency));
+            amplitude = amplitude * 0.5;
+            frequency = frequency * 2;
+        }
+        return value;
+    })
+    .$name("fbm2");
 
-const FBM2_OCTAVES = 5;
+const hashStar = tgpu
+    .fn(
+        [d.vec2f],
+        d.f32,
+    )((p) => {
+        "use gpu";
+        let p3 = d.vec3f(std.fract(std.mul(d.vec3f(p.x, p.y, p.x), 0.1031)));
+        p3 = d.vec3f(std.add(p3, std.dot(p3, std.add(p3.yzx, 33.33))));
+        return std.fract((p3.x + p3.y) * p3.z);
+    })
+    .$name("hashStar");
 
-fn fbm2(p: vec2<f32>) -> f32 {
-    var value = 0.0;
-    var amplitude = 0.5;
-    var frequency = 1.0;
-    var pos = p;
+const hash2Star = tgpu
+    .fn(
+        [d.vec2f],
+        d.vec2f,
+    )((p) => {
+        "use gpu";
+        let p3 = d.vec3f(
+            std.fract(std.mul(d.vec3f(p.x, p.y, p.x), d.vec3f(0.1031, 0.103, 0.0973))),
+        );
+        p3 = d.vec3f(std.add(p3, std.dot(p3, std.add(p3.yzx, 33.33))));
+        return std.fract(std.mul(std.add(p3.xx, p3.yz), p3.zy));
+    })
+    .$name("hash2Star");
 
-    for (var i = 0; i < FBM2_OCTAVES; i++) {
-        value += amplitude * simplex2(pos * frequency);
-        amplitude *= 0.5;
-        frequency *= 2.0;
-    }
+// biome-ignore lint/suspicious/noApproximativeNumericConstant: the shipped hash grid uses this truncated PI
+const STAR_PI = 3.14159;
+const STAR_HALF_PI = 1.5708;
 
-    return value;
-}`;
-
-// hash-grid stars: a cell grid over (azimuth, elevation), one candidate star per cell with hashed position,
-// brightness, twinkle, and color temperature
-const STARS_WGSL = /* wgsl */ `
-fn hashStar(p: vec2<f32>) -> f32 {
-    var p3 = fract(vec3(p.x, p.y, p.x) * 0.1031);
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.x + p3.y) * p3.z);
-}
-
-fn hash2Star(p: vec2<f32>) -> vec2<f32> {
-    var p3 = fract(vec3(p.x, p.y, p.x) * vec3(0.1031, 0.1030, 0.0973));
-    p3 += dot(p3, p3.yzx + 33.33);
-    return fract((p3.xx + p3.yz) * p3.zy);
-}
-
-fn sampleStars(dir: vec3<f32>) -> vec3<f32> {
-    if (dir.y < 0.0) {
-        return vec3(0.0);
-    }
-
-    let theta = atan2(dir.z, dir.x);
-    let phi = asin(clamp(dir.y, -1.0, 1.0));
-
-    let gridSize = mix(20.0, 100.0, sky.starParams.y);
-    let cell = vec2(theta * gridSize / 3.14159, phi * gridSize / 1.5708);
-    let cellId = floor(cell);
-
-    var starColor = vec3(0.0);
-
-    for (var dy = -1; dy <= 1; dy++) {
-        for (var dx = -1; dx <= 1; dx++) {
-            let neighbor = cellId + vec2(f32(dx), f32(dy));
-            let starHash = hashStar(neighbor);
-
-            if (starHash > sky.starParams.y * 0.7) {
-                continue;
-            }
-
-            let starPos = hash2Star(neighbor);
-            let starCenter = neighbor + starPos;
-            let dist = length(cell - starCenter);
-
-            let brightness = hashStar(neighbor + vec2(100.0, 100.0));
-            let radius = 0.02 + brightness * 0.03;
-
-            if (dist < radius) {
-                let twinkle = 0.8 + 0.2 * sin(brightness * 100.0);
-                let intensity = sky.starParams.x * brightness * twinkle;
-                let falloff = 1.0 - smoothstep(0.0, radius, dist);
-
-                let temp = hashStar(neighbor + vec2(200.0, 200.0));
-                let tint = mix(vec3(1.0, 0.9, 0.8), vec3(0.8, 0.9, 1.0), temp);
-
-                starColor = max(starColor, tint * intensity * falloff);
+/** hash-grid stars: one candidate per neighboring azimuth/elevation cell. The nested 3x3 loop is the
+ * production loop, including its early `continue`. */
+export const sampleStars = tgpu
+    .fn(
+        [d.vec3f, d.f32, d.f32],
+        d.vec3f,
+    )((dir, intensity, amount) => {
+        "use gpu";
+        if (dir.y < 0) return d.vec3f(0);
+        const theta = std.atan2(dir.z, dir.x);
+        const phi = std.asin(std.clamp(dir.y, -1, 1));
+        const gridSize = std.mix(20, 100, amount);
+        const cell = d.vec2f((theta * gridSize) / STAR_PI, (phi * gridSize) / STAR_HALF_PI);
+        const cellId = std.floor(cell);
+        let starColor = d.vec3f(0);
+        for (let dy = d.i32(-1); dy <= 1; dy = dy + 1) {
+            for (let dx = d.i32(-1); dx <= 1; dx = dx + 1) {
+                const neighbor = std.add(cellId, d.vec2f(d.f32(dx), d.f32(dy)));
+                const starHash = hashStar(neighbor);
+                if (starHash > amount * 0.7) continue;
+                const starPos = hash2Star(neighbor);
+                const starCenter = std.add(neighbor, starPos);
+                const dist = std.length(std.sub(cell, starCenter));
+                const brightness = hashStar(std.add(neighbor, d.vec2f(100)));
+                const radius = 0.02 + brightness * 0.03;
+                if (dist < radius) {
+                    const twinkle = 0.8 + 0.2 * std.sin(brightness * 100);
+                    const strength = intensity * brightness * twinkle;
+                    const falloff = 1 - std.smoothstep(0, radius, dist);
+                    const temp = hashStar(std.add(neighbor, d.vec2f(200)));
+                    const tint = std.mix(d.vec3f(1, 0.9, 0.8), d.vec3f(0.8, 0.9, 1), temp);
+                    starColor = d.vec3f(
+                        std.max(starColor, std.mul(std.mul(tint, strength), falloff)),
+                    );
+                }
             }
         }
-    }
+        return starColor;
+    })
+    .$name("sampleStars");
 
-    return starColor;
-}`;
+const sampleClouds = tgpu
+    .fn(
+        [d.vec3f, d.vec4f, d.vec4f],
+        d.vec4f,
+    )((dir, params, cloudColor) => {
+        "use gpu";
+        if (dir.y < 0.01) return d.vec4f(0);
+        const t = params.z / std.max(dir.y, 0.001);
+        const uv = std.mul(dir.xz, t);
+        let n = fbm2(uv);
+        n = std.smoothstep(1 - params.x, 1, n * 0.5 + 0.5) * params.y;
+        n = n * std.smoothstep(0, 0.15, dir.y);
+        return d.vec4f(cloudColor.xyz, n);
+    })
+    .$name("sampleClouds");
 
-// FBM clouds projected onto a plane above the horizon, fading out toward the zenith and at the horizon
-const CLOUDS_WGSL = /* wgsl */ `
-fn sampleClouds(dir: vec3<f32>) -> vec4<f32> {
-    if (dir.y < 0.01) {
-        return vec4(0.0);
-    }
+/** the complete procedural view-ray recipe. `sunDirection` is the light-travel direction from the engine
+ * Lighting uniform; the visible sun sits opposite it. Pure and CPU-callable. */
+export const sampleSky = tgpu
+    .fn(
+        [SkyGpu, d.vec3f, d.vec3f],
+        d.vec3f,
+    )((sky, dir, sunDirection) => {
+        "use gpu";
+        const t = std.pow(std.clamp(dir.y, 0, 1), 0.25);
+        let color = d.vec3f(std.mix(sky.skyHorizon.xyz, sky.skyZenith.xyz, t));
+        if (sky.horizonBand > 0) {
+            const horizonBlend = std.pow(1 - std.abs(dir.y), 32) * sky.horizonBand;
+            const bandColor = std.mul(sky.skyHorizon.xyz, 1.5);
+            color = d.vec3f(std.mix(color, bandColor, horizonBlend));
+        }
 
-    let t = sky.cloudParams.z / max(dir.y, 0.001);
-    let uv = dir.xz * t;
+        color = d.vec3f(std.add(color, sampleStars(dir, sky.starParams.x, sky.starParams.y)));
+        const clouds = sampleClouds(dir, sky.cloudParams, sky.cloudColor);
+        color = d.vec3f(std.mix(color, clouds.xyz, clouds.w));
 
-    var n = fbm2(uv);
+        const sunDir = std.neg(sunDirection);
+        const sunDot = std.dot(dir, sunDir);
+        const sunVisualColor = sky.sunVisualColor.xyz;
+        const glowStrength = sky.sunParams.w;
+        if (glowStrength > 0) {
+            const g = d.f32(0.76);
+            const gg = g * g;
+            const mie = (1 - gg) / std.pow(1 + gg - 2 * g * sunDot, 1.5);
+            color = d.vec3f(
+                std.add(color, std.mul(std.mul(std.mul(sunVisualColor, mie), glowStrength), 0.025)),
+            );
+            const angle = std.max(0, sunDot);
+            const corona = std.pow(angle, 512) * 0.4 + std.pow(angle, 128) * 0.06;
+            const warmTint = d.vec3f(1, 0.9, 0.7);
+            color = d.vec3f(
+                std.add(
+                    color,
+                    std.mul(std.mul(std.mul(warmTint, sunVisualColor), corona), glowStrength),
+                ),
+            );
+        }
 
-    let coverage = sky.cloudParams.x;
-    let density = sky.cloudParams.y;
-    n = smoothstep(1.0 - coverage, 1.0, n * 0.5 + 0.5) * density;
+        // A zero f32 span means no disk. Guard the derived denominator before constructing equal
+        // smoothstep edges or dividing, including when a tiny positive size rounds the span to zero.
+        const baseSunSize = d.f32(0.9995);
+        const sunThreshold = d.f32(1 - (1 - baseSunSize) * sky.sunParams.x);
+        const sunSpan = d.f32(1 - sunThreshold);
+        if (sunSpan > 0) {
+            const sunEdgeWidth = sunSpan * 0.15;
+            const diskBlend = std.smoothstep(
+                sunThreshold - sunEdgeWidth,
+                sunThreshold + sunEdgeWidth,
+                sunDot,
+            );
+            if (diskBlend > 0) {
+                const radial = std.saturate((sunDot - sunThreshold) / sunSpan);
+                const r = 1 - radial;
+                const mu = std.sqrt(1 - r * r);
+                const limbDarken = 1 - 0.6 * (1 - mu);
+                color = d.vec3f(
+                    std.add(color, std.mul(std.mul(sunVisualColor, limbDarken), diskBlend)),
+                );
+                const edgeDist = 1 - std.smoothstep(0, 1, radial);
+                const fringe = d.vec3f(
+                    std.smoothstep(0.3, 0.7, edgeDist),
+                    std.smoothstep(0.5, 0.9, edgeDist),
+                    std.smoothstep(0.7, 1, edgeDist),
+                );
+                color = d.vec3f(
+                    std.add(
+                        color,
+                        std.mul(
+                            std.mul(std.mul(std.mul(fringe, sunVisualColor), 0.15), diskBlend),
+                            1 - radial,
+                        ),
+                    ),
+                );
+            }
+        }
 
-    n *= smoothstep(0.0, 0.15, dir.y);
+        if (sky.hazeDensity > 0) {
+            const horizonFactor = 1 - std.clamp(dir.y, 0, 1);
+            const hazeAmount = std.pow(horizonFactor, 2) * std.saturate(sky.hazeDensity * 5);
+            color = d.vec3f(std.mix(color, sky.hazeColor.xyz, hazeAmount));
+        }
+        return color;
+    })
+    .$name("sampleSky");
 
-    return vec4(sky.cloudColor.rgb, n);
-}`;
+export const skyLayout = backgroundLayout({ sky: { type: "uniform", struct: SkyGpu } });
 
-// the full preamble spliced into the background's WGSL: the `Sky` struct + the sky math. The fragment is
-// `col = sampleSky(dir)`.
-export const SKY_WGSL = /* wgsl */ `
-${SKY_STRUCT_WGSL}
-${NOISE_WGSL}
-${STARS_WGSL}
-${CLOUDS_WGSL}
-
-fn sampleSky(dir: vec3<f32>) -> vec3<f32> {
-    // elevation gradient, softened toward the horizon (pow 0.25), with an optional bright horizon band
-    let t = pow(clamp(dir.y, 0.0, 1.0), 0.25);
-    var color = mix(sky.skyHorizon.rgb, sky.skyZenith.rgb, t);
-
-    if (sky.horizonBand > 0.0) {
-        let horizonBlend = pow(1.0 - abs(dir.y), 32.0) * sky.horizonBand;
-        let bandColor = sky.skyHorizon.rgb * 1.5;
-        color = mix(color, bandColor, horizonBlend);
-    }
-
-    color += sampleStars(dir);
-
-    let clouds = sampleClouds(dir);
-    color = mix(color, clouds.rgb, clouds.a);
-
-    // the sun: glow gates on sunGlow, disk on sunSize, so a sun-less sky sets both to 0
-    // lighting.sunDirection is the light-travel direction (toward the ground); the sun disk
-    // sits opposite it, so negate to point at the sun.
-    let sunDir = -lighting.sunDirection.xyz;
-    let sunDot = dot(dir, sunDir);
-
-    let sunVisualColor = sky.sunVisualColor.rgb;
-
-    let glowStrength = sky.sunParams.w;
-    if (glowStrength > 0.0) {
-        // Henyey-Greenstein glow + a tight warm corona
-        let g = 0.76;
-        let gg = g * g;
-        let mie = (1.0 - gg) / pow(1.0 + gg - 2.0 * g * sunDot, 1.5);
-        color += sunVisualColor * mie * glowStrength * 0.025;
-
-        let angle = max(0.0, sunDot);
-        let corona = pow(angle, 512.0) * 0.4 + pow(angle, 128.0) * 0.06;
-        let warmTint = vec3f(1.0, 0.9, 0.7);
-        color += warmTint * sunVisualColor * corona * glowStrength;
-    }
-
-    // limb-darkened sun disk with a faint chromatic fringe at the edge
-    let baseSunSize = 0.9995;
-    let sunSizeParam = sky.sunParams.x;
-    let sunThreshold = 1.0 - (1.0 - baseSunSize) * sunSizeParam;
-    let sunEdgeWidth = (1.0 - sunThreshold) * 0.15;
-
-    let diskBlend = smoothstep(sunThreshold - sunEdgeWidth, sunThreshold + sunEdgeWidth, sunDot);
-    if (diskBlend > 0.0) {
-        let radial = saturate((sunDot - sunThreshold) / (1.0 - sunThreshold));
-        let r = 1.0 - radial;
-        let mu = sqrt(1.0 - r * r);
-        let limbDarken = 1.0 - 0.6 * (1.0 - mu);
-        color += sunVisualColor * limbDarken * diskBlend;
-
-        let edgeDist = 1.0 - smoothstep(0.0, 1.0, radial);
-        let fringe = vec3f(
-            smoothstep(0.3, 0.7, edgeDist),
-            smoothstep(0.5, 0.9, edgeDist),
-            smoothstep(0.7, 1.0, edgeDist)
+const skyFs = tgpu
+    .fn(
+        [BgCtx],
+        d.vec3f,
+    )((ctx) => {
+        "use gpu";
+        return sampleSky(
+            SkyGpu(skyLayout.$.sky),
+            ctx.dir,
+            engineLayout.$.lighting.sunDirection.xyz,
         );
-        color += fringe * sunVisualColor * 0.15 * diskBlend * (1.0 - radial);
-    }
+    })
+    .$name("skyFs");
 
-    if (sky.hazeDensity > 0.0) {
-        let horizonFactor = 1.0 - clamp(dir.y, 0.0, 1.0);
-        let hazeAmount = pow(horizonFactor, 2.0) * saturate(sky.hazeDensity * 5.0);
-        color = mix(color, sky.hazeColor.rgb, hazeAmount);
-    }
-
-    return color;
-}`;
-
-// the `Sky` uniform's byte size + float count (12 vec4-aligned slots: 2 leading f32s + 2 pad + 10 vec4s).
-export const SKY_BYTES = 144;
-export const SKY_FLOATS = SKY_BYTES / 4;
+/** the typed `sky` background registration. @internal */
+export const skyBackground: Background<{ sky: { type: "uniform"; struct: typeof SkyGpu } }> = {
+    name: "sky",
+    layout: skyLayout,
+    fs: skyFs,
+};

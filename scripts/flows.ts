@@ -22,6 +22,27 @@ const isMagenta = (r: number, g: number, b: number): boolean =>
 // checks present — a harness that readies without a run() reports ok:true as a bare boot smoke, and this
 // flow must never degrade to that (the assertions are the point).
 const SURVIVE_CHECKS = ["runtime value survived the reload", "warm-derived sprout not doubled"];
+const NO_WALLS_CHECKS = [
+    "external GPUDevice adopted",
+    "raw GPUBuffer wrapped with schema",
+    "raw WGSL resolved through TypeGPU",
+    "resolved raw dispatch wrote the typed draw record",
+    "Draws retained the typed indirect handle",
+];
+
+async function noWalls(): Promise<boolean> {
+    console.log("\n--- no-walls ---");
+    const result = await verify("examples/flows/no-walls", ["--timeout", "60000"]);
+    let ok = result?.pass === true && result.rendered === true && result.verdict?.ok === true;
+    for (const name of NO_WALLS_CHECKS) {
+        if (!result?.verdict?.checks?.some((c) => c.name === name && c.ok)) {
+            console.log(`  ✗ missing or failed check: ${name}`);
+            ok = false;
+        }
+    }
+    console.log(ok ? "PASS: no-walls" : "FAIL: no-walls");
+    return ok;
+}
 
 async function surviveReload(): Promise<boolean> {
     console.log("\n--- survive-reload ---");
@@ -122,7 +143,7 @@ async function main(): Promise<void> {
 Runs the standalone-app engine flows through \`shallot verify\`. Display-gated (native hardware only).
 
 Options:
-  --flow <name>   Run a single flow: survive-reload | ui-containment | blank`);
+  --flow <name>   Run a single flow: no-walls | survive-reload | ui-containment | blank`);
         process.exit(0);
     }
     const flowIdx = args.indexOf("--flow");
@@ -136,6 +157,9 @@ Options:
 
     console.log("Running flows...");
     let allPass = true;
+    if (!only || only === "no-walls") {
+        allPass = (await noWalls()) && allPass;
+    }
     if (!only || only === "survive-reload" || only === "survive") {
         allPass = (await surviveReload()) && allPass;
     }

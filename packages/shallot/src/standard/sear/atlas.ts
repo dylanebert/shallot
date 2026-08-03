@@ -1,7 +1,7 @@
 // Sear's shadow-atlas GPU state: the sun's CSM cascade atlas, the point/spot importance-packed atlas, and
 // the 1×1 fallback + comparison sampler bound when nothing casts. Owns every buffer/texture/bind-group
 // these need, the two atlas render passes (`renderPointShadows` / `renderCascades`), the color pass's
-// group-1 bind group (`shadowGroup`), and the getters a screen-space consumer (the fog march) binds to
+// group-1 bind group, and the getters a screen-space consumer (the fog march) binds to
 // sample the same shadows sear's color pass does. `forward.ts` resolves the frame's draw list and passes
 // it in; this module never reaches back into `forward.ts` at runtime (only for the `Recorded` type).
 
@@ -10,7 +10,7 @@ import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import type { Draw } from "../render/core";
 import { Render, Views } from "../render/core";
-import { DEPTH_FORMAT, VS_FS } from "./codegen";
+import { DEPTH_FORMAT } from "./codegen";
 import { engineLayout } from "./engine";
 import type { Recorded } from "./forward";
 import { createRegather, SHADOW_ARG_STRIDE } from "./regather";
@@ -67,17 +67,6 @@ let _shadowSampler: GPUSampler | null = null;
 let _fallbackDepth: GPUTexture | null = null;
 let _fallbackView: GPUTextureView | null = null;
 let _fallbackParams: GPUBuffer | null = null;
-
-// group 1 (sun shadow) — one layout shared across surfaces: the map depth texture + the comparison
-// sampler + the params uniform. The color + transparent pipelines bind it; the tag + depth pipelines
-// omit it. One global bind group (one sun), cached on the bound map + params identity
-let _shadowBgl: GPUBindGroupLayout | null = null;
-let _shadowGroup: {
-    map: GPUTextureView;
-    params: GPUBuffer;
-    atlas: GPUTextureView;
-    group: GPUBindGroup;
-} | null = null;
 
 // the real SunShadow params sear writes each casting frame (created at warm); `shadowReady()` gates the
 // render until warm has run
@@ -148,27 +137,19 @@ export function shadowReady(): boolean {
     return _shadowReady;
 }
 
-/** the sun-shadow group-1 layout (map + comparison sampler + params uniform) every color/background
- * pipeline binds group 1 against. `null` until {@link resetShadowAtlas} runs. */
-export function shadowLayout(): GPUBindGroupLayout | null {
-    return _shadowBgl;
-}
-
-// the typed twin of `shadowLayout()`/`_shadowBgl` (4a-ii-c-2): the same six bindings, same order, so the
+// The shared shadow layout exposes the same resources to every color/background pipeline, so the
 // WGSL-bodied real references `sampleSunShadow` / `pointShadowOf` (shade.ts) — which read them as free
 // names, the relocatable-global law — resolve against it once a typed color pipeline references it (the
-// fog `fogLayout1` precedent, `standard/fog/pipeline.ts`). Visibility mirrors the raw `_shadowBgl`
-// exactly (c-3b): the sampler + point-shadow bindings are vertex-visible too, because a per-vertex
+// fog `fogLayout1` precedent, `standard/fog/pipeline.ts`). The sampler + point-shadow bindings are
+// vertex-visible too, because a per-vertex
 // surface's vs chunk (`vertex`) calls `litPbr` → `pointShadowOf`, statically reaching them from the
 // vertex stage (it early-outs on `pointScale == 0` at runtime, and `textureSampleCompareLevel` is
 // vertex-legal); the sun map + params stay fragment-only — `sampleSunShadow` is scaffold-called, never
 // reachable from a vs chunk.
 // One module-scope instance, built once (the fog `_pointCastersGpu`/`_tileRectsGpu` shape) — a fresh
 // `pointCastersSchema()`/`tileRectsSchema()` call mints a new struct object each time, and this typed
-// pipeline's own resolve must stay pinned to one. This is the THIRD independent instance in the codebase
-// (fog's own, sear's raw `casterWgsl()` chunk) — each one's own standalone resolve, matching the raw
-// path's existing precedent (`casterWgsl`/`pointShadowCode` mint their own too) rather than a new
-// anti-pattern. Safe only because none of the three ever resolves alongside another in one `tgpu.resolve`
+// pipeline's own resolve must stay pinned to one. It remains independent from fog's schema instance and
+// safe because neither resolves alongside the other in one `tgpu.resolve`
 // call (a same-resolve collision would suffix the second `PointCasters`/`TileRects` name) — that
 // invariant isn't machine-checked (not in `splice.test.ts`'s pairwise matrix), so a future consumer that
 // tries to combine two of these resolves in one shader module must give one a fresh, deliberately-shared
@@ -180,10 +161,9 @@ const _shadowTypedRects = tileRectsSchema(pointCasters() * 6);
  * the typed group-1 shadow layout a typed color pipeline references to force `shadowMap` / `shadowSamp` /
  * `sunShadow` / `pointAtlas` / `pointShadows` / `tileRects` into scope (the forcing-touch law — the free
  * names inside `sampleSunShadow`/`pointShadowOf`'s WGSL bodies are invisible to `tgpu.resolve`'s call-graph
- * walk otherwise). The runtime bind group is {@link shadowGroupTyped} — the same underlying
- * textures/buffers `shadowGroup()` binds.
+ * walk otherwise). The runtime bind group is {@link shadowGroup}.
  */
-export const shadowLayoutTyped = tgpu
+export const shadowLayout = tgpu
     .bindGroupLayout({
         shadowMap: { texture: d.textureDepth2d(), visibility: ["fragment"] },
         shadowSamp: { sampler: "comparison", visibility: ["vertex", "fragment"] },
@@ -194,37 +174,27 @@ export const shadowLayoutTyped = tgpu
     })
     .$idx(1);
 
-/** the point/cascade atlas pipelines' group-1 layout (face viewProjs + combo meta + tile rects). `null`
- * until {@link resetShadowAtlas} runs. */
-export function pointLayout(): GPUBindGroupLayout | null {
-    return _pointBgl;
-}
-
-// the typed twins of `pointLayout()`/`_pointBgl` (4a-ii-c-3a-3): the same three uniforms, same order, so a
-// typed point/cascade VS (`pipelines.ts`'s `typedShadowVs`) reads `faceVP`/`comboMeta`/`tileRects` off a
-// real bind-group layout rather than a free name. Unlike `shadowLayoutTyped` (one shared color-pass shadow
-// group), the point and cascade atlases each need their OWN instance: `faceVPsSchema`/`comboMetaSchema`/
+// The point and cascade layouts have the same three uniforms in the same order, but the point/cascade VS
+// reads each from a real bind-group layout rather than a free name. Each atlas needs its own instance:
+// `faceVPsSchema`/`comboMetaSchema`/
 // `tileRectsSchema` fold the **slot count** into the schema type (6·casters for the point atlas, exactly
-// `MAX_CASCADES` for the cascade atlas — `pointShadowCode`'s own `slots` split, codegen.ts), and a schema is
-// sized once at first resolve (the `casterWgsl`/`_folded` config-lock precedent above) — a single shared
-// layout could only carry one of the two slot counts. Fragment-only would be wrong here (the raw `_pointBgl`
-// is vertex-only — the point/cascade VS is the sole reader, no fs samples this group), so both typed twins
-// stay `["vertex"]`, matching `_pointBgl`'s raw entries exactly.
+// `MAX_CASCADES` for the cascade atlas), and a schema is sized once at first resolve. A single shared layout
+// could only carry one slot count. Both layouts are vertex-only because their VS is the sole reader.
 //
 // Each is its own self-contained schema instance (the `_shadowTypedCasters`/`_shadowTypedRects` discipline
 // above): a `FaceVPs`/`ComboMeta`/`TileRects`-named struct can't be resolved twice under the same name in one
 // `tgpu.resolve` call, so the point layout's instances and the cascade layout's instances must never land in
-// the same pipeline's resolve — true here, since `compileTypedVariant`'s point pipeline and cascade pipeline
+// the same pipeline's resolve — true here, since `compileVariant`'s point pipeline and cascade pipeline
 // are two independent `Compute.root.createRenderPipeline` calls (pipelines.ts), never combined.
 const _pointTypedFaceVP = faceVPsSchema(pointCasters() * 6);
 const _pointTypedCombo = comboMetaSchema(pointCasters() * 6);
 const _pointTypedRects = tileRectsSchema(pointCasters() * 6);
 
-/** the typed point-atlas pipeline's group-1 layout: the combo-major face viewProjs, the per-combo (caster
- * slot, face) meta, and the per-(caster, face) tile rects — all vertex-only uniforms, the typed twin of
- * {@link pointLayout}. Config-folded to `6 · pointCasters()` slots at module load (the caster cap is fixed
+/** the point-atlas pipeline's group-1 layout: the combo-major face viewProjs, the per-combo (caster
+ * slot, face) meta, and the per-(caster, face) tile rects — all vertex-only uniforms.
+ * Config-folded to `6 · pointCasters()` slots at module load (the caster cap is fixed
  * before `build()`, like `capacity` — `checkShadowConfig`'s law). */
-export const pointLayoutTyped = tgpu
+export const pointLayout = tgpu
     .bindGroupLayout({
         faceVP: { uniform: _pointTypedFaceVP, visibility: ["vertex"] },
         comboMeta: { uniform: _pointTypedCombo, visibility: ["vertex"] },
@@ -236,9 +206,9 @@ const _cascadeTypedFaceVP = faceVPsSchema(MAX_CASCADES);
 const _cascadeTypedCombo = comboMetaSchema(MAX_CASCADES);
 const _cascadeTypedRects = tileRectsSchema(MAX_CASCADES);
 
-/** the typed cascade-atlas pipeline's group-1 layout — {@link pointLayoutTyped}'s twin, config-folded to
+/** the typed cascade-atlas pipeline's group-1 layout — {@link pointLayout}'s twin, config-folded to
  * `MAX_CASCADES` slots (fixed, unlike the point atlas's live caster count). */
-export const cascadeLayoutTyped = tgpu
+export const cascadeLayout = tgpu
     .bindGroupLayout({
         faceVP: { uniform: _cascadeTypedFaceVP, visibility: ["vertex"] },
         comboMeta: { uniform: _cascadeTypedCombo, visibility: ["vertex"] },
@@ -256,15 +226,8 @@ export function setPointFrames(frames: PointShadowFrame[]): void {
 // per-(caster, face) tile rects (shared with the color group, read for the VS's tile-discard bounds), all
 // uniforms. The tile placement is folded into the viewProjs, so the VS's rect read is only for the seam
 // discard; the per-instance (eid, combo) rides the re-gathered list at the surface's `eids` lane
-let _pointBgl: GPUBindGroupLayout | null = null;
 let _faceVP: GPUBuffer | null = null; // dense per-combo viewProjs (≤ 6 · casters mat4), uploaded per frame
 let _comboMeta: GPUBuffer | null = null; // dense per-combo (caster slot, face) the VS tile-decodes
-let _pointGroup1: {
-    faceVP: GPUBuffer;
-    combo: GPUBuffer;
-    rects: GPUBuffer;
-    group: GPUBindGroup;
-} | null = null;
 
 // the point atlas's re-gather instance: concatenates each casting mesh's per-combo culled members (the Part
 // pack output) into one contiguous run + a per-instance combo index, so the atlas renders in one indirect
@@ -290,21 +253,20 @@ const _drawPairs: number[] = [];
 // atlas exactly, the per-cascade vs per-(caster, face) tile index the only difference.
 let _cascadeAtlas: GPUTexture | null = null;
 let _cascadeAtlasView: GPUTextureView | null = null;
-// the cascade pipeline's group 1 (same 3-uniform shape as the point group 1, reuses `_pointBgl`): the dense
+// the cascade pipeline's group 1: the dense
 // per-cascade folded tile viewProjs the VS projects by, the per-cascade meta (tile index), and the tile rects
 let _cascadeVPBuf: GPUBuffer | null = null;
 let _cascadeMetaBuf: GPUBuffer | null = null;
 let _cascadeRectsBuf: GPUBuffer | null = null;
-let _cascadeGroup1: {
-    faceVP: GPUBuffer;
-    combo: GPUBuffer;
-    rects: GPUBuffer;
-    group: GPUBindGroup;
-} | null = null;
 /** the CSM cascade atlas's re-gather instance ({@link createRegather} "cascade") — the point atlas's twin. */
 export const cascadeRegather = createRegather("cascade");
-// the casting draws this frame whose surface compiled a cascade pipeline, filled in renderCascades
-const _cascadeCastDraws: { draw: Draw; r: Recorded }[] = [];
+interface CascadeBatch {
+    drawArgs: GPUBuffer;
+    packed: GPUBuffer;
+    pairCount: number;
+    draws: { draw: Draw; r: Recorded }[];
+}
+const _cascadeBatches: CascadeBatch[] = [];
 
 // every slot empty: pos.w = -1 (eids are non-negative, so nothing matches)
 function clearPointParams(): void {
@@ -312,11 +274,18 @@ function clearPointParams(): void {
     for (let k = 0; k < pointCasters(); k++) _pointF32[k * POINT_CASTER_FLOATS + 3] = -1;
 }
 
+// The shared color-pass shadow group, cached on resource identity.
+let _shadowGroup: {
+    map: GPUTextureView;
+    params: GPUBuffer;
+    atlas: GPUTextureView;
+    group: GPUBindGroup;
+} | null = null;
+
 /**
- * the color pass's group-1 bind group: the sun map + comparison sampler + params, plus the point atlas +
- * its params + tile rects, cached on the bound identities (real once something casts, else the shared 1×1
- * fallback for the sun map/params — the point atlas fields are always bound, an empty caster slot matching
- * no eid).
+ * the color pass's group-1 bind group against {@link shadowLayout}: the sun map / comparison sampler /
+ * params + point atlas /
+ * caster params / tile rects, cached on the bound identities.
  */
 export function shadowGroup(): GPUBindGroup {
     const map = _sun?.map ?? _fallbackView!;
@@ -330,51 +299,8 @@ export function shadowGroup(): GPUBindGroup {
     ) {
         return _shadowGroup.group;
     }
-    const group = Compute.device.createBindGroup({
-        label: "sear-shadow",
-        layout: _shadowBgl!,
-        entries: [
-            { binding: 0, resource: map },
-            { binding: 1, resource: _shadowSampler! },
-            { binding: 2, resource: { buffer: params } },
-            { binding: 3, resource: atlas },
-            { binding: 4, resource: { buffer: _pointParams! } },
-            { binding: 5, resource: { buffer: _pointTileRects! } },
-        ],
-    });
-    _shadowGroup = { map, params, atlas, group };
-    return group;
-}
-
-// the typed twin of `_shadowGroup` (4a-ii-c-3b): the same six resources against `shadowLayoutTyped`,
-// unwrapped raw so a typed draw registers it with `.with(shadowLayoutTyped, group)` — cached on the same
-// bound identities
-let _shadowGroupTyped: {
-    map: GPUTextureView;
-    params: GPUBuffer;
-    atlas: GPUTextureView;
-    group: GPUBindGroup;
-} | null = null;
-
-/**
- * the typed color pass's group-1 bind group ({@link shadowGroup}'s typed twin, against
- * {@link shadowLayoutTyped}): the same underlying sun map / comparison sampler / params + point atlas /
- * caster params / tile rects, cached on the bound identities.
- */
-export function shadowGroupTyped(): GPUBindGroup {
-    const map = _sun?.map ?? _fallbackView!;
-    const params = _sun?.params ?? _fallbackParams!;
-    const atlas = _pointAtlasView ?? _fallbackView!;
-    if (
-        _shadowGroupTyped &&
-        _shadowGroupTyped.map === map &&
-        _shadowGroupTyped.params === params &&
-        _shadowGroupTyped.atlas === atlas
-    ) {
-        return _shadowGroupTyped.group;
-    }
     const group = Compute.root.unwrap(
-        Compute.root.createBindGroup(shadowLayoutTyped, {
+        Compute.root.createBindGroup(shadowLayout, {
             shadowMap: map,
             shadowSamp: _shadowSampler!,
             sunShadow: params,
@@ -383,12 +309,11 @@ export function shadowGroupTyped(): GPUBindGroup {
             tileRects: _pointTileRects!,
         }),
     );
-    _shadowGroupTyped = { map, params, atlas, group };
+    _shadowGroup = { map, params, atlas, group };
     return group;
 }
 
-// the typed twins of `_pointGroup1` / `_cascadeGroup1` (built below): the same three uniforms against
-// `pointLayoutTyped` / `cascadeLayoutTyped`, cached on the bound identities like their raw twins
+// Atlas bind groups cache the three uniform resources by identity.
 let _pointGroup1Typed: { faceVP: GPUBuffer; combo: GPUBuffer; group: GPUBindGroup } | null = null;
 let _cascadeGroup1Typed: { faceVP: GPUBuffer; combo: GPUBuffer; group: GPUBindGroup } | null = null;
 
@@ -397,7 +322,7 @@ function pointGroup1Typed(): GPUBindGroup {
         return _pointGroup1Typed!.group;
     }
     const group = Compute.root.unwrap(
-        Compute.root.createBindGroup(pointLayoutTyped, {
+        Compute.root.createBindGroup(pointLayout, {
             faceVP: _faceVP!,
             comboMeta: _comboMeta!,
             tileRects: _pointTileRects!,
@@ -415,7 +340,7 @@ function cascadeGroup1Typed(): GPUBindGroup {
         return _cascadeGroup1Typed!.group;
     }
     const group = Compute.root.unwrap(
-        Compute.root.createBindGroup(cascadeLayoutTyped, {
+        Compute.root.createBindGroup(cascadeLayout, {
             faceVP: _cascadeVPBuf!,
             comboMeta: _cascadeMetaBuf!,
             tileRects: _cascadeRectsBuf!,
@@ -430,11 +355,10 @@ function cascadeGroup1Typed(): GPUBindGroup {
  * fallback, the real params buffer), the point atlas's params/tile-rects/group-1 layout+buffers, and the
  * cascade atlas's group-1 buffers — the atlas half of `prepareSear` (the pipeline-compilation half is
  * `pipelines.ts`'s `preparePipelines`). Surviving HMR re-warms; called once per `prepareSear`, before the
- * pipeline compiles that reference {@link shadowLayout} / {@link pointLayout}.
+ * pipeline compiles that reference the TypeGPU layouts above.
  */
 export function resetShadowAtlas(device: GPUDevice): void {
     _shadowGroup = null;
-    _shadowGroupTyped = null;
     _pointGroup1Typed = null;
     _cascadeGroup1Typed = null;
     // drop any seam a prior State left behind (module-level survives HMR)
@@ -491,6 +415,13 @@ export function resetShadowAtlas(device: GPUDevice): void {
     clearPointParams();
     device.queue.writeBuffer(_pointParams, 0, _pointBuf);
     Compute.buffers.set("pointShadows", _pointParams);
+    Compute.typed.set(
+        "pointShadows",
+        Compute.root
+            .createBuffer(_shadowTypedCasters, _pointParams)
+            .$usage("uniform")
+            .$name("sear-point-shadow-params"),
+    );
     // the per-(caster, face) tile rects — bound on both the color shadow group (the receiver) and the point
     // group (the atlas VS's discard bounds). Always exists (cleared to zero), COPY_SRC + published for the
     // gym Mirror. 6 vec4 per caster
@@ -502,23 +433,13 @@ export function resetShadowAtlas(device: GPUDevice): void {
     });
     device.queue.writeBuffer(_pointTileRects, 0, new Float32Array(pointCasters() * 6 * 4));
     Compute.buffers.set("pointTileRects", _pointTileRects);
-    _shadowBgl = device.createBindGroupLayout({
-        label: "sear-shadow",
-        entries: [
-            { binding: 0, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
-            // the sampler + point-shadow bindings are vertex-visible too: a per-vertex surface's vs
-            // chunk calls lightFactor → pointFactor → pointShadowOf, so they're statically reachable
-            // from the vertex stage (it early-outs on pointScale == 0 at runtime, and
-            // textureSampleCompareLevel is vertex-legal — the reason the FS uses the Level variant).
-            // The sun map + params (0, 2) stay fragment-only: sampleSunShadow is scaffold-called,
-            // never reachable from a vs chunk. The tile rects (5) are part of pointShadowOf, so vertex-visible
-            { binding: 1, visibility: VS_FS, sampler: { type: "comparison" } },
-            { binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: { type: "uniform" } },
-            { binding: 3, visibility: VS_FS, texture: { sampleType: "depth" } },
-            { binding: 4, visibility: VS_FS, buffer: { type: "uniform" } },
-            { binding: 5, visibility: VS_FS, buffer: { type: "uniform" } },
-        ],
-    });
+    Compute.typed.set(
+        "pointTileRects",
+        Compute.root
+            .createBuffer(_shadowTypedRects, _pointTileRects)
+            .$usage("uniform")
+            .$name("sear-point-tilerects"),
+    );
 
     // the point pipeline's group 1 buffers: the combo-major face viewProjs + the per-combo meta (the tile
     // rects bind alongside, all uniforms the point VS reads)
@@ -534,16 +455,7 @@ export function resetShadowAtlas(device: GPUDevice): void {
         size: pointCasters() * 6 * 16, // vec4<u32> per combo
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    _pointBgl = device.createBindGroupLayout({
-        label: "sear-point",
-        entries: [
-            { binding: 0, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-            { binding: 1, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-            { binding: 2, visibility: GPUShaderStage.VERTEX, buffer: { type: "uniform" } },
-        ],
-    });
-    _pointGroup1 = null;
-    // the cascade pipeline's group 1 buffers (same shape as the point group 1, reuses `_pointBgl`): the dense
+    // the cascade pipeline's group 1 buffers: the dense
     // per-cascade folded tile viewProjs, the per-cascade meta, and the tile rects — all MAX_CASCADES-sized
     _cascadeVPBuf?.destroy();
     _cascadeVPBuf = device.createBuffer({
@@ -563,7 +475,6 @@ export function resetShadowAtlas(device: GPUDevice): void {
         size: MAX_CASCADES * 16,
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
-    _cascadeGroup1 = null;
     _shadowReady = true;
 }
 
@@ -590,13 +501,11 @@ export function disposeShadowAtlas(): void {
     _cascadeVPBuf = null;
     _cascadeMetaBuf = null;
     _cascadeRectsBuf = null;
-    _cascadeGroup1 = null;
-    _shadowGroupTyped = null;
+    _shadowGroup = null;
     _pointGroup1Typed = null;
     _cascadeGroup1Typed = null;
     _faceVP = null;
     _comboMeta = null;
-    _pointGroup1 = null;
     _pointAtlas = null;
     _pointAtlasView = null;
     _pointParams = null;
@@ -636,59 +545,6 @@ function ensureCascadeAtlas(): void {
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
     });
     _cascadeAtlasView = _cascadeAtlas.createView();
-}
-
-// the cascade pipeline's group 1 — per-cascade tile viewProjs + meta + rects, the point group 1's twin
-// (reuses `_pointBgl`). Cached on the bound identities (the buffers are stable post-warm, so this hits once)
-function cascadeGroup1(): GPUBindGroup {
-    if (
-        _cascadeGroup1 &&
-        _cascadeGroup1.faceVP === _cascadeVPBuf &&
-        _cascadeGroup1.combo === _cascadeMetaBuf &&
-        _cascadeGroup1.rects === _cascadeRectsBuf
-    ) {
-        return _cascadeGroup1.group;
-    }
-    const group = Compute.device.createBindGroup({
-        label: "sear-cascade-group1",
-        layout: _pointBgl!,
-        entries: [
-            { binding: 0, resource: { buffer: _cascadeVPBuf! } },
-            { binding: 1, resource: { buffer: _cascadeMetaBuf! } },
-            { binding: 2, resource: { buffer: _cascadeRectsBuf! } },
-        ],
-    });
-    _cascadeGroup1 = {
-        faceVP: _cascadeVPBuf!,
-        combo: _cascadeMetaBuf!,
-        rects: _cascadeRectsBuf!,
-        group,
-    };
-    return group;
-}
-
-// the point pipeline's group 1 — combo tile-viewProjs + combo meta + the tile rects, all uniforms (the
-// per-instance (eid, combo) rides the re-gathered list at the eids lane). Cached on the bound identities
-function pointGroup1(): GPUBindGroup {
-    if (
-        _pointGroup1 &&
-        _pointGroup1.faceVP === _faceVP &&
-        _pointGroup1.combo === _comboMeta &&
-        _pointGroup1.rects === _pointTileRects
-    ) {
-        return _pointGroup1.group;
-    }
-    const group = Compute.device.createBindGroup({
-        label: "sear-point-group1",
-        layout: _pointBgl!,
-        entries: [
-            { binding: 0, resource: { buffer: _faceVP! } },
-            { binding: 1, resource: { buffer: _comboMeta! } },
-            { binding: 2, resource: { buffer: _pointTileRects! } },
-        ],
-    });
-    _pointGroup1 = { faceVP: _faceVP!, combo: _comboMeta!, rects: _pointTileRects!, group };
-    return group;
 }
 
 /**
@@ -775,12 +631,9 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
     let drawArgs: GPUBuffer | null = null;
     let pairCount = 0;
     for (const item of frameDraws) {
-        const casts =
-            "c" in item.r
-                ? item.r.c.point && item.r.entry.pointGroup
-                : item.r.t.point && item.r.g.point;
+        const casts = item.r.t.point && item.r.g.point;
         if (!casts) continue;
-        const buf = item.draw.args.indirect;
+        const buf = Compute.root.unwrap(item.draw.args.indirect);
         if (!drawArgs) {
             drawArgs = buf;
             pairCount = Math.floor((item.draw.args.viewStride ?? 0) / SHADOW_ARG_STRIDE);
@@ -793,6 +646,7 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
     const C = pointComboCount();
     const packed = Compute.buffers.get("eids");
     if (D === 0 || C === 0 || !drawArgs || !packed || pairCount === 0) return;
+    pointRegather.reserve(D);
 
     // the re-gather inputs: the view slot each dense combo culled into, and the (surface,mesh) pair each
     // casting draw owns. `Regather.run` concatenates each mesh's per-combo culled members into one run +
@@ -824,31 +678,16 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
             depthClearValue: 0,
         },
     });
-    const group1 = pointGroup1();
     for (let i = 0; i < D; i++) {
         const { r } = _castDraws[i];
-        if ("c" in r) {
-            pass.setPipeline(r.c.point!);
-            pass.setBindGroup(0, r.entry.pointGroup!);
-            pass.setBindGroup(1, group1);
-            pass.setIndexBuffer(r.index, "uint32");
-            pass.drawIndexedIndirect(pointRegather.args()!, i * SHADOW_ARG_STRIDE);
-        } else {
-            // a typed draw: engine group 0 (slot 0's unread-View instance), the typed atlas group 1,
-            // and the surface's own depth-shape group 2 with the eids lane swapped to the re-gathered
-            // list. The group registers under BOTH group-2 layout objects — a vs-chunk surface's own
-            // reads resolve against `layout` while the depth vertex pull resolves against
-            // `layout.depthVariant`, and whichever object the resolution recorded at idx 2 must find
-            // the (structurally identical, WebGPU-group-equivalent) bind group
-            r.t
-                .point!.with(pass)
-                .with(engineLayout, r.g.atlasG0)
-                .with(pointLayoutTyped, pointGroup1Typed())
-                .with(r.g.layout, r.g.point!)
-                .with(r.g.layout.depthVariant, r.g.point!)
-                .withIndexBuffer(r.index, "uint32")
-                .drawIndexedIndirect(pointRegather.args()!, i * SHADOW_ARG_STRIDE);
-        }
+        r.t
+            .point!.with(pass)
+            .with(engineLayout, r.g.atlasG0)
+            .with(pointLayout, pointGroup1Typed())
+            .with(r.g.layout, r.g.point!)
+            .with(r.g.layout.depthVariant, r.g.point!)
+            .withIndexBuffer(r.index)
+            .drawIndexedIndirect(pointRegather.args()!, i * SHADOW_ARG_STRIDE);
     }
     pass.end();
     // one indirect draw per casting mesh — the Dawn indirect-validation floor (gpu.md); the per-combo
@@ -896,29 +735,46 @@ export function renderCascades(frameDraws: { draw: Draw; r: Recorded }[]): void 
         C * 4,
     );
 
-    // the casting draws (a compiled cascade pipeline + its cascade bind group) sharing the Part pack's one
-    // indirect buffer — same part-agnostic gather as the point path
-    _cascadeCastDraws.length = 0;
-    let drawArgs: GPUBuffer | null = null;
-    let pairCount = 0;
+    // Group culled draws by the Part pack's slot-major source, and view-independent producer draws by
+    // their own indirect/eids source. Regather's pairCount=0 arm duplicates the latter across cascades.
+    for (const batch of _cascadeBatches) batch.draws.length = 0;
+    let batchCount = 0;
+    const culledEids = Compute.buffers.get("eids");
     for (const item of frameDraws) {
-        const casts =
-            "c" in item.r
-                ? item.r.c.cascade && item.r.entry.cascadeGroup
-                : item.r.t.cascade && item.r.g.cascade;
+        const casts = item.r.t.cascade && item.r.g.cascade;
         if (!casts) continue;
-        const buf = item.draw.args.indirect;
-        if (!drawArgs) {
-            drawArgs = buf;
-            pairCount = Math.floor((item.draw.args.viewStride ?? 0) / SHADOW_ARG_STRIDE);
-        } else if (buf !== drawArgs) {
-            continue;
+        const drawArgs = Compute.root.unwrap(item.draw.args.indirect);
+        const pairCount = Math.floor((item.draw.args.viewStride ?? 0) / SHADOW_ARG_STRIDE);
+        const packed = pairCount > 0 ? culledEids : item.r.g.eids;
+        if (!packed) continue;
+        let batch: CascadeBatch | undefined;
+        for (let b = 0; b < batchCount; b++) {
+            const candidate = _cascadeBatches[b];
+            if (
+                candidate.drawArgs === drawArgs &&
+                candidate.packed === packed &&
+                candidate.pairCount === pairCount
+            ) {
+                batch = candidate;
+                break;
+            }
         }
-        _cascadeCastDraws.push(item);
+        if (!batch) {
+            batch = _cascadeBatches[batchCount] ?? {
+                drawArgs,
+                packed,
+                pairCount,
+                draws: [],
+            };
+            batch.drawArgs = drawArgs;
+            batch.packed = packed;
+            batch.pairCount = pairCount;
+            _cascadeBatches[batchCount] = batch;
+            batchCount++;
+        }
+        batch.draws.push(item);
     }
-    const D = _cascadeCastDraws.length;
-    const packed = Compute.buffers.get("eids");
-    if (D === 0 || !drawArgs || !packed || pairCount === 0) {
+    if (batchCount === 0) {
         _sun = null; // a casting sun with no casting geometry — fully lit, like the no-cast path
         return;
     }
@@ -927,56 +783,59 @@ export function renderCascades(frameDraws: { draw: Draw; r: Recorded }[]): void 
     const combos = cascadeComboEids();
     _comboSlots.length = 0;
     for (let c = 0; c < C; c++) _comboSlots.push(Views.get(combos[c])?.slot ?? 0);
-    _drawPairs.length = 0;
-    for (let i = 0; i < D; i++)
-        _drawPairs.push(
-            Math.floor((_cascadeCastDraws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE),
+    let maxBatchDraws = 0;
+    for (let b = 0; b < batchCount; b++) {
+        maxBatchDraws = Math.max(maxBatchDraws, _cascadeBatches[b].draws.length);
+    }
+    cascadeRegather.reserve(maxBatchDraws);
+    let totalDraws = 0;
+    for (let b = 0; b < batchCount; b++) {
+        const batch = _cascadeBatches[b];
+        const D = batch.draws.length;
+        _drawPairs.length = 0;
+        for (let i = 0; i < D; i++)
+            _drawPairs.push(Math.floor((batch.draws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE));
+        const cpass = encoder.beginComputePass({
+            label: "sear:cascaderegather",
+            timestampWrites: Compute.span?.("sear:cascaderegather"),
+        });
+        cascadeRegather.run(
+            cpass,
+            batch.drawArgs,
+            batch.packed,
+            _comboSlots,
+            _drawPairs,
+            batch.pairCount,
+            b,
         );
-    const cpass = encoder.beginComputePass({
-        label: "sear:cascaderegather",
-        timestampWrites: Compute.span?.("sear:cascaderegather"),
-    });
-    cascadeRegather.run(cpass, drawArgs, packed, _comboSlots, _drawPairs, pairCount);
-    cpass.end();
+        cpass.end();
 
-    // one pass into the cascade atlas — one indirect draw per casting mesh, the VS placing each re-gathered
-    // instance into its cascade's tile. The cascade VS projects by the folded tile viewProj (not view), so
-    // the bound View buffer (slot 0's, `record`'s eidsSwap) is an unread placeholder
-    const pass = encoder.beginRenderPass({
-        label: "sear-cascadeshadow",
-        timestampWrites: Compute.span?.("sear:cascadeshadow"),
-        colorAttachments: [],
-        depthStencilAttachment: {
-            view: _cascadeAtlasView!,
-            depthLoadOp: "clear",
-            depthStoreOp: "store",
-            depthClearValue: 0,
-        },
-    });
-    const group1 = cascadeGroup1();
-    for (let i = 0; i < D; i++) {
-        const { r } = _cascadeCastDraws[i];
-        if ("c" in r) {
-            pass.setPipeline(r.c.cascade!);
-            pass.setBindGroup(0, r.entry.cascadeGroup!);
-            pass.setBindGroup(1, group1);
-            pass.setIndexBuffer(r.index, "uint32");
-            pass.drawIndexedIndirect(cascadeRegather.args()!, i * SHADOW_ARG_STRIDE);
-        } else {
-            // the point pass's typed shape, cascade-flavored (see renderPointShadows for the dual
-            // group-2 registration why)
+        const pass = encoder.beginRenderPass({
+            label: "sear-cascadeshadow",
+            timestampWrites: Compute.span?.("sear:cascadeshadow"),
+            colorAttachments: [],
+            depthStencilAttachment: {
+                view: _cascadeAtlasView!,
+                depthLoadOp: b === 0 ? "clear" : "load",
+                depthStoreOp: "store",
+                depthClearValue: 0,
+            },
+        });
+        for (let i = 0; i < D; i++) {
+            const { r } = batch.draws[i];
             r.t
                 .cascade!.with(pass)
                 .with(engineLayout, r.g.atlasG0)
-                .with(cascadeLayoutTyped, cascadeGroup1Typed())
+                .with(cascadeLayout, cascadeGroup1Typed())
                 .with(r.g.layout, r.g.cascade!)
                 .with(r.g.layout.depthVariant, r.g.cascade!)
-                .withIndexBuffer(r.index, "uint32")
+                .withIndexBuffer(r.index)
                 .drawIndexedIndirect(cascadeRegather.args()!, i * SHADOW_ARG_STRIDE);
         }
+        pass.end();
+        totalDraws += D;
     }
-    pass.end();
-    Compute.indirect?.("sear:cascadeshadow", D);
+    Compute.indirect?.("sear:cascadeshadow", totalDraws);
 
     // write the per-cascade SunShadow params + publish the seam: the receiver selects a cascade by view-z and
     // samples the cascade atlas (`sampleSunShadow`). One atlas pixel in uv (`texel`) is the PCF tap step; each

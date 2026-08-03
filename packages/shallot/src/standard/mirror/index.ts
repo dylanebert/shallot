@@ -34,10 +34,11 @@ function unwrap(source: MirrorSource): GPUBuffer {
  *     const age = state.time.fixedTick - m.snapshot.fixedTick;
  * }
  */
-export class Mirror {
+export class Mirror<T extends MirrorSource = MirrorSource> {
     private static _all: Mirror[] = [];
 
-    readonly source: GPUBuffer;
+    /** schema-carrying source passed at construction; raw sources remain raw for the WebGPU escape */
+    readonly source: T;
     /** byte size of each staging slot and each {@link snapshot} */
     readonly size: number;
 
@@ -53,9 +54,12 @@ export class Mirror {
     private _owned: ArrayBuffer | null = null;
     private _disposed: boolean = false;
 
-    constructor(source: MirrorSource, opts?: { ring?: number }) {
-        this.source = unwrap(source);
-        this.size = this.source.size;
+    private readonly _raw: GPUBuffer;
+
+    constructor(source: T, opts?: { ring?: number }) {
+        this.source = source;
+        this._raw = unwrap(source);
+        this.size = this._raw.size;
         this._ringSize = opts?.ring ?? 2;
         Mirror._all.push(this);
     }
@@ -110,7 +114,7 @@ export class Mirror {
                 });
                 m._slots.push(slot);
             }
-            encoder.copyBufferToBuffer(m.source, 0, slot, 0, m.size);
+            encoder.copyBufferToBuffer(m._raw, 0, slot, 0, m.size);
             pending.push({ m, slot });
         }
 
@@ -153,7 +157,7 @@ export class Mirror {
 }
 
 /** construct a buffer-level mirror over a raw or typed buffer; registers with {@link MirrorSystem} */
-export function mirror(source: MirrorSource, opts?: { ring?: number }): Mirror {
+export function mirror<T extends MirrorSource>(source: T, opts?: { ring?: number }): Mirror<T> {
     return new Mirror(source, opts);
 }
 

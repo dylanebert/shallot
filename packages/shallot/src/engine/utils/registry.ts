@@ -6,11 +6,11 @@
  * for compact GPU-side routing; consumers reference entries by name
  *
  * @example
- * const Surfaces = new Registry<Surface>();
- * const id = Surfaces.register({ name: "checker", wgsl, bindings });
- * Surfaces.get("checker");      // the value
- * Surfaces.id("checker");       // the ID
- * Surfaces.name(id);            // "checker"
+ * const Items = new Registry<{ name: string; value: number }>();
+ * const id = Items.register({ name: "answer", value: 42 });
+ * Items.get("answer");      // the value
+ * Items.id("answer");       // the ID
+ * Items.name(id);            // "answer"
  */
 export class Registry<T extends { name: string }> {
     private readonly _ids = new Map<string, number>();

@@ -3,7 +3,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { capacity } from "../../engine";
 import { Xform, xformPoint } from "../../engine/utils/core";
-import { CULL_FRUSTUM, CULL_VOLUME_FLOATS } from "../render/core";
+import { CULL_FRUSTUM, CULL_VOLUME_FLOATS, DrawIndexedIndirect } from "../render/core";
 
 // The pack kernels: cull → count → scan → scatter, the compute half of the Part producer. Count and
 // scatter share the same cull inputs, so those are ONE bind group layout both kernels reference (and the
@@ -35,14 +35,14 @@ export const countLayout = tgpu.bindGroupLayout({
 /** the scan pass's I/O — no cull inputs, so it references neither shared layout @internal */
 export const scanLayout = tgpu.bindGroupLayout({
     counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
-    drawArgs: { storage: d.arrayOf(d.u32), access: "mutable" },
+    drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "mutable" },
     params: { uniform: CullParams },
 });
 
 /** the scatter pass's own I/O: the scanned args it reads bases from, the counts it reuses as a cursor,
  *  and the compacted survivor list it appends into @internal */
 export const scatterLayout = tgpu.bindGroupLayout({
-    drawArgs: { storage: d.arrayOf(d.u32), access: "readonly" },
+    drawArgs: { storage: d.arrayOf(DrawIndexedIndirect), access: "readonly" },
     counts: { storage: d.arrayOf(d.atomic(d.u32)), access: "mutable" },
     packedEids: { storage: d.arrayOf(d.u32), access: "mutable" },
 });
@@ -188,8 +188,8 @@ export const scanKernel = tgpu.computeFn({
         const tileTotal = temp.$[SCAN_WG - 1]; // every out-of-range lane added 0
 
         if (inRange) {
-            scanLayout.$.drawArgs[idx * 5 + 1] = c;
-            scanLayout.$.drawArgs[idx * 5 + 4] = slot * capacity + carry.$ + excl;
+            scanLayout.$.drawArgs[idx].instanceCount = c;
+            scanLayout.$.drawArgs[idx].firstInstance = slot * capacity + carry.$ + excl;
             std.atomicStore(scanLayout.$.counts[idx], 0);
         }
         std.workgroupBarrier();
@@ -223,7 +223,7 @@ export function scatterKernel(base: number, mask: number, surfaceCount: number) 
             if (!visible(eid, g.mid, slot)) return;
             const idx = slot * cullLayout.$.params.pairCount + g.pair;
             const local = std.atomicAdd(scatterLayout.$.counts[idx], 1);
-            scatterLayout.$.packedEids[scatterLayout.$.drawArgs[idx * 5 + 4] + local] = eid;
+            scatterLayout.$.packedEids[scatterLayout.$.drawArgs[idx].firstInstance + local] = eid;
         })
         .$name("partScatter");
 }

@@ -5,4 +5,4 @@
 // `LiveSkin` / `Skin` / `skinMatrix`) rides `extras`; the block-layout arithmetic + the CPU twins of the
 // blend stay internal to `live.ts`, imported directly by its tests.
 
-export { LIVE_SKIN_VS, liveTintWgsl, SkinParams, skinBindings, skinParamsWgsl } from "./live";
+export { LIVE_SKIN_VS, liveTintWgsl, SkinParams, skinParamsWgsl } from "./live";

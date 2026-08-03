@@ -316,28 +316,6 @@ async function assertSpriteDraw(): Promise<Check> {
 // else in the scene also casts (an unrelated shadow is identical in both frames and diffs to ~0). A
 // Part cube run through the same rig (scaled to zero) finds its shadow's exact tile with `maxDiff` ≈
 // 0.33, the probe's own soundness proof.
-//
-// A sprite caster still reads red here on real hardware, even after the eid-indexing fix (`spriteData`
-// keyed by `eid`, the custom varying dropped entirely — sprite now routes through the plain
-// `clipShadowVs`/`clipShadowFs` pair, not `varyingShadowVs`/`clipVaryingCopier`, ruling out the earlier
-// varying-copier diagnosis: it never chased a real defect). Geometry is proven correct — commenting
-// out `std.discard()` in `surface.ts`'s clip `spriteFs` branch makes this check pass at `maxDiff` ≈
-// 0.47 (the known-good caster value), and world/eid indexing is independently pinned by
-// `sprite.test.ts`. Isolated further: with the real discard restored, `tex.w < 0.5` alone (no `unp`/
-// `mask` factors) already discards every fragment — even at a hardcoded `uv = (0.5, 0.5)` and a
-// hardcoded array layer `0`, deep inside the icon's opaque body — while `unp.w < 0.5` alone (the
-// per-instance tint alpha, no texture read) discards correctly and passes. So `std.textureSample`'s
-// alpha channel reads uniformly near-zero specifically in this clip-shadow fragment pass, though the
-// exact same texture/sampler bind identically for the color pass (same `resolved.values`, `gpu.md`
-// "Binding resolution" — verified by reading `sear/forward.ts`'s `recordTyped`). Not `castable`, the
-// re-gather plumbing, or sprite's own indexing (all check out structurally and behaviorally) — the
-// defect is `std.textureSample` (or how its result is consumed) inside a depth-only, `d.Void`-output
-// clip-shadow fragment shader for an instanced, texture-array-backed surface. No other typed clip
-// surface pairs a real texture-alpha cutout with a shadow cast today (gltf's `gltf-albedo-clip` shares
-// the same `clipShadowFs` path and the same `std.textureSample`-into-discard shape, so it may carry the
-// identical defect, unverified — no gym check discriminates its shadow the way this one does). A fix
-// belongs in `sear/pipelines.ts` / `sear/forward.ts`, not sprite's own files — out of this stage's
-// boundary; reported, not fixed here.
 async function assertOwnShadow(): Promise<Check> {
     if (!probeMirror || !probeMode || hideable < 0) {
         return { name: "sprite own shadow", pass: false, detail: "no probe mirror" };

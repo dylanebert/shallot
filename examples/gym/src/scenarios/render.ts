@@ -88,7 +88,6 @@ import { Parts } from "@dylanebert/shallot/part/core";
 import { qRotate } from "@dylanebert/shallot/physics/core";
 import {
     BeginFrameSystem,
-    type Binding,
     CLUSTER_COUNT,
     CLUSTER_X,
     CLUSTER_Y,
@@ -116,29 +115,40 @@ import {
 } from "@dylanebert/shallot/render/core";
 import {
     Backgrounds,
+    BgCtx,
+    backgroundLayout,
     ColorSystem,
     // the point-shadow allocator — the atlas metadata Mirror pins the caster params + the importance-sized
     // tile rects' invariants; the pooled cull-slot eids pin per-cascade/per-combo survivor counts
     cascadeComboEids,
     cascadeCount,
     fsCtxSchema,
-    getCompiledTyped,
+    getCompiledSurface,
     lightEvalWgsl,
     pointAtlasSize,
     pointCasters,
     pointComboCount,
     pointComboEids,
+    registerBackground,
     registerSurface,
     surfaceLayout,
 } from "@dylanebert/shallot/sear/core";
 // the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
 // nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
 import { nlerpShortest } from "@dylanebert/shallot/tumble/core";
-import { octEncode, octEncodeWgsl, packColor4, Xform } from "@dylanebert/shallot/utils/core";
+import {
+    MeshQuant,
+    octEncode,
+    octEncodeWgsl,
+    packColor4,
+    unpackLdrColor,
+    Xform,
+} from "@dylanebert/shallot/utils/core";
 // the fog oracle takes the engine's own schema values (a `PointLightGpu` light, `vec3f` rays) — the march
 // primitives are TGSL functions, so the CPU arm reads exactly what the shader reads
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import {
     type Check,
     frames,
@@ -2922,25 +2932,31 @@ async function assertGltfWorker(state: State): Promise<Check[]> {
 // this carries the `blend` mode the other modes don't reach.
 
 const PANEL_ALPHA = 0.5;
-const PANEL_BINDINGS: Record<string, Binding> = {
-    eids: { type: "storage", element: "u32" },
-    transforms: { type: "storage", element: "Xform" },
-    color: { type: "storage", element: "u32" },
-};
+const panelLayout = surfaceLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+});
+const panelFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    const c = unpackLdrColor(panelLayout.$.color[ctx.eid]);
+    return d.vec4f(c.xyz, c.w);
+});
 
 // an unlit straight-alpha surface: writes the entity color rgb + its (linear) alpha lane; sear's blend unit
 // does the "over" composite. `unpackLdrColor` is sear-spliced for every surface.
 const TransparencyPlugin: Plugin = {
     name: "GymRenderTransparency",
     dependencies: [RenderPlugin],
-    initialize() {
-        Surfaces.register({
+    initialize(state) {
+        registerSurface(state, {
             name: "alphaPanel",
             blend: "alpha",
-            bindings: PANEL_BINDINGS,
-            fs: /* wgsl */ `
-                let c = unpackLdrColor(color[eid]);
-                col = vec4<f32>(c.rgb, c.a);`,
+            layout: panelLayout,
+            fs: panelFs,
         });
     },
 };
@@ -3007,17 +3023,27 @@ async function assertTransparency(): Promise<Check[]> {
 // a vertical sky gradient driven by the world-space view ray's elevation — the minimal backdrop recipe (no
 // bindings, reads only the sear-reconstructed `dir`). Bright across the frame so a painted background pixel
 // reads well above the black clear, and an opaque dark box overdrawing it reads well below.
-const GRADIENT_BG_FS = /* wgsl */ `
-    let t = clamp(dir.y * 0.5 + 0.5, 0.0, 1.0);
-    col = mix(vec3<f32>(0.7, 0.8, 1.0), vec3<f32>(0.2, 0.4, 0.9), t);`;
+const gradientBgLayout = backgroundLayout({});
+const gradientBgFs = tgpu.fn(
+    [BgCtx],
+    d.vec3f,
+)((ctx) => {
+    "use gpu";
+    const t = std.clamp(ctx.dir.y * 0.5 + 0.5, 0, 1);
+    return std.mix(d.vec3f(0.7, 0.8, 1), d.vec3f(0.2, 0.4, 0.9), t);
+});
 
 // depends on SearPlugin so its initialize runs *after* SearPlugin clears the Backgrounds registry (the
 // reload-safety wipe) — the same ordering TransparencyPlugin uses against RenderPlugin's surface clear
 const BackgroundPlugin: Plugin = {
     name: "GymRenderBackground",
     dependencies: [SearPlugin],
-    initialize() {
-        Backgrounds.register({ name: "gradient", fs: GRADIENT_BG_FS });
+    initialize(state) {
+        registerBackground(state, {
+            name: "gradient",
+            layout: gradientBgLayout,
+            fs: gradientBgFs,
+        });
     },
 };
 
@@ -3097,7 +3123,12 @@ function buildSky(state: State): void {
     state.add(cam, Sear);
     state.add(cam, Orbit);
     state.add(cam, Backdrop);
-    Backdrop.name.set(cam, Backgrounds.id("sky") ?? 0);
+    const backdrop = (
+        SearPlugin.traits?.Backdrop as {
+            parse: { name: (value: string) => number | undefined };
+        }
+    ).parse.name("sky");
+    Backdrop.name.set(cam, backdrop ?? 0);
     Camera.mode.set(cam, CameraMode.Perspective);
     Camera.fov.set(cam, 60);
     Camera.clearColor.set(cam, 0x000000); // black clear → an unpainted background pixel reads ~0 and fails
@@ -3392,31 +3423,29 @@ async function buildSkinLive(state: State): Promise<void> {
     const q = quantizeMeshes(g.vertices, [
         { vertexBase: 0, vertexCount: g.vertices.length / VERTEX_FLOATS },
     ]);
-    const bufOf = (label: string, data: Uint32Array): GPUBuffer => {
-        const b = device.createBuffer({
-            label,
-            size: data.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(b, 0, data);
-        return b;
-    };
+    const main = Compute.root.createBuffer(d.arrayOf(d.vec4u, q.main.length / 4)).$usage("storage");
+    const position = Compute.root
+        .createBuffer(d.arrayOf(d.vec2u, q.position.length / 2))
+        .$usage("storage");
+    const quant = Compute.root.createBuffer(d.arrayOf(MeshQuant, 1)).$usage("storage");
+    const indices = Compute.root
+        .createBuffer(d.arrayOf(d.u32, g.indices.length))
+        .$usage("storage", "index");
+    device.queue.writeBuffer(Compute.root.unwrap(main), 0, q.main);
+    device.queue.writeBuffer(Compute.root.unwrap(position), 0, q.position);
+    device.queue.writeBuffer(Compute.root.unwrap(quant), 0, q.quant);
+    device.queue.writeBuffer(Compute.root.unwrap(indices), 0, g.indices);
     const spec: Mesh = {
         name: RIG_MESH,
-        vertices: bufOf("skin-live-rig-main", q.main),
-        position: bufOf("skin-live-rig-pos", q.position),
-        quant: device.createBuffer({
-            label: "skin-live-rig-quant",
-            size: q.quant.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        }),
-        indices: bufOf("skin-live-rig-idx", g.indices),
+        vertices: main,
+        position,
+        quant,
+        indices,
         indexBase: 0,
         indexCount: g.indices.length,
         bounds: [0, 0, 0, g.reach], // the reach sphere (origin-centred), not the tight rest AABB
         variant: 0,
     };
-    device.queue.writeBuffer(spec.quant!, 0, q.quant);
     rigMeshId = Meshes.register(spec);
     LiveSkin.registerMesh(rigMeshId, g.joints, g.weights);
     const registered = Meshes.get(RIG_MESH);
@@ -4245,13 +4274,6 @@ const TypedVariantPlugin: Plugin = {
     name: "GymTypedVariant",
     dependencies: [RenderPlugin],
     initialize(state) {
-        Surfaces.register({
-            name: TYPED_VARIANT_SURFACE,
-            bindings: {
-                eids: { type: "storage", element: "u32" },
-                transforms: { type: "storage", element: "Xform" },
-            },
-        });
         registerSurface(state, {
             name: TYPED_VARIANT_SURFACE,
             layout: typedVariantLayout,
@@ -4354,11 +4376,11 @@ function typedVariantPart(state: State, x: number, meshName: string): void {
 }
 
 async function buildTypedVariant(state: State): Promise<void> {
-    typedWarmCached = !!getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_WARM_VARIANT);
-    typedLateLazy = !getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
+    typedWarmCached = !!getCompiledSurface(TYPED_VARIANT_SURFACE, TYPED_WARM_VARIANT);
+    typedLateLazy = !getCompiledSurface(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
 
     registerVariantMesh(TYPED_LATE_MESH, TYPED_LATE_VARIANT);
-    typedLateLazy &&= !getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
+    typedLateLazy &&= !getCompiledSurface(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
     typedVariantPart(state, -2, TYPED_WARM_MESH);
     typedVariantPart(state, 2, TYPED_LATE_MESH);
 
@@ -4374,7 +4396,7 @@ async function buildTypedVariant(state: State): Promise<void> {
     Orbit.maxPitch.set(cam, Math.PI / 2);
 
     await setupTypedVariantProbe(state);
-    typedLateCompiled = !!getCompiledTyped(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
+    typedLateCompiled = !!getCompiledSurface(TYPED_VARIANT_SURFACE, TYPED_LATE_VARIANT);
 }
 
 async function assertTypedVariant(): Promise<Check[]> {

@@ -3,8 +3,6 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { State } from "../../engine";
 import { unpackLdrColor, Xform, xformNormal, xformPoint } from "../../engine/utils/core";
-import type { Binding } from "../../standard/render/core";
-import { Surfaces } from "../../standard/render/core";
 import {
     fsCtxSchema,
     registerSurface,
@@ -12,8 +10,7 @@ import {
     VsIn,
     vsPatchSchema,
 } from "../../standard/sear/core";
-import { LIVE_SKIN_VS, SkinParams, skinBindings } from "../skin/core";
-import { ALBEDO_NAMES } from "./image";
+import { LIVE_SKIN_VS, SkinParams } from "../skin/core";
 import { MaterialData } from "./palette";
 import { materialFns } from "./shade";
 
@@ -35,21 +32,6 @@ import { materialFns } from "./shade";
 // VAT skin surface's `color` binding. The texture arrays + the `skinParams` uniform are separate limits, not
 // storage. Declaration order is binding order, so the substrate's three are placed individually rather than
 // spread.
-const liveSkinBindings: Record<string, Binding> = {
-    eids: { type: "storage", element: "u32" },
-    transforms: { type: "storage", element: "Xform" },
-    skin: skinBindings.skin,
-    materialData: { type: "storage", element: "MaterialData" },
-    skinData: skinBindings.skinData,
-    ...Object.fromEntries(ALBEDO_NAMES.map((n) => [n, { type: "texture-2d-array" } as Binding])),
-    mr: { type: "texture-2d-array" },
-    normalTex: { type: "texture-2d-array" },
-    occlusion: { type: "texture-2d-array" },
-    emissive: { type: "texture-2d-array" },
-    albedoSamp: { type: "sampler" },
-    skinParams: skinBindings.skinParams,
-};
-
 const liveLayout = surfaceLayout({
     eids: { type: "storage", element: d.u32 },
     transforms: { type: "storage", element: Xform },
@@ -152,10 +134,10 @@ export function registerLiveSkinSurfaces(state: State): void {
         ["skin-live-clip", "clip", "clip"],
         ["skin-live-blend", "alpha", "blend"],
     ] as const) {
-        Surfaces.register({ name, bindings: liveSkinBindings, blend });
         registerSurface(state, {
             name,
             layout: liveLayout,
+            fragmentInputs: { uv: true },
             blend,
             vs: liveVs,
             fs: liveFs(0, mode),

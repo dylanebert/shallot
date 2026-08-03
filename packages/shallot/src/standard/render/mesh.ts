@@ -1,5 +1,16 @@
+import type { IndexFlag, StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
+import type { AnyData, AnyWgslData, WgslArray } from "typegpu/data";
+import * as d from "typegpu/data";
 import { Compute, Registry } from "../../engine";
-import { octEncode, packUnorm2 } from "../../engine/utils/core";
+import { MeshQuant, octEncode, packUnorm2 } from "../../engine/utils/core";
+
+export type MeshStorage<T extends AnyWgslData> = TgpuBuffer<WgslArray<T>> & StorageFlag;
+export type MeshIndex = MeshStorage<d.U32> & IndexFlag;
+export type MeshBinding =
+    | GPUTexture
+    | GPUSampler
+    | GPUBuffer
+    | (TgpuBuffer<AnyData> & (StorageFlag | UniformFlag));
 
 /**
  * registered vertex-pull geometry: a slice descriptor into the quantized vertex
@@ -15,9 +26,10 @@ import { octEncode, packUnorm2 } from "../../engine/utils/core";
  * {@link mesh}, which {@link flushMeshes} packs into one shared family buffer
  * set — every static mesh is a slice (its own `indexBase` + meshId) of the same
  * buffers, so sear binds geometry once and the layout is `multi-draw-indirect`
- * ready. Procedural producers (compute-driven terrain, particle ribbons) allocate
- * their own `GPUBuffer`s (emitting the same quantized format via `posQuantPackWgsl()`)
- * and register directly. Meshes sharing a buffer set share a bind group in sear
+ * ready. Procedural producers (compute-driven terrain, particle ribbons) may still allocate their own
+ * raw `GPUBuffer`s, but wrap them with `Compute.root.createBuffer(schema, raw).$usage(...)` at the
+ * registry seam. They unwrap the same allocation again wherever a raw encoder needs it. Meshes sharing
+ * a buffer set share a bind group in sear.
  *
  * `bounds` is the local-space bounding sphere `[cx, cy, cz, radius]` a producer's
  * frustum cull transforms per instance. {@link mesh} derives it from the staged
@@ -28,12 +40,12 @@ import { octEncode, packUnorm2 } from "../../engine/utils/core";
  */
 export interface Mesh {
     name: string;
-    vertices: GPUBuffer;
+    vertices: MeshStorage<d.Vec4u>;
     /** the 8 B/vertex position-only stream the depth + shadow passes pull (sear binds this in the prepass group) */
-    position?: GPUBuffer;
+    position?: MeshStorage<d.Vec2u>;
     /** the per-mesh `MeshQuant` dequant table (position + uv AABB), indexed by the meshId packed in the stream */
-    quant?: GPUBuffer;
-    indices: GPUBuffer;
+    quant?: MeshStorage<typeof MeshQuant>;
+    indices: MeshIndex;
     indexBase: number;
     indexCount: number;
     bounds?: [number, number, number, number];
@@ -52,7 +64,7 @@ export interface Mesh {
      * the GPU-count contract, the count never crossing to the CPU. Omit for a fixed mesh: its
      * `indexCount` is the live count. Pair with `dynamic: true`.
      */
-    count?: GPUBuffer;
+    count?: MeshStorage<d.U32>;
     /**
      * whether the RT-shadow caster builds a BLAS for this mesh. `true` (default) = every mesh
      * casts (the caster auto-builds its BLAS; a producer contributes instances). Set `false` for
@@ -77,7 +89,7 @@ export interface Mesh {
      * arrays globally; a VAT can't (different size per mesh), so it binds per-mesh). A mesh is already its
      * own bind group (own geometry buffers), so this adds no draw.
      */
-    bindings?: Record<string, GPUTexture | GPUSampler | GPUBuffer>;
+    bindings?: Record<string, MeshBinding>;
 }
 
 /** every registered mesh, keyed by name with a stable numeric ID */
@@ -101,7 +113,8 @@ interface PendingMesh {
     bounds: [number, number, number, number];
 }
 const _pending: PendingMesh[] = [];
-let _placeholder: GPUBuffer | null = null;
+let _placeholderVertices: MeshStorage<d.Vec4u> | null = null;
+let _placeholderIndices: MeshIndex | null = null;
 
 /**
  * local-space axis-aligned bounds `{ min, max }` of a vertex buffer (the shared
@@ -177,17 +190,20 @@ export function mesh(spec: { name: string; vertices: Float32Array; indices: Uint
     if (!device) return;
     // a placeholder reserves the registry entry now (fixing Meshes.size before
     // warm); flushMeshes swaps in the real shared buffer + correct indexBase
-    _placeholder ??= device.createBuffer({
-        label: "kitchen-mesh-pending",
-        size: 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX,
-    });
+    _placeholderVertices ??= Compute.root
+        .createBuffer(d.arrayOf(d.vec4u, 1))
+        .$usage("storage")
+        .$name("kitchen-mesh-pending-vertices");
+    _placeholderIndices ??= Compute.root
+        .createBuffer(d.arrayOf(d.u32, 1))
+        .$usage("storage", "index")
+        .$name("kitchen-mesh-pending-indices");
     const bounds = meshBounds(spec.vertices);
     _pending.push({ ...spec, bounds });
     Meshes.register({
         name: spec.name,
-        vertices: _placeholder,
-        indices: _placeholder,
+        vertices: _placeholderVertices,
+        indices: _placeholderIndices,
         indexBase: 0,
         indexCount: spec.indices.length,
         bounds,
@@ -350,8 +366,10 @@ export function quantizeMeshes(
 // clearMeshes after discarding — one source of truth for the staging state to reset.
 function resetStaging(): void {
     _pending.length = 0;
-    _placeholder?.destroy();
-    _placeholder = null;
+    _placeholderVertices?.destroy();
+    _placeholderIndices?.destroy();
+    _placeholderVertices = null;
+    _placeholderIndices = null;
 }
 
 /**
@@ -364,24 +382,26 @@ export function flushMeshes(): void {
     if (!device || _pending.length === 0) return;
     const packed = packMeshes(_pending);
     const q = quantizeMeshes(packed.vertices, packed.slices);
-    const storage = (label: string, data: Uint32Array | Float32Array) => {
-        const buf = device.createBuffer({
-            label,
-            size: data.byteLength,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        device.queue.writeBuffer(buf, 0, data as Uint32Array<ArrayBuffer>);
-        return buf;
-    };
-    const vertices = storage("kitchen-mesh-main", q.main);
-    const position = storage("kitchen-mesh-pos", q.position);
-    const quant = storage("kitchen-mesh-quant", q.quant);
-    const indices = device.createBuffer({
-        label: "kitchen-mesh-indices",
-        size: packed.indices.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
-    });
-    device.queue.writeBuffer(indices, 0, packed.indices as Uint32Array<ArrayBuffer>);
+    const vertices = Compute.root
+        .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4))
+        .$usage("storage")
+        .$name("kitchen-mesh-main");
+    const position = Compute.root
+        .createBuffer(d.arrayOf(d.vec2u, q.position.length / 2))
+        .$usage("storage")
+        .$name("kitchen-mesh-pos");
+    const quant = Compute.root
+        .createBuffer(d.arrayOf(MeshQuant, q.quant.length / 12))
+        .$usage("storage")
+        .$name("kitchen-mesh-quant");
+    const indices = Compute.root
+        .createBuffer(d.arrayOf(d.u32, packed.indices.length))
+        .$usage("storage", "index")
+        .$name("kitchen-mesh-indices");
+    vertices.write(q.main.buffer as ArrayBuffer);
+    position.write(q.position.buffer as ArrayBuffer);
+    quant.write(q.quant.buffer as ArrayBuffer);
+    indices.write(packed.indices.buffer as ArrayBuffer);
     const bounds = new Map(_pending.map((m) => [m.name, m.bounds]));
     for (const s of packed.slices) {
         Meshes.register({

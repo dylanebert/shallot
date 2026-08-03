@@ -13,7 +13,7 @@ import type { Plugin, State, System } from "../../engine";
 import { Compute, f32, formatHex, sparse, vec4 } from "../../engine";
 import { packColor } from "../../engine/utils/core";
 import { mesh, RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem, Draws, Meshes, Surfaces } from "../../standard/render/core";
+import { BeginFrameSystem, Draws, Meshes } from "../../standard/render/core";
 import { PrepassSystem, registerSurface } from "../../standard/sear/core";
 import { composeTransform, Transform, TransformsPlugin } from "../../standard/transforms";
 import {
@@ -165,16 +165,6 @@ export const LinesPlugin: Plugin = {
     initialize(state) {
         resetCount();
         mesh({ name: "lineQuad", vertices: QUAD_VERTS, indices: QUAD_INDICES });
-        // the string-registry shell (bindings only — no code): the surface's own draw is registered by
-        // `LinesSystem.setup`, so this exists purely to keep `lines` in the surface-id space every
-        // string-era consumer still enumerates. The code is the typed registration below, which
-        // `record()` consults first
-        Surfaces.register({
-            name: "lines",
-            blend: "alpha",
-            screen: true,
-            bindings: { lineSegments: { type: "storage", element: "Segment" } },
-        });
         registerSurface(state, {
             name: "lines",
             layout: lineLayout,

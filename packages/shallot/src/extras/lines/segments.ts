@@ -4,8 +4,12 @@
 // `segment` / `box` / `arrow` re-export through the barrel; the staging, the `Lines` handle, and the GPU
 // lifecycle stay off it (`head` / `push` are shared with the retained expansion in `index.ts`).
 
+import type { StorageFlag, TgpuBuffer } from "typegpu";
+import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import { packColor } from "../../engine/utils/core";
+import { DrawIndexedIndirect } from "../../standard/render/core";
+import { Segment } from "./surface";
 
 // one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads
 // (read-all per instance coalesces near the floor, gpu.md). `a.xyz` shares its 16-byte slot with `width`,
@@ -15,13 +19,12 @@ const SEGMENT_BYTES = 32;
 // initial segment capacity; the CPU staging + GPU buffer double on demand (BVH wireframes push thousands)
 const INITIAL = 1 << 14;
 
-let _segBuf: GPUBuffer | null = null;
+let _segBuf: (TgpuBuffer<d.WgslArray<typeof Segment>> & StorageFlag) | null = null;
 let _staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
 let _f32 = new Float32Array(_staging);
 let _u32 = new Uint32Array(_staging);
 let _cap = INITIAL;
 let _count = 0;
-const _args = new Uint32Array([6, 0, 0, 0, 0]);
 
 // the producer's GPU publication. `count` is the segments packed this frame (reset after the upload);
 // `args` is the `DrawIndexedIndirect` buffer whose `instanceCount` lane the live segment count drives.
@@ -29,7 +32,7 @@ const _args = new Uint32Array([6, 0, 0, 0, 0]);
 // gym Mirror can read back the produced instance count
 interface Lines {
     readonly count: number;
-    args: GPUBuffer | null;
+    args: (TgpuBuffer<typeof DrawIndexedIndirect> & { usableAsIndirect: true }) | null;
 }
 
 export const Lines: Lines = {
@@ -181,44 +184,53 @@ export function resetCount(): void {
 }
 
 /** allocate the segment storage + indirect-args buffers and publish `lineSegments` */
-export function warmSegments(device: GPUDevice): void {
+export function warmSegments(_device: GPUDevice): void {
     _cap = INITIAL;
     _staging = new ArrayBuffer(INITIAL * SEGMENT_BYTES);
     _f32 = new Float32Array(_staging);
     _u32 = new Uint32Array(_staging);
     _count = 0;
-    _segBuf = device.createBuffer({
-        label: "kitchen-line-segments",
-        size: INITIAL * SEGMENT_BYTES,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    Compute.buffers.set("lineSegments", _segBuf);
-    Lines.args = device.createBuffer({
-        label: "kitchen-line-args",
-        // COPY_SRC so a gym Mirror can read back instanceCount (gpu.md)
-        size: 20,
-        usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-    });
+    _segBuf = Compute.root
+        .createBuffer(d.arrayOf(Segment, INITIAL))
+        .$usage("storage")
+        .$name("kitchen-line-segments");
+    Compute.buffers.set("lineSegments", Compute.root.unwrap(_segBuf));
+    Compute.typed.set("lineSegments", _segBuf);
+    Lines.args = Compute.root
+        .createBuffer(DrawIndexedIndirect)
+        .$usage("indirect")
+        .$name("kitchen-line-args");
 }
 
 // grow the GPU buffer to match the CPU staging (rare); republish so sear re-resolves the binding, then
 // upload this frame's segments, write the indirect record (instanceCount = live count), and clear
 export function flushSegments(device: GPUDevice, quadBase: number): void {
     if (!_segBuf || !Lines.args) return;
-    if (_cap * SEGMENT_BYTES > _segBuf.size) {
+    if (_cap * SEGMENT_BYTES > Compute.root.unwrap(_segBuf).size) {
         const stale = _segBuf;
-        _segBuf = device.createBuffer({
-            label: "kitchen-line-segments",
-            size: _cap * SEGMENT_BYTES,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        Compute.buffers.set("lineSegments", _segBuf);
+        _segBuf = Compute.root
+            .createBuffer(d.arrayOf(Segment, _cap))
+            .$usage("storage")
+            .$name("kitchen-line-segments");
+        Compute.buffers.set("lineSegments", Compute.root.unwrap(_segBuf));
+        Compute.typed.set("lineSegments", _segBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (_count > 0) device.queue.writeBuffer(_segBuf, 0, _staging, 0, _count * SEGMENT_BYTES);
-    _args[1] = _count;
-    _args[2] = quadBase;
-    device.queue.writeBuffer(Lines.args, 0, _args);
+    if (_count > 0)
+        device.queue.writeBuffer(
+            Compute.root.unwrap(_segBuf),
+            0,
+            _staging,
+            0,
+            _count * SEGMENT_BYTES,
+        );
+    Lines.args.write({
+        indexCount: 6,
+        instanceCount: _count,
+        firstIndex: quadBase,
+        baseVertex: 0,
+        firstInstance: 0,
+    });
     _count = 0;
 }
 

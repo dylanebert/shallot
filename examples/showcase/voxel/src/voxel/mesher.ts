@@ -8,9 +8,29 @@
 // count-then-`dispatchWorkgroupsIndirect` and per-chunk draws arrive with streaming (Phase 4).
 
 import { Compute, type Plugin, RenderPlugin, type System } from "@dylanebert/shallot";
-import { BeginFrameSystem, Draws, Meshes, Render, Surfaces } from "@dylanebert/shallot/render/core";
-import { PrepassSystem } from "@dylanebert/shallot/sear/core";
-import { octEncodeWgsl, posQuantPackWgsl, posQuantWgsl } from "@dylanebert/shallot/utils/core";
+import {
+    BeginFrameSystem,
+    DrawIndexedIndirect,
+    Draws,
+    Meshes,
+    Render,
+} from "@dylanebert/shallot/render/core";
+import {
+    fsCtxSchema,
+    lit,
+    PrepassSystem,
+    registerSurface,
+    surfaceLayout,
+} from "@dylanebert/shallot/sear/core";
+import {
+    MeshQuant,
+    octEncodeWgsl,
+    posQuantPackWgsl,
+    posQuantWgsl,
+} from "@dylanebert/shallot/utils/core";
+import tgpu, { writeToArrayBuffer } from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 import { addressingWgsl, BINDING_FLOOR, BYTES, CHUNK_CELLS, DIM, ISO, VOXEL } from "./grid";
 
 const VERTS_PER_QUAD = 4;
@@ -128,13 +148,19 @@ export function commitEdit(chunks: Iterable<number>): void {
 // tops, dirt-brown sides, to read the meshed structure (the six face directions, the tunnel's inward faces,
 // the sphere's curvature). Linear base colours (sear's composite encodes sRGB), tuned to land near grass /
 // dirt after `lit`'s ~1.66×.
-function surfaceFs(): string {
-    return /* wgsl */ `
-let isTop = worldNormal.y > 0.5;
-let base = select(vec3<f32>(0.10, 0.06, 0.03), vec3<f32>(0.10, 0.20, 0.05), isTop);
-col = vec4<f32>(lit(base, worldNormal), 1.0);
-`;
-}
+const voxelLayout = surfaceLayout({});
+const voxelFs = tgpu.fn(
+    [fsCtxSchema()],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    const base = std.select(
+        d.vec3f(0.1, 0.06, 0.03),
+        d.vec3f(0.1, 0.2, 0.05),
+        ctx.worldNormal.y > 0.5,
+    );
+    return d.vec4f(lit(base, ctx.worldNormal), 1);
+});
 
 function emitWgsl(): string {
     return /* wgsl */ `
@@ -146,7 +172,14 @@ ${addressingWgsl()}
 @group(0) @binding(0) var<storage, read> voxels: array<f32>;
 @group(0) @binding(1) var<storage, read_write> vertices: array<vec4<u32>>;
 @group(0) @binding(2) var<storage, read_write> indices: array<u32>;
-@group(0) @binding(3) var<storage, read_write> indirect: array<atomic<u32>, 5>;
+struct AtomicDrawIndexedIndirect {
+    indexCount: atomic<u32>,
+    instanceCount: u32,
+    firstIndex: u32,
+    baseVertex: i32,
+    firstInstance: u32,
+}
+@group(0) @binding(3) var<storage, read_write> indirect: AtomicDrawIndexedIndirect;
 @group(0) @binding(4) var<storage, read_write> position: array<vec2<u32>>;
 
 const HALF_X: f32 = ${(0.5 * DIM.x).toExponential()};
@@ -172,7 +205,7 @@ fn solidAt(x: i32, y: i32, z: i32) -> bool {
 // append one quad, emitting the quantized main + position streams (gpu.md rule 6). Winding: (p1-p0)×(p2-p0)
 // points along the outward normal n — sear's front face, so back-face culling keeps the outward-facing quad.
 fn emitQuad(p0: vec3<f32>, p1: vec3<f32>, p2: vec3<f32>, p3: vec3<f32>, n: vec3<f32>, blockU: f32) {
-    let base = atomicAdd(&indirect[0], ${INDICES_PER_QUAD}u);
+    let base = atomicAdd(&indirect.indexCount, ${INDICES_PER_QUAD}u);
     let fi = base / ${INDICES_PER_QUAD}u;
     if (fi >= MAX_FACES) { return; } // buffer full — drop (the count gate flags the over-budget grid)
     let v0 = fi * ${VERTS_PER_QUAD}u;
@@ -237,7 +270,14 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 `;
 }
 
-const INDIRECT_INIT = new Uint32Array([0, 1, 0, 0, 0]); // {indexCount=0, instanceCount=1, firstIndex=0, baseVertex=0, firstInstance=0}
+const INDIRECT_INIT = new ArrayBuffer(d.sizeOf(DrawIndexedIndirect));
+writeToArrayBuffer(INDIRECT_INIT, DrawIndexedIndirect, {
+    indexCount: 0,
+    instanceCount: 1,
+    firstIndex: 0,
+    baseVertex: 0,
+    firstInstance: 0,
+});
 
 const VoxelEmitSystem: System = {
     name: "voxel-emit",
@@ -299,12 +339,28 @@ const VoxelEmitSystem: System = {
                 GPUBufferUsage.COPY_SRC,
         });
 
+        const typedVertices = Compute.root
+            .createBuffer(d.arrayOf(d.vec4u, maxVerts), gpu.vertices)
+            .$usage("storage");
+        const typedPosition = Compute.root
+            .createBuffer(d.arrayOf(d.vec2u, maxVerts), gpu.position)
+            .$usage("storage");
+        const typedQuant = Compute.root
+            .createBuffer(d.arrayOf(MeshQuant, 1), gpu.quant)
+            .$usage("storage");
+        const typedIndices = Compute.root
+            .createBuffer(d.arrayOf(d.u32, maxIndices), gpu.indices)
+            .$usage("storage", "index");
+        const typedIndirect = Compute.root
+            .createBuffer(DrawIndexedIndirect, Voxels.indirect)
+            .$usage("storage", "indirect");
+
         Meshes.register({
             name: "voxel",
-            vertices: gpu.vertices,
-            position: gpu.position,
-            quant: gpu.quant,
-            indices: gpu.indices,
+            vertices: typedVertices,
+            position: typedPosition,
+            quant: typedQuant,
+            indices: typedIndices,
             indexBase: 0,
             indexCount: maxIndices,
         });
@@ -312,7 +368,7 @@ const VoxelEmitSystem: System = {
             name: "voxel",
             surface: "voxel",
             mesh: "voxel",
-            args: { indirect: Voxels.indirect },
+            args: { indirect: typedIndirect },
         });
 
         const module = device.createShaderModule({ label: "voxel-emit", code: emitWgsl() });
@@ -337,11 +393,7 @@ const VoxelEmitSystem: System = {
     },
     update() {
         if (!Voxels.dirty || !gpu.pipeline || !gpu.bindGroup || !Render.encoder) return;
-        Compute.device.queue.writeBuffer(
-            Voxels.indirect!,
-            0,
-            INDIRECT_INIT as Uint32Array<ArrayBuffer>,
-        );
+        Compute.device.queue.writeBuffer(Voxels.indirect!, 0, INDIRECT_INIT);
         const pass = Render.encoder.beginComputePass({
             label: "voxel-emit",
             timestampWrites: Compute.span?.("voxel:emit"),
@@ -358,8 +410,8 @@ const VoxelPlugin: Plugin = {
     name: "Voxel",
     dependencies: [RenderPlugin],
     systems: [VoxelEmitSystem],
-    initialize() {
-        Surfaces.register({ name: "voxel", fs: surfaceFs() });
+    initialize(state) {
+        registerSurface(state, { name: "voxel", layout: voxelLayout, fs: voxelFs });
     },
 };
 

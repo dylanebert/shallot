@@ -48,6 +48,9 @@ a teaching reference — read a recipe first.
 Standalone-app engine flows — ejected vite apps that exercise engine behavior a `bun test` can't reach,
 driven by `bun run flows` (`scripts/flows.ts` over `shallot verify`).
 
+- **no-walls** — `flows/no-walls/` — an externally acquired device, a schema-wrapped raw buffer, and raw
+  WGSL resolved through TypeGPU form one indirect draw; the harness asserts every boundary and the pixel
+  gate proves the draw reaches the product.
 - **survive-reload** — `flows/survive-reload/` — a runtime value + a `warm`-derived entity survive a real
   `location.reload()` through the serialize→sessionStorage→restore path; the restored boot's `window.__harness` asserts it.
 - **ui-containment** — `flows/ui-containment/` — a deliberately invalid `config.ui` HUD (`position: fixed`,

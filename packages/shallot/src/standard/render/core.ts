@@ -26,6 +26,30 @@ export {
     sliceDepth,
     zSlice,
 } from "./cluster";
+export type {
+    Background,
+    BgFn,
+    BgLayout,
+    Binding,
+    FsFn,
+    Specialize,
+    Surface,
+    SurfaceLayout,
+    VsFn,
+} from "./contract";
+export {
+    Backgrounds,
+    BgCtx,
+    backgroundLayout,
+    fsCtxSchema,
+    registerBackground,
+    registerSurface,
+    SURFACE_GROUP,
+    Surfaces,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "./contract";
 export { Frame, FrameGpu, frameWgsl } from "./frame";
 export { CULL_FRUSTUM, CULL_VOLUME_FLOATS, FRUSTUM_FLOATS, frustumPlanes } from "./frustum";
 // the shared image→`texture_2d_array` upload path — the producer substrate glTF baseColor + the sprite atlas
@@ -53,7 +77,7 @@ export {
     spotFactor,
     spotParams,
 } from "./lighting";
-export type { Mesh, QuantStreams } from "./mesh";
+export type { Mesh, MeshBinding, MeshIndex, MeshStorage, QuantStreams } from "./mesh";
 export {
     Meshes,
     meshBounds,
@@ -62,8 +86,8 @@ export {
     VERTEX_FLOATS,
     VERTEX_STRIDE,
 } from "./mesh";
-export type { Binding, Draw, Surface } from "./registry";
-export { Draws, Surfaces } from "./registry";
+export type { Draw, DrawIndirectBuffer } from "./registry";
+export { DrawIndexedIndirect, Draws } from "./registry";
 export { Render } from "./render";
 export {
     attachCanvas,

@@ -1,14 +1,25 @@
 import { Compute, mesh, type Plugin, RenderPlugin, type System } from "@dylanebert/shallot";
 import {
     BeginFrameSystem,
+    DrawIndexedIndirect,
     Draws,
     Frame,
     frameWgsl,
     Meshes,
     Render,
-    Surfaces,
 } from "@dylanebert/shallot/render/core";
-import { PrepassSystem } from "@dylanebert/shallot/sear/core";
+import {
+    fsCtxSchema,
+    PrepassSystem,
+    registerSurface,
+    surfaceLayout,
+    VsIn,
+    vsPatchSchema,
+} from "@dylanebert/shallot/sear/core";
+import type { TgpuBuffer } from "typegpu";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
+import * as std from "typegpu/std";
 
 // The canonical GPU-driven particle path as a producer: a compute pass integrates
 // N particles (launch, gravity, ground collision, recycle) in a single STORAGE buffer,
@@ -34,7 +45,9 @@ const GROUND_Y = 0.0; // particles recycle when they fall back to this plane
 
 const Fountain = {
     particles: null as unknown as GPUBuffer,
-    args: null as unknown as GPUBuffer,
+    args: null as unknown as TgpuBuffer<typeof DrawIndexedIndirect> & {
+        usableAsIndirect: true;
+    },
     pipeline: null as GPUComputePipeline | null,
     bindGroup: null as GPUBindGroup | null,
 };
@@ -153,6 +166,41 @@ function cubeVertices(): Float32Array {
     return v;
 }
 
+const fountainLayout = surfaceLayout({
+    fountainParticles: { type: "storage", element: d.vec4f },
+});
+const fountainVaryings = { tint: d.vec3f };
+const fountainPatch = vsPatchSchema(fountainVaryings);
+const palette = tgpu.fn(
+    [d.f32],
+    d.vec3f,
+)((t) => {
+    "use gpu";
+    const phase = d.vec3f(t, t + 0.33, t + 0.67);
+    return std.add(d.vec3f(0.5), std.mul(d.vec3f(0.5), std.cos(std.mul(phase, 6.2831853))));
+});
+const fountainVs = tgpu.fn(
+    [VsIn],
+    fountainPatch,
+)((input) => {
+    "use gpu";
+    const tint = palette(std.fract(d.f32(input.iid) * 0.6180339887));
+    const pos = fountainLayout.$.fountainParticles[input.iid * 2].xyz;
+    return fountainPatch({
+        world: d.vec4f(std.add(std.mul(input.localPos, SIZE), pos), 1),
+        worldNormal: input.worldNormal,
+        clip: d.vec4f(0),
+        tint,
+    });
+});
+const fountainFs = tgpu.fn(
+    [fsCtxSchema(fountainVaryings)],
+    d.vec4f,
+)((ctx) => {
+    "use gpu";
+    return d.vec4f(ctx.tint, 1);
+});
+
 // Dispatches the integrate pass before sear reads geometry. The surface's vs reads each
 // particle's position to place its cube, so the positions are position-determining: sear
 // reads them in the prepass, the shadow map, and the color pass, and an emit dropped between
@@ -181,16 +229,19 @@ const FountainSystem: System = {
         // base in the shared family buffer (mesh() packs it at RenderPlugin.warm)
         const cube = Meshes.get("fountainCube");
         if (!cube) throw new Error("fountain: cube mesh not registered");
-        Fountain.args = device.createBuffer({
+        const rawArgs = device.createBuffer({
             label: "fountain-draw-args",
             size: 20,
             usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
         });
-        device.queue.writeBuffer(
-            Fountain.args,
-            0,
-            new Uint32Array([cube.indexCount, COUNT, cube.indexBase, 0, 0]),
-        );
+        Fountain.args = Compute.root.createBuffer(DrawIndexedIndirect, rawArgs).$usage("indirect");
+        Fountain.args.write({
+            indexCount: cube.indexCount,
+            instanceCount: COUNT,
+            firstIndex: cube.indexBase,
+            baseVertex: 0,
+            firstInstance: 0,
+        });
 
         Draws.register({
             name: "fountain",
@@ -234,7 +285,7 @@ const FountainPlugin: Plugin = {
     name: "Fountain",
     dependencies: [RenderPlugin],
     systems: [FountainSystem],
-    initialize() {
+    initialize(state) {
         // a plain static cube in the shared family buffer (registered before warm), and an
         // unlit surface that offsets each cube by its particle position. No eids/transforms
         // bindings, so sear applies no per-instance transform; the vs builds `world` itself
@@ -242,27 +293,12 @@ const FountainPlugin: Plugin = {
         // is a low-discrepancy index → cosine palette, carried as a vs→fs varying (constant
         // per cube, so it interpolates exact)
         mesh({ name: "fountainCube", vertices: cubeVertices(), indices: CUBE_INDICES });
-        Surfaces.register({
+        registerSurface(state, {
             name: "fountain",
-            bindings: {
-                fountainParticles: { type: "storage", element: "vec4<f32>" },
-            },
-            interpolators: { tint: "vec3<f32>" },
-            preamble: /* wgsl */ `
-                const SIZE: f32 = ${SIZE};
-                // Inigo Quilez cosine palette: a smooth spread of hues from one scalar
-                fn palette(t: f32) -> vec3<f32> {
-                    let d = vec3<f32>(0.0, 0.33, 0.67);
-                    return vec3<f32>(0.5) + vec3<f32>(0.5) * cos(6.2831853 * (vec3<f32>(t) + d));
-                }
-            `,
-            vs: /* wgsl */ `
-                tint = palette(fract(f32(iid) * 0.6180339887));
-                world = vec4<f32>(localPos * SIZE + fountainParticles[iid * 2u].xyz, 1.0);
-            `,
-            fs: /* wgsl */ `
-                col = vec4<f32>(tint, 1.0);
-            `,
+            layout: fountainLayout,
+            varyings: fountainVaryings,
+            vs: fountainVs,
+            fs: fountainFs,
         });
     },
 };

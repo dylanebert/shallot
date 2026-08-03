@@ -180,6 +180,7 @@ export function spriteSurface(bucket: number) {
     return {
         name: surfaceName(bucket),
         layout,
+        fragmentInputs: { localPos: true } as const,
         blend: alpha ? ("alpha" as const) : ("clip" as const),
         vs: spriteVs(variant),
         fs: spriteFs(alpha),

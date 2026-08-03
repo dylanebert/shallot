@@ -2,24 +2,35 @@ import { describe, expect, test } from "bun:test";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { Surfaces } from "../render/core";
+import { State } from "../../engine";
 import {
+    Backgrounds,
+    BgCtx,
+    backgroundLayout,
     fsCtxSchema,
     surfaceLayout as layout,
     registerSurface as register,
-    TypedSurfaces,
+    registerBackground,
+    Surfaces,
     VsIn,
     vsPatchSchema,
 } from "./contract";
 
-// The typed `Surfaces` contract (4a-ii-c-1): `layout()`'s group-2 synthesis + vertices-slot variants,
-// `layout.$.name` accessibility for a real TGSL fn, the varyings-folding IO schemas, and the dual-accept
-// discriminator. No pipeline/codegen wiring this stage — these are structural + resolve-level proofs, the
-// contract stands alone.
+// The `Surfaces` contract: group-2 synthesis + vertices-slot variants, `layout.$.name` accessibility,
+// varyings-folding IO schemas, and State-owned registry cleanup.
 
 const Item = d.struct({ value: d.f32 }).$name("Item");
 
 describe("layout — group-2 synthesis", () => {
+    test("the public surface registry rejects name-only records at compile time", () => {
+        const registerBroken = () => {
+            // @ts-expect-error a registered surface requires its concrete layout and fragment function
+            Surfaces.register({ name: "broken" });
+        };
+        expect(registerBroken).toBeFunction();
+        expect(Surfaces.get("broken")).toBeUndefined();
+    });
+
     test("pins to group 2 (4a-ii design lock: engine 0 / shadow-or-atlas 1 / surface 2)", () => {
         const l = layout({ items: { type: "storage", element: Item } });
         expect(l.index).toBe(2);
@@ -146,48 +157,54 @@ describe("VsFn / FsFn — the fixed code-contract shapes resolve", () => {
     });
 });
 
-describe("register — dual-accept discrimination", () => {
-    test("a legacy (string-contract) spec lands in the real `Surfaces` registry, unchanged", () => {
-        const name = `legacy-${Math.random()}`;
-        register({ name, fs: "col = vec4<f32>(1.0);" });
-        expect(Surfaces.get(name)).toBeDefined();
-        expect(TypedSurfaces.get(name)).toBeUndefined();
+describe("register — State ownership", () => {
+    const fs = tgpu.fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(1);
+    });
+    const bgFs = tgpu.fn(
+        [BgCtx],
+        d.vec3f,
+    )(() => {
+        "use gpu";
+        return d.vec3f(1);
     });
 
-    test("a typed spec lands in `TypedSurfaces`, not the legacy `Surfaces` registry", () => {
-        const name = `typed-${Math.random()}`;
-        const l = layout({ items: { type: "storage", element: Item } });
-        const fs = tgpu.fn(
-            [fsCtxSchema()],
-            d.vec4f,
-        )(() => {
-            "use gpu";
-            return d.vec4f(1);
+    test("one disposer per registry owns every registration made by one State", () => {
+        Surfaces.clear();
+        Backgrounds.clear();
+        const state = new State();
+        const surface = (name: string) => ({ name, layout: layout({}), fs });
+        register(state, surface("owned-a"));
+        register(state, surface("owned-b"));
+        register(state, surface("owned-a"));
+        registerBackground(state, {
+            name: "owned-bg",
+            layout: backgroundLayout({}),
+            fs: bgFs,
         });
-        register({ name, layout: l, fs });
-        expect(TypedSurfaces.get(name)).toBeDefined();
-        expect(Surfaces.get(name)).toBeUndefined();
+
+        expect((state as unknown as { _disposals: (() => void)[] })._disposals.length).toBe(2);
+        state.dispose();
+        expect(Surfaces.get("owned-a")).toBeUndefined();
+        expect(Surfaces.get("owned-b")).toBeUndefined();
+        expect(Backgrounds.get("owned-bg")).toBeUndefined();
     });
 
-    test("the discriminator is `layout` presence, not the `fs` field shape (both specs declare `fs`)", () => {
-        const legacyName = `legacy-fs-${Math.random()}`;
-        register({ name: legacyName, fs: "col = vec4<f32>(0.0);" });
-        // a legacy spec has no `layout` field at all — this is the actual discriminant `register` reads
-        expect(Surfaces.get(legacyName)).toBeDefined();
-    });
-
-    test("a legacy spec carrying a stray `layout` key still lands in the legacy registry", () => {
-        // adversarial case: `"layout" in spec` alone would misroute this into `TypedSurfaces`, where it
-        // silently draws nothing (Part reads only `Surfaces`). `fs`'s string shape is the guard. Red-proven:
-        // dropping the `typeof spec.fs !== "string"` conjunct makes this fail (lands in TypedSurfaces instead).
-        const name = `legacy-stray-layout-${Math.random()}`;
-        const legacyWithStrayLayout = {
-            name,
-            fs: "col = vec4<f32>(1.0);",
-            layout: "some-incidental-string-field",
-        } as unknown as Parameters<typeof register>[0];
-        register(legacyWithStrayLayout);
-        expect(Surfaces.get(name)).toBeDefined();
-        expect(TypedSurfaces.get(name)).toBeUndefined();
+    test("an old State cannot delete a same-name replacement owned by a newer State", () => {
+        Surfaces.clear();
+        const first = new State();
+        const second = new State();
+        const firstSpec = { name: "replacement", layout: layout({}), fs };
+        const secondSpec = { name: "replacement", layout: layout({}), fs };
+        register(first, firstSpec);
+        register(second, secondSpec);
+        first.dispose();
+        expect(Surfaces.get("replacement")).toBe(secondSpec);
+        second.dispose();
+        expect(Surfaces.get("replacement")).toBeUndefined();
     });
 });

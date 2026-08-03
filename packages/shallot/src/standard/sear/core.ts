@@ -5,26 +5,29 @@
 
 export { pointAtlasView, shadowSampler, sunShadowParams, sunShadowView } from "./atlas";
 export { DEPTH_FORMAT, lightEvalWgsl, TAG_FORMAT, TAG_NONE, Tag } from "./codegen";
-// the typed `Surfaces`/`Backgrounds` contract (4a-ii-c): schema-carrying bindings + TGSL-fn code chunks,
-// dual-accepted beside the string contract until 4a-ii-d deletes it. `surfaceLayout`/`registerSurface`/
+// the `Surfaces`/`Backgrounds` contract: schema-carrying bindings + TGSL-fn code chunks.
+// `surfaceLayout`/`registerSurface`/
 // `backgroundLayout` carry their namespace (`layout`/`register` are too generic for a barrel, exports.md);
 // the IO schemas (`VsIn`/`vsPatchSchema`/`fsCtxSchema`/`BgCtx`) are what a typed chunk is authored against
 export type {
+    Background,
     BgFn,
     BgLayout,
-    Binding as TypedBinding,
+    Binding,
     FsFn,
     Specialize,
+    Surface,
     SurfaceLayout,
-    TypedBackground,
-    TypedSurface,
     VsFn,
 } from "./contract";
 export {
+    Backgrounds,
     BgCtx,
     backgroundLayout,
     fsCtxSchema,
+    registerBackground,
     registerSurface,
+    Surfaces,
     surfaceLayout,
     VsIn,
     vsPatchSchema,
@@ -44,10 +47,9 @@ export {
     pointScale,
     sunVisibility,
 } from "./engine";
-export type { Background } from "./forward";
-export { Backgrounds, ColorSystem, Depth, PrepassSystem, registerBackground } from "./forward";
-/** compiled typed-variant cache introspection for renderer diagnostics and real-device gates. */
-export { getCompiledTyped } from "./pipelines";
+export { ColorSystem, Depth, PrepassSystem } from "./forward";
+/** compiled surface-variant cache introspection for renderer diagnostics and real-device gates. */
+export { getCompiledSurface } from "./pipelines";
 // the relocatable shadow chunks + the uniform layouts they resolve from: the sun pair (struct then
 // sampler) and the point/spot pair (caster structs then receiver), each spliced around the group-1
 // declarations the consumer makes

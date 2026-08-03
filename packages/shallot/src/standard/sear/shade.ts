@@ -250,7 +250,7 @@ export function tileRectsSchema(slots: number) {
 }
 
 /**
- * the atlas VS's per-combo tile-folded view-projections (`codegen.ts`'s `pointShadowCode`, group 1): each
+ * the atlas VS's per-combo tile-folded view-projections: each
  * combo's viewProj has its atlas tile placement folded in (`tileTransform`), so the VS projects straight
  * into its tile with no manual divide. `slots` is `6 · casters` for the point atlas, `MAX_CASCADES` for
  * the cascade atlas — the same config-folded sizing {@link tileRectsSchema} takes, so the three schemas
@@ -261,7 +261,7 @@ export function faceVPsSchema(slots: number) {
 }
 
 /**
- * the atlas VS's per-combo meta (`codegen.ts`'s `pointShadowCode`, group 1): the (caster slot, face) — or
+ * the atlas VS's per-combo meta: the (caster slot, face) — or
  * (cascade index, …) for the cascade atlas — each dense combo maps to, which the VS reads to index its
  * tile rect. Same config-folded `slots` as {@link faceVPsSchema} / {@link tileRectsSchema}.
  */

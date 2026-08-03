@@ -1,3 +1,4 @@
+import * as d from "typegpu/data";
 import type { Plugin, System } from "../../engine";
 import { Compute, formatHex, invert } from "../../engine";
 import { SlabPlugin } from "../slab";
@@ -325,6 +326,15 @@ async function initRender(): Promise<void> {
     Render.viewCount = 0;
     Render.shadeCount = 0;
     Compute.buffers.set("cullVolumes", Render.cullVolumes);
+    Compute.typed.set(
+        "cullVolumes",
+        Compute.root
+            .createBuffer(
+                d.arrayOf(d.vec4f, MAX_SLOTS * (CULL_VOLUME_FLOATS / 4)),
+                Render.cullVolumes,
+            )
+            .$usage("storage"),
+    );
     Views.clear();
     clearOffscreens();
     clearScratch();

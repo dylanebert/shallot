@@ -1,7 +1,8 @@
+import * as d from "typegpu/data";
 import { Compute } from "../../engine";
 import type { Ktx2Image } from "./basis";
 import { ALBEDO_NAMES, albedoSampler, fallback1x1 } from "./image";
-import { MATERIAL_STRIDE } from "./palette";
+import { MATERIAL_STRIDE, MaterialData } from "./palette";
 
 // The glTF texture boundary — the decoded (deviceless) + assembled (GPU) texture types and the publish/
 // fallback primitives, in one place so the decode (index.ts), the union assembly (union.ts), and the plugin
@@ -84,6 +85,15 @@ export function publishTextures(set: AssembledTextures): void {
     for (const name of DATA_NAMES) Compute.textures.set(name, set.data[name]);
     Compute.samplers.set("albedoSamp", set.sampler);
     Compute.buffers.set("materialData", set.palette);
+    Compute.typed.set(
+        "materialData",
+        Compute.root
+            .createBuffer(
+                d.arrayOf(MaterialData, Math.max(1, set.palette.size / MATERIAL_STRIDE)),
+                set.palette,
+            )
+            .$usage("storage"),
+    );
 }
 
 // the build-scoped 1×1 fallback texture set, published at warm so the textured surfaces' draws resolve (and

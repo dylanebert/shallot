@@ -1,3 +1,4 @@
+import * as d from "typegpu/data";
 import { Compute, capacity, type State, type System } from "../../engine";
 
 // GPU mirror of the ECS component-membership bitset. The CPU bitset is the
@@ -31,6 +32,10 @@ export function allocMembership(state: State): void {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     Compute.buffers.set("membership", _gpu);
+    Compute.typed.set(
+        "membership",
+        Compute.root.createBuffer(d.arrayOf(d.u32, _mirror.length), _gpu).$usage("storage"),
+    );
 }
 
 /**
@@ -51,6 +56,7 @@ function flush(state: State): void {
 
 function release(): void {
     if (_gpu && Compute.buffers?.get("membership") === _gpu) Compute.buffers.delete("membership");
+    Compute.typed?.delete("membership");
     _gpu?.destroy();
     _gpu = null;
     _mirror = null;

@@ -65,10 +65,11 @@ describe("folded constants", () => {
 
     test("the scan writes instanceCount and firstInstance, never the static lanes", () => {
         const main = body(wgsl.scan, "@compute");
-        expect(main).toContain("drawArgs[((idx * 5u) + 1u)]");
-        expect(main).toContain("drawArgs[((idx * 5u) + 4u)]");
-        expect(main).not.toContain("(idx * 5u))]"); // lane 0 — indexCount
-        expect(main).not.toContain("+ 2u)]"); // lane 2 — firstIndex
+        expect(main).toContain("drawArgs[idx].instanceCount");
+        expect(main).toContain("drawArgs[idx].firstInstance");
+        expect(main).not.toContain("drawArgs[idx].indexCount");
+        expect(main).not.toContain("drawArgs[idx].firstIndex");
+        expect(main).not.toContain("drawArgs[idx].baseVertex");
         expect(main).toContain(`slot * ${capacity}u`); // the slot's packedEids region base
     });
 });

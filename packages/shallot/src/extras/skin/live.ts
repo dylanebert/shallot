@@ -5,7 +5,6 @@ import { Compute, compose, decompose, multiply, vec4 } from "../../engine";
 import { chunk, packColor4, spliceNs } from "../../engine/utils/core";
 import { Color } from "../../standard/part";
 import { RenderPlugin } from "../../standard/render";
-import type { Binding } from "../../standard/render/core";
 import { BeginFrameSystem, Render } from "../../standard/render/core";
 import { PrepassSystem } from "../../standard/sear/core";
 import { SlabPlugin, slab } from "../../standard/slab";
@@ -610,6 +609,13 @@ export const LiveSkin = {
                     this.jwEnd * VEC4_BYTES,
                 );
             Compute.buffers.set("skinData", this.buffer);
+            Compute.typed.set(
+                "skinData",
+                Compute.root
+                    .createBuffer(d.arrayOf(d.vec4u, needVec4), this.buffer)
+                    .$usage("storage")
+                    .$name("skin-data"),
+            );
             // publish the global skinParams fallback into the (wiped-each-build) Compute.buffers, so a
             // skin-live no-op draw over a non-live mesh resolves; a real live mesh overrides it per-draw
             if (!this.fallbackParams)
@@ -619,6 +625,13 @@ export const LiveSkin = {
                     usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
                 });
             Compute.buffers.set("skinParams", this.fallbackParams);
+            Compute.typed.set(
+                "skinParams",
+                Compute.root
+                    .createBuffer(SkinParams, this.fallbackParams)
+                    .$usage("uniform")
+                    .$name("skin-params-fallback"),
+            );
             // a realloc shifted region B (jwBase = paletteCap + local): every mesh's skinParams jwBase moved
             for (const [meshId, buf] of this.params) this.writeParams(device, meshId, buf);
             this.layoutDirty = false;
@@ -701,23 +714,6 @@ export const SkinPlugin: Plugin = {
         LiveSkin.dispose();
     },
 };
-
-// ---- the WGSL a live-skin surface splices: the GPU reader of the palette substrate above. A surface owning
-// a material path (`extras/gltf`'s `skin-live` PBR trio) declares {@link skinBindings} beside its own
-// material bindings, splices the preamble chunks, and takes {@link LIVE_SKIN_VS} as its `vs`.
-
-/** the bindings a live-skin surface declares for the substrate: the folded {@link Skin} slab (palette base
- *  in x, material index in y), the block-concat `skinData` buffer, and the per-mesh `skinParams` uniform.
- *  Two of the three are storage, so a surface taking these spends 2 of its `10 − SHARED_STORAGE_COUNT`
- *  own-storage budget here (gpu.md); the uniform is a separate limit. Declaration order is the binding
- *  order — a surface interleaves these with its own bindings deliberately, it doesn't just spread them.
- *  Frozen (deeply): a registered surface aliases these descriptors, so a mutation would retarget every
- *  shipped live-skin surface. */
-export const skinBindings: Readonly<Record<string, Binding>> = Object.freeze({
-    skin: Object.freeze({ type: "storage", element: "vec4<f32>" }) as Binding,
-    skinData: Object.freeze({ type: "storage", element: "vec4<u32>" }) as Binding,
-    skinParams: Object.freeze({ type: "uniform", struct: "SkinParams" }) as Binding,
-});
 
 /** the WGSL {@link SkinParams} struct a live-skin surface declares its `skinParams` uniform over. Splice at
  *  module scope; structs resolve order-free, so it may sit after the binding decl that references it. */

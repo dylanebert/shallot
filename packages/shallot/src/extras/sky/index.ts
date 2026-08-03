@@ -9,9 +9,9 @@ import { Compute, f32, formatHex, sparse } from "../../engine";
 import { RenderPlugin } from "../../standard/render";
 import { BeginFrameSystem } from "../../standard/render/core";
 import { SearPlugin } from "../../standard/sear";
-import { Backgrounds, ColorSystem } from "../../standard/sear/core";
+import { ColorSystem, registerBackground } from "../../standard/sear/core";
 import { packSky } from "./pack";
-import { SKY_BYTES, SKY_FLOATS, SKY_WGSL } from "./shader";
+import { SKY_BYTES, SKY_FLOATS, SkyGpu, skyBackground } from "./shader";
 
 /**
  * the scene's procedural sky, one per scene (a singleton). A camera shows it by selecting the registered
@@ -119,13 +119,10 @@ export const SkyPlugin: Plugin = {
     // the Lighting uniform the fragment reads
     dependencies: [RenderPlugin, SearPlugin],
 
-    initialize() {
-        Backgrounds.register({
-            name: "sky",
-            bindings: { sky: { type: "uniform", struct: "Sky" } },
-            preamble: SKY_WGSL,
-            fs: "col = sampleSky(dir);",
-        });
+    initialize(state) {
+        // Each State owns a distinct spec identity. Reusing the module singleton here would let an old
+        // State's exact-object disposal guard mistake a later build for its own registration.
+        registerBackground(state, { ...skyBackground });
     },
 
     warm() {
@@ -140,6 +137,10 @@ export const SkyPlugin: Plugin = {
         // the background bind group resolves the `sky` binding from Compute.buffers by name; republish every
         // warm — the map is wiped on each build()
         Compute.buffers.set("sky", _buffer);
+        Compute.typed.set(
+            "sky",
+            Compute.root.createBuffer(SkyGpu, _buffer).$usage("uniform").$name("sky-config"),
+        );
     },
 
     dispose() {

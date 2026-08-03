@@ -7,6 +7,7 @@
 // font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the kitchen
 // surface + producer around it. Single-channel SDF (Valve "Improved Alpha-Tested Magnification").
 
+import type { StorageFlag, TgpuBuffer } from "typegpu";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
@@ -24,7 +25,7 @@ import {
 } from "../../engine";
 import { packColor, Xform, xformPoint } from "../../engine/utils/core";
 import { mesh, RenderPlugin } from "../../standard/render";
-import { BeginFrameSystem, Draws, Meshes, Surfaces } from "../../standard/render/core";
+import { BeginFrameSystem, DrawIndexedIndirect, Draws, Meshes } from "../../standard/render/core";
 import {
     fsCtxSchema,
     PrepassSystem,
@@ -214,8 +215,10 @@ const INITIAL = 1 << 12;
 let _loaded: (Font | null)[] = [];
 let _atlases: (GlyphAtlas | null)[] = [];
 let _sampler: GPUSampler | null = null;
-let _glyphBuf: GPUBuffer | null = null;
-let _argBuf: GPUBuffer | null = null;
+let _glyphBuf: (TgpuBuffer<d.WgslArray<typeof Glyph>> & StorageFlag) | null = null;
+let _argBuf:
+    | (TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> & { usableAsIndirect: true })
+    | null = null;
 let _staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
 let _f32 = new Float32Array(_staging);
 let _u32 = new Uint32Array(_staging);
@@ -227,7 +230,6 @@ let _sig = -1;
 // per-font glyph staging lists, rebuilt each dirty frame, then packed into the shared buffer in id order
 const _byFont: LabelGlyph[][] = [];
 const _ranges: { start: number; count: number }[] = [];
-const _args = new Uint32Array(5);
 
 interface LabelGlyph {
     eid: number;
@@ -346,27 +348,34 @@ function rebuild(state: State, device: GPUDevice): void {
     }
     _count = n;
 
-    if (_cap * GLYPH_BYTES > _glyphBuf!.size) {
+    if (_cap * GLYPH_BYTES > Compute.root.unwrap(_glyphBuf!).size) {
         const stale = _glyphBuf!;
-        _glyphBuf = device.createBuffer({
-            label: "kitchen-text-glyphs",
-            size: _cap * GLYPH_BYTES,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        Compute.buffers.set("textGlyphs", _glyphBuf);
+        _glyphBuf = Compute.root
+            .createBuffer(d.arrayOf(Glyph, _cap))
+            .$usage("storage")
+            .$name("kitchen-text-glyphs");
+        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_glyphBuf));
+        Compute.typed.set("textGlyphs", _glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
     }
-    if (_count > 0) device.queue.writeBuffer(_glyphBuf!, 0, _staging, 0, _count * GLYPH_BYTES);
+    if (_count > 0)
+        device.queue.writeBuffer(
+            Compute.root.unwrap(_glyphBuf!),
+            0,
+            _staging,
+            0,
+            _count * GLYPH_BYTES,
+        );
 
-    for (let id = 0; id < _atlases.length; id++) {
-        if (!_atlases[id]) continue;
-        _args[0] = 6;
-        _args[1] = _ranges[id].count;
-        _args[2] = _quadBase;
-        _args[3] = 0;
-        _args[4] = _ranges[id].start;
-        device.queue.writeBuffer(_argBuf!, id * 20, _args);
-    }
+    _argBuf!.write(
+        Array.from({ length: Math.max(1, _atlases.length) }, (_, id) => ({
+            indexCount: 6,
+            instanceCount: _atlases[id] ? _ranges[id].count : 0,
+            firstIndex: _quadBase,
+            baseVertex: 0,
+            firstInstance: _atlases[id] ? _ranges[id].start : 0,
+        })),
+    );
 }
 
 // runs before sear reads the glyph buffer (the VS positions glyphs from it), so it pins before:
@@ -473,24 +482,11 @@ export const TextPlugin: Plugin = {
             const atlas = createGlyphAtlas(device, loaded);
             _atlases[id] = atlas;
             Compute.textures.set(atlasName(id), atlas.texture);
-            // the string-registry shell (bindings only — no code): the surface's own draw is
-            // registered by `TextSystem.setup`, so this exists purely to keep `text{id}` in the
-            // surface-id space every string-era consumer still enumerates. The code is the typed
-            // registration below, which `record()` consults first
-            Surfaces.register({
-                name: surfaceName(id),
-                blend: "alpha" as const,
-                bindings: {
-                    textGlyphs: { type: "storage" as const, element: "Glyph" },
-                    transforms: { type: "storage" as const, element: "Xform" },
-                    [atlasName(id)]: { type: "texture-2d" as const },
-                    textSamp: { type: "sampler" as const },
-                },
-            });
             const { layout, vs, fs } = typedTextSurface(id);
             registerSurface(state, {
                 name: surfaceName(id),
                 layout,
+                fragmentInputs: { localPos: true },
                 blend: "alpha",
                 varyings: textVaryings,
                 vs,
@@ -501,25 +497,22 @@ export const TextPlugin: Plugin = {
 
     warm() {
         if (!Compute.device) return;
-        const device = Compute.device;
         _cap = INITIAL;
         _staging = new ArrayBuffer(INITIAL * GLYPH_BYTES);
         _f32 = new Float32Array(_staging);
         _u32 = new Uint32Array(_staging);
         _count = 0;
         _sig = -1;
-        _glyphBuf = device.createBuffer({
-            label: "kitchen-text-glyphs",
-            size: INITIAL * GLYPH_BYTES,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-        });
-        Compute.buffers.set("textGlyphs", _glyphBuf);
-        _argBuf = device.createBuffer({
-            label: "kitchen-text-args",
-            // one DrawIndexedIndirect record per font; COPY_SRC so a gym Mirror can read back instanceCount
-            size: Math.max(1, _atlases.length) * 20,
-            usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
-        });
+        _glyphBuf = Compute.root
+            .createBuffer(d.arrayOf(Glyph, INITIAL))
+            .$usage("storage")
+            .$name("kitchen-text-glyphs");
+        Compute.buffers.set("textGlyphs", Compute.root.unwrap(_glyphBuf));
+        Compute.typed.set("textGlyphs", _glyphBuf);
+        _argBuf = Compute.root
+            .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _atlases.length)))
+            .$usage("indirect")
+            .$name("kitchen-text-args");
         for (const atlas of _atlases) if (atlas) ensureString(atlas, ASCII_CACHE);
     },
 

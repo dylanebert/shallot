@@ -1,9 +1,12 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { parse } from "../../engine/scene";
 import { Part, PartPlugin } from "../../standard/part";
-import { Surfaces } from "../../standard/render/core";
+import { fsCtxSchema, surfaceLayout } from "../../standard/sear/contract";
+import { Surfaces } from "../../standard/sear/core";
 import { Slab } from "../../standard/slab";
 import { LiveSkin, Skin } from "../skin";
 import type { GltfHandle } from "./assets";
@@ -44,16 +47,27 @@ describe("RouteSystem", () => {
     let liveSurf: number;
     let solid: number;
 
+    const routeLayout = surfaceLayout({});
+    const routeFs = tgpu.fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(1);
+    });
+    const registerSurface = (name: string) =>
+        Surfaces.register({ name, layout: routeLayout, fs: routeFs });
+
     beforeEach(() => {
         clear();
         Surfaces.clear();
         routes.clear();
         LiveSkin.reset();
-        solid = Surfaces.register({ name: "default" });
-        albedo = Surfaces.register({ name: "gltf-albedo" });
-        skinSurf = Surfaces.register({ name: "skin" });
-        liveSurf = Surfaces.register({ name: "skin-live" });
-        Surfaces.register({ name: "checker" });
+        solid = registerSurface("default");
+        albedo = registerSurface("gltf-albedo");
+        skinSurf = registerSurface("skin");
+        liveSurf = registerSurface("skin-live");
+        registerSurface("checker");
         for (const p of [PartPlugin, GltfPlugin]) {
             for (const [n, c] of Object.entries(p.components ?? {})) {
                 register(n, c, p.traits?.[n]);

@@ -15,37 +15,19 @@
 // own shadow state directly — nothing publishes into it. Add a `Shadow` to the sun to cast; omit it for the
 // fully-lit bare path (no map allocated), exactly like a camera without a lane marker runs no prepass.
 
-import type { TgpuBindGroupLayout } from "typegpu";
-import tgpu from "typegpu";
+import type { TgpuBindGroupLayout, TgpuBuffer } from "typegpu";
+import tgpu, { isBuffer, isUsableAsStorage, isUsableAsUniform } from "typegpu";
+import type { AnyData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { Plugin, State, System } from "../../engine";
-import {
-    Compute,
-    capacity,
-    f16x4,
-    laneAlias,
-    Registry,
-    sparse,
-    u32,
-    unpackColor,
-} from "../../engine";
+import { Compute, capacity, f16x4, laneAlias, sparse, u32, unpackColor } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import { unpackLdrColor, Xform } from "../../engine/utils/core";
 import { GlazeSystem } from "../glaze";
 import { Camera, RenderPlugin } from "../render";
-import type { Binding, Draw, View } from "../render/core";
-import {
-    BeginFrameSystem,
-    Draws,
-    Frame,
-    LightCull,
-    Lighting,
-    Meshes,
-    Render,
-    Surfaces,
-    Views,
-} from "../render/core";
+import type { Draw, MeshBinding, MeshIndex, View } from "../render/core";
+import { BeginFrameSystem, Draws, Meshes, Render, Views } from "../render/core";
 import { SlabPlugin, slab } from "../slab";
 import {
     cascadeRegather,
@@ -56,35 +38,16 @@ import {
     resetShadowAtlas,
     setPointFrames,
     shadowGroup,
-    shadowGroupTyped,
-    shadowLayoutTyped,
+    shadowLayout,
     shadowReady,
 } from "./atlas";
+import { COLOR_LANES, type ColorLane, DEPTH_FORMAT, laneKey, SAMPLE_COUNT, Tag } from "./codegen";
 import {
-    BG_BASE,
-    COLOR_LANES,
-    type ColorLane,
-    DEPTH_FORMAT,
-    FRAME,
-    LIGHT_GRID,
-    LIGHT_INDICES,
-    LIGHTING,
-    laneKey,
-    MESH_QUANT,
-    POINT_LIGHTS,
-    SAMPLE_COUNT,
-    SURFACE_BASE,
-    Tag,
-    VERTICES,
-    VIEW,
-} from "./codegen";
-import {
+    type Background,
+    Backgrounds,
     fsCtxSchema,
-    type TypedBackground,
-    TypedBackgrounds,
-    type Binding as TypedContractBinding,
-    type TypedSurface,
-    TypedSurfaces,
+    type Surface,
+    Surfaces,
     surfaceLayout as typedLayout,
     registerSurface as typedRegister,
     VsIn,
@@ -94,31 +57,21 @@ import { engineLayout, litPbr } from "./engine";
 import {
     type BindResource,
     bgQuant,
-    type Compiled,
-    type CompiledBg,
-    type CompiledTyped,
-    type CompiledTypedBg,
-    clearBackgrounds,
+    type CompiledBackground,
+    type CompiledSurface,
     clearGroups,
-    compileTypedBg,
-    compileTypedVariant,
+    compileBackground,
+    compileVariant,
+    engineGroup,
     ensureSingle,
-    ensureTypedSingle,
-    ensureVariant,
-    type GroupEntry,
     getBackground,
-    getCompiled,
-    getCompiledTyped,
+    getCompiledSurface,
     getGroup,
-    getTypedBg,
-    getTypedGroup,
-    knownTypedVariants,
+    knownVariants,
     preparePipelines,
     resetPipelineCaches,
+    type SurfaceGroupEntry,
     setGroup,
-    setTypedGroup,
-    type TypedGroupEntry,
-    typedEngineGroup,
 } from "./pipelines";
 import { prepareRegather } from "./regather";
 import { checkShadowConfig, Pbr } from "./shade";
@@ -200,56 +153,20 @@ function initMaterial(): void {
 
 /**
  * a registered background: a renderer-agnostic *view-ray → HDR color* recipe sear draws as a fullscreen
- * backdrop on the un-rendered pixels (the standard infinite-skybox technique). `fs` is a WGSL chunk that
- * writes the HDR color into `col: vec3<f32>` from a normalized world-space view ray `dir` (sear
- * reconstructs it per-pixel from `view.invViewProj`), with read access to `view`, `lighting`, `frame`, and
- * any declared `bindings`. `preamble` is an optional module-scope WGSL chunk (helpers / structs /
- * constants the `fs` calls). Modeled on {@link Surface}, but backdrop-only: no mesh, instancing,
- * interpolators, or blend modes; the engine names no sky concept, a plugin owns its own sky math.
+ * backdrop on the un-rendered pixels (the standard infinite-skybox technique). Its `layout` comes from
+ * {@link backgroundLayout} and names the schema-backed resources its TGSL `fs` closes over. The `fs`
+ * receives `BgCtx.dir`, the normalized world-space view ray sear reconstructs from `view.invViewProj`,
+ * and returns an HDR `vec3f`; it may also close over the canonical engine layout's view, lighting, and
+ * frame resources. Modeled on {@link Surface}, but backdrop-only: no mesh, instancing, interpolators, or
+ * blend modes; the engine names no sky concept, a plugin owns its own sky math.
  */
-export interface Background {
-    name: string;
-    bindings?: Record<string, Binding>;
-    preamble?: string;
-    fs: string;
-}
-
-/** every registered background, keyed by name with a stable numeric ID; cleared on `SearPlugin.initialize` */
-export const Backgrounds: Registry<Background> = new Registry<Background>();
-
-function isTypedBg(spec: Background | TypedBackground): spec is TypedBackground {
-    // the same two-part discriminant `contract.ts`'s `isTyped` uses for surfaces: `layout` presence alone
-    // would misroute a legacy spec carrying an incidental `layout` key, so `fs`'s shape is the load-bearing
-    // second conjunct (legacy `fs` is always a WGSL string, typed `fs` always a TgpuFn).
-    return "layout" in spec && typeof spec.fs !== "string";
-}
-
-/**
- * the background dual-accept shim (4a-ii-c-3a-4, `contract.ts`'s `register()` precedent for surfaces):
- * accepts either the legacy string-contract {@link Background} or a typed spec, discriminated the same way.
- * Lives here rather than in `contract.ts` because the legacy `Background` type + the real `Backgrounds`
- * registry it delegates to are owned by this module, which already imports `contract.ts` — the reverse
- * import would cycle. A legacy spec delegates straight to `Backgrounds.register` (unchanged behavior); a
- * typed spec lands in `contract.ts`'s `TypedBackgrounds` for a future consumer conversion to compile
- * against. Sanctioned until the string path retires.
- *
- * @example
- * registerBackground({ name: "gradient", fs: "col = vec3<f32>(dir.y);" }); // legacy
- * registerBackground({ name: "typed-gradient", layout, fs }); // typed
- */
-export function registerBackground<B extends Record<string, TypedContractBinding>>(
-    spec: TypedBackground<B>,
-): number;
-export function registerBackground(spec: Background): number;
-export function registerBackground(spec: Background | TypedBackground): number {
-    if (isTypedBg(spec)) return TypedBackgrounds.register(spec);
-    return Backgrounds.register(spec);
-}
+export type { Background } from "./contract";
+export { Backgrounds, registerBackground } from "./contract";
 
 /**
  * select a Sear camera's backdrop: the {@link Backgrounds} recipe drawn behind the scene as a fullscreen
  * view-ray → color fill on the un-rendered pixels. Without it the camera shows the flat `Camera.clearColor`
- * (the opt-in fallback). The recipe is registered in code (`Backgrounds.register`); this picks one per
+ * (the opt-in fallback). The recipe is registered in code with `registerBackground`; this picks one per
  * camera by name.
  *
  * @example
@@ -263,24 +180,12 @@ export const Backdrop = {
 };
 
 // name ↔ Backgrounds-id at scene parse / format, the PartTraits surface pattern (id stored, name authored).
-// The two registries are separate id spaces during dual-accept, so a typed background's id stores offset
-// by BACKDROP_TYPED_BASE — an unambiguous discriminant (the legacy registry can never reach 2^31 entries),
-// where consulting both registries at the same raw id could misroute
-const BACKDROP_TYPED_BASE = 0x80000000;
 const BackdropTraits = {
     parse: {
-        name: (value: string) => {
-            const legacy = Backgrounds.id(value);
-            if (legacy !== undefined) return legacy;
-            const typed = TypedBackgrounds.id(value);
-            return typed !== undefined ? typed + BACKDROP_TYPED_BASE : undefined;
-        },
+        name: (value: string) => Backgrounds.id(value),
     },
     format: {
-        name: (value: number) =>
-            value >= BACKDROP_TYPED_BASE
-                ? TypedBackgrounds.name(value - BACKDROP_TYPED_BASE)
-                : Backgrounds.name(value),
+        name: (value: number) => Backgrounds.name(value),
     },
 };
 
@@ -296,85 +201,58 @@ function warnSkip(draw: string, cause: string): null {
     return null;
 }
 
-const registryFor = (type: Binding["type"]) =>
-    type.startsWith("texture")
-        ? Compute.textures
-        : type.startsWith("sampler")
-          ? Compute.samplers
-          : Compute.buffers;
-
-// shape a resolved resource into a bind-group entry resource by binding type: a 2d-array texture binds a
-// 2d-array view, any other texture its default view, a sampler itself, a buffer wrapped
-const bindResource = (type: Binding["type"], res: BindResource): GPUBindingResource =>
-    type === "texture-2d-array"
-        ? (res as GPUTexture).createView({ dimension: "2d-array" })
-        : type.startsWith("texture")
-          ? (res as GPUTexture).createView()
-          : type.startsWith("sampler")
-            ? (res as GPUSampler)
-            : { buffer: res as GPUBuffer };
-
-type RecordedLegacy = {
-    // the compiled surface — the color pass reads `color`/`transparent` (or the single-sample `single`
-    // twin for a no-AA camera); the prepass + shadow passes read `prepass`. Carried whole so the per-camera
-    // AA selection happens at draw time without baking each pipeline ref per draw
-    c: Compiled;
-    // the per-draw group-0 state: the shared bindings (everything but slot 3, the vertex stream, and
-    // VIEW) plus the two per-slot caches `colorGroup`/`prepassGroup` build against — one whole
-    // `Render.viewBuffers[slot]` buffer per bind, no dynamic offset (Approach 4a's per-slot-buffer design)
-    entry: GroupEntry;
-    // the mesh's index buffer, bound via setIndexBuffer before each drawIndexedIndirect (geometry pulls
-    // vertices from the storage binding, but the hardware index buffer drives vertex reuse)
-    index: GPUBuffer;
+type BufferEntry = {
+    storage?: (count: number) => d.WgslArray<d.AnyWgslData>;
+    uniform?: d.AnyData;
 };
 
-// a draw resolved through the typed contract (4a-ii-c-3b): the compiled typed pipeline set + the
-// per-draw group-2 state (engine group 0 resolves per slot at draw time via `typedEngineGroup`;
-// group 1 is the pass's — `shadowGroupTyped` for color, the atlas layouts' own for point/cascade)
-type RecordedTyped = { t: CompiledTyped; g: TypedGroupEntry; index: GPUBuffer };
-
-// the two shapes discriminate on `"c" in r` — a draw is exactly one of them, decided by `record()`'s
-// typed-registry-first lookup (the built-in flip: a name registered in both draws typed)
-export type Recorded = RecordedLegacy | RecordedTyped;
-
 /**
- * the color pass's group 0 for a recorded draw at a given view slot (slot 3 = the 16 B main vertex
- * stream, VIEW = `Render.viewBuffers[slot]`) — lazily built and cached per slot on the draw's
- * {@link GroupEntry} (typically one entry: a scene usually has one shading camera).
+ * Validate a typed mesh override against the synthesized TypeGPU layout entry before the deliberately
+ * loose createBindGroup boundary. Raw GPUBuffer remains the explicit unchecked WebGPU escape.
+ * @internal
  */
-function colorGroup(r: RecordedLegacy, slot: number): GPUBindGroup {
-    return slotGroup(r.entry, r.entry.main, r.entry.colorCache, slot, `sear-color-${slot}`);
+export function validateMeshBindingOverrides(
+    layout: { entries: Record<string, object> },
+    overrides?: Record<string, unknown>,
+): void {
+    if (!overrides) return;
+    for (const [name, rawEntry] of Object.entries(layout.entries)) {
+        const resource = overrides[name];
+        if (!resource || !isBuffer(resource)) continue;
+        const entry = rawEntry as BufferEntry;
+        if (entry.storage) {
+            if (!isUsableAsStorage(resource)) {
+                throw new Error(`mesh binding "${name}" is missing storage usage`);
+            }
+            const expected = entry.storage(1);
+            if (
+                !d.isWgslArray(resource.dataType) ||
+                !d.deepEqual(
+                    resource.dataType.elementType as AnyData,
+                    expected.elementType as AnyData,
+                )
+            ) {
+                throw new Error(`mesh binding "${name}" has the wrong storage schema`);
+            }
+        } else if (entry.uniform) {
+            if (!isUsableAsUniform(resource)) {
+                throw new Error(`mesh binding "${name}" is missing uniform usage`);
+            }
+            if (!d.deepEqual(resource.dataType as AnyData, entry.uniform)) {
+                throw new Error(`mesh binding "${name}" has the wrong uniform schema`);
+            }
+        } else {
+            throw new Error(`mesh binding "${name}" is not a buffer entry`);
+        }
+    }
 }
 
-/**
- * the prepass + shadow-map pass's group 0 for a recorded draw at a given view slot (slot 3 = the 8 B
- * position-only stream). Same per-slot caching as {@link colorGroup}.
- */
-function prepassGroupOf(r: RecordedLegacy, slot: number): GPUBindGroup {
-    return slotGroup(r.entry, r.entry.position, r.entry.prepassCache, slot, `sear-prepass-${slot}`);
-}
+// a draw resolved through the surface contract: the compiled pipeline set + the
+// per-draw group-2 state (engine group 0 resolves per slot at draw time via `engineGroup`;
+// group 1 is the pass's — `shadowGroup` for color, the atlas layouts' own for point/cascade)
+type RecordedSurface = { t: CompiledSurface; g: SurfaceGroupEntry; index: MeshIndex };
 
-function slotGroup(
-    entry: GroupEntry,
-    vertex: GPUBuffer,
-    cache: Map<number, GPUBindGroup>,
-    slot: number,
-    label: string,
-): GPUBindGroup {
-    const cached = cache.get(slot);
-    if (cached) return cached;
-    const group = Compute.device.createBindGroup({
-        label,
-        layout: entry.layout,
-        entries: [
-            { binding: VERTICES, resource: { buffer: vertex } },
-            { binding: VIEW, resource: { buffer: Render.viewBuffers[slot] } },
-            ...entry.shared,
-        ],
-    });
-    cache.set(slot, group);
-    return group;
-}
+export type Recorded = RecordedSurface;
 
 /**
  * the color + transparent + per-lane-set prepass pipelines and the bind-group state sear records a draw
@@ -384,110 +262,8 @@ function slotGroup(
  * are stable, so untracked
  */
 function record(draw: Draw): Recorded | null {
-    // the typed registry wins (the built-in flip, 4a-ii-c-3b): a surface registered in both — the
-    // built-ins during dual-accept — draws through the typed path in EVERY pass; a partial (per-pass)
-    // flip would break shadow casting. The string registration stays for Part's automatic draw
-    // registration + any legacy consumer reading `Surfaces`
-    const typed = TypedSurfaces.get(draw.surface);
-    if (typed) return recordTyped(draw, typed);
     const surface = Surfaces.get(draw.surface);
-    if (!surface) return null; // not a sear surface — silent skip
-    const mesh = Meshes.get(draw.mesh);
-    if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
-    // a specializing surface (glTF) selects the pipeline for this mesh's material map-set; every other
-    // surface is variant 0. The variant is constant per mesh, so the cached bind group (variant-invariant)
-    // stays valid across frames
-    const variant = surface.specialize ? (mesh.variant ?? 0) : 0;
-    const c = getCompiled(draw.surface, variant);
-    if (!c) {
-        ensureVariant(surface, variant); // kick off the lazy compile; skip the draw until it lands
-        return null;
-    }
-
-    // a mesh registered before the quantized format (or by an un-migrated producer) has no position /
-    // quant stream — skip it loudly rather than bind a garbage decode
-    if (!mesh.position || !mesh.quant)
-        return warnSkip(draw.name, `mesh "${draw.mesh}" has no quantized position/quant stream`);
-    const main = mesh.vertices;
-    const position = mesh.position;
-    const quant = mesh.quant;
-
-    // resolve the surface bindings to live resources by type (geometry first: main, position, quant, index).
-    // A per-mesh override (`mesh.bindings`, e.g. a skinned mesh's own VAT) wins over the published global, so
-    // meshes needing distinct resources for the same binding name (one VAT per skinned mesh) each bind their own
-    const resources: BindResource[] = [main, position, quant, mesh.indices];
-    for (const { name, type } of c.slots) {
-        const res = mesh.bindings?.[name] ?? registryFor(type).get(name);
-        if (!res) return warnSkip(draw.name, `binding "${name}" (${type}) not published`);
-        resources.push(res);
-    }
-
-    const prev = getGroup(draw.name);
-    if (
-        prev &&
-        prev.resources.length === resources.length &&
-        prev.resources.every((b, k) => b === resources[k])
-    ) {
-        return { c, entry: prev, index: mesh.indices };
-    }
-
-    // the bindings shared by both groups (everything but slot 3, the vertex stream, and VIEW)
-    const shared: GPUBindGroupEntry[] = [
-        { binding: FRAME, resource: { buffer: Frame.buffer } },
-        { binding: LIGHTING, resource: { buffer: Lighting.buffer } },
-        { binding: POINT_LIGHTS, resource: { buffer: LightCull.lights! } },
-        { binding: LIGHT_GRID, resource: { buffer: LightCull.grid! } },
-        { binding: LIGHT_INDICES, resource: { buffer: LightCull.indices! } },
-        { binding: MESH_QUANT, resource: { buffer: quant } },
-    ];
-    // textures bind a default view — cache-miss path only, never per-frame on a hit
-    c.slots.forEach(({ type }, k) => {
-        shared.push({ binding: k + SURFACE_BASE, resource: bindResource(type, resources[k + 4]) });
-    });
-
-    const entry: GroupEntry = {
-        main,
-        position,
-        layout: c.layout,
-        shared,
-        colorCache: new Map(),
-        prepassCache: new Map(),
-        pointGroup: null,
-        cascadeGroup: null,
-        resources,
-    };
-
-    // a shadow-atlas group 0: the prepass group with the `eids` lane bound to a re-gathered packed instance
-    // list (the point atlas's or the cascade atlas's), and VIEW bound to slot 0's buffer as an unread
-    // placeholder (the point/cascade VS projects by its own tile viewProj, never `view`). Reusing the eids
-    // lane keeps the atlas pipelines at zero new storage bindings, so the heaviest surfaces stay within the
-    // 10-per-stage ceiling (gpu.md). Built only for a casting surface, and only once that atlas's packed
-    // list exists (its alloc clears the group cache, rebuilding)
-    const eidsK = c.slots.findIndex((s) => s.name === "eids");
-    const eidsSwap = (
-        pipe: GPURenderPipeline | null,
-        listEids: GPUBuffer | null,
-    ): GPUBindGroup | null => {
-        if (!pipe || !listEids || eidsK < 0) return null;
-        const entries: GPUBindGroupEntry[] = [
-            { binding: VERTICES, resource: { buffer: position } },
-            { binding: VIEW, resource: { buffer: Render.viewBuffers[0] } },
-            ...shared,
-        ].map((e) =>
-            e.binding === SURFACE_BASE + eidsK
-                ? { binding: e.binding, resource: { buffer: listEids } }
-                : e,
-        );
-        return Compute.device.createBindGroup({
-            label: `sear-shadowcast-${draw.name}`,
-            layout: c.layout,
-            entries,
-        });
-    };
-    entry.pointGroup = eidsSwap(c.point, pointRegather.eids());
-    entry.cascadeGroup = eidsSwap(c.cascade, cascadeRegather.eids());
-    setGroup(draw.name, entry);
-    return { c, entry, index: mesh.indices };
+    return surface ? recordSurface(draw, surface) : null;
 }
 
 // resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
@@ -507,9 +283,10 @@ function typedResources(
                 ? Compute.textures
                 : "sampler" in entry
                   ? Compute.samplers
-                  : Compute.buffers;
+                  : Compute.typed;
         const res = override?.[name] ?? registry.get(name);
         if (!res) return name;
+        if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
         // a texture binds a view of the schema's own dimension (the legacy `bindResource` shape)
         values[name] =
@@ -529,19 +306,19 @@ function typedResources(
  * `layout.depthVariant`; clip depth-side groups against the full layout so cutoff sees material UVs —
  * plus the atlas `eids` swaps and the slot-0 engine group the atlas passes bind).
  */
-function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
+function recordSurface(draw: Draw, surface: Surface): Recorded | null {
     const mesh = Meshes.get(draw.mesh);
     if (!mesh) return warnSkip(draw.name, `mesh "${draw.mesh}" not registered`);
     if (!mesh.position || !mesh.quant)
         return warnSkip(draw.name, `mesh "${draw.mesh}" has no quantized position/quant stream`);
     const variant = surface.specialize ? (mesh.variant ?? 0) : 0;
-    let t = getCompiledTyped(surface.name, variant);
+    let t = getCompiledSurface(surface.name, variant);
     if (!t || t.owner !== surface || t.layout !== surface.layout) {
         // registered after warm (`preparePipelines` compiles the rest) — sync, so no skip frame; a
         // throwing compile (a contract guard, or shader/device validation) must not take down the frame
         // loop, so it degrades to the warn-once skip
         try {
-            t = compileTypedVariant(surface, variant);
+            t = compileVariant(surface, variant);
         } catch (e) {
             return warnSkip(draw.name, `typed surface "${surface.name}" failed to compile: ${e}`);
         }
@@ -549,7 +326,7 @@ function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
 
     const resolved = typedResources(
         surface.layout.entries as Record<string, object>,
-        mesh.bindings as Record<string, BindResource> | undefined,
+        mesh.bindings as Record<string, MeshBinding> | undefined,
     );
     if (typeof resolved === "string")
         return warnSkip(draw.name, `binding "${resolved}" not published`);
@@ -567,7 +344,7 @@ function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
     if (pointList) resources.push(pointList);
     if (cascadeList) resources.push(cascadeList);
 
-    const prev = getTypedGroup(draw.name, surface);
+    const prev = getGroup(draw.name, surface);
     if (
         prev &&
         prev.resources.length === resources.length &&
@@ -579,7 +356,11 @@ function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
     const root = Compute.root;
     // the two layout objects share one loose signature here — the color/depth `vertices` element split
     // is real at authoring time, but a bind group takes raw buffers either way (the `layout.$` cast class)
-    const group = (lay: unknown, vertices: GPUBuffer, override?: Record<string, BindResource>) =>
+    const group = (
+        lay: unknown,
+        vertices: TgpuBuffer<AnyData>,
+        override?: Record<string, BindResource>,
+    ) =>
         root.unwrap(
             root.createBindGroup(
                 lay as TgpuBindGroupLayout,
@@ -594,10 +375,10 @@ function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
     const clip = surface.blend === "clip";
     const depthLayout = clip ? surface.layout : surface.layout.depthVariant;
     const depthVertices = clip ? mesh.vertices : mesh.position;
-    const entry: TypedGroupEntry = {
+    const entry: SurfaceGroupEntry = {
         owner: surface,
         layout: surface.layout,
-        quant: mesh.quant,
+        quant: root.unwrap(mesh.quant),
         color: group(surface.layout, mesh.vertices),
         // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
         depth: surface.blend === "alpha" ? null : group(depthLayout, depthVertices),
@@ -606,11 +387,14 @@ function recordTyped(draw: Draw, surface: TypedSurface): Recorded | null {
             t.cascade && cascadeList
                 ? group(depthLayout, depthVertices, { eids: cascadeList })
                 : null,
+        eids: resolved.values.eids
+            ? root.unwrap(resolved.values.eids as TgpuBuffer<AnyData>)
+            : null,
         engineCache,
-        atlasG0: typedEngineGroup(engineCache, 0, mesh.quant),
+        atlasG0: engineGroup(engineCache, 0, root.unwrap(mesh.quant)),
         resources,
     };
-    setTypedGroup(draw.name, entry);
+    setGroup(draw.name, entry);
     return { t, g: entry, index: mesh.indices };
 }
 
@@ -779,29 +563,6 @@ function beginColor(
     });
 }
 
-// set the pipeline + per-draw, per-slot group 0 and issue the indirect draw. Shared by the prepass and
-// the color pass's opaque + transparent draws — they differ in pipeline and in which group-0 bind group
-// (the color pass binds `colorGroup(r, slot)`, the prepass `prepassGroupOf(r, slot)`); the color pass
-// additionally binds group 1, its caller's concern, not here
-function bind(
-    pass: GPURenderPassEncoder,
-    pipeline: GPURenderPipeline,
-    draw: Draw,
-    r: RecordedLegacy,
-    group: GPUBindGroup,
-    slot: number,
-): void {
-    pass.setPipeline(pipeline);
-    pass.setBindGroup(0, group);
-    pass.setIndexBuffer(r.index, "uint32");
-    // per-view-culled producers lay DrawIndexedIndirect records out slot-major (`viewStride`
-    // bytes/camera); a view-independent draw leaves it 0
-    pass.drawIndexedIndirect(
-        draw.args.indirect,
-        (draw.args.offset ?? 0) + slot * (draw.args.viewStride ?? 0),
-    );
-}
-
 /**
  * one camera's prepass (`sear:prepass`) recorded onto `Render.encoder`: a single single-sample pass
  * emitting the camera's opt-in lanes. It owns its own depth (cleared + `less` + write, so only the
@@ -848,33 +609,19 @@ function renderPrepass(
     });
     let draws = 0;
     for (const { draw, r } of items) {
-        if ("c" in r) {
-            const pipe = r.c.prepass.get(key);
-            if (pipe) {
-                bind(pass, pipe, draw, r, prepassGroupOf(r, view.slot), view.slot);
-                draws++;
-            }
-        } else {
-            const pipe = r.t.prepass.get(key);
-            if (pipe && r.g.depth) {
-                // the depth-shape group registers under BOTH group-2 layout objects: a vs-chunk
-                // surface's own reads resolve against `layout`, the depth vertex pull against
-                // `layout.depthVariant`, and the resolution records only one of the two (structurally
-                // identical, WebGPU-group-equivalent) at idx 2
-                pipe.with(pass)
-                    .with(engineLayout, typedEngineGroup(r.g.engineCache, view.slot, r.g.quant))
-                    // inert group-1 fill (the stub receiver samples nothing) — the typed prepass
-                    // pipelines declare it only to keep typegpu's group-indexed pipeline layout dense
-                    .with(shadowLayoutTyped, shadowGroupTyped())
-                    .with(r.g.layout, r.g.depth)
-                    .with(r.g.layout.depthVariant, r.g.depth)
-                    .withIndexBuffer(r.index, "uint32")
-                    .drawIndexedIndirect(
-                        draw.args.indirect,
-                        (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
-                    );
-                draws++;
-            }
+        const pipe = r.t.prepass.get(key);
+        if (pipe && r.g.depth) {
+            pipe.with(pass)
+                .with(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant))
+                .with(shadowLayout, shadowGroup())
+                .with(r.g.layout, r.g.depth)
+                .with(r.g.layout.depthVariant, r.g.depth)
+                .withIndexBuffer(r.index)
+                .drawIndexedIndirect(
+                    draw.args.indirect,
+                    (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
+                );
+            draws++;
         }
     }
     pass.end();
@@ -882,60 +629,27 @@ function renderPrepass(
     view.depth = storeDepth ? depth : null;
 }
 
-// build (and cache) a background's group 0 for one view slot — frame / view (one whole per-slot buffer,
-// no dynamic offset) / lighting + its own bindings resolved by name. Lazy, keyed on (bg × slot): the
-// buffers are stable post-warm, so a slot builds once on first use and caches on the CompiledBg (a
-// missing binding skips the draw)
-function bgGroup(cb: CompiledBg, slot: number): GPUBindGroup | null {
-    const cached = cb.groupCache.get(slot);
-    if (cached) return cached;
-    const entries: GPUBindGroupEntry[] = [
-        { binding: FRAME, resource: { buffer: Frame.buffer } },
-        { binding: VIEW, resource: { buffer: Render.viewBuffers[slot] } },
-        { binding: LIGHTING, resource: { buffer: Lighting.buffer } },
-    ];
-    for (let k = 0; k < cb.slots.length; k++) {
-        const { name, type } = cb.slots[k];
-        const res = registryFor(type).get(name);
-        if (!res)
-            return warnSkip(`background:${cb.name}`, `binding "${name}" (${type}) not published`);
-        entries.push({ binding: k + BG_BASE, resource: bindResource(type, res) });
-    }
-    const group = Compute.device.createBindGroup({
-        label: `sear-bg-${cb.name}-${slot}`,
-        layout: cb.layout,
-        entries,
-    });
-    cb.groupCache.set(slot, group);
-    return group;
-}
-
 // the camera's selected backdrop — legacy or typed, discriminated by the stored id's
 // BACKDROP_TYPED_BASE offset (BackdropTraits) — or null (no `Backdrop` component, or its name isn't a
 // compiled background). Membership-gated — a bare `Backdrop.name.get` reads 0 for a non-member, which
 // would alias the first registered background, so the `state.has` check is what keeps the no-backdrop
 // path on the clear
-type BackdropPick = { cb: CompiledBg } | { bg: TypedBackground; ct: CompiledTypedBg };
+type BackdropPick = { bg: Background; ct: CompiledBackground };
 function backdrop(state: State, eid: number): BackdropPick | null {
     if (!state.has(eid, Backdrop)) return null;
     const id = Backdrop.name.get(eid);
-    if (id >= BACKDROP_TYPED_BASE) {
-        const name = TypedBackgrounds.name(id - BACKDROP_TYPED_BASE);
-        const bg = name ? TypedBackgrounds.get(name) : undefined;
-        if (!bg) return null;
-        const ct = getTypedBg(bg.name) ?? compileTypedBg(bg);
-        return { bg, ct };
-    }
     const name = Backgrounds.name(id);
-    const cb = name ? getBackground(name) : undefined;
-    return cb ? { cb } : null;
+    const bg = name ? Backgrounds.get(name) : undefined;
+    if (!bg) return null;
+    const ct = getBackground(bg.name, bg) ?? compileBackground(bg);
+    return { bg, ct };
 }
 
-// build (and cache on the CompiledTypedBg) a typed background's own group-2 bind group — slot-invariant
+// build (and cache on the CompiledBackground) a typed background's own group-2 bind group — slot-invariant
 // (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip, like
 // `bgGroup`); a binding-free background carries no group at all (its empty layout never enters the
 // pipeline layout)
-function typedBgGroup(bg: TypedBackground, ct: CompiledTypedBg): GPUBindGroup | null | "none" {
+function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup | null | "none" {
     const entries = bg.layout.entries as Record<string, object>;
     if (Object.keys(entries).length === 0) return "none";
     const resolved = typedResources(entries);
@@ -982,93 +696,49 @@ function renderColor(
     const clear = unpackColor(Camera.clearColor.get(eid));
     const { color: msaaColor, depth } = colorTargets(eid, view.width, view.height, aa);
     const pass = beginColor(eid, msaaColor, depth, view.framebuffer, clear);
-    pass.setBindGroup(1, shadowGroup());
-    // a typed draw sets its own group 1 (`shadowLayoutTyped`'s group — structurally different, so NOT
-    // group-equivalent to the raw one), which invalidates the raw group bound at the pass top for any
-    // legacy draw after it; track and re-set on the typed→legacy switch
-    let rawG1 = true;
     // tally the indirect draws this camera issues (opaque + blend) so the profiler derives the injected
     // validation floor (gpu.md); the honest count is post the `if (pipe)` skip
     let draws = 0;
-    const drawTyped = (draw: Draw, r: RecordedTyped, pipe: (typeof r.t)["color"]): void => {
+    const drawTyped = (draw: Draw, r: RecordedSurface, pipe: (typeof r.t)["color"]): void => {
         pipe!
             .with(pass)
-            .with(engineLayout, typedEngineGroup(r.g.engineCache, view.slot, r.g.quant))
-            .with(shadowLayoutTyped, shadowGroupTyped())
+            .with(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant))
+            .with(shadowLayout, shadowGroup())
             .with(r.g.layout, r.g.color)
-            .withIndexBuffer(r.index, "uint32")
+            .withIndexBuffer(r.index)
             .drawIndexedIndirect(
                 draw.args.indirect,
                 (draw.args.offset ?? 0) + view.slot * (draw.args.viewStride ?? 0),
             );
-        rawG1 = false;
         draws++;
     };
     for (const { draw, r } of items) {
-        if ("c" in r) {
-            if (!aa) ensureSingle(r.c); // lazy-compile the single-sample twin for the no-AA camera
-            const pipe = aa ? r.c.color : r.c.single?.color;
-            if (pipe) {
-                if (!rawG1) {
-                    pass.setBindGroup(1, shadowGroup());
-                    rawG1 = true;
-                }
-                bind(pass, pipe, draw, r, colorGroup(r, view.slot), view.slot);
-                draws++;
-            }
-        } else {
-            if (!aa) ensureTypedSingle(r.t);
-            const pipe = aa ? r.t.color : r.t.single?.color;
-            if (pipe) drawTyped(draw, r, pipe);
-        }
+        if (!aa) ensureSingle(r.t);
+        const pipe = aa ? r.t.color : r.t.single?.color;
+        if (pipe) drawTyped(draw, r, pipe);
     }
     // the backdrop: a fullscreen triangle at the far plane, after opaque (the depth test masks it to
     // un-rendered pixels) and before blend (so transparent draws composite over it). The bg pipeline
     // carries the shadow group 1 in its layout (unused) like every color pipeline, so the group bound at
     // the pass top survives the switch for the blend draws after it
-    if (bg && "cb" in bg) {
-        const pipe = aa ? bg.cb.color : bg.cb.single;
-        const group = bgGroup(bg.cb, view.slot);
-        if (group) {
-            if (!rawG1) {
-                pass.setBindGroup(1, shadowGroup());
-                rawG1 = true;
-            }
-            pass.setPipeline(pipe);
-            pass.setBindGroup(0, group);
-            pass.draw(3);
-        }
-    } else if (bg) {
+    if (bg) {
         // a typed backdrop: the shared engine group 0 (a never-read `bgQuant()` fills the meshQuant
         // slot — a background pulls no mesh), the typed shadow group 1 (declared-but-unused, the
         // group-count-compatibility reason `compileBackground` documents), and its own group 2
-        const group = typedBgGroup(bg.bg, bg.ct);
+        const group = backgroundGroup(bg.bg, bg.ct);
         if (group) {
             const pipe = aa ? bg.ct.color : bg.ct.single;
             let bound = pipe
                 .with(pass)
-                .with(engineLayout, typedEngineGroup(bg.ct.engineCache, view.slot, bgQuant()))
-                .with(shadowLayoutTyped, shadowGroupTyped());
+                .with(engineLayout, engineGroup(bg.ct.engineCache, view.slot, bgQuant()))
+                .with(shadowLayout, shadowGroup());
             if (group !== "none") bound = bound.with(bg.bg.layout, group);
             bound.draw(3);
-            rawG1 = false;
         }
     }
     for (const { draw, r } of items) {
-        if ("c" in r) {
-            const pipe = aa ? r.c.transparent : r.c.single?.transparent;
-            if (pipe) {
-                if (!rawG1) {
-                    pass.setBindGroup(1, shadowGroup());
-                    rawG1 = true;
-                }
-                bind(pass, pipe, draw, r, colorGroup(r, view.slot), view.slot);
-                draws++;
-            }
-        } else {
-            const pipe = aa ? r.t.transparent : r.t.single?.transparent;
-            if (pipe) drawTyped(draw, r, pipe);
-        }
+        const pipe = aa ? r.t.transparent : r.t.single?.transparent;
+        if (pipe) drawTyped(draw, r, pipe);
     }
     pass.end();
     Compute.indirect?.("sear:color", draws);
@@ -1106,12 +776,12 @@ async function prepareSear(device: GPUDevice): Promise<void> {
     // eager-compile non-specializing surfaces plus the shared re-gather A/B pipelines (idempotent — the
     // point + cascade atlases share them). Specializing variants queue after Part publishes its draws;
     // a specializing mesh registered after warm remains lazy.
-    await Promise.all([prepareRegather(device), preparePipelines(device, Backgrounds)]);
-    await precompileTypedVariants();
+    await Promise.all([prepareRegather(device), preparePipelines()]);
+    await precompileVariants();
 }
 
-function unwrapTypedVariant(surface: TypedSurface, variant: number): unknown[] {
-    const typed = compileTypedVariant(surface, variant);
+function unwrapVariant(surface: Surface, variant: number): unknown[] {
+    const typed = compileVariant(surface, variant);
     const warmed: unknown[] = [];
     for (const pipeline of [
         typed.color,
@@ -1129,10 +799,10 @@ function unwrapTypedVariant(surface: TypedSurface, variant: number): unknown[] {
  * `warm` is injectable so the ordering contract stays device-free in unit tests; production unwraps
  * every discovered variant's real pipelines.
  * @internal */
-export function precompileTypedVariants(
-    warm: (surface: TypedSurface, variant: number) => unknown = unwrapTypedVariant,
-    surfaces: Iterable<TypedSurface> = TypedSurfaces,
-    variants: (surface: TypedSurface) => number[] = knownTypedVariants,
+export function precompileVariants(
+    warm: (surface: Surface, variant: number) => unknown = unwrapVariant,
+    surfaces: Iterable<Surface> = Surfaces,
+    variants: (surface: Surface) => number[] = knownVariants,
 ): Promise<void> {
     return precompile(
         "sear-typed-variants",
@@ -1261,27 +931,6 @@ const ShadowMapSystem: System = {
     },
 };
 
-// the bindings sear's default materials read: the `eids` + `transforms` instance convention (sear
-// applies the standard transform) plus per-entity `color`. Producers publish these buffers by name
-// (Part does); a surface declaring them is instanced
-const colorBindings: Record<string, Binding> = {
-    eids: { type: "storage", element: "u32" },
-    transforms: { type: "storage", element: "Xform" },
-    // sRGB-packed LDR color (the `srgb8x4` slab) — one u32 per entity, decoded with `unpackLdrColor`
-    color: { type: "storage", element: "u32" },
-};
-
-// the lit materials add the per-entity `material` slab (the Material component's metallic / roughness /
-// emissive / occlusion packed two f16 per u32 word — f16 keeps emissive HDR-capable as a glow strength
-// while the bounded lanes stay finer than unorm8; the binding is `vec2<u32>` + `unpack2x16float` rather
-// than `vec4<f16>` so no engine shader needs `enable f16`). `unlit` omits it — it never shades, so it
-// stays on `colorBindings`. One extra storage binding: the color pass goes 8 → 9 of the 10-per-stage
-// ceiling (gpu.md)
-const litBindings: Record<string, Binding> = {
-    ...colorBindings,
-    material: { type: "storage", element: "vec2<u32>" },
-};
-
 // the typed twin of `litBindings`, group 2 (`layout()`'s $idx(2) synthesis) — same four bindings, same
 // element shapes, feeding the typed `default` surface below (4a-ii-c-2's template port).
 const typedDefaultLayout = typedLayout({
@@ -1378,7 +1027,6 @@ function disposeSear(): void {
     _depth.clear();
     _laneTargets.clear();
     _colorTargets.clear();
-    clearBackgrounds();
 }
 
 /**
@@ -1423,48 +1071,15 @@ export const SearPlugin: Plugin = {
         resetPointShadows();
         resetCascades();
         initMaterial();
-        // clear the backdrop registry so a rebuild re-registers identically and a plugin toggled off leaves
-        // no stale entry (the Surfaces/Draws/Meshes reload-safety shape — RenderPlugin.initialize clears those)
-        Backgrounds.clear();
         // build the Pbr struct + the emissive tint (Color.rgb * the emissive strength lane) from the
         // f16 material lanes: word x holds (metallic, roughness), word y (emissive, occlusion), each
         // unpacked to f32 for the shading math. emissive is an unbounded HDR glow strength;
         // dielectric 0 → metallic 0 is specular-free (the flat shallot default)
-        const PbrPreamble = /* wgsl */ `
-        fn matOf(eid: u32) -> Pbr {
-            let m = material[eid];
-            let mr = unpack2x16float(m.x);
-            let eo = unpack2x16float(m.y);
-            return Pbr(unpackLdrColor(color[eid]).rgb, mr.x, mr.y, eo.y, 0.0);
-        }
-        fn emissiveOf(eid: u32) -> vec3<f32> {
-            return unpackLdrColor(color[eid]).rgb * unpack2x16float(material[eid].y).x;
-        }`;
-        Surfaces.register({
-            name: "default",
-            bindings: litBindings,
-            preamble: PbrPreamble,
-            fs: /* wgsl */ `col = vec4<f32>(litPbr(matOf(eid), worldNormal, world) + emissiveOf(eid), 1.0);`,
-        });
-        // the typed twin of the string `default` above, registered ADDITIONALLY into `TypedSurfaces`
-        // under the same name — a separate registry (`contract.ts`), so it doesn't collide with the
-        // string one. `record()` consults the typed registry first, so `default` DRAWS through the typed
-        // path in every pass (the built-in flip); the string registration stays for Part's automatic
-        // draw registration + legacy consumers until 4a-ii-d. `matOf`/`emissiveOf` above stay
-        // string-only helpers; this is their TGSL equivalent, statement-for-statement
-        // (`engine.test.ts`-style differential in `pipelines.test.ts`).
+        // The three built-ins share the same schema-backed instance/material layout.
         typedRegister(state, {
             name: "default",
             layout: typedDefaultLayout,
             fs: typedDefaultFs,
-        });
-        Surfaces.register({
-            name: "vertex",
-            bindings: litBindings,
-            preamble: PbrPreamble,
-            interpolators: { litColor: "vec3<f32>" },
-            vs: /* wgsl */ `litColor = litPbr(matOf(eid), normalize(worldNormal), world.xyz) + emissiveOf(eid);`,
-            fs: /* wgsl */ `col = vec4<f32>(litColor, 1.0);`,
         });
         // the typed twin — the varyings mechanism's first live consumer (`litColor` crosses vs→fs
         // through `typedVaryingVs`/`typedVaryingFs`'s per-surface copier, `pipelines.ts`); drawn typed
@@ -1475,11 +1090,6 @@ export const SearPlugin: Plugin = {
             varyings: typedVertexVaryings,
             vs: typedVertexVs,
             fs: typedVertexFs,
-        });
-        Surfaces.register({
-            name: "unlit",
-            bindings: colorBindings,
-            fs: /* wgsl */ `col = vec4<f32>(unpackLdrColor(color[eid]).rgb, 1.0);`,
         });
         // the typed twin, drawn typed in every pass like `default` above.
         typedRegister(state, {

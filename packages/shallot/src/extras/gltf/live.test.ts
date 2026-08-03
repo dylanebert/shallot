@@ -1,10 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { body } from "../../../tests/wgsl";
 import { State } from "../../engine";
-import { Surfaces } from "../../standard/render/core";
-import { TypedSurfaces } from "../../standard/sear/contract";
+import { Surfaces } from "../../standard/sear/core";
 import { engineLayout } from "../../standard/sear/engine";
-import { typedPrepassWgsl, typedShadowWgsl, typedSurfaceWgsl } from "../../standard/sear/pipelines";
+import { prepassWgsl, shadowWgsl, surfaceWgsl } from "../../standard/sear/pipelines";
 import { registerTexturedSurfaces } from "./assets";
 import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
 import { MAP_ALL } from "./shade";
@@ -32,19 +31,16 @@ function registerAll(state = new State()): State {
 describe("typed glTF surface trios", () => {
     beforeEach(() => {
         Surfaces.clear();
-        TypedSurfaces.clear();
         registerAll();
     });
 
-    test("all nine production shaders register typed while the Part compatibility entries stay data-only", () => {
-        expect(TypedSurfaces.size).toBe(9);
+    test("all nine production shaders register in the unified surface registry", () => {
         expect(Surfaces.size).toBe(9);
         for (const name of names) {
-            expect(TypedSurfaces.get(name)).toBeDefined();
-            const compatibility = Surfaces.get(name)!;
-            expect(compatibility.vs).toBeUndefined();
-            expect(compatibility.fs).toBeUndefined();
-            expect(compatibility.preamble).toBeUndefined();
+            const surface = Surfaces.get(name);
+            expect(surface).toBeDefined();
+            expect(surface!.layout).toBeDefined();
+            expect(surface!.fs).toBeDefined();
         }
     });
 
@@ -59,15 +55,15 @@ describe("typed glTF surface trios", () => {
             liveSkinSurface("MASK"),
             liveSkinSurface("BLEND"),
         ]).toEqual(["skin-live", "skin-live-clip", "skin-live-blend"]);
-        expect(TypedSurfaces.get("gltf-albedo")!.blend).toBeUndefined();
-        expect(TypedSurfaces.get("gltf-albedo-clip")!.blend).toBe("clip");
-        expect(TypedSurfaces.get("gltf-albedo-blend")!.blend).toBe("alpha");
+        expect(Surfaces.get("gltf-albedo")!.blend).toBeUndefined();
+        expect(Surfaces.get("gltf-albedo-clip")!.blend).toBe("clip");
+        expect(Surfaces.get("gltf-albedo-blend")!.blend).toBe("alpha");
     });
 
     test("material specialization folds absent map samples and keeps albedo bucket routing as an if-chain", () => {
-        const surface = TypedSurfaces.get("gltf-albedo")!;
-        const sparse = typedSurfaceWgsl(surface, 0);
-        const full = typedSurfaceWgsl(surface, MAP_ALL);
+        const surface = Surfaces.get("gltf-albedo")!;
+        const sparse = surfaceWgsl(surface, 0);
+        const full = surfaceWgsl(surface, MAP_ALL);
         const sparseShade = body(sparse, "fn shadePbr(");
         const fullShade = body(full, "fn shadePbr(");
         for (const texture of ["mr", "normalTex", "occlusion", "emissive"]) {
@@ -82,7 +78,7 @@ describe("typed glTF surface trios", () => {
     });
 
     test("VAT skin samples the baked position and normal using the vertex index", () => {
-        const code = typedSurfaceWgsl(TypedSurfaces.get("skin")!, 0);
+        const code = surfaceWgsl(Surfaces.get("skin")!, 0);
         expect(code).toContain("f32(vsIn.vidx)");
         expect(code).toContain("textureSampleLevel(vatPos");
         expect(code).toContain("textureSampleLevel(vatNorm");
@@ -91,7 +87,7 @@ describe("typed glTF surface trios", () => {
     });
 
     test("live skin retains the sanctioned dynamic vec4 palette lane and tint header", () => {
-        const code = typedSurfaceWgsl(TypedSurfaces.get("skin-live")!, 0);
+        const code = surfaceWgsl(Surfaces.get("skin-live")!, 0);
         const vs = body(code, "fn skinLiveVs(");
         expect(vs).toContain("skinParams.jwBase + (vidx >> 1u)");
         expect(vs).toContain("let jwPair = (vidx & 1u) * 2u;");
@@ -105,10 +101,10 @@ describe("typed glTF surface trios", () => {
     });
 
     test("clip executes its material cutoff in color, prepass, and both shadow atlases", () => {
-        const clip = TypedSurfaces.get("skin-live-clip")!;
-        const color = typedSurfaceWgsl(clip, 0);
-        const prepass = typedPrepassWgsl(clip, 0);
-        const shadow = typedShadowWgsl(clip, 0);
+        const clip = Surfaces.get("skin-live-clip")!;
+        const color = surfaceWgsl(clip, 0);
+        const prepass = prepassWgsl(clip, 0);
+        const shadow = shadowWgsl(clip, 0);
         for (const code of [color, prepass[""], prepass.tag, shadow.point, shadow.cascade]) {
             expect(code).toContain(".cutoff");
             expect(code).toContain("discard;");
@@ -129,13 +125,12 @@ describe("storage-ceiling audit — every typed glTF surface fits the 10-storage
 
     beforeEach(() => {
         Surfaces.clear();
-        TypedSurfaces.clear();
         registerAll();
     });
 
     test("every trio has at most five own storage bindings", () => {
         let checked = 0;
-        for (const surface of TypedSurfaces) {
+        for (const surface of Surfaces) {
             const surfaceStorage = Object.values(surface.layout.entries).filter(
                 (entry) => "storage" in entry && entry.visibility.includes("vertex"),
             ).length;
@@ -149,7 +144,7 @@ describe("storage-ceiling audit — every typed glTF surface fits the 10-storage
     });
 
     test("live skin stays exactly at the ceiling", () => {
-        const surface = TypedSurfaces.get("skin-live")!;
+        const surface = Surfaces.get("skin-live")!;
         const surfaceStorage = Object.values(surface.layout.entries).filter(
             (entry) => "storage" in entry && entry.visibility.includes("vertex"),
         ).length;
@@ -160,14 +155,14 @@ describe("storage-ceiling audit — every typed glTF surface fits the 10-storage
 
 test("typed ownership follows its State and cannot remove a later registration", () => {
     const first = registerAll();
-    const firstSpec = TypedSurfaces.get("gltf-albedo")!;
+    const firstSpec = Surfaces.get("gltf-albedo")!;
     const second = registerAll();
-    const secondSpec = TypedSurfaces.get("gltf-albedo")!;
+    const secondSpec = Surfaces.get("gltf-albedo")!;
     expect(secondSpec).not.toBe(firstSpec);
 
     first.dispose();
-    for (const name of names) expect(TypedSurfaces.get(name)).toBeDefined();
-    expect(TypedSurfaces.get("gltf-albedo")).toBe(secondSpec);
+    for (const name of names) expect(Surfaces.get(name)).toBeDefined();
+    expect(Surfaces.get("gltf-albedo")).toBe(secondSpec);
     second.dispose();
-    expect(TypedSurfaces.size).toBe(0);
+    expect(Surfaces.size).toBe(0);
 });

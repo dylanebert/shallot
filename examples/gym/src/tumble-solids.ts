@@ -21,6 +21,8 @@ import type {
     World,
 } from "@dylanebert/shallot/tumble/core";
 import { defaultDebugDraw } from "@dylanebert/shallot/tumble/core";
+import { MeshQuant } from "@dylanebert/shallot/utils/core";
+import * as d from "typegpu/data";
 
 const SPHERE_STACKS = 16;
 const SPHERE_SLICES = 24;
@@ -283,10 +285,27 @@ export function registerSolids(defs: GeomDef[]): Map<string, number> {
         device.queue.writeBuffer(buf, 0, data as Uint32Array<ArrayBuffer>);
         return buf;
     };
-    const vertices = storage("tumble-solid-main", q.main);
-    const position = storage("tumble-solid-pos", q.position);
-    const quant = storage("tumble-solid-quant", q.quant);
-    const indices = storage("tumble-solid-idx", packed.indices, true);
+    const vertices = Compute.root
+        .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4), storage("tumble-solid-main", q.main))
+        .$usage("storage");
+    const position = Compute.root
+        .createBuffer(
+            d.arrayOf(d.vec2u, q.position.length / 2),
+            storage("tumble-solid-pos", q.position),
+        )
+        .$usage("storage");
+    const quant = Compute.root
+        .createBuffer(
+            d.arrayOf(MeshQuant, q.quant.length / 12),
+            storage("tumble-solid-quant", q.quant),
+        )
+        .$usage("storage");
+    const indices = Compute.root
+        .createBuffer(
+            d.arrayOf(d.u32, packed.indices.length),
+            storage("tumble-solid-idx", packed.indices, true),
+        )
+        .$usage("storage", "index");
     for (const s of packed.slices) {
         const id = Meshes.register({
             name: s.name,

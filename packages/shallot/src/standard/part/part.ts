@@ -1,9 +1,24 @@
-import type { TgpuBindGroup, TgpuBuffer, TgpuComputePipeline, UniformFlag } from "typegpu";
+import type {
+    StorageFlag,
+    TgpuBindGroup,
+    TgpuBuffer,
+    TgpuComputePipeline,
+    UniformFlag,
+} from "typegpu";
+import { writeToArrayBuffer } from "typegpu";
+import * as d from "typegpu/data";
 import type { Registry, State, System } from "../../engine";
 import { Compute, capacity, srgb8x4, u32 } from "../../engine";
 import { precompile } from "../../engine/runtime";
 import type { Draw, Mesh, Surface } from "../render/core";
-import { BeginFrameSystem, Draws, Meshes, Render, Surfaces } from "../render/core";
+import {
+    BeginFrameSystem,
+    DrawIndexedIndirect,
+    Draws,
+    Meshes,
+    Render,
+    Surfaces,
+} from "../render/core";
 import { slab } from "../slab";
 import { Transform } from "../transforms";
 import {
@@ -18,6 +33,11 @@ import {
 } from "./pack";
 
 const DRAW_ARG_STRIDE = 20;
+type U32Buffer = TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
+type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
+type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;
+type DrawBuffer = TgpuBuffer<d.WgslArray<typeof DrawIndexedIndirect>> &
+    StorageFlag & { usableAsIndirect: true };
 
 /**
  * ECS-shaped opt-in for Part rendering. `surface` holds the {@link Surfaces}
@@ -59,8 +79,8 @@ export const Color = {
 // the same pack against the sun's frustum as one more slot. registerDraws
 // writes the static indexCount + firstIndex; the per-view dimension grows
 // lazily with the active camera count, the pair dimension with mesh count.
-let _counts: GPUBuffer | null = null;
-let _meshBounds: GPUBuffer | null = null;
+let _counts: AtomicU32Buffer | null = null;
+let _meshBounds: Vec4fBuffer | null = null;
 let _cullParams: (TgpuBuffer<typeof CullParams> & UniformFlag) | null = null;
 let _cullGroup: TgpuBindGroup<(typeof cullLayout)["entries"]> | null = null;
 let _countPipe: TgpuComputePipeline | null = null;
@@ -93,9 +113,9 @@ let _viewDim = 1;
  */
 export interface Parts {
     /** `DrawIndexedIndirect` records, slot-major (`slot * pairCount + pair`); null until the first frame's `syncBuffers` */
-    drawArgs: GPUBuffer | null;
+    drawArgs: DrawBuffer | null;
     /** packed survivor eids, one `capacity`-sized region per view slot; null until `warmPart` */
-    packedEids: GPUBuffer | null;
+    packedEids: U32Buffer | null;
 }
 
 export const Parts: Parts = {
@@ -134,7 +154,7 @@ export const PartSystem: System = {
         // schema serializer is orders slower than a bulk `Float32Array.set`; two scalars are not that
         _cullParams!.write({ viewCount: Render.viewCount, pairCount: _pairCount });
 
-        Render.encoder.clearBuffer(_counts!);
+        Render.encoder.clearBuffer(Compute.root.unwrap(_counts!));
         const pass = Render.encoder.beginComputePass({
             label: "kitchen-part-pack",
             timestampWrites: Compute.span?.("part:pack"),
@@ -255,37 +275,31 @@ function syncBuffers(): void {
     // drawArgs + counts span every (view, pair) — realloc when either dimension
     // grows. COPY_SRC for GPU-debug readback (gpu.md) + the pack tests
     const staleArgs = [Parts.drawArgs, _counts];
-    Parts.drawArgs = device.createBuffer({
-        label: "kitchen-draw-args",
-        size: records * DRAW_ARG_STRIDE,
-        usage:
-            GPUBufferUsage.INDIRECT |
-            GPUBufferUsage.STORAGE |
-            GPUBufferUsage.COPY_DST |
-            GPUBufferUsage.COPY_SRC,
-    });
-    _counts = device.createBuffer({
-        label: "kitchen-part-counts",
-        size: records * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
+    Parts.drawArgs = Compute.root
+        .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
+        .$usage("storage", "indirect")
+        .$name("kitchen-draw-args");
+    _counts = Compute.root
+        .createBuffer(d.arrayOf(d.atomic(d.u32), records))
+        .$usage("storage")
+        .$name("kitchen-part-counts");
 
     // packedEids holds one capacity-sized region per view — realloc only when
     // the view dimension grows, so a mesh registering doesn't churn the buffer
     // sear binds (its identity invalidates the bind-group cache)
-    let stalePacked: GPUBuffer | null = null;
+    let stalePacked: U32Buffer | null = null;
     if (growView || !Parts.packedEids) {
         stalePacked = Parts.packedEids;
-        Parts.packedEids = device.createBuffer({
-            label: "kitchen-packed-eids",
-            size: _viewDim * capacity * 4,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        });
-        Compute.buffers.set("eids", Parts.packedEids);
+        Parts.packedEids = Compute.root
+            .createBuffer(d.arrayOf(d.u32, _viewDim * capacity))
+            .$usage("storage")
+            .$name("kitchen-packed-eids");
+        Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));
+        Compute.typed.set("eids", Parts.packedEids);
     }
 
     // meshBounds is indexed by mesh id — rebuild only when a mesh registers
-    let staleBounds: GPUBuffer | null = null;
+    let staleBounds: Vec4fBuffer | null = null;
     if (growMesh || !_meshBounds) {
         staleBounds = _meshBounds;
         _meshBounds = writeMeshBounds(device);
@@ -308,19 +322,18 @@ function syncBuffers(): void {
  * producer that didn't supply one) gets a sentinel radius so the cull keeps it
  * always-visible rather than wrongly culling it
  */
-function writeMeshBounds(device: GPUDevice): GPUBuffer {
-    const buffer = device.createBuffer({
-        label: "kitchen-mesh-bounds",
-        size: _meshCount * 16,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
+function writeMeshBounds(device: GPUDevice): Vec4fBuffer {
+    const buffer = Compute.root
+        .createBuffer(d.arrayOf(d.vec4f, _meshCount))
+        .$usage("storage")
+        .$name("kitchen-mesh-bounds");
     const data = new Float32Array(_meshCount * 4);
     for (const m of Meshes) {
         const id = Meshes.id(m.name)!;
         if (m.bounds) data.set(m.bounds, id * 4);
         else data[id * 4 + 3] = 1e30; // never-cull sentinel
     }
-    device.queue.writeBuffer(buffer, 0, data as Float32Array<ArrayBuffer>);
+    device.queue.writeBuffer(Compute.root.unwrap(buffer), 0, data as Float32Array<ArrayBuffer>);
     return buffer;
 }
 
@@ -345,8 +358,16 @@ function writeMeshBounds(device: GPUDevice): GPUBuffer {
 /** publish Part's `(surface, mesh)` draw pairs and return the indirect records the GPU buffer needs.
  * Device-free so ordering tests can exercise the production publication seam without an adapter.
  * @internal */
+type DrawRecord = {
+    indexCount: number;
+    instanceCount: number;
+    firstIndex: number;
+    baseVertex: number;
+    firstInstance: number;
+};
+
 export function publishPartDraws(
-    drawArgs: GPUBuffer,
+    drawArgs: DrawBuffer,
     surfaceCount: number,
     pairCount: number,
     registries: {
@@ -354,19 +375,26 @@ export function publishPartDraws(
         meshes: Registry<Mesh>;
         draws: Registry<Draw>;
     } = { surfaces: Surfaces, meshes: Meshes, draws: Draws },
-): { offset: number; args: Uint32Array }[] {
+): { offset: number; args: DrawRecord }[] {
     const { surfaces, meshes, draws } = registries;
-    const writes: { offset: number; args: Uint32Array }[] = [];
+    const writes: { offset: number; args: DrawRecord }[] = [];
     const viewStride = pairCount * DRAW_ARG_STRIDE;
     for (const surface of surfaces) {
-        if (!surface.bindings?.eids || !surface.bindings?.transforms) continue;
+        const entries = surface.layout.entries;
+        if (!("eids" in entries) || !("transforms" in entries)) continue;
         const sid = surfaces.id(surface.name)!;
         for (const m of meshes) {
             const pair = meshes.id(m.name)! * surfaceCount + sid;
             const offset = pair * DRAW_ARG_STRIDE;
             // DrawIndexedIndirect: indexCount, instanceCount (pack), firstIndex, baseVertex (0 — indices
             // are absolute vertex positions), firstInstance (pack)
-            const args = new Uint32Array([m.indexCount, 0, m.indexBase, 0, 0]);
+            const args = {
+                indexCount: m.indexCount,
+                instanceCount: 0,
+                firstIndex: m.indexBase,
+                baseVertex: 0,
+                firstInstance: 0,
+            };
             writes.push({ offset, args });
             draws.register({
                 name: `part:${surface.name}:${m.name}`,
@@ -383,8 +411,14 @@ function registerDraws(): void {
     if (!Compute.device || !Parts.drawArgs || _pairCount === 0) return;
     const viewStride = _pairCount * DRAW_ARG_STRIDE;
     for (const { offset, args } of publishPartDraws(Parts.drawArgs, _surfaceCount, _pairCount)) {
+        const bytes = new ArrayBuffer(DRAW_ARG_STRIDE);
+        writeToArrayBuffer(bytes, DrawIndexedIndirect, args);
         for (let slot = 0; slot < _viewDim; slot++) {
-            Compute.device.queue.writeBuffer(Parts.drawArgs, slot * viewStride + offset, args);
+            Compute.device.queue.writeBuffer(
+                Compute.root.unwrap(Parts.drawArgs),
+                slot * viewStride + offset,
+                bytes,
+            );
         }
     }
 }
@@ -413,7 +447,6 @@ export function initPart(): void {
  */
 export function warmPart(state: State): void {
     if (!Compute.device) return;
-    const device = Compute.device;
     const root = Compute.root;
     _surfaceCount = Surfaces.size;
     _meshCount = 0;
@@ -426,12 +459,12 @@ export function warmPart(state: State): void {
 
     // one capacity-sized region (slot 0); syncBuffers grows it as cameras attach.
     // COPY_SRC for GPU-debug readback (gpu.md) + the pack tests
-    Parts.packedEids = device.createBuffer({
-        label: "kitchen-packed-eids",
-        size: capacity * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-    });
-    Compute.buffers.set("eids", Parts.packedEids);
+    Parts.packedEids = root
+        .createBuffer(d.arrayOf(d.u32, capacity))
+        .$usage("storage")
+        .$name("kitchen-packed-eids");
+    Compute.buffers.set("eids", root.unwrap(Parts.packedEids));
+    Compute.typed.set("eids", Parts.packedEids);
 
     _cullParams = root.createBuffer(CullParams).$usage("uniform").$name("kitchen-part-cull-params");
     if (_surfaceCount === 0) return;

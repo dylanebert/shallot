@@ -1,12 +1,11 @@
 // Sear's pipeline compilation: the compiled-surface / compiled-background caches and the async
-// `createRenderPipelineAsync` calls that fill them. `codegen.ts` supplies the WGSL text; `atlas.ts`
-// supplies the two shadow-atlas bind-group layouts (`shadowLayout()` / `pointLayout()`) every color +
+// TypeGPU pipeline factories that fill them. `atlas.ts` supplies the shadow-atlas bind-group layouts every color +
 // point + cascade pipeline binds group 1 against. `forward.ts` owns bind-group *resolution* per draw
 // (`record()`) — this file only compiles pipelines and caches them by `${surface}#${variant}`.
 
 import type { Configurable, TgpuBindGroupLayout, TgpuRenderPipeline } from "typegpu";
 import tgpu from "typegpu";
-import type { AnyWgslData } from "typegpu/data";
+import type { AnyData, AnyWgslData } from "typegpu/data";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { Compute, type Registry } from "../../engine";
@@ -20,52 +19,12 @@ import {
     xformNormal,
     xformPoint,
 } from "../../engine/utils/core";
-import type { Binding, Draw, Mesh, Surface } from "../render/core";
-import {
-    Draws,
-    Frame,
-    LightCull,
-    Lighting,
-    Meshes,
-    Render,
-    Surfaces,
-    VIEW_BYTES,
-} from "../render/core";
-import {
-    cascadeLayoutTyped,
-    pointLayout,
-    pointLayoutTyped,
-    shadowLayout,
-    shadowLayoutTyped,
-    shadowReady,
-} from "./atlas";
-import {
-    BG_BASE,
-    backgroundCode,
-    bindingEntry,
-    DEPTH_FORMAT,
-    FRAME,
-    LIGHTING,
-    laneKey,
-    laneSubsets,
-    pointShadowCode,
-    prepassEntry,
-    SAMPLE_COUNT,
-    SURFACE_BASE,
-    surfaceCode,
-    TAG_FORMAT,
-    TAG_NONE,
-    UNIFORM_LAYOUT,
-    VIEW,
-    VS_FS,
-} from "./codegen";
-import type {
-    SurfaceLayout,
-    TypedBackground,
-    Binding as TypedBinding,
-    TypedSurface,
-} from "./contract";
-import { BgCtx, fsCtxSchema, TypedBackgrounds, TypedSurfaces, VsIn } from "./contract";
+import type { Draw, Mesh } from "../render/core";
+import { Draws, Frame, LightCull, Lighting, Meshes, Render } from "../render/core";
+import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
+import { DEPTH_FORMAT, SAMPLE_COUNT, TAG_FORMAT, TAG_NONE } from "./codegen";
+import type { Background, BgLayout, Binding, Surface, SurfaceLayout } from "./contract";
+import { Backgrounds, BgCtx, type fsCtxSchema, Surfaces, VsIn } from "./contract";
 import {
     engineLayout,
     fragCoord,
@@ -75,141 +34,28 @@ import {
     pointShadowStub,
     sunVisibility,
 } from "./engine";
-import type { Background } from "./forward";
 import { COMBO_SHIFT, EID_MASK } from "./regather";
 import { sampleSunShadow } from "./shade";
 import { cascadeAtlasSize, pointAtlasSize, sunCascades, sunResolution } from "./shadows";
 
-export interface Compiled {
-    // a surface compiles to one shape, by render mode. Opaque + `clip` cutout: `color` (the
-    // single-target framebuffer) + `prepass` (one pipeline per color-lane subset — `""` is the
-    // position-only depth pipeline the shadow map renders casters through, `"tag"` writes the id lane;
-    // a `clip` surface's `""` runs the fragment to discard so it casts a holed shadow). `alpha`:
-    // `transparent` alone — one blended color target, no prepass lanes (a transparent pixel has no
-    // single owner, writes no prepass depth, casts nothing). The unused slots are null / an empty map,
-    // so the shadow-map, prepass, and color passes each pick the pipeline that's theirs (the color pass
-    // draws both `color` opaque and `transparent` blended, in that order, within one render pass)
-    color: GPURenderPipeline | null;
-    transparent: GPURenderPipeline | null;
-    // the single-sample (AA-off) twin, compiled lazily by `ensureSingle` the first time a camera with
-    // `Camera.antialias` off renders — null until then. An all-AA-on scene (the default) never touches it.
-    // Differs from `color`/`transparent` only in `multisample.count` (1 vs SAMPLE_COUNT); `lazy` carries
-    // the shared inputs to compile it
-    single: { color: GPURenderPipeline | null; transparent: GPURenderPipeline | null } | null;
-    singlePending: boolean;
-    colorArgs: ColorArgs;
-    prepass: Map<string, GPURenderPipeline>;
-    // the point-shadow atlas pipeline (depth-only): one indirect draw per casting mesh, the VS reading the
-    // re-gathered packed instance list (per-combo culled, concatenated mesh-major) at the eids lane and
-    // remapping clip XY into each combo's atlas tile. null for `alpha` (a transparent pixel casts nothing)
-    // and `screen` surfaces (2D overlays have no atlas placement)
-    point: GPURenderPipeline | null;
-    // the CSM cascade atlas pipeline (depth-only): the point pipeline's twin, the VS reading the cascade
-    // re-gathered list and remapping clip XY into each cascade's atlas tile. Same gating as `point` (null for
-    // `alpha`/`screen`/non-instanced); they differ only in the per-cascade vs per-(caster, face) tile index
-    cascade: GPURenderPipeline | null;
-    layout: GPUBindGroupLayout;
-    slots: { name: string; type: Binding["type"] }[];
-}
-
-// straight (non-premultiplied) alpha. The swapchain is sRGB, so the blend unit linearizes the
-// stored color before compositing — `src·α + dst·(1−α)` is gamma-correct with the fs writing
-// linear `col`. The alpha channel keeps the framebuffer's coverage sensible for a later read
 const ALPHA_BLEND: GPUBlendState = {
     color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
     alpha: { srcFactor: "one", dstFactor: "one-minus-src-alpha", operation: "add" },
 };
 
-export type BindResource = GPUBuffer | GPUTexture | GPUSampler;
-export type GroupEntry = {
-    main: GPUBuffer;
-    position: GPUBuffer;
-    layout: GPUBindGroupLayout;
-    // every group-0 entry but VERTICES (slot 3) and VIEW — the two that vary per bind (vertex stream by
-    // pass, View buffer by slot). Per-slot bind groups are built lazily off this shared prefix, keyed on
-    // the slot the draw is bound for (a scene is typically one shading camera, so `colorCache`/
-    // `prepassCache` usually hold one entry — the lazy-slot-key law, Approach 4a)
-    shared: GPUBindGroupEntry[];
-    colorCache: Map<number, GPUBindGroup>;
-    prepassCache: Map<number, GPUBindGroup>;
-    // the point-shadow pass's group 0 — the prepass group with the `eids` lane swapped to the point
-    // re-gathered packed instance list (`pointRegather.eids()`); null for a non-casting surface, or
-    // until the re-gather buffer is allocated (first casting frame). Bound to slot 0's View buffer as an
-    // unread placeholder — the point VS projects by its own tile viewProj, never `view`
-    pointGroup: GPUBindGroup | null;
-    // the cascade-atlas pass's group 0 — the same swap, to the cascade re-gathered list
-    cascadeGroup: GPUBindGroup | null;
-    resources: BindResource[];
-};
-type GroupCache = Map<string, GroupEntry>;
+export type BindResource =
+    | import("typegpu").TgpuBuffer<AnyData>
+    | GPUBuffer
+    | GPUTexture
+    | GPUSampler;
 
-// pipelines keyed `${surface}#${variant}` — one entry per (surface, material map-set) a scene actually
-// draws (Bevy's on-demand specialization). A non-specializing surface is always variant 0 (compiled eagerly
-// at warm); a specializing surface (the glTF importer) compiles each map-set variant lazily on first draw
-const _compiled = new Map<string, Compiled>();
-// the variant keys whose async compile is in flight (or permanently failed), so `record` triggers each
-// compile once — the draw skips (returns null) until the pipeline lands, the same shape as an unpublished
-// texture. A failed key stays in the set: a variant's WGSL is fixed for the State's life, so retrying would
-// recompile + re-warn every frame; a fresh build clears the set (prepareSear)
-const _compiling = new Set<string>();
 const variantKey = (surface: string, variant: number) => `${surface}#${variant}`;
-const _groups: GroupCache = new Map();
 
-// a compiled background: the 4× MSAA + single-sample backdrop pipelines (one camera picks one by AA mode),
-// the shared group-0 layout, and its binding slots. `groupCache` builds lazily per view slot on first use
-// in `renderColor` (bg × slot, Approach 4a) and holds for the State's life — the frame/view/lighting +
-// bg-binding buffers are stable post-warm, and a rebuild recompiles from scratch (`_backgrounds.clear()`
-// in `resetPipelineCaches`), so no in-build invalidation
-export type CompiledBg = {
-    name: string;
-    color: GPURenderPipeline;
-    single: GPURenderPipeline;
-    layout: GPUBindGroupLayout;
-    slots: { name: string; type: Binding["type"] }[];
-    groupCache: Map<number, GPUBindGroup>;
-};
-const _backgrounds = new Map<string, CompiledBg>();
-
-/** the compiled pipeline set for a `(surface, variant)`, or `undefined` until it lands ({@link ensureVariant} triggers the compile). */
-export function getCompiled(surface: string, variant: number): Compiled | undefined {
-    return _compiled.get(variantKey(surface, variant));
-}
-
-/** the cached per-draw bind-group state for a Draw name, or `undefined` on a cache miss (`record` rebuilds it). */
-export function getGroup(name: string): GroupEntry | undefined {
-    return _groups.get(name);
-}
-
-/** cache a draw's resolved bind-group state (`record`, on a resource-identity change). */
-export function setGroup(name: string, entry: GroupEntry): void {
-    _groups.set(name, entry);
-}
-
-/** drop every cached per-draw bind-group state (legacy + typed) — a rebuild (`resetPipelineCaches`) or a
- * shadow-atlas re-gather reallocation (the `eids` lane both caches bind moved). */
 export function clearGroups(): void {
-    _groups.clear();
     _typedGroups.clear();
 }
 
-/** a compiled background by name, or `undefined` if it never registered / failed to compile. */
-export function getBackground(name: string): CompiledBg | undefined {
-    return _backgrounds.get(name);
-}
-
-/** drop every compiled background (plugin dispose — a rebuild's `resetPipelineCaches` also covers this). */
-export function clearBackgrounds(): void {
-    _backgrounds.clear();
-}
-
-/** clear every pipeline-compilation cache for a rebuild: compiled variants (legacy + typed), in-flight
- * compiles, resolved bind groups, and compiled backgrounds (legacy + typed). Called once at the top of
- * `prepareSear`. */
 export function resetPipelineCaches(): void {
-    _compiled.clear();
-    _compiling.clear();
-    _groups.clear();
-    _backgrounds.clear();
     _compiledTyped.clear();
     _compiledTypedBg.clear();
     _typedGroups.clear();
@@ -217,379 +63,27 @@ export function resetPipelineCaches(): void {
     _bgQuant = null;
 }
 
-// the inputs to build a surface's color/transparent pipelines at any sample count. Fixed per variant
-// (only the count varies), so `compileVariant` stashes them on `Compiled` for `ensureSingle` to compile
-// the single-sample twin without re-deriving the shader module (the expensive part)
-type ColorArgs = {
-    name: string;
-    variant: number;
-    module: GPUShaderModule;
-    colorLayout: GPUPipelineLayout;
-    primitive: GPUPrimitiveState;
-    blend: Surface["blend"];
-};
-
-// build the color pass's pipelines at a given sample count — the opaque `color` (a `clip` surface is
-// opaque too) or the blended `transparent` (`alpha`), whichever the surface's blend mode selects; the
-// other stays null. `multisample.count` is the only thing that varies with AA mode, so the same shader
-// module + pipeline layout produce both the 4× (`compileVariant`) and 1× (`ensureSingle`) twins
-export async function colorPipelines(
-    device: GPUDevice,
-    args: ColorArgs,
-    samples: number,
-): Promise<{ color: GPURenderPipeline | null; transparent: GPURenderPipeline | null }> {
-    const { name, variant, module, colorLayout, primitive, blend } = args;
-    const suffix = samples === 1 ? "-1x" : "";
-    if (blend === "alpha") {
-        const transparent = await device.createRenderPipelineAsync({
-            label: `sear-transparent-${name}#${variant}${suffix}`,
-            layout: colorLayout,
-            vertex: { module, entryPoint: "vs" },
-            fragment: {
-                module,
-                entryPoint: "fs",
-                targets: [{ format: Render.format, blend: ALPHA_BLEND }],
-            },
-            primitive,
-            depthStencil: {
-                format: DEPTH_FORMAT,
-                depthWriteEnabled: false,
-                depthCompare: "greater-equal",
-            },
-            multisample: { count: samples },
-        });
-        return { color: null, transparent };
-    }
-    const color = await device.createRenderPipelineAsync({
-        label: `sear-${name}#${variant}${suffix}`,
-        layout: colorLayout,
-        vertex: { module, entryPoint: "vs" },
-        fragment: { module, entryPoint: "fs", targets: [{ format: Render.format }] },
-        primitive,
-        depthStencil: { format: DEPTH_FORMAT, depthWriteEnabled: true, depthCompare: "greater" },
-        multisample: { count: samples },
-    });
-    return { color, transparent: null };
-}
-
-/**
- * compile one background's backdrop pipelines into the background cache: the 4× MSAA + single-sample twins
- * (a camera binds whichever its `Camera.antialias` selects), sharing one shader module + group-0 layout
- * (frame / one whole per-slot view buffer, no dynamic offset / lighting + the background's own bindings
- * at {@link BG_BASE}). The pipeline draws the fullscreen triangle at the reverse-Z far plane with
- * `depthCompare: "greater-equal"`
- * and **no depth write**: at clip z = 0 an un-rendered pixel (cleared depth 0) passes `0 >= 0`, a
- * geometry pixel (depth > 0) fails, so the backdrop fills only background pixels with no readback. Under
- * MSAA the per-sample test resolves the sky↔geometry silhouette antialiased. Both twins compile eagerly
- * (backgrounds are few; the camera's AA mode is known only at draw time).
- */
-export async function compileBackground(device: GPUDevice, bg: Background): Promise<void> {
-    const entries = Object.entries(bg.bindings ?? {});
-    const slots = entries.map(([n, b]) => ({ name: n, type: b.type }));
-    const layout = device.createBindGroupLayout({
-        label: `sear-bg-${bg.name}`,
-        entries: [
-            { binding: FRAME, visibility: VS_FS, buffer: { type: "uniform" } },
-            // one whole per-slot View buffer, no dynamic offset (bg × slot groups, `bgGroup`)
-            {
-                binding: VIEW,
-                visibility: VS_FS,
-                buffer: { type: "uniform", minBindingSize: VIEW_BYTES },
-            },
-            { binding: LIGHTING, visibility: VS_FS, buffer: { type: "uniform" } },
-            ...entries.map(([, b], k) => bindingEntry(b, k + BG_BASE)),
-        ],
-    });
-    const module = device.createShaderModule({
-        label: `sear-bg-${bg.name}`,
-        code: backgroundCode(bg),
-    });
-    // group 1 is the shadow seam — the background shader never references it, but the layout declares it
-    // (unused) so the bg pipeline has the same two-group shape every color pipeline does. That keeps the
-    // shadow group (bound once per pass) alive across the opaque → backdrop → blend pipeline switches: a
-    // bg pipeline with only group 0 would be a group-count mismatch that drops group 1 for the blend draws
-    const pipelineLayout = device.createPipelineLayout({
-        bindGroupLayouts: [layout, shadowLayout()!],
-    });
-    const pipe = (samples: number) =>
-        device.createRenderPipelineAsync({
-            label: `sear-bg-${bg.name}${samples === 1 ? "-1x" : ""}`,
-            layout: pipelineLayout,
-            vertex: { module, entryPoint: "vs" },
-            fragment: { module, entryPoint: "fs", targets: [{ format: Render.format }] },
-            // a fullscreen triangle has no consistent winding — disable back-face culling
-            primitive: { topology: "triangle-list", cullMode: "none" },
-            depthStencil: {
-                format: DEPTH_FORMAT,
-                depthWriteEnabled: false,
-                depthCompare: "greater-equal",
-            },
-            multisample: { count: samples },
-        });
-    const [color, single] = await Promise.all([pipe(SAMPLE_COUNT), pipe(1)]);
-    _backgrounds.set(bg.name, {
-        name: bg.name,
-        color,
-        single,
-        layout,
-        slots,
-        groupCache: new Map(),
-    });
-}
-
-/**
- * compile one surface's pipelines for a material map-set `variant` (the color + transparent + per-lane-set
- * prepass pipelines + the shared bind-group layout), keyed `${surface}#${variant}` in the compiled-surface
- * cache. A non-specializing surface only ever uses variant 0 (compiled eagerly at warm); a specializing
- * surface (the glTF importer) gets one entry per map-set a scene draws (Bevy's on-demand specialization). The
- * bindings are variant-invariant, so every variant shares the same layout shape and `record`'s one cached
- * bind group. The color pipelines compile at 4× (the AA-on default); the single-sample twin compiles lazily
- * in `ensureSingle`.
- */
-export async function compileVariant(
-    device: GPUDevice,
-    surface: Surface,
-    variant: number,
-): Promise<void> {
-    const name = surface.name;
-    const entries = Object.entries(surface.bindings ?? {});
-    const slots = entries.map(([n, b]) => ({ name: n, type: b.type }));
-
-    const layout = device.createBindGroupLayout({
-        label: `sear-${name}`,
-        entries: [
-            ...UNIFORM_LAYOUT,
-            ...entries.map(([, b], k) => bindingEntry(b, k + SURFACE_BASE)),
-        ],
-    });
-    // color binds group 0 (per-draw, camera-independent) + group 1 (the sun shadow map +
-    // sampler + params); the prepass pipelines bind group 0 alone, since their fragments never
-    // reference the group-1 shadow bindings, so the missing group 1 is valid
-    const colorLayout = device.createPipelineLayout({
-        bindGroupLayouts: [layout, shadowLayout()!],
-    });
-    const prepassLayout = device.createPipelineLayout({ bindGroupLayouts: [layout] });
-    // two modules: the color entries reference the real group-1 shadow bindings; the
-    // prepass entries compile against stubs so their group-0-only layout stays valid (and
-    // the atlas render never samples the texture it's writing). `alpha` has no prepass
-    // entries, so it compiles the color module alone
-    const module = device.createShaderModule({
-        label: `sear-${name}#${variant}`,
-        code: surfaceCode(surface, "color", variant),
-    });
-    // a screen-space surface builds its own quads in clip space (lines), so their winding
-    // flips with segment direction — back-face culling would drop half of them. World-space
-    // surfaces keep back-face culling (the overdraw win + correct cutout/shadow facing)
-    const primitive: GPUPrimitiveState = {
-        topology: "triangle-list",
-        cullMode: surface.screen ? "none" : "back",
-        frontFace: "ccw",
-    };
-    const colorArgs: ColorArgs = {
-        name,
-        variant,
-        module,
-        colorLayout,
-        primitive,
-        blend: surface.blend,
-    };
-
-    // a `blend` surface is one non-opaque pipeline: a single blended color target, depth-*tested*
-    // (`less-equal`) against the color pass's depth so nearer opaque geometry occludes it, but never
-    // depth-*written* so it occludes nothing itself. No prepass lanes (a transparent pixel has no
-    // single owner, writes no prepass depth, casts nothing) — `color` stays null, `prepass` an empty map
-    if (surface.blend === "alpha") {
-        const { color, transparent } = await colorPipelines(device, colorArgs, SAMPLE_COUNT);
-        _compiled.set(variantKey(name, variant), {
-            color,
-            transparent,
-            single: null,
-            singlePending: false,
-            colorArgs,
-            prepass: new Map(),
-            point: null, // a transparent pixel casts nothing
-            cascade: null,
-            layout,
-            slots,
-        });
-        return;
-    }
-
-    // opaque and masked-opaque cutout (`clip`) share the color pipeline + the per-lane-set prepass
-    // pipelines; they differ only in the empty-set prepass fragment stage (a `clip` surface runs
-    // `fsPrepass` to discard, an opaque one is position-only)
-    const clip = surface.blend === "clip";
-    const prepassModule = device.createShaderModule({
-        label: `sear-prepass-${name}#${variant}`,
-        code: surfaceCode(surface, "prepass", variant),
-    });
-    // the prepass depth-stencil (reverse-Z `greater` + write, its own single-sample depth cleared each
-    // frame). The color pass's depth lives inside `colorPipelines`; both are `greater` + write, never
-    // cross-compared
-    const depthStencil: GPUDepthStencilState = {
-        format: DEPTH_FORMAT,
-        depthWriteEnabled: true,
-        depthCompare: "greater",
-    };
-    // the point-shadow atlas pipeline (depth-only): one indirect draw per casting mesh into the shared
-    // atlas, the VS reading the re-gathered per-combo culled instances + remapping clip XY to the tile.
-    // cullMode "back" (as the depth pass): the tile remap applies two y-flips (face-NDC → atlas-uv →
-    // atlas-NDC) that cancel, so the net winding is unchanged and back-face cull drops the same faces. It
-    // must — a light sitting inside a caster (a lamp fixture sphere, a light marker) sees only that mesh's
-    // back faces, so culling them is what stops the fixture from occluding its own light in every
-    // direction (receiver-side bias carries the acne). Only an **instanced** surface casts (the re-gathered
-    // list keys on the per-instance `eids` + `transforms`); a non-instanced producer or a `screen` overlay
-    // has no per-instance member list, so it gets no point pipeline
-    const instanced = !!(surface.bindings?.eids && surface.bindings?.transforms);
-    const castable = !surface.screen && instanced;
-    const pointModule = castable
-        ? device.createShaderModule({
-              label: `sear-point-${name}#${variant}`,
-              code: pointShadowCode(surface, variant),
-          })
-        : null;
-    // the cascade atlas pipeline is the point pipeline's twin (same depth-only shape + group-1 layout, the
-    // per-cascade tile index the only difference), so it gates + compiles the same way
-    const cascadeModule = castable
-        ? device.createShaderModule({
-              label: `sear-cascade-${name}#${variant}`,
-              code: pointShadowCode(surface, variant, true),
-          })
-        : null;
-    const castLayout = castable
-        ? device.createPipelineLayout({ bindGroupLayouts: [layout, pointLayout()!] })
-        : null;
-
-    const prepass = new Map<string, GPURenderPipeline>();
-    const [{ color, transparent }, point, cascade] = await Promise.all([
-        // single-target color at the AA-on sample count, resolved into the offscreen framebuffer. Owns
-        // its own depth (`less` + write); the single-sample twin compiles lazily in `ensureSingle`
-        colorPipelines(device, colorArgs, SAMPLE_COUNT),
-        pointModule && castLayout
-            ? device.createRenderPipelineAsync({
-                  label: `sear-point-${name}#${variant}`,
-                  layout: castLayout,
-                  vertex: { module: pointModule, entryPoint: "vs" },
-                  fragment: { module: pointModule, entryPoint: "fsPoint", targets: [] },
-                  primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
-                  depthStencil,
-                  multisample: { count: 1 },
-              })
-            : Promise.resolve(null),
-        cascadeModule && castLayout
-            ? device.createRenderPipelineAsync({
-                  label: `sear-cascade-${name}#${variant}`,
-                  layout: castLayout,
-                  vertex: { module: cascadeModule, entryPoint: "vs" },
-                  fragment: { module: cascadeModule, entryPoint: "fsPoint", targets: [] },
-                  primitive: { topology: "triangle-list", cullMode: "back", frontFace: "ccw" },
-                  depthStencil,
-                  multisample: { count: 1 },
-              })
-            : Promise.resolve(null),
-        // one single-sample prepass pipeline per color-lane subset (`less` + write, its own depth
-        // cleared each frame so the front-most fragment stamps with no prepass below it). The
-        // empty subset is position-only depth (the shadow map + a depth-only camera render through
-        // it; a `clip` surface adds the `fsPrepass` discard so it holes the depth and casts a
-        // holed shadow); `tag` writes the id lane. Binds the group-0 layout alone — the prepass
-        // fragments never reference the group-1 shadow bindings, so they carry no lighting
-        ...laneSubsets().map((laneSet) =>
-            device
-                .createRenderPipelineAsync({
-                    label: `sear-prepass-${laneKey(laneSet) || "depth"}-${name}#${variant}`,
-                    layout: prepassLayout,
-                    vertex: { module: prepassModule, entryPoint: "vs" },
-                    ...(laneSet.length > 0 || clip
-                        ? {
-                              fragment: {
-                                  module: prepassModule,
-                                  entryPoint: prepassEntry(laneSet),
-                                  targets: laneSet.map((l) => ({ format: l.format })),
-                              },
-                          }
-                        : {}),
-                    primitive,
-                    depthStencil,
-                })
-                .then((p) => {
-                    prepass.set(laneKey(laneSet), p);
-                    return p;
-                }),
-        ),
-    ]);
-    _compiled.set(variantKey(name, variant), {
-        color,
-        transparent,
-        single: null,
-        singlePending: false,
-        colorArgs,
-        prepass,
-        point,
-        cascade,
-        layout,
-        slots,
-    });
-}
-
-// trigger the lazy compile of a specializing surface's `variant` once (the draw skips until it lands).
-// Deduped via `_compiling`; on success the key drops so `_compiled` is the sole record, on failure it stays
-// (warn once, never retry — the WGSL is deterministic, so a recompile would just fail + spam again)
-export function ensureVariant(surface: Surface, variant: number): void {
-    const key = variantKey(surface.name, variant);
-    if (_compiled.has(key) || _compiling.has(key)) return;
-    const device = Compute.device;
-    if (!device || !shadowReady()) return;
-    _compiling.add(key);
-    compileVariant(device, surface, variant).then(
-        () => _compiling.delete(key),
-        (e) =>
-            console.warn(`sear: surface "${surface.name}" variant ${variant} failed to compile`, e),
-    );
-}
-
-// compile a variant's single-sample (AA-off) twin, once, the first frame a no-AA camera draws it (deduped
-// via `singlePending`; until it lands the draw skips for that camera, the same shape as a lazy variant).
-// The shader module + layout are already compiled, so this is just the 1× pipeline. An all-AA-on scene
-// never calls this — `renderColor` invokes it only for a camera whose `Camera.antialias` is off
-export function ensureSingle(c: Compiled): void {
-    if (c.single || c.singlePending) return;
-    const device = Compute.device;
-    if (!device) return;
-    c.singlePending = true;
-    colorPipelines(device, c.colorArgs, 1).then(
-        (pipes) => {
-            c.single = pipes;
-            c.singlePending = false;
-        },
-        (e) => {
-            c.singlePending = false;
-            const msg = `sear: surface "${c.colorArgs.name}" single-sample pipeline failed to compile`;
-            console.warn(msg, e);
-        },
-    );
-}
-
-// ---- the typed pipeline builder (4a-ii-c, the template + its extensions): compiles a `TypedSurface`'s
+// ---- the typed pipeline builder (4a-ii-c, the template + its extensions): compiles a `Surface`'s
 // `vs`/`fs` TGSL fns against the canonical `engineLayout` (group 0), the typed shadow group (group 1,
-// `shadowLayoutTyped` — the atlas passes bind `pointLayoutTyped`/`cascadeLayoutTyped` there instead), and
+// `shadowLayout` — the atlas passes bind `pointLayout`/`cascadeLayout` there instead), and
 // the surface's own synthesized `layout` (group 2 — `surfaceLayout()`'s $idx(2) synthesis, c-1): the
 // opaque color / transparent pipelines, the prepass depth + tag pipelines, and the point/cascade
-// shadow-atlas pipelines. A surface in `TypedSurfaces` DRAWS through these in every pass — `record()`
+// shadow-atlas pipelines. A surface in `Surfaces` DRAWS through these in every pass — `record()`
 // consults the typed registry first (the built-in flip, c-3b), and `forward.ts`/`atlas.ts` issue the
 // draws via `.with(pass)` on sear's own render passes. `screen` surfaces project through their own `vs`
 // chunk's `patch.clip` and draw un-culled (d-1); `"clip"` blend and `specialize` are carried for the glTF
 // typed migration.
 //
 // Cached beside the legacy `_compiled` map by name + material variant. `preparePipelines` compiles every
-// non-specializing `TypedSurfaces` entry and force-unwraps it, so the resolve + the sync
+// non-specializing `Surfaces` entry and force-unwraps it, so the resolve + the sync
 // `createRenderPipeline` (the
 // 0a/1c spike finding) validate against the real device at warm — a malformed group split, a name
 // collision, a binding-limit breach all throw there, not mid-frame at first draw.
-export interface CompiledTyped {
+export interface CompiledSurface {
     /** exact registry spec + layout this entry was compiled from; name/variant alone cannot distinguish
      * a same-name replacement after warm (or an in-place layout swap). */
-    owner: AnyTypedSurface;
-    layout: SurfaceLayout<Record<string, TypedBinding>>;
+    owner: AnySurface;
+    layout: SurfaceLayout<Record<string, Binding>>;
     color: TgpuRenderPipeline<d.Vec4f> | null;
     transparent: TgpuRenderPipeline<d.Vec4f> | null;
     // the prepass pipelines for this typed surface, keyed like the legacy `Compiled.prepass` map
@@ -597,37 +91,37 @@ export interface CompiledTyped {
     // "alpha"` surface (a transparent pixel has no single owner, writes no prepass depth, casts nothing —
     // the same legacy rule `compileVariant` applies). Compiled off `layout.depthVariant` — a DISTINCT
     // `TgpuBindGroupLayout` object from `layout` (the c-2 caching verdict), so a draw-time bind-group
-    // cache for these needs its own key space, never `layout`'s (`TypedGroupEntry.depth`, `record`).
+    // cache for these needs its own key space, never `layout`'s (`SurfaceGroupEntry.depth`, `record`).
     // the map holds both the depth-only (`Void` output) and the tag-lane (`u32` output) pipeline under one
     // key space — the same widening the legacy `Compiled.prepass: Map<string, GPURenderPipeline>` uses (a
     // bare `GPURenderPipeline` has no output type parameter either)
     prepass: Map<string, TgpuRenderPipeline<any>>;
-    // the point/cascade shadow-atlas pipelines (4a-ii-c-3a-3) — `pointShadowCode`'s typed twin. `null` for a
+    // the point/cascade shadow-atlas pipelines (4a-ii-c-3a-3) — the former string shadow pipeline's typed twin. `null` for a
     // non-instanced surface (only an instanced surface casts, the `castable` law `compileVariant` applies) —
     // never a silent gap, since a non-instanced typed surface has no per-instance `eids`/`transforms` to
     // re-gather against in the first place.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
-    // the single-sample (AA-off) color twin, compiled lazily by `ensureTypedSingle` the first frame a
+    // the single-sample (AA-off) color twin, compiled lazily by `ensureSingle` the first frame a
     // no-AA camera draws this surface — the legacy `Compiled.single` shape, sync here (typegpu pipeline
     // wrappers are cheap; the real resolve+create defers to first draw regardless)
     single: {
         color: TgpuRenderPipeline<d.Vec4f> | null;
         transparent: TgpuRenderPipeline<d.Vec4f> | null;
     } | null;
-    // the fixed inputs `ensureTypedSingle` re-compiles the 1× twin from (the legacy `ColorArgs` shape —
+    // the fixed inputs `ensureSingle` re-compiles the 1× twin from (the legacy `ColorArgs` shape —
     // the entry fns are reused, so the twin shares the authored vs/fs, differing only in multisample)
     args: {
-        vertex: ReturnType<typeof typedColorVs>;
+        vertex: ReturnType<typeof typedColorVs> | ReturnType<typeof typedVaryingVs>;
         fragment: ReturnType<typeof typedColorFs>;
-        blend: TypedSurface["blend"];
+        blend: Surface["blend"];
         // the raster state the 4× twin compiled with — carries the `screen` cull decision, which
-        // `ensureTypedSingle` can't re-derive (it never sees the surface)
+        // `ensureSingle` can't re-derive (it never sees the surface)
         primitive: GPUPrimitiveState;
         name: string;
     };
 }
-const _compiledTyped = new Map<string, CompiledTyped>();
+const _compiledTyped = new Map<string, CompiledSurface>();
 
 /** the per-draw group-2 state a typed draw binds (4a-ii-c-3b) — the typed twin of {@link GroupEntry}.
  * `color` builds against `layout` (the 16 B main stream at the `vertices` slot); opaque depth/atlas
@@ -641,29 +135,28 @@ const _compiledTyped = new Map<string, CompiledTyped>();
  * buffer identity that grows for the app's life). `atlasG0` is its prebuilt slot-0 instance the
  * shadow-atlas passes bind (slot 0's View buffer as an unread placeholder — the atlas VS projects by
  * its own tile viewProj, never `view`). */
-export type TypedGroupEntry = {
+export type SurfaceGroupEntry = {
     /** exact registry spec this group was built for — resource identity alone is insufficient when a
      * same-name surface replacement carries a different layout with the same buffers. */
-    owner: AnyTypedSurface;
-    layout: SurfaceLayout<Record<string, TypedBinding>>;
+    owner: AnySurface;
+    layout: SurfaceLayout<Record<string, Binding>>;
     quant: GPUBuffer;
     color: GPUBindGroup;
     depth: GPUBindGroup | null;
     point: GPUBindGroup | null;
     cascade: GPUBindGroup | null;
+    /** the surface's resolved instance-id source before the atlas swaps in its re-gathered list. */
+    eids: GPUBuffer | null;
     engineCache: Map<number, GPUBindGroup>;
     atlasG0: GPUBindGroup;
     resources: BindResource[];
 };
-const _typedGroups = new Map<string, TypedGroupEntry>();
+const _typedGroups = new Map<string, SurfaceGroupEntry>();
 
 /** the cached typed per-draw group-2 state for a Draw name, or `undefined` on a cache miss (`record`
  * rebuilds it). Supplying the current surface also invalidates a same-name replacement: bind groups
  * are layout-object-specific even when every resolved GPU resource is unchanged. */
-export function getTypedGroup(
-    name: string,
-    surface?: AnyTypedSurface,
-): TypedGroupEntry | undefined {
+export function getGroup(name: string, surface?: AnySurface): SurfaceGroupEntry | undefined {
     const entry = _typedGroups.get(name);
     if (entry && surface && (entry.owner !== surface || entry.layout !== surface.layout)) {
         _typedGroups.delete(name);
@@ -673,16 +166,16 @@ export function getTypedGroup(
 }
 
 /** cache a typed draw's resolved group-2 state (`record`, on a resource-identity change). */
-export function setTypedGroup(name: string, entry: TypedGroupEntry): void {
+export function setGroup(name: string, entry: SurfaceGroupEntry): void {
     _typedGroups.set(name, entry);
 }
 
 /** the engine group-0 bind group for a view slot against one meshQuant buffer — the shared live
  * `engineLayout` instance a typed draw at that slot binds (frame / per-slot View / lighting /
  * light-cull outputs / the dequant table), built lazily into the caller-owned `cache` (a
- * `TypedGroupEntry.engineCache` or a `CompiledTypedBg.engineCache` — never a module map keyed on the
+ * `SurfaceGroupEntry.engineCache` or a `CompiledBackground.engineCache` — never a module map keyed on the
  * quant buffer, whose entries would outlive a churned buffer for the app's life). */
-export function typedEngineGroup(
+export function engineGroup(
     cache: Map<number, GPUBindGroup>,
     slot: number,
     quant: GPUBuffer,
@@ -719,17 +212,17 @@ export function bgQuant(): GPUBuffer {
     return _bgQuant;
 }
 
-/** the widest `TypedSurface` shape (any bindings, any varyings) — the bare `TypedSurface` default pins
+/** the widest `Surface` shape (any bindings, any varyings) — the bare `Surface` default pins
  *  varyings to `Record<string, never>`, so every internal typed-pipeline helper takes this wider alias to
  *  accept a real varyings-carrying surface (`vertex`) at the call boundary. */
-type AnyTypedSurface = TypedSurface<Record<string, TypedBinding>, Record<string, AnyWgslData>>;
+type AnySurface = Surface<Record<string, Binding>, Record<string, AnyWgslData>>;
 
-function typedVariant<
-    B extends Record<string, TypedBinding>,
-    V extends Record<string, AnyWgslData>,
->(surface: TypedSurface<B, V>, variant: number): TypedSurface<B, V> {
+function typedVariant<B extends Record<string, Binding>, V extends Record<string, AnyWgslData>>(
+    surface: Surface<B, V>,
+    variant: number,
+): Surface<B, V> {
     const spec = surface.specialize?.(variant);
-    return (spec ? { ...surface, ...spec, specialize: undefined } : surface) as TypedSurface<B, V>;
+    return (spec ? { ...surface, ...spec, specialize: undefined } : surface) as Surface<B, V>;
 }
 
 const identityXform = tgpu
@@ -751,6 +244,13 @@ const VARYING_BASE = 5;
 // statically name `input.v0`…`input.v3`, one arm per count (`typedVaryingFs`)
 const MAX_VARYINGS = 4;
 
+function fragmentInterstage(surface: AnySurface): Record<string, AnyWgslData> {
+    return {
+        ...(surface.fragmentInputs?.uv ? { uv: d.vec2f } : {}),
+        ...(surface.fragmentInputs?.localPos ? { localPos: d.vec3f } : {}),
+    };
+}
+
 /** the raster state every typed surface pipeline shares (color, its single-sample twin, prepass, atlas).
  * A `screen` surface builds its own quads in clip space (lines), so their winding flips with segment
  * direction and back-face culling would drop half of them; world-space surfaces keep the cull (the
@@ -761,63 +261,41 @@ export function surfacePrimitive(screen?: boolean): GPUPrimitiveState {
 }
 
 /** whether a typed surface's own `layout` carries the `eids` + `transforms` instancing convention — the
- * typed twin of `record()`/`surfaceCode`'s test over a legacy `Surface`'s `bindings`, run over the typed
+ * typed twin of `record()`/the former string pipeline's test over a legacy `Surface`'s `bindings`, run over the typed
  * layout's `entries` instead. */
-function typedInstanced(surface: AnyTypedSurface): boolean {
+function typedInstanced(surface: AnySurface): boolean {
     return "eids" in surface.layout.entries && "transforms" in surface.layout.entries;
 }
 
-/**
- * the typed color-pass vertex entry: pull the quantized 16 B vertex from the surface's own `vertices` slot
- * (group 2 — the design-lock move off the engine group), decode it against `engineLayout`'s shared
- * `meshQuant` table, apply the standard instance transform when the surface declares `eids` + `transforms`
- * (`INSTANCE_VS`'s typed twin), then splice the surface's own `vs` chunk when it has one (varying-free —
- * see the module header). `uv`/`localPos` cross for real (c-3) — every typed surface pays the two
- * interpolator slots this stage, unlike the raw path's per-surface prune (gpu.md rule 9).
- *
- * A `screen` surface projects itself: its `vs` writes `patch.clip` and that value IS the clip position
- * (`surfaceCode`'s `out.clip = clipPos`), so nothing else supplies one — hence
- * {@link compileTypedVariant}'s screen-without-vs guard.
- */
-function typedColorVs(surface: AnyTypedSurface) {
+// A zero-custom-varying surface stays entirely TGSL. One fixed function computes the vertex payload;
+// four thin entry shapes select only the optional built-in fragment inputs the surface declared. The
+// payload is an ordinary function result, not an interstage struct, so carrying uv/localPos here costs no
+// raster bandwidth. Custom varying names alone need the WGSL-bodied copier below.
+const SurfaceVertex = d
+    .struct({
+        pos: d.vec4f,
+        worldNormal: d.vec3f,
+        eid: d.u32,
+        world: d.vec3f,
+        uv: d.vec2f,
+        localPos: d.vec3f,
+    })
+    .$name("SurfaceVertex");
+
+function typedColorVertex(surface: AnySurface, clip: boolean) {
     const instanced = typedInstanced(surface);
     const screen = !!surface.screen;
-    // captured as a plain boolean (not `surface.vs` itself) — the outline `maskFragment` "captured JS
-    // boolean" precedent needs a real `boolean`, not an `undefined`-valued reference, to fold the branch
     const hasVs = !!surface.vs;
     const vsFn = surface.vs;
     const layout = surface.layout;
-    // `TypedSurface`'s `layout` carries the wide, unconstrained default `B = Record<string, Binding>`
-    // (the registry erases a registrant's own concrete binding-name generic, `contract.ts`'s `register`),
-    // so `layout.$.<name>` for a consumer-declared name (not the fixed `vertices` field) can't narrow past
-    // the mapped type's value union — a host-side cast, checked instead by `typedInstanced` above (the
-    // runtime shape a `default`-shaped surface actually registers).
     const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
     return tgpu
-        .vertexFn({
-            in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
-            out: {
-                pos: d.builtin.position,
-                worldNormal: d.vec3f,
-                eid: d.interpolate("flat", d.u32),
-                world: d.vec3f,
-                // real crossings (c-3) — c-2 zero-filled both on the fs side; TGSL has no object-spread
-                // (validated: `tinyest-for-wgsl` throws "Spread elements are not supported in TGSL" on a
-                // dynamic-key return), so a single shared vs/fs pair can't vary its interstage struct shape
-                // per surface's declared `varyings` — but `uv`/`localPos` are c-1's own FIXED base fields
-                // (`fsCtxSchema`'s two non-varying members), not part of that dynamic set, so crossing them
-                // unconditionally needs no genericity. Unlike the raw path's per-surface prune (gpu.md rule
-                // 9 — cross only when the fs reads them), the typed template crosses both for every surface
-                // this stage: correctness over the bandwidth optimization, which the raw path's prune
-                // precedent shows is safe to defer (`default`'s fs reads neither, so its cost here is two
-                // always-unread interpolator slots — a real, disclosed regression from the raw path,
-                // acceptable until the template learns to prune per surface)
-                uv: d.vec2f,
-                localPos: d.vec3f,
-            },
-        })((input) => {
+        .fn(
+            [d.u32, d.u32],
+            SurfaceVertex,
+        )((vidx, iid) => {
             "use gpu";
-            const v = layout.$.vertices[input.vidx];
+            const v = layout.$.vertices[vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
             const localNormal = octDecodeNormal(v.z);
@@ -827,22 +305,21 @@ function typedColorVs(surface: AnyTypedSurface) {
             let worldNormal = d.vec3f(localNormal);
             let xform = identityXform();
             if (instanced) {
-                eid = bound.eids[input.iid];
+                eid = bound.eids[iid];
                 xform = Xform(bound.transforms[eid]);
                 world = d.vec4f(xformPoint(xform, world.xyz), world.w);
                 worldNormal = d.vec3f(xformNormal(xform, worldNormal));
             }
-            let clip = d.vec4f(0);
+            let pos = d.vec4f(0);
             if (hasVs) {
-                // `hasVs` folds this branch at build time — `vsFn` is defined whenever the branch is live
                 const patched = vsFn!(
                     VsIn({
                         localPos,
                         localNormal,
                         uv,
-                        vidx: input.vidx,
+                        vidx,
                         eid,
-                        iid: input.iid,
+                        iid,
                         xform,
                         world,
                         worldNormal,
@@ -850,21 +327,87 @@ function typedColorVs(surface: AnyTypedSurface) {
                 );
                 world = d.vec4f(patched.world);
                 worldNormal = d.vec3f(patched.worldNormal);
-                // `screen` folds this the same way — the patch's `clip` lane is the surface's own
-                // projection, unread (and left zero-filled by every world-space consumer) otherwise
-                if (screen) clip = d.vec4f(patched.clip);
+                if (screen) pos = d.vec4f(patched.clip);
             }
-            if (!screen) clip = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
-            return {
-                pos: clip,
+            if (!screen) pos = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
+            if (clip) pos = d.vec4f(std.add(pos, d.vec4f(shadowLayout.$.tileRects.rects[0].x * 0)));
+            return SurfaceVertex({
+                pos,
                 worldNormal: std.normalize(worldNormal),
                 eid,
                 world: world.xyz,
                 uv,
                 localPos,
-            };
+            });
         })
-        .$name(`${surface.name}Vs`);
+        .$name(`${surface.name}${clip ? "Clip" : ""}Vertex`);
+}
+
+function typedColorVs(surface: AnySurface, clip = false) {
+    const vertex = typedColorVertex(surface, clip);
+    const name = `${surface.name}${clip ? "Clip" : ""}Vs`;
+    const input = { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex };
+    const fixed = {
+        pos: d.builtin.position,
+        worldNormal: d.vec3f,
+        eid: d.interpolate("flat", d.u32),
+        world: d.vec3f,
+    };
+    const uv = !!surface.fragmentInputs?.uv;
+    const localPos = !!surface.fragmentInputs?.localPos;
+    if (uv && localPos) {
+        return tgpu
+            .vertexFn({ in: input, out: { ...fixed, uv: d.vec2f, localPos: d.vec3f } })((i) => {
+                "use gpu";
+                const v = vertex(i.vidx, i.iid);
+                return {
+                    pos: v.pos,
+                    worldNormal: v.worldNormal,
+                    eid: v.eid,
+                    world: v.world,
+                    uv: v.uv,
+                    localPos: v.localPos,
+                };
+            })
+            .$name(name);
+    }
+    if (uv) {
+        return tgpu
+            .vertexFn({ in: input, out: { ...fixed, uv: d.vec2f } })((i) => {
+                "use gpu";
+                const v = vertex(i.vidx, i.iid);
+                return {
+                    pos: v.pos,
+                    worldNormal: v.worldNormal,
+                    eid: v.eid,
+                    world: v.world,
+                    uv: v.uv,
+                };
+            })
+            .$name(name);
+    }
+    if (localPos) {
+        return tgpu
+            .vertexFn({ in: input, out: { ...fixed, localPos: d.vec3f } })((i) => {
+                "use gpu";
+                const v = vertex(i.vidx, i.iid);
+                return {
+                    pos: v.pos,
+                    worldNormal: v.worldNormal,
+                    eid: v.eid,
+                    world: v.world,
+                    localPos: v.localPos,
+                };
+            })
+            .$name(name);
+    }
+    return tgpu
+        .vertexFn({ in: input, out: fixed })((i) => {
+            "use gpu";
+            const v = vertex(i.vidx, i.iid);
+            return { pos: v.pos, worldNormal: v.worldNormal, eid: v.eid, world: v.world };
+        })
+        .$name(name);
 }
 
 /**
@@ -876,48 +419,51 @@ function typedColorVs(surface: AnyTypedSurface) {
  * unwrapped — a typed `fs` already returns `vec4f`, no lane locals: the prepass tag/depth lanes are a
  * separate pipeline, still unported).
  */
-function typedColorFs(surface: AnyTypedSurface) {
-    // hoisted outside the "use gpu" body — `fsCtxSchema()` is a plain host function (no varyings this
-    // stage), and a call inside GPU code must resolve to a `tgpu.fn`/schema value, never a bare JS call
-    const CtxSchema = fsCtxSchema();
+function typedColorFs(surface: AnySurface) {
+    // Use the exact schema instance the author passed to `surface.fs`. Re-minting `fsCtxSchema()` here
+    // is structurally equal but makes TypeGPU insert and warn about an implicit struct conversion.
+    const CtxSchema = (
+        surface.fs as unknown as { shell: { argTypes: [ReturnType<typeof fsCtxSchema>] } }
+    ).shell.argTypes[0];
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
+    const inputSchema = {
+        pos: d.builtin.position,
+        worldNormal: d.vec3f,
+        eid: d.interpolate("flat", d.u32),
+        world: d.vec3f,
+        ...fragmentInterstage(surface),
+    };
     return tgpu
         .fragmentFn({
-            in: {
-                pos: d.builtin.position,
-                worldNormal: d.vec3f,
-                eid: d.interpolate("flat", d.u32),
-                world: d.vec3f,
-                // real crossings (c-3) — see `typedColorVs`'s matching fields for the why
-                uv: d.vec2f,
-                localPos: d.vec3f,
-            },
+            in: inputSchema,
             out: d.vec4f,
-        })((input) => {
+        })((input: any) => {
             "use gpu";
             const worldNormal = std.normalize(input.worldNormal);
             sunVisibility.$ = sampleSunShadow(input.world, worldNormal);
             fragWorld.$ = d.vec3f(input.world);
             fragCoord.$ = d.vec4f(input.pos);
             pointScale.$ = 1;
-            // force `shadowLayoutTyped`'s group-1 bindings into scope: `sampleSunShadow`/the transitively
+            // force `shadowLayout`'s group-1 bindings into scope: `sampleSunShadow`/the transitively
             // pulled `pointShadowOf` (via `litPbr`) read `shadowMap`/`shadowSamp`/`sunShadow`/`pointAtlas`/
             // `pointShadows`/`tileRects` as free names inside their own WGSL bodies, invisible to
             // `tgpu.resolve`'s call-graph walk (the fog `fogKernel` forcedZero precedent) — folded into a
             // value the return genuinely uses, not a discarded local (the JS→WGSL transpiler would prune
             // a dead one)
             const forcedZero =
-                (shadowLayoutTyped.$.pointShadows.casters[0].pos.x +
-                    shadowLayoutTyped.$.tileRects.rects[0].x +
-                    shadowLayoutTyped.$.sunShadow.enabled +
+                (shadowLayout.$.pointShadows.casters[0].pos.x +
+                    shadowLayout.$.tileRects.rects[0].x +
+                    shadowLayout.$.sunShadow.enabled +
                     std.textureSampleCompareLevel(
-                        shadowLayoutTyped.$.pointAtlas,
-                        shadowLayoutTyped.$.shadowSamp,
+                        shadowLayout.$.pointAtlas,
+                        shadowLayout.$.shadowSamp,
                         d.vec2f(0, 0),
                         0,
                     ) +
                     std.textureSampleCompareLevel(
-                        shadowLayoutTyped.$.shadowMap,
-                        shadowLayoutTyped.$.shadowSamp,
+                        shadowLayout.$.shadowMap,
+                        shadowLayout.$.shadowSamp,
                         d.vec2f(0, 0),
                         0,
                     )) *
@@ -933,8 +479,8 @@ function typedColorFs(surface: AnyTypedSurface) {
                 eid: input.eid,
                 world: input.world,
                 worldNormal,
-                uv: input.uv,
-                localPos: input.localPos,
+                uv: needUv ? input.uv : d.vec2f(0),
+                localPos: needLocalPos ? input.localPos : d.vec3f(0),
             } as any);
             const col = surface.fs(ctx);
             return d.vec4f(std.add(col, d.vec4f(forcedZero)));
@@ -946,14 +492,14 @@ function typedColorFs(surface: AnyTypedSurface) {
  * the position-only typed prepass vertex entry (empty lane set — the shadow map's own shape too): pulls
  * the 8 B position-only vertex from the surface's `layout.depthVariant` (a DISTINCT `TgpuBindGroupLayout`
  * instance from `layout` — the c-2 caching verdict), decodes position alone (normal defaults `+Z`, uv `0`
- * — the raw prepass's own shape, `pass === "prepass"` in `codegen.ts`'s `surfaceCode`), applies the
+ * — the raw prepass's own shape, `pass === "prepass"` in `codegen.ts`'s the former string pipeline), applies the
  * standard instance transform, then splices the surface's own `vs` chunk when present. Inlined rather than
  * factored through a shared helper (probed live: a plain function marked `"use gpu"` can't take a host
  * object like `surface` as an argument — "Shellless functions can only accept arguments representing WGSL
- * resources" — so this duplicates {@link typedTagVs}'s math, matching `typedColorVs`'s own inline shape
+ * resources" — so this duplicates {@link typedTagVs}'s math, matching the color copier's vertex math
  * rather than inventing a new factoring pattern this file doesn't otherwise use).
  */
-function typedPrepassVs(surface: AnyTypedSurface) {
+function typedPrepassVs(surface: AnySurface) {
     const instanced = typedInstanced(surface);
     const screen = !!surface.screen;
     const hasVs = !!surface.vs;
@@ -969,7 +515,7 @@ function typedPrepassVs(surface: AnyTypedSurface) {
             const v = layout.$.vertices[input.vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
-            // the raw prepass's own default (`codegen.ts`'s `surfaceCode`, `pass === "prepass"`) — pinned
+            // the raw prepass's own default (`codegen.ts`'s the former string pipeline, `pass === "prepass"`) — pinned
             // for the life of the vs, never touched by the instance transform below (`INSTANCE_VS` mutates
             // only `world`/`worldNormal`); a `vs` chunk reading `vsIn.localNormal` must see this default,
             // not the transformed `worldNormal` (a real bug caught in review — passing `worldNormal` here
@@ -1009,9 +555,9 @@ function typedPrepassVs(surface: AnyTypedSurface) {
             // force ONE group-1 binding into scope: typegpu's pipeline layout is group-indexed
             // (`usedBindGroupLayouts[idx]`), and a hole at 1 (groups 0 + 2 used, 1 untouched) emits a
             // sparse layout Dawn rejects at createRenderPipeline — a real read, folded to zero, keeps
-            // the prepass pipelines' group set dense (`renderPrepass` binds `shadowGroupTyped()` at 1,
+            // the prepass pipelines' group set dense (`renderPrepass` binds `shadowGroup()` at 1,
             // inert: the stub receiver means nothing samples it)
-            const forcedZero = shadowLayoutTyped.$.tileRects.rects[0].x * 0;
+            const forcedZero = shadowLayout.$.tileRects.rects[0].x * 0;
             return { pos: std.add(clip, d.vec4f(forcedZero)) };
         })
         .$name(`${surface.name}PrepassVs`);
@@ -1020,7 +566,7 @@ function typedPrepassVs(surface: AnyTypedSurface) {
 /** the id-lane typed prepass vertex entry: {@link typedPrepassVs}'s twin, crossing the flat `eid` varying
  * the tag fragment ({@link typedTagFs}) writes verbatim — `instanced ? eid : TAG_NONE`, `COLOR_LANES`'s
  * own tag default (`codegen.ts`). */
-function typedTagVs(surface: AnyTypedSurface) {
+function typedTagVs(surface: AnySurface) {
     const instanced = typedInstanced(surface);
     const screen = !!surface.screen;
     const hasVs = !!surface.vs;
@@ -1071,7 +617,7 @@ function typedTagVs(surface: AnyTypedSurface) {
             if (!screen) clip = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
             // same group-1 hole fill as `typedPrepassVs` — the tag pipeline shares the prepass's
             // groups-0+2 shape
-            const forcedZero = shadowLayoutTyped.$.tileRects.rects[0].x * 0;
+            const forcedZero = shadowLayout.$.tileRects.rects[0].x * 0;
             return { pos: std.add(clip, d.vec4f(forcedZero)), eid };
         })
         .$name(`${surface.name}PrepassTagVs`);
@@ -1087,10 +633,10 @@ function typedTagVs(surface: AnyTypedSurface) {
  * `r32uint` target (a fragment output may carry more components than the attachment's format; the excess
  * are dropped), and a real, disclosed WGSL-shape deviation the differential test must account for. No fs
  * override this stage — a typed surface authoring its own tag (terrain's `capacity + cell` shape) is a
- * real capability {@link compileTypedVariant} doesn't carry yet (the sprite migration's open contract
+ * real capability {@link compileVariant} doesn't carry yet (the sprite migration's open contract
  * question).
  */
-function typedTagFs(surface: AnyTypedSurface) {
+function typedTagFs(surface: AnySurface) {
     return tgpu
         .fragmentFn({ in: { eid: d.interpolate("flat", d.u32) }, out: d.vec4u })((input) => {
             "use gpu";
@@ -1099,88 +645,17 @@ function typedTagFs(surface: AnyTypedSurface) {
         .$name(`${surface.name}PrepassTagFs`);
 }
 
-function typedClipVs(surface: AnyTypedSurface) {
+function typedClipFs(surface: AnySurface, tag: boolean) {
     const instanced = typedInstanced(surface);
-    const screen = !!surface.screen;
-    const hasVs = !!surface.vs;
-    const vsFn = surface.vs;
-    // A clipped depth/tag fragment executes the authored material cutoff, so it needs the same
-    // UV/normal-bearing vertex stream as color. Opaque prepass variants keep the compact depth stream.
-    const layout = surface.layout;
-    const bound = layout.$ as unknown as { eids: any[]; transforms: any[] };
-    return tgpu
-        .vertexFn({
-            in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
-            out: {
-                pos: d.builtin.position,
-                worldNormal: d.vec3f,
-                eid: d.interpolate("flat", d.u32),
-                world: d.vec3f,
-                uv: d.vec2f,
-                localPos: d.vec3f,
-            },
-        })((input) => {
-            "use gpu";
-            const v = layout.$.vertices[input.vidx];
-            const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
-            const localPos = decodePos(v.x, v.y, mq);
-            const localNormal = octDecodeNormal(v.z);
-            const uv = decodeUv(v.w, mq);
-            // Material indexing follows the color/legacy path: a non-instanced surface owns slot zero.
-            // The tag attachment's no-owner sentinel is selected only by typedClipFs's tag output.
-            let eid = d.u32(0);
-            let world = d.vec4f(localPos, 1);
-            let worldNormal = d.vec3f(localNormal);
-            let xform = identityXform();
-            if (instanced) {
-                eid = bound.eids[input.iid];
-                xform = Xform(bound.transforms[eid]);
-                world = d.vec4f(xformPoint(xform, world.xyz), world.w);
-                worldNormal = d.vec3f(xformNormal(xform, worldNormal));
-            }
-            let clip = d.vec4f(0);
-            if (hasVs) {
-                const patched = vsFn!(
-                    VsIn({
-                        localPos,
-                        localNormal,
-                        uv,
-                        vidx: input.vidx,
-                        eid,
-                        iid: input.iid,
-                        xform,
-                        world,
-                        worldNormal,
-                    }),
-                );
-                world = d.vec4f(patched.world);
-                worldNormal = d.vec3f(patched.worldNormal);
-                if (screen) clip = d.vec4f(patched.clip);
-            }
-            if (!screen) clip = d.vec4f(std.mul(engineLayout.$.view.viewProj, world));
-            const forcedZero = shadowLayoutTyped.$.tileRects.rects[0].x * 0;
-            return {
-                pos: std.add(clip, d.vec4f(forcedZero)),
-                worldNormal: std.normalize(worldNormal),
-                eid,
-                world: world.xyz,
-                uv,
-                localPos,
-            };
-        })
-        .$name(`${surface.name}ClipVs`);
-}
-
-function typedClipFs(surface: AnyTypedSurface, tag: boolean) {
-    const instanced = typedInstanced(surface);
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
     const Ctx = (surface.fs as unknown as { shell: { argTypes: [ReturnType<typeof fsCtxSchema>] } })
         .shell.argTypes[0];
     const input = {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        uv: d.vec2f,
-        localPos: d.vec3f,
+        ...fragmentInterstage(surface),
     };
     if (tag) {
         return tgpu
@@ -1190,8 +665,8 @@ function typedClipFs(surface: AnyTypedSurface, tag: boolean) {
                     eid: fin.eid,
                     world: fin.world,
                     worldNormal: std.normalize(fin.worldNormal),
-                    uv: fin.uv,
-                    localPos: fin.localPos,
+                    uv: needUv ? (fin as any).uv : d.vec2f(0),
+                    localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
                 });
                 surface.fs(ctx);
                 return d.vec4u(instanced ? fin.eid : TAG_NONE, 0, 0, 0);
@@ -1205,8 +680,8 @@ function typedClipFs(surface: AnyTypedSurface, tag: boolean) {
                 eid: fin.eid,
                 world: fin.world,
                 worldNormal: std.normalize(fin.worldNormal),
-                uv: fin.uv,
-                localPos: fin.localPos,
+                uv: needUv ? (fin as any).uv : d.vec2f(0),
+                localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
             });
             surface.fs(ctx);
         })
@@ -1216,7 +691,7 @@ function typedClipFs(surface: AnyTypedSurface, tag: boolean) {
 /** Build the locked one-varying cutoff copier: the fragment entry exposes a fixed `v0` slot while this
  * raw helper reconstructs the author's exact FsCtx positionally. The schema comes from the authored fs
  * shell, never a freshly minted lookalike. */
-function clipVaryingCopier(surface: AnyTypedSurface) {
+function clipVaryingCopier(surface: AnySurface) {
     const varyings = surface.varyings ?? {};
     const keys = Object.keys(varyings);
     if (keys.length !== 1) {
@@ -1241,15 +716,16 @@ function clipVaryingCopier(surface: AnyTypedSurface) {
     return { varyingSchema, copier };
 }
 
-function varyingClipFs(surface: AnyTypedSurface, tag: boolean) {
+function varyingClipFs(surface: AnySurface, tag: boolean) {
     const instanced = typedInstanced(surface);
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
     const { varyingSchema, copier } = clipVaryingCopier(surface);
     const entryIn = {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        uv: d.vec2f,
-        localPos: d.vec3f,
+        ...fragmentInterstage(surface),
         v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
     };
     if (tag) {
@@ -1263,8 +739,8 @@ function varyingClipFs(surface: AnyTypedSurface, tag: boolean) {
                     input.worldNormal,
                     input.eid,
                     input.world,
-                    input.uv,
-                    input.localPos,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
                     input.v0,
                 );
                 return d.vec4u(instanced ? input.eid : TAG_NONE, 0, 0, 0);
@@ -1277,7 +753,14 @@ function varyingClipFs(surface: AnyTypedSurface, tag: boolean) {
             out: d.Void,
         })((input) => {
             "use gpu";
-            copier(input.worldNormal, input.eid, input.world, input.uv, input.localPos, input.v0);
+            copier(
+                input.worldNormal,
+                input.eid,
+                input.world,
+                needUv ? (input as any).uv : d.vec2f(0),
+                needLocalPos ? (input as any).localPos : d.vec3f(0),
+                input.v0,
+            );
         })
         .$name(`${surface.name}ClipFs`);
 }
@@ -1286,7 +769,7 @@ function varyingClipFs(surface: AnyTypedSurface, tag: boolean) {
  * the varyings-carrying typed color/prepass vertex entry (4a-ii-c-3a, the varyings mechanism lock): TGSL has
  * no object-spread and no dynamic-key struct construction, so a shared "use gpu" body can't vary its
  * return shape per surface — a surface declaring `varyings` gets its own **WGSL-bodied copier**, distinct
- * from `typedColorVs`'s shared body. The copier does the real vertex math (vertex pull, quantized decode,
+ * from a fixed shared body. The copier does the real vertex math (vertex pull, quantized decode,
  * instance transform, the surface's own `vs` chunk) AND constructs the whole per-surface out struct in one
  * raw fn, its `out.<varying> = patched.<varying>;` lines JS-string-templated from `Object.keys(surface.
  * varyings)` (never through the transpiler). The thin entry stays real TGSL (typegpu's own header/
@@ -1294,16 +777,23 @@ function varyingClipFs(surface: AnyTypedSurface, tag: boolean) {
  * since a direct return hits "Cannot resolve struct cast" (the c-1/c-2 API laws, probed live via
  * `tgpu.resolve` before this landed).
  */
-function typedVaryingVs(surface: AnyTypedSurface, clip = false) {
+function typedVaryingVs(surface: AnySurface, clip = false) {
     const varyings = surface.varyings ?? {};
     const vsFn = surface.vs;
+    if (Object.keys(varyings).length === 0) {
+        throw new Error(
+            `sear: typed surface "${surface.name}" reached the raw varying copier without a custom varying`,
+        );
+    }
     if (!vsFn) {
         throw new Error(
             `sear: typed surface "${surface.name}" declares varyings with no vs — a varying can only be written by the surface's own vs chunk`,
         );
     }
+    const hasVs = !!vsFn;
+    const fragmentFields = fragmentInterstage(surface);
     const instanced = typedInstanced(surface);
-    // a `screen` surface's own projection is the patch's `clip` lane (`surfaceCode`'s `out.clip =
+    // a `screen` surface's own projection is the patch's `clip` lane (the former string pipeline's `out.clip =
     // clipPos`); everything else projects `view.viewProj * world` after the chunk, so displacing `world`
     // still projects
     const screen = !!surface.screen;
@@ -1315,8 +805,7 @@ function typedVaryingVs(surface: AnyTypedSurface, clip = false) {
             worldNormal: d.vec3f,
             eid: d.u32,
             world: d.vec3f,
-            uv: d.vec2f,
-            localPos: d.vec3f,
+            ...fragmentFields,
             // no type-directed `@interpolate(flat)` insertion — an INTEGER varying is unsupported and
             // fails loudly at resolve/device compile; every shipped varying is float-typed.
             ...varyings,
@@ -1325,6 +814,7 @@ function typedVaryingVs(surface: AnyTypedSurface, clip = false) {
     const assigns = Object.keys(varyings)
         .map((k) => `    out.${k} = patched.${k};`)
         .join("\n");
+    const fragmentAssigns = `${surface.fragmentInputs?.uv ? "    out.uv = uv;\n" : ""}${surface.fragmentInputs?.localPos ? "    out.localPos = localPos;\n" : ""}`;
     const uses: Record<string, unknown> = {
         Out: OutStruct,
         vertices: bound.vertices,
@@ -1333,19 +823,21 @@ function typedVaryingVs(surface: AnyTypedSurface, clip = false) {
         decodeUv,
         meshIdOf,
         octDecodeNormal,
-        xformPoint,
-        xformNormal,
         Xform,
-        VsIn,
-        vs: vsFn,
     };
+    if (hasVs) {
+        uses.VsIn = VsIn;
+        uses.vs = vsFn;
+    }
     // a `screen` copier projects nothing — `view` would resolve as an unused external (a warning plus a
     // dead group-0 declaration in the emitted module)
     if (!screen) uses.view = engineLayout.bound.view;
-    if (clip) uses.tileRects = shadowLayoutTyped.bound.tileRects;
+    if (clip) uses.tileRects = shadowLayout.bound.tileRects;
     if (instanced) {
         uses.eids = bound.eids;
         uses.transforms = bound.transforms;
+        uses.xformPoint = xformPoint;
+        uses.xformNormal = xformNormal;
     }
     const copier = tgpu
         .fn(
@@ -1369,16 +861,20 @@ ${
     worldNormal = vec3f(xformNormal(xform, worldNormal));
 `
         : ""
-}    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal));
+}${
+    hasVs
+        ? `    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal));
     world = patched.world;
     worldNormal = patched.worldNormal;
+`
+        : ""
+}
     var out: Out;
     out.pos = ${screen ? "patched.clip" : "view.viewProj * world"}${clip ? " + vec4f(tileRects.rects[0].x * 0.0)" : ""};
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
-    out.uv = uv;
-    out.localPos = localPos;
+${fragmentAssigns}
 ${assigns}
     return out;
 }`)
@@ -1401,8 +897,7 @@ ${assigns}
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
-                uv: d.vec2f,
-                localPos: d.vec3f,
+                ...fragmentFields,
                 // same awareness as the copier's `OutStruct` above — no flat-interpolate insertion, so an
                 // integer varying is unsupported.
                 ...located,
@@ -1427,18 +922,18 @@ const shadowForce = tgpu
     )(() => {
         "use gpu";
         return (
-            (shadowLayoutTyped.$.pointShadows.casters[0].pos.x +
-                shadowLayoutTyped.$.tileRects.rects[0].x +
-                shadowLayoutTyped.$.sunShadow.enabled +
+            (shadowLayout.$.pointShadows.casters[0].pos.x +
+                shadowLayout.$.tileRects.rects[0].x +
+                shadowLayout.$.sunShadow.enabled +
                 std.textureSampleCompareLevel(
-                    shadowLayoutTyped.$.pointAtlas,
-                    shadowLayoutTyped.$.shadowSamp,
+                    shadowLayout.$.pointAtlas,
+                    shadowLayout.$.shadowSamp,
                     d.vec2f(0, 0),
                     0,
                 ) +
                 std.textureSampleCompareLevel(
-                    shadowLayoutTyped.$.shadowMap,
-                    shadowLayoutTyped.$.shadowSamp,
+                    shadowLayout.$.shadowMap,
+                    shadowLayout.$.shadowSamp,
                     d.vec2f(0, 0),
                     0,
                 )) *
@@ -1472,7 +967,7 @@ const shadowForce = tgpu
  * compile (WGSL struct-argument typing isn't purely structural) — reading it off `fsFn.shell.argTypes[0]`
  * (the schema the author's own `tgpu.fn([fsCtxSchema(...)], ...)` call recorded) is the one source of truth.
  */
-function typedVaryingFs(surface: AnyTypedSurface) {
+function typedVaryingFs(surface: AnySurface) {
     const varyings = surface.varyings ?? {};
     const varyingKeys = Object.keys(varyings);
     if (varyingKeys.length < 1 || varyingKeys.length > MAX_VARYINGS) {
@@ -1485,6 +980,8 @@ function typedVaryingFs(surface: AnyTypedSurface) {
         .map((s, i) => `v${i}: ${(s as unknown as { type: string }).type}`)
         .join(", ");
     const fsFn = surface.fs;
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
     const CtxSchema = (fsFn as unknown as { shell: { argTypes: [unknown] } }).shell.argTypes[0];
     const copier = tgpu
         .fn(
@@ -1500,7 +997,7 @@ function typedVaryingFs(surface: AnyTypedSurface) {
 
     // a slot's schema is the widened `AnyWgslData` — real (any concrete vector/scalar schema at runtime),
     // but too loose for `fragmentFn`'s `in:` constraint and the resulting `input`'s field types to
-    // type-check without a cast, the same escape `typedColorVs`'s `layout.$` cast uses. The explicit
+    // type-check without a cast, the same escape the vertex copier's `layout.$` cast uses. The explicit
     // location pairs with the vs side's (`VARYING_BASE + i` — see typedVaryingVs's why: the internal
     // `v<i>` names are unmatchable, the slot is the contract). No flat-interpolate insertion, so an
     // integer varying is unsupported and fails loudly at resolve/device compile.
@@ -1510,8 +1007,7 @@ function typedVaryingFs(surface: AnyTypedSurface) {
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        uv: d.vec2f,
-        localPos: d.vec3f,
+        ...fragmentInterstage(surface),
     };
     const name = `${surface.name}Fs`;
     if (varyingKeys.length === 1) {
@@ -1524,8 +1020,8 @@ function typedVaryingFs(surface: AnyTypedSurface) {
                     input.worldNormal,
                     input.eid,
                     input.world,
-                    input.uv,
-                    input.localPos,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
                     input.v0,
                 );
                 return d.vec4f(std.add(col, d.vec4f(shadowForce())));
@@ -1545,8 +1041,8 @@ function typedVaryingFs(surface: AnyTypedSurface) {
                     input.worldNormal,
                     input.eid,
                     input.world,
-                    input.uv,
-                    input.localPos,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
                     input.v0,
                     input.v1,
                 );
@@ -1573,8 +1069,8 @@ function typedVaryingFs(surface: AnyTypedSurface) {
                     input.worldNormal,
                     input.eid,
                     input.world,
-                    input.uv,
-                    input.localPos,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
                     input.v0,
                     input.v1,
                     input.v2,
@@ -1598,8 +1094,8 @@ function typedVaryingFs(surface: AnyTypedSurface) {
                 input.worldNormal,
                 input.eid,
                 input.world,
-                input.uv,
-                input.localPos,
+                needUv ? (input as any).uv : d.vec2f(0),
+                needLocalPos ? (input as any).localPos : d.vec3f(0),
                 input.v0,
                 input.v1,
                 input.v2,
@@ -1611,7 +1107,7 @@ function typedVaryingFs(surface: AnyTypedSurface) {
 }
 
 /**
- * compile a `TypedSurface`'s color-pass pipeline(s): the opaque `color` pipeline, or — for a `blend:
+ * compile a `Surface`'s color-pass pipeline(s): the opaque `color` pipeline, or — for a `blend:
  * "alpha"` surface (c-3) — the single blended `transparent` pipeline instead (the legacy `colorPipelines`
  * split: exactly one of the two compiles, never both, matching the raw path's "one non-opaque pipeline"
  * shape). Cached by name + material variant plus exact source-surface/layout identity, so replacing a
@@ -1619,10 +1115,10 @@ function typedVaryingFs(surface: AnyTypedSurface) {
  * through its own `vs` chunk (`patch.clip`) and rasterizes un-culled; `"clip"` and a surface's
  * `specialize` factory are resolved here for the glTF typed migration.
  */
-export function compileTypedVariant<
-    B extends Record<string, TypedBinding>,
+export function compileVariant<
+    B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
->(surface: TypedSurface<B, V>, variant = 0): CompiledTyped {
+>(surface: Surface<B, V>, variant = 0): CompiledSurface {
     const key = variantKey(surface.name, surface.specialize ? variant : 0);
     const cached = _compiledTyped.get(key);
     if (cached?.owner === surface && cached.layout === surface.layout) return cached;
@@ -1637,22 +1133,20 @@ export function compileTypedVariant<
     const primitive = surfacePrimitive(resolved.screen);
     // TS can't narrow `vertex`/`fragment` as a matched pair across the ternary (their varying-record types
     // only agree structurally, proven at runtime by the differential + bench gates, not by the branch's
-    // static shape) — the same class of escape `typedColorVs`'s `layout.$` cast uses elsewhere in this file.
+    // static shape) — the same class of escape the vertex copier's `layout.$` cast uses elsewhere.
     const hasVaryings = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
-    const vertex = (hasVaryings ? typedVaryingVs(resolved) : typedColorVs(resolved)) as ReturnType<
-        typeof typedColorVs
-    >;
+    const vertex = hasVaryings ? typedVaryingVs(resolved) : typedColorVs(resolved);
     const fragment = (
         hasVaryings ? typedVaryingFs(resolved) : typedColorFs(resolved)
     ) as ReturnType<typeof typedColorFs>;
-    const args: CompiledTyped["args"] = {
+    const args: CompiledSurface["args"] = {
         vertex,
         fragment,
         blend: resolved.blend,
         primitive,
         name: `${surface.name}#${variant}`,
     };
-    let compiled: CompiledTyped;
+    let compiled: CompiledSurface;
     if (resolved.blend === "alpha") {
         const transparent = Compute.root
             .createRenderPipeline({
@@ -1671,8 +1165,8 @@ export function compileTypedVariant<
         // `blend: "alpha"` casts nothing (a transparent pixel has no single owner, `compileVariant`'s own
         // rule) — the same reason its prepass map stays empty
         compiled = {
-            owner: surface as AnyTypedSurface,
-            layout: surface.layout as SurfaceLayout<Record<string, TypedBinding>>,
+            owner: surface as AnySurface,
+            layout: surface.layout as SurfaceLayout<Record<string, Binding>>,
             color: null,
             transparent,
             prepass: new Map(),
@@ -1697,8 +1191,8 @@ export function compileTypedVariant<
             })
             .$name(`sear-typed-${surface.name}`);
         compiled = {
-            owner: surface as AnyTypedSurface,
-            layout: surface.layout as SurfaceLayout<Record<string, TypedBinding>>,
+            owner: surface as AnySurface,
+            layout: surface.layout as SurfaceLayout<Record<string, Binding>>,
             color,
             transparent: null,
             prepass: new Map(),
@@ -1724,7 +1218,7 @@ export function compileTypedVariant<
  * resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
  * `multisample.count` differs.
  */
-export function ensureTypedSingle(t: CompiledTyped): void {
+export function ensureSingle(t: CompiledSurface): void {
     if (t.single) return;
     const { vertex, fragment, blend, primitive, name } = t.args;
     if (blend === "alpha") {
@@ -1763,15 +1257,15 @@ export function ensureTypedSingle(t: CompiledTyped): void {
 }
 
 /**
- * compile a `TypedSurface`'s prepass pipelines (4a-ii-c-3a-2): the position-only depth pipeline (key `""`,
+ * compile a `Surface`'s prepass pipelines (4a-ii-c-3a-2): the position-only depth pipeline (key `""`,
  * vertex-only except for a `clip` surface's cutoff fragment) and the id-lane pipeline (key `"tag"`, the
  * raw `COLOR_LANES` id lane). Opaque surfaces compile off `layout.depthVariant`; clipped surfaces execute
- * their authored cutoff and therefore use the full layout/main vertex stream. `TypedGroupEntry.depth`
+ * their authored cutoff and therefore use the full layout/main vertex stream. `SurfaceGroupEntry.depth`
  * mirrors that split. A `blend: "alpha"` surface casts no prepass at all — same rule
  * `compileVariant` applies (a transparent pixel has no single owner, writes no prepass depth) — so its map
  * stays empty.
  */
-function compileTypedPrepass(surface: AnyTypedSurface): Map<string, TgpuRenderPipeline<any>> {
+function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipeline<any>> {
     const prepass = new Map<string, TgpuRenderPipeline<any>>();
     if (surface.blend === "alpha") return prepass;
     const primitive = surfacePrimitive(surface.screen);
@@ -1791,7 +1285,7 @@ function compileTypedPrepass(surface: AnyTypedSurface): Map<string, TgpuRenderPi
             vertex: clip
                 ? varying
                     ? typedVaryingVs(surface, true)
-                    : typedClipVs(surface)
+                    : typedColorVs(surface, true)
                 : typedPrepassVs(surface),
             ...(clip
                 ? {
@@ -1810,7 +1304,7 @@ function compileTypedPrepass(surface: AnyTypedSurface): Map<string, TgpuRenderPi
             vertex: clip
                 ? varying
                     ? typedVaryingVs(surface, true)
-                    : typedClipVs(surface)
+                    : typedColorVs(surface, true)
                 : typedTagVs(surface),
             fragment: clip
                 ? ((varying ? varyingClipFs(surface, true) : typedClipFs(surface, true)) as never)
@@ -1825,12 +1319,12 @@ function compileTypedPrepass(surface: AnyTypedSurface): Map<string, TgpuRenderPi
 }
 
 /**
- * the shared typed point/cascade fragment entry (4a-ii-c-3a-3): the tile-seam discard alone, `pointShadowCode`'s
+ * the shared typed point/cascade fragment entry (4a-ii-c-3a-3): the tile-seam discard alone, the former string shadow pipeline's
  * `fsPoint` twin — clamped to `layout.depthVariant` position + the `tileBox` varying its matching vs writes.
  * Atlas-size-independent (the vs bakes the atlas scale into `tileBox` already), so ONE instance serves every
  * typed surface's point pipeline AND every typed surface's cascade pipeline (the raw path's `fsPoint` is
  * textually identical between the two atlases too — only the VS's rect-index formula + atlas constant
- * differ, `codegen.ts`'s `pointShadowCode`). A `clip` surface uses the wider per-surface fragment below so
+ * differ, `codegen.ts`'s the former string shadow pipeline). A `clip` surface uses the wider per-surface fragment below so
  * the same material cutoff holes its atlas depth.
  */
 const typedShadowFs = tgpu
@@ -1849,18 +1343,18 @@ const typedShadowFs = tgpu
     .$name("shadowAtlasFs");
 
 /**
- * the typed point/cascade shadow-atlas vertex entry (4a-ii-c-3a-3): `pointShadowCode`'s VS, pinned
+ * the typed point/cascade shadow-atlas vertex entry (4a-ii-c-3a-3): the former string shadow pipeline's VS, pinned
  * statement-for-statement — pulls the 8 B position-only vertex from `layout.depthVariant` (the
  * `typedPrepassVs` shape), reads the re-gathered `(combo << COMBO_SHIFT) | eid` packed instance at the
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
- * `slot` alone for the cascade atlas — `pointShadowCode`'s `rectExpr` split) scaled by the atlas's pixel
+ * `slot` alone for the cascade atlas — the former string shadow pipeline's `rectExpr` split) scaled by the atlas's pixel
  * size. Only an **instanced** surface reaches here (only `eids`+`transforms` gives a per-instance member to
  * re-gather against) — `compileTypedShadow` gates the call, so this never runs for a non-instanced surface.
  */
 function typedShadowVs(
-    surface: AnyTypedSurface,
+    surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
@@ -1921,11 +1415,20 @@ function typedShadowVs(
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}Vs`);
 }
 
-/** the clipped shadow-atlas vertex: {@link typedShadowVs} plus the fixed fs context fields required to
- * execute the surface's cutoff fragment. Cutoff consumes the full vertex stream so authored UVs and
- * normals match the color pass. */
-function clipShadowVs(
-    surface: AnyTypedSurface,
+const ClipShadowVertex = d
+    .struct({
+        pos: d.vec4f,
+        tileBox: d.vec4f,
+        worldNormal: d.vec3f,
+        eid: d.u32,
+        world: d.vec3f,
+        uv: d.vec2f,
+        localPos: d.vec3f,
+    })
+    .$name("ClipShadowVertex");
+
+function typedClipShadowVertex(
+    surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
@@ -1940,25 +1443,17 @@ function clipShadowVs(
         tileRects: { rects: any[] };
     };
     return tgpu
-        .vertexFn({
-            in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
-            out: {
-                pos: d.builtin.position,
-                tileBox: d.interpolate("flat", d.vec4f),
-                worldNormal: d.vec3f,
-                eid: d.interpolate("flat", d.u32),
-                world: d.vec3f,
-                uv: d.vec2f,
-                localPos: d.vec3f,
-            },
-        })((input) => {
+        .fn(
+            [d.u32, d.u32],
+            ClipShadowVertex,
+        )((vidx, iid) => {
             "use gpu";
-            const v = layout.$.vertices[input.vidx];
+            const v = layout.$.vertices[vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
             const localNormal = octDecodeNormal(v.z);
             const uv = decodeUv(v.w, mq);
-            const packed = bound.eids[input.iid];
+            const packed = bound.eids[iid];
             const eid = packed & EID_MASK;
             const combo = packed >> COMBO_SHIFT;
             const xform = Xform(bound.transforms[eid]);
@@ -1970,9 +1465,9 @@ function clipShadowVs(
                         localPos,
                         localNormal,
                         uv,
-                        vidx: input.vidx,
+                        vidx,
                         eid,
-                        iid: input.iid,
+                        iid,
                         xform,
                         world,
                         worldNormal,
@@ -1985,26 +1480,106 @@ function clipShadowVs(
             const rect = cascade
                 ? shadowBound.tileRects.rects[m.x]
                 : shadowBound.tileRects.rects[m.x * 6 + m.y];
-            const pos = std.mul(shadowBound.faceVP.m[combo], world);
-            const tileBox = d.vec4f(std.mul(atlas, rect.xy), rect.z * atlas, 0);
-            return {
-                pos,
-                tileBox,
+            return ClipShadowVertex({
+                pos: std.mul(shadowBound.faceVP.m[combo], world),
+                tileBox: d.vec4f(std.mul(atlas, rect.xy), rect.z * atlas, 0),
                 worldNormal: std.normalize(worldNormal),
                 eid,
                 world: world.xyz,
                 uv,
                 localPos,
+            });
+        })
+        .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVertex`);
+}
+
+function clipShadowVs(
+    surface: AnySurface,
+    shadowGroup: TgpuBindGroupLayout<any>,
+    atlas: number,
+    cascade: boolean,
+) {
+    const vertex = typedClipShadowVertex(surface, shadowGroup, atlas, cascade);
+    const name = `${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`;
+    const input = { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex };
+    const fixed = {
+        pos: d.builtin.position,
+        tileBox: d.interpolate("flat", d.vec4f),
+        worldNormal: d.vec3f,
+        eid: d.interpolate("flat", d.u32),
+        world: d.vec3f,
+    };
+    const uv = !!surface.fragmentInputs?.uv;
+    const localPos = !!surface.fragmentInputs?.localPos;
+    if (uv && localPos) {
+        return tgpu
+            .vertexFn({ in: input, out: { ...fixed, uv: d.vec2f, localPos: d.vec3f } })((i) => {
+                "use gpu";
+                const v = vertex(i.vidx, i.iid);
+                return {
+                    pos: v.pos,
+                    tileBox: v.tileBox,
+                    worldNormal: v.worldNormal,
+                    eid: v.eid,
+                    world: v.world,
+                    uv: v.uv,
+                    localPos: v.localPos,
+                };
+            })
+            .$name(name);
+    }
+    if (uv) {
+        return tgpu
+            .vertexFn({ in: input, out: { ...fixed, uv: d.vec2f } })((i) => {
+                "use gpu";
+                const v = vertex(i.vidx, i.iid);
+                return {
+                    pos: v.pos,
+                    tileBox: v.tileBox,
+                    worldNormal: v.worldNormal,
+                    eid: v.eid,
+                    world: v.world,
+                    uv: v.uv,
+                };
+            })
+            .$name(name);
+    }
+    if (localPos) {
+        return tgpu
+            .vertexFn({ in: input, out: { ...fixed, localPos: d.vec3f } })((i) => {
+                "use gpu";
+                const v = vertex(i.vidx, i.iid);
+                return {
+                    pos: v.pos,
+                    tileBox: v.tileBox,
+                    worldNormal: v.worldNormal,
+                    eid: v.eid,
+                    world: v.world,
+                    localPos: v.localPos,
+                };
+            })
+            .$name(name);
+    }
+    return tgpu
+        .vertexFn({ in: input, out: fixed })((i) => {
+            "use gpu";
+            const v = vertex(i.vidx, i.iid);
+            return {
+                pos: v.pos,
+                tileBox: v.tileBox,
+                worldNormal: v.worldNormal,
+                eid: v.eid,
+                world: v.world,
             };
         })
-        .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`);
+        .$name(name);
 }
 
 /** The atlas-projecting half of the locked one-varying clip mechanism. Dynamic varying names stay in a
  * raw copier; the thin entry assigns the authored field and the fragment receives it as fixed `v0` at
  * the same explicit location. */
 function varyingShadowVs(
-    surface: AnyTypedSurface,
+    surface: AnySurface,
     shadowGroup: TgpuBindGroupLayout<any>,
     atlas: number,
     cascade: boolean,
@@ -2013,9 +1588,11 @@ function varyingShadowVs(
     const keys = Object.keys(varyings);
     if (keys.length !== 1 || !surface.vs) {
         throw new Error(
-            `sear: typed surface "${surface.name}" needs one authored varying for its clip shadow copier`,
+            `sear: typed surface "${surface.name}" needs at most one authored varying for its clip shadow copier`,
         );
     }
+    const hasVs = !!surface.vs;
+    const fragmentFields = fragmentInterstage(surface);
     const layout = surface.layout;
     const bound = layout.bound as unknown as Record<string, unknown>;
     const shadow = shadowGroup.bound as unknown as Record<string, unknown>;
@@ -2026,12 +1603,12 @@ function varyingShadowVs(
             worldNormal: d.vec3f,
             eid: d.u32,
             world: d.vec3f,
-            uv: d.vec2f,
-            localPos: d.vec3f,
+            ...fragmentFields,
             ...varyings,
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipOut`);
     const assigns = keys.map((key) => `    out.${key} = patched.${key};`).join("\n");
+    const fragmentAssigns = `${surface.fragmentInputs?.uv ? "    out.uv = uv;\n" : ""}${surface.fragmentInputs?.localPos ? "    out.localPos = localPos;\n" : ""}`;
     const rect = cascade ? "m.x" : "m.x * 6u + m.y";
     const copier = tgpu
         .fn(
@@ -2049,9 +1626,14 @@ function varyingShadowVs(
     let xform = transforms[eid];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
     var worldNormal = vec3f(xformNormal(xform, localNormal));
-    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal));
+${
+    hasVs
+        ? `    let patched = vs(VsIn(localPos, localNormal, uv, vidx, eid, iid, xform, world, worldNormal));
     world = patched.world;
     worldNormal = patched.worldNormal;
+`
+        : ""
+}
     let m = comboMeta.m[combo];
     let rect = tileRects.rects[${rect}];
     var out: Out;
@@ -2060,8 +1642,7 @@ function varyingShadowVs(
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
-    out.uv = uv;
-    out.localPos = localPos;
+${fragmentAssigns}
 ${assigns}
     return out;
 }`)
@@ -2080,8 +1661,7 @@ ${assigns}
             octDecodeNormal,
             xformPoint,
             xformNormal,
-            VsIn,
-            vs: surface.vs,
+            ...(hasVs ? { VsIn, vs: surface.vs } : {}),
         })
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipCopier`);
     const located = Object.fromEntries(
@@ -2099,8 +1679,7 @@ ${assigns}
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
-                uv: d.vec2f,
-                localPos: d.vec3f,
+                ...fragmentFields,
                 ...located,
             },
         })((input) => {
@@ -2111,16 +1690,17 @@ ${assigns}
         .$name(`${surface.name}${cascade ? "Cascade" : "Point"}ClipVs`);
 }
 
-function varyingShadowFs(surface: AnyTypedSurface) {
+function varyingShadowFs(surface: AnySurface) {
     const { varyingSchema, copier } = clipVaryingCopier(surface);
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
     const entryIn = {
         pos: d.builtin.position,
         tileBox: d.interpolate("flat", d.vec4f),
         worldNormal: d.vec3f,
         eid: d.interpolate("flat", d.u32),
         world: d.vec3f,
-        uv: d.vec2f,
-        localPos: d.vec3f,
+        ...fragmentInterstage(surface),
         v0: d.location(VARYING_BASE, varyingSchema as d.Vec3f),
     };
     return tgpu
@@ -2135,14 +1715,23 @@ function varyingShadowFs(surface: AnyTypedSurface) {
             if (p.x < mn.x || p.x >= mn.x + sz || p.y < mn.y || p.y >= mn.y + sz) {
                 std.discard();
             }
-            copier(input.worldNormal, input.eid, input.world, input.uv, input.localPos, input.v0);
+            copier(
+                input.worldNormal,
+                input.eid,
+                input.world,
+                needUv ? (input as any).uv : d.vec2f(0),
+                needLocalPos ? (input as any).localPos : d.vec3f(0),
+                input.v0,
+            );
         })
         .$name(`${surface.name}ClipShadowFs`);
 }
 
 /** the clipped atlas fragment: preserve the tile-seam discard, then call the surface fs solely for its
  * cutoff discard. Its color result is intentionally ignored by this depth-only pipeline. */
-function clipShadowFs(surface: AnyTypedSurface) {
+function clipShadowFs(surface: AnySurface) {
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
     const Ctx = (surface.fs as unknown as { shell: { argTypes: [ReturnType<typeof fsCtxSchema>] } })
         .shell.argTypes[0];
     return tgpu
@@ -2153,8 +1742,7 @@ function clipShadowFs(surface: AnyTypedSurface) {
                 worldNormal: d.vec3f,
                 eid: d.interpolate("flat", d.u32),
                 world: d.vec3f,
-                uv: d.vec2f,
-                localPos: d.vec3f,
+                ...fragmentInterstage(surface),
             },
             out: d.Void,
         })((input) => {
@@ -2169,8 +1757,8 @@ function clipShadowFs(surface: AnyTypedSurface) {
                 eid: input.eid,
                 world: input.world,
                 worldNormal: std.normalize(input.worldNormal),
-                uv: input.uv,
-                localPos: input.localPos,
+                uv: needUv ? (input as any).uv : d.vec2f(0),
+                localPos: needLocalPos ? (input as any).localPos : d.vec3f(0),
             });
             surface.fs(ctx);
         })
@@ -2178,16 +1766,16 @@ function clipShadowFs(surface: AnyTypedSurface) {
 }
 
 /**
- * compile a `TypedSurface`'s point + cascade shadow-atlas pipelines (4a-ii-c-3a-3) — `null` for a
+ * compile a `Surface`'s point + cascade shadow-atlas pipelines (4a-ii-c-3a-3) — `null` for a
  * non-instanced or `screen` surface (only an instanced, non-`screen` surface casts — the raw `castable`
  * law `compileVariant` applies, `!surface.screen && instanced` — a 2D overlay has no atlas placement).
  * Opaque surfaces share {@link typedShadowFs}; clipped surfaces use their wider cutoff
- * vertex/fragment pair. Each closes over its own `pointLayoutTyped` / `cascadeLayoutTyped` group-1 and its
+ * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and its
  * own atlas pixel size (the
  * two atlases are sized independently — the point atlas's live caster cap vs the cascade atlas's fixed
  * resolution × grid).
  */
-function compileTypedShadow(surface: AnyTypedSurface): {
+function compileTypedShadow(surface: AnySurface): {
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
 } {
@@ -2208,9 +1796,9 @@ function compileTypedShadow(surface: AnyTypedSurface): {
         .createRenderPipeline({
             vertex: clip
                 ? varying
-                    ? varyingShadowVs(surface, pointLayoutTyped, pointAtlasSize(), false)
-                    : clipShadowVs(surface, pointLayoutTyped, pointAtlasSize(), false)
-                : typedShadowVs(surface, pointLayoutTyped, pointAtlasSize(), false),
+                    ? varyingShadowVs(surface, pointLayout, pointAtlasSize(), false)
+                    : clipShadowVs(surface, pointLayout, pointAtlasSize(), false)
+                : typedShadowVs(surface, pointLayout, pointAtlasSize(), false),
             fragment: clip
                 ? ((varying ? varyingShadowFs(surface) : clipShadowFs(surface)) as never)
                 : typedShadowFs,
@@ -2225,19 +1813,19 @@ function compileTypedShadow(surface: AnyTypedSurface): {
                 ? varying
                     ? varyingShadowVs(
                           surface,
-                          cascadeLayoutTyped,
+                          cascadeLayout,
                           cascadeAtlasSize(sunResolution(), sunCascades()),
                           true,
                       )
                     : clipShadowVs(
                           surface,
-                          cascadeLayoutTyped,
+                          cascadeLayout,
                           cascadeAtlasSize(sunResolution(), sunCascades()),
                           true,
                       )
                 : typedShadowVs(
                       surface,
-                      cascadeLayoutTyped,
+                      cascadeLayout,
                       cascadeAtlasSize(sunResolution(), sunCascades()),
                       true,
                   ),
@@ -2255,13 +1843,9 @@ function compileTypedShadow(surface: AnyTypedSurface): {
 // the same receiver stub the depth pipelines bind, so the differential seams emit the pipelines' text
 const stubReceiver = (cfg: Configurable) => cfg.with(pointShadowSlot, pointShadowStub);
 
-/** the typed point/cascade shadow-atlas pipelines' emitted vs+fs WGSL for one `TypedSurface` — device-free
- * (`typedShadowVs`/`typedShadowFs` are pure resolve inputs), the structural seam `pipelines.test.ts`'s
- * differential resolves against `pointShadowCode(surface, 0)` / `pointShadowCode(surface, 0, true)`. */
-export function typedShadowWgsl(
-    surface: AnyTypedSurface,
-    variant = 0,
-): { point: string; cascade: string } {
+/** the point/cascade shadow-atlas pipelines' emitted vs+fs WGSL for one `Surface` — device-free because
+ * `typedShadowVs`/`typedShadowFs` are pure resolve inputs. */
+export function shadowWgsl(surface: AnySurface, variant = 0): { point: string; cascade: string } {
     const resolved = typedVariant(surface, variant);
     const clip = resolved.blend === "clip";
     const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
@@ -2270,14 +1854,11 @@ export function typedShadowWgsl(
             clip
                 ? [
                       varying
-                          ? varyingShadowVs(resolved, pointLayoutTyped, pointAtlasSize(), false)
-                          : clipShadowVs(resolved, pointLayoutTyped, pointAtlasSize(), false),
+                          ? varyingShadowVs(resolved, pointLayout, pointAtlasSize(), false)
+                          : clipShadowVs(resolved, pointLayout, pointAtlasSize(), false),
                       varying ? varyingShadowFs(resolved) : clipShadowFs(resolved),
                   ]
-                : [
-                      typedShadowVs(resolved, pointLayoutTyped, pointAtlasSize(), false),
-                      typedShadowFs,
-                  ],
+                : [typedShadowVs(resolved, pointLayout, pointAtlasSize(), false), typedShadowFs],
             { names: "strict", config: stubReceiver },
         ),
         cascade: tgpu.resolve(
@@ -2286,13 +1867,13 @@ export function typedShadowWgsl(
                       varying
                           ? varyingShadowVs(
                                 resolved,
-                                cascadeLayoutTyped,
+                                cascadeLayout,
                                 cascadeAtlasSize(sunResolution(), sunCascades()),
                                 true,
                             )
                           : clipShadowVs(
                                 resolved,
-                                cascadeLayoutTyped,
+                                cascadeLayout,
                                 cascadeAtlasSize(sunResolution(), sunCascades()),
                                 true,
                             ),
@@ -2301,7 +1882,7 @@ export function typedShadowWgsl(
                 : [
                       typedShadowVs(
                           resolved,
-                          cascadeLayoutTyped,
+                          cascadeLayout,
                           cascadeAtlasSize(sunResolution(), sunCascades()),
                           true,
                       ),
@@ -2312,17 +1893,15 @@ export function typedShadowWgsl(
     };
 }
 
-/** the compiled typed pipeline(s) for a `TypedSurfaces` entry, or `undefined` until
- * {@link compileTypedVariant} has run for it. */
-export function getCompiledTyped(name: string, variant = 0): CompiledTyped | undefined {
+/** the compiled typed pipeline(s) for a `Surfaces` entry, or `undefined` until
+ * {@link compileVariant} has run for it. */
+export function getCompiledSurface(name: string, variant = 0): CompiledSurface | undefined {
     return _compiledTyped.get(variantKey(name, variant));
 }
 
-/** the typed color/transparent pipeline's emitted vs+fs WGSL for one `TypedSurface` — device-free
- * (`typedColorVs`/`typedColorFs` are pure resolve inputs, shared by both pipelines exactly like the raw
- * path's one `surfaceCode(surface, "color")` module backs both `colorPipelines` outputs), the structural
- * seam `pipelines.test.ts`'s differential resolves against. */
-export function typedSurfaceWgsl(surface: AnyTypedSurface, variant = 0): string {
+/** the color/transparent pipeline's emitted vs+fs WGSL for one `Surface` — device-free; both pipeline
+ * variants share these pure resolve inputs. */
+export function surfaceWgsl(surface: AnySurface, variant = 0): string {
     const resolved = typedVariant(surface, variant);
     const hasVaryings = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
     const vertex = hasVaryings ? typedVaryingVs(resolved) : typedColorVs(resolved);
@@ -2330,13 +1909,10 @@ export function typedSurfaceWgsl(surface: AnyTypedSurface, variant = 0): string 
     return tgpu.resolve([vertex, fragment], { names: "strict" });
 }
 
-/** the typed prepass pipelines' emitted WGSL for one `TypedSurface` — device-free (`typedPrepassVs`/
+/** the typed prepass pipelines' emitted WGSL for one `Surface` — device-free (`typedPrepassVs`/
  * `typedTagFs` are pure resolve inputs), the structural seam `pipelines.test.ts`'s differential resolves
  * against. `""` is the position-only depth pipeline (vertex-only, no fragment); `"tag"` the id-lane pair. */
-export function typedPrepassWgsl(
-    surface: AnyTypedSurface,
-    variant = 0,
-): { "": string; tag: string } {
+export function prepassWgsl(surface: AnySurface, variant = 0): { "": string; tag: string } {
     const resolved = typedVariant(surface, variant);
     const clip = resolved.blend === "clip";
     const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
@@ -2344,7 +1920,7 @@ export function typedPrepassWgsl(
         "": tgpu.resolve(
             clip
                 ? [
-                      varying ? typedVaryingVs(resolved, true) : typedClipVs(resolved),
+                      varying ? typedVaryingVs(resolved, true) : typedColorVs(resolved, true),
                       varying ? varyingClipFs(resolved, false) : typedClipFs(resolved, false),
                   ]
                 : [typedPrepassVs(resolved)],
@@ -2356,7 +1932,7 @@ export function typedPrepassWgsl(
         tag: tgpu.resolve(
             clip
                 ? [
-                      varying ? typedVaryingVs(resolved, true) : typedClipVs(resolved),
+                      varying ? typedVaryingVs(resolved, true) : typedColorVs(resolved, true),
                       varying ? varyingClipFs(resolved, true) : typedClipFs(resolved, true),
                   ]
                 : [typedTagVs(resolved), typedTagFs(resolved)],
@@ -2368,23 +1944,23 @@ export function typedPrepassWgsl(
 // ---- the typed `Backgrounds` contract's pipeline builder (4a-ii-c-3a-4, the Backgrounds bindings lock):
 // the Surfaces contract minus mesh machinery, same group scheme. Group 0 = the shared `engineLayout`
 // instance (the color pass's own — `BG_BASE` dies on the typed path, matching the raw path's own group-0
-// sharing note in `compileBackground`'s docblock); group 1 = `shadowLayoutTyped`, declared-but-unused via
+// sharing note in `compileBackground`'s docblock); group 1 = `shadowLayout`, declared-but-unused via
 // the `forcedZero` scope-forcing precedent (preserving `compileBackground`'s documented group-count-
 // compatibility reason: a bg pipeline with only group 0 would drop group 1 for the blend draws that follow
 // in the same pass); group 2 = the background's own bindings, through `contract.ts`'s `bgLayout` — the
 // SAME `layoutEntry` synthesis `layout()` uses for a surface, minus the `vertices` injection (no mesh).
 
-/** the widest `TypedBackground` shape (any bindings) — the bare `TypedBackground` default pins `B` to
+/** the widest `Background` shape (any bindings) — the bare `Background` default pins `B` to
  *  `Record<string, Binding>` already, so this alias exists only to name the widened form at call
- *  boundaries, matching {@link AnyTypedSurface}'s shape. */
-type AnyTypedBackground = TypedBackground<Record<string, TypedBinding>>;
+ *  boundaries, matching {@link AnySurface}'s shape. */
+type AnyBackground = Background<Record<string, Binding>>;
 
 /**
  * the engine-owned fullscreen-triangle vertex entry every typed background shares — no per-background
  * variance (no mesh, no varyings, per the Backgrounds bindings lock), so ONE instance serves every typed
- * background's pipeline. Statement-for-statement `backgroundCode`'s raw `vs` (codegen.ts): the three
+ * background's pipeline. Statement-for-statement the former string background pipeline's raw `vs` (codegen.ts): the three
  * corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0) so
- * {@link compileTypedBg}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
+ * {@link compileBackground}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
  * un-rendered pixels.
  */
 const typedBgVs = tgpu
@@ -2399,14 +1975,14 @@ const typedBgVs = tgpu
 
 /**
  * a typed background's fragment entry: reconstructs the normalized world-space view ray `dir` from
- * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand `backgroundCode`'s raw
- * reconstruct (codegen.ts), not an interstage varying (gpu.md rule 9) — forces `shadowLayoutTyped`'s
+ * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand the former string background pipeline's raw
+ * reconstruct (codegen.ts), not an interstage varying (gpu.md rule 9) — forces `shadowLayout`'s
  * group-1 bindings into scope via the `forcedZero` fold (`typedColorFs`'s precedent, same reason:
  * `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
  * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col,
- * 1)`, `backgroundCode`'s own contract).
+ * 1)`, the former string background pipeline's own contract).
  */
-function typedBgFs(bg: AnyTypedBackground) {
+function typedBgFs(bg: AnyBackground) {
     return tgpu
         .fragmentFn({ in: { pos: d.builtin.position }, out: d.vec4f })((input) => {
             "use gpu";
@@ -2419,18 +1995,18 @@ function typedBgFs(bg: AnyTypedBackground) {
             // see `typedColorFs`'s matching comment — the same forcing-touch precedent, folded into a
             // value the return genuinely uses so the transpiler can't prune it as dead
             const forcedZero =
-                (shadowLayoutTyped.$.pointShadows.casters[0].pos.x +
-                    shadowLayoutTyped.$.tileRects.rects[0].x +
-                    shadowLayoutTyped.$.sunShadow.enabled +
+                (shadowLayout.$.pointShadows.casters[0].pos.x +
+                    shadowLayout.$.tileRects.rects[0].x +
+                    shadowLayout.$.sunShadow.enabled +
                     std.textureSampleCompareLevel(
-                        shadowLayoutTyped.$.pointAtlas,
-                        shadowLayoutTyped.$.shadowSamp,
+                        shadowLayout.$.pointAtlas,
+                        shadowLayout.$.shadowSamp,
                         d.vec2f(0, 0),
                         0,
                     ) +
                     std.textureSampleCompareLevel(
-                        shadowLayoutTyped.$.shadowMap,
-                        shadowLayoutTyped.$.shadowSamp,
+                        shadowLayout.$.shadowMap,
+                        shadowLayout.$.shadowSamp,
                         d.vec2f(0, 0),
                         0,
                     )) *
@@ -2443,29 +2019,33 @@ function typedBgFs(bg: AnyTypedBackground) {
 
 /** a compiled typed background: the 4× MSAA + single-sample twins (a camera binds whichever its
  *  `Camera.antialias` selects — `CompiledBg`'s raw twin). */
-export interface CompiledTypedBg {
+export interface CompiledBackground {
+    /** exact registry spec + layout this pipeline/group state was derived from. */
+    owner: AnyBackground;
+    layout: BgLayout<Record<string, Binding>>;
     color: TgpuRenderPipeline<d.Vec4f>;
     single: TgpuRenderPipeline<d.Vec4f>;
     // the background's own group-2 bind group, built lazily on first draw (`renderColor`'s typed
     // backdrop pick) and cached on the resolved resource identities; null for a binding-free background
     // (its empty layout never enters the pipeline layout, so no group is bound at 2)
     group2: { group: GPUBindGroup; resources: BindResource[] } | null;
-    // the background's engine group-0 instances per view slot (`typedEngineGroup`'s caller-owned cache;
+    // the background's engine group-0 instances per view slot (`engineGroup`'s caller-owned cache;
     // the bg's quant fill is the stable per-build `bgQuant()`, so this never sees buffer churn)
     engineCache: Map<number, GPUBindGroup>;
 }
-const _compiledTypedBg = new Map<string, CompiledTypedBg>();
+const _compiledTypedBg = new Map<string, CompiledBackground>();
 
 /**
  * compile one typed background's color pipelines — both the 4× MSAA + single-sample twins, eagerly
  * (`compileBackground`'s own reason: backgrounds are few, the camera's AA mode is known only at draw
  * time). `depthCompare: "greater-equal"` + no depth write: at clip z = 0 an un-rendered pixel (cleared
  * depth 0) passes `0 >= 0`, a geometry pixel (depth > 0) fails, matching the raw pipeline's shape. Cached
- * by name.
+ * by name plus exact source-spec/layout identity, so a same-name replacement cannot inherit pipelines
+ * or layout-bound groups from its previous owner.
  */
-export function compileTypedBg(bg: AnyTypedBackground): CompiledTypedBg {
+export function compileBackground(bg: AnyBackground): CompiledBackground {
     const cached = _compiledTypedBg.get(bg.name);
-    if (cached) return cached;
+    if (cached?.owner === bg && cached.layout === bg.layout) return cached;
     const fragment = typedBgFs(bg);
     const primitive: GPUPrimitiveState = { topology: "triangle-list", cullMode: "none" };
     const depthStencil: GPUDepthStencilState = {
@@ -2493,40 +2073,39 @@ export function compileTypedBg(bg: AnyTypedBackground): CompiledTypedBg {
             multisample: { count: 1 },
         })
         .$name(`sear-typed-bg-${bg.name}-1x`);
-    const compiled: CompiledTypedBg = { color, single, group2: null, engineCache: new Map() };
+    const compiled: CompiledBackground = {
+        owner: bg,
+        layout: bg.layout,
+        color,
+        single,
+        group2: null,
+        engineCache: new Map(),
+    };
     _compiledTypedBg.set(bg.name, compiled);
     return compiled;
 }
 
-/** the compiled typed pipeline(s) for a `TypedBackgrounds` entry, or `undefined` until
- * {@link compileTypedBg} has run for it. */
-export function getTypedBg(name: string): CompiledTypedBg | undefined {
-    return _compiledTypedBg.get(name);
+/** the compiled typed pipeline(s) for a `Backgrounds` entry, or `undefined` until
+ * {@link compileBackground} has run for it. */
+export function getBackground(name: string, bg?: AnyBackground): CompiledBackground | undefined {
+    const compiled = _compiledTypedBg.get(name);
+    if (compiled && bg && (compiled.owner !== bg || compiled.layout !== bg.layout)) {
+        _compiledTypedBg.delete(name);
+        return undefined;
+    }
+    return compiled;
 }
 
-/** the typed background's emitted vs+fs WGSL — device-free (`typedBgVs`/`typedBgFs` are pure resolve
- * inputs), the structural seam `pipelines.test.ts`'s differential resolves against `backgroundCode` for an
- * equivalent string background. */
-export function typedBgWgsl(bg: AnyTypedBackground): string {
+/** the background's emitted vs+fs WGSL — device-free (`typedBgVs`/`typedBgFs` are pure resolve inputs). */
+export function backgroundWgsl(bg: AnyBackground): string {
     return tgpu.resolve([typedBgVs, typedBgFs(bg)], { names: "strict" });
 }
 
-/**
- * eagerly compile every non-specializing legacy surface's variant 0, except a migration descriptor whose
- * name is shadowed by `TypedSurfaces` (the Part materials, lines, sprite, …, so the bare happy path renders
- * on the first frame), plus every registered background — the async half of
- * `prepareSear`. Non-specializing `TypedSurfaces` entries compile here; specializing variants queue after
- * Part publishes its draw pairs. `compileTypedVariant` is sync (typegpu pipelines are sync-created), so it
- * runs beside the legacy compiles rather than joining the `Promise.all`; a real device (`bun bench`) is
- * what proves the typed color pipeline's group split actually validates, every run. Then every registered
- * `TypedBackgrounds` entry (4a-ii-c-3a-4) the same way — `compileTypedBg` is sync too, so any background
- * registered
- * through the typed contract compiles for real at warm the moment a consumer registers one (none does yet:
- * additive only, matching `TypedSurfaces`' own boundary until a consumer conversion lands).
- */
+/** Compile every non-specializing surface and every background at warm; specializing variants queue after
+ * Part publishes its draw pairs. TypeGPU pipelines are sync-created but lazy, so each is force-unwrapped. */
 /** variants already reachable through registered draws at warm, deduped per surface. */
-export function knownTypedVariants(
-    surface: AnyTypedSurface,
+export function knownVariants(
+    surface: AnySurface,
     draws: Registry<Draw> = Draws,
     meshes: Registry<Mesh> = Meshes,
 ): number[] {
@@ -2540,31 +2119,20 @@ export function knownTypedVariants(
     return [...variants];
 }
 
-export async function preparePipelines(
-    device: GPUDevice,
-    backgrounds: Iterable<Background>,
-): Promise<void> {
-    await Promise.all([
-        ...Array.from(Surfaces, (surface) =>
-            TypedSurfaces.has(surface.name) || surface.specialize
-                ? null
-                : compileVariant(device, surface, 0),
-        ),
-        ...Array.from(backgrounds, (bg) => compileBackground(device, bg)),
-    ]);
+export async function preparePipelines(): Promise<void> {
     // force each typed pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
     // lock, Approach 0a)
-    for (const surface of TypedSurfaces) {
+    for (const surface of Surfaces) {
         if (surface.specialize) continue;
-        const t = compileTypedVariant(surface);
+        const t = compileVariant(surface);
         for (const p of [t.color, t.transparent, t.point, t.cascade, ...t.prepass.values()]) {
             if (p) Compute.root.unwrap(p);
         }
     }
-    for (const bg of TypedBackgrounds) {
-        const cb = compileTypedBg(bg);
+    for (const bg of Backgrounds) {
+        const cb = compileBackground(bg);
         Compute.root.unwrap(cb.color);
         Compute.root.unwrap(cb.single);
     }
