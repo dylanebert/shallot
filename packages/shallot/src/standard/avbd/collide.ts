@@ -24,15 +24,13 @@
 // global the *consumer* declares by name (the relocatable contract, sear's shadow-sampler shape), so a
 // consumer of a hull chunk declares `var<storage, read> hullData: array<u32>`.
 //
-// The box and rounded SATs are CPU-callable, pointers and all: a local passed to a `ptr<function, …>`
+// Every SAT is CPU-callable, pointers and all: a local passed to a `ptr<function, …>`
 // param goes through `d.ref(x)`, which types it, emits the same `(&x)`, and gives the CPU arm the
 // reference semantics `.$` needs. So `collideBoxBox` runs against the C++ gold vectors in
-// tests/avbd/sat.oracle.ts and `collideRounded` against the f64 oracle in rounded.oracle.ts — the same
-// source the GPU splices, differentialled with no device. The hull half is NOT CPU-callable and cannot
-// be: every `Convex` reads `hullData` through the WGSL-bodied readers, and typegpu refuses to execute a
-// raw-WGSL body on the CPU. Its gate is the gym `sat` hull kernel (production WGSL vs the f64 oracle,
-// byte-exact) until the binding itself is typed. Neither CPU arm can see f32 reassociation (it runs on
-// f64 JS numbers), so the emitted-WGSL differential stays the guard for op order.
+// tests/avbd/sat.oracle.ts, `collideRounded` against rounded.oracle.ts, and `collideHull` against the f64
+// hull oracle. The seven hull-data readers are duals: WGSL reads the consumer-declared storage binding,
+// while the scoped CPU arm reads the exact packed `Uint32Array`. Neither CPU arm can see f32
+// reassociation (it runs on f64 JS numbers), so the emitted-WGSL differential stays the guard for op order.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -65,6 +63,10 @@ const SAT_AXIS_EPSILON = 1e-6;
 const PLANE_EPSILON = 1e-5;
 const CONTACT_MERGE_DIST_SQ = 1e-6;
 const REDUCE_MIN_DIST_SQ = 1e-6;
+// Conservative f32 comparison band for the symmetric edge/face and manifold-reduction scores. This is a
+// selection policy, not an output tolerance: a face wins the former tie and the persistent feature key
+// orders the latter, making equivalent extrema stable across the f32 shader and f64 oracle.
+const F32_TIE_REL = 16 * 2 ** -23;
 const AXIS_FACE_A = 0;
 const AXIS_FACE_B = 1;
 const AXIS_EDGE = 2;
@@ -238,6 +240,18 @@ const addContact = tgpu
     )
     .$name("addContact");
 
+const preferReduce = tgpu
+    .fn(
+        [d.f32, d.u32, d.f32, d.u32],
+        d.bool,
+    )((value, feature, bestValue, bestFeature) => {
+        "use gpu";
+        const scale = std.max(std.abs(value), std.abs(bestValue));
+        const tied = std.abs(value - bestValue) <= scale * F32_TIE_REL;
+        return (value > bestValue && !tied) || (tied && feature < bestFeature);
+    })
+    .$name("preferReduce");
+
 // Reduce a > 4 candidate set to a <=4-point spread set — a verbatim port of Jolt's PruneContactPoints
 // (reference/jolt ManifoldBetweenTwoFaces.cpp; Gregorius GDC-2015; reference/bullet3 b3ContactCache
 // corroborates). Project each A-anchor onto the contact plane (perp axis, relative to comA), keep the
@@ -246,9 +260,17 @@ const addContact = tgpu
 // reduce.oracle.ts. Writes the kept candidate indices to sel, returns the kept count (2-4).
 const pruneContacts = tgpu
     .fn(
-        [d.ptrFn(CandVerts), d.ptrFn(CandVerts), d.u32, d.vec3f, d.vec3f, d.ptrFn(SelIdx)],
+        [
+            d.ptrFn(CandVerts),
+            d.ptrFn(CandVerts),
+            d.ptrFn(CandFeats),
+            d.u32,
+            d.vec3f,
+            d.vec3f,
+            d.ptrFn(SelIdx),
+        ],
         d.u32,
-    )((candXA, candXB, n, axis, comA, sel) => {
+    )((candXA, candXB, candFeat, n, axis, comA, sel) => {
         "use gpu";
         const projected = CandVerts();
         const depthSq = CandScalars();
@@ -265,7 +287,7 @@ const pruneContacts = tgpu
         let val = std.max(REDUCE_MIN_DIST_SQ, std.dot(projected[0], projected[0])) * depthSq[0];
         for (let i = d.u32(0); i < n; i++) {
             const v = std.max(REDUCE_MIN_DIST_SQ, std.dot(projected[i], projected[i])) * depthSq[i];
-            if (v > val) {
+            if (preferReduce(v, candFeat.$[i], val, candFeat.$[p1])) {
                 val = v;
                 p1 = i;
             }
@@ -276,12 +298,14 @@ const pruneContacts = tgpu
         // n > 4 (the only call condition) guarantees a partner ≠ p1, so p2 is always found (matches the
         // reference, which keeps p1 + p2 unconditionally; only p3/p4 are side-of-line conditional).
         let p2 = d.u32(0);
-        val = NO_AXIS;
+        let haveP2 = false;
+        val = d.f32(0);
         for (let i = d.u32(0); i < n; i++) {
             if (i === p1) continue;
             const dv = std.sub(projected[i], p1v);
             const v = std.max(REDUCE_MIN_DIST_SQ, std.dot(dv, dv)) * depthSq[i];
-            if (v > val) {
+            if (!haveP2 || preferReduce(v, candFeat.$[i], val, candFeat.$[p2])) {
+                haveP2 = true;
                 val = v;
                 p2 = i;
             }
@@ -298,14 +322,18 @@ const pruneContacts = tgpu
         for (let i = d.u32(0); i < n; i++) {
             if (i === p1 || i === p2) continue;
             const v = std.dot(perp, std.sub(projected[i], p1v));
-            if (v < minV) {
-                minV = v;
-                p3 = i;
-                haveP3 = true;
-            } else if (v > maxV) {
-                maxV = v;
-                p4 = i;
-                haveP4 = true;
+            if (v < 0) {
+                if (!haveP3 || preferReduce(-v, candFeat.$[i], -minV, candFeat.$[p3])) {
+                    minV = v;
+                    p3 = i;
+                    haveP3 = true;
+                }
+            } else if (v > 0) {
+                if (!haveP4 || preferReduce(v, candFeat.$[i], maxV, candFeat.$[p4])) {
+                    maxV = v;
+                    p4 = i;
+                    haveP4 = true;
+                }
             }
         }
 
@@ -328,7 +356,16 @@ const pruneContacts = tgpu
 
 const helpersChunk = chunk(
     "helpersWgsl",
-    [Mat3, SatResult, satZero, orthoBasis, closestSegments, addContact, pruneContacts],
+    [
+        Mat3,
+        SatResult,
+        satZero,
+        orthoBasis,
+        closestSegments,
+        addContact,
+        preferReduce,
+        pruneContacts,
+    ],
     spliceNs,
 );
 
@@ -678,7 +715,15 @@ const faceManifold = tgpu
         const sel = SelIdx();
         let selN = d.u32(0);
         if (candN > MAX_CONTACTS) {
-            selN = pruneContacts(d.ref(candXA), d.ref(candXB), candN, normalAB, posA, d.ref(sel));
+            selN = pruneContacts(
+                d.ref(candXA),
+                d.ref(candXB),
+                d.ref(candFeat),
+                candN,
+                normalAB,
+                posA,
+                d.ref(sel),
+            );
         } else {
             selN = candN;
             for (let i = d.u32(0); i < candN; i++) sel[i] = i;
@@ -988,9 +1033,9 @@ const closestPointBox = tgpu
     .$name("closestPointBox");
 
 // ── the scale-unified polytope substrate (box OR registered hull) ────────────────────────────────
-// The hull geometry readers are WGSL-bodied: they read `hullData`, the flat `array<u32>` buffer
-// packed by ./hull `packHulls`, which the *consumer* declares by name (the relocatable contract; no
-// TGSL spelling until that contract is typed, 4a). Everything above them is TGSL over the readers.
+// The hull geometry readers are duals over `hullData`, the flat `array<u32>` packed by ./hull. Their
+// WGSL leaves read the consumer-declared binding; their CPU arms read one synchronously-scoped packed
+// array. Everything above them is the same TGSL graph on both paths.
 
 /** one registered hull's slice of the packed `hullData` buffer */
 const HullRef = d
@@ -1005,7 +1050,40 @@ const HullRef = d
     })
     .$name("HullRef");
 
-const hullRef = tgpu
+let cpuHullData: Uint32Array | undefined;
+
+function cpuHullWord(i: number): number {
+    const data = cpuHullData;
+    if (!data)
+        throw new Error("collideHull CPU execution requires withCpuHullData(packHulls(), fn)");
+    const value = data[i];
+    if (value === undefined)
+        throw new Error(`collideHull CPU hullData index ${i} is out of bounds`);
+    return value;
+}
+
+/** Run the hull TGSL graph on the CPU against the exact packed storage words a GPU dispatch reads.
+ *  The scope is synchronous because TypeGPU CPU functions are synchronous; nesting restores the outer
+ *  binding. @internal */
+export function withCpuHullData<T>(data: Uint32Array, fn: () => T): T {
+    const previous = cpuHullData;
+    cpuHullData = data;
+    try {
+        const result = fn();
+        if (
+            result !== null &&
+            (typeof result === "object" || typeof result === "function") &&
+            "then" in result &&
+            typeof result.then === "function"
+        )
+            throw new Error("withCpuHullData callback must be synchronous");
+        return result;
+    } finally {
+        cpuHullData = previous;
+    }
+}
+
+const hullRefWgsl = tgpu
     .fn(
         [d.u32],
         HullRef,
@@ -1014,12 +1092,33 @@ const hullRef = tgpu
     return HullRef(hullData[o], hullData[o+1u], hullData[o+2u], hullData[o+3u], hullData[o+4u], hullData[o+5u], hullData[o+6u]);
 }`)
     .$uses({ HullRef })
+    .$name("hullRefWgsl");
+
+const hullRef = tgpu
+    .fn(
+        [d.u32],
+        HullRef,
+    )((id) => {
+        "use gpu";
+        const o = id * HULL_HEADER;
+        return std.isBeingTranspiled()
+            ? hullRefWgsl(id)
+            : HullRef({
+                  vertBase: cpuHullWord(o),
+                  vertCount: cpuHullWord(o + 1),
+                  faceBase: cpuHullWord(o + 2),
+                  faceCount: cpuHullWord(o + 3),
+                  edgeBase: cpuHullWord(o + 4),
+                  edgeCount: cpuHullWord(o + 5),
+                  faceIdxBase: cpuHullWord(o + 6),
+              });
+    })
     .$name("hullRef");
 
 // hull-direct local accessors (read raw geometry from hullData; NO isBox branch). The scale-unified poly
 // accessors below build box AND hull on these — the per-access isBox branch was the collide-pass compile
 // cost (gpu.md "DXC shader compilation": dead code isn't free, the box branch compiled at every site).
-const hVertL = tgpu
+const hVertLWgsl = tgpu
     .fn(
         [HullRef, d.u32],
         d.vec3f,
@@ -1028,9 +1127,26 @@ const hVertL = tgpu
     return vec3f(bitcast<f32>(hullData[o]), bitcast<f32>(hullData[o+1u]), bitcast<f32>(hullData[o+2u]));
 }`)
     .$uses({ HullRef })
+    .$name("hVertLWgsl");
+
+const hVertL = tgpu
+    .fn(
+        [HullRef, d.u32],
+        d.vec3f,
+    )((h, i) => {
+        "use gpu";
+        const o = h.vertBase + i * 3;
+        return std.isBeingTranspiled()
+            ? hVertLWgsl(h, i)
+            : d.vec3f(
+                  std.bitcastU32toF32(cpuHullWord(o)),
+                  std.bitcastU32toF32(cpuHullWord(o + 1)),
+                  std.bitcastU32toF32(cpuHullWord(o + 2)),
+              );
+    })
     .$name("hVertL");
 
-const hFaceNormalL = tgpu
+const hFaceNormalLWgsl = tgpu
     .fn(
         [HullRef, d.u32],
         d.vec3f,
@@ -1039,9 +1155,26 @@ const hFaceNormalL = tgpu
     return vec3f(bitcast<f32>(hullData[o]), bitcast<f32>(hullData[o+1u]), bitcast<f32>(hullData[o+2u]));
 }`)
     .$uses({ HullRef })
+    .$name("hFaceNormalLWgsl");
+
+const hFaceNormalL = tgpu
+    .fn(
+        [HullRef, d.u32],
+        d.vec3f,
+    )((h, f) => {
+        "use gpu";
+        const o = h.faceBase + f * HULL_FACE_STRIDE;
+        return std.isBeingTranspiled()
+            ? hFaceNormalLWgsl(h, f)
+            : d.vec3f(
+                  std.bitcastU32toF32(cpuHullWord(o)),
+                  std.bitcastU32toF32(cpuHullWord(o + 1)),
+                  std.bitcastU32toF32(cpuHullWord(o + 2)),
+              );
+    })
     .$name("hFaceNormalL");
 
-const hFaceOffset = tgpu
+const hFaceOffsetWgsl = tgpu
     .fn(
         [HullRef, d.u32],
         d.f32,
@@ -1049,9 +1182,21 @@ const hFaceOffset = tgpu
         /* wgsl */ `(h: HullRef, f: u32) -> f32 { return bitcast<f32>(hullData[h.faceBase + f * ${HULL_FACE_STRIDE}u + 3u]); }`,
     )
     .$uses({ HullRef })
+    .$name("hFaceOffsetWgsl");
+
+const hFaceOffset = tgpu
+    .fn(
+        [HullRef, d.u32],
+        d.f32,
+    )((h, f) => {
+        "use gpu";
+        return std.isBeingTranspiled()
+            ? hFaceOffsetWgsl(h, f)
+            : std.bitcastU32toF32(cpuHullWord(h.faceBase + f * HULL_FACE_STRIDE + 3));
+    })
     .$name("hFaceOffset");
 
-const hFaceVertCount = tgpu
+const hFaceVertCountWgsl = tgpu
     .fn(
         [HullRef, d.u32],
         d.u32,
@@ -1059,9 +1204,21 @@ const hFaceVertCount = tgpu
         /* wgsl */ `(h: HullRef, f: u32) -> u32 { return hullData[h.faceBase + f * ${HULL_FACE_STRIDE}u + 5u]; }`,
     )
     .$uses({ HullRef })
+    .$name("hFaceVertCountWgsl");
+
+const hFaceVertCount = tgpu
+    .fn(
+        [HullRef, d.u32],
+        d.u32,
+    )((h, f) => {
+        "use gpu";
+        return std.isBeingTranspiled()
+            ? hFaceVertCountWgsl(h, f)
+            : cpuHullWord(h.faceBase + f * HULL_FACE_STRIDE + 5);
+    })
     .$name("hFaceVertCount");
 
-const hFaceVert = tgpu
+const hFaceVertWgsl = tgpu
     .fn(
         [HullRef, d.u32, d.u32],
         d.u32,
@@ -1070,9 +1227,21 @@ const hFaceVert = tgpu
     return hullData[h.faceIdxBase + lo + j];
 }`)
     .$uses({ HullRef })
+    .$name("hFaceVertWgsl");
+
+const hFaceVert = tgpu
+    .fn(
+        [HullRef, d.u32, d.u32],
+        d.u32,
+    )((h, f, j) => {
+        "use gpu";
+        return std.isBeingTranspiled()
+            ? hFaceVertWgsl(h, f, j)
+            : cpuHullWord(h.faceIdxBase + cpuHullWord(h.faceBase + f * HULL_FACE_STRIDE + 4) + j);
+    })
     .$name("hFaceVert");
 
-const hEdgeL = tgpu
+const hEdgeLWgsl = tgpu
     .fn(
         [HullRef, d.u32],
         d.vec3f,
@@ -1081,6 +1250,23 @@ const hEdgeL = tgpu
     return vec3f(bitcast<f32>(hullData[o]), bitcast<f32>(hullData[o+1u]), bitcast<f32>(hullData[o+2u]));
 }`)
     .$uses({ HullRef })
+    .$name("hEdgeLWgsl");
+
+const hEdgeL = tgpu
+    .fn(
+        [HullRef, d.u32],
+        d.vec3f,
+    )((h, e) => {
+        "use gpu";
+        const o = h.edgeBase + e * 3;
+        return std.isBeingTranspiled()
+            ? hEdgeLWgsl(h, e)
+            : d.vec3f(
+                  std.bitcastU32toF32(cpuHullWord(o)),
+                  std.bitcastU32toF32(cpuHullWord(o + 1)),
+                  std.bitcastU32toF32(cpuHullWord(o + 2)),
+              );
+    })
     .$name("hEdgeL");
 
 /**
@@ -1518,7 +1704,10 @@ export const collideHull = tgpu
         if (!bestFaceAxis.valid) return res;
 
         let best = HullAxis(bestFaceAxis);
-        if (bestEdgeAxis.valid && d.f32(0.95) * bestEdgeAxis.sep > bestFaceAxis.sep + d.f32(0.01))
+        const edgeScore = d.f32(0.95) * bestEdgeAxis.sep;
+        const faceScore = bestFaceAxis.sep + d.f32(0.01);
+        const scoreScale = std.max(std.abs(edgeScore), std.abs(faceScore));
+        if (bestEdgeAxis.valid && edgeScore > faceScore + scoreScale * F32_TIE_REL)
             best = HullAxis(bestEdgeAxis);
 
         const normalBA = std.neg(best.normalAB);
@@ -1623,6 +1812,7 @@ export const collideHull = tgpu
             selN = pruneContacts(
                 d.ref(candXA),
                 d.ref(candXB),
+                d.ref(candFeat),
                 candN,
                 best.normalAB,
                 a.pos,

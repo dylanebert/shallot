@@ -2,10 +2,20 @@
 
 Notable changes per release. Versions follow [semver](https://semver.org).
 
-## Unreleased
+## 0.9.0 — 2026-08-03
 
+The GPU substrate is now TypeGPU end to end: one schema defines each CPU↔GPU layout, engine-authored shaders are TGSL, and GPU logic can run on the CPU for exact unit tests. See [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) for the complete 0.8→0.9 consumer port.
+
+**Breaking:** custom GPU consumers install `typegpu@~0.11.9` and run exactly one `unplugin-typegpu` transform. Handwritten binding structs, shader strings, and the old `Surface` / `Background` registration contract become schema-backed typed layouts and TGSL functions. Raw WebGPU interop remains available at integration boundaries.
+
+- **gpu** — `requestGPU` adopts Shallot's floor-enforced device into a device-scoped TypeGPU root; typed buffers, bind groups, pipelines, and schemas now carry the layout contract through rendering, BVH, AVBD, and the shipped compute examples. Warm-time zero-workgroup dispatches force pipeline compilation before frame one.
+- **shaders** — engine-authored compute, vertex, and fragment kernels use TGSL with CPU-callable logic twins. Relocatable `*Wgsl()` exports preserve raw shader composition where a consumer needs it; the migration guide lists every renamed 0.8 shader export.
+- **rendering** — surfaces and backgrounds use schema-derived layouts plus State-owned registration; draw, mesh, mirror, part, instancing, shadow, skin, text, sprite, sky, fog, and post-processing resources retain typed buffer identities without removing raw reach-in.
+- **diagnostics** — GPU `console.*` capture and draining join the verify protocol, and one-shot readback/framebuffer probes make shader and resource failures attributable. Shader-side `console.error` fails verification.
+- **verification** — kernel differentials, emitted-WGSL discipline checks, real-device gym probes, the `no-walls` raw-interop flow, and the fresh-install gate cover the new substrate from CPU logic through packaged consumers.
 - **skin** — the live joint-palette skinning substrate is engine-owned, at `extras/skin`: `SkinPlugin` gives a producer the palette, the `Skin` component, the per-frame flush, and the pose-write API with no glTF asset in the scene. `extras/gltf` is the converter — it turns a rig into substrate data and registers the `skin-live` PBR surfaces that draw it. **Breaking:** `LiveSkin`, `skinMatrix`, and `Skin` move off `@dylanebert/shallot/gltf/core` and the gltf barrel onto `@dylanebert/shallot/extras` (also on the bare barrel); the WGSL a custom skin surface splices is the new `@dylanebert/shallot/skin/core`.
-- **packaging** — the glTF test fixtures no longer ship in the npm tarball.
+- **verify** — `--run k=v` (repeatable) batches configurations through one server boot and one browser, a fresh context and page per run, one verdict each, a JSON array out and nonzero exit if any fails. `--timings` reports per-phase wall clock (server boot, first page load, harness ready, run, memory idle, capture, teardown), so a run that hangs names its phase.
+- **packaging** — TypeGPU is a peer pinned to the 0.11 minor; the CLI synthesizes the required Vite transform for manifest projects. The glTF test fixtures no longer ship in the npm tarball.
 - **scaffold** — `bun create shallot` and `shallot recipe` emit one agent contract, not two copies: AGENTS.md holds it and CLAUDE.md is `@AGENTS.md`, so editing one can't drift from the other.
 
 ## 0.8.1 — 2026-07-23

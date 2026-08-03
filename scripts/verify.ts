@@ -89,6 +89,23 @@ export function extractResult(stdout: string): VerifyResult | null {
     return found;
 }
 
+/** find the JSON array a batch (`--run`) verify emits under --json: the last stdout line parsing to an
+ *  array. Same scan-don't-assume-last-line reasoning as {@link extractResult}. */
+export function extractBatchResult(stdout: string): VerifyResult[] | null {
+    let found: VerifyResult[] | null = null;
+    for (const line of stdout.split("\n")) {
+        const t = line.trim();
+        if (!t.startsWith("[")) continue;
+        try {
+            const o = JSON.parse(t);
+            if (Array.isArray(o)) found = o as VerifyResult[];
+        } catch {
+            // not the JSON line — keep scanning
+        }
+    }
+    return found;
+}
+
 // On WSL the same drive logic runs, but against the host's real-GPU browser over the `wsl-bridge`: the verify
 // CLI is bundled for node (Bun's Playwright client can't drive a connected browser here) and pointed at the
 // bridge's ws endpoint with `--connect`. The bridge is started once and reused across a sweep's cells.
@@ -114,6 +131,18 @@ export async function teardownBridge(): Promise<void> {
     }
 }
 
+// shared spawn: `shallot verify <dir> --json <extra>` from the repo root, stdout captured and (unless
+// `quiet`) echoed. `verify`/`verifyBatch` differ only in how they parse the resulting stdout — a single
+// object vs a JSON array — so the spawn itself has one source of truth.
+async function spawnVerify(dir: string, extra: string[], quiet: boolean): Promise<string> {
+    const cmd = isWSL ? await wslCmd(dir, extra) : ["bun", CLI, "verify", dir, "--json", ...extra];
+    const proc = Bun.spawn(cmd, { cwd: repoRoot, stdout: "pipe", stderr: "inherit" });
+    const stdout = await new Response(proc.stdout).text();
+    if (!quiet) process.stdout.write(stdout);
+    await proc.exited;
+    return stdout;
+}
+
 /** spawn `shallot verify <dir> --json <extra>` from the repo root and return the parsed Result (null if
  *  none was emitted — a crash before verify could report). Echoes verify's stdout so a single run shows
  *  its full envelope; `quiet` suppresses the echo for a many-cell sweep where the blobs drown the table. */
@@ -122,12 +151,22 @@ export async function verify(
     extra: string[] = [],
     quiet = false,
 ): Promise<VerifyResult | null> {
-    const cmd = isWSL ? await wslCmd(dir, extra) : ["bun", CLI, "verify", dir, "--json", ...extra];
-    const proc = Bun.spawn(cmd, { cwd: repoRoot, stdout: "pipe", stderr: "inherit" });
-    const stdout = await new Response(proc.stdout).text();
-    if (!quiet) process.stdout.write(stdout);
-    await proc.exited;
-    return extractResult(stdout);
+    return extractResult(await spawnVerify(dir, extra, quiet));
+}
+
+/** spawn `shallot verify <dir> --json <extra> --run <r> --run <r> ...` — the shipped CLI's batch mode
+ *  (`shallot-gate-ergonomics` stage 2): one boot, one verdict per `runs` entry, JSON array out. Each
+ *  `runs` entry is one `--run` spec (`"scenario=name"`, `&`-joined for more than one query key); `extra`
+ *  carries the params shared across every run (`--query` flags, `--memory`). Returns null if verify never
+ *  emitted a parseable array (a crash before any verdict). */
+export async function verifyBatch(
+    dir: string,
+    runs: string[],
+    extra: string[] = [],
+    quiet = false,
+): Promise<VerifyResult[] | null> {
+    const runFlags = runs.flatMap((r) => ["--run", r]);
+    return extractBatchResult(await spawnVerify(dir, [...extra, ...runFlags], quiet));
 }
 
 // the WSL spawn: the node-bundled verify, driving the bridge's remote browser. A fixed `--port` skips the

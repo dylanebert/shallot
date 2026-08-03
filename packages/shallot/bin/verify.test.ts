@@ -1,13 +1,26 @@
 import { describe, expect, test } from "bun:test";
-import { SCENARIO_TIMEOUTS } from "../../../examples/gym/src/scenarios/timeouts";
-import { benchTimeout } from "../../../scripts/bench";
+import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
+    benchTimeout,
+    type ForMatch,
+    formatForResolution,
+    formatRoster,
+    forUnmatchedReason,
+    groupByTimeout,
+    normalizeForPath,
+    partitionSweep,
+    resolveFor,
+} from "../../../scripts/bench";
+import {
+    batchPass,
     bootArm,
     buildUrl,
+    type Checkpoint,
     coerceVerdict,
     type FrameSample,
     failureArtifacts,
     fitMemory,
+    formatTimings,
     gpuLogChecks,
     gridDiff,
     harnessPass,
@@ -16,7 +29,10 @@ import {
     type MemorySample,
     parseVerifyArgs,
     report,
+    reportBatch,
+    resolveBatchQueries,
     settlePass,
+    spansFromCheckpoints,
     stepWait,
     structured,
     type WaitState,
@@ -104,6 +120,89 @@ describe("parseVerifyArgs", () => {
     test("--leak without --memory is a parse error (nothing samples the injected allocation)", () => {
         expect(() => parseVerifyArgs(["--leak", "122880"])).toThrow("--leak requires --memory");
         expect(() => parseVerifyArgs(["--leak=122880"])).toThrow("--leak requires --memory");
+    });
+
+    test("--timings defaults off, flips on", () => {
+        expect(parseVerifyArgs([]).timings).toBe(false);
+        expect(parseVerifyArgs(["--timings"]).timings).toBe(true);
+    });
+
+    test("--run defaults to empty (single-run path); repeats, both space and = forms", () => {
+        expect(parseVerifyArgs([]).run).toEqual([]);
+        const a = parseVerifyArgs(["--run", "scenario=outline", "--run=scenario=sprite"]);
+        expect(a.run).toEqual(["scenario=outline", "scenario=sprite"]);
+    });
+});
+
+describe("resolveBatchQueries — the pure batch arg surface", () => {
+    test("each run's spec layers on the shared query, `&`-split into k=v segments", () => {
+        expect(resolveBatchQueries(["seed=1"], ["scenario=outline", "scenario=sprite"])).toEqual([
+            ["seed=1", "scenario=outline"],
+            ["seed=1", "scenario=sprite"],
+        ]);
+    });
+
+    test("a multi-param run spec splits on &", () => {
+        expect(resolveBatchQueries([], ["scenario=outline&count=8"])).toEqual([
+            ["scenario=outline", "count=8"],
+        ]);
+    });
+
+    test("no shared query and an empty run spec yields an empty per-run array", () => {
+        expect(resolveBatchQueries([], [""])).toEqual([[]]);
+    });
+
+    test("no runs yields no query arrays", () => {
+        expect(resolveBatchQueries(["seed=1"], [])).toEqual([]);
+    });
+});
+
+describe("batchPass — the batch result aggregation", () => {
+    test("passes only when every run passed", () => {
+        expect(batchPass([{ pass: true }, { pass: true }])).toBe(true);
+        expect(batchPass([{ pass: true }, { pass: false }])).toBe(false);
+    });
+
+    test("empty input is a fail, not a vacuous pass", () => {
+        expect(batchPass([])).toBe(false);
+    });
+});
+
+describe("spansFromCheckpoints — the pure phase-timing math", () => {
+    test("each span is the gap before its checkpoint, attributed to that checkpoint's name", () => {
+        const checkpoints: Checkpoint[] = [
+            { name: "start", t: 1_000 },
+            { name: "server boot", t: 1_090 },
+            { name: "first page load", t: 1_860 },
+            { name: "harness ready", t: 2_200 },
+        ];
+        expect(spansFromCheckpoints(checkpoints)).toEqual([
+            { name: "server boot", ms: 90 },
+            { name: "first page load", ms: 770 },
+            { name: "harness ready", ms: 340 },
+        ]);
+    });
+
+    test("one checkpoint (no elapsed phase) yields no spans", () => {
+        expect(spansFromCheckpoints([{ name: "start", t: 1_000 }])).toEqual([]);
+    });
+
+    test("empty input yields no spans", () => {
+        expect(spansFromCheckpoints([])).toEqual([]);
+    });
+});
+
+describe("formatTimings — the pure rendering of spans", () => {
+    test("pads names to the longest and prints milliseconds", () => {
+        const text = formatTimings([
+            { name: "server boot", ms: 90 },
+            { name: "run", ms: 1_234 },
+        ]);
+        expect(text).toBe("  server boot  90ms\n  run          1234ms");
+    });
+
+    test("empty spans render nothing", () => {
+        expect(formatTimings([])).toBe("");
     });
 });
 
@@ -300,7 +399,7 @@ describe("stepWait — the unified wait decision", () => {
 // the tight 60s default for every scenario that didn't, and lets an explicit --timeout override either.
 describe("benchTimeout", () => {
     test("a declared scenario drives under its budget, above the 60s default", () => {
-        expect(benchTimeout("stress")).toBe(SCENARIO_TIMEOUTS.stress);
+        expect(benchTimeout("stress")).toBe(SCENARIO_GATES.stress.timeoutMs);
         // the whole point: stress legitimately needs more than the default hang detector.
         expect(benchTimeout("stress")).toBeGreaterThan(60_000);
     });
@@ -316,6 +415,175 @@ describe("benchTimeout", () => {
 
     test("an explicit --timeout is honored on an undeclared scenario too", () => {
         expect(benchTimeout("render", 5_000)).toBe(5_000);
+    });
+});
+
+// stage 4's driver surface (`bun bench --list` / `--for` / `--sweep`) — pure logic over plain data, no
+// page boot required. `--list`'s real-registration seam (`registeredScenarios`) is exercised by hand
+// (`bun bench --list`), not here — it needs the WebGPU polyfill up before the scenario barrel imports.
+describe("formatRoster", () => {
+    test("sorts and one-per-line", () => {
+        expect(formatRoster(["outline", "accel", "backend"])).toBe("accel\nbackend\noutline");
+    });
+
+    test("empty roster is an empty string, not a crash", () => {
+        expect(formatRoster([])).toBe("");
+    });
+});
+
+describe("resolveFor", () => {
+    const table = {
+        outline: { covers: ["packages/shallot/src/extras/outline/**/*.ts"] },
+        sprite: { covers: ["packages/shallot/src/extras/sprite/**/*.ts"] },
+        backend: { covers: ["packages/shallot/src/standard/avbd/**/*.ts"] },
+        "stacking-arch": {},
+    };
+
+    test("a path matches every scenario whose covers glob resolves it", () => {
+        const [m] = resolveFor(["packages/shallot/src/extras/outline/pass.ts"], table);
+        expect(m.scenarios).toEqual(["outline"]);
+    });
+
+    test("a path under two scenarios' globs matches both, sorted", () => {
+        const twoWay = {
+            ...table,
+            accel: { covers: ["packages/shallot/src/standard/avbd/**/*.ts"] },
+        };
+        const [m] = resolveFor(["packages/shallot/src/standard/avbd/collide.ts"], twoWay);
+        expect(m.scenarios).toEqual(["accel", "backend"]);
+    });
+
+    // red-proven: before the `covers` filter existed this returned every table key regardless of the
+    // path, which would have silently unioned a tumble path (below) into the whole roster.
+    test("a path no glob covers resolves to an empty scenario list, not the whole table", () => {
+        const [m] = resolveFor(["packages/shallot/src/engine/ecs/state.ts"], table);
+        expect(m.scenarios).toEqual([]);
+    });
+
+    test("resolves one entry per input path, in order", () => {
+        const matches = resolveFor(
+            [
+                "packages/shallot/src/extras/outline/pass.ts",
+                "packages/shallot/src/extras/sprite/x.ts",
+            ],
+            table,
+        );
+        expect(matches.map((m: ForMatch) => m.path)).toEqual([
+            "packages/shallot/src/extras/outline/pass.ts",
+            "packages/shallot/src/extras/sprite/x.ts",
+        ]);
+    });
+});
+
+describe("forUnmatchedReason", () => {
+    test("a tumble path points at tumble.md's own standing gates, not this table", () => {
+        expect(forUnmatchedReason("packages/shallot/src/standard/tumble/body.ts")).toContain(
+            "tumble.md",
+        );
+    });
+
+    test("any other unmatched path names SCENARIO_GATES as what it's outside of", () => {
+        expect(forUnmatchedReason("packages/shallot/src/engine/ecs/state.ts")).toContain(
+            "SCENARIO_GATES",
+        );
+    });
+});
+
+describe("formatForResolution", () => {
+    test("a matched path prints its scenarios; an unmatched one prints why, not an empty roster", () => {
+        const out = formatForResolution([
+            { path: "a.ts", scenarios: ["outline", "sprite"] },
+            { path: "packages/shallot/src/standard/tumble/b.ts", scenarios: [] },
+        ]);
+        const lines = out.split("\n");
+        expect(lines[0]).toBe("a.ts → outline, sprite");
+        expect(lines[1]).toContain("tumble.md");
+        expect(lines[1]).not.toBe("packages/shallot/src/standard/tumble/b.ts → ");
+    });
+});
+
+describe("partitionSweep", () => {
+    test("a declared-isolate scenario runs alone, never folded into the shared batch (fixture)", () => {
+        const table = { a: {}, b: { isolate: true }, c: {} };
+        const { batch, isolate } = partitionSweep(["a", "b", "c"], table);
+        expect(batch).toEqual(["a", "c"]);
+        expect(isolate).toEqual(["b"]);
+    });
+
+    // real data, as a declared registry asserted BOTH directions (`coding.md`): the literal below is the
+    // independent half. Deriving the expectation with the same `g.isolate` filter the production code
+    // implements would re-derive the rule under test and discriminate almost nothing — it would pass for
+    // any table, including one where somebody dropped `isolate` off `stress`. Naming the three scenarios
+    // means adding or removing an `isolate` declaration reds here and forces the decision to be made
+    // deliberately: each one costs a whole process per sweep, forever, and is justified only by a
+    // perf-threshold check that sweep contention would make untrustworthy (the `stress` finding).
+    const IsolateScenarios = ["character", "render", "stress"];
+
+    test("exactly the declared isolate scenarios carry isolate in the real table", () => {
+        const inTable = Object.entries(SCENARIO_GATES)
+            .filter(([, g]) => g.isolate)
+            .map(([name]) => name)
+            .sort();
+        expect(inTable).toEqual(IsolateScenarios);
+    });
+
+    test("every real isolate-declared scenario partitions out of the batch", () => {
+        const { batch, isolate } = partitionSweep(Object.keys(SCENARIO_GATES), SCENARIO_GATES);
+        expect(isolate.sort()).toEqual(IsolateScenarios);
+        for (const name of IsolateScenarios) expect(batch).not.toContain(name);
+    });
+
+    test("empty input partitions to two empty arrays", () => {
+        expect(partitionSweep([], {})).toEqual({ batch: [], isolate: [] });
+    });
+});
+
+describe("groupByTimeout", () => {
+    test("scenarios sharing a resolved budget stay in one batch", () => {
+        expect(groupByTimeout(["outline", "sprite", "text"])).toEqual([
+            { timeoutMs: undefined, names: ["outline", "sprite", "text"] },
+        ]);
+    });
+
+    test("an operator --timeout reaches the batch instead of being dropped", () => {
+        expect(groupByTimeout(["outline", "sprite"], 120_000)).toEqual([
+            { timeoutMs: 120_000, names: ["outline", "sprite"] },
+        ]);
+    });
+
+    // the latent half: `--timeout` is process-global, so a batch carrying two distinct budgets has to
+    // split. Today only `stress` declares one and it isolates, so this never fires on the real table —
+    // it is what stops a future non-isolate `timeoutMs` entry from silently running under the 60s default.
+    test("distinct budgets split into separate batches, in first-appearance order", () => {
+        expect(groupByTimeout(["outline", "stress", "sprite"])).toEqual([
+            { timeoutMs: undefined, names: ["outline", "sprite"] },
+            { timeoutMs: 180_000, names: ["stress"] },
+        ]);
+    });
+});
+
+describe("normalizeForPath", () => {
+    const root = "/repo";
+
+    test("an absolute path inside the repo becomes the repo-relative spelling the globs use", () => {
+        expect(
+            normalizeForPath("/repo/packages/shallot/src/standard/sear/pipelines.ts", root, root),
+        ).toBe("packages/shallot/src/standard/sear/pipelines.ts");
+    });
+
+    test("a path relative to a cwd deeper than the root resolves against that cwd", () => {
+        expect(
+            normalizeForPath("src/standard/sear/pipelines.ts", "/repo/packages/shallot", root),
+        ).toBe("packages/shallot/src/standard/sear/pipelines.ts");
+    });
+
+    test("an already-normalized path is unchanged", () => {
+        const p = "packages/shallot/src/extras/outline/pass.ts";
+        expect(normalizeForPath(p, root, root)).toBe(p);
+    });
+
+    test("a path outside the repo passes through, so the unmatched reason stays honest", () => {
+        expect(normalizeForPath("/elsewhere/foo.ts", root, root)).toBe("/elsewhere/foo.ts");
     });
 });
 
@@ -400,6 +668,60 @@ describe("shader artifacts", () => {
             lines.length = 0;
             report(result as never, true);
             expect(JSON.parse(lines[0]).artifacts).toEqual(capture.artifacts);
+        } finally {
+            console.log = original;
+        }
+    });
+});
+
+describe("reportBatch — the batch human/JSON rendering", () => {
+    const mk = (pass: boolean) => ({
+        project: "/tmp/gym",
+        mode: "dev",
+        url: "http://localhost/gym",
+        hardware: "test-gpu",
+        harness: true,
+        booted: true,
+        rendered: true,
+        errors: [],
+        pass,
+    });
+
+    test("JSON mode is one array, in run order, no per-run header", () => {
+        const lines: string[] = [];
+        const original = console.log;
+        console.log = (...args: unknown[]) => lines.push(args.join(" "));
+        try {
+            reportBatch(
+                [mk(true), mk(false)] as never,
+                ["scenario=outline", "scenario=sprite"],
+                true,
+            );
+            expect(lines).toHaveLength(1);
+            expect(JSON.parse(lines[0]).map((r: { pass: boolean }) => r.pass)).toEqual([
+                true,
+                false,
+            ]);
+        } finally {
+            console.log = original;
+        }
+    });
+
+    test("human mode labels each run with its --run spec and index", () => {
+        const lines: string[] = [];
+        const original = console.log;
+        console.log = (...args: unknown[]) => lines.push(args.join(" "));
+        try {
+            reportBatch(
+                [mk(true), mk(false)] as never,
+                ["scenario=outline", "scenario=sprite"],
+                false,
+            );
+            const human = lines.join("\n");
+            expect(human).toContain("[run 1/2] scenario=outline");
+            expect(human).toContain("[run 2/2] scenario=sprite");
+            expect(human).toContain("PASS");
+            expect(human).toContain("FAIL");
         } finally {
             console.log = original;
         }

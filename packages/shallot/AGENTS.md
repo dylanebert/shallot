@@ -10,7 +10,7 @@ bunx shallot dev [dir]      # run it (vite, hot reload)
 bunx shallot build [dir]    # web build → dist/
 bunx shallot build --target <windows|mac|linux> [--portable] [--release]
 bunx shallot run [dir]      # build + preview (add --target to build and run native)
-bunx shallot verify [dir]   # boot in a headless browser, check it renders, exit 0/nonzero
+bunx shallot verify [dir]   # headless-browser gate, exit 0/nonzero (below)
 ```
 
 The check is `bunx tsc --noEmit` — run it after every change. `--portable` bundles Chromium (CEF) instead of the system webview; required on Linux, optional elsewhere. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
@@ -153,7 +153,7 @@ Shallot is procedural-first: meshes, materials, and motion are data you author, 
 
 ## Build, run, verify
 
-`shallot verify [dir]` boots the project in a real headless browser, waits for it to render, and exits 0 on pass / nonzero on fail — a self-terminating gate for an agent (or CI) to prove its own work. No dev server left running, no browser tab to close.
+`shallot verify [dir]` boots the project in a real headless browser and exits 0 on pass / nonzero on fail — a self-terminating gate for an agent (or CI) to prove its own work. No dev server left running, no browser tab to close.
 
 **Cross-origin isolation.** Every serve surface (`shallot dev`, `shallot run`'s preview, `verify`'s boots) sends COOP/COEP headers so tumble physics can multithread — a browser grants shared memory only to a cross-origin-isolated page. The tradeoff: a cross-origin subresource must be CORS-approved or carry a CORP header. A plain `<img>` or no-cors fetch from a host that sends neither is blocked on these servers; serve the asset from `public/` instead, or use a CORS-enabled host. A static host that can't set headers (GitHub Pages) still works — physics falls back to single-threaded with one console log.
 
@@ -182,6 +182,8 @@ harness.run = async () => {
 ```
 
 `verify` waits for `ready`, calls `run()`, and its exit code follows the `Verdict.ok` (plus zero page errors). `--json` emits the full result — `checks` and any extra fields your `Verdict` carries pass through. `--query k=v` sets URL params (and mirrors into `run`'s opts).
+
+**Many configurations, one boot.** `--run k=v` (repeatable) batches them: fresh context and page per run, one verdict each, JSON array out, nonzero if any fails. Keep a **perf-threshold** verdict in its own process; back-to-back runs contend for the GPU.
 
 **In a manifest project** (`shallot.json` + plugins, no `run({ scene })` of your own — the CLI runs the project), install from a plugin hook. `initialize(state)` runs before the scene parses, so it pins the harness before a frame can settle; resolve entities inside `run`, where they already exist:
 

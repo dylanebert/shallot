@@ -1,16 +1,24 @@
 import { describe, expect, test } from "bun:test";
+import * as d from "typegpu/data";
+import { boxHull, collideHull as collideHullOracle, coneHull } from "../../../tests/avbd/hull";
 import { flat, integerDiscipline, noIntegerDivision, pointerDiscipline } from "../../../tests/wgsl";
+import { ShapeKind } from "../physics";
+import { Hulls } from "../physics/core";
 import {
     boxBoxWgsl,
+    collideHull,
     collideWgsl,
     helpersWgsl,
     hullCoreWgsl,
     hullSatWgsl,
     hullWgsl,
+    polyMake,
     roundedPolyWgsl,
     roundedWgsl,
     SPECULATIVE_DISTANCE,
+    withCpuHullData,
 } from "./collide";
+import { packHulls } from "./hull";
 
 // The narrowphase's device-free structural seam. What these gate is everything the real-GPU gates (the
 // gym `sat` / `pile` kernel gates) can't say cheaply: which chunk owns which definition (a definition
@@ -41,6 +49,7 @@ describe("narrowphase chunks", () => {
             "addContact",
             "closestSegments",
             "orthoBasis",
+            "preferReduce",
             "pruneContacts",
             "satQConj",
             "satQRotate",
@@ -185,8 +194,8 @@ describe("narrowphase chunks", () => {
         expect(flat(roundedPolyWgsl())).toContain("(50331648u | hits.ord[k])");
     });
 
-    test("only the WGSL-bodied readers touch the consumer's hullData binding", () => {
-        // the relocatable boundary: everything above the readers is TGSL, so `hullData` appears in
+    test("only the hull-reader WGSL leaves touch the consumer's hullData binding", () => {
+        // the relocatable boundary: everything above the reader duals is TGSL, so `hullData` appears in
         // exactly the seven raw leaves (a TGSL fn cannot name a global the consumer declares)
         const reads = hullCoreWgsl().match(/hullData\[/g) ?? [];
         expect(reads.length).toBe(20); // 7 header words + 3×3 vec lanes + offset + count + 2 index reads
@@ -233,4 +242,48 @@ describe("narrowphase chunks", () => {
         expect(flat(hullCoreWgsl())).toContain("normalize((hFaceNormalL(p.hr, f) / p.scale))");
         expect(flat(roundedPolyWgsl())).toContain("let tc = (-(d0) / dd);"); // segment clip param
     });
+});
+
+test("the packed-hull TGSL graph matches the f64 oracle on the symmetric cone manifold", () => {
+    const cone = coneHull(0.4, 1, 8);
+    const cube = boxHull([1, 1, 1]);
+    const coneId = Hulls.register({ name: "__sat_cpu_cone8__", ...cone });
+    const cubeId = Hulls.register({ name: "__sat_cpu_cube__", ...cube });
+    const quat = d.vec4f(0, 0, 0, 1);
+    const oracle = collideHullOracle(
+        cone,
+        [0, 0.8, 0],
+        [0, 0, 0, 1],
+        cube,
+        [0, 0, 0],
+        [0, 0, 0, 1],
+    );
+    const got = withCpuHullData(packHulls(), () =>
+        collideHull(
+            polyMake(ShapeKind.Hull, d.vec3f(0, 0.8, 0), quat, d.vec3f(), coneId),
+            polyMake(ShapeKind.Hull, d.vec3f(), quat, d.vec3f(), cubeId),
+            d.vec3f(),
+        ),
+    );
+
+    expect(got.count).toBe(oracle.contacts.length);
+    const byFeature = new Map<number, number>();
+    for (let i = 0; i < got.count; i++) byFeature.set(got.feat[i] >>> 0, i);
+    expect([...byFeature.keys()].sort((a, b) => a - b)).toEqual(
+        oracle.contacts.map((contact) => contact.feature >>> 0).sort((a, b) => a - b),
+    );
+    for (const contact of oracle.contacts) {
+        const i = byFeature.get(contact.feature >>> 0);
+        expect(i).toBeDefined();
+        for (let lane = 0; lane < 3; lane++) {
+            expect(got.rA[i as number][lane]).toBeCloseTo(contact.rA[lane], 6);
+            expect(got.rB[i as number][lane]).toBeCloseTo(contact.rB[lane], 6);
+        }
+    }
+});
+
+test("the packed-hull CPU data scope rejects asynchronous callbacks", () => {
+    expect(() => withCpuHullData(new Uint32Array(), () => Promise.resolve())).toThrow(
+        "withCpuHullData callback must be synchronous",
+    );
 });

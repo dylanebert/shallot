@@ -15,7 +15,13 @@
 // the box-box oracle `collide` on face manifolds (hull.test.ts) — the strongest gate, the trusted
 // avbd-demo3d box gold transitively validating the whole generalization.
 
-import { type Cand, type Contact, reduceManifold, SPECULATIVE_DISTANCE } from "./collide";
+import {
+    type Cand,
+    type Contact,
+    F32_TIE_REL,
+    reduceManifold,
+    SPECULATIVE_DISTANCE,
+} from "./collide";
 import {
     add,
     clamp,
@@ -513,8 +519,10 @@ export function collideHull(
 
     // edge/face bias — prefer the edge axis only when clearly deeper (collide.ts 0.95/0.01)
     let best = bestFaceAxis;
-    if (bestEdgeAxis.valid && 0.95 * bestEdgeAxis.separation > bestFaceAxis.separation + 0.01)
-        best = bestEdgeAxis;
+    const edgeScore = 0.95 * bestEdgeAxis.separation;
+    const faceScore = bestFaceAxis.separation + 0.01;
+    const scoreScale = Math.max(Math.abs(edgeScore), Math.abs(faceScore));
+    if (bestEdgeAxis.valid && edgeScore > faceScore + scoreScale * F32_TIE_REL) best = bestEdgeAxis;
 
     const normalBA = neg(best.normalAB); // basis row 0 (B → A)
     const basis = orthonormal(normalBA);

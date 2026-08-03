@@ -1,10 +1,23 @@
-// Per-scenario run() budget, in ms — the scenario-side declaration `bun bench` reads to drive a heavy
-// scenario under more than the harness default 60s `--timeout`. It's plain data with no imports, so the
-// bench script reads it node-side WITHOUT booting a page (the same committed-data shape bench-tumble.ts
-// reads its twin list from tests/tumble/samples/index.json). A scenario with no entry keeps the 60s
-// default (verify.ts) — the hang detector stays tight for everything that doesn't legitimately need more.
-// An explicit `bun bench --timeout N` overrides any entry here (operator override); scripts/bench.ts
-// `benchTimeout` is the resolution.
+// Per-scenario gate metadata — plain data with no imports, so a driver reads it node-side WITHOUT
+// booting a page (the same committed-data shape bench-tumble.ts reads its twin list from
+// tests/tumble/samples/index.json). `bun bench --for src/standard/sear/pipelines.ts` has to resolve a
+// path to scenario names before any browser exists, which a `covers:` field inside a scenario's own
+// registration cannot do — so this stays a side table, not a field on 54 scenario objects, and it
+// deliberately touches none of the scenario files it describes.
+//
+// Fields, all optional:
+// - `timeoutMs` — the `run()` budget `bun bench` drives a scenario under, above the harness's tight 60s
+//   default hang detector (`verify.ts`). A scenario with no entry keeps the 60s default. An explicit
+//   `bun bench --timeout N` overrides any entry here (operator override); `scripts/bench.ts`
+//   `benchTimeout` is the resolution.
+// - `isolate` — true for a scenario carrying perf-threshold checks. The sweep driver (stage 4) runs an
+//   `isolate` scenario in its own process, never folded into the shared-boot batch — grounded on the
+//   `stress` sweep-contention finding (`specs/shallot-gate-ergonomics.md` Locked decision): a
+//   perf-threshold gate measured under back-to-back sweep contention is not trustworthy.
+// - `covers` — glob(s) into `packages/shallot/src` naming the GPU-side modules this scenario exercises.
+//   The coverage check (`coverage.ts`) asserts every glob resolves, every table key is a registered
+//   scenario, and (once 3b populates the rest) every scenario has an entry and every GPU-side module is
+//   either covered or explicitly exempted.
 //
 // stress: the bottleneck-saturation atom ramps four resource axes (compute, bandwidth, submission,
 // cpu-memory) to the felt-lag wall and then runs fixed-frame profiler measure windows AT that wall — each
@@ -16,7 +29,202 @@
 // roughly hardware-independent — a slower device reaches the wall at a lower induced level and runs fewer
 // ramp windows, not longer ones. 180_000 is ~2.6× the measured wall-clock: comfortably clear of run-to-run
 // variance, matches the sweep's proven-green 180s reference (specs/shallot-081-release.md stage 3), and
-// stays well under a genuinely-hung run.
-export const SCENARIO_TIMEOUTS: Record<string, number> = {
-    stress: 180_000,
+// stays well under a genuinely-hung run. It also `isolate`s: it is the scenario the sweep-contention
+// finding was measured on (failed mid-sweep on its bandwidth/submission saturation rows, passed standalone
+// at two different commits), so its perf-threshold checks run in their own process, never batched.
+export interface ScenarioGate {
+    timeoutMs?: number;
+    isolate?: boolean;
+    covers?: string[];
+}
+
+export const SCENARIO_GATES: Record<string, ScenarioGate> = {
+    stress: {
+        timeoutMs: 180_000,
+        isolate: true,
+        covers: ["packages/shallot/src/extras/profile/**/*.ts"],
+    },
+    outline: {
+        covers: ["packages/shallot/src/extras/outline/**/*.ts"],
+    },
+    sprite: {
+        covers: ["packages/shallot/src/extras/sprite/**/*.ts"],
+    },
+    text: {
+        covers: ["packages/shallot/src/extras/text/**/*.ts"],
+    },
+    gltf: {
+        covers: ["packages/shallot/src/extras/gltf/**/*.ts"],
+    },
+    // `accel`'s framebuffer probe (`assertLineDraw`) reads the restored live scene through the lines
+    // surface's real rendered output (the ray overlay) — a verified real GPU exerciser of `extras/lines`,
+    // not an incidental import.
+    accel: {
+        covers: [
+            "packages/shallot/src/standard/bvh/**/*.ts",
+            "packages/shallot/src/extras/lines/**/*.ts",
+        ],
+    },
+    // `render` is one registered scenario carrying many `mode`-selected rows (barrel header,
+    // examples/gym/src/scenarios/index.ts) — skin-live and background/sky are rows of it, not their own
+    // scenarios, so their coverage folds into this one entry rather than a same-named table key that
+    // wouldn't match a registered scenario. `isolate`: `assertFog`'s "march-cost" check is a per-step
+    // GPU-timing tripwire (fog:march / sear:color ratio bounded under `PerStepMax`) — a perf-threshold
+    // check, untrustworthy under sweep contention per the `stress` finding. `standard/slab` rides here
+    // per `gpu.md`'s own citation ("the render gym scenario exercises the flush via its slab:flush span +
+    // a transport round-trip assert" — verified: render.ts's colorBuf Mirror + verifyScatter transport
+    // check). `engine/utils/encode.ts` rides here too: its GPU storage codecs (color/quat/normal/position
+    // pack) are consumed throughout `standard/render`+`sear` (verified via `utils/core` importers), so a
+    // regression there surfaces in render's own pixel/transport probes even though the file sits outside
+    // `standard/render/**`.
+    render: {
+        isolate: true,
+        covers: [
+            "packages/shallot/src/standard/render/**/*.ts",
+            "packages/shallot/src/standard/sear/**/*.ts",
+            "packages/shallot/src/standard/part/**/*.ts",
+            "packages/shallot/src/standard/slab/**/*.ts",
+            "packages/shallot/src/extras/sky/**/*.ts",
+            "packages/shallot/src/extras/skin/**/*.ts",
+            "packages/shallot/src/engine/utils/encode.ts",
+        ],
+    },
+
+    // ── AVBD (GPU physics) — each imports AvbdPlugin and gates a slice of the solver end to end ──
+    backend: {
+        // the substrate swap gate: `--param backend=tumble|avbd` runs the same scene under either
+        // backend, so it is a real (if secondary) exerciser of the avbd path.
+        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+    },
+    character: {
+        // felt-lag GPU-load probe: `probeChecks`'s "position input→camera carries no GPU readback" check
+        // asserts a frame-count delta under a calibrated GPU load — a perf-threshold check (the same
+        // felt-lag shape as `stress`), untrustworthy under sweep contention.
+        isolate: true,
+        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+    },
+    constraints: {
+        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+    },
+    motor: {
+        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+    },
+    pile: {
+        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+    },
+    sat: {
+        // the GPU-SAT codegen gate (hull/rounded narrowphase matrix vs the C gold vectors) — the codegen
+        // it validates lives in `standard/avbd`.
+        covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
+    },
+
+    // ── everything below is a tumble (CPU wasm) scenario: no `covers`, deliberately. Tumble physics is
+    // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`tumble.md`), not by this
+    // check's GPU-src population, which excludes `standard/tumble` for exactly that reason. Registered
+    // names are gold slugs / sample names, not filenames — resolved from the real roster
+    // (`scenarioNames()`), not guessed, since a scenario name mismatch here would silently pass
+    // `checkCompleteness` on the wrong key.
+
+    // stage-4 tumble.js sample twins (`sampleScenario`, bit-exact vs a committed gold — no perf-threshold
+    // assert to isolate):
+    "stacking-arch": {},
+    "stacking-box-pyramid": {},
+    "stacking-dominoes": {},
+    "joints-bridge": {},
+    "joints-cantilever": {},
+    "joints-driving": {},
+    "joints-elevator": {},
+    "joints-filter": {},
+    "joints-paddle": {},
+    "joints-parallel": {},
+    "joints-pendulum": {},
+    "joints-rope": {},
+    "joints-suspension": {},
+    "bodies-body-type": {},
+    "bodies-motion-locks": {},
+    "bodies-spinning-book": {},
+    "collision-overlap-box": {},
+    "collision-ray-curtain": {},
+    "collision-shape-cast": {},
+    "continuous-bullet-vs-stack": {},
+    "continuous-thin-wall": {},
+    "determinism-falling-ragdolls": {},
+    "events-hit": {},
+    "events-joint-break": {},
+    "events-sensor-sweep": {},
+    "geometry-convex-hull": {},
+    "geometry-convex-primitives": {},
+    "geometry-hull-reduction": {},
+    "shapes-inclined-plane": {},
+    "shapes-restitution": {},
+    "shapes-shape-soup": {},
+    "mesh-terrain": {},
+    "mesh-torus": {},
+    "ragdoll-ragdoll": {},
+    "compound-simple": {},
+    "compound-spheres": {},
+    "compound-tile-floor": {},
+    "character-mover": {},
+
+    // hand-authored tumble/diagnostic scenarios, no GPU-src coverage claim:
+    queries: {}, // Tumble.world spatial-query surface (castRayClosest/castShape/overlapAABB)
+    rotation: {}, // Dzhanibekov flip via StepSystem — physics/core, not GPU-src
+    raining: {}, // tumble create/destroy marshal path under constant churn
+    chain: {}, // synthetic compute-chain microbench; uses RenderPlugin only as a frame-boundary hook
+    // gpu-diagnostic directly drives `validateGpu` (gpu.ts), `drainLog` (log.ts), and `probeBuffer`/
+    // `probeTexture` (probe.ts) — verified by import, not guessed.
+    "gpu-diagnostic": {
+        covers: [
+            "packages/shallot/src/engine/runtime/gpu.ts",
+            "packages/shallot/src/engine/runtime/log.ts",
+            "packages/shallot/src/engine/runtime/probe.ts",
+        ],
+    },
+};
+
+/** every module path this scenario's checks are explicitly exempted from covering, and why. Stage 3b
+ *  populates the rest — an honest partial list here is deliberate (`specs/shallot-gate-ergonomics.md`
+ *  Locked decision: "an honest initial exemption list is the point"), not a gap. */
+export const GATE_EXEMPTIONS: Record<string, string> = {
+    // NOT `standard/sear/index.ts`: it's a genuine barrel too, but `render`'s `covers` glob already
+    // matches every file under `standard/sear/**`, so exempting it would be shadowed — the coverage check
+    // (`coverage.ts`) asserts covered ∩ exempt = ∅ for exactly this reason.
+    "packages/shallot/src/extras/index.ts": "barrel re-export, no logic of its own",
+
+    // engine/runtime/index.ts: verified — every line is a bare `export { ... } from "./..."`, no logic
+    // of its own (the same shape as the extras barrel above, this time actually true of the file).
+    "packages/shallot/src/engine/runtime/index.ts": "barrel re-export, no logic of its own",
+    // engine/runtime/platform.ts: `Runtime`/`now`/`requestFrame`/`readFile`/`readBinary` are cross-cutting
+    // environment/timing primitives every scenario exercises identically through `run()`'s frame loop, so
+    // no single scenario's assert targets a regression here specifically — its own correctness is
+    // unit-tested (`runtime.test.ts`, verified: schedules-frame-callbacks + reads-files + timing cases),
+    // not something a real-device scenario would newly catch.
+    "packages/shallot/src/engine/runtime/platform.ts":
+        "cross-cutting frame/timing primitive, unit-gated by runtime.test.ts, not a real-device concern",
+
+    // extras/orbit/**, extras/tween/**: verified by reading every file — neither imports GPU/WGSL/device
+    // anything (orbit is CPU camera math + a DOM overlay via mountOverlay; tween is a pure numeric timing
+    // atom). `GPU_MODULE_GLOBS`'s blanket `extras/**/*.ts` (mirroring `gpu.md`'s own frontmatter, which
+    // globs the whole `extras/` directory) sweeps them in structurally even though they're not GPU-facing:
+    // a frontmatter/population mismatch in the same family as the `standard/bvh` gap 3a found (that one
+    // missed a real GPU module; this one includes two non-GPU ones). Out of this stage's scope to fix
+    // (`GPU_MODULE_GLOBS`/`gpu.md` aren't this check's table to edit) — flagged for `/nourish`.
+    "packages/shallot/src/extras/orbit/index.ts":
+        "CPU-only camera math, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
+    "packages/shallot/src/extras/orbit/overlay.ts":
+        "CPU-only DOM overlay (mountOverlay), no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
+    "packages/shallot/src/extras/orbit/smooth.ts":
+        "CPU-only derived camera-ease state, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
+    "packages/shallot/src/extras/tween/core.ts":
+        "pure numeric timing atom, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
+    "packages/shallot/src/extras/tween/easing.ts":
+        "pure easing-curve math, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
+    // NOT a barrel: 337 lines of real Tween/Sequence component + system + plugin logic. The exemption is
+    // the same CPU-only one as its siblings above — the file drives numeric interpolation over ECS fields
+    // and touches no device, buffer, or WGSL surface. "barrel re-export" has now been the stated reason
+    // twice for a file that is nothing of the kind (3a's `standard/render/index.ts`, this one), so an
+    // exemption claims the property that is actually load-bearing — no GPU surface — and never a
+    // structural shape a reader would have to re-verify.
+    "packages/shallot/src/extras/tween/index.ts":
+        "CPU-only ECS interpolation logic, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
 };

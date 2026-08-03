@@ -51,6 +51,13 @@ export interface VerifyArgs {
     /** attach to a remote browser at this Playwright ws endpoint (`chromium.connect`); the endpoint's
      *  owner keeps the browser process, this run only drives it. Absent: launch a local browser. */
     connect?: string;
+    /** print per-phase wall-clock spans (server boot, first page load, harness ready, run, memory idle,
+     *  capture, teardown) after the verdict — makes a slow or hung run attributable to a phase. */
+    timings: boolean;
+    /** batch mode: one `&`-joined query-string spec per run, layered on top of the shared `--query`
+     *  params. One boot, N page loads (fresh browser context + page each), one verdict each, a JSON
+     *  array out, nonzero exit if any run fails. Empty (the default) keeps the single-run path. */
+    run: string[];
     help: boolean;
 }
 
@@ -76,6 +83,8 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         memory: false,
         alloc: false,
         leak: 0,
+        timings: false,
+        run: [],
         help: false,
     };
     let sawDir = false;
@@ -85,6 +94,7 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         else if (a === "--json") args.json = true;
         else if (a === "--memory") args.memory = true;
         else if (a === "--alloc") args.alloc = true;
+        else if (a === "--timings") args.timings = true;
         else if (a === "--leak" && raw[i + 1]) args.leak = num("--leak", raw[++i]);
         else if (a?.startsWith("--leak=")) args.leak = num("--leak", a.slice("--leak=".length));
         else if (a === "--help" || a === "-h") args.help = true;
@@ -98,6 +108,8 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
             args.timeoutMs = num("--timeout", a.slice("--timeout=".length));
         else if (a === "--query" && raw[i + 1]) args.query.push(raw[++i]);
         else if (a?.startsWith("--query=")) args.query.push(a.slice("--query=".length));
+        else if (a === "--run" && raw[i + 1]) args.run.push(raw[++i]);
+        else if (a?.startsWith("--run=")) args.run.push(a.slice("--run=".length));
         else if (a?.startsWith("-")) throw new Error(`unknown option: ${a}`);
         else if (!sawDir) {
             args.dir = a;
@@ -128,6 +140,52 @@ export function buildUrl(base: string, query: string[]): string {
         else u.searchParams.set(q.slice(0, eq), q.slice(eq + 1));
     }
     return u.toString();
+}
+
+/**
+ * one query array per batch run: each `--run` spec is its own `&`-joined "k=v" query string, layered
+ * on top of the `shared` (`--query`) params common to every run — so a batch of scenarios differs only
+ * in what `--run` adds. Pure: string splitting only, no URL construction (`buildUrl` does that per run).
+ */
+export function resolveBatchQueries(shared: string[], runs: string[]): string[][] {
+    return runs.map((spec) => [...shared, ...(spec.length === 0 ? [] : spec.split("&"))]);
+}
+
+/** the batch verdict: every run must pass. Empty input is never called live (`run.length === 0` takes
+ *  the single-run path instead) but reads as a fail rather than a vacuous pass. */
+export function batchPass(results: { pass: boolean }[]): boolean {
+    return results.length > 0 && results.every((r) => r.pass);
+}
+
+/** one wall-clock marker taken at a phase boundary — `name` labels the phase that just *ended*. */
+export interface Checkpoint {
+    name: string;
+    t: number;
+}
+
+/** one named phase span: how long `name` took, in milliseconds. */
+export interface Span {
+    name: string;
+    ms: number;
+}
+
+/**
+ * ordered checkpoints (marker 0 is a start fencepost, its own name unused) into the named spans
+ * between them — the gap before checkpoint i is attributed to checkpoint i's name. Pure: durations
+ * only, no clock reads, so the boundary math is unit-testable without a browser.
+ */
+export function spansFromCheckpoints(checkpoints: Checkpoint[]): Span[] {
+    const spans: Span[] = [];
+    for (let i = 1; i < checkpoints.length; i++) {
+        spans.push({ name: checkpoints[i].name, ms: checkpoints[i].t - checkpoints[i - 1].t });
+    }
+    return spans;
+}
+
+/** render spans as aligned "name  123ms" lines, one per line, name column padded to the longest. */
+export function formatTimings(spans: Span[]): string {
+    const width = Math.max(0, ...spans.map((s) => s.name.length));
+    return spans.map((s) => `  ${s.name.padEnd(width)}  ${s.ms}ms`).join("\n");
 }
 
 const spread = (a: number[], b: number[]): number =>
@@ -790,6 +848,12 @@ const usage = `
                           the --memory leak detector (pair with --memory; off by default)
     --connect <ws>        Drive a remote browser at this Playwright ws endpoint (chromium.connect) rather
                           than launching one — the endpoint owner supplies the browser's channel + flags
+    --timings             Print per-phase wall-clock spans after the verdict (server boot, first page
+                          load, harness ready, run, memory idle, capture, teardown)
+    --run k=v[&k2=v2]     Batch mode (repeatable): one boot, one page load per --run (fresh browser
+                          context + page each), one verdict each. Each spec is its own query string,
+                          layered on the shared --query params. A JSON array on stdout; nonzero exit if
+                          any run fails.
     --json                Machine-readable result on stdout
     -h, --help            Show this help
 
@@ -805,6 +869,23 @@ const usage = `
 function reportError(message: string, json: boolean): void {
     if (json) console.log(JSON.stringify({ pass: false, error: message }));
     else console.error(`\n  ✗ ${message}\n`);
+}
+
+// wire a page's console/error/crash events into a fresh errors array — the same capture the single-run
+// path and every batch run install per page, factored so a batch run's fresh page gets its own array
+// rather than one shared (and leaking) across runs.
+function attachErrorCapture(page: Page): string[] {
+    const errors: string[] = [];
+    const record = (kind: string, text: string) => {
+        if (kind === "err" || kind === "page-error" || ERR_HINT.test(text)) errors.push(text);
+    };
+    page.on("console", (msg: { type(): string; text(): string }) => {
+        const type = msg.type();
+        record(type === "error" ? "err" : type === "warning" ? "warn" : "log", msg.text());
+    });
+    page.on("pageerror", (err: Error) => record("page-error", `${err.name}: ${err.message}`));
+    page.on("crash", () => record("page-error", "page crashed"));
+    return errors;
 }
 
 /** run `shallot verify` from the CLI's remaining args. Returns the process exit code. */
@@ -823,6 +904,7 @@ export async function runVerify(raw: string[]): Promise<number> {
     }
 
     const projectDir = resolve(args.dir);
+    const checkpoints: Checkpoint[] = [{ name: "start", t: Date.now() }];
 
     const pw = await importPlaywright(projectDir);
     if (!pw) {
@@ -832,8 +914,9 @@ export async function runVerify(raw: string[]): Promise<number> {
         );
         return EXIT_NO_PLAYWRIGHT;
     }
+    type Context = { newPage(): Promise<Page>; close(): Promise<void> };
     type Browser = {
-        newContext(): Promise<{ newPage(): Promise<Page> }>;
+        newContext(): Promise<Context>;
         close(): Promise<void>;
     };
     const chromium = pw.chromium as {
@@ -853,9 +936,13 @@ export async function runVerify(raw: string[]): Promise<number> {
         reportError(err instanceof SetupError ? msg : `boot failed: ${msg}`, args.json);
         return EXIT_SETUP;
     }
+    checkpoints.push({ name: "server boot", t: Date.now() });
     const url = buildUrl(booter.url, args.query);
 
     let browser: Browser | undefined;
+    let result: Result | undefined;
+    const batchResults: Result[] = [];
+    let batchTimings: Span[][] = [];
     try {
         try {
             // A remote endpoint (--connect) already carries the browser's channel + WebGPU flags: it was
@@ -883,28 +970,87 @@ export async function runVerify(raw: string[]): Promise<number> {
             return EXIT_NO_PLAYWRIGHT;
         }
 
-        const context = await browser.newContext();
-        const page = await context.newPage();
-
-        const errors: string[] = [];
-        const record = (kind: string, text: string) => {
-            if (kind === "err" || kind === "page-error" || ERR_HINT.test(text)) errors.push(text);
-        };
-        page.on("console", (msg: { type(): string; text(): string }) => {
-            const type = msg.type();
-            record(type === "error" ? "err" : type === "warning" ? "warn" : "log", msg.text());
-        });
-        page.on("pageerror", (err: Error) => record("page-error", `${err.name}: ${err.message}`));
-        page.on("crash", () => record("page-error", "page crashed"));
-
-        const result = await drive(page, projectDir, url, booter.mode, args, errors);
-        report(result, args.json);
-        // a run that never booted is a setup failure, not a verification failure — a distinct code.
-        return result.pass ? EXIT_PASS : result.booted ? EXIT_FAIL : EXIT_SETUP;
+        if (args.run.length === 0) {
+            const context = await browser.newContext();
+            const page = await context.newPage();
+            const errors = attachErrorCapture(page);
+            result = await drive(page, projectDir, url, booter.mode, args, errors, checkpoints);
+        } else {
+            const queries = resolveBatchQueries(args.query, args.run);
+            const runSpans: Span[][] = [];
+            for (const query of queries) {
+                const runUrl = buildUrl(booter.url, query);
+                const runCheckpoints: Checkpoint[] = [{ name: "start", t: Date.now() }];
+                let runResult: Result;
+                // a fresh context + page per run, never reused: the one-verdict law (`shallot-gate-ergonomics`
+                // Locked decision) — module singletons and GPU device state must not bleed between runs.
+                // `newContext()` itself is inside the try: a page/browser crash (the `page.on("crash")`
+                // case `attachErrorCapture` listens for) can take the whole browser process with it, and a
+                // subsequent `newContext()` then throws — that must fail only this run, not lose every
+                // already-collected verdict by escaping the loop (adversarial review, stage 2).
+                let context: Context | undefined;
+                try {
+                    context = await browser.newContext();
+                    const page = await context.newPage();
+                    const errors = attachErrorCapture(page);
+                    runResult = await drive(
+                        page,
+                        projectDir,
+                        runUrl,
+                        booter.mode,
+                        args,
+                        errors,
+                        runCheckpoints,
+                    );
+                } catch (err) {
+                    // a failure, timeout, or crash in this run must not poison the rest of the batch — it
+                    // still owes a verdict, just a failing one, so the loop and the array both continue.
+                    runResult = {
+                        project: projectDir,
+                        timestamp: new Date().toISOString(),
+                        mode: booter.mode,
+                        url: runUrl,
+                        hardware: "unknown",
+                        harness: false,
+                        booted: false,
+                        rendered: false,
+                        errors: [err instanceof Error ? err.message : String(err)],
+                        pass: false,
+                    };
+                } finally {
+                    await context?.close().catch(() => {});
+                }
+                batchResults.push(runResult);
+                runSpans.push(spansFromCheckpoints(runCheckpoints));
+            }
+            checkpoints.push({ name: "batch", t: Date.now() });
+            batchTimings = runSpans;
+        }
     } finally {
         await browser?.close().catch(() => {});
         await booter.stop().catch(() => {});
+        checkpoints.push({ name: "teardown", t: Date.now() });
     }
+
+    if (args.run.length === 0) {
+        // set on every path through the try block above that doesn't already return (parse/boot/launch
+        // failures all return early) — never undefined here.
+        const single = result as Result;
+        report(single, args.json);
+        if (args.timings) console.log(formatTimings(spansFromCheckpoints(checkpoints)));
+        // a run that never booted is a setup failure, not a verification failure — a distinct code.
+        return single.pass ? EXIT_PASS : single.booted ? EXIT_FAIL : EXIT_SETUP;
+    }
+
+    reportBatch(batchResults, args.run, args.json);
+    if (args.timings) {
+        console.log(formatTimings(spansFromCheckpoints(checkpoints)));
+        batchTimings.forEach((spans, i) => {
+            console.log(`\n  run ${i + 1}/${batchResults.length} (${args.run[i]}):`);
+            console.log(formatTimings(spans));
+        });
+    }
+    return batchPass(batchResults) ? EXIT_PASS : EXIT_FAIL;
 }
 
 // the browser flow — ONE navigation, one unified wait. After goto, each poll checks for a
@@ -919,6 +1065,7 @@ async function drive(
     mode: "dev" | "dist",
     args: VerifyArgs,
     errors: string[],
+    checkpoints: Checkpoint[],
 ): Promise<Result> {
     const base: Omit<Result, "pass"> = {
         project: projectDir,
@@ -955,6 +1102,7 @@ async function drive(
             return { ...base, pass: false };
         }
     }
+    checkpoints.push({ name: "first page load", t: Date.now() });
 
     // --alloc exposes a probe a harness run() can call, so it must exist before the wait loop.
     // Best-effort — a CDP failure never fails the run. (--memory starts later, inside the harness
@@ -991,9 +1139,15 @@ async function drive(
     base.hardware = await readHardware(page).catch(() => "unknown");
 
     if (outcome === "harness")
-        return withGpuLog(page, await driveHarness(page, base, args, errors));
+        return withGpuLog(page, await driveHarness(page, base, args, errors, checkpoints));
 
+    // no harness to wait for or run — both phases are instant, but the checkpoints stay uniform across
+    // the harness and settle-only paths so a --timings reader compares the same phase list either way.
+    checkpoints.push({ name: "harness ready", t: Date.now() });
+    checkpoints.push({ name: "run", t: Date.now() });
+    checkpoints.push({ name: "memory idle", t: Date.now() });
     await maybeScreenshot(page, args.screenshot);
+    checkpoints.push({ name: "capture", t: Date.now() });
     // settled = the verdict; timed out structured-but-never-stable = an animated scene, rendered
     // (the caller's own gates judge motion); never structured = a blank canvas.
     const rendered = outcome === "settled" || st.prev != null;
@@ -1045,6 +1199,7 @@ async function driveHarness(
     base: Omit<Result, "pass">,
     args: VerifyArgs,
     errors: string[],
+    checkpoints: Checkpoint[],
 ): Promise<Result> {
     base.harness = true;
     try {
@@ -1062,7 +1217,10 @@ async function driveHarness(
                 },
             ],
         };
+        checkpoints.push({ name: "harness ready", t: Date.now() });
+        checkpoints.push({ name: "run", t: Date.now() }, { name: "memory idle", t: Date.now() });
         await maybeScreenshot(page, args.screenshot);
+        checkpoints.push({ name: "capture", t: Date.now() });
         return { ...base, booted: true, rendered: false, verdict, pass: false };
     }
 
@@ -1082,6 +1240,10 @@ async function driveHarness(
     // --leak red-proof: start a known retained allocation now (harness is ready), so it runs through run()
     // and on into the post-run idle window the --memory slope is fitted over. Off (0) in every normal run.
     if (args.leak > 0) await injectLeak(page, args.leak);
+
+    // "harness ready" closes here: the harness signaled ready, and every readiness-adjacent probe
+    // above (noRender, the pre-run sample, --leak) has run — the next span is run() itself.
+    checkpoints.push({ name: "harness ready", t: Date.now() });
 
     let verdict: Verdict;
     let hasRun = false;
@@ -1127,6 +1289,7 @@ async function driveHarness(
     } else {
         verdict = { ok: errors.length === 0, checks: [{ name: "ready", ok: true }] };
     }
+    checkpoints.push({ name: "run", t: Date.now() });
 
     // the --memory leak slope reads a POST-run IDLE window, not run() itself. During run() the benchmark
     // retains monotonically-growing per-frame stats arrays (frameTimes + per-pass accumulators,
@@ -1143,6 +1306,7 @@ async function driveHarness(
     } else if (args.memory) {
         memory = null;
     }
+    checkpoints.push({ name: "memory idle", t: Date.now() });
 
     // the post-run capture is the authoritative `rendered` signal — run() has driven the scene to its
     // final frame, and the RAF loop keeps drawing, so nextFrame lands a fresh composite before the shot.
@@ -1156,6 +1320,7 @@ async function driveHarness(
     }
 
     await maybeScreenshot(page, args.screenshot);
+    checkpoints.push({ name: "capture", t: Date.now() });
     return {
         ...base,
         booted: true,
@@ -1189,6 +1354,19 @@ async function maybeScreenshot(page: Page, path: string | undefined): Promise<vo
     } catch {
         // a screenshot is a convenience, never a gate
     }
+}
+
+/** render N batch results: one JSON array under `--json`, one labeled {@link report} block per run
+ *  otherwise — `labels` are the `--run` specs in the same order as `results`. @internal */
+export function reportBatch(results: Result[], labels: string[], json: boolean): void {
+    if (json) {
+        console.log(JSON.stringify(results));
+        return;
+    }
+    results.forEach((result, i) => {
+        console.log(`\n[run ${i + 1}/${results.length}] ${labels[i] ?? ""}`.trimEnd());
+        report(result, false);
+    });
 }
 
 /** render one completed verify result for the human or JSON CLI boundary. @internal */

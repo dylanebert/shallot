@@ -50,14 +50,7 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { boxHull, coneHull, tetHull } from "../../../../packages/shallot/tests/avbd/hull";
-import {
-    add,
-    dot,
-    type Quat,
-    rotate,
-    sub,
-    type Vec3,
-} from "../../../../packages/shallot/tests/avbd/math";
+import { add, type Quat, rotate, type Vec3 } from "../../../../packages/shallot/tests/avbd/math";
 import {
     body,
     capsule,
@@ -537,8 +530,9 @@ async function adapterInfo(): Promise<string> {
 // box-as-hull (reproduces box-box), tet, cone, the box × hull mixed path, and rounded × hull (sphere/
 // capsule) — diffed against the f64 oracle `narrowphase` (tests/avbd/rounded.ts, which dispatches the same
 // matrix). Geometry is matched order-independently: count + B→A normal + each oracle contact's nearest GPU
-// contact by world anchor (robust to a reduce-order / feature-key tie the SAT math doesn't pin). The hull
-// geometry is packed by the production `packHulls` and bound as `hullData`.
+// contact by feature key, then compares its world anchors. Symmetric reductions use the feature key as
+// their deterministic final tie-break, so a precision-dependent alternate manifold is a real mismatch.
+// The hull geometry is packed by the production `packHulls` and bound as `hullData`.
 
 const HULL_TOL = 2e-3; // f32 vs f64 over the SAT projection/clip across many verts — looser than the box 1e-4
 const Z90H: Quat = [0, 0, Math.SQRT1_2, Math.SQRT1_2]; // +Y capsule axis → horizontal (−X)
@@ -915,7 +909,7 @@ function satPipelines(root: typeof Compute.root, device: GPUDevice): Promise<Sat
 interface GpuHull {
     count: number;
     normal: Vec3;
-    contacts: { rA: Vec3; rB: Vec3 }[];
+    contacts: { feature: number; rA: Vec3; rB: Vec3 }[];
 }
 
 /** pack the f64 hull-oracle cases into the production eight-vec4 storage record. @internal */
@@ -1017,6 +1011,7 @@ async function runHullKernel(cfgs: HCfg[]): Promise<GpuHull[]> {
             const rA = contact + RESULT_CONTACT_AT.rA;
             const rB = contact + RESULT_CONTACT_AT.rB;
             contacts.push({
+                feature: u[contact + RESULT_CONTACT_AT.feature],
                 rA: [f[rA], f[rA + 1], f[rA + 2]],
                 rB: [f[rB], f[rB + 1], f[rB + 2]],
             });
@@ -1027,8 +1022,8 @@ async function runHullKernel(cfgs: HCfg[]): Promise<GpuHull[]> {
     return out;
 }
 
-// diff a GPU hull result against the oracle narrowphase: count, the B→A normal, then each oracle contact's
-// arms matched to the nearest GPU contact by world anchor (xA+xB distance) — order/feature-key independent.
+// diff a GPU hull result against the oracle narrowphase: count, the B→A normal, then each contact by its
+// persistent feature key and world anchors. Order is irrelevant; feature identity is not.
 function diffHull(cfg: HCfg, got: GpuHull): { detail: string; err: number } {
     const { contacts, basis } = narrowphase(cfg.a, cfg.b, cfg.dRel);
     if (got.count !== contacts.length)
@@ -1048,18 +1043,22 @@ function diffHull(cfg: HCfg, got: GpuHull): { detail: string; err: number } {
 
     const xA = (b: OracleBody, r: Vec3): Vec3 => add(rotate(b.posAng, r), b.posLin);
     const xB = (b: OracleBody, r: Vec3): Vec3 => add(rotate(b.posAng, r), b.posLin);
-    const oraclePts = contacts.map((c) => ({ a: xA(cfg.a, c.rA), b: xB(cfg.b, c.rB) }));
-    const gpuPts = got.contacts.map((c) => ({ a: xA(cfg.a, c.rA), b: xB(cfg.b, c.rB) }));
+    const oraclePts = contacts.map((c) => ({
+        feature: c.feature >>> 0,
+        a: xA(cfg.a, c.rA),
+        b: xB(cfg.b, c.rB),
+    }));
+    const gpuPts = new Map(
+        got.contacts.map((c) => [c.feature >>> 0, { a: xA(cfg.a, c.rA), b: xB(cfg.b, c.rB) }]),
+    );
     for (const op of oraclePts) {
-        let best = gpuPts[0];
-        let bestD = Infinity;
-        for (const gp of gpuPts) {
-            const dd =
-                dot(sub(gp.a, op.a), sub(gp.a, op.a)) + dot(sub(gp.b, op.b), sub(gp.b, op.b));
-            if (dd < bestD) {
-                bestD = dd;
-                best = gp;
-            }
+        const best = gpuPts.get(op.feature);
+        if (!best) {
+            const have = [...gpuPts.keys()].map((key) => `0x${key.toString(16)}`).join(",");
+            return {
+                detail: `missing feature 0x${op.feature.toString(16)} (gpu features: ${have})`,
+                err,
+            };
         }
         for (let i = 0; i < 3; i++) {
             const da = Math.abs(best.a[i] - op.a[i]);

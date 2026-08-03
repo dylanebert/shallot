@@ -228,6 +228,20 @@ export interface Cand {
 
 // neither distance² nor depth² should reach zero in the point1/point2 heuristic (Jolt clamps both)
 const REDUCE_MIN_DIST_SQ = 1e-6;
+// Conservative comparison band shared with the f32 shader. Persistent feature keys order geometrically
+// equivalent reduction picks; the band changes selection only, never the oracle's output tolerance.
+export const F32_TIE_REL = 16 * 2 ** -23;
+
+function preferReduce(
+    value: number,
+    feature: number,
+    bestValue: number,
+    bestFeature: number,
+): boolean {
+    const tied =
+        Math.abs(value - bestValue) <= Math.max(Math.abs(value), Math.abs(bestValue)) * F32_TIE_REL;
+    return (value > bestValue && !tied) || (tied && feature >>> 0 < bestFeature >>> 0);
+}
 
 /**
  * Reduce a candidate set (>4) to a ≤4-point spread manifold — a faithful port of Jolt's
@@ -248,18 +262,18 @@ export function reduceManifold(cands: Cand[], normal: Vec3, comA: Vec3): Cand[] 
     let best = Math.max(REDUCE_MIN_DIST_SQ, lengthSq(proj[0])) * depth2[0];
     for (let i = 1; i < cands.length; i++) {
         const v = Math.max(REDUCE_MIN_DIST_SQ, lengthSq(proj[i])) * depth2[i];
-        if (v > best) {
+        if (preferReduce(v, cands[i].feature, best, cands[p1].feature)) {
             best = v;
             p1 = i;
         }
     }
 
     let p2 = -1;
-    best = -Infinity;
+    best = 0;
     for (let i = 0; i < cands.length; i++) {
         if (i === p1) continue;
         const v = Math.max(REDUCE_MIN_DIST_SQ, lengthSq(sub(proj[i], proj[p1]))) * depth2[i];
-        if (v > best) {
+        if (p2 < 0 || preferReduce(v, cands[i].feature, best, cands[p2].feature)) {
             best = v;
             p2 = i;
         }
@@ -274,12 +288,16 @@ export function reduceManifold(cands: Cand[], normal: Vec3, comA: Vec3): Cand[] 
     for (let i = 0; i < cands.length; i++) {
         if (i === p1 || i === p2) continue;
         const v = dot(perp, sub(proj[i], proj[p1]));
-        if (v < minV) {
-            minV = v;
-            p3 = i;
-        } else if (v > maxV) {
-            maxV = v;
-            p4 = i;
+        if (v < 0) {
+            if (p3 < 0 || preferReduce(-v, cands[i].feature, -minV, cands[p3].feature)) {
+                minV = v;
+                p3 = i;
+            }
+        } else if (v > 0) {
+            if (p4 < 0 || preferReduce(v, cands[i].feature, maxV, cands[p4].feature)) {
+                maxV = v;
+                p4 = i;
+            }
         }
     }
 

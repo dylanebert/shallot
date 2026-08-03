@@ -10,6 +10,6 @@ Pull requests are by invitation only. Shallot is a single-author engine at this 
 
 ## developing
 
-Build-from-source instructions live in the [README](README.md#from-source). The gate before pushing is `bun check` and `bun test`. The slow suites are separate — run the one covering what you changed, by path: `bun test ./packages/shallot/tests/avbd/*.oracle.ts` for AVBD/physics, `bun test ./examples/gym/src` for the engine or host layer. `bun bench` after GPU changes.
+Build-from-source instructions live in the [README](README.md#from-source). The gate before pushing is `bun check` and `bun test`. The slow suites are separate — run the one covering what you changed, by path: `bun test ./packages/shallot/tests/avbd/*.oracle.ts` for AVBD/physics, `bun test ./examples/gym/src` for the engine or host layer. `bun bench` after GPU changes — `bun bench --for <the files you changed>` names the scenarios that gate them, and `--sweep` runs that selection.
 
 Engine conventions — the ECS shape, plugin layout, GPU patterns, testing tiers — live in [packages/shallot/AGENTS.md](packages/shallot/AGENTS.md).
