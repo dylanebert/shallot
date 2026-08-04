@@ -46,12 +46,20 @@ export function devConfig(
         // free resolution fallback derives wrong WGSL for anything past a trivial body (a struct-output
         // cast is where it broke: `Cannot resolve struct cast from 'vertexVsOut' to 'vertexVs_Output'`
         // at pipeline warm; 5b-2f-5 reproduced this against a genuine `@dylanebert/shallot@0.9.0`
-        // registry install). The bare specifier is enough: Vite's scanner never descends into an
-        // excluded package to discover its own subpath imports, so every `@dylanebert/shallot/*`
-        // subpath rides this one entry (verified empirically against the registry-installed package;
-        // toolchain.test.ts pins that an ejected project's own `optimizeDeps` still carries this
-        // exclusion through the merge).
-        optimizeDeps: { exclude: ["@dylanebert/shallot"] },
+        // registry install). The bare specifier is enough for the engine's own subpaths: Vite's scanner
+        // never descends into an excluded package to discover its own subpath imports, so every
+        // `@dylanebert/shallot/*` subpath rides this one entry (verified empirically against the
+        // registry-installed package; toolchain.test.ts pins that an ejected project's own
+        // `optimizeDeps` still carries this exclusion through the merge). `typegpu` needs its own entry
+        // though, not coverage-by-association: a consumer's own source commonly imports `typegpu/data`
+        // directly (orrstead/spindle's real shape — install-test.ts's fixture now does too), a second,
+        // independent entry into the scanner distinct from the engine's. Verified empirically: without
+        // this line, that shape produces a genuine same-version duplicate typegpu module (typegpu's own
+        // "Found duplicate TypeGPU version. First was 0.11.9, this one is 0.11.9" warning fires) and
+        // dies at pipeline warm with `Invalid property key 'type': Identifiers cannot start with
+        // reserved keywords` inside typegpu's own `struct.js` — a different symptom than the missing-
+        // metadata case above, same root cause.
+        optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
         server: {
             port: opts.port,
             strictPort: opts.strictPort,

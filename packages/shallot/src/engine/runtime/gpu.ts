@@ -630,12 +630,29 @@ export const tgslCanary = tgpu.fn(
     return x + 1;
 });
 
-// the version our copy of typegpu stamped when this module imported it. Two copies in one bundle share
-// the `__TYPEGPU_META__` global AND delete from it, so they race; typegpu only console.warns. Snapshot
-// it here and compare at check time — that catches a second copy loaded *after* the engine's, the
-// direction module evaluation makes observable.
-const _globals = globalThis as unknown as Record<string, string | undefined>;
-const _typegpuVersion = _globals.__TYPEGPU_VERSION__;
+// two copies in one bundle share the `__TYPEGPU_META__` global AND delete from it, so they race.
+// typegpu's own module top level (`typegpu/shared/meta.js`) writes `__TYPEGPU_VERSION__`
+// UNCONDITIONALLY on every distinct module evaluation — including a same-version duplicate, where it
+// only console.warns, never throws — so a value comparison alone can't see a same-version double-load:
+// two copies of a minor-pinned typegpu stamp identical text. The key is redefined as an accessor that
+// counts writes: the count crosses 1 exactly when a second module evaluation (ours duplicated, or a
+// bystander consumer's own `typegpu/data` import producing an independent copy) touches this key,
+// regardless of what value it writes — a version-differing duplicate still trips it too.
+const _globals = globalThis as unknown as Record<string, unknown>;
+const _typegpuVersion = _globals.__TYPEGPU_VERSION__ as string | undefined;
+if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
+    let _liveVersion = _typegpuVersion;
+    Object.defineProperty(_globals, "__TYPEGPU_VERSION__", {
+        configurable: true,
+        get: () => _liveVersion,
+        set: (v: string | undefined) => {
+            _globals.__SHALLOT_TYPEGPU_WRITES__ =
+                (_globals.__SHALLOT_TYPEGPU_WRITES__ as number) + 1;
+            _liveVersion = v;
+        },
+    });
+    _globals.__SHALLOT_TYPEGPU_WRITES__ = 1;
+}
 
 /**
  * fail loud when the engine's own TGSL carries no build metadata, the one failure mode of the mandatory
@@ -646,30 +663,38 @@ const _typegpuVersion = _globals.__TYPEGPU_VERSION__;
  * about *your* TGSL — a config that reaches `node_modules` but skips your source (or a `.svelte` /
  * `.vue` block outside the transform's file filter) still passes here and fails at your own kernel.
  *
+ * **The duplicate-identity check counts writes to `__TYPEGPU_VERSION__`, not its value** (found
+ * 2026-08-04 diagnosing a zero-config registry install): typegpu's own module top level stamps that
+ * key unconditionally on every distinct evaluation, including a same-version duplicate — a value
+ * comparison alone is blind to two copies of a minor-pinned typegpu, which stamp identical text. A
+ * consumer's own direct `typegpu/data` import (a second, independent entry into a bundler's dep graph,
+ * not just the engine's) is exactly this shape; `scripts/install-test.ts`'s fixture carries one.
+ *
  * **What it structurally cannot see: a bundle whose metadata is missing but whose {@link tgslCanary}
  * still resolves.** It runs pre-device (`requestGPU` calls it before acquiring an adapter), so it can
  * only prove `tgpu.resolve()` didn't throw on the CPU — never that the WGSL a real pipeline compiles is
  * valid, which is a GPU-compile-time property outside its reach by construction. Two structural gaps
- * this canary can't close, found 2026-08-04 diagnosing a zero-config registry install whose whole
- * bundle skipped the transform (`unplugin-typegpu` never ran, no consumer misconfiguration involved):
- * (1) TypeGPU's `resolve()` has a runtime fallback that derives WGSL from a metadata-free function's
- * raw JS body, and `tgslCanary`'s one-expression shape is exactly what that fallback resolves
- * correctly — so `resolve()` doesn't throw even with zero build metadata anywhere in the bundle. (2) A
- * plain `tgpu.fn` (what the canary is) never emits the entry-point output-struct cast
- * (`vertexFn`/`fragmentFn`/`computeFn` wrap a returned struct into a synthesized `..._Output` type) —
- * the exact shape that fallback resolution gets wrong, surfacing only downstream as a device error
- * ("Cannot resolve struct cast from '…' to '…_Output'") once a real pipeline warms. No metadata-free
- * canary shape closes this without creating a real pipeline pre-device, which the "before touching the
- * adapter" contract above rules out — the install gate's real-device boot rung is what catches this
- * class (`scripts/install-test.ts`), not this function.
+ * this canary can't close, found 2026-08-04 diagnosing the same zero-config install (a missing-
+ * transform bundle, `unplugin-typegpu` never ran, no consumer misconfiguration involved — a different
+ * failure than the duplicate-identity case above): (1) TypeGPU's `resolve()` has a runtime fallback
+ * that derives WGSL from a metadata-free function's raw JS body, and `tgslCanary`'s one-expression
+ * shape is exactly what that fallback resolves correctly — so `resolve()` doesn't throw even with zero
+ * build metadata anywhere in the bundle. (2) A plain `tgpu.fn` (what the canary is) never emits the
+ * entry-point output-struct cast (`vertexFn`/`fragmentFn`/`computeFn` wrap a returned struct into a
+ * synthesized `..._Output` type) — the exact shape that fallback resolution gets wrong, surfacing only
+ * downstream as a device error ("Cannot resolve struct cast from '…' to '…_Output'") once a real
+ * pipeline warms. No metadata-free canary shape closes this without creating a real pipeline pre-
+ * device, which the "before touching the adapter" contract above rules out — the install gate's
+ * real-device boot rung is what catches this class (`scripts/install-test.ts`), not this function.
  */
 export function checkTgsl(): void {
-    const version = _globals.__TYPEGPU_VERSION__;
-    if (version !== _typegpuVersion) {
+    const writes = _globals.__SHALLOT_TYPEGPU_WRITES__ as number;
+    if (writes > 1) {
         throw new Error(
-            `Two copies of typegpu are loaded (${_typegpuVersion} and ${version}). They share one ` +
-                "metadata map and delete from it, so kernels resolve empty at random. Dedupe typegpu " +
-                "to a single copy — it is a peerDependency of the engine for exactly this reason.",
+            `Two copies of typegpu are loaded (first stamped ${_typegpuVersion}; the key has been ` +
+                `written to ${writes} times since). They share one metadata map and delete from it, so ` +
+                "kernels resolve empty at random. Dedupe typegpu to a single copy — it is a " +
+                "peerDependency of the engine for exactly this reason.",
         );
     }
     try {

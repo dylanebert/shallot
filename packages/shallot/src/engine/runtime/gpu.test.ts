@@ -853,17 +853,36 @@ describe("TGSL metadata", () => {
         expect(() => checkTgsl()).not.toThrow();
     });
 
-    // the other failure checkTgsl guards: a second typegpu copy loaded after the engine's, observable
-    // only via the version snapshot taken at module load — mutate the global read at check time and
-    // restore it, rather than the snapshot itself (which no test can rewind).
+    // the other failure checkTgsl guards: a second typegpu copy loaded after the engine's. The key is
+    // redefined as a write-counting accessor (gpu.ts), so mutating it at check time exercises the real
+    // production path; restore both the version and the counter in `finally` (the counter, not just
+    // the version, since a later test would otherwise inherit an elevated count from this one).
     test("checkTgsl throws when a second typegpu copy's version differs from the engine's", () => {
-        const globals = globalThis as unknown as Record<string, string | undefined>;
-        const prior = globals.__TYPEGPU_VERSION__;
-        globals.__TYPEGPU_VERSION__ = `${prior ?? "0.11.9"}-other-copy`;
+        const globals = globalThis as unknown as Record<string, unknown>;
+        const priorVersion = globals.__TYPEGPU_VERSION__;
+        const priorWrites = globals.__SHALLOT_TYPEGPU_WRITES__;
+        globals.__TYPEGPU_VERSION__ = `${priorVersion ?? "0.11.9"}-other-copy`;
         try {
             expect(() => checkTgsl()).toThrow(/Two copies of typegpu are loaded/);
         } finally {
-            globals.__TYPEGPU_VERSION__ = prior;
+            globals.__TYPEGPU_VERSION__ = priorVersion;
+            globals.__SHALLOT_TYPEGPU_WRITES__ = priorWrites;
+        }
+    });
+
+    // the gap a value comparison structurally can't close: two copies of a minor-pinned typegpu stamp
+    // identical text, so `version !== snapshot` never trips. Write the *same* value back — typegpu's
+    // own module top level would do exactly this on a same-version duplicate — and the write-count
+    // still crosses 1, because the accessor counts writes, not distinct values.
+    test("checkTgsl throws on a same-version duplicate (the write-count, not value, is what trips)", () => {
+        const globals = globalThis as unknown as Record<string, unknown>;
+        const priorWrites = globals.__SHALLOT_TYPEGPU_WRITES__;
+        const sameVersion = globals.__TYPEGPU_VERSION__;
+        globals.__TYPEGPU_VERSION__ = sameVersion;
+        try {
+            expect(() => checkTgsl()).toThrow(/Two copies of typegpu are loaded/);
+        } finally {
+            globals.__SHALLOT_TYPEGPU_WRITES__ = priorWrites;
         }
     });
 });

@@ -289,6 +289,10 @@ try {
                 dependencies: {
                     "@dylanebert/shallot": `file:${engineTgz}`,
                     "shallot-widget-fixture": `file:${widgetTgz}`,
+                    // the shape orrstead/spindle actually ship: a consumer's own source imports
+                    // `typegpu/data` directly (not just transitively through the engine peer dep) —
+                    // src/spin.ts below exercises it, so the prebundle-exclusion rung covers it too.
+                    typegpu: "~0.11.9",
                 },
             },
             null,
@@ -316,7 +320,11 @@ try {
     );
     writeFileSync(
         join(sandbox, "src", "spin.ts"),
-        `import type { Plugin, State, System } from "@dylanebert/shallot";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nexport default SpinPlugin;\n`,
+        // the `typegpu/data` import is load-bearing, not decoration: a consumer whose own source
+        // imports typegpu directly (orrstead/spindle's real shape) is a second entry into Vite's dep
+        // scanner distinct from the engine's own bare specifier — the browser-boot rung below only
+        // covers this shape because this file reaches it.
+        `import type { Plugin, State, System } from "@dylanebert/shallot";\nimport * as d from "typegpu/data";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nconsole.log(d.f32);\nexport default SpinPlugin;\n`,
     );
     writeFileSync(
         join(sandbox, "public", "icon.svg"),
