@@ -203,6 +203,134 @@ function recipeFlow(work: string, engineTgz: string) {
     );
 }
 
+// MIGRATION.md's "An ejected Vite project" recipe, read straight out of the doc rather than
+// re-typed — the failure this flow exists to catch is the recipe itself shipping broken, and a
+// hand-written copy could silently diverge from what a consumer actually pastes. Anchored on the
+// `// vite.config.ts` comment the doc's fenced block opens with, through the fence's closing ``` .
+function ejectedViteConfig(): string {
+    const doc = readFileSync(resolve(import.meta.dir, "../packages/shallot/MIGRATION.md"), "utf8");
+    const start = doc.indexOf("// vite.config.ts");
+    if (start === -1) throw new Error("MIGRATION.md's ejected Vite recipe marker not found");
+    const fenceEnd = doc.indexOf("\n```", start);
+    if (fenceEnd === -1) throw new Error("MIGRATION.md's ejected Vite recipe has no closing fence");
+    return doc.slice(start, fenceEnd);
+}
+
+// a true ejected shape (orrstead's / spindle's real shape, not the CLI's zero-config path): the
+// project owns its own index.html + vite.config.ts, so `shallot verify` roots a plain vite server
+// there (`bin/verify.ts`'s `serveEjected`) and vite auto-loads the config from disk — nothing merges
+// or overrides it, so this is the config a real boot actually runs. MIGRATION.md's block is the
+// vite.config only; the manifest, scene, index.html, and entry below are the harness every real
+// ejected consumer supplies around it, the same shape the CLI's own synthesized entry uses.
+//
+// **Known red, root-caused, not this stage's fix (found 2026-08-04 building this fixture verbatim):**
+// against a genuine registry install, Vite's default `configLoader` ("bundle") loads vite.config.ts by
+// spawning a real `node` subprocess — reproduced in isolation with nothing but the doc's own
+// `projectPlugin()` import, no optimizeDeps involved. Node's plain ESM loader throws
+// `ERR_UNKNOWN_FILE_EXTENSION` on `@dylanebert/shallot/vite`'s raw `.ts` source, the same class 5b-2f-4b
+// found for Playwright's config loader (`harness/browser.ts`'s header comment). `--configLoader runner`
+// (Vite, experimental) gets past config-load in isolation, but `serveEjected` doesn't pass it and
+// changing that is a decision beyond this fixture (it's the boot path every ejected-shape gate in this
+// repo shares — gym, flows, showcase — not just this one). So both checks below currently fail
+// identically at config-load, before either can observe the optimizeDeps-specific defect this fixture
+// exists to gate; the red-proof mutation's assertion (`!pass`) still holds vacuously, but doesn't yet
+// isolate what it's meant to. Left red and documented rather than routed around.
+async function ejectedFlow(work: string, engineTgz: string) {
+    console.log("ejected Vite project (MIGRATION.md's recipe, booted verbatim)…");
+    const proj = join(work, "ejected");
+    mkdirSync(join(proj, "src"), { recursive: true });
+    mkdirSync(join(proj, "scenes"), { recursive: true });
+    writeFileSync(
+        join(proj, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "ejected-sandbox",
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.11.9",
+                },
+                devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.11.6" },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    const config = ejectedViteConfig();
+    writeFileSync(join(proj, "vite.config.ts"), `${config}\n`);
+    writeFileSync(
+        join(proj, "shallot.json"),
+        `${JSON.stringify({ scene: "scenes/main.scene", plugins: {} }, null, 2)}\n`,
+    );
+    writeFileSync(
+        join(proj, "scenes", "main.scene"),
+        `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
+    );
+    writeFileSync(
+        join(proj, "index.html"),
+        `<!doctype html>\n<html lang="en">\n<head><meta charset="UTF-8" /></head>\n<body>\n<canvas id="canvas" style="display:block;width:100vw;height:100vh"></canvas>\n<script type="module" src="/src/main.ts"></script>\n</body>\n</html>\n`,
+    );
+    writeFileSync(
+        join(proj, "src", "main.ts"),
+        `import { run } from "@dylanebert/shallot";\nimport project from "virtual:project";\nawait run({ plugins: project.plugins, scene: project.scene ?? undefined, defaults: false, capacity: project.capacity ?? undefined });\n`,
+    );
+
+    console.log("bun install (the ejected project's own deps)…");
+    const install = run(["bun", "install"], proj);
+    check("the ejected project installs", install.ok, install.ok ? "" : install.out.slice(-600));
+    if (!install.ok) return;
+
+    const skip = skipReason();
+    if (skip) {
+        console.log(`  · skipped (needs native hardware: ${skip})`);
+        return;
+    }
+
+    console.log("real browser boot — the recipe as documented, not as known-good…");
+    const green = await verify(proj, ["--timeout", "30000"], true);
+    check(
+        "the documented ejected recipe boots and warms its pipelines as written",
+        green?.pass === true && green.booted === true && green.rendered === true,
+        green ? JSON.stringify(green.errors ?? green.error ?? green) : "no verify result",
+    );
+
+    // red-proof: the recipe minus its `optimizeDeps` line reproduces 5b-2f-5's defect — proves the
+    // line is load-bearing, not decoration, and stays proving it if the doc's wording changes later.
+    const broken = join(work, "ejected-no-exclude");
+    mkdirSync(broken, { recursive: true });
+    for (const entry of ["package.json", "shallot.json", "index.html"]) {
+        writeFileSync(join(broken, entry), readFileSync(join(proj, entry), "utf8"));
+    }
+    for (const dir of ["scenes", "src"]) {
+        mkdirSync(join(broken, dir), { recursive: true });
+        for (const f of readdirSync(join(proj, dir))) {
+            writeFileSync(join(broken, dir, f), readFileSync(join(proj, dir, f), "utf8"));
+        }
+    }
+    writeFileSync(
+        join(broken, "vite.config.ts"),
+        `${config.replace(/\s*optimizeDeps:\s*\{[^}]*\},?/, "")}\n`,
+    );
+    const brokenInstall = run(["bun", "install"], broken);
+    check(
+        "the no-exclusion mutant installs (so its boot failure is the exclusion, not the install)",
+        brokenInstall.ok,
+        brokenInstall.ok ? "" : brokenInstall.out.slice(-600),
+    );
+    if (brokenInstall.ok) {
+        const red = await verify(broken, ["--timeout", "30000"], true);
+        check(
+            "the recipe minus optimizeDeps reproduces the prebundle defect (red-proof)",
+            !(red?.pass === true && red.booted === true && red.rendered === true),
+            red
+                ? JSON.stringify(red.errors ?? red.error ?? "unexpectedly passed")
+                : "no verify result",
+        );
+    }
+    await teardownBridge();
+}
+
 // The engine's shaders are TGSL: JS function bodies transpiled to WGSL at BUILD time by
 // `unplugin-typegpu`, with no runtime fallback. A consumer whose bundler lacks the transform gets no
 // metadata at all — silently wrong shaders, NaN out of CPU-called kernels — and nothing about the
@@ -534,6 +662,8 @@ try {
     }
 
     if (install.ok) recipeFlow(work, engineTgz);
+
+    await ejectedFlow(work, engineTgz);
 
     createShallotFlow(work, engineTgz);
 } finally {

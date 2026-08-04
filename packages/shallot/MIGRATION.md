@@ -14,7 +14,7 @@ bun add -d @babel/core@^7.28.6 @babel/eslint-parser@^7.28.6 @babel/plugin-syntax
 
 A manifest project with no `vite.config` is done. `shallot dev` and `shallot build` synthesize a config with the transform included.
 
-An ejected Vite project adds one TypeGPU plugin:
+An ejected Vite project adds one TypeGPU plugin, plus the dev-mode dependency exclusion:
 
 ```ts
 // vite.config.ts
@@ -24,10 +24,13 @@ import { projectPlugin } from "@dylanebert/shallot/vite";
 
 export default defineConfig({
     plugins: [typegpu(), projectPlugin()],
+    optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
 });
 ```
 
 The direct `unplugin-typegpu/vite` plugin is the supported ejected-project route. `typegpuPlugin()` is reserved for Shallot's synthesized CLI config; do not add it here. A second transform rewrites generated metadata and breaks it.
+
+The `optimizeDeps` line is not optional. A registry install resolves both packages inside `node_modules`, so Vite's dev-server dependency scanner esbuild-prebundles them ahead of the typegpu transform on first page load — no Vite plugin, including `typegpu()`, runs over a prebundled dependency. The result is a duplicate, untransformed TypeGPU identity that dies at pipeline warm. Exclude both: the bare `@dylanebert/shallot` specifier covers every one of its subpath imports, but `typegpu` needs its own entry whenever your own source imports `typegpu/data` (or any other typegpu subpath) directly, which is a second, independent scanner entry the engine's exclusion doesn't reach.
 
 ### Svelte and Vue
 
@@ -44,8 +47,11 @@ const tgslFiles = [
 
 export default defineConfig({
     plugins: [framework(), typegpu({ enforce: "post", include: tgslFiles })],
+    optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
 });
 ```
+
+The `optimizeDeps` exclusion above still applies here — a framework plugin changes which files the transform reaches, not whether the dev-server dependency scanner can prebundle ahead of it.
 
 Keep the one component extension your project uses. `checkTgsl()` runs when Shallot requests a GPU, but it checks engine `.ts` metadata only. Add a consumer test that resolves or CPU-calls one TGSL function from your component.
 

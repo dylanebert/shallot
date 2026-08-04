@@ -81,7 +81,7 @@ Custom render producers and compute passes are normal extension points — regis
 
 ### TypeGPU transform
 
-TGSL needs exactly one transform: CLI-installed, or one direct `unplugin-typegpu/vite` in ejected Vite (never CLI-only `typegpuPlugin()`). The default excludes compiled Svelte/Vue; run component TGSL after its framework transform and include its id. `checkTgsl()` covers only engine TS, so test a consumer component function. Missing transforms yield `NaN`; doubles corrupt metadata. Recipes: [MIGRATION.md](./MIGRATION.md).
+TGSL needs exactly one transform: CLI-installed, or one direct `unplugin-typegpu/vite` in ejected Vite (never CLI-only `typegpuPlugin()`). An ejected Vite project also needs `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }` — a registry install resolves both inside `node_modules`, and no Vite plugin runs over a dependency the dev-server's scanner prebundles ahead of it. The default excludes compiled Svelte/Vue; run component TGSL after its framework transform and include its id. `checkTgsl()` covers only engine TS, so test a consumer component function. Missing transforms yield `NaN`; doubles corrupt metadata. Recipes: [MIGRATION.md](./MIGRATION.md).
 
 ### Schemas and typed resources
 

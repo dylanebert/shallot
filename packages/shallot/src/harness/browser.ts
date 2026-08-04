@@ -1,7 +1,15 @@
 // The real-GPU Chromium launch recipe. Pure data — no Playwright import, no node import — so any
-// consumer (this package's own `bin/verify.ts`, or a project's own Playwright config/launch call) can
-// import it from the published package without pulling in a runtime it doesn't have. This module never
-// captures or launches anything itself, only names the floor.
+// bun-side consumer (this package's own `bin/verify.ts`, or a project's own bench/harness driver
+// script) can import it from the published package without pulling in a runtime it doesn't have. A
+// Playwright config itself cannot import it directly, at any publish state: Playwright's config loader
+// resolves through Node's plain ESM loader, which applies no TS transform to a `node_modules` import,
+// so `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser"` there throws
+// `ERR_UNKNOWN_FILE_EXTENSION` on this package's raw `.ts` source (confirmed 2026-08-04 against the
+// registry package, no staging involved). The supported route: a bun-run harness script imports this
+// module and threads it to the Playwright config over an env var (`HARNESS_LAUNCH` in the consumer
+// roster), which the config reads fail-loud when unset — see
+// `orrstead/harness/{core,playwright.config}.ts` for the worked pattern. This module never captures or
+// launches anything itself, only names the floor.
 
 /**
  * the `channel` + `args` a real-GPU Chromium launch needs, as a `chromium.launch(...)` opt or a
