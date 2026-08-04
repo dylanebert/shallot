@@ -635,9 +635,12 @@ export const tgslCanary = tgpu.fn(
 // UNCONDITIONALLY on every distinct module evaluation — including a same-version duplicate, where it
 // only console.warns, never throws — so a value comparison alone can't see a same-version double-load:
 // two copies of a minor-pinned typegpu stamp identical text. The key is redefined as an accessor that
-// counts writes: the count crosses 1 exactly when a second module evaluation (ours duplicated, or a
-// bystander consumer's own `typegpu/data` import producing an independent copy) touches this key,
-// regardless of what value it writes — a version-differing duplicate still trips it too.
+// counts writes: the count crosses 1 when a second module evaluation (ours duplicated, or a bystander
+// consumer's own `typegpu/data` import producing an independent copy) writes this key *after* this
+// block runs, regardless of what value it writes — a version-differing duplicate still trips it too.
+// It only catches that direction, same as the value comparison it replaced; see checkTgsl's JSDoc for
+// the reachable case where it doesn't (a duplicate's write landing first) and why that's not fixable
+// from here.
 const _globals = globalThis as unknown as Record<string, unknown>;
 const _typegpuVersion = _globals.__TYPEGPU_VERSION__ as string | undefined;
 if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
@@ -669,6 +672,25 @@ if (_globals.__SHALLOT_TYPEGPU_WRITES__ === undefined) {
  * comparison alone is blind to two copies of a minor-pinned typegpu, which stamp identical text. A
  * consumer's own direct `typegpu/data` import (a second, independent entry into a bundler's dep graph,
  * not just the engine's) is exactly this shape; `scripts/install-test.ts`'s fixture carries one.
+ *
+ * **This still only catches a duplicate whose write lands *after* this module installs the counter —
+ * a real, reachable ordering, not a theoretical one.** Instrumented directly (2026-08-04, the same
+ * install-test fixture with only `typegpu` un-excluded from the dev config, so the duplicate this
+ * paragraph names actually occurred): typegpu's own "Found duplicate TypeGPU version" warning fired
+ * *before* this module's install block ever ran, meaning the second copy's write landed on the plain
+ * property and was silently folded into the seeded baseline (`__SHALLOT_TYPEGPU_WRITES__` read back
+ * `1`, not `2`) — under Vite's dev optimizer, a prebundled `typegpu` chunk can evaluate ahead of this
+ * (non-prebundled, individually-transformed) engine module regardless of import-statement order in the
+ * consumer's own source, so this isn't specific to that one fixture. **In that same run `checkTgsl`
+ * never got the chance to matter anyway**: the corruption crashed at *module-evaluation* time, inside
+ * `standard/render/image.ts`'s top-level `tgpu.fragmentFn(...)` call — a plain `const`, evaluated as
+ * part of the import graph — and `checkTgsl` only runs later, inside {@link requestGPU} at actual boot
+ * time, well after every module (image.ts included) has already finished evaluating. No pre-device
+ * check, however placed, can preempt a crash that happens earlier in program execution than the check
+ * itself ever runs. The counter is still a genuine improvement over the old value comparison for the
+ * orderings it *does* reach (proven in `gpu.test.ts`'s unit tests) — it is not a completeness guarantee,
+ * and the install gate's real-device boot rung (`scripts/install-test.ts`) is the backstop that actually
+ * observes this class end to end, the same way it backstops the two gaps below.
  *
  * **What it structurally cannot see: a bundle whose metadata is missing but whose {@link tgslCanary}
  * still resolves.** It runs pre-device (`requestGPU` calls it before acquiring an adapter), so it can
