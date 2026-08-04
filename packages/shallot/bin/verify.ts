@@ -4,7 +4,9 @@ import { basename, join, resolve } from "node:path";
 import { createServer } from "vite";
 import type { GpuDiagnostics, ShaderArtifact } from "../src/engine/runtime/gpu";
 import type { GpuLog } from "../src/engine/runtime/log";
-import type { Check, Verdict } from "../src/harness";
+import type { Check, PixelProbe, Verdict } from "../src/harness";
+import { REAL_GPU_LAUNCH } from "../src/harness/browser";
+import { pixelProbePass, probePixels } from "../src/harness/pixels";
 import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 import { devConfig } from "./dev";
 import { composeViteConfig, isProject, loadProjectConfig } from "./toolchain";
@@ -491,6 +493,63 @@ async function decodeSample(b64: string): Promise<FrameSample | null> {
     return { grid, center: region(0.4, 0.4, 0.6, 0.6), corner: region(0, 0, 0.15, 0.15) };
 }
 
+// decode a screenshot PNG (base64) to full-resolution RGBA + dimensions, native browser decode. Runs IN
+// THE PAGE (self-contained, no closures — the decodeSample precedent); full resolution because a masked
+// color footprint needs exact bytes, unlike decodeSample's 64×64 downsample for the coarser structure
+// check. Classification itself stays node-side via the published `probePixels` — one source of truth for
+// the mask math, only the decode is duplicated (forced by Playwright's page.evaluate serialization boundary).
+async function decodeRgba(
+    b64: string,
+): Promise<{ width: number; height: number; rgba: string } | null> {
+    const img = new Image();
+    img.src = `data:image/png;base64,${b64}`;
+    try {
+        await img.decode();
+    } catch {
+        return null;
+    }
+    const canvas = document.createElement("canvas");
+    canvas.width = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(img, 0, 0);
+    const bytes = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return { width: canvas.width, height: canvas.height, rgba: btoa(binary) };
+}
+
+// capture the post-run compositor once, decode it full-resolution, and classify every declared
+// `pixelProbe` against it via the published `probePixels`/`pixelProbePass`. A capture or decode failure
+// fails every probe closed (never a silent skip) — the whole point is catching a scene that renders
+// nothing, and a probe that can't observe the frame must read as "didn't observe the tag", not as absent.
+async function samplePixelProbes(page: Page, probes: PixelProbe[]): Promise<Check[]> {
+    let shot: { toString(encoding: string): string };
+    try {
+        shot = await page.locator("canvas").first().screenshot({ timeout: 5_000 });
+    } catch {
+        return probes.map((p) => ({ name: p.name, ok: false, detail: "canvas screenshot failed" }));
+    }
+    const decoded = (await page
+        .evaluate(decodeRgba, shot.toString("base64"))
+        .catch(() => null)) as { width: number; height: number; rgba: string } | null;
+    if (!decoded)
+        return probes.map((p) => ({ name: p.name, ok: false, detail: "pixel decode failed" }));
+    const rgba = new Uint8Array(Buffer.from(decoded.rgba, "base64"));
+    return probes.map((probe) => {
+        const result = probePixels(rgba, decoded.width, decoded.height, probe);
+        return {
+            name: probe.name,
+            ok: pixelProbePass(result, probe),
+            detail: `${result.pixels} tagged px, ${result.width}×${result.height} footprint`,
+        };
+    });
+}
+
 // capture the canvas through the compositor (element screenshot — the proven mechanism the repo
 // harness and eval gates read WebGPU pixels with), then hand the PNG into the page for native
 // decoding. null when the canvas isn't there or can't be shot yet — the loop keeps polling.
@@ -952,14 +1011,9 @@ export async function runVerify(raw: string[]): Promise<number> {
                 ? await chromium.connect(args.connect, { timeout: 30_000 })
                 : await chromium.launch({
                       headless: true,
-                      // the full chromium build in new-headless mode. Bare `headless: true` runs
-                      // playwright's stripped headless-shell build, whose GPU stack is software-only —
-                      // SwiftShader misses shallot's floor even on real hardware (probed 2026-07-14, M4
-                      // Metal: shell = swiftshader 4/5 floor features; this channel = metal-3, full floor
-                      // + subgroups). Same `playwright install chromium` provides both.
-                      channel: "chromium",
-                      // WebGPU behind Chromium's dev flags — the set the repo harness runs under.
-                      args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"],
+                      // the published real-GPU recipe (`src/harness/browser.ts`) — its JSDoc carries the
+                      // headless-shell/SwiftShader finding this channel exists to avoid.
+                      ...REAL_GPU_LAUNCH,
                   });
         } catch (err) {
             const msg = err instanceof Error ? err.message : String(err);
@@ -1311,13 +1365,19 @@ async function driveHarness(
     // the post-run capture is the authoritative `rendered` signal — run() has driven the scene to its
     // final frame, and the RAF loop keeps drawing, so nextFrame lands a fresh composite before the shot.
     let rendered: boolean | "opt-out";
+    let pixelChecks: Check[] = [];
     if (noRender) {
         rendered = "opt-out";
     } else {
         await nextFrame(page);
         const postSample = await sampleFrame(page);
         rendered = hasStructure(readySample) || hasStructure(postSample);
+        const probes = (await page
+            .evaluate(() => window.__harness?.pixelProbe)
+            .catch(() => undefined)) as PixelProbe[] | undefined;
+        if (probes?.length) pixelChecks = await samplePixelProbes(page, probes);
     }
+    if (pixelChecks.length) verdict.checks = [...(verdict.checks ?? []), ...pixelChecks];
 
     await maybeScreenshot(page, args.screenshot);
     checkpoints.push({ name: "capture", t: Date.now() });
@@ -1327,7 +1387,7 @@ async function driveHarness(
         rendered,
         verdict,
         ...(memory !== undefined ? { memory } : {}),
-        pass: harnessPass(verdict, rendered, errors.length),
+        pass: harnessPass(verdict, rendered, errors.length) && pixelChecks.every((c) => c.ok),
     };
 }
 
@@ -1379,7 +1439,7 @@ export function report(result: Result, json: boolean): void {
     console.log(`\nverify: ${basename(result.project)}  (${result.mode}, ${result.url})`);
     console.log(`  ${mark(result.booted)} booted`);
     if (result.rendered === "opt-out") {
-        console.log(`  ○ rendered — opt-out (renders nothing by design)`);
+        console.log(`  ○ rendered — generic pixel gate opted out`);
     } else {
         console.log(`  ${mark(result.rendered)} rendered`);
     }

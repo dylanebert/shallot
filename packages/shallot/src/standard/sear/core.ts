@@ -18,6 +18,7 @@ export type {
     Specialize,
     Surface,
     SurfaceLayout,
+    TagFn,
     VsFn,
 } from "./contract";
 export {

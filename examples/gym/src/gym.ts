@@ -2,6 +2,7 @@ import { Compute, type Mirror, type State } from "@dylanebert/shallot";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
 import type {
     HarnessTarget,
+    PixelProbe,
     Check as WireCheck,
     Verdict as WireVerdict,
 } from "@dylanebert/shallot/harness";
@@ -83,10 +84,16 @@ export type Params = Record<string, boolean | string | number>;
 export interface Scenario {
     name: string;
     params?: Param[];
-    /** this scenario renders no framed scene by design (a GPU-compute microbench) — forwarded to the
-     *  harness's `noRender`, so `shallot verify`'s pixel gate reports "opt-out" and passes on the verdict
-     *  alone. Omit for any scenario that draws content. */
-    noRender?: boolean;
+    /** the generic pixel classifier is inapplicable: either this scenario renders no framed scene, or a
+     *  narrow parameterized row owns a stronger framebuffer/reference assertion. Forwarded to the
+     *  harness's `noRender`, so `shallot verify` reports "opt-out" and the named verdict stays mandatory. */
+    noRender?: boolean | ((params: Params) => boolean);
+    /** final-compositor color-tag observables forwarded to the published harness's `pixelProbe` — the
+     *  rung that catches a scene whose real content never reached the composited frame despite every
+     *  upstream (mesh/draw/timing) signal reading green. Static: the same probes apply across every
+     *  `rebuild` param value the scenario declares, so a red-proof mode changes what's *drawn*, never
+     *  which tags are checked for. */
+    pixelProbe?: PixelProbe[];
     build(
         canvas: HTMLCanvasElement,
         params: Params,
@@ -230,6 +237,11 @@ export function scenarioNames(): string[] {
     return [...registry.keys()];
 }
 
+/** resolve a scenario's static or parameterized generic-pixel exception. */
+export function resolveNoRender(noRender: Scenario["noRender"], params: Params): boolean {
+    return typeof noRender === "function" ? noRender(params) : noRender === true;
+}
+
 /** await `n` animation frames — lets the running render loop advance a known amount. */
 export function frames(n: number): Promise<void> {
     return new Promise((resolve) => {
@@ -275,9 +287,15 @@ export function packCounts(m: Mirror, slot: number, pairCount: number): Uint32Ar
 // verdict to the wire shape (`pass` → `ok`, metrics ride through as a pass-through extra). `ready` waits on
 // both the built scene and the profiler's first resolved frame. `opts` carries the CLI's `--query` params
 // as strings (the URL is the primary channel); warmup/frames coerce to the profiler defaults when absent.
-export function installHarness(scenario: Scenario, state: State, built: () => boolean): void {
+export function installHarness(
+    scenario: Scenario,
+    state: State,
+    built: () => boolean,
+    params: Params,
+): void {
     const target: HarnessTarget = {
-        ...(scenario.noRender ? { noRender: true } : {}),
+        ...(resolveNoRender(scenario.noRender, params) ? { noRender: true } : {}),
+        ...(scenario.pixelProbe?.length ? { pixelProbe: scenario.pixelProbe } : {}),
         get ready() {
             return built() && window.__benchmark?.ready === true;
         },

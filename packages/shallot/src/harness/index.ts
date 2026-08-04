@@ -1,6 +1,10 @@
 import type { State } from "../engine";
 import { Physics } from "../standard/physics";
 import { Transform } from "../standard/transforms";
+import type { PixelProbe } from "./pixels";
+
+export { REAL_GPU_LAUNCH, type RealGpuLaunch } from "./browser";
+export { type PixelProbe, type PixelProbeResult, pixelProbePass, probePixels } from "./pixels";
 
 // The published verification protocol. A project installs `window.__harness` so `shallot verify`
 // (bin/verify.ts) can drive it in a real browser: wait for `ready`, call `run(opts)`, read the
@@ -68,6 +72,13 @@ export interface HarnessTarget {
      *  draws content — the pixel gate is the honesty check that a green verdict didn't ride over a canvas
      *  that silently rendered nothing. The opt-out is visible in the run output, never a silent exemption. */
     noRender?: boolean;
+    /** one or more final-compositor color-tag observables `shallot verify` checks against the post-run
+     *  compositor screenshot, appended to the {@link Verdict}'s `checks` and folded into the command's
+     *  pass/fail. Upstream evidence (mesh/draw counts, timings, error absence) proves only its own rung —
+     *  a {@link PixelProbe} is the rung that catches a scene whose real content never reached the composited
+     *  frame despite every upstream signal reading green (`testing.md` "GPU evidence ladder"). Opt-in: a
+     *  harness that renders no framed scene declares `noRender` instead, never both. */
+    pixelProbe?: PixelProbe[];
     /** run the verification and resolve a {@link Verdict}. `opts` carries the command's `--query`
      *  values (URL params are the primary channel; this mirrors them for programmatic runs). */
     run?(opts?: Record<string, unknown>): Promise<Verdict>;

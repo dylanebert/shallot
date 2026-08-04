@@ -61,7 +61,7 @@ async function boot(name: string): Promise<void> {
     const { state, dispose } = await scenario.build(canvas, values);
 
     let built = false;
-    installHarness(scenario, state, () => built);
+    installHarness(scenario, state, () => built, values);
     await frames(2);
     built = true;
 

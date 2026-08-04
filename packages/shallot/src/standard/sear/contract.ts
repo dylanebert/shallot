@@ -9,6 +9,7 @@ export type {
     Specialize,
     Surface,
     SurfaceLayout,
+    TagFn,
     VsFn,
 } from "../render/core";
 export {

@@ -143,6 +143,8 @@ export type SurfaceGroupEntry = {
     quant: GPUBuffer;
     color: GPUBindGroup;
     depth: GPUBindGroup | null;
+    /** full-stream group for an authored tag hook; opaque depth otherwise keeps the compact stream. */
+    tag: GPUBindGroup | null;
     point: GPUBindGroup | null;
     cascade: GPUBindGroup | null;
     /** the surface's resolved instance-id source before the atlas swaps in its re-gathered list. */
@@ -282,7 +284,7 @@ const SurfaceVertex = d
     })
     .$name("SurfaceVertex");
 
-function typedColorVertex(surface: AnySurface, clip: boolean) {
+function typedColorVertex(surface: AnySurface, clip: boolean, suffix = clip ? "Clip" : "") {
     const instanced = typedInstanced(surface);
     const screen = !!surface.screen;
     const hasVs = !!surface.vs;
@@ -340,12 +342,12 @@ function typedColorVertex(surface: AnySurface, clip: boolean) {
                 localPos,
             });
         })
-        .$name(`${surface.name}${clip ? "Clip" : ""}Vertex`);
+        .$name(`${surface.name}${suffix}Vertex`);
 }
 
-function typedColorVs(surface: AnySurface, clip = false) {
-    const vertex = typedColorVertex(surface, clip);
-    const name = `${surface.name}${clip ? "Clip" : ""}Vs`;
+function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" : "") {
+    const vertex = typedColorVertex(surface, clip, suffix);
+    const name = `${surface.name}${suffix}Vs`;
     const input = { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex };
     const fixed = {
         pos: d.builtin.position,
@@ -631,16 +633,42 @@ function typedTagVs(surface: AnySurface) {
  * Vec4i | Vec4u`, probed live: a bare `d.u32` fails the type constraint before the body even resolves), so
  * the eid rides lane 0 with the other three padded zero — WebGPU spec-legal against the single-channel
  * `r32uint` target (a fragment output may carry more components than the attachment's format; the excess
- * are dropped), and a real, disclosed WGSL-shape deviation the differential test must account for. No fs
- * override this stage — a typed surface authoring its own tag (terrain's `capacity + cell` shape) is a
- * real capability {@link compileVariant} doesn't carry yet (the sprite migration's open contract
- * question).
+ * are dropped), and a real, disclosed WGSL-shape deviation the differential test must account for. This
+ * compact entry is only the no-hook default; an authored `Surface.tag` uses the full-stream fragment
+ * context through {@link typedAuthoredTagFs} or {@link typedVaryingTagFs}.
  */
 function typedTagFs(surface: AnySurface) {
     return tgpu
         .fragmentFn({ in: { eid: d.interpolate("flat", d.u32) }, out: d.vec4u })((input) => {
             "use gpu";
             return d.vec4u(input.eid, 0, 0, 0);
+        })
+        .$name(`${surface.name}PrepassTagFs`);
+}
+
+function typedAuthoredTagFs(surface: AnySurface) {
+    const instanced = typedInstanced(surface);
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
+    const tagFn = surface.tag!;
+    const Ctx = (tagFn as unknown as { shell: { argTypes: [unknown, unknown] } }).shell.argTypes[0];
+    const input = {
+        worldNormal: d.vec3f,
+        eid: d.interpolate("flat", d.u32),
+        world: d.vec3f,
+        ...fragmentInterstage(surface),
+    };
+    return tgpu
+        .fragmentFn({ in: input, out: d.vec4u })((fin) => {
+            "use gpu";
+            const ctx = (Ctx as ReturnType<typeof fsCtxSchema>)({
+                eid: fin.eid,
+                world: fin.world,
+                worldNormal: std.normalize(fin.worldNormal),
+                uv: needUv ? (fin as any).uv : d.vec2f(0),
+                localPos: needLocalPos ? (fin as any).localPos : d.vec3f(0),
+            });
+            return d.vec4u(tagFn(ctx, instanced ? fin.eid : TAG_NONE), 0, 0, 0);
         })
         .$name(`${surface.name}PrepassTagFs`);
 }
@@ -777,7 +805,7 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
  * since a direct return hits "Cannot resolve struct cast" (the c-1/c-2 API laws, probed live via
  * `tgpu.resolve` before this landed).
  */
-function typedVaryingVs(surface: AnySurface, clip = false) {
+function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" : "") {
     const varyings = surface.varyings ?? {};
     const vsFn = surface.vs;
     if (Object.keys(varyings).length === 0) {
@@ -879,7 +907,7 @@ ${assigns}
     return out;
 }`)
         .$uses(uses)
-        .$name(`${surface.name}${clip ? "Clip" : ""}Copier`);
+        .$name(`${surface.name}${suffix}Copier`);
 
     // explicit interstage locations from VARYING_BASE up: the fs entry carries the varying under the
     // fixed internal name `v0`, which typegpu's pipeline connection can't match to the vs side's real
@@ -907,7 +935,7 @@ ${assigns}
             const r = copier(input.vidx, input.iid);
             return r;
         })
-        .$name(`${surface.name}${clip ? "Clip" : ""}Vs`);
+        .$name(`${surface.name}${suffix}Vs`);
 }
 
 /** the group-1 forcing touch as one callable fold: `sampleSunShadow` and the transitively-pulled
@@ -1106,6 +1134,133 @@ function typedVaryingFs(surface: AnySurface) {
         .$name(name);
 }
 
+function typedVaryingTagFs(surface: AnySurface) {
+    const varyings = surface.varyings ?? {};
+    const keys = Object.keys(varyings);
+    if (keys.length < 1 || keys.length > MAX_VARYINGS) {
+        throw new Error(
+            `sear: typed surface "${surface.name}" declares ${keys.length} varyings — the typed tag entry carries 1 to ${MAX_VARYINGS} (gpu.md rule 9's custom interpolator budget)`,
+        );
+    }
+    const schemas = keys.map((key) => varyings[key]);
+    const params = schemas
+        .map((schema, i) => `v${i}: ${(schema as unknown as { type: string }).type}`)
+        .join(", ");
+    const tagFn = surface.tag!;
+    const Ctx = (tagFn as unknown as { shell: { argTypes: [unknown, unknown] } }).shell.argTypes[0];
+    const copier = tgpu
+        .fn(
+            [d.vec3f, d.u32, d.vec3f, d.vec2f, d.vec3f, d.u32, ...schemas],
+            d.u32,
+        )(/* wgsl */ `(worldNormalIn: vec3f, eid: u32, world: vec3f, uv: vec2f, localPos: vec3f, defaultTag: u32, ${params}) -> u32 {
+    let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, ${schemas.map((_, i) => `v${i}`).join(", ")});
+    return tag(ctx, defaultTag);
+}`)
+        .$uses({ Ctx, tag: tagFn })
+        .$name(`${surface.name}TagCopier`);
+    const needUv = !!surface.fragmentInputs?.uv;
+    const needLocalPos = !!surface.fragmentInputs?.localPos;
+    const instanced = typedInstanced(surface);
+    const slot = (i: number) => d.location(VARYING_BASE + i, schemas[i] as d.Vec3f);
+    const base = {
+        worldNormal: d.vec3f,
+        eid: d.interpolate("flat", d.u32),
+        world: d.vec3f,
+        ...fragmentInterstage(surface),
+    };
+    const name = `${surface.name}PrepassTagFs`;
+    if (keys.length === 1) {
+        const entryIn = { ...base, v0: slot(0) } as unknown as typeof base & { v0: d.Vec3f };
+        return tgpu
+            .fragmentFn({ in: entryIn, out: d.vec4u })((input) => {
+                "use gpu";
+                const value = copier(
+                    input.worldNormal,
+                    input.eid,
+                    input.world,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    instanced ? input.eid : TAG_NONE,
+                    input.v0,
+                );
+                return d.vec4u(value, 0, 0, 0);
+            })
+            .$name(name);
+    }
+    if (keys.length === 2) {
+        const entryIn = { ...base, v0: slot(0), v1: slot(1) } as unknown as typeof base & {
+            v0: d.Vec3f;
+            v1: d.Vec3f;
+        };
+        return tgpu
+            .fragmentFn({ in: entryIn, out: d.vec4u })((input) => {
+                "use gpu";
+                const value = copier(
+                    input.worldNormal,
+                    input.eid,
+                    input.world,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    instanced ? input.eid : TAG_NONE,
+                    input.v0,
+                    input.v1,
+                );
+                return d.vec4u(value, 0, 0, 0);
+            })
+            .$name(name);
+    }
+    if (keys.length === 3) {
+        const entryIn = {
+            ...base,
+            v0: slot(0),
+            v1: slot(1),
+            v2: slot(2),
+        } as unknown as typeof base & { v0: d.Vec3f; v1: d.Vec3f; v2: d.Vec3f };
+        return tgpu
+            .fragmentFn({ in: entryIn, out: d.vec4u })((input) => {
+                "use gpu";
+                const value = copier(
+                    input.worldNormal,
+                    input.eid,
+                    input.world,
+                    needUv ? (input as any).uv : d.vec2f(0),
+                    needLocalPos ? (input as any).localPos : d.vec3f(0),
+                    instanced ? input.eid : TAG_NONE,
+                    input.v0,
+                    input.v1,
+                    input.v2,
+                );
+                return d.vec4u(value, 0, 0, 0);
+            })
+            .$name(name);
+    }
+    const entryIn = {
+        ...base,
+        v0: slot(0),
+        v1: slot(1),
+        v2: slot(2),
+        v3: slot(3),
+    } as unknown as typeof base & { v0: d.Vec3f; v1: d.Vec3f; v2: d.Vec3f; v3: d.Vec3f };
+    return tgpu
+        .fragmentFn({ in: entryIn, out: d.vec4u })((input) => {
+            "use gpu";
+            const value = copier(
+                input.worldNormal,
+                input.eid,
+                input.world,
+                needUv ? (input as any).uv : d.vec2f(0),
+                needLocalPos ? (input as any).localPos : d.vec3f(0),
+                instanced ? input.eid : TAG_NONE,
+                input.v0,
+                input.v1,
+                input.v2,
+                input.v3,
+            );
+            return d.vec4u(value, 0, 0, 0);
+        })
+        .$name(name);
+}
+
 /**
  * compile a `Surface`'s color-pass pipeline(s): the opaque `color` pipeline, or — for a `blend:
  * "alpha"` surface (c-3) — the single blended `transparent` pipeline instead (the legacy `colorPipelines`
@@ -1259,9 +1414,10 @@ export function ensureSingle(t: CompiledSurface): void {
 /**
  * compile a `Surface`'s prepass pipelines (4a-ii-c-3a-2): the position-only depth pipeline (key `""`,
  * vertex-only except for a `clip` surface's cutoff fragment) and the id-lane pipeline (key `"tag"`, the
- * raw `COLOR_LANES` id lane). Opaque surfaces compile off `layout.depthVariant`; clipped surfaces execute
- * their authored cutoff and therefore use the full layout/main vertex stream. `SurfaceGroupEntry.depth`
- * mirrors that split. A `blend: "alpha"` surface casts no prepass at all — same rule
+ * raw `COLOR_LANES` id lane). Opaque depth-only surfaces compile off `layout.depthVariant`; clipped
+ * surfaces execute their authored cutoff and therefore use the full layout/main vertex stream. An
+ * authored tag hook also uses the full stream, independently of the depth-only pipeline, through
+ * `SurfaceGroupEntry.tag`. A `blend: "alpha"` surface casts no prepass at all — same rule
  * `compileVariant` applies (a transparent pixel has no single owner, writes no prepass depth) — so its map
  * stays empty.
  */
@@ -1280,6 +1436,7 @@ function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipelin
     const root = Compute.root.with(pointShadowSlot, pointShadowStub);
     const clip = surface.blend === "clip";
     const varying = !!surface.varyings && Object.keys(surface.varyings).length > 0;
+    const authoredTag = !!surface.tag;
     const depthOnly = root
         .createRenderPipeline({
             vertex: clip
@@ -1301,14 +1458,20 @@ function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipelin
     prepass.set("", depthOnly);
     const tag = root
         .createRenderPipeline({
-            vertex: clip
+            vertex: authoredTag
                 ? varying
-                    ? typedVaryingVs(surface, true)
-                    : typedColorVs(surface, true)
-                : typedTagVs(surface),
-            fragment: clip
-                ? ((varying ? varyingClipFs(surface, true) : typedClipFs(surface, true)) as never)
-                : typedTagFs(surface),
+                    ? typedVaryingVs(surface, true, "PrepassTag")
+                    : typedColorVs(surface, true, "PrepassTag")
+                : clip
+                  ? varying
+                      ? typedVaryingVs(surface, true)
+                      : typedColorVs(surface, true)
+                  : typedTagVs(surface),
+            fragment: authoredTag
+                ? ((varying ? typedVaryingTagFs(surface) : typedAuthoredTagFs(surface)) as never)
+                : clip
+                  ? ((varying ? varyingClipFs(surface, true) : typedClipFs(surface, true)) as never)
+                  : typedTagFs(surface),
             targets: { format: TAG_FORMAT },
             primitive,
             depthStencil,
@@ -1916,6 +2079,7 @@ export function prepassWgsl(surface: AnySurface, variant = 0): { "": string; tag
     const resolved = typedVariant(surface, variant);
     const clip = resolved.blend === "clip";
     const varying = !!resolved.varyings && Object.keys(resolved.varyings).length > 0;
+    const authoredTag = !!resolved.tag;
     return {
         "": tgpu.resolve(
             clip
@@ -1930,12 +2094,19 @@ export function prepassWgsl(surface: AnySurface, variant = 0): { "": string; tag
             },
         ),
         tag: tgpu.resolve(
-            clip
+            authoredTag
                 ? [
-                      varying ? typedVaryingVs(resolved, true) : typedColorVs(resolved, true),
-                      varying ? varyingClipFs(resolved, true) : typedClipFs(resolved, true),
+                      varying
+                          ? typedVaryingVs(resolved, true, "PrepassTag")
+                          : typedColorVs(resolved, true, "PrepassTag"),
+                      varying ? typedVaryingTagFs(resolved) : typedAuthoredTagFs(resolved),
                   ]
-                : [typedTagVs(resolved), typedTagFs(resolved)],
+                : clip
+                  ? [
+                        varying ? typedVaryingVs(resolved, true) : typedColorVs(resolved, true),
+                        varying ? varyingClipFs(resolved, true) : typedClipFs(resolved, true),
+                    ]
+                  : [typedTagVs(resolved), typedTagFs(resolved)],
             { names: "strict", config: stubReceiver },
         ),
     };

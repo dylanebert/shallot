@@ -233,10 +233,16 @@ export type VsFn<V extends Record<string, AnyWgslData> = Record<string, never>> 
     (vsIn: typeof VsIn) => ReturnType<typeof vsPatchSchema<V>>
 >;
 
-/** a surface's typed fragment chunk: its own `fsCtxSchema(varyings)` in, the shaded RGBA out (prepass
- *  lanes — `tag`, … — stay engine-computed, never authored here). */
+/** a surface's typed fragment chunk: its own `fsCtxSchema(varyings)` in, the shaded RGBA out. */
 export type FsFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
     (ctx: ReturnType<typeof fsCtxSchema<V>>) => d.Vec4f
+>;
+
+/** a surface's optional typed id-lane hook: the same fragment context as {@link FsFn}, plus the
+ * renderer's default (`eid` for an instanced surface, the no-surface sentinel otherwise), returning
+ * the u32 written to `view.tag`. */
+export type TagFn<V extends Record<string, AnyWgslData> = Record<string, never>> = TgpuFn<
+    (ctx: ReturnType<typeof fsCtxSchema<V>>, defaultTag: d.U32) => d.U32
 >;
 
 /** compile-time pipeline specialization, the typed twin of the legacy `Surface.specialize` — a JS
@@ -270,6 +276,9 @@ export interface Surface<
     vs?: VsFn<V>;
     /** fragment shader returning linear HDR RGBA. */
     fs: FsFn<V>;
+    /** optional id-lane shader evaluated by the tag prepass. It receives the fragment context and the
+     * renderer's default tag, and replaces the color fragment function for that pass. */
+    tag?: TagFn<V>;
     /** compile-time mesh-variant shader factory. */
     specialize?: Specialize<V>;
     /** alpha blends without depth writes; clip retains opaque depth/shadow routing and honors any

@@ -90,6 +90,17 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         ],
     },
 
+    // the release-prerequisite final-compositor hardening fixture (spec shallot-typegpu 5b-2f-0): a
+    // custom-registered surface + a Part entity on the built-in `unlit` surface, both drawn through the
+    // real part/render/sear pipeline — folds into the same modules `render`'s entry already covers.
+    "mesh-fixture": {
+        covers: [
+            "packages/shallot/src/standard/part/**/*.ts",
+            "packages/shallot/src/standard/render/**/*.ts",
+            "packages/shallot/src/standard/sear/**/*.ts",
+        ],
+    },
+
     // ── AVBD (GPU physics) — each imports AvbdPlugin and gates a slice of the solver end to end ──
     backend: {
         // the substrate swap gate: `--param backend=tumble|avbd` runs the same scene under either

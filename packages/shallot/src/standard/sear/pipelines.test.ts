@@ -335,6 +335,238 @@ describe("compileVariant — boundaries and glTF support", () => {
         expect(prepass.tag).toContain("return vec4u(4294967295, 0, 0, 0);");
     });
 
+    test("an authored tag returning the renderer default preserves eid parity without calling the color fs", () => {
+        const Ctx = fsCtxSchema();
+        const fs = tgpu
+            .fn(
+                [Ctx],
+                d.vec4f,
+            )(() => {
+                "use gpu";
+                return d.vec4f(1);
+            })
+            .$name("defaultParityColorFs");
+        const tag = tgpu
+            .fn(
+                [Ctx, d.u32],
+                d.u32,
+            )((_ctx, defaultTag) => {
+                "use gpu";
+                return defaultTag;
+            })
+            .$name("defaultParityTag");
+        const surface = {
+            name: "default-parity-tag",
+            layout: layout({
+                eids: { type: "storage", element: d.u32 },
+                transforms: { type: "storage", element: Xform },
+            }),
+            fs,
+            tag,
+        };
+
+        const wgsl = prepassWgsl(surface).tag;
+        expect(wgsl).toContain("fn defaultParityTag(");
+        expect(wgsl).not.toContain("fn defaultParityColorFs(");
+        expect(wgsl).toMatch(/defaultParityTag\(\w+, \w+\.eid\)/);
+    });
+
+    test("an authored tag receives requested localPos through the tag prepass", () => {
+        const Ctx = fsCtxSchema();
+        const localTagLayout = layout({
+            eids: { type: "storage", element: d.u32 },
+            transforms: { type: "storage", element: Xform },
+            tagBase: { type: "storage", element: d.u32 },
+        });
+        const fs = tgpu.fn(
+            [Ctx],
+            d.vec4f,
+        )(() => {
+            "use gpu";
+            return d.vec4f(1);
+        });
+        const tag = tgpu
+            .fn(
+                [Ctx, d.u32],
+                d.u32,
+            )((ctx) => {
+                "use gpu";
+                return localTagLayout.$.tagBase[ctx.eid] + d.u32(ctx.localPos.x > 0 ? 17 : 23);
+            })
+            .$name("localPosTag");
+        const surface = {
+            name: "local-pos-tag",
+            layout: localTagLayout,
+            fragmentInputs: { localPos: true } as const,
+            fs,
+            tag,
+        };
+
+        const wgsl = prepassWgsl(surface).tag;
+        expect(wgsl).toContain("fn localPosTag(");
+        expect(wgsl).toMatch(/@location\(\d+\) localPos: vec3f/);
+        expect(wgsl).toContain("_arg_0.localPos");
+        expect(wgsl).toContain("tagBase");
+    });
+
+    test("a non-instanced authored tag receives localPos and the TAG_NONE renderer default", () => {
+        const Ctx = fsCtxSchema();
+        const Patch = vsPatchSchema();
+        const fs = tgpu.fn(
+            [Ctx],
+            d.vec4f,
+        )(() => {
+            "use gpu";
+            return d.vec4f(1);
+        });
+        const vs = tgpu.fn(
+            [VsIn],
+            Patch,
+        )((input) => {
+            "use gpu";
+            return Patch({
+                world: input.world,
+                worldNormal: input.worldNormal,
+                clip: d.vec4f(0),
+            } as any);
+        });
+        const tag = tgpu
+            .fn(
+                [Ctx, d.u32],
+                d.u32,
+            )((ctx, defaultTag) => {
+                "use gpu";
+                if (ctx.localPos.x < 0) return 71;
+                return defaultTag;
+            })
+            .$name("nonInstancedLocalTag");
+
+        const wgsl = prepassWgsl({
+            name: "non-instanced-authored-tag",
+            layout: layout({}),
+            fragmentInputs: { localPos: true },
+            vs,
+            fs,
+            tag,
+        }).tag;
+        expect(wgsl).toContain("let eid = 0u;");
+        expect(wgsl).toMatch(/@location\(\d+\) localPos: vec3f/);
+        expect(wgsl).toContain("nonInstancedLocalTag(ctx, 4294967295u)");
+    });
+
+    test("an authored tag receives the surface's custom varying and renderer default", () => {
+        const varyings = { packedTag: d.f32 };
+        const Ctx = fsCtxSchema(varyings);
+        const Patch = vsPatchSchema(varyings);
+        const vs = tgpu
+            .fn(
+                [VsIn],
+                Patch,
+            )((input) => {
+                "use gpu";
+                return Patch({
+                    world: input.world,
+                    worldNormal: input.worldNormal,
+                    clip: d.vec4f(0),
+                    packedTag: 41,
+                });
+            })
+            .$name("varyingTagVs");
+        const fs = tgpu.fn(
+            [Ctx],
+            d.vec4f,
+        )(() => {
+            "use gpu";
+            return d.vec4f(1);
+        });
+        const tag = tgpu
+            .fn(
+                [Ctx, d.u32],
+                d.u32,
+            )((ctx, defaultTag) => {
+                "use gpu";
+                if (ctx.packedTag > 0) return d.u32(ctx.packedTag);
+                return defaultTag;
+            })
+            .$name("varyingTag");
+        const surface = {
+            name: "varying-tag",
+            layout: layout({
+                eids: { type: "storage", element: d.u32 },
+                transforms: { type: "storage", element: Xform },
+            }),
+            varyings,
+            vs,
+            fs,
+            tag,
+        };
+
+        const wgsl = prepassWgsl(surface).tag;
+        expect(wgsl).toContain("fn varyingTag(");
+        expect(wgsl).toMatch(/@location\(5\) packedTag: f32/);
+        expect(wgsl).toMatch(/@location\(5\) v0: f32/);
+        expect(wgsl).toContain(
+            "let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, v0);",
+        );
+    });
+
+    test("an authored tag carries the distinct two-varying tree arm positionally", () => {
+        const varyings = { treeColor: d.vec3f, treeCell: d.f32 };
+        const Ctx = fsCtxSchema(varyings);
+        const Patch = vsPatchSchema(varyings);
+        const vs = tgpu.fn(
+            [VsIn],
+            Patch,
+        )((input) => {
+            "use gpu";
+            return Patch({
+                world: input.world,
+                worldNormal: input.worldNormal,
+                clip: d.vec4f(0),
+                treeColor: d.vec3f(0, 1, 0),
+                treeCell: 73,
+            });
+        });
+        const fs = tgpu.fn(
+            [Ctx],
+            d.vec4f,
+        )(() => {
+            "use gpu";
+            return d.vec4f(1);
+        });
+        const tag = tgpu
+            .fn(
+                [Ctx, d.u32],
+                d.u32,
+            )((ctx, defaultTag) => {
+                "use gpu";
+                if (ctx.treeColor.g > 0) return d.u32(ctx.treeCell);
+                return defaultTag;
+            })
+            .$name("twoVaryingTreeTag");
+
+        const wgsl = prepassWgsl({
+            name: "two-varying-tree-tag",
+            layout: layout({
+                eids: { type: "storage", element: d.u32 },
+                transforms: { type: "storage", element: Xform },
+            }),
+            varyings,
+            vs,
+            fs,
+            tag,
+        }).tag;
+        expect(wgsl).toMatch(/@location\(5\) treeColor: vec3f/);
+        expect(wgsl).toMatch(/@location\(6\) treeCell: f32/);
+        expect(wgsl).toMatch(/@location\(5\) v0: vec3f/);
+        expect(wgsl).toMatch(/@location\(6\) v1: f32/);
+        expect(wgsl).toContain(
+            "let ctx = Ctx(eid, world, normalize(worldNormalIn), uv, localPos, v0, v1);",
+        );
+        expect(wgsl).toContain("twovaryingtreetagTagCopier(");
+        expect(wgsl).toContain("_arg_0.eid, _arg_0.v0, _arg_0.v1);");
+    });
+
     test("specialize replaces the vs in color, prepass, point, and cascade", () => {
         const l = layout({
             eids: { type: "storage", element: d.u32 },

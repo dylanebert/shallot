@@ -22,6 +22,8 @@
         ".": "./src/index.ts",
         "./extras": "./src/extras/index.ts",
         "./harness": "./src/harness/index.ts",
+        "./harness/pixels": "./src/harness/pixels.ts",
+        "./harness/browser": "./src/harness/browser.ts",
         "./document": "./src/document/index.ts",
         "./vite": "./src/project/vite.ts",
         "./ecs/core": "./src/engine/ecs/core.ts",

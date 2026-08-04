@@ -4,7 +4,7 @@
     "private": true,
     "type": "module",
     "scripts": {
-        "test": "bun test src",
+        "test": "bun test --cwd ../../.. ./examples/showcase/voxel/src",
         "gate": "playwright test"
     },
     "dependencies": {

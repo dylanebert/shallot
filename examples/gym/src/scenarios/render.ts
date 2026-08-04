@@ -98,6 +98,8 @@ import {
     clusterIndex,
     clusterView,
     computeViewProj,
+    DrawIndexedIndirect,
+    Draws,
     FRUSTUM_FLOATS,
     frustumPlanes,
     LIGHT_POOL,
@@ -113,6 +115,7 @@ import {
     VERTEX_FLOATS,
     Views,
 } from "@dylanebert/shallot/render/core";
+import { probeTexture } from "@dylanebert/shallot/runtime";
 import {
     Backgrounds,
     BgCtx,
@@ -125,6 +128,7 @@ import {
     fsCtxSchema,
     getCompiledSurface,
     lightEvalWgsl,
+    PrepassSystem,
     pointAtlasSize,
     pointCasters,
     pointComboCount,
@@ -132,6 +136,8 @@ import {
     registerBackground,
     registerSurface,
     surfaceLayout,
+    VsIn,
+    vsPatchSchema,
 } from "@dylanebert/shallot/sear/core";
 // the ragdoll pose producer render-interpolates readBody poses at fixedAlpha with the same shortest-arc
 // nlerp the tumble compose uses (the tumble/core CPU pose-compose surface)
@@ -4223,6 +4229,259 @@ async function assertRagdoll(): Promise<Check[]> {
 
 // ============================================================================
 
+// authored tag hooks — one cube preserves the renderer's eid default, one classifies interpolated
+// localPos, one consumes the tree-shaped pair of VS-packed custom varyings, and one non-instanced
+// terrain-shaped surface proves its default is TAG_NONE while also classifying localPos. The one-shot
+// view.tag probe below reads the production r32uint lane after the real prepass; no color-FS surrogate
+// can make this gate pass.
+const TAG_SURFACE_DEFAULT = "gym-tag-default";
+const TAG_SURFACE_LOCAL = "gym-tag-local";
+const TAG_SURFACE_TREE = "gym-tag-tree";
+const TAG_SURFACE_NON_INSTANCED = "gym-tag-non-instanced";
+const TAG_LOCAL_LEFT = 0x541;
+const TAG_LOCAL_RIGHT = 0x542;
+const TAG_TREE = 0x543;
+const TAG_NON_INSTANCED_LOCAL = 0x544;
+const TAG_NON_INSTANCED_DEFAULT = 0x545;
+const tagHookLayout = surfaceLayout({
+    eids: { type: "storage", element: d.u32 },
+    transforms: { type: "storage", element: Xform },
+    color: { type: "storage", element: d.u32 },
+});
+const tagHookFs = tgpu
+    .fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(0.8, 0.6, 0.2, 1);
+    })
+    .$name("tagHookFs");
+const tagDefaultHook = tgpu
+    .fn(
+        [fsCtxSchema(), d.u32],
+        d.u32,
+    )((_ctx, defaultTag) => {
+        "use gpu";
+        return defaultTag;
+    })
+    .$name("tagDefaultHook");
+const tagLocalHook = tgpu
+    .fn(
+        [fsCtxSchema(), d.u32],
+        d.u32,
+    )((ctx) => {
+        "use gpu";
+        const bindingTouch = tagHookLayout.$.color[ctx.eid] * 0;
+        return d.u32(ctx.localPos.x < 0 ? TAG_LOCAL_LEFT : TAG_LOCAL_RIGHT) + bindingTouch;
+    })
+    .$name("tagLocalHook");
+const tagTreeVaryings = { treeColor: d.vec3f, treeCell: d.f32 };
+const TagTreePatch = vsPatchSchema(tagTreeVaryings);
+const tagTreeFs = tgpu
+    .fn(
+        [fsCtxSchema(tagTreeVaryings)],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(0.8, 0.6, 0.2, 1);
+    })
+    .$name("tagTreeFs");
+const tagTreeVs = tgpu
+    .fn(
+        [VsIn],
+        TagTreePatch,
+    )((input) => {
+        "use gpu";
+        return TagTreePatch({
+            world: input.world,
+            worldNormal: input.worldNormal,
+            clip: d.vec4f(0),
+            treeColor: d.vec3f(0, 1, 0),
+            treeCell: TAG_TREE,
+        });
+    })
+    .$name("tagTreeVs");
+const tagTreeHook = tgpu
+    .fn(
+        [fsCtxSchema(tagTreeVaryings), d.u32],
+        d.u32,
+    )((ctx, defaultTag) => {
+        "use gpu";
+        if (ctx.treeColor.g > 0) return d.u32(ctx.treeCell);
+        return defaultTag;
+    })
+    .$name("tagTreeHook");
+const tagNonInstancedLayout = surfaceLayout({});
+const TagNonInstancedPatch = vsPatchSchema();
+const tagNonInstancedVs = tgpu
+    .fn(
+        [VsIn],
+        TagNonInstancedPatch,
+    )((input) => {
+        "use gpu";
+        return TagNonInstancedPatch({
+            world: std.add(input.world, d.vec4f(4.5, 0, 0, 0)),
+            worldNormal: input.worldNormal,
+            clip: d.vec4f(0),
+        } as any);
+    })
+    .$name("tagNonInstancedVs");
+const tagNonInstancedHook = tgpu
+    .fn(
+        [fsCtxSchema(), d.u32],
+        d.u32,
+    )((ctx, defaultTag) => {
+        "use gpu";
+        if (ctx.localPos.x < 0) return TAG_NON_INSTANCED_LOCAL;
+        if (defaultTag === d.u32(0xffffffff)) return TAG_NON_INSTANCED_DEFAULT;
+        return d.u32(0);
+    })
+    .$name("tagNonInstancedHook");
+
+/** Tie an exact producer resource to the State generation that created it. @internal */
+export function ownTagHookResource<T extends { destroy(): void }>(state: State, resource: T): T {
+    const owner = resource;
+    state.onDispose(() => owner.destroy());
+    return resource;
+}
+
+const TagHookNonInstancedDrawSystem: System = {
+    name: "tag-hook-non-instanced-draw",
+    group: "draw",
+    annotations: { mode: "always" },
+    after: [BeginFrameSystem],
+    before: [PrepassSystem],
+    setup(state) {
+        const cube = Meshes.get("cube");
+        if (!cube) throw new Error("tag-hook: built-in cube mesh was not flushed");
+        const argsRaw = ownTagHookResource(
+            state,
+            Compute.device.createBuffer({
+                label: "tag-hook-non-instanced-args",
+                size: d.sizeOf(DrawIndexedIndirect),
+                usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST,
+            }),
+        );
+        const args = Compute.root.createBuffer(DrawIndexedIndirect, argsRaw).$usage("indirect");
+        args.write({
+            indexCount: cube.indexCount,
+            instanceCount: 1,
+            firstIndex: cube.indexBase,
+            baseVertex: 0,
+            firstInstance: 0,
+        });
+        Draws.register({
+            name: "tag-hook-non-instanced",
+            surface: TAG_SURFACE_NON_INSTANCED,
+            mesh: "cube",
+            args: { indirect: args },
+        });
+    },
+};
+
+const TagHookPlugin: Plugin = {
+    name: "GymTagHook",
+    dependencies: [RenderPlugin],
+    systems: [TagHookNonInstancedDrawSystem],
+    initialize(state) {
+        registerSurface(state, {
+            name: TAG_SURFACE_DEFAULT,
+            layout: tagHookLayout,
+            fs: tagHookFs,
+            tag: tagDefaultHook,
+        });
+        registerSurface(state, {
+            name: TAG_SURFACE_LOCAL,
+            layout: tagHookLayout,
+            fragmentInputs: { localPos: true },
+            fs: tagHookFs,
+            tag: tagLocalHook,
+        });
+        registerSurface(state, {
+            name: TAG_SURFACE_TREE,
+            layout: tagHookLayout,
+            varyings: tagTreeVaryings,
+            vs: tagTreeVs,
+            fs: tagTreeFs,
+            tag: tagTreeHook,
+        });
+        registerSurface(state, {
+            name: TAG_SURFACE_NON_INSTANCED,
+            layout: tagNonInstancedLayout,
+            fragmentInputs: { localPos: true },
+            vs: tagNonInstancedVs,
+            fs: tagHookFs,
+            tag: tagNonInstancedHook,
+        });
+    },
+};
+
+let tagDefaultEid = -1;
+let tagCounts: [number, number, number, number, number, number] | null = null;
+
+function tagHookPart(state: State, x: number, surface: string): number {
+    const eid = state.create();
+    state.add(eid, Transform);
+    Transform.pos.set(eid, x, 0, 0, 0);
+    Transform.scale.set(eid, 2.5, 2.5, 2.5, 0);
+    state.add(eid, Part);
+    Part.surface.set(eid, Surfaces.id(surface)!);
+    state.add(eid, Color);
+    Color.rgba.set(eid, 0.8, 0.6, 0.2, 1);
+    return eid;
+}
+
+async function buildTagHook(state: State): Promise<void> {
+    tagCounts = null;
+    tagDefaultEid = tagHookPart(state, -4.5, TAG_SURFACE_DEFAULT);
+    tagHookPart(state, -1.5, TAG_SURFACE_LOCAL);
+    tagHookPart(state, 1.5, TAG_SURFACE_TREE);
+
+    cam = state.create();
+    state.add(cam, Transform);
+    state.add(cam, Camera);
+    state.add(cam, Sear);
+    state.add(cam, Tag);
+    state.add(cam, Orbit);
+    Camera.clearColor.set(cam, 0x000000);
+    Camera.fov.set(cam, 60);
+    Orbit.distance.set(cam, 10);
+    Orbit.pitch.set(cam, Math.PI / 2);
+    Orbit.maxPitch.set(cam, Math.PI / 2);
+    await frames(5);
+}
+
+async function assertTagHook(): Promise<Check[]> {
+    const texture = Views.get(cam)?.tag;
+    if (!texture) return [{ name: "authored tag lane", pass: false, detail: "no view.tag" }];
+    const probe = await probeTexture(Compute.device, texture, { label: "render-tag-hook" });
+    const tags = new Uint32Array(probe.bytes);
+    const values = [
+        tagDefaultEid,
+        TAG_LOCAL_LEFT,
+        TAG_LOCAL_RIGHT,
+        TAG_TREE,
+        TAG_NON_INSTANCED_LOCAL,
+        TAG_NON_INSTANCED_DEFAULT,
+    ] as const;
+    tagCounts = values.map((value) => {
+        let n = 0;
+        for (const tag of tags) if (tag === value) n++;
+        return n;
+    }) as [number, number, number, number, number, number];
+    const enough = tagCounts.every((n) => n > 4);
+    return [
+        {
+            name: "authored tag instanced, two-varying, and non-instanced paths",
+            pass: enough,
+            detail: `eid/local-left/local-right/tree/noninst-local/noninst-default pixels ${tagCounts.join(" / ")} (want each > 4)`,
+        },
+    ];
+}
+
+// ============================================================================
+
 // dependency-aware typed-variant warm: one real packed cube is cloned with a nonzero material variant
 // during warm, then a second variant joins after build. The surface colors the two variants differently,
 // so the framebuffer proves both production pipelines draw; cache snapshots pin when each one compiled.
@@ -4434,6 +4693,7 @@ async function assertTypedVariant(): Promise<Check[]> {
 // code-authored probe set (lit through zfight); the rest map one mode-prefix to one builder.
 const MODES = {
     cull: ["cull"],
+    tagHook: ["tag-hook"],
     typedVariant: ["typed-variant"],
     shaded: [
         "lit",
@@ -4460,8 +4720,15 @@ const MODES = {
 const ALL_MODES = Object.values(MODES).flat();
 const isMode = (v: Params, m: string) => v.mode === m;
 
+/** The only render rows whose exact framebuffer probes supersede the generic pixel classifier. */
+export const renderNoRender = (params: Params): boolean =>
+    params.mode === "spec" || params.mode === "cascade-boundary";
+
 const scenario: Scenario = {
     name: "render",
+    // These two rows deliberately render near the generic pixel classifier's clear-color threshold. Their
+    // exact framebuffer probes are the stronger product oracle and remain mandatory in `assertProbe`.
+    noRender: renderNoRender,
     params: [
         { key: "mode", type: "select", default: "cull", options: ALL_MODES, rebuild: true },
         // cull-mode knobs
@@ -4596,6 +4863,7 @@ const scenario: Scenario = {
         else if (mode === "transparency") plugins.push(TransparencyPlugin);
         else if (mode === "background") plugins.push(BackgroundPlugin);
         else if (mode === "sky") plugins.push(SkyPlugin);
+        else if (mode === "tag-hook") plugins.push(TagHookPlugin);
         else if (mode === "typed-variant") plugins.push(TypedVariantPlugin);
 
         // gltf modes author only the env + camera in the scene; the asset is imported imperatively after
@@ -4606,6 +4874,7 @@ const scenario: Scenario = {
         const { state, dispose } = await run({ defaults: false, plugins, scene });
 
         if (mode === "cull") await buildCull(state, p);
+        else if (mode === "tag-hook") await buildTagHook(state);
         else if (mode === "typed-variant") await buildTypedVariant(state);
         else if (mode === "fog") await buildFog(state, p);
         else if (gltf) {
@@ -4633,6 +4902,7 @@ const scenario: Scenario = {
 
     assert(state): Promise<Check[]> {
         if (mode === "cull") return assertCull(state);
+        if (mode === "tag-hook") return assertTagHook();
         if (mode === "typed-variant") return assertTypedVariant();
         if (mode === "fog") return assertFog();
         if (mode === "gltf-model") return assertGltfModel(state);
@@ -4649,6 +4919,8 @@ const scenario: Scenario = {
     },
 
     live(state): string {
+        if (mode === "tag-hook")
+            return `render — tag-hook\neid/local-left/local-right/tree/noninst-local/noninst-default ${tagCounts?.join(" / ") ?? "probe …"}`;
         if (mode === "transparency") {
             if (!probeMirror?.snapshot) return "render — transparency\nprobe …";
             const out = new Float32Array(probeMirror.snapshot.bytes);

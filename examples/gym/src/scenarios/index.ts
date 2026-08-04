@@ -112,6 +112,7 @@ import "./hit";
 import "./hull-reduction";
 import "./inclined-plane";
 import "./joint-break";
+import "./mesh-fixture";
 import "./motion-locks";
 import "./motor";
 import "./outline";

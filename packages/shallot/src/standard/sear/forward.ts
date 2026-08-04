@@ -382,6 +382,9 @@ function recordSurface(draw: Draw, surface: Surface): Recorded | null {
         color: group(surface.layout, mesh.vertices),
         // `alpha` compiles no depth-side pipelines, so it needs no depth-shape groups
         depth: surface.blend === "alpha" ? null : group(depthLayout, depthVertices),
+        // an authored tag receives the full fragment context (requested uv/localPos + custom varyings),
+        // so its tag pair reads the main stream even while an opaque depth-only pass stays compact
+        tag: surface.tag ? group(surface.layout, mesh.vertices) : null,
         point: t.point && pointList ? group(depthLayout, depthVertices, { eids: pointList }) : null,
         cascade:
             t.cascade && cascadeList
@@ -610,12 +613,15 @@ function renderPrepass(
     let draws = 0;
     for (const { draw, r } of items) {
         const pipe = r.t.prepass.get(key);
-        if (pipe && r.g.depth) {
+        const group = lanes.some((lane) => lane.name === "tag")
+            ? (r.g.tag ?? r.g.depth)
+            : r.g.depth;
+        if (pipe && group) {
             pipe.with(pass)
                 .with(engineLayout, engineGroup(r.g.engineCache, view.slot, r.g.quant))
                 .with(shadowLayout, shadowGroup())
-                .with(r.g.layout, r.g.depth)
-                .with(r.g.layout.depthVariant, r.g.depth)
+                .with(r.g.layout, group)
+                .with(r.g.layout.depthVariant, group)
                 .withIndexBuffer(r.index)
                 .drawIndexedIndirect(
                     draw.args.indirect,

@@ -489,7 +489,7 @@ async function main(): Promise<void> {
     }
     if (args.screenshot) console.log(`\nscreenshot → ${resolve(args.screenshot)}`);
     if (result.rendered === "opt-out") {
-        console.log(`\n  rendered: opt-out — ${args.scenario} renders nothing by design`);
+        console.log(`\n  rendered: opt-out — generic pixel gate inapplicable for ${args.scenario}`);
     }
 
     let failed = !result.pass;

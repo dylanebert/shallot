@@ -16,7 +16,7 @@ export const cursor = {
                 state.remove(eid, Outline);
                 return;
             }
-            state.add(eid, Outline);
+            if (!state.has(eid, Outline)) state.add(eid, Outline);
             Outline.color.set(eid, 0.3, 0.8, 1, 1);
             Outline.width.set(eid, 5);
         });

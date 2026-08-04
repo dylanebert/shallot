@@ -13,6 +13,7 @@
         "@types/pngjs": "^6.0.5",
         "eslint": "^9.0.0",
         "eslint-plugin-typegpu": "~0.11.1",
+        "jiti": "^2.7.0",
         "playwright": "^1.58.2",
         "pngjs": "^7.0.0",
         "typescript": "^7.0.2",
@@ -275,8 +276,10 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.11.9",
       },
       "devDependencies": {
+        "@playwright/test": "^1.58.2",
         "unplugin-typegpu": "~0.11.6",
         "vite": "^8.0.0",
       },
@@ -701,6 +704,8 @@
     "is-glob": ["is-glob@4.0.3", "", { "dependencies": { "is-extglob": "^2.1.1" } }, "sha512-xelSayHH36ZgE7ZWhli7pW34hNbNl8Ojv5KVmkJD4hBdD3th8Tfk9vYasLM+mXWOZhFkgZfxhLSnrwRr4elSSg=="],
 
     "isexe": ["isexe@2.0.0", "", {}, "sha512-RHxMLp9lnKHGHRng9QFhRCMbYAcVpn69smSGcq3f36xjgVVWThj4qqLbTLlq7Ssj8B+fIQ1EuCEGI2lKsyQeIw=="],
+
+    "jiti": ["jiti@2.7.0", "", { "bin": { "jiti": "lib/jiti-cli.mjs" } }, "sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ=="],
 
     "joints": ["joints@workspace:examples/recipes/joints"],
 

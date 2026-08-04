@@ -33,6 +33,7 @@
         "@types/pngjs": "^6.0.5",
         "eslint": "^9.0.0",
         "eslint-plugin-typegpu": "~0.11.1",
+        "jiti": "^2.7.0",
         "playwright": "^1.58.2",
         "pngjs": "^7.0.0",
         "typescript": "^7.0.2"
