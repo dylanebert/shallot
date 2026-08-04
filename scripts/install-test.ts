@@ -19,6 +19,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { skipReason, teardownBridge, verify } from "./verify";
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
@@ -467,7 +468,7 @@ try {
                 // different path than the build above, and it must transform engine source in
                 // node_modules too. Ask the server for the module the page imports and read what it
                 // serves. (It does not cover a prebundled `.vite/deps` copy — dep optimization runs on
-                // page load, which this headless boot never performs.)
+                // page load, which this headless boot never performs. The real-browser rung below does.)
                 const engineMod = await fetch(
                     `http://localhost:${port}/node_modules/@dylanebert/shallot/src/engine/runtime/gpu.ts`,
                 );
@@ -495,6 +496,33 @@ try {
             dev.kill();
             await Promise.race([Promise.all([drain, drainErr]), Bun.sleep(1500)]);
         }
+
+        // the real-device boot rung the fetch-only checks above can't be: Vite's dependency optimizer
+        // prebundles a bare `@dylanebert/shallot` import only on an actual browser page load (esbuild
+        // scans the entry HTML's script graph), never on a raw HTTP fetch of a known module path — so
+        // this sandbox (a genuine `node_modules` install off a packed tarball, same resolution shape a
+        // registry install produces — not a symlink) is booted through a real browser and its rendered
+        // pipelines are asserted, catching the 5b-2f-5 prebundle-before-transform defect the checks
+        // above structurally could not (`scripts/verify.ts`'s `verify()` is the same shipped gate
+        // `bun bench` / `bun run flows` / `bun run recipes` drive; display-gated identically, native
+        // hardware only — WSL runs it for real against the Windows host's GPU via the bridge).
+        console.log(
+            "shallot verify (a real browser boot — warms the installed engine's pipelines)…",
+        );
+        const skip = skipReason();
+        if (skip) {
+            console.log(`  · skipped (needs native hardware: ${skip})`);
+        } else {
+            const result = await verify(sandbox, ["--timeout", "30000"], true);
+            check(
+                "a real browser boots the installed engine and warms its pipelines",
+                result?.pass === true && result.booted === true && result.rendered === true,
+                result
+                    ? JSON.stringify(result.errors ?? result.error ?? result)
+                    : "no verify result",
+            );
+        }
+        await teardownBridge();
     }
 
     if (install.ok) recipeFlow(work, engineTgz);

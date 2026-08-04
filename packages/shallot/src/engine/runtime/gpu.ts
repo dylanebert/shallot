@@ -645,6 +645,23 @@ const _typegpuVersion = _globals.__TYPEGPU_VERSION__;
  * It proves exactly one thing: the engine's `.ts` modules went through the transform. It says nothing
  * about *your* TGSL — a config that reaches `node_modules` but skips your source (or a `.svelte` /
  * `.vue` block outside the transform's file filter) still passes here and fails at your own kernel.
+ *
+ * **What it structurally cannot see: a bundle whose metadata is missing but whose {@link tgslCanary}
+ * still resolves.** It runs pre-device (`requestGPU` calls it before acquiring an adapter), so it can
+ * only prove `tgpu.resolve()` didn't throw on the CPU — never that the WGSL a real pipeline compiles is
+ * valid, which is a GPU-compile-time property outside its reach by construction. Two structural gaps
+ * this canary can't close, found 2026-08-04 diagnosing a zero-config registry install whose whole
+ * bundle skipped the transform (`unplugin-typegpu` never ran, no consumer misconfiguration involved):
+ * (1) TypeGPU's `resolve()` has a runtime fallback that derives WGSL from a metadata-free function's
+ * raw JS body, and `tgslCanary`'s one-expression shape is exactly what that fallback resolves
+ * correctly — so `resolve()` doesn't throw even with zero build metadata anywhere in the bundle. (2) A
+ * plain `tgpu.fn` (what the canary is) never emits the entry-point output-struct cast
+ * (`vertexFn`/`fragmentFn`/`computeFn` wrap a returned struct into a synthesized `..._Output` type) —
+ * the exact shape that fallback resolution gets wrong, surfacing only downstream as a device error
+ * ("Cannot resolve struct cast from '…' to '…_Output'") once a real pipeline warms. No metadata-free
+ * canary shape closes this without creating a real pipeline pre-device, which the "before touching the
+ * adapter" contract above rules out — the install gate's real-device boot rung is what catches this
+ * class (`scripts/install-test.ts`), not this function.
  */
 export function checkTgsl(): void {
     const version = _globals.__TYPEGPU_VERSION__;

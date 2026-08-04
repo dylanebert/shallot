@@ -40,6 +40,18 @@ export function devConfig(
         // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback, and
         // the engine's own kernels live in node_modules, so the transform must reach there too
         plugins: [typegpuPlugin(), projectPlugin(absProjectDir), synthIndexPlugin(name)],
+        // a registry install resolves the engine inside node_modules (never a symlink, unlike a local
+        // dev checkout), so Vite's dep scanner esbuild-prebundles it ahead of the typegpu transform on
+        // first real page load — the bundled TGSL carries no build metadata, and TypeGPU's metadata-
+        // free resolution fallback derives wrong WGSL for anything past a trivial body (a struct-output
+        // cast is where it broke: `Cannot resolve struct cast from 'vertexVsOut' to 'vertexVs_Output'`
+        // at pipeline warm; 5b-2f-5 reproduced this against a genuine `@dylanebert/shallot@0.9.0`
+        // registry install). The bare specifier is enough: Vite's scanner never descends into an
+        // excluded package to discover its own subpath imports, so every `@dylanebert/shallot/*`
+        // subpath rides this one entry (verified empirically against the registry-installed package;
+        // toolchain.test.ts pins that an ejected project's own `optimizeDeps` still carries this
+        // exclusion through the merge).
+        optimizeDeps: { exclude: ["@dylanebert/shallot"] },
         server: {
             port: opts.port,
             strictPort: opts.strictPort,

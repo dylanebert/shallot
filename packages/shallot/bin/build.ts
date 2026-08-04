@@ -81,6 +81,13 @@ export async function buildWeb(projectDir: string): Promise<void> {
             // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback,
             // and the engine's own kernels live in node_modules, so the transform must reach there too
             plugins: [typegpuPlugin(), projectPlugin(resolve(projectDir))],
+            // same prebundling hazard `dev.ts`'s `devConfig` guards against — a build also runs Vite's
+            // dep optimizer (the CLI's own preview/serve of `dist` is a separate concern; a page loading
+            // the bundled output never re-scans). Kept for symmetry with `devConfig` and because
+            // `buildWeb`'s ejected arm (`bunx vite build`, above) shares this same hazard on a project
+            // that forgot the exclusion in its own `vite.config.ts` — belt-and-suspenders here, load-
+            // bearing there.
+            optimizeDeps: { exclude: ["@dylanebert/shallot"] },
             build: { target: "esnext", outDir: "dist", emptyOutDir: true },
         };
         // drop a project's own copy of the host plugin (a project may declare `projectPlugin` for an

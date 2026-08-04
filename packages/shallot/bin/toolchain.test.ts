@@ -62,4 +62,37 @@ describe("composeViteConfig", () => {
             "host-b",
         ]);
     });
+
+    // the zero-config prebundle fix (5b-2f-5): the base declares `optimizeDeps.exclude` so a registry
+    // install never gets esbuild-prebundled ahead of the typegpu transform. A project with its own
+    // vite.config (an ejected consumer) merges its own `optimizeDeps` over the base — mergeConfig
+    // concatenates array fields rather than replacing them, so the base's exclusion must survive
+    // alongside the project's own, not get dropped by the overlay.
+    test("the base's optimizeDeps.exclude survives a project's own optimizeDeps overlay", () => {
+        const hostBase = {
+            root: "/r",
+            plugins: [],
+            optimizeDeps: { exclude: ["@dylanebert/shallot"] },
+        };
+        const project: ProjectConfig = {
+            plugins: [],
+            overlay: { optimizeDeps: { exclude: ["some-other-pkg"] } },
+            path: "/proj/vite.config.ts",
+        };
+        const out = composeViteConfig(hostBase, project) as {
+            optimizeDeps?: { exclude?: string[] };
+        };
+        expect(out.optimizeDeps?.exclude).toContain("@dylanebert/shallot");
+        expect(out.optimizeDeps?.exclude).toContain("some-other-pkg");
+    });
+
+    test("no project config → the base's optimizeDeps.exclude passes through unchanged", () => {
+        const hostBase = {
+            root: "/r",
+            plugins: [],
+            optimizeDeps: { exclude: ["@dylanebert/shallot"] },
+        };
+        const out = composeViteConfig(hostBase, null) as { optimizeDeps?: { exclude?: string[] } };
+        expect(out.optimizeDeps?.exclude).toEqual(["@dylanebert/shallot"]);
+    });
 });
