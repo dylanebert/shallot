@@ -64,8 +64,9 @@ for (const { entry, out } of entries) {
 // can never fire — it would pass silently on a leaked import whose source text just doesn't happen to
 // contain `GPUShaderStage` / `requestGPU` / `tgpu.resolve`. What survives bundling either way is the
 // import statement for anything Bun couldn't (or was told not to) inline, so asserting that surviving
-// set is exactly the declared `EXTERNAL` list — no more, no less — catches both an engine module
-// surfacing as an import (a leak) and any other unexpected external the entries shouldn't carry.
+// set is a subset of the declared `EXTERNAL` list catches both an engine module surfacing as an import
+// (a leak) and any other unexpected external the entries shouldn't carry. Subset, not equality: an
+// entry legitimately imports only some of the shared list.
 function importsOf(js: string): Set<string> {
     // matches `import x from "y"`, `import { a, b } from "y"` (multi-line specifier lists included),
     // and the bare `import "y"` side-effect form — not dynamic `import(...)`, which none of these
@@ -89,13 +90,15 @@ for (const { out } of entries) {
 // Content markers stay as a second, cheap check for the case an engine-runtime symbol got inlined
 // (not imported) into the bundle — the import-set check above can't see that shape, since an inlined
 // symbol carries no import statement at all.
-const emitted = readFileSync(resolve(OUT, "vite.js"), "utf8");
 const forbidden = ["GPUShaderStage", "requestGPU", "tgpu.resolve"];
-const leakedContent = forbidden.filter((needle) => emitted.includes(needle));
-if (leakedContent.length) {
-    throw new Error(
-        `build-tooling: dist/vite.js carries engine-runtime content, expected a pure tooling bundle: ${leakedContent.join(", ")}`,
-    );
+for (const { out } of entries) {
+    const emitted = readFileSync(resolve(OUT, `${out}.js`), "utf8");
+    const leakedContent = forbidden.filter((needle) => emitted.includes(needle));
+    if (leakedContent.length) {
+        throw new Error(
+            `build-tooling: dist/${out}.js carries engine-runtime content, expected a pure tooling bundle: ${leakedContent.join(", ")}`,
+        );
+    }
 }
 
 console.log(`build-tooling: compiled ${entries.map((e) => `dist/${e.out}.js`).join(", ")}`);
