@@ -40,9 +40,18 @@ export interface Profile {
     readonly indirectCount: ReadonlyMap<string, number>;
     /** cumulative frame count per pass: how many frames the pass reported indirect draws. */
     readonly indirectFires: ReadonlyMap<string, number>;
-    /** per-pipeline compile durations from app startup, in milliseconds. A raw-WGSL pipeline's entry is
-     *  a direct await of `create*PipelineAsync`; a typed (typegpu) pipeline's is measured by the
-     *  `precompile` drain (`Compute.precompiled`, whose JSDoc carries the why) */
+    /** per-pipeline compile durations from app startup, in milliseconds, keyed by descriptor label (a
+     *  missing label disambiguates as `"(unlabeled)"`, `"(unlabeled)#2"`, … so anonymous pipelines never
+     *  collapse into one entry; a repeated named label overwrites instead). A raw-WGSL pipeline's entry
+     *  is a direct await of `create*PipelineAsync`. TypeGPU builds
+     *  every pipeline through the **synchronous** `createRenderPipeline` / `createComputePipeline`
+     *  instead, which return before the driver finishes compiling — so a typed pipeline's duration is
+     *  near-zero and not trustworthy on its own, only its presence is (the pipeline-count golden this
+     *  table backs, `shallot-perf-gates` stage 3a). Where a `precompile` forcer also wraps that same
+     *  pipeline, its later `Compute.precompiled` completion measurement (a real fenced span) overwrites
+     *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
+     *  covering several pipelines, `precompileVariants`) keeps only the near-zero sync entry — real
+     *  per-pipeline compile time has no honest post-port instrument there. */
     readonly compile: ReadonlyMap<string, number>;
     /** wall-clock span from the first pipeline build start to the last build end */
     readonly compileMs: number;
@@ -104,7 +113,8 @@ const TIMESTAMP: readonly GPUFeatureName[] = ["timestamp-query"];
 // timestamp queries + pipeline-compile timing + live allocation tracking. Owns
 // the GPU query set + staging buffers (singleton-lifetime — live with the
 // device, never destroyed per-state) and patches `device.createBuffer` /
-// `createTexture` / `createComputePipelineAsync` / `createRenderPipelineAsync`
+// `createTexture` / the async AND sync pipeline-constructor pairs
+// (`create{Compute,Render}PipelineAsync` / `create{Compute,Render}Pipeline`)
 // on attach.
 class ProfileImpl implements Profile {
     readonly cpu = new Map<string, number>();
@@ -136,6 +146,9 @@ class ProfileImpl implements Profile {
 
     private _compileEarliest = Infinity;
     private _compileLatest = -Infinity;
+    // occurrence count of MISSING compile labels only — every unlabeled pipeline would otherwise
+    // collapse into one "(unlabeled)" `compile` entry, undercounting (`recordCompile`)
+    private readonly _compileSeen = new Map<string, number>();
 
     private _querySet: GPUQuerySet | null = null;
     private _resolveBuffer: GPUBuffer | null = null;
@@ -194,6 +207,28 @@ class ProfileImpl implements Profile {
         device.createRenderPipelineAsync = async (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
             const pipeline = await origRender(desc);
+            this.recordCompile(desc.label ?? "", start, performance.now());
+            return pipeline;
+        };
+
+        // TypeGPU builds every pipeline through these SYNCHRONOUS constructors, never the awaited
+        // `*Async` pair above — so without this patch no typed pipeline ever reaches `compile` at all,
+        // and `.size` only counts hand-written `precompile` scope names (`shallot-perf-gates` stage 3a).
+        // The sync call returns before the driver finishes compiling, so the recorded span here is
+        // near-zero and NOT a real compile duration — only the entry's presence (the pipeline count) is
+        // trustworthy off this path. A typed pipeline's real duration is measured separately by the
+        // `precompile` drain under its own forcer-scope label (`recordCompile`'s other caller).
+        const origComputeSync = device.createComputePipeline.bind(device);
+        device.createComputePipeline = (desc: GPUComputePipelineDescriptor) => {
+            const start = performance.now();
+            const pipeline = origComputeSync(desc);
+            this.recordCompile(desc.label ?? "", start, performance.now());
+            return pipeline;
+        };
+        const origRenderSync = device.createRenderPipeline.bind(device);
+        device.createRenderPipeline = (desc: GPURenderPipelineDescriptor) => {
+            const start = performance.now();
+            const pipeline = origRenderSync(desc);
             this.recordCompile(desc.label ?? "", start, performance.now());
             return pipeline;
         };
@@ -363,7 +398,24 @@ class ProfileImpl implements Profile {
 
     /** @internal — also the `Compute.precompiled` sink for typed pipelines */
     recordCompile(label: string, start: number, end: number): void {
-        this.compile.set(label, end - start);
+        // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
+        // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
+        // `Compute.precompiled` completion measurement (the real fenced span) converge on ONE entry under
+        // the pipeline's own name, rather than the forcer's more-accurate span landing as a spurious
+        // second row beside its own near-zero stub. Two genuinely different pipelines colliding on the
+        // same explicit label lose one entry the same way — accepted, since a label is meant to be a
+        // stable per-pipeline diagnostic key (`gpu.md`), not disambiguated.
+        //
+        // A MISSING label carries no such naming discipline, so it disambiguates instead: several
+        // anonymous pipelines are common (nobody labeled them), and collapsing them under one
+        // "(unlabeled)" key would silently undercount every one past the first.
+        if (label) {
+            this.compile.set(label, end - start);
+        } else {
+            const seen = (this._compileSeen.get("") ?? 0) + 1;
+            this._compileSeen.set("", seen);
+            this.compile.set(seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`, end - start);
+        }
         if (start < this._compileEarliest) this._compileEarliest = start;
         if (end > this._compileLatest) this._compileLatest = end;
         this.compileMs = this._compileLatest - this._compileEarliest;
