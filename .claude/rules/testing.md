@@ -2,6 +2,8 @@
 paths:
     - "packages/shallot/src/**/*.test.ts"
     - "packages/shallot/tests/**/*.ts"
+    - "scripts/install-test.ts"
+    - "packages/shallot/scripts/build-tooling.ts"
 ---
 
 # Testing
@@ -111,6 +113,15 @@ The suffix is the tier — bun only auto-discovers `.test.`/`.spec.`, so a diffe
 - **Truncation error:** derive from integrator order + step size, not continuous-time physics
 - **f32 precision:** `~1e-6` relative for single ops, accumulates with chain length
 - **Solver convergence:** derive from iteration count + penalty schedule, not observation
+
+## Install gate
+
+`scripts/install-test.ts` (`bun run test:install`) is the only tier that resolves an install the way a user's does: it packs the engine into a tarball and `bun install`s it into a throwaway project, never a workspace symlink. A local checkout or a dev link resolves *outside* `node_modules`, so Vite's dependency scanner never prebundles it — a whole class of packaging defect (a missing `optimizeDeps` exclusion, a duplicate TypeGPU identity) cannot occur under a linked install, and no gate run against one can see it. Any fixture added to this tier installs from a pack, not a link.
+
+- **Boot a real browser, not just a build.** A clean build proves resolution and bundling; it says nothing about whether the installed engine's pipelines survive first paint. The gate's real-device rung (`verify()`, guarded by `skipReason()` where no display is available) is what catches a runtime warm failure a passing build hides — omit it and the tier is structurally blind to that class.
+- **A documented recipe is a fixture, not a claim.** The gate's roster of hand-assembled projects is not the product's install population — the recipe a doc tells a stranger to paste is. `ejectedFlow` reads `MIGRATION.md`'s ejected-Vite block straight out of the doc and boots it verbatim rather than a hand-typed stand-in; a recipe nobody boots this way is untested no matter how many hand-patched variants pass around it.
+- **Assert the artifact's surviving structure, not source text a build can erase.** A marker grepped for text that bundling inlines or removes can never fire on the leak it names. Check what the artifact actually still carries — its remaining top-level import set against the declared externals — and confirm the check is non-vacuous by reading what it finds before trusting it green.
+- **A display-gated rung owes a display-independent sibling for the part that needs no device.** A check placed only after a `skipReason()` guard reports green on a display-less host without ever running. Where a property doesn't need a GPU — a compiled export resolving and actually exporting a real symbol, not merely failing to throw — assert it in a plain-Node check placed *before* the skip, so a headless host still exercises it.
 
 ## GPU timestamps, not FPS
 
