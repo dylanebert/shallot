@@ -1,15 +1,20 @@
 // The real-GPU Chromium launch recipe. Pure data — no Playwright import, no node import — so any
 // bun-side consumer (this package's own `bin/verify.ts`, or a project's own bench/harness driver
-// script) can import it from the published package without pulling in a runtime it doesn't have. A
-// Playwright config itself cannot import it directly, at any publish state: Playwright's config loader
-// resolves through Node's plain ESM loader, which applies no TS transform to a `node_modules` import,
-// so `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser"` there throws
-// `ERR_UNKNOWN_FILE_EXTENSION` on this package's raw `.ts` source (confirmed 2026-08-04 against the
-// registry package, no staging involved). The supported route: a bun-run harness script imports this
-// module and threads it to the Playwright config over an env var (`HARNESS_LAUNCH` in the consumer
-// roster), which the config reads fail-loud when unset — see
-// `orrstead/harness/{core,playwright.config}.ts` for the worked pattern. This module never captures or
-// launches anything itself, only names the floor.
+// script) can import it from the published package without pulling in a runtime it doesn't have.
+//
+// This is one of two exports whose only consumption context is Node (the other is `@dylanebert/shallot
+// /vite`), so unlike every other export it ships a compiled `dist/harness-browser.js` alongside its
+// `.ts` source (`exports.md` — `tsc` still type-checks against source, only the runtime load target
+// differs). A `playwright.config.ts` resolves through Node's plain ESM loader, which applies no TS
+// transform to a `node_modules` import — a raw `.ts` export threw `ERR_UNKNOWN_FILE_EXTENSION` there at
+// any publish state (confirmed 2026-08-04 against the registry package, no staging involved). This
+// compile lands in 0.9.1; as of registry 0.9.0, a direct `import { REAL_GPU_LAUNCH } from
+// "@dylanebert/shallot/harness/browser"` inside a config still throws that error, so the claim only
+// becomes true once 0.9.1 publishes. The consumer roster (Orrstead, Spindle, the demo) still threads it
+// over an env var (`HARNESS_LAUNCH`) rather than importing it directly, because their configs were
+// written and gated against 0.9.0 — retiring that threading is 0.9.1 work once they adopt the compiled
+// export; see `orrstead/harness/{core,playwright.config}.ts` for the pattern still in place. This
+// module never captures or launches anything itself, only names the floor.
 
 /**
  * the `channel` + `args` a real-GPU Chromium launch needs, as a `chromium.launch(...)` opt or a

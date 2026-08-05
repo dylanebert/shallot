@@ -23,9 +23,15 @@
         "./extras": "./src/extras/index.ts",
         "./harness": "./src/harness/index.ts",
         "./harness/pixels": "./src/harness/pixels.ts",
-        "./harness/browser": "./src/harness/browser.ts",
+        "./harness/browser": {
+            "types": "./src/harness/browser.ts",
+            "default": "./dist/harness-browser.js"
+        },
         "./document": "./src/document/index.ts",
-        "./vite": "./src/project/vite.ts",
+        "./vite": {
+            "types": "./src/project/vite.ts",
+            "default": "./dist/vite.js"
+        },
         "./ecs/core": "./src/engine/ecs/core.ts",
         "./scene/core": "./src/engine/scene/core.ts",
         "./utils/core": "./src/engine/utils/core.ts",
@@ -60,12 +66,13 @@
         "!bin/**/*.test.ts",
         "rust/audio/pkg",
         "examples",
+        "dist",
         "AGENTS.md",
         "MIGRATION.md",
         "shallot.schema.json"
     ],
     "scripts": {
-        "prepack": "bun run ./scripts/prepack.ts",
+        "prepack": "bun run ./scripts/prepack.ts && bun run ./scripts/build-tooling.ts",
         "postpack": "bun run ./scripts/postpack.ts",
         "build": "bun run ./scripts/build.ts",
         "audio:wasm-bench": "bun run ./scripts/audio-wasm-bench.ts",

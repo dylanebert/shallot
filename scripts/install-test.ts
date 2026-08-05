@@ -223,18 +223,12 @@ function ejectedViteConfig(): string {
 // vite.config only; the manifest, scene, index.html, and entry below are the harness every real
 // ejected consumer supplies around it, the same shape the CLI's own synthesized entry uses.
 //
-// **Known red, root-caused, not this stage's fix (found 2026-08-04 building this fixture verbatim):**
-// against a genuine registry install, Vite's default `configLoader` ("bundle") loads vite.config.ts by
-// spawning a real `node` subprocess — reproduced in isolation with nothing but the doc's own
-// `projectPlugin()` import, no optimizeDeps involved. Node's plain ESM loader throws
-// `ERR_UNKNOWN_FILE_EXTENSION` on `@dylanebert/shallot/vite`'s raw `.ts` source, the same class 5b-2f-4b
-// found for Playwright's config loader (`harness/browser.ts`'s header comment). `--configLoader runner`
-// (Vite, experimental) gets past config-load in isolation, but `serveEjected` doesn't pass it and
-// changing that is a decision beyond this fixture (it's the boot path every ejected-shape gate in this
-// repo shares — gym, flows, showcase — not just this one). So both checks below currently fail
-// identically at config-load, before either can observe the optimizeDeps-specific defect this fixture
-// exists to gate; the red-proof mutation's assertion (`!pass`) still holds vacuously, but doesn't yet
-// isolate what it's meant to. Left red and documented rather than routed around.
+// Against a registry install, Vite's default `configLoader` ("bundle") loads vite.config.ts by
+// spawning a real `node` subprocess, which applies no TS transform to a `node_modules` import — the same
+// class 5b-2f-4b found for Playwright's config loader (`harness/browser.ts`'s header comment). `./vite`
+// (and `./harness/browser`) are the two exports whose only consumption context is Node, so they ship a
+// compiled `dist/*.js` default alongside the `.ts` source `types` (`exports.md`), the reason this recipe
+// boots at all against a packed tarball.
 async function ejectedFlow(work: string, engineTgz: string) {
     console.log("ejected Vite project (MIGRATION.md's recipe, booted verbatim)…");
     const proj = join(work, "ejected");
@@ -281,6 +275,27 @@ async function ejectedFlow(work: string, engineTgz: string) {
     check("the ejected project installs", install.ok, install.ok ? "" : install.out.slice(-600));
     if (!install.ok) return;
 
+    // display-independent, so it runs even where the real-browser rung below is skipped: a plain
+    // `node` process dynamic-importing both compiled tooling exports is exactly the resolution shape
+    // Playwright's/Vite's own config loader uses (`ERR_UNKNOWN_FILE_EXTENSION` on raw `.ts`), with no
+    // GPU involved — pure module resolution. Checks a real symbol came through, not just that the
+    // import didn't throw (5b-2f-6 Locked decision, "Raw `.ts` exports are the runtime contract").
+    console.log("node module resolution (the two compiled tooling exports, no browser needed)…");
+    writeFileSync(
+        join(proj, "node-resolve-check.mjs"),
+        `import { projectPlugin } from "@dylanebert/shallot/vite";\n` +
+            `import { REAL_GPU_LAUNCH } from "@dylanebert/shallot/harness/browser";\n` +
+            `if (typeof projectPlugin !== "function") throw new Error("projectPlugin: not a function");\n` +
+            `if (typeof REAL_GPU_LAUNCH?.channel !== "string") throw new Error("REAL_GPU_LAUNCH: no channel");\n` +
+            `console.log("NODE_RESOLVE_OK " + REAL_GPU_LAUNCH.channel);\n`,
+    );
+    const nodeResolve = run(["node", "node-resolve-check.mjs"], proj);
+    check(
+        "a plain Node import resolves both compiled tooling exports (playwright/vite config-loader shape)",
+        nodeResolve.ok && nodeResolve.out.includes("NODE_RESOLVE_OK"),
+        nodeResolve.ok ? nodeResolve.out.trim().slice(-200) : nodeResolve.out.slice(-500),
+    );
+
     const skip = skipReason();
     if (skip) {
         console.log(`  · skipped (needs native hardware: ${skip})`);
@@ -295,39 +310,20 @@ async function ejectedFlow(work: string, engineTgz: string) {
         green ? JSON.stringify(green.errors ?? green.error ?? green) : "no verify result",
     );
 
-    // red-proof: the recipe minus its `optimizeDeps` line reproduces 5b-2f-5's defect — proves the
-    // line is load-bearing, not decoration, and stays proving it if the doc's wording changes later.
-    const broken = join(work, "ejected-no-exclude");
-    mkdirSync(broken, { recursive: true });
-    for (const entry of ["package.json", "shallot.json", "index.html"]) {
-        writeFileSync(join(broken, entry), readFileSync(join(proj, entry), "utf8"));
-    }
-    for (const dir of ["scenes", "src"]) {
-        mkdirSync(join(broken, dir), { recursive: true });
-        for (const f of readdirSync(join(proj, dir))) {
-            writeFileSync(join(broken, dir, f), readFileSync(join(proj, dir, f), "utf8"));
-        }
-    }
-    writeFileSync(
-        join(broken, "vite.config.ts"),
-        `${config.replace(/\s*optimizeDeps:\s*\{[^}]*\},?/, "")}\n`,
-    );
-    const brokenInstall = run(["bun", "install"], broken);
-    check(
-        "the no-exclusion mutant installs (so its boot failure is the exclusion, not the install)",
-        brokenInstall.ok,
-        brokenInstall.ok ? "" : brokenInstall.out.slice(-600),
-    );
-    if (brokenInstall.ok) {
-        const red = await verify(broken, ["--timeout", "30000"], true);
-        check(
-            "the recipe minus optimizeDeps reproduces the prebundle defect (red-proof)",
-            !(red?.pass === true && red.booted === true && red.rendered === true),
-            red
-                ? JSON.stringify(red.errors ?? red.error ?? "unexpectedly passed")
-                : "no verify result",
-        );
-    }
+    // No red-proof mutant here (found investigating 5b-2f-6, after the check above went green for the
+    // first time): stripping this recipe's `optimizeDeps` line does NOT reproduce 5b-2f-5's
+    // prebundle-before-transform defect for this boot path — verified three consecutive real-hardware
+    // runs, on both this minimal scene and one with a direct `typegpu/data` import (Orrstead/Spindle's
+    // shape). A controlled comparison against a genuine zero-config `shallot dev` project — identical
+    // scene, `devConfig`'s exclusion removed the same way — DOES reproduce the exact `Cannot resolve
+    // struct cast from 'vertexVsOut' to 'vertexVs_Output'` error 5b-2f-5 diagnosed, so the defect is
+    // real and the boot mechanism is the variable, not the scene: `serveEjected` (this flow, gym,
+    // flows, showcase) lets Vite auto-load a real on-disk `vite.config.ts` against a real on-disk
+    // `index.html`, where `devConfig` (`bin/dev.ts`) sets `configFile: false` and serves a
+    // middleware-synthesized entry instead — evidently a different dependency-discovery path. Left
+    // unexplained rather than routed around; the exclusion stays documented in MIGRATION.md as the
+    // defensive default (it IS load-bearing for the zero-config path, red-proven at 5b-2f-5 and pinned
+    // by `toolchain.test.ts`), but asserting it must break an ejected boot would pin a false invariant.
     await teardownBridge();
 }
 

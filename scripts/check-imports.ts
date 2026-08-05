@@ -6,9 +6,18 @@ const pkg = await Bun.file(resolve(import.meta.dir, "../packages/shallot/package
 
 // Extract allowed subpath targets from package.json exports
 // e.g. "./render/core" → "standard/render/core" (relative to src/)
+// an export value is either the plain `.ts` string every subpath uses, or the { types, default }
+// shape the two Node-reachable tooling exports carry (exports.md "Compiled tooling exports") — `types`
+// is still `.ts` source, so read it the same way rather than choking on the `default` dist path.
 const allowedSubpaths = new Set<string>();
-for (const [, target] of Object.entries(pkg.exports as Record<string, string>)) {
-    if (target.startsWith("./src/") && !target.endsWith("index.ts") && !target.includes("*")) {
+for (const [, value] of Object.entries(pkg.exports as Record<string, unknown>)) {
+    const target = typeof value === "string" ? value : (value as { types?: string }).types;
+    if (
+        typeof target === "string" &&
+        target.startsWith("./src/") &&
+        !target.endsWith("index.ts") &&
+        !target.includes("*")
+    ) {
         allowedSubpaths.add(target.replace("./src/", "").replace(".ts", ""));
     }
 }

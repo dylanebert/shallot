@@ -23,14 +23,16 @@ import typegpu from "unplugin-typegpu/vite";
 import { projectPlugin } from "@dylanebert/shallot/vite";
 
 export default defineConfig({
-    plugins: [typegpu(), projectPlugin()],
+    plugins: [typegpu(), projectPlugin(".")],
     optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
 });
 ```
 
 The direct `unplugin-typegpu/vite` plugin is the supported ejected-project route. `typegpuPlugin()` is reserved for Shallot's synthesized CLI config; do not add it here. A second transform rewrites generated metadata and breaks it.
 
-The `optimizeDeps` line is not optional. A registry install resolves both packages inside `node_modules`, so Vite's dev-server dependency scanner esbuild-prebundles them ahead of the typegpu transform on first page load — no Vite plugin, including `typegpu()`, runs over a prebundled dependency. The result is a duplicate, untransformed TypeGPU identity that dies at pipeline warm. Exclude both: the bare `@dylanebert/shallot` specifier covers every one of its subpath imports, but `typegpu` needs its own entry whenever your own source imports `typegpu/data` (or any other typegpu subpath) directly, which is a second, independent scanner entry the engine's exclusion doesn't reach.
+`projectPlugin`'s argument is the directory it reads `shallot.json` (plugins + scene) from — omit it and `virtual:project` resolves to an empty manifest (default plugins, no scene, nothing to render), the same degenerate shape `shallot dev`/`shallot build` never produce because they always pass the project directory.
+
+The `optimizeDeps` line is proven load-bearing for Shallot's own zero-config path (`shallot dev` / `shallot build`'s synthesized config, red-proven by removing it): a registry install resolves both packages inside `node_modules`, so Vite's dev-server dependency scanner esbuild-prebundles them ahead of the typegpu transform on first page load — no Vite plugin, including `typegpu()`, runs over a prebundled dependency — and the result is a duplicate, untransformed TypeGPU identity that dies at pipeline warm. This ejected recipe carries the same line as a defensive default rather than a proven requirement: removing it from this exact on-disk `vite.config.ts` boot has not reproduced the failure across repeated real-hardware runs, and why that boot path differs from the CLI's synthesized one is unexplained. Keep the line either way — exclude both packages: the bare `@dylanebert/shallot` specifier covers every one of its subpath imports, but `typegpu` needs its own entry whenever your own source imports `typegpu/data` (or any other typegpu subpath) directly, a second, independent scanner entry the engine's exclusion doesn't reach.
 
 ### Svelte and Vue
 
