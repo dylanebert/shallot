@@ -50,7 +50,9 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-body-type": { pipelines: 30, gpuBytes: 13_617_360 },
     "bodies-motion-locks": { pipelines: 30, gpuBytes: 13_615_024 },
     "bodies-spinning-book": { pipelines: 30, gpuBytes: 13_616_192 },
-    chain: { pipelines: 26, gpuBytes: 33_869_708 },
+    // gpuBytes carries a `BUDGET_EXEMPTIONS` reason below (`shallot-perf-gates` stage 4c) — pipelines is
+    // exact, agreed across every same-day sample (this row's and stage 4's).
+    chain: { pipelines: 26 },
     "character-mover": { pipelines: 30, gpuBytes: 13_620_864 },
     "collision-overlap-box": { pipelines: 30, gpuBytes: 13_616_192 },
     "collision-ray-curtain": { pipelines: 30, gpuBytes: 13_649_560 },
@@ -58,7 +60,9 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "compound-simple": { pipelines: 30, gpuBytes: 13_714_072 },
     "compound-spheres": { pipelines: 30, gpuBytes: 13_968_560 },
     "compound-tile-floor": { pipelines: 30, gpuBytes: 13_616_192 },
-    constraints: { pipelines: 66, gpuBytes: 21_807_244 },
+    // gpuBytes corrected by stage 4c (2026-08-05) — 4 independent same-day `bun bench --scenario
+    // constraints` runs agreed exactly at 21,814,948, differing from stage 4's 2-sample read (21,807,244).
+    constraints: { pipelines: 66, gpuBytes: 21_814_948 },
     "continuous-bullet-vs-stack": { pipelines: 30, gpuBytes: 13_636_936 },
     "continuous-thin-wall": { pipelines: 30, gpuBytes: 13_650_392 },
     "determinism-falling-ragdolls": { pipelines: 30, gpuBytes: 14_947_168 },
@@ -113,12 +117,14 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
  *  reason per axis. A scenario/axis pair appears in exactly one of this table or `SCENARIO_BUDGETS`,
  *  never both, checked in `budget-coverage.test.ts`. */
 export const BUDGET_EXEMPTIONS: Record<string, AxisExemption> = {
-    // measured 2026-08-05, nvidia/lovelace via the WSL bridge, two full `bun bench --sweep` runs at default
-    // params. Each row below disagreed on `gpuBytes` at least once across 3-6 same-day default-param
-    // samples — exact equality has no tolerance to absorb that, so the byte axis is exempted rather than
-    // budgeted (`shallot-perf-gates` stage 4: a scenario whose harvests disagree is not budgetable by exact
-    // equality). `pipelines` is unaffected — it agreed exactly every time for all 6 and is budgeted above.
-    // Each reason cites the mechanism actually read in source, not a guessed structural shape.
+    // measured 2026-08-05, nvidia/lovelace via the WSL bridge. Each row below disagreed on `gpuBytes` at
+    // least once across 3-11 same-day default-param samples — exact equality has no tolerance to absorb
+    // that, so the byte axis is exempted rather than budgeted (`shallot-perf-gates` stage 4: a scenario
+    // whose harvests disagree is not budgetable by exact equality). `pipelines` is unaffected — it agreed
+    // exactly every time for all 7 rows and is budgeted above. Each reason cites the mechanism actually
+    // read in source, not a guessed structural shape. `chain` (stage 4c) disagrees for the same underlying
+    // reason as `backend`/`render`/`character` — a staging buffer pool that allocates lazily under real
+    // GPU backpressure — but through a different pool: `Slab`'s own `_stagingPool`, not `Mirror`'s ring.
     backend: {
         gpuBytes:
             "gpuBytes disagreed once in three same-day default-param runs (12,743,332 twice, " +
@@ -177,5 +183,39 @@ export const BUDGET_EXEMPTIONS: Record<string, AxisExemption> = {
             "`readback-stress` buffer, the over-limit BVH/image-array/VAT probes in `gpuMemChecks`); " +
             "`Profile`'s byte counters are sampled once the assert returns, so the total reflects whatever " +
             "ramp level and mid-run allocation state that run's real-device timing produced.",
+    },
+
+    // stage 4c (2026-08-05): re-sampled after stage 4b's sweeps disagreed on `gpuBytes` for a row stage 4
+    // had budgeted. Eleven independent `bun bench --scenario chain` runs took three distinct total values
+    // in exact steps of one shared constant; diffing the run's full `byLabel` breakdown (not just the
+    // total) between a low and a high sample isolates the single label that moves — every other label,
+    // including the camera's render targets (`kitchen-offscreen-1`/`sear-color-msaa-1`/`sear-color-
+    // depth-1`, 3,686,400 B each), is byte-identical across all eleven runs, ruling that class out
+    // directly rather than by argument.
+    chain: {
+        gpuBytes:
+            "gpuBytes took three distinct values across eleven same-day default-param runs: 33,869,724 " +
+            "(×4), 36,491,172 (×5), and 39,112,620 (×2) — exact steps of 2,621,448 B. `chain.ts`'s own " +
+            "`mirror(draft.dataRaw)` (line 241) covers a 16 B buffer and can't explain a multi-megabyte " +
+            "swing; diffing the full per-label memory breakdown between a low and a high sample confirms " +
+            "it isn't the source — every label is byte-identical across samples except `slab-staging`, " +
+            "which itself steps in exact multiples of 2,621,448 B (4,718,608 → 7,340,056 → 9,961,504). " +
+            "That label is `Slab`'s own staging-buffer pool (`standard/slab/index.ts`'s `createStager`, " +
+            "line 38), which allocates a new buffer lazily under real backpressure — `slab._stagingPool." +
+            "pop() ?? createStager(device, stagerBytes)` (line 414) — the identical lazy-pool-under-" +
+            "backpressure pattern `backend`/`render`/`character`'s exemptions cite for `Mirror`'s ring, " +
+            "but a separate pool: `Slab` (`standard/slab/index.ts`), not `Mirror` " +
+            "(`standard/mirror/index.ts`). `TransformsPlugin` registers three vec4-typed slabs — `pos`, " +
+            "`rot`, `scale` (`standard/transforms/index.ts:56-58`) — that share one GPU-buffer label by " +
+            'type name ($name of "slab-canonical-" plus the type name, `standard/slab/index.ts:216`), so ' +
+            "`byLabel`'s `slab-staging` bucket sums every vec4 slab's stager buffers under one key. Each " +
+            "one is `(capacity + 1) * 4 + capacity * elementBytes(vec4)` bytes (line 413) — `elementBytes`" +
+            "(vec4) is 16 (`vec4f`'s `d.sizeOf`, `standard/slab/scatter.ts:20,42`) and `capacity` is " +
+            "65536 (`engine/ecs/state.ts:17`), giving `(65536 + 1) * 4 + 65536 * 16` = 1,310,724 B per " +
+            "buffer — exactly half the observed step, so each step is two of the three vec4 slabs (`pos` " +
+            "and `rot`, which the scenario's orbiting camera keeps dirty every frame; `scale` is static) " +
+            "each needing one extra pooled stager because its prior one's `mapAsync` hadn't resolved by " +
+            "the next flush. The WSL bridge's real-device readback timing decides how many of those three " +
+            "pools have grown by the moment `Profile` samples, not scenario code or params.",
     },
 };
