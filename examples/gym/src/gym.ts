@@ -1,11 +1,13 @@
 import { Compute, type Mirror, type State } from "@dylanebert/shallot";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
+import { Profile } from "@dylanebert/shallot/extras";
 import type {
     HarnessTarget,
     PixelProbe,
     Check as WireCheck,
     Verdict as WireVerdict,
 } from "@dylanebert/shallot/harness";
+import { assertBudget, isDefaultParams } from "./scenarios/budget-coverage";
 
 // The gym contract — the shared core every scenario depends inward on. A scenario builds a
 // deterministic scene, optionally asserts behavioral invariants, and gets the profiler's
@@ -312,8 +314,24 @@ export function installHarness(
             // the probe drives the live scene (pointer drag, visual walk); it returns [] unless its opts
             // are set, so the standard gold gate stays a pure assert. Its checks join assert's in one verdict.
             const probed = await scenario.probe?.(state, opts ?? {});
+            // the compile/memory structural budget (`shallot-perf-gates` stage 3b): folded into every
+            // scenario's verdict generically, off `SCENARIO_BUDGETS`/`BUDGET_EXEMPTIONS` data alone — a
+            // scenario earns the check by having a budget entry, never by editing its own `assert`. Reads
+            // `Profile` directly (not `metrics.compile`, which isn't filtered to real pipelines).
+            const budgeted = assertBudget(
+                scenario.name,
+                isDefaultParams(scenario.params ?? [], params),
+                {
+                    pipelines: [...Profile.compile.keys()].filter((k) =>
+                        Profile.compiledPipelines.has(k),
+                    ).length,
+                    gpuBytes: Profile.bufferBytes + Profile.textureBytes,
+                },
+            );
             const checks =
-                asserted || probed ? [...(asserted ?? []), ...(probed ?? [])] : undefined;
+                asserted || probed || budgeted.length > 0
+                    ? [...(asserted ?? []), ...(probed ?? []), ...budgeted]
+                    : undefined;
             const wire: WireCheck[] | undefined = checks?.map((c) => ({
                 name: c.name,
                 ok: c.pass,
