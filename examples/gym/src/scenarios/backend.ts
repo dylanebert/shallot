@@ -392,7 +392,7 @@ const scenario: Scenario = {
         checks.push(raycastGate(state));
         checks.push(...(await driveWritebackGates(state)));
         checks.push(...constraintGates());
-        checks.push(...(await characterGates()));
+        checks.push(...(await characterGates(state)));
         checks.push(recycleGate());
         if (backendName === "tumble") checks.push(isolationGate());
         checks.push(await measured());
@@ -564,13 +564,17 @@ function constraintGates(): Check[] {
 
 // ── character: the shared CPU sweep (backend-neutral since stage 5) walks to its waypoint and grounds ──
 
-async function characterGates(): Promise<Check[]> {
+async function characterGates(state: State): Promise<Check[]> {
     if (charEid < 0) return [{ name: "character", pass: false, detail: "no character" }];
     const p: [number, number, number] = [0, 0, 0];
-    // the shared CPU sweep drives at CHAR_SPEED and DriverPlugin only moves it while a fixed tick runs
-    // (`before: [StepSystem]`) — await its own arrival rather than assuming the benchmark window covered
-    // the walk. Bounded well past the CHAR_SPAWN→CHAR_TARGET_X distance at CHAR_SPEED (2 s at 60 Hz).
-    for (let i = 0; i < 180; i++) {
+    // `backend-driver` is in the fixed group, so the walk advances per fixed TICK — and the fixed group
+    // runs well under one tick per rendered frame here (`measured()` below), so a frame count is the
+    // wrong unit for the bound. The need is the CHAR_SPAWN→CHAR_TARGET_X distance at CHAR_SPEED:
+    // 4 m ÷ 2 m/s ÷ FIXED_DT = 120 ticks. Budget 2× that and await its own arrival rather than
+    // assuming the benchmark window covered the walk.
+    const budget = 2 * Math.ceil((CHAR_TARGET_X - CHAR_SPAWN[0]) / CHAR_SPEED / Time.FIXED_DT);
+    const start = state.time.fixedTick;
+    while (state.time.fixedTick - start < budget) {
         pose(charEid, p);
         if (Math.abs(p[0] - CHAR_TARGET_X) < 0.3) break;
         await frames(1);
