@@ -168,4 +168,18 @@ describe("budget registry (real data)", () => {
             expect(findings).toEqual([]);
         },
     );
+
+    // the reverse direction, unconditional (never skipped): nothing else forces `BUDGETS_ENFORCED` back
+    // to `true` once stage 4 actually finishes the roster, so a completed table with the flag left `false`
+    // would silently ship the completeness direction disabled forever. Vacuously true today — the roster
+    // is still partial (only `render`), so `checkBudgetCompleteness` reports findings and the guard never
+    // fires; it starts failing the moment stage 4's last entry lands, forcing the flip in the same PR.
+    test("BUDGETS_ENFORCED is true whenever the roster is already complete", () => {
+        const complete =
+            checkBudgetCompleteness(SCENARIO_BUDGETS, BUDGET_EXEMPTIONS, scenarioNames()).length ===
+            0;
+        if (complete) {
+            expect(BUDGETS_ENFORCED).toBe(true);
+        }
+    });
 });
