@@ -84,9 +84,9 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         expect(assertBudget("fixture-scenario", true, { pipelines: 29, gpuBytes: 1 })).toEqual([]);
     });
 
-    test("real render budget: exact match passes both checks", () => {
-        const budget = SCENARIO_BUDGETS.render;
-        const checks = assertBudget("render", true, {
+    test("real accel budget: exact match passes both checks", () => {
+        const budget = SCENARIO_BUDGETS.accel;
+        const checks = assertBudget("accel", true, {
             pipelines: budget.pipelines,
             gpuBytes: budget.gpuBytes,
         });
@@ -104,9 +104,9 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         ]);
     });
 
-    test("a bogus allocation reds the byte budget (real render table, byte count off by one)", () => {
-        const budget = SCENARIO_BUDGETS.render;
-        const checks = assertBudget("render", true, {
+    test("a bogus allocation reds the byte budget (real accel table, byte count off by one)", () => {
+        const budget = SCENARIO_BUDGETS.accel;
+        const checks = assertBudget("accel", true, {
             pipelines: budget.pipelines,
             gpuBytes: budget.gpuBytes + 1,
         });
@@ -115,8 +115,8 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
     });
 
     test("a bogus pipeline count reds the count budget, not the byte one", () => {
-        const budget = SCENARIO_BUDGETS.render;
-        const checks = assertBudget("render", true, {
+        const budget = SCENARIO_BUDGETS.accel;
+        const checks = assertBudget("accel", true, {
             pipelines: budget.pipelines + 1,
             gpuBytes: budget.gpuBytes,
         });
@@ -125,7 +125,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
     });
 
     test("a non-default-params run reports both axes as visibly inapplicable, never silently skipped", () => {
-        const checks = assertBudget("render", false, { pipelines: 1, gpuBytes: 1 });
+        const checks = assertBudget("accel", false, { pipelines: 1, gpuBytes: 1 });
         expect(checks).toHaveLength(2);
         for (const c of checks) {
             expect(c.pass).toBe(true);
@@ -170,10 +170,9 @@ describe("budget registry (real data)", () => {
     );
 
     // the reverse direction, unconditional (never skipped): nothing else forces `BUDGETS_ENFORCED` back
-    // to `true` once stage 4 actually finishes the roster, so a completed table with the flag left `false`
-    // would silently ship the completeness direction disabled forever. Vacuously true today — the roster
-    // is still partial (only `render`), so `checkBudgetCompleteness` reports findings and the guard never
-    // fires; it starts failing the moment stage 4's last entry lands, forcing the flip in the same PR.
+    // to `true` once the roster is complete, so a completed table with the flag left `false` would
+    // silently ship the completeness direction disabled forever. Stage 4 populated the full roster and
+    // flipped the flag in the same commit — the roster is complete, so this holds non-vacuously now.
     test("BUDGETS_ENFORCED is true whenever the roster is already complete", () => {
         const complete =
             checkBudgetCompleteness(SCENARIO_BUDGETS, BUDGET_EXEMPTIONS, scenarioNames()).length ===

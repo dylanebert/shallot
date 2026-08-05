@@ -7,11 +7,10 @@
 import type { Check, Param, Params } from "../gym";
 import { BUDGET_EXEMPTIONS, SCENARIO_BUDGETS, type ScenarioBudget } from "./budgets";
 
-/** stage 4's done-signal: flip to `true` once `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS` cover every
- *  registered scenario. `budget-coverage.test.ts` skips the completeness assertion against real data
- *  while this is `false`; turning it on and green is the measure of "stage 4 is done", not an optional
- *  follow-up (the same `COMPLETENESS_ENFORCED` shape `coverage.ts` already uses). */
-export const BUDGETS_ENFORCED = false;
+/** `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS` cover every registered scenario (`shallot-perf-gates` stage 4),
+ *  so the completeness assertion in `budget-coverage.test.ts` runs unconditionally, the same
+ *  `COMPLETENESS_ENFORCED` shape `coverage.ts` already uses. */
+export const BUDGETS_ENFORCED = true;
 
 export type FindingKind =
     | "unregistered-table-key"
@@ -55,8 +54,7 @@ export function checkBudgetEntries(
 }
 
 /** the completeness direction: every registered scenario has a budget or an exemption. Gated by
- *  {@link BUDGETS_ENFORCED} — stage 3b lands only the `render` entry, so this reads a partial table
- *  until stage 4's queue transcribes the rest. */
+ *  {@link BUDGETS_ENFORCED} (`shallot-perf-gates` stage 4 populated the full roster and turned it on). */
 export function checkBudgetCompleteness(
     table: Record<string, ScenarioBudget>,
     exemptions: Record<string, string>,
@@ -90,8 +88,8 @@ export interface MeasuredBudget {
  *  scenario at default params gets one check per axis (pipeline count, GPU bytes), each exact equality
  *  against `table`; a non-default-params run reports both as visibly inapplicable rather than silently
  *  skipping them (`shallot-perf-gates` stage 3b: "a run at non-default params must report the check as
- *  inapplicable visibly, never silently skipped"); an exempt or unregistered-in-this-table scenario (not
- *  yet populated — stage 4) emits nothing, since there is no golden to check against yet. `table` and
+ *  inapplicable visibly, never silently skipped"); an exempt scenario emits nothing, since there is no
+ *  golden to check against. `table` and
  *  `exemptions` default to the real registry — `installHarness` never passes them — and are parameters
  *  (not a module-level read) so a fixture can drive the exempt branch without mutating the real table,
  *  the same injection shape {@link checkBudgetEntries} already uses. Pure over the table + exemptions +

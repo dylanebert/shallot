@@ -38,7 +38,7 @@ test("static noRender declarations keep their diagnostic-scenario behavior", () 
 // module-singleton Maps directly (no live GPU device needed — they're plain data) with two real
 // pipeline-produced entries and one scope-only entry, then reads the `budget:pipelines` check `run()`
 // actually reports back — not a re-derivation of the same filter, a hand-counted expected value against
-// a fixture scenario carrying the real `render` budget entry (`SCENARIO_BUDGETS.render.pipelines === 29`).
+// a fixture scenario carrying the real `accel` budget entry (`SCENARIO_BUDGETS.accel.pipelines === 44`).
 test("run() reports the filtered pipeline count, not Profile.compile.size", async () => {
     const compile = Profile.compile as Map<string, number>;
     const pipelines = Profile.compiledPipelines as Set<string>;
@@ -56,11 +56,11 @@ test("run() reports the filtered pipeline count, not Profile.compile.size", asyn
         // from `compiledPipelines` — the exact case that would inflate `Profile.compile.size` to 3.
         compile.set("sear-typed-variants", 0.16);
 
-        // a fixture scenario, not the real "render" scenario object — same name as a real
+        // a fixture scenario, not the real "accel" scenario object — same name as a real
         // `SCENARIO_BUDGETS` key so `assertBudget` emits a check, but `params: []` so
         // `isDefaultParams` is vacuously true and no live GPU/Mirror assert path ever runs.
         const scenario: Scenario = {
-            name: "render",
+            name: "accel",
             params: [],
             build: () => Promise.reject(new Error("not exercised — run() never calls build")),
         };
@@ -75,7 +75,7 @@ test("run() reports the filtered pipeline count, not Profile.compile.size", asyn
             installHarness(scenario, {} as State, () => true, {});
             const verdict = (await fakeWindow.__harness?.run?.()) as WireVerdict;
             const check = verdict.checks?.find((c) => c.name === "budget:pipelines");
-            expect(check?.detail).toBe("measured 2, budget 29");
+            expect(check?.detail).toBe("measured 2, budget 44");
         } finally {
             globalThis.window = savedWindow;
         }
