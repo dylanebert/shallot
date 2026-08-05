@@ -34,6 +34,7 @@ const CHECK_NAME: Record<Axis, string> = {
 
 export type FindingKind =
     | "unregistered-table-key"
+    | "unregistered-exemption-key"
     | "missing-exemption-reason"
     | "budgeted-and-exempt"
     | "scenario-missing-budget";
@@ -43,10 +44,12 @@ export interface Finding {
     detail: string;
 }
 
-/** the per-entry directions, per axis: every `SCENARIO_BUDGETS` key names a registered scenario, every
- *  exemption reason is non-empty, and no (scenario, axis) pair is both budgeted and exempt (`AxisBudget`'s
- *  own doc: "never both"). Pure over the table + exemptions + the real registered names, so a fixture
- *  proves each direction with no filesystem or scenario import. */
+/** the per-entry directions, per axis: every `SCENARIO_BUDGETS` key AND every `BUDGET_EXEMPTIONS` key
+ *  names a registered scenario — a stale key in either table silently drops the coverage it was meant to
+ *  provide, so both directions are checked, not just the budget table's — every exemption reason is
+ *  non-empty, and no (scenario, axis) pair is both budgeted and exempt (`AxisBudget`'s own doc: "never
+ *  both"). Pure over the table + exemptions + the real registered names, so a fixture proves each
+ *  direction with no filesystem or scenario import. */
 export function checkBudgetEntries(
     table: Record<string, AxisBudget>,
     exemptions: Record<string, AxisExemption>,
@@ -58,6 +61,12 @@ export function checkBudgetEntries(
     for (const name of Object.keys(table)) {
         if (!registered.has(name)) {
             findings.push({ kind: "unregistered-table-key", detail: name });
+        }
+    }
+
+    for (const name of Object.keys(exemptions)) {
+        if (!registered.has(name)) {
+            findings.push({ kind: "unregistered-exemption-key", detail: name });
         }
     }
 

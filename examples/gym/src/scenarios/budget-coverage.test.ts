@@ -22,6 +22,15 @@ describe("budget registry checker (fixtures)", () => {
         expect(findings).toContainEqual({ kind: "unregistered-table-key", detail: "ghost" });
     });
 
+    // an exemption naming a scenario absent from the registry is invisible to a checker that walks only
+    // `Object.keys(table)` — so the row the exemption exists to cover quietly loses its coverage. Confirmed
+    // red first: a checker missing the `Object.keys(exemptions)` walk returns `[]` for this call, not the
+    // finding below.
+    test("an exemption key naming an unregistered scenario is a finding, named by its own table", () => {
+        const findings = checkBudgetEntries({}, { ghost: { pipelines: "reason" } }, ["real"]);
+        expect(findings).toContainEqual({ kind: "unregistered-exemption-key", detail: "ghost" });
+    });
+
     test("an exemption with no reason is a finding, per axis", () => {
         const findings = checkBudgetEntries({}, { a: { pipelines: "" } }, ["a"]);
         expect(findings).toContainEqual({
@@ -165,6 +174,21 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
             { outline: { pipelines: "fixture exemption", gpuBytes: "fixture exemption" } },
         );
         expect(checks).toEqual([]);
+    });
+
+    // the intersection the other two `atDefaultParams`/exempt tests each cover only one side of: an
+    // exempt axis run at non-default params still emits nothing, rather than falling through to the
+    // inapplicable-check branch a budgeted axis takes at non-default params.
+    test("an exempt axis at non-default params still emits nothing (render's byte-exempt axis)", () => {
+        const checks = assertBudget("render", false, { pipelines: 1, gpuBytes: 1 });
+        expect(checks).toEqual([
+            {
+                name: "budget:pipelines",
+                pass: true,
+                detail: "inapplicable — non-default params, budget is declared at defaults only",
+            },
+        ]);
+        expect(checks.find((c) => c.name === "budget:bytes")).toBeUndefined();
     });
 
     // `shallot-perf-gates` stage 4b's own Validation criterion: exempting a scenario's `gpuBytes` axis
