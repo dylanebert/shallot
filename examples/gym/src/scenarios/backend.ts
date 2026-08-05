@@ -392,7 +392,7 @@ const scenario: Scenario = {
         checks.push(raycastGate(state));
         checks.push(...(await driveWritebackGates(state)));
         checks.push(...constraintGates());
-        checks.push(...characterGates());
+        checks.push(...(await characterGates()));
         checks.push(recycleGate());
         if (backendName === "tumble") checks.push(isolationGate());
         checks.push(await measured());
@@ -564,10 +564,18 @@ function constraintGates(): Check[] {
 
 // ── character: the shared CPU sweep (backend-neutral since stage 5) walks to its waypoint and grounds ──
 
-function characterGates(): Check[] {
+async function characterGates(): Promise<Check[]> {
     if (charEid < 0) return [{ name: "character", pass: false, detail: "no character" }];
-    const checks: Check[] = [];
     const p: [number, number, number] = [0, 0, 0];
+    // the shared CPU sweep drives at CHAR_SPEED and DriverPlugin only moves it while a fixed tick runs
+    // (`before: [StepSystem]`) — await its own arrival rather than assuming the benchmark window covered
+    // the walk. Bounded well past the CHAR_SPAWN→CHAR_TARGET_X distance at CHAR_SPEED (2 s at 60 Hz).
+    for (let i = 0; i < 180; i++) {
+        pose(charEid, p);
+        if (Math.abs(p[0] - CHAR_TARGET_X) < 0.3) break;
+        await frames(1);
+    }
+    const checks: Check[] = [];
     const has = pose(charEid, p);
     checks.push({
         name: "character walks to its waypoint (shared sweep over Physics.backend)",

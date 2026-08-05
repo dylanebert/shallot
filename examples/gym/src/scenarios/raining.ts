@@ -138,16 +138,19 @@ const scenario: Scenario = {
         };
     },
 
-    assert(): Promise<Check[]> {
+    async assert(): Promise<Check[]> {
         const backend = Physics.backend;
-        if (!backend)
-            return Promise.resolve([{ name: "raining", pass: false, detail: "no backend" }]);
+        if (!backend) return [{ name: "raining", pass: false, detail: "no backend" }];
+        // `raining-spawner` (registered after TumblePlugin's SyncSystem) drops a body's Body component
+        // after this tick's marshal already ran, so the newest live eid needs one more fixed tick before
+        // `readBody` sees it. Await that one sync pass directly rather than counting frames.
+        for (let i = 0; i < 30 && queue.some((eid) => !backend.readBody(eid)); i++) await frames(1);
         let finite = true;
         for (const eid of queue) {
             const b = backend.readBody(eid);
             if (!b?.pos.every(Number.isFinite)) finite = false;
         }
-        return Promise.resolve([
+        return [
             {
                 name: "streaming stays at its cap (oldest bodies recycled)",
                 pass: queue.length <= cap,
@@ -163,7 +166,7 @@ const scenario: Scenario = {
                 pass: finite,
                 detail: `${queue.length} live bodies checked`,
             },
-        ]);
+        ];
     },
 
     live(): string {
