@@ -39,6 +39,38 @@ describe("ProfilePlugin", () => {
         expect((caught as UnsupportedError).missing).toEqual(["timestamp-query"]);
     });
 
+    // `attach` skips re-patching once `_querySet` exists (the reload-safety guard against re-creating GPU
+    // resources on a live singleton), so it only ever installs the `createBuffer`/`createTexture` byte
+    // tracking on the FIRST device this module-lifetime singleton attaches to. This test earns that slot by
+    // running first among the successful attaches in this file — see the comment on the test below.
+    //
+    // The overlay's `collectStats` reads `profile.bufferBytes` / `profile.textureBytes` / `profile.sizes`
+    // directly (index.ts `collectStats`) — the byte-budget gate's `Profile.bufferBytes` / `Profile.allocBytes`
+    // must be that same field, not a parallel derivation the two could drift apart on. Pinning the public
+    // seam against a live allocate + destroy is the differential.
+    test("the public byte totals are the overlay's own fields, and destroy() decrements them", () => {
+        const prev = Compute.device;
+        Object.assign(Compute, { device: capableDevice() });
+        try {
+            ProfilePlugin.initialize?.(new State());
+            const buffer = Compute.device.createBuffer({
+                label: "shallot-perf-gates-test",
+                size: 1024,
+                usage: GPUBufferUsage.STORAGE,
+            });
+
+            expect(Profile.bufferBytes).toBeGreaterThanOrEqual(1024);
+            expect(Profile.allocBytes.get("shallot-perf-gates-test")).toBe(1024);
+
+            const before = Profile.bufferBytes;
+            buffer.destroy();
+            expect(Profile.bufferBytes).toBe(before - 1024);
+            expect(Profile.allocBytes.has("shallot-perf-gates-test")).toBe(false);
+        } finally {
+            Object.assign(Compute, { device: prev });
+        }
+    });
+
     test("a re-attach to a device missing timestamp-query still fails loud", () => {
         const prev = Compute.device;
         const capable = capableDevice();

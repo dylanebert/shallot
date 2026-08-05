@@ -313,6 +313,19 @@ function printMeasurement(label: string, r: BenchmarkMeasurement): void {
     } else {
         console.log(`  GPU timing unavailable (no profiler spans in the measure)`);
     }
+    if (r.memory) {
+        const m = r.memory;
+        const mb = (b: number) => (b / 1024 / 1024).toFixed(1);
+        console.log(
+            `  GPU memory: buffers ${mb(m.bufferBytes)} + textures ${mb(m.textureBytes)} = ${mb(m.bufferBytes + m.textureBytes)} MB`,
+        );
+        const labels = Object.entries(m.byLabel).sort((a, b) => b[1] - a[1]);
+        if (labels.length > 0) {
+            console.log(`    by label:`);
+            for (const [label, bytes] of labels)
+                console.log(`      ${(label || "(unlabeled)").padEnd(20)} ${mb(bytes)} MB`);
+        }
+    }
     console.log(`${bar}\n`);
 }
 

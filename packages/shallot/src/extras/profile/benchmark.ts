@@ -121,13 +121,28 @@ export interface BenchmarkCompileStats {
     pipelines: Record<string, number>;
 }
 
+/** live GPU memory at the end of a measurement window: exact allocation totals, not a timing — the
+ *  byte-budget gate's source (`shallot-perf-gates`). Read straight off {@link Profile.bufferBytes} /
+ *  {@link Profile.textureBytes} / {@link Profile.allocBytes} — one source of truth, not a parallel
+ *  derivation the overlay and the benchmark could drift apart on. */
+export interface BenchmarkMemoryStats {
+    /** live GPU buffer bytes */
+    bufferBytes: number;
+    /** live GPU texture bytes */
+    textureBytes: number;
+    /** live bytes per allocation label (buffer + texture combined), for attributing a budget failure */
+    byLabel: Record<string, number>;
+}
+
 /** the result of one `measure()` window: the gpu, cpu, frame, and compile sections, each null when its
- *  data wasn't captured (no GPU passes ran, the profiler wasn't attached). */
+ *  data wasn't captured (no GPU passes ran, the profiler wasn't attached); memory is a snapshot taken at
+ *  window end, always present once the profiler is attached (it needs no GPU pass to have run). */
 export interface BenchmarkMeasurement {
     gpu: BenchmarkGpuStats | null;
     cpu: BenchmarkCpuStats | null;
     frame: BenchmarkFrameStats | null;
     compile: BenchmarkCompileStats | null;
+    memory: BenchmarkMemoryStats;
     /** benchmark ticks in the window (warmup + measured), distinct from the engine frame count */
     frames: number;
 }
@@ -439,7 +454,13 @@ export function createMeasure(state: State, profile: Profile) {
                     compile = { totalMs: r2(profile.compileMs), pipelines };
                 }
 
-                resolve({ gpu, cpu, frame, compile, frames: count });
+                const memory: BenchmarkMemoryStats = {
+                    bufferBytes: profile.bufferBytes,
+                    textureBytes: profile.textureBytes,
+                    byLabel: Object.fromEntries(profile.allocBytes),
+                };
+
+                resolve({ gpu, cpu, frame, compile, memory, frames: count });
             }
 
             requestAnimationFrame(tick);

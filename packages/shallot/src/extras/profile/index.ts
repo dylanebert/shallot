@@ -10,6 +10,7 @@ export type {
     BenchmarkFrameStats,
     BenchmarkGpuStats,
     BenchmarkMeasurement,
+    BenchmarkMemoryStats,
 } from "./benchmark";
 
 /**
@@ -47,6 +48,16 @@ export interface Profile {
     readonly compileMs: number;
     /** ms spent awaiting the prior frame's GPU fence before this frame began */
     readonly fenceWaitMs: number;
+    /** live GPU buffer bytes, summed over every buffer allocated since attach and decremented on
+     *  `destroy()`: exact and device-independent for a fixed scenario at fixed params, the byte-budget
+     *  gate's total (`testing.md`'s exact-equality structural rung, `shallot-perf-gates`). */
+    readonly bufferBytes: number;
+    /** live GPU texture bytes, the texture twin of {@link bufferBytes}. */
+    readonly textureBytes: number;
+    /** live GPU bytes (buffer + texture) per allocation label: every allocation sharing a label sums
+     *  into one entry, decremented on `destroy()`. The per-label attribution a byte-budget gate reads
+     *  once {@link bufferBytes} + {@link textureBytes} fails, to find which label grew. */
+    readonly allocBytes: ReadonlyMap<string, number>;
     /** cumulative `device.queue.submit` calls since attach. Each submit is a renderer→GPU-process IPC
      *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
      *  wait, not a pass). A frame issues several (render, the slab flush, a mirror readback, the
@@ -119,6 +130,7 @@ class ProfileImpl implements Profile {
     readonly buffers = new Set<GPUBuffer>();
     readonly textures = new Set<GPUTexture>();
     readonly sizes = new Map<object, ResourceAlloc>();
+    readonly allocBytes = new Map<string, number>();
     bufferBytes = 0;
     textureBytes = 0;
 
@@ -227,11 +239,15 @@ class ProfileImpl implements Profile {
         set.add(obj);
         this[totals] += bytes;
         this.sizes.set(obj, { label, bytes, kind });
+        this.allocBytes.set(label, (this.allocBytes.get(label) ?? 0) + bytes);
         const origDestroy = obj.destroy.bind(obj);
         (obj as { destroy: () => void }).destroy = () => {
             set.delete(obj);
             this[totals] -= bytes;
             this.sizes.delete(obj);
+            const remaining = (this.allocBytes.get(label) ?? 0) - bytes;
+            if (remaining <= 0) this.allocBytes.delete(label);
+            else this.allocBytes.set(label, remaining);
             origDestroy();
         };
         return obj;

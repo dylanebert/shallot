@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+    createMeasure,
     distribution,
     foldIndirect,
     INDIRECT_FLOOR_US,
@@ -146,5 +147,57 @@ describe("indirect-draw validation floor", () => {
         foldIndirect(new Map(), count, fires);
         expect(count.size).toBe(0);
         expect(fires.size).toBe(0);
+    });
+});
+
+describe("createMeasure — memory section", () => {
+    // memory is a snapshot of the profiler's own live counters at window end, not something
+    // `createMeasure` derives independently — so it must equal `profile.bufferBytes` /
+    // `textureBytes` / `allocBytes` exactly, and reflect a destroy() that fires mid-window.
+    it("snapshots the profiler's own byte totals, reflecting a destroy mid-window", async () => {
+        const profile = {
+            cpu: new Map<string, number>(),
+            gpuTime: new Map<string, number>(),
+            gpuFires: new Map<string, number>(),
+            indirectCount: new Map<string, number>(),
+            compile: new Map<string, number>(),
+            compileMs: 0,
+            fenceWaitMs: 0,
+            submitCount: 0,
+            bufferBytes: 2048,
+            textureBytes: 4096,
+            allocBytes: new Map([
+                ["a", 2048],
+                ["b", 4096],
+            ]),
+        };
+        const state = {
+            time: { deltaTime: 0.016, rawDeltaTime: 0.016, fixedSteps: 0, throttled: false },
+        } as unknown as Parameters<typeof createMeasure>[0];
+        const measure = createMeasure(
+            state,
+            profile as unknown as Parameters<typeof createMeasure>[1],
+        );
+        const originalRaf = globalThis.requestAnimationFrame;
+        const raf: { scheduled: (() => void) | null } = { scheduled: null };
+        globalThis.requestAnimationFrame = ((cb: () => void) => {
+            raf.scheduled = cb;
+            return 0;
+        }) as typeof requestAnimationFrame;
+        try {
+            const promise = measure(0, 2);
+            // tick 1 of 2: still mid-window. Now a destroy() fires — the snapshot at resolve must read
+            // this, not the value captured when the window opened.
+            raf.scheduled?.();
+            profile.bufferBytes = 1024;
+            profile.allocBytes.delete("a");
+            raf.scheduled?.();
+            const result = await promise;
+            expect(result.memory.bufferBytes).toBe(1024);
+            expect(result.memory.textureBytes).toBe(4096);
+            expect(result.memory.byLabel).toEqual({ b: 4096 });
+        } finally {
+            globalThis.requestAnimationFrame = originalRaf;
+        }
     });
 });
