@@ -1,16 +1,36 @@
 // The both-directions budget-registry check over `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS`, the same shape
-// `coverage.ts` already runs for `SCENARIO_GATES` + `GATE_EXEMPTIONS`: `checkBudgetEntries` is pure over
-// plain data, so `budget-coverage.test.ts` red-proves it against fixtures with no filesystem or scenario
-// import; `scenarioNames()` (imported for its side effect via `../gym`) is the one real-registration seam.
+// `coverage.ts` already runs for `SCENARIO_GATES` + `GATE_EXEMPTIONS` — but per **axis**, not per scenario
+// (`shallot-perf-gates` stage 4b): pipeline count is exact on every registered scenario, so every scenario
+// gates on it regardless of whether its byte axis is exempt. `checkBudgetEntries` is pure over plain data,
+// so `budget-coverage.test.ts` red-proves it against fixtures with no filesystem or scenario import;
+// `scenarioNames()` (imported for its side effect via `../gym`) is the one real-registration seam.
 // `assertBudget` is the runtime half — the exact-equality check `gym.ts`'s `installHarness` folds into
 // every scenario's verdict, pure over already-read numbers so it needs no live `Profile` or GPU to test.
 import type { Check, Param, Params } from "../gym";
-import { BUDGET_EXEMPTIONS, SCENARIO_BUDGETS, type ScenarioBudget } from "./budgets";
+import {
+    type AxisBudget,
+    type AxisExemption,
+    BUDGET_EXEMPTIONS,
+    SCENARIO_BUDGETS,
+} from "./budgets";
 
-/** `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS` cover every registered scenario (`shallot-perf-gates` stage 4),
- *  so the completeness assertion in `budget-coverage.test.ts` runs unconditionally, the same
+/** `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS` cover every registered scenario, per axis
+ *  (`shallot-perf-gates` stage 4 populated the roster, stage 4b split the exemption per axis), so the
+ *  completeness assertion in `budget-coverage.test.ts` runs unconditionally, the same
  *  `COMPLETENESS_ENFORCED` shape `coverage.ts` already uses. */
 export const BUDGETS_ENFORCED = true;
+
+/** the two quantities a budget row covers. Deliberately not privileged against each other anywhere in
+ *  this module or `budgets.ts`'s types — `pipelines` happens to be budgeted on every current row and
+ *  `gpuBytes` is the axis that currently carries every exemption, but nothing here hardcodes that
+ *  direction. The both-directions completeness assert is what enforces coverage, not the type system. */
+export const AXES = ["pipelines", "gpuBytes"] as const;
+export type Axis = (typeof AXES)[number];
+
+const CHECK_NAME: Record<Axis, string> = {
+    pipelines: "budget:pipelines",
+    gpuBytes: "budget:bytes",
+};
 
 export type FindingKind =
     | "unregistered-table-key"
@@ -23,13 +43,13 @@ export interface Finding {
     detail: string;
 }
 
-/** the per-entry directions: every `SCENARIO_BUDGETS` key names a registered scenario, every exemption
- *  carries a non-empty reason, and no scenario is both budgeted and exempt (`ScenarioBudget`'s own doc:
- *  "never both"). Pure over the table + exemptions + the real registered names, so a fixture proves each
- *  direction with no filesystem or scenario import. */
+/** the per-entry directions, per axis: every `SCENARIO_BUDGETS` key names a registered scenario, every
+ *  exemption reason is non-empty, and no (scenario, axis) pair is both budgeted and exempt (`AxisBudget`'s
+ *  own doc: "never both"). Pure over the table + exemptions + the real registered names, so a fixture
+ *  proves each direction with no filesystem or scenario import. */
 export function checkBudgetEntries(
-    table: Record<string, ScenarioBudget>,
-    exemptions: Record<string, string>,
+    table: Record<string, AxisBudget>,
+    exemptions: Record<string, AxisExemption>,
     scenarioNames: readonly string[],
 ): Finding[] {
     const findings: Finding[] = [];
@@ -39,31 +59,45 @@ export function checkBudgetEntries(
         if (!registered.has(name)) {
             findings.push({ kind: "unregistered-table-key", detail: name });
         }
-        if (name in exemptions) {
-            findings.push({ kind: "budgeted-and-exempt", detail: name });
+    }
+
+    const names = new Set([...Object.keys(table), ...Object.keys(exemptions)]);
+    for (const name of names) {
+        for (const axis of AXES) {
+            if (table[name]?.[axis] !== undefined && exemptions[name]?.[axis] !== undefined) {
+                findings.push({ kind: "budgeted-and-exempt", detail: `${name}/${axis}` });
+            }
         }
     }
 
-    for (const [name, reason] of Object.entries(exemptions)) {
-        if (reason.trim() === "") {
-            findings.push({ kind: "missing-exemption-reason", detail: name });
+    for (const [name, reasons] of Object.entries(exemptions)) {
+        for (const axis of AXES) {
+            const reason = reasons[axis];
+            if (reason !== undefined && reason.trim() === "") {
+                findings.push({ kind: "missing-exemption-reason", detail: `${name}/${axis}` });
+            }
         }
     }
 
     return findings;
 }
 
-/** the completeness direction: every registered scenario has a budget or an exemption. Gated by
- *  {@link BUDGETS_ENFORCED} (`shallot-perf-gates` stage 4 populated the full roster and turned it on). */
+/** the completeness direction, per axis: every registered scenario carries exactly one of a golden or an
+ *  exemption reason for `pipelines`, and the same for `gpuBytes` — independently, so a scenario budgeted
+ *  on one axis and exempt on the other is complete. Gated by {@link BUDGETS_ENFORCED}. */
 export function checkBudgetCompleteness(
-    table: Record<string, ScenarioBudget>,
-    exemptions: Record<string, string>,
+    table: Record<string, AxisBudget>,
+    exemptions: Record<string, AxisExemption>,
     scenarioNames: readonly string[],
 ): Finding[] {
     const findings: Finding[] = [];
     for (const name of scenarioNames) {
-        if (!(name in table) && !(name in exemptions)) {
-            findings.push({ kind: "scenario-missing-budget", detail: name });
+        for (const axis of AXES) {
+            const budgeted = table[name]?.[axis] !== undefined;
+            const exempt = exemptions[name]?.[axis] !== undefined;
+            if (!budgeted && !exempt) {
+                findings.push({ kind: "scenario-missing-budget", detail: `${name}/${axis}` });
+            }
         }
     }
     return findings;
@@ -84,54 +118,50 @@ export interface MeasuredBudget {
     gpuBytes: number;
 }
 
-/** the runtime exact-equality check `installHarness` folds into every scenario's verdict: a budgeted
- *  scenario at default params gets one check per axis (pipeline count, GPU bytes), each exact equality
- *  against `table`; a non-default-params run reports both as visibly inapplicable rather than silently
- *  skipping them (`shallot-perf-gates` stage 3b: "a run at non-default params must report the check as
- *  inapplicable visibly, never silently skipped"); an exempt scenario emits nothing, since there is no
- *  golden to check against. `table` and
- *  `exemptions` default to the real registry — `installHarness` never passes them — and are parameters
- *  (not a module-level read) so a fixture can drive the exempt branch without mutating the real table,
- *  the same injection shape {@link checkBudgetEntries} already uses. Pure over the table + exemptions +
- *  the caller's already-read numbers. */
+/** the runtime exact-equality check `installHarness` folds into every scenario's verdict, evaluated
+ *  independently per axis: a budgeted axis at default params gets one exact-equality check; a budgeted
+ *  axis at non-default params reports visibly inapplicable rather than silently skipping
+ *  (`shallot-perf-gates` stage 3b); an **exempt** axis emits nothing — there is no golden to check against,
+ *  and the exemption reason already names why. A scenario can therefore emit one check, two, or none,
+ *  depending on which axes it budgets vs. exempts (`shallot-perf-gates` stage 4b: `render` emits only
+ *  `budget:pipelines`, its `budget:bytes` axis exempt). `table` and `exemptions` default to the real
+ *  registry — `installHarness` never passes them — and are parameters (not a module-level read) so a
+ *  fixture can drive the exempt branch without mutating the real table, the same injection shape
+ *  {@link checkBudgetEntries} already uses. Pure over the table + exemptions + the caller's already-read
+ *  numbers. */
 export function assertBudget(
     name: string,
     atDefaultParams: boolean,
     measured: MeasuredBudget,
-    table: Record<string, ScenarioBudget> = SCENARIO_BUDGETS,
-    exemptions: Record<string, string> = BUDGET_EXEMPTIONS,
+    table: Record<string, AxisBudget> = SCENARIO_BUDGETS,
+    exemptions: Record<string, AxisExemption> = BUDGET_EXEMPTIONS,
 ): Check[] {
-    if (name in exemptions) return [];
+    const checks: Check[] = [];
     const budget = table[name];
-    if (!budget) return [];
+    const exemption = exemptions[name];
 
-    if (!atDefaultParams) {
-        return [
-            {
-                name: "budget:pipelines",
+    for (const axis of AXES) {
+        if (exemption?.[axis] !== undefined) continue; // exempt axis — no golden to check, emit nothing
+        const golden = budget?.[axis];
+        if (golden === undefined) continue; // neither budgeted nor exempt yet — nothing to compare
+
+        if (!atDefaultParams) {
+            checks.push({
+                name: CHECK_NAME[axis],
                 pass: true,
                 detail: "inapplicable — non-default params, budget is declared at defaults only",
-            },
-            {
-                name: "budget:bytes",
-                pass: true,
-                detail: "inapplicable — non-default params, budget is declared at defaults only",
-            },
-        ];
+            });
+            continue;
+        }
+
+        checks.push({
+            name: CHECK_NAME[axis],
+            pass: measured[axis] === golden,
+            detail: `measured ${measured[axis]}, budget ${golden}`,
+        });
     }
 
-    return [
-        {
-            name: "budget:pipelines",
-            pass: measured.pipelines === budget.pipelines,
-            detail: `measured ${measured.pipelines}, budget ${budget.pipelines}`,
-        },
-        {
-            name: "budget:bytes",
-            pass: measured.gpuBytes === budget.gpuBytes,
-            detail: `measured ${measured.gpuBytes}, budget ${budget.gpuBytes}`,
-        },
-    ];
+    return checks;
 }
 
 export { BUDGET_EXEMPTIONS, SCENARIO_BUDGETS };
