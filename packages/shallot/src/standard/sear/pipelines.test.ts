@@ -732,6 +732,64 @@ test("Sear warms Part-published specializing variants; post-build variants stay 
     }
 });
 
+test("a specializing surface compiled at two distinct variants emits two distinct pipeline labels — the observable Profile.compile's pipeline-count golden depends on (shallot-perf-gates stage 3a review)", async () => {
+    // `compileVariant`'s own `args.name` is already `${surface.name}#${variant}` (the pattern
+    // `ensureSingle` reads back), but every `.$name()` call on the pipelines it actually creates used
+    // bare `surface.name` — so two variants of the same specializing surface compiled to the SAME
+    // descriptor label, and `Profile.compile` (keyed by that label, `shallot-perf-gates` stage 3a)
+    // silently dropped one. Assert the real observable — the labels `device.createRenderPipeline`
+    // actually receives are distinct per variant — not `recordCompile`'s own merge/overwrite logic,
+    // which a same-label mutant would satisfy trivially.
+    const surface: Surface = {
+        name: `variant-label-${Math.random()}`,
+        layout: layout({
+            eids: { type: "storage", element: d.u32 },
+            transforms: { type: "storage", element: Xform },
+        }),
+        fs: typedDefaultFs,
+        specialize: () => ({ fs: typedDefaultFs }),
+    };
+    const labels: string[] = [];
+    const saved = { ...Compute };
+    try {
+        await requestGPU({
+            queue: { onSubmittedWorkDone: async () => {} },
+            pushErrorScope: () => {},
+            popErrorScope: async () => null,
+            createShaderModule: () => ({}),
+            createBindGroupLayout: () => ({}),
+            createPipelineLayout: () => ({}),
+            createRenderPipeline: (desc: GPURenderPipelineDescriptor) => {
+                labels.push(desc.label ?? "");
+                return {};
+            },
+        } as unknown as GPUDevice);
+
+        // `Compute.root.createRenderPipeline(...)` is lazy — typegpu defers the real, labeled
+        // `device.createRenderPipeline` call to first `unwrap()` (`preparePipelines`'s own comment: "typegpu
+        // defers both [resolve + the sync constructor] to first use"). Force it the same way
+        // `unwrapVariant` (forward.ts, `precompileVariants`'s production `warm`) does.
+        const force = (variant: number) => {
+            const t = compileVariant(surface, variant);
+            for (const p of [t.color, t.transparent, t.point, t.cascade, ...t.prepass.values()]) {
+                if (p) Compute.root.unwrap(p);
+            }
+        };
+        force(0);
+        const afterFirst = [...labels];
+        force(1);
+        const secondBatch = labels.slice(afterFirst.length);
+
+        // both variants compile the same pipeline set (color + prepass ×2 + shadow ×2 — the surface
+        // declares `eids`/`transforms`, so it's instanced and casts) — same count, no label in common.
+        expect(afterFirst.length).toBeGreaterThan(0);
+        expect(secondBatch.length).toBe(afterFirst.length);
+        for (const label of secondBatch) expect(afterFirst).not.toContain(label);
+    } finally {
+        Object.assign(Compute, saved);
+    }
+});
+
 describe("compileVariant — the transparent twin (c-3): shares color entries verbatim", () => {
     test("blend has no effect on the emitted vs/fs text — only the pipeline's blend/depth state differs, proven device-side by `bun bench`", () => {
         const l = layout({ items: { type: "storage", element: d.f32 } });

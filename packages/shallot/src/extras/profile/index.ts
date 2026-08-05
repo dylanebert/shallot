@@ -53,6 +53,13 @@ export interface Profile {
      *  covering several pipelines, `precompileVariants`) keeps only the near-zero sync entry — real
      *  per-pipeline compile time has no honest post-port instrument there. */
     readonly compile: ReadonlyMap<string, number>;
+    /** the subset of {@link compile}'s keys an actual `create*Pipeline(Async)` call produced, as opposed
+     *  to a `precompile` forcer-scope label that wraps several pipelines under one measurement
+     *  (`precompileVariants`'s `"sear-typed-variants"` is the shipped case) — a scope-only label's
+     *  timing still lands in {@link compile}, but it isn't one real pipeline, so a pipeline-count golden
+     *  reads `[...compile.keys()].filter(k => compiledPipelines.has(k)).length`, never `compile.size`
+     *  directly (`shallot-perf-gates` stage 3a review). */
+    readonly compiledPipelines: ReadonlySet<string>;
     /** wall-clock span from the first pipeline build start to the last build end */
     readonly compileMs: number;
     /** ms spent awaiting the prior frame's GPU fence before this frame began */
@@ -129,6 +136,7 @@ class ProfileImpl implements Profile {
     readonly indirectCount = new Map<string, number>();
     readonly indirectFires = new Map<string, number>();
     readonly compile = new Map<string, number>();
+    readonly compiledPipelines = new Set<string>();
     compileMs = 0;
     fenceWaitMs = 0;
     submitCount = 0;
@@ -200,14 +208,14 @@ class ProfileImpl implements Profile {
         device.createComputePipelineAsync = async (desc: GPUComputePipelineDescriptor) => {
             const start = performance.now();
             const pipeline = await origCompute(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now());
+            this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
         const origRender = device.createRenderPipelineAsync.bind(device);
         device.createRenderPipelineAsync = async (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
             const pipeline = await origRender(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now());
+            this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
 
@@ -222,14 +230,14 @@ class ProfileImpl implements Profile {
         device.createComputePipeline = (desc: GPUComputePipelineDescriptor) => {
             const start = performance.now();
             const pipeline = origComputeSync(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now());
+            this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
         const origRenderSync = device.createRenderPipeline.bind(device);
         device.createRenderPipeline = (desc: GPURenderPipelineDescriptor) => {
             const start = performance.now();
             const pipeline = origRenderSync(desc);
-            this.recordCompile(desc.label ?? "", start, performance.now());
+            this.recordCompile(desc.label ?? "", start, performance.now(), true);
             return pipeline;
         };
 
@@ -396,8 +404,12 @@ class ProfileImpl implements Profile {
         }
     }
 
-    /** @internal — also the `Compute.precompiled` sink for typed pipelines */
-    recordCompile(label: string, start: number, end: number): void {
+    /** @internal — also the `Compute.precompiled` sink for typed pipelines. `isPipeline` marks a call
+     *  that came from an actual `create*Pipeline(Async)` constructor (real pipelines: {@link compiledPipelines}),
+     *  as opposed to a `precompile` forcer-scope span observing one after the fact — membership is
+     *  monotonic (only added, never revoked) so a forcer's later, non-pipeline call can still refine an
+     *  already-pipeline-marked label's timing without downgrading its classification. */
+    recordCompile(label: string, start: number, end: number, isPipeline = false): void {
         // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
         // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
         // `Compute.precompiled` completion measurement (the real fenced span) converge on ONE entry under
@@ -409,13 +421,16 @@ class ProfileImpl implements Profile {
         // A MISSING label carries no such naming discipline, so it disambiguates instead: several
         // anonymous pipelines are common (nobody labeled them), and collapsing them under one
         // "(unlabeled)" key would silently undercount every one past the first.
+        let key: string;
         if (label) {
-            this.compile.set(label, end - start);
+            key = label;
         } else {
             const seen = (this._compileSeen.get("") ?? 0) + 1;
             this._compileSeen.set("", seen);
-            this.compile.set(seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`, end - start);
+            key = seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`;
         }
+        this.compile.set(key, end - start);
+        if (isPipeline) this.compiledPipelines.add(key);
         if (start < this._compileEarliest) this._compileEarliest = start;
         if (end > this._compileLatest) this._compileLatest = end;
         this.compileMs = this._compileLatest - this._compileEarliest;

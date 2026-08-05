@@ -1316,7 +1316,7 @@ export function compileVariant<
                 },
                 multisample: { count: SAMPLE_COUNT },
             })
-            .$name(`sear-typed-transparent-${surface.name}`);
+            .$name(`sear-typed-transparent-${args.name}`);
         // `blend: "alpha"` casts nothing (a transparent pixel has no single owner, `compileVariant`'s own
         // rule) — the same reason its prepass map stays empty
         compiled = {
@@ -1344,7 +1344,7 @@ export function compileVariant<
                 },
                 multisample: { count: SAMPLE_COUNT },
             })
-            .$name(`sear-typed-${surface.name}`);
+            .$name(`sear-typed-${args.name}`);
         compiled = {
             owner: surface as AnySurface,
             layout: surface.layout as SurfaceLayout<Record<string, Binding>>,
@@ -1357,9 +1357,9 @@ export function compileVariant<
             args,
         };
     }
-    compiled.prepass = compileTypedPrepass(resolved);
+    compiled.prepass = compileTypedPrepass(resolved, variant);
     if (resolved.blend !== "alpha") {
-        const { point, cascade } = compileTypedShadow(resolved);
+        const { point, cascade } = compileTypedShadow(resolved, variant);
         compiled.point = point;
         compiled.cascade = cascade;
     }
@@ -1421,7 +1421,10 @@ export function ensureSingle(t: CompiledSurface): void {
  * `compileVariant` applies (a transparent pixel has no single owner, writes no prepass depth) — so its map
  * stays empty.
  */
-function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipeline<any>> {
+function compileTypedPrepass(
+    surface: AnySurface,
+    variant: number,
+): Map<string, TgpuRenderPipeline<any>> {
     const prepass = new Map<string, TgpuRenderPipeline<any>>();
     if (surface.blend === "alpha") return prepass;
     const primitive = surfacePrimitive(surface.screen);
@@ -1454,7 +1457,7 @@ function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipelin
             primitive,
             depthStencil,
         })
-        .$name(`sear-typed-prepass-${surface.name}`);
+        .$name(`sear-typed-prepass-${surface.name}#${variant}`);
     prepass.set("", depthOnly);
     const tag = root
         .createRenderPipeline({
@@ -1476,7 +1479,7 @@ function compileTypedPrepass(surface: AnySurface): Map<string, TgpuRenderPipelin
             primitive,
             depthStencil,
         })
-        .$name(`sear-typed-prepass-tag-${surface.name}`);
+        .$name(`sear-typed-prepass-tag-${surface.name}#${variant}`);
     prepass.set("tag", tag);
     return prepass;
 }
@@ -1938,7 +1941,10 @@ function clipShadowFs(surface: AnySurface) {
  * two atlases are sized independently — the point atlas's live caster cap vs the cascade atlas's fixed
  * resolution × grid).
  */
-function compileTypedShadow(surface: AnySurface): {
+function compileTypedShadow(
+    surface: AnySurface,
+    variant: number,
+): {
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
 } {
@@ -1969,7 +1975,7 @@ function compileTypedShadow(surface: AnySurface): {
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-point-${surface.name}`);
+        .$name(`sear-typed-point-${surface.name}#${variant}`);
     const cascade = root
         .createRenderPipeline({
             vertex: clip
@@ -1999,7 +2005,7 @@ function compileTypedShadow(surface: AnySurface): {
             depthStencil,
             multisample: { count: 1 },
         })
-        .$name(`sear-typed-cascade-${surface.name}`);
+        .$name(`sear-typed-cascade-${surface.name}#${variant}`);
     return { point, cascade };
 }
 

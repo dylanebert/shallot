@@ -90,6 +90,12 @@ describe("ProfilePlugin", () => {
             } as unknown as GPUComputePipelineDescriptor);
             expect(Profile.compile.has("sync-compute-pipeline")).toBe(true);
 
+            // both came from a real constructor call, so both count toward the pipeline-count golden
+            // (`Profile.compiledPipelines`), not just `compile`'s raw key set — see the review test below,
+            // which pins the opposite case (a scope-only label that never constructed a pipeline).
+            expect(Profile.compiledPipelines.has("sync-render-pipeline")).toBe(true);
+            expect(Profile.compiledPipelines.has("sync-compute-pipeline")).toBe(true);
+
             // a missing label carries no naming discipline — two anonymous pipelines are genuinely
             // distinct, so collapsing them would silently undercount every one past the first.
             Compute.device.createRenderPipeline({} as unknown as GPURenderPipelineDescriptor);
@@ -151,5 +157,22 @@ describe("ProfilePlugin", () => {
         Compute.precompiled?.("kitchen-part-scan", 137.5, 200);
         expect(Profile.compile.get("kitchen-part-scan")).toBe(62.5);
         expect(Profile.compileMs).toBeGreaterThanOrEqual(100);
+    });
+
+    // `precompileVariants` wraps N real pipeline compiles in ONE `Compute.precompiled` call under a
+    // scope label that matches no actual pipeline (`"sear-typed-variants"`) — its timing is real and
+    // belongs in `compile`, but counting it as a pipeline is exactly the blind spot stage 3a closed for
+    // per-variant pipelines and must not reopen for the scope label itself (review finding 2).
+    test("a scope-only Compute.precompiled label lands in compile but not compiledPipelines", () => {
+        const prev = Compute.device;
+        Object.assign(Compute, { device: capableDevice() });
+        try {
+            ProfilePlugin.initialize?.(new State());
+        } finally {
+            Object.assign(Compute, { device: prev });
+        }
+        Compute.precompiled?.("sear-typed-variants", 0, 0.16);
+        expect(Profile.compile.get("sear-typed-variants")).toBe(0.16);
+        expect(Profile.compiledPipelines.has("sear-typed-variants")).toBe(false);
     });
 });
