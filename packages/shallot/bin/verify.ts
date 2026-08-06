@@ -929,7 +929,8 @@ const usage = `
 // this CLI on the WSL bridge). Writes to the same handle are flushed in the order they were
 // queued, so awaiting one more (empty) write's callback proves every prior write already landed — the one
 // seam `runVerify` awaits before returning, covering every payload it can emit (batch array, `--timings`,
-// shader artifacts, a lone large verdict) without each call site tracking its own flush.
+// shader artifacts, a lone large verdict) without each call site tracking its own flush. It runs in a
+// `finally` around `verifyCommand`, so a throw that escapes it still delivers what was already printed.
 /** @internal exported only so the pipe-truncation regression test can drive the exact production seam
  *  from a subprocess. */
 export function flushStdout(): Promise<void> {
@@ -961,11 +962,15 @@ function attachErrorCapture(page: Page): string[] {
 }
 
 /** run `shallot verify` from the CLI's remaining args. Returns the process exit code, only once every
- *  report it printed has actually reached stdout — see {@link flushStdout}. */
+ *  report it printed has actually reached stdout — see {@link flushStdout}. The flush runs in a
+ *  `finally`, so a throw escaping `verifyCommand` still delivers whatever was already printed before
+ *  propagating. */
 export async function runVerify(raw: string[]): Promise<number> {
-    const code = await verifyCommand(raw);
-    await flushStdout();
-    return code;
+    try {
+        return await verifyCommand(raw);
+    } finally {
+        await flushStdout();
+    }
 }
 
 async function verifyCommand(raw: string[]): Promise<number> {

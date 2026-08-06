@@ -833,4 +833,113 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
             }
         },
     );
+
+    // The test above drives the primitives (`flushStdout` + `reportBatch`) hand-sequenced, which proves
+    // the mechanism but not the wiring: reverting `runVerify`'s own `await flushStdout()` left it green
+    // (found by the stage 7 review pass). This one drives `runVerify` itself — production's exact
+    // function, no browser needed: `parseVerifyArgs` throws on an unrecognized flag (verify.ts:115)
+    // before `importPlaywright` is ever reached, so a >64 KiB flag name reaches `reportError`'s JSON
+    // payload through the same path a real setup failure takes. One arm is bare (replicates the pre-fix
+    // shape — parse, print, exit, no flush) to prove the payload genuinely risks truncation on this pipe;
+    // the other calls `runVerify` and exits on its returned code. Reverting `runVerify`'s flush makes the
+    // production arm truncate exactly like the bare one, since both arms run through the current bundle.
+    test.skipIf(!hasNode)(
+        "a >64 KiB setup-error payload through runVerify survives process.exit; a bare exit does not",
+        async () => {
+            const dir = mkdtempSync(
+                join(REPO_ROOT, "node_modules/.cache/shallot-flush-runverify-test-"),
+            );
+            try {
+                const bundle = join(dir, "verify.bundle.mjs");
+                const build = Bun.spawnSync(
+                    [
+                        "bun",
+                        "build",
+                        join(import.meta.dir, "verify.ts"),
+                        "--target",
+                        "node",
+                        "--format",
+                        "esm",
+                        "--outfile",
+                        bundle,
+                        "--define",
+                        `import.meta.dir="${import.meta.dir}"`,
+                        "--external",
+                        "vite",
+                        "--external",
+                        "playwright",
+                        "--external",
+                        "lightningcss",
+                        "--external",
+                        "@swc/*",
+                        "--external",
+                        "esbuild",
+                        "--external",
+                        "rollup",
+                        "--external",
+                        "fsevents",
+                    ],
+                    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+                );
+                expect(build.exitCode).toBe(0);
+
+                // large enough that the bare arm reliably hits the pipe wall (200 KB flirted with it and
+                // flaked — a fast reader sometimes drains a single ~200 KB write before exit runs).
+                const badArg = "'--' + 'x'.repeat(1_000_000)";
+
+                const bare = join(dir, "bare.mjs");
+                writeFileSync(
+                    bare,
+                    `import { parseVerifyArgs } from "./verify.bundle.mjs";\n` +
+                        `try {\n` +
+                        `  parseVerifyArgs([${badArg}, "--json"]);\n` +
+                        `} catch (err) {\n` +
+                        `  console.log(JSON.stringify({ pass: false, error: err.message }));\n` +
+                        `}\n` +
+                        `process.exit(2);\n`,
+                );
+                const viaRunVerify = join(dir, "via-runverify.mjs");
+                writeFileSync(
+                    viaRunVerify,
+                    `import { runVerify } from "./verify.bundle.mjs";\n` +
+                        `const code = await runVerify([${badArg}, "--json"]);\n` +
+                        `process.exit(code);\n`,
+                );
+
+                const run = async (script: string) => {
+                    const proc = Bun.spawn(["node", script], {
+                        cwd: dir,
+                        stdout: "pipe",
+                        stderr: "inherit",
+                    });
+                    const stdout = await new Response(proc.stdout).text();
+                    await proc.exited;
+                    return stdout;
+                };
+
+                const [bareOut, runVerifyOut] = await Promise.all([run(bare), run(viaRunVerify)]);
+
+                // the expected payload, computed independently of either subprocess's output — pins
+                // against a known size rather than comparing two runs that can each truncate at a
+                // reader-timing-dependent point (measured: comparing them against each other flaked when
+                // both truncated, since the loser of that race is not always the same arm).
+                const expectedMessage = `unknown option: --${"x".repeat(1_000_000)}`;
+                const expectedJson = `${JSON.stringify({ pass: false, error: expectedMessage })}\n`;
+                const expectedLength = Buffer.byteLength(expectedJson, "utf8");
+
+                // the payload is genuinely big enough to hit the wall...
+                expect(expectedLength).toBeGreaterThan(65_536);
+                // ...the bare exit (parse, print, exit — no flush) cuts it off before the pipe drains...
+                expect(Buffer.byteLength(bareOut, "utf8")).toBeLessThan(expectedLength);
+                // ...and `runVerify` itself delivers every byte, byte-identical to the un-truncated JSON.
+                expect(runVerifyOut).toBe(expectedJson);
+                expect(JSON.parse(runVerifyOut.trim())).toEqual({
+                    pass: false,
+                    error: expectedMessage,
+                });
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        },
+    );
 });
