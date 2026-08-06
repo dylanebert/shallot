@@ -756,11 +756,18 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
     }
     const attribution = inducedMean > 0 ? otherDrift / inducedMean : Number.POSITIVE_INFINITY;
 
-    // even pacing, CPU-side: (1) the induced cost is STEADY — the submission system's p99 ≈ its mean, so the
-    // per-frame JS scales smoothly with the knob, no spike in the induced work itself (the occP99/occMs
-    // analog, on the CPU). (2) no COLLATERAL spike — no OTHER system's p99 climbs beyond its clean baseline:
-    // a GC pause from the slab-write churn (the CPU-memory axis it couples to) would surface on some system's
-    // p99, immune to the 2-in-flight tick beat.
+    // no-collateral-spike, CPU-side: no OTHER system's p99 climbs beyond its clean baseline — a GC pause from
+    // the slab-write churn (the CPU-memory axis it couples to) would surface on some system's p99, immune to
+    // the 2-in-flight tick beat.
+    //
+    // inducedRatio (induced system's own p99/mean) is printed but NOT gated. OCC_K = 1.25 (`paceChecks`,
+    // above) is derived from GPU-timestamped per-occurrence occupancy jitter (≈1.04 measured) — a driver
+    // completion-fence signal. This axis's inducedRatio is a CPU wall-clock p99/mean on a harness that owns
+    // ~99% of the frame, where a host stall (GC, OS scheduling, the WSL→Windows bridge) lands inside the
+    // measured span by near-certainty — a noise floor OCC_K was never derived against. Red 1/5–1/9 runs
+    // across 13 sequential samples with no real regression found; a tripled sample window didn't fix it
+    // (falsified by its own 9th run, 1.42×). Don't re-add it to the pass condition, and don't rebase it
+    // against the idle run's own p99/mean either — that trades one underived constant for another.
     const inducedRatio = inducedMean > 0 ? inducedP99 / inducedMean : Number.POSITIVE_INFINITY;
     let otherSpikeClimb = 0;
     let spikeSys = "";
@@ -776,8 +783,9 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
     const saturated = share >= DOMINANCE && inducedMean > 0;
     const attributed = saturated && attribution < ATTRIB;
     const atWall = cpuHot >= FELT_MS;
-    const evenPaced =
-        inducedMean > 0 && inducedRatio <= OCC_K && otherSpikeClimb <= CPU_SPIKE_MARGIN;
+    // gates only otherSpikeClimb — inducedRatio has no derived bound on this axis (see the why-comment above)
+    // and is printed, never gated.
+    const noSpike = inducedMean > 0 && otherSpikeClimb <= CPU_SPIKE_MARGIN;
     const fps = cpuHot > 0 ? 1000 / cpuHot : 0;
     const pool = submissionPool();
 
@@ -813,7 +821,8 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
             data,
         },
         {
-            // ties the gate to the per-system percentile metric the even-pacing read depends on
+            // ties the gate to the per-system percentile metric the printed inducedRatio and the spike
+            // guard both read
             name: "stress: submission — per-system CPU percentile metric resolves for the induced system",
             pass: inducedP99 > 0 && inducedMean > 0,
             detail: `${span} mean ${f3(inducedMean)} · p99 ${f3(inducedP99)} ms`,
@@ -830,12 +839,14 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
             data,
         },
         {
-            // EVEN PACING: the chosen response is an even slowdown — the per-frame JS scales smoothly (the
-            // induced system's p99 ≈ mean) with no GC spike (no other system's p99 climbs). Reads the
-            // per-system CPU percentiles, not the rAF-beat-bearing tick interval.
-            name: "stress: submission — even pacing: cost scales smoothly, no per-system outlier",
-            pass: evenPaced,
-            detail: `induced cost steady (p99/mean ${inducedRatio.toFixed(2)}× ≤ ${OCC_K}×: ${f3(inducedP99)} / ${f3(inducedMean)} ms) · no collateral spike (worst other system ${spikeSys || "—"} p99 +${f3(otherSpikeClimb)} ≤ ${CPU_SPIKE_MARGIN} ms vs idle) — the slab-write churn injects no GC pause`,
+            // NO COLLATERAL SPIKE: the chosen response is an even slowdown, and this check gates its one
+            // derived half — no OTHER system's p99 climbs beyond its clean baseline (a GC pause / sync
+            // compile / big sync readback from the slab-write churn would surface there). Reads the
+            // per-system CPU percentiles, not the rAF-beat-bearing tick interval. The induced system's own
+            // p99/mean (inducedRatio, printed below) is NOT gated — see the why-comment above `inducedRatio`.
+            name: "stress: submission — no collateral spike: induced slab-write churn injects no CPU spike",
+            pass: noSpike,
+            detail: `no collateral spike (worst other system ${spikeSys || "—"} p99 +${f3(otherSpikeClimb)} ≤ ${CPU_SPIKE_MARGIN} ms vs idle) — the slab-write churn injects no GC pause · induced cost p99/mean ${inducedRatio.toFixed(2)}× (${f3(inducedP99)} / ${f3(inducedMean)} ms, printed only — no derived bound on this axis)`,
             data,
         },
         {
