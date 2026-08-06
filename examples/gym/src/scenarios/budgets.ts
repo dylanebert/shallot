@@ -46,6 +46,14 @@
 // non-determinism (`avbd.md`) — their measured disagreement tracks back to the SAME lazy-pool bytes
 // (`slab-staging`, shared by every scene with a dirty transform slab), not to a byte-affecting instance of
 // that non-determinism, on the topologies these scenarios exercise.
+//
+// `AvbdPlugin`'s other grow-on-demand buffer, `setHulls`'s `hullData` (`standard/avbd/step.ts`), was
+// checked and ruled out as a third lazy site: it re-uploads only when `Hulls.size` changes
+// (`standard/avbd/index.ts`), a count fixed by which hulls a scenario registers at build — static
+// registry content, not real-device readback timing — so it's deterministic for a fixed scenario at
+// fixed params and carries no `LazyAlloc` mark. Stage 4d's attribution corroborates this independently:
+// every one of the 34 disagreeing rows, including the AVBD-heavy ones, traced to the single label
+// `slab-staging`, never `phys-hulls`.
 export interface AxisBudget {
     pipelines?: number;
     gpuBytes?: number;
@@ -57,13 +65,17 @@ export interface AxisExemption {
 }
 
 export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
-    // measured 2026-08-05, nvidia/lovelace via the WSL bridge, one `bun bench --sweep` at default params
-    // under the stage 4e exclusion (`gpuBytes` = `Profile.bufferBytes + Profile.textureBytes -
-    // Profile.lazyBytes`) — a data-only re-harvest, not a re-measurement of the scene (`shallot-perf-gates`
-    // stage 4e). `backend`, `render`, `character`, `motor`, `sat`, `stress`, `chain` additionally carry 3
-    // independent same-day confirmation runs beyond the sweep sample (the stage 4c floor), since each was
-    // previously byte-exempt; every other row rests on the one sweep sample, sound by 4d's mechanism proof
-    // (the whole roster's disagreement traced to the one now-excluded pool, so nothing else is in doubt).
+    // measured 2026-08-05, nvidia/lovelace via the WSL bridge, under the stage 4e exclusion (`gpuBytes` =
+    // `Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes`) — a data-only re-harvest, not a
+    // re-measurement of the scene (`shallot-perf-gates` stage 4e). Every row here rests on TWO independent
+    // agreeing samples, not one: the harvest `bun bench --sweep` that produced these numbers finished
+    // 22:17, the numbers were written here at 22:29, the temporary harvest check (`assertBudget`'s
+    // `pass: false` instrument) was removed at 22:30, and a second sweep ran 22:31–22:37 — clean 57/57
+    // against these already-final goldens through the real exact-equality checks, a verifier confirming
+    // the harvest's numbers, not a second producer of them. `backend`, `render`, `character`, `motor`,
+    // `sat`, `stress`, `chain` additionally carry two independent same-day `--scenario` confirmation runs
+    // from the stage 4c floor (since each was previously byte-exempt), so those 7 rows rest on FOUR
+    // independent agreeing samples.
     accel: { pipelines: 44, gpuBytes: 34_574_780 },
     backend: { pipelines: 29, gpuBytes: 12_723_708 },
     "bodies-body-type": { pipelines: 30, gpuBytes: 13_519_028 },

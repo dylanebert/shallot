@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import {
     build,
+    Compute,
+    capacity,
     entity,
     f16x4,
     f32,
@@ -197,6 +199,65 @@ describe("reset during an in-flight flush", () => {
         app.dispose(); // Slab.reset() — the in-flight stager escapes the pool teardown
         await settle(1);
         expect(pool.length).toBe(0); // destroyed by the epoch guard, not re-pooled stale
+    });
+});
+
+describe("staging pool allocation", () => {
+    // `createStager` (module-private in index.ts) is the site that carries `lazy: true` (index.ts:49) —
+    // it fires whenever `Slab.flush()` finds an empty `_stagingPool` for a dirty slab, i.e. real GPU
+    // backpressure (no prior stager has mapped back yet). This drives `flush()`'s real branch and reads
+    // the descriptor `device.createBuffer` actually received, rather than restating the literal against
+    // itself. The pipeline/bind-group fields `prepare()` would normally set are device-work this file
+    // doesn't do (see the file header) — stand them in with the minimal fakes `flush()` actually calls,
+    // the same bypass-private-fields pattern the "in-flight flush" test above uses for `_stagingPool`.
+    test("a stager grown under real backpressure carries the lazy mark", () => {
+        const Marker: { v: Slab } = { v: new Slab() };
+        register("Marker", Marker);
+        Slab.collect();
+        Marker.v.set(7, 1.5); // dirties the slot flush() checks
+
+        const s = Marker.v as unknown as {
+            gpu: unknown;
+            _rawSlots: unknown;
+            _rawValues: unknown;
+            _bound: { with: (pass: unknown) => { dispatchWorkgroups: (n: number) => void } };
+        };
+        s.gpu = {};
+        s._rawSlots = {};
+        s._rawValues = {};
+        s._bound = { with: () => ({ dispatchWorkgroups: () => {} }) };
+
+        const created: (GPUBufferDescriptor & { lazy?: boolean })[] = [];
+        const stagerBytes = (capacity + 1) * 4 + capacity * 4; // f32 element, matches flush()'s own math
+        const fakeStager = {
+            getMappedRange: () => new ArrayBuffer(stagerBytes),
+            unmap: () => {},
+            mapAsync: () => new Promise<void>(() => {}), // never resolves — the test only needs the descriptor
+        } as unknown as GPUBuffer;
+        const device = {
+            createCommandEncoder: () => ({
+                copyBufferToBuffer: () => {},
+                beginComputePass: () => ({ end: () => {} }),
+                finish: () => ({}),
+            }),
+            createBuffer: (desc: GPUBufferDescriptor) => {
+                created.push(desc as GPUBufferDescriptor & { lazy?: boolean });
+                return fakeStager;
+            },
+            queue: { submit: () => {} },
+        } as unknown as GPUDevice;
+        const prevDevice = Compute.device;
+        Object.assign(Compute, { device });
+
+        try {
+            Slab.flush();
+        } finally {
+            Object.assign(Compute, { device: prevDevice });
+        }
+
+        expect(created.length).toBe(1);
+        expect(created[0].label).toBe("slab-staging");
+        expect(created[0].lazy).toBe(true);
     });
 });
 
