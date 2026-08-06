@@ -743,43 +743,62 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
     // Both read through a real OS pipe, the same channel `scripts/verify.ts`'s `spawnVerify` reads.
     const hasNode = Bun.which("node") != null;
 
+    // both regression tests below bundle `verify.ts` the same way (a real `node`-targeted build, the
+    // externals matching `scripts/wsl-bridge.ts`'s `buildBundle`) and run a script against it the same
+    // way — shared here so the bundling command and the subprocess-reading logic live once, not twice.
+    const buildVerifyBundle = (dir: string): string => {
+        const bundle = join(dir, "verify.bundle.mjs");
+        const build = Bun.spawnSync(
+            [
+                "bun",
+                "build",
+                join(import.meta.dir, "verify.ts"),
+                "--target",
+                "node",
+                "--format",
+                "esm",
+                "--outfile",
+                bundle,
+                "--define",
+                `import.meta.dir="${import.meta.dir}"`,
+                "--external",
+                "vite",
+                "--external",
+                "playwright",
+                "--external",
+                "lightningcss",
+                "--external",
+                "@swc/*",
+                "--external",
+                "esbuild",
+                "--external",
+                "rollup",
+                "--external",
+                "fsevents",
+            ],
+            { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+        );
+        expect(build.exitCode).toBe(0);
+        return bundle;
+    };
+
+    const runNode = async (dir: string, script: string): Promise<string> => {
+        const proc = Bun.spawn(["node", script], {
+            cwd: dir,
+            stdout: "pipe",
+            stderr: "inherit",
+        });
+        const stdout = await new Response(proc.stdout).text();
+        await proc.exited;
+        return stdout;
+    };
+
     test.skipIf(!hasNode)(
         "a >64 KiB batch report exits truncated without flushStdout, whole with it",
         async () => {
             const dir = mkdtempSync(join(REPO_ROOT, "node_modules/.cache/shallot-flush-test-"));
             try {
-                const bundle = join(dir, "verify.bundle.mjs");
-                const build = Bun.spawnSync(
-                    [
-                        "bun",
-                        "build",
-                        join(import.meta.dir, "verify.ts"),
-                        "--target",
-                        "node",
-                        "--format",
-                        "esm",
-                        "--outfile",
-                        bundle,
-                        "--define",
-                        `import.meta.dir="${import.meta.dir}"`,
-                        "--external",
-                        "vite",
-                        "--external",
-                        "playwright",
-                        "--external",
-                        "lightningcss",
-                        "--external",
-                        "@swc/*",
-                        "--external",
-                        "esbuild",
-                        "--external",
-                        "rollup",
-                        "--external",
-                        "fsevents",
-                    ],
-                    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
-                );
-                expect(build.exitCode).toBe(0);
+                buildVerifyBundle(dir);
 
                 const makeResults =
                     "Array.from({ length: 4000 }, (_, i) => ({ project: '/tmp/gym', mode: 'dev', " +
@@ -806,18 +825,10 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
                         `process.exit(0);\n`,
                 );
 
-                const run = async (script: string) => {
-                    const proc = Bun.spawn(["node", script], {
-                        cwd: dir,
-                        stdout: "pipe",
-                        stderr: "inherit",
-                    });
-                    const stdout = await new Response(proc.stdout).text();
-                    await proc.exited;
-                    return stdout;
-                };
-
-                const [before, after] = await Promise.all([run(unflushed), run(flushed)]);
+                const [before, after] = await Promise.all([
+                    runNode(dir, unflushed),
+                    runNode(dir, flushed),
+                ]);
                 const fullLength = Buffer.byteLength(after, "utf8");
 
                 // the payload is genuinely big enough to hit the wall...
@@ -850,38 +861,7 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
                 join(REPO_ROOT, "node_modules/.cache/shallot-flush-runverify-test-"),
             );
             try {
-                const bundle = join(dir, "verify.bundle.mjs");
-                const build = Bun.spawnSync(
-                    [
-                        "bun",
-                        "build",
-                        join(import.meta.dir, "verify.ts"),
-                        "--target",
-                        "node",
-                        "--format",
-                        "esm",
-                        "--outfile",
-                        bundle,
-                        "--define",
-                        `import.meta.dir="${import.meta.dir}"`,
-                        "--external",
-                        "vite",
-                        "--external",
-                        "playwright",
-                        "--external",
-                        "lightningcss",
-                        "--external",
-                        "@swc/*",
-                        "--external",
-                        "esbuild",
-                        "--external",
-                        "rollup",
-                        "--external",
-                        "fsevents",
-                    ],
-                    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
-                );
-                expect(build.exitCode).toBe(0);
+                buildVerifyBundle(dir);
 
                 // large enough that the bare arm reliably hits the pipe wall (200 KB flirted with it and
                 // flaked — a fast reader sometimes drains a single ~200 KB write before exit runs).
@@ -906,18 +886,10 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
                         `process.exit(code);\n`,
                 );
 
-                const run = async (script: string) => {
-                    const proc = Bun.spawn(["node", script], {
-                        cwd: dir,
-                        stdout: "pipe",
-                        stderr: "inherit",
-                    });
-                    const stdout = await new Response(proc.stdout).text();
-                    await proc.exited;
-                    return stdout;
-                };
-
-                const [bareOut, runVerifyOut] = await Promise.all([run(bare), run(viaRunVerify)]);
+                const [bareOut, runVerifyOut] = await Promise.all([
+                    runNode(dir, bare),
+                    runNode(dir, viaRunVerify),
+                ]);
 
                 // the expected payload, computed independently of either subprocess's output — pins
                 // against a known size rather than comparing two runs that can each truncate at a
