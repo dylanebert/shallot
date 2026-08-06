@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
     benchTimeout,
@@ -38,6 +40,8 @@ import {
     type WaitState,
     withTimeout,
 } from "./verify";
+
+const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
 describe("parseVerifyArgs", () => {
     test("defaults: dir '.', dev boot, 60s budget", () => {
@@ -726,4 +730,107 @@ describe("reportBatch — the batch human/JSON rendering", () => {
             console.log = original;
         }
     });
+});
+
+describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-perf-gates stage 7)", () => {
+    // The truncation is a Node behavior, not a Bun one (measured: `bun -e "console.log(huge); process.exit(0)"`
+    // piped never truncates; `node` does, exactly at 65,536 B). It's Node that hits it in production — the
+    // WSL bridge runs a `bun build --target node` bundle of this CLI (`scripts/wsl-bridge.ts` buildBundle),
+    // because that's how the batch sweep drives a real GPU on this platform. So the regression test bundles
+    // `verify.ts` the same way and runs it under `node`, reproducing the CLI's real report boundary —
+    // `reportBatch` under --json is the exact call a sweep's batch report makes — as two runs sharing one
+    // >64 KiB payload: one exits the old way (no flush, the bug), one exits through `flushStdout` (the fix).
+    // Both read through a real OS pipe, the same channel `scripts/verify.ts`'s `spawnVerify` reads.
+    const hasNode = Bun.which("node") != null;
+
+    test.skipIf(!hasNode)(
+        "a >64 KiB batch report exits truncated without flushStdout, whole with it",
+        async () => {
+            const dir = mkdtempSync(join(REPO_ROOT, "node_modules/.cache/shallot-flush-test-"));
+            try {
+                const bundle = join(dir, "verify.bundle.mjs");
+                const build = Bun.spawnSync(
+                    [
+                        "bun",
+                        "build",
+                        join(import.meta.dir, "verify.ts"),
+                        "--target",
+                        "node",
+                        "--format",
+                        "esm",
+                        "--outfile",
+                        bundle,
+                        "--define",
+                        `import.meta.dir="${import.meta.dir}"`,
+                        "--external",
+                        "vite",
+                        "--external",
+                        "playwright",
+                        "--external",
+                        "lightningcss",
+                        "--external",
+                        "@swc/*",
+                        "--external",
+                        "esbuild",
+                        "--external",
+                        "rollup",
+                        "--external",
+                        "fsevents",
+                    ],
+                    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+                );
+                expect(build.exitCode).toBe(0);
+
+                const makeResults =
+                    "Array.from({ length: 4000 }, (_, i) => ({ project: '/tmp/gym', mode: 'dev', " +
+                    "url: 'http://localhost/gym', hardware: 'test-gpu', harness: true, booted: true, " +
+                    "rendered: true, errors: [], pass: true, " +
+                    "verdict: { ok: true, checks: [], metrics: { scenario: i, blob: 'x'.repeat(300) } } }))";
+                const labels = "results.map((_, i) => 'scenario=s' + i)";
+
+                const unflushed = join(dir, "unflushed.mjs");
+                writeFileSync(
+                    unflushed,
+                    `import { reportBatch } from "./verify.bundle.mjs";\n` +
+                        `const results = ${makeResults};\n` +
+                        `reportBatch(results, ${labels}, true);\n` +
+                        `process.exit(0);\n`,
+                );
+                const flushed = join(dir, "flushed.mjs");
+                writeFileSync(
+                    flushed,
+                    `import { flushStdout, reportBatch } from "./verify.bundle.mjs";\n` +
+                        `const results = ${makeResults};\n` +
+                        `reportBatch(results, ${labels}, true);\n` +
+                        `await flushStdout();\n` +
+                        `process.exit(0);\n`,
+                );
+
+                const run = async (script: string) => {
+                    const proc = Bun.spawn(["node", script], {
+                        cwd: dir,
+                        stdout: "pipe",
+                        stderr: "inherit",
+                    });
+                    const stdout = await new Response(proc.stdout).text();
+                    await proc.exited;
+                    return stdout;
+                };
+
+                const [before, after] = await Promise.all([run(unflushed), run(flushed)]);
+                const fullLength = Buffer.byteLength(after, "utf8");
+
+                // the payload is genuinely big enough to hit the wall...
+                expect(fullLength).toBeGreaterThan(65_536);
+                // ...the unflushed exit cuts it off before the pipe drains (the bug, still reproducible
+                // today — the exact byte count where it cuts off is reader-timing-dependent, so only the
+                // fact of truncation is asserted, not a specific count)...
+                expect(Buffer.byteLength(before, "utf8")).toBeLessThan(fullLength);
+                // ...and the flushed exit delivers every byte, parseable back into all 4000 verdicts (the fix).
+                expect(JSON.parse(after.trim())).toHaveLength(4000);
+            } finally {
+                rmSync(dir, { recursive: true, force: true });
+            }
+        },
+    );
 });

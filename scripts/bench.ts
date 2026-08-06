@@ -365,9 +365,17 @@ async function registeredScenarios(): Promise<string[]> {
 
 // one sweep row's verdict, printed the same shape whether it ran batched or isolated — the caller can't
 // tell which path produced it, which is the point (`shallot verify`'s one-verdict law holds either way).
-function printSweepResult(name: string, result: VerifyResult | null): boolean {
+// `bytes` (batch rows only — isolate rows have no separate byte-count channel) is the raw stdout size:
+// null `result` covers a real crash and a truncated-or-unparseable stream alike, and there's no way from
+// here to tell which, so the observable byte count is what gets reported (measured: a 64 KiB pipe-buffer
+// cutoff, `shallot-perf-gates` stage 7).
+function printSweepResult(name: string, result: VerifyResult | null, bytes?: number): boolean {
     if (!result) {
-        console.log(`✗ ${name} — no result (verify crashed before reporting)`);
+        const detail =
+            bytes != null
+                ? `no parseable verdict array on stdout (${bytes} bytes received)`
+                : "no parseable verdict on stdout";
+        console.log(`✗ ${name} — ${detail}`);
         return false;
     }
     const checks = result.verdict?.checks;
@@ -398,14 +406,16 @@ async function sweep(names: string[], args: Args): Promise<boolean> {
     for (const group of groupByTimeout(batch, args.timeoutMs)) {
         const extra = [...queryFlags(shared), ...(args.memory ? ["--memory"] : [])];
         if (group.timeoutMs != null) extra.push("--timeout", String(group.timeoutMs));
-        const results = await verifyBatch(
+        const { results, bytes } = await verifyBatch(
             GYM,
             group.names.map((name) => `scenario=${name}`),
             extra,
             true,
         );
         group.names.forEach((name, i) => {
-            if (!printSweepResult(name, results?.[i] ?? null)) allPass = false;
+            if (!printSweepResult(name, results?.[i] ?? null, results ? undefined : bytes)) {
+                allPass = false;
+            }
         });
     }
 

@@ -923,6 +923,19 @@ const usage = `
   Requires playwright (optional): ${INSTALL_PLAYWRIGHT}
 `;
 
+// Node's stdout-to-a-pipe is async: `console.log`/`process.stdout.write` queue the write and return
+// before the OS has it, so a `process.exit()` right after silently drops whatever's still queued past the
+// pipe buffer (measured: cut at exactly 64 KiB under node; bun did not truncate, but node is what runs
+// this CLI on the WSL bridge). Writes to the same handle are flushed in the order they were
+// queued, so awaiting one more (empty) write's callback proves every prior write already landed — the one
+// seam `runVerify` awaits before returning, covering every payload it can emit (batch array, `--timings`,
+// shader artifacts, a lone large verdict) without each call site tracking its own flush.
+/** @internal exported only so the pipe-truncation regression test can drive the exact production seam
+ *  from a subprocess. */
+export function flushStdout(): Promise<void> {
+    return new Promise((resolve) => process.stdout.write("", () => resolve()));
+}
+
 // the one failure path for runs that never reach a verdict: a machine consumer always gets JSON on
 // stdout under --json; a human gets the message on stderr.
 function reportError(message: string, json: boolean): void {
@@ -947,8 +960,15 @@ function attachErrorCapture(page: Page): string[] {
     return errors;
 }
 
-/** run `shallot verify` from the CLI's remaining args. Returns the process exit code. */
+/** run `shallot verify` from the CLI's remaining args. Returns the process exit code, only once every
+ *  report it printed has actually reached stdout — see {@link flushStdout}. */
 export async function runVerify(raw: string[]): Promise<number> {
+    const code = await verifyCommand(raw);
+    await flushStdout();
+    return code;
+}
+
+async function verifyCommand(raw: string[]): Promise<number> {
     let args: VerifyArgs;
     try {
         args = parseVerifyArgs(raw);

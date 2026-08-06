@@ -154,19 +154,27 @@ export async function verify(
     return extractResult(await spawnVerify(dir, extra, quiet));
 }
 
+/** what `verifyBatch` actually observed on stdout: `results` is null when no line parsed to an array —
+ *  true on a real crash, but equally true of a truncated or otherwise unparseable stream, and this can't
+ *  distinguish them. `bytes` is the one fact it does have: the raw byte count received. */
+export interface BatchOutcome {
+    results: VerifyResult[] | null;
+    bytes: number;
+}
+
 /** spawn `shallot verify <dir> --json <extra> --run <r> --run <r> ...` — the shipped CLI's batch mode
  *  (`shallot-gate-ergonomics` stage 2): one boot, one verdict per `runs` entry, JSON array out. Each
  *  `runs` entry is one `--run` spec (`"scenario=name"`, `&`-joined for more than one query key); `extra`
- *  carries the params shared across every run (`--query` flags, `--memory`). Returns null if verify never
- *  emitted a parseable array (a crash before any verdict). */
+ *  carries the params shared across every run (`--query` flags, `--memory`). */
 export async function verifyBatch(
     dir: string,
     runs: string[],
     extra: string[] = [],
     quiet = false,
-): Promise<VerifyResult[] | null> {
+): Promise<BatchOutcome> {
     const runFlags = runs.flatMap((r) => ["--run", r]);
-    return extractBatchResult(await spawnVerify(dir, [...extra, ...runFlags], quiet));
+    const stdout = await spawnVerify(dir, [...extra, ...runFlags], quiet);
+    return { results: extractBatchResult(stdout), bytes: Buffer.byteLength(stdout, "utf8") };
 }
 
 // the WSL spawn: the node-bundled verify, driving the bridge's remote browser. A fixed `--port` skips the
