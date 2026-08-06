@@ -119,6 +119,14 @@ export interface BenchmarkCompileStats {
     totalMs: number;
     /** per-pipeline compile duration in ms, keyed by the pipeline's `label` */
     pipelines: Record<string, number>;
+    /** real pipelines: {@link Profile.compiledPipelines}'s size, the quantity the `budget:pipelines`
+     *  golden is declared against — a strict subset of {@link pipelines}' keys, which also carry
+     *  `precompile` forcer-scope labels that never constructed a pipeline. Reported so a bench run prints
+     *  the number the gate reads rather than only the raw table it's filtered from. */
+    pipelineCount: number;
+    /** raw `create*Pipeline(Async)` invocations ({@link Profile.pipelineCalls}) — equals
+     *  {@link pipelineCount} unless two pipelines share a descriptor label (`budget:labels`). */
+    pipelineCalls: number;
 }
 
 /** live GPU memory at the end of a measurement window: exact allocation totals, not a timing — the
@@ -456,7 +464,12 @@ export function createMeasure(state: State, profile: Profile) {
                     const pipelines: Record<string, number> = {};
                     for (const [label, ms] of profile.compile)
                         pipelines[label || "(unnamed)"] = r2(ms);
-                    compile = { totalMs: r2(profile.compileMs), pipelines };
+                    compile = {
+                        totalMs: r2(profile.compileMs),
+                        pipelines,
+                        pipelineCount: profile.compiledPipelines.size,
+                        pipelineCalls: profile.pipelineCalls,
+                    };
                 }
 
                 const memory: BenchmarkMemoryStats = {

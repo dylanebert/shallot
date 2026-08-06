@@ -60,6 +60,13 @@ export interface Profile {
      *  reads `[...compile.keys()].filter(k => compiledPipelines.has(k)).length`, never `compile.size`
      *  directly (`shallot-perf-gates` stage 3a review). */
     readonly compiledPipelines: ReadonlySet<string>;
+    /** raw `create*Pipeline(Async)` invocations since attach — every constructor call, counted before
+     *  labels collapse. {@link compiledPipelines} counts distinct labels instead, and a repeated label
+     *  overwrites, so a pipeline built under an existing label moves that count by zero while this one
+     *  still moves. The gym budgets gate both as exact goldens for that reason (`budget:pipeline-calls`,
+     *  `examples/gym/src/scenarios/budgets.ts`). The two are NOT equal in general: TypeGPU derives
+     *  several raw pipelines from one named typed pipeline. */
+    readonly pipelineCalls: number;
     /** wall-clock span from the first pipeline build start to the last build end */
     readonly compileMs: number;
     /** ms spent awaiting the prior frame's GPU fence before this frame began */
@@ -145,6 +152,7 @@ class ProfileImpl implements Profile {
     readonly indirectFires = new Map<string, number>();
     readonly compile = new Map<string, number>();
     readonly compiledPipelines = new Set<string>();
+    pipelineCalls = 0;
     compileMs = 0;
     fenceWaitMs = 0;
     submitCount = 0;
@@ -444,7 +452,12 @@ class ProfileImpl implements Profile {
             key = seen === 1 ? "(unlabeled)" : `(unlabeled)#${seen}`;
         }
         this.compile.set(key, end - start);
-        if (isPipeline) this.compiledPipelines.add(key);
+        // counted per CALL, before the `set` above collapses a repeated label ({@link
+        // Profile.pipelineCalls}) — the quantity a pipeline multiplication always moves.
+        if (isPipeline) {
+            this.pipelineCalls++;
+            this.compiledPipelines.add(key);
+        }
         if (start < this._compileEarliest) this._compileEarliest = start;
         if (end > this._compileLatest) this._compileLatest = end;
         this.compileMs = this._compileLatest - this._compileEarliest;

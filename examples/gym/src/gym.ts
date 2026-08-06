@@ -330,6 +330,10 @@ export function installHarness(
                         Profile.compiledPipelines.has(k),
                     ).length,
                     gpuBytes: Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes,
+                    // the label-discipline instrument, not an axis: raw constructor calls, which the
+                    // filtered count above can only equal while every descriptor label is per-pipeline
+                    // (`budget:labels`, `budget-coverage.ts`).
+                    pipelineCalls: Profile.pipelineCalls,
                 },
             );
             const checks =

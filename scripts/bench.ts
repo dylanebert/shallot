@@ -333,6 +333,19 @@ function printMeasurement(label: string, r: BenchmarkMeasurement): void {
                 console.log(`      ${(label || "(unlabeled)").padEnd(20)} ${mb(bytes)} MB`);
         }
     }
+    if (r.compile) {
+        const c = r.compile;
+        const entries = Object.keys(c.pipelines).length;
+        // both gated quantities, printed beside the raw table they're filtered from — the same way the
+        // memory block prints its gated total beside the raw one, so no number a gate compares against is
+        // invisible here. `pipelineCount` is the distinct-label count (`budget:pipelines`), `pipelineCalls`
+        // the raw constructor invocations (`budget:pipeline-calls`), and `entries` the unfiltered `compile`
+        // table, which also holds `precompile` forcer-scope labels.
+        console.log(
+            `  Pipelines: ${c.pipelineCount} labels / ${c.pipelineCalls} calls gated  (${entries} compile entries)`,
+        );
+        console.log(`    compile span: ${c.totalMs.toFixed(1)} ms`);
+    }
     console.log(`${bar}\n`);
 }
 

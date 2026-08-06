@@ -8,6 +8,8 @@
 // every scenario's verdict, pure over already-read numbers so it needs no live `Profile` or GPU to test.
 import type { Check, Param, Params } from "../gym";
 import {
+    AXES,
+    type Axis,
     type AxisBudget,
     type AxisExemption,
     BUDGET_EXEMPTIONS,
@@ -20,15 +22,17 @@ import {
  *  `COMPLETENESS_ENFORCED` shape `coverage.ts` already uses. */
 export const BUDGETS_ENFORCED = true;
 
-/** the two quantities a budget row covers. Deliberately not privileged against each other anywhere in
- *  this module or `budgets.ts`'s types — `pipelines` happens to be budgeted on every current row and
- *  `gpuBytes` is the axis that currently carries every exemption, but nothing here hardcodes that
- *  direction. The both-directions completeness assert is what enforces coverage, not the type system. */
-export const AXES = ["pipelines", "gpuBytes"] as const;
-export type Axis = (typeof AXES)[number];
+/** the quantities a budget row covers, derived from `AxisBudget`'s own keys (`budgets.ts`) rather than
+ *  listed here — a third quantity added to the type reaches this list, `MeasuredBudget`, the entries and
+ *  completeness checks, and `assertBudget` in one edit. Deliberately not privileged against each other
+ *  anywhere in this module or `budgets.ts`'s types — every current row budgets all three and nothing here
+ *  hardcodes that. The both-directions completeness assert is what enforces coverage, not the type
+ *  system. */
+export { AXES, type Axis };
 
 const CHECK_NAME: Record<Axis, string> = {
     pipelines: "budget:pipelines",
+    pipelineCalls: "budget:pipeline-calls",
     gpuBytes: "budget:bytes",
 };
 
@@ -92,8 +96,8 @@ export function checkBudgetEntries(
 }
 
 /** the completeness direction, per axis: every registered scenario carries exactly one of a golden or an
- *  exemption reason for `pipelines`, and the same for `gpuBytes` — independently, so a scenario budgeted
- *  on one axis and exempt on the other is complete. Gated by {@link BUDGETS_ENFORCED}. */
+ *  exemption reason on each of {@link AXES} — independently, so a scenario budgeted
+ *  on one axis and exempt on another is complete. Gated by {@link BUDGETS_ENFORCED}. */
 export function checkBudgetCompleteness(
     table: Record<string, AxisBudget>,
     exemptions: Record<string, AxisExemption>,
@@ -121,17 +125,15 @@ export function isDefaultParams(decls: readonly Param[], params: Params): boolea
 }
 
 /** measured counts read straight off `Profile` — kept as a plain record (not the `Profile` type itself)
- *  so this file's checker stays pure and testable with fabricated numbers, never a live GPU. */
-export interface MeasuredBudget {
-    pipelines: number;
-    gpuBytes: number;
-}
+ *  so this file's checker stays pure and testable with fabricated numbers, never a live GPU. One number
+ *  per {@link Axis}, mapped rather than listed, so a new axis can't be forgotten here. */
+export type MeasuredBudget = { [K in Axis]: number };
 
 /** the runtime exact-equality check `installHarness` folds into every scenario's verdict, evaluated
- *  independently per axis: a budgeted axis at default params gets one exact-equality check; a budgeted
- *  axis at non-default params reports visibly inapplicable rather than silently skipping
+ *  independently per axis (three today, `budgets.ts`): a budgeted axis at default params gets one
+ *  exact-equality check; a budgeted axis at non-default params reports visibly inapplicable rather than silently skipping
  *  (`shallot-perf-gates` stage 3b); an **exempt** axis emits nothing — there is no golden to check against,
- *  and the exemption reason already names why. A scenario can therefore emit one check, two, or none,
+ *  and the exemption reason already names why. A scenario's checks are therefore three, fewer, or none,
  *  depending on which axes it budgets vs. exempts (`shallot-perf-gates` stage 4b: `render` emits only
  *  `budget:pipelines`, its `budget:bytes` axis exempt). `table` and `exemptions` default to the real
  *  registry — `installHarness` never passes them — and are parameters (not a module-level read) so a

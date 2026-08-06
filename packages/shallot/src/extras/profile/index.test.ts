@@ -133,6 +133,8 @@ describe("ProfilePlugin", () => {
             // a NAMED label is a stable per-pipeline diagnostic key (gpu.md), so a repeat overwrites —
             // the same convergence a typed pipeline's sync-constructor stub and its precompile forcer's
             // later, real completion measurement rely on to land under one label, not two.
+            const callsBefore = Profile.pipelineCalls;
+            const distinctBefore = Profile.compiledPipelines.size;
             Compute.device.createRenderPipeline({
                 label: "sync-render-pipeline",
             } as unknown as GPURenderPipelineDescriptor);
@@ -140,6 +142,14 @@ describe("ProfilePlugin", () => {
                 k.startsWith("sync-render-pipeline"),
             );
             expect(collided.length).toBe(1);
+
+            // …which is exactly why the byte/label goldens gained a raw-call axis beside them: the second
+            // pipeline is real but the distinct-label count didn't move, so that count alone cannot see a
+            // pipeline multiplied under an existing label. `pipelineCalls` counts the call itself, so the
+            // gym's `budget:pipeline-calls` golden moves where `budget:pipelines` can't
+            // (`examples/gym/src/scenarios/budgets.ts`).
+            expect(Profile.pipelineCalls).toBe(callsBefore + 1);
+            expect(Profile.compiledPipelines.size).toBe(distinctBefore);
         } finally {
             Object.assign(Compute, { device: prev });
         }

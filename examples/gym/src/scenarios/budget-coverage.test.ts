@@ -56,7 +56,10 @@ describe("budget registry checker (fixtures)", () => {
 
     test("a registered scenario missing coverage on one axis is a completeness finding for that axis only", () => {
         const findings = checkBudgetCompleteness(
-            { a: { pipelines: 1, gpuBytes: 1 }, b: { pipelines: 2 } },
+            {
+                a: { pipelines: 1, pipelineCalls: 1, gpuBytes: 1 },
+                b: { pipelines: 2, pipelineCalls: 2 },
+            },
             {},
             ["a", "b"],
         );
@@ -67,7 +70,7 @@ describe("budget registry checker (fixtures)", () => {
         // this is the per-axis split itself (`shallot-perf-gates` stage 4b): `render`-shaped coverage,
         // pipelines budgeted + gpuBytes exempt, is complete — never both directions failing at once.
         const findings = checkBudgetCompleteness(
-            { a: { pipelines: 1 } },
+            { a: { pipelines: 1, pipelineCalls: 1 } },
             { a: { gpuBytes: "reason" } },
             ["a"],
         );
@@ -76,8 +79,8 @@ describe("budget registry checker (fixtures)", () => {
 
     test("a covered-both-ways table has no completeness finding", () => {
         const findings = checkBudgetCompleteness(
-            { a: { pipelines: 1, gpuBytes: 1 } },
-            { b: { pipelines: "reason", gpuBytes: "reason" } },
+            { a: { pipelines: 1, pipelineCalls: 1, gpuBytes: 1 } },
+            { b: { pipelines: "reason", pipelineCalls: "reason", gpuBytes: "reason" } },
             ["a", "b"],
         );
         expect(findings).toEqual([]);
@@ -109,21 +112,83 @@ describe("isDefaultParams", () => {
 });
 
 describe("assertBudget (pure, no live Profile/GPU)", () => {
-    test("an unbudgeted scenario emits no checks — nothing to compare against yet", () => {
-        expect(assertBudget("fixture-scenario", true, { pipelines: 29, gpuBytes: 1 })).toEqual([]);
+    // one run's measured numbers. `pipelineCalls` (raw constructor invocations) defaults to the
+    // distinct-label count — the shape most rows measure; the rows where TypeGPU derives several raw
+    // pipelines per label pass it explicitly (`budgets.ts`).
+    const measured = (pipelines: number, gpuBytes: number, pipelineCalls = pipelines) => ({
+        pipelines,
+        gpuBytes,
+        pipelineCalls,
     });
 
-    test("real accel budget: exact match passes both checks", () => {
+    test("an unbudgeted scenario emits no checks — nothing to compare against yet", () => {
+        expect(assertBudget("fixture-scenario", true, measured(29, 1))).toEqual([]);
+    });
+
+    // the `pipelineCalls` axis's whole reason to exist (the perf-gate ladder's self-check (a)): the
+    // `pipelines` axis counts DISTINCT labels and a named label overwrites in `recordCompile`, so a
+    // pipeline built under an EXISTING label leaves that count untouched — the multiplication is
+    // invisible to it, which is why `budget:pipelines` passes here. Only the raw call count moves.
+    // Red-proved: drop `pipelineCalls` from `AXIS_SET` and this call emits two passing checks.
+    test("a pipeline multiplied under an existing label reds only the call-count axis", () => {
         const budget = SCENARIO_BUDGETS.accel;
-        const checks = assertBudget("accel", true, {
-            pipelines: budget.pipelines as number,
-            gpuBytes: budget.gpuBytes as number,
+        const checks = assertBudget(
+            "accel",
+            true,
+            measured(
+                budget.pipelines as number,
+                budget.gpuBytes as number,
+                (budget.pipelineCalls as number) + 1,
+            ),
+        );
+        expect(checks).toContainEqual({
+            name: "budget:pipeline-calls",
+            pass: false,
+            detail: `measured ${(budget.pipelineCalls as number) + 1}, budget ${budget.pipelineCalls}`,
         });
+        expect(checks.find((c) => c.name === "budget:pipelines")?.pass).toBe(true);
+        expect(checks.find((c) => c.name === "budget:bytes")?.pass).toBe(true);
+    });
+
+    // the axis is independent of the other two in both directions: a row whose labels ARE 1:1 measures
+    // the same number twice, and the rows where TypeGPU derives several raw pipelines per typed pipeline
+    // (`pile` 133/66, `constraints` 165/66, `accel` 60/44) are gated on the raw number, not on equality.
+    test("the real accel row's two pipeline axes disagree by construction and both pass at their goldens", () => {
+        const budget = SCENARIO_BUDGETS.accel;
+        expect(budget.pipelineCalls).toBeGreaterThan(budget.pipelines as number);
+        const checks = assertBudget(
+            "accel",
+            true,
+            measured(
+                budget.pipelines as number,
+                budget.gpuBytes as number,
+                budget.pipelineCalls as number,
+            ),
+        );
+        expect(checks.every((c) => c.pass)).toBe(true);
+    });
+
+    test("real accel budget: exact match passes every axis check", () => {
+        const budget = SCENARIO_BUDGETS.accel;
+        const checks = assertBudget(
+            "accel",
+            true,
+            measured(
+                budget.pipelines as number,
+                budget.gpuBytes as number,
+                budget.pipelineCalls as number,
+            ),
+        );
         expect(checks).toEqual([
             {
                 name: "budget:pipelines",
                 pass: true,
                 detail: `measured ${budget.pipelines}, budget ${budget.pipelines}`,
+            },
+            {
+                name: "budget:pipeline-calls",
+                pass: true,
+                detail: `measured ${budget.pipelineCalls}, budget ${budget.pipelineCalls}`,
             },
             {
                 name: "budget:bytes",
@@ -135,43 +200,62 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
 
     test("a bogus allocation reds the byte budget (real accel table, byte count off by one)", () => {
         const budget = SCENARIO_BUDGETS.accel;
-        const checks = assertBudget("accel", true, {
-            pipelines: budget.pipelines as number,
-            gpuBytes: (budget.gpuBytes as number) + 1,
-        });
+        const checks = assertBudget(
+            "accel",
+            true,
+            measured(
+                budget.pipelines as number,
+                (budget.gpuBytes as number) + 1,
+                budget.pipelineCalls as number,
+            ),
+        );
         expect(checks.find((c) => c.name === "budget:bytes")?.pass).toBe(false);
         expect(checks.find((c) => c.name === "budget:pipelines")?.pass).toBe(true);
     });
 
     test("a bogus pipeline count reds the count budget, not the byte one", () => {
         const budget = SCENARIO_BUDGETS.accel;
-        const checks = assertBudget("accel", true, {
-            pipelines: (budget.pipelines as number) + 1,
-            gpuBytes: budget.gpuBytes as number,
-        });
+        // an extra pipeline under its OWN label: both pipeline axes move, and the label-count golden
+        // catches it on its own — the case that never needed the raw-call axis.
+        const checks = assertBudget(
+            "accel",
+            true,
+            measured(
+                (budget.pipelines as number) + 1,
+                budget.gpuBytes as number,
+                (budget.pipelineCalls as number) + 1,
+            ),
+        );
         expect(checks.find((c) => c.name === "budget:pipelines")?.pass).toBe(false);
+        expect(checks.find((c) => c.name === "budget:pipeline-calls")?.pass).toBe(false);
         expect(checks.find((c) => c.name === "budget:bytes")?.pass).toBe(true);
     });
 
-    test("a non-default-params run reports both axes as visibly inapplicable, never silently skipped", () => {
-        const checks = assertBudget("accel", false, { pipelines: 1, gpuBytes: 1 });
-        expect(checks).toHaveLength(2);
+    test("a non-default-params run reports every axis as visibly inapplicable, never silently skipped", () => {
+        const checks = assertBudget("accel", false, measured(1, 1));
+        expect(checks).toHaveLength(3);
         for (const c of checks) {
             expect(c.pass).toBe(true);
             expect(c.detail).toMatch(/inapplicable/);
         }
     });
 
-    test("a scenario exempt on both axes emits no checks even with a table-shaped mismatch", () => {
+    test("a scenario exempt on both axes emits no axis check even with a table-shaped mismatch", () => {
         // injected table+exemptions (the same fixture-injection shape checkBudgetEntries's fixtures use)
         // so this actually exercises the `exemption?.[axis] !== undefined` early-continue on both axes,
         // not the `!golden` fallthrough the real (currently pipelines-covered) registry would hit instead.
         const checks = assertBudget(
             "outline",
             true,
-            { pipelines: 0, gpuBytes: 0 },
-            { outline: { pipelines: 999, gpuBytes: 999 } },
-            { outline: { pipelines: "fixture exemption", gpuBytes: "fixture exemption" } },
+            measured(0, 0),
+            { outline: { pipelines: 999, pipelineCalls: 999, gpuBytes: 999 } },
+            {
+                outline: {
+                    pipelines: "fixture exemption",
+                    pipelineCalls: "fixture exemption",
+                    gpuBytes: "fixture exemption",
+                },
+            },
         );
         expect(checks).toEqual([]);
     });
@@ -191,7 +275,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         const checks = assertBudget(
             "fixture-byte-exempt",
             false,
-            { pipelines: 1, gpuBytes: 1 },
+            measured(1, 1),
             FixtureBudgets,
             FixtureExemptions,
         );
@@ -213,7 +297,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         const checks = assertBudget(
             "fixture-byte-exempt",
             true,
-            { pipelines: 999, gpuBytes: 1 },
+            measured(999, 1),
             FixtureBudgets,
             FixtureExemptions,
         );
@@ -226,7 +310,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         const checks = assertBudget(
             "fixture-byte-exempt",
             true,
-            { pipelines: 29, gpuBytes: 1 },
+            measured(29, 1),
             FixtureBudgets,
             FixtureExemptions,
         );
@@ -239,7 +323,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         const checks = assertBudget(
             "fixture-byte-exempt",
             true,
-            { pipelines: 29, gpuBytes: 999_999_999_999 },
+            measured(29, 999_999_999_999),
             FixtureBudgets,
             FixtureExemptions,
         );

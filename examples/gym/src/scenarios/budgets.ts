@@ -18,6 +18,18 @@
 // - `pipelines` — the exact real-pipeline count: `[...Profile.compile.keys()].filter(k =>
 //   Profile.compiledPipelines.has(k)).length`, never `Profile.compile.size` directly — a `precompile`
 //   scope-only span (`sear-typed-variants`) is not a pipeline (`shallot-perf-gates` stage 3a).
+// - `pipelineCalls` — the exact raw `create*Pipeline(Async)` invocation count (`Profile.pipelineCalls`),
+//   counted per CALL before labels collapse. It exists because `pipelines` counts DISTINCT labels and a
+//   named label overwrites in `recordCompile`, so a pipeline built under an existing label moves that
+//   count by zero — the blindness `gpu.md`'s per-pipeline-label law is meant to prevent, pinned at
+//   exactly one surface (`sear/pipelines.test.ts`) and nowhere else. This axis closes it at the mechanism
+//   instead of at the naming convention: a multiplied pipeline moves the call count whatever it's called.
+//   **The equality form `pipelineCalls === pipelines` was tried first and refuted by measurement**
+//   (2026-08-06, nvidia/lovelace): TypeGPU derives several raw pipelines from one named typed pipeline —
+//   `pile` builds 133 raw pipelines under 66 labels (every `phys-*` and BVH kernel ×3, from ONE
+//   `AvbdPlugin.warm`, verified by instrumenting the hook), `accel` 60 under 44 (the BVH stage set ×2).
+//   Labels are not 1:1 with pipelines post-port, so equality would have gated three scenarios red against
+//   an invariant the engine's own idiom never held. The exact count is the sound form of the same intent.
 // - `gpuBytes` — the exact `Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes` total: every
 //   live allocation EXCEPT one an allocator marked `LazyAlloc.lazy` at creation (`Mirror`'s readback ring,
 //   `Slab`'s staging pool — a pool that grows on real GPU backpressure, so its live-stager count is
@@ -56,13 +68,22 @@
 // `slab-staging`, never `phys-hulls`.
 export interface AxisBudget {
     pipelines?: number;
+    pipelineCalls?: number;
     gpuBytes?: number;
 }
 
-export interface AxisExemption {
-    pipelines?: string;
-    gpuBytes?: string;
-}
+/** the gated quantities, derived from {@link AxisBudget} rather than listed beside it. `Record<Axis, true>`
+ *  is the pin: a third quantity added to the interface and not here is a `bun check` error, where a
+ *  hand-written list would have left the new axis silently uncovered by `budget-coverage.ts`'s entries
+ *  check, its completeness check, AND `assertBudget` at once — all three iterate this list
+ *  (`shallot-perf-gates` architectural pass). Every other per-axis shape derives from {@link Axis} too:
+ *  {@link AxisExemption} and `budget-coverage.ts`'s `MeasuredBudget` are mapped types, so a new axis
+ *  reaches the exemption table and the measurement record without a second edit. */
+export type Axis = keyof AxisBudget;
+const AXIS_SET: Record<Axis, true> = { pipelines: true, pipelineCalls: true, gpuBytes: true };
+export const AXES = Object.keys(AXIS_SET) as readonly Axis[];
+
+export type AxisExemption = { [K in Axis]?: string };
 
 export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // measured 2026-08-05, nvidia/lovelace via the WSL bridge, under the stage 4e exclusion (`gpuBytes` =
@@ -76,63 +97,63 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // `sat`, `stress`, `chain` additionally carry two independent same-day `--scenario` confirmation runs
     // from the stage 4c floor (since each was previously byte-exempt), so those 7 rows rest on FOUR
     // independent agreeing samples.
-    accel: { pipelines: 44, gpuBytes: 34_574_780 },
-    backend: { pipelines: 29, gpuBytes: 12_723_708 },
-    "bodies-body-type": { pipelines: 30, gpuBytes: 13_519_028 },
-    "bodies-motion-locks": { pipelines: 30, gpuBytes: 13_516_692 },
-    "bodies-spinning-book": { pipelines: 30, gpuBytes: 13_517_860 },
-    chain: { pipelines: 26, gpuBytes: 29_151_084 },
-    character: { pipelines: 66, gpuBytes: 21_761_544 },
-    "character-mover": { pipelines: 30, gpuBytes: 13_522_532 },
-    "collision-overlap-box": { pipelines: 30, gpuBytes: 13_517_860 },
-    "collision-ray-curtain": { pipelines: 30, gpuBytes: 13_551_228 },
-    "collision-shape-cast": { pipelines: 30, gpuBytes: 13_617_292 },
-    "compound-simple": { pipelines: 30, gpuBytes: 13_615_740 },
-    "compound-spheres": { pipelines: 30, gpuBytes: 13_870_228 },
-    "compound-tile-floor": { pipelines: 30, gpuBytes: 13_517_860 },
-    constraints: { pipelines: 66, gpuBytes: 21_765_288 },
-    "continuous-bullet-vs-stack": { pipelines: 30, gpuBytes: 13_538_604 },
-    "continuous-thin-wall": { pipelines: 30, gpuBytes: 13_552_060 },
-    "determinism-falling-ragdolls": { pipelines: 30, gpuBytes: 14_848_836 },
-    "events-hit": { pipelines: 30, gpuBytes: 13_674_468 },
-    "events-joint-break": { pipelines: 30, gpuBytes: 13_517_860 },
-    "events-sensor-sweep": { pipelines: 30, gpuBytes: 13_519_028 },
-    "geometry-convex-hull": { pipelines: 30, gpuBytes: 13_542_972 },
-    "geometry-convex-primitives": { pipelines: 30, gpuBytes: 13_525_908 },
-    "geometry-hull-reduction": { pipelines: 30, gpuBytes: 13_523_700 },
-    gltf: { pipelines: 74, gpuBytes: 104_242_304 },
-    "gpu-diagnostic": { pipelines: 4, gpuBytes: 32_788 },
-    "joints-bridge": { pipelines: 30, gpuBytes: 13_520_196 },
-    "joints-cantilever": { pipelines: 30, gpuBytes: 13_519_028 },
-    "joints-driving": { pipelines: 30, gpuBytes: 13_596_164 },
-    "joints-elevator": { pipelines: 30, gpuBytes: 13_519_028 },
-    "joints-filter": { pipelines: 30, gpuBytes: 13_519_028 },
-    "joints-paddle": { pipelines: 30, gpuBytes: 13_519_028 },
-    "joints-parallel": { pipelines: 30, gpuBytes: 13_517_860 },
-    "joints-pendulum": { pipelines: 30, gpuBytes: 13_517_860 },
-    "joints-rope": { pipelines: 30, gpuBytes: 13_651_252 },
-    "joints-suspension": { pipelines: 30, gpuBytes: 13_520_196 },
-    "mesh-fixture": { pipelines: 32, gpuBytes: 31_828_492 },
-    "mesh-terrain": { pipelines: 30, gpuBytes: 13_616_308 },
-    "mesh-torus": { pipelines: 30, gpuBytes: 13_895_924 },
-    motor: { pipelines: 66, gpuBytes: 88_873_964 },
-    outline: { pipelines: 33, gpuBytes: 38_517_664 },
-    pile: { pipelines: 66, gpuBytes: 26_173_716 },
-    queries: { pipelines: 29, gpuBytes: 12_719_784 },
-    "ragdoll-ragdoll": { pipelines: 30, gpuBytes: 13_664_708 },
-    raining: { pipelines: 29, gpuBytes: 12_725_016 },
-    render: { pipelines: 29, gpuBytes: 150_362_360 },
-    rotation: { pipelines: 29, gpuBytes: 12_705_832 },
-    sat: { pipelines: 69, gpuBytes: 322_682_880 },
-    "shapes-inclined-plane": { pipelines: 30, gpuBytes: 13_519_028 },
-    "shapes-restitution": { pipelines: 30, gpuBytes: 13_908_212 },
-    "shapes-shape-soup": { pipelines: 30, gpuBytes: 13_749_084 },
-    sprite: { pipelines: 49, gpuBytes: 80_163_828 },
-    "stacking-arch": { pipelines: 30, gpuBytes: 13_537_716 },
-    "stacking-box-pyramid": { pipelines: 30, gpuBytes: 13_517_860 },
-    "stacking-dominoes": { pipelines: 30, gpuBytes: 13_660_940 },
-    stress: { pipelines: 31, gpuBytes: 1_089_137_076 },
-    text: { pipelines: 29, gpuBytes: 17_068_072 },
+    accel: { pipelines: 44, pipelineCalls: 60, gpuBytes: 34_574_780 },
+    backend: { pipelines: 29, pipelineCalls: 29, gpuBytes: 12_723_708 },
+    "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
+    "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
+    character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
+    "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },
+    "collision-overlap-box": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    "collision-ray-curtain": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_551_228 },
+    "collision-shape-cast": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_617_292 },
+    "compound-simple": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_615_740 },
+    "compound-spheres": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_870_228 },
+    "compound-tile-floor": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    constraints: { pipelines: 66, pipelineCalls: 165, gpuBytes: 21_765_288 },
+    "continuous-bullet-vs-stack": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_538_604 },
+    "continuous-thin-wall": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_552_060 },
+    "determinism-falling-ragdolls": { pipelines: 30, pipelineCalls: 30, gpuBytes: 14_848_836 },
+    "events-hit": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_674_468 },
+    "events-joint-break": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    "events-sensor-sweep": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "geometry-convex-hull": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_542_972 },
+    "geometry-convex-primitives": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_525_908 },
+    "geometry-hull-reduction": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_523_700 },
+    gltf: { pipelines: 74, pipelineCalls: 74, gpuBytes: 104_242_304 },
+    "gpu-diagnostic": { pipelines: 4, pipelineCalls: 4, gpuBytes: 32_788 },
+    "joints-bridge": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_520_196 },
+    "joints-cantilever": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "joints-driving": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_596_164 },
+    "joints-elevator": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "joints-filter": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "joints-paddle": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "joints-parallel": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    "joints-pendulum": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    "joints-rope": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_651_252 },
+    "joints-suspension": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_520_196 },
+    "mesh-fixture": { pipelines: 32, pipelineCalls: 32, gpuBytes: 31_828_492 },
+    "mesh-terrain": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_616_308 },
+    "mesh-torus": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_895_924 },
+    motor: { pipelines: 66, pipelineCalls: 66, gpuBytes: 88_873_964 },
+    outline: { pipelines: 33, pipelineCalls: 33, gpuBytes: 38_517_664 },
+    pile: { pipelines: 66, pipelineCalls: 133, gpuBytes: 26_173_716 },
+    queries: { pipelines: 29, pipelineCalls: 29, gpuBytes: 12_719_784 },
+    "ragdoll-ragdoll": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_664_708 },
+    raining: { pipelines: 29, pipelineCalls: 29, gpuBytes: 12_725_016 },
+    render: { pipelines: 29, pipelineCalls: 29, gpuBytes: 150_362_360 },
+    rotation: { pipelines: 29, pipelineCalls: 29, gpuBytes: 12_705_832 },
+    sat: { pipelines: 69, pipelineCalls: 69, gpuBytes: 322_682_880 },
+    "shapes-inclined-plane": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
+    "shapes-restitution": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_908_212 },
+    "shapes-shape-soup": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_749_084 },
+    sprite: { pipelines: 49, pipelineCalls: 49, gpuBytes: 80_163_828 },
+    "stacking-arch": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_537_716 },
+    "stacking-box-pyramid": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    "stacking-dominoes": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_660_940 },
+    stress: { pipelines: 31, pipelineCalls: 31, gpuBytes: 1_089_137_076 },
+    text: { pipelines: 29, pipelineCalls: 29, gpuBytes: 17_068_072 },
 };
 
 /** every axis explicitly exempted from a compile/memory budget, and why — keyed by scenario, one optional
