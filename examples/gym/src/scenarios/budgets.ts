@@ -39,8 +39,8 @@
 // the entire roster off one `bun bench --sweep` (nvidia/lovelace via the WSL bridge) under the new
 // definition — every number below changed because the total's definition changed, not because the scene
 // did. The 7 rows previously byte-exempt (`backend`, `render`, `character`, `motor`, `sat`, `stress`,
-// `chain`) were re-verified at the stage 3b/4c floor (3 independent same-day default-param runs each,
-// beyond the one sweep sample) and all 7 came back exact — `BUDGET_EXEMPTIONS` is empty: excluding the
+// `chain`) were re-verified beyond the two sweeps below (two independent same-day `--scenario` runs
+// each, so four agreeing samples) and all 7 came back exact — `BUDGET_EXEMPTIONS` is empty: excluding the
 // lazy pools' bytes at the mechanism resolved every known disagreement, including the AVBD-driven rows
 // (`motor`/`sat`/`character`/`stress`) whose prior exemption reasons cited AVBD's documented contact-order
 // non-determinism (`avbd.md`) — their measured disagreement tracks back to the SAME lazy-pool bytes
