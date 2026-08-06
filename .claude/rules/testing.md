@@ -2,6 +2,8 @@
 paths:
     - "packages/shallot/src/**/*.test.ts"
     - "packages/shallot/tests/**/*.ts"
+    - "packages/shallot/bin/*.test.ts"
+    - "packages/shallot/bin/*.probes.ts"
     - "scripts/install-test.ts"
     - "packages/shallot/scripts/build-tooling.ts"
 ---

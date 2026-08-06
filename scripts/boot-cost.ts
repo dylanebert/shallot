@@ -262,6 +262,21 @@ async function runTimings(args: Args, bridge: Bridge | null): Promise<void> {
  *  against source before trusting a new entry; don't infer sync-vs-async from the printed numbers. */
 const KNOWN_SYNCHRONOUS_PLUGINS = new Set(["unplugin-typegpu"]);
 
+export interface TransformEvent {
+    plugin: string;
+    ms: number;
+}
+
+/** parse one `DEBUG=vite:plugin-transform` stderr line — Vite's own `debugPluginTransform` format
+ *  (`node_modules/vite/dist/node/chunks/node.js`, `timeFrom` + `createDebugger`): a colored duration,
+ *  the plugin name, then the prettified module path. `NO_COLOR=1` (set by {@link runTransform}'s spawn)
+ *  keeps the duration field plain digits. Pure text parsing over an external tool's log line — a data
+ *  boundary this instrument reads but doesn't own, same shape as {@link parsePhases}/{@link parseResources}. */
+export function parseTransformLine(line: string): TransformEvent | null {
+    const m = /vite:plugin-transform\s+([\d.]+)ms\s+(\S+)\s+(.+?)\s*$/.exec(line);
+    return m ? { plugin: m[2], ms: Number(m[1]) } : null;
+}
+
 async function runTransform(args: Args, bridge: Bridge | null): Promise<void> {
     const extra = [...args.query.flatMap((q) => ["--query", q]), "--timings"];
     const { stdout, stderr, exitCode, cpuUserMs, cpuSysMs } = await spawnVerify(
@@ -271,15 +286,14 @@ async function runTransform(args: Args, bridge: Bridge | null): Promise<void> {
         bridge,
     );
     console.log(`\ntransform run: exitCode=${exitCode}`);
-    const lineRe = /vite:plugin-transform\s+([\d.]+)ms\s+(\S+)\s+(.+?)\s*$/;
     const byPlugin = new Map<string, { ms: number; n: number }>();
     for (const line of stderr.split("\n")) {
-        const m = lineRe.exec(line);
-        if (!m) continue;
-        const e = byPlugin.get(m[2]) ?? { ms: 0, n: 0 };
-        e.ms += Number(m[1]);
+        const event = parseTransformLine(line);
+        if (!event) continue;
+        const e = byPlugin.get(event.plugin) ?? { ms: 0, n: 0 };
+        e.ms += event.ms;
         e.n += 1;
-        byPlugin.set(m[2], e);
+        byPlugin.set(event.plugin, e);
     }
     console.log("per-plugin transform totals (naive sum — see the reconciliation below):");
     for (const [plugin, e] of [...byPlugin.entries()].sort((a, b) => b[1].ms - a[1].ms)) {

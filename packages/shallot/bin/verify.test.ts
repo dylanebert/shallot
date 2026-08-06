@@ -13,7 +13,7 @@ import {
     partitionSweep,
     resolveFor,
 } from "../../../scripts/bench";
-import { parsePhases, parseResources } from "../../../scripts/boot-cost";
+import { parsePhases, parseResources, parseTransformLine } from "../../../scripts/boot-cost";
 import {
     batchPass,
     bootArm,
@@ -565,6 +565,22 @@ describe("parsePhases/parseResources — the boot-cost round trip over verify.ts
             { name: "run", ms: 1553 },
             { name: "harness install (probe)", ms: 340 },
         ]);
+    });
+});
+
+describe("parseTransformLine — reading Vite's own DEBUG=vite:plugin-transform format", () => {
+    test("a real debugPluginTransform line yields the plugin and its duration", () => {
+        // Vite's own shape (`timeFrom` + `createDebugger`, node_modules/vite/dist/node/chunks/node.js):
+        // "<namespace> <duration>ms <plugin.name> <prettified module path> [+Nms]". NO_COLOR=1 (set by
+        // boot-cost.ts's spawn) keeps the duration plain digits instead of a picocolors escape.
+        const line = "vite:plugin-transform 12.34ms unplugin-typegpu src/index.ts +0ms";
+        expect(parseTransformLine(line)).toEqual({ plugin: "unplugin-typegpu", ms: 12.34 });
+    });
+
+    test("a line outside the namespace, or one missing a field, parses to null", () => {
+        expect(parseTransformLine("vite:resolve 1.00ms some-plugin src/index.ts")).toBeNull();
+        expect(parseTransformLine("vite:plugin-transform 12.34ms")).toBeNull();
+        expect(parseTransformLine("")).toBeNull();
     });
 });
 
