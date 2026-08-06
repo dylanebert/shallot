@@ -29,7 +29,11 @@ if (files.length === 0) {
     process.exit(1);
 }
 
-const violations = files.filter((f) => f.endsWith(".test.ts") || f.includes("/fixtures/"));
+// `.probes.ts` is the by-path gate suffix — a test file the default `bun test` glob deliberately misses
+// (`coding.md` Suite speed), which is exactly why it also slips a `.test.ts`-only pack check.
+const violations = files.filter(
+    (f) => f.endsWith(".test.ts") || f.endsWith(".probes.ts") || f.includes("/fixtures/"),
+);
 
 if (violations.length > 0) {
     console.error(`✗ ${violations.length} file(s) that must not ship in the npm pack:\n`);

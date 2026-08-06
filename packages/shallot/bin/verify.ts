@@ -194,9 +194,9 @@ export function formatTimings(spans: Span[]): string {
  * install the `__harness` setter probe on `target`: writing `__harness` also stamps
  * `__harnessInstallAt` with the wall-clock time of that write. The `harness ready` checkpoint comes
  * from a 500ms poll (quantized, `stepWait`); this reads the exact in-page install moment instead.
- * Pure over a plain object so the mechanism is unit-testable without a browser — the page's
- * `addInitScript` duplicates this same logic inline (the `decodeSample`/`probePixels` precedent: a
- * Playwright init script is stringified and run in-page, so it can't close over an imported function).
+ * Pure over a plain object and closure-free, so the same function both unit-tests without a browser
+ * and ships in-page via {@link HARNESS_PROBE_SCRIPT} — one source of truth for a probe whose whole
+ * value is reading the truth.
  */
 export function installHarnessProbe(target: Record<string, unknown>): void {
     let value: unknown;
@@ -209,6 +209,22 @@ export function installHarnessProbe(target: Record<string, unknown>): void {
         },
     });
 }
+
+/** {@link installHarnessProbe} as page source, applied to `window`. A Playwright init script is
+ *  stringified and run in-page, so it can't close over an imported binding — serializing the tested
+ *  function itself is what keeps the shipped probe and the proven one the same code. */
+export const HARNESS_PROBE_SCRIPT = `(${installHarnessProbe.toString()})(window)`;
+
+/** how many resource-timing entries the page keeps. The spec default is 250, and a dev server that
+ *  serves an `optimizeDeps.exclude`d package unbundled blows past it — a saturated buffer reports
+ *  exactly 250 however many modules were really fetched, silently flattening the one quantity this
+ *  readout exists to measure. */
+export const RESOURCE_BUFFER = 20_000;
+
+/** everything `--timings` installs before navigation: the harness-install probe plus the raised
+ *  resource-timing buffer. Both must be in place before the first request, so they share one init
+ *  script rather than racing two. */
+export const TIMINGS_INIT_SCRIPT = `performance.setResourceTimingBufferSize(${RESOURCE_BUFFER});${HARNESS_PROBE_SCRIPT}`;
 
 /** ms from navigation start to the `__harness` setter firing, per {@link installHarnessProbe} —
  *  null when it never fired (no harness on this page, or the probe wasn't installed). */
@@ -233,12 +249,20 @@ export interface ResourceTiming {
     count: number;
     totalMs: number;
     top: ResourceEntry[];
+    /** the page's buffer filled, so `count` and `totalMs` are floors, not the real totals
+     *  ({@link RESOURCE_BUFFER}). Reported rather than hidden — a silently capped count reads as a
+     *  measurement of the transport this whole readout exists to attribute. */
+    saturated: boolean;
 }
 
-export function summarizeResourceTiming(entries: ResourceEntry[], topN = 10): ResourceTiming {
+export function summarizeResourceTiming(
+    entries: ResourceEntry[],
+    topN = 10,
+    buffer = RESOURCE_BUFFER,
+): ResourceTiming {
     const totalMs = entries.reduce((sum, e) => sum + e.duration, 0);
     const top = [...entries].sort((a, b) => b.duration - a.duration).slice(0, topN);
-    return { count: entries.length, totalMs, top };
+    return { count: entries.length, totalMs, top, saturated: entries.length >= buffer };
 }
 
 /** render the harness-install probe + resource-timing readout as extra `--timings` lines, appended
@@ -252,7 +276,9 @@ export function formatExtraTimings(
     ];
     if (resource) {
         lines.push(
-            `  resources  ${resource.count} requests, ${resource.totalMs.toFixed(0)}ms total`,
+            `  resources  ${resource.count} requests, ${resource.totalMs.toFixed(0)}ms total${
+                resource.saturated ? " (buffer full — both are floors)" : ""
+            }`,
         );
         for (const e of resource.top) lines.push(`    ${e.duration.toFixed(0)}ms  ${e.name}`);
     }
@@ -1267,25 +1293,9 @@ async function drive(
         })
         .catch(() => {});
 
-    // --timings' harness-install probe: same mechanism as installHarnessProbe, duplicated inline
-    // because addInitScript stringifies this closure to run in-page — it can't reference an imported
-    // function. Only installed when asked, so a normal run's __harness assignment isn't intercepted
-    // for no reason.
+    // Only installed when asked, so a normal run's __harness assignment isn't intercepted for no reason.
     if (args.timings) {
-        await page
-            .addInitScript(() => {
-                let value: unknown;
-                Object.defineProperty(window, "__harness", {
-                    configurable: true,
-                    get: () => value,
-                    set: (v: unknown) => {
-                        value = v;
-                        (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt =
-                            Date.now();
-                    },
-                });
-            })
-            .catch(() => {});
+        await page.addInitScript({ content: TIMINGS_INIT_SCRIPT }).catch(() => {});
     }
 
     // retry the goto once only if the first attempt itself failed (a cold vite server can re-optimize

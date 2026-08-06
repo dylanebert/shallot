@@ -64,6 +64,7 @@
         "!src/extras/gltf/fixtures",
         "bin",
         "!bin/**/*.test.ts",
+        "!bin/**/*.probes.ts",
         "rust/audio/pkg",
         "examples",
         "dist",

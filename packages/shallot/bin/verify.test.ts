@@ -26,6 +26,7 @@ import {
     formatTimings,
     gpuLogChecks,
     gridDiff,
+    HARNESS_PROBE_SCRIPT,
     harnessInstallMs,
     harnessPass,
     hasStructure,
@@ -33,6 +34,7 @@ import {
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
+    RESOURCE_BUFFER,
     type ResourceEntry,
     report,
     reportBatch,
@@ -42,6 +44,7 @@ import {
     stepWait,
     structured,
     summarizeResourceTiming,
+    TIMINGS_INIT_SCRIPT,
     type WaitState,
     withTimeout,
 } from "./verify";
@@ -439,6 +442,24 @@ describe("installHarnessProbe + harnessInstallMs — the pure setter mechanism",
     });
 });
 
+// the cheap sentinel for `verify.probes.ts`, the browser-launching gate these two constants are proven
+// in (`coding.md`: a gate leaving the default suite leaves a sentinel behind). Both concerns must reach
+// the page before the first request — a raised resource-timing buffer and the harness-install setter —
+// and dropping either from the init script is the silent failure the probes exist to prevent.
+describe("TIMINGS_INIT_SCRIPT — what --timings installs pre-navigation", () => {
+    test("carries the buffer raise and the harness probe, in that order", () => {
+        expect(TIMINGS_INIT_SCRIPT).toContain(`setResourceTimingBufferSize(${RESOURCE_BUFFER})`);
+        expect(TIMINGS_INIT_SCRIPT).toContain(HARNESS_PROBE_SCRIPT);
+        expect(TIMINGS_INIT_SCRIPT.indexOf("setResourceTimingBufferSize")).toBeLessThan(
+            TIMINGS_INIT_SCRIPT.indexOf(HARNESS_PROBE_SCRIPT),
+        );
+    });
+
+    test("the probe script is the tested function's own source, not a hand-written copy", () => {
+        expect(HARNESS_PROBE_SCRIPT).toContain(installHarnessProbe.toString());
+    });
+});
+
 describe("summarizeResourceTiming — the pure resource-timing reduction", () => {
     test("counts, sums duration, and ranks the top-N by duration descending", () => {
         const entries: ResourceEntry[] = [
@@ -456,7 +477,12 @@ describe("summarizeResourceTiming — the pure resource-timing reduction", () =>
     });
 
     test("empty entries summarize to a zeroed, empty readout", () => {
-        expect(summarizeResourceTiming([])).toEqual({ count: 0, totalMs: 0, top: [] });
+        expect(summarizeResourceTiming([])).toEqual({
+            count: 0,
+            totalMs: 0,
+            top: [],
+            saturated: false,
+        });
     });
 });
 
@@ -466,152 +492,30 @@ describe("formatExtraTimings — the pure --timings extra-lines rendering", () =
             count: 2,
             totalMs: 45,
             top: [{ name: "/a.js", duration: 40 }],
+            saturated: false,
         });
         expect(out).toContain("harness install (probe)  n/a");
         expect(out).toContain("resources  2 requests, 45ms total");
         expect(out).toContain("40ms  /a.js");
+        expect(out).not.toContain("floors");
+    });
+
+    test("a full buffer says so, so the count is never read as the real total", () => {
+        const out = formatExtraTimings(null, {
+            count: 250,
+            totalMs: 45,
+            top: [],
+            saturated: true,
+        });
+        expect(out).toContain(
+            "resources  250 requests, 45ms total (buffer full — both are floors)",
+        );
     });
 
     test("reports the measured ms when the probe fired, and omits resources when there's no readout", () => {
         const out = formatExtraTimings(340, null);
         expect(out).toBe("  harness install (probe)  340ms");
     });
-});
-
-// Real-browser red-proofs for (b) and (c) — the pure tests above cover the mechanism in isolation, but
-// per coding.md a probe that lies is worse than none, so each is also driven through a genuine
-// Playwright page: a synthetic page whose __harness install is delayed a known N ms (must read ≈N, and
-// must be seen reading nothing when the probe isn't installed), and a fixture pair differing by exactly
-// one module import (the resource count must move by exactly 1). Local `chromium.launch` (no WebGPU, no
-// WSL bridge needed — confirmed working in this environment) since neither probe touches the GPU.
-describe("real-browser red-proofs (b) + (c)", () => {
-    let hasChromium = false;
-    try {
-        require.resolve("playwright");
-        hasChromium = true;
-    } catch {
-        hasChromium = false;
-    }
-
-    test.skipIf(!hasChromium)(
-        "(b) a delayed __harness install reports ≈N ms with the probe installed, and nothing without it",
-        async () => {
-            const { chromium } = await import("playwright");
-            const DelayMs = 300;
-            const server = Bun.serve({
-                port: 0,
-                fetch() {
-                    return new Response(
-                        `<!doctype html><script>setTimeout(() => { window.__harness = { ready: true }; }, ${DelayMs});</script>`,
-                        { headers: { "content-type": "text/html" } },
-                    );
-                },
-            });
-            const browser = await chromium.launch({ headless: true });
-            try {
-                // red: the probe installed before navigation — the delayed install reports ≈N ms, not
-                // the ±500ms-quantized poll `stepWait` would give.
-                const withProbe = await browser.newPage();
-                await withProbe.addInitScript(() => {
-                    let value: unknown;
-                    Object.defineProperty(window, "__harness", {
-                        configurable: true,
-                        get: () => value,
-                        set: (v: unknown) => {
-                            value = v;
-                            (
-                                window as unknown as { __harnessInstallAt?: number }
-                            ).__harnessInstallAt = Date.now();
-                        },
-                    });
-                });
-                const navStart = Date.now();
-                await withProbe.goto(`http://localhost:${server.port}/`);
-                await withProbe.waitForFunction(
-                    () => typeof window.__harness !== "undefined",
-                    null,
-                    { timeout: 5_000 },
-                );
-                const installedAt = (await withProbe.evaluate(
-                    () => (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt,
-                )) as number | undefined;
-                const measured = harnessInstallMs(navStart, installedAt ?? null);
-                expect(measured).not.toBeNull();
-                expect(measured as number).toBeGreaterThanOrEqual(DelayMs - 100);
-                expect(measured as number).toBeLessThan(DelayMs + 2_000);
-                await withProbe.close();
-
-                // the point of the red-proof: the identical page, minus the probe, gives no install
-                // signal at all — a silently wrong (missing) reading, not a caught error.
-                const withoutProbe = await browser.newPage();
-                await withoutProbe.goto(`http://localhost:${server.port}/`);
-                await withoutProbe.waitForFunction(
-                    () => typeof window.__harness !== "undefined",
-                    null,
-                    { timeout: 5_000 },
-                );
-                const noInstalledAt = (await withoutProbe.evaluate(
-                    () => (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt,
-                )) as number | undefined;
-                expect(noInstalledAt).toBeUndefined();
-                expect(harnessInstallMs(navStart, noInstalledAt ?? null)).toBeNull();
-                await withoutProbe.close();
-            } finally {
-                await browser.close();
-                server.stop(true);
-            }
-        },
-        20_000,
-    );
-
-    test.skipIf(!hasChromium)(
-        "(c) one extra module import moves the resource count by exactly 1",
-        async () => {
-            const { chromium } = await import("playwright");
-            const server = Bun.serve({
-                port: 0,
-                fetch(req) {
-                    const path = new URL(req.url).pathname;
-                    const js = { headers: { "content-type": "application/javascript" } };
-                    const html = { headers: { "content-type": "text/html" } };
-                    if (path === "/a.js") return new Response("export const a = 1;", js);
-                    if (path === "/b.js") return new Response("export const b = 2;", js);
-                    if (path === "/base.html")
-                        return new Response(`<script type="module" src="/a.js"></script>`, html);
-                    if (path === "/variant.html")
-                        return new Response(
-                            `<script type="module" src="/a.js"></script>` +
-                                `<script type="module" src="/b.js"></script>`,
-                            html,
-                        );
-                    return new Response("not found", { status: 404 });
-                },
-            });
-            const browser = await chromium.launch({ headless: true });
-            try {
-                const countFor = async (path: string): Promise<number> => {
-                    const page = await browser.newPage();
-                    await page.goto(`http://localhost:${server.port}${path}`, {
-                        waitUntil: "networkidle",
-                    });
-                    const entries = (await page.evaluate(() =>
-                        performance
-                            .getEntriesByType("resource")
-                            .map((e) => ({ name: e.name, duration: e.duration })),
-                    )) as ResourceEntry[];
-                    await page.close();
-                    return summarizeResourceTiming(entries).count;
-                };
-                const base = await countFor("/base.html");
-                const variant = await countFor("/variant.html");
-                expect(variant - base).toBe(1);
-            } finally {
-                await browser.close();
-                server.stop(true);
-            }
-        },
-        20_000,
-    );
 });
 
 // the scenario-declared bench timeout: `bun bench` drives a scenario that declared a budget under it, keeps
