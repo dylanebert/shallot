@@ -13,7 +13,7 @@ import {
     type TypedArray,
 } from "../../engine";
 import { entries } from "../../engine/ecs/core";
-import { precompile } from "../../engine/runtime";
+import { type LazyAlloc, precompile } from "../../engine/runtime";
 import { allocMembership, MembershipSystem } from "./membership";
 import {
     compiled,
@@ -35,13 +35,20 @@ const warned = new Set<string>();
 // WebGPU constraint: MAP_WRITE buffers can only combine with COPY_SRC. The
 // stager can't itself be a STORAGE binding, hence the separate scatter
 // sources we copy into.
+//
+// `lazy: true` declares this pool to the profiler (`LazyAlloc`, engine/runtime): `_stagingPool` grows on
+// real GPU backpressure (a prior stager's `mapAsync` hasn't resolved by the next flush), not
+// deterministically for a fixed scenario at fixed params, so a byte-budget gate excludes these bytes
+// from its exact total (`shallot-perf-gates` stage 4e).
 function createStager(device: GPUDevice, bytes: number): GPUBuffer {
-    return device.createBuffer({
+    const desc: GPUBufferDescriptor & LazyAlloc = {
         label: "slab-staging",
         size: bytes,
         usage: GPUBufferUsage.MAP_WRITE | GPUBufferUsage.COPY_SRC,
         mappedAtCreation: true,
-    });
+        lazy: true,
+    };
+    return device.createBuffer(desc);
 }
 
 /**

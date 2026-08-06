@@ -176,11 +176,25 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         expect(checks).toEqual([]);
     });
 
+    // A fixture byte-exempt scenario (the real registry carries none since stage 4e — every row that used
+    // to exempt `gpuBytes` regained an exact golden once the lazy-pool bytes were excluded at the
+    // allocation site, `shallot-perf-gates` stage 4e). Same injection shape as the "outline" fixture above,
+    // shaped like the pre-4e `render` row (`pipelines` budgeted, `gpuBytes` exempt) so the per-axis
+    // behavior these three tests pin stays covered even though no live row exercises it anymore.
+    const FixtureBudgets = { "fixture-byte-exempt": { pipelines: 29 } };
+    const FixtureExemptions = { "fixture-byte-exempt": { gpuBytes: "fixture: lazily-grown pool" } };
+
     // the intersection the other two `atDefaultParams`/exempt tests each cover only one side of: an
     // exempt axis run at non-default params still emits nothing, rather than falling through to the
     // inapplicable-check branch a budgeted axis takes at non-default params.
-    test("an exempt axis at non-default params still emits nothing (render's byte-exempt axis)", () => {
-        const checks = assertBudget("render", false, { pipelines: 1, gpuBytes: 1 });
+    test("an exempt axis at non-default params still emits nothing (a byte-exempt axis)", () => {
+        const checks = assertBudget(
+            "fixture-byte-exempt",
+            false,
+            { pipelines: 1, gpuBytes: 1 },
+            FixtureBudgets,
+            FixtureExemptions,
+        );
         expect(checks).toEqual([
             {
                 name: "budget:pipelines",
@@ -192,29 +206,43 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
     });
 
     // `shallot-perf-gates` stage 4b's own Validation criterion: exempting a scenario's `gpuBytes` axis
-    // must never drop its exact `pipelines` golden. Red-first, against the real registry's `render` row
-    // (pipelines: 29, budgeted; gpuBytes: exempt) — this is precisely what the pre-4b per-scenario
+    // must never drop its exact `pipelines` golden — this is precisely what the pre-4b per-scenario
     // exemption shape could not do (proven separately: a reconstruction of that shape returned `[]` for
     // this exact call, so no check existed to red at all).
-    test("a bogus pipeline count reds on a byte-exempted scenario (render)", () => {
-        expect(BUDGET_EXEMPTIONS.render?.gpuBytes).toBeDefined();
-        expect(SCENARIO_BUDGETS.render?.pipelines).toBe(29);
-
-        const checks = assertBudget("render", true, { pipelines: 999, gpuBytes: 1 });
+    test("a bogus pipeline count reds on a byte-exempted scenario", () => {
+        const checks = assertBudget(
+            "fixture-byte-exempt",
+            true,
+            { pipelines: 999, gpuBytes: 1 },
+            FixtureBudgets,
+            FixtureExemptions,
+        );
         expect(checks).toEqual([
             { name: "budget:pipelines", pass: false, detail: "measured 999, budget 29" },
         ]);
     });
 
-    test("the correct pipeline count is green on the same byte-exempted scenario (render)", () => {
-        const checks = assertBudget("render", true, { pipelines: 29, gpuBytes: 1 });
+    test("the correct pipeline count is green on the same byte-exempted scenario", () => {
+        const checks = assertBudget(
+            "fixture-byte-exempt",
+            true,
+            { pipelines: 29, gpuBytes: 1 },
+            FixtureBudgets,
+            FixtureExemptions,
+        );
         expect(checks).toEqual([
             { name: "budget:pipelines", pass: true, detail: "measured 29, budget 29" },
         ]);
     });
 
     test("a byte-exempted scenario never emits a budget:bytes check, however wrong the measured bytes are", () => {
-        const checks = assertBudget("render", true, { pipelines: 29, gpuBytes: 999_999_999_999 });
+        const checks = assertBudget(
+            "fixture-byte-exempt",
+            true,
+            { pipelines: 29, gpuBytes: 999_999_999_999 },
+            FixtureBudgets,
+            FixtureExemptions,
+        );
         expect(checks.find((c) => c.name === "budget:bytes")).toBeUndefined();
     });
 });

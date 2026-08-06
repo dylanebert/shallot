@@ -3,6 +3,7 @@ export {
     checkStorageBinding,
     checkTextureLimits,
     checkTgsl,
+    type LazyAlloc,
     precompile,
     precompileAll,
     precompileScope,

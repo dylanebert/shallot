@@ -319,6 +319,13 @@ function printMeasurement(label: string, r: BenchmarkMeasurement): void {
         console.log(
             `  GPU memory: buffers ${mb(m.bufferBytes)} + textures ${mb(m.textureBytes)} = ${mb(m.bufferBytes + m.textureBytes)} MB`,
         );
+        // the byte-budget gate reads the total minus lazy-pool bytes (`shallot-perf-gates` stage 4e) —
+        // print both so a printed number always matches what the gate compares against.
+        if (m.lazyBytes > 0) {
+            console.log(
+                `    excl. lazy pool: ${mb(m.lazyBytes)} MB  (gated total ${mb(m.bufferBytes + m.textureBytes - m.lazyBytes)} MB)`,
+            );
+        }
         const labels = Object.entries(m.byLabel).sort((a, b) => b[1] - a[1]);
         if (labels.length > 0) {
             console.log(`    by label:`);

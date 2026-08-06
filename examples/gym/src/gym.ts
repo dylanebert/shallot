@@ -318,6 +318,10 @@ export function installHarness(
             // scenario's verdict generically, off `SCENARIO_BUDGETS`/`BUDGET_EXEMPTIONS` data alone — a
             // scenario earns the check by having a budget entry, never by editing its own `assert`. Reads
             // `Profile` directly (not `metrics.compile`, which isn't filtered to real pipelines).
+            // `gpuBytes` excludes `Profile.lazyBytes` — bytes from an allocation the allocator marked
+            // lazily-grown (a pool that grows under real GPU backpressure, `LazyAlloc`) are not exact for
+            // a fixed scenario at fixed params, so the gate reads the total minus them, the quantity that
+            // IS exact by mechanism (`shallot-perf-gates` stage 4e).
             const budgeted = assertBudget(
                 scenario.name,
                 isDefaultParams(scenario.params ?? [], params),
@@ -325,7 +329,7 @@ export function installHarness(
                     pipelines: [...Profile.compile.keys()].filter((k) =>
                         Profile.compiledPipelines.has(k),
                     ).length,
-                    gpuBytes: Profile.bufferBytes + Profile.textureBytes,
+                    gpuBytes: Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes,
                 },
             );
             const checks =

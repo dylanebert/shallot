@@ -33,6 +33,26 @@ export class GpuDiagnosticError extends Error {
 const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
 
 /**
+ * extends a `device.createBuffer` / `createTexture` descriptor with the allocator's own declaration that
+ * this specific call is a lazily-grown pool entry — a buffer or texture that appears on real GPU
+ * backpressure (a readback ring's staging slot, a slab's staging buffer) rather than deterministically
+ * for a fixed scenario at fixed params. The allocator is the one thing that knows this, so the mark
+ * travels on the descriptor already crossing `ProfilePlugin`'s patched `createBuffer` / `createTexture`
+ * seam — never inferred from the label string, which would silently miss the next such pool
+ * (`shallot-perf-gates` stage 4e). `Profile.lazyBytes` sums every allocation marked `lazy` separately
+ * from the exact `bufferBytes` / `textureBytes` totals a byte-budget gate reads.
+ * @example
+ * const desc: GPUBufferDescriptor & LazyAlloc = { label: "my-pool-slot", size, usage, lazy: true };
+ * device.createBuffer(desc);
+ */
+export interface LazyAlloc {
+    /** true when this allocation call is a lazily-grown pool entry (see the interface doc). Omitted or
+     *  false for an eager, deterministic allocation — every other `createBuffer` / `createTexture` call
+     *  site in the engine. */
+    lazy?: boolean;
+}
+
+/**
  * pre-flight a large/fixed-cap storage buffer against the device's per-binding limit. A heavy scene
  * grows several of these (the physics contact store, the BVH node buffer); past `maxStorageBufferBindingSize`
  * the bare allocation OOMs silently or surfaces an opaque bind-group validation error, so this throws a

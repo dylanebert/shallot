@@ -73,6 +73,31 @@ describe("ProfilePlugin", () => {
             expect(Profile.bufferBytes).toBe(before - 1024);
             expect(Profile.allocBytes.has("shallot-perf-gates-test")).toBe(false);
 
+            // a `LazyAlloc.lazy: true` descriptor is a lazily-grown pool entry (`Mirror`'s readback
+            // ring / `Slab`'s staging pool): its bytes sum into `lazyBytes`, a subset of `bufferBytes`,
+            // so `bufferBytes - lazyBytes` (the byte-budget gate's exact total) doesn't move — a bogus
+            // LAZY allocation must not red the gate. A bogus GATED allocation (no `lazy` mark) does move
+            // it (`shallot-perf-gates` stage 4e).
+            expect(Profile.lazyBytes).toBe(0);
+            const gatedBefore = Profile.bufferBytes - Profile.lazyBytes;
+            const lazyBuffer = Compute.device.createBuffer({
+                label: "shallot-perf-gates-lazy-test",
+                size: 4096,
+                usage: GPUBufferUsage.STORAGE,
+                lazy: true,
+            } as unknown as GPUBufferDescriptor);
+            expect(Profile.lazyBytes).toBe(4096);
+            expect(Profile.bufferBytes - Profile.lazyBytes).toBe(gatedBefore);
+            const gatedBuffer = Compute.device.createBuffer({
+                label: "shallot-perf-gates-gated-test",
+                size: 256,
+                usage: GPUBufferUsage.STORAGE,
+            });
+            expect(Profile.bufferBytes - Profile.lazyBytes).toBe(gatedBefore + 256);
+            lazyBuffer.destroy();
+            gatedBuffer.destroy();
+            expect(Profile.lazyBytes).toBe(0);
+
             // TypeGPU builds every pipeline through the SYNCHRONOUS constructors
             // (`createRenderPipeline` / `createComputePipeline`), never the awaited `*Async` pair —
             // so a pipeline built this way must self-register in `compile` too, or `.size` stays a

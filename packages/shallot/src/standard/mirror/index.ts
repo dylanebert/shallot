@@ -1,6 +1,7 @@
 import { isBuffer, type TgpuBuffer } from "typegpu";
 import type { AnyData } from "typegpu/data";
 import { Compute, type Plugin, type State, type System } from "../../engine";
+import type { LazyAlloc } from "../../engine/runtime";
 
 /** what {@link mirror} reads back: a raw `GPUBuffer` or its typed twin. Mirror is byte-granular either
  *  way — a typed source is unwrapped at construction and the snapshot stays opaque bytes. */
@@ -107,11 +108,17 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
             if (!slot) {
                 // Ring saturated — every staging slot still mapping. Skip this tick.
                 if (m._slots.length >= m._ringSize) continue;
-                slot = device.createBuffer({
+                // `lazy: true` declares this ring to the profiler (`LazyAlloc`, engine/runtime): a slot
+                // grows on real GPU backpressure — how many have grown by the moment `Profile` samples
+                // depends on device readback timing, not scenario code or params — so a byte-budget gate
+                // excludes these bytes from its exact total (`shallot-perf-gates` stage 4e).
+                const desc: GPUBufferDescriptor & LazyAlloc = {
                     label: "mirror-staging",
                     size: m.size,
                     usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-                });
+                    lazy: true,
+                };
+                slot = device.createBuffer(desc);
                 m._slots.push(slot);
             }
             encoder.copyBufferToBuffer(m._raw, 0, slot, 0, m.size);

@@ -4,6 +4,7 @@ import { Profile } from "@dylanebert/shallot/extras";
 import type { Verdict as WireVerdict } from "@dylanebert/shallot/harness";
 import { getScenario, installHarness, resolveNoRender, type Scenario } from "./gym";
 import "./scenarios/render";
+import { SCENARIO_BUDGETS } from "./scenarios/budgets";
 
 const installedNoRender = (mode: string): boolean => {
     const scenario = getScenario("render");
@@ -84,5 +85,74 @@ test("run() reports the filtered pipeline count, not Profile.compile.size", asyn
         for (const [k, v] of savedCompile) compile.set(k, v);
         pipelines.clear();
         for (const k of savedPipelines) pipelines.add(k);
+    }
+});
+
+// `run()` computes `budget:bytes`'s measured quantity as `Profile.bufferBytes + Profile.textureBytes -
+// Profile.lazyBytes`, never the raw sum (`shallot-perf-gates` stage 4e): a lazily-grown pool's live bytes
+// are timing-dependent, so a lazy pool growing (bufferBytes AND lazyBytes moving together) must NOT red
+// the gate, while a bogus allocation landing in a GATED label (bufferBytes moving alone) must still red
+// it. Seeds `Profile`'s module-singleton scalar fields directly (no live GPU device needed) against the
+// real `accel` budget entry.
+test("run()'s budget:bytes excludes Profile.lazyBytes from the measured total", async () => {
+    const golden = SCENARIO_BUDGETS.accel.gpuBytes as number;
+    const mutable = Profile as unknown as {
+        bufferBytes: number;
+        textureBytes: number;
+        lazyBytes: number;
+    };
+    const saved = {
+        bufferBytes: mutable.bufferBytes,
+        textureBytes: mutable.textureBytes,
+        lazyBytes: mutable.lazyBytes,
+    };
+    const scenario: Scenario = {
+        name: "accel",
+        params: [],
+        build: () => Promise.reject(new Error("not exercised — run() never calls build")),
+    };
+    const savedWindow = globalThis.window;
+    const fakeWindow = {} as unknown as typeof window;
+    (fakeWindow as unknown as { __benchmark: unknown }).__benchmark = {
+        ready: true,
+        measure: async () => ({}),
+    };
+    globalThis.window = fakeWindow;
+
+    const run = async () => {
+        installHarness(scenario, {} as State, () => true, {});
+        const verdict = (await fakeWindow.__harness?.run?.()) as WireVerdict;
+        return verdict.checks?.find((c) => c.name === "budget:bytes");
+    };
+
+    try {
+        // exact match at the gated total, no lazy bytes live right now
+        mutable.bufferBytes = golden;
+        mutable.textureBytes = 0;
+        mutable.lazyBytes = 0;
+        let check = await run();
+        expect(check?.ok).toBe(true);
+        expect(check?.detail).toBe(`measured ${golden}, budget ${golden}`);
+
+        // a lazy pool growing by 4096 B (bufferBytes AND lazyBytes both move by the same amount) — the
+        // excluded-bytes case the check must not red on.
+        mutable.bufferBytes = golden + 4096;
+        mutable.lazyBytes = 4096;
+        check = await run();
+        expect(check?.ok).toBe(true);
+        expect(check?.detail).toBe(`measured ${golden}, budget ${golden}`);
+
+        // a bogus allocation landing in a GATED (non-lazy) label — bufferBytes moves 8 B further with no
+        // matching lazyBytes growth — must still red.
+        mutable.bufferBytes = golden + 4096 + 8;
+        mutable.lazyBytes = 4096;
+        check = await run();
+        expect(check?.ok).toBe(false);
+        expect(check?.detail).toBe(`measured ${golden + 8}, budget ${golden}`);
+    } finally {
+        mutable.bufferBytes = saved.bufferBytes;
+        mutable.textureBytes = saved.textureBytes;
+        mutable.lazyBytes = saved.lazyBytes;
+        globalThis.window = savedWindow;
     }
 });

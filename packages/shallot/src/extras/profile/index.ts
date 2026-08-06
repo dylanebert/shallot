@@ -1,4 +1,4 @@
-import type { Plugin, State, System } from "../../engine";
+import type { LazyAlloc, Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
@@ -74,6 +74,14 @@ export interface Profile {
      *  into one entry, decremented on `destroy()`. The per-label attribution a byte-budget gate reads
      *  once {@link bufferBytes} + {@link textureBytes} fails, to find which label grew. */
     readonly allocBytes: ReadonlyMap<string, number>;
+    /** live bytes across every allocation the allocator marked {@link LazyAlloc.lazy} at creation — a
+     *  subset of {@link bufferBytes} + {@link textureBytes}, summed and decremented on `destroy()` the
+     *  same way. Timing-dependent by construction (a pool, like `Mirror`'s readback ring or `Slab`'s
+     *  staging pool, that grows lazily under real GPU backpressure rather than deterministically for a
+     *  fixed scenario at fixed params), so a byte-budget gate excludes it from its gated total and
+     *  reports it separately: `bufferBytes + textureBytes - lazyBytes` is the exact, device-independent
+     *  quantity (`shallot-perf-gates` stage 4e). */
+    readonly lazyBytes: number;
     /** cumulative `device.queue.submit` calls since attach. Each submit is a renderer→GPU-process IPC
      *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
      *  wait, not a pass). A frame issues several (render, the slab flush, a mirror readback, the
@@ -151,6 +159,7 @@ class ProfileImpl implements Profile {
     readonly allocBytes = new Map<string, number>();
     bufferBytes = 0;
     textureBytes = 0;
+    lazyBytes = 0;
 
     private _compileEarliest = Infinity;
     private _compileLatest = -Infinity;
@@ -249,6 +258,7 @@ class ProfileImpl implements Profile {
                 desc.size,
                 this.buffers,
                 "buffer",
+                (desc as GPUBufferDescriptor & LazyAlloc).lazy === true,
             );
 
         const origCreateTexture = device.createTexture.bind(device);
@@ -259,6 +269,7 @@ class ProfileImpl implements Profile {
                 textureByteSize(desc),
                 this.textures,
                 "texture",
+                (desc as GPUTextureDescriptor & LazyAlloc).lazy === true,
             );
 
         // count every submit (the patch lives on the queue object, so a caller caching `device.queue`
@@ -277,16 +288,19 @@ class ProfileImpl implements Profile {
         bytes: number,
         set: Set<T>,
         kind: "buffer" | "texture",
+        lazy: boolean,
     ): T {
         const totals = kind === "buffer" ? "bufferBytes" : "textureBytes";
         set.add(obj);
         this[totals] += bytes;
+        if (lazy) this.lazyBytes += bytes;
         this.sizes.set(obj, { label, bytes, kind });
         this.allocBytes.set(label, (this.allocBytes.get(label) ?? 0) + bytes);
         const origDestroy = obj.destroy.bind(obj);
         (obj as { destroy: () => void }).destroy = () => {
             set.delete(obj);
             this[totals] -= bytes;
+            if (lazy) this.lazyBytes -= bytes;
             this.sizes.delete(obj);
             const remaining = (this.allocBytes.get(label) ?? 0) - bytes;
             if (remaining <= 0) this.allocBytes.delete(label);
