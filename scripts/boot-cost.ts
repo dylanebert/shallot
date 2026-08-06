@@ -47,6 +47,7 @@ interface Args {
     query: string[];
     runs: number;
     transform: boolean;
+    dist: boolean;
 }
 
 function help(): void {
@@ -55,13 +56,17 @@ function help(): void {
 Runs \`shallot verify\` with --timings N times and prints per-phase wall time (median across runs) plus
 the resource-timing readout. With --transform, also runs once under DEBUG=vite:plugin-transform and
 prints per-plugin dev-transform CPU time, reconciled against the child process's own total CPU time.
+With --dist, builds the project first (\`shallot build\`) and reads the built path instead of the dev
+server — same phase table and resource readout, one instrument, so a dev run and a dist run are read
+side by side.
 
 Options:
   --dir <path>    project to verify (default: examples/gym)
   --query <k=v>   --query passthrough to verify (repeatable; default: scenario=render, seed=1,
                   warmup=60, frames=240 — the params this repo's headline startup number used)
   --runs <n>      number of --timings runs to median across (default: 3)
-  --transform     also run the plugin-transform attribution (one extra run)`);
+  --transform     also run the plugin-transform attribution (one extra run)
+  --dist          build the project first, then measure \`shallot verify --dist\` instead of dev`);
 }
 
 function parseArgs(argv: string[]): Args {
@@ -74,6 +79,7 @@ function parseArgs(argv: string[]): Args {
         query: ["scenario=render", "seed=1", "warmup=60", "frames=240"],
         runs: 3,
         transform: false,
+        dist: false,
     };
     let queryOverridden = false;
     for (let i = 0; i < argv.length; i++) {
@@ -105,6 +111,9 @@ function parseArgs(argv: string[]): Args {
             }
             case "--transform":
                 out.transform = true;
+                break;
+            case "--dist":
+                out.dist = true;
                 break;
             default:
                 throw new Error(`unknown option: ${arg}`);
@@ -211,8 +220,25 @@ function median(values: number[]): number {
     return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
+/** `shallot build <dir>`, plain — no `--json`, no verify protocol, since a build has no Verdict. Reused
+ *  by the same instrument that already runs `shallot verify` so `--dist` needs no parallel spawn path. */
+async function runBuild(dir: string): Promise<{ exitCode: number | null; stderr: string }> {
+    const proc = Bun.spawn(["bun", CLI, "build", dir], {
+        cwd: REPO_ROOT,
+        stdout: "inherit",
+        stderr: "pipe",
+    });
+    const stderr = await new Response(proc.stderr).text();
+    await proc.exited;
+    return { exitCode: proc.exitCode, stderr };
+}
+
 async function runTimings(args: Args, bridge: Bridge | null): Promise<void> {
-    const extra = [...args.query.flatMap((q) => ["--query", q]), "--timings"];
+    const extra = [
+        ...args.query.flatMap((q) => ["--query", q]),
+        "--timings",
+        ...(args.dist ? ["--dist"] : []),
+    ];
     const byPhase = new Map<string, number[]>();
     const resources: Resources[] = [];
     for (let i = 0; i < args.runs; i++) {
@@ -334,6 +360,15 @@ async function main(): Promise<void> {
         return;
     }
     const args = parseArgs(process.argv.slice(2));
+    if (args.dist) {
+        const build = await runBuild(args.dir);
+        if (build.exitCode !== 0) {
+            // not a skip: no display is an environment this box can't measure in, a broken build is red.
+            console.error(`shallot build ${args.dir} exited ${build.exitCode}`);
+            if (build.stderr.trim()) console.error(build.stderr);
+            process.exit(1);
+        }
+    }
     const bridge = isWSL ? await startBridge() : null;
     try {
         await runTimings(args, bridge);
