@@ -10,23 +10,34 @@ import { type Bridge, start as startBridge } from "./wsl-bridge";
 // dev-server transform attribution, read from Vite's own `DEBUG=vite:plugin-transform` event stream (a
 // signal that already exists; this adds no instrument). Instrument-only: no lever, no `dev.ts` edit.
 //
+// `--transform`'s per-plugin sum is trustworthy for at most one plugin. A hook that `await`s a nested
+// `this.resolve()` yields to the event loop, so its recorded spans can overlap another module's — their
+// summed duration is not serial CPU time, and the reconciliation against the child's own real CPU time
+// below is what catches it (a summed-events figure exceeding the whole process's CPU time is proof of
+// that double-counting, not a large finding). `unplugin-typegpu`'s `transform.handler` is verified
+// plain synchronous JS (babel parse + traverse + magic-string, no `async`/`await`) by reading its
+// source, not detected here — `KNOWN_SYNCHRONOUS_PLUGINS` names it, and only a plugin in that set gets
+// its sum trusted in the printed table.
+//
 // Spawns `shallot verify` directly rather than going through this repo's `verify()`/`spawnVerify`
-// (`scripts/verify.ts`), for the same reason stage 3a's driver did: `--transform` needs an explicit
-// `env: { DEBUG: … }` on the child (a `process.env.DEBUG = …` set after this process's own startup does
-// not reach a Bun.spawn child by default — verified empirically), and `--timings` prints as plain lines
-// outside verify()'s parsed JSON result, so a caller reading the phases back needs the raw stdout
-// `spawnVerify` doesn't expose. Both modes use one spawn path so they stay one source of truth.
+// (`scripts/verify.ts`), because `--transform` needs an explicit `env: { DEBUG: … }` on the child (a
+// `process.env.DEBUG = …` set after this process's own startup does not reach a Bun.spawn child by
+// default — verified empirically), and `--timings` prints as plain lines outside verify()'s parsed JSON
+// result, so a caller reading the phases back needs the raw stdout `spawnVerify` doesn't expose. Both
+// modes use one spawn path so they stay one source of truth.
 //
 // Display-gated like every `shallot verify` run (testing.md): skips honestly when no real GPU is
 // reachable (`skipReason()`), and drives the WSL bridge automatically where one is needed.
 //
 // A DIFFERENTIAL against a prior tag needs that tag's own `bin/verify.ts` to emit the same `--timings`
-// phase checkpoints — a HEAD-only reading here is a single-side number, not evidence of a regression.
-// Pre-port tags don't have the checkpoints; this script can't invent them for a repo it isn't run from.
-// Back-porting is a one-time, ~15-line diff over `verify()`'s existing `drive()` calls (the checkpoint
-// pushes + `formatTimings`), applied to a throwaway worktree of the older tag and never committed to
-// it. Copy this script into that worktree, `bun install && bun run build` there, run it there too, and
-// diff the two printed tables by hand — this script only ever measures the repo it is run from.
+// output this script parses — a HEAD-only reading here is a single-side number, not evidence of a
+// regression. Pre-port tags don't have it; this script can't invent it for a repo it isn't run from.
+// Reproducing it is a back-port of `bin/verify.ts`'s whole `--timings` surface, not a small diff: the
+// phase checkpoints, `TIMINGS_INIT_SCRIPT`, and `formatExtraTimings` together, since the comparison
+// needs the harness-install probe and resource-timing readout on both sides, not just the phase spans.
+// Apply that back-port to a throwaway worktree of the older tag, never committed to it, copy this
+// script into that worktree, `bun install && bun run build` there, run it there too, and diff the two
+// printed tables by hand — this script only ever measures the repo it is run from.
 //
 // Sequential by design (testing.md's bench-cost note: a cold per-process module-transform graph is
 // exactly what this reads, and a parallel run would corrupt it by contending on the same transform).
@@ -82,9 +93,16 @@ function parseArgs(argv: string[]): Args {
                 }
                 out.query.push(take());
                 break;
-            case "--runs":
-                out.runs = Number.parseInt(take(), 10);
+            case "--runs": {
+                const v = take();
+                // `Number.parseInt` truncates ("2.7" -> 2), so it can't see a fractional value on its
+                // own — check the full string is an integer literal first.
+                if (!/^\d+$/.test(v) || Number.parseInt(v, 10) < 1) {
+                    throw new Error(`--runs must be a positive integer, got ${v}`);
+                }
+                out.runs = Number.parseInt(v, 10);
                 break;
+            }
             case "--transform":
                 out.transform = true;
                 break;
@@ -204,6 +222,12 @@ async function runTimings(args: Args, bridge: Bridge | null): Promise<void> {
         console.log(
             `run ${i + 1}/${args.runs}: exitCode=${exitCode} ${phases.length} phases parsed`,
         );
+        if (phases.length === 0 && exitCode === 0 && stdout.trim().length > 0) {
+            throw new Error(
+                `run ${i + 1}/${args.runs} exited 0 but parsed 0 phases from non-empty stdout — the ` +
+                    `parser and formatTimings' output have drifted apart. Raw stdout:\n${stdout}`,
+            );
+        }
         for (const p of phases) byPhase.set(p.name, [...(byPhase.get(p.name) ?? []), p.ms]);
         if (res) resources.push(res);
         else
@@ -229,6 +253,15 @@ async function runTimings(args: Args, bridge: Bridge | null): Promise<void> {
     }
 }
 
+/** plugins whose `transform` hook is verified synchronous (plain parse/traverse/rewrite, no
+ *  `async`/`await`) — read from `node_modules/unplugin-typegpu/factory-*.js`'s `transform.handler`, not
+ *  detected from the DEBUG stream (a runtime await/no-await split isn't visible in it). Only a plugin
+ *  in this set has a summed transform duration that's real serial CPU time; every other plugin's hooks
+ *  may `await` a nested `this.resolve()` and yield to the event loop, so their spans can overlap and
+ *  their sum overstates real time — the mechanism behind the reconciliation check below. Re-verify
+ *  against source before trusting a new entry; don't infer sync-vs-async from the printed numbers. */
+const KNOWN_SYNCHRONOUS_PLUGINS = new Set(["unplugin-typegpu"]);
+
 async function runTransform(args: Args, bridge: Bridge | null): Promise<void> {
     const extra = [...args.query.flatMap((q) => ["--query", q]), "--timings"];
     const { stdout, stderr, exitCode, cpuUserMs, cpuSysMs } = await spawnVerify(
@@ -250,7 +283,12 @@ async function runTransform(args: Args, bridge: Bridge | null): Promise<void> {
     }
     console.log("per-plugin transform totals (naive sum — see the reconciliation below):");
     for (const [plugin, e] of [...byPlugin.entries()].sort((a, b) => b[1].ms - a[1].ms)) {
-        console.log(`  ${plugin.padEnd(28)} ${e.ms.toFixed(1).padStart(10)}ms  (${e.n} events)`);
+        const trust = KNOWN_SYNCHRONOUS_PLUGINS.has(plugin)
+            ? "  (verified synchronous — real serial CPU time)"
+            : "  (not verified synchronous — sum may overlap, don't trust it alone)";
+        console.log(
+            `  ${plugin.padEnd(28)} ${e.ms.toFixed(1).padStart(10)}ms  (${e.n} events)${trust}`,
+        );
     }
     if (cpuUserMs !== null && cpuSysMs !== null) {
         const total = cpuUserMs + cpuSysMs;
@@ -261,8 +299,8 @@ async function runTransform(args: Args, bridge: Bridge | null): Promise<void> {
         if (grandSum > total) {
             console.log(
                 `  the naive per-event sum (${grandSum.toFixed(1)}ms) EXCEEDS this total — proof of concurrency\n` +
-                    `  double-counting (overlapping async hooks), not a real reading. Trust only a plugin whose own\n` +
-                    `  hook is synchronous (no async/await) — its own summed duration is real serial CPU time.`,
+                    `  double-counting (overlapping async hooks), not a real reading. Only a plugin marked\n` +
+                    `  "verified synchronous" above has a sum that's real serial CPU time.`,
             );
         }
     } else {
@@ -291,4 +329,4 @@ async function main(): Promise<void> {
     }
 }
 
-await main();
+if (import.meta.main) await main();

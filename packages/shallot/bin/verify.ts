@@ -215,10 +215,11 @@ export function installHarnessProbe(target: Record<string, unknown>): void {
  *  function itself is what keeps the shipped probe and the proven one the same code. */
 export const HARNESS_PROBE_SCRIPT = `(${installHarnessProbe.toString()})(window)`;
 
-/** how many resource-timing entries the page keeps. The spec default is 250, and a dev server that
- *  serves an `optimizeDeps.exclude`d package unbundled blows past it — a saturated buffer reports
- *  exactly 250 however many modules were really fetched, silently flattening the one quantity this
- *  readout exists to measure. */
+/** how many resource-timing entries the page keeps. The spec default is 250, and a workspace-symlinked
+ *  dependency — resolving outside `node_modules`, so Vite's scanner never prebundles it — serves every
+ *  module as its own unbundled request and blows past that default. A saturated buffer reports exactly
+ *  250 however many modules were really fetched, silently flattening the one quantity this readout
+ *  exists to measure. */
 export const RESOURCE_BUFFER = 20_000;
 
 /** everything `--timings` installs before navigation: the harness-install probe plus the raised
@@ -242,9 +243,9 @@ export interface ResourceEntry {
 }
 
 /** the resource-timing readout: request count, summed transfer duration, and the top-N slowest — the
- *  one signal that can see dev-server module transport directly (an `optimizeDeps.exclude`d package
- *  serves every module as its own unbundled request). Pure: the page collects the raw entries, this
- *  reduces them. */
+ *  one signal that can see dev-server module transport directly (a workspace-symlinked dependency
+ *  resolves outside `node_modules`, so Vite's scanner never prebundles it and serves every module as
+ *  its own unbundled request). Pure: the page collects the raw entries, this reduces them. */
 export interface ResourceTiming {
     count: number;
     totalMs: number;
@@ -1303,8 +1304,9 @@ async function drive(
     // loaded: a second goto re-runs the app and diverges its first-load state. navStart is stamped
     // right before whichever attempt actually lands (adversarial review, stage 1): a stale mark from
     // the failed first attempt would inflate the harness-install probe by its own 30s timeout + the 1s
-    // backoff, exactly the kind of retry the port's `optimizeDeps.exclude` makes more likely — the
-    // instrument lying about the very thing it exists to attribute.
+    // backoff, exactly the kind of retry a workspace-symlinked package's unbundled module population
+    // (each a separate transform) makes more likely — the instrument lying about the very thing it
+    // exists to attribute.
     let navStart = Date.now();
     try {
         await page.goto(url, { timeout: 30_000 });
