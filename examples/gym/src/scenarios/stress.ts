@@ -756,18 +756,27 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
     }
     const attribution = inducedMean > 0 ? otherDrift / inducedMean : Number.POSITIVE_INFINITY;
 
-    // no-collateral-spike, CPU-side: no OTHER system's p99 climbs beyond its clean baseline — a GC pause from
-    // the slab-write churn (the CPU-memory axis it couples to) would surface on some system's p99, immune to
-    // the 2-in-flight tick beat.
+    // NEITHER of the two CPU wall-clock pacing terms below is gated on this axis — both are printed. Each
+    // borrowed a bound derived for a different signal, and each reds intermittently with no regression behind
+    // it. The claim they proxy for IS gated, at its own mechanism, by the CPU-memory axis below:
+    // `no GC pause at the wall` reads CDP's direct GC counter (gcCount === 0) over the heaviest churn loop —
+    // a count, which no host stall can move.
     //
-    // inducedRatio (induced system's own p99/mean) is printed but NOT gated. OCC_K = 1.25 (`paceChecks`,
-    // above) is derived from GPU-timestamped per-occurrence occupancy jitter (≈1.04 measured) — a driver
-    // completion-fence signal. This axis's inducedRatio is a CPU wall-clock p99/mean on a harness that owns
-    // ~99% of the frame, where a host stall (GC, OS scheduling, the WSL→Windows bridge) lands inside the
-    // measured span by near-certainty — a noise floor OCC_K was never derived against. Red 1/5–1/9 runs
-    // across 13 sequential samples with no real regression found; a tripled sample window didn't fix it
-    // (falsified by its own 9th run, 1.42×). Don't re-add it to the pass condition, and don't rebase it
-    // against the idle run's own p99/mean either — that trades one underived constant for another.
+    // inducedRatio (induced system's own p99/mean): OCC_K = 1.25 (`paceChecks`, above) is derived from
+    // GPU-timestamped per-occurrence occupancy jitter (≈1.04 measured) — a driver completion-fence signal.
+    // This axis's inducedRatio is a CPU wall-clock p99/mean on a harness that owns ~99% of the frame, where a
+    // host stall (GC, OS scheduling, the WSL→Windows bridge) lands inside the measured span by near-certainty
+    // — a noise floor OCC_K was never derived against. Red 1/5–1/9 runs across 13 sequential samples with no
+    // real regression found; a tripled sample window didn't fix it (falsified by its own 9th run, 1.42×).
+    //
+    // otherSpikeClimb (worst OTHER system's p99 climb vs its idle baseline): CPU_SPIKE_MARGIN = 1.0 is
+    // derived from steady systems sitting sub-0.1 ms — a claim about the typical case, not the tail — and
+    // this is a max-over-systems estimator, so one host stall anywhere sets it. Measured 1/10 red at 4.085 ms
+    // (nine siblings 0.085–0.515), and the SAME failing run's CPU-memory axis reported 0 GC / 0 ms pause over
+    // 266 frames at the heaviest churn: the named mechanism did not fire in the run that failed the check.
+    //
+    // Don't re-add either to the pass condition, and don't rebase them against the idle run's own p99/mean
+    // either — that trades one underived constant for another.
     const inducedRatio = inducedMean > 0 ? inducedP99 / inducedMean : Number.POSITIVE_INFINITY;
     let otherSpikeClimb = 0;
     let spikeSys = "";
@@ -783,9 +792,6 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
     const saturated = share >= DOMINANCE && inducedMean > 0;
     const attributed = saturated && attribution < ATTRIB;
     const atWall = cpuHot >= FELT_MS;
-    // gates only otherSpikeClimb — inducedRatio has no derived bound on this axis (see the why-comment above)
-    // and is printed, never gated.
-    const noSpike = inducedMean > 0 && otherSpikeClimb <= CPU_SPIKE_MARGIN;
     const fps = cpuHot > 0 ? 1000 / cpuHot : 0;
     const pool = submissionPool();
 
@@ -821,8 +827,8 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
             data,
         },
         {
-            // ties the gate to the per-system percentile metric the printed inducedRatio and the spike
-            // guard both read
+            // the printed pacing terms are only readable if the per-system percentile metric resolves at all
+            // — this gates the instrument behind them, which stays gated even though they don't
             name: "stress: submission — per-system CPU percentile metric resolves for the induced system",
             pass: inducedP99 > 0 && inducedMean > 0,
             detail: `${span} mean ${f3(inducedMean)} · p99 ${f3(inducedP99)} ms`,
@@ -839,20 +845,9 @@ async function submissionAxis(bench: BenchmarkAPI): Promise<Check[]> {
             data,
         },
         {
-            // NO COLLATERAL SPIKE: the chosen response is an even slowdown, and this check gates its one
-            // derived half — no OTHER system's p99 climbs beyond its clean baseline (a GC pause / sync
-            // compile / big sync readback from the slab-write churn would surface there). Reads the
-            // per-system CPU percentiles, not the rAF-beat-bearing tick interval. The induced system's own
-            // p99/mean (inducedRatio, printed below) is NOT gated — see the why-comment above `inducedRatio`.
-            name: "stress: submission — no collateral spike: induced slab-write churn injects no CPU spike",
-            pass: noSpike,
-            detail: `no collateral spike (worst other system ${spikeSys || "—"} p99 +${f3(otherSpikeClimb)} ≤ ${CPU_SPIKE_MARGIN} ms vs idle) — the slab-write churn injects no GC pause · induced cost p99/mean ${inducedRatio.toFixed(2)}× (${f3(inducedP99)} / ${f3(inducedMean)} ms, printed only — no derived bound on this axis)`,
-            data,
-        },
-        {
             name: "measured (submission wall + cadence)",
             pass: true,
-            detail: `wall ${f3(cpuHot)} ms @ ${level} passes × ${pool} ents · ${fps.toFixed(0)} fps cadence · induced ${f3(inducedMean)} ms (${(share * 100).toFixed(0)}% of CPU) · idle CPU ${f3(cpuBase)} ms`,
+            detail: `wall ${f3(cpuHot)} ms @ ${level} passes × ${pool} ents · ${fps.toFixed(0)} fps cadence · induced ${f3(inducedMean)} ms (${(share * 100).toFixed(0)}% of CPU) · idle CPU ${f3(cpuBase)} ms · pacing (printed, ungated — see the why-comment): induced p99/mean ${inducedRatio.toFixed(2)}× (${f3(inducedP99)} / ${f3(inducedMean)} ms) · worst other-system p99 climb ${spikeSys || "—"} +${f3(otherSpikeClimb)} ms vs idle`,
             data,
         },
     ];
