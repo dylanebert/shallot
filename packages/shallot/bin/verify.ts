@@ -190,6 +190,83 @@ export function formatTimings(spans: Span[]): string {
     return spans.map((s) => `  ${s.name.padEnd(width)}  ${s.ms}ms`).join("\n");
 }
 
+/**
+ * install the `__harness` setter probe on `target`: writing `__harness` also stamps
+ * `__harnessInstallAt` with the wall-clock time of that write. The `harness ready` checkpoint comes
+ * from a 500ms poll (quantized, `stepWait`); this reads the exact in-page install moment instead.
+ * Pure over a plain object so the mechanism is unit-testable without a browser — the page's
+ * `addInitScript` duplicates this same logic inline (the `decodeSample`/`probePixels` precedent: a
+ * Playwright init script is stringified and run in-page, so it can't close over an imported function).
+ */
+export function installHarnessProbe(target: Record<string, unknown>): void {
+    let value: unknown;
+    Object.defineProperty(target, "__harness", {
+        configurable: true,
+        get: () => value,
+        set: (v: unknown) => {
+            value = v;
+            target.__harnessInstallAt = Date.now();
+        },
+    });
+}
+
+/** ms from navigation start to the `__harness` setter firing, per {@link installHarnessProbe} —
+ *  null when it never fired (no harness on this page, or the probe wasn't installed). */
+export function harnessInstallMs(
+    navStart: number,
+    installedAt: number | null | undefined,
+): number | null {
+    return installedAt == null ? null : installedAt - navStart;
+}
+
+/** one `performance.getEntriesByType("resource")` entry, reduced to what the readout needs. */
+export interface ResourceEntry {
+    name: string;
+    duration: number;
+}
+
+/** the resource-timing readout: request count, summed transfer duration, and the top-N slowest — the
+ *  one signal that can see dev-server module transport directly (an `optimizeDeps.exclude`d package
+ *  serves every module as its own unbundled request). Pure: the page collects the raw entries, this
+ *  reduces them. */
+export interface ResourceTiming {
+    count: number;
+    totalMs: number;
+    top: ResourceEntry[];
+}
+
+export function summarizeResourceTiming(entries: ResourceEntry[], topN = 10): ResourceTiming {
+    const totalMs = entries.reduce((sum, e) => sum + e.duration, 0);
+    const top = [...entries].sort((a, b) => b.duration - a.duration).slice(0, topN);
+    return { count: entries.length, totalMs, top };
+}
+
+/** render the harness-install probe + resource-timing readout as extra `--timings` lines, appended
+ *  after the phase spans. */
+export function formatExtraTimings(
+    harnessMs: number | null,
+    resource: ResourceTiming | null,
+): string {
+    const lines: string[] = [
+        `  harness install (probe)  ${harnessMs === null ? "n/a" : `${harnessMs}ms`}`,
+    ];
+    if (resource) {
+        lines.push(
+            `  resources  ${resource.count} requests, ${resource.totalMs.toFixed(0)}ms total`,
+        );
+        for (const e of resource.top) lines.push(`    ${e.duration.toFixed(0)}ms  ${e.name}`);
+    }
+    return lines.join("\n");
+}
+
+/** what the harness-install probe and resource-timing readout observed for one page — mutated by
+ *  {@link drive} the same way `checkpoints` is, since both are opt-in extras under `--timings` rather
+ *  than part of the published {@link Result} shape. */
+export interface TimingProbes {
+    harnessInstallMs: number | null;
+    resourceTiming: ResourceTiming | null;
+}
+
 const spread = (a: number[], b: number[]): number =>
     Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
 
@@ -1027,6 +1104,8 @@ async function verifyCommand(raw: string[]): Promise<number> {
     let result: Result | undefined;
     const batchResults: Result[] = [];
     let batchTimings: Span[][] = [];
+    const probes: TimingProbes = { harnessInstallMs: null, resourceTiming: null };
+    let batchProbes: TimingProbes[] = [];
     try {
         try {
             // A remote endpoint (--connect) already carries the browser's channel + WebGPU flags: it was
@@ -1053,13 +1132,24 @@ async function verifyCommand(raw: string[]): Promise<number> {
             const context = await browser.newContext();
             const page = await context.newPage();
             const errors = attachErrorCapture(page);
-            result = await drive(page, projectDir, url, booter.mode, args, errors, checkpoints);
+            result = await drive(
+                page,
+                projectDir,
+                url,
+                booter.mode,
+                args,
+                errors,
+                checkpoints,
+                probes,
+            );
         } else {
             const queries = resolveBatchQueries(args.query, args.run);
             const runSpans: Span[][] = [];
+            const runProbesList: TimingProbes[] = [];
             for (const query of queries) {
                 const runUrl = buildUrl(booter.url, query);
                 const runCheckpoints: Checkpoint[] = [{ name: "start", t: Date.now() }];
+                const runProbes: TimingProbes = { harnessInstallMs: null, resourceTiming: null };
                 let runResult: Result;
                 // a fresh context + page per run, never reused: the one-verdict law (`shallot-gate-ergonomics`
                 // Locked decision) — module singletons and GPU device state must not bleed between runs.
@@ -1080,6 +1170,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
                         args,
                         errors,
                         runCheckpoints,
+                        runProbes,
                     );
                 } catch (err) {
                     // a failure, timeout, or crash in this run must not poison the rest of the batch — it
@@ -1101,9 +1192,11 @@ async function verifyCommand(raw: string[]): Promise<number> {
                 }
                 batchResults.push(runResult);
                 runSpans.push(spansFromCheckpoints(runCheckpoints));
+                runProbesList.push(runProbes);
             }
             checkpoints.push({ name: "batch", t: Date.now() });
             batchTimings = runSpans;
+            batchProbes = runProbesList;
         }
     } finally {
         await browser?.close().catch(() => {});
@@ -1116,7 +1209,10 @@ async function verifyCommand(raw: string[]): Promise<number> {
         // failures all return early) — never undefined here.
         const single = result as Result;
         report(single, args.json);
-        if (args.timings) console.log(formatTimings(spansFromCheckpoints(checkpoints)));
+        if (args.timings) {
+            console.log(formatTimings(spansFromCheckpoints(checkpoints)));
+            console.log(formatExtraTimings(probes.harnessInstallMs, probes.resourceTiming));
+        }
         // a run that never booted is a setup failure, not a verification failure — a distinct code.
         return single.pass ? EXIT_PASS : single.booted ? EXIT_FAIL : EXIT_SETUP;
     }
@@ -1127,6 +1223,8 @@ async function verifyCommand(raw: string[]): Promise<number> {
         batchTimings.forEach((spans, i) => {
             console.log(`\n  run ${i + 1}/${batchResults.length} (${args.run[i]}):`);
             console.log(formatTimings(spans));
+            const p = batchProbes[i];
+            if (p) console.log(formatExtraTimings(p.harnessInstallMs, p.resourceTiming));
         });
     }
     return batchPass(batchResults) ? EXIT_PASS : EXIT_FAIL;
@@ -1145,6 +1243,7 @@ async function drive(
     args: VerifyArgs,
     errors: string[],
     checkpoints: Checkpoint[],
+    probes: TimingProbes,
 ): Promise<Result> {
     const base: Omit<Result, "pass"> = {
         project: projectDir,
@@ -1168,13 +1267,40 @@ async function drive(
         })
         .catch(() => {});
 
+    // --timings' harness-install probe: same mechanism as installHarnessProbe, duplicated inline
+    // because addInitScript stringifies this closure to run in-page — it can't reference an imported
+    // function. Only installed when asked, so a normal run's __harness assignment isn't intercepted
+    // for no reason.
+    if (args.timings) {
+        await page
+            .addInitScript(() => {
+                let value: unknown;
+                Object.defineProperty(window, "__harness", {
+                    configurable: true,
+                    get: () => value,
+                    set: (v: unknown) => {
+                        value = v;
+                        (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt =
+                            Date.now();
+                    },
+                });
+            })
+            .catch(() => {});
+    }
+
     // retry the goto once only if the first attempt itself failed (a cold vite server can re-optimize
     // deps mid-load and strand it — the flows launcher's proven shape). Never re-navigate a page that
-    // loaded: a second goto re-runs the app and diverges its first-load state.
+    // loaded: a second goto re-runs the app and diverges its first-load state. navStart is stamped
+    // right before whichever attempt actually lands (adversarial review, stage 1): a stale mark from
+    // the failed first attempt would inflate the harness-install probe by its own 30s timeout + the 1s
+    // backoff, exactly the kind of retry the port's `optimizeDeps.exclude` makes more likely — the
+    // instrument lying about the very thing it exists to attribute.
+    let navStart = Date.now();
     try {
         await page.goto(url, { timeout: 30_000 });
     } catch {
         await page.waitForTimeout(1000);
+        navStart = Date.now();
         try {
             await page.goto(url, { timeout: 30_000 });
         } catch {
@@ -1216,6 +1342,26 @@ async function drive(
 
     // read the adapter identity once the wait has concluded; a broken page returns "unknown", never a crash.
     base.hardware = await readHardware(page).catch(() => "unknown");
+
+    // (b)+(c): read the harness-install probe and the resource-timing readout once the wait has
+    // concluded — the same point the adapter identity is read, after the page has had its whole boot
+    // window to install `__harness` and fetch every module it needs.
+    if (args.timings) {
+        const installedAt = (await page
+            .evaluate(
+                () => (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt,
+            )
+            .catch(() => undefined)) as number | undefined;
+        probes.harnessInstallMs = harnessInstallMs(navStart, installedAt ?? null);
+        const entries = (await page
+            .evaluate(() =>
+                performance
+                    .getEntriesByType("resource")
+                    .map((e) => ({ name: e.name, duration: e.duration })),
+            )
+            .catch(() => [])) as ResourceEntry[];
+        probes.resourceTiming = summarizeResourceTiming(entries);
+    }
 
     if (outcome === "harness")
         return withGpuLog(page, await driveHarness(page, base, args, errors, checkpoints));

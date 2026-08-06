@@ -22,14 +22,18 @@ import {
     type FrameSample,
     failureArtifacts,
     fitMemory,
+    formatExtraTimings,
     formatTimings,
     gpuLogChecks,
     gridDiff,
+    harnessInstallMs,
     harnessPass,
     hasStructure,
+    installHarnessProbe,
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
+    type ResourceEntry,
     report,
     reportBatch,
     resolveBatchQueries,
@@ -37,6 +41,7 @@ import {
     spansFromCheckpoints,
     stepWait,
     structured,
+    summarizeResourceTiming,
     type WaitState,
     withTimeout,
 } from "./verify";
@@ -397,6 +402,216 @@ describe("stepWait — the unified wait decision", () => {
         expect(st.booted).toBe(true);
         expect(st.prev).toBeNull();
     });
+});
+
+describe("installHarnessProbe + harnessInstallMs — the pure setter mechanism", () => {
+    test("writing __harness stamps __harnessInstallAt at that exact moment", () => {
+        const win: Record<string, unknown> = {};
+        installHarnessProbe(win);
+        const before = Date.now();
+        win.__harness = { ready: true };
+        const after = Date.now();
+        expect(win.__harness).toEqual({ ready: true });
+        const installedAt = win.__harnessInstallAt as number;
+        expect(installedAt).toBeGreaterThanOrEqual(before);
+        expect(installedAt).toBeLessThanOrEqual(after);
+        expect(harnessInstallMs(before, installedAt)).toBeGreaterThanOrEqual(0);
+    });
+
+    // red-proof, the "seen reporting the wrong thing when the setter is removed" half: a page that
+    // never had the probe installed still accepts the same __harness write, but leaves no install-time
+    // signal at all — the missing reading a probeless reader would silently treat as "never installed"
+    // even when the harness installed just fine.
+    test("without the probe, the same write leaves no install-time signal", () => {
+        const win: Record<string, unknown> = {};
+        win.__harness = { ready: true };
+        expect(win.__harness).toEqual({ ready: true });
+        expect(win.__harnessInstallAt).toBeUndefined();
+        expect(
+            harnessInstallMs(Date.now(), win.__harnessInstallAt as number | undefined),
+        ).toBeNull();
+    });
+
+    test("harnessInstallMs: null when nothing installed, the elapsed gap otherwise", () => {
+        expect(harnessInstallMs(1_000, undefined)).toBeNull();
+        expect(harnessInstallMs(1_000, null)).toBeNull();
+        expect(harnessInstallMs(1_000, 1_340)).toBe(340);
+    });
+});
+
+describe("summarizeResourceTiming — the pure resource-timing reduction", () => {
+    test("counts, sums duration, and ranks the top-N by duration descending", () => {
+        const entries: ResourceEntry[] = [
+            { name: "/a.js", duration: 10 },
+            { name: "/b.js", duration: 50 },
+            { name: "/c.js", duration: 30 },
+        ];
+        const t = summarizeResourceTiming(entries, 2);
+        expect(t.count).toBe(3);
+        expect(t.totalMs).toBe(90);
+        expect(t.top).toEqual([
+            { name: "/b.js", duration: 50 },
+            { name: "/c.js", duration: 30 },
+        ]);
+    });
+
+    test("empty entries summarize to a zeroed, empty readout", () => {
+        expect(summarizeResourceTiming([])).toEqual({ count: 0, totalMs: 0, top: [] });
+    });
+});
+
+describe("formatExtraTimings — the pure --timings extra-lines rendering", () => {
+    test("reports n/a when the harness-install probe never fired, and lists resources when present", () => {
+        const out = formatExtraTimings(null, {
+            count: 2,
+            totalMs: 45,
+            top: [{ name: "/a.js", duration: 40 }],
+        });
+        expect(out).toContain("harness install (probe)  n/a");
+        expect(out).toContain("resources  2 requests, 45ms total");
+        expect(out).toContain("40ms  /a.js");
+    });
+
+    test("reports the measured ms when the probe fired, and omits resources when there's no readout", () => {
+        const out = formatExtraTimings(340, null);
+        expect(out).toBe("  harness install (probe)  340ms");
+    });
+});
+
+// Real-browser red-proofs for (b) and (c) — the pure tests above cover the mechanism in isolation, but
+// per coding.md a probe that lies is worse than none, so each is also driven through a genuine
+// Playwright page: a synthetic page whose __harness install is delayed a known N ms (must read ≈N, and
+// must be seen reading nothing when the probe isn't installed), and a fixture pair differing by exactly
+// one module import (the resource count must move by exactly 1). Local `chromium.launch` (no WebGPU, no
+// WSL bridge needed — confirmed working in this environment) since neither probe touches the GPU.
+describe("real-browser red-proofs (b) + (c)", () => {
+    let hasChromium = false;
+    try {
+        require.resolve("playwright");
+        hasChromium = true;
+    } catch {
+        hasChromium = false;
+    }
+
+    test.skipIf(!hasChromium)(
+        "(b) a delayed __harness install reports ≈N ms with the probe installed, and nothing without it",
+        async () => {
+            const { chromium } = await import("playwright");
+            const DelayMs = 300;
+            const server = Bun.serve({
+                port: 0,
+                fetch() {
+                    return new Response(
+                        `<!doctype html><script>setTimeout(() => { window.__harness = { ready: true }; }, ${DelayMs});</script>`,
+                        { headers: { "content-type": "text/html" } },
+                    );
+                },
+            });
+            const browser = await chromium.launch({ headless: true });
+            try {
+                // red: the probe installed before navigation — the delayed install reports ≈N ms, not
+                // the ±500ms-quantized poll `stepWait` would give.
+                const withProbe = await browser.newPage();
+                await withProbe.addInitScript(() => {
+                    let value: unknown;
+                    Object.defineProperty(window, "__harness", {
+                        configurable: true,
+                        get: () => value,
+                        set: (v: unknown) => {
+                            value = v;
+                            (
+                                window as unknown as { __harnessInstallAt?: number }
+                            ).__harnessInstallAt = Date.now();
+                        },
+                    });
+                });
+                const navStart = Date.now();
+                await withProbe.goto(`http://localhost:${server.port}/`);
+                await withProbe.waitForFunction(
+                    () => typeof window.__harness !== "undefined",
+                    null,
+                    { timeout: 5_000 },
+                );
+                const installedAt = (await withProbe.evaluate(
+                    () => (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt,
+                )) as number | undefined;
+                const measured = harnessInstallMs(navStart, installedAt ?? null);
+                expect(measured).not.toBeNull();
+                expect(measured as number).toBeGreaterThanOrEqual(DelayMs - 100);
+                expect(measured as number).toBeLessThan(DelayMs + 2_000);
+                await withProbe.close();
+
+                // the point of the red-proof: the identical page, minus the probe, gives no install
+                // signal at all — a silently wrong (missing) reading, not a caught error.
+                const withoutProbe = await browser.newPage();
+                await withoutProbe.goto(`http://localhost:${server.port}/`);
+                await withoutProbe.waitForFunction(
+                    () => typeof window.__harness !== "undefined",
+                    null,
+                    { timeout: 5_000 },
+                );
+                const noInstalledAt = (await withoutProbe.evaluate(
+                    () => (window as unknown as { __harnessInstallAt?: number }).__harnessInstallAt,
+                )) as number | undefined;
+                expect(noInstalledAt).toBeUndefined();
+                expect(harnessInstallMs(navStart, noInstalledAt ?? null)).toBeNull();
+                await withoutProbe.close();
+            } finally {
+                await browser.close();
+                server.stop(true);
+            }
+        },
+        20_000,
+    );
+
+    test.skipIf(!hasChromium)(
+        "(c) one extra module import moves the resource count by exactly 1",
+        async () => {
+            const { chromium } = await import("playwright");
+            const server = Bun.serve({
+                port: 0,
+                fetch(req) {
+                    const path = new URL(req.url).pathname;
+                    const js = { headers: { "content-type": "application/javascript" } };
+                    const html = { headers: { "content-type": "text/html" } };
+                    if (path === "/a.js") return new Response("export const a = 1;", js);
+                    if (path === "/b.js") return new Response("export const b = 2;", js);
+                    if (path === "/base.html")
+                        return new Response(`<script type="module" src="/a.js"></script>`, html);
+                    if (path === "/variant.html")
+                        return new Response(
+                            `<script type="module" src="/a.js"></script>` +
+                                `<script type="module" src="/b.js"></script>`,
+                            html,
+                        );
+                    return new Response("not found", { status: 404 });
+                },
+            });
+            const browser = await chromium.launch({ headless: true });
+            try {
+                const countFor = async (path: string): Promise<number> => {
+                    const page = await browser.newPage();
+                    await page.goto(`http://localhost:${server.port}${path}`, {
+                        waitUntil: "networkidle",
+                    });
+                    const entries = (await page.evaluate(() =>
+                        performance
+                            .getEntriesByType("resource")
+                            .map((e) => ({ name: e.name, duration: e.duration })),
+                    )) as ResourceEntry[];
+                    await page.close();
+                    return summarizeResourceTiming(entries).count;
+                };
+                const base = await countFor("/base.html");
+                const variant = await countFor("/variant.html");
+                expect(variant - base).toBe(1);
+            } finally {
+                await browser.close();
+                server.stop(true);
+            }
+        },
+        20_000,
+    );
 });
 
 // the scenario-declared bench timeout: `bun bench` drives a scenario that declared a budget under it, keeps
