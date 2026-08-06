@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { basename, join, resolve } from "node:path";
-import { createServer } from "vite";
+import { createServer, preview } from "vite";
 import type { GpuDiagnostics, ShaderArtifact } from "../src/engine/runtime/gpu";
 import type { GpuLog } from "../src/engine/runtime/log";
 import type { Check, PixelProbe, Verdict } from "../src/harness";
@@ -877,30 +877,28 @@ function pickPort(explicit?: number): number {
     return p;
 }
 
-// serve an existing dist/ statically over Bun.serve (the CLI already runs under bun). No implicit build —
-// a missing dist is an actionable error, not a silent recovery.
-function serveDist(projectDir: string, port: number): Booter {
+// serve an existing dist/ statically over vite's own preview server — the same mechanism serveDev/
+// serveEjected already use, so the CLI has no bun-only boot arm (the WSL bridge runs it under node).
+// No implicit build — a missing dist is an actionable error, not a silent recovery.
+async function serveDist(projectDir: string, port: number): Promise<Booter> {
     const dist = resolve(projectDir, "dist");
     if (!existsSync(join(dist, "index.html"))) {
         throw new SetupError(
             `no build at ${dist} — "shallot verify --dist" serves an existing build; run "shallot build" first`,
         );
     }
-    const server = Bun.serve({
-        port,
-        fetch(req) {
-            const path = new URL(req.url).pathname;
-            const file = Bun.file(join(dist, path === "/" ? "/index.html" : path));
-            // cross-origin isolation so tumble physics multithreads (the same COOP/COEP the dev/preview
-            // servers send — a --dist verify run must isolate the built page too)
-            return new Response(file, { headers: CROSS_ORIGIN_ISOLATION });
-        },
+    const server = await preview({
+        root: projectDir,
+        // cross-origin isolation so tumble physics multithreads (the same COOP/COEP the dev/preview
+        // servers send — a --dist verify run must isolate the built page too)
+        preview: { port, strictPort: true, open: false, headers: CROSS_ORIGIN_ISOLATION },
     });
+    const url = server.resolvedUrls?.local?.[0] ?? `http://localhost:${port}/`;
     return {
-        url: `http://localhost:${server.port}/`,
+        url,
         mode: "dist",
         stop: async () => {
-            server.stop(true);
+            await server.close();
         },
     };
 }
@@ -1115,7 +1113,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
     let booter: Booter;
     try {
         const port = pickPort(args.port);
-        booter = args.dist ? serveDist(projectDir, port) : await serveDev(projectDir, port);
+        booter = args.dist ? await serveDist(projectDir, port) : await serveDev(projectDir, port);
     } catch (err) {
         // every boot failure goes through the one failure path, not just SetupError — a project whose
         // own vite config throws, a busy --port under strictPort. Rethrowing would print a bare stack
