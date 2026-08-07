@@ -112,15 +112,16 @@ export const clusterCell = tgpu.fn(
     d.u32,
 )((fx, fy, viewZ, near, far, slot) => {
     "use gpu";
-    const zs = std.clamp(
-        d.i32((std.log(viewZ / near) / std.log(far / near)) * CLUSTER_Z),
-        0,
-        CLUSTER_Z - 1,
+    // clamp in float space, then truncate once: a pre-clamp log ratio goes negative for a viewZ just
+    // inside near, but the clamp's 0 floor dominates before the truncation ever sees it, so the u32
+    // conversion needs no signed intermediate.
+    const zs = d.u32(
+        std.clamp((std.log(viewZ / near) / std.log(far / near)) * CLUSTER_Z, 0, CLUSTER_Z - 1),
     );
     const tx = std.min(d.u32(fx * CLUSTER_X), d.u32(CLUSTER_X - 1));
     const tyTop = std.min(d.u32(fy * CLUSTER_Y), d.u32(CLUSTER_Y - 1));
     const ty = d.u32(CLUSTER_Y - 1) - tyTop;
-    const cluster = (ty * d.u32(CLUSTER_X) + tx) * d.u32(CLUSTER_Z) + d.u32(zs);
+    const cluster = (ty * d.u32(CLUSTER_X) + tx) * d.u32(CLUSTER_Z) + zs;
     return slot * d.u32(CLUSTER_COUNT) + cluster;
 });
 

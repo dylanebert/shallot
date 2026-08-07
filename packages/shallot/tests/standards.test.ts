@@ -140,14 +140,10 @@ describe("TGSL corpus standards (shallot-tgsl-standards)", () => {
         expect(structural as Finding[]).toEqual([]);
     });
 
-    // stage 3 (shallot-tgsl-standards) triages the corpus's discipline-check reds — fix or exempt each,
-    // with a reason claiming the load-bearing property (testing.md). This is real red today (measured
-    // 2026-08-06 against this predicate: 1 noIntegerDivision, 9 integerDiscipline, 0 pointerDiscipline),
-    // so it stays `.todo` — bun skips a `.todo` body under the default `bun test` run, only executing it
-    // under `--todo` — rather than green through a stopgap allowlist of the current violations. Dropping
-    // `.todo` and watching this go green (`bun test --todo ./packages/shallot/tests/standards.test.ts`)
-    // is stage 3's done-signal.
-    test.todo("every live kernel's discipline violations are fixed or exempted", async () => {
+    // the corpus-wide violation direction: every live kernel's discipline reds are either fixed at the
+    // source or carry a (kernel, check) exemption whose reason claims the load-bearing property
+    // (testing.md, STANDARDS_REGISTRY). A new kernel violating a check reds here with no opt-in.
+    test("every live kernel's discipline violations are fixed or exempted", async () => {
         const kernels = await namedKernels();
         const pop = await population(kernels);
         const unexempted = checkStandards(pop, STANDARDS_REGISTRY).filter(

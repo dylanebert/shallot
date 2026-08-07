@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import tgpu from "typegpu";
 import { body, flat, integerDiscipline } from "../../../tests/wgsl";
 import { State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
@@ -310,5 +311,12 @@ describe("clusterCell", () => {
             expect(cell).toBeGreaterThanOrEqual(0);
             expect(cell).toBeLessThan(CLUSTER_COUNT);
         }
+    });
+
+    // a per-kernel sentinel for the corpus meta-test's `integerDiscipline` row: this one can't be
+    // silenced by a `STANDARDS_REGISTRY` exemption, so the z-slice clamp stays free of a signed cast.
+    test("the resolved WGSL stays unsigned — no signed clamp intermediate", () => {
+        const wgsl = tgpu.resolve([clusterCell] as never, { names: "strict" });
+        integerDiscipline(wgsl);
     });
 });

@@ -58,10 +58,49 @@ export interface KernelEntry {
 
 export type StandardsRegistry = Record<string, KernelEntry>;
 
-/** stage 3 (shallot-tgsl-standards) triages the corpus's discipline-check reds and populates this —
- *  deliberately empty here: stage 2 enumerates and wires the checker, it does not fix or exempt a single
- *  violation. */
-export const STANDARDS_REGISTRY: StandardsRegistry = {};
+/** the per-kernel exemptions and check opt-ins the corpus meta-test reads. Each reason claims the
+ *  load-bearing property that makes the flagged pattern correct, grounded in the kernel's resolved WGSL,
+ *  never a structural shape (`testing.md`'s exemption-reason law). A kernel whose violation is a real
+ *  defect is fixed at the source instead of landing a row here. */
+export const STANDARDS_REGISTRY: StandardsRegistry = {
+    decodePos: {
+        exempt: {
+            noIntegerDivision:
+                "the divisor is the unorm16 quantization denominator 65535, a compile-time constant: " +
+                "the resolved WGSL is `f32((w1 & 65535u)) / 65535f` — the numerator is already an f32 " +
+                "before the `/`, so this is a float dequantize with no integer-truncation semantics, " +
+                "not the mixed-operand shape the check exists to catch.",
+        },
+    },
+    sampleStars: {
+        exempt: {
+            integerDiscipline:
+                "the 3×3 neighbor-cell loop's `dx`/`dy` range over [-1, 1] to reach every adjacent hash " +
+                "cell — a neighbor offset is genuinely signed, and there is no unsigned encoding of " +
+                "'one cell in either direction'. Magnitude never exceeds ±1, nowhere near the bit-31 " +
+                "signed-overflow the check exists to prevent.",
+        },
+    },
+    sampleSky: {
+        exempt: {
+            integerDiscipline:
+                "sampleSky calls sampleStars, and tgpu.resolve inlines the callee's body into sampleSky's " +
+                "resolved WGSL — this is the same signed 3×3 neighbor loop as sampleStars:integerDiscipline, " +
+                "not a second violation, so the exemption is identical.",
+        },
+    },
+    packQuatSmallest3: {
+        exempt: {
+            integerDiscipline:
+                "the smallest-3 quat pack quantizes each retained component to a signed 10-bit " +
+                "two's-complement lane (`i32(clamp(round(abc.x * scale), -511.0, 511.0))`) before " +
+                "`u32(s0) & 0x3FFu` truncates it into the packed bitfield — the retained components can " +
+                "be negative after the largest-component sign-fix, and the wire format is two's-complement " +
+                "(`unpackQuatSmallest3` sign-extends via `bitcast<i32>`), so the intermediate has to be " +
+                "signed to match the decoder — a bias encoding would avoid the cast but is a format change.",
+        },
+    },
+};
 
 export type FindingKind =
     | "stale-exemption-key"
