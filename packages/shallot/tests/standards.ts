@@ -1,7 +1,6 @@
 import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
 
-// The declared registry + pure checker half of the TGSL-corpus meta-test (spec shallot-tgsl-standards,
-// stage 2). Shape copied from `examples/gym/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
+// The declared registry + pure checker half of the TGSL-corpus meta-test. Shape copied from `examples/gym/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
 // data, a pure checker asserted both directions, red-provable against fixtures. `standards.test.ts` is
 // the one real-filesystem/real-import/real-resolve seam — it walks `packages/shallot/src`, dynamic-imports
 // every module, duck-detects live TGSL kernels, resolves each to WGSL, and runs the checks below against
@@ -201,8 +200,8 @@ export interface DifferentialTest {
  *  kernel" restates the row instead of grounding it); or a `gap`, meaning nothing forbids a
  *  differential and none has been written.
  *
- *  The third arm is the spec's point, not a concession (`shallot-tgsl-standards` Goal: "the gap
- *  becomes enumerable"). Writing the missing differentials is out of scope, so without it a
+ *  The third arm is the point, not a concession: making the gap enumerable is what the registry
+ *  buys. Writing the missing differentials is deliberately not part of that, so without it a
  *  pure-math kernel with no test caller would be forced into a false `reason` — a claimed mechanism
  *  nothing re-checks, which is exactly what `testing.md`'s exemption-reason law exists to stop. The
  *  gap count is frozen as a golden in `standards.test.ts`, so the cheap arm can't quietly absorb a

@@ -19,8 +19,8 @@ import {
 
 // The real-filesystem/real-import/real-resolve seam over the pure `checkStandards` (`./standards.ts`):
 // walk `packages/shallot/src`, dynamic-import every module, duck-detect live TGSL kernels with a
-// tighter predicate than the population probe's (`shallot-tgsl-standards` Locked decision: the probe's
-// duck-test also caught data schemas like `MeshQuant`), identity-dedup, resolve each kernel to WGSL, and
+// tighter predicate than a bare duck-test (which also catches data schemas like `MeshQuant`) —
+// TypeGPU's own `isTgpuFn`, identity-dedup, resolve each kernel to WGSL, and
 // run the discipline checks against the real text — producing the `Population` the pure checker consumes.
 
 const SRC_DIR = join(import.meta.dir, "../src");
@@ -122,7 +122,7 @@ async function namedKernels(): Promise<Map<string, Export>> {
     return byName;
 }
 
-describe("TGSL corpus standards (shallot-tgsl-standards)", () => {
+describe("TGSL corpus standards", () => {
     test("the enumerator resolves the live population with no import or resolve failures", async () => {
         const kernels = await namedKernels();
         // exact by mechanism (a deterministic walk over committed source), so it's frozen like a byte
@@ -159,13 +159,13 @@ describe("TGSL corpus standards (shallot-tgsl-standards)", () => {
     });
 });
 
-// the differential registry's real-filesystem half (stage 4a): "the named file exists and references
+// the differential registry's real-filesystem half: "the named file exists and references
 // its kernel symbol" needs the real filesystem, so it lives here beside the population walk, not in
 // the pure `standards.ts` (which stays filesystem-free per checkDifferentials's own contract).
 /** the kernels declaring `gap` — no CPU differential written, none forbidden. Frozen by name, not by
  *  count, so closing one gap while a new kernel takes the arm still reds (`gapKernels`'s own note).
- *  Writing these differentials is out of scope for `shallot-tgsl-standards` by decision; making the
- *  list exist is the deliverable. Shrinking it is the follow-on work. */
+ *  Writing these differentials is deliberately not part of the registry; making the list exist is.
+ *  Shrinking it is the follow-on work. */
 const GAP_GOLDEN = [
     "clusterOf",
     "collideRoundedPolytope",
