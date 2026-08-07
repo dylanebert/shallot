@@ -10,6 +10,7 @@ import {
     type DifferentialFinding,
     type DisciplineCheck,
     type Finding,
+    gapKernels,
     type Population,
     STANDARDS_REGISTRY,
     violation,
@@ -160,6 +161,43 @@ describe("TGSL corpus standards (shallot-tgsl-standards)", () => {
 // the differential registry's real-filesystem half (stage 4a): "the named file exists and references
 // its kernel symbol" needs the real filesystem, so it lives here beside the population walk, not in
 // the pure `standards.ts` (which stays filesystem-free per checkDifferentials's own contract).
+/** the kernels declaring `gap` — no CPU differential written, none forbidden. Frozen by name, not by
+ *  count, so closing one gap while a new kernel takes the arm still reds (`gapKernels`'s own note).
+ *  Writing these differentials is out of scope for `shallot-tgsl-standards` by decision; making the
+ *  list exist is the deliverable. Shrinking it is the follow-on work. */
+const GAP_GOLDEN = [
+    "clusterOf",
+    "collideRoundedPolytope",
+    "decodePos",
+    "decodeUv",
+    "distributionGGX",
+    "encodePos",
+    "encodeUv",
+    "ign",
+    "lightFactor",
+    "linearToSrgb",
+    "linearToSrgb1",
+    "lit",
+    "litPbr",
+    "packHdrColor",
+    "pointFactor",
+    "pointShadowStub",
+    "sampleStars",
+    "srgbToLinear1",
+    "tgslCanary",
+    "tmAgxContrast",
+    "tmRgbToYcbcr",
+    "tmRrtOdtFit",
+    "tmSbCurve",
+    "tmSbCurve3",
+    "unpackHdrColor",
+    "unpackLdrColor",
+    "visSmithGGX",
+    "xformMat",
+    "xformNormal",
+    "xformPoint",
+];
+
 describe("differential registry (real filesystem)", () => {
     const root = resolve(import.meta.dir, "../../..");
 
@@ -179,21 +217,41 @@ describe("differential registry (real filesystem)", () => {
             expect(exists, `${entry.test.file} (for ${name}) does not exist`).toBe(true);
             if (!exists) continue;
             const text = await file.text();
+            const called = entry.test.alias ?? entry.test.symbol;
             expect(
-                callsSymbol(text, entry.test.symbol),
-                `${entry.test.file} never calls "${entry.test.symbol}" (for ${name})`,
+                callsSymbol(text, called),
+                `${entry.test.file} never calls "${called}" (for ${name})`,
             ).toBe(true);
+            if (entry.test.alias) {
+                // an alias row is only honest if the file imports the kernel under that name — the
+                // grep alone would pass on any unrelated local function that happened to match.
+                expect(
+                    new RegExp(`\\b${entry.test.symbol}\\s+as\\s+${entry.test.alias}\\b`).test(
+                        text,
+                    ),
+                    `${entry.test.file} does not import ${entry.test.symbol} as ${entry.test.alias}`,
+                ).toBe(true);
+            }
         }
     });
 
-    // the corpus-wide completeness direction: every live kernel has a differential test or a can't-have
-    // reason. 4b's mechanical queue fills the remaining ~95 rows; until then this stays a named
-    // `test.todo` (stage 2's precedent) rather than a red the whole suite has to carry mid-queue.
-    test.todo("every live kernel has a declared differential entry (fills at stage 4b)", async () => {
+    // the corpus-wide completeness direction: every live kernel declares a differential test, a
+    // can't-have mechanism, or a gap. A kernel added tomorrow reds here until it answers.
+    test("every live kernel has a declared differential entry", async () => {
         const kernels = await namedKernels();
         const findings = checkDifferentials([...kernels.keys()], DIFFERENTIAL_REGISTRY);
         const missing = findings.filter((f) => f.kind === "kernel-without-differential-entry");
         expect(missing).toEqual([]);
+    });
+
+    // the gap arm is the cheap one to reach for, so its occupants are frozen by name rather than by
+    // count: a count golden goes green on a swap (one gap closed, one new kernel quietly taking the
+    // arm), and naming them is what makes the port's untested surface enumerable — the defect this
+    // spec exists to close. Writing these differentials is deliberately out of scope here; each row
+    // says what one would compare against. Editing the list is the deliberate act, in the same
+    // commit as the kernel or test that moved it.
+    test("the declared differential gaps are exactly the frozen list", () => {
+        expect(gapKernels(DIFFERENTIAL_REGISTRY)).toEqual(GAP_GOLDEN);
     });
 });
 
@@ -320,6 +378,29 @@ describe("checkDifferentials (fixture-only)", () => {
     test("a declared can't-have reason clears its kernel and adds no finding", () => {
         const findings = checkDifferentials(["k"], { k: { reason: "atomics, GPU-only" } });
         expect(findings).toEqual([]);
+    });
+
+    test("missing-differential-gap-note: a gap entry with an empty note", () => {
+        const findings = checkDifferentials(["k"], { k: { gap: "" } });
+        expect(findings).toContainEqual({ kind: "missing-differential-gap-note", detail: "k" });
+    });
+
+    test("a declared gap clears its kernel and adds no finding", () => {
+        const findings = checkDifferentials(["k"], {
+            k: { gap: "nothing forbids one; unwritten" },
+        });
+        expect(findings).toEqual([]);
+    });
+
+    test("gapKernels names only the gap arm, sorted", () => {
+        expect(
+            gapKernels({
+                zeta: { gap: "unwritten" },
+                alpha: { gap: "unwritten" },
+                beta: { reason: "raw-WGSL leaf" },
+                gamma: { test: { file: "f.test.ts", symbol: "gamma" } },
+            }),
+        ).toEqual(["alpha", "zeta"]);
     });
 
     test("checkDifferentials is empty over an empty population and an empty registry", () => {

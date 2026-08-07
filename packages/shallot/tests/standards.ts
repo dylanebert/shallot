@@ -184,13 +184,27 @@ export function checkStandards(population: Population, registry: StandardsRegist
 export interface DifferentialTest {
     file: string;
     symbol: string;
+    /** the local name the file actually calls, where it imports the kernel under an alias. Without
+     *  it the arm reads both ways wrong on the same file: `rounded.oracle.ts` imports the kernel as
+     *  `tgslCollideRounded` (so the bare name never appears at a call site) while defining its own
+     *  f64 reference *named* `collideRounded` (so a bare-name grep passes against the wrong
+     *  function). Declaring the alias makes the grep name the call the row is claiming. */
+    alias?: string;
 }
 
-/** a kernel either has a named CPU differential, or a reason it can't: the mechanism that makes CPU
- *  execution meaningless for it (a raw-WGSL leaf with no CPU arm, an atomic op with no CPU semantics,
- *  a pointer into GPU-only address space), never a category ("GPU-only kernel" restates the row
- *  instead of grounding it). */
-export type DifferentialEntry = { test: DifferentialTest } | { reason: string };
+/** a kernel has exactly one of three: a named CPU differential; a reason it *can't* have one — the
+ *  mechanism that makes CPU execution meaningless for it (a raw-WGSL leaf with no CPU arm, an atomic
+ *  op with no CPU semantics, a pointer into GPU-only address space), never a category ("GPU-only
+ *  kernel" restates the row instead of grounding it); or a `gap`, meaning nothing forbids a
+ *  differential and none has been written.
+ *
+ *  The third arm is the spec's point, not a concession (`shallot-tgsl-standards` Goal: "the gap
+ *  becomes enumerable"). Writing the missing differentials is out of scope, so without it a
+ *  pure-math kernel with no test caller would be forced into a false `reason` — a claimed mechanism
+ *  nothing re-checks, which is exactly what `testing.md`'s exemption-reason law exists to stop. The
+ *  gap count is frozen as a golden in `standards.test.ts`, so the cheap arm can't quietly absorb a
+ *  new kernel: taking it moves a number in the same commit. */
+export type DifferentialEntry = { test: DifferentialTest } | { reason: string } | { gap: string };
 
 export type DifferentialRegistry = Record<string, DifferentialEntry>;
 
@@ -247,11 +261,355 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
             "device-memory compare-and-swap with no CPU-side semantics to reproduce — GPU-only per the " +
             "kernel's own JSDoc, engine/utils/tgsl.ts.",
     },
+    applyGrade: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "applyGrade" },
+    },
+    applySaturation: {
+        test: {
+            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            symbol: "applySaturation",
+        },
+    },
+    applyVignette: {
+        test: {
+            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            symbol: "applyVignette",
+        },
+    },
+    bayer4: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "bayer4" },
+    },
+    bitcastF32toU32: {
+        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "bitcastF32toU32" },
+    },
+    brdf: { test: { file: "packages/shallot/src/standard/sear/shade.test.ts", symbol: "brdf" } },
+    brdfSphere: {
+        test: { file: "packages/shallot/src/standard/sear/shade.test.ts", symbol: "brdfSphere" },
+    },
+    bvhAnyHit: {
+        reason: "transitive caller of a raw-WGSL leaf: bvhAnyHit calls bvhSlab, which calls the WGSL-bodied bvhNodeMin/bvhNodeMax/bvhLeft/bvhRight readers that read a `nodes` global the consumer declares by name (traverse.ts:114-142) — no CPU spelling exists for that binding. bvhAnyHit also reads its own tgpu.privateVar restart-trail/short-stack state (traverse.ts:183-188), a GPU-only address space with no CPU semantics.",
+    },
+    bvhClosestHit: {
+        reason: "transitive caller of the same raw-WGSL node-reader leaves as bvhAnyHit (bvhNodeMin/bvhNodeMax/bvhLeft/bvhRight, reading the consumer-declared `nodes` global with no CPU spelling), plus its own tgpu.privateVar far-child stack (bvhStack) — GPU-only address space.",
+    },
+    bvhRoot: {
+        test: { file: "packages/shallot/src/standard/bvh/traverse.test.ts", symbol: "bvhRoot" },
+    },
+    clusterCell: {
+        test: {
+            file: "packages/shallot/src/standard/render/cluster.test.ts",
+            symbol: "clusterCell",
+        },
+    },
+    clusterOf: {
+        gap: "a CPU differential would call clusterOf's pure vec/branch math against a hand-computed froxel index for a given fragCoord/near/far/cluster config; none written",
+    },
+    collideBoxBox: {
+        test: { file: "packages/shallot/tests/avbd/sat.oracle.ts", symbol: "collideBoxBox" },
+    },
+    collideRounded: {
+        test: {
+            file: "packages/shallot/tests/avbd/rounded.oracle.ts",
+            symbol: "collideRounded",
+            alias: "tgslCollideRounded",
+        },
+    },
+    collideRoundedPolytope: {
+        gap: "a CPU differential would run collideRoundedPolytope against the closed-form capsule/sphere-vs-polytope reference the way rounded.oracle.ts already does for collideRounded; none written. Its siblings collideBoxBox and collideRounded both carry oracle-tier differentials, so nothing about the shape forbids one here.",
+    },
+    decodePos: {
+        gap: "a CPU differential would call decodePos on a quantized (w0, w1, MeshQuant) triple and compare against the analytic dequantize (q.posOffset + t*q.posScale for each axis); none written",
+    },
+    decodeUv: {
+        gap: "a CPU differential would call decodeUv on a quantized w3 word and a MeshQuant and compare against the analytic uv dequantize; none written",
+    },
+    distanceAttenuation: {
+        test: {
+            file: "packages/shallot/src/standard/render/lighting.test.ts",
+            symbol: "distanceAttenuation",
+        },
+    },
+    distributionGGX: {
+        gap: "a CPU differential would compare distributionGGX(ndh, a) against the closed-form GGX/Trowbridge-Reitz density for a hand-picked (ndh, a) pair; none written",
+    },
+    ditherPosterizeL: {
+        test: {
+            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            symbol: "ditherPosterizeL",
+        },
+    },
+    encodePos: {
+        gap: "a CPU differential would call encodePos on a world position + MeshQuant and compare against decodePos's inverse (round-trip within the unorm16 lattice's 1 LSB); none written",
+    },
+    encodeUv: {
+        gap: "a CPU differential would call encodeUv on a uv + MeshQuant and compare against decodeUv's inverse; none written",
+    },
+    fogComposite: {
+        test: { file: "packages/shallot/src/standard/fog/march.test.ts", symbol: "fogComposite" },
+    },
+    fogDensity: {
+        test: { file: "packages/shallot/src/standard/fog/march.test.ts", symbol: "fogDensity" },
+    },
+    fogTransmittance: {
+        test: {
+            file: "packages/shallot/src/standard/fog/march.test.ts",
+            symbol: "fogTransmittance",
+        },
+    },
+    fresnelSchlick: {
+        test: {
+            file: "packages/shallot/src/standard/sear/shade.test.ts",
+            symbol: "fresnelSchlick",
+        },
+    },
+    halfLambert: {
+        test: { file: "packages/shallot/src/standard/sear/shade.test.ts", symbol: "halfLambert" },
+    },
+    henyeyGreenstein: {
+        test: {
+            file: "packages/shallot/src/standard/fog/march.test.ts",
+            symbol: "henyeyGreenstein",
+        },
+    },
+    idiv: { test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "idiv" } },
+    ign: {
+        gap: "a CPU differential would call ign(vec2f) on a handful of pixel coordinates and compare against the hand-computed interleaved-gradient-noise fraction; none written",
+    },
+    inScatterContribution: {
+        test: {
+            file: "packages/shallot/src/standard/fog/march.test.ts",
+            symbol: "inScatterContribution",
+        },
+    },
+    interleaveBits32: {
+        test: {
+            file: "packages/shallot/src/standard/bvh/morton.test.ts",
+            symbol: "interleaveBits32",
+        },
+    },
+    lightFactor: {
+        gap: "a CPU differential would call lightFactor(normal) with a fixed lighting/pointLights population and assert against a hand-summed ambient+sun+point value; none written",
+    },
+    linearToSrgb: {
+        gap: "a CPU differential would compare linearToSrgb against the IEC 61966-2-1 piecewise reference (the 12.92x low branch, the 1.055*x^(1/2.4)-0.055 high branch, split at 0.0031308); none written",
+    },
+    linearToSrgb1: {
+        gap: "a CPU differential would call linearToSrgb1 on a swept [0,1] domain and compare against the IEC 61966-2-1 sRGB transfer reference; none written",
+    },
+    lineFs: {
+        reason: "calls std.fwidth, a screen-space derivative intrinsic that requires quad-based fragment execution — no CPU semantics for a per-pixel derivative.",
+    },
+    lineQuad: {
+        test: { file: "packages/shallot/src/extras/lines/lines.test.ts", symbol: "lineQuad" },
+    },
+    lineVs: {
+        reason: "reads bound GPU resources through the surface's layout slots: lineLayout.$.lineSegments (a storage array binding) and engineLayout.$.view.viewProj (a uniform binding) — nothing on the CPU to bind to those slots.",
+    },
+    lit: {
+        gap: "a CPU differential would call lit(baseColor, normal) and assert it equals baseColor * a hand-computed lightFactor; none written",
+    },
+    litPbr: {
+        gap: "a CPU differential would call litPbr(Pbr, normal, world) against a hand-computed Cook-Torrance value (or against brdf at radius 0) and assert agreement; none written",
+    },
+    meshIdOf: {
+        test: { file: "packages/shallot/src/engine/utils/encode.test.ts", symbol: "meshIdOf" },
+    },
+    mortonCode: {
+        test: { file: "packages/shallot/src/standard/bvh/morton.test.ts", symbol: "mortonCode" },
+    },
+    octDecodeNormal: {
+        test: {
+            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            symbol: "octDecodeNormal",
+        },
+    },
+    oklabL: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "oklabL" },
+    },
+    orderU32: {
+        test: { file: "packages/shallot/src/standard/bvh/bounds.test.ts", symbol: "orderU32" },
+    },
+    packHdrColor: {
+        gap: "a CPU differential would call packHdrColor on a swept rgb domain and compare each channel's r11/g11/b10 bit lanes against a hand-computed f16-pack-then-mantissa-drop reference; none written",
+    },
+    packLdrColor: {
+        test: { file: "packages/shallot/src/engine/utils/encode.test.ts", symbol: "packLdrColor" },
+    },
+    packQuatSnorm16x4: {
+        test: {
+            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            symbol: "packQuatSnorm16x4",
+        },
+    },
+    packSnorm2x16: {
+        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "packSnorm2x16" },
+    },
+    packUnorm2x16: {
+        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "packUnorm2x16" },
+    },
+    packUnorm4x8: {
+        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "packUnorm4x8" },
+    },
+    pointFaceOf: {
+        test: { file: "packages/shallot/src/standard/sear/shadows.test.ts", symbol: "pointFaceOf" },
+    },
+    pointFactor: {
+        gap: "a CPU differential would call pointFactor(normal) with a populated lightGrid/lightIndices/pointLights and assert against a hand-summed clustered point contribution; none written",
+    },
+    pointReceiver: {
+        test: {
+            file: "packages/shallot/src/standard/sear/shadows.test.ts",
+            symbol: "pointReceiver",
+        },
+    },
+    pointShadowStub: {
+        gap: "a CPU differential would call pointShadowStub(light, normal, fragWorld) for arbitrary inputs and assert it always returns 1; none written",
+    },
+    polyMake: {
+        test: { file: "packages/shallot/src/standard/avbd/collide.test.ts", symbol: "polyMake" },
+    },
+    reconstructWorld: {
+        test: {
+            file: "packages/shallot/src/standard/fog/march.test.ts",
+            symbol: "reconstructWorld",
+        },
+    },
+    sampleSky: {
+        test: { file: "packages/shallot/src/extras/sky/sky.test.ts", symbol: "sampleSky" },
+    },
+    sampleStars: {
+        gap: 'a CPU differential would call sampleStars(dir, intensity, amount) directly and compare the hash-grid star color against a hand-computed reference cell/brightness; none written — sky.test.ts only greps the resolved WGSL for "fn sampleStars(", a structural check, not a call.',
+    },
+    sampleSunShadow: {
+        reason: "raw-WGSL leaf reading shadowMap/shadowSamp/sunShadow as consumer-declared globals (texture + sampler + shadow-atlas uniform), so there is no CPU arm to call.",
+    },
+    screenCorner: {
+        test: { file: "packages/shallot/src/extras/sprite/sprite.test.ts", symbol: "screenCorner" },
+    },
+    sdfToSignedDistance: {
+        test: {
+            file: "packages/shallot/src/extras/text/text.test.ts",
+            symbol: "sdfToSignedDistance",
+        },
+    },
+    spotFactor: {
+        test: {
+            file: "packages/shallot/src/standard/render/lighting.test.ts",
+            symbol: "spotFactor",
+        },
+    },
+    srgbToLinear1: {
+        gap: "a CPU differential would call srgbToLinear1 on a swept [0,1] domain and compare against the IEC 61966-2-1 sRGB-to-linear transfer reference; none written",
+    },
+    sunInScatter: {
+        test: { file: "packages/shallot/src/standard/fog/march.test.ts", symbol: "sunInScatter" },
+    },
+    textSrgbToLinear: {
+        test: { file: "packages/shallot/src/extras/text/text.test.ts", symbol: "textSrgbToLinear" },
+    },
+    tgslCanary: {
+        gap: "a CPU differential would compare tgslCanary(x) against the plain x+1 it computes; none written — every use resolves it to WGSL text (tgpu.resolve) to prove the build transform ran, never calls it as a function",
+    },
+    tmAces: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "tmAces" },
+    },
+    tmAgx: { test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "tmAgx" } },
+    tmAgxContrast: {
+        gap: "a CPU differential would call tmAgxContrast on a log-encoded probe and compare the degree-6 polynomial against a hand-computed value; none written",
+    },
+    tmLuma: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "tmLuma" },
+    },
+    tmNeutral: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "tmNeutral" },
+    },
+    tmReinhard: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "tmReinhard" },
+    },
+    tmReinhardLuminance: {
+        test: {
+            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            symbol: "tmReinhardLuminance",
+        },
+    },
+    tmRgbToYcbcr: {
+        gap: "a CPU differential would call tmRgbToYcbcr on a known RGB triple and compare against the Rec. 709 YCbCr matrix computed by hand; none written",
+    },
+    tmRrtOdtFit: {
+        gap: "a CPU differential would call tmRrtOdtFit on an ACES-space probe and compare the rational polynomial fit against a hand-computed reference; none written",
+    },
+    tmSbCurve: {
+        gap: "a CPU differential would call tmSbCurve on a scalar luma and compare against 1 - exp(-v) computed directly; none written",
+    },
+    tmSbCurve3: {
+        gap: "a CPU differential would call tmSbCurve3 on a color and compare against tmSbCurve applied per channel; none written",
+    },
+    tmSomewhatBoring: {
+        test: {
+            file: "packages/shallot/src/standard/glaze/glaze.test.ts",
+            symbol: "tmSomewhatBoring",
+        },
+    },
+    tonemap: {
+        test: { file: "packages/shallot/src/standard/glaze/glaze.test.ts", symbol: "tonemap" },
+    },
+    unorderU32: {
+        test: { file: "packages/shallot/src/standard/bvh/bounds.test.ts", symbol: "unorderU32" },
+    },
+    unpackHdrColor: {
+        gap: "a CPU differential would call unpackHdrColor(p) and compare against a hand-decoded r11g11b10ufloat unpack (bit-slice the u32, run each 11/10-bit field through unpack2x16float); none written",
+    },
+    unpackLdrColor: {
+        gap: "a CPU differential would call unpackLdrColor(p) and compare against a hand-unpacked pack4x8unorm plus the sRGB-to-linear transfer curve; none written",
+    },
+    unpackQuatSnorm16x4: {
+        test: {
+            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            symbol: "unpackQuatSnorm16x4",
+        },
+    },
+    unpackSnorm2x16: {
+        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "unpackSnorm2x16" },
+    },
+    unpackUnorm2x16: {
+        test: { file: "packages/shallot/src/engine/utils/tgsl.test.ts", symbol: "unpackUnorm2x16" },
+    },
+    viewDepth: {
+        test: { file: "packages/shallot/src/standard/sear/shade.test.ts", symbol: "viewDepth" },
+    },
+    visible: {
+        reason: "reads its transform, mesh-bounds, cull-params, and cull-volumes exclusively through cullLayout.$ — a tgpu bind-group-layout accessor bound to GPU storage/uniform buffers — so the frustum test has no CPU-side data to run against; there is nothing to sample without a bound GPU resource.",
+    },
+    visSmithGGX: {
+        gap: "a CPU differential would compare visSmithGGX(ndl, ndv, a) against the closed-form Smith height-correlated visibility term for a hand-picked (ndl, ndv, a) triple; none written",
+    },
+    worldCorner: {
+        test: { file: "packages/shallot/src/extras/sprite/sprite.test.ts", symbol: "worldCorner" },
+    },
+    xformMat: {
+        gap: "a CPU differential would call xformMat(x) and compare its columns against a hand-composed T*R*S matrix (or against xformPoint/xformNormal's own column extraction); none written",
+    },
+    xformNormal: {
+        gap: "a CPU differential would call xformNormal(x, n) and compare against a hand-computed inverse-transpose R*S⁻¹ applied to n, including the zero-scale-axis degenerate case; none written",
+    },
+    xformPoint: {
+        gap: "a CPU differential would call xformPoint(x, p) and compare against a hand-composed T*R*S applied to p; none written",
+    },
+    xformQuat: {
+        test: { file: "packages/shallot/src/engine/utils/encode.test.ts", symbol: "xformQuat" },
+    },
+    yLockedCorner: {
+        test: {
+            file: "packages/shallot/src/extras/sprite/sprite.test.ts",
+            symbol: "yLockedCorner",
+        },
+    },
 };
 
 export type DifferentialFindingKind =
     | "stale-differential-key"
     | "missing-differential-reason"
+    | "missing-differential-gap-note"
     | "missing-differential-test-file"
     | "missing-differential-test-symbol"
     | "kernel-without-differential-entry";
@@ -265,13 +623,12 @@ export interface DifferentialFinding {
  *  real-filesystem half ("the named file exists and references its kernel symbol") lives in
  *  `standards.test.ts` beside the population walk, per the same split `checkStandards` uses.
  *
- *  Five finding kinds: a registry key naming a kernel no longer in the population
+ *  Six finding kinds: a registry key naming a kernel no longer in the population
  *  (`stale-differential-key`); a can't-have entry with an empty reason
- *  (`missing-differential-reason`); a test entry with an empty file or symbol
+ *  (`missing-differential-reason`); a gap entry with an empty note
+ *  (`missing-differential-gap-note`); a test entry with an empty file or symbol
  *  (`missing-differential-test-file` / `-symbol`); and a live kernel with no registry row at all
- *  (`kernel-without-differential-entry`) — the corpus-wide completeness direction stage 4b's
- *  mechanical queue fills in, left as a `test.todo` in `standards.test.ts` until every kernel has a
- *  row. */
+ *  (`kernel-without-differential-entry`) — the corpus-wide completeness direction. */
 /** does `text` call `symbol`, as opposed to merely mentioning it? The predicate behind the registry's
  *  real-filesystem arm, pure so it pins both directions without a file. Call syntax is the bar: an
  *  unused import a refactor left behind, or a name appearing only in a comment, satisfies a bare word
@@ -280,6 +637,17 @@ export interface DifferentialFinding {
  *  what the hand-authored row prose carries. */
 export function callsSymbol(text: string, symbol: string): boolean {
     return new RegExp(`\\b${symbol}\\s*\\(`).test(text);
+}
+
+/** the kernels declaring a `gap` — no CPU differential written, none forbidden. Sorted, so
+ *  `standards.test.ts` can freeze the list itself rather than a count: a count golden goes green on
+ *  a swap (one gap closed, one new kernel taking the arm), and the whole point of the arm is that
+ *  each occupant is named. */
+export function gapKernels(registry: DifferentialRegistry): string[] {
+    return Object.entries(registry)
+        .filter(([, entry]) => "gap" in entry)
+        .map(([name]) => name)
+        .sort();
 }
 
 export function checkDifferentials(
@@ -297,6 +665,10 @@ export function checkDifferentials(
         if ("reason" in entry) {
             if (!entry.reason || entry.reason.trim() === "") {
                 findings.push({ kind: "missing-differential-reason", detail: name });
+            }
+        } else if ("gap" in entry) {
+            if (!entry.gap || entry.gap.trim() === "") {
+                findings.push({ kind: "missing-differential-gap-note", detail: name });
             }
         } else {
             if (!entry.test.file || entry.test.file.trim() === "") {
