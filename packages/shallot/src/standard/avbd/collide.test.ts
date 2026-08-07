@@ -217,6 +217,26 @@ describe("narrowphase chunks", () => {
         }
     });
 
+    // pointerDiscipline scopes the `&x` → `let x` lookup to each emitted function's own body — a flat
+    // module-wide match false-positives `hullWgsl()`: `capsulePoly`'s `var n` (forced by a self-assign)
+    // collides with `supportPoly`'s unrelated `let n = polyVertCount(p)` in the SAME recomposed string,
+    // even though the two functions share no scope. Red without the per-function split (shallot-tgsl-standards).
+    test("pointer discipline holds on the recomposed hull narrowphase, scoped per function", () => {
+        expect(() => pointerDiscipline(hullWgsl())).not.toThrow();
+    });
+
+    test("pointer discipline still catches a same-body `&x` on a genuine `let x`", () => {
+        // a synthetic same-scope collision — the fix must not have widened into a no-op
+        const src = `
+            fn synthetic() -> f32 {
+                let n = 3.0;
+                let m = (&n);
+                return m;
+            }
+        `;
+        expect(() => pointerDiscipline(src)).toThrow("&n takes the address of a `let`");
+    });
+
     test("every division divides floats — the operand audit, site by site", () => {
         // the audit is per-site, not a regex: these are the only `/`s in the narrowphase, and each
         // divides an f32 magnitude (the integer indices are all shift/mask/multiply-add)

@@ -62,14 +62,40 @@ export const IDIV_LEAF = "fn idivWgsl(a: u32, b: u32) -> u32 { return a / b; }";
  * error the transpiler never sees, so only a real shader compile catches it. A `d.ref(x)` argument marks
  * the local for the transpiler, so this only bites where `d.ref` can't be used — it refuses a scalar.
  * Red-proven against `capsulePoly`'s `bestSep` / `n` (both bare, both needing a forcing self-assign).
+ *
+ * Scoped per emitted function body, not the module-flat text: a `let n` in one spliced function and a
+ * `(&n)` in an unrelated one share no scope, so a flat match false-positives across them (`hullWgsl()`'s
+ * `capsulePoly`'s `var n` vs `supportPoly`'s `let n = polyVertCount(p)`).
  */
 export function pointerDiscipline(src: string): void {
-    const flattened = flat(src);
-    for (const [, name] of flattened.matchAll(/\(&([A-Za-z_]\w*)\)/g)) {
-        // a pointer to a function parameter is already a reference, so only locals are at risk
-        if (new RegExp(`\\blet ${name} =`).test(flattened))
-            throw new Error(`&${name} takes the address of a \`let\` — force a \`var\``);
+    for (const fn of functionBodies(src)) {
+        const flattened = flat(fn);
+        for (const [, name] of flattened.matchAll(/\(&([A-Za-z_]\w*)\)/g)) {
+            // a pointer to a function parameter is already a reference, so only locals are at risk
+            if (new RegExp(`\\blet ${name} =`).test(flattened))
+                throw new Error(`&${name} takes the address of a \`let\` — force a \`var\``);
+        }
     }
+}
+
+/**
+ * brace-matched top-level `fn name(...) { ... }` blocks, in emission order. Falls back to the whole
+ * source when it names no function (a caller passing an already-scoped body with no `fn` header).
+ */
+function functionBodies(src: string): string[] {
+    const bodies: string[] = [];
+    for (const m of src.matchAll(/\bfn\s+[A-Za-z_]\w*\s*\(/g)) {
+        const start = m.index;
+        let depth = 0;
+        for (let i = src.indexOf("{", start); i < src.length; i++) {
+            if (src[i] === "{") depth++;
+            else if (src[i] === "}" && --depth === 0) {
+                bodies.push(src.slice(start, i + 1));
+                break;
+            }
+        }
+    }
+    return bodies.length > 0 ? bodies : [src];
 }
 
 /**
