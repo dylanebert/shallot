@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
@@ -231,6 +231,21 @@ describe("bootArm", () => {
 
     test("neither shape → none (the actionable setup error)", () => {
         expect(bootArm(false, false)).toBe("none");
+    });
+});
+
+describe("runtime-agnostic boot path", () => {
+    // `scripts/wsl-bridge.ts` bundles this CLI and drives it with node, where `Bun` is undefined, so any
+    // `Bun.` in it is a boot-path defect whatever function holds it — file granularity is the property's
+    // own granularity. Twice measured: `serveDist`'s `Bun.serve`/`Bun.file`, then `pickPort`'s port probe,
+    // each surfacing only as `boot failed: Bun is not defined` on a display-gated bridge run.
+    test("verify.ts reaches for no bun global", () => {
+        const src = readFileSync(join(import.meta.dir, "verify.ts"), "utf8");
+        const hits = src
+            .split("\n")
+            .map((line, i) => [i + 1, line] as const)
+            .filter(([, line]) => /(?<![\w.])Bun\s*\./.test(line));
+        expect(hits).toEqual([]);
     });
 });
 

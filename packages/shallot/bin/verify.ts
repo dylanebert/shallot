@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
+import { createServer as createTcpServer } from "node:net";
 import { basename, join, resolve } from "node:path";
 import { createServer, preview } from "vite";
 import type { GpuDiagnostics, ShaderArtifact } from "../src/engine/runtime/gpu";
@@ -866,21 +867,31 @@ interface Booter {
     mode: "dev" | "dist";
 }
 
-// pick an ephemeral free port (or honor --port). Bun.serve(port:0) binds an OS-assigned port; read it,
+// pick an ephemeral free port (or honor --port), via node:net so this runs under node too (the WSL bridge
+// bundles this CLI and drives it with node — Bun is undefined there). Bind an OS-assigned port, read it,
 // release it, hand it to the dev/dist server. A tiny race, acceptable for a one-shot gate.
-function pickPort(explicit?: number): number {
-    if (explicit != null) return explicit;
-    const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-    const p = probe.port;
-    probe.stop(true);
-    if (p == null) throw new Error("could not pick a free port");
-    return p;
+function pickPort(explicit?: number): Promise<number> {
+    if (explicit != null) return Promise.resolve(explicit);
+    return new Promise((res, rej) => {
+        const probe = createTcpServer();
+        probe.on("error", rej);
+        probe.listen(0, () => {
+            const p = (probe.address() as { port: number } | null)?.port;
+            probe.close(() => {
+                if (p == null) rej(new Error("could not pick a free port"));
+                else res(p);
+            });
+        });
+    });
 }
 
 // serve an existing dist/ statically over vite's own preview server — the same mechanism serveDev/
-// serveEjected already use, so the CLI has no bun-only boot arm (the WSL bridge runs it under node).
+// serveEjected already use. Together with pickPort's node:net probe, the whole boot path is now
+// runtime-agnostic (the WSL bridge runs this CLI under node, where Bun is undefined).
 // No implicit build — a missing dist is an actionable error, not a silent recovery.
 async function serveDist(projectDir: string, port: number): Promise<Booter> {
+    // hardcoded rather than read from the project's vite config (which preview() below derives outDir
+    // from): build.ts pins `outDir: "dist"` for every manifest build, so this can't diverge in practice.
     const dist = resolve(projectDir, "dist");
     if (!existsSync(join(dist, "index.html"))) {
         throw new SetupError(
@@ -1112,7 +1123,7 @@ async function verifyCommand(raw: string[]): Promise<number> {
 
     let booter: Booter;
     try {
-        const port = pickPort(args.port);
+        const port = await pickPort(args.port);
         booter = args.dist ? await serveDist(projectDir, port) : await serveDev(projectDir, port);
     } catch (err) {
         // every boot failure goes through the one failure path, not just SetupError — a project whose
