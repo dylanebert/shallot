@@ -11,6 +11,7 @@ import {
     type DisciplineCheck,
     type Finding,
     gapKernels,
+    importsSymbol,
     type Population,
     STANDARDS_REGISTRY,
     violation,
@@ -208,7 +209,7 @@ describe("differential registry (real filesystem)", () => {
         expect(structural as DifferentialFinding[]).toEqual([]);
     });
 
-    test("every declared differential test file exists and references its kernel symbol", async () => {
+    test("every declared differential test file exists, imports its kernel, and calls it", async () => {
         for (const [name, entry] of Object.entries(DIFFERENTIAL_REGISTRY)) {
             if (!("test" in entry)) continue;
             const path = join(root, entry.test.file);
@@ -222,16 +223,13 @@ describe("differential registry (real filesystem)", () => {
                 callsSymbol(text, called),
                 `${entry.test.file} never calls "${called}" (for ${name})`,
             ).toBe(true);
-            if (entry.test.alias) {
-                // an alias row is only honest if the file imports the kernel under that name — the
-                // grep alone would pass on any unrelated local function that happened to match.
-                expect(
-                    new RegExp(`\\b${entry.test.symbol}\\s+as\\s+${entry.test.alias}\\b`).test(
-                        text,
-                    ),
-                    `${entry.test.file} does not import ${entry.test.symbol} as ${entry.test.alias}`,
-                ).toBe(true);
-            }
+            // run over every row uniformly, bare or aliased — callsSymbol alone is satisfiable by a
+            // string literal, a comment, or a same-named local shadow (`testing.md`'s exemption-reason
+            // law's sibling limit); a real import binding is what rules those out.
+            expect(
+                importsSymbol(text, entry.test.symbol, called),
+                `${entry.test.file} does not import ${entry.test.symbol}${entry.test.alias ? ` as ${entry.test.alias}` : ""} (for ${name})`,
+            ).toBe(true);
         }
     });
 
@@ -301,6 +299,14 @@ describe("checkStandards (fixture-only)", () => {
 
     test("checkStandards is empty over an empty population and an empty registry", () => {
         expect(checkStandards({}, {})).toEqual([]);
+    });
+
+    test("a registry key shaped like an Object.prototype property still reads as stale, not a crash", () => {
+        const findings = checkStandards(
+            {},
+            { constructor: { exempt: { integerDiscipline: "renamed away" } } },
+        );
+        expect(findings).toEqual([{ kind: "stale-exemption-key", detail: "constructor" }]);
     });
 });
 
@@ -429,7 +435,7 @@ describe("callsSymbol", () => {
         );
     });
 
-    test("a mention in a comment does not", () => {
+    test("a mention in a comment with no call-position parens does not", () => {
         expect(callsSymbol("// TODO: differential-test clusterCell\nother();", "clusterCell")).toBe(
             false,
         );
@@ -437,5 +443,87 @@ describe("callsSymbol", () => {
 
     test("a longer name sharing the prefix does not satisfy the shorter one", () => {
         expect(callsSymbol("packQuatSmallest3(q);", "packQuat")).toBe(false);
+    });
+
+    // the residual `callsSymbol` alone can't close — call syntax in the text, not a real call —
+    // documented (not fixed) here because closing it is `importsSymbol`'s job, pinned below.
+    test("a comment with call-position parens satisfies it — the residual importsSymbol closes", () => {
+        expect(callsSymbol("// fn sampleStars(dir, intensity, amount)", "sampleStars")).toBe(true);
+    });
+
+    test("a `toContain` string literal satisfies it too", () => {
+        expect(callsSymbol('expect(wgsl).toContain("fn sampleStars(");', "sampleStars")).toBe(true);
+    });
+
+    test("a same-named local function definition satisfies it too", () => {
+        expect(callsSymbol("function collideRounded(a, b) { return a; }", "collideRounded")).toBe(
+            true,
+        );
+    });
+});
+
+/** {@link importsSymbol} is what actually closes {@link callsSymbol}'s residual for the differential
+ *  registry's real-filesystem arm (`standards.test.ts`'s "every declared differential test file..."):
+ *  a real import binding proves the call-syntax match callsSymbol found is a genuine call on the real
+ *  kernel, not a string literal, a comment, or a same-named local shadow. Applied uniformly over every
+ *  `{ test }` row, bare or aliased — not only the aliased ones. */
+describe("importsSymbol", () => {
+    test("a bare named import satisfies it under the symbol's own name", () => {
+        expect(
+            importsSymbol(
+                'import { octEncodeNormal } from "./encode";\noctEncodeNormal(v);',
+                "octEncodeNormal",
+                "octEncodeNormal",
+            ),
+        ).toBe(true);
+    });
+
+    test("an aliased import satisfies it only under the declared alias", () => {
+        const text =
+            'import { collideRounded as tgslCollideRounded } from "../src";\ntgslCollideRounded(a, b);';
+        expect(importsSymbol(text, "collideRounded", "tgslCollideRounded")).toBe(true);
+        expect(importsSymbol(text, "collideRounded", "collideRounded")).toBe(false);
+    });
+
+    test("a multi-line named-import block is parsed, not just a single line", () => {
+        const text =
+            'import {\n    octDecodeNormal,\n    octEncodeNormal,\n} from "./encode";\noctEncodeNormal(v);';
+        expect(importsSymbol(text, "octEncodeNormal", "octEncodeNormal")).toBe(true);
+    });
+
+    test("sky.test.ts's toContain string literal does not satisfy it — no import statement at all", () => {
+        expect(
+            importsSymbol(
+                'expect(wgsl).toContain("fn sampleStars(");',
+                "sampleStars",
+                "sampleStars",
+            ),
+        ).toBe(false);
+    });
+
+    test("a same-named local function definition does not satisfy it", () => {
+        const text =
+            'import { collideRounded as tgslCollideRounded } from "../src";\n' +
+            "function collideRounded(a, b) { return a; }\n" +
+            "collideRounded(a, b);";
+        expect(importsSymbol(text, "collideRounded", "collideRounded")).toBe(false);
+    });
+
+    // the residual: the specifier name is matched, the `from` clause never is. This is
+    // rounded.oracle.ts's real shape — the kernel imported aliased, a same-named f64 reference
+    // imported bare from another module — and the bare arm passes. The row is honest only because it
+    // declares the alias; pinned here so the limit is visible rather than assumed closed.
+    test("a same-named import from an unrelated module satisfies it — the module path is unchecked", () => {
+        const text =
+            'import { collideRounded as tgslCollideRounded } from "../../src/standard/avbd/collide";\n' +
+            'import { collideRounded } from "./rounded";\n' +
+            "collideRounded(a, b);";
+        expect(importsSymbol(text, "collideRounded", "collideRounded")).toBe(true);
+    });
+
+    test("a mention in a comment does not satisfy it", () => {
+        expect(importsSymbol("// collideRounded(a, b)", "collideRounded", "collideRounded")).toBe(
+            false,
+        );
     });
 });

@@ -132,7 +132,7 @@ export function checkStandards(population: Population, registry: StandardsRegist
     const findings: Finding[] = [];
 
     for (const [name, entry] of Object.entries(registry)) {
-        if (!(name in population)) {
+        if (!Object.hasOwn(population, name)) {
             findings.push({ kind: "stale-exemption-key", detail: name });
             continue;
         }
@@ -177,10 +177,13 @@ export function checkStandards(population: Population, registry: StandardsRegist
  *  kernel on the CPU, and the exported symbol it calls. Two fields because "a file exists" alone
  *  proves nothing — a differential test file that stopped calling its kernel (a rename, a refactor
  *  that dropped the direct call) would still be "the named file exists" and silently stop meaning
- *  anything; naming the symbol makes that a mechanically checkable claim
- *  ({@link standards.test.ts}'s real-filesystem half greps the file for `symbol(` — call syntax, not a
- *  bare mention, so an unused import or a symbol named only in a comment can't satisfy the row. The
- *  residual limit: it proves the file calls the kernel, not that it asserts against a reference. */
+ *  anything; naming the symbol makes that a mechanically checkable claim. `standards.test.ts`'s
+ *  real-filesystem half runs two checks together, uniformly over every row, bare or aliased:
+ *  {@link callsSymbol} (call-position syntax — not satisfiable by an unused import) and
+ *  {@link importsSymbol} (a real import binding for that name from this file, not a string literal,
+ *  a comment with parens, or a same-named local shadow definition). Neither alone closes the property;
+ *  together they prove the file both imports and calls the named kernel. The residual limit: they
+ *  prove a call happened, not that its result is asserted against a reference. */
 export interface DifferentialTest {
     file: string;
     symbol: string;
@@ -619,24 +622,50 @@ export interface DifferentialFinding {
     detail: string;
 }
 
-/** the both-directions check over `{kernels, registry}`, pure — no filesystem, no dynamic import. The
- *  real-filesystem half ("the named file exists and references its kernel symbol") lives in
- *  `standards.test.ts` beside the population walk, per the same split `checkStandards` uses.
- *
- *  Six finding kinds: a registry key naming a kernel no longer in the population
- *  (`stale-differential-key`); a can't-have entry with an empty reason
- *  (`missing-differential-reason`); a gap entry with an empty note
- *  (`missing-differential-gap-note`); a test entry with an empty file or symbol
- *  (`missing-differential-test-file` / `-symbol`); and a live kernel with no registry row at all
- *  (`kernel-without-differential-entry`) — the corpus-wide completeness direction. */
-/** does `text` call `symbol`, as opposed to merely mentioning it? The predicate behind the registry's
- *  real-filesystem arm, pure so it pins both directions without a file. Call syntax is the bar: an
- *  unused import a refactor left behind, or a name appearing only in a comment, satisfies a bare word
- *  match while calling nothing — and this is the arm every filled row is validated against. It proves
- *  the file calls the kernel, not that it asserts the result against a reference; that residual is
- *  what the hand-authored row prose carries. */
+/** does `symbol` appear in call-position syntax somewhere in `text`? Half of the registry's
+ *  real-filesystem arm, pure so it pins both directions without a file. Call syntax rules out a bare
+ *  mention — an unused import, a name with no trailing `(` — but **not** a call-shaped mention that
+ *  never calls the real kernel: a `toContain("fn sampleStars(")` string literal, a `// symbol(...)`
+ *  comment, or a same-named local `function symbol(` definition all satisfy this regex while calling
+ *  nothing real. {@link importsSymbol} closes that residual — a row is validated by both together, not
+ *  this one alone. */
 export function callsSymbol(text: string, symbol: string): boolean {
     return new RegExp(`\\b${symbol}\\s*\\(`).test(text);
+}
+
+/** does `text` contain a real ES import specifier binding local name `local` to the export named
+ *  `exported`? Parses every `import { ... } from "...";` clause's specifier list (multi-line safe,
+ *  since named imports commonly wrap) rather than grepping the whole file for the name, so it can't be
+ *  satisfied by the name showing up outside an import clause — a string literal, a comment, or a
+ *  same-named local declaration, the three ways {@link callsSymbol} alone is satisfiable without a
+ *  real call. For a bare (non-aliased) registry row, `exported === local === symbol`; for an aliased
+ *  row, `local` is the declared `alias`.
+ *
+ *  The residual it does *not* close: it matches the specifier name, never the `from` clause, so a
+ *  binding of the right name from the wrong module satisfies it. `rounded.oracle.ts` is the live
+ *  instance — it imports the real kernel aliased (`collideRounded as tgslCollideRounded`, from
+ *  `src/standard/avbd/collide`) and separately imports its own f64 reference under the bare name from
+ *  `./rounded`. That row is honest only because it declares the `alias`; a bare row sharing a file
+ *  with an unrelated same-named import would pass both checks against the wrong function. Closing it
+ *  needs the kernel's defining module carried per row, which the registry doesn't hold. */
+export function importsSymbol(text: string, exported: string, local: string): boolean {
+    const importClause = /import\s*\{([^}]*)\}\s*from\s*["'][^"']*["']/g;
+    for (const match of text.matchAll(importClause)) {
+        const specifiers = match[1]
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        for (const spec of specifiers) {
+            const aliased = spec.match(/^(?:type\s+)?([\w$]+)\s+as\s+([\w$]+)$/);
+            if (aliased) {
+                if (aliased[1] === exported && aliased[2] === local) return true;
+            } else {
+                const bare = spec.replace(/^type\s+/, "");
+                if (bare === exported && exported === local) return true;
+            }
+        }
+    }
+    return false;
 }
 
 /** the kernels declaring a `gap` — no CPU differential written, none forbidden. Sorted, so
@@ -650,6 +679,16 @@ export function gapKernels(registry: DifferentialRegistry): string[] {
         .sort();
 }
 
+/** the both-directions check over `{kernels, registry}`, pure — no filesystem, no dynamic import. The
+ *  real-filesystem half ("the named file exists, imports its kernel, and calls it") lives in
+ *  `standards.test.ts` beside the population walk, per the same split `checkStandards` uses.
+ *
+ *  Six finding kinds: a registry key naming a kernel no longer in the population
+ *  (`stale-differential-key`); a can't-have entry with an empty reason
+ *  (`missing-differential-reason`); a gap entry with an empty note
+ *  (`missing-differential-gap-note`); a test entry with an empty file or symbol
+ *  (`missing-differential-test-file` / `-symbol`); and a live kernel with no registry row at all
+ *  (`kernel-without-differential-entry`) — the corpus-wide completeness direction. */
 export function checkDifferentials(
     kernels: readonly string[],
     registry: DifferentialRegistry,
