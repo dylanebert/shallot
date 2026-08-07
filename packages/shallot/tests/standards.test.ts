@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import tgpu, { isTgpuFn } from "typegpu";
 import {
+    callsSymbol,
+    checkDifferentials,
     checkStandards,
     DEFAULT_CHECKS,
+    DIFFERENTIAL_REGISTRY,
+    type DifferentialFinding,
     type DisciplineCheck,
     type Finding,
     type Population,
@@ -153,6 +157,46 @@ describe("TGSL corpus standards (shallot-tgsl-standards)", () => {
     });
 });
 
+// the differential registry's real-filesystem half (stage 4a): "the named file exists and references
+// its kernel symbol" needs the real filesystem, so it lives here beside the population walk, not in
+// the pure `standards.ts` (which stays filesystem-free per checkDifferentials's own contract).
+describe("differential registry (real filesystem)", () => {
+    const root = resolve(import.meta.dir, "../../..");
+
+    test("no differential registry key is stale, no can't-have reason is missing, no test entry is missing a file or symbol", async () => {
+        const kernels = await namedKernels();
+        const findings = checkDifferentials([...kernels.keys()], DIFFERENTIAL_REGISTRY);
+        const structural = findings.filter((f) => f.kind !== "kernel-without-differential-entry");
+        expect(structural as DifferentialFinding[]).toEqual([]);
+    });
+
+    test("every declared differential test file exists and references its kernel symbol", async () => {
+        for (const [name, entry] of Object.entries(DIFFERENTIAL_REGISTRY)) {
+            if (!("test" in entry)) continue;
+            const path = join(root, entry.test.file);
+            const file = Bun.file(path);
+            const exists = await file.exists();
+            expect(exists, `${entry.test.file} (for ${name}) does not exist`).toBe(true);
+            if (!exists) continue;
+            const text = await file.text();
+            expect(
+                callsSymbol(text, entry.test.symbol),
+                `${entry.test.file} never calls "${entry.test.symbol}" (for ${name})`,
+            ).toBe(true);
+        }
+    });
+
+    // the corpus-wide completeness direction: every live kernel has a differential test or a can't-have
+    // reason. 4b's mechanical queue fills the remaining ~95 rows; until then this stays a named
+    // `test.todo` (stage 2's precedent) rather than a red the whole suite has to carry mid-queue.
+    test.todo("every live kernel has a declared differential entry (fills at stage 4b)", async () => {
+        const kernels = await namedKernels();
+        const findings = checkDifferentials([...kernels.keys()], DIFFERENTIAL_REGISTRY);
+        const missing = findings.filter((f) => f.kind === "kernel-without-differential-entry");
+        expect(missing).toEqual([]);
+    });
+});
+
 /** pure-checker fixture proofs: each finding kind, red-provable with no filesystem. */
 describe("checkStandards (fixture-only)", () => {
     test("stale-exemption-key: an exemption for a kernel no longer in the population", () => {
@@ -227,4 +271,90 @@ describe("violation() per discipline check", () => {
             expect(violation(check, good[check])).toBeNull();
         });
     }
+});
+
+/** pure-checker fixture proofs for {@link checkDifferentials}, each finding kind red-provable with no
+ *  filesystem — mirrors `checkStandards (fixture-only)` above. */
+describe("checkDifferentials (fixture-only)", () => {
+    test("stale-differential-key: a registry entry for a kernel no longer in the population", () => {
+        const findings = checkDifferentials(["liveKernel"], {
+            renamedKernel: { reason: "renamed from liveKernel" },
+        });
+        expect(findings).toContainEqual({
+            kind: "stale-differential-key",
+            detail: "renamedKernel",
+        });
+    });
+
+    test("missing-differential-reason: a can't-have entry with an empty reason", () => {
+        const findings = checkDifferentials(["k"], { k: { reason: "" } });
+        expect(findings).toContainEqual({ kind: "missing-differential-reason", detail: "k" });
+    });
+
+    test("missing-differential-test-file: a test entry with an empty file", () => {
+        const findings = checkDifferentials(["k"], {
+            k: { test: { file: "", symbol: "k" } },
+        });
+        expect(findings).toContainEqual({ kind: "missing-differential-test-file", detail: "k" });
+    });
+
+    test("missing-differential-test-symbol: a test entry with an empty symbol", () => {
+        const findings = checkDifferentials(["k"], {
+            k: { test: { file: "some/file.test.ts", symbol: "" } },
+        });
+        expect(findings).toContainEqual({ kind: "missing-differential-test-symbol", detail: "k" });
+    });
+
+    test("kernel-without-differential-entry: a live kernel with no registry row", () => {
+        const findings = checkDifferentials(["k"], {});
+        expect(findings).toEqual([{ kind: "kernel-without-differential-entry", detail: "k" }]);
+    });
+
+    test("a declared test entry clears its kernel and adds no finding", () => {
+        const findings = checkDifferentials(["k"], {
+            k: { test: { file: "some/file.test.ts", symbol: "k" } },
+        });
+        expect(findings).toEqual([]);
+    });
+
+    test("a declared can't-have reason clears its kernel and adds no finding", () => {
+        const findings = checkDifferentials(["k"], { k: { reason: "atomics, GPU-only" } });
+        expect(findings).toEqual([]);
+    });
+
+    test("checkDifferentials is empty over an empty population and an empty registry", () => {
+        expect(checkDifferentials([], {})).toEqual([]);
+    });
+
+    test("a kernel named like an Object.prototype key still reads as missing its row", () => {
+        expect(checkDifferentials(["constructor", "toString"], {})).toEqual([
+            { kind: "kernel-without-differential-entry", detail: "constructor" },
+            { kind: "kernel-without-differential-entry", detail: "toString" },
+        ]);
+    });
+});
+
+/** {@link callsSymbol} is the property the real-filesystem arm rests on, and the one every stage-4b row
+ *  is validated against — so both directions are pinned here rather than probed once by hand. */
+describe("callsSymbol", () => {
+    test("a direct call satisfies it, with or without a space", () => {
+        expect(callsSymbol("expect(octEncodeNormal(v)).toBe(x);", "octEncodeNormal")).toBe(true);
+        expect(callsSymbol("const r = collideHull (a, b);", "collideHull")).toBe(true);
+    });
+
+    test("an unused import left by a refactor does not", () => {
+        expect(callsSymbol('import { decodePos } from "./encode";\nfoo();', "decodePos")).toBe(
+            false,
+        );
+    });
+
+    test("a mention in a comment does not", () => {
+        expect(callsSymbol("// TODO: differential-test clusterCell\nother();", "clusterCell")).toBe(
+            false,
+        );
+    });
+
+    test("a longer name sharing the prefix does not satisfy the shorter one", () => {
+        expect(callsSymbol("packQuatSmallest3(q);", "packQuat")).toBe(false);
+    });
 });

@@ -161,3 +161,158 @@ export function checkStandards(population: Population, registry: StandardsRegist
 
     return findings;
 }
+
+// ── Part 2: the differential registry (stage 4a) ──────────────────────────────────────────────
+//
+// CPU-callability, the TypeGPU port's headline win (testing.md "A CPU-callable kernel is the
+// logic-truth surface for the same authored function the GPU pipeline resolves"), was recorded only
+// in deleted spec prose. This is the declared registry that replaces it: per kernel, either a named
+// differential test (a real `.test.ts` file that calls the kernel on the CPU against a reference) or
+// a reason it genuinely can't have one — naming the mechanism, not a category (`testing.md`'s
+// exemption-reason law applies here too). Same shape as Part 1: plain data, a pure checker, asserted
+// both directions, red-provable with no filesystem.
+
+/** a named CPU differential: the `.test.ts` file (repo-relative, from the shallot repo root — the
+ *  same convention `examples/gym/src/scenarios/timeouts.ts`'s `covers` globs use) that calls this
+ *  kernel on the CPU, and the exported symbol it calls. Two fields because "a file exists" alone
+ *  proves nothing — a differential test file that stopped calling its kernel (a rename, a refactor
+ *  that dropped the direct call) would still be "the named file exists" and silently stop meaning
+ *  anything; naming the symbol makes that a mechanically checkable claim
+ *  ({@link standards.test.ts}'s real-filesystem half greps the file for `symbol(` — call syntax, not a
+ *  bare mention, so an unused import or a symbol named only in a comment can't satisfy the row. The
+ *  residual limit: it proves the file calls the kernel, not that it asserts against a reference. */
+export interface DifferentialTest {
+    file: string;
+    symbol: string;
+}
+
+/** a kernel either has a named CPU differential, or a reason it can't: the mechanism that makes CPU
+ *  execution meaningless for it (a raw-WGSL leaf with no CPU arm, an atomic op with no CPU semantics,
+ *  a pointer into GPU-only address space), never a category ("GPU-only kernel" restates the row
+ *  instead of grounding it). */
+export type DifferentialEntry = { test: DifferentialTest } | { reason: string };
+
+export type DifferentialRegistry = Record<string, DifferentialEntry>;
+
+/** the differential registry's representative slice (stage 4a). Filling every one of the 101 kernels'
+ *  rows is stage 4b's mechanical queue — this hand-authored slice exists to exercise every arm of
+ *  {@link checkDifferentials} against real kernels, not to be complete: two genuine named-differential
+ *  rows and one real instance of each can't-have mechanism.
+ *
+ *  - `octEncodeNormal`: `octEncode === octEncodeNormal` (`engine/utils/encode.test.ts`) calls the
+ *    kernel directly on the CPU against the legacy scalar codec, 4096 random unit vectors plus the
+ *    cardinal/degenerate cases.
+ *  - `collideHull`: the packed-hull TGSL graph test (`standard/avbd/collide.test.ts`) calls the
+ *    kernel directly on the CPU against the f64 hull SAT oracle (`tests/avbd/hull.ts`).
+ *  - `packQuatSmallest3` / `unpackQuatSmallest3`: raw-WGSL leaves — their own JSDoc
+ *    (`engine/utils/encode.ts`) states why: smallest-3 dynamically indexes a vector (`q[largest]`)
+ *    and switches on the result, neither of which TGSL expresses, so the body stays WGSL text with no
+ *    CPU arm to call.
+ *  - `uniformLoad`: a raw-WGSL leaf over `ptr<workgroup, u32>` — its JSDoc (`engine/utils/tgsl.ts`)
+ *    states the mechanism: "a workgroup pointer has no CPU meaning."
+ *  - `compareExchange`: a raw-WGSL leaf over `ptr<storage, atomic<u32>, read_write>` —
+ *    `atomicCompareExchangeWeak` is a device-memory compare-and-swap with no CPU-side semantics to
+ *    reproduce; its JSDoc (`engine/utils/tgsl.ts`) states "GPU-only."
+ */
+export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
+    octEncodeNormal: {
+        test: {
+            file: "packages/shallot/src/engine/utils/encode.test.ts",
+            symbol: "octEncodeNormal",
+        },
+    },
+    collideHull: {
+        test: { file: "packages/shallot/src/standard/avbd/collide.test.ts", symbol: "collideHull" },
+    },
+    packQuatSmallest3: {
+        reason:
+            "raw-WGSL leaf: smallest-3 dynamically indexes a vector (q[largest]) and switches on the " +
+            "result, neither of which TGSL expresses, so the body is authored as a WGSL string with no " +
+            "CPU arm — see the kernel's own JSDoc, engine/utils/encode.ts.",
+    },
+    unpackQuatSmallest3: {
+        reason:
+            "raw-WGSL leaf: the inverse of packQuatSmallest3's dynamic-index/switch pack, same " +
+            "mechanism, no CPU arm — see the kernel's own JSDoc, engine/utils/encode.ts.",
+    },
+    uniformLoad: {
+        reason:
+            "raw-WGSL leaf over ptr<workgroup, u32>: a workgroup pointer has no CPU meaning (the kernel's " +
+            "own JSDoc, engine/utils/tgsl.ts) — workgroupUniformLoad is a control-barrier primitive with " +
+            "no CPU-side analogue to compare against.",
+    },
+    compareExchange: {
+        reason:
+            "raw-WGSL leaf over ptr<storage, atomic<u32>, read_write>: atomicCompareExchangeWeak is a " +
+            "device-memory compare-and-swap with no CPU-side semantics to reproduce — GPU-only per the " +
+            "kernel's own JSDoc, engine/utils/tgsl.ts.",
+    },
+};
+
+export type DifferentialFindingKind =
+    | "stale-differential-key"
+    | "missing-differential-reason"
+    | "missing-differential-test-file"
+    | "missing-differential-test-symbol"
+    | "kernel-without-differential-entry";
+
+export interface DifferentialFinding {
+    kind: DifferentialFindingKind;
+    detail: string;
+}
+
+/** the both-directions check over `{kernels, registry}`, pure — no filesystem, no dynamic import. The
+ *  real-filesystem half ("the named file exists and references its kernel symbol") lives in
+ *  `standards.test.ts` beside the population walk, per the same split `checkStandards` uses.
+ *
+ *  Five finding kinds: a registry key naming a kernel no longer in the population
+ *  (`stale-differential-key`); a can't-have entry with an empty reason
+ *  (`missing-differential-reason`); a test entry with an empty file or symbol
+ *  (`missing-differential-test-file` / `-symbol`); and a live kernel with no registry row at all
+ *  (`kernel-without-differential-entry`) — the corpus-wide completeness direction stage 4b's
+ *  mechanical queue fills in, left as a `test.todo` in `standards.test.ts` until every kernel has a
+ *  row. */
+/** does `text` call `symbol`, as opposed to merely mentioning it? The predicate behind the registry's
+ *  real-filesystem arm, pure so it pins both directions without a file. Call syntax is the bar: an
+ *  unused import a refactor left behind, or a name appearing only in a comment, satisfies a bare word
+ *  match while calling nothing — and this is the arm every filled row is validated against. It proves
+ *  the file calls the kernel, not that it asserts the result against a reference; that residual is
+ *  what the hand-authored row prose carries. */
+export function callsSymbol(text: string, symbol: string): boolean {
+    return new RegExp(`\\b${symbol}\\s*\\(`).test(text);
+}
+
+export function checkDifferentials(
+    kernels: readonly string[],
+    registry: DifferentialRegistry,
+): DifferentialFinding[] {
+    const findings: DifferentialFinding[] = [];
+    const population = new Set(kernels);
+
+    for (const [name, entry] of Object.entries(registry)) {
+        if (!population.has(name)) {
+            findings.push({ kind: "stale-differential-key", detail: name });
+            continue;
+        }
+        if ("reason" in entry) {
+            if (!entry.reason || entry.reason.trim() === "") {
+                findings.push({ kind: "missing-differential-reason", detail: name });
+            }
+        } else {
+            if (!entry.test.file || entry.test.file.trim() === "") {
+                findings.push({ kind: "missing-differential-test-file", detail: name });
+            }
+            if (!entry.test.symbol || entry.test.symbol.trim() === "") {
+                findings.push({ kind: "missing-differential-test-symbol", detail: name });
+            }
+        }
+    }
+
+    for (const name of population) {
+        if (!Object.hasOwn(registry, name)) {
+            findings.push({ kind: "kernel-without-differential-entry", detail: name });
+        }
+    }
+
+    return findings;
+}
