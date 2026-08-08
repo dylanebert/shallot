@@ -4,55 +4,6 @@ import { buildProject } from "./build";
 import { startDev } from "./dev";
 import { runProject } from "./run";
 
-const raw = process.argv.slice(2);
-
-// `verify` owns its own flag set (--dist, --screenshot, --query, --timeout, --json), so route it before
-// the shared dev/build/run parse rather than teaching that loop every verify flag.
-if (raw[0] === "verify") {
-    const { runVerify } = await import("./verify");
-    process.exit(await runVerify(raw.slice(1)));
-}
-
-// `recipe` copies a shipped example project out of the installed package — its own positional shape
-// (name + dest dir), no shared dev/build/run flags, so route it before that parse.
-if (raw[0] === "recipe") {
-    const { runRecipe } = await import("./recipe");
-    process.exit(await runRecipe(raw.slice(1)));
-}
-
-const positionalArgs: string[] = [];
-let target: string | undefined;
-let release = false;
-let portable = false;
-let port: number | undefined;
-let strictPort = false;
-let help = false;
-
-for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === "--target" && raw[i + 1]) {
-        target = raw[i + 1];
-        i++;
-    } else if (raw[i] === "--release") {
-        release = true;
-    } else if (raw[i] === "--portable") {
-        portable = true;
-    } else if (raw[i] === "--port" && raw[i + 1]) {
-        port = parseInt(raw[i + 1]);
-        i++;
-    } else if (raw[i]?.startsWith("--port=")) {
-        port = parseInt(raw[i].split("=")[1]);
-    } else if (raw[i] === "--strict-port") {
-        strictPort = true;
-    } else if (raw[i] === "--help" || raw[i] === "-h") {
-        help = true;
-    } else if (raw[i].startsWith("-")) {
-        console.error(`unknown option: ${raw[i]}`);
-        process.exit(1);
-    } else {
-        positionalArgs.push(raw[i]);
-    }
-}
-
 const usage = `
   shallot — run and build a shallot project
 
@@ -83,30 +34,133 @@ const usage = `
     shallot recipe first-person  Copy the first-person recipe into ./first-person
 `;
 
-if (help) {
-    console.log(usage);
-    process.exit(0);
-}
+export type CliArgs =
+    | { kind: "delegate"; cmd: "verify" | "recipe"; rest: string[] }
+    | { kind: "usage"; exitCode: 0 | 1 }
+    | {
+          kind: "run";
+          subcmd: "dev" | "build" | "run";
+          dir: string;
+          target?: string;
+          release: boolean;
+          portable: boolean;
+          port?: number;
+          strictPort: boolean;
+      };
 
-const subcommands = ["dev", "build", "run"];
-const subcmd = positionalArgs[0];
-// bare `shallot [dir]` names no command — print usage rather than guess one.
-if (subcmd == null || !subcommands.includes(subcmd)) {
-    console.log(usage);
-    process.exit(subcmd == null ? 0 : 1);
-}
-const dir = positionalArgs[1] || ".";
-const projectDir = resolve(dir);
+/**
+ * parse `shallot`'s top-level flags and pick which subcommand handles them. Pure — the CLI wiring and
+ * the tests share it, the shape `parseVerifyArgs` (verify.ts) models. `verify`/`recipe` own their own
+ * flag sets, so they're routed before the shared dev/build/run parse rather than teaching that loop
+ * every one of their flags. Throws on an unrecognized `-`-prefixed option, same as `parseVerifyArgs`.
+ */
+export function parseCliArgs(raw: string[]): CliArgs {
+    if (raw[0] === "verify") return { kind: "delegate", cmd: "verify", rest: raw.slice(1) };
+    if (raw[0] === "recipe") return { kind: "delegate", cmd: "recipe", rest: raw.slice(1) };
 
-if (subcmd === "dev") {
-    // native webviews can't HMR — `dev --target <native>` is a debug build + run (run without --release)
-    if (target && target !== "web") {
-        await runProject(projectDir, { target, port, release: false, portable });
-    } else {
-        await startDev(projectDir, { port, strictPort });
+    const positionalArgs: string[] = [];
+    let target: string | undefined;
+    let release = false;
+    let portable = false;
+    let port: number | undefined;
+    let strictPort = false;
+    let help = false;
+
+    for (let i = 0; i < raw.length; i++) {
+        if (raw[i] === "--target" && raw[i + 1]) {
+            target = raw[i + 1];
+            i++;
+        } else if (raw[i] === "--release") {
+            release = true;
+        } else if (raw[i] === "--portable") {
+            portable = true;
+        } else if (raw[i] === "--port" && raw[i + 1]) {
+            port = parseInt(raw[i + 1]);
+            i++;
+        } else if (raw[i]?.startsWith("--port=")) {
+            port = parseInt(raw[i].split("=")[1]);
+        } else if (raw[i] === "--strict-port") {
+            strictPort = true;
+        } else if (raw[i] === "--help" || raw[i] === "-h") {
+            help = true;
+        } else if (raw[i].startsWith("-")) {
+            throw new Error(`unknown option: ${raw[i]}`);
+        } else {
+            positionalArgs.push(raw[i]);
+        }
     }
-} else if (subcmd === "build") {
-    await buildProject(projectDir, { target, release, portable });
-} else if (subcmd === "run") {
-    await runProject(projectDir, { target, port, release, portable });
+
+    if (help) return { kind: "usage", exitCode: 0 };
+
+    const subcommands = ["dev", "build", "run"];
+    const subcmd = positionalArgs[0];
+    // bare `shallot [dir]` names no command — print usage rather than guess one.
+    if (subcmd == null || !subcommands.includes(subcmd)) {
+        return { kind: "usage", exitCode: subcmd == null ? 0 : 1 };
+    }
+
+    const dir = positionalArgs[1] || ".";
+    return {
+        kind: "run",
+        subcmd: subcmd as "dev" | "build" | "run",
+        dir,
+        target,
+        release,
+        portable,
+        port,
+        strictPort,
+    };
+}
+
+if (import.meta.main) {
+    const raw = process.argv.slice(2);
+
+    let parsed: CliArgs;
+    try {
+        parsed = parseCliArgs(raw);
+    } catch (e) {
+        console.error(e instanceof Error ? e.message : String(e));
+        process.exit(1);
+    }
+
+    if (parsed.kind === "delegate") {
+        if (parsed.cmd === "verify") {
+            const { runVerify } = await import("./verify");
+            process.exit(await runVerify(parsed.rest));
+        } else {
+            const { runRecipe } = await import("./recipe");
+            process.exit(await runRecipe(parsed.rest));
+        }
+    } else if (parsed.kind === "usage") {
+        console.log(usage);
+        process.exit(parsed.exitCode);
+    } else {
+        const projectDir = resolve(parsed.dir);
+        if (parsed.subcmd === "dev") {
+            // native webviews can't HMR — `dev --target <native>` is a debug build + run (run without --release)
+            if (parsed.target && parsed.target !== "web") {
+                await runProject(projectDir, {
+                    target: parsed.target,
+                    port: parsed.port,
+                    release: false,
+                    portable: parsed.portable,
+                });
+            } else {
+                await startDev(projectDir, { port: parsed.port, strictPort: parsed.strictPort });
+            }
+        } else if (parsed.subcmd === "build") {
+            await buildProject(projectDir, {
+                target: parsed.target,
+                release: parsed.release,
+                portable: parsed.portable,
+            });
+        } else if (parsed.subcmd === "run") {
+            await runProject(projectDir, {
+                target: parsed.target,
+                port: parsed.port,
+                release: parsed.release,
+                portable: parsed.portable,
+            });
+        }
+    }
 }

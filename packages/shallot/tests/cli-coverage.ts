@@ -139,30 +139,40 @@ export function checkCliCoverage(
 export const CLI_COVERAGE: readonly CoverageRow[] = [
     {
         file: "packages/shallot/bin/build.ts",
-        arm: "extract",
+        arm: "gap",
         reason:
-            "synthIndex (the synthesized <html> entry a manifest project owns none of) is directly " +
-            "asserted by dev.test.ts's `describe(\"synthIndex\")` block. buildWeb's effectful body — the " +
+            'synthIndex is directly asserted by dev.test.ts\'s `describe("synthIndex")` block, and ' +
+            "buildConfig (stage 2's fold of the inlined build-config literal into the shape dev.ts's " +
+            'devConfig already used) is directly asserted by dev.test.ts\'s own `describe("buildConfig")` ' +
+            "block (root, plugin order, base/build output shape). buildWeb's manifest-shape body — the " +
             "synthesized entry write/cleanup, the viteBuild call, the public-dir copy — runs end to end on " +
-            'every `bun run test:install` ("shallot build exits clean", a manifest project with a subpath ' +
-            "engine plugin, a local plugin, the wasm asset). What isn't closed: buildWeb's inlined " +
-            "build-config object literal (root/base/plugins/build) is the one place build.ts and dev.ts's " +
-            "devConfig disagree in shape — dev.ts already factored the equivalent into an exported, " +
-            "unit-tested devConfig. Stage 2 folds buildWeb's inline literal into a matching exported " +
-            "buildConfig.",
-        stage: 2,
+            'every `bun run test:install` ("shallot build exits clean"). Reached by nothing under any ' +
+            'tier: buildWeb\'s ejected-shape branch (an owned index.html, `execSync("bunx vite build")`) ' +
+            "— no test:install fixture ever has an index.html for buildWeb to find, the ejected fixture " +
+            "boots through its own vite server via `verify()`, never `shallot build`; buildWeb's missing-" +
+            "manifest/scene guard (`process.exit(1)`); and buildProject's native-target dispatch " +
+            "(windows/mac/linux, each a thin call into native.ts's already-`gap` bundlers) — no " +
+            "test:install/bench/flows/recipes run ever passes `--target`. No stage in the spec's Approach " +
+            "owns these; occupants: buildWeb's ejected-shape branch, buildWeb's missing-manifest guard, " +
+            "buildProject's native-target dispatch.",
     },
     {
         file: "packages/shallot/bin/cli.ts",
-        arm: "extract",
+        arm: "gap",
         reason:
-            "reached by nothing under `bun test` today — no test file imports cli.ts (verified: no " +
-            '`from "./cli"` / `from "../cli"` in any *.test.ts). `bun run test:install` only shells out to ' +
-            "the installed CLI as a subprocess (`node_modules/@dylanebert/shallot/bin/cli.ts`), which " +
-            "proves the binary runs but attributes no coverage to this module. Stage 2 factors the flag-" +
-            "parse loop + subcommand dispatch into a pure parseCliArgs(raw), the shape parseVerifyArgs " +
-            "already models in verify.ts.",
-        stage: 2,
+            "stage 2 factored the flag-parse loop + subcommand routing into a pure parseCliArgs(raw), " +
+            "the shape parseVerifyArgs (verify.ts) models, directly asserted by cli.test.ts (verify/" +
+            "recipe delegation, bare/--help/unrecognized-subcommand usage selection, dev/build/run flag " +
+            "resolution, the unknown-option throw). The module-scope dispatch that consumes it — now " +
+            "gated behind `if (import.meta.main)` so the pure parser is importable without running the " +
+            "live CLI — is exercised for real by `bun run test:install`'s subprocess invocations of the " +
+            "installed CLI for `verify`, `recipe`, `dev`, and `build` (`bun CLI build .`, `bun CLI dev . " +
+            "--port N`, `bun CLI verify --help`, `bun CLI recipe joints dest`). Reached by nothing: the " +
+            "`run` subcommand's dispatch line, the `dev --target <native>` branch, and the bare/`--help`/" +
+            "unrecognized-subcommand usage-print paths — no test:install/bench/flows/recipes run ever " +
+            "invokes `shallot run` or passes `--target` to `cli.ts`. No stage in the spec's Approach owns " +
+            "these; occupants: the `run` subcommand dispatch, `dev`'s native-target branch, the usage-" +
+            "print paths.",
     },
     {
         file: "packages/shallot/bin/dev.ts",
@@ -225,18 +235,18 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
     },
     {
         file: "packages/shallot/bin/run.ts",
-        arm: "extract",
+        arm: "gap",
         reason:
-            "reached by nothing under any tier in this repo today — no test file imports run.ts, and " +
-            "neither test:install, bench, flows, nor recipes ever invokes `shallot run` (verified: no " +
-            'grep hit for runProject/"shallot run" across those scripts). Its target dispatch (web/mac/' +
-            "linux/windows) and each branch's env/command composition (LD_LIBRARY_PATH, the wslpath + " +
-            "powershell.exe windows launch) are presently inline inside the effectful spawnSync calls. " +
-            "Stage 2 yields the dispatch selection and env/command composition as pure functions — " +
-            "explicitly not the spawn arms themselves, which stay unreached (opening a real native window " +
+            "stage 2 yielded the target dispatch selection (resolveRunTarget) and each branch's env/" +
+            "command composition (linuxRunEnv's LD_LIBRARY_PATH prefix, windowsRunCommand's wslpath + " +
+            "powershell.exe launch line) as pure functions, directly asserted by run.test.ts. runProject " +
+            "itself — the orchestration that calls them plus every spawnSync/execSync/preview call — " +
+            "stays reached by nothing under any tier: neither test:install, bench, flows, nor recipes " +
+            'ever invokes `shallot run` (verified: no grep hit for runProject/"shallot run" across those ' +
+            "scripts), and that was true before this stage's extraction too. Opening a real native window " +
             "or preview server isn't a headless-testable act, the same boundary native.ts's bundle bodies " +
-            "sit behind).",
-        stage: 2,
+            "sit behind. No stage in the spec's Approach owns it; occupant: runProject's dispatch body " +
+            "(the web/mac/linux/windows spawn arms).",
     },
     {
         file: "packages/shallot/bin/scaffold.ts",
@@ -328,16 +338,21 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
     },
     {
         file: "packages/create-shallot/index.ts",
-        arm: "extract",
+        arm: "tier",
         reason:
             "template's emitted file map is directly asserted by recipe.test.ts (imported cross-package: " +
             "the AGENTS.md/ENGINE_REFERENCE and CLAUDE.md/CLAUDE_IMPORT contents), which recipe.ts's own " +
-            "corpus fixtures build from. scaffold and the `if (import.meta.main)` CLI block (arg parsing, " +
-            "the existing-dir guard, the created-project console output) both run for real on every `bun " +
-            'run test:install` ("bun create shallot (scaffold → install → build the starter)", a real ' +
-            "subprocess invocation), but neither is asserted directly — no test calls scaffold or the CLI " +
-            "block as a function. Stage 2 gives create-shallot a main(argv) so that block stops being " +
-            "subprocess-only, and gives scaffold its own temp-dir test.",
-        stage: 2,
+            "corpus fixtures build from. Stage 2 pulled the `if (import.meta.main)` CLI block (arg " +
+            "parsing, the existing-dir guard, the created-project console output) out into an exported " +
+            "main(argv) returning an exit code rather than calling process.exit itself, directly asserted " +
+            'by create-shallot.test.ts\'s `describe("main")` block (no-name usage error, existing-dir ' +
+            'refusal, success); scaffold gets its own temp-dir test in the same file (`describe("scaffold' +
+            '")`, nested public/ dirs created). All real logic in the file is now directly unit-tested. ' +
+            "What remains is the one-line `if (import.meta.main) process.exit(main(...))` entry adapter — " +
+            "no logic of its own, but genuinely unreached by `bun test` (importing the module for its " +
+            'exports never sets import.meta.main) — run for real on every `bun run test:install` ("bun ' +
+            'create shallot (scaffold → install → build the starter)", `bun packages/create-shallot/' +
+            "index.ts starter-app` as a real subprocess). Same shape as dev.ts's row: unit-tested logic, " +
+            "tier-tested entry wiring, so the file's weakest reached tier is tier.",
     },
 ];

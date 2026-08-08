@@ -45,6 +45,20 @@ export const synthIndex = (name: string) => `<!doctype html>
 </html>
 `;
 
+/** the vite build config for a manifest project's synthesized entry, matching `dev.ts`'s `devConfig`. */
+export function buildConfig(projectDir: string) {
+    return {
+        root: projectDir,
+        base: "./",
+        configFile: false as const,
+        logLevel: "warn" as const,
+        // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback,
+        // and the engine's own kernels live in node_modules, so the transform must reach there too
+        plugins: [typegpuPlugin(), projectPlugin(resolve(projectDir))],
+        build: { target: "esnext", outDir: "dist", emptyOutDir: true },
+    };
+}
+
 export async function buildWeb(projectDir: string): Promise<void> {
     // ejected shape: the project owns its index.html + vite.config (gym, showcase/visualization), so
     // build with its own vite.
@@ -73,21 +87,11 @@ export async function buildWeb(projectDir: string): Promise<void> {
     const entry = resolve(projectDir, "index.html");
     writeFileSync(entry, synthIndex(basename(projectDir)));
     try {
-        const buildConfig = {
-            root: projectDir,
-            base: "./",
-            configFile: false as const,
-            logLevel: "warn" as const,
-            // typegpu transpiles TGSL function bodies at build time — there is no runtime fallback,
-            // and the engine's own kernels live in node_modules, so the transform must reach there too
-            plugins: [typegpuPlugin(), projectPlugin(resolve(projectDir))],
-            build: { target: "esnext", outDir: "dist", emptyOutDir: true },
-        };
         // drop a project's own copy of the host plugin (a project may declare `projectPlugin` for an
         // ejected harness; the build host provides it).
         await viteBuild(
             composeViteConfig(
-                buildConfig,
+                buildConfig(projectDir),
                 project,
                 new Set(["shallot-project", "unplugin-typegpu"]),
             ),

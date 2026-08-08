@@ -221,18 +221,19 @@ const SCENE = `<scene>
 </scene>
 `;
 
-if (import.meta.main) {
-    const args = process.argv.slice(2);
-    const name = args.find((a) => !a.startsWith("--"));
+/** `bun create shallot <project-name>` — parse argv, guard the target dir, scaffold, report next steps.
+ *  Returns the process exit code rather than calling `process.exit` itself, so it's callable directly. */
+export function main(argv: string[]): number {
+    const name = argv.find((a) => !a.startsWith("--"));
     if (!name) {
         console.error("Usage: bun create shallot <project-name>");
-        process.exit(1);
+        return 1;
     }
 
     const dir = resolve(name);
     if (existsSync(dir)) {
         console.error(`Directory "${name}" already exists`);
-        process.exit(1);
+        return 1;
     }
 
     scaffold(dir, template(name));
@@ -243,4 +244,9 @@ if (import.meta.main) {
     console.log(`  cd ${name}`);
     console.log("  bun install");
     console.log("  bunx shallot dev");
+    return 0;
+}
+
+if (import.meta.main) {
+    process.exit(main(process.argv.slice(2)));
 }

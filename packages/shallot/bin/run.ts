@@ -5,15 +5,53 @@ import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 import { buildWeb } from "./build";
 import { bundleNativeLinux, bundleNativeMac, bundleNativeWindows, nativeOutDir } from "./native";
 
+export type RunTarget =
+    | { kind: "web" }
+    | { kind: "mac" }
+    | { kind: "linux" }
+    | { kind: "windows" }
+    | { kind: "unknown"; target: string };
+
+/** which of `runProject`'s branches a `--target` value selects. Pure — `opts.target` defaults "web". */
+export function resolveRunTarget(target = "web"): RunTarget {
+    if (target === "web") return { kind: "web" };
+    if (target === "mac") return { kind: "mac" };
+    if (target === "linux") return { kind: "linux" };
+    if (target === "windows") return { kind: "windows" };
+    return { kind: "unknown", target };
+}
+
+/**
+ * the linux launch env: `LD_LIBRARY_PATH` prefixed with the bundle's `cef/` dir under `--portable`
+ * (which resolves `libcef.so` from there), unchanged otherwise (the system build uses host WebKitGTK).
+ */
+export function linuxRunEnv(
+    outputDir: string,
+    portable: boolean,
+    baseEnv: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+    const env = { ...baseEnv };
+    if (portable) {
+        const cefLibDir = resolve(outputDir, "cef");
+        env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
+    }
+    return env;
+}
+
+/** the powershell.exe command line that launches a windows build from its WSL-resolved host path. */
+export function windowsRunCommand(winPath: string, projectName: string): string {
+    return `cd '${winPath}'; .\\${projectName}.exe`;
+}
+
 export async function runProject(
     projectDir: string,
     opts: { target?: string; port?: number; release?: boolean; portable?: boolean },
 ) {
-    const target = opts.target ?? "web";
+    const runTarget = resolveRunTarget(opts.target);
     const release = opts.release ?? false;
     const portable = opts.portable ?? false;
 
-    if (target === "web") {
+    if (runTarget.kind === "web") {
         await buildWeb(projectDir);
         const server = await preview({
             root: projectDir,
@@ -25,7 +63,7 @@ export async function runProject(
         return;
     }
 
-    if (target === "mac") {
+    if (runTarget.kind === "mac") {
         const outputDir = nativeOutDir(projectDir, "mac", release, portable);
         console.log(`\n  building ${basename(projectDir)}...\n`);
 
@@ -40,7 +78,7 @@ export async function runProject(
         process.exit(result.exitCode);
     }
 
-    if (target === "linux") {
+    if (runTarget.kind === "linux") {
         const outputDir = nativeOutDir(projectDir, "linux", release, portable);
         console.log(`\n  building ${basename(projectDir)}...\n`);
 
@@ -49,12 +87,7 @@ export async function runProject(
         const bin = resolve(outputDir, basename(projectDir));
         console.log(`\n  running ${basename(projectDir)}...\n`);
 
-        const env = { ...process.env };
-        // portable resolves libcef.so from the sibling cef/ dir; the system build uses host WebKitGTK.
-        if (portable) {
-            const cefLibDir = resolve(outputDir, "cef");
-            env.LD_LIBRARY_PATH = `${cefLibDir}:${env.LD_LIBRARY_PATH || ""}`;
-        }
+        const env = linuxRunEnv(outputDir, portable, process.env);
 
         const result = Bun.spawnSync([bin], { env });
         process.stdout.write(result.stdout);
@@ -62,8 +95,8 @@ export async function runProject(
         process.exit(result.exitCode);
     }
 
-    if (target !== "windows") {
-        console.error(`unknown target: ${target}`);
+    if (runTarget.kind === "unknown") {
+        console.error(`unknown target: ${runTarget.target}`);
         process.exit(1);
     }
 
@@ -75,7 +108,7 @@ export async function runProject(
     console.log(`\n  running ${basename(projectDir)}...\n`);
 
     const winPath = execSync(`wslpath -w "${outputDir}"`, { encoding: "utf-8" }).trim();
-    const cmd = `cd '${winPath}'; .\\${basename(projectDir)}.exe`;
+    const cmd = windowsRunCommand(winPath, basename(projectDir));
     const result = Bun.spawnSync(["powershell.exe", "-Command", cmd]);
 
     process.stdout.write(result.stdout);

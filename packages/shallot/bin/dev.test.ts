@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { searchForWorkspaceRoot } from "vite";
-import { synthIndex } from "./build";
+import { buildConfig, synthIndex } from "./build";
 import { devConfig } from "./dev";
 
 describe("synthIndex", () => {
@@ -14,6 +14,24 @@ describe("synthIndex", () => {
         expect(html).toContain('from "virtual:project"');
         // the build's resolved plugin set is authoritative — re-adding defaults would resurrect a disabled one
         expect(html).toContain("defaults: false");
+    });
+});
+
+describe("buildConfig", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shallot-build-"));
+
+    test("roots vite at the project with the TGSL transform + project plugins, no dev-only synth-index", () => {
+        const config = buildConfig(dir);
+        expect(config.root).toBe(dir);
+        // buildWeb writes the synthesized entry itself and points vite straight at it — unlike
+        // devConfig, there's no synthIndexPlugin middleware serving it on demand
+        expect(config.plugins.map((p) => p.name)).toEqual(["unplugin-typegpu", "shallot-project"]);
+    });
+
+    test("outputs to dist/, cleared each build, with relative asset URLs (portable to a subpath / file://)", () => {
+        const config = buildConfig(dir);
+        expect(config.base).toBe("./");
+        expect(config.build).toEqual({ target: "esnext", outDir: "dist", emptyOutDir: true });
     });
 });
 
