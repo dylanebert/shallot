@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { SCENARIO_GATES } from "../../../examples/gym/src/scenarios/timeouts";
 import {
@@ -20,6 +20,7 @@ import {
     buildUrl,
     type Checkpoint,
     coerceVerdict,
+    driveHarness,
     type FrameSample,
     failureArtifacts,
     fitMemory,
@@ -37,9 +38,13 @@ import {
     parseVerifyArgs,
     RESOURCE_BUFFER,
     type ResourceEntry,
+    type Result,
     report,
     reportBatch,
     resolveBatchQueries,
+    SetupError,
+    serveDev,
+    serveDist,
     settlePass,
     spansFromCheckpoints,
     stepWait,
@@ -47,6 +52,7 @@ import {
     summarizeResourceTiming,
     TIMINGS_INIT_SCRIPT,
     type WaitState,
+    withGpuLog,
     withTimeout,
 } from "./verify";
 
@@ -1114,4 +1120,306 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
             }
         },
     );
+});
+
+// Every red verdict this repo's gates ever report routes through driveHarness's failure arms and
+// withGpuLog's merge — bench/flows/recipes only ever drive the green path (spec: shallot-cli-tests,
+// stage 4). A duck-typed page stub is not module mocking: Page is already typed `any`, and the stub
+// supplies only the boundary methods (`waitForFunction`, `evaluate`, `locator`) driveHarness itself
+// calls — the pre-existing seam the Locked decision names.
+describe("driveHarness — the red arms every gate's red routes through", () => {
+    const baseResult = (): Omit<Result, "pass"> => ({
+        project: "/tmp/proj",
+        timestamp: "2026-01-01T00:00:00.000Z",
+        mode: "dev",
+        url: "http://localhost:1234/",
+        hardware: "unknown",
+        harness: false,
+        booted: false,
+        rendered: false,
+        errors: [],
+    });
+
+    // a page that never renders anything real: the compositor screenshot always fails closed, so
+    // `sampleFrame` reads null rather than fabricating a frame. `evaluate` dispatches on the probed
+    // function's own source — the only stable way to tell driveHarness's several distinct evaluate
+    // calls apart without threading a call counter through every test.
+    const stubPage = (evaluate: (fn: (...a: unknown[]) => unknown) => unknown) => ({
+        waitForFunction: async () => {},
+        evaluate: async (fn: (...a: unknown[]) => unknown) => evaluate(fn),
+        locator: () => ({
+            first: () => ({
+                screenshot: async () => {
+                    throw new Error("no canvas in this stub");
+                },
+            }),
+        }),
+    });
+
+    test("ready-timeout: window.__harness.ready never resolves is a hard FAIL, never a settle downgrade", async () => {
+        const page = {
+            waitForFunction: async () => {
+                throw new Error("timed out");
+            },
+            evaluate: async () => {
+                throw new Error("driveHarness must not evaluate before ready resolves");
+            },
+            locator: () => ({
+                first: () => ({
+                    screenshot: async () => {
+                        throw new Error("no canvas");
+                    },
+                }),
+            }),
+        };
+        const args = parseVerifyArgs(["--timeout", "5000"]);
+        const result = await driveHarness(page, baseResult(), args, [], []);
+        expect(result.booted).toBe(true);
+        expect(result.rendered).toBe(false);
+        expect(result.pass).toBe(false);
+        expect(result.verdict).toEqual({
+            ok: false,
+            checks: [
+                {
+                    name: "ready",
+                    ok: false,
+                    detail: "window.__harness.ready never became true within 5000ms",
+                },
+            ],
+        });
+    });
+
+    test('noRender opt-out: rendered reports "opt-out", never a fake true, and the pixel gate is skipped', async () => {
+        const page = stubPage((fn) => {
+            const src = fn.toString();
+            if (src.includes("noRender")) return true;
+            if (src.includes("typeof window.__harness")) return false; // hasRun probe → fallback verdict
+            throw new Error(`unexpected evaluate: ${src}`);
+        });
+        const args = parseVerifyArgs([]);
+        const result = await driveHarness(page, baseResult(), args, [], []);
+        expect(result.rendered).toBe("opt-out");
+        expect(result.verdict).toEqual({ ok: true, checks: [{ name: "ready", ok: true }] });
+        expect(result.pass).toBe(true);
+    });
+
+    test("probe-error verdict: a throwing __harness.run probe is a clean FAIL naming the error, never an unhandled rejection", async () => {
+        const page = stubPage((fn) => {
+            const src = fn.toString();
+            if (src.includes("noRender")) return false;
+            if (src.includes("typeof window.__harness")) throw new Error("page closed");
+            if (src.includes("requestAnimationFrame")) return undefined;
+            if (src.includes("pixelProbe")) return undefined;
+            throw new Error(`unexpected evaluate: ${src}`);
+        });
+        const args = parseVerifyArgs([]);
+        const result = await driveHarness(page, baseResult(), args, [], []);
+        expect(result.verdict).toEqual({
+            ok: false,
+            checks: [
+                { name: "run", ok: false, detail: "could not reach __harness.run: page closed" },
+            ],
+        });
+        expect(result.pass).toBe(false);
+    });
+
+    test("hasRun-fallback verdict: no run() on the harness reads readiness alone, gated on captured page errors", async () => {
+        const page = stubPage((fn) => {
+            const src = fn.toString();
+            if (src.includes("noRender")) return false;
+            if (src.includes("typeof window.__harness")) return false;
+            if (src.includes("requestAnimationFrame")) return undefined;
+            if (src.includes("pixelProbe")) return undefined;
+            throw new Error(`unexpected evaluate: ${src}`);
+        });
+        const args = parseVerifyArgs([]);
+
+        const clean = await driveHarness(page, baseResult(), args, [], []);
+        expect(clean.verdict).toEqual({ ok: true, checks: [{ name: "ready", ok: true }] });
+
+        const withPageError = await driveHarness(page, baseResult(), args, ["a page error"], []);
+        expect(withPageError.verdict).toEqual({ ok: false, checks: [{ name: "ready", ok: true }] });
+    });
+});
+
+describe("withGpuLog — the verdict merge arithmetic as a branch surface", () => {
+    const mkResult = (overrides: Partial<Result>): Result => ({
+        project: "/tmp/proj",
+        timestamp: "t",
+        mode: "dev",
+        url: "http://x/",
+        hardware: "unknown",
+        harness: true,
+        booted: true,
+        rendered: true,
+        errors: [],
+        pass: true,
+        ...overrides,
+    });
+
+    const gpuPage = (gpuLog: unknown, gpuDiagnostics: unknown) => ({
+        evaluate: async (fn: (...a: unknown[]) => unknown) => {
+            const src = fn.toString();
+            if (src.includes("__gpuLog")) return gpuLog;
+            if (src.includes("__gpuDiagnostics")) return gpuDiagnostics;
+            throw new Error(`unexpected evaluate: ${src}`);
+        },
+    });
+
+    test("no GPU log leaves the result unchanged — nothing to merge", async () => {
+        const page = gpuPage(null, null);
+        const result = mkResult({ pass: true });
+        const merged = await withGpuLog(page, result);
+        expect(merged).toEqual(result);
+    });
+
+    test("the ?? fallback reads result.pass only when no verdict exists — it never overrides an existing false", async () => {
+        const page = gpuPage({ lines: ["ok"], errors: [] }, null);
+
+        // no verdict at all: ok falls back to result.pass, in both directions.
+        const noVerdictPass = await withGpuLog(page, mkResult({ pass: true }));
+        expect(noVerdictPass.verdict?.ok).toBe(true);
+        const noVerdictFail = await withGpuLog(page, mkResult({ pass: false }));
+        expect(noVerdictFail.verdict?.ok).toBe(false);
+
+        // an existing false ok is authoritative: `??` (not `||`) must not fall through to a true pass.
+        const existingFalse = await withGpuLog(
+            page,
+            mkResult({ pass: true, verdict: { ok: false, checks: [{ name: "run", ok: false }] } }),
+        );
+        expect(existingFalse.verdict?.ok).toBe(false);
+    });
+
+    test("!failed flips a previously-ok verdict false on a GPU console.error, and appends the checks", async () => {
+        const page = gpuPage({ lines: ["bad thing"], errors: ["bad thing"] }, null);
+        const result = mkResult({
+            pass: true,
+            verdict: { ok: true, checks: [{ name: "ready", ok: true }] },
+        });
+        const merged = await withGpuLog(page, result);
+        expect(merged.verdict?.ok).toBe(false);
+        expect(merged.pass).toBe(false);
+        expect(merged.verdict?.checks).toEqual([
+            { name: "ready", ok: true },
+            { name: "gpu.log", ok: true, detail: "bad thing" },
+            { name: "gpu.error", ok: false, detail: "bad thing" },
+        ]);
+    });
+});
+
+describe("serve* SetupError guards — by temp dir, asserting the throw class, not message prose", () => {
+    const tempProjectDir = (): string =>
+        mkdtempSync(join(REPO_ROOT, "node_modules/.cache/shallot-verify-guard-"));
+
+    test("serveDist: no dist/ at all is a SetupError, not a raw ENOENT", async () => {
+        const dir = tempProjectDir();
+        try {
+            await expect(serveDist(dir, 0)).rejects.toBeInstanceOf(SetupError);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test("serveDist: dist/ exists but carries no index.html is the same SetupError", async () => {
+        const dir = tempProjectDir();
+        try {
+            mkdirSync(join(dir, "dist"));
+            await expect(serveDist(dir, 0)).rejects.toBeInstanceOf(SetupError);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    test("serveDev: neither a shallot manifest/.scene nor an index.html is a SetupError", async () => {
+        const dir = tempProjectDir();
+        try {
+            await expect(serveDev(dir, 0)).rejects.toBeInstanceOf(SetupError);
+        } finally {
+            rmSync(dir, { recursive: true, force: true });
+        }
+    });
+});
+
+describe("report — the unrendered arms (⚠ LEAK, compilationError)", () => {
+    const base = {
+        project: "/tmp/gym",
+        mode: "dev",
+        url: "http://localhost/gym",
+        hardware: "test-gpu",
+        harness: false,
+        booted: true,
+        rendered: true,
+        errors: [],
+        pass: true,
+    };
+
+    test("memory.leak marks the line with ⚠ LEAK; a clean slope doesn't", () => {
+        const lines: string[] = [];
+        const original = console.log;
+        console.log = (...args: unknown[]) => lines.push(args.join(" "));
+        try {
+            report(
+                {
+                    ...base,
+                    memory: {
+                        start: 1e6,
+                        end: 1.1e6,
+                        growthPerSecond: 90_000,
+                        leak: true,
+                        gcCount: 2,
+                        gcPauseMs: 3,
+                    },
+                } as never,
+                false,
+            );
+            expect(lines.join("\n")).toContain("⚠ LEAK");
+
+            lines.length = 0;
+            report(
+                {
+                    ...base,
+                    memory: {
+                        start: 1e6,
+                        end: 1.01e6,
+                        growthPerSecond: 500,
+                        leak: false,
+                        gcCount: 2,
+                        gcPauseMs: 3,
+                    },
+                } as never,
+                false,
+            );
+            expect(lines.join("\n")).not.toContain("⚠ LEAK");
+        } finally {
+            console.log = original;
+        }
+    });
+
+    test("a compilationError renders its class and message beneath the artifact", () => {
+        const lines: string[] = [];
+        const original = console.log;
+        console.log = (...args: unknown[]) => lines.push(args.join(" "));
+        try {
+            report(
+                {
+                    ...base,
+                    pass: false,
+                    artifacts: [
+                        {
+                            label: "forward",
+                            stage: "vertex+fragment",
+                            source: "@vertex fn vs() {}",
+                            hash: "0123456789abcdef",
+                            messages: [],
+                            compilationError: { errorClass: "validation", message: "bad binding" },
+                        },
+                    ],
+                } as never,
+                false,
+            );
+            expect(lines.join("\n")).toContain("compilation validation: bad binding");
+        } finally {
+            console.log = original;
+        }
+    });
 });

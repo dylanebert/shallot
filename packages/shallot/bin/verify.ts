@@ -34,7 +34,8 @@ const INSTALL_PLAYWRIGHT = "bun add -d playwright && bunx playwright install chr
 
 // a setup failure the caller reports through the one failure path (JSON under --json) — distinct from
 // a bug, which propagates as a plain Error.
-class SetupError extends Error {}
+/** @internal exported only so the serve* guard tests can assert the throw class directly. */
+export class SetupError extends Error {}
 
 export interface VerifyArgs {
     dir: string;
@@ -520,7 +521,8 @@ export function fitMemory(
     };
 }
 
-interface Result {
+/** @internal exported only so the driveHarness/withGpuLog page-stub tests can type their fixtures. */
+export interface Result {
     project: string;
     timestamp: string;
     mode: "dev" | "dist";
@@ -861,7 +863,8 @@ async function injectLeak(page: Page, bytesPerSec: number): Promise<void> {
         .catch(() => {});
 }
 
-interface Booter {
+/** @internal exported only so serveDist/serveDev's return type resolves for the guard tests. */
+export interface Booter {
     url: string;
     stop: () => Promise<void>;
     mode: "dev" | "dist";
@@ -889,7 +892,8 @@ function pickPort(explicit?: number): Promise<number> {
 // serveEjected already use. Together with pickPort's node:net probe, the whole boot path is now
 // runtime-agnostic (the WSL bridge runs this CLI under node, where Bun is undefined).
 // No implicit build — a missing dist is an actionable error, not a silent recovery.
-async function serveDist(projectDir: string, port: number): Promise<Booter> {
+/** @internal exported only so the SetupError guard can be driven by temp dir without booting vite. */
+export async function serveDist(projectDir: string, port: number): Promise<Booter> {
     // hardcoded rather than read from the project's vite config (which preview() below derives outDir
     // from): build.ts pins `outDir: "dist"` for every manifest build, so this can't diverge in practice.
     const dist = resolve(projectDir, "dist");
@@ -932,7 +936,8 @@ export function bootArm(
 // (synthesized entry + projectPlugin); an ejected project that owns its own index.html gets a plain vite
 // server rooted at it (vite auto-loads the project's own vite.config from root). Never opens a tab, always
 // an auto-picked port. Fails loud through the setup path when the dir is neither shape.
-async function serveDev(projectDir: string, port: number): Promise<Booter> {
+/** @internal exported only so the SetupError guard can be driven by temp dir without booting vite. */
+export async function serveDev(projectDir: string, port: number): Promise<Booter> {
     const arm = bootArm(isProject(projectDir), existsSync(join(projectDir, "index.html")));
     if (arm === "none") {
         throw new SetupError(
@@ -1408,8 +1413,9 @@ async function drive(
 }
 
 /** merge the page's captured GPU log into a finished result. A GPU `console.error` fails the run
- *  outright — a shader-side assert is a real verdict, not a note. */
-async function withGpuLog(page: Page, result: Result): Promise<Result> {
+ *  outright — a shader-side assert is a real verdict, not a note.
+ *  @internal exported only so the merge arithmetic's branch surface can be driven by a page stub. */
+export async function withGpuLog(page: Page, result: Result): Promise<Result> {
     const log = (await page
         .evaluate(() => (window as unknown as { __gpuLog?: GpuLog }).__gpuLog)
         .catch(() => null)) as GpuLog | null;
@@ -1440,7 +1446,9 @@ async function withGpuLog(page: Page, result: Result): Promise<Result> {
 // Verdict. Every page evaluate is guarded — a throwing run() (or a probe on a broken page) is a clean
 // FAIL with the error as detail (the page.ts fatal-envelope precedent), never an unhandled rejection.
 // A harness that never readies is a hard FAIL — never a downgrade to the settle check.
-async function driveHarness(
+/** @internal exported only so the red arms (ready-timeout, noRender, probe-error, hasRun-fallback) can
+ *  be driven directly by a duck-typed page stub. */
+export async function driveHarness(
     page: Page,
     base: Omit<Result, "pass">,
     args: VerifyArgs,
