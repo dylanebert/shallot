@@ -325,16 +325,29 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "packages/shallot/src/project/vite.ts",
         arm: "gap",
         reason:
-            "assetSrc's public-dir-relative matching, manifestWarnings' corrupt-JSON and unknown-plugin " +
-            "branches, and orphanedAssets' fixpoint asset-pruning are directly asserted by vite.test.ts. " +
-            "projectPlugin's hooks (resolveId, load, configureServer's static-asset middleware carrying " +
-            "the path-traversal guard and the no-store rule, handleHotUpdate, generateBundle) run against " +
-            "a stub `this`/server today in production only, never a test; readManifest, discoverScenes, " +
-            "findPublicDirs, manifestPath, and contentType are exercised only transitively through those " +
-            "hooks. Stage 3 covers resolveId/load/configureServer's middleware/handleHotUpdate/" +
-            "generateBundle's orphan deletion + byte accounting, plus the fs readers by temp dir and " +
-            "contentType.",
-        stage: 3,
+            "assetSrc, manifestWarnings, orphanedAssets, contentType, readManifest, discoverScenes, and " +
+            "findPublicDirs are all directly asserted by vite.test.ts against a temp dir. projectPlugin's " +
+            "resolveId, load, configureServer's static-asset middleware, handleHotUpdate, and " +
+            "generateBundle's orphan deletion + byte accounting are each exercised against a stub " +
+            "`this`/server, per hook. The path-traversal guard was extracted into resolveAssetPath and " +
+            "tested there directly, because its escape branch is empirically unreachable through any real " +
+            'req.url: `new URL(req.url, "http://localhost")`\'s own WHATWG dot-segment normalization ' +
+            "strips every crafted payload two independent sweeps tried (raw, percent- and double-encoded " +
+            "dots, encoded slash, backslash, overlong/unicode dot forms, absolute-URL and protocol-relative " +
+            "request targets, %00) before the guard ever runs, ~35 payloads with no exception found. The " +
+            "guard asserts a *segment boundary*, not a string prefix — a bare startsWith(dir) also admits " +
+            "a sibling extending dir's basename (`/a/public-secrets` under `/a/public`), which the " +
+            "adversarial pass proved exploitable on the extracted function and which now has its own test. " +
+            "typegpuPlugin is `tier`: it carries no logic of its own beyond a single-instance constraint, " +
+            "and the property that matters — the TGSL transform actually ran over engine `.ts` — is " +
+            "asserted at runtime by checkTgsl on every GPU boot, so each `bun bench` / `bun run flows` / " +
+            "`bun run recipes` scenario reds if this plugin stops being wired into the synthesized config. " +
+            "What stays reached by nothing: configureServer's " +
+            "onProjectFile watcher callback (the dev-server glue mapping a live `.scene`/manifest file " +
+            "event to invalidate+reload, and a model-asset event through assetSrc to a full-reload) — no " +
+            "test:install/bench/flows/recipes run ever edits a file under a booted dev server's watch, and " +
+            "this stage's stub server never drives a real chokidar event either. No stage in the spec's " +
+            "Approach owns it; occupant: configureServer's onProjectFile callback.",
     },
     {
         file: "packages/create-shallot/index.ts",
