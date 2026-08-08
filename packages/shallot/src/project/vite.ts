@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
-import { dirname, isAbsolute, join, relative, resolve } from "path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
 import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
 import { KNOWN_ENGINE_PLUGINS } from "./engine";
@@ -72,9 +72,11 @@ export function manifestWarnings(raw: string, known: ReadonlySet<string>): strin
     return warnings;
 }
 
-// read + parse a project's manifest, tolerating its absence (a scene-only project → {}); warn loudly on a
-// corrupt file or an unknown-plugin key before `normalize` normalizes the mistake away
-function readManifest(absDir: string): Manifest {
+/**
+ * read + parse a project's manifest, tolerating its absence (a scene-only project → {}); warn loudly on
+ * a corrupt file or an unknown-plugin key before `normalize` normalizes the mistake away. @internal
+ */
+export function readManifest(absDir: string): Manifest {
     const path = manifestPath(absDir);
     let text: string;
     try {
@@ -154,7 +156,8 @@ const MIME: Record<string, string> = {
     ktx2: "image/ktx2",
 };
 
-function contentType(path: string): string | undefined {
+/** @internal */
+export function contentType(path: string): string | undefined {
     return MIME[path.slice(path.lastIndexOf(".") + 1).toLowerCase()];
 }
 
@@ -163,6 +166,23 @@ function contentType(path: string): string | undefined {
 // invalidated by the caller) and re-fetches assets.
 function signalChange(server: ViteDevServer) {
     server.ws.send({ type: "full-reload" });
+}
+
+/**
+ * the served file `pathname` maps to under `dir`, or `null` if there isn't one — joins, then rejects a
+ * result that lands outside `dir` before ever touching disk. `configureServer`'s own `new URL(req.url,
+ * "http://localhost")` call already strips every dot-segment payload upstream (WHATWG's path-normalize
+ * step resolves "." / ".." — including percent-encoded forms — before this ever sees `pathname`, verified
+ * against curl-style raw request lines), so the escape branch is unreachable through any real request;
+ * it's tested directly here, on a raw `pathname` the URL layer never gets to normalize first. @internal
+ */
+export function resolveAssetPath(dir: string, pathname: string): string | null {
+    const filePath = join(dir, pathname);
+    // segment boundary, not a string prefix: a plain `startsWith(dir)` also admits a *sibling* whose
+    // name extends dir's basename (dir `/a/public` would accept `/a/public-secrets/x`), which is an
+    // escape, not a descendant.
+    if (filePath !== dir && !filePath.startsWith(dir + sep)) return null;
+    return existsSync(filePath) && statSync(filePath).isFile() ? filePath : null;
 }
 
 // serve project public/ assets (the project's own + a shared parent's) with correct MIME
@@ -174,19 +194,17 @@ function configureServer(server: ViteDevServer, projectDir?: string) {
         if (req.url) {
             const pathname = new URL(req.url, "http://localhost").pathname;
             for (const dir of publicDirs) {
-                const filePath = join(dir, pathname);
-                if (!filePath.startsWith(dir)) continue;
-                if (existsSync(filePath) && statSync(filePath).isFile()) {
-                    const data = readFileSync(filePath);
-                    const mime = contentType(filePath);
-                    if (mime) res.setHeader("Content-Type", mime);
-                    // dev assets must never sit in the browser HTTP cache, or a live model edit re-fetches
-                    // the stale bytes after `invalidate` (the worker decode reads the cached response) and the
-                    // swap silently shows the old asset. no-store forces a fresh read every load.
-                    res.setHeader("Cache-Control", "no-store");
-                    res.end(data);
-                    return;
-                }
+                const filePath = resolveAssetPath(dir, pathname);
+                if (!filePath) continue;
+                const data = readFileSync(filePath);
+                const mime = contentType(filePath);
+                if (mime) res.setHeader("Content-Type", mime);
+                // dev assets must never sit in the browser HTTP cache, or a live model edit re-fetches
+                // the stale bytes after `invalidate` (the worker decode reads the cached response) and the
+                // swap silently shows the old asset. no-store forces a fresh read every load.
+                res.setHeader("Cache-Control", "no-store");
+                res.end(data);
+                return;
             }
         }
         next();
