@@ -1,10 +1,27 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 interface Check {
     name: string;
     pass: boolean;
     detail: string;
 }
+
+// Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
+// and D3D's WARP. Deliberately a name list rather than a capability probe — SwiftShader clears shallot's
+// whole base floor (all three `BASE_FEATURES` plus 10 storage buffers per stage, measured under WSL
+// 2026-08-10), so nothing about the floor distinguishes it, and it is only the *execution* that dies.
+// Bias narrow: an unlisted software adapter re-crashes loudly, while an over-broad pattern would skip this
+// gate on real hardware and report green having tested nothing.
+const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
+
+/** the adapter's self-reported identity, or `""` when the browser hands out none. */
+const adapterName = (page: Page): Promise<string> =>
+    page.evaluate(async () => {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter) return "";
+        const { vendor, architecture, device, description } = adapter.info;
+        return [vendor, architecture, device, description].filter(Boolean).join(" ");
+    });
 
 test("fountain showcase gate — TGSL integrator and GPU readback", async ({ page }) => {
     const errors: string[] = [];
@@ -20,6 +37,17 @@ test("fountain showcase gate — TGSL integrator and GPU readback", async ({ pag
     });
 
     await page.goto("/");
+
+    // Full device testing: the TGSL integrator and its readback need a real GPU. Probe before the boot
+    // wait, so a GPU-less host skips honestly instead of dying inside `mapAsync` — display-gated the same
+    // way `shallot verify`'s callers are.
+    const adapter = await adapterName(page);
+    console.log(`fountain gate adapter: ${adapter || "none offered"}`);
+    test.skip(
+        adapter === "" || SOFTWARE.test(adapter),
+        `no real-GPU adapter (${adapter || "none offered"})`,
+    );
+
     await page.waitForFunction(() => typeof window.__fountainGate === "function", null, {
         timeout: 120_000,
     });
