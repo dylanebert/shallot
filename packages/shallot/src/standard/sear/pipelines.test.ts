@@ -160,6 +160,33 @@ describe("compileVariant — boundaries and glTF support", () => {
         expect(variant).not.toContain("fn specializeBaseFs(");
     });
 
+    test("specialize returning a foreign-copy fn throws at typedVariant — the second seam a consumer-built fn enters through, `registerSurface` can't reach it", () => {
+        const l = layout({});
+        const fs = tgpu.fn(
+            [fsCtxSchema()],
+            d.vec4f,
+        )(() => {
+            "use gpu";
+            return d.vec4f(0);
+        });
+        // the same foreign-copy shape `contract.test.ts` covers at `registerSurface`/`registerBackground`
+        // — right `resourceType`, a foreign `$internal` symbol a real second copy presents identically.
+        const foreignInternal = Symbol("typegpu:0.11.9:$internal");
+        const foreignFs = {
+            resourceType: "function",
+            [foreignInternal]: true,
+        } as unknown as typeof fs;
+        const surface = {
+            name: "specialize-foreign-probe",
+            layout: l,
+            fs,
+            specialize: () => ({ fs: foreignFs }),
+        };
+        expect(() => surfaceWgsl(surface, 1)).toThrow(
+            /surface "specialize-foreign-probe" variant 1 fs:.*foreign copy of typegpu/s,
+        );
+    });
+
     test("a same-name surface replacement recompiles the warmed typed variant", () => {
         const name = `replacement-probe-${Math.random()}`;
         const first = {
