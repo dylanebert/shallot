@@ -142,6 +142,8 @@ A live `State` is reused across hot reloads — a live host swaps a reloaded plu
 
 One browser session per test file. Don't split related assertions into multiple `test()` blocks — use phases within a single test instead. Starting a new browser session is expensive and loses page state. Reconstruct state within the session if needed.
 
+**A real-device gate display-gates on the adapter's *name*, not its floor, and says which adapter it got.** A showcase project owns its own Playwright driver and can't reach `scripts/verify.ts`'s `skipReason()`, so it probes `adapter.info` after `page.goto` and `test.skip`s on a software rasterizer (`swiftshader`, `llvmpipe`, `lavapipe`, `warp`) — before any boot wait, or the skip costs the wait's full timeout. A capability probe can't stand in: SwiftShader clears the entire base floor and 10 storage buffers per stage, then dies during execution (`mapAsync` mid-readback, or never installing the hook), which is why `fountain` and `voxel` crashed here for a release cycle. Keep the pattern narrow and log the adapter on both paths — an over-broad match reports green having tested nothing, and a silent skip is the same defect as a crash. Not every gate earns it: `visualization` genuinely passes on SwiftShader, so it stays ungated.
+
 ## Pairwise testing for combinatorial GPU features
 
 Most bugs come from 2-factor interactions. For combinatorial feature spaces (surfaces × pipelines × opaque/transparent × shadow × instance fields), generate pairwise test matrices (~40-60 combos instead of thousands). `compileSurfaceBlock` is a pure function — feed it pairwise inputs, validate structurally + GPU-compile.

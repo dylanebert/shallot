@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 
 // Drive the voxel mesher's device gate: load the app, wait for it to warm and expose `window.__voxelGate`,
 // run it on the real GPU, and assert every check passes (and the page raised no error). The checks
@@ -11,12 +11,40 @@ interface Check {
     detail: string;
 }
 
+// Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
+// and D3D's WARP. Deliberately a name list rather than a capability probe — SwiftShader clears shallot's
+// whole base floor (all three `BASE_FEATURES` plus 10 storage buffers per stage, measured under WSL
+// 2026-08-10), so nothing about the floor distinguishes it, and it is only the *execution* that dies.
+// Bias narrow: an unlisted software adapter re-crashes loudly, while an over-broad pattern would skip this
+// gate on real hardware and report green having tested nothing.
+const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
+
+/** the adapter's self-reported identity, or `""` when the browser hands out none. */
+const adapterName = (page: Page): Promise<string> =>
+    page.evaluate(async () => {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter) return "";
+        const { vendor, architecture, device, description } = adapter.info;
+        return [vendor, architecture, device, description].filter(Boolean).join(" ");
+    });
+
 test("voxel mesher gate — watertight, deterministic, carve (real GPU)", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
 
     // standalone runtime — the gate only touches GPU buffers, no editor/scene writes.
     await page.goto("/");
+
+    // Full device testing: the mesher needs a real GPU. Probe before waiting on the boot hook, because on
+    // a software adapter the app never installs it and the wait burns its full 120 s before failing —
+    // display-gated the same way `shallot verify`'s callers are, so a GPU-less host skips instead of reds.
+    const adapter = await adapterName(page);
+    console.log(`voxel gate adapter: ${adapter || "none offered"}`);
+    test.skip(
+        adapter === "" || SOFTWARE.test(adapter),
+        `no real-GPU adapter (${adapter || "none offered"})`,
+    );
+
     // the boot plugin generates the terrain then installs the hook once the mesher buffers exist (see
     // boot.ts). A cold vite build is slower than the warm path, so allow longer than steady-state needs.
     await page.waitForFunction(() => typeof window.__voxelGate === "function", null, {
