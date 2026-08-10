@@ -24,7 +24,7 @@ import { Draws, Frame, LightCull, Lighting, Meshes, Render } from "../render/cor
 import { cascadeLayout, pointLayout, shadowLayout } from "./atlas";
 import { DEPTH_FORMAT, SAMPLE_COUNT, TAG_FORMAT, TAG_NONE } from "./codegen";
 import type { Background, BgLayout, Binding, Surface, SurfaceLayout } from "./contract";
-import { Backgrounds, BgCtx, type fsCtxSchema, Surfaces, VsIn } from "./contract";
+import { assertOwnFn, Backgrounds, BgCtx, type fsCtxSchema, Surfaces, VsIn } from "./contract";
 import {
     engineLayout,
     fragCoord,
@@ -224,7 +224,13 @@ function typedVariant<B extends Record<string, Binding>, V extends Record<string
     variant: number,
 ): Surface<B, V> {
     const spec = surface.specialize?.(variant);
-    return (spec ? { ...surface, ...spec, specialize: undefined } : surface) as Surface<B, V>;
+    if (!spec) return surface;
+    // `specialize` is the second seam a consumer-built TgpuFn enters through, and `registerSurface`
+    // can't reach it: these fns don't exist until a variant compiles. Same brand check, same reason.
+    const at = `surface "${surface.name}" variant ${variant}`;
+    assertOwnFn(`${at} vs`, spec.vs);
+    assertOwnFn(`${at} fs`, spec.fs);
+    return { ...surface, ...spec, specialize: undefined } as Surface<B, V>;
 }
 
 const identityXform = tgpu

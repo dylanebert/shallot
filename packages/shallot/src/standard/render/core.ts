@@ -39,6 +39,7 @@ export type {
     VsFn,
 } from "./contract";
 export {
+    assertOwnFn,
     Backgrounds,
     BgCtx,
     backgroundLayout,
