@@ -6,7 +6,7 @@ import { engineLayout } from "../../standard/sear/engine";
 import { prepassWgsl, shadowWgsl, surfaceWgsl } from "../../standard/sear/pipelines";
 import { registerTexturedSurfaces } from "./assets";
 import { liveSkinSurface, registerLiveSkinSurfaces } from "./live";
-import { MAP_ALL } from "./shade";
+import { MAP_ALL, MAP_EMIS, MAP_MR, MAP_NORMAL, MAP_OCC } from "./shade";
 import { registerSkinSurfaces, skinSurface } from "./skin";
 
 const names = [
@@ -75,6 +75,29 @@ describe("typed glTF surface trios", () => {
         expect(albedo).toContain("if ((md.albedoBucket == 1u))");
         expect(albedo).toContain("if ((md.albedoBucket == 2u))");
         expect(albedo).not.toContain("switch");
+    });
+
+    test("each map-set bit gates exactly its own data-map sample, across every variant", () => {
+        // the endpoints above (0 and MAP_ALL) pass even if two bits are swapped — a wrong bit→sample
+        // mapping specializes a pipeline that samples a map the material doesn't carry. Ported from
+        // shade.test.ts, which asserted this against `materialPreamble`, a raw-WGSL twin with no
+        // production caller: the property was only ever pinned on dead code.
+        const surface = Surfaces.get("gltf-albedo")!;
+        const sample: Record<number, string> = {
+            [MAP_NORMAL]: "textureSample(normalTex",
+            [MAP_MR]: "textureSample(mr,",
+            [MAP_OCC]: "textureSample(occlusion",
+            [MAP_EMIS]: "textureSample(emissive",
+        };
+        for (let mapset = 0; mapset <= MAP_ALL; mapset++) {
+            const shade = body(surfaceWgsl(surface, mapset), "fn shadePbr(");
+            for (const bit of [MAP_NORMAL, MAP_MR, MAP_OCC, MAP_EMIS]) {
+                expect(
+                    shade.includes(sample[bit] as string),
+                    `bit ${bit} in mapset ${mapset}`,
+                ).toBe((mapset & bit) !== 0);
+            }
+        }
     });
 
     test("VAT skin samples the baked position and normal using the vertex index", () => {

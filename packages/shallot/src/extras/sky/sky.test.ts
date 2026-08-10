@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { body, noIntegerDivision } from "../../../tests/wgsl";
+import { body, flat, noIntegerDivision } from "../../../tests/wgsl";
 import { State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
 import { srgbToLinear } from "../../engine/utils/color";
@@ -94,12 +94,6 @@ function referenceFbm2(p: Vec2): number {
     return value;
 }
 
-function referenceHashStar(p: Vec2): number {
-    let p3 = d.vec3f(std.fract(std.mul(d.vec3f(p.x, p.y, p.x), 0.1031)));
-    p3 = d.vec3f(std.add(p3, std.dot(p3, std.add(p3.yzx, 33.33))));
-    return std.fract((p3.x + p3.y) * p3.z);
-}
-
 function referenceHash2Star(p: Vec2): Vec2 {
     let p3 = d.vec3f(std.fract(std.mul(d.vec3f(p.x, p.y, p.x), d.vec3f(0.1031, 0.103, 0.0973))));
     p3 = d.vec3f(std.add(p3, std.dot(p3, std.add(p3.yzx, 33.33))));
@@ -120,7 +114,7 @@ function referenceStars(dir: Vec3, intensity: number, amount: number, stats?: St
     for (let dy = -1; dy <= 1; dy++) {
         for (let dx = -1; dx <= 1; dx++) {
             const neighbor = std.add(cellId, d.vec2f(dx, dy));
-            const starHash = referenceHashStar(neighbor);
+            const starHash = referenceHash2(neighbor);
             if (starHash > amount * 0.7) {
                 if (stats) stats.continued++;
                 continue;
@@ -129,14 +123,14 @@ function referenceStars(dir: Vec3, intensity: number, amount: number, stats?: St
             const starPos = referenceHash2Star(neighbor);
             const starCenter = std.add(neighbor, starPos);
             const dist = std.length(std.sub(cell, starCenter));
-            const brightness = referenceHashStar(std.add(neighbor, d.vec2f(100)));
+            const brightness = referenceHash2(std.add(neighbor, d.vec2f(100)));
             const radius = 0.02 + brightness * 0.03;
             if (dist < radius) {
                 if (stats) stats.hits++;
                 const twinkle = 0.8 + 0.2 * std.sin(brightness * 100);
                 const strength = intensity * brightness * twinkle;
                 const falloff = 1 - std.smoothstep(0, radius, dist);
-                const temp = referenceHashStar(std.add(neighbor, d.vec2f(200)));
+                const temp = referenceHash2(std.add(neighbor, d.vec2f(200)));
                 const tint = std.mix(d.vec3f(1, 0.9, 0.8), d.vec3f(0.8, 0.9, 1), temp);
                 starColor = d.vec3f(std.max(starColor, std.mul(std.mul(tint, strength), falloff)));
             }
@@ -252,7 +246,7 @@ function activeStarDirection(amount: number): { dir: Vec3; stats: StarStats } {
     for (let y = 1; y < 20; y++) {
         for (let x = -20; x < 20; x++) {
             const neighbor = d.vec2f(x, y);
-            if (referenceHashStar(neighbor) > amount * 0.7) continue;
+            if (referenceHash2(neighbor) > amount * 0.7) continue;
             const starPos = referenceHash2Star(neighbor);
             const theta = ((x + starPos.x) * REFERENCE_STAR_PI) / gridSize;
             const phi = ((y + starPos.y) * REFERENCE_STAR_HALF_PI) / gridSize;
@@ -469,6 +463,22 @@ describe("Sky typed shader", () => {
         expect(wgsl).toContain("for (var dy = -1i; (dy <= 1i); dy = (dy + 1i))");
         expect(wgsl).toContain("continue;");
         noIntegerDivision(wgsl);
+    });
+
+    test("no two emitted sky functions share a body", () => {
+        // `hashStar` was a byte-identical second registration of `hash2`, so the sky shipped the same
+        // hash twice under two names. Compare bodies rather than names: a duplicate reintroduced under
+        // any third name is the same defect, and the name is exactly what a reader trusts instead.
+        const wgsl = backgroundWgsl(skyBackground);
+        const seen = new Map<string, string>();
+        for (const [, name] of wgsl.matchAll(/fn (\w+)\s*\(/g)) {
+            const src = flat(body(wgsl, `fn ${name}(`));
+            const decl = src.slice(src.indexOf("{"));
+            const prior = seen.get(decl);
+            expect(prior, `fn ${name} duplicates fn ${prior}`).toBeUndefined();
+            seen.set(decl, name);
+        }
+        expect(seen.size).toBeGreaterThan(4); // the walk reached real functions, not zero
     });
 });
 

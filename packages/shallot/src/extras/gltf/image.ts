@@ -21,12 +21,12 @@ export const ALBEDO_BUCKETS = 4;
 /** the per-bucket binding names the textured + skin surfaces declare, `albedo0..albedo{N-1}`. */
 export const ALBEDO_NAMES = Array.from({ length: ALBEDO_BUCKETS }, (_, b) => `albedo${b}`);
 
-/**
- * upload pre-transcoded KTX2 images as a compressed `texture_2d_array`, one layer per image, each carrying
- * its own transcoded mip chain straight from the Basis transcoder (no GPU blit; compressed mips are already
- * downsampled). All images must share dimensions + format + block size, the array's one-size constraint,
- * which the caller guarantees. Binds + samples identically to the bitmap arrays: `albedo[layer]`.
- *
+// The compressed path: upload pre-transcoded KTX2 images as a compressed `texture_2d_array`, one layer per
+// image, each carrying its own transcoded mip chain straight from the Basis transcoder (no GPU blit;
+// compressed mips are already downsampled). All images must share dimensions + format + block size, the
+// array's one-size constraint, which the caller guarantees. Binds + samples identically to the bitmap
+// arrays: `albedo[layer]`.
+
 /** allocate (but don't fill) the compressed `texture_2d_array` for `images`: dims/format/mip count from the
  *  first image (all share them). Fill each layer with {@link writeCompressedLayer} — the union stages those
  *  writes one per frame budget step. `label` names the array (the data maps pass their slot name). */
@@ -71,7 +71,7 @@ export function writeCompressedLayer(
  * would skip the whole draw). Color slots are sRGB, data slots (normal / metallic-roughness / occlusion)
  * linear. Its content is never sampled: a material on a fallback carries palette layer `-1`, and both readers
  * short-circuit it — `sampleAlbedo` returns white (the glTF baseColorFactor default) for `layer < 0`, and an
- * absent data map emits no sample at all (`materialPreamble`, gated by the map-set bitmask).
+ * absent data map emits no sample at all (`materialFns`, gated by the map-set bitmask).
  */
 export function fallback1x1(device: GPUDevice, format: GPUTextureFormat): GPUTexture {
     return device.createTexture({
