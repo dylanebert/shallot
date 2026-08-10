@@ -39,6 +39,10 @@ function pack(dir: string, dest: string): string {
     return join(dest, tgz);
 }
 
+/** vite colors its banner and its errors; match against the plain text so a TTY can't change a verdict. */
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the SGR introducer — matching it is the point.
+const strip = (s: string) => s.replaceAll(/\x1b\[[0-9;]*m/g, "");
+
 async function waitFor(cond: () => Promise<boolean>, ms: number): Promise<boolean> {
     const deadline = Date.now() + ms;
     while (Date.now() < deadline) {
@@ -583,16 +587,36 @@ try {
         const drain = pump(dev.stdout);
         const drainErr = pump(dev.stderr);
         try {
-            const up = await waitFor(async () => {
-                try {
-                    // localhost, not 127.0.0.1 — vite binds the family localhost resolves to
-                    // (IPv6-only on macOS), and it's the host the banner advertises
-                    return (await fetch(`http://localhost:${port}/`)).ok;
-                } catch {
-                    return false;
-                }
-            }, 40000);
-            check("shallot dev boots a server", up, up ? "" : devLog.slice(-400));
+            // Wait on the server's own ready signal, not a wall clock: `dev.ts` calls
+            // `server.printUrls()` immediately after `server.listen()` resolves, so the banner is the
+            // moment the socket is up. A fixed HTTP-poll deadline conflated "still starting" with
+            // "never coming" and flaked 2 runs in 5. The child exiting ends the wait too — a crashed
+            // dev server has nothing to wait out. `printUrls` colors its output, so strip SGR first.
+            const banner = new RegExp(`Local:\\s+\\S*http://localhost:${port}/`);
+            const listening = await waitFor(
+                async () => banner.test(strip(devLog)) || dev.exitCode !== null,
+                90000,
+            );
+            // Once listening, a request that can't be served in a second is a real failure, not slow boot.
+            const up =
+                listening &&
+                dev.exitCode === null &&
+                (await waitFor(async () => {
+                    try {
+                        // localhost, not 127.0.0.1 — vite binds the family localhost resolves to
+                        // (IPv6-only on macOS), and it's the host the banner advertises
+                        return (await fetch(`http://localhost:${port}/`)).ok;
+                    } catch {
+                        return false;
+                    }
+                }, 5000));
+            check(
+                "shallot dev boots a server",
+                up,
+                up
+                    ? ""
+                    : `${dev.exitCode !== null ? `dev exited ${dev.exitCode}; ` : listening ? "banner printed, no response; " : "no ready banner; "}${devLog.slice(-400)}`,
+            );
             if (up) {
                 const mod = await fetch(`http://localhost:${port}/@id/__x00__virtual:project`).then(
                     (r) => r.text(),
@@ -637,7 +661,7 @@ try {
             }
             check(
                 "no dev-server errors (resolve / fs allow-list)",
-                !/Failed to resolve|outside of Vite serving allow list/i.test(devLog),
+                !/Failed to resolve|outside of Vite serving allow list/i.test(strip(devLog)),
             );
         } finally {
             dev.kill();

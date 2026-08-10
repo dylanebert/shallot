@@ -21,7 +21,10 @@ if (exitCode !== 0) {
     process.exit(1);
 }
 
-const output = `${stdout}\n${stderr}`;
+// bun colors `packed` when the ambient env asks for it (FORCE_COLOR, a TTY), and the SGR codes sit
+// between `^` and the word — a gate whose verdict depends on ambient color config is a latent red.
+// biome-ignore lint/suspicious/noControlCharactersInRegex: ESC is the SGR introducer — matching it is the point.
+const output = `${stdout}\n${stderr}`.replaceAll(/\x1b\[[0-9;]*m/g, "");
 const files = [...output.matchAll(/^packed\s+\S+\s+(.+)$/gm)].map((m) => m[1]);
 
 if (files.length === 0) {
