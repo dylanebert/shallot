@@ -5,6 +5,7 @@ import {
     CLI_POPULATION_GLOBS,
     checkCliCoverage,
     cliPopulation,
+    cliTestFiles,
     globToRegExp,
 } from "./cli-coverage";
 
@@ -132,5 +133,18 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
             "packages/create-shallot/index.ts",
             "packages/shallot/src/extras/outline/*.ts",
         ]);
+    });
+
+    // the Locked decision's "extract, never mock" is asserted once at stage 2 by a one-off grep — this
+    // makes it a standing check over the same population `cliPopulation` walks (its test-tier inverse,
+    // `cliTestFiles`), so the next test added to this layer can't quietly mock a module.
+    test("no test in this layer mocks a module", async () => {
+        const testFiles = await cliTestFiles(root);
+        expect(testFiles.length).toBeGreaterThan(0); // the walk itself must reach real test files
+        for (const file of testFiles) {
+            const content = await Bun.file(resolve(root, file)).text();
+            expect(content).not.toContain("mock.module(");
+            expect(content).not.toContain("spyOn(");
+        }
     });
 });

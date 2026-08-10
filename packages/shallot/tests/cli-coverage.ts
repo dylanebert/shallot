@@ -33,10 +33,9 @@ export interface CoverageRow {
  *  prose-only mention, so a third row can't drift from the walk the way a hand-declared region list would
  *  (the Locked decision's "granularity is the file, never the region"). `packFog` and `computeGlyphMetrics`
  *  stay outside this population: each is one pure function inside a file whose *other* content (the fog
- *  ECS/system/plugin half, `createGlyphAtlas`/`ensureString`'s real-device calls) would drag the whole
- *  file's weakest-arm down to `gap` the moment it joined this registry, for content this spec never asked
- *  this registry to carry — they get a direct test with no row, same as every other `.test.ts` addition
- *  this unit made without touching the registry. */
+ *  ECS/system/plugin half, `createGlyphAtlas`/`ensureString`'s real-device calls) is `src/standard/**`
+ *  content this registry was scoped to the CLI/toolchain layer, never to carry — they get a direct test
+ *  with no row, same as every other `.test.ts` addition this unit made without touching the registry. */
 export const CLI_POPULATION_GLOBS: readonly string[] = [
     "packages/shallot/bin/*.ts",
     "packages/shallot/src/project/*.ts",
@@ -67,7 +66,7 @@ export function globToRegExp(glob: string): RegExp {
  *  not the thing measured. Excluding only `.test.ts` would leave `verify.probes.ts` in the population as
  *  if it were untested production code, when it is itself the by-path browser gate for two constants
  *  `verify.test.ts` already sentinels. */
-const TEST_TIER_SUFFIXES = /\.(test|oracle|probes|lab)\.ts$/;
+export const TEST_TIER_SUFFIXES = /\.(test|oracle|probes|lab)\.ts$/;
 
 /** walks the real filesystem under `root` (the shallot repo root) and returns every path (relative to
  *  `root`, forward-slashed) matching {@link CLI_POPULATION_GLOBS}, excluding every test-tier suffix. */
@@ -76,6 +75,19 @@ export async function cliPopulation(root: string): Promise<string[]> {
     const out: string[] = [];
     for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
         if (TEST_TIER_SUFFIXES.test(path)) continue;
+        if (globs.some((re) => re.test(path))) out.push(path);
+    }
+    return out;
+}
+
+/** the inverse of {@link cliPopulation}: every one of this layer's own test-tier files, over the same
+ *  glob population — the mock-module standing check walks this rather than a second, hand-declared
+ *  population, since two populations leave a seam. */
+export async function cliTestFiles(root: string): Promise<string[]> {
+    const globs = CLI_POPULATION_GLOBS.map(globToRegExp);
+    const out: string[] = [];
+    for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
+        if (!TEST_TIER_SUFFIXES.test(path)) continue;
         if (globs.some((re) => re.test(path))) out.push(path);
     }
     return out;
@@ -205,13 +217,15 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "packages/shallot/bin/gpu-globals.ts",
         arm: "gap",
         reason:
-            "installGpuGlobals's write branch (`if (!(name in globalThis))`) never actually fires under " +
-            "`bun test`: bun-webgpu's setupGlobals(), preloaded by tests/setup.ts for every run (verified: " +
-            "`bun -e 'console.log(typeof GPUBufferUsage)'` prints undefined without the preload, a real " +
-            "value with it), already defines GPUBufferUsage/GPUShaderStage/etc. as real globals, so the " +
-            "guard short-circuits on every call this repo's own suite can make — only the shipped CLI's " +
-            "plain-`bun` path (no bun-webgpu installed) takes the write. No stage in the spec's Approach " +
-            "names gpu-globals.ts; occupant: installGpuGlobals.",
+            "installGpuGlobals is called incidentally — it's the first line of requiredFeatures, which " +
+            "features.test.ts calls directly — but no test asserts anything about its effect. bun-webgpu's " +
+            "setupGlobals(), preloaded by tests/setup.ts, already defines GPUBufferUsage/GPUTextureUsage/" +
+            "GPUShaderStage/GPUMapMode as real globals, so the read guard (`name in globalThis`) is true " +
+            "for those four; it does not cover GPUColorWrite (verified: `bun --preload " +
+            "./packages/shallot/tests/setup.ts -e 'console.log(\"GPUColorWrite\" in globalThis)'` prints " +
+            "false), so the write branch fires for GPUColorWrite on every features.test.ts run — yet " +
+            "nothing checks that GPUColorWrite lands, or observes either branch's outcome directly. No " +
+            "stage in the spec's Approach names gpu-globals.ts; occupant: installGpuGlobals.",
     },
     {
         file: "packages/shallot/bin/native.ts",
