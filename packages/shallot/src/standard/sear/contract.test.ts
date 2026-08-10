@@ -208,3 +208,60 @@ describe("register — State ownership", () => {
         expect(Surfaces.get("replacement")).toBeUndefined();
     });
 });
+
+describe("register — foreign-copy brand check", () => {
+    const fs = tgpu.fn(
+        [fsCtxSchema()],
+        d.vec4f,
+    )(() => {
+        "use gpu";
+        return d.vec4f(1);
+    });
+    const bgFs = tgpu.fn(
+        [BgCtx],
+        d.vec3f,
+    )(() => {
+        "use gpu";
+        return d.vec3f(1);
+    });
+
+    // a real second copy of typegpu stamps its own per-copy `Symbol()` internal marker
+    // (`typegpu/shared/symbols.js`, never `Symbol.for`) — this reproduces exactly that shape without
+    // installing a second copy: right `resourceType`, a foreign `$internal` symbol the engine's own
+    // `isTgpuFn` can't recognize (de-risked 2026-08-10, spec `shallot-peer-identity` stage 1).
+    const foreignInternal = Symbol("typegpu:0.11.9:$internal");
+    const foreignFs = { resourceType: "function", [foreignInternal]: true } as unknown as typeof fs;
+
+    // the name is deliberately not "foreign": the diagnostic prefixes the spec's own name, so matching
+    // a word the caller supplied would pass on an empty message body. Match the diagnostic's own
+    // sentence, the seam that named it, and the remedy — the three parts the message promises.
+    const diagnostic = /registerSurface "tinted" fs:.*foreign copy of typegpu.*Dedupe typegpu/s;
+
+    test("a foreign-copy fs throws a named diagnostic at registerSurface", () => {
+        Surfaces.clear();
+        const state = new State();
+        expect(() =>
+            register(state, { name: "tinted", layout: layout({}), fs: foreignFs }),
+        ).toThrow(diagnostic);
+    });
+
+    test("a foreign-copy fs throws a named diagnostic at registerBackground", () => {
+        Backgrounds.clear();
+        const state = new State();
+        expect(() =>
+            registerBackground(state, {
+                name: "sky",
+                layout: backgroundLayout({}),
+                fs: foreignFs as unknown as typeof bgFs,
+            }),
+        ).toThrow(/registerBackground "sky" fs:.*foreign copy of typegpu.*Dedupe typegpu/s);
+    });
+
+    test("a genuine engine fs registers clean", () => {
+        Surfaces.clear();
+        const state = new State();
+        expect(() => register(state, { name: "genuine", layout: layout({}), fs })).not.toThrow();
+        expect(Surfaces.get("genuine")).toBeDefined();
+        state.dispose();
+    });
+});

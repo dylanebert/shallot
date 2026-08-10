@@ -9,7 +9,7 @@
 // "layout is a superset of what one shader declares" precedent, `engine.test.ts`).
 
 import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";
-import tgpu from "typegpu";
+import tgpu, { isTgpuFn } from "typegpu";
 import type { AnyWgslData, AnyWgslStruct, WgslArray } from "typegpu/data";
 import * as d from "typegpu/data";
 import { Registry, type State } from "../../engine";
@@ -292,6 +292,31 @@ export interface Surface<
 /** every schema-backed surface, keyed by name with a stable renderer-owned id. */
 export const Surfaces: Registry<Surface> = new Registry<Surface>();
 
+/**
+ * brand-check one incoming TGSL fn against this engine's own resolution of typegpu, at the seam where a
+ * consumer-built object first meets the engine ({@link registerSurface}/{@link registerBackground}).
+ * typegpu's brand markers are a per-copy `Symbol(...)` (never `Symbol.for`, `typegpu/shared/symbols.js`),
+ * so `isTgpuFn` — imported from *this* engine's own resolution — reads `false` for a foreign copy's fn
+ * even when its shape matches exactly (de-risked 2026-08-10, spec `shallot-peer-identity` stage 1: same
+ * copy `true`, cross-copy `false`). This closes the ordering gap the module-load write-counter
+ * (`checkTgsl`, `engine/runtime/gpu.ts`) can't: that counter can fold a duplicate's write into its own
+ * baseline depending on which module evaluates first, but a foreign fn arriving here fails the brand
+ * check regardless of evaluation order.
+ */
+export function assertOwnFn(label: string, fn: unknown): void {
+    if (fn === undefined || isTgpuFn(fn)) return;
+    throw new Error(
+        `${label}: this isn't a TGSL function the engine can recognize. If it came from tgpu.fn, it ` +
+            "resolved from a different, foreign copy of typegpu than the one this engine built " +
+            "against: two physical copies loaded in the same bundle (a bundler dedupe miss — Vite " +
+            "prebundling and pnpm's isolated node_modules are the two known triggers) stamp different " +
+            "internal markers even when authoring identical code, and a kernel built from this fn " +
+            "would resolve against the wrong metadata map, or not resolve at all. Dedupe typegpu to a " +
+            "single copy; it is the engine's peerDependency for exactly this reason. Otherwise this " +
+            "value simply isn't a tgpu.fn — build it with tgpu.fn(args, ret)(body).",
+    );
+}
+
 function owned<T extends { name: string }>(registry: Registry<T>) {
     const byState = new WeakMap<State, Map<string, T>>();
     return (state: State, spec: T): number => {
@@ -322,6 +347,9 @@ export function registerSurface<
     B extends Record<string, Binding>,
     V extends Record<string, AnyWgslData>,
 >(state: State, spec: Surface<B, V>): number {
+    assertOwnFn(`registerSurface "${spec.name}" vs`, spec.vs);
+    assertOwnFn(`registerSurface "${spec.name}" fs`, spec.fs);
+    assertOwnFn(`registerSurface "${spec.name}" tag`, spec.tag);
     return ownSurface(state, spec as Surface);
 }
 
@@ -364,5 +392,6 @@ export function registerBackground<B extends Record<string, Binding>>(
     state: State,
     spec: Background<B>,
 ): number {
+    assertOwnFn(`registerBackground "${spec.name}" fs`, spec.fs);
     return ownBackground(state, spec as Background);
 }

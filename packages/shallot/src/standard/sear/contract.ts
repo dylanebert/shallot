@@ -13,6 +13,7 @@ export type {
     VsFn,
 } from "../render/core";
 export {
+    assertOwnFn,
     Backgrounds,
     BgCtx,
     backgroundLayout,
