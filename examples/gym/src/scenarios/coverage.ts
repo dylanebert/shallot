@@ -10,9 +10,9 @@ import { GATE_EXEMPTIONS, SCENARIO_GATES, type ScenarioGate } from "./timeouts";
  *  declares as GPU-facing engine code (`engine/runtime`, `engine/utils/encode.ts`, the render/sear/part/slab
  *  pipeline, and `extras` — `gpu.md`'s own `paths:` frontmatter), plus two additions it doesn't already
  *  list: `standard/bvh` (the acceleration-structure pipeline `gpu.md`'s own body cites repeatedly as
- *  canonical GPU code — `bounds.ts`, `build.ts`, `sort.ts` — even though its `paths:` glob doesn't cover it;
- *  a real gap in that rule's frontmatter, not one this check invents) and `standard/avbd` (the GPU physics
- *  swap-in, `avbd.md`'s own `paths:`). Reusing the codebase's own committed boundaries for "GPU-side" rather
+ *  canonical GPU code — `bounds.ts`, `build.ts`, `sort.ts`; that gap in `gpu.md`'s frontmatter has since been
+ *  fixed, so the two now agree here) and `standard/avbd` (the GPU physics swap-in, `avbd.md`'s own `paths:`,
+ *  deliberately not `gpu.md`'s). Reusing the codebase's own committed boundaries for "GPU-side" rather
  *  than inventing a second one (`coding.md` "one source of truth"). Deliberately excludes tumble physics: it
  *  runs on the CPU wasm kernel and is bit-exact-gated by `bun test` + the committed fixtures (`tumble.md`),
  *  so its truth already lives in a tier this check isn't responsible for; it excludes ECS/scene/document
@@ -26,8 +26,28 @@ export const GPU_MODULE_GLOBS: readonly string[] = [
     "packages/shallot/src/standard/slab/**/*.ts",
     "packages/shallot/src/standard/bvh/**/*.ts",
     "packages/shallot/src/standard/avbd/**/*.ts",
-    "packages/shallot/src/extras/**/*.ts",
+    // `gpu.md` writes these eight as one brace glob; `globToRegExp` has no brace support, so they
+    // enumerate here. Same set — `checkExtrasClassification` is what holds the two together.
+    "packages/shallot/src/extras/gltf/**/*.ts",
+    "packages/shallot/src/extras/lines/**/*.ts",
+    "packages/shallot/src/extras/outline/**/*.ts",
+    "packages/shallot/src/extras/profile/**/*.ts",
+    "packages/shallot/src/extras/skin/**/*.ts",
+    "packages/shallot/src/extras/sky/**/*.ts",
+    "packages/shallot/src/extras/sprite/**/*.ts",
+    "packages/shallot/src/extras/text/**/*.ts",
 ];
+
+/** the `extras/` modules deliberately outside the GPU population, declared with the property that puts them
+ *  there — no device, buffer, or WGSL surface. `GPU_MODULE_GLOBS` enumerates the GPU-facing extras
+ *  directories one by one (mirroring `gpu.md`'s frontmatter, which no longer globs all of `extras/`), so a
+ *  *new* extras module would fall out of the population silently rather than reding as uncovered. This table
+ *  is what keeps that from happening: every immediate subdirectory of `src/extras/` is either matched by the
+ *  globs or listed here. */
+export const NON_GPU_EXTRAS: Record<string, string> = {
+    orbit: "CPU camera math + a DOM overlay (mountOverlay) — no device, buffer, or WGSL surface",
+    tween: "pure numeric timing/easing atoms driving ECS fields — no device, buffer, or WGSL surface",
+};
 
 /** stage 3b's done-signal: flip to `true` once `SCENARIO_GATES` + `GATE_EXEMPTIONS` cover every scenario
  *  and every GPU-side module, per the completeness directions below. `coverage.test.ts` skips the two
@@ -41,7 +61,8 @@ export type FindingKind =
     | "missing-exemption-reason"
     | "exempt-shadows-covered"
     | "scenario-missing-entry"
-    | "module-not-covered";
+    | "module-not-covered"
+    | "extras-unclassified";
 
 export interface Finding {
     kind: FindingKind;
@@ -161,6 +182,35 @@ export async function gpuModulePopulation(root: string): Promise<string[]> {
         if (globs.some((re) => re.test(path))) out.push(path);
     }
     return out;
+}
+
+/** every immediate subdirectory of `src/extras/` is either GPU-facing (it contributed at least one module to
+ *  the population) or declared non-GPU in {@link NON_GPU_EXTRAS} with a reason — exactly one of the two, so
+ *  both a new unclassified module and a stale declaration red. Pure over the population plus the two
+ *  directory lists, so a fixture proves both directions. */
+export function checkExtrasClassification(
+    dirs: readonly string[],
+    modulePopulation: readonly string[],
+    nonGpu: Record<string, string>,
+): Finding[] {
+    const findings: Finding[] = [];
+    for (const dir of dirs) {
+        const prefix = `packages/shallot/src/extras/${dir}/`;
+        const gpu = modulePopulation.some((m) => m.startsWith(prefix));
+        const declared = (nonGpu[dir] ?? "").trim() !== "";
+        if (gpu === declared) findings.push({ kind: "extras-unclassified", detail: dir });
+    }
+    return findings;
+}
+
+/** the second real-filesystem seam: the immediate subdirectory names under `src/extras/`. */
+export async function extrasDirs(root: string): Promise<string[]> {
+    const dirs = new Set<string>();
+    for await (const path of new Bun.Glob("packages/shallot/src/extras/*/**").scan({ cwd: root })) {
+        const dir = path.split("/")[4];
+        if (dir) dirs.add(dir);
+    }
+    return [...dirs].sort();
 }
 
 export { GATE_EXEMPTIONS, SCENARIO_GATES };
