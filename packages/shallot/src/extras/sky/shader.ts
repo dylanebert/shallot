@@ -117,18 +117,6 @@ const fbm2 = tgpu
     })
     .$name("fbm2");
 
-const hashStar = tgpu
-    .fn(
-        [d.vec2f],
-        d.f32,
-    )((p) => {
-        "use gpu";
-        let p3 = d.vec3f(std.fract(std.mul(d.vec3f(p.x, p.y, p.x), 0.1031)));
-        p3 = d.vec3f(std.add(p3, std.dot(p3, std.add(p3.yzx, 33.33))));
-        return std.fract((p3.x + p3.y) * p3.z);
-    })
-    .$name("hashStar");
-
 const hash2Star = tgpu
     .fn(
         [d.vec2f],
@@ -165,18 +153,18 @@ export const sampleStars = tgpu
         for (let dy = d.i32(-1); dy <= 1; dy = dy + 1) {
             for (let dx = d.i32(-1); dx <= 1; dx = dx + 1) {
                 const neighbor = std.add(cellId, d.vec2f(d.f32(dx), d.f32(dy)));
-                const starHash = hashStar(neighbor);
+                const starHash = hash2(neighbor);
                 if (starHash > amount * 0.7) continue;
                 const starPos = hash2Star(neighbor);
                 const starCenter = std.add(neighbor, starPos);
                 const dist = std.length(std.sub(cell, starCenter));
-                const brightness = hashStar(std.add(neighbor, d.vec2f(100)));
+                const brightness = hash2(std.add(neighbor, d.vec2f(100)));
                 const radius = 0.02 + brightness * 0.03;
                 if (dist < radius) {
                     const twinkle = 0.8 + 0.2 * std.sin(brightness * 100);
                     const strength = intensity * brightness * twinkle;
                     const falloff = 1 - std.smoothstep(0, radius, dist);
-                    const temp = hashStar(std.add(neighbor, d.vec2f(200)));
+                    const temp = hash2(std.add(neighbor, d.vec2f(200)));
                     const tint = std.mix(d.vec3f(1, 0.9, 0.8), d.vec3f(0.8, 0.9, 1), temp);
                     starColor = d.vec3f(
                         std.max(starColor, std.mul(std.mul(tint, strength), falloff)),
