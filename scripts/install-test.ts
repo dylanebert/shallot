@@ -58,6 +58,24 @@ const check = (name: string, cond: boolean, detail = "") => {
     if (!cond) fails.push(name);
 };
 
+/** the `identity-check.ts` probe body — brand-checks the engine-built canary against the app's own
+ * `typegpu` resolution (`GREEN`) and a second physical copy (`RED`); `ejectedFlow`, `identityFlow`, and
+ * `pmIdentityFlow` all reuse it verbatim. `withPaths` adds the two resolved-path lines `pmIdentityFlow`
+ * needs to name which manager diverged. */
+function identityProbeScript(withPaths = false): string {
+    return (
+        `import { isTgpuFn } from "typegpu";\n` +
+        `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
+        `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
+        `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
+        `console.log("RED=" + isTgpuFn2(tgslCanary));\n` +
+        (withPaths
+            ? `console.log("PATH_TYPEGPU=" + Bun.resolveSync("typegpu", import.meta.dir));\n` +
+              `console.log("PATH_TYPEGPU2=" + Bun.resolveSync("typegpu2", import.meta.dir));\n`
+            : "")
+    );
+}
+
 // `bun create shallot` → install the packed engine → build — the brand-new-user path (the starter
 // template is an index.html-free manifest project; this is the asserted form of `bun local`'s scaffold).
 function createShallotFlow(work: string, engineTgz: string) {
@@ -308,14 +326,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
     // one imports `@dylanebert/shallot/runtime`, which ships raw `.ts` (no compiled arm), and needs no
     // GPU either, so it still runs before the skip below.
     console.log("typegpu peer identity (ejected fixture, brand check)…");
-    writeFileSync(
-        join(proj, "identity-check.ts"),
-        `import { isTgpuFn } from "typegpu";\n` +
-            `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
-            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
-            `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
-            `console.log("RED=" + isTgpuFn2(tgslCanary));\n`,
-    );
+    writeFileSync(join(proj, "identity-check.ts"), identityProbeScript());
     const identity = run(["bun", "identity-check.ts"], proj);
     check(
         "ejected fixture: the app's own typegpu resolution brands the canary true (same physical copy)",
@@ -411,14 +422,7 @@ function identityFlow(work: string, engineTgz: string) {
     );
     if (!install.ok) return;
 
-    writeFileSync(
-        join(proj, "identity-check.ts"),
-        `import { isTgpuFn } from "typegpu";\n` +
-            `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
-            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
-            `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
-            `console.log("RED=" + isTgpuFn2(tgslCanary));\n`,
-    );
+    writeFileSync(join(proj, "identity-check.ts"), identityProbeScript());
     const result = run(["bun", "identity-check.ts"], proj);
     check(
         "the app's own typegpu resolution brands the engine-built canary true (same physical copy)",
@@ -923,16 +927,7 @@ function pmIdentityFlow(work: string, engineTgz: string, manager: "npm" | "pnpm"
     );
     if (!install.ok) return;
 
-    writeFileSync(
-        join(proj, "identity-check.ts"),
-        `import { isTgpuFn } from "typegpu";\n` +
-            `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
-            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
-            `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
-            `console.log("RED=" + isTgpuFn2(tgslCanary));\n` +
-            `console.log("PATH_TYPEGPU=" + Bun.resolveSync("typegpu", import.meta.dir));\n` +
-            `console.log("PATH_TYPEGPU2=" + Bun.resolveSync("typegpu2", import.meta.dir));\n`,
-    );
+    writeFileSync(join(proj, "identity-check.ts"), identityProbeScript(true));
     const result = run(["bun", "identity-check.ts"], proj);
     const paths =
         result.out.match(/PATH_TYPEGPU2?=\S+/g)?.join(" ") ?? "(no resolved paths printed)";
