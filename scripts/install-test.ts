@@ -19,7 +19,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { skipReason, teardownBridge, verify } from "./verify";
+import { skipReason, teardownBridge, type VerifyResult, verify } from "./verify";
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
@@ -431,6 +431,439 @@ function identityFlow(work: string, engineTgz: string) {
         result.ok && /RED=false/.test(result.out),
         result.ok ? result.out.trim().slice(-200) : result.out.slice(-400),
     );
+}
+
+// Stage 3: the browser-side arm of the peer-identity probe. Node-side probes (identityFlow above,
+// pmIdentityFlow below) can't see Vite's own resolution — the dependency scanner rewrites the module
+// graph on real page load, a rewrite no `bun`/`node` process ever performs. This is the ordering-
+// independent observation of the standing ejected-path question (spec "Approach" stage 3): do the app's
+// own `isTgpuFn` and the engine-built `tgslCanary` meet (one physical typegpu copy) or diverge (two),
+// under the normal config and under the perturbation that reproduced the class for real (5b-2f-5:
+// stripping the zero-config path's `optimizeDeps` exclusion so `typegpu` gets prebundled ahead of the
+// transform). The zero-config sandbox's own perturbed arm turned out unrealizable in this harness (see the
+// comment at its call site in `identityBrowserFlow`, below) — the ejected fixture is where the
+// perturbation is both real and observed.
+//
+// The own-vs-canary fixtures below carry no second `typegpu` copy: a genuine duplicate trips the
+// engine's own pre-existing `checkTgsl` write-counter (`engine/runtime/gpu.ts`) inside `requestGPU`,
+// which `App.build()` calls before any plugin's `initialize` hook runs — measured directly (a first
+// attempt bundling the red-proof's `typegpu2` copy into the same page crashed `run()` before the
+// harness ever installed, `window.__harness` never defined, every "published a verdict" check failing
+// with `checkTgsl`'s own "Two copies of typegpu are loaded" as the page error). That crash is the
+// engine working, not the instrument — so the red-proof (a real second copy reading false) lives in its
+// own fixture below that never calls `run()` at all, and these two never carry `typegpu2`.
+const IDENTITY_OWN_IMPORTS =
+    `import { isTgpuFn } from "typegpu";\n` +
+    `import { tgslCanary } from "@dylanebert/shallot/runtime";\n`;
+
+// The `prebundled` line is the perturbation's own control, computed in-page rather than read off disk
+// afterward. Reading `node_modules/.vite/deps/_metadata.json` from the driving process was tried first
+// and is blind: this plugin loads off the manifest (invisible to Vite's static pre-scan), so `typegpu`
+// is a runtime-*discovered* dep whose commit is a debounced (~100ms) esbuild rename — `verify`'s own
+// `server.close()`, called the instant the harness's forced-ready flips true, cancels that in-flight
+// commit before it lands, independent of whether the perturbation reached the server (measured
+// 2026-08-10: a standalone repro outside this harness's fast-teardown path writes the manifest
+// correctly within ~1s; inside it, both arms read back empty). Self-fetching `import.meta.url` right
+// after module eval is equally blind, for the same race: the FIRST transform of this very file is
+// served optimistically off the raw specifier, before Vite's import-analysis has registered `typegpu`
+// as discovered — the rewrite to `.vite/deps/typegpu` only appears on a second read, once the debounced
+// re-optimize has actually run (measured 2026-08-10: an immediate self-fetch reads the pre-discovery
+// raw path even under the perturbation). So poll the self-fetch a few times over ~3s — short enough
+// that it can't be mistaken for waiting on a render, since it resolves before `run()`'s pipeline warm
+// (the thing that may never finish) is even reached.
+function identityOwnBody(publish: string): string {
+    return (
+        `const own = isTgpuFn(tgslCanary);\n` +
+        // split across two literals — a self-fetch reads THIS file's own source, and the whole marker
+        // written as one literal would always self-match (found red-handed: the first version of this
+        // check read prebundled=true unconditionally, because the search string itself is verbatim text
+        // inside the file it searches). Split, the two halves only join into the real marker at runtime.
+        `const marker = "/node_modules/.vite/deps/" + "typegpu";\n` +
+        `let prebundled = false;\n` +
+        `for (let i = 0; i < 15 && !prebundled; i++) {\n` +
+        `    if (i > 0) await new Promise((r) => setTimeout(r, 200));\n` +
+        `    const selfSrc = await fetch(import.meta.url).then((r) => r.text()).catch(() => "");\n` +
+        `    prebundled = selfSrc.includes(marker);\n` +
+        `}\n` +
+        `const verdict = {\n` +
+        `    ok: true,\n` +
+        `    checks: [\n` +
+        `        { name: "app resolution brands the engine canary true (peer identity)", ok: own, detail: "own=" + own },\n` +
+        `        { name: "typegpu import resolved through the prebundle path (self-read, the perturbation's control)", ok: prebundled, detail: "prebundled=" + prebundled },\n` +
+        `    ],\n` +
+        `};\n` +
+        `${publish}\n`
+    );
+}
+
+// the zero-config manifest shape: a real page.ts entry is synthesized by the CLI (build.ts/dev.ts), not
+// controllable from here, so the only injection point is a local plugin's `initialize` — run before
+// scene parse, itself a side effect of `run()`'s internal build sequence that survives `run()`'s promise
+// later rejecting (a JS engine never rolls back a completed synchronous side effect on a later throw).
+// The identity read itself happens even earlier, at module-eval time (the top-level `const own =` line,
+// evaluated when the plugin module loads) — before `initialize` is even called — so it reflects
+// whichever physical module Vite resolved regardless of anything that crashes afterward.
+function identityPluginSource(): string {
+    return (
+        `import { installHarness } from "@dylanebert/shallot/harness";\n` +
+        IDENTITY_OWN_IMPORTS +
+        `\n` +
+        identityOwnBody("") +
+        `const IdentityPlugin = {\n` +
+        `    name: "Identity",\n` +
+        `    initialize(state) {\n` +
+        `        const harness = installHarness(state);\n` +
+        `        // the read above needs no drawn frame, and under the perturbation the pipeline may\n` +
+        `        // never warm at all — force ready so verify's wait loop reads the verdict regardless.\n` +
+        `        Object.defineProperty(harness, "ready", { value: true, configurable: true });\n` +
+        `        harness.run = async () => verdict;\n` +
+        `    },\n` +
+        `};\n` +
+        `export default IdentityPlugin;\n`
+    );
+}
+
+function writeIdentityZeroConfig(dir: string, engineTgz: string) {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    mkdirSync(join(dir, "scenes"), { recursive: true });
+    writeFileSync(
+        join(dir, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "identity-browser-sandbox",
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.11.9",
+                },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    writeFileSync(
+        join(dir, "shallot.json"),
+        `${JSON.stringify(
+            { scene: "scenes/main.scene", plugins: { Identity: "./src/identity-plugin" } },
+            null,
+            2,
+        )}\n`,
+    );
+    writeFileSync(
+        join(dir, "scenes", "main.scene"),
+        `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
+    );
+    writeFileSync(join(dir, "src", "identity-plugin.ts"), identityPluginSource());
+}
+
+// the ejected shape: the fixture owns its entry, so the brand check publishes `window.__harness`
+// directly, ahead of calling `run()` — the read needs no drawn frame, and under the perturbation `run()`
+// (or the pipeline it warms) may never resolve at all.
+//
+// No `shallot.json`/`.scene` in this fixture — deliberately. `bin/verify.ts`'s `bootArm` picks the CLI's
+// synthesized-entry "project" arm whenever `isProject()` sees either one, unconditionally over an
+// on-disk `index.html` (`bootArm(true, true) === "project"`, pinned in `verify.test.ts`), which serves
+// its OWN generated `index.html` (`synthIndexPlugin`'s `configureServer` middleware wins the "/" route
+// ahead of Vite's static file serving) — this fixture's real `index.html`/`vite.config.ts`/`main.ts`
+// never load at all, silently. Found by instrumenting: `bootArm(true, true)`'s synthesized page carried
+// no marker this fixture's own `index.html` writes, and the probe's module-eval console lines never
+// appeared. `projectPlugin(".")` (this fixture's `vite.config.ts`, verbatim from MIGRATION.md) reads a
+// missing `shallot.json` as the documented empty-manifest fallback (MIGRATION.md: "omit it and
+// `virtual:project` resolves to an empty manifest") — default engine plugins, no scene — which is fine:
+// this probe's brand check runs before `run()` is even called and needs no rendered scene.
+function identityEjectedEntrySource(): string {
+    return (
+        `import { run } from "@dylanebert/shallot";\n` +
+        IDENTITY_OWN_IMPORTS +
+        `import project from "virtual:project";\n` +
+        `\n` +
+        identityOwnBody("window.__harness = { ready: true, run: async () => verdict };") +
+        `run({ plugins: project.plugins, scene: project.scene ?? undefined, defaults: false, capacity: project.capacity ?? undefined }).catch(() => {});\n`
+    );
+}
+
+function writeIdentityEjected(dir: string, engineTgz: string, configText: string) {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+        join(dir, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "identity-browser-ejected",
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.11.9",
+                },
+                devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.11.6" },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    writeFileSync(join(dir, "vite.config.ts"), `${configText}\n`);
+    writeFileSync(
+        join(dir, "index.html"),
+        `<!doctype html>\n<html lang="en">\n<head><meta charset="UTF-8" /></head>\n<body>\n<canvas id="canvas" style="display:block;width:100vw;height:100vh"></canvas>\n<script type="module" src="/src/main.ts"></script>\n</body>\n</html>\n`,
+    );
+    writeFileSync(join(dir, "src", "main.ts"), identityEjectedEntrySource());
+}
+
+// the red-proof fixture: a genuine second physical copy must brand the canary false — the witnessed red
+// that proves the browser-side instrument (not just the node-side one, stage 1) can produce a false
+// read. Ejected-shaped but never calls `run()` — no App boot, so `checkTgsl`'s duplicate-write counter
+// never runs (it fires only inside `requestGPU`, itself only reachable from `App.build()`), and the two
+// real physical copies this fixture needs can safely coexist with the engine's own peer `typegpu` copy
+// on one page. `isTgpuFn`/`tgslCanary` need no App/device either (proven already: `identityFlow`'s
+// node-side probe imports the same symbols under plain `bun`, no GPU).
+function identityRedProofEntrySource(): string {
+    return (
+        `import { isTgpuFn } from "typegpu";\n` +
+        `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
+        `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
+        `\n` +
+        `const own = isTgpuFn(tgslCanary);\n` +
+        `const distinct = isTgpuFn2(tgslCanary);\n` +
+        `window.__harness = {\n` +
+        `    ready: true,\n` +
+        `    run: async () => ({\n` +
+        `        ok: true,\n` +
+        `        checks: [\n` +
+        `            { name: "app resolution brands the engine canary true (peer identity)", ok: own, detail: "own=" + own },\n` +
+        `            { name: "a distinct second copy brands the same canary false (red-proof)", ok: !distinct, detail: "distinct=" + distinct },\n` +
+        `        ],\n` +
+        `    }),\n` +
+        `};\n`
+    );
+}
+
+function writeIdentityRedProof(dir: string, engineTgz: string, configText: string) {
+    mkdirSync(join(dir, "src"), { recursive: true });
+    writeFileSync(
+        join(dir, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "identity-browser-red-proof",
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.11.9",
+                    typegpu2: "npm:typegpu@~0.11.9",
+                },
+                devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.11.6" },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    writeFileSync(join(dir, "vite.config.ts"), `${configText}\n`);
+    writeFileSync(
+        join(dir, "index.html"),
+        `<!doctype html>\n<html lang="en">\n<head><meta charset="UTF-8" /></head>\n<body>\n<canvas id="canvas" style="display:block;width:100vw;height:100vh"></canvas>\n<script type="module" src="/src/main.ts"></script>\n</body>\n</html>\n`,
+    );
+    writeFileSync(join(dir, "src", "main.ts"), identityRedProofEntrySource());
+}
+
+// strip `typegpu` from MIGRATION.md's ejected `optimizeDeps.exclude` line — the perturbation that
+// reproduced the class on the zero-config path (5b-2f-5). Throws rather than silently no-op if the doc's
+// wording moves, so a doc edit reds this loud instead of quietly testing the unperturbed config twice.
+function stripTypegpuExclude(config: string): string {
+    const line = `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },`;
+    if (!config.includes(line)) {
+        throw new Error(
+            "MIGRATION.md's ejected optimizeDeps line didn't match the expected text — update stripTypegpuExclude",
+        );
+    }
+    return config.replace(line, `optimizeDeps: { exclude: ["@dylanebert/shallot"] },`);
+}
+
+// read the "own vs canary" check the fixtures above publish. Reported for every arm; additionally
+// asserted true under the normal config, where stage 1/2's node-side probes already established a
+// single clean physical copy — the perturbation arm is recorded, not asserted, since it's the open
+// question this stage answers.
+function checkIdentityVerdict(label: string, result: VerifyResult | null, expectOwnTrue: boolean) {
+    const own = (result?.verdict?.checks ?? []).find((c) => c.name.startsWith("app resolution"));
+    check(
+        `${label}: the browser probe published a verdict`,
+        own !== undefined,
+        own
+            ? ""
+            : result
+              ? JSON.stringify(result.errors ?? result.error ?? result)
+              : "no verify result",
+    );
+    if (!own) return;
+    check(
+        `${label}: app resolution vs engine canary — ${expectOwnTrue ? "expect single identity" : "recorded, not asserted (perturbation arm)"}`,
+        expectOwnTrue ? own.ok === true : true,
+        own.detail ?? "",
+    );
+}
+
+// The perturbation's own control. `optimizeDeps.exclude` is a claim made to Vite's config; nothing in
+// the brand verdict says whether Vite acted on it, and the whole perturbed arm is unreadable without
+// that — "the two identities meet harmlessly" and "the strip never reached the dev server" publish the
+// identical green (`coding.md`: a green check can pin nothing). Reads the `prebundled` check the
+// fixtures' `identityOwnBody` publishes (self-read of the transformed source, not a post-hoc disk read —
+// see that function's comment for why the disk manifest is blind under this harness's fast teardown).
+function checkPrebundled(label: string, result: VerifyResult | null, expect: boolean) {
+    const prebundled = (result?.verdict?.checks ?? []).find((c) =>
+        c.name.startsWith("typegpu import resolved through the prebundle path"),
+    );
+    check(
+        `${label}: the browser probe published a prebundle read`,
+        prebundled !== undefined,
+        prebundled
+            ? ""
+            : result
+              ? JSON.stringify(result.errors ?? result.error ?? result)
+              : "no verify result",
+    );
+    if (!prebundled) return;
+    check(
+        `${label}: typegpu ${expect ? "IS" : "is NOT"} prebundled (the perturbation's control)`,
+        prebundled.ok === expect,
+        prebundled.detail ?? "",
+    );
+}
+
+async function identityBrowserFlow(work: string, engineTgz: string) {
+    const skip = skipReason();
+    if (skip) {
+        console.log(
+            `typegpu peer identity (browser, both boot paths)… skipped (needs native hardware: ${skip})`,
+        );
+        return;
+    }
+
+    console.log("typegpu peer identity (browser, red-proof fixture)…");
+    const redProofDir = join(work, "identity-browser-red-proof");
+    writeIdentityRedProof(redProofDir, engineTgz, ejectedViteConfig());
+    const redProofInstall = run(["bun", "install"], redProofDir);
+    check(
+        "identity-browser (red-proof): the fixture installs",
+        redProofInstall.ok,
+        redProofInstall.ok ? "" : redProofInstall.out.slice(-600),
+    );
+    if (redProofInstall.ok) {
+        const result = await verify(redProofDir, ["--timeout", "30000"], true);
+        const checks = result?.verdict?.checks ?? [];
+        const own = checks.find((c) => c.name.startsWith("app resolution"));
+        const distinct = checks.find((c) => c.name.startsWith("a distinct second copy"));
+        check(
+            "red-proof: the browser probe published a verdict",
+            own !== undefined && distinct !== undefined,
+            own && distinct
+                ? ""
+                : result
+                  ? JSON.stringify(result.errors ?? result.error ?? result)
+                  : "no verify result",
+        );
+        if (own && distinct) {
+            check(
+                "red-proof: app resolution brands the canary true (same physical copy)",
+                own.ok === true,
+                own.detail ?? "",
+            );
+            check(
+                "red-proof: a distinct second copy brands the same canary false (witnessed red, browser)",
+                distinct.ok === true,
+                distinct.detail ?? "",
+            );
+        }
+    }
+    await teardownBridge();
+
+    console.log("typegpu peer identity (browser, zero-config sandbox)…");
+    const sandboxDir = join(work, "identity-browser-sandbox");
+    writeIdentityZeroConfig(sandboxDir, engineTgz);
+    const sandboxInstall = run(["bun", "install"], sandboxDir);
+    check(
+        "identity-browser (zero-config sandbox): the fixture installs",
+        sandboxInstall.ok,
+        sandboxInstall.ok ? "" : sandboxInstall.out.slice(-600),
+    );
+    if (sandboxInstall.ok) {
+        const normal = await verify(sandboxDir, ["--timeout", "30000"], true);
+        checkIdentityVerdict("zero-config sandbox, normal config", normal, true);
+        checkPrebundled("zero-config sandbox, normal config", normal, false);
+    }
+    await teardownBridge();
+
+    // No perturbed arm for this fixture — measured 2026-08-10, two ways: (1) stripping `typegpu` out of
+    // `devConfig`'s `optimizeDeps.exclude` (`SHALLOT_TEST_STRIP_OPTIMIZE_EXCLUDE`, tried first) and (2)
+    // forcing it into `optimizeDeps.include` instead (tried as the deterministic fix once (1) read
+    // prebundled=false with no crash) both left `node_modules/.vite/deps/_metadata.json` completely
+    // empty after the run, under either knob. Root cause: this fixture's entry is the CLI's
+    // middleware-synthesized index (`synthIndexPlugin`), never written to disk, so Vite's dep-optimizer
+    // has no on-disk HTML to crawl at server start — `typegpu` is discoverable only when the browser
+    // actually requests the manifest-loaded plugin module, which is `identityOwnBody`'s "runtime-
+    // discovered dep" case documented above, and forcing `include` doesn't change that: an explicit
+    // `include` still commits through the same async optimizer run this harness's single page load /
+    // fast teardown never survives long enough to observe (confirmed: even reading disk metadata well
+    // past the self-read's 3s retry window, after the whole run finished, showed no commit). A real
+    // instrument here needs a harness that waits for and re-navigates on Vite's full-reload event once
+    // the optimizer commits — out of this stage's footprint (`scripts/install-test.ts`'s existing verify
+    // plumbing has no such wait). The ejected fixture below reaches a real, observable perturbation
+    // instead: its entry is a real on-disk index.html, statically crawlable, so the exclusion-strip
+    // there needs no runtime discovery at all. Both dev.ts escape hatches this arm would have needed
+    // (`SHALLOT_TEST_STRIP_OPTIMIZE_EXCLUDE`, `SHALLOT_TEST_FORCE_OPTIMIZE_INCLUDE`) were reverted with
+    // it — a perturbation arm that cannot be shown to have taken effect is worth less than no arm
+    // (`coding.md`).
+
+    console.log("typegpu peer identity (browser, ejected fixture)…");
+    const normalConfig = ejectedViteConfig();
+    const ejectedNormalDir = join(work, "identity-browser-ejected");
+    writeIdentityEjected(ejectedNormalDir, engineTgz, normalConfig);
+    const ejectedNormalInstall = run(["bun", "install"], ejectedNormalDir);
+    check(
+        "identity-browser (ejected, normal config): the fixture installs",
+        ejectedNormalInstall.ok,
+        ejectedNormalInstall.ok ? "" : ejectedNormalInstall.out.slice(-600),
+    );
+    if (ejectedNormalInstall.ok) {
+        const normal = await verify(ejectedNormalDir, ["--timeout", "30000"], true);
+        checkIdentityVerdict("ejected fixture, normal config", normal, true);
+        checkPrebundled("ejected fixture, normal config", normal, false);
+    }
+    await teardownBridge();
+
+    const perturbedConfig = stripTypegpuExclude(normalConfig);
+    const ejectedPerturbedDir = join(work, "identity-browser-ejected-perturbed");
+    writeIdentityEjected(ejectedPerturbedDir, engineTgz, perturbedConfig);
+    const ejectedPerturbedInstall = run(["bun", "install"], ejectedPerturbedDir);
+    check(
+        "identity-browser (ejected, perturbed — typegpu prebundled): the fixture installs",
+        ejectedPerturbedInstall.ok,
+        ejectedPerturbedInstall.ok ? "" : ejectedPerturbedInstall.out.slice(-600),
+    );
+    if (ejectedPerturbedInstall.ok) {
+        // Measured 2026-08-10: stripping the exclusion on the ejected path never reaches a second
+        // identity — the page dies first, at `unplugin-typegpu`'s transform, on typegpu's own
+        // `Invalid property key 'type': Identifiers cannot start with reserved keywords` (the symptom
+        // `bin/dev.ts`'s exclusion comment already records). Prebundled chunks are pre-transformed, so
+        // the plugin never sees typegpu's source and the TGSL it must rewrite ships raw. That failure IS
+        // the answer for this arm, and it's the whole control: ESM import hoisting means `main.ts`'s own
+        // top-level statements (`identityOwnBody`'s self-read included) never run at all once
+        // `import { run } from "@dylanebert/shallot"` fails to resolve its module graph — `run`
+        // transitively pulls in the same `image.ts` the transform dies inside, before any of this
+        // fixture's own code executes. A previous version of this check asserted an in-page prebundle
+        // read here too, on the (wrong, corrected after measurement) assumption that the self-read ran
+        // ahead of `run()`'s transform crash; it doesn't, since the crash is at *import resolution*, not
+        // inside `run()`'s own body. No `window.__harness` is ever assigned on this arm — the loud
+        // transform failure above is the only observable, and it's sufficient: a page that dies before
+        // any app code runs cannot silently duplicate identity.
+        const perturbed = await verify(ejectedPerturbedDir, ["--timeout", "30000"], true);
+        const errors = JSON.stringify(perturbed?.errors ?? perturbed?.error ?? perturbed ?? "");
+        check(
+            "ejected fixture, perturbed: the strip fails loud at transform, never silently duplicating identity",
+            errors.includes("Identifiers cannot start with reserved keywords"),
+            errors.slice(0, 400),
+        );
+    }
+    await teardownBridge();
 }
 
 // A pinned, deliberately different patch version for the second physical copy — not the identical
@@ -875,6 +1308,8 @@ try {
     if (install.ok) recipeFlow(work, engineTgz);
 
     await ejectedFlow(work, engineTgz);
+
+    await identityBrowserFlow(work, engineTgz);
 
     createShallotFlow(work, engineTgz);
 } finally {
