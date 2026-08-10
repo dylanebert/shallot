@@ -63,14 +63,19 @@ export function createGlyphAtlas(device: GPUDevice, font: Font): GlyphAtlas {
     };
 }
 
-interface PendingGlyphEntry {
+export interface PendingGlyphEntry {
     path: string;
     paddedBounds: [number, number, number, number];
     atlasX: number;
     atlasY: number;
 }
 
-function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGlyphEntry | null {
+/** the shelf packer: place `char`'s glyph on the atlas's current row (wrapping to a new row, or throwing
+ *  once the atlas is full), record its {@link GlyphMetrics} (UV rect + font-unit-normalized box) into
+ *  `atlas.glyphs`, and return the SDF-render request for the caller to batch. `null` when the font has no
+ *  outline for `char` (e.g. space). @internal, exported for direct testing — `Font` is a duck-typed
+ *  interface, so a hand-built fake reaches this without a real GPU device. */
+export function computeGlyphMetrics(atlas: GlyphAtlas, char: string): PendingGlyphEntry | null {
     const path = atlas.font.glyphPath(char);
     const bounds = atlas.font.glyphBounds(char);
     const advance = atlas.font.advance(char);

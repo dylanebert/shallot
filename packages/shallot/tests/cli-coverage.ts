@@ -28,11 +28,20 @@ export interface CoverageRow {
     stage?: 2 | 3 | 4 | 5 | 6;
 }
 
-/** the population globs: every non-test `.ts` file the spec's Goal names as the CLI/toolchain layer. */
+/** the population globs: every non-test `.ts` file the spec's Goal names as the CLI/toolchain layer, plus
+ *  stage 6's one named engine straggler — `extras/outline/**` — added to this registry rather than left a
+ *  prose-only mention, so a third row can't drift from the walk the way a hand-declared region list would
+ *  (the Locked decision's "granularity is the file, never the region"). `packFog` and `computeGlyphMetrics`
+ *  stay outside this population: each is one pure function inside a file whose *other* content (the fog
+ *  ECS/system/plugin half, `createGlyphAtlas`/`ensureString`'s real-device calls) would drag the whole
+ *  file's weakest-arm down to `gap` the moment it joined this registry, for content this spec never asked
+ *  this registry to carry — they get a direct test with no row, same as every other `.test.ts` addition
+ *  this unit made without touching the registry. */
 export const CLI_POPULATION_GLOBS: readonly string[] = [
     "packages/shallot/bin/*.ts",
     "packages/shallot/src/project/*.ts",
     "packages/create-shallot/index.ts",
+    "packages/shallot/src/extras/outline/*.ts",
 ];
 
 /** converts a `dir/*.ts`-style glob to a RegExp, re-housed from `coverage.ts` rather than imported —
@@ -268,13 +277,12 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         arm: "gap",
         reason:
             "flattenPlugins' array/promise/falsy-entry walk and composeViteConfig's merge + name-based " +
-            "drop are both directly asserted by toolchain.test.ts. isProject, requireProject, and " +
-            "loadProjectConfig are untested by `bun test` (requireProject calls process.exit on its " +
-            "failure branch; loadProjectConfig awaits vite's loadConfigFromFile against real disk), though " +
-            "all three run for real whenever `bun run test:install`'s dev/build rungs boot a project — no " +
-            "test asserts on them directly. Stage 6 tests isProject/requireProject/loadProjectConfig by " +
-            "temp dir.",
-        stage: 6,
+            "drop are both directly asserted by toolchain.test.ts, which also covers isProject's " +
+            "manifest/nested-.scene/neither cases, requireProject's returns-without-exiting path, and " +
+            "loadProjectConfig's no-config null plus its flattened-plugins/overlay/path result, all by " +
+            "temp dir. Permanent gap occupant: requireProject's failure branch, which calls process.exit(1) " +
+            "and so cannot be driven without killing the test runner — the Locked decision forbids the " +
+            "spy that would reach it. It runs for real on `bun run test:install`'s dev/build rungs.",
     },
     {
         file: "packages/shallot/bin/verify.ts",
@@ -295,6 +303,34 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "which bench/flows/recipes' green-path runs never produce. Stage 4 covers these with a " +
             "duck-typed page stub.",
         stage: 4,
+    },
+    {
+        file: "packages/shallot/src/extras/outline/index.ts",
+        arm: "tier",
+        reason:
+            "the component, OutlineSystem's per-camera mask→JFA→composite dispatch, and OutlinePlugin's " +
+            "warm/dispose resource lifecycle are exercised end to end on a real GPU by `bun bench " +
+            "--scenario outline`'s three checks: highlighted entities actually run the outline:mask → " +
+            'outline:jfa → outline:composite passes (hasPass(lit, "outline:")), nothing highlighted ' +
+            "runs zero of them (the zero-cost gate — a bug here would keep paying the dispatch cost with " +
+            "nothing on screen), and fog + outline both composite through the shared post-color seam in " +
+            'one frame (hasPass(lit, "fog:march") && hasPass(lit, "outline:composite")) — the property ' +
+            "that matters is the real pass graph a GPU timestamp query observes, not that the file " +
+            "registers a plugin.",
+    },
+    {
+        file: "packages/shallot/src/extras/outline/passes.ts",
+        arm: "unit",
+        reason:
+            "jfaSteps' clamp/power-of-two ladder and groupByMesh's batching are directly asserted by " +
+            "outline.test.ts. Every other export is a TGSL kernel or bind-group layout, reached through " +
+            "the same file's maskWgsl/outlineWgsl resolved-WGSL structural tests (`testing.md` \"CPU " +
+            'execution of pure TGSL kernels" / "resolved WGSL structure" — the logic-truth tier, not a ' +
+            "real-device claim): maskWgsl(false)/maskWgsl(true) resolve maskVertex/maskFragment over both " +
+            "maskLayoutPlain and maskLayoutOcclude (the reverse-Z occlusion compare, the vertex pull's " +
+            "decode/transform chain), and outlineWgsl() resolves fullscreenVs/jfaFs/jfaLayout (the 3×3 " +
+            "flood-fill neighbor loop) and compositeKernel/compositeLayout (the band's distance-to-alpha " +
+            "math). No export is reached by nothing.",
     },
     {
         file: "packages/shallot/src/project/engine.ts",
