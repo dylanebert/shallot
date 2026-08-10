@@ -125,11 +125,12 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
         }
     });
 
-    test("the population globs cover the three paths the spec names", () => {
+    test("the population globs cover the three CLI/toolchain paths plus stage 6's outline straggler", () => {
         expect(CLI_POPULATION_GLOBS).toEqual([
             "packages/shallot/bin/*.ts",
             "packages/shallot/src/project/*.ts",
             "packages/create-shallot/index.ts",
+            "packages/shallot/src/extras/outline/*.ts",
         ]);
     });
 });
