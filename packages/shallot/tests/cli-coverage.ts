@@ -288,21 +288,27 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "packages/shallot/bin/verify.ts",
         arm: "gap",
         reason:
-            "the majority of this file's exported surface is already directly asserted by verify.test.ts: " +
+            "the majority of this file's exported surface is directly asserted by verify.test.ts: " +
             "parseVerifyArgs, buildUrl, resolveBatchQueries, batchPass, spansFromCheckpoints, " +
             "formatTimings, installHarnessProbe/harnessInstallMs, summarizeResourceTiming, " +
             "formatExtraTimings, structured/hasStructure/gridDiff, stepWait, coerceVerdict, withTimeout, " +
             "harnessPass, gpuLogChecks, failureArtifacts, settlePass, fitMemory, bootArm, flushStdout, " +
-            "reportBatch, and report's rendered arms. verifyCommand's green path (serveDist/serveDev/" +
-            "serveEjected booting a real project, driving a real Playwright page) is exercised on every " +
-            "`bun bench`, `bun run flows`, and `bun run recipes` run. What's reached by nothing: " +
-            "driveHarness's ready-timeout, noRender opt-out, probe-error, and hasRun-fallback verdict " +
-            "arms; withGpuLog's `(result.verdict?.ok ?? result.pass) && !failed` merge; the three serve* " +
-            "SetupError guards; report's unrendered arms (the LEAK line, compilationError); and " +
-            "decodeSample/decodeRgba (pending stage 4's own purity check) — a genuine browser failure, " +
-            "which bench/flows/recipes' green-path runs never produce. Stage 4 covers these with a " +
-            "duck-typed page stub.",
-        stage: 4,
+            "reportBatch, and report's rendered AND unrendered arms (the LEAK line, compilationError). " +
+            "Stage 4 closed the failure-arm gap a red verdict from any tier routes through, by a duck-" +
+            "typed page stub over the pre-existing Page parameter (never a module mock): driveHarness's " +
+            "ready-timeout/noRender-opt-out/probe-error/hasRun-fallback verdicts, withGpuLog's " +
+            "`(result.verdict?.ok ?? result.pass) && !failed` merge and check concatenation (both the " +
+            "`??`-vs-`||` and the `!failed` term proved to change the outcome), and the serveDist/serveDev " +
+            "SetupError guards by temp dir (asserting the throw class, never message prose). " +
+            "verifyCommand's green path — serveDist/serveDev/serveEjected booting a real project and " +
+            "driving a real Playwright page end to end — stays `tier`: exercised on every `bun bench`, " +
+            "`bun run flows`, and `bun run recipes` run, with no unit test standing in for the real boot-" +
+            "and-navigate sequence. What stays reached by nothing, permanently: decodeSample and " +
+            "decodeRgba. The stage's open question — whether they're pure pixel math over a captured " +
+            'buffer — is settled false: both construct `new Image()`, `document.createElement("canvas")`, ' +
+            "and call `getImageData`, genuine in-page DOM serialized into the browser by Playwright's " +
+            "`page.evaluate`, not a CPU-callable function a `bun test` could drive. They run for real only " +
+            "inside a genuine harness/settle pass under bench/flows/recipes.",
     },
     {
         file: "packages/shallot/src/extras/outline/index.ts",
