@@ -248,6 +248,8 @@ async function ejectedFlow(work: string, engineTgz: string) {
                 dependencies: {
                     "@dylanebert/shallot": `file:${engineTgz}`,
                     typegpu: "~0.11.9",
+                    // a second physical copy for the identity probe below — see `identityFlow`'s comment
+                    typegpu2: "npm:typegpu@~0.11.9",
                 },
                 devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.11.6" },
             },
@@ -300,6 +302,32 @@ async function ejectedFlow(work: string, engineTgz: string) {
         nodeResolve.ok ? nodeResolve.out.trim().slice(-200) : nodeResolve.out.slice(-500),
     );
 
+    // the ejected fixture's own arm of `identityFlow`'s brand check (see its comment above): a
+    // materially different install shape (own vite.config, no CLI-synthesized entry), so the probe
+    // runs here too rather than trusting the sandbox arm to stand in for it. `bun`, not `node` — this
+    // one imports `@dylanebert/shallot/runtime`, which ships raw `.ts` (no compiled arm), and needs no
+    // GPU either, so it still runs before the skip below.
+    console.log("typegpu peer identity (ejected fixture, brand check)…");
+    writeFileSync(
+        join(proj, "identity-check.ts"),
+        `import { isTgpuFn } from "typegpu";\n` +
+            `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
+            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
+            `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
+            `console.log("RED=" + isTgpuFn2(tgslCanary));\n`,
+    );
+    const identity = run(["bun", "identity-check.ts"], proj);
+    check(
+        "ejected fixture: the app's own typegpu resolution brands the canary true (same physical copy)",
+        identity.ok && /GREEN=true/.test(identity.out),
+        identity.ok ? identity.out.trim().slice(-200) : identity.out.slice(-400),
+    );
+    check(
+        "ejected fixture: a second physical copy brands the same canary false",
+        identity.ok && /RED=false/.test(identity.out),
+        identity.ok ? identity.out.trim().slice(-200) : identity.out.slice(-400),
+    );
+
     const skip = skipReason();
     if (skip) {
         console.log(`  · skipped (needs native hardware: ${skip})`);
@@ -343,6 +371,67 @@ async function ejectedFlow(work: string, engineTgz: string) {
 // passes with no transform at all (measured, 2026-07-29).
 const TRANSPILED =
     /["'`]?body["'`]?:\[0,\[\[10,\[1,["'`]x["'`],["'`]\+["'`],\[5,["'`]1["'`]\]\]\]\]\]/;
+
+// The peer-identity probe: typegpu's brand symbols are per-copy `Symbol(...)`, never `Symbol.for`
+// (`shared/symbols.js`), so `isTgpuFn(x)` imported from a consumer's own resolution of `typegpu`
+// returns true for an engine-built fn iff both resolve one physical copy — the property the 0.9.0
+// break actually turned on. Pure module resolution + a symbol check, no GPU involved, so this runs (and
+// is asserted) before any `skipReason()` guard: a display-less host still exercises it (testing.md
+// "Install gate", "a display-gated rung owes a display-independent sibling"). `typegpu2` is a genuine
+// second physical copy — an alias install of the identical version (`npm:typegpu@~0.11.9`) landing in
+// its own `node_modules/typegpu2`, a distinct module-graph evaluation with its own `Symbol()` calls, not
+// a re-export of the first. The red arm is the whole point: a probe green on first run with no witnessed
+// red proves nothing (`coding.md`).
+function identityFlow(work: string, engineTgz: string) {
+    console.log("typegpu peer identity (brand check, red-first)…");
+    const proj = join(work, "identity");
+    mkdirSync(proj, { recursive: true });
+    writeFileSync(
+        join(proj, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "identity-sandbox",
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.11.9",
+                    typegpu2: "npm:typegpu@~0.11.9",
+                },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+    const install = run(["bun", "install"], proj);
+    check(
+        "the identity fixture installs (real + aliased typegpu copy)",
+        install.ok,
+        install.ok ? "" : install.out.slice(-600),
+    );
+    if (!install.ok) return;
+
+    writeFileSync(
+        join(proj, "identity-check.ts"),
+        `import { isTgpuFn } from "typegpu";\n` +
+            `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
+            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
+            `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
+            `console.log("RED=" + isTgpuFn2(tgslCanary));\n`,
+    );
+    const result = run(["bun", "identity-check.ts"], proj);
+    check(
+        "the app's own typegpu resolution brands the engine-built canary true (same physical copy)",
+        result.ok && /GREEN=true/.test(result.out),
+        result.ok ? result.out.trim().slice(-200) : result.out.slice(-400),
+    );
+    // a second physical copy must read false — this is the observation the boot checks above it can't make
+    check(
+        "a second physical copy of typegpu brands the same canary false (peer identity actually observed)",
+        result.ok && /RED=false/.test(result.out),
+        result.ok ? result.out.trim().slice(-200) : result.out.slice(-400),
+    );
+}
 
 function tgslFlow(sandbox: string, dist: string) {
     console.log("TGSL distribution (the build transform + an executing resolve)…");
@@ -403,6 +492,9 @@ try {
     console.log("packing engine + widget…");
     const engineTgz = pack(ENGINE_DIR, join(work, "engine-pack"));
     const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
+
+    // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
+    identityFlow(work, engineTgz);
 
     // a real manifest project: installed engine + an installed plugin library + a local plugin, the
     // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.
