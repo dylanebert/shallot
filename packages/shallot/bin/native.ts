@@ -383,13 +383,16 @@ export function macInfoPlist(opts: {
 </plist>`;
 }
 
-// CefSettings.locale defaults to en-US (see copyLocale), so only the active locale's forms are kept:
-// the `.lproj` bundle folder (both its regionless and region-qualified spelling) or the flat
-// `locales/*.pak` file. Anything else matching either shape is stale weight to strip. Pulled out of
-// trimMacLocales' two directory walks so the delete rule is testable without touching a filesystem.
-export function isStaleLocaleEntry(entry: string): boolean {
+// CefSettings.locale defaults to en-US (see copyLocale), so only the active locale's forms are kept.
+// The two walks need different rules: Resources/ holds the per-locale `.lproj` bundle folders (both
+// the regionless and region-qualified English spelling survive) alongside the required CEF resource
+// paks (chrome_100_percent.pak, chrome_200_percent.pak, resources.pak) that ship unconditionally —
+// so a `.pak` entry is never stale there. Resources/locales/ holds the flat per-locale `.pak` files,
+// where only `en-US.pak` survives. Pulled out of trimMacLocales' two directory walks so the delete
+// rule is testable without touching a filesystem.
+export function isStaleLocaleEntry(entry: string, scope: "bundle" | "locales"): boolean {
     if (entry.endsWith(".lproj")) return entry !== "en.lproj" && entry !== "en_US.lproj";
-    if (entry.endsWith(".pak")) return entry !== "en-US.pak";
+    if (scope === "locales" && entry.endsWith(".pak")) return entry !== "en-US.pak";
     return false;
 }
 
@@ -400,14 +403,14 @@ function trimMacLocales(frameworkDir: string): void {
     const resources = resolve(frameworkDir, "Resources");
     if (!existsSync(resources)) return;
     for (const entry of readdirSync(resources)) {
-        if (isStaleLocaleEntry(entry)) {
+        if (isStaleLocaleEntry(entry, "bundle")) {
             rmSync(resolve(resources, entry), { recursive: true, force: true });
         }
     }
     const locales = resolve(resources, "locales");
     if (existsSync(locales)) {
         for (const entry of readdirSync(locales)) {
-            if (isStaleLocaleEntry(entry)) {
+            if (isStaleLocaleEntry(entry, "locales")) {
                 rmSync(resolve(locales, entry), { force: true });
             }
         }

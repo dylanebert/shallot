@@ -123,21 +123,31 @@ describe("missingCrateDiagnostic", () => {
 describe("isStaleLocaleEntry", () => {
     // CefSettings.locale defaults to en-US, so both spellings of the English .lproj bundle survive —
     // the regionless en.lproj and the region-qualified en_US.lproj.
-    test("keeps both English .lproj spellings, strips every other .lproj", () => {
-        expect(isStaleLocaleEntry("en.lproj")).toBe(false);
-        expect(isStaleLocaleEntry("en_US.lproj")).toBe(false);
-        expect(isStaleLocaleEntry("fr.lproj")).toBe(true);
-        expect(isStaleLocaleEntry("de_DE.lproj")).toBe(true);
+    test("keeps both English .lproj spellings, strips every other .lproj, in the bundle scope", () => {
+        expect(isStaleLocaleEntry("en.lproj", "bundle")).toBe(false);
+        expect(isStaleLocaleEntry("en_US.lproj", "bundle")).toBe(false);
+        expect(isStaleLocaleEntry("fr.lproj", "bundle")).toBe(true);
+        expect(isStaleLocaleEntry("de_DE.lproj", "bundle")).toBe(true);
     });
 
-    test("keeps en-US.pak, strips every other .pak", () => {
-        expect(isStaleLocaleEntry("en-US.pak")).toBe(false);
-        expect(isStaleLocaleEntry("ja.pak")).toBe(true);
+    test("keeps en-US.pak, strips every other .pak, in the locales scope", () => {
+        expect(isStaleLocaleEntry("en-US.pak", "locales")).toBe(false);
+        expect(isStaleLocaleEntry("ja.pak", "locales")).toBe(true);
     });
 
     test("ignores entries that are neither shape", () => {
-        expect(isStaleLocaleEntry("icudtl.dat")).toBe(false);
-        expect(isStaleLocaleEntry("README")).toBe(false);
+        expect(isStaleLocaleEntry("icudtl.dat", "bundle")).toBe(false);
+        expect(isStaleLocaleEntry("README", "locales")).toBe(false);
+    });
+
+    // Resources/ never holds per-locale .pak files on mac (those live flat under Resources/locales/),
+    // so the .pak arm has zero legitimate targets there — only the required CEF resource paks
+    // (chrome_100_percent.pak, chrome_200_percent.pak, resources.pak) that native.ts declares mandatory
+    // for the Linux/Windows CEF payloads. The bundle scope must never delete a .pak entry.
+    test("never strips a required CEF resource pak in the bundle scope", () => {
+        expect(isStaleLocaleEntry("chrome_100_percent.pak", "bundle")).toBe(false);
+        expect(isStaleLocaleEntry("chrome_200_percent.pak", "bundle")).toBe(false);
+        expect(isStaleLocaleEntry("resources.pak", "bundle")).toBe(false);
     });
 });
 
@@ -207,24 +217,30 @@ describe("findCefDir", () => {
     });
 
     test("searches release before debug, and returns null when neither has the marker", () => {
+        const prev = process.env.CEF_PATH;
         delete process.env.CEF_PATH;
-        const targetDir = mkdtempSync(join(tmpdir(), "shallot-cef-tree-"));
-        const releaseOut = resolve(
-            targetDir,
-            "aarch64-apple-darwin/release/build/cef-dll-sys-1/out/cef-mac",
-        );
-        const debugOut = resolve(
-            targetDir,
-            "aarch64-apple-darwin/debug/build/cef-dll-sys-2/out/cef-mac",
-        );
-        mkdirSync(releaseOut, { recursive: true });
-        mkdirSync(debugOut, { recursive: true });
-        writeFileSync(join(releaseOut, "marker.txt"), "");
-        writeFileSync(join(debugOut, "marker.txt"), "");
-        expect(findCefDir("aarch64-apple-darwin", "marker.txt", targetDir)).toBe(releaseOut);
+        try {
+            const targetDir = mkdtempSync(join(tmpdir(), "shallot-cef-tree-"));
+            const releaseOut = resolve(
+                targetDir,
+                "aarch64-apple-darwin/release/build/cef-dll-sys-1/out/cef-mac",
+            );
+            const debugOut = resolve(
+                targetDir,
+                "aarch64-apple-darwin/debug/build/cef-dll-sys-2/out/cef-mac",
+            );
+            mkdirSync(releaseOut, { recursive: true });
+            mkdirSync(debugOut, { recursive: true });
+            writeFileSync(join(releaseOut, "marker.txt"), "");
+            writeFileSync(join(debugOut, "marker.txt"), "");
+            expect(findCefDir("aarch64-apple-darwin", "marker.txt", targetDir)).toBe(releaseOut);
 
-        const emptyTargetDir = mkdtempSync(join(tmpdir(), "shallot-cef-empty-tree-"));
-        expect(findCefDir("aarch64-apple-darwin", "marker.txt", emptyTargetDir)).toBeNull();
+            const emptyTargetDir = mkdtempSync(join(tmpdir(), "shallot-cef-empty-tree-"));
+            expect(findCefDir("aarch64-apple-darwin", "marker.txt", emptyTargetDir)).toBeNull();
+        } finally {
+            if (prev === undefined) delete process.env.CEF_PATH;
+            else process.env.CEF_PATH = prev;
+        }
     });
 });
 
