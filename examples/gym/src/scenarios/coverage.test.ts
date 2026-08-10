@@ -5,10 +5,13 @@ import "./index";
 import {
     COMPLETENESS_ENFORCED,
     checkCompleteness,
+    checkExtrasClassification,
     checkGateEntries,
+    extrasDirs,
     GATE_EXEMPTIONS,
     globToRegExp,
     gpuModulePopulation,
+    NON_GPU_EXTRAS,
     SCENARIO_GATES,
 } from "./coverage";
 
@@ -73,6 +76,26 @@ describe("gate coverage checker (fixtures)", () => {
         );
     });
 
+    // the two directions the enumerated `extras/` globs cost: a new module in neither list, and a stale
+    // declaration for a directory the globs now cover.
+    test("an extras directory in neither the population nor the non-GPU table is a finding", () => {
+        const findings = checkExtrasClassification(
+            ["sky", "particles"],
+            ["packages/shallot/src/extras/sky/index.ts"],
+            {},
+        );
+        expect(findings).toEqual([{ kind: "extras-unclassified", detail: "particles" }]);
+    });
+
+    test("an extras directory in both is a finding", () => {
+        const findings = checkExtrasClassification(
+            ["sky"],
+            ["packages/shallot/src/extras/sky/index.ts"],
+            { sky: "used to be CPU-only" },
+        );
+        expect(findings).toEqual([{ kind: "extras-unclassified", detail: "sky" }]);
+    });
+
     test("globToRegExp matches ** across segments and * within one", () => {
         const re = globToRegExp("dir/**/*.ts");
         expect(re.test("dir/a.ts")).toBe(true);
@@ -94,6 +117,19 @@ describe("gate coverage (real data)", () => {
             GATE_EXEMPTIONS,
             scenarioNames(),
             population,
+        );
+        expect(findings).toEqual([]);
+    });
+
+    test("every extras directory is either GPU-facing or a declared non-GPU one", async () => {
+        const dirs = await extrasDirs(root);
+        // the real seam has to see the directories at all — an empty walk passes the check vacuously.
+        expect(dirs).toContain("orbit");
+        expect(dirs).toContain("gltf");
+        const findings = checkExtrasClassification(
+            dirs,
+            await gpuModulePopulation(root),
+            NON_GPU_EXTRAS,
         );
         expect(findings).toEqual([]);
     });

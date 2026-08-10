@@ -195,15 +195,16 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
 
 /** every module path this scenario's checks are explicitly exempted from covering, and why. Stage 3b
  *  populates the rest — an honest partial list here is deliberate (`specs/shallot-gate-ergonomics.md`
- *  Locked decision: "an honest initial exemption list is the point"), not a gap. */
+ *  Locked decision: "an honest initial exemption list is the point"), not a gap. A reason names the property
+ *  that is actually load-bearing — no GPU surface — never a structural shape a reader would have to
+ *  re-verify: "barrel re-export" was twice the stated reason for a file that was nothing of the kind. */
 export const GATE_EXEMPTIONS: Record<string, string> = {
     // NOT `standard/sear/index.ts`: it's a genuine barrel too, but `render`'s `covers` glob already
     // matches every file under `standard/sear/**`, so exempting it would be shadowed — the coverage check
     // (`coverage.ts`) asserts covered ∩ exempt = ∅ for exactly this reason.
-    "packages/shallot/src/extras/index.ts": "barrel re-export, no logic of its own",
-
+    //
     // engine/runtime/index.ts: verified — every line is a bare `export { ... } from "./..."`, no logic
-    // of its own (the same shape as the extras barrel above, this time actually true of the file).
+    // of its own.
     "packages/shallot/src/engine/runtime/index.ts": "barrel re-export, no logic of its own",
     // engine/runtime/platform.ts: `Runtime`/`now`/`requestFrame`/`readFile`/`readBinary` are cross-cutting
     // environment/timing primitives every scenario exercises identically through `run()`'s frame loop, so
@@ -213,29 +214,8 @@ export const GATE_EXEMPTIONS: Record<string, string> = {
     "packages/shallot/src/engine/runtime/platform.ts":
         "cross-cutting frame/timing primitive, unit-gated by runtime.test.ts, not a real-device concern",
 
-    // extras/orbit/**, extras/tween/**: verified by reading every file — neither imports GPU/WGSL/device
-    // anything (orbit is CPU camera math + a DOM overlay via mountOverlay; tween is a pure numeric timing
-    // atom). `GPU_MODULE_GLOBS`'s blanket `extras/**/*.ts` (mirroring `gpu.md`'s own frontmatter, which
-    // globs the whole `extras/` directory) sweeps them in structurally even though they're not GPU-facing:
-    // a frontmatter/population mismatch in the same family as the `standard/bvh` gap 3a found (that one
-    // missed a real GPU module; this one includes two non-GPU ones). Out of this stage's scope to fix
-    // (`GPU_MODULE_GLOBS`/`gpu.md` aren't this check's table to edit) — flagged for `/nourish`.
-    "packages/shallot/src/extras/orbit/index.ts":
-        "CPU-only camera math, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
-    "packages/shallot/src/extras/orbit/overlay.ts":
-        "CPU-only DOM overlay (mountOverlay), no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
-    "packages/shallot/src/extras/orbit/smooth.ts":
-        "CPU-only derived camera-ease state, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
-    "packages/shallot/src/extras/tween/core.ts":
-        "pure numeric timing atom, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
-    "packages/shallot/src/extras/tween/easing.ts":
-        "pure easing-curve math, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
-    // NOT a barrel: 337 lines of real Tween/Sequence component + system + plugin logic. The exemption is
-    // the same CPU-only one as its siblings above — the file drives numeric interpolation over ECS fields
-    // and touches no device, buffer, or WGSL surface. "barrel re-export" has now been the stated reason
-    // twice for a file that is nothing of the kind (3a's `standard/render/index.ts`, this one), so an
-    // exemption claims the property that is actually load-bearing — no GPU surface — and never a
-    // structural shape a reader would have to re-verify.
-    "packages/shallot/src/extras/tween/index.ts":
-        "CPU-only ECS interpolation logic, no GPU/WGSL surface (gpu.md's extras/** frontmatter over-scopes it — see /nourish note)",
+    // extras/orbit/** and extras/tween/** used to sit here as six exemptions absorbing a frontmatter
+    // mismatch: `gpu.md` globbed all of `extras/`, so `GPU_MODULE_GLOBS` swept in two CPU-only modules.
+    // Both now enumerate the GPU-facing extras directories instead, and the classification lives beside
+    // the population as `NON_GPU_EXTRAS` (`coverage.ts`) rather than as exemptions here.
 };

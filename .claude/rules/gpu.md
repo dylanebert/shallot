@@ -1,13 +1,13 @@
 ---
 paths:
     - "packages/shallot/src/engine/runtime/**/*.ts"
-    - "packages/shallot/src/engine/utils/{encode,readback}.ts"
+    - "packages/shallot/src/engine/utils/encode.ts"
     - "packages/shallot/src/standard/render/**/*.ts"
     - "packages/shallot/src/standard/sear/**/*.ts"
     - "packages/shallot/src/standard/part/**/*.ts"
     - "packages/shallot/src/standard/slab/**/*.ts"
     - "packages/shallot/src/standard/bvh/**/*.ts"
-    - "packages/shallot/src/extras/**/*.ts"
+    - "packages/shallot/src/extras/{gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts"
 ---
 
 # GPU
