@@ -268,13 +268,12 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         arm: "gap",
         reason:
             "flattenPlugins' array/promise/falsy-entry walk and composeViteConfig's merge + name-based " +
-            "drop are both directly asserted by toolchain.test.ts. isProject, requireProject, and " +
-            "loadProjectConfig are untested by `bun test` (requireProject calls process.exit on its " +
-            "failure branch; loadProjectConfig awaits vite's loadConfigFromFile against real disk), though " +
-            "all three run for real whenever `bun run test:install`'s dev/build rungs boot a project — no " +
-            "test asserts on them directly. Stage 6 tests isProject/requireProject/loadProjectConfig by " +
-            "temp dir.",
-        stage: 6,
+            "drop are both directly asserted by toolchain.test.ts, which also covers isProject's " +
+            "manifest/nested-.scene/neither cases, requireProject's returns-without-exiting path, and " +
+            "loadProjectConfig's no-config null plus its flattened-plugins/overlay/path result, all by " +
+            "temp dir. Permanent gap occupant: requireProject's failure branch, which calls process.exit(1) " +
+            "and so cannot be driven without killing the test runner — the Locked decision forbids the " +
+            "spy that would reach it. It runs for real on `bun run test:install`'s dev/build rungs.",
     },
     {
         file: "packages/shallot/bin/verify.ts",

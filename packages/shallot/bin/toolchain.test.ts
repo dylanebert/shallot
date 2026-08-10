@@ -1,6 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { Plugin } from "vite";
-import { composeViteConfig, flattenPlugins, type ProjectConfig } from "./toolchain";
+import {
+    composeViteConfig,
+    flattenPlugins,
+    isProject,
+    loadProjectConfig,
+    type ProjectConfig,
+    requireProject,
+} from "./toolchain";
 
 const p = (name: string) => ({ name }) as Plugin;
 
@@ -94,5 +104,70 @@ describe("composeViteConfig", () => {
         };
         const out = composeViteConfig(hostBase, null) as { optimizeDeps?: { exclude?: string[] } };
         expect(out.optimizeDeps?.exclude).toEqual(["@dylanebert/shallot"]);
+    });
+});
+
+// isProject / requireProject / loadProjectConfig, by temp dir — the dev.test.ts technique
+// (mkdtempSync + real fs). requireProject's failure branch (process.exit(1)) is deliberately not
+// exercised here: it can't be called without killing the test runner, and the Locked decision forbids
+// spying on it — that branch stays a named gap occupant in the registry.
+describe("isProject", () => {
+    test("true for a dir with a shallot.json manifest", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-isproject-manifest-"));
+        writeFileSync(join(dir, "shallot.json"), "{}\n");
+        expect(isProject(dir)).toBe(true);
+    });
+
+    test("true for a dir with a nested .scene file and no manifest", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-isproject-scene-"));
+        mkdirSync(join(dir, "scenes"));
+        writeFileSync(join(dir, "scenes", "demo.scene"), "");
+        expect(isProject(dir)).toBe(true);
+    });
+
+    test("false for a dir with neither", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-isproject-empty-"));
+        expect(isProject(dir)).toBe(false);
+    });
+});
+
+describe("requireProject", () => {
+    test("a real project dir returns without throwing or exiting", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-requireproject-"));
+        writeFileSync(join(dir, "shallot.json"), "{}\n");
+        expect(() => requireProject(dir)).not.toThrow();
+    });
+});
+
+describe("loadProjectConfig", () => {
+    test("a dir with no vite.config → null (the zero-config manifest path)", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-lpc-none-"));
+        expect(await loadProjectConfig(dir, "serve", "development")).toBeNull();
+    });
+
+    test("a dir with its own vite.config → the flattened plugins + resolve/define overlay + path", async () => {
+        // .mjs, not .ts: vite bundles a .ts config through a require() shim that bun's own module
+        // loader rejects mid-test ("require() async module is unsupported") — a bun-test-specific
+        // incompatibility with vite's config bundler, not something loadProjectConfig itself owns.
+        // .mjs skips that bundling path (vite dynamic-imports it directly), which is what a project
+        // authoring a config in plain ESM already gets.
+        const dir = mkdtempSync(join(tmpdir(), "shallot-lpc-config-"));
+        writeFileSync(
+            join(dir, "vite.config.mjs"),
+            [
+                "export default {",
+                '  plugins: [{ name: "svelte" }],',
+                '  resolve: { alias: { "@": "/src" } },',
+                "  define: { FOO: '\"bar\"' },",
+                "};",
+                "",
+            ].join("\n"),
+        );
+        const config = await loadProjectConfig(dir, "serve", "development");
+        expect(config?.plugins.map((x) => x.name)).toEqual(["svelte"]);
+        // vite's `define` carries the raw injected-source string verbatim (a string constant needs its
+        // own literal quotes, since the value is textually substituted, not evaluated)
+        expect((config?.overlay as { define?: unknown }).define).toEqual({ FOO: '"bar"' });
+        expect(config?.path).toBe(join(dir, "vite.config.mjs"));
     });
 });
