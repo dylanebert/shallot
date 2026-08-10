@@ -433,6 +433,88 @@ function identityFlow(work: string, engineTgz: string) {
     );
 }
 
+// A pinned, deliberately different patch version for the second physical copy — not the identical
+// `~0.11.9` alias `identityFlow` uses above. Measured 2026-08-10: pnpm's content-addressable store
+// dedupes an alias install (`typegpu2: npm:typegpu@~0.11.9`) against the real `typegpu@~0.11.9`
+// dependency down to one physical store entry regardless of the alias name, so the two imports
+// shared a single module instance and the red arm read `RED=true` — a false negative in the harness,
+// not a real duplicate (the actual peer case, `typegpu` resolved through the engine's own
+// `peerDependencies`, still reads `GREEN=true` clean under pnpm — see the Live log). A genuinely
+// distinct version forces two store entries under every manager; `isTgpuFn`'s brand check is
+// version-agnostic in this range, so 0.11.8 still probes the same property.
+const PM_RED_COPY_VERSION = "0.11.8";
+
+const managerInstall: Record<"npm" | "pnpm", string[]> = {
+    npm: ["npm", "install", "--no-audit", "--no-fund"],
+    pnpm: ["pnpm", "install"],
+};
+
+// npm + pnpm arms: the stage-1 brand-check probe, reused verbatim, installed under the two package
+// managers bun can't stand in for — not a second `test:install` flow, a minimal fixture (engine
+// tarball + typegpu + the probe). npm 7+ auto-installs and usually hoists the `typegpu` peer to one
+// copy; pnpm's isolated `node_modules` is the high-risk arm the spec calls out. Failure output names
+// the manager and both resolved paths, so a real cross-manager divergence is diagnosable from the
+// gate log alone.
+function pmIdentityFlow(work: string, engineTgz: string, manager: "npm" | "pnpm") {
+    console.log(`typegpu peer identity (${manager}, brand check, red-first)…`);
+    const proj = join(work, `identity-${manager}`);
+    mkdirSync(proj, { recursive: true });
+    writeFileSync(
+        join(proj, "package.json"),
+        `${JSON.stringify(
+            {
+                name: "identity-sandbox",
+                private: true,
+                type: "module",
+                dependencies: {
+                    "@dylanebert/shallot": `file:${engineTgz}`,
+                    typegpu: "~0.11.9",
+                    typegpu2: `npm:typegpu@${PM_RED_COPY_VERSION}`,
+                },
+            },
+            null,
+            2,
+        )}\n`,
+    );
+
+    if (!Bun.which(manager)) {
+        check(`${manager} is on PATH`, false, `${manager} not found — cannot run this arm`);
+        return;
+    }
+
+    const install = run(managerInstall[manager], proj);
+    check(
+        `the identity fixture installs under ${manager} (real + aliased typegpu copy)`,
+        install.ok,
+        install.ok ? "" : install.out.slice(-600),
+    );
+    if (!install.ok) return;
+
+    writeFileSync(
+        join(proj, "identity-check.ts"),
+        `import { isTgpuFn } from "typegpu";\n` +
+            `import { isTgpuFn as isTgpuFn2 } from "typegpu2";\n` +
+            `import { tgslCanary } from "@dylanebert/shallot/runtime";\n` +
+            `console.log("GREEN=" + isTgpuFn(tgslCanary));\n` +
+            `console.log("RED=" + isTgpuFn2(tgslCanary));\n` +
+            `console.log("PATH_TYPEGPU=" + Bun.resolveSync("typegpu", import.meta.dir));\n` +
+            `console.log("PATH_TYPEGPU2=" + Bun.resolveSync("typegpu2", import.meta.dir));\n`,
+    );
+    const result = run(["bun", "identity-check.ts"], proj);
+    const paths =
+        result.out.match(/PATH_TYPEGPU2?=\S+/g)?.join(" ") ?? "(no resolved paths printed)";
+    check(
+        `${manager}: the app's own typegpu resolution brands the engine-built canary true (same physical copy)`,
+        result.ok && /GREEN=true/.test(result.out),
+        result.ok ? paths : `${manager}: ${result.out.slice(-400)}`,
+    );
+    check(
+        `${manager}: a second physical copy of typegpu brands the same canary false (peer identity actually observed)`,
+        result.ok && /RED=false/.test(result.out),
+        result.ok ? paths : `${manager}: ${result.out.slice(-400)}`,
+    );
+}
+
 function tgslFlow(sandbox: string, dist: string) {
     console.log("TGSL distribution (the build transform + an executing resolve)…");
 
@@ -495,6 +577,8 @@ try {
 
     // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
     identityFlow(work, engineTgz);
+    pmIdentityFlow(work, engineTgz, "npm");
+    pmIdentityFlow(work, engineTgz, "pnpm");
 
     // a real manifest project: installed engine + an installed plugin library + a local plugin, the
     // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.
