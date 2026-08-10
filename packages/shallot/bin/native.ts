@@ -30,8 +30,12 @@ const MAC_HELPER_SUFFIXES = [
 
 // SwiftShader is Chromium's software-GL fallback. WebGPU runs on Vulkan/Metal/D3D12 directly, so a
 // real-GPU target doesn't need it — but the Chromium compositor may, so dropping it risks a black
-// window. Off by default until validated per platform; opt in with SHALLOT_DROP_SWIFTSHADER set.
-const DROP_SWIFTSHADER = process.env.SHALLOT_DROP_SWIFTSHADER != null;
+// window. Off by default until validated per platform; opt in with SHALLOT_DROP_SWIFTSHADER set. Read
+// per call, not once at module load, so a caller that sets the env var mid-process (a test, a script
+// driving multiple builds) is honored rather than frozen at whatever it was on import.
+export function dropSwiftshader(): boolean {
+    return process.env.SHALLOT_DROP_SWIFTSHADER != null;
+}
 
 /**
  * a native build's output dir: `build/<platform>/<profile>-<mode>`. The mode segment keeps a portable
@@ -53,7 +57,7 @@ export function nativeOutDir(
 // Windows dir (winBuildDir) instead; everything else uses this.
 const CRATE_TARGET = resolve(RUST_CRATE, "target");
 
-function cargoTarget(target: string, release: boolean, targetDir = CRATE_TARGET): string {
+export function cargoTarget(target: string, release: boolean, targetDir = CRATE_TARGET): string {
     const profile = release ? "release" : "debug";
     return resolve(
         targetDir,
@@ -109,6 +113,49 @@ function devShellBuild(flags: string[], distDir?: string, winTargetDir?: string)
     ].join(" ");
 }
 
+export type CargoInvocation =
+    | { kind: "devshell"; flags: string[] }
+    | { kind: "xwin"; flags: string[] }
+    | { kind: "native"; flags: string[] };
+
+/**
+ * cargoBuild's portable/target/WSL decision table, pulled out pure: which cargo invocation a
+ * (target, release, portable, isWSL) combination selects, and the flags it carries. `devshell` is
+ * windows-portable under WSL (needs the host's native MSVC toolchain via PowerShell, see
+ * devShellBuild); `xwin` is any other msvc target (cross-compiled with cargo-xwin); `native` is
+ * everything else (`cargo build` in place).
+ */
+export function resolveCargoInvocation(
+    target: string,
+    release: boolean,
+    portable: boolean,
+    isWSL: boolean,
+): CargoInvocation {
+    const flags: string[] = ["--target", target];
+    if (portable) flags.push("--no-default-features", "--features", "portable");
+    if (release) flags.push("--release");
+
+    const msvc = target.includes("msvc");
+    if (msvc && isWSL && portable) return { kind: "devshell", flags };
+    return { kind: msvc ? "xwin" : "native", flags };
+}
+
+// rust/window isn't shipped in package.json's `files` (`bun pm pack --dry-run` ships 0 rust/window
+// entries — audio's wasm ships prebuilt, native needs the crate itself), so an installed package's
+// `cwd: RUST_CRATE` below would otherwise die on a raw ENOENT. Fail loud instead, before spawning cargo.
+export function missingCrateDiagnostic(crateDir: string): string | null {
+    if (existsSync(crateDir)) return null;
+    return `no rust/window crate found at ${crateDir} — native builds aren't available from an installed package (the crate isn't shipped; only the source repo has it). Build from source, or run inside the shallot monorepo.`;
+}
+
+function requireRustCrate(): void {
+    const msg = missingCrateDiagnostic(RUST_CRATE);
+    if (msg) {
+        console.error(`  ${msg}`);
+        process.exit(1);
+    }
+}
+
 // SHALLOT_DIST bakes the web assets into the binary at compile time (release only) so the exe carries
 // no appended overlay and never extracts itself at runtime. Debug serves from the sibling dist/ for
 // fast iteration. `portable` selects the CEF backend (self-contained Chromium) over the default
@@ -120,9 +167,8 @@ function cargoBuild(
     distDir?: string,
     winTargetDir?: string,
 ): void {
-    const flags: string[] = ["--target", target];
-    if (portable) flags.push("--no-default-features", "--features", "portable");
-    if (release) flags.push("--release");
+    requireRustCrate();
+    const invocation = resolveCargoInvocation(target, release, portable, isWSL);
 
     // Windows portable (CEF) under WSL builds natively on the host via PowerShell — the same
     // WSL→Windows bridge the bench uses. cargo-xwin's clang-cl can't build CEF's libcef_dll_wrapper
@@ -131,14 +177,14 @@ function cargoBuild(
     // runs in-place over the crate's UNC path (devShellBuild cd's there), so its target/ dir is the
     // one bundling reads back. The powershell process is launched with a real Windows cwd (the C:\
     // mount) so the dev-shell's internal cmd.exe doesn't choke on a UNC working directory.
-    if (target.includes("msvc") && isWSL && portable) {
+    if (invocation.kind === "devshell") {
         const winCwd = execSync("wslpath -u 'C:\\'", { encoding: "utf-8" }).trim();
         const r = Bun.spawnSync(
             [
                 "powershell.exe",
                 "-NoProfile",
                 "-Command",
-                devShellBuild(flags, distDir, winTargetDir),
+                devShellBuild(invocation.flags, distDir, winTargetDir),
             ],
             { cwd: winCwd, stdout: "inherit", stderr: "inherit" },
         );
@@ -152,9 +198,9 @@ function cargoBuild(
     }
 
     // cross-compile a Windows target from a non-WSL host (cargo-xwin), or build a native target.
-    const cmd = target.includes("msvc") ? "cargo xwin build" : "cargo build";
+    const cmd = invocation.kind === "xwin" ? "cargo xwin build" : "cargo build";
     const env = distDir ? { ...process.env, SHALLOT_DIST: distDir } : process.env;
-    execSync([cmd, ...flags].join(" "), { cwd: RUST_CRATE, stdio: "inherit", env });
+    execSync([cmd, ...invocation.flags].join(" "), { cwd: RUST_CRATE, stdio: "inherit", env });
 }
 
 function ensureIcon(distDir: string): void {
@@ -166,7 +212,11 @@ function ensureIcon(distDir: string): void {
 
 // the downloaded CEF runtime lives in cef-dll-sys's build OUT_DIR (or CEF_PATH when set). Return the
 // subdir under it holding `marker` (libcef.so / libcef.dll / the framework) for a target's build.
-function findCefDir(target: string, marker: string, targetDir = CRATE_TARGET): string | null {
+export function findCefDir(
+    target: string,
+    marker: string,
+    targetDir = CRATE_TARGET,
+): string | null {
     const cefPath = process.env.CEF_PATH;
     if (cefPath && existsSync(resolve(cefPath, marker))) return cefPath;
 
@@ -294,12 +344,12 @@ function convertIconToIcns(pngPath: string, icnsPath: string): void {
     rmSync(macIcon);
 }
 
-function macHelperBin(release: boolean): string {
+export function macHelperBin(release: boolean): string {
     const profile = release ? "release" : "debug";
     return resolve(RUST_CRATE, `target/${MAC_TARGET}/${profile}/shallot-helper`);
 }
 
-function macInfoPlist(opts: {
+export function macInfoPlist(opts: {
     executable: string;
     bundleName: string;
     identifier: string;
@@ -333,6 +383,16 @@ function macInfoPlist(opts: {
 </plist>`;
 }
 
+// CefSettings.locale defaults to en-US (see copyLocale), so only the active locale's forms are kept:
+// the `.lproj` bundle folder (both its regionless and region-qualified spelling) or the flat
+// `locales/*.pak` file. Anything else matching either shape is stale weight to strip. Pulled out of
+// trimMacLocales' two directory walks so the delete rule is testable without touching a filesystem.
+export function isStaleLocaleEntry(entry: string): boolean {
+    if (entry.endsWith(".lproj")) return entry !== "en.lproj" && entry !== "en_US.lproj";
+    if (entry.endsWith(".pak")) return entry !== "en-US.pak";
+    return false;
+}
+
 // strip non-English locale paks from a copied CEF mac framework — covers both the per-locale `.lproj`
 // layout and a flat `locales/` dir of paks, so it's a no-op if neither is present. Runs before
 // codesign (which re-signs the trimmed tree).
@@ -340,14 +400,14 @@ function trimMacLocales(frameworkDir: string): void {
     const resources = resolve(frameworkDir, "Resources");
     if (!existsSync(resources)) return;
     for (const entry of readdirSync(resources)) {
-        if (entry.endsWith(".lproj") && entry !== "en.lproj" && entry !== "en_US.lproj") {
+        if (isStaleLocaleEntry(entry)) {
             rmSync(resolve(resources, entry), { recursive: true, force: true });
         }
     }
     const locales = resolve(resources, "locales");
     if (existsSync(locales)) {
         for (const entry of readdirSync(locales)) {
-            if (entry.endsWith(".pak") && entry !== "en-US.pak") {
+            if (isStaleLocaleEntry(entry)) {
                 rmSync(resolve(locales, entry), { force: true });
             }
         }
@@ -494,7 +554,7 @@ function copyCefLibs(outputDir: string, release: boolean): void {
         "chrome_200_percent.pak",
         "resources.pak",
     ];
-    if (!DROP_SWIFTSHADER) files.push("libvk_swiftshader.so");
+    if (!dropSwiftshader()) files.push("libvk_swiftshader.so");
 
     for (const file of files) {
         const src = resolve(cefSrc, file);
@@ -503,7 +563,7 @@ function copyCefLibs(outputDir: string, release: boolean): void {
 
     copyLocale(resolve(cefSrc, "locales"), resolve(cefOut, "locales"));
 
-    if (!DROP_SWIFTSHADER) {
+    if (!dropSwiftshader()) {
         const swiftshaderSrc = resolve(cefSrc, "swiftshader");
         if (existsSync(swiftshaderSrc)) {
             cpSync(swiftshaderSrc, resolve(cefOut, "swiftshader"), { recursive: true });
@@ -540,7 +600,7 @@ function copyCefDlls(outputDir: string, targetDir = CRATE_TARGET): void {
         "chrome_200_percent.pak",
         "resources.pak",
     ];
-    if (!DROP_SWIFTSHADER) files.push("vk_swiftshader.dll", "vk_swiftshader_icd.json");
+    if (!dropSwiftshader()) files.push("vk_swiftshader.dll", "vk_swiftshader_icd.json");
 
     for (const file of files) {
         const src = resolve(cefSrc, file);

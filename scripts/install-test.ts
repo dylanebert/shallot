@@ -543,6 +543,21 @@ try {
             assets.join(", ") || "(no assets dir)",
         );
 
+        // rust/window isn't in `files` (audio's wasm ships prebuilt, native needs the crate itself —
+        // `bun pm pack --dry-run` ships 0 rust/window entries), so `--target <os>` from this installed
+        // package must fail with native.ts's named missingCrateDiagnostic, not a raw ENOENT from
+        // cargoBuild's `cwd: RUST_CRATE`. The spec's Locked decision: native.ts "extracts and declares;
+        // it gets no real-cargo gate" — this is the one closed rung against that gap.
+        console.log("shallot build --target linux (missing rust/window crate → named diagnostic)…");
+        const nativeBuild = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
+        check(
+            "native build fails with the missing-crate diagnostic, not a raw ENOENT",
+            !nativeBuild.ok &&
+                /no rust\/window crate found at/.test(nativeBuild.out) &&
+                !/ENOENT/.test(nativeBuild.out),
+            nativeBuild.out.slice(-900),
+        );
+
         tgslFlow(sandbox, dist);
 
         // the dev server: live resolution + asset serving over vite (a different path than the build

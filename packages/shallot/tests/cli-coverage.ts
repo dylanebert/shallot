@@ -208,22 +208,26 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "packages/shallot/bin/native.ts",
         arm: "gap",
         reason:
-            "nativeOutDir (exported, pure, currently zero test callers), cargoTarget, a pure " +
-            "resolveCargoInvocation carved out of cargoBuild's portable/target/WSL decision table, " +
-            "trimMacLocales' delete-predicate, macHelperBin, macInfoPlist's two independent branches " +
-            "(helper/LSUIElement, icon key — both are string-template conditionals with no external " +
-            "effect), and findCefDir's CEF_PATH/build-tree search are pure or temp-dir-testable logic " +
-            "stage 5 extracts and tests. What stays permanently untested, by decision, past stage 5: " +
-            "devShellBuild (declared manual — its PowerShell DevShell-entry template would be restated " +
-            "byte-for-byte by any test) and the subprocess-orchestrating bulk that calls real " +
-            "cargo/sips/iconutil/strip (cargoBuild's execSync/spawnSync arms, bundleNativeMac, " +
-            "bundleNativeWindows, bundleNativeLinux, ensureIcon, tryStrip, copyLocale, copyCefLibs, " +
-            "copyCefDlls, prepareMacIcon, convertIconToIcns) — frozen out of the `unit` arm by the Locked " +
-            'decision itself ("native.ts extracts and declares; it gets no real-cargo gate"). The one ' +
-            "closed rung against this gap is the missing-crate guard (rust/window isn't shipped in " +
-            "package.json's `files`, so an installed `--target <os>` build dies on a raw ENOENT instead of " +
-            "a named diagnostic), asserted in the install gate rather than here.",
-        stage: 5,
+            "stage 5 discharged the extraction: nativeOutDir, cargoTarget, resolveCargoInvocation (the " +
+            "pure portable/target/WSL decision table cargoBuild now delegates to), missingCrateDiagnostic, " +
+            "isStaleLocaleEntry (trimMacLocales' delete-predicate), macHelperBin, macInfoPlist's two " +
+            "independent branches (helper/LSUIElement, icon key), and findCefDir's CEF_PATH/build-tree " +
+            "search (by temp dir, both the short-circuit and the fall-through) are all now directly " +
+            "asserted by native.test.ts. dropSwiftshader was fixed from a module-load constant to a " +
+            "per-call env read (SHALLOT_DROP_SWIFTSHADER honored mid-process, not frozen at import) and is " +
+            "tested for that property directly. What stays permanently untested, by decision: devShellBuild " +
+            "(declared manual — its PowerShell DevShell-entry template would be restated byte-for-byte by " +
+            "any test) and the subprocess-orchestrating bulk that calls real cargo/sips/iconutil/strip " +
+            "(cargoBuild's execSync/spawnSync arms, bundleNativeMac, bundleNativeWindows, bundleNativeLinux, " +
+            "ensureIcon, tryStrip, copyLocale, copyCefLibs, copyCefDlls, prepareMacIcon, convertIconToIcns) " +
+            '— frozen out of the `unit` arm by the Locked decision itself ("native.ts extracts and ' +
+            "declares; it gets no real-cargo gate\"). The missing-crate guard (rust/window isn't shipped in " +
+            "package.json's `files`, so an installed `--target <os>` build used to die on a raw ENOENT) is " +
+            "now closed end to end: requireRustCrate calls missingCrateDiagnostic before cargoBuild spawns " +
+            "anything, and `bun run test:install`'s \"native build fails with the missing-crate diagnostic, " +
+            'not a raw ENOENT" rung asserts it from a real installed package via `shallot build --target ' +
+            "linux`, red-proved by removing the requireRustCrate() call (surfaces a raw ENOENT from " +
+            "posix_spawn instead).",
     },
     {
         file: "packages/shallot/bin/recipe.ts",
