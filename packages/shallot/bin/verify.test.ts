@@ -58,6 +58,19 @@ import {
 
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
 
+/**
+ * a scratch dir under the repo's own `node_modules/.cache`, not `tmpdir()` — the bundles and fixture
+ * projects below are loaded by a Node subprocess that has to resolve the repo's dependencies, which only
+ * works from inside the tree. `mkdtempSync` does not create parents, and `.cache` is a build artifact
+ * absent from a fresh clone or a fresh worktree, so create it first: without this the suite reds with a
+ * bare `ENOENT ... mkdtemp` that reads as a real failure.
+ */
+const cacheDir = (prefix: string): string => {
+    const base = join(REPO_ROOT, "node_modules/.cache");
+    mkdirSync(base, { recursive: true });
+    return mkdtempSync(join(base, prefix));
+};
+
 describe("parseVerifyArgs", () => {
     test("defaults: dir '.', dev boot, 60s budget", () => {
         const a = parseVerifyArgs([]);
@@ -1002,7 +1015,7 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
     test.skipIf(!hasNode)(
         "a >64 KiB batch report exits truncated without flushStdout, whole with it",
         async () => {
-            const dir = mkdtempSync(join(REPO_ROOT, "node_modules/.cache/shallot-flush-test-"));
+            const dir = cacheDir("shallot-flush-test-");
             try {
                 buildVerifyBundle(dir);
 
@@ -1063,9 +1076,7 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
     test.skipIf(!hasNode)(
         "a >64 KiB setup-error payload through runVerify survives process.exit; a bare exit does not",
         async () => {
-            const dir = mkdtempSync(
-                join(REPO_ROOT, "node_modules/.cache/shallot-flush-runverify-test-"),
-            );
+            const dir = cacheDir("shallot-flush-runverify-test-");
             try {
                 buildVerifyBundle(dir);
 
@@ -1308,8 +1319,7 @@ describe("withGpuLog — the verdict merge arithmetic as a branch surface", () =
 });
 
 describe("serve* SetupError guards — by temp dir, asserting the throw class, not message prose", () => {
-    const tempProjectDir = (): string =>
-        mkdtempSync(join(REPO_ROOT, "node_modules/.cache/shallot-verify-guard-"));
+    const tempProjectDir = (): string => cacheDir("shallot-verify-guard-");
 
     test("serveDist: no dist/ at all is a SetupError, not a raw ENOENT", async () => {
         const dir = tempProjectDir();
