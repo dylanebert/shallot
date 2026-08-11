@@ -110,6 +110,15 @@ describe("XML", () => {
             expect(() => load(nodes, state)).toThrow('did you mean "x"');
         });
 
+        // a typo shaped like "positon" (dropped letter, not a suffix/prefix of the real name) fails both
+        // the exact-kebab and endsWith shortcuts in findClosestMatch, so this is the only test that reaches
+        // the levenshtein call itself.
+        test("suggests field name at a real edit distance (not exact-kebab or endsWith)", () => {
+            register("comp", { position: [] as number[] });
+            const nodes = parse(`<scene><a comp="positon: 5" /></scene>`);
+            expect(() => load(nodes, state)).toThrow('did you mean "position"');
+        });
+
         test("skips unknown component", () => {
             const nodes = parse(`<scene><a id="ball" unknown="value: 1" /></scene>`);
             const map = load(nodes, state);
