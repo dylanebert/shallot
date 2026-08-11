@@ -294,71 +294,23 @@ function applyComponent(
         setFieldValue(component, field, eid, val as number | number[]);
     }
 
-    const props: Record<string, string> = {};
-    if (value !== "") {
-        props["_value"] = value;
-    }
-
-    const result = parseAttrs(def, props);
-    const values = result.values;
-    const entityRefs = result.entityRefs;
-    for (const err of result.errors) {
-        errors.push({ message: `<${name}> ${err}` });
-    }
-
-    for (const [field, val] of Object.entries(values)) {
-        setFieldValue(component, field, eid, val);
-    }
-
-    for (const ref of entityRefs) {
-        pendingFieldRefs.push({
-            eid,
-            component,
-            field: ref.field,
-            targetName: ref.targetName,
-        });
-    }
-}
-
-function parseAttrs(
-    def: Registered,
-    props: Record<string, string>,
-): {
-    values: Record<string, number>;
-    entityRefs: { field: string; targetName: string }[];
-    errors: string[];
-} {
-    const allValues: Record<string, number> = {};
-    const allEntityRefs: { field: string; targetName: string }[] = [];
-    const allErrors: string[] = [];
-
-    if (props._value) {
-        if (isCSSAttrSyntax(props._value)) {
-            const result = parsePropertyString(def, props._value);
-            Object.assign(allValues, result.values);
-            allEntityRefs.push(...result.entityRefs);
-            allErrors.push(...result.errors);
+    if (value !== "" && isCSSAttrSyntax(value)) {
+        const result = parsePropertyString(def, value);
+        for (const err of result.errors) {
+            errors.push({ message: `<${name}> ${err}` });
+        }
+        for (const [field, val] of Object.entries(result.values)) {
+            setFieldValue(component, field, eid, val);
+        }
+        for (const ref of result.entityRefs) {
+            pendingFieldRefs.push({
+                eid,
+                component,
+                field: ref.field,
+                targetName: ref.targetName,
+            });
         }
     }
-
-    for (const [propName, propValue] of Object.entries(props)) {
-        if (propName === "_value") continue;
-        if (!propValue) continue;
-
-        if (isCSSAttrSyntax(propValue)) {
-            const result = parsePropertyString(def, propValue);
-            Object.assign(allValues, result.values);
-            allEntityRefs.push(...result.entityRefs);
-            allErrors.push(...result.errors);
-        } else {
-            const result = parsePropertyString(def, `${propName}: ${propValue}`);
-            Object.assign(allValues, result.values);
-            allEntityRefs.push(...result.entityRefs);
-            allErrors.push(...result.errors);
-        }
-    }
-
-    return { values: allValues, entityRefs: allEntityRefs, errors: allErrors };
 }
 
 /**
@@ -818,7 +770,6 @@ export function formatFields(
     }
 
     for (const field of remaining) {
-        if (handled.has(field)) continue;
         const value = fields[field];
         const def = defaults[field];
 
