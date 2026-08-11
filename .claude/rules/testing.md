@@ -166,6 +166,14 @@ The suffix is the tier — bun only auto-discovers `.test.`/`.spec.`, so a diffe
 - **`.probes.ts`** — permanent gates that launch a browser (`bin/verify.probes.ts`, the `--timings` harness-install + resource-timing probes). Same reason as `.oracle.ts`: real and load-bearing, too slow for the inner loop — and a Chromium launch inside the parallel default suite flakes. Run by path when you touch the probes: `bun test ./packages/shallot/bin/verify.probes.ts`. The pure half stays in the neighbouring `.test.ts` as the sentinel. The suffix also ships nothing — `check-pack` rejects it and `package.json`'s `files` excludes it, both needed since a non-`.test.ts` test file otherwise packs.
 - **`.lab.ts`** — investigation files. Trace internals, compare against references, probe edge cases. Not discovered by `bun test` — run manually (`bun test ./packages/shallot/tests/foo.lab.ts`). Temporary — delete or promote when done.
 
+## A fresh checkout's `bun test` count isn't a floor yet
+
+Three fixture trees live outside the commit, so a fresh clone or worktree silently runs a smaller suite than an established one. Measured 2026-08-10: 1826 pass / 33 fail where the populated tree read 2632 / 0. Place all three before quoting a count as the floor a later run is compared against.
+
+- `packages/shallot/rust/audio/pkg/` — the gitignored wasm build artifact. Absent, five registry/standards tests fail on an unresolvable import, which reads as real red rather than a missing fixture. Build it, or copy it from a populated tree.
+- `packages/shallot/tests/fixtures/avbd/` — gitignored, ~161 MB. Copy it in.
+- The glTF corpus, a submodule at `reference/gltf-sample-assets` in the containing workspace, outside the package (`git submodule update --init reference/gltf-sample-assets`). Its absence is the dangerous one: 292 conformance tests degrade to an announced skip that no fail count shows. Run the required arm, `GLTF_CORPUS_REQUIRED=1 bun test`, so an absent corpus is red instead of quiet.
+
 ## Tolerance tiers
 
 - **Exact:** no floating-point reason to differ (mass invariance, quaternion normalization) → `1e-10` or tighter
