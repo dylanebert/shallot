@@ -17,7 +17,7 @@ bun install
 bunx shallot dev
 ```
 
-`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it — web by default, or `--target windows|mac|linux` for native.
+`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. Native builds (`--target windows|mac|linux`) run from a checkout of this repo, not an installed package: the rust crate they need isn't published to npm.
 
 A project is plain data: a `shallot.json` manifest, a scene file, and TypeScript plugins you edit in your IDE. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero — a check you, an agent, or CI can run to prove the game still works.
 

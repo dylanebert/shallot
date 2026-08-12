@@ -8,12 +8,11 @@ WebGPU game engine. Data-oriented ECS, declarative scenes, plugins compose every
 bun create shallot <name>   # scaffold a project
 bunx shallot dev [dir]      # run it (vite, hot reload)
 bunx shallot build [dir]    # web build → dist/
-bunx shallot build --target <windows|mac|linux> [--portable] [--release]
-bunx shallot run [dir]      # build + preview (add --target to build and run native)
+bunx shallot run [dir]      # build + preview
 bunx shallot verify [dir]   # headless-browser gate, exit 0/nonzero (below)
 ```
 
-The check is `bunx tsc --noEmit` — run it after every change. `--portable` bundles Chromium (CEF) instead of the system webview; required on Linux, optional elsewhere. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
+The check is `bunx tsc --noEmit` — run it after every change. Native builds (`bunx shallot build --target windows|mac|linux`, `--portable` for bundled Chromium) run only from a shallot source checkout — the rust crate they need isn't in the npm package. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
 
 A project is pure data: `shallot.json` (the manifest: scene + plugin enablement) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
 

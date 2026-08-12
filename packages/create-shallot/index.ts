@@ -118,8 +118,9 @@ plugin enablement) in your IDE.
 bunx shallot build
 \`\`\`
 
-Builds a web bundle to \`dist/\`. For native targets:
-\`bunx shallot build --target windows|mac|linux\` (add \`--release\` for an optimized build).
+Builds a web bundle to \`dist/\`. Native targets
+(\`--target windows|mac|linux\`) build from a shallot source checkout, not the
+installed package: the rust crate they need isn't published to npm.
 `;
 
 const agents = (name: string) => `# ${name}
@@ -137,7 +138,7 @@ A WebGPU game built on \`@dylanebert/shallot\`.
 \`\`\`bash
 bunx tsc --noEmit                                # typecheck — run after every change
 bunx shallot dev                                 # run with hot reload while you work
-bunx shallot build [--target windows|mac|linux]  # ship it (web bundle, or a native app)
+bunx shallot build                               # ship it (web bundle to dist/)
 bunx shallot verify                              # prove it: boot headless, check it renders, exit 0/nonzero
 \`\`\`
 

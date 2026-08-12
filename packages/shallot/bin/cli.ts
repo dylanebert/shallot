@@ -18,7 +18,8 @@ const usage = `
     recipe    Copy an example recipe out of the package (bare: list them)
 
   Options
-    --target <platform>   web (default), windows, mac, linux
+    --target <platform>   web (default), windows, mac, linux. The native targets build from the
+                          shallot source repo — the rust crate they need isn't in the npm package.
     --release             Optimized build (build, run)
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
                           Larger, but self-contained and runs anywhere. Required on Linux
