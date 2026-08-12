@@ -2,6 +2,17 @@
 
 Notable changes per release. Versions follow [semver](https://semver.org).
 
+## 0.9.1 — 2026-08-12
+
+The packaging patch, and the recommended target for a 0.8→0.9 port. The two Node-consumed exports ship compiled, the duplicate-TypeGPU check catches a same-version double-load, and `Profile` grows the GPU byte and pipeline counters a budget gate can read.
+
+- **packaging** — `./vite` and `./harness/browser` resolve to compiled `dist/*.js`, with types still coming from source. A `vite.config.ts`, a `playwright.config.ts`, or a plain Node script can now import `projectPlugin` and `REAL_GPU_LAUNCH` directly; through 0.9.0 that threw `ERR_UNKNOWN_FILE_EXTENSION`, because Node applies no TypeScript transform to a `node_modules` import. A linked dev checkout builds them once (`bun run scripts/build-tooling.ts`, which `bun pm pack` runs via `prepack`): the `default` condition points at `dist/` with no source fallback.
+- **gpu** — the duplicate-TypeGPU check counts writes to `__TYPEGPU_VERSION__` instead of comparing its value, so two copies of the same pinned minor no longer read as one. TypeGPU stamps that key on every module evaluation, which a value comparison cannot see; the shape that motivated it is a consumer's own direct `typegpu/data` import in a zero-config registry install. `checkTgsl`'s JSDoc now records what it still cannot catch (a duplicate whose write lands before the counter installs, and a metadata-free bundle whose canary resolves anyway), with the real-device install gate as the backstop for both.
+- **profile** — GPU byte totals and honest pipeline accounting on the public seam: `bufferBytes`, `textureBytes`, per-label `allocBytes`, and `lazyBytes`, plus `compiledPipelines` and `pipelineCalls` beside `compile`, which now keys by descriptor label rather than scope name. An allocator declares a lazily-grown pool entry with `LazyAlloc` (`{ lazy: true }` on the create descriptor) so a byte budget can exclude what real GPU backpressure grows rather than inferring it from a label string.
+- **verify** — `--timings` reads the exact in-page `__harness` install moment instead of quantizing it to a 500 ms poll, and adds a resource-timing readout (request count, summed transfer duration, slowest N) with a raised buffer, so a symlinked workspace dependency's unbundled modules cannot saturate the spec's 250-entry default and flatten the number. Stdout flushes before exit, so a truncated pipe no longer reports as a crash.
+- **cli** — `--target windows|mac|linux` says what it needs. Native builds run from a Shallot source checkout, since the rust crate they link is not in the npm package; `bunx shallot build` from an installed package is web.
+- **internals** — the sky's star hash and the glTF PBR path each shipped a second, dead implementation of code the live path already had, and the scene codec's attribute parser carried an unreachable branch. All three are gone, each with the check that keeps it gone. The fountain and voxel showcase gates skip on a software adapter instead of crashing.
+
 ## 0.9.0 — 2026-08-03
 
 The GPU substrate is now TypeGPU end to end: one schema defines each CPU↔GPU layout, engine-authored shaders are TGSL, and GPU logic can run on the CPU for exact unit tests. See [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) for the complete 0.8→0.9 consumer port.

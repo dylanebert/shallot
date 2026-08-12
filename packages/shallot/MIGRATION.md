@@ -1,13 +1,15 @@
-# Migrating from 0.8 to 0.9
+# Migrating from 0.8 to 0.9.1
 
 Shallot 0.9 moves its GPU substrate to TypeGPU. GPU layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources. The ECS, scene, and ordinary component APIs keep their 0.8 shape.
+
+Port to 0.9.1, not 0.9.0. The API is the same, and 0.9.1 carries the packaging and diagnostics fixes a port hits first: compiled tooling exports, and a duplicate-TypeGPU check that catches two copies of the same pinned minor. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
 
 ## Install the GPU toolchain
 
 Install the engine and its TypeGPU peer at the same time. Keep TypeGPU on the 0.11 minor used by Shallot; two copies in one bundle race over the same metadata map.
 
 ```bash
-bun add @dylanebert/shallot@^0.9 typegpu@~0.11.9
+bun add @dylanebert/shallot@^0.9.1 typegpu@~0.11.9
 bun add -d unplugin-typegpu@~0.11.6 eslint@^9 eslint-plugin-typegpu@~0.11.1
 bun add -d @babel/core@^7.28.6 @babel/eslint-parser@^7.28.6 @babel/plugin-syntax-typescript@^7.28.5
 ```
@@ -27,6 +29,8 @@ export default defineConfig({
     optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] },
 });
 ```
+
+`@dylanebert/shallot/vite` ships compiled as of 0.9.1, which is what lets a config file import it at all. Vite's default config loader bundles `vite.config.ts` and runs it in a real `node` subprocess, and Node applies no TypeScript transform to a `node_modules` import, so against 0.9.0 this recipe throws `ERR_UNKNOWN_FILE_EXTENSION` before Vite starts. `@dylanebert/shallot/harness/browser` in a `playwright.config.ts` is the same shape.
 
 The direct `unplugin-typegpu/vite` plugin is the supported ejected-project route. `typegpuPlugin()` is reserved for Shallot's synthesized CLI config; do not add it here. A second transform rewrites generated metadata and breaks it.
 
