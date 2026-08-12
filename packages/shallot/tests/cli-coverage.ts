@@ -11,6 +11,8 @@
 // reason, including "by decision, permanently"). The row's reason carries the detail a second row would
 // otherwise have held: what's covered and by what, plus what isn't and who closes it.
 
+import { posix, resolve } from "node:path";
+
 /** the four tiers of truth a row may claim, per the spec's Locked decision. */
 export type Arm = "unit" | "tier" | "extract" | "gap";
 
@@ -93,16 +95,102 @@ export async function cliTestFiles(root: string): Promise<string[]> {
     return out;
 }
 
+/** the filesystem-derived half of the per-arm link checks, gathered by {@link cliCoverageLinks} and
+ *  passed in as plain data so `cli-coverage.test.ts` red-proves the check against fixtures with no
+ *  filesystem. Both fields travel together in one value the check requires, rather than two the caller
+ *  may supply half of (`coding.md`: two values that must agree travel as one). */
+export interface CoverageLinks {
+    /** every population file imported by at least one test-tier file anywhere in the repo. */
+    importedByTest: readonly string[];
+    /** the exported identifier names of each population file, keyed by the same path the rows use. */
+    exports: Readonly<Record<string, readonly string[]>>;
+}
+
+/** every `from "…"` / `import("…")` specifier in a source file. Deliberately lexical, matching inside
+ *  string literals and comments too — over-matching costs a spurious *link*, and a link only ever makes
+ *  the check more permissive for the rowed file it names, never less. */
+const IMPORT_SPECIFIER = /(?:from|import|require)\s*\(?\s*["']([^"']+)["']/g;
+
+/** each `export`ed identifier name: the declaration forms (`export const|function|class|type|…`) plus
+ *  named export lists, where `x as y` exports `y`. `export default` names nothing and is skipped. */
+const EXPORT_DECL =
+    /^export\s+(?:declare\s+)?(?:async\s+)?(?:function\s*\*?|const|let|var|abstract\s+class|class|interface|type|enum)\s+([A-Za-z_$][A-Za-z0-9_$]*)/gm;
+const EXPORT_LIST = /^export\s+(?:type\s+)?\{([^}]*)\}/gm;
+
+function exportsOf(source: string): string[] {
+    const names = new Set<string>();
+    for (const [, name] of source.matchAll(EXPORT_DECL)) if (name) names.add(name);
+    for (const [, list] of source.matchAll(EXPORT_LIST)) {
+        for (const entry of (list ?? "").split(",")) {
+            const parts = entry
+                .trim()
+                .replace(/^type\s+/, "")
+                .split(/\s+as\s+/);
+            const name = parts[parts.length - 1]?.trim();
+            if (name && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) names.add(name);
+        }
+    }
+    return [...names];
+}
+
+/** gathers the filesystem half of the per-arm link checks: which population files any test-tier file in
+ *  the repo imports, and what each population file exports. Kept beside {@link cliPopulation} and
+ *  {@link cliTestFiles} — the pure {@link checkCliCoverage} takes the result as plain data.
+ *
+ *  The import walk spans the whole repo, not {@link cliTestFiles}'s glob-scoped inverse: `catalog.test.ts`
+ *  sits beside `src/project/engine.ts` and inside the population, but `cli-coverage.test.ts` and
+ *  `create-shallot.test.ts` don't, and a row's test may live anywhere. Only relative specifiers resolve —
+ *  a package specifier (`@dylanebert/shallot`) reaches this layer's files only through a barrel, which is
+ *  not the direct import a `unit` row claims. */
+export async function cliCoverageLinks(
+    root: string,
+    population: readonly string[],
+): Promise<CoverageLinks> {
+    const walked = new Set(population);
+    const importedByTest = new Set<string>();
+    for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: root })) {
+        if (path.includes("node_modules/") || !TEST_TIER_SUFFIXES.test(path)) continue;
+        const dir = posix.dirname(path);
+        const source = await Bun.file(resolve(root, path)).text();
+        for (const [, specifier] of source.matchAll(IMPORT_SPECIFIER)) {
+            if (!specifier?.startsWith(".")) continue;
+            const base = posix.join(dir, specifier);
+            for (const candidate of [base, `${base}.ts`, `${base}/index.ts`]) {
+                if (walked.has(candidate)) importedByTest.add(candidate);
+            }
+        }
+    }
+
+    const exports: Record<string, string[]> = {};
+    for (const file of population) {
+        exports[file] = exportsOf(await Bun.file(resolve(root, file)).text());
+    }
+    return { importedByTest: [...importedByTest], exports };
+}
+
 export type FindingKind =
     | "file-missing-row"
     | "row-names-unwalked-file"
     | "file-has-multiple-rows"
     | "row-missing-reason"
-    | "undischarged-extract-missing-stage";
+    | "undischarged-extract-missing-stage"
+    | "unit-row-file-untested"
+    | "gap-row-names-no-export";
 
 export interface Finding {
     kind: FindingKind;
     detail: string;
+}
+
+/** whether `reason`'s prose contains any of `exports` as a whole word. The boundary is the identifier
+ *  character set (`$` and `_` included), not `\b` — `\b` would let a row naming `buildWebEjected` satisfy
+ *  an export called `buildWeb`. A file with no exports can satisfy nothing, which is the intended answer:
+ *  a `gap` row over a file whose exported surface is empty has nothing left to name. */
+function namesAnExport(reason: string, exports: readonly string[]): boolean {
+    return exports.some((name) => {
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`(?<![A-Za-z0-9_$])${escaped}(?![A-Za-z0-9_$])`).test(reason);
+    });
 }
 
 /** the both-directions completeness check: every walked file has exactly one row, every row names a
@@ -115,13 +203,28 @@ export interface Finding {
  *  extract row converts to unit by close or moves to gap with its name recorded" — an extract with no
  *  owning stage is a promise nobody is keeping). Pure over the registry + population, so
  *  `cli-coverage.test.ts` red-proves it against fixtures with no filesystem.
+ *
+ *  Two per-arm links make a stale classification red rather than merely wrong, the analogue of
+ *  `coverage.ts`'s resolve-the-glob rule. A `unit` row's file must be imported by at least one test-tier
+ *  file (`unit-row-file-untested`), and a `gap` row's reason must name at least one identifier the file
+ *  actually exports (`gap-row-names-no-export`). **Neither proves the arm.** An import is not an
+ *  assertion — a test importing a file for one export leaves the rest of it untested, and the `unit`
+ *  link cannot see that. Naming an export is not a claim that the export is uncovered: `testing.md`'s
+ *  "a 'references the symbol' check is satisfiable by a mention" applies in full, and this is weaker
+ *  than even that, since an export name appearing anywhere in the prose satisfies it — including inside
+ *  a sentence describing what *is* covered. What they catch is drift: a `unit` row left standing after
+ *  its test file is deleted, and a `gap` row whose named occupants were renamed out of the file. The
+ *  `tier` and `extract` arms are deliberately unlinked — a `tier` row's evidence is a bench or install
+ *  run no static read of this repo can see, and an `extract` row already owes its discharging stage.
  */
 export function checkCliCoverage(
     rows: readonly CoverageRow[],
     population: readonly string[],
+    links: CoverageLinks,
 ): Finding[] {
     const findings: Finding[] = [];
     const walked = new Set(population);
+    const imported = new Set(links.importedByTest);
     const countByFile = new Map<string, number>();
 
     for (const row of rows) {
@@ -133,6 +236,12 @@ export function checkCliCoverage(
         }
         if (row.arm === "extract" && row.stage === undefined) {
             findings.push({ kind: "undischarged-extract-missing-stage", detail: row.file });
+        }
+        if (row.arm === "unit" && !imported.has(row.file)) {
+            findings.push({ kind: "unit-row-file-untested", detail: row.file });
+        }
+        if (row.arm === "gap" && !namesAnExport(row.reason, links.exports[row.file] ?? [])) {
+            findings.push({ kind: "gap-row-names-no-export", detail: row.file });
         }
         countByFile.set(row.file, (countByFile.get(row.file) ?? 0) + 1);
     }
