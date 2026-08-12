@@ -1,9 +1,7 @@
 ---
 paths:
     - "packages/shallot/src/standard/render/**/*.ts"
-    - "packages/shallot/src/standard/render/**/*.wgsl"
     - "packages/shallot/src/standard/sear/**/*.ts"
-    - "packages/shallot/src/standard/sear/**/*.wgsl"
     - "packages/shallot/src/standard/glaze/**/*.ts"
     - "packages/shallot/src/standard/part/**/*.ts"
 ---

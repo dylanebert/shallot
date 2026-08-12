@@ -1,7 +1,6 @@
 ---
 paths:
     - "examples/**/*.html"
-    - "examples/**/*.css"
 ---
 
 # Visual Identity
