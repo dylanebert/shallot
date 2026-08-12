@@ -20,20 +20,20 @@ import { Glob } from "bun";
 // `--root <dir>` points the check at an alternate tree (fixture-driven proof; check-boundary.ts
 // carries the same flag for the same reason).
 
-type Violation = { file: string; script: string; detail: string };
+export type Violation = { file: string; script: string; detail: string };
 
-function escapeRegExp(s: string): string {
+export function escapeRegExp(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-async function readScripts(pkgPath: string): Promise<Record<string, string>> {
+export async function readScripts(pkgPath: string): Promise<Record<string, string>> {
     const pkg = (await Bun.file(pkgPath).json()) as { scripts?: Record<string, string> };
     return pkg.scripts ?? {};
 }
 
 // Expand the root `workspaces` globs (bun's own resolution: a literal dir, or `<base>/*`) into
 // every member's package.json path.
-async function workspacePkgPaths(rootDir: string, patterns: string[]): Promise<string[]> {
+export async function workspacePkgPaths(rootDir: string, patterns: string[]): Promise<string[]> {
     const paths: string[] = [];
     for (const pattern of patterns) {
         const starIdx = pattern.indexOf("*");
@@ -52,16 +52,19 @@ async function workspacePkgPaths(rootDir: string, patterns: string[]): Promise<s
 }
 
 // Direction 1 — every declared script resolves to an existing file/dir, or a real delegate.
-async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
+export async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
     const violations: Violation[] = [];
     for (const pkgPath of pkgPaths) {
         const dir = dirname(pkgPath);
         const scripts = await readScripts(pkgPath);
         for (const [name, cmd] of Object.entries(scripts)) {
             for (const segment of cmd.split("&&")) {
-                const m = segment.match(
-                    /\bbun(?:x)?\s+(?:(run|test)\s+)?(?:--cwd\s+(\S+)\s+)?(\S+)/,
-                );
+                // `bunx <pkg>` resolves an npm-published binary (like `npx`) — never a repo-local
+                // file, never a delegate to a declared script. It's an external command, exactly
+                // like a bare `tsc` / `playwright test` segment below: unchecked here on purpose.
+                const isBunx = /\bbunx\s+/.test(segment);
+                if (isBunx) continue;
+                const m = segment.match(/\bbun\s+(?:(run|test)\s+)?(?:--cwd\s+(\S+)\s+)?(\S+)/);
                 if (!m) continue;
                 const [, verb, cwdArg, token] = m;
                 if (token.startsWith("-")) continue;
@@ -97,7 +100,7 @@ async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
 }
 
 // Direction 2 — every root script name is cited in AGENTS.md or .claude/rules/*.md.
-async function checkDocs(
+export async function checkDocs(
     rootDir: string,
     rootScripts: Record<string, string>,
 ): Promise<Violation[]> {
@@ -116,7 +119,14 @@ async function checkDocs(
 
     const violations: Violation[] = [];
     for (const name of Object.keys(rootScripts)) {
-        const cited = new RegExp(`\\bbun\\s+(?:run\\s+)?${escapeRegExp(name)}\\b`).test(combined);
+        // `:` namespaces a script name (`test:install`) rather than separating one — `\b` treats
+        // it as a word boundary, so a bare `\b`-terminated match on "foo" is satisfied by a
+        // citation of "foo:bar" alone. Require the char right after the name to not continue a
+        // longer script-name token (word char, `:`, or `-`), so a namespaced sibling's citation
+        // can't stand in for its own.
+        const cited = new RegExp(`\\bbun\\s+(?:run\\s+)?${escapeRegExp(name)}(?![\\w:-])`).test(
+            combined,
+        );
         if (!cited) {
             violations.push({
                 file: "package.json",
@@ -132,7 +142,7 @@ async function checkDocs(
 // already asserts is clean, plus every `.ts`/`.mjs` file under the trees a `scripts/*` file's
 // citation could realistically live in. Keyed by repo-relative path so a candidate can exclude
 // its own text (a file's self-reference to its own name doesn't count as a citation).
-async function loadCorpus(rootDir: string): Promise<Map<string, string>> {
+export async function loadCorpus(rootDir: string): Promise<Map<string, string>> {
     const files = new Map<string, string>();
     const docTargets = [
         "AGENTS.md",
@@ -167,7 +177,7 @@ async function loadCorpus(rootDir: string): Promise<Map<string, string>> {
 }
 
 // Direction 3 — every root `scripts/*` entry file is reachable.
-async function checkReachable(
+export async function checkReachable(
     rootDir: string,
     rootScripts: Record<string, string>,
 ): Promise<Violation[]> {
@@ -175,7 +185,13 @@ async function checkReachable(
     if (!existsSync(scriptsDir)) return [];
     const glob = new Glob("*.{ts,mjs}");
     const files: string[] = [];
-    for await (const match of glob.scan({ cwd: scriptsDir })) files.push(match);
+    for await (const match of glob.scan({ cwd: scriptsDir })) {
+        // A `.test.ts` file's reachability mechanism is `bun test`'s own glob discovery, not a
+        // script target / import / doc citation — it's not an "entry file" in this direction's
+        // sense (check-pack.ts excludes the same suffix from the tarball for the same reason).
+        if (match.endsWith(".test.ts")) continue;
+        files.push(match);
+    }
 
     const targeted = new Set<string>();
     for (const cmd of Object.values(rootScripts)) {
@@ -189,7 +205,13 @@ async function checkReachable(
         const extMatch = file.match(/\.(ts|mjs)$/);
         const ext = extMatch ? extMatch[1] : "ts";
         const stem = file.slice(0, file.length - ext.length - 1);
-        const pattern = new RegExp(`[/'"\`]${escapeRegExp(stem)}(?:\\.${ext})?['"\`]`);
+        // Reachability's property is a *path* citation — a quoted mention of the bare stem
+        // (`"orphan-test-file"` in prose) is not one, so require a literal `/` immediately
+        // before the stem: `scripts/<stem>` (doc/prose form) or `./<stem>` / `../…/<stem>`
+        // (an import specifier). The trailing guard keeps the match from landing mid-filename
+        // (`<stem>-extra.ts`, `<stem>.tsx`) without demanding a specific closing character, so
+        // both quoted citations and unquoted prose (`scripts/gltf-conformance.ts --write`) count.
+        const pattern = new RegExp(`/${escapeRegExp(stem)}(?:\\.${ext})?(?![\\w.-])`);
         const selfKey = `scripts/${file}`;
         let cited = false;
         for (const [key, text] of corpus) {
@@ -210,47 +232,66 @@ async function checkReachable(
     return violations;
 }
 
-const rootArgIdx = process.argv.indexOf("--root");
-const rootDir = resolve(
-    rootArgIdx >= 0 ? process.argv[rootArgIdx + 1] : resolve(import.meta.dir, ".."),
-);
+export async function run(rootDir: string): Promise<{
+    pkgPaths: string[];
+    rootScripts: Record<string, string>;
+    existsViolations: Violation[];
+    docViolations: Violation[];
+    reachViolations: Violation[];
+}> {
+    const rootPkgPath = resolve(rootDir, "package.json");
+    const rootPkg = (await Bun.file(rootPkgPath).json()) as {
+        scripts?: Record<string, string>;
+        workspaces?: string[];
+    };
+    const rootScripts = rootPkg.scripts ?? {};
+    const pkgPaths = [rootPkgPath, ...(await workspacePkgPaths(rootDir, rootPkg.workspaces ?? []))];
 
-const rootPkgPath = resolve(rootDir, "package.json");
-const rootPkg = (await Bun.file(rootPkgPath).json()) as {
-    scripts?: Record<string, string>;
-    workspaces?: string[];
-};
-const rootScripts = rootPkg.scripts ?? {};
-const pkgPaths = [rootPkgPath, ...(await workspacePkgPaths(rootDir, rootPkg.workspaces ?? []))];
+    const existsViolations = await checkExists(pkgPaths);
+    const docViolations = await checkDocs(rootDir, rootScripts);
+    const reachViolations = await checkReachable(rootDir, rootScripts);
 
-const existsViolations = await checkExists(pkgPaths);
-const docViolations = await checkDocs(rootDir, rootScripts);
-const reachViolations = await checkReachable(rootDir, rootScripts);
-
-const total = existsViolations.length + docViolations.length + reachViolations.length;
-
-if (total > 0) {
-    if (existsViolations.length > 0) {
-        console.error(`✗ ${existsViolations.length} script(s) resolving to a missing target:\n`);
-        for (const v of existsViolations) console.error(`  ${v.file} → "${v.script}": ${v.detail}`);
-    }
-    if (docViolations.length > 0) {
-        console.error(
-            `\n✗ ${docViolations.length} root script(s) not cited in AGENTS.md or .claude/rules/*.md:\n`,
-        );
-        for (const v of docViolations) console.error(`  "${v.script}": ${v.detail}`);
-    }
-    if (reachViolations.length > 0) {
-        console.error(`\n✗ ${reachViolations.length} scripts/* file(s) unreachable:\n`);
-        for (const v of reachViolations) console.error(`  ${v.file}: ${v.detail}`);
-    }
-    console.error(
-        "\nA script name is sanctioned routine (coding.md Suite speed, shallot-script-surface's " +
-            "three classes) — fix the target, cite it, or delete the alias.",
-    );
-    process.exit(1);
+    return { pkgPaths, rootScripts, existsViolations, docViolations, reachViolations };
 }
 
-console.log(
-    `✓ script surface clean (${pkgPaths.length} package.json, ${Object.keys(rootScripts).length} root scripts)`,
-);
+if (import.meta.main) {
+    const rootArgIdx = process.argv.indexOf("--root");
+    const rootDir = resolve(
+        rootArgIdx >= 0 ? process.argv[rootArgIdx + 1] : resolve(import.meta.dir, ".."),
+    );
+
+    const { pkgPaths, rootScripts, existsViolations, docViolations, reachViolations } =
+        await run(rootDir);
+
+    const total = existsViolations.length + docViolations.length + reachViolations.length;
+
+    if (total > 0) {
+        if (existsViolations.length > 0) {
+            console.error(
+                `✗ ${existsViolations.length} script(s) resolving to a missing target:\n`,
+            );
+            for (const v of existsViolations) {
+                console.error(`  ${v.file} → "${v.script}": ${v.detail}`);
+            }
+        }
+        if (docViolations.length > 0) {
+            console.error(
+                `\n✗ ${docViolations.length} root script(s) not cited in AGENTS.md or .claude/rules/*.md:\n`,
+            );
+            for (const v of docViolations) console.error(`  "${v.script}": ${v.detail}`);
+        }
+        if (reachViolations.length > 0) {
+            console.error(`\n✗ ${reachViolations.length} scripts/* file(s) unreachable:\n`);
+            for (const v of reachViolations) console.error(`  ${v.file}: ${v.detail}`);
+        }
+        console.error(
+            "\nA script name is sanctioned routine (coding.md Suite speed, shallot-script-surface's " +
+                "three classes) — fix the target, cite it, or delete the alias.",
+        );
+        process.exit(1);
+    }
+
+    console.log(
+        `✓ script surface clean (${pkgPaths.length} package.json, ${Object.keys(rootScripts).length} root scripts)`,
+    );
+}
