@@ -15,7 +15,7 @@ bun install
 bunx shallot dev    # run it, with hot reload
 ```
 
-`bunx shallot build` ships it — web by default, or `--target windows|mac|linux` for native. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero.
+`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero. Native builds (`--target windows|mac|linux`) run from a shallot source checkout, not an installed package: the rust crate they need isn't published to npm.
 
 ## add to an existing project
 
