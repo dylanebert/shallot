@@ -68,3 +68,26 @@ describe("devConfig", () => {
         expect(headers["Cross-Origin-Embedder-Policy"]).toBe("require-corp");
     });
 });
+
+// the invariant that motivated folding buildConfig out of dev.ts, which neither describe above asserts:
+// one project previews through devConfig and ships through buildConfig, so the two must resolve the same
+// project the same way. A root divergence loads a different manifest in dev than in the shipped bundle;
+// a plugin-order divergence runs the TGSL transform after the project plugin, leaving `virtual:project`'s
+// engine imports untransformed — and the CLI is the only place either config can come from.
+describe("devConfig ∩ buildConfig — the shared prefix", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shallot-prefix-"));
+    writeFileSync(join(dir, "shallot.json"), '{ "scene": null, "plugins": {} }\n');
+
+    test("both root vite at the project and both run typegpu first", () => {
+        const build = buildConfig(dir);
+        const dev = devConfig(dir, "demo", { open: false });
+        expect(build.root).toBe(dev.root);
+
+        const buildPlugins = build.plugins.map((p) => p.name);
+        const devPlugins = dev.plugins.map((p) => p.name);
+        expect(buildPlugins[0]).toBe("unplugin-typegpu");
+        // dev's list is build's plus its own synth-index middleware — asserted as a prefix, not as equal
+        // membership, so a reorder on either side goes red while the two sets stay identical
+        expect(devPlugins.slice(0, buildPlugins.length)).toEqual(buildPlugins);
+    });
+});
