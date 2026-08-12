@@ -12,7 +12,7 @@
 //     native reproduction leaves the trace behind with no Playwright in the loop.
 //
 // The watcher is opt-in behind `watch=1`, not always-on, for one reason: it does a per-frame GPU→CPU drawArgs
-// readback, which stalls the pipeline and would skew the profiler frame timing that `bun run bench:tumble`
+// readback, which stalls the pipeline and would skew the profiler frame timing that `bun run scripts/bench-tumble.ts`
 // gates on across every twin. Passive hooks cost nothing idle, so they install unconditionally.
 //
 // Diagnostic only — nothing here feeds the gold oracle, and it reads world/Part state, never mutates it

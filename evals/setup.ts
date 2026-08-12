@@ -9,7 +9,7 @@
 // the scaffold's agent docs lose the section pointing at it. The agent is left with the code, its JSDoc,
 // and the product workflow (build/run/verify) — but none of the version-matched teaching context.
 //
-// Run: `bun run evals/setup.ts <task> [--json] [--bare]`  (or `bun run eval:setup <task>`)
+// Run: `bun run evals/setup.ts <task> [--json] [--bare]`
 
 import {
     mkdirSync,

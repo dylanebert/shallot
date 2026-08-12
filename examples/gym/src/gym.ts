@@ -104,7 +104,7 @@ export interface Scenario {
     /** an optional param-gated extra-check phase run after {@link assert}, on the live (still-running)
      *  scene — for checks that drive the scene rather than read a settled snapshot (a scripted pointer
      *  drag, a visual-presence walk). Returns `[]` when its opts aren't set, so a plain `run()` (the
-     *  bench:tumble gold gate) is unperturbed. Its checks fold into the same wire verdict as `assert`'s. */
+     *  `scripts/bench-tumble.ts` gold gate) is unperturbed. Its checks fold into the same wire verdict as `assert`'s. */
     probe?(state: State, opts: Record<string, unknown>): Promise<Check[]>;
     live?(state: State): string;
 }

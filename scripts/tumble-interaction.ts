@@ -1,8 +1,9 @@
 import { skipReason, teardownBridge, verify } from "./verify";
 
-// `bun run tumble:interaction` — the standing interaction + visual gate for the tumble gym sample host
-// (spec tumble-inline stage 5). A thin wrapper over the shipped gate exactly like bench:tumble / recipes /
-// flows: it drives `shallot verify examples/gym --query scenario=<slug>` on a real device, reusing one
+// `bun run scripts/tumble-interaction.ts` — the standing interaction + visual gate for the tumble gym
+// sample host (spec tumble-inline stage 5). A thin wrapper over the shipped gate exactly like
+// scripts/bench-tumble.ts / recipes / flows: it drives `shallot verify examples/gym --query
+// scenario=<slug>` on a real device, reusing one
 // bridge session, and reads the probe's Verdict checks.
 //
 // Two things the gold oracle can't cover, proven on a real device:
@@ -16,7 +17,7 @@ import { skipReason, teardownBridge, verify } from "./verify";
 // Visuals and input never feed the gold oracle; these are additive checks on the same run.
 //
 //   ⚠ ONE bridge session at a time. On WSL the bridge is a SINGLE shared host browser; never run this
-//   alongside another `bun bench`, `bun run bench:tumble`, `bun run flows`, or `bun run recipes`.
+//   alongside another `bun bench`, `bun run scripts/bench-tumble.ts`, `bun run flows`, or `bun run recipes`.
 
 const GYM = "examples/gym";
 
@@ -115,11 +116,11 @@ async function runProbe(p: Probe): Promise<boolean> {
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
     if (args.includes("--help") || args.includes("-h")) {
-        console.log(`Usage: bun run tumble:interaction [--only <slug>]
+        console.log(`Usage: bun run scripts/tumble-interaction.ts [--only <slug>]
 
 Drives the tumble gym host's interaction + visual probe through \`shallot verify\` on a real device,
 reusing one bridge session. Display-gated (native hardware / the WSL host bridge). ONE bridge session at a
-time — never run concurrent with another bench / bench:tumble / flows / recipes.
+time — never run concurrent with another bench / scripts/bench-tumble.ts / flows / recipes.
 
 Options:
   --only <slug>   Run a single probe by its scenario slug (${PROBES.map((p) => p.slug).join(", ")})`);
@@ -128,7 +129,9 @@ Options:
 
     const skip = skipReason();
     if (skip) {
-        console.log(`bun run tumble:interaction needs native hardware (${skip}). Skipping.`);
+        console.log(
+            `bun run scripts/tumble-interaction.ts needs native hardware (${skip}). Skipping.`,
+        );
         process.exit(0);
     }
 

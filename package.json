@@ -10,19 +10,14 @@
     ],
     "scripts": {
         "build": "bun run --cwd packages/shallot build",
-        "check": "bun run format && tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts",
+        "check": "bun run format && tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts",
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun test packages/shallot",
         "test:install": "bun run scripts/install-test.ts",
         "bench": "bun run scripts/bench.ts",
-        "bench:tumble": "bun run scripts/bench-tumble.ts",
-        "tumble:interaction": "bun run scripts/tumble-interaction.ts",
-        "tumble:repro": "bun run scripts/tumble-repro.ts",
         "flows": "bun run scripts/flows.ts",
         "recipes": "bun run scripts/recipes.ts",
-        "local": "bun run scripts/local-test.ts",
-        "eval:setup": "bun run evals/setup.ts",
-        "eval:grade": "bun run evals/grade.ts"
+        "local": "bun run scripts/local-test.ts"
     },
     "devDependencies": {
         "@babel/core": "^7.28.6",

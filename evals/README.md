@@ -34,13 +34,13 @@ the tarball.
 
 ```bash
 # 1. set up an isolated project (prints its path on the last line)
-bun run eval:setup red-box
+bun run evals/setup.ts red-box
 #    → /tmp/shallot-eval-red-box-XXXX/app
 
 # 2. an agent works in that dir with only PROMPT.md + the installed engine
 
 # 3. grade it — typecheck, build, then drive the withheld gate
-bun run eval:grade red-box /tmp/shallot-eval-red-box-XXXX/app
+bun run evals/grade.ts red-box /tmp/shallot-eval-red-box-XXXX/app
 ```
 
 `grade` prints per-check marks, the gate's assertions, a PASS/FAIL/INCOMPLETE verdict, and a
