@@ -491,15 +491,33 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "non-true manifest entry.",
     },
     {
+        file: "packages/shallot/src/project/assets.ts",
+        arm: "unit",
+        reason:
+            "the internal sibling holding the `./vite` entry's pure readers (`exports.md` \"Barrel " +
+            'rules": a module-internal export shared across sibling files lives in a sibling imported ' +
+            "directly, never re-exported from the published subpath — the shape sear/codegen.ts uses). " +
+            "Every export is a pure function over (path | raw text) with no vite, server, or hook " +
+            "surface, and every one is directly asserted by assets.test.ts against a temp dir: " +
+            "manifestPath through readManifest's absent/valid/corrupt cases, manifestWarnings' " +
+            "unparseable + unknown-plugin-key + silent-on-valid arms, contentType's mapped/case-" +
+            "insensitive/unmapped arms, and resolveAssetPath's resolve, missing, directory, traversal, " +
+            "and sibling-prefix arms. manifestPath and manifestWarnings stay on the published subpath " +
+            "by re-export from vite.ts (bin/build.ts, bin/features.ts and bin/toolchain.ts resolve " +
+            "manifestPath through it).",
+    },
+    {
         file: "packages/shallot/src/project/vite.ts",
         arm: "gap",
         reason:
-            "assetSrc, manifestWarnings, orphanedAssets, contentType, readManifest, discoverScenes, and " +
-            "findPublicDirs are all directly asserted by vite.test.ts against a temp dir. projectPlugin's " +
+            "assetSrc, orphanedAssets, discoverScenes, and findPublicDirs are all directly asserted by " +
+            "vite.test.ts against a temp dir; the pure readers this file used to hold — readManifest, " +
+            "manifestWarnings, contentType, resolveAssetPath — moved to the internal sibling assets.ts " +
+            "and are asserted by assets.test.ts (own row below). projectPlugin's " +
             "resolveId, load, configureServer's static-asset middleware, handleHotUpdate, and " +
             "generateBundle's orphan deletion + byte accounting are each exercised against a stub " +
-            "`this`/server, per hook. The path-traversal guard was extracted into resolveAssetPath and " +
-            "tested there directly, because its escape branch is empirically unreachable through any real " +
+            "`this`/server, per hook. The path-traversal guard lives in resolveAssetPath (assets.ts) and " +
+            "is tested there directly, because its escape branch is empirically unreachable through any real " +
             'req.url: `new URL(req.url, "http://localhost")`\'s own WHATWG dot-segment normalization ' +
             "strips every crafted payload two independent sweeps tried (raw, percent- and double-encoded " +
             "dots, encoded slash, backslash, overlong/unicode dot forms, absolute-URL and protocol-relative " +

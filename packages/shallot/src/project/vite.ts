@@ -1,10 +1,14 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "path";
+import { dirname, isAbsolute, join, relative, resolve } from "path";
 import typegpu from "unplugin-typegpu/vite";
 import type { Plugin, Rollup, ViteDevServer } from "vite";
-import { KNOWN_ENGINE_PLUGINS } from "./engine";
+import { contentType, manifestPath, readManifest, resolveAssetPath } from "./assets";
 import { generateModule } from "./generate";
-import { type Manifest, normalize } from "./manifest";
+
+// the manifest descriptor half of `assets.ts` is part of this subpath's published surface — the CLI
+// (`bin/build.ts`, `bin/features.ts`, `bin/toolchain.ts`) and consumers already resolve both through
+// `@dylanebert/shallot/vite`. The readers beside them stay internal to `src/project/`.
+export { manifestPath, manifestWarnings } from "./assets";
 
 /**
  * cross-origin isolation headers, applied by every serve surface (`shallot dev`, `shallot run`'s preview,
@@ -36,56 +40,6 @@ export const CROSS_ORIGIN_ISOLATION = {
  */
 export function typegpuPlugin(): Plugin {
     return typegpu() as unknown as Plugin;
-}
-
-/** a project's `shallot.json` manifest path — the project descriptor the toolchain reads. */
-export function manifestPath(dir: string): string {
-    return join(dir, "shallot.json");
-}
-
-/**
- * the toolchain-boundary warnings for a project's raw `shallot.json` text: an unparseable file (else
- * `normalize` silently swallows it to `{}`), and a bool key naming no engine plugin (else it surfaces
- * only as a cryptic esbuild "no export named ${name}Plugin" at bundle time). Pure over (raw, known) so
- * the project test pins both paths without touching disk or spying on the console. `readManifest` emits
- * each with the file path prefixed.
- */
-export function manifestWarnings(raw: string, known: ReadonlySet<string>): string[] {
-    let parsed: unknown;
-    try {
-        parsed = JSON.parse(raw);
-    } catch {
-        return ["not valid JSON, ignored (the project runs with default plugins)"];
-    }
-    const plugins = (parsed as { plugins?: unknown })?.plugins;
-    if (typeof plugins !== "object" || plugins === null || Array.isArray(plugins)) return [];
-    const warnings: string[] = [];
-    for (const [name, value] of Object.entries(plugins)) {
-        // a bool declares an engine plugin (a local uses a specifier); a bool outside the known set names
-        // no engine plugin, so the generator's `${name}Plugin` import would miss
-        if (typeof value === "boolean" && !known.has(name)) {
-            warnings.push(
-                `"${name}" is not a known engine plugin (use a module specifier for a local plugin)`,
-            );
-        }
-    }
-    return warnings;
-}
-
-/**
- * read + parse a project's manifest, tolerating its absence (a scene-only project → {}); warn loudly on
- * a corrupt file or an unknown-plugin key before `normalize` normalizes the mistake away. @internal
- */
-export function readManifest(absDir: string): Manifest {
-    const path = manifestPath(absDir);
-    let text: string;
-    try {
-        text = readFileSync(path, "utf-8");
-    } catch {
-        return {}; // no manifest — a scene-only project
-    }
-    for (const w of manifestWarnings(text, KNOWN_ENGINE_PLUGINS)) console.warn(`  ! ${path}: ${w}`);
-    return normalize(text);
 }
 
 export function discoverScenes(dir: string): string[] {
@@ -136,53 +90,11 @@ export function assetSrc(file: string, publicDirs: string[]): string | null {
     return null;
 }
 
-// MIME for project public assets. Without it `res.end(data)` sends no Content-Type, so an SVG served
-// at `/icon.svg` (a project's icon) is rejected as a favicon and the tab falls back to a generic
-// icon. Covers the asset types a project's public/ holds.
-const MIME: Record<string, string> = {
-    svg: "image/svg+xml",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    webp: "image/webp",
-    gif: "image/gif",
-    ico: "image/x-icon",
-    json: "application/json",
-    scene: "text/plain; charset=utf-8",
-    wasm: "application/wasm",
-    glb: "model/gltf-binary",
-    gltf: "model/gltf+json",
-    bin: "application/octet-stream",
-    ktx2: "image/ktx2",
-};
-
-/** @internal */
-export function contentType(path: string): string | undefined {
-    return MIME[path.slice(path.lastIndexOf(".") + 1).toLowerCase()];
-}
-
 // signal a project file changing on disk: the dev server has no live edit session to weigh the change
 // against, so a full page reload is the clean answer — the page re-imports `virtual:project` (already
 // invalidated by the caller) and re-fetches assets.
 function signalChange(server: ViteDevServer) {
     server.ws.send({ type: "full-reload" });
-}
-
-/**
- * the served file `pathname` maps to under `dir`, or `null` if there isn't one — joins, then rejects a
- * result that lands outside `dir` before ever touching disk. `configureServer`'s own `new URL(req.url,
- * "http://localhost")` call already strips every dot-segment payload upstream (WHATWG's path-normalize
- * step resolves "." / ".." — including percent-encoded forms — before this ever sees `pathname`, verified
- * against curl-style raw request lines), so the escape branch is unreachable through any real request;
- * it's tested directly here, on a raw `pathname` the URL layer never gets to normalize first. @internal
- */
-export function resolveAssetPath(dir: string, pathname: string): string | null {
-    const filePath = join(dir, pathname);
-    // segment boundary, not a string prefix: a plain `startsWith(dir)` also admits a *sibling* whose
-    // name extends dir's basename (dir `/a/public` would accept `/a/public-secrets/x`), which is an
-    // escape, not a descendant.
-    if (filePath !== dir && !filePath.startsWith(dir + sep)) return null;
-    return existsSync(filePath) && statSync(filePath).isFile() ? filePath : null;
 }
 
 // serve project public/ assets (the project's own + a shared parent's) with correct MIME
