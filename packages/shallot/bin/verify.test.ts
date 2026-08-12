@@ -1151,21 +1151,44 @@ describe("driveHarness — the red arms every gate's red routes through", () => 
         errors: [],
     });
 
+    /** one of driveHarness's evaluate calls: the substring identifying its source, and what the page
+     *  answers with (a function is called, so an arm can throw). */
+    type Probe = { name: string; match: string; value: unknown | (() => unknown) };
+
     // a page that never renders anything real: the compositor screenshot always fails closed, so
     // `sampleFrame` reads null rather than fabricating a frame. `evaluate` dispatches on the probed
-    // function's own source — the only stable way to tell driveHarness's several distinct evaluate
-    // calls apart without threading a call counter through every test.
-    const stubPage = (evaluate: (fn: (...a: unknown[]) => unknown) => unknown) => ({
-        waitForFunction: async () => {},
-        evaluate: async (fn: (...a: unknown[]) => unknown) => evaluate(fn),
-        locator: () => ({
-            first: () => ({
-                screenshot: async () => {
-                    throw new Error("no canvas in this stub");
-                },
+    // function's own source — the only stable way to tell driveHarness's several distinct evaluate calls
+    // apart without threading a call counter through every test. A bare first-match `includes` chain is
+    // silent when two probe sources share a matched substring (every one of them contains
+    // `window.__harness`): the second probe takes the first arm's value, its own arm never runs, and the
+    // test still passes. So match *every* arm and reject an ambiguous source, then record the dispatch
+    // sequence — which the caller asserts, pinning that each probe fired exactly once and in order.
+    const stubPage = (probes: readonly Probe[]) => {
+        const fired: string[] = [];
+        const page = {
+            waitForFunction: async () => {},
+            evaluate: async (fn: (...a: unknown[]) => unknown) => {
+                const src = fn.toString();
+                const hit = probes.filter((p) => src.includes(p.match));
+                if (hit.length === 0) throw new Error(`unexpected evaluate: ${src}`);
+                if (hit.length > 1) {
+                    const names = hit.map((p) => p.name).join(", ");
+                    throw new Error(`ambiguous probe dispatch (${names}) for: ${src}`);
+                }
+                fired.push(hit[0].name);
+                const { value } = hit[0];
+                return typeof value === "function" ? (value as () => unknown)() : value;
+            },
+            locator: () => ({
+                first: () => ({
+                    screenshot: async () => {
+                        throw new Error("no canvas in this stub");
+                    },
+                }),
             }),
-        }),
-    });
+        };
+        return { page, fired };
+    };
 
     test("ready-timeout: window.__harness.ready never resolves is a hard FAIL, never a settle downgrade", async () => {
         const page = {
@@ -1201,28 +1224,32 @@ describe("driveHarness — the red arms every gate's red routes through", () => 
     });
 
     test('noRender opt-out: rendered reports "opt-out", never a fake true, and the pixel gate is skipped', async () => {
-        const page = stubPage((fn) => {
-            const src = fn.toString();
-            if (src.includes("noRender")) return true;
-            if (src.includes("typeof window.__harness")) return false; // hasRun probe → fallback verdict
-            throw new Error(`unexpected evaluate: ${src}`);
-        });
+        const { page, fired } = stubPage([
+            { name: "noRender", match: "noRender", value: true },
+            { name: "hasRun", match: "typeof window.__harness", value: false }, // → fallback verdict
+        ]);
         const args = parseVerifyArgs([]);
         const result = await driveHarness(page, baseResult(), args, [], []);
         expect(result.rendered).toBe("opt-out");
         expect(result.verdict).toEqual({ ok: true, checks: [{ name: "ready", ok: true }] });
         expect(result.pass).toBe(true);
+        // the opt-out's whole point: the pixel path is never reached, so neither frame probe fires
+        expect(fired).toEqual(["noRender", "hasRun"]);
     });
 
     test("probe-error verdict: a throwing __harness.run probe is a clean FAIL naming the error, never an unhandled rejection", async () => {
-        const page = stubPage((fn) => {
-            const src = fn.toString();
-            if (src.includes("noRender")) return false;
-            if (src.includes("typeof window.__harness")) throw new Error("page closed");
-            if (src.includes("requestAnimationFrame")) return undefined;
-            if (src.includes("pixelProbe")) return undefined;
-            throw new Error(`unexpected evaluate: ${src}`);
-        });
+        const { page, fired } = stubPage([
+            { name: "noRender", match: "noRender", value: false },
+            {
+                name: "hasRun",
+                match: "typeof window.__harness",
+                value: () => {
+                    throw new Error("page closed");
+                },
+            },
+            { name: "nextFrame", match: "requestAnimationFrame", value: undefined },
+            { name: "pixelProbe", match: "pixelProbe", value: undefined },
+        ]);
         const args = parseVerifyArgs([]);
         const result = await driveHarness(page, baseResult(), args, [], []);
         expect(result.verdict).toEqual({
@@ -1232,24 +1259,38 @@ describe("driveHarness — the red arms every gate's red routes through", () => 
             ],
         });
         expect(result.pass).toBe(false);
+        // a probe error short-circuits run(), never the pixel path — the capture still happens
+        expect(fired).toEqual(["noRender", "hasRun", "nextFrame", "pixelProbe"]);
     });
 
     test("hasRun-fallback verdict: no run() on the harness reads readiness alone, gated on captured page errors", async () => {
-        const page = stubPage((fn) => {
-            const src = fn.toString();
-            if (src.includes("noRender")) return false;
-            if (src.includes("typeof window.__harness")) return false;
-            if (src.includes("requestAnimationFrame")) return undefined;
-            if (src.includes("pixelProbe")) return undefined;
-            throw new Error(`unexpected evaluate: ${src}`);
-        });
+        // a fresh stub per drive: `fired` is per-run, so one shared page would read two runs' probes
+        const noRunHarness = () =>
+            stubPage([
+                { name: "noRender", match: "noRender", value: false },
+                { name: "hasRun", match: "typeof window.__harness", value: false },
+                { name: "nextFrame", match: "requestAnimationFrame", value: undefined },
+                { name: "pixelProbe", match: "pixelProbe", value: undefined },
+            ]);
         const args = parseVerifyArgs([]);
+        const sequence = ["noRender", "hasRun", "nextFrame", "pixelProbe"];
 
-        const clean = await driveHarness(page, baseResult(), args, [], []);
+        const cleanStub = noRunHarness();
+        const clean = await driveHarness(cleanStub.page, baseResult(), args, [], []);
         expect(clean.verdict).toEqual({ ok: true, checks: [{ name: "ready", ok: true }] });
+        expect(cleanStub.fired).toEqual(sequence);
 
-        const withPageError = await driveHarness(page, baseResult(), args, ["a page error"], []);
+        const errStub = noRunHarness();
+        const withPageError = await driveHarness(
+            errStub.page,
+            baseResult(),
+            args,
+            ["a page error"],
+            [],
+        );
         expect(withPageError.verdict).toEqual({ ok: false, checks: [{ name: "ready", ok: true }] });
+        // a captured page error changes the verdict's ok, never which probes run
+        expect(errStub.fired).toEqual(sequence);
     });
 });
 

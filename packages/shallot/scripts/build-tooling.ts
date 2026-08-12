@@ -55,7 +55,8 @@ for (const { entry, out } of entries) {
     }
 }
 
-// `src/project/` is a closed island (engine.ts/generate.ts/manifest.ts, no engine runtime, no TGSL) —
+// `src/project/` is a closed island (assets.ts/engine.ts/generate.ts/manifest.ts, no engine runtime,
+// no TGSL) —
 // verify empirically rather than assuming, since a duplicate engine identity landing in a Node-loaded
 // bundle would be a serious regression (the exact defect class this whole spec exists to fix).
 //
