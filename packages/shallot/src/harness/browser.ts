@@ -6,15 +6,11 @@
 // /vite`), so unlike every other export it ships a compiled `dist/harness-browser.js` alongside its
 // `.ts` source (`exports.md` — `tsc` still type-checks against source, only the runtime load target
 // differs). A `playwright.config.ts` resolves through Node's plain ESM loader, which applies no TS
-// transform to a `node_modules` import — a raw `.ts` export threw `ERR_UNKNOWN_FILE_EXTENSION` there at
-// any publish state (confirmed 2026-08-04 against the registry package, no staging involved). This
-// compile lands in 0.9.1; as of registry 0.9.0, a direct `import { REAL_GPU_LAUNCH } from
-// "@dylanebert/shallot/harness/browser"` inside a config still throws that error, so the claim only
-// becomes true once 0.9.1 publishes. The consumer roster (Orrstead, Spindle, the demo) still threads it
-// over an env var (`HARNESS_LAUNCH`) rather than importing it directly, because their configs were
-// written and gated against 0.9.0 — retiring that threading is 0.9.1 work once they adopt the compiled
-// export; see `orrstead/harness/{core,playwright.config}.ts` for the pattern still in place. This
-// module never captures or launches anything itself, only names the floor.
+// transform to a `node_modules` import, so the raw `.ts` export published through 0.9.0 threw
+// `ERR_UNKNOWN_FILE_EXTENSION` there at any publish state (confirmed 2026-08-04 against the registry
+// package, no staging involved). The compile landed in 0.9.1, which is the floor a config importing
+// this module directly must depend on. This module never captures or launches anything itself, only
+// names the floor.
 
 /**
  * the `channel` + `args` a real-GPU Chromium launch needs, as a `chromium.launch(...)` opt or a
