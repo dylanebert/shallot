@@ -4,6 +4,7 @@ import {
     CLI_COVERAGE,
     CLI_POPULATION_GLOBS,
     checkCliCoverage,
+    cliCoverageLinks,
     cliPopulation,
     cliTestFiles,
     globToRegExp,
@@ -15,8 +16,12 @@ import {
 // rowed file, adding an oracle/lab scratch file). None of these fixture cases touch the filesystem or
 // the real registry.
 describe("checkCliCoverage (fixtures)", () => {
+    // the cases below predate the per-arm link checks and exercise the structural rules only; they assert
+    // with `toContainEqual`, so an extra link finding on the same fixture row can't mask them.
+    const NoLinks = { importedByTest: [], exports: {} };
+
     test("a walked file with no row is a finding", () => {
-        const findings = checkCliCoverage([], ["real/file.ts"]);
+        const findings = checkCliCoverage([], ["real/file.ts"], NoLinks);
         expect(findings).toContainEqual({ kind: "file-missing-row", detail: "real/file.ts" });
     });
 
@@ -24,6 +29,7 @@ describe("checkCliCoverage (fixtures)", () => {
         const findings = checkCliCoverage(
             [{ file: "ghost.ts", arm: "unit", reason: "not real" }],
             [],
+            NoLinks,
         );
         expect(findings).toContainEqual({ kind: "row-names-unwalked-file", detail: "ghost.ts" });
     });
@@ -33,7 +39,7 @@ describe("checkCliCoverage (fixtures)", () => {
             { file: "a.ts", arm: "unit" as const, reason: "the pure half" },
             { file: "a.ts", arm: "gap" as const, reason: "occupant: theEffectfulHalf" },
         ];
-        const findings = checkCliCoverage(rows, ["a.ts"]);
+        const findings = checkCliCoverage(rows, ["a.ts"], NoLinks);
         expect(findings).toContainEqual({
             kind: "file-has-multiple-rows",
             detail: "a.ts (2 rows)",
@@ -41,7 +47,11 @@ describe("checkCliCoverage (fixtures)", () => {
     });
 
     test("a row with an empty reason is a finding", () => {
-        const findings = checkCliCoverage([{ file: "a.ts", arm: "gap", reason: "  " }], ["a.ts"]);
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "gap", reason: "  " }],
+            ["a.ts"],
+            NoLinks,
+        );
         expect(findings).toContainEqual({ kind: "row-missing-reason", detail: "a.ts" });
     });
 
@@ -49,6 +59,7 @@ describe("checkCliCoverage (fixtures)", () => {
         const findings = checkCliCoverage(
             [{ file: "a.ts", arm: "extract", reason: "pure logic trapped in an effectful body" }],
             ["a.ts"],
+            NoLinks,
         );
         expect(findings).toContainEqual({
             kind: "undischarged-extract-missing-stage",
@@ -67,6 +78,7 @@ describe("checkCliCoverage (fixtures)", () => {
                 },
             ],
             ["a.ts"],
+            NoLinks,
         );
         expect(findings).toEqual([]);
     });
@@ -76,7 +88,69 @@ describe("checkCliCoverage (fixtures)", () => {
             { file: "a.ts", arm: "unit" as const, reason: "directly asserted by a.test.ts" },
             { file: "b.ts", arm: "tier" as const, reason: "covered by `bun bench`'s foo scenario" },
         ];
-        expect(checkCliCoverage(rows, ["a.ts", "b.ts"])).toEqual([]);
+        expect(
+            checkCliCoverage(rows, ["a.ts", "b.ts"], {
+                importedByTest: ["a.ts"],
+                exports: { "a.ts": ["thing"], "b.ts": ["other"] },
+            }),
+        ).toEqual([]);
+    });
+
+    // the two per-arm link checks. Neither proves the arm — a test may import a file and assert nothing
+    // about it, and a reason may name an export it doesn't actually leave uncovered. Both make a *stale*
+    // row red instead of merely wrong.
+    test("a unit row whose file no test imports is a finding", () => {
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "unit", reason: "directly asserted by a.test.ts" }],
+            ["a.ts"],
+            { importedByTest: [], exports: { "a.ts": ["thing"] } },
+        );
+        expect(findings).toContainEqual({ kind: "unit-row-file-untested", detail: "a.ts" });
+    });
+
+    test("a unit row whose file a test imports is clean", () => {
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "unit", reason: "directly asserted by a.test.ts" }],
+            ["a.ts"],
+            { importedByTest: ["a.ts"], exports: { "a.ts": ["thing"] } },
+        );
+        expect(findings).toEqual([]);
+    });
+
+    test("only the unit arm owes an import — a gap row's file needs none", () => {
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "gap", reason: "occupant: thing" }],
+            ["a.ts"],
+            { importedByTest: [], exports: { "a.ts": ["thing"] } },
+        );
+        expect(findings).toEqual([]);
+    });
+
+    test("a gap row naming no export of its own file is a finding", () => {
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "gap", reason: "occupant: theRenamedThing" }],
+            ["a.ts"],
+            { importedByTest: [], exports: { "a.ts": ["thing"] } },
+        );
+        expect(findings).toContainEqual({ kind: "gap-row-names-no-export", detail: "a.ts" });
+    });
+
+    test("a gap row's occupant matches on a word boundary, not a substring", () => {
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "gap", reason: "occupant: buildWebEjected" }],
+            ["a.ts"],
+            { importedByTest: [], exports: { "a.ts": ["buildWeb"] } },
+        );
+        expect(findings).toContainEqual({ kind: "gap-row-names-no-export", detail: "a.ts" });
+    });
+
+    test("a gap row over a file with no exports at all is a finding, not a free pass", () => {
+        const findings = checkCliCoverage(
+            [{ file: "a.ts", arm: "gap", reason: "occupant: thing" }],
+            ["a.ts"],
+            { importedByTest: [], exports: { "a.ts": [] } },
+        );
+        expect(findings).toContainEqual({ kind: "gap-row-names-no-export", detail: "a.ts" });
     });
 });
 
@@ -110,7 +184,9 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
     test("every walked file has exactly one row, every row names a walked file", async () => {
         const population = await cliPopulation(root);
         expect(population.length).toBeGreaterThan(0); // the walk itself must reach real files
-        const findings = checkCliCoverage(CLI_COVERAGE, population);
+        const links = await cliCoverageLinks(root, population);
+        expect(links.importedByTest.length).toBeGreaterThan(0); // the import walk must resolve something
+        const findings = checkCliCoverage(CLI_COVERAGE, population, links);
         expect(findings).toEqual([]);
     });
 
