@@ -18,7 +18,7 @@
 //
 // The pointer path is dispatched-event, not CDP-trusted input: `shallot verify` drives the page through the
 // published `window.__harness` and exposes no page.mouse to a caller, so a standing gate that stays a thin
-// verify wrapper (bench:tumble's shape) synthesizes the events in-page. They are real `PointerEvent`
+// verify wrapper (`scripts/bench-tumble.ts`'s shape) synthesizes the events in-page. They are real `PointerEvent`
 // objects on the real canvas element flowing through the real InputPlugin handlers — the same path a user's
 // mouse takes, minus the browser's trusted-input flag.
 

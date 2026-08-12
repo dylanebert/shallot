@@ -3,9 +3,9 @@ import { resolve } from "node:path";
 import { skipReason } from "./verify";
 import { type Bridge, start as startBridge } from "./wsl-bridge";
 
-// `bun run tumble:repro` — the trusted-input floor-vanish repro + standing gate (spec tumble-inline stage 6b).
-// A thin bun orchestrator over the node driver (scripts/tumble-repro-driver.mjs): it owns the WSL→Windows
-// bridge lifecycle exactly like bench:tumble, then spawns the driver under NODE (Bun's Playwright client
+// `bun run scripts/tumble-repro.ts` — the trusted-input floor-vanish repro + standing gate (spec tumble-inline
+// stage 6b). A thin bun orchestrator over the node driver (scripts/tumble-repro-driver.mjs): it owns the
+// WSL→Windows bridge lifecycle exactly like scripts/bench-tumble.ts, then spawns the driver under NODE (Bun's Playwright client
 // hangs on the bridge — wsl-bridge.ts fact 2) with the bridge's `--connect` ws endpoint. The driver boots the
 // gym vite server, connects to the host's real-GPU browser, and drives a bridge plank with browser-trusted
 // `page.mouse` flicks (one-frame cursor jumps) until any draw pair's drawn count drops below its derivation
@@ -21,8 +21,8 @@ import { type Bridge, start as startBridge } from "./wsl-bridge";
 //     discriminating half). Exits nonzero if either fails.
 //
 //   ⚠ ONE bridge session at a time. On WSL the bridge is a SINGLE shared host browser (scripts/wsl-bridge.ts);
-//   never run this alongside `bun bench`, `bun run bench:tumble`, `bun run tumble:interaction`, `bun run
-//   flows`, or `bun run recipes`.
+//   never run this alongside `bun bench`, `bun run scripts/bench-tumble.ts`, `bun run
+//   scripts/tumble-interaction.ts`, `bun run flows`, or `bun run recipes`.
 
 const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 const DRIVER = resolve(import.meta.dir, "tumble-repro-driver.mjs");
@@ -237,7 +237,9 @@ function report(r: DriverResult): void {
 async function runGate(): Promise<void> {
     const skip = skipReason();
     if (skip) {
-        console.log(`bun run tumble:repro --gate needs native hardware (${skip}). Skipping.`);
+        console.log(
+            `bun run scripts/tumble-repro.ts --gate needs native hardware (${skip}). Skipping.`,
+        );
         process.exit(0);
     }
     const bar = "=".repeat(64);
@@ -295,7 +297,7 @@ async function runRecipeSweep(): Promise<void> {
     const skip = skipReason();
     if (skip) {
         console.log(
-            `bun run tumble:repro --recipe drag-below needs native hardware (${skip}). Skipping.`,
+            `bun run scripts/tumble-repro.ts --recipe drag-below needs native hardware (${skip}). Skipping.`,
         );
         process.exit(0);
     }
@@ -393,11 +395,11 @@ async function runRecipeSweep(): Promise<void> {
 async function main(): Promise<void> {
     const argv = process.argv.slice(2);
     if (argv.includes("--help") || argv.includes("-h")) {
-        console.log(`Usage: bun run tumble:repro [--gate] [--recipe drag-below] [--inject nan|inf|far] [--dpr <n>]
+        console.log(`Usage: bun run scripts/tumble-repro.ts [--gate] [--recipe drag-below] [--inject nan|inf|far] [--dpr <n>]
 
 Drives joints-bridge with browser-trusted page.mouse flicks over the WSL→host real-GPU bridge. Display-gated
 (native hardware / the WSL host bridge). ONE bridge session at a time — never run concurrent with another
-bench / bench:tumble / tumble:interaction / flows / recipes.
+bench / scripts/bench-tumble.ts / scripts/tumble-interaction.ts / flows / recipes.
 
 Modes:
   (default)          Diagnostic escalation (F1): five levels of growing drag violence, first-break report.
@@ -427,7 +429,7 @@ Options:
 
     const skip = skipReason();
     if (skip) {
-        console.log(`bun run tumble:repro needs native hardware (${skip}). Skipping.`);
+        console.log(`bun run scripts/tumble-repro.ts needs native hardware (${skip}). Skipping.`);
         process.exit(0);
     }
 
