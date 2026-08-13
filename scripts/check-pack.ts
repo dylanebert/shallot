@@ -48,4 +48,32 @@ if (violations.length > 0) {
     process.exit(1);
 }
 
-console.log(`✓ tarball clean (${files.length} files, no test.ts or fixtures)`);
+// the native-host crate ships in the tarball so `shallot build --target <native>` compiles it lazily
+// from a standard install. Assert the crate source and the relocated icon are present, and that the
+// build artifacts (target/) never ship.
+const required = ["rust/window/Cargo.toml", "rust/window/Cargo.lock", "assets/icon-1024.png"];
+const missing = required.filter((f) => !files.includes(f));
+if (missing.length > 0) {
+    console.error(`✗ ${missing.length} required file(s) missing from the npm pack:\n`);
+    for (const f of missing) console.error(`  ${f}`);
+    console.error(
+        "\nThe rust/window crate source and the icon must ship for native builds from an install.",
+    );
+    process.exit(1);
+}
+
+const targetLeaks = files.filter((f) => f.startsWith("rust/window/target/"));
+if (targetLeaks.length > 0) {
+    console.error(
+        `✗ ${targetLeaks.length} rust/window/target/ file(s) leaked into the npm pack:\n`,
+    );
+    for (const f of targetLeaks) console.error(`  ${f}`);
+    console.error(
+        "\nBuild artifacts must not ship. Exclude them via the `files` field in package.json.",
+    );
+    process.exit(1);
+}
+
+console.log(
+    `✓ tarball clean (${files.length} files, no test.ts or fixtures, crate + icon present)`,
+);

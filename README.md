@@ -17,7 +17,7 @@ bun install
 bunx shallot dev
 ```
 
-`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. Native builds (`--target windows|mac|linux`) run from a checkout of this repo, not an installed package: the rust crate they need isn't published to npm.
+`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. Native builds (`--target windows|mac|linux`) compile the Rust window host from source on your machine, so they need the Rust toolchain plus per-target system dependencies (see [from source](#from-source)).
 
 A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, and TypeScript plugins you edit in your IDE.
 
@@ -70,6 +70,18 @@ bun run build
 ```
 
 `build` compiles the audio wasm kernel (`packages/shallot/rust/audio`) and the native window host (`packages/shallot/rust/window`). The tumble physics kernel is a committed wasm artifact: rebuild it with `bun run --cwd packages/shallot scripts/build-tumble-kernel.ts` after touching `rust/tumble`.
+
+### native build prerequisites
+
+`shallot build --target <platform>` compiles the Rust window host from the crate source shipped in the npm package. You need [Rust](https://rustup.rs) plus per-target system dependencies:
+
+| target | system webview | portable (CEF) |
+|---|---|---|
+| mac | Xcode Command Line Tools | same, plus a CEF runtime download on first build (or set `CEF_PATH`) |
+| linux | WebKitGTK dev headers (no usable WebGPU; use `--portable`) | CEF runtime download on first build (or `CEF_PATH`) |
+| windows | cross-compiled via cargo-xwin (`cargo install cargo-xwin`; no local Windows toolchain needed) | Visual Studio with the C++ workload incl. ATL, from WSL only (the build bridges to the Windows host) |
+
+Portable builds bundle the Chromium runtime (CEF) instead of the system webview. The CEF runtime auto-downloads on first build unless `CEF_PATH` points to a local copy.
 
 ### layout
 

@@ -13,7 +13,7 @@ import { basename, resolve } from "node:path";
 import { buildWeb } from "./build";
 
 const RUST_CRATE = resolve(import.meta.dir, "../rust/window");
-const DEFAULT_ICON = resolve(import.meta.dir, "../../../assets/icon-1024.png");
+const DEFAULT_ICON = resolve(import.meta.dir, "../assets/icon-1024.png");
 const WIN_TARGET = "x86_64-pc-windows-msvc";
 const MAC_TARGET = "aarch64-apple-darwin";
 const LINUX_TARGET = "x86_64-unknown-linux-gnu";
@@ -140,12 +140,12 @@ export function resolveCargoInvocation(
     return { kind: msvc ? "xwin" : "native", flags };
 }
 
-// rust/window isn't shipped in package.json's `files` (`bun pm pack --dry-run` ships 0 rust/window
-// entries — audio's wasm ships prebuilt, native needs the crate itself), so an installed package's
-// `cwd: RUST_CRATE` below would otherwise die on a raw ENOENT. Fail loud instead, before spawning cargo.
+// rust/window ships in the npm tarball (package.json `files` includes `rust/window`), so a missing
+// crate dir means a corrupt install or a non-standard layout, not an unsupported path. Guard it
+// before spawning cargo, since a raw ENOENT from `cwd: RUST_CRATE` below is an opaque failure.
 export function missingCrateDiagnostic(crateDir: string): string | null {
     if (existsSync(crateDir)) return null;
-    return `no rust/window crate found at ${crateDir} — native builds aren't available from an installed package (the crate isn't shipped; only the source repo has it). Build from source, or run inside the shallot monorepo.`;
+    return `no rust/window crate found at ${crateDir}. The crate ships in the npm package, so this looks like a corrupt install or a non-standard layout. Reinstall @dylanebert/shallot, or build from the source repo.`;
 }
 
 function requireRustCrate(): void {
