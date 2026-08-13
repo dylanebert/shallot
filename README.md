@@ -79,7 +79,7 @@ bun run build
 |---|---|---|
 | mac | Xcode Command Line Tools | same, plus a CEF runtime download on first build (or set `CEF_PATH`) |
 | linux | WebKitGTK dev headers (no usable WebGPU; use `--portable`) | CEF runtime download on first build (or `CEF_PATH`) |
-| windows | cross-compiled via cargo-xwin (no local Windows toolchain needed) | Visual Studio with the C++ workload incl. ATL, on Windows or WSL |
+| windows | cross-compiled via cargo-xwin (`cargo install cargo-xwin`; no local Windows toolchain needed) | Visual Studio with the C++ workload incl. ATL, from WSL only (the build bridges to the Windows host) |
 
 Portable builds bundle the Chromium runtime (CEF) instead of the system webview. The CEF runtime auto-downloads on first build unless `CEF_PATH` points to a local copy.
 
