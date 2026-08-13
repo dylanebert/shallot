@@ -1151,19 +1151,15 @@ try {
             assets.join(", ") || "(no assets dir)",
         );
 
-        // rust/window isn't in `files` (audio's wasm ships prebuilt, native needs the crate itself —
-        // `bun pm pack --dry-run` ships 0 rust/window entries), so `--target <os>` from this installed
-        // package must fail with native.ts's named missingCrateDiagnostic, not a raw ENOENT from
-        // cargoBuild's `cwd: RUST_CRATE`. The spec's Locked decision: native.ts "extracts and declares;
-        // it gets no real-cargo gate" — this is the one closed rung against that gap.
-        console.log("shallot build --target linux (missing rust/window crate → named diagnostic)…");
-        const nativeBuild = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
+        // rust/window ships in the tarball (package.json `files` includes `rust/window` minus
+        // `target/`), so `shallot build --target <os>` from an installed package compiles the crate
+        // lazily via cargo. A real native build is a multi-minute cargo/CEF arm — gated out of the
+        // default suite (coding.md suite-speed budgets). Here we assert the crate is present and
+        // resolvable in the installed layout; the premise builds (spec gates 4+5) run it for real.
         check(
-            "native build fails with the missing-crate diagnostic, not a raw ENOENT",
-            !nativeBuild.ok &&
-                /no rust\/window crate found at/.test(nativeBuild.out) &&
-                !/ENOENT/.test(nativeBuild.out),
-            nativeBuild.out.slice(-900),
+            "the rust/window crate ships in the installed package (lazy native-build source)",
+            existsSync(join(shipped, "rust/window/Cargo.toml")) &&
+                existsSync(join(shipped, "rust/window/Cargo.lock")),
         );
 
         tgslFlow(sandbox, dist);
