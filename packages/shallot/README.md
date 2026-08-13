@@ -4,7 +4,7 @@ webgpu game engine
 
 - fast by default
 - instant iteration
-- runs anywhere
+- runs in any WebGPU browser, or native
 
 ## start a project
 
@@ -15,21 +15,26 @@ bun install
 bunx shallot dev    # run it, with hot reload
 ```
 
-`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero. Native builds (`--target windows|mac|linux`) run from a shallot source checkout, not an installed package: the rust crate they need isn't published to npm.
+`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). Native builds (`--target windows|mac|linux`) run from a shallot source checkout, not an installed package: the rust crate they need isn't published to npm.
 
 ## add to an existing project
 
 ```bash
-bun install @dylanebert/shallot
+bun add @dylanebert/shallot typegpu@~0.11.9
+bun add -d unplugin-typegpu
 ```
+
+TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }` — [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/packages/shallot/MIGRATION.md) has the full setup.
 
 ## docs
 
-The repo is the documentation. [`AGENTS.md`](AGENTS.md) is the consumer contract — commands, the ECS and plugin conventions, the GPU and render rules — and [`examples/AGENTS.md`](examples/AGENTS.md) indexes a runnable project per problem. `bunx shallot recipe <name>` copies one out as a runnable project.
+The docs ship with the package. [`AGENTS.md`](https://github.com/dylanebert/shallot/blob/main/packages/shallot/AGENTS.md) is the consumer contract: commands, the ECS and plugin conventions, the GPU and render rules. [`examples/AGENTS.md`](https://github.com/dylanebert/shallot/blob/main/examples/AGENTS.md) indexes one recipe per problem, to read in place; `bunx shallot recipe <name> [dir]` copies one out as a runnable, version-matched project.
+
+Porting from 0.8? [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/packages/shallot/MIGRATION.md) is the GPU-consumer port.
 
 ## links
 
-- [agents.md](AGENTS.md)
+- [agents.md](https://github.com/dylanebert/shallot/blob/main/packages/shallot/AGENTS.md)
 - [github](https://github.com/dylanebert/shallot)
 - [discord](https://discord.gg/eEY75Nqk3C)
 

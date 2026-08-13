@@ -10,7 +10,8 @@
     "author": "Dylan Ebert <dylan.ebert@gmail.com>",
     "repository": {
         "type": "git",
-        "url": "https://github.com/dylanebert/shallot.git"
+        "url": "https://github.com/dylanebert/shallot.git",
+        "directory": "packages/shallot"
     },
     "homepage": "https://github.com/dylanebert/shallot",
     "bugs": "https://github.com/dylanebert/shallot/issues",

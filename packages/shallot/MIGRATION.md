@@ -1,6 +1,6 @@
 # Migrating from 0.8 to 0.9.1
 
-Shallot 0.9 moves its GPU substrate to TypeGPU. GPU layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources. The ECS, scene, and ordinary component APIs keep their 0.8 shape.
+This port touches GPU code only: the ECS, scene, and ordinary component APIs keep their 0.8 shape. What moves is the GPU substrate. Layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources.
 
 Port to 0.9.1, not 0.9.0. The API is the same, and 0.9.1 carries the packaging and diagnostics fixes a port hits first: compiled tooling exports, and a duplicate-TypeGPU check that catches two copies of the same pinned minor. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
 
@@ -36,7 +36,11 @@ The direct `unplugin-typegpu/vite` plugin is the supported ejected-project route
 
 `projectPlugin`'s argument is the directory it reads `shallot.json` (plugins + scene) from — omit it and `virtual:project` resolves to an empty manifest (default plugins, no scene, nothing to render), the same degenerate shape `shallot dev`/`shallot build` never produce because they always pass the project directory.
 
-The `optimizeDeps` line is proven load-bearing for Shallot's own zero-config path (`shallot dev` / `shallot build`'s synthesized config, red-proven by removing it): a registry install resolves both packages inside `node_modules`, so Vite's dev-server dependency scanner esbuild-prebundles them ahead of the typegpu transform on first page load — no Vite plugin, including `typegpu()`, runs over a prebundled dependency — and the result is a duplicate, untransformed TypeGPU identity that dies at pipeline warm. This ejected recipe carries the same line as a defensive default rather than a proven requirement: removing it from this exact on-disk `vite.config.ts` boot has not reproduced the failure across repeated real-hardware runs, and why that boot path differs from the CLI's synthesized one is unexplained. Keep the line either way — exclude both packages: the bare `@dylanebert/shallot` specifier covers every one of its subpath imports, but `typegpu` needs its own entry whenever your own source imports `typegpu/data` (or any other typegpu subpath) directly, a second, independent scanner entry the engine's exclusion doesn't reach.
+Keep the `optimizeDeps` exclusion, and name both packages. The bare `@dylanebert/shallot` specifier covers every one of its subpath imports, but `typegpu` needs its own entry whenever your own source imports `typegpu/data`, or any other typegpu subpath, directly: that is a second, independent scanner entry the engine's exclusion doesn't reach.
+
+Why: a registry install resolves both packages inside `node_modules`, so Vite's dev-server dependency scanner esbuild-prebundles them ahead of the typegpu transform on first page load. No Vite plugin, `typegpu()` included, runs over a prebundled dependency, and the result is a duplicate, untransformed TypeGPU identity that dies at pipeline warm.
+
+The line is load-bearing on Shallot's own zero-config path (`shallot dev` / `shallot build`'s synthesized config, red-proven by removing it). On this ejected recipe it is a defensive default rather than a proven requirement: removing it from this exact on-disk `vite.config.ts` boot has not reproduced the failure across repeated real-hardware runs, and why that boot path differs from the CLI's synthesized one is unexplained.
 
 ### Svelte and Vue
 
@@ -179,17 +183,20 @@ Shallot itself uses this flat ESLint config:
 import parser from "@babel/eslint-parser";
 import typegpu from "eslint-plugin-typegpu";
 
-export default [{
-    ...typegpu.configs.recommended,
-    files: ["**/*.ts", "**/*.tsx"],
-    languageOptions: {
-        parser,
-        parserOptions: {
-            requireConfigFile: false,
-            babelOptions: { plugins: ["@babel/plugin-syntax-typescript"] },
+export default [
+    { ignores: ["**/*.d.ts"] },
+    {
+        ...typegpu.configs.recommended,
+        files: ["**/*.ts", "**/*.tsx"],
+        languageOptions: {
+            parser,
+            parserOptions: {
+                requireConfigFile: false,
+                babelOptions: { plugins: ["@babel/plugin-syntax-typescript"] },
+            },
         },
     },
-}];
+];
 ```
 
 Run it as `eslint . --max-warnings=0`. Use your existing TypeScript ESLint parser instead when it supports your TypeScript version.
@@ -233,7 +240,7 @@ Backgrounds use the same pattern with `backgroundLayout`, `BgCtx`, and `register
 
 ## Replace changed shader exports
 
-This is the complete inventory of shader and fog-oracle helpers exported by the documented 0.8.1 package subpaths that changed name or shape. Relocatable shader text is now usually resolved lazily from the same TGSL functions the CPU tests call:
+Relocatable shader text is now usually resolved lazily from the same TGSL functions the CPU tests call. Every shader and fog-oracle helper exported by the documented 0.8.1 package subpaths that changed name or shape:
 
 | 0.8 | 0.9 |
 | --- | --- |

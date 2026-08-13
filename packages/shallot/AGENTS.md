@@ -35,7 +35,7 @@ Shallot is data-oriented, ECS, declarative. Code shaped this way composes with t
 ## Imports
 
 - `@dylanebert/shallot` — public API: components, types, plugins, shape factories. The default plugins (`RenderPlugin`, `SearPlugin`, `GlazePlugin`, `TransformsPlugin`, `PartPlugin`, `InputPlugin`, `SlabPlugin`) auto-register; components register through `Plugin.components`, parse-time metadata via `Plugin.traits`. The orbit camera is opt-in (`OrbitPlugin`, in `extras`)
-- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `text`, `tween`, `audio`, `mirror`, `profile`, `gltf`, `skin` (also reachable on the bare barrel)
+- `@dylanebert/shallot/extras` — opt-in plugins not in the default set: `lines`, `orbit`, `outline`, `text`, `tween`, `sprite`, `sky`, `profile`, `gltf`, `skin` (also reachable on the bare barrel). `audio` and `mirror` are on the bare barrel only (`AudioPlugin`, `MirrorPlugin`)
 - `@dylanebert/shallot/runtime` — platform layer (`now`, `requestFrame`, `readFile`) plus the adopted TypeGPU root (`Compute.root`), build check (`checkTgsl`), pipeline warm queue (`precompile`), and GPU probes
 - `@dylanebert/shallot/{render,sear,bvh,audio,tween,ecs,skin,utils}/core` + `/glaze` — extension API for custom render producers, compute passes, diagnostics. Schemas, TGSL/WGSL chunks, typed surface contracts, GPU buffer layouts
 

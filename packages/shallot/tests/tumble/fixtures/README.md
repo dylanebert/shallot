@@ -29,7 +29,7 @@ bun run gen-tumble-fixtures          # scene fixtures (this dir)
 bun run gen-tumble-gold <name>       # a committed gold vector (src/standard/tumble/engine/<name>.gold.json)
 ```
 
-Both require `reference/box3d` checked out beside the shallot repo (the kex workspace layout: `kex/reference/box3d`,
-sibling of `kex/shallot`) on the `harness` branch, plus cmake and a C toolchain. Absent it, the scripts error
+Both require the box3d C reference checked out at `../reference/box3d` relative to this repo (a `reference/box3d`
+sibling of the shallot checkout) on the `harness` branch, plus cmake and a C toolchain. Absent it, the scripts error
 honestly. Never hand-edit a fixture: it is C-generated truth, and a mismatch is an engine bug, not a fixture to
 adjust.
