@@ -116,7 +116,7 @@ describe("missingCrateDiagnostic", () => {
         const msg = missingCrateDiagnostic(dir);
         expect(msg).not.toBeNull();
         expect(msg).toContain(dir);
-        expect(msg).toContain("native builds aren't available from an installed package");
+        expect(msg).toContain("corrupt install");
     });
 });
 
