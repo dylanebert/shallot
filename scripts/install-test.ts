@@ -14,6 +14,7 @@ import {
     readdirSync,
     readFileSync,
     realpathSync,
+    renameSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
@@ -1161,6 +1162,25 @@ try {
             existsSync(join(shipped, "rust/window/Cargo.toml")) &&
                 existsSync(join(shipped, "rust/window/Cargo.lock")),
         );
+
+        // the crate-present check above says the file crossed the pack/install boundary; it says nothing
+        // about the CLI's behavior when it hasn't. `requireRustCrate` runs before cargo is spawned, so
+        // hiding the crate exercises the whole diagnostic path — resolution, message, non-zero exit —
+        // for the price of a rename, with no toolchain involved.
+        console.log("shallot build --target linux with the crate hidden (ENOENT guard fires)…");
+        const crate = join(shipped, "rust/window");
+        const hidden = `${crate}.hidden`;
+        renameSync(crate, hidden);
+        const guarded = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
+        renameSync(hidden, crate);
+        check(
+            "a missing crate fails with the corrupt-install diagnostic, not a raw ENOENT from cargo",
+            !guarded.ok &&
+                /corrupt install/.test(guarded.out) &&
+                !/ENOENT|No such file or directory/.test(guarded.out),
+            guarded.out.slice(-900),
+        );
+        check("the hidden crate is restored", existsSync(join(crate, "Cargo.toml")));
 
         tgslFlow(sandbox, dist);
 
