@@ -1,6 +1,6 @@
 {
     "name": "create-shallot",
-    "version": "0.9.1",
+    "version": "0.9.2",
     "type": "module",
     "bin": "./index.ts",
     "files": ["index.ts"],

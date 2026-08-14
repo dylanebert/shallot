@@ -15,12 +15,12 @@ bun install
 bunx shallot dev    # run it, with hot reload
 ```
 
-`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). Native builds (`--target windows|mac|linux`) run from a shallot source checkout, not an installed package: the rust crate they need isn't published to npm.
+`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). Native builds (`--target windows|mac|linux`) work from a standard install: the rust window host ships as crate source and compiles on first build, so you need the Rust toolchain plus your target's system dependencies.
 
 ## add to an existing project
 
 ```bash
-bun add @dylanebert/shallot typegpu@~0.11.9
+bun add @dylanebert/shallot typegpu@~0.12.0
 bun add -d unplugin-typegpu
 ```
 

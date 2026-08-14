@@ -1,16 +1,18 @@
-# Migrating from 0.8 to 0.9.1
+# Migrating from 0.8 to 0.9.2
 
 This port touches GPU code only: the ECS, scene, and ordinary component APIs keep their 0.8 shape. What moves is the GPU substrate. Layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources.
 
-Port to 0.9.1, not 0.9.0. The API is the same, and 0.9.1 carries the packaging and diagnostics fixes a port hits first: compiled tooling exports, and a duplicate-TypeGPU check that catches two copies of the same pinned minor. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
+Port to 0.9.2, the newest patch. The 0.9 API is the same across all three, and the patches carry the fixes a port hits first: compiled tooling exports, a duplicate-TypeGPU check that catches two copies of the same pinned minor, and the TypeGPU 0.12 toolchain the install block below pins. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
+
+Already on 0.9.0 or 0.9.1? You need none of this guide: only the TypeGPU toolchain bump in that install block, since 0.9.2 moved the peer to the 0.12 minor.
 
 ## Install the GPU toolchain
 
-Install the engine and its TypeGPU peer at the same time. Keep TypeGPU on the 0.11 minor used by Shallot; two copies in one bundle race over the same metadata map.
+Install the engine and its TypeGPU peer at the same time. Keep TypeGPU on the 0.12 minor used by Shallot; two copies in one bundle race over the same metadata map. The TypeGPU plugin versions move with the library, never independently.
 
 ```bash
-bun add @dylanebert/shallot@^0.9.1 typegpu@~0.11.9
-bun add -d unplugin-typegpu@~0.11.6 eslint@^9 eslint-plugin-typegpu@~0.11.1
+bun add @dylanebert/shallot@^0.9.2 typegpu@~0.12.0
+bun add -d unplugin-typegpu@~0.12.1 eslint@^9 eslint-plugin-typegpu@~0.12.0
 bun add -d @babel/core@^7.28.6 @babel/eslint-parser@^7.28.6 @babel/plugin-syntax-typescript@^7.28.5
 ```
 
