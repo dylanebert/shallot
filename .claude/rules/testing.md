@@ -181,6 +181,7 @@ One GPU dependency is pinned at many independent sites, and a partial bump is wo
 
 - Edit every site in one commit, then re-resolve the lockfile and **confirm the tree before reading any gate**: `find . -path '*/node_modules/typegpu' -not -path '*/node_modules/*/node_modules/typegpu/*'` must return the root-hoisted copy alone. A stale nested copy invalidates every type error and every runtime failure you are about to read.
 - The bump is not done until the example projects that pin their own copy are bumped too. `bun test` and `bunx tsc` never reach them; `bun bench` and `bun run flows` do, and they fail late.
+- **The docs are a pin site, and they fail latest of all — in a stranger's terminal.** The 0.12 bump hit all six manifests and left `packages/shallot/README.md` and `MIGRATION.md` documenting `typegpu@~0.11.9`; both ship in the tarball, so the install a stranger is told to paste resolves to a peer conflict or the duplicate identity that dies at pipeline warm. No gate read those lines, which is the same hole `check-versions.ts` was written for one release earlier. `check-docs.ts` now reads the three tracked pins from the manifests that declare them and compares them against every fenced `bun add` line in the repo's docs. Its scope is a command a reader runs, never prose: `CHANGELOG.md`'s dated `typegpu@~0.11.9` is a historical fact about what 0.9.0 shipped, and a blanket sweep moving it would be wrong in both directions.
 
 ## Tolerance tiers
 
