@@ -101,19 +101,29 @@ type PinDrift = { file: string; line: number; name: string; found: string; want:
 const drift: PinDrift[] = [];
 let scanned = 0;
 
-// `examples/*/public/` is asset territory, and `gym/public/gltf-samples` is a symlink into the glTF
-// sample corpus — 451 third-party READMEs the scan would follow, but only in a checkout where that
-// submodule happens to be populated. Skipping it keeps this gate's scope the same in every checkout,
-// which is the property that matters: a check whose coverage depends on local state is how a stale
-// tree reads green (`testing.md`, the release gate). No owned doc lives under those directories.
-const skip = (p: string) =>
-    p.startsWith("node_modules/") ||
-    p.includes("/node_modules/") ||
-    /^examples\/[^/]+\/public\//.test(p);
+// The doc set is what git tracks, not what the filesystem holds. A `**/*.md` scan reads whatever a
+// particular checkout happens to have on disk: `examples/gym/dist/` after any build (448 files),
+// and the glTF sample corpus through `gym/public/gltf-samples` wherever that submodule is populated
+// (451 more) — third-party and generated files we neither own nor should gate on, and present or
+// absent depending on what the last command did. Asking git makes the scope identical in every
+// checkout, which is the property that matters here: a check whose coverage depends on local state
+// is how a stale tree reads green, and this release already paid for that lesson once.
+const tracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], { cwd: root });
+if (!tracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — check-docs needs a git checkout to scope its doc set.",
+    );
+    process.exit(1);
+}
+const docs = tracked.stdout.toString().split("\0").filter(Boolean);
+if (docs.length === 0) {
+    console.error(
+        "✗ `git ls-files '*.md'` matched nothing — the doc scan would be vacuously green.",
+    );
+    process.exit(1);
+}
 
-const docGlob = new Glob("**/*.md");
-for await (const match of docGlob.scan({ cwd: root })) {
-    if (skip(match)) continue;
+for (const match of docs) {
     scanned++;
     const lines = (await Bun.file(resolve(root, match)).text()).split("\n");
     let inFence = false;
