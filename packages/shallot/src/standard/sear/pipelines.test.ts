@@ -783,6 +783,9 @@ test("a specializing surface compiled at two distinct variants emits two distinc
             queue: { onSubmittedWorkDone: async () => {} },
             pushErrorScope: () => {},
             popErrorScope: async () => null,
+            // typegpu 0.12's shader-module resolution reads `device.limits` to warn on overflow
+            // (core/pipeline/limitsOverflow.js) — absent on 0.11, so this mock had none.
+            limits: { maxUniformBuffersPerShaderStage: 12, maxStorageBuffersPerShaderStage: 10 },
             createShaderModule: () => ({}),
             createBindGroupLayout: () => ({}),
             createPipelineLayout: () => ({}),
