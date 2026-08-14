@@ -103,7 +103,7 @@ const histKernel = tgpu
             const gid = base + r * THREADS + lane;
             if (gid < count) {
                 std.atomicAdd(
-                    hist.$[(histLayout.$.keys[gid] >> histLayout.$.params.shift) & DIGIT_MASK],
+                    hist.$[(histLayout.$.keys[gid] >>> histLayout.$.params.shift) & DIGIT_MASK],
                     1,
                 );
             }
@@ -143,7 +143,7 @@ const scanKernel = tgpu
                 temp.$[bi] = temp.$[bi] + temp.$[ai];
             }
             offset = offset * 2;
-            up = up >> 1;
+            up = up >>> 1;
         }
         if (lane === 0) {
             scanLayout.$.chunkSums[input.wid.x] = temp.$[SCAN_ITEMS - 1];
@@ -151,7 +151,7 @@ const scanKernel = tgpu
         }
         let down = d.u32(1);
         while (down < SCAN_ITEMS) {
-            offset = offset >> 1;
+            offset = offset >>> 1;
             std.workgroupBarrier();
             if (lane < down) {
                 const ai = offset * (e0 + 1) - 1;
@@ -198,7 +198,7 @@ const reorderKernel = tgpu
         "use gpu";
         const lane = input.tid;
         const base = input.wid.x * EPW;
-        const word = lane >> 5;
+        const word = lane >>> 5;
         const bit = lane & 31;
         if (lane < RADIX) offsets.$[lane] = 0;
         if (lane < RADIX * MASK_WORDS) std.atomicStore(masks.$[lane], 0);
@@ -213,7 +213,7 @@ const reorderKernel = tgpu
             // an invalid lane parks on the out-of-range digit RADIX, so it flags no real digit's mask
             const digit = std.select(
                 d.u32(RADIX),
-                (k >> reorderLayout.$.params.shift) & DIGIT_MASK,
+                (k >>> reorderLayout.$.params.shift) & DIGIT_MASK,
                 valid,
             );
             const v = std.select(d.u32(0), reorderLayout.$.inVals[gid], valid);

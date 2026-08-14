@@ -150,7 +150,7 @@ describe("SAT production kernel resolution reference", () => {
                 "if ((roundedA && roundedB)) { " +
                 "r = collideRounded(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.sizeRadA.w, " +
                 "c.posB.xyz, c.quatB, c.sizeRadB.xyz, c.sizeRadB.w, c.dRel.xyz); } else { " +
-                "if (!(roundedA || roundedB)) { if (((sA == 0u) && (sB == 0u))) { " +
+                "if (!((roundedA || roundedB))) { if (((sA == 0u) && (sB == 0u))) { " +
                 "r = boxSat(c.posA.xyz, c.quatA, c.sizeRadA.xyz, c.posB.xyz, c.quatB, " +
                 "c.sizeRadB.xyz, c.dRel.xyz); } else { " +
                 "r = collideHull(polyMake(sA, c.posA.xyz, c.quatA, c.sizeRadA.xyz, hA), " +

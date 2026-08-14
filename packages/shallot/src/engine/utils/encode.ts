@@ -163,9 +163,9 @@ export const meshIdOf = tgpu.fn(
     d.u32,
 )((w1) => {
     "use gpu";
-    // masked, not a bare shift: WGSL's `>>` on u32 is logical and JS's is arithmetic, so the two arms
-    // would disagree on a word with bit 31 set (`>>>` has no TGSL binding). The field is 16 bits wide.
-    return (w1 >> 16) & 0xffff;
+    // `>>>`, not `>>`: JS's `>>` is arithmetic and WGSL's on u32 is logical, so the two arms would
+    // disagree on a word with bit 31 set. Both emit WGSL `>>`. The mask states the field's width.
+    return (w1 >>> 16) & 0xffff;
 });
 
 /** decode a quantized vertex position: `w0` = unorm16 pos.xy, `w1` = unorm16 pos.z | (meshId << 16),
@@ -392,8 +392,8 @@ export const unpackHdrColor = tgpu.fn(
 )((p) => {
     "use gpu";
     const r11 = p & 0x7ff;
-    const g11 = (p >> 11) & 0x7ff;
-    const b10 = (p >> 22) & 0x3ff;
+    const g11 = (p >>> 11) & 0x7ff;
+    const b10 = (p >>> 22) & 0x3ff;
     const rgv = unpack2x16float((r11 << 4) | (g11 << 20));
     const bbv = unpack2x16float(b10 << 5);
     return d.vec3f(rgv.x, rgv.y, bbv.x);
@@ -409,7 +409,7 @@ export const packHdrColor = tgpu.fn(
     const c = d.vec3f(clamp(rgb.x, 0, 65024), clamp(rgb.y, 0, 65024), clamp(rgb.z, 0, 65024));
     const rg = pack2x16float(d.vec2f(c.x, c.y));
     const bb = pack2x16float(d.vec2f(c.z, 0));
-    return ((rg >> 4) & 0x7ff) | (((rg >> 20) & 0x7ff) << 11) | (((bb >> 5) & 0x3ff) << 22);
+    return ((rg >>> 4) & 0x7ff) | (((rg >>> 20) & 0x7ff) << 11) | (((bb >>> 5) & 0x3ff) << 22);
 });
 
 /** WGSL `unpackHdrColor(p: u32) -> vec3<f32>`: the HDR color read side (gpu.md rule 6 — `rgb9e5ufloat`

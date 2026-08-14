@@ -201,9 +201,9 @@ const globalHistKernel = tgpu
         while (j < tileEnd) {
             const k = histLayout.$.keys[j];
             std.atomicAdd(gHist.$[subOff + (k & RADIX_MASK)], 1);
-            std.atomicAdd(gHist.$[subOff + RADIX + ((k >> 8) & RADIX_MASK)], 1);
-            std.atomicAdd(gHist.$[subOff + 2 * RADIX + ((k >> 16) & RADIX_MASK)], 1);
-            std.atomicAdd(gHist.$[subOff + 3 * RADIX + ((k >> 24) & RADIX_MASK)], 1);
+            std.atomicAdd(gHist.$[subOff + RADIX + ((k >>> 8) & RADIX_MASK)], 1);
+            std.atomicAdd(gHist.$[subOff + 2 * RADIX + ((k >>> 16) & RADIX_MASK)], 1);
+            std.atomicAdd(gHist.$[subOff + 3 * RADIX + ((k >>> 24) & RADIX_MASK)], 1);
             j = j + G_HIST_DIM;
         }
         std.workgroupBarrier();
@@ -337,7 +337,7 @@ const binningKernel = tgpu
         uniformityOptOut();
         const shift = paramLayout.$.P.shift;
         const binBlocks = paramLayout.$.P.binBlocks;
-        const passIdx = shift >> 3;
+        const passIdx = shift >>> 3;
         const waveIndex = idiv(input.tid, input.sgsize);
         const waveHists = idiv(WG, input.sgsize) * RADIX;
 
@@ -370,7 +370,7 @@ const binningKernel = tgpu
             const flags = Ballot([0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff]);
             let b = d.u32(0);
             while (b < 8) {
-                const bit = (key >> (b + shift)) & 1;
+                const bit = (key >>> (b + shift)) & 1;
                 const ballot = std.subgroupBallot(bit === 1);
                 const bArr = Ballot([ballot.x, ballot.y, ballot.z, ballot.w]);
                 const m = std.select(d.u32(0xffffffff), d.u32(0), bit === 1);
@@ -381,7 +381,7 @@ const binningKernel = tgpu
                 }
                 b = b + 1;
             }
-            const digit = (key >> shift) & RADIX_MASK;
+            const digit = (key >>> shift) & RADIX_MASK;
             const idx = digit + waveIndex * RADIX;
             let lowest = d.u32(0);
             let scan = d.u32(0);
@@ -457,7 +457,7 @@ const binningKernel = tgpu
         // 5. block-local position = wave-local rank + cross-wave base + block-local digit base
         let s5 = d.u32(0);
         while (s5 < KEYS_PER_THREAD) {
-            const digit = (k[s5] >> shift) & RADIX_MASK;
+            const digit = (k[s5] >>> shift) & RADIX_MASK;
             if (input.tid >= input.sgsize)
                 offsets[s5] =
                     offsets[s5] +
@@ -523,7 +523,7 @@ const binningKernel = tgpu
                 let f = input.tid;
                 while (f < PART_SIZE) {
                     std.atomicAdd(
-                        gD.$[RADIX + ((binLayout.$.srcKeys[fbBase + f] >> shift) & RADIX_MASK)],
+                        gD.$[RADIX + ((binLayout.$.srcKeys[fbBase + f] >>> shift) & RADIX_MASK)],
                         1,
                     );
                     f = f + WG;
@@ -540,13 +540,13 @@ const binningKernel = tgpu
                         FLAG_REDUCTION | (recomputed << 2),
                     );
                     if ((old & FLAG_MASK) === FLAG_INCLUSIVE) {
-                        lookbackReduction = lookbackReduction + (old >> 2);
+                        lookbackReduction = lookbackReduction + (old >>> 2);
                         lookbackComplete = true;
                     } else {
                         lookbackReduction = lookbackReduction + recomputed;
                     }
                 } else {
-                    lookbackReduction = lookbackReduction + (flagPayload >> 2);
+                    lookbackReduction = lookbackReduction + (flagPayload >>> 2);
                     if ((flagPayload & FLAG_MASK) === FLAG_INCLUSIVE) lookbackComplete = true;
                 }
                 spinCount = 0;
@@ -583,7 +583,7 @@ const binningKernel = tgpu
         while (s9 < KEYS_PER_THREAD) {
             const t = input.tid + s9 * WG;
             const key = std.atomicLoad(gD.$[t]);
-            const dg = (key >> shift) & RADIX_MASK;
+            const dg = (key >>> shift) & RADIX_MASK;
             digits[s9] = dg;
             binLayout.$.dstKeys[std.atomicLoad(gD.$[dg + PART_SIZE]) + t] = key;
             s9 = s9 + 1;

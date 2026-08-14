@@ -70,9 +70,11 @@ export const orderU32 = tgpu.fn(
     "use gpu";
     const u = bitcastF32toU32(f);
     // both arms carry the same formula; JS bitwise ops are signed 32-bit, so the CPU arm needs the
-    // `>>> 0` the transpiler rejects (the `tgsl.ts` dual shape — the ternary folds at shader-gen)
+    // trailing `>>> 0` to land back in u32 range (the `tgsl.ts` dual shape — the ternary folds at
+    // shader-gen). The shifts are `>>>` in both arms: JS `>>` on a u32 is arithmetic and disagrees
+    // with the WGSL `>>` both forms emit.
     return std.isBeingTranspiled()
-        ? std.select(~u, u | 0x80000000, u >> 31 === 0)
+        ? std.select(~u, u | 0x80000000, u >>> 31 === 0)
         : u >>> 31 === 0
           ? (u | 0x80000000) >>> 0
           : ~u >>> 0;
@@ -91,7 +93,7 @@ export const unorderU32 = tgpu.fn(
     "use gpu";
     return std.bitcastU32toF32(
         std.isBeingTranspiled()
-            ? std.select(~o, o ^ 0x80000000, o >> 31 === 1)
+            ? std.select(~o, o ^ 0x80000000, o >>> 31 === 1)
             : o >>> 31 === 1
               ? (o ^ 0x80000000) >>> 0
               : ~o >>> 0,
@@ -215,7 +217,7 @@ const ldsReduce = tgpu
                 ldsMax.$[tid] = std.max(ldsMax.$[tid], ldsMax.$[tid + s]);
             }
             std.workgroupBarrier();
-            s = s >> 1;
+            s = s >>> 1;
         }
         if (tid === 0) publish(Extremes({ mn: ldsMin.$[0], mx: ldsMax.$[0] }));
     })

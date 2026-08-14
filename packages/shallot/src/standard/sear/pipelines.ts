@@ -1560,7 +1560,7 @@ function typedShadowVs(
             const uv = d.vec2f(0, 0);
             const packed = bound.eids[input.iid];
             const eid = packed & EID_MASK;
-            const combo = packed >> COMBO_SHIFT;
+            const combo = packed >>> COMBO_SHIFT;
             const xform = Xform(bound.transforms[eid]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));
@@ -1632,7 +1632,7 @@ function typedClipShadowVertex(
             const uv = decodeUv(v.w, mq);
             const packed = bound.eids[iid];
             const eid = packed & EID_MASK;
-            const combo = packed >> COMBO_SHIFT;
+            const combo = packed >>> COMBO_SHIFT;
             const xform = Xform(bound.transforms[eid]);
             let world = d.vec4f(xformPoint(xform, localPos), 1);
             let worldNormal = d.vec3f(xformNormal(xform, localNormal));

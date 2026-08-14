@@ -78,7 +78,7 @@ const spriteFillMask = tgpu
         d.f32,
     )((fill, uv) => {
         "use gpu";
-        const mode = fill >> 16;
+        const mode = fill >>> 16;
         if (mode === 0) return d.f32(1);
         const amount = d.f32(fill & 0xffff) / 65535;
         let t = uv.x;

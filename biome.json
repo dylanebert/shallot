@@ -6,7 +6,8 @@
             "examples/**/*.ts",
             "evals/**/*.ts",
             "research/**/*.ts",
-            "scripts/**/*.ts"
+            "scripts/**/*.ts",
+            "!examples/*/public"
         ]
     },
     "linter": {

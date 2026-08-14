@@ -169,10 +169,11 @@ The suffix is the tier — bun only auto-discovers `.test.`/`.spec.`, so a diffe
 
 ## A fresh checkout's `bun test` count isn't a floor yet
 
-Three fixture trees live outside the commit, so a fresh clone or worktree silently runs a smaller suite than an established one. Measured 2026-08-10: 1826 pass / 33 fail where the populated tree read 2632 / 0. Place all three before quoting a count as the floor a later run is compared against.
+Four fixture trees live outside the commit, so a fresh clone or worktree silently runs a smaller suite than an established one. Measured 2026-08-10: 1826 pass / 33 fail where the populated tree read 2632 / 0. Place all four before quoting a count as the floor a later run is compared against. A worktree also needs its own `bun install` inside `shallot/` — without one every test file dies at import and the suite reads 0 pass / 157 fail, which is a provisioning failure wearing a red suite's clothes.
 
 - `packages/shallot/rust/audio/pkg/` — the gitignored wasm build artifact. Absent, five registry/standards tests fail on an unresolvable import, which reads as real red rather than a missing fixture. Build it, or copy it from a populated tree.
 - `packages/shallot/tests/fixtures/avbd/` — gitignored, ~161 MB. Copy it in.
+- `examples/gym/public/sponza`, a committed symlink to `reference/sponza-optimized` in the containing workspace. Not a submodule and not fetchable: copy the directory in. Absent, the `render` scenario's four import rows and the whole `gltf` scenario have no asset, and `bun bench` fails on a device rather than skipping. It is the quietest of the four, because nothing in `bun test` reads it.
 - The glTF corpus, a submodule at `reference/gltf-sample-assets` in the containing workspace, outside the package (`git submodule update --init reference/gltf-sample-assets`). Its absence is the dangerous one: 292 conformance tests degrade to an announced skip that no fail count shows. Run the required arm, `GLTF_CORPUS_REQUIRED=1 bun test`, so an absent corpus is red instead of quiet. In a worktree the init is near-instant — the superproject worktree shares `.git/modules`, so the objects are already local.
 
 ## Bumping a dep many packages pin, bump it everywhere at once
