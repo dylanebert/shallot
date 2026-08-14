@@ -101,9 +101,19 @@ type PinDrift = { file: string; line: number; name: string; found: string; want:
 const drift: PinDrift[] = [];
 let scanned = 0;
 
+// `examples/*/public/` is asset territory, and `gym/public/gltf-samples` is a symlink into the glTF
+// sample corpus — 451 third-party READMEs the scan would follow, but only in a checkout where that
+// submodule happens to be populated. Skipping it keeps this gate's scope the same in every checkout,
+// which is the property that matters: a check whose coverage depends on local state is how a stale
+// tree reads green (`testing.md`, the release gate). No owned doc lives under those directories.
+const skip = (p: string) =>
+    p.startsWith("node_modules/") ||
+    p.includes("/node_modules/") ||
+    /^examples\/[^/]+\/public\//.test(p);
+
 const docGlob = new Glob("**/*.md");
 for await (const match of docGlob.scan({ cwd: root })) {
-    if (match.startsWith("node_modules/") || match.includes("/node_modules/")) continue;
+    if (skip(match)) continue;
     scanned++;
     const lines = (await Bun.file(resolve(root, match)).text()).split("\n");
     let inFence = false;
