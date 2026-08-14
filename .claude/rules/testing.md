@@ -173,7 +173,14 @@ Three fixture trees live outside the commit, so a fresh clone or worktree silent
 
 - `packages/shallot/rust/audio/pkg/` — the gitignored wasm build artifact. Absent, five registry/standards tests fail on an unresolvable import, which reads as real red rather than a missing fixture. Build it, or copy it from a populated tree.
 - `packages/shallot/tests/fixtures/avbd/` — gitignored, ~161 MB. Copy it in.
-- The glTF corpus, a submodule at `reference/gltf-sample-assets` in the containing workspace, outside the package (`git submodule update --init reference/gltf-sample-assets`). Its absence is the dangerous one: 292 conformance tests degrade to an announced skip that no fail count shows. Run the required arm, `GLTF_CORPUS_REQUIRED=1 bun test`, so an absent corpus is red instead of quiet.
+- The glTF corpus, a submodule at `reference/gltf-sample-assets` in the containing workspace, outside the package (`git submodule update --init reference/gltf-sample-assets`). Its absence is the dangerous one: 292 conformance tests degrade to an announced skip that no fail count shows. Run the required arm, `GLTF_CORPUS_REQUIRED=1 bun test`, so an absent corpus is red instead of quiet. In a worktree the init is near-instant — the superproject worktree shares `.git/modules`, so the objects are already local.
+
+## Bumping a dep many packages pin, bump it everywhere at once
+
+One GPU dependency is pinned at many independent sites, and a partial bump is worse than no bump: the unbumped packages nest the old copy under their own `node_modules`, and the two copies' branded internals disagree, so `bunx tsc` reports hundreds of phantom `[$internal]` errors that read as a broken migration rather than a broken install. Measured on the 0.11 → 0.12 TypeGPU move (2026-08-14): typegpu is pinned in six manifests — `packages/shallot/package.json` (dep *and* peerDep), the root `package.json`'s eslint plugin, `examples/gym`, and `examples/showcase/{fountain,visualization,voxel}` — plus `unplugin-typegpu` in each `examples/flows/*`, and the plugin versions move with the library, never independently.
+
+- Edit every site in one commit, then re-resolve the lockfile and **confirm the tree before reading any gate**: `find . -path '*/node_modules/typegpu' -not -path '*/node_modules/*/node_modules/typegpu/*'` must return the root-hoisted copy alone. A stale nested copy invalidates every type error and every runtime failure you are about to read.
+- The bump is not done until the example projects that pin their own copy are bumped too. `bun test` and `bunx tsc` never reach them; `bun bench` and `bun run flows` do, and they fail late.
 
 ## Tolerance tiers
 
