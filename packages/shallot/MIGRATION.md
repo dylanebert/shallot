@@ -203,6 +203,10 @@ export default [
 
 Run it as `eslint . --max-warnings=0`. Use your existing TypeScript ESLint parser instead when it supports your TypeScript version.
 
+Two things to expect on the 0.12 toolchain, both from one change. TypeGPU deprecates `>>` on a `u32` operand in favor of `>>>`. JS's `>>` is arithmetic and WGSL's on `u32` is logical, so a CPU-callable TGSL function and the shader it generates disagree on any word with bit 31 set. Both forms emit WGSL `>>`, so switching changes no shader.
+
+The plugin also stopped flagging the syntax those shifts used to trip. An `eslint-disable typegpu/no-unsupported-syntax` you added for one is now an *unused* directive, which `--max-warnings=0` fails on. Drop that rule from the directive and keep any other rule it disabled alongside.
+
 ## Port custom surfaces and backgrounds
 
 The 0.8 surface contract accepted `bindings`, `preamble`, `interpolators`, `vs`, and `fs` strings. The 0.9 contract separates layout creation from State-owned registration, then takes TGSL functions:
