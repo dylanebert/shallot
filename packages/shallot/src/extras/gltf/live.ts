@@ -51,7 +51,11 @@ const liveLayout = surfaceLayout({
 });
 const LivePatch = vsPatchSchema();
 const LiveCtx = fsCtxSchema();
-const liveBound = liveLayout.bound;
+// 0.12 removed `layout.bound`; the dereferenced `layout.$.x` throws outside an actual TGSL body ("Direct
+// access to buffer values..."), so a raw-WGSL-string `$uses` external can't bind a per-field value —
+// the whole `$` proxy rides as one external and the WGSL text's own `bound.x` dot chain defers the field
+// read to resolution time (see standard/sear/pipelines.ts's `typedVaryingVs` for the same fix in full).
+const liveBound = liveLayout.$;
 
 // The dynamic vec4 lane reads are the one WGSL-bodied leaf the 4a lock names. The surface itself is still
 // a typed fn: schemas own every argument/resource and `$uses` binds the raw body's free names.
@@ -66,15 +70,16 @@ const liveVs = tgpu
     let localNormal = vsIn.localNormal;
     var world = vsIn.world;
     var worldNormal = vsIn.worldNormal;
-${LIVE_SKIN_VS.replace("let xf = transforms[eid];", "let xf = vsIn.xform;")}
+${LIVE_SKIN_VS.replace(/\bskinData\b/g, "bound.skinData")
+    .replace(/\bskinParams\b/g, "bound.skinParams")
+    .replace(/\bskin\b/g, "bound.skin")
+    .replace("let xf = transforms[eid];", "let xf = vsIn.xform;")}
     return LivePatch(world, worldNormal, vec4f(0.0));
 }`)
     .$uses({
         VsIn,
         LivePatch,
-        skinData: liveBound.skinData,
-        skinParams: liveBound.skinParams,
-        skin: liveBound.skin,
+        bound: liveBound,
         Xform,
         xformPoint,
         xformNormal,

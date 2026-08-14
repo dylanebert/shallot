@@ -832,7 +832,6 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     // still projects
     const screen = !!surface.screen;
     const layout = surface.layout;
-    const bound = layout.bound as unknown as Record<string, unknown>;
     const OutStruct = d
         .struct({
             pos: d.vec4f,
@@ -849,10 +848,18 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
         .map((k) => `    out.${k} = patched.${k};`)
         .join("\n");
     const fragmentAssigns = `${surface.fragmentInputs?.uv ? "    out.uv = uv;\n" : ""}${surface.fragmentInputs?.localPos ? "    out.localPos = localPos;\n" : ""}`;
+    // 0.12 removed `layout.bound`: the dereferenced `layout.$.x` throws outside an actual TGSL body
+    // ("Direct access to buffer values..."), including inside a `tgpu.lazy` compute (it forces normal
+    // mode). The fix a raw-WGSL-string `uses` external needs is to defer the per-field property read
+    // to resolution time itself — pass the whole `layout.$` proxy as one external and let the WGSL
+    // text's own `bound.vertices`-style dot chain do the (codegen-mode-safe) lookup.
+    const bound = layout.$;
+    const engine = engineLayout.$;
+    const shadowG = shadowLayout.$;
     const uses: Record<string, unknown> = {
         Out: OutStruct,
-        vertices: bound.vertices,
-        meshQuant: engineLayout.bound.meshQuant,
+        bound,
+        engine,
         decodePos,
         decodeUv,
         meshIdOf,
@@ -865,11 +872,8 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     }
     // a `screen` copier projects nothing — `view` would resolve as an unused external (a warning plus a
     // dead group-0 declaration in the emitted module)
-    if (!screen) uses.view = engineLayout.bound.view;
-    if (clip) uses.tileRects = shadowLayout.bound.tileRects;
+    if (clip) uses.shadowG = shadowG;
     if (instanced) {
-        uses.eids = bound.eids;
-        uses.transforms = bound.transforms;
         uses.xformPoint = xformPoint;
         uses.xformNormal = xformNormal;
     }
@@ -878,8 +882,8 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
             [d.u32, d.u32],
             OutStruct,
         )(/* wgsl */ `(vidx: u32, iid: u32) -> Out {
-    let v = vertices[vidx];
-    let mq = meshQuant[meshIdOf(v.y)];
+    let v = bound.vertices[vidx];
+    let mq = engine.meshQuant[meshIdOf(v.y)];
     let localPos = decodePos(v.x, v.y, mq);
     let localNormal = octDecodeNormal(v.z);
     let uv = decodeUv(v.w, mq);
@@ -889,8 +893,8 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     var worldNormal = vec3f(localNormal);
 ${
     instanced
-        ? `    eid = eids[iid];
-    xform = transforms[eid];
+        ? `    eid = bound.eids[iid];
+    xform = bound.transforms[eid];
     world = vec4f(xformPoint(xform, world.xyz), world.w);
     worldNormal = vec3f(xformNormal(xform, worldNormal));
 `
@@ -904,7 +908,7 @@ ${
         : ""
 }
     var out: Out;
-    out.pos = ${screen ? "patched.clip" : "view.viewProj * world"}${clip ? " + vec4f(tileRects.rects[0].x * 0.0)" : ""};
+    out.pos = ${screen ? "patched.clip" : "engine.view.viewProj * world"}${clip ? " + vec4f(shadowG.tileRects.rects[0].x * 0.0)" : ""};
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
     out.world = world.xyz;
@@ -1766,8 +1770,10 @@ function varyingShadowVs(
     const hasVs = !!surface.vs;
     const fragmentFields = fragmentInterstage(surface);
     const layout = surface.layout;
-    const bound = layout.bound as unknown as Record<string, unknown>;
-    const shadow = shadowGroup.bound as unknown as Record<string, unknown>;
+    // see typedVaryingVs's why: `layout.$.x` throws outside codegen mode (including inside `tgpu.lazy`),
+    // so the whole `$` proxy rides as one external and the WGSL text's own dot chain defers the field read.
+    const bound = layout.$;
+    const shadow = shadowGroup.$;
     const Out = d
         .struct({
             pos: d.vec4f,
@@ -1787,15 +1793,15 @@ function varyingShadowVs(
             [d.u32, d.u32],
             Out,
         )(/* wgsl */ `(vidx: u32, iid: u32) -> Out {
-    let v = vertices[vidx];
-    let mq = meshQuant[meshIdOf(v.y)];
+    let v = bound.vertices[vidx];
+    let mq = engine.meshQuant[meshIdOf(v.y)];
     let localPos = decodePos(v.x, v.y, mq);
     let localNormal = octDecodeNormal(v.z);
     let uv = decodeUv(v.w, mq);
-    let packed = eids[iid];
+    let packed = bound.eids[iid];
     let eid = packed & ${EID_MASK}u;
     let combo = packed >> ${COMBO_SHIFT}u;
-    let xform = transforms[eid];
+    let xform = bound.transforms[eid];
     var world = vec4f(xformPoint(xform, localPos), 1.0);
     var worldNormal = vec3f(xformNormal(xform, localNormal));
 ${
@@ -1806,10 +1812,10 @@ ${
 `
         : ""
 }
-    let m = comboMeta.m[combo];
-    let rect = tileRects.rects[${rect}];
+    let m = shadow.comboMeta.m[combo];
+    let rect = shadow.tileRects.rects[${rect}];
     var out: Out;
-    out.pos = faceVP.m[combo] * world;
+    out.pos = shadow.faceVP.m[combo] * world;
     out.tileBox = vec4f(${atlas}.0 * rect.xy, rect.z * ${atlas}.0, 0.0);
     out.worldNormal = normalize(worldNormal);
     out.eid = eid;
@@ -1820,13 +1826,9 @@ ${assigns}
 }`)
         .$uses({
             Out,
-            vertices: bound.vertices,
-            eids: bound.eids,
-            transforms: bound.transforms,
-            meshQuant: engineLayout.bound.meshQuant,
-            faceVP: shadow.faceVP,
-            comboMeta: shadow.comboMeta,
-            tileRects: shadow.tileRects,
+            bound,
+            engine: engineLayout.$,
+            shadow,
             decodePos,
             decodeUv,
             meshIdOf,
