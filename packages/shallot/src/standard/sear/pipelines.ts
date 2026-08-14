@@ -870,8 +870,9 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
         uses.VsIn = VsIn;
         uses.vs = vsFn;
     }
-    // a `screen` copier projects nothing — `view` would resolve as an unused external (a warning plus a
-    // dead group-0 declaration in the emitted module)
+    // `engine` rides unconditionally even for a `screen` copier, which projects nothing: resolution is
+    // per dot-chain reference in the WGSL text, not per top-level external, so an unreferenced
+    // `engine.view` emits no group-0 declaration (pinned by pipelines.test.ts's `not.toContain("var<uniform> view: View;")`)
     if (clip) uses.shadowG = shadowG;
     if (instanced) {
         uses.xformPoint = xformPoint;
