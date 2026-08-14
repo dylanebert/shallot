@@ -164,10 +164,11 @@ describe("loadProjectConfig", () => {
             ].join("\n"),
         );
         const config = await loadProjectConfig(dir, "serve", "development");
-        expect(config?.plugins.map((x) => x.name)).toEqual(["svelte"]);
+        if (!config) throw new Error("no config loaded for the vite.config.mjs written above");
+        expect(config.plugins.map((x) => x.name)).toEqual(["svelte"]);
         // vite's `define` carries the raw injected-source string verbatim (a string constant needs its
         // own literal quotes, since the value is textually substituted, not evaluated)
-        expect((config?.overlay as { define?: unknown }).define).toEqual({ FOO: '"bar"' });
-        expect(config?.path).toBe(join(dir, "vite.config.mjs"));
+        expect((config.overlay as { define?: unknown }).define).toEqual({ FOO: '"bar"' });
+        expect(config.path).toBe(join(dir, "vite.config.mjs"));
     });
 });

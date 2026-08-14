@@ -3129,12 +3129,10 @@ function buildSky(state: State): void {
     state.add(cam, Sear);
     state.add(cam, Orbit);
     state.add(cam, Backdrop);
-    const backdrop = (
-        SearPlugin.traits?.Backdrop as {
-            parse: { name: (value: string) => number | undefined };
-        }
-    ).parse.name("sky");
-    Backdrop.name.set(cam, backdrop ?? 0);
+    const backdropTrait = SearPlugin.traits?.Backdrop as
+        | { parse: { name: (value: string) => number | undefined } }
+        | undefined;
+    Backdrop.name.set(cam, backdropTrait?.parse.name("sky") ?? 0);
     Camera.mode.set(cam, CameraMode.Perspective);
     Camera.fov.set(cam, 60);
     Camera.clearColor.set(cam, 0x000000); // black clear → an unpainted background pixel reads ~0 and fails
