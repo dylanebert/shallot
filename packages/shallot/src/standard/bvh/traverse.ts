@@ -193,14 +193,14 @@ const bvhTrailGet = tgpu
         d.u32,
     )((level) => {
         "use gpu";
-        return (bvhTrail.$[level >> 4] >> ((level & 15) * 2)) & 3;
+        return (bvhTrail.$[level >>> 4] >>> ((level & 15) * 2)) & 3;
     })
     .$name("bvhTrailGet");
 
 const bvhTrailSet = tgpu
     .fn([d.u32, d.u32])((level, v) => {
         "use gpu";
-        const w = level >> 4;
+        const w = level >>> 4;
         const s = (level & 15) * 2;
         // d.u32 on the mask literals is load-bearing: a bare `3`/`1` materializes i32, so at level 15
         // (s = 30) `3 << s` overflows signed and the `&` becomes a mixed-sign implicit conversion
@@ -212,7 +212,7 @@ const bvhTrailSet = tgpu
 const bvhTrailResetBelow = tgpu
     .fn([d.u32])((pl) => {
         "use gpu";
-        const w0 = pl >> 4;
+        const w0 = pl >>> 4;
         const sub = pl & 15;
         if (sub !== 15) bvhTrail.$[w0] = bvhTrail.$[w0] & ((d.u32(1) << ((sub + 1) * 2)) - 1);
         let w = w0 + 1;

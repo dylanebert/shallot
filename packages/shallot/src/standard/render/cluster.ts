@@ -475,8 +475,8 @@ function compactKernel(
             const intensity = compactLayout.$.intensityF[eid];
             const rgb = std.mul(
                 d.vec3f(
-                    srgbToLinear1(d.f32((hex >> 16) & 0xff) / 255),
-                    srgbToLinear1(d.f32((hex >> 8) & 0xff) / 255),
+                    srgbToLinear1(d.f32((hex >>> 16) & 0xff) / 255),
+                    srgbToLinear1(d.f32((hex >>> 8) & 0xff) / 255),
                     srgbToLinear1(d.f32(hex & 0xff) / 255),
                 ),
                 intensity,
