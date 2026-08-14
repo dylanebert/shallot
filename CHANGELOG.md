@@ -2,6 +2,17 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
+## 0.9.2 — 2026-08-14
+
+The TypeGPU 0.12 bump, and native builds that work from a standard npm install.
+
+**Breaking:** custom GPU consumers move to `typegpu@~0.12.0`, `unplugin-typegpu@~0.12.1`, and `eslint-plugin-typegpu@~0.12.0`. Shallot's own API is unchanged (no export moved, no signature changed), so the port is the install line unless your own code calls TypeGPU directly. TypeGPU's own 0.12 migration guide covers that case.
+
+- **gpu** — the TypeGPU peer moves to the 0.12 minor. 0.12 removes `layout.bound`, and the dereferenced `layout.$.x` throws outside an actual TGSL body, so a raw-WGSL surface that bound per-field externals through `$uses` now passes the whole `$` proxy as one external and lets the WGSL text's own dot chain defer the field read to resolution time. `standard/sear/pipelines.ts` and `extras/gltf/live.ts` carry the pattern.
+- **gpu** — `eslint-plugin-typegpu` 0.12 correctly stops flagging an unsigned shift confined to a ternary's folded-away CPU arm, so the ten `eslint-disable typegpu/no-unsupported-syntax` directives over the `utils/tgsl.ts` and `bvh/bounds.ts` dual-shape helpers are gone.
+- **cli** — `shallot build --target windows|mac|linux` works from a standard install. The `rust/window` host ships as crate source and compiles on first build, so the prerequisite is the Rust toolchain plus the target's system dependencies (the repo README has the per-target table), not a Shallot source checkout. A crate that isn't there reports a corrupt install rather than a raw `ENOENT` out of cargo.
+- **docs** — the npm README's install block omitted the required TypeGPU peer and the single `unplugin-typegpu` transform, an install that broke at pipeline warm. `verify`'s optional playwright peer is named in both READMEs, npm-relative links resolve against the package rather than the repo root, and `AGENTS.md` stops listing `audio` and `mirror` under `/extras`, which are bare-barrel only.
+
 ## 0.9.1 — 2026-08-12
 
 The packaging patch, and the recommended target for a 0.8→0.9 port. The two Node-consumed exports ship compiled, the duplicate-TypeGPU check catches a same-version double-load, and `Profile` grows the GPU byte and pipeline counters a budget gate can read.
