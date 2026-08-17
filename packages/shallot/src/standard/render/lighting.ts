@@ -219,9 +219,6 @@ export const PointLightsRw = d.struct({
     lights: d.arrayOf(PointLightGpu, MAX_POINT_LIGHTS),
 });
 
-/** the compacted light list's buffer size, from the schema — the one source of truth for the layout */
-export const POINT_LIGHTS_BUFFER_SIZE = d.sizeOf(PointLights);
-
 /**
  * the compacted point-light list's WGSL, spliced by sear's clustered loop and the fog march: the
  * {@link PointLightGpu} + {@link PointLights} struct declarations, emitted under strict naming so a raw

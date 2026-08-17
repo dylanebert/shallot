@@ -109,7 +109,6 @@ function setHeight(ni: Int32Array, i: number, h: number): void {
     ni[n] = (ni[n] & 0xffff) | (h << 16);
 }
 const isLeaf = (ni: Int32Array, i: number): boolean => (ni[i * STRIDE + 11] & LEAF) !== 0;
-const isAllocated = (ni: Int32Array, i: number): boolean => (ni[i * STRIDE + 11] & ALLOCATED) !== 0;
 
 // aabb.perimeter (b3Perimeter) on node i's flat aabb — exact fround expression tree.
 function nodePerimeter(nf: Float32Array, i: number): number {
@@ -823,20 +822,6 @@ export function getHeight(tree: DynamicTree): number {
     return heightOf(tree.ni, tree.root);
 }
 
-export function getAreaRatio(tree: DynamicTree): number {
-    if (tree.root === NULL_INDEX) return 0;
-    const nf = tree.nf;
-    const ni = tree.ni;
-    const rootArea = nodePerimeter(nf, tree.root);
-
-    let totalArea = 0;
-    for (let i = 0; i < tree.nodeCapacity; ++i) {
-        if (isAllocated(ni, i) === false || isLeaf(ni, i) || i === tree.root) continue;
-        totalArea = f32(totalArea + nodePerimeter(nf, i));
-    }
-    return f32(totalArea / rootArea);
-}
-
 export function getRootBounds(tree: DynamicTree): AABB {
     if (tree.root !== NULL_INDEX) return readAABB(tree.nf, tree.root);
     return { lowerBound: { x: 0, y: 0, z: 0 }, upperBound: { x: 0, y: 0, z: 0 } };
@@ -858,10 +843,6 @@ export function getAABBInto(tree: DynamicTree, proxyId: number, out: AABB): AABB
     out.upperBound.y = nf[n + 4];
     out.upperBound.z = nf[n + 5];
     return out;
-}
-
-export function getUserData(tree: DynamicTree, proxyId: number): number {
-    return tree.ni[proxyId * STRIDE + 8];
 }
 
 function bitMatch(

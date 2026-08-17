@@ -206,7 +206,3 @@ export function qsort(
 /** An int32-backed growable vector — the common index/id column. */
 export const intVec = (capacity = 0): GrowVec<Int32Array> =>
     new GrowVec((n) => new Int32Array(n), capacity);
-
-/** An f32-backed growable vector — a SoA scalar column. */
-export const floatVec = (capacity = 0): GrowVec<Float32Array> =>
-    new GrowVec((n) => new Float32Array(n), capacity);

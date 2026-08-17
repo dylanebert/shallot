@@ -40,7 +40,7 @@ describe("Editor", () => {
         test("apply add inserts node", () => {
             const nodes: Node[] = [];
             const node = createNode("a");
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
 
             apply(nodes, cmd);
 
@@ -53,7 +53,7 @@ describe("Editor", () => {
             const third = createNode("third");
             const nodes: Node[] = [first, third];
             const second = createNode("second");
-            const cmd: Command = { type: "add", parent: null, node: second, index: 1 };
+            const cmd: Command = { type: "add", node: second, index: 1 };
 
             apply(nodes, cmd);
 
@@ -63,38 +63,14 @@ describe("Editor", () => {
             expect(nodes[2]).toBe(third);
         });
 
-        test("apply add inserts into parent children", () => {
-            const parent = createNode("parent");
-            const nodes: Node[] = [parent];
-            const child = createNode("child");
-            const cmd: Command = { type: "add", parent, node: child, index: 0 };
-
-            apply(nodes, cmd);
-
-            expect(parent.children).toHaveLength(1);
-            expect(parent.children[0]).toBe(child);
-        });
-
         test("apply remove deletes node", () => {
             const node = createNode("a");
             const nodes: Node[] = [node];
-            const cmd: Command = { type: "remove", parent: null, node, index: 0 };
+            const cmd: Command = { type: "remove", node, index: 0 };
 
             apply(nodes, cmd);
 
             expect(nodes).toHaveLength(0);
-        });
-
-        test("apply remove deletes from parent children", () => {
-            const child = createNode("child");
-            const parent = createNode("parent");
-            parent.children.push(child);
-            const nodes: Node[] = [parent];
-            const cmd: Command = { type: "remove", parent, node: child, index: 0 };
-
-            apply(nodes, cmd);
-
-            expect(parent.children).toHaveLength(0);
         });
 
         test("apply setAttr updates attr", () => {
@@ -135,7 +111,7 @@ describe("Editor", () => {
         test("reverse undoes add", () => {
             const node = createNode("a");
             const nodes: Node[] = [node];
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
 
             reverse(nodes, cmd);
 
@@ -145,7 +121,7 @@ describe("Editor", () => {
         test("reverse undoes remove", () => {
             const node = createNode("a");
             const nodes: Node[] = [];
-            const cmd: Command = { type: "remove", parent: null, node, index: 0 };
+            const cmd: Command = { type: "remove", node, index: 0 };
 
             reverse(nodes, cmd);
 
@@ -196,7 +172,7 @@ describe("Editor", () => {
 
         test("execute pushes to undo", () => {
             const node = createNode("a");
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
 
             execute(history, nodes, cmd);
 
@@ -208,8 +184,8 @@ describe("Editor", () => {
         test("execute clears redo", () => {
             const nodeA = createNode("a");
             const nodeB = createNode("b");
-            const cmdA: Command = { type: "add", parent: null, node: nodeA, index: 0 };
-            const cmdB: Command = { type: "add", parent: null, node: nodeB, index: 1 };
+            const cmdA: Command = { type: "add", node: nodeA, index: 0 };
+            const cmdB: Command = { type: "add", node: nodeB, index: 1 };
 
             execute(history, nodes, cmdA);
             execute(history, nodes, cmdB);
@@ -217,7 +193,7 @@ describe("Editor", () => {
             expect(history.redo).toHaveLength(1);
 
             const nodeC = createNode("c");
-            const cmdC: Command = { type: "add", parent: null, node: nodeC, index: 1 };
+            const cmdC: Command = { type: "add", node: nodeC, index: 1 };
             execute(history, nodes, cmdC);
 
             expect(history.redo).toHaveLength(0);
@@ -225,7 +201,7 @@ describe("Editor", () => {
 
         test("undo reverses and pushes to redo", () => {
             const node = createNode("a");
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
             execute(history, nodes, cmd);
 
             const entry = undo(history, nodes);
@@ -247,7 +223,7 @@ describe("Editor", () => {
 
         test("redo reapplies", () => {
             const node = createNode("a");
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
             execute(history, nodes, cmd);
             undo(history, nodes);
 
@@ -269,7 +245,7 @@ describe("Editor", () => {
         test("execute stores selection snapshot", () => {
             const node = createNode("a");
             const sel = [createNode("sel")];
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
 
             execute(history, nodes, cmd, sel);
 
@@ -279,7 +255,7 @@ describe("Editor", () => {
         test("undo returns entry with selection", () => {
             const sel = [createNode("sel")];
             const node = createNode("a");
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
             execute(history, nodes, cmd, sel);
 
             const entry = undo(history, nodes);
@@ -290,7 +266,7 @@ describe("Editor", () => {
 
         test("redo returns entry", () => {
             const node = createNode("a");
-            const cmd: Command = { type: "add", parent: null, node, index: 0 };
+            const cmd: Command = { type: "add", node, index: 0 };
             execute(history, nodes, cmd);
             undo(history, nodes);
 
@@ -517,7 +493,7 @@ describe("Document", () => {
     test("add inserts node and increments version", () => {
         const doc = new Document("<scene></scene>");
         const node = createNode("new");
-        doc.add(null, node);
+        doc.add(node);
         expect(doc.nodes).toHaveLength(1);
         expect(doc.version).toBe(1);
     });
@@ -525,7 +501,7 @@ describe("Document", () => {
     test("add inserts at specified index", () => {
         const doc = new Document('<scene><a id="a" /><a id="c" /></scene>');
         const node = createNode("b");
-        doc.add(null, node, 1);
+        doc.add(node, 1);
         expect(doc.nodes).toHaveLength(3);
         expect(doc.nodes[1].id).toBe("b");
     });
@@ -533,14 +509,14 @@ describe("Document", () => {
     test("remove deletes node", () => {
         const doc = new Document('<scene><a id="a" /></scene>');
         const node = doc.nodes[0];
-        doc.remove(null, node);
+        doc.remove(node);
         expect(doc.nodes).toHaveLength(0);
     });
 
     test("remove no-ops for missing node", () => {
         const doc = new Document('<scene><a id="a" /></scene>');
         const missing = createNode("missing");
-        doc.remove(null, missing);
+        doc.remove(missing);
         expect(doc.nodes).toHaveLength(1);
         expect(doc.version).toBe(0);
     });
@@ -599,7 +575,7 @@ describe("Document", () => {
 
     test("undo reverses last command", () => {
         const doc = new Document("<scene></scene>");
-        doc.add(null, createNode("a"));
+        doc.add(createNode("a"));
         expect(doc.nodes).toHaveLength(1);
         doc.undo();
         expect(doc.nodes).toHaveLength(0);
@@ -607,7 +583,7 @@ describe("Document", () => {
 
     test("redo reapplies undone command", () => {
         const doc = new Document("<scene></scene>");
-        doc.add(null, createNode("a"));
+        doc.add(createNode("a"));
         doc.undo();
         doc.redo();
         expect(doc.nodes).toHaveLength(1);
@@ -623,7 +599,7 @@ describe("Document", () => {
     test("full round-trip: mutate then serialize then re-parse", () => {
         const doc = new Document('<scene><a id="a" /></scene>');
         doc.addAttr(doc.nodes[0], "mesh", "shape: box");
-        doc.add(null, createNode("b"));
+        doc.add(createNode("b"));
         const xml = doc.serialize();
         const doc2 = new Document(xml);
         expect(doc2.nodes).toHaveLength(2);
@@ -632,7 +608,7 @@ describe("Document", () => {
     test("version increments on every mutation", () => {
         const doc = new Document('<scene><a id="a" /></scene>');
         expect(doc.version).toBe(0);
-        doc.add(null, createNode("b"));
+        doc.add(createNode("b"));
         expect(doc.version).toBe(1);
         doc.undo();
         expect(doc.version).toBe(2);
@@ -655,86 +631,36 @@ describe("Document", () => {
     describe("reorder", () => {
         test("moves node forward", () => {
             const doc = new Document('<scene><a id="a" /><a id="b" /><a id="c" /></scene>');
-            doc.reorder(null, doc.nodes[0], 2);
+            doc.reorder(doc.nodes[0], 2);
             expect(doc.nodes.map((n) => n.id)).toEqual(["b", "c", "a"]);
         });
 
         test("moves node backward", () => {
             const doc = new Document('<scene><a id="a" /><a id="b" /><a id="c" /></scene>');
-            doc.reorder(null, doc.nodes[2], 0);
+            doc.reorder(doc.nodes[2], 0);
             expect(doc.nodes.map((n) => n.id)).toEqual(["c", "a", "b"]);
         });
 
         test("no-ops for same position", () => {
             const doc = new Document('<scene><a id="a" /><a id="b" /></scene>');
-            doc.reorder(null, doc.nodes[0], 0);
+            doc.reorder(doc.nodes[0], 0);
             expect(doc.version).toBe(0);
         });
 
         test("no-ops for missing node", () => {
             const doc = new Document('<scene><a id="a" /></scene>');
-            doc.reorder(null, createNode("missing"), 0);
+            doc.reorder(createNode("missing"), 0);
             expect(doc.version).toBe(0);
         });
 
         test("undo/redo round-trip", () => {
             const doc = new Document('<scene><a id="a" /><a id="b" /><a id="c" /></scene>');
-            doc.reorder(null, doc.nodes[0], 2);
+            doc.reorder(doc.nodes[0], 2);
             expect(doc.nodes.map((n) => n.id)).toEqual(["b", "c", "a"]);
             doc.undo();
             expect(doc.nodes.map((n) => n.id)).toEqual(["a", "b", "c"]);
             doc.redo();
             expect(doc.nodes.map((n) => n.id)).toEqual(["b", "c", "a"]);
-        });
-
-        test("reorders within parent children", () => {
-            const doc = new Document('<scene><a id="parent" /></scene>');
-            const parent = doc.nodes[0];
-            const a: Node = { id: "a", attrs: [], children: [] };
-            const b: Node = { id: "b", attrs: [], children: [] };
-            const c: Node = { id: "c", attrs: [], children: [] };
-            parent.children.push(a, b, c);
-            doc.reorder(parent, parent.children[2], 0);
-            expect(parent.children.map((n) => n.id)).toEqual(["c", "a", "b"]);
-        });
-    });
-
-    describe("reparent", () => {
-        test("moves node to new parent", () => {
-            const doc = new Document('<scene><a id="a" /><a id="b" /></scene>');
-            const a = doc.nodes[0];
-            const b = doc.nodes[1];
-            doc.reparent(b, null, a, 0);
-            expect(doc.nodes).toHaveLength(1);
-            expect(doc.nodes[0].id).toBe("a");
-            expect(a.children).toHaveLength(1);
-            expect(a.children[0].id).toBe("b");
-        });
-
-        test("moves node to root", () => {
-            const doc = new Document('<scene><a id="parent" /></scene>');
-            const parent = doc.nodes[0];
-            const child: Node = { id: "child", attrs: [], children: [] };
-            parent.children.push(child);
-            doc.reparent(child, parent, null, 1);
-            expect(doc.nodes).toHaveLength(2);
-            expect(doc.nodes[1].id).toBe("child");
-            expect(parent.children).toHaveLength(0);
-        });
-
-        test("undo/redo round-trip", () => {
-            const doc = new Document('<scene><a id="a" /><a id="b" /></scene>');
-            const a = doc.nodes[0];
-            const b = doc.nodes[1];
-            doc.reparent(b, null, a, 0);
-            expect(doc.nodes).toHaveLength(1);
-            doc.undo();
-            expect(doc.nodes).toHaveLength(2);
-            expect(doc.nodes[0].id).toBe("a");
-            expect(doc.nodes[1].id).toBe("b");
-            doc.redo();
-            expect(doc.nodes).toHaveLength(1);
-            expect(a.children[0].id).toBe("b");
         });
     });
 
@@ -770,7 +696,7 @@ describe("Document", () => {
         test("redo of remove clears selection", () => {
             const doc = new Document('<scene><a id="a" /></scene>');
             const a = doc.nodes[0];
-            doc.remove(null, a);
+            doc.remove(a);
             doc.undo();
             expect(doc.nodes).toHaveLength(1);
 
@@ -782,7 +708,7 @@ describe("Document", () => {
         test("undo returns command", () => {
             const doc = new Document("<scene></scene>");
             const node = createNode("a");
-            doc.add(null, node);
+            doc.add(node);
 
             const cmd = doc.undo();
 
@@ -793,7 +719,7 @@ describe("Document", () => {
         test("redo returns command", () => {
             const doc = new Document("<scene></scene>");
             const node = createNode("a");
-            doc.add(null, node);
+            doc.add(node);
             doc.undo();
 
             const cmd = doc.redo();
@@ -1407,92 +1333,60 @@ describe("serialize parity", () => {
 describe("command invertibility (property)", () => {
     const Seed = '<scene><a id="root" mesh="shape: box" /><a id="other" /></scene>';
 
-    type Placed = { node: Node; parent: Node | null };
-    function flatten(nodes: Node[], parent: Node | null = null, out: Placed[] = []): Placed[] {
-        for (const node of nodes) {
-            out.push({ node, parent });
-            flatten(node.children, node, out);
-        }
-        return out;
-    }
-    function descendant(ancestor: Node, node: Node): boolean {
-        for (const child of ancestor.children) {
-            if (child === node || descendant(child, node)) return true;
-        }
-        return false;
-    }
-
     type Op =
         | { kind: "addRoot"; id?: string }
-        | { kind: "addChild"; target: number; id?: string }
         | { kind: "addAttr"; target: number; name: string; value: string }
         | { kind: "setAttr"; target: number; value: string }
         | { kind: "removeAttr"; target: number }
         | { kind: "setId"; target: number; id?: string }
         | { kind: "reorder"; target: number; to: number }
         | { kind: "reorderAttr"; target: number; to: number }
-        | { kind: "remove"; target: number }
-        | { kind: "reparent"; target: number; into: number };
+        | { kind: "remove"; target: number };
 
     // resolve generated ops against the live tree, skipping ones with no valid target (a no-op records
-    // no history entry). reparent guards cycles the way the outliner's drop logic does.
+    // no history entry).
     function applyOp(doc: Document, op: Op): void {
-        const placed = flatten(doc.nodes);
-        const pick = (i: number): Placed | null =>
-            placed.length ? placed[i % placed.length] : null;
+        const pick = (i: number): Node | null =>
+            doc.nodes.length ? doc.nodes[i % doc.nodes.length] : null;
         switch (op.kind) {
             case "addRoot":
-                doc.add(null, { id: op.id, attrs: [], children: [] });
+                doc.add({ id: op.id, attrs: [], children: [] });
                 break;
-            case "addChild": {
-                const t = pick(op.target);
-                if (t) doc.add(t.node, { id: op.id, attrs: [], children: [] });
-                break;
-            }
             case "addAttr": {
                 const t = pick(op.target);
-                if (t && !t.node.attrs.some((a) => a.name === op.name))
-                    doc.addAttr(t.node, op.name, op.value);
+                if (t && !t.attrs.some((a) => a.name === op.name))
+                    doc.addAttr(t, op.name, op.value);
                 break;
             }
             case "setAttr": {
                 const t = pick(op.target);
-                if (t?.node.attrs.length) doc.setAttr(t.node, t.node.attrs[0].name, op.value);
+                if (t?.attrs.length) doc.setAttr(t, t.attrs[0].name, op.value);
                 break;
             }
             case "removeAttr": {
                 const t = pick(op.target);
-                if (t?.node.attrs.length) doc.removeAttr(t.node, t.node.attrs[0].name);
+                if (t?.attrs.length) doc.removeAttr(t, t.attrs[0].name);
                 break;
             }
             case "setId": {
                 const t = pick(op.target);
-                if (t) doc.setId(t.node, op.id);
+                if (t) doc.setId(t, op.id);
                 break;
             }
             case "reorder": {
-                const t = pick(op.target);
-                if (!t) break;
-                const siblings = t.parent ? t.parent.children : doc.nodes;
-                if (siblings.length > 1) doc.reorder(t.parent, t.node, op.to % siblings.length);
+                if (doc.nodes.length <= 1) break;
+                const idx = op.target % doc.nodes.length;
+                doc.reorder(doc.nodes[idx], op.to % doc.nodes.length);
                 break;
             }
             case "reorderAttr": {
                 const t = pick(op.target);
-                if (t && t.node.attrs.length > 1)
-                    doc.reorderAttr(t.node, 0, op.to % t.node.attrs.length);
+                if (t && t.attrs.length > 1) doc.reorderAttr(t, 0, op.to % t.attrs.length);
                 break;
             }
             case "remove": {
                 const t = pick(op.target);
-                if (t) doc.remove(t.parent, t.node);
-                break;
-            }
-            case "reparent": {
-                const t = pick(op.target);
-                const into = pick(op.into);
-                if (!t || !into || into.node === t.node || descendant(t.node, into.node)) break;
-                doc.reparent(t.node, t.parent, into.node, into.node.children.length);
+                if (t) doc.remove(t);
                 break;
             }
         }
@@ -1513,16 +1407,11 @@ describe("command invertibility (property)", () => {
         fc.record({ kind: fc.constant("reorderAttr" as const), target: Nat, to: Nat }),
         fc.record({ kind: fc.constant("remove" as const), target: Nat }),
     );
-    const treeOp = fc.oneof(
-        flatOp,
-        fc.record({ kind: fc.constant("addChild" as const), target: Nat, id: Id }),
-        fc.record({ kind: fc.constant("reparent" as const), target: Nat, into: Nat }),
-    );
 
     test("undo restores the exact prior serialization (apply∘reverse = identity)", () => {
         clearRegistry();
         fc.assert(
-            fc.property(fc.array(treeOp as fc.Arbitrary<Op>, { maxLength: 30 }), (ops) => {
+            fc.property(fc.array(flatOp as fc.Arbitrary<Op>, { maxLength: 30 }), (ops) => {
                 const doc = new Document(Seed);
                 const priors: string[] = [];
                 for (const op of ops) {
@@ -1545,7 +1434,7 @@ describe("command invertibility (property)", () => {
     test("undo-all then redo-all replays back to the post-sequence state", () => {
         clearRegistry();
         fc.assert(
-            fc.property(fc.array(treeOp as fc.Arbitrary<Op>, { maxLength: 30 }), (ops) => {
+            fc.property(fc.array(flatOp as fc.Arbitrary<Op>, { maxLength: 30 }), (ops) => {
                 const doc = new Document(Seed);
                 let count = 0;
                 for (const op of ops) {

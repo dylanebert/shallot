@@ -42,22 +42,16 @@ export class Document {
         this.nodes = typeof source === "string" ? parse(source) : source;
     }
 
-    add(parent: Node | null, node: Node, index?: number): void {
-        const children = parent ? parent.children : this.nodes;
-        const idx = index ?? children.length;
-        execute(this.history, this.nodes, { type: "add", parent, node, index: idx }, [
-            ...this.selection,
-        ]);
+    add(node: Node, index?: number): void {
+        const idx = index ?? this.nodes.length;
+        execute(this.history, this.nodes, { type: "add", node, index: idx }, [...this.selection]);
         this.version++;
     }
 
-    remove(parent: Node | null, node: Node): void {
-        const children = parent ? parent.children : this.nodes;
-        const index = children.indexOf(node);
+    remove(node: Node): void {
+        const index = this.nodes.indexOf(node);
         if (index < 0) return;
-        execute(this.history, this.nodes, { type: "remove", parent, node, index }, [
-            ...this.selection,
-        ]);
+        execute(this.history, this.nodes, { type: "remove", node, index }, [...this.selection]);
         this.version++;
     }
 
@@ -124,33 +118,10 @@ export class Document {
         this.version++;
     }
 
-    reorder(parent: Node | null, node: Node, to: number): void {
-        const children = parent ? parent.children : this.nodes;
-        const from = children.indexOf(node);
+    reorder(node: Node, to: number): void {
+        const from = this.nodes.indexOf(node);
         if (from < 0 || from === to) return;
-        execute(this.history, this.nodes, { type: "reorder", parent, node, from, to }, [
-            ...this.selection,
-        ]);
-        this.version++;
-    }
-
-    reparent(node: Node, oldParent: Node | null, newParent: Node | null, newIndex: number): void {
-        const oldChildren = oldParent ? oldParent.children : this.nodes;
-        const oldIndex = oldChildren.indexOf(node);
-        if (oldIndex < 0) return;
-        execute(
-            this.history,
-            this.nodes,
-            {
-                type: "reparent",
-                node,
-                oldParent,
-                oldIndex,
-                newParent,
-                newIndex,
-            },
-            [...this.selection],
-        );
+        execute(this.history, this.nodes, { type: "reorder", node, from, to }, [...this.selection]);
         this.version++;
     }
 

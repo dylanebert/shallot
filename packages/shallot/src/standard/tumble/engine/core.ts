@@ -52,9 +52,6 @@ export const TIME_TO_SLEEP = f32(0.5);
 /// rather than re-collided (B3_CONTACT_RECYCLE_ANGULAR_DISTANCE ~= cos(7°)).
 export const CONTACT_RECYCLE_ANGULAR_DISTANCE = f32(0.99240388);
 
-/// The most contact points a single manifold can carry (B3_MAX_MANIFOLD_POINTS).
-export const MAX_MANIFOLD_POINTS = 4;
-
 /// Number of solver graph colors (B3_GRAPH_COLOR_COUNT); the last is the serial overflow color.
 export const GRAPH_COLOR_COUNT = 24;
 

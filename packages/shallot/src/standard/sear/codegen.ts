@@ -94,17 +94,6 @@ export const COLOR_LANES: ColorLane[] = [
     },
 ];
 
-// every subset of the color lanes (the requestable MRT lane-sets — each lane has its own marker, so any
-// combination is valid), smallest first: [] then [tag]. The empty set is the position-only depth prepass
-// (the shadow map reuses it); [tag] is the id lane. The pipeline builder compiles one pipeline per subset —
-// bounded, since the lane set is engine-closed
-export function laneSubsets(): ColorLane[][] {
-    return COLOR_LANES.reduce<ColorLane[][]>(
-        (acc, lane) => acc.concat(acc.map((s) => [...s, lane])),
-        [[]],
-    );
-}
-
 // a lane-set's stable key (the prepass pipeline-map key): "" for the empty depth-only set, "tag" for the
 // id lane, "tag-normal" when normal lands
 export function laneKey(lanes: ColorLane[]): string {
@@ -120,7 +109,7 @@ export function lightEvalWgsl(): string {
     return lightEvalChunk();
 }
 
-export const lightEvalChunk = chunk(
+const lightEvalChunk = chunk(
     "lightEvalWgsl",
     [distanceAttenuation, spotFactor, clusterCell],
     spliceNs,

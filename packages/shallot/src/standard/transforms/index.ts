@@ -13,7 +13,6 @@ import { composeKernel, composeLayout } from "./compose";
 // "transforms" (the access path — surfaces resolve it by name). A derived GPU buffer, not a per-entity
 // field, so it lives here, not on the Transform component (mirrors `Lighting` vs `DirectionalLight` in
 // render/). null until initialize (headless: stays null).
-let _transforms: GPUBuffer | null = null;
 let _typed: (TgpuBuffer<d.WgslArray<typeof Xform>> & StorageFlag) | null = null;
 let _composePipeline: TgpuComputePipeline | null = null;
 // the compose pipeline with its bind group bound, built on first use — the slab mirrors and the
@@ -151,7 +150,6 @@ export const TransformsPlugin: Plugin = {
     },
 
     initialize(state) {
-        _transforms = null;
         _typed = null;
         _composePipeline = null;
         _bound = null;
@@ -166,8 +164,7 @@ export const TransformsPlugin: Plugin = {
             .createBuffer(d.arrayOf(Xform, capacity))
             .$usage("storage")
             .$name("kitchen-transforms");
-        _transforms = Compute.root.unwrap(_typed);
-        Compute.buffers.set("transforms", _transforms);
+        Compute.buffers.set("transforms", Compute.root.unwrap(_typed));
         Compute.typed.set("transforms", _typed);
 
         const t = state.membership.bit(Transform);

@@ -123,7 +123,7 @@ let _placeholderIndices: MeshIndex | null = null;
  * and the unorm16 dequant range (the per-mesh `MeshQuant`, gpu.md rule 6) derive
  * from, so they share one source. An empty buffer returns a zero box.
  */
-export function meshAabb(vertices: Float32Array): {
+function meshAabb(vertices: Float32Array): {
     min: [number, number, number];
     max: [number, number, number];
 } {

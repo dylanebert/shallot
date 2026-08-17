@@ -160,14 +160,6 @@ export function ensureResident(set: HashSet): void {
     set.store.refreshIfStale();
 }
 
-export function clearSet(set: HashSet): void {
-    ensureResident(set);
-    set.count = 0;
-    set.keyHi.fill(0);
-    set.keyLo.fill(0);
-    set.hashes.fill(0);
-}
-
 function findSlot(set: HashSet, kHi: number, kLo: number, hash: number): number {
     const mask = set.capacity - 1;
     const hashes = set.hashes;

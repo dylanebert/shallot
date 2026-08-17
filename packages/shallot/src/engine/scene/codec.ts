@@ -251,13 +251,11 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
 interface CategorizedAttrs {
     componentAttrs: { name: string; value: string; def: Registered }[];
     refs: Ref[];
-    unknown: { name: string; value: string }[];
 }
 
 function categorizeAttrs(attrs: Attr[]): CategorizedAttrs {
     const componentAttrs: { name: string; value: string; def: Registered }[] = [];
     const refs: Ref[] = [];
-    const unknown: { name: string; value: string }[] = [];
 
     for (const attr of attrs) {
         if (attr.value.startsWith("@") && attr.value.length > 1) {
@@ -268,13 +266,10 @@ function categorizeAttrs(attrs: Attr[]): CategorizedAttrs {
         const registered = lookup(attr.name);
         if (registered) {
             componentAttrs.push({ name: attr.name, value: attr.value, def: registered });
-            continue;
         }
-
-        unknown.push({ name: attr.name, value: attr.value });
     }
 
-    return { componentAttrs, refs, unknown };
+    return { componentAttrs, refs };
 }
 
 function applyComponent(
@@ -319,8 +314,6 @@ function applyComponent(
  * - `field = "pos"`, `value = number` — Single, or first lane of a Pair/Quad
  * - `field = "pos"`, `value = number[]` — Pair/Quad bulk lane write
  * - `field = "pos.x"`, `value = number` — single lane of a parent Pair/Quad
- * - `field = "posX"`, `value = number` — legacy lane Single (split-suffix
- *   storage). Path retires when the last split-suffix component migrates
  */
 export function setFieldValue(
     component: Component,

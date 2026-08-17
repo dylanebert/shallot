@@ -55,16 +55,12 @@ export const SLOT_STRIDE = 3;
 
 // Wide (convex) transient constraint columns (contact_wide.rs). Only the meta column is written
 // TS-side (the lane → contactId map); the record + index columns are kernel-internal.
-export const WIDE_STRIDE = 404;
 export const WIDE_META_STRIDE = 5;
-export const WIDE_IDX_STRIDE = 8;
 
 // Per-active-color span (contact_wide.rs / arena.rs): wideStart, wideCount, meshStart, meshCount,
 // jointStart, jointCount. The batched (jointless) color loop reads only the first four; the staged
 // solve reads the joint pair too (joints-in-kernel).
 export const COLOR_SPAN_STRIDE = 6;
-export const CS_JOINT_START = 4;
-export const CS_JOINT_COUNT = 5;
 
 // Joint record (kernel/src/joint_abi.rs). One flat f32 record per joint slot: a common header (the
 // two resident state indices via u32 bits, invMass/invInertia, the pose fields prepare derives anchors
@@ -88,7 +84,6 @@ export const J_LOCAL_FRAME_A = 43; // Transform p 43..45 q 46..49
 export const J_LOCAL_FRAME_B = 50; // Transform p 50..52 q 53..56
 export const J_CONSTRAINT_HERTZ = 57;
 export const J_CONSTRAINT_DAMPING = 58;
-export const J_CONSTRAINT_SOFTNESS = 59; // 59..61
 const J_PAYLOAD = 62;
 export const DJ_LENGTH = J_PAYLOAD;
 export const DJ_HERTZ = J_PAYLOAD + 1;
