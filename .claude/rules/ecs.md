@@ -22,7 +22,7 @@ A `State` is rebuilt routinely — a live host (the document layer's `Session`, 
 
 **Module scope holds idempotent definitions + registries, never runtime identity.**
 
-- No module-cached eids or per-entity handles. An eid is a borrow (see *Entity reference fields*) — a rebuild recycles it to a different entity. Hold the reference in a component (`@name`/relation) or re-query each frame.
+- No module-cached eids or per-entity handles. An eid is a borrow (see *Entity reference fields*) — a rebuild recycles it to a different entity. Hold the reference in a component (`@name`/relation) or re-query each frame. Where a module-level handle is unavoidable (a browser-owned singleton, an installed backend), whatever clears it at teardown is **identity-guarded** against the State that set it — `if (inputState === s)` (`standard/input`), `if (lock === pl)` (`standard/player`) — or a host rebuilding before it disposes the old State has the stale teardown null the *new* State's live handle.
 - No module-level runtime accumulators (`let angle += dt`). Derive from `State` (`state.time.elapsed`), so the value is correct after a rebuild and isn't a hidden second source of truth.
 - A module-level registry (the `Surfaces`/`Draws`/`Meshes` shape, or a plugin's own) is **idempotent w.r.t. `initialize`**: clear then rebuild, so re-running `initialize` is a no-op-equivalent. `RenderPlugin.initialize` clearing `Surfaces`/`Draws` (`Registry.clear`) + `clearMeshes()` is the exemplar — a same-set rebuild re-registers identically, and a plugin **toggled off** leaves no stale entry (otherwise its dead draw/mesh is paired against torn-down buffers — a GPU error, the conformance "producer toggle" gate).
 
