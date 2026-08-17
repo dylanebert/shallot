@@ -27,7 +27,7 @@ import {
     unionPending,
 } from "@dylanebert/shallot/gltf/core";
 import { now, requestGPU } from "@dylanebert/shallot/runtime";
-import { type Check, frames, type Params, register, requireAssets, type Scenario } from "../gym";
+import { type Check, frames, type Params, register, type Scenario } from "../gym";
 
 // gltf — the asset lifecycle atom: load → dispose/rebuild (cache hit) → unload (invalidate) → reload, the
 // substrate of a live host's play/stop and a standalone HMR. The render scenario's gltf-* modes cover a single
@@ -130,7 +130,6 @@ const scenario: Scenario = {
 
     async build(_canvas, p: Params) {
         src = SOURCES[(p.source as string) ?? "sponza"] ?? SOURCES.sponza;
-        await requireAssets([src]);
         loadMs = { first: 0, rebuild: 0 };
         loadJankMs = { first: 0, rebuild: 0 };
 
