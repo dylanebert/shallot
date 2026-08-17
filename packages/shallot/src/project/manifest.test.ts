@@ -29,4 +29,9 @@ describe("normalize", () => {
             schema,
         );
     });
+
+    test("parses a string identifier and drops a non-string one", () => {
+        expect(normalize(`{ "identifier": "com.example.app" }`).identifier).toBe("com.example.app");
+        expect(normalize(`{ "identifier": 5 }`).identifier).toBeUndefined();
+    });
 });

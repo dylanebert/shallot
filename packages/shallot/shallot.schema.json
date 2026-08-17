@@ -19,6 +19,10 @@
             "minimum": 1,
             "description": "Fixed entity capacity for the session (a build-time invariant). Omit for the engine default (65536)."
         },
+        "identifier": {
+            "type": "string",
+            "description": "The bundle identifier for native builds (mac CFBundleIdentifier). Omit for the default com.shallot.<basename>."
+        },
         "plugins": {
             "type": "object",
             "description": "Plugin enablement. An engine plugin is enabled by name with true/false; a local/external plugin is a module specifier whose default export is the Plugin.",

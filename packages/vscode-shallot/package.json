@@ -1,5 +1,5 @@
 {
-    "name": "shallot",
+    "name": "vscode-shallot",
     "displayName": "shallot",
     "description": "Language support for Shallot scene files",
     "version": "0.2.0",

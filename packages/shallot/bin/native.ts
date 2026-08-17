@@ -5,11 +5,14 @@ import {
     existsSync,
     mkdirSync,
     readdirSync,
+    readFileSync,
     rmSync,
     statSync,
     writeFileSync,
 } from "node:fs";
 import { basename, resolve } from "node:path";
+import { normalize } from "../src/project/manifest";
+import { manifestPath } from "../src/project/vite";
 import { buildWeb } from "./build";
 
 const RUST_CRATE = resolve(import.meta.dir, "../rust/window");
@@ -35,6 +38,17 @@ const MAC_HELPER_SUFFIXES = [
 // driving multiple builds) is honored rather than frozen at whatever it was on import.
 export function dropSwiftshader(): boolean {
     return process.env.SHALLOT_DROP_SWIFTSHADER != null;
+}
+
+/** the bundle identifier for a native build: the manifest's `identifier` field, or the default
+ *  `com.shallot.<basename>` when omitted. */
+export function bundleIdentifier(projectDir: string, name: string): string {
+    try {
+        const manifest = normalize(readFileSync(manifestPath(projectDir), "utf-8"));
+        return manifest.identifier ?? `com.shallot.${name}`;
+    } catch {
+        return `com.shallot.${name}`;
+    }
 }
 
 /**
@@ -460,7 +474,7 @@ export async function bundleNativeMac(
     mkdirSync(macosDir, { recursive: true });
     mkdirSync(resourcesDir, { recursive: true });
 
-    const identifier = `com.multiplekex.${name}`;
+    const identifier = bundleIdentifier(projectDir, name);
     writeFileSync(
         resolve(contentsDir, "Info.plist"),
         macInfoPlist({ executable: name, bundleName: name, identifier, helper: false, icon: true }),

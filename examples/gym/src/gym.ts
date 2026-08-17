@@ -244,6 +244,30 @@ export function resolveNoRender(noRender: Scenario["noRender"], params: Params):
     return typeof noRender === "function" ? noRender(params) : noRender === true;
 }
 
+/** check whether public asset paths resolve (fetch + content-type check). Throws a clear error
+ *  naming the missing assets and the setup step, so a clone without the local mount skips with a
+ *  message instead of a cryptic 404 through the glTF loader. Vite's dev server falls back to
+ *  index.html (200, text/html) for missing files, so a 200 alone is not proof the file exists. */
+export async function requireAssets(paths: string[]): Promise<void> {
+    const missing: string[] = [];
+    await Promise.all(
+        paths.map(async (p) => {
+            try {
+                const res = await fetch(p);
+                const type = res.headers.get("content-type") ?? "";
+                if (!res.ok || type.includes("text/html")) missing.push(p);
+            } catch {
+                missing.push(p);
+            }
+        }),
+    );
+    if (missing.length > 0) {
+        throw new Error(
+            `[gym] assets not found: ${missing.join(", ")} — mount them locally under examples/gym/public/ (see .claude/rules/testing.md)`,
+        );
+    }
+}
+
 /** await `n` animation frames — lets the running render loop advance a known amount. */
 export function frames(n: number): Promise<void> {
     return new Promise((resolve) => {

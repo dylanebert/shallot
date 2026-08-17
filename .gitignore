@@ -63,6 +63,10 @@ packages/shallot/examples/
 test-results/
 playwright-report/
 
+# Gym local asset mounts (symlinks into reference/ — see .claude/rules/testing.md)
+examples/gym/public/sponza/
+examples/gym/public/gltf-samples/
+
 # Recordings
 recordings/
 

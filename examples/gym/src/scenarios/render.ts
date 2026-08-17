@@ -161,6 +161,7 @@ import {
     type Params,
     packCounts,
     register,
+    requireAssets,
     type Scenario,
     settle,
 } from "../gym";
@@ -4868,6 +4869,12 @@ const scenario: Scenario = {
         // build (placeGltfAssets), except gltf-worker which authors both boxes by name (the declarative
         // preloader imports them). The importer is a one-way utility that creates no entities. The other
         // modes author their scene in code.
+        if (gltf) {
+            // sponza and gltf-samples are local-only mounts (symlinked from reference/ outside the repo);
+            // skip with a clear message when absent instead of crashing on a 404 through the glTF loader.
+            if (mode === "gltf-model") await requireAssets(["sponza/Sponza.gltf"]);
+            else await requireAssets(["gltf-samples/Fox/glTF/Fox.gltf"]);
+        }
         const scene = gltf ? gltfScene() : undefined;
         const { state, dispose } = await run({ defaults: false, plugins, scene });
 
