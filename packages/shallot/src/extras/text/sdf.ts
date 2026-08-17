@@ -368,7 +368,7 @@ export class SDFGenerator {
     begin(): void {
         // built here, drawn from `flush` microseconds later, so there is no force-compile forcer: a
         // `precompile` thunk drains after warm, long after these draws already went out (the load-path
-        // blit's refuted precompile, spec Approach 2a)
+        // blit's refuted precompile)
         this._pipelines = pipelines();
         this.ensureIntermediateTexture();
         this._pending = [];

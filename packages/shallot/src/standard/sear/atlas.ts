@@ -683,8 +683,8 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
     cpass.end();
 
     // one pass into the whole atlas — one indirect draw per casting mesh, the VS placing each re-gathered
-    // instance into its combo's tile. The point VS projects by faceVP (not view), so the bound View buffer
-    // (slot 0's, `record`'s eidsSwap) is an unread placeholder
+    // instance into its combo's tile. The point VS projects by faceVP (not view), so the View buffer bound
+    // at slot 0 is an unread placeholder
     const pass = encoder.beginRenderPass({
         label: "sear-pointshadow",
         timestampWrites: Compute.span?.("sear:pointshadow"),

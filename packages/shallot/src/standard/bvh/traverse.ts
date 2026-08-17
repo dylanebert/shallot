@@ -112,7 +112,7 @@ export const BvhHit = d
     .$name("BvhHit");
 
 // The four node readers — WGSL-bodied, because `nodes` is a module-scope global the *consumer*
-// declares by name (the relocatable contract; no TGSL spelling until that contract is typed, 4a).
+// declares by name (the relocatable contract; no TGSL spelling until that contract is typed).
 const bvhNodeMin = tgpu
     .fn(
         [d.u32],

@@ -521,7 +521,7 @@ describe("same-update destroy+create realias", () => {
         // the same-update destroy+create identity bug (tumble.md "The wasm world is a singleton — dispose is load-bearing"): a box
         // is marshaled, then destroyed and its eid recycled by a NEW sphere Body in one update. SyncSystem
         // keys create/destroy on presence alone, so it neither sweeps the eid (it still has Body) nor
-        // re-marshals it (it's still in `bodies`) — the old box handle survives entirely. The fix (1b)
+        // re-marshals it (it's still in `bodies`) — the old box handle survives entirely. The fix
         // compares `state.stamp(eid)` against the stored stamp and rebinds on mismatch.
         clear();
         const state = new State();

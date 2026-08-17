@@ -57,7 +57,7 @@ const LiveCtx = fsCtxSchema();
 // read to resolution time (see standard/sear/pipelines.ts's `typedVaryingVs` for the same fix in full).
 const liveBound = liveLayout.$;
 
-// The dynamic vec4 lane reads are the one WGSL-bodied leaf the 4a lock names. The surface itself is still
+// The dynamic vec4 lane reads are the one WGSL-bodied leaf this surface needs. The surface itself is still
 // a typed fn: schemas own every argument/resource and `$uses` binds the raw body's free names.
 const liveVs = tgpu
     .fn(

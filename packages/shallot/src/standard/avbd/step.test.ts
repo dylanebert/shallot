@@ -307,8 +307,8 @@ test("joint-dual references its own-group counters binding (the forcing touch)",
 });
 
 // The shared factory's contactContrib/springContrib/jointContrib/solvePose are the typed primal's (and
-// solve-lds's) real pipeline consumer since 2b — this pins that the roRo-bound instance the CPU
-// differential exercises also resolves cleanly standalone (the "author once" mandate).
+// solve-lds's) real pipeline consumer now that both are typed pipelines — this pins that the roRo-bound
+// instance the CPU differential exercises also resolves cleanly standalone (the "author once" mandate).
 test("the shared factory's primal-side functions resolve standalone (CPU-differential-testable)", () => {
     for (const fn of [
         solverRoRo.contactForce,
@@ -376,7 +376,7 @@ test("solve-lds resolves the whole iters × colors block as one workgroup-reside
 // The shared chunks (Mat3/CForce/Contrib/Sol/NewPose) are authored exactly once and closed over per
 // reader set (contactMath/contribMath/dualMath/jointDualMath) — every pass that calls into them must emit
 // byte-identical struct text, never an independent raw copy that could drift from the typed one (the
-// defect class the interim two-copy state at 2a was sanctioned to avoid for exactly one sub-stage).
+// defect class the interim two-copy state was sanctioned to avoid only for one transitional stage).
 test("the shared solver structs emit byte-identical text in every pass that uses them", () => {
     const allThree = {
         dual: stepWgsl.dual(),

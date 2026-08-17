@@ -1,7 +1,7 @@
 // The persistent contact-manifold store — the warm-start state that survives across steps, held
 // column-resident in the kernel's linear memory (kernel/src/manifolds.rs) instead of as JS objects on
 // each contact. TS owns the allocator + lifecycle because the mesh narrowphase is TS and the convex one
-// is the kernel (3c.3), so allocation can't live on one side of the FFI; the kernel just reads/writes
+// is the kernel, so allocation can't live on one side of the FFI; the kernel just reads/writes
 // manifold data at the offsets this store hands out.
 //
 // Two columns, mirroring box3d's `b3Contact.manifolds` heap array:
@@ -22,7 +22,7 @@ import { f32, type Mat3, mat3, type Quat, type Transform, type Vec3, vec3 } from
  * indexA, indexB, hit (0..11) — plus the convex narrowphase's persistent GJK/SAT cache union (12..21,
  * `DIR_CACHE`) and the in-kernel recycle loop's cached relative pose (22..36, `DIR_CACHED_*`), both
  * folded here to share the directory's contactId key + grow-in-place lifecycle. TS never reads/writes
- * the recycle tail — the kernel recycle pass owns it (4b.3c). */
+ * the recycle tail — the kernel recycle pass owns it. */
 export const DIR_STRIDE = 37;
 /** First slot of the convex cache union within a directory record (kernel `DIR_CACHE`). */
 const DIR_CACHE = 12;

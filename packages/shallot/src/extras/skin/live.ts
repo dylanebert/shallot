@@ -722,7 +722,7 @@ export const skinParamsWgsl = chunk("skinParamsWgsl", [SkinParams], spliceNs);
 // the per-instance tint — WGSL-bodied, because it reads `skinData` and `skin` as module-scope globals the
 // *consumer* declares by name (the relocatable contract every live-skin surface shares) and calls the
 // sear-spliced `unpackLdrColor`. A TGSL body has no spelling for either until the surface contract itself
-// is typed (4a).
+// is typed.
 const liveTint = tgpu
     .fn(
         [d.u32],

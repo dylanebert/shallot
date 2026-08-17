@@ -41,7 +41,7 @@ test("wasm-simd128 kernel loads and runs f32x4 over shared memory", async () => 
 // (reserve → write inputs through the views → run the export shim → read outputs back), and assert
 // bit-for-bit against the committed C gold. This exercises the arena layout, the layoutPtr header, the
 // view derivation, and the finalize shim — everything between TS and the gold-verified Rust arithmetic.
-// Body `state` is resident (4a.2), so it's driven through the body store over the persistent region
+// Body `state` is resident, so it's driven through the body store over the persistent region
 // (which `reserveBodies` establishes and `arena::reserve` aliases `LAYOUT[STATE]` at), not `cols`.
 const _b = new ArrayBuffer(4);
 const _f = new Float32Array(_b);
@@ -101,12 +101,12 @@ test("finalize export shim matches the C gold over shared columns", async () => 
     }
 });
 
-// Geometry-columns gate (3c.2b): upload the convex hulls from the committed manifold gold into the
+// Geometry-columns gate: upload the convex hulls from the committed manifold gold into the
 // kernel's static geometry columns, then run the hull-hull narrowphase over those column-backed hulls
 // in wasm (`collideHullsGeo`) and assert the manifold bit-for-bit against the same gold the native
 // Vec-backed path verifies. This exercises the whole geometry read path — the reserveGeometry layout,
 // the TS upload (geocolumns.ts), the wasm reinterpret into the HullData view, and every pool the
-// narrowphase touches (points, vertices, edges, faces, planes, center) — the seed of 3c.3's dispatch.
+// narrowphase touches (points, vertices, edges, faces, planes, center) — the seed of the convex-dispatch gate below.
 type GoldVec = [string, string, string];
 type GoldHull = {
     center: GoldVec;
@@ -214,14 +214,14 @@ test("collideHullsGeo matches the manifold gold over the static geometry columns
     }
 });
 
-// Convex dispatch gate (3c.3.a): drive `dispatchConvex` over the full column stack the live collide will
+// Convex dispatch gate: drive `dispatchConvex` over the full column stack the live collide will
 // use — the static geometry pools (hulls), the persistent manifold pool (warm-start in/out), the folded
 // GJK/SAT cache — for every convex pair type in the convex-manifold gold, and assert the mapped
 // persistent manifold bit-for-bit against the same gold the native `compute_convex_manifold` path
 // verifies. Mirrors the native `check_scene`: two runs per scene (cold: no old points; warm: old points
 // seeded so impulses carry by feature id), each from a cold cache (fresh store per run). This isolates the
 // dispatch column marshaling + pool↔manifold round-trip + cache read/write from the live restructure
-// (3c.3.b). Inert until then (nothing calls `dispatchConvex` in the live path).
+// the live restructure. Inert until then (nothing calls `dispatchConvex` in the live path).
 type GoldSphere = { center: GoldVec; radius: string };
 type GoldCapsule = { center1: GoldVec; center2: GoldVec; radius: string };
 type GoldXf = { p: GoldVec; q: [string, string, string, string] };
@@ -381,11 +381,11 @@ test("dispatchConvex maps the convex-manifold gold through the geometry + manifo
     }
 });
 
-// Persistent manifold columns gate (3c.2c.ii): the store's allocator + wasm region + view protocol.
+// Persistent manifold columns gate: the store's allocator + wasm region + view protocol.
 // Proves the ABI end-to-end — reserve, block allocation, the mixed f32/u32 aliasing on both columns,
 // free-list recycling, and (the load-bearing bit) that a directory grow which shifts the pool base
 // memmoves live pool data in place so every block keeps its element offset across the `memory.grow`
-// detach. Inert in the live solve until 3c.2c.iii, so the fixture gate is unaffected; this test is the
+// detach. Inert in the live solve until the pool-backed views land, so the fixture gate is unaffected; this test is the
 // standing proof the storage round-trips.
 test("persistent manifold store round-trips and preserves data across a directory grow", async () => {
     await init({ threads: 0 });
@@ -463,7 +463,7 @@ test("persistent manifold store round-trips and preserves data across a director
     readManifold(base1 + 1, 128, "block1[1] after pool grow");
 });
 
-// Pool-backed manifold views gate (3c.2c.iii): the `Manifold`/`ManifoldPoint` accessors the narrowphase
+// Pool-backed manifold views gate: the `Manifold`/`ManifoldPoint` accessors the narrowphase
 // writes and the solver/events read. Proves every header + point field round-trips through the pool
 // (incl. the signed `triangleIndex` i32 alias and the `persisted` bool), and that views re-fetched over
 // a contact's block after a pool grow read the same data. All values are exactly f32-representable.
@@ -525,7 +525,7 @@ test("pool-backed manifold views round-trip every field across a grow", async ()
     check("after pool grow");
 });
 
-// Persistent body region relocation gate (4a.1): the body region sits first in linear memory, so its
+// Persistent body region relocation gate: the body region sits first in linear memory, so its
 // own growth shifts the manifold + geometry regions above it. Prove the kernel relocates them in place
 // — one overlapping memmove of the whole span + a static rebase — so a live contact's warm-start
 // manifold and an interned hull's geometry survive a body-region grow bit-for-bit. This is the only
@@ -544,7 +544,7 @@ test("a body-region grow relocates the manifold + geometry regions in place", as
     k.reserveManifolds(8, 8);
     k.reserveGeometry(2, 4, 4, 4);
 
-    // The body region owns live columns too (4a.2): STATE stays at the region base across a grow, but
+    // The body region owns live columns too: STATE stays at the region base across a grow, but
     // FLAGS shifts up as capacity grows, so its contents must be copied. Mark record 5 in both and
     // assert they survive at the (re-derived) offsets — the DYNAMIC-flag-loss regression that made the
     // solver stop writing velocity back once a scene crossed the 16-body cap.
@@ -609,7 +609,7 @@ test("a body-region grow relocates the manifold + geometry regions in place", as
     expect(new Uint32Array(buf(), bl1[4], 6)[5]).toBe(markFlags);
 });
 
-// Persistent fat-AABB region relocation gate (4b.1): a second low persistent region, above the body
+// Persistent fat-AABB region relocation gate: a second low persistent region, above the body
 // region and below the manifold region. Prove both directions — its own grow relocates the manifold +
 // geometry regions above it in place (its own single base-anchored column staying put), and a body
 // region grow below shifts the whole fat-AABB region up with everything above it. Wasm-only, like the

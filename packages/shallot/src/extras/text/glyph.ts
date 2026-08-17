@@ -60,7 +60,7 @@ export const sdfToSignedDistance = tgpu.fn(
     const a = std.select(sdf, 1 - sdf, sdf > 0.5);
     const absDist = (1 - std.pow(2 * a, 1 / SDF_EXPONENT)) * maxDimension;
     // f32-typed rails: a bare `1` / `-1` transpiles i32 and lands an implicit conversion in the emitted
-    // WGSL (the integer-literal law, spec Approach 2a)
+    // WGSL (the integer-literal law)
     return absDist * std.select(d.f32(1), d.f32(-1), sdf > 0.5);
 });
 

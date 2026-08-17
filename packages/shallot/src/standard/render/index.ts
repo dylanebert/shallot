@@ -215,7 +215,7 @@ export const BeginFrameSystem: System = {
         Render.viewCount = count;
         // per-slot writer: only shading slots ([0, shadeCount)) ever bind a real View buffer — the
         // point/cascade atlas passes bind slot 0's buffer as an unread placeholder — so a depth-only slot
-        // gets no write at all (design lock, Approach 4a). Each write sources VIEW_BYTES from the same
+        // gets no write at all (design lock). Each write sources VIEW_BYTES from the same
         // per-slot viewStaging subrange the pack loop above always wrote
         const viewFloats = VIEW_BYTES / 4;
         for (let slot = 0; slot < Render.shadeCount; slot++) {

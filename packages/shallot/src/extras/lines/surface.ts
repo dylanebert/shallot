@@ -1,5 +1,5 @@
 // The `lines` sear surface: the segment schema, its group-2 layout, and the screen-space quad expansion
-// as TGSL. Sibling of `index.ts` because that module holds the ECS/system/plugin half (2a: kernels live
+// as TGSL. Sibling of `index.ts` because that module holds the ECS/system/plugin half (kernels live
 // beside, not inside, registry code); the CPU staging + upload live in `segments.ts`.
 //
 // `localPos.xy` carries the quad corner: x = t (0 start, 1 end), y = edge (-1, +1). The surface is
@@ -126,7 +126,7 @@ export const lineVs = tgpu
         // the array-element read is a pointer, not a copy — wrap in the element schema
         const seg = Segment(lineLayout.$.lineSegments[vsIn.iid]);
         // `view.viewProj` is re-read rather than bound to a local: a uniform-aliased local emits WGSL
-        // pointer form (2c), the shape Metal's compiler is watched on
+        // pointer form, the shape Metal's compiler is watched on
         const q = lineQuad(
             std.mul(engineLayout.$.view.viewProj, d.vec4f(seg.a, 1)),
             std.mul(engineLayout.$.view.viewProj, d.vec4f(seg.b, 1)),

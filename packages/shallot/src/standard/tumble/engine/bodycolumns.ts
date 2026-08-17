@@ -1,6 +1,6 @@
 // The persistent body region (kernel/src/bodies.rs) — the awake body columns held resident across
-// steps, first in the kernel's linear memory: velocity/delta `state` + `flags` (4a.2) and the
-// integrate/finalize `sim`/`fin`/`sim2` fields (4a.3). The solver runs directly over these columns
+// steps, first in the kernel's linear memory: velocity/delta `state` + `flags` and the
+// integrate/finalize `sim`/`fin`/`sim2` fields. The solver runs directly over these columns
 // (the kernel phases alias `LAYOUT[STATE]`/`LAYOUT[SIM]`/etc here), so a step no longer marshals the
 // body in and reads it back out — the column is the single source of truth. This module owns the
 // grow-only sizing (the region tracks the total-body high-water so it never shrinks with the churny
@@ -314,7 +314,7 @@ class ResidentBodyState implements BodyState {
 
 /**
  * A `BodySim` (b3BodySim) backed by record `i` of the resident sim/fin/sim2 columns rather than a plain
- * object (4a.3), so no per-step marshal runs. Vector/quaternion/matrix getters return fresh objects
+ * object, so no per-step marshal runs. Vector/quaternion/matrix getters return fresh objects
  * (plain-object semantics — in-place sub-field writes on the caller side become whole-field setter
  * assignments); scalar getters return the raw slot (no allocation). Reads go through `store.simF` etc
  * on every access so a grow's re-derivation is transparent. Index-fixed like {@link ResidentBodyState}:
