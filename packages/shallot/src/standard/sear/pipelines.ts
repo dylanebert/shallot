@@ -71,13 +71,12 @@ export function resetPipelineCaches(): void {
 // shadow-atlas pipelines. A surface in `Surfaces` DRAWS through these in every pass — `record()`
 // consults the typed registry first (the built-in flip), and `forward.ts`/`atlas.ts` issue the
 // draws via `.with(pass)` on sear's own render passes. `screen` surfaces project through their own `vs`
-// chunk's `patch.clip` and draw un-culled (d-1); `"clip"` blend and `specialize` are carried for the glTF
+// chunk's `patch.clip` and draw un-culled; `"clip"` blend and `specialize` are carried for the glTF
 // typed migration.
 //
 // Cached by name + material variant. `preparePipelines` compiles every
 // non-specializing `Surfaces` entry and force-unwraps it, so the resolve + the sync
-// `createRenderPipeline` (the
-// 0a/1c spike finding) validate against the real device at warm — a malformed group split, a name
+// `createRenderPipeline` validate against the real device at warm — a malformed group split, a name
 // collision, a binding-limit breach all throw there, not mid-frame at first draw.
 export interface CompiledSurface {
     /** exact registry spec + layout this entry was compiled from; name/variant alone cannot distinguish
@@ -123,7 +122,7 @@ export interface CompiledSurface {
 }
 const _compiledTyped = new Map<string, CompiledSurface>();
 
-/** the per-draw group-2 state a typed draw binds — the typed twin of the legacy string pipeline's GroupEntry.
+/** the per-draw group-2 state a typed draw binds.
  * `color` builds against `layout` (the 16 B main stream at the `vertices` slot); opaque depth/atlas
  * groups use the DISTINCT `layout.depthVariant` object (the 8 B position stream), while clipped groups
  * use the full layout/main stream because their fragment cutoff consumes material UVs. `point`/`cascade`
@@ -268,9 +267,8 @@ export function surfacePrimitive(screen?: boolean): GPUPrimitiveState {
     return { topology: "triangle-list", cullMode: screen ? "none" : "back", frontFace: "ccw" };
 }
 
-/** whether a typed surface's own `layout` carries the `eids` + `transforms` instancing convention — the
- * typed twin of `record()`/the former string pipeline's test over a legacy `Surface`'s `bindings`, run over the typed
- * layout's `entries` instead. */
+/** whether a typed surface's own `layout` carries the `eids` + `transforms` instancing convention —
+ * mirrors `record()`'s test, run over the typed layout's `entries` instead. */
 function typedInstanced(surface: AnySurface): boolean {
     return "eids" in surface.layout.entries && "transforms" in surface.layout.entries;
 }
@@ -1378,8 +1376,7 @@ export function compileVariant<
 
 /**
  * compile a typed surface's single-sample (AA-off) color twin, once, the first frame a no-AA camera
- * draws it — the typed twin of the legacy string pipeline's pattern (the wrapper is cheap; the real
- * resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
+ * draws it (the wrapper is cheap; the real resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
  * `multisample.count` differs.
  */
 export function ensureSingle(t: CompiledSurface): void {

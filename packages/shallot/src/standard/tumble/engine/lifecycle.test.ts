@@ -1,4 +1,4 @@
-// Stage 7 (lifecycle) tests: world/body/shape create-destroy, generational validity, and the
+// lifecycle tests: world/body/shape create-destroy, generational validity, and the
 // mass-accumulation path (b3UpdateBodyMassData wiring: sum shape masses, parallel-axis shift to the
 // body center, invert). Ported from test_body.c (FarSingle/CubeSphereMass) and test_world.c
 // (TestIsValid). The mass tolerances are analytic (the underlying computeSphereMass / steiner /

@@ -1,4 +1,4 @@
-// Stage 2 (events + read surface) tests. Contact begin/end/hit, body move (+ fellAsleep + CCD
+// events + read surface tests. Contact begin/end/hit, body move (+ fellAsleep + CCD
 // rewind), and joint events all read sim state and push to arrays the world-state hash never covers,
 // so — like sensors and queries — the contract is behavioral, not bit-exact. These mirror the
 // upstream executable specs (reference/box3d test_world.c: TestContactEvents, TestHitEvents,

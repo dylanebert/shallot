@@ -243,7 +243,7 @@ export const FogPlugin: Plugin = {
         // typegpu has no async pipeline creation, so Dawn defers the real compile to first dispatch — and
         // the march runs every frame `Fog` + `Depth` are both present, so an unfired compile would land the
         // stall on whichever frame that is. Group 1's real resources (the light/shadow service) exist by the
-        // time this runs (deferred past every plugin's `warm`, the 1c law); group 0 is genuinely per-camera,
+        // time this runs (deferred past every plugin's `warm`); group 0 is genuinely per-camera,
         // so the forcer stands in 1×1 throwaways, like glaze's / outline's
         precompile("fog", () => {
             const src = device.createTexture({

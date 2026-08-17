@@ -1059,7 +1059,7 @@ describe("updatePointShadows caster selection", () => {
         }
     });
 
-    // Sub-stage 0 — the per-combo cull slots. updatePointShadows poses one pooled depth-only camera per
+    // the per-combo cull slots. updatePointShadows poses one pooled depth-only camera per
     // active combo (a point caster's six cube faces), and render's `computeViewProj` of that camera must
     // reproduce the combo's face projection — the frustum the Part pack culls casters into. Pin its six
     // planes to the pre-fold `perspective(pointFov) × lookAt` the atlas VS folds the tile onto (the

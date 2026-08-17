@@ -77,7 +77,7 @@ export const maskLayoutOcclude = tgpu.bindGroupLayout({
 type MaskLayout = typeof maskLayoutPlain | typeof maskLayoutOcclude;
 
 /**
- * the mask vs, over a specific mask layout (plain or occlude — the 1c factory-closure law, one authored
+ * the mask vs, over a specific mask layout (plain or occlude — one authored
  * kernel re-emitting per layout). Pulls the highlighted instance's 8 B position stream, dequantizes against
  * its meshId's {@link MeshQuant}, and applies the `transforms` firehose ({@link xformPoint}). @internal
  */
@@ -89,7 +89,7 @@ export function maskVertex(layout: MaskLayout) {
         })((input) => {
             "use gpu";
             const raw = layout.$.position[layout.$.indices[input.vidx]];
-            // the array-element reads are pointers, not copies (3b-ii) — wrap in the element schema before
+            // the array-element reads are pointers, not copies — wrap in the element schema before
             // passing them by value into decodePos / xformPoint
             const quant = MeshQuant(layout.$.meshQuant[meshIdOf(raw.y)]);
             const p = decodePos(raw.x, raw.y, quant);

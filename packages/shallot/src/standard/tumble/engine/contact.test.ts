@@ -1,4 +1,4 @@
-// Stage 7 contact machinery: create/destroy and the deterministic shape-order canonicalization
+// contact machinery: create/destroy and the deterministic shape-order canonicalization
 // (the register dispatch). Contacts are normally born from the broad-phase collide phase (solver
 // stage); here they're driven directly so the create/destroy path is exercised now.
 

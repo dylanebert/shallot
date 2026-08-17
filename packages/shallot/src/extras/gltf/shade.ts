@@ -48,7 +48,7 @@ type MaterialBound = {
 };
 
 /** typed material helpers specialized to one mesh's map-set. The captured booleans fold absent texture
- * samples out of the emitted shader, preserving the legacy specialization without string splicing. */
+ * samples out of the emitted shader without string splicing. */
 export function materialFns(layout: { $: unknown }, mapset: number) {
     const b = layout.$ as MaterialBound;
     const hasNormal = (mapset & MAP_NORMAL) !== 0;

@@ -1,4 +1,4 @@
-// Stage 15 (render ABI) tests: the b3World_Draw walk resolves each shape/joint to typed callbacks.
+// render ABI tests: the b3World_Draw walk resolves each shape/joint to typed callbacks.
 // Behavioral, not bit-exact — the draw walk is a read-only view that never feeds the world-state hash.
 // The invariants: one callback per shape by type, joints emit their connection segments, drawingBounds
 // culls, flags gate categories, and the walk mutates nothing (a second draw repeats identically).

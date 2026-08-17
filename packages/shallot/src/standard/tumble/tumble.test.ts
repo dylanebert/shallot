@@ -237,7 +237,7 @@ function buildReference(): World {
 
 // the live State of the current test — afterEach disposes it so a FAILED assert can't leak the
 // installed backend into the next test/file (the single-backend guard would then throw in warm;
-// the class stage 3 fixed in physics/backend.test.ts). CharacterPlugin.dispose is a no-op for the
+// the class fixed in physics/backend.test.ts). CharacterPlugin.dispose is a no-op for the
 // marshaling test (no drive state) and required for the character test.
 let liveState: State | null = null;
 afterEach(() => {

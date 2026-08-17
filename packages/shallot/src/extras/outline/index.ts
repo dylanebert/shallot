@@ -421,9 +421,9 @@ function prepareOutline(): void {
     _gpu.composite = Compute.root
         .createComputePipeline({ compute: compositeKernel })
         .$name("outline-composite");
-    // the two mask variants: same vs/fs shape over the plain / occlude layout (the 1c factory-closure
-    // law — `maskVertex`/`maskFragment` re-emit per layout), splicing the already-typed `decodePos` /
-    // `xformPoint` real references (the 3b-iii resolve-call-graph precedent — no chunk splice needed)
+    // the two mask variants: same vs/fs shape over the plain / occlude layout (`maskVertex`/`maskFragment`
+    // re-emit per layout), splicing the already-typed `decodePos` /
+    // `xformPoint` real references (the resolve-call-graph precedent — no chunk splice needed)
     _gpu.maskPlain = Compute.root
         .createRenderPipeline({
             vertex: maskVertex(maskLayoutPlain),

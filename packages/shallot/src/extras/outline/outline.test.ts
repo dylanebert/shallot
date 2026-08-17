@@ -54,7 +54,7 @@ describe("outline groupByMesh", () => {
 
 // The mask kernels are TGSL, resolved device-free here (the `outlineWgsl`/`packWgsl` shape). What these pin:
 // the reverse-Z occlusion comparison, the vertex pull's decode + transform-firehose call chain (real TGSL
-// references, not a spliced chunk — the 3b-iii resolve-call-graph precedent), and the fs's seed/attr writes.
+// references, not a spliced chunk — the resolve-call-graph precedent), and the fs's seed/attr writes.
 describe("outline mask kernel", () => {
     const plain = maskWgsl(false);
     const occlude = maskWgsl(true);
@@ -76,7 +76,7 @@ describe("outline mask kernel", () => {
     });
 
     test("the vs decodes the quantized position stream and applies the transform firehose", () => {
-        // the array-element read is a pointer (3b-ii) — only fields are read off it, never reassigned or
+        // the array-element read is a pointer — only fields are read off it, never reassigned or
         // passed on whole, so no explicit copy wrap is needed here (unlike the meshQuant/Xform reads it feeds)
         expect(plain).toContain("let raw = (&position[indices[vidx]]);");
         expect(plain).toContain("let quant = meshQuant[meshIdOf((*raw).y)];");

@@ -816,7 +816,7 @@ test("a specializing surface compiled at two distinct variants emits two distinc
     }
 });
 
-describe("compileVariant — the transparent twin (c-3): shares color entries verbatim", () => {
+describe("compileVariant — the transparent twin: shares color entries verbatim", () => {
     test("blend has no effect on the emitted vs/fs text — only the pipeline's blend/depth state differs, proven device-side by `bun bench`", () => {
         const l = layout({ items: { type: "storage", element: d.f32 } });
         const fs = tgpu.fn(

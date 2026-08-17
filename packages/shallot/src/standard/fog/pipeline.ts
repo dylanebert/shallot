@@ -147,14 +147,14 @@ export const fogKernel = tgpu
             let lstep = d.vec3f(0);
             let j = d.u32(0);
             while (j < entry.y) {
-                // the array-element read is a pointer, not a copy (3b-ii) — wrap in the element schema to
+                // the array-element read is a pointer, not a copy — wrap in the element schema to
                 // pass it by value into inScatterContribution / pointShadowRef
                 const light = PointLightGpu(
                     fogLayout1.$.pointLights.lights[fogLayout1.$.lightIndices[entry.x + j]],
                 );
                 // params.x < 0 is the Volumetric flag; a plain light has no shaft (skip it) — the for-loop
                 // `continue` becomes an early increment + `continue` under the dynamic-bound `while` shape
-                // (3b-i's "loop{} emits as while(true)" class), never a reassociation
+                // (the "loop{} emits as while(true)" class), never a reassociation
                 if (light.params.x >= 0) {
                     j = j + 1;
                     continue;
