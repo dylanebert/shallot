@@ -91,7 +91,7 @@ export const BeginFrameSystem: System = {
         // to a recycled eid — is dropped here.
         pruneViews(state);
 
-        Render.encoder = device.createCommandEncoder({ label: "kitchen-frame" });
+        Render.encoder = device.createCommandEncoder({ label: "shallot-frame" });
         writeFrame(state);
         writeLighting(state);
         composeTransforms(Render.encoder);
@@ -187,7 +187,7 @@ export const BeginFrameSystem: System = {
                 continue;
             }
             if (count >= MAX_VIEWS) {
-                console.warn(`kitchen: ${MAX_VIEWS} camera cap reached; entity ${eid} skipped`);
+                console.warn(`shallot: ${MAX_VIEWS} camera cap reached; entity ${eid} skipped`);
                 continue;
             }
             const texture = view.context.getCurrentTexture();
@@ -206,7 +206,7 @@ export const BeginFrameSystem: System = {
         Render.shadeCount = count;
         for (const [eid, view] of depthOnly) {
             if (count >= MAX_SLOTS) {
-                console.warn(`kitchen: ${MAX_SLOTS} view-slot cap reached; entity ${eid} skipped`);
+                console.warn(`shallot: ${MAX_SLOTS} view-slot cap reached; entity ${eid} skipped`);
                 break;
             }
             pack(eid, view, false);
@@ -309,16 +309,16 @@ async function initRender(): Promise<void> {
     Render.encoder = null;
     for (const b of Render.viewBuffers) b.destroy();
     Render.viewBuffers = Array.from({ length: MAX_VIEWS }, (_, slot) =>
-        uniform(`kitchen-view-${slot}`, VIEW_BYTES),
+        uniform(`shallot-view-${slot}`, VIEW_BYTES),
     );
     Render.viewStaging = new Float32Array(VIEW_UNIFORM_SIZE / 4);
-    Frame.buffer = uniform("kitchen-frame", FRAME_UNIFORM_SIZE);
-    Lighting.buffer = uniform("kitchen-lighting", LIGHTING_UNIFORM_SIZE);
+    Frame.buffer = uniform("shallot-frame", FRAME_UNIFORM_SIZE);
+    Lighting.buffer = uniform("shallot-lighting", LIGHTING_UNIFORM_SIZE);
 
     // one tagged cull volume per view, packed for the GPU cull pass and published
     // by name so any producer's cull resolves it the same way it resolves slabs
     Render.cullVolumes = device.createBuffer({
-        label: "kitchen-cull-volumes",
+        label: "shallot-cull-volumes",
         size: MAX_SLOTS * CULL_VOLUME_FLOATS * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });

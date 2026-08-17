@@ -1,7 +1,7 @@
 import { resolve } from "path";
 
 // The published tarball must ship only what a consumer needs. Test files and glTF fixtures are
-// dev-only weight (backlog.md "Packaging gap") — this asserts against the real `bun pm pack`
+// dev-only weight — this asserts against the real `bun pm pack`
 // output, not the `files` field in isolation, so a future files-field edit can't silently regress it.
 const pkgDir = resolve(import.meta.dir, "../packages/shallot");
 
@@ -33,7 +33,7 @@ if (files.length === 0) {
 }
 
 // `.probes.ts` is the by-path gate suffix — a test file the default `bun test` glob deliberately misses
-// (`coding.md` Suite speed), which is exactly why it also slips a `.test.ts`-only pack check.
+// (suite-speed discipline), which is exactly why it also slips a `.test.ts`-only pack check.
 const violations = files.filter(
     (f) => f.endsWith(".test.ts") || f.endsWith(".probes.ts") || f.includes("/fixtures/"),
 );

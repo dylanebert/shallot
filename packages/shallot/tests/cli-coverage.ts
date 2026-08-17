@@ -98,7 +98,7 @@ export async function cliTestFiles(root: string): Promise<string[]> {
 /** the filesystem-derived half of the per-arm link checks, gathered by {@link cliCoverageLinks} and
  *  passed in as plain data so `cli-coverage.test.ts` red-proves the check against fixtures with no
  *  filesystem. Both fields travel together in one value the check requires, rather than two the caller
- *  may supply half of (`coding.md`: two values that must agree travel as one). */
+ *  may supply half of (two values that must agree travel as one). */
 export interface CoverageLinks {
     /** every population file imported by at least one test-tier file anywhere in the repo. */
     importedByTest: readonly string[];

@@ -111,7 +111,7 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                 // `lazy: true` declares this ring to the profiler (`LazyAlloc`, engine/runtime): a slot
                 // grows on real GPU backpressure — how many have grown by the moment `Profile` samples
                 // depends on device readback timing, not scenario code or params — so a byte-budget gate
-                // excludes these bytes from its exact total (`shallot-perf-gates` stage 4e).
+                // excludes these bytes from its exact total.
                 const desc: GPUBufferDescriptor & LazyAlloc = {
                     label: "mirror-staging",
                     size: m.size,

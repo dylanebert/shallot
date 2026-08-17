@@ -39,7 +39,7 @@ const warned = new Set<string>();
 // `lazy: true` declares this pool to the profiler (`LazyAlloc`, engine/runtime): `_stagingPool` grows on
 // real GPU backpressure (a prior stager's `mapAsync` hasn't resolved by the next flush), not
 // deterministically for a fixed scenario at fixed params, so a byte-budget gate excludes these bytes
-// from its exact total (`shallot-perf-gates` stage 4e).
+// from its exact total.
 function createStager(device: GPUDevice, bytes: number): GPUBuffer {
     const desc: GPUBufferDescriptor & LazyAlloc = {
         label: "slab-staging",

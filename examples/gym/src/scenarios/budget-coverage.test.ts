@@ -11,7 +11,7 @@ import {
 } from "./budget-coverage";
 import "./index";
 
-// fixture-only red-proofs (coding.md "a check is evidence only if you've seen it fail" — each was run
+// fixture-only red-proofs ("a check is evidence only if you've seen it fail" — each was run
 // against a broken checker first and confirmed to fail before the checker was fixed to pass it): a table
 // key naming an unregistered scenario, an exemption with no reason, a (scenario, axis) pair both budgeted
 // and exempt, and a registered scenario missing coverage on an axis. None of these touch the real scenario

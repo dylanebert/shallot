@@ -5,8 +5,8 @@ import { FOG_MAX_STEPS, FOG_PARAMS } from "./march";
 import { packFog } from "./pack";
 
 // packFog is the CPU→GPU uniform boundary: it reads the `Fog` singleton's sparse components and writes the
-// `FogGpu` staging float array the compute pipeline binds verbatim. `coding.md` names this crossing as
-// earning a test outright — a wrong lane or a missed clamp here is invisible to every WGSL-side check,
+// `FogGpu` staging float array the compute pipeline binds verbatim. This CPU→GPU crossing earns a test
+// outright — a wrong lane or a missed clamp here is invisible to every WGSL-side check,
 // since the shader only ever sees the packed floats, never the component reads that produced them.
 describe("packFog", () => {
     test("writes color (sRGB→linear), march, and extra at the schema's own offsets", () => {

@@ -103,7 +103,7 @@ function internField(path: string): number {
 }
 
 // resolve "component.field" (a scalar Single) or "component.field.lane" (a lane
-// of a Pair/Quad) to the typed Single it writes. every kitchen field is typed,
+// of a Pair/Quad) to the typed Single it writes. every shallot field is typed,
 // so there's no number[] / proxy ladder — just the one accessor, or null when
 // the path doesn't name a scalar field. component + field names normalize
 // (kebab in the registry, camel for the field), the lane is literal x/y/z/w.

@@ -269,7 +269,7 @@ export async function settle(m: Mirror, max = 120): Promise<void> {
 const DRAW_ARG_U32S = 5;
 
 /**
- * per-pair `instanceCount` for one view slot, decoded from a {@link Mirror} of a kitchen cull
+ * per-pair `instanceCount` for one view slot, decoded from a {@link Mirror} of a shallot cull
  * producer's slot-major `drawArgs` buffer (`slot * pairCount + pair`). The compacted survivor
  * count a frustum cull writes — the GPU→CPU assert input every culling scenario reads. `null`
  * until the first snapshot resolves.

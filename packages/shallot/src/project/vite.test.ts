@@ -231,11 +231,11 @@ describe("projectPlugin", () => {
                     return { id: `/resolved/${id}` };
                 },
             };
-            const resolved = await hook.call(stubThis, "orrstead/core/grid", "\0virtual:project");
-            expect(resolved).toEqual({ id: "/resolved/orrstead/core/grid" });
+            const resolved = await hook.call(stubThis, "my-plugin/core/grid", "\0virtual:project");
+            expect(resolved).toEqual({ id: "/resolved/my-plugin/core/grid" });
             expect(calls).toEqual([
                 {
-                    id: "orrstead/core/grid",
+                    id: "my-plugin/core/grid",
                     importer: join(dir, "__project__.js"),
                     opts: { skipSelf: true },
                 },

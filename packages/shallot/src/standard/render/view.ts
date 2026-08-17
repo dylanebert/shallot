@@ -359,7 +359,7 @@ export function offscreen(eid: number, w: number, h: number): GPUTextureView {
     if (cached && cached.w === w && cached.h === h) return cached.view;
     cached?.texture.destroy();
     const texture = Compute.device.createTexture({
-        label: `kitchen-offscreen-${eid}`,
+        label: `shallot-offscreen-${eid}`,
         size: { width: w, height: h },
         format: Render.format,
         usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,

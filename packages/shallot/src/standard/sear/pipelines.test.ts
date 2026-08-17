@@ -740,7 +740,7 @@ test("Sear warms Part-published specializing variants; post-build variants stay 
             surfaces,
             (surface) => knownVariants(surface, draws, meshes),
         );
-        precompile("kitchen-part-count", () => {
+        precompile("shallot-part-count", () => {
             events.push("part");
             publishPartDraws(buffer, surfaces.size, surfaces.size * meshes.size, registries);
             return true;

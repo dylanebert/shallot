@@ -10,6 +10,6 @@ cp -r "$DIR"/syntaxes "$TMP/"
 cd "$TMP"
 npx @vscode/vsce package --allow-missing-repository
 VSIX=$(ls *.vsix)
-CLI="${SHALLOT_CODE_CLI:-cursor}"
+CLI="${SHALLOT_CODE_CLI:-code}"
 "$CLI" --install-extension "$VSIX"
 echo "Installed $VSIX"

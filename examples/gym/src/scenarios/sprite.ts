@@ -41,7 +41,7 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 // sprite — the SpritePlugin dogfood: procedurally-drawn icons (no asset files) amid cube Parts under a
 // sun with shadows. Covers the three billboard modes (screen markers above the cubes, y-locked trees,
 // a world-aligned ground decal), the opt-in alpha blend (a ghost marker), clip cutouts casting holed
-// shadows, and the perspective↔ortho camera switch (the orrstead top-down consumer's shape — near
+// shadows, and the perspective↔ortho camera switch (a top-down consumer's shape — near
 // straight-down, exercising the y-locked degeneracy guard's neighborhood). Gated on the per-bucket
 // indirect instanceCount read back through a Mirror of the sprite arg buffer, a positive framebuffer
 // chroma probe (the typed surface actually put color on screen — the text/accel precedent), and a
@@ -428,7 +428,7 @@ const scenario: Scenario = {
         Camera.fov.set(cam, 55);
         Orbit.distance.set(cam, 11);
         Orbit.yaw.set(cam, 0.4);
-        // ortho builds at the orrstead top-down framing — near straight-down (just under Orbit's
+        // ortho builds at the top-down framing — near straight-down (just under Orbit's
         // π/2 − 0.01 maxPitch clamp), the y-locked degeneracy guard's neighborhood. Initial pose only;
         // a live drag moves it. Perspective keeps the orbit default pitch
         if (p.mode === "ortho") Orbit.pitch.set(cam, Math.PI / 2 - 0.02);
@@ -529,7 +529,7 @@ const scenario: Scenario = {
             detail: `gpu passes: ${[...Profile.gpu.keys()].sort().join(", ")}`,
         });
 
-        // the ortho top-down framing (the orrstead consumer): the frame keeps rendering and the
+        // the ortho top-down framing (the top-down consumer): the frame keeps rendering and the
         // bucket routing is camera-independent. Restore the URL-resolved mode after, so the
         // post-run screenshot shows the camera the run was asked for
         const prior = params!.mode;

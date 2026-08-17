@@ -10,7 +10,7 @@
 // but the *generated* terrain is a heightmap, deliberately. Auto-generated 3D caves are the "minecraft"
 // direction we're not taking here; rolling hills are the simpler, more pleasing initialization.
 
-// Shape: orrstead's generation compute (`orrstead/package/src/generation/{noise,elevation}.ts`) — a seeded
+// Shape: a seeded
 // permutation table in a storage buffer + an FBM WGSL chunk + a workgroup dispatch on its own encoder. The
 // pure noise primitives (perm table, perlin/fbm TGSL, heightmap knobs, the derived band) live in noise.ts.
 
@@ -180,7 +180,7 @@ const runDensity = createDensityRunner<
 
 /** fill `Voxels.grid` from the heightmap density for `seed`, then dirty it so the mesher re-meshes. The
  *  pipeline compiles once (baked constants); each call rebuilds the per-seed permutation table. Runs on
- *  its own encoder + submit (decoupled from the frame loop, the orrstead generation shape). */
+ *  its own encoder + submit (decoupled from the frame loop). */
 export async function generate(seed: number): Promise<void> {
     if (!Voxels.grid) throw new Error("voxel: generate before the grid buffer exists");
     const { device, root } = Compute;

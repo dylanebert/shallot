@@ -7,7 +7,7 @@ import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } f
 // the real text, producing a `Population` this file's `checkStandards` consumes. This file imports
 // `tests/wgsl.ts`'s existing checkers (the four discipline checks it already ships and every ported-kernel
 // test file already calls) rather than reimplementing their regexes a second time — "one source of truth"
-// (coding.md) outweighs a literal zero-runtime-import reading here, since the alternative is a second,
+// outweighs a literal zero-runtime-import reading here, since the alternative is a second,
 // driftable copy of the same regex logic.
 
 export type DisciplineCheck =

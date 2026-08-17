@@ -32,8 +32,7 @@ import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { StepSystem } from "@dylanebert/shallot/physics/core";
 import { type Check, frames, type Params, register, type Scenario } from "../gym";
 
-// motor — the angular motor constraint (kex roadmap "Correct driven-rotation behavior"), the spindle game's
-// drive done right: a driven body HOLDS its target ω under load. Two drives select via the
+// motor — the angular motor constraint, the drive done right: a driven body HOLDS its target ω under load. Two drives select via the
 // `drive` param against the SAME heavy rotational load (a light spindle rigidly coupled to a heavy coaxial
 // flywheel — the rigid joint to a large inertia is the forced drive's stall mechanism, the rope's aggregate
 // joints in miniature):
@@ -44,7 +43,7 @@ import { type Check, frames, type Params, register, type Scenario } from "../gym
 //               up to maxTorque, so it spins the whole assembly up and HOLDS the target.
 // The default (`drive=motor`) is the gate — it compiles the motor WGSL on the real device and asserts the
 // spindle holds target ω under the load. `--param drive=forced` is the contrast (asserts it stalls), the
-// same joint-vs-raw-contact carry gap the game's catch mechanism depends on. The per-step motor math is
+// same joint-vs-raw-contact carry gap a catch mechanism depends on. The per-step motor math is
 // the f64 oracle's job (motor.oracle.ts).
 
 const G = -10;
@@ -199,8 +198,7 @@ const scenario: Scenario = {
             },
         ];
         if (driveMode === "motor") {
-            // stiffnessLin 0 — a PURE motor (no linear rows; the axle pins hold the COM), the config the spindle
-            // game ships. The motor's 1-DOF angular drive is the only term this joint contributes.
+            // stiffnessLin 0 — a PURE motor (no linear rows; the axle pins hold the COM). The motor's 1-DOF angular drive is the only term this joint contributes.
             joints.push({
                 a: WORLD,
                 b: spinnerEid,

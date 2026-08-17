@@ -113,8 +113,8 @@ let scanned = 0;
 
 // The doc set is what git tracks, not what the filesystem holds. A `**/*.md` scan reads whatever a
 // particular checkout happens to have on disk: `examples/gym/dist/` after any build (448 files),
-// and the glTF sample corpus through `gym/public/gltf-samples` wherever that submodule is populated
-// (451 more) — third-party and generated files we neither own nor should gate on, and present or
+// and the glTF sample corpus through the `gym/public/gltf-samples` symlink wherever that corpus is
+// checked out (451 more) — third-party and generated files we neither own nor should gate on, and present or
 // absent depending on what the last command did. Asking git makes the scope identical in every
 // checkout, which is the property that matters here: a check whose coverage depends on local state
 // is how a stale tree reads green, and this release already paid for that lesson once.
@@ -188,7 +188,7 @@ const FIXTURE_FILE = "scripts/install-test.ts";
 const FIXTURE_EXCLUSION = "PM_RED_COPY_VERSION";
 // A version token: an optional range prefix (`~`, `^`, or bare) followed by semver, or the
 // `${PM_RED_COPY_VERSION}` interpolation — every pin *shape* the fixtures could carry, not just
-// today's tilde-only forms (checks.md "regex is one surface form short": a `^0.12.0` or bare
+// today's tilde-only forms (the regex must not be one surface form short: a `^0.12.0` or bare
 // `0.12.0` pin must still be seen, not silently skipped).
 const FIXTURE_VERSION_TOKEN = String.raw`(?:\$\{${FIXTURE_EXCLUSION}\}|[~^]?\d+\.\d+\.\d+)`;
 const FIXTURE_ANY_VERSION_RE = new RegExp(FIXTURE_VERSION_TOKEN);

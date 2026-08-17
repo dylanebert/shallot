@@ -1,10 +1,10 @@
-// Text — the kitchen SDF-text producer. A retained `Text` component (string content, font, size,
+// Text — the shallot SDF-text producer. A retained `Text` component (string content, font, size,
 // anchor, color) lays each label out into instanced glyph quads, drawn as a sear `"alpha"` world-space
 // surface (one draw per font atlas). The glyph buffer holds glyph-local positions + the owning entity id;
 // the VS reads `transforms[eid]` per frame, so moving a labeled entity flows through the Transform slab
 // and triggers no glyph rebuild — the buffer rebuilds only when a layout-affecting field changes (a
 // content / size / anchor / color edit, an add / remove), gated by a per-frame signature. The SDF atlas /
-// font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the kitchen
+// font / layout substance (atlas.ts / font.ts / sdf.ts) is renderer-agnostic; this file is the shallot
 // surface + producer around it. Single-channel SDF (Valve "Improved Alpha-Tested Magnification").
 
 import type { StorageFlag, TgpuBuffer } from "typegpu";
@@ -360,7 +360,7 @@ function rebuild(state: State, device: GPUDevice): void {
         _glyphBuf = Compute.root
             .createBuffer(d.arrayOf(Glyph, _cap))
             .$usage("storage")
-            .$name("kitchen-text-glyphs");
+            .$name("shallot-text-glyphs");
         Compute.buffers.set("textGlyphs", Compute.root.unwrap(_glyphBuf));
         Compute.typed.set("textGlyphs", _glyphBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
@@ -417,7 +417,7 @@ const TextSystem: System = {
 const ASCII_CACHE = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 .,!?-:;'\"()";
 
 /**
- * the kitchen text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
+ * the shallot text producer: the retained {@link Text} component laid out into instanced SDF glyph quads,
  * drawn as a sear `"alpha"` world-space surface (one draw per font). Register fonts with {@link font} and
  * label strings with {@link text}. Depends on {@link RenderPlugin}; a Sear camera renders it
  */
@@ -513,13 +513,13 @@ export const TextPlugin: Plugin = {
         _glyphBuf = Compute.root
             .createBuffer(d.arrayOf(Glyph, INITIAL))
             .$usage("storage")
-            .$name("kitchen-text-glyphs");
+            .$name("shallot-text-glyphs");
         Compute.buffers.set("textGlyphs", Compute.root.unwrap(_glyphBuf));
         Compute.typed.set("textGlyphs", _glyphBuf);
         _argBuf = Compute.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, Math.max(1, _atlases.length)))
             .$usage("indirect")
-            .$name("kitchen-text-args");
+            .$name("shallot-text-args");
         for (const atlas of _atlases) if (atlas) ensureString(atlas, ASCII_CACHE);
     },
 

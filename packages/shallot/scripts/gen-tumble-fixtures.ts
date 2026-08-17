@@ -1,5 +1,5 @@
 // Regenerates the tumble engine's bit-exact scene fixtures by building and running the Box3D C reference
-// at ../reference/box3d (branch `harness`, the kex workspace layout — sibling of the shallot checkout).
+// at ../reference/box3d (branch `harness`) — the required checkout location relative to this repo.
 // Output lands in tests/tumble/fixtures/; the engine's step.fixture.ts replays each scene and asserts
 // per-step hash equality against them.
 //
@@ -9,8 +9,8 @@
 // these fixtures pin the wide-simd wasm path too. Requires cmake and a C toolchain.
 //
 // The committed fixtures are the frozen contract (pin 29bf523 — tests/tumble/fixtures/README.md); only
-// run this at a deliberate upstream sync. Absent the reference (a plain shallot checkout with no kex
-// workspace around it), it errors honestly.
+// run this at a deliberate upstream sync. Absent the reference (a plain shallot checkout), it errors
+// honestly.
 //
 // Usage: bun run scripts/gen-tumble-fixtures.ts   (from packages/shallot)
 
@@ -27,7 +27,7 @@ const outDir = resolve(pkgRoot, "tests", "tumble", "fixtures");
 if (!existsSync(refDir)) {
     console.error(`box3d reference missing: ${refDir}`);
     console.error(
-        "expected the box3d reference at reference/box3d beside the shallot checkout (the kex workspace layout: kex/reference/box3d, sibling of kex/shallot) on branch `harness`.",
+        "expected the box3d reference at reference/box3d beside the shallot checkout (../reference/box3d relative to this repo) on branch `harness`.",
     );
     process.exit(1);
 }

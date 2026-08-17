@@ -478,7 +478,7 @@ describe("installHarnessProbe + harnessInstallMs — the pure setter mechanism",
 });
 
 // the cheap sentinel for `verify.probes.ts`, the browser-launching gate these two constants are proven
-// in (`coding.md`: a gate leaving the default suite leaves a sentinel behind). Both concerns must reach
+// in (a gate that leaves the default suite leaves a sentinel behind). Both concerns must reach
 // the page before the first request — a raised resource-timing buffer and the harness-install setter —
 // and dropping either from the init script is the silent failure the probes exist to prevent.
 describe("TIMINGS_INIT_SCRIPT — what --timings installs pre-navigation", () => {
@@ -733,7 +733,7 @@ describe("partitionSweep", () => {
         expect(isolate).toEqual(["b"]);
     });
 
-    // real data, as a declared registry asserted BOTH directions (`coding.md`): the literal below is the
+    // real data, as a declared registry asserted BOTH directions: the literal below is the
     // independent half. Deriving the expectation with the same `g.isolate` filter the production code
     // implements would re-derive the rule under test and discriminate almost nothing — it would pass for
     // any table, including one where somebody dropped `isolate` off `stress`. Naming the three scenarios

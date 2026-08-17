@@ -9,7 +9,7 @@ import { Transform } from "../transforms";
 
 /**
  * ambient light component. sear's `lit` / `lightFactor` helpers
- * read it via the kitchen Lighting uniform. `color` is hex sRGB (e.g.
+ * read it via the shallot Lighting uniform. `color` is hex sRGB (e.g.
  * `0xd0dcec`); `intensity` is a linear multiplier
  *
  * @example
@@ -24,7 +24,7 @@ export const AmbientLight = {
 
 /**
  * directional light component. sear's `lit` / `lightFactor`
- * helpers read it via the kitchen Lighting uniform. `direction` is the light's
+ * helpers read it via the shallot Lighting uniform. `direction` is the light's
  * travel direction (down-pointing for a sun overhead); auto-normalized when
  * packed
  *
@@ -296,7 +296,7 @@ export function warnLightOverflow(state: State): void {
         if (!_overflowWarned) {
             _overflowWarned = true;
             console.warn(
-                `kitchen: ${count} point lights exceed the ${MAX_POINT_LIGHTS} cap; ${count - MAX_POINT_LIGHTS} ignored`,
+                `shallot: ${count} point lights exceed the ${MAX_POINT_LIGHTS} cap; ${count - MAX_POINT_LIGHTS} ignored`,
             );
         }
     } else {

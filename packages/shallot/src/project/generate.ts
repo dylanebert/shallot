@@ -8,7 +8,7 @@ import { localOf, type Manifest } from "./manifest";
 // barrel (`import { OrbitPlugin } from "@dylanebert/shallot"`, tree-shaken) for most, or a backend
 // plugin's own subpath (`SUBPATH_PLUGIN_MODULES`, e.g. `AvbdPlugin` from `@dylanebert/shallot/avbd`) when
 // it isn't barrel-listed; a local/external plugin is a module whose **default export** is the Plugin
-// (Expo / Obsidian / Babel convention — the package declares its entry, e.g. a subpath `orrstead/grid`
+// (Expo / Obsidian / Babel convention — the package declares its entry, e.g. a subpath `my-plugin/grid`
 // default-exporting GridPlugin). The runtime guard below fails loud when a default import resolved to
 // something that isn't a Plugin (a default import is silently `undefined` otherwise), naming the manifest key.
 

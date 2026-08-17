@@ -10,7 +10,7 @@ import {
 } from "@dylanebert/shallot";
 import { start } from "./boot";
 
-// SDF text labels on the kitchen renderer, authored in the scene. The headline behavior: positions
+// SDF text labels on the shallot renderer, authored in the scene. The headline behavior: positions
 // animate (the title bobs on a declarative tween, the captions orbit via this system) while the glyph
 // buffer lays out once and never rebuilds — motion flows through the Transform slab the VS samples, not
 // the glyph geometry. `Ring` marks an orbiting caption and carries its phase offset; that orbit (coupled

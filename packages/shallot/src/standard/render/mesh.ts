@@ -193,11 +193,11 @@ export function mesh(spec: { name: string; vertices: Float32Array; indices: Uint
     _placeholderVertices ??= Compute.root
         .createBuffer(d.arrayOf(d.vec4u, 1))
         .$usage("storage")
-        .$name("kitchen-mesh-pending-vertices");
+        .$name("shallot-mesh-pending-vertices");
     _placeholderIndices ??= Compute.root
         .createBuffer(d.arrayOf(d.u32, 1))
         .$usage("storage", "index")
-        .$name("kitchen-mesh-pending-indices");
+        .$name("shallot-mesh-pending-indices");
     const bounds = meshBounds(spec.vertices);
     _pending.push({ ...spec, bounds });
     Meshes.register({
@@ -385,19 +385,19 @@ export function flushMeshes(): void {
     const vertices = Compute.root
         .createBuffer(d.arrayOf(d.vec4u, q.main.length / 4))
         .$usage("storage")
-        .$name("kitchen-mesh-main");
+        .$name("shallot-mesh-main");
     const position = Compute.root
         .createBuffer(d.arrayOf(d.vec2u, q.position.length / 2))
         .$usage("storage")
-        .$name("kitchen-mesh-pos");
+        .$name("shallot-mesh-pos");
     const quant = Compute.root
         .createBuffer(d.arrayOf(MeshQuant, q.quant.length / 12))
         .$usage("storage")
-        .$name("kitchen-mesh-quant");
+        .$name("shallot-mesh-quant");
     const indices = Compute.root
         .createBuffer(d.arrayOf(d.u32, packed.indices.length))
         .$usage("storage", "index")
-        .$name("kitchen-mesh-indices");
+        .$name("shallot-mesh-indices");
     vertices.write(q.main.buffer as ArrayBuffer);
     position.write(q.position.buffer as ArrayBuffer);
     quant.write(q.quant.buffer as ArrayBuffer);

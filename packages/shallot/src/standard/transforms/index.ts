@@ -67,7 +67,7 @@ export function composeTransforms(encoder: GPUCommandEncoder): void {
     const bound = bind();
     if (!bound) return;
     const pass = encoder.beginComputePass({
-        label: "kitchen-transforms-compose",
+        label: "shallot-transforms-compose",
         timestampWrites: Compute.span?.("transforms:compose"),
     });
     bound.with(pass).dispatchWorkgroups(Math.ceil(capacity / 64));
@@ -163,21 +163,21 @@ export const TransformsPlugin: Plugin = {
         _typed = Compute.root
             .createBuffer(d.arrayOf(Xform, capacity))
             .$usage("storage")
-            .$name("kitchen-transforms");
+            .$name("shallot-transforms");
         Compute.buffers.set("transforms", Compute.root.unwrap(_typed));
         Compute.typed.set("transforms", _typed);
 
         const t = state.membership.bit(Transform);
         _composePipeline = Compute.root
             .createComputePipeline({ compute: composeKernel(t.gen * capacity, t.mask, capacity) })
-            .$name("kitchen-transforms-compose");
+            .$name("shallot-transforms-compose");
     },
 
     warm() {
         if (!_composePipeline) return;
         // the bind, not just the dispatch, is deferred into the forcer: the drain runs after every
         // plugin's warm has resolved, which is the first moment the buffers this reads are all up
-        precompile("kitchen-transforms-compose", () => {
+        precompile("shallot-transforms-compose", () => {
             const bound = bind();
             bound?.dispatchWorkgroups(0);
             return bound;

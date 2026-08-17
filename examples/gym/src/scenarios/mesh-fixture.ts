@@ -1,7 +1,7 @@
 // mesh-fixture — the release-prerequisite hardening fixture (spec shallot-typegpu 5b-2f-0): a deterministic
 // mesh proving final pixels through both the canonical typed-surface path (a Part entity on the built-in
 // `unlit` surface — the standard eids+transforms instancing convention) and the custom mesh-binding/
-// custom-surface path Spindle's rope uses (a hand-registered surface reading its own published uniform,
+// custom-surface path (a hand-registered surface reading its own published uniform,
 // positioning geometry outside the Part convention). Both tags ride the SAME `cube` mesh, so mesh
 // registration + index/vertex evidence is shared and the two paths differ only in how they publish
 // position + color. `mode=blank` is the red-proof: it corrupts only the *content* published into the
@@ -68,7 +68,7 @@ const GREEN: [number, number, number, number] = [0, 1, 0, 1];
 const BLANK: [number, number, number, number] = [0, 0, 1, 1];
 
 // the custom surface's own published resource — a single uniform (position + color), the same shape as
-// Spindle's `RopeFx`: not the standard eids/transforms per-instance convention.
+// a custom surface's `RopeFx`: not the standard eids/transforms per-instance convention.
 const FixtureTag = d.struct({ pos: d.vec3f, pad: d.f32, color: d.vec4f }).$name("fixtureTag");
 
 const fixtureLayout = surfaceLayout({

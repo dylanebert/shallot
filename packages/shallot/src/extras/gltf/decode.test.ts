@@ -11,7 +11,7 @@ import {
 } from "./assets";
 import { COMPRESSION_FAMILIES, pickTargets, type Targets } from "./target";
 
-// the deviceless decode half of the importer (the CPU↔GPU boundary `coding.md` flags for tests). The Box
+// the deviceless decode half of the importer (the CPU↔GPU boundary that warrants a dedicated test). The Box
 // glTF-Draco fixture (untextured) exercises fetch + Draco parse + geometry quantization with no GPU and no
 // createImageBitmap, so the payload shape is unit-testable here; the upload + spawn half (`register`) is
 // GPU-only, gated in the gym `render` `gltf-model` mode.

@@ -36,7 +36,7 @@
 // joint locking a panel's orientation), and `raining` (the streaming-spawn stress: bodies rain onto a pile
 // and recycle at a cap, gating the live create/destroy marshal path under constant churn).
 // `motor` gates the
-// angular motor constraint (a 1-DOF force-clamped angular drive, the spindle game's robust drive): a light
+// angular motor constraint (a 1-DOF force-clamped angular drive, a robust drive): a light
 // spindle rigidly coupled to a heavy flywheel HOLDS its target ω under the load with the motor (`drive=motor`,
 // the default + WGSL compile gate) where the forced-velocity drive STALLS (`drive=forced`, the contrast).
 // `chain` is the phase-boundary microbench the physics waste audit reads
