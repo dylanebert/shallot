@@ -5,6 +5,10 @@ import { parseFields, readComponent, setFieldValue } from "../engine/scene/core"
 import type { Command } from "./commands";
 import type { Document } from "./index";
 
+// camera-driven attrs the readback skips in edit mode: the engine owns a camera's transform/orbit, so
+// reflecting them back would fight the live driver. Kebab-case strings (the registry's canonical form)
+// rather than imports because the document layer sits below standard/transforms and extras/orbit —
+// importing from them would invert the dependency direction.
 const EDIT_SKIP = new Set(["transform", "orbit"]);
 
 /** the live-edit readback singleton: the active {@link Session} (null when no scene is open) and an

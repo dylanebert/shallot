@@ -305,13 +305,13 @@ const STEP_JOINT_COUNT = d.memoryLayoutOf(Step, (s) => s.jointCount).offset;
 /** logical columns in the eid-indexed `bodies` SoA cols-buffer (`bodies[col*eidCap + eid]`). A ported
  * chunk folds every constant into the expression that uses it, so a kernel writing a column by
  * hand interpolates these instead of naming a spliced const. */
-const B_POS = 0;
-const B_QUAT = 1;
+export const B_POS = 0;
+export const B_QUAT = 1;
 const B_INERTL = 2;
 const B_INERTQ = 3;
 const B_INITL = 4;
 const B_INITQ = 5;
-const B_VELL = 6;
+export const B_VELL = 6;
 const B_VELA = 7;
 const B_PREVV = 8;
 const B_MM = 9;

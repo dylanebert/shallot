@@ -11,7 +11,7 @@ import { Slab } from "../../standard/slab";
 import { LiveSkin, Skin } from "../skin";
 import type { GltfHandle } from "./assets";
 import { GltfPlugin } from "./assets";
-import { RouteSystem, routes, scanRefs, Textured } from "./routes";
+import { ROUTE_SURFACES, RouteSystem, routes, scanRefs, Textured } from "./routes";
 
 // Declarative-load scan + route sync, CPU-only: scanRefs is pure over parsed nodes, and RouteSystem is
 // pure over a `new State()` + the module `routes` map (no device, no decode). The end-to-end declarative
@@ -38,6 +38,41 @@ describe("scanRefs", () => {
             <a part="mesh: noindex.glb" />
         </scene>`);
         expect(scanRefs(nodes)).toEqual([]);
+    });
+});
+
+describe("ROUTE_SURFACES coverage", () => {
+    test("every route surface name is a registered surface", () => {
+        clear();
+        Surfaces.clear();
+        routes.clear();
+        LiveSkin.reset();
+        // register the surfaces GltfPlugin.initialize creates (assets.ts, skin.ts, live.ts)
+        const routeLayout = surfaceLayout({});
+        const routeFs = tgpu.fn(
+            [fsCtxSchema()],
+            d.vec4f,
+        )(() => {
+            "use gpu";
+            return d.vec4f(1);
+        });
+        for (const name of [
+            "default",
+            "gltf-albedo",
+            "gltf-albedo-clip",
+            "gltf-albedo-blend",
+            "skin",
+            "skin-clip",
+            "skin-blend",
+            "skin-live",
+            "skin-live-clip",
+            "skin-live-blend",
+        ]) {
+            Surfaces.register({ name, layout: routeLayout, fs: routeFs });
+        }
+        for (const name of ROUTE_SURFACES) {
+            expect(Surfaces.id(name)).toBeDefined();
+        }
     });
 });
 

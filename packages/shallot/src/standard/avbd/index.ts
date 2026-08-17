@@ -19,7 +19,7 @@ import { Hulls } from "../physics/core";
 import { SlabPlugin } from "../slab";
 import { packHulls } from "./hull";
 import { diffStamps } from "./recycle";
-import { type Inputs, PENALTY_MIN, PhysicsStep } from "./step";
+import { B_POS, B_QUAT, B_VELL, type Inputs, PENALTY_MIN, PhysicsStep } from "./step";
 
 // AVBD physics — the rigid-body solver re-added to the lean engine, validated against the f64 oracle
 // (tests/avbd). This plugin implements the substrate's `PhysicsBackend` handle (`standard/physics`); the
@@ -145,10 +145,8 @@ const PackSystem: System = {
     },
 };
 
-// the bodies SoA columns `readBody` reads off the Mirror snapshot (must match step.ts B_POS / B_QUAT / B_VELL)
-const B_POS = 0;
-const B_QUAT = 1;
-const B_VELL = 6;
+// the bodies SoA columns `readBody` reads off the Mirror snapshot — imported from step.ts so the
+// column indices can't drift from the solver's own layout
 
 // the ONE body-pose Mirror `readBody` reads through, shared by every CPU consumer (the character sweep,
 // pick.ts). Lazily allocated once `Avbd.step` exists (after warm + Mirror.reset).

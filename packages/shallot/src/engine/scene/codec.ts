@@ -280,14 +280,9 @@ function applyComponent(
     pendingFieldRefs: PendingFieldRef[],
 ): void {
     const { def, value } = attr;
-    const { component, name, traits } = def;
+    const { component, name } = def;
 
     state.add(eid, component as never);
-
-    const defaults = traits?.defaults?.() ?? {};
-    for (const [field, val] of Object.entries(defaults)) {
-        setFieldValue(component, field, eid, val as number | number[]);
-    }
 
     if (value !== "" && isCSSAttrSyntax(value)) {
         const result = parsePropertyString(def, value);

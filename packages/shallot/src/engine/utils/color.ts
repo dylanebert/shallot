@@ -1,3 +1,5 @@
+import tgpu from "typegpu";
+
 /** sRGB → linear for a single 0..1 channel */
 export function srgbToLinear(c: number): number {
     return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
@@ -37,10 +39,15 @@ export function packColor(hex: number, opacity: number): number {
  * WGSL `linearToOklab(c: vec3<f32>) -> vec3<f32>`: linear sRGB to OkLab
  * (Björn Ottosson's matrices). Splice into a surface preamble for perceptual
  * color work (hue/lightness perturbation around a base color); pair with
- * {@link OKLAB_TO_LINEAR_WGSL} to come back. One source so every shader
- * agrees on the matrices.
+ * {@link oklabToLinearWgsl} to come back. One source so every shader
+ * agrees on the matrices. Lazily resolved so the string isn't built until
+ * first call (the `*Wgsl()` chunk pattern, `exports.md`).
  */
-export const LINEAR_TO_OKLAB_WGSL = /* wgsl */ `
+export function linearToOklabWgsl(): string {
+    return tgpu.resolve({
+        names: "strict",
+        externals: {},
+        template: /* wgsl */ `
 fn linearToOklab(c: vec3<f32>) -> vec3<f32> {
     let l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
     let m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
@@ -54,15 +61,21 @@ fn linearToOklab(c: vec3<f32>) -> vec3<f32> {
         0.0259040371 * l_ + 0.7827717662 * m_ - 0.8086757660 * s_,
     );
 }
-`;
+`,
+    });
+}
 
 /**
  * WGSL `oklabToLinear(lab: vec3<f32>) -> vec3<f32>`: OkLab back to linear
  * sRGB (out-of-gamut values are NOT clamped; clamp at the call site if the
- * input can leave gamut). Counterpart of {@link LINEAR_TO_OKLAB_WGSL}; each
- * direction is its own constant so a shader splices only what it calls.
+ * input can leave gamut). Counterpart of {@link linearToOklabWgsl}; each
+ * direction is its own chunk so a shader splices only what it calls.
  */
-export const OKLAB_TO_LINEAR_WGSL = /* wgsl */ `
+export function oklabToLinearWgsl(): string {
+    return tgpu.resolve({
+        names: "strict",
+        externals: {},
+        template: /* wgsl */ `
 fn oklabToLinear(lab: vec3<f32>) -> vec3<f32> {
     let l_ = lab.x + 0.3963377774 * lab.y + 0.2158037573 * lab.z;
     let m_ = lab.x - 0.1055613458 * lab.y - 0.0638541728 * lab.z;
@@ -76,7 +89,9 @@ fn oklabToLinear(lab: vec3<f32>) -> vec3<f32> {
         -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
     );
 }
-`;
+`,
+    });
+}
 
 /**
  * format an integer as a 6-digit hex string (e.g. `0xff8080`). The `kind`

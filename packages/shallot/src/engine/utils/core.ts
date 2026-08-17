@@ -2,7 +2,7 @@
 // resolvable into a shader — plus the pre-resolved WGSL chunks a raw-WGSL producer or surface splices,
 // and the escape vocabulary for the WGSL constructs TGSL has no binding for. The author math + color +
 // trait-authoring helpers ride the main barrel; this is what an extender building a pipeline reaches for.
-export { LINEAR_TO_OKLAB_WGSL, OKLAB_TO_LINEAR_WGSL, packColor } from "./color";
+export { linearToOklabWgsl, oklabToLinearWgsl, packColor } from "./color";
 export {
     decodePos,
     decodeUv,

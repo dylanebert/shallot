@@ -66,10 +66,12 @@ export function scanRefs(nodes: Node[]): GltfRef[] {
  *  registry). `register` writes it, {@link RouteSystem} reads it; internal seam, not on the barrel. */
 export const routes = new Map<number, GltfHandle>();
 
-// the surfaces the importer owns. A Part sitting on one of these — or on sear's `default` — follows its
-// mesh's route (the effective default surface of a glTF mesh is its imported route); any other surface is
-// an author's explicit choice and wins.
-const ROUTE_SURFACES = [
+/** the surfaces the importer owns. A Part sitting on one of these — or on sear's `default` — follows its
+ *  mesh's route (the effective default surface of a glTF mesh is its imported route); any other surface is
+ *  an author's explicit choice and wins. Exported so the coverage test can assert the registered surface
+ *  set ⊇ this list (a new route surface added without a row here is a silent gap in the route-sync `owned`
+ *  set). */
+export const ROUTE_SURFACES = [
     "gltf-albedo",
     "gltf-albedo-clip",
     "gltf-albedo-blend",
@@ -79,7 +81,7 @@ const ROUTE_SURFACES = [
     "skin-live",
     "skin-live-clip",
     "skin-live-blend",
-];
+] as const;
 
 // drop an entity's Skin decoration, freeing its live palette block first — a no-op for a VAT skinned entity
 // (it never allocated one), so it's safe to call whenever Skin comes off regardless of the prior route.

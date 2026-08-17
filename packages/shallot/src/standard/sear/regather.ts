@@ -9,6 +9,7 @@
 // `eids`-lane swap), so it lives here, not in render/core (the agnosticism inversion render.md forbids).
 
 import tgpu from "typegpu";
+import * as d from "typegpu/data";
 import { Compute, capacity } from "../../engine";
 import { DrawIndexedIndirect } from "../render/core";
 
@@ -20,9 +21,10 @@ import { DrawIndexedIndirect } from "../render/core";
 export const COMBO_SHIFT = Math.ceil(Math.log2(capacity));
 export const EID_MASK = (1 << COMBO_SHIFT) - 1;
 
-// one 20-byte DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
-// survivors, firstInstance = the mesh's base into the re-gathered list
-export const SHADOW_ARG_STRIDE = 20;
+// one DrawIndexedIndirect record per casting mesh, written by Pass A: instanceCount = Σ combo
+// survivors, firstInstance = the mesh's base into the re-gathered list. Stride derived from the schema
+// (gpu.md: a second hand-authored stride is layout drift waiting to happen).
+export const SHADOW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 
 // the two A/B compute pipelines — module-scope singletons, compiled once by prepareRegather. The WGSL is
 // geometry-blind (slot-major counts + the eid pool + meta), so both the point atlas and the cascade atlas

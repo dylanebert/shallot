@@ -89,14 +89,19 @@ describe("SDF decode on the CPU", () => {
         expect(sdfToSignedDistance(0.9, 1)).toBeCloseTo(-sdfToSignedDistance(0.1, 1), 6);
     });
 
-    test("the exponent-9 root at hand-exact points: 2·a = 2⁻⁹ ⇒ half the max dimension", () => {
-        expect(SDF_EXPONENT).toBe(9);
-        // a = 2⁻¹⁰, so pow(2·a, 1/9) = pow(2⁻⁹, 1/9) = 2⁻¹ ⇒ absDist = (1 − 0.5)·maxDim
-        expect(sdfToSignedDistance(2 ** -10, 4)).toBeCloseTo(2, 5);
-        expect(sdfToSignedDistance(1 - 2 ** -10, 4)).toBeCloseTo(-2, 5);
-        // a = 0 ⇒ pow(0, 1/9) = 0 ⇒ absDist = maxDim, the far rail on both sides
-        expect(sdfToSignedDistance(0, 3)).toBeCloseTo(3, 6);
-        expect(sdfToSignedDistance(1, 3)).toBeCloseTo(-3, 6);
+    test("encode→decode round-trip: the exponent the atlas bakes is the one the decode inverts", () => {
+        // the atlas stores 0.5·pow(1 − dist/maxDim, SDF_EXPONENT) for outside, 1 minus that for inside.
+        // sdfToSignedDistance takes the SDF_EXPONENT-th root, so the round-trip is exact when the
+        // exponent the decode uses matches the one the atlas baked — no constant restatement needed.
+        for (const maxDim of [1, 4, 7, 13]) {
+            for (const dist of [0, 0.25, 0.5, 0.75, 1]) {
+                const d = dist * maxDim;
+                const sdfOutside = 0.5 * (1 - d / maxDim) ** SDF_EXPONENT;
+                expect(sdfToSignedDistance(sdfOutside, maxDim)).toBeCloseTo(d, 6);
+                const sdfInside = 1 - 0.5 * (1 - d / maxDim) ** SDF_EXPONENT;
+                expect(sdfToSignedDistance(sdfInside, maxDim)).toBeCloseTo(-d, 6);
+            }
+        }
     });
 
     test("textSrgbToLinear: 0 and 1 are fixed points, the breakpoint takes the linear segment", () => {

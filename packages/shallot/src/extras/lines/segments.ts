@@ -13,9 +13,10 @@ import { Segment } from "./surface";
 
 // one segment = two world endpoints + a pixel width + a packed sRGBA color, 32 bytes / two vec4 reads
 // (read-all per instance coalesces near the floor, gpu.md). `a.xyz` shares its 16-byte slot with `width`,
-// `b.xyz` with `color`
-const SEGMENT_FLOATS = 8;
-const SEGMENT_BYTES = 32;
+// `b.xyz` with `color`. Stride derived from the schema (gpu.md: a second hand-authored stride is layout
+// drift waiting to happen).
+const SEGMENT_BYTES = d.sizeOf(Segment);
+const SEGMENT_FLOATS = SEGMENT_BYTES / 4;
 // initial segment capacity; the CPU staging + GPU buffer double on demand (BVH wireframes push thousands)
 const INITIAL = 1 << 14;
 

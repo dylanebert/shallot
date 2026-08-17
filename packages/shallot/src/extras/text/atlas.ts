@@ -1,8 +1,7 @@
 import type { Font } from "./font";
-import { SDFGenerator } from "./sdf";
+import { SDF_EXPONENT, SDFGenerator } from "./sdf";
 
 const SDF_SIZE = 96;
-const SDF_EXPONENT = 9;
 
 export interface GlyphMetrics {
     width: number;
