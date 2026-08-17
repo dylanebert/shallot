@@ -15,6 +15,7 @@ import {
 } from "./core";
 import { schemas } from "./reflection";
 import { sparse } from "./sparse";
+import { capacity as sharedCapacity } from "./state";
 
 const formatHex = Object.assign((n: number) => "0x" + (n >>> 0).toString(16).padStart(6, "0"), {
     kind: "color" as const,
@@ -57,6 +58,17 @@ describe("State", () => {
             state.removeSystem(system);
             state.step();
             expect(count).toBe(1);
+        });
+
+        test("unregister drops the system's profiler-name entry, not just its scheduling slot", () => {
+            const system = { group: "simulation" as const, name: "leaky", update: () => {} };
+            state.addSystem(system, "plugin");
+
+            state.removeSystem(system);
+
+            const names = (state as unknown as { _scheduler: { _names: Map<unknown, string> } })
+                ._scheduler._names;
+            expect(names.has(system)).toBe(false);
         });
     });
 
@@ -250,6 +262,27 @@ describe("State", () => {
 
             expect(state.stamp(a)).toBe(stamp);
             expect(state.exists(a)).toBe(false);
+        });
+    });
+
+    describe("Capacity", () => {
+        test("an over-capacity create() leaves no live entity behind its exception", () => {
+            const restore = sharedCapacity;
+            try {
+                const capped = new State({ capacity: 2 });
+                capped.create(); // fills the one available slot (eid 1; capacity 2 allows eid+1<=2)
+                let thrown: unknown;
+                try {
+                    capped.create();
+                } catch (e) {
+                    thrown = e;
+                }
+                expect(thrown).toBeInstanceOf(Error);
+                expect(capped.exists(2)).toBe(false);
+                expect(capped.entities()).toHaveLength(1);
+            } finally {
+                new State({ capacity: restore });
+            }
         });
     });
 });

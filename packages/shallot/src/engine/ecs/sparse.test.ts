@@ -31,6 +31,14 @@ describe("sparse scalar", () => {
         expect(Math.abs(field.get(5) - 0.1)).toBeLessThanOrEqual(0.1 * 2 ** -11);
     });
 
+    test("f16 saturates a finite out-of-range value to signed infinity, not NaN", () => {
+        const field = sparse(f16);
+        field.set(5, 70000);
+        expect(field.get(5)).toBe(Infinity);
+        field.set(5, -70000);
+        expect(field.get(5)).toBe(-Infinity);
+    });
+
     test("unset eids return the type's zero", () => {
         const field = sparse(f32);
         expect(field.get(99999)).toBe(0);

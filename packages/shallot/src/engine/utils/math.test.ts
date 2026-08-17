@@ -251,6 +251,15 @@ describe("invert", () => {
         expect(result[13]).toBe(-3);
         expect(result[14]).toBe(-2);
     });
+
+    test("singular input zeroes a dirty out, rather than leaving its stale contents", () => {
+        const singular = new Float32Array(16); // all-zero matrix — det is 0
+        const dirty = new Float32Array(16).fill(9);
+        const result = math.invert(singular, dirty);
+        for (let i = 0; i < 16; i++) {
+            expect(result[i]).toBe(0);
+        }
+    });
 });
 
 describe("multiply", () => {
