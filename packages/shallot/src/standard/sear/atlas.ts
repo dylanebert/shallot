@@ -238,6 +238,12 @@ let _comboMeta: GPUBuffer | null = null; // dense per-combo (caster slot, face) 
 export const pointRegather = createRegather("point");
 // the casting draws this frame (those whose surface compiled a point pipeline), filled in renderPointShadows
 const _castDraws: { draw: Draw; r: Recorded }[] = [];
+// warn-once (per episode — resets once every point caster shares one indirect buffer again) for a caster
+// dropped because its producer owns a second indirect buffer: renderPointShadows re-gathers only the
+// FIRST-seen buffer (the cascade twin's `_cascadeBatches` batches every distinct source instead — batching
+// the point atlas the same way is unbuilt; this is the loud floor `gpu.md`'s "when you hit the limit" asks
+// for on every drop path in this file, until a real second-indirect-buffer caster earns the batching rewrite)
+let _batchDropWarned = false;
 // per-frame re-gather meta scratch (no per-frame alloc): the view slot each dense combo culled into, and the
 // (surface,mesh) pair each casting draw owns — `Regather.run` reads these. Shared across the point + cascade
 // renders (each fills then consumes them in turn within ShadowMapSystem)
@@ -630,6 +636,7 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
     _castDraws.length = 0;
     let drawArgs: GPUBuffer | null = null;
     let pairCount = 0;
+    let batchDropped = 0;
     for (const item of frameDraws) {
         const casts = item.r.t.point && item.r.g.point;
         if (!casts) continue;
@@ -638,9 +645,20 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
             drawArgs = buf;
             pairCount = Math.floor((item.draw.args.viewStride ?? 0) / SHADOW_ARG_STRIDE);
         } else if (buf !== drawArgs) {
+            batchDropped++;
             continue;
         }
         _castDraws.push(item);
+    }
+    if (batchDropped > 0) {
+        if (!_batchDropWarned) {
+            _batchDropWarned = true;
+            console.warn(
+                `sear: ${batchDropped} point-shadow caster(s) dropped — their producer's indirect buffer differs from the first casting draw's, and renderPointShadows batches only one indirect-buffer source per frame`,
+            );
+        }
+    } else {
+        _batchDropWarned = false;
     }
     const D = _castDraws.length;
     const C = pointComboCount();

@@ -308,11 +308,19 @@ function pipelines() {
     return _pipelines;
 }
 
+/** drop the memoized SDF pipeline pair. Pipelines bind to the root that created them, so a re-adopted
+ *  device (a rebuild against a new `GPUDevice`) needs a fresh pair rather than the stale one — mirrors
+ *  `slab/scatter.ts`'s `resetPipelines`.
+ *  @internal */
+export function resetPipelines(): void {
+    _pipelines = null;
+}
+
 export interface SDFGeneratorConfig {
     device: GPUDevice;
-    sdfSize?: number;
-    exponent?: number;
-    curveSubdivisions?: number;
+    sdfSize: number;
+    exponent: number;
+    curveSubdivisions: number;
 }
 
 export class SDFGenerator {
@@ -337,9 +345,9 @@ export class SDFGenerator {
 
     constructor(config: SDFGeneratorConfig) {
         this._device = config.device;
-        this._sdfSize = config.sdfSize ?? 64;
-        this._exponent = config.exponent ?? SDF_EXPONENT;
-        this._curveSubdivisions = config.curveSubdivisions ?? 16;
+        this._sdfSize = config.sdfSize;
+        this._exponent = config.exponent;
+        this._curveSubdivisions = config.curveSubdivisions;
 
         this._sampler = this._device.createSampler({
             magFilter: "nearest",
@@ -394,7 +402,7 @@ export class SDFGenerator {
             if (segments.length === 0) continue;
             if (segments.length > this._maxSegments) {
                 console.warn(
-                    `Too many segments (${segments.length}), truncating to ${this._maxSegments}`,
+                    `[text] too many segments (${segments.length}), truncating to ${this._maxSegments}`,
                 );
                 segments.length = this._maxSegments;
             }

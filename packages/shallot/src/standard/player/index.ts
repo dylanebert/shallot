@@ -202,10 +202,15 @@ export const PlayerControlSystem: System = {
         document.addEventListener("mousemove", pl.onMove, { signal });
         lock = pl;
         // release the input gate + any live pointer lock and drop the module ref when this State tears down.
+        // Guarded so a newer build's `lock` isn't clobbered: a rebuild-then-dispose ordering (the new State's
+        // setup runs before the old one's dispose) would otherwise null out the live State's pointer-lock
+        // state out from under it — the same identity guard `standard/input`'s `setup` uses for `inputState`.
         state.onDispose(() => {
             requirePointerLock(false);
-            if (lock?.locked) document.exitPointerLock();
-            lock = null;
+            if (lock === pl) {
+                if (lock.locked) document.exitPointerLock();
+                lock = null;
+            }
         });
     },
 

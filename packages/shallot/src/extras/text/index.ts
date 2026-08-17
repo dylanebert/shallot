@@ -35,7 +35,13 @@ import {
     vsPatchSchema,
 } from "../../standard/sear/core";
 import { Transform, TransformsPlugin } from "../../standard/transforms";
-import { createGlyphAtlas, ensureString, type GlyphAtlas, layoutText } from "./atlas";
+import {
+    createGlyphAtlas,
+    disposeAtlases,
+    ensureString,
+    type GlyphAtlas,
+    layoutText,
+} from "./atlas";
 import { type Font, loadFont } from "./font";
 import {
     GLYPH_AT,
@@ -45,6 +51,7 @@ import {
     sdfToSignedDistance,
     textSrgbToLinear,
 } from "./glyph";
+import { resetPipelines } from "./sdf";
 
 // Inter, the default face when the consumer registers no font of its own
 const DEFAULT_FONT =
@@ -519,7 +526,8 @@ export const TextPlugin: Plugin = {
     dispose() {
         _glyphBuf?.destroy();
         _argBuf?.destroy();
-        for (const atlas of _atlases) atlas?.texture.destroy();
+        disposeAtlases(_atlases);
+        resetPipelines();
         _glyphBuf = null;
         _argBuf = null;
         _atlases = [];

@@ -386,3 +386,47 @@ describe("InputPlugin", () => {
         expect(canvas.tracker.added.length).toBe(beforeAttach);
     });
 });
+
+// `Inputs.focused` is document-order index of the bound canvas (the Nth `<canvas>` InputSystem found),
+// never an ECS entity id — InputSystem's sole caller has no real view/eid substrate to draw one from
+// (`querySelectorAll` returns bare elements). Two canvases pin that it's positional, not identity-derived.
+describe("InputPlugin focus with multiple canvases", () => {
+    test("a second canvas focuses at its document-order index, not an eid", () => {
+        clear();
+        const windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        const savedWindow = globalThis.window;
+        const savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+
+        const first = mockCanvas();
+        const second = mockCanvas();
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelectorAll: (sel: string) => (sel === "canvas" ? [first, second] : []),
+        } as unknown as typeof document;
+
+        const state = new State();
+        for (const [n, c] of Object.entries(InputPlugin.components ?? {}))
+            register(n, c, InputPlugin.traits?.[n]);
+        attach(state, InputPlugin);
+        state.step();
+
+        expect(Inputs.focused).toBe(0); // defaults to the first canvas bound
+
+        const onSecond = (type: string): Fn => second.tracker.added.find(([t]) => t === type)![1];
+        onSecond("pointerdown")({
+            target: second,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        expect(Inputs.focused).toBe(1); // the second canvas is index 1 in document order
+
+        globalThis.window = savedWindow;
+        globalThis.document = savedDocument;
+    });
+});

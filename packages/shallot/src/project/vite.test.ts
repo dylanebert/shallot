@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rollup } from "vite";
@@ -106,6 +106,29 @@ describe("discoverScenes", () => {
 
     test("returns [] for a dir that doesn't exist", () => {
         expect(discoverScenes(join(projectDir(), "missing"))).toEqual([]);
+    });
+
+    // discoverScenes used to wrap the WHOLE recursive walk in one try/catch: an unreadable subtree
+    // (a broken symlink here — statSync follows it and throws ENOENT) propagated out of every
+    // enclosing `walk()` frame with no per-directory catch, silently truncating every sibling not yet
+    // visited at EVERY ancestor level, not just the bad subtree. These three entries are named so this
+    // filesystem's `readdirSync` order (deterministic per name-set here, verified empirically — not
+    // alphabetical) visits the broken directory FIRST at the top level, and its own broken symlink
+    // before its scene sibling — so the pre-fix code returns [] entirely, not a partial list.
+    test("an unreadable entry doesn't truncate scanning its siblings or its ancestors' siblings", () => {
+        const dir = projectDir();
+        writeFileSync(join(dir, "1_before.scene"), "");
+        const bad = join(dir, "2_baddir");
+        mkdirSync(bad);
+        symlinkSync(join(bad, "nonexistent-target"), join(bad, "broken"));
+        writeFileSync(join(bad, "3_after.scene"), "");
+        writeFileSync(join(dir, "4_after.scene"), "");
+
+        expect(discoverScenes(dir)).toEqual([
+            "1_before.scene",
+            join("2_baddir", "3_after.scene"),
+            "4_after.scene",
+        ]);
     });
 });
 
