@@ -36,4 +36,4 @@ writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2) + "\n");
 Bun.spawnSync(["bun", "install"], { cwd: dir, stdout: "inherit", stderr: "inherit" });
 
 console.log();
-console.log(`cd ${name} && bun dev`);
+console.log(`cd ${name} && bunx shallot dev`);

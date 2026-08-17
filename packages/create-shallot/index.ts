@@ -23,8 +23,8 @@ export function template(name: string): Record<string, string> {
                     version: "0.0.0",
                     private: true,
                     type: "module",
-                    dependencies: { "@dylanebert/shallot": "latest", typegpu: "~0.11.9" },
-                    devDependencies: { "unplugin-typegpu": "~0.11.6", typescript: "^7.0.2" },
+                    dependencies: { "@dylanebert/shallot": "latest", typegpu: "~0.12.0" },
+                    devDependencies: { "unplugin-typegpu": "~0.12.1", typescript: "^7.0.2" },
                 },
                 null,
                 2,
@@ -119,8 +119,8 @@ bunx shallot build
 \`\`\`
 
 Builds a web bundle to \`dist/\`. Native targets
-(\`--target windows|mac|linux\`) build from a shallot source checkout, not the
-installed package: the rust crate they need isn't published to npm.
+(\`--target windows|mac|linux\`) require the Rust toolchain and target system
+dependencies; see the repo README for the per-target table.
 `;
 
 const agents = (name: string) => `# ${name}
