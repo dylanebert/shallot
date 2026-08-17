@@ -36,7 +36,7 @@ export type Kernel = {
     layoutPtr(): number;
 
     // Persistent body columns (kernel/src/bodies.rs) — the awake body state held resident across
-    // steps (4a), first in linear memory. `reserveBodies` sizes the region to the total-body
+    // steps, first in linear memory. `reserveBodies` sizes the region to the total-body
     // high-water (grow-only), relocating the manifold + geometry regions above it in place on a grow;
     // `bodyLayoutPtr` returns the byte-offset header TS derives its column views from (bodycolumns.ts).
     reserveBodies(cap: number): number;
@@ -46,7 +46,7 @@ export type Kernel = {
     bodyCap(): number;
 
     // Persistent fat-AABB column (kernel/src/fataabb.rs) — one enlarged broad-phase AABB per shape,
-    // held resident so the in-kernel recycle loop (4b) tests contact overlap without a marshal. A second
+    // held resident so the in-kernel recycle loop tests contact overlap without a marshal. A second
     // low persistent region above the body region; `reserveFatAabb` sizes it to the shape high-water
     // (grow-only), relocating the manifold + geometry regions above it on a grow. `fatAabbLayoutPtr`
     // returns the byte-offset header TS derives its view from (fataabbcolumns.ts); `fatAabbCap` is the
@@ -100,7 +100,7 @@ export type Kernel = {
     // read by the convex narrowphase. `reserveGeometry` lays out the pools (before the solver columns)
     // for the given totals; `geoLayoutPtr` returns the byte-offset header TS writes the hulls through
     // (geocolumns.ts). `collideHullsGeo` runs the hull-hull narrowphase over two column-backed hulls,
-    // writing the manifold to the buffer at `geoOutPtr` — the 3c.2b geometry-read verification.
+    // writing the manifold to the buffer at `geoOutPtr` — the geometry-read verification.
     reserveGeometry(hulls: number, verts: number, edges: number, faces: number): void;
     geoLayoutPtr(): number;
 
@@ -124,7 +124,7 @@ export type Kernel = {
     ): number;
     geoOutPtr(): number;
 
-    // Convex narrowphase batched dispatch (kernel/src/arena.rs, 3c.3). `reserveDispatch` lays out the
+    // Convex narrowphase batched dispatch (kernel/src/arena.rs). `reserveDispatch` lays out the
     // per-record input + output columns (at the solver base, consumed within collide); the collect pass
     // writes the input through `dispatchPtr`, `dispatchConvex` runs `compute_convex_manifold` per record
     // over the geometry + manifold columns, and the finish pass reads the touching flags at `dispatchOutPtr`.
@@ -133,7 +133,7 @@ export type Kernel = {
     dispatchOutPtr(): number;
     dispatchConvex(count: number): void;
 
-    // Contact-recycle batched pass (kernel/src/arena.rs, 4b.3c). `reserveRecycle` lays out the per-record
+    // Contact-recycle batched pass (kernel/src/arena.rs). `reserveRecycle` lays out the per-record
     // input + output columns (at the solver base, consumed within collide, before the convex dispatch);
     // the collide walk writes the input through `recyclePtr`, `dispatchRecycle` runs box3d's recycle branch
     // per record over the resident body + fat-AABB + manifold columns, and the finish pass reads each

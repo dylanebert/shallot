@@ -24,7 +24,7 @@ export function writeMat3(col: Float32Array, o: number, m: Mat3): void {
     col[o + 8] = m.cz.z;
 }
 
-// Body columns (body.rs + bodies.rs). All resident in the persistent body region (4a) — the awake
+// Body columns (body.rs + bodies.rs). All resident in the persistent body region — the awake
 // `BodySim`/`BodyState` are offset-backed views over them (bodycolumns.ts), so no per-step marshal.
 export const STATE_STRIDE = 16;
 /** Live f32 fields in a state record; slots STATE_LIVE..STATE_STRIDE are alignment padding. */
@@ -245,7 +245,7 @@ export const D_XF_B = 10; // p3 + q4
 export const D_GEOM_A = 17; // ≤7 slots
 export const D_GEOM_B = 24; // ≤7 slots
 
-// Contact-recycle input record (arena.rs `RECYCLE_STRIDE`, 4b.3c). All u32: contactId, the two bodies'
+// Contact-recycle input record (arena.rs `RECYCLE_STRIDE`). All u32: contactId, the two bodies'
 // awake localIndices (resident-column records), the two shapeIds (fat-AABB column records), and a bits
 // word (bit0 eligible, bit1 wasTouching). The kernel reads the bodies' transforms/centers/extents and
 // the cached pose from the resident columns; only these indices + bits cross per contact.
@@ -273,7 +273,7 @@ const JOINT = 15;
 const N_COLS = 16;
 
 /** The column views the TS side reads or writes. The body columns (`state`/`flags`/`sim`/`fin`) are
- * resident (4a) — held across steps in the body region and viewed through the `BodySim`/`BodyState`
+ * resident — held across steps in the body region and viewed through the `BodySim`/`BodyState`
  * views (bodycolumns.ts), not here. The transient constraint columns (cc/mc/mcp) and the persistent
  * directory/pool are kernel-internal. */
 export type Columns = {

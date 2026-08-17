@@ -5,7 +5,7 @@ import { fogLayout0, fogLayout1, fogWgsl } from "./pipeline";
 // The fog march's typed layouts + kernel, resolved device-free — the `outlineWgsl`/`glazeWgsl` shape. These
 // pin the structure the pipeline gates can't cheaply reach: the group-0/group-1 binding shapes, the six
 // shadow-only bindings forced into scope despite no direct `layout.$.x` access in the kernel body, and the
-// idiv audit (0a's probe found the fog kernel needs none). Numerics are the bench's job
+// idiv audit (a probe found the fog kernel needs none). Numerics are the bench's job
 // (`bun bench --scenario render --param mode=fog`); this is what the GPU can't tell us about cheaply.
 describe("fog bind-group layouts", () => {
     test("group 0 has the five per-camera entries at distinct indices", () => {

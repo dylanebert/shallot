@@ -365,8 +365,8 @@ const B_ROUND: u32 = ${B_ROUND}u;
 
 // ── the shared solver bindings, one layout per storage access-mode combination ─────────────────────────
 // `params` + `bodies` + `pairContacts` are what nearly every kernel binds, so they live in ONE shared
-// layout at group 1 and every kernel's own I/O keeps group 0 (the 3a `nodeLayout` shape, bind-by-layout-
-// object). WGSL access mode is part of a binding's type, so a read-only reader and a read-write writer
+// layout at group 1 and every kernel's own I/O keeps group 0 (the same bind-by-layout-object shape
+// `nodeLayout` uses elsewhere). WGSL access mode is part of a binding's type, so a read-only reader and a read-write writer
 // need distinct layouts — hence one variant per (bodies, pairContacts) access pair, and the accessors
 // below are FACTORIES over the variant (one authored accessor re-emits per
 // layout). A variant's chunks carry their own `Namespace`, so every variant emits the shared math + the
@@ -772,9 +772,9 @@ const roRw = accessors("readonly", "mutable");
 const rwRw = accessors("mutable", "mutable");
 
 // ── the shared solver factory ──────────────────────────────────────────────────────────────────────
-// MAT3 / CONTACT_FORCE / JOINT_REC ported to TGSL fns, parameterized by a pose-reader set (the 1c
-// factory-closure law: one authored kernel re-emits per reader set — storage readers now, 2b adds the
-// LDS set solve-lds shadows bPos/bQuat with). Unlike the typed kernels below, these are plain `tgpu.fn`
+// MAT3 / CONTACT_FORCE / JOINT_REC ported to TGSL fns, parameterized by a pose-reader set (the
+// factory-closure law: one authored kernel re-emits per reader set — storage readers, and the LDS
+// set solve-lds shadows bPos/bQuat with). Unlike the typed kernels below, these are plain `tgpu.fn`
 // definitions with no manual chunk()/ns bookkeeping: nothing here produces standalone spliced WGSL text
 // the way the raw *PassWgsl() functions do, so `tgpu.resolve([kernel], {names:"strict"})` — one clean
 // call per consuming kernel — walks the whole call graph itself with no forcing needed.
@@ -782,7 +782,7 @@ const rwRw = accessors("mutable", "mutable");
 /**
  * the persistent per-joint record group's index. `jointRecords` needs its own bind group — solve-lds
  * sits exactly at the 10-storage floor within group 0 + the shared solver group, so a third binding has
- * nowhere else to go. joint-init / joint-dual (this stage) and 2b's primal / solve-lds all bind it here.
+ * nowhere else to go. joint-init / joint-dual (this stage) and primal / solve-lds all bind it here.
  * @internal
  */
 export const JOINT_GROUP = 2;
@@ -948,15 +948,15 @@ export function jointAccessors(access: Access) {
     };
 }
 
-/** joint records read-only — 2b's primal / solve-lds. */
+/** joint records read-only — used by primal / solve-lds. */
 export const jointRo = jointAccessors("readonly");
 /** joint records read-write — this stage's joint-init / joint-dual. */
 export const jointRw = jointAccessors("mutable");
 
 /**
  * the primal / solve-lds own-group bindings ({@link solvePose}'s CSR adjacency + authored constraints) —
- * not consumed by any 2a pipeline (primal / solve-lds stay raw this stage), but `solvePose` /
- * `jointContrib` need concrete bindings to resolve + CPU-differential now. 2b's typed primal / solve-lds
+ * not consumed by the raw pipeline (primal / solve-lds stay raw at this point), but `solvePose` /
+ * `jointContrib` need concrete bindings to resolve + CPU-differential now. The typed primal / solve-lds
  * reuse this layout unchanged.
  * @internal
  */
@@ -1248,7 +1248,7 @@ const solve6 = tgpu
     .$name("solve6");
 
 /**
- * the shared contact stamp over one pose-reader set (storage readers this stage; 2b's LDS set repeats
+ * the shared contact stamp over one pose-reader set (storage readers this stage; the LDS set repeats
  * this factory call with solve-lds's workgroup-memory readers instead). @internal
  */
 export function contactMath(A: ReturnType<typeof accessors>) {
@@ -1515,7 +1515,7 @@ export function contribMath(
 
     /** the per-body primal step: stamp `bid`'s CSR contacts + authored constraints into one 6×6 block
      *  system, add the inertial term, LDLᵀ-solve, integrate. Pose reads go through `A.bPos`/`A.bQuat`, so
-     *  the composing kernel picks the backing — storage for the typed primal (2b), workgroup memory for
+     *  the composing kernel picks the backing — storage for the typed primal, workgroup memory for
      *  solve-lds's LDS reader set. Differential-tested on CPU against the f64 oracle math. */
     const solvePose = tgpu
         .fn(
@@ -1576,7 +1576,7 @@ export function contribMath(
 const STICK_THRESH = 1.0e-5;
 
 /**
- * one pair slot's dual update (manifold.ts updateDual), shared by the standalone dual pass and 2b's
+ * one pair slot's dual update (manifold.ts updateDual), shared by the standalone dual pass and the
  * LDS-resident kernel: loop its `CONTACTS_PER_PAIR` records, dual-update each active one in place.
  * @internal
  */
@@ -1631,7 +1631,7 @@ export function dualMath(
 }
 
 /**
- * one joint's dual update (joint.ts updateJointDual), shared by the standalone joint-dual pass and 2b's
+ * one joint's dual update (joint.ts updateJointDual), shared by the standalone joint-dual pass and the
  * LDS-resident kernel. The rigid (∞-stiffness) rows store λ ← K·C + λ; both row triples ramp the penalty
  * by β|C|, clamped to `PENALTY_MAX`.
  * @internal
@@ -1823,7 +1823,7 @@ const aabbKernel = tgpu
 // the block write are one source of truth — the small-N O(n²) scan differs ONLY in how it enumerates
 // candidates, the precondition for warmstart carrying across a regime flip (identical blocks). Broadphase
 // (descent) and broadphase-small (scan) each declare their own group-0 layout (different extra bindings —
-// `nodes` vs `prims`), so this factory closes over whichever layout its caller passes — the 1c
+// `nodes` vs `prims`), so this factory closes over whichever layout its caller passes — the
 // factory-closure law, applied to a group-0 layout rather than the shared solver group.
 const NbrArr = d.arrayOf(d.u32, PAIRS_PER_BODY);
 const Nd2Arr = d.arrayOf(d.f32, PAIRS_PER_BODY);
@@ -4467,9 +4467,9 @@ export class PhysicsStep {
             .with(roRo.layout, this._sharedBG.roRo);
         // a typed pipeline is created synchronously, so Dawn defers its shader compile to the first
         // dispatch — a first-frame hitch where the raw passes' `createComputePipelineAsync` compiled at
-        // build. Force it at warm with a 0-workgroup dispatch, the shipped drain (1a). Both groups are
+        // build. Force it at warm with a 0-workgroup dispatch, the shipped drain. Both groups are
         // already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates its
-        // own buffers must return the *dispatch* for that guard to fire (2a).
+        // own buffers must return the *dispatch* for that guard to fire.
         register(`${this._scope}-aabb`, () => {
             this._aabbPipe.dispatchWorkgroups(0);
             return this._aabbPipe;

@@ -1,4 +1,4 @@
-// 4b.3a / T4 — the resident fat-AABB column mirrors each shape's fatAABB. Every TS site that writes
+// The resident fat-AABB column mirrors each shape's fatAABB. Every TS site that writes
 // `shape.fatAABB` mirrors it into the column inline (create, refit commit, CCD, moves), so the column the
 // in-kernel recycle + finalize escape tests read stays current with no step-top flush. This exercises the
 // whole write path end-to-end: a static shape written once at create (never refits), dynamic shapes refit

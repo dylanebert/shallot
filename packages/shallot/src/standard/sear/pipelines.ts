@@ -2300,7 +2300,7 @@ export async function preparePipelines(): Promise<void> {
     // force each typed pipeline's memo at warm (`root.unwrap` runs the resolve + the sync
     // `createRenderPipeline`) — typegpu defers both to first use, which would otherwise land mid-frame
     // on the first draw and hide a resolution/validation error until then (the force-compile-at-warm
-    // lock, Approach 0a)
+    // lock)
     for (const surface of Surfaces) {
         if (surface.specialize) continue;
         const t = compileVariant(surface);

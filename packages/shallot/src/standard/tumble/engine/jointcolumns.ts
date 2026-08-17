@@ -4,7 +4,7 @@
 // + softness in `prepare`, so this only copies the raw body-sim inputs + config + the persistent
 // impulses (no arithmetic — bit-exact by construction against the serial prepare's identical inputs).
 //
-// All eight solver joint types are wired (3b template + 3c). Filter joints carry a header-only no-op
+// All eight solver joint types are wired. Filter joints carry a header-only no-op
 // record (a collision filter has no solve), so every awake joint type is kernel-resident and
 // `writeRecord`'s throw is unreachable for an awake joint.
 

@@ -84,7 +84,7 @@ let _lights: { keys: (GPUBuffer | GPUTextureView | GPUSampler)[]; group: LightsG
 
 // per-camera group 0 (scene / depth / output / view / fog), cached per eid on the `sceneTransform` read +
 // write + the depth view (all three reallocate only on a resize, so the group rebuilds then, not every
-// frame) and the view slot (the per-slot View buffer it binds — Approach 4a's per-slot-buffer design)
+// frame) and the view slot (the per-slot View buffer it binds — a per-slot-buffer design)
 const _views = new Map<
     number,
     {

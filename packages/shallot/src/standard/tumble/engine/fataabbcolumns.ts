@@ -1,9 +1,9 @@
 // The persistent fat-AABB region (kernel/src/fataabb.rs) — one enlarged broad-phase AABB per shape,
-// held resident in the kernel's linear memory so the in-kernel recycle loop (4b) can test contact
+// held resident in the kernel's linear memory so the in-kernel recycle loop can test contact
 // overlap without a per-step marshal. A second low persistent region, directly above the body region;
 // keyed by shapeId (grow-on-createShape), so — unlike the body region — no record migration: a shape's
 // slot is fixed for its life. This module owns the grow-only sizing to the shape high-water; the write
-// (at refit) and the kernel read land in 4b.3.
+// (at refit) and the kernel read happen outside this module.
 //
 // A region grow relocates the manifold + geometry regions above it (kernel-side, in place) and, like
 // any memory.grow, detaches every typed-array view — so callers refresh the stores over the relocated
@@ -36,7 +36,7 @@ export function reserveFatAabb(shapeCount: number): boolean {
 
 /**
  * A typed-array view over the resident fat-AABB column plus the shapeId-keyed write. One per world.
- * The column is the source the in-kernel recycle overlap test (4b.3c) and the in-kernel finalize refit's
+ * The column is the source the in-kernel recycle overlap test and the in-kernel finalize refit's
  * escape test read; every TS site that writes `shape.fatAABB` mirrors it here inline (create, user
  * moves, the CCD/fast paths, the finalize commit). Re-derives its view whenever a grow detaches it.
  */

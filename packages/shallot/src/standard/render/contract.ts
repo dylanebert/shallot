@@ -5,7 +5,7 @@
 // to **group 2** (engine 0 / shadow-or-atlas 1 / surface 2) — `surfaceLayout()`'s `$idx(SURFACE_GROUP)`. The
 // `vertices` slot is pass-variant (color pass reads the 16 B main stream, prepass/shadow the 8 B
 // position-only stream, same physical slot) — `surfaceLayout()` synthesizes both variants; typegpu resolves only
-// what a given shader actually calls, so carrying the unused variant's declaration costs nothing (the 2b
+// what a given shader actually calls, so carrying the unused variant's declaration costs nothing (the
 // "layout is a superset of what one shader declares" precedent, `engine.test.ts`).
 
 import type { TgpuBindGroupLayout, TgpuFn } from "typegpu";

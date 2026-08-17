@@ -31,7 +31,7 @@ describe("engine scaffold", () => {
     // `frame` and `meshQuant` are group-0 entries the scaffold never reads (the vertex decode reads
     // meshQuant, not the shading scaffold), so typegpu's
     // resolve — which emits only what's called — declares none of their WGSL: the layout is a superset
-    // of what any one shader declares (the 2b precedent).
+    // of what any one shader declares.
     test("binds the five group-0 resources it actually reads, by their typed-layout names", () => {
         expect(flatWgsl).toMatch(/var<uniform> view: View;/);
         expect(flatWgsl).toMatch(/var<uniform> lighting: Lighting;/);
