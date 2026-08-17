@@ -5,7 +5,7 @@
 //
 // A budget is the golden `testing.md`'s exact-equality structural rung checks a scenario against, declared
 // at DEFAULT params (`bun bench` with no `--count`/`--param` override — the scenario's own declared
-// defaults, `gym.ts`'s `resolveParams`). The exemption is **per axis**, not per scenario
+// defaults, `gym.ts`'s `resolveParams`). The exemption is **per axis**, not per scenario:
 // pipeline count is exact on every registered scenario by measurement, so
 // every scenario gates on it, while GPU bytes is exact only where nothing allocates lazily off real-device
 // timing. A row can carry `pipelines` as a golden while `gpuBytes` carries an exemption reason — and

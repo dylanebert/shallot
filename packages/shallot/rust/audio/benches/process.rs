@@ -72,13 +72,12 @@ enum Complexity {
     ConstFilterEnv,
     /// Constant source → dynamics (compressor mode). Isolates the dynamics
     /// node's per-sample `log10`/`powf` cost against `const-filter-env`'s
-    /// per-sample `exp` (the envelope curve) baseline — the stage-2 provisional
-    /// flag's bench (audio-effect-nodes.md).
+    /// per-sample `exp` (the envelope curve) baseline.
     ConstDynamics,
     /// The maximal standard insert rack over a sample source: 3×EQ biquads →
     /// dynamics → waveshaper → delay → chorus → envelope (9 nodes, the heaviest
     /// realistic voice a game authors). Records the full effect-chain per-block
-    /// cost for the audio-effect-nodes close-out; the delta over `sample` is the
+    /// cost for the whole standard rack; the delta over `sample` is the
     /// whole rack's per-voice price.
     EffectChain,
 }
