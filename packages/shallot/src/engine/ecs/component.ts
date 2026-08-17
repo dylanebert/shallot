@@ -120,7 +120,12 @@ function f16encode(x: number): number {
         const m = (mantissa | 0x800000) >>> (1 - exp);
         return sign | (m >>> 13);
     }
-    if (exp >= 31) return sign | 0x7c00 | (mantissa ? 1 : 0);
+    if (exp >= 31) {
+        // A finite f32 overflowing f16 range saturates to signed infinity;
+        // only a genuine NaN/Infinity input carries its payload through.
+        if (!Number.isFinite(x)) return sign | 0x7c00 | (mantissa ? 1 : 0);
+        return sign | 0x7c00;
+    }
     return sign | (exp << 10) | (mantissa >>> 13);
 }
 

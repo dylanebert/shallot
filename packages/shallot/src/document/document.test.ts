@@ -552,6 +552,19 @@ describe("Document", () => {
         expect(doc.nodes[0].attrs[0].value).toBe("shape: box");
     });
 
+    test("addAttr for an existing name coalesces into setAttr, not a duplicate entry", () => {
+        const doc = new Document('<scene><a id="a" /></scene>');
+        doc.addAttr(doc.nodes[0], "mesh", "shape: box");
+        doc.addAttr(doc.nodes[0], "mesh", "shape: sphere");
+        expect(doc.nodes[0].attrs).toHaveLength(1);
+        expect(doc.nodes[0].attrs[0].value).toBe("shape: sphere");
+
+        // undo must revert the value, not delete the pre-existing attr the second addAttr collided with
+        doc.undo();
+        expect(doc.nodes[0].attrs).toHaveLength(1);
+        expect(doc.nodes[0].attrs[0].value).toBe("shape: box");
+    });
+
     test("setAttr updates attribute value", () => {
         const doc = new Document('<scene><a id="a" /></scene>');
         doc.addAttr(doc.nodes[0], "mesh", "shape: box");

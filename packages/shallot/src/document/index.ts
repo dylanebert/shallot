@@ -62,6 +62,12 @@ export class Document {
     }
 
     addAttr(node: Node, name: string, value: string): void {
+        // an existing attr coalesces into setAttr — addAttr's reverse deletes the first attr matching
+        // `name`, which would be the pre-existing one, not the one this call just pushed
+        if (node.attrs.some((a) => a.name === name)) {
+            this.setAttr(node, name, value);
+            return;
+        }
         execute(this.history, this.nodes, { type: "addAttr", node, name, value }, [
             ...this.selection,
         ]);

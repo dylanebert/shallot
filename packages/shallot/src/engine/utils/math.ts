@@ -366,7 +366,7 @@ export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): 
     return out;
 }
 
-/** general mat4 inverse; returns the input unchanged when the matrix is singular */
+/** general mat4 inverse; a singular matrix zeroes `out` and returns it (an all-zero matrix) */
 export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
 
@@ -402,6 +402,7 @@ export function invert(m: Float32Array, out?: Float32Array): Float32Array {
 
     let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
     if (Math.abs(det) < 1e-10) {
+        out.fill(0);
         return out;
     }
     det = 1 / det;

@@ -236,6 +236,23 @@ describe("Scheduler", () => {
             state.step(Time.FIXED_DT * 3);
             expect(fixedCount).toBe(0);
         });
+
+        test("a large timescale caps fixed steps at MAX_FIXED_STEPS and marks the frame throttled", () => {
+            let fixedCount = 0;
+            state.addSystem({ group: "fixed", update: () => fixedCount++ });
+            // real dt stays well under the pre-scale clamp; the overrun only appears post-scale
+            state.timescale(10);
+            state.step(Time.FIXED_DT);
+            expect(fixedCount).toBeLessThanOrEqual(Time.MAX_FIXED_STEPS);
+            expect(state.time.fixedSteps).toBeLessThanOrEqual(Time.MAX_FIXED_STEPS);
+            expect(state.time.throttled).toBe(true);
+        });
+
+        test("a large raw dt while paused is not throttled — no fixed work is owed", () => {
+            state.pause();
+            state.step(1); // far past the pre-scale clamp, but paused freezes the accumulator at 0
+            expect(state.time.throttled).toBe(false);
+        });
     });
 
     describe("Setup Lifecycle", () => {

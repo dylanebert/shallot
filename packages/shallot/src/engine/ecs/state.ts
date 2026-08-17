@@ -96,6 +96,7 @@ export class State {
     create(): number {
         const eid = this._entities.add();
         if (eid + 1 > capacity) {
+            this._entities.remove(eid);
             throw new Error(
                 `Entity count ${eid + 1} exceeds configured capacity ${capacity}. ` +
                     `Increase via app build config: { capacity: ${Math.max(eid + 1, capacity * 2)} }.`,

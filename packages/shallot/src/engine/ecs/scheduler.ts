@@ -126,6 +126,7 @@ export class Scheduler {
     unregister(system: System): void {
         if (this._systems.delete(system)) {
             this._errored.delete(system);
+            this._names.delete(system);
             this._systemsVersion++;
         }
     }
@@ -160,7 +161,6 @@ export class Scheduler {
         const maxDt = fixedDt * Time.MAX_FIXED_STEPS;
 
         this._time.rawDeltaTime = deltaTime;
-        this._time.throttled = deltaTime > maxDt;
         // clamp on the real dt — the spiral-of-death gate, before scaling (a large scale must not reintroduce it)
         const real = Math.min(deltaTime, maxDt);
         this._time.realDeltaTime = real;
@@ -175,14 +175,21 @@ export class Scheduler {
 
         this.runGroup(state, "setup");
 
+        // the cap runs on the post-scale accumulator — timescale must not reintroduce the spiral it clamps
+        // out of `real` above. Past the cap, drop the backlog rather than carry debt into future frames.
         let steps = 0;
-        while (this._accumulator >= fixedDt) {
+        while (this._accumulator >= fixedDt && steps < Time.MAX_FIXED_STEPS) {
             this._time.deltaTime = fixedDt;
             this._time.fixedTick++;
             this.runGroup(state, "fixed");
             this._accumulator -= fixedDt;
             steps++;
         }
+        // throttled if either clock overran its budget: the pre-scale clamp discarded raw frame time
+        // (moot while paused — no virtual work was owed), or the scaled accumulator outran the step cap.
+        const postScaleOverrun = this._accumulator >= fixedDt;
+        if (postScaleOverrun) this._accumulator %= fixedDt;
+        this._time.throttled = (!this._time.paused && deltaTime > maxDt) || postScaleOverrun;
         this._time.fixedSteps = steps;
         this._time.fixedAlpha = this._accumulator / fixedDt;
 
