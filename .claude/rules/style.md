@@ -40,6 +40,8 @@ Guards are early returns, not nested branches. The work it hands off (`renderCol
 
 The comment rule is universal: `kex/.claude/rules/coding.md` (Comments) is its home — default to none, earn one only with a public export's JSDoc contract or the *why* behind a non-obvious line. One thing is shallot-specific: shallot code is minimal enough that the bar sits higher than elsewhere — `sear/` and `slab/` are the reference for how much to say, and when in doubt, say less.
 
+**A comment anchored to something outside this repo rots invisibly.** Never cite a workflow stage ID, a private planning path, or a symbol you are deleting; write the invariant instead, so the comment stays checkable by a reader who has only this repo. A stale anchor reads as authoritative for years — one sweep found ~90 such sites, and the last of them had to be caught by name because no regex spelled its surface form.
+
 - **The entry-doc chain from repo root down to the working directory stays under the Codex 32768 B budget** — `wc -c` the AGENTS.md chain (root + `packages/shallot` + `examples`) before committing any entry-doc addition, and fold detail down into this path-scoped rule rather than paying for it in the entry doc; past the budget Codex silently drops the deepest file and its whole contract vanishes.
 
 ```ts
