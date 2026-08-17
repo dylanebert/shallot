@@ -34,7 +34,7 @@ function hullFromRegistry(hullId: number): HullData | null {
         return null;
     }
     const points = entry.verts.map(([x, y, z]) => ({ x, y, z }));
-    const built = createHull(points, Math.max(points.length, 4));
+    const built = createHull(points, points.length);
     if (!built) {
         console.warn(
             `[tumble] createHull failed for registered hull "${entry.name}" (id ${hullId}) — skipping body`,

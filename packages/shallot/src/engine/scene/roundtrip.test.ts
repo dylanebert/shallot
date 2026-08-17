@@ -264,6 +264,18 @@ describe("serialize(state)", () => {
         expectSnapshotsMatch(expected, snapshot(reloaded));
     });
 
+    test("load applies non-trivial defaults through state.add (codec double-defaults)", () => {
+        // a component whose defaults are non-zero (white, not the zero-init slab default) — so a missing
+        // defaults path reads as the zero-init value, not the trait's declared default
+        registerSynthetic();
+        const state = new State();
+        load(parse(`<scene><a style /></scene>`), state);
+        const eid = state.only([Style as never]);
+        // Style defaults: tint = 0xffffff, mode = 0
+        expect(Style.tint.get(eid)).toBe(0xffffff);
+        expect(Style.mode.get(eid)).toBe(0);
+    });
+
     test("a derived-trait component never serializes (a system owns it, scenes don't)", () => {
         clear();
         const Deco = { id: sparse(u32) };

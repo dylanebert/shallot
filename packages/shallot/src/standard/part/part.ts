@@ -32,7 +32,9 @@ import {
     scatterLayout,
 } from "./pack";
 
-const DRAW_ARG_STRIDE = 20;
+// stride derived from the schema (gpu.md: a second hand-authored stride is layout drift waiting to
+// happen).
+const DRAW_ARG_STRIDE = d.sizeOf(DrawIndexedIndirect);
 type U32Buffer = TgpuBuffer<d.WgslArray<d.U32>> & StorageFlag;
 type AtomicU32Buffer = TgpuBuffer<d.WgslArray<d.Atomic<d.U32>>> & StorageFlag;
 type Vec4fBuffer = TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag;

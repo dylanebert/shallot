@@ -5,9 +5,11 @@
 // draw indexes its range via firstInstance), and the FNV signature that gates the rebuild. Pure
 // over State — no GPU — so the packing contract is what sprite.test.ts exercises directly.
 
+import * as d from "typegpu/data";
 import { f32, type State, sparse, u32, vec2 } from "../../engine";
 import { packColor } from "../../engine/utils/core";
 import { Transform } from "../../standard/transforms";
+import { SpriteData } from "./surface";
 
 /** how a sprite quad orients toward the camera */
 export const SpriteBillboard = {
@@ -79,9 +81,10 @@ export const Sprite = {
 
 // one sprite instance = the quad-local offset (-size·anchor) + size, the owning eid, the array
 // layer, a packed sRGBA tint, and the packed fill (unorm16 amount | mode << 16). 32 bytes / two
-// vec4 reads
-const SPRITE_FLOATS = 8;
-export const SPRITE_BYTES = 32;
+// vec4 reads. Stride derived from the schema (gpu.md: a second hand-authored stride is layout drift
+// waiting to happen).
+export const SPRITE_BYTES = d.sizeOf(SpriteData);
+const SPRITE_FLOATS = SPRITE_BYTES / 4;
 /** initial instance capacity: the staging + GPU buffer double on demand */
 export const INITIAL = 1 << 8;
 

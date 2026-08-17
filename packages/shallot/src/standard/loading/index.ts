@@ -330,7 +330,7 @@ function renderError(overlay: HTMLDivElement, error: unknown, theme: Theme): voi
     renderEngineError(overlay, wrapped, theme);
 }
 
-function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
+function loading(theme: Theme, container: HTMLElement | undefined, logo: boolean): Loading {
     let overlay: HTMLDivElement | null = null;
     let bar: HTMLDivElement | null = null;
 
@@ -341,10 +341,12 @@ function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
 
             const content = panel(276, "center");
 
-            const logo = document.createElement("div");
-            logo.innerHTML = LOGO_SVG;
-            logo.style.cssText = "width: 228px; max-width: 100%; height: auto;";
-            content.appendChild(logo);
+            if (logo) {
+                const logoEl = document.createElement("div");
+                logoEl.innerHTML = LOGO_SVG;
+                logoEl.style.cssText = "width: 228px; max-width: 100%; height: auto;";
+                content.appendChild(logoEl);
+            }
 
             const progressBar = createProgressBar(theme);
             bar = progressBar.bar;
@@ -368,36 +370,12 @@ function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
     };
 }
 
+function shallotLoading(theme: Theme, container?: HTMLElement): Loading {
+    return loading(theme, container, true);
+}
+
 function minimalLoading(theme: Theme, container?: HTMLElement): Loading {
-    let overlay: HTMLDivElement | null = null;
-    let bar: HTMLDivElement | null = null;
-
-    return {
-        show() {
-            overlay = createOverlay(theme.bg, container);
-            if (!overlay) return;
-
-            const content = panel(276, "center");
-            const progressBar = createProgressBar(theme);
-            bar = progressBar.bar;
-            content.appendChild(progressBar.track);
-            overlay.appendChild(content);
-
-            return () => {
-                overlay?.remove();
-                overlay = null;
-                bar = null;
-            };
-        },
-
-        update(progress) {
-            if (bar) bar.style.width = `${progress * 100}%`;
-        },
-
-        error(error) {
-            if (overlay) renderError(overlay, error, theme);
-        },
-    };
+    return loading(theme, container, false);
 }
 
 /** dark-theme startup screen: the Shallot logo over a progress bar. the engine default. */
