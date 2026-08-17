@@ -11,7 +11,7 @@ import { makeSolver, step } from "./solver";
 // These gates are derivable in isolation (no confounding multi-body load): the drive reaches target ω, the
 // clamp bounds the spin-up rate at maxTorque/I, and against a gravity load the clamp-vs-peak-torque threshold
 // (the reference `sceneMotor`) decides lap-vs-stall. The forced-velocity-stalls-but-motor-holds witness under
-// a real constraint load (the spindle's rope joints) is the gym `motor` scenario, on the real GPU.
+// a real constraint load (rope joints) is the gym `motor` scenario, on the real GPU.
 //
 // RED-FIRST: with the motor term removed (jointContrib's clamp/target), the rotor never spins — every gate
 // here goes red on `velAng` ≈ 0 / swept ≈ 0, so they pin the term, not a restatement of it.

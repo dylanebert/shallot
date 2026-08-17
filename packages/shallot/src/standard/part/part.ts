@@ -158,7 +158,7 @@ export const PartSystem: System = {
 
         Render.encoder.clearBuffer(Compute.root.unwrap(_counts!));
         const pass = Render.encoder.beginComputePass({
-            label: "kitchen-part-pack",
+            label: "shallot-part-pack",
             timestampWrites: Compute.span?.("part:pack"),
         });
         const rows = Math.ceil(capacity / 64);
@@ -280,11 +280,11 @@ function syncBuffers(): void {
     Parts.drawArgs = Compute.root
         .createBuffer(d.arrayOf(DrawIndexedIndirect, records))
         .$usage("storage", "indirect")
-        .$name("kitchen-draw-args");
+        .$name("shallot-draw-args");
     _counts = Compute.root
         .createBuffer(d.arrayOf(d.atomic(d.u32), records))
         .$usage("storage")
-        .$name("kitchen-part-counts");
+        .$name("shallot-part-counts");
 
     // packedEids holds one capacity-sized region per view — realloc only when
     // the view dimension grows, so a mesh registering doesn't churn the buffer
@@ -295,7 +295,7 @@ function syncBuffers(): void {
         Parts.packedEids = Compute.root
             .createBuffer(d.arrayOf(d.u32, _viewDim * capacity))
             .$usage("storage")
-            .$name("kitchen-packed-eids");
+            .$name("shallot-packed-eids");
         Compute.buffers.set("eids", Compute.root.unwrap(Parts.packedEids));
         Compute.typed.set("eids", Parts.packedEids);
     }
@@ -328,7 +328,7 @@ function writeMeshBounds(device: GPUDevice): Vec4fBuffer {
     const buffer = Compute.root
         .createBuffer(d.arrayOf(d.vec4f, _meshCount))
         .$usage("storage")
-        .$name("kitchen-mesh-bounds");
+        .$name("shallot-mesh-bounds");
     const data = new Float32Array(_meshCount * 4);
     for (const m of Meshes) {
         const id = Meshes.id(m.name)!;
@@ -446,40 +446,40 @@ export function warmPart(state: State): void {
     Parts.packedEids = root
         .createBuffer(d.arrayOf(d.u32, capacity))
         .$usage("storage")
-        .$name("kitchen-packed-eids");
+        .$name("shallot-packed-eids");
     Compute.buffers.set("eids", root.unwrap(Parts.packedEids));
     Compute.typed.set("eids", Parts.packedEids);
 
-    _cullParams = root.createBuffer(CullParams).$usage("uniform").$name("kitchen-part-cull-params");
+    _cullParams = root.createBuffer(CullParams).$usage("uniform").$name("shallot-part-cull-params");
     if (_surfaceCount === 0) return;
 
     const part = state.membership.bit(Part);
     const base = part.gen * capacity;
     _countPipe = root
         .createComputePipeline({ compute: countKernel(base, part.mask, _surfaceCount) })
-        .$name("kitchen-part-count");
-    _scanPipe = root.createComputePipeline({ compute: scanKernel }).$name("kitchen-part-scan");
+        .$name("shallot-part-count");
+    _scanPipe = root.createComputePipeline({ compute: scanKernel }).$name("shallot-part-scan");
     _scatterPipe = root
         .createComputePipeline({ compute: scatterKernel(base, part.mask, _surfaceCount) })
-        .$name("kitchen-part-scatter");
+        .$name("shallot-part-scatter");
 
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
     // after every plugin's warm has resolved (warm hooks run under `Promise.all`), which is the first
     // moment `Meshes` is flushed and `membership` / `transforms` / `cullVolumes` are published — so
     // `syncBuffers` can size the pack's buffers there, and the dispatch that forces the compile has
     // something to bind. One forcer per pipeline, so each gets its own row in the compile table
-    precompile("kitchen-part-count", () => {
+    precompile("shallot-part-count", () => {
         syncBuffers();
         const bound = bindCount();
         bound?.dispatchWorkgroups(0);
         return bound;
     });
-    precompile("kitchen-part-scan", () => {
+    precompile("shallot-part-scan", () => {
         const bound = bindScan();
         bound?.dispatchWorkgroups(0);
         return bound;
     });
-    precompile("kitchen-part-scatter", () => {
+    precompile("shallot-part-scatter", () => {
         const bound = bindScatter();
         bound?.dispatchWorkgroups(0);
         return bound;

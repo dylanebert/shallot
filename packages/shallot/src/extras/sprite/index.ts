@@ -104,7 +104,7 @@ function rebuild(state: State, device: GPUDevice): void {
         _spriteBuf = Compute.root
             .createBuffer(d.arrayOf(SpriteData, dataCap))
             .$usage("storage")
-            .$name("kitchen-sprites");
+            .$name("shallot-sprites");
         Compute.buffers.set("spriteData", Compute.root.unwrap(_spriteBuf));
         Compute.typed.set("spriteData", _spriteBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
@@ -125,7 +125,7 @@ function rebuild(state: State, device: GPUDevice): void {
         _eidsBuf = Compute.root
             .createBuffer(d.arrayOf(d.u32, eids.length))
             .$usage("storage")
-            .$name("kitchen-sprite-eids");
+            .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
         if (quad) quad.bindings = { ...quad.bindings, eids: _eidsBuf };
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());
@@ -225,7 +225,7 @@ export const SpritePlugin: Plugin = {
     },
 
     // the atlas builds in warm, not initialize: warm runs after EVERY plugin's initialize, so any plugin
-    // (e.g. orrstead's gauges) can register images in its own initialize with no pre-run call. Draws bind
+    // (e.g. a gauge plugin) can register images in its own initialize with no pre-run call. Draws bind
     // the atlas at frame 1 (after warm), so the timing is safe.
     async warm() {
         if (!Compute.device) return;
@@ -274,19 +274,19 @@ export const SpritePlugin: Plugin = {
         _spriteBuf = Compute.root
             .createBuffer(d.arrayOf(SpriteData, INITIAL))
             .$usage("storage")
-            .$name("kitchen-sprites");
+            .$name("shallot-sprites");
         Compute.buffers.set("spriteData", Compute.root.unwrap(_spriteBuf));
         Compute.typed.set("spriteData", _spriteBuf);
         _eidsBuf = Compute.root
             .createBuffer(d.arrayOf(d.u32, INITIAL))
             .$usage("storage")
-            .$name("kitchen-sprite-eids");
+            .$name("shallot-sprite-eids");
         const quad = Meshes.get("spriteQuad");
         if (quad) quad.bindings = { ...quad.bindings, eids: _eidsBuf };
         _argBuf = Compute.root
             .createBuffer(d.arrayOf(DrawIndexedIndirect, BUCKETS))
             .$usage("storage", "indirect")
-            .$name("kitchen-sprite-args");
+            .$name("shallot-sprite-args");
     },
 
     dispose() {

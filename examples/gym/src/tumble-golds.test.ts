@@ -1,4 +1,4 @@
-// The shared standing gold test every stage-4 sample twin plugs into (spec tumble-inline stage 4). One
+// The shared standing gold test every stage-4 sample twin plugs into. One
 // registry entry (`tumble-registry.ts`) per ported sample; this file spawns an isolated child process per
 // job — the entry's gold replay, plus one per knob point — through `tumble-gold-runner.ts`, ~4 at a time,
 // and asserts each exits clean. On failure the child prints the entry, the check, and (for a gold

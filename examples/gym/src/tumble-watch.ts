@@ -1,4 +1,4 @@
-// Floor-vanish instrument for the tumble sample host (spec tumble-inline stage 6b / F1). Two surfaces, one
+// Floor-vanish instrument for the tumble sample host. Two surfaces, one
 // shared readback core:
 //
 //   • the passive page hooks — `window.__tumbleProbe` (a drawArgs readback + a NaN/Inf scan over body poses

@@ -1,4 +1,4 @@
-// geometry-hull-reduction — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `HullReduction`
+// geometry-hull-reduction — stage-4 gym twin: the tumble.js `HullReduction`
 // sample (`samples/src/samples/geometry.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 

@@ -162,8 +162,8 @@ export interface BatchOutcome {
     bytes: number;
 }
 
-/** spawn `shallot verify <dir> --json <extra> --run <r> --run <r> ...` — the shipped CLI's batch mode
- *  (`shallot-gate-ergonomics` stage 2): one boot, one verdict per `runs` entry, JSON array out. Each
+/** spawn `shallot verify <dir> --json <extra> --run <r> --run <r> ...` — the shipped CLI's batch mode:
+ *  one boot, one verdict per `runs` entry, JSON array out. Each
  *  `runs` entry is one `--run` spec (`"scenario=name"`, `&`-joined for more than one query key); `extra`
  *  carries the params shared across every run (`--query` flags, `--memory`). */
 export async function verifyBatch(

@@ -47,7 +47,7 @@ export interface Profile {
      *  every pipeline through the **synchronous** `createRenderPipeline` / `createComputePipeline`
      *  instead, which return before the driver finishes compiling — so a typed pipeline's duration is
      *  near-zero and not trustworthy on its own, only its presence is (the pipeline-count golden this
-     *  table backs, `shallot-perf-gates` stage 3a). Where a `precompile` forcer also wraps that same
+     *  table backs). Where a `precompile` forcer also wraps that same
      *  pipeline, its later `Compute.precompiled` completion measurement (a real fenced span) overwrites
      *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
      *  covering several pipelines, `precompileVariants`) keeps only the near-zero sync entry — real
@@ -58,7 +58,7 @@ export interface Profile {
      *  (`precompileVariants`'s `"sear-typed-variants"` is the shipped case) — a scope-only label's
      *  timing still lands in {@link compile}, but it isn't one real pipeline, so a pipeline-count golden
      *  reads `[...compile.keys()].filter(k => compiledPipelines.has(k)).length`, never `compile.size`
-     *  directly (`shallot-perf-gates` stage 3a review). */
+     *  directly. */
     readonly compiledPipelines: ReadonlySet<string>;
     /** raw `create*Pipeline(Async)` invocations since attach — every constructor call, counted before
      *  labels collapse. {@link compiledPipelines} counts distinct labels instead, and a repeated label
@@ -73,7 +73,7 @@ export interface Profile {
     readonly fenceWaitMs: number;
     /** live GPU buffer bytes, summed over every buffer allocated since attach and decremented on
      *  `destroy()`: exact and device-independent for a fixed scenario at fixed params, the byte-budget
-     *  gate's total (`testing.md`'s exact-equality structural rung, `shallot-perf-gates`). */
+     *  gate's total (`testing.md`'s exact-equality structural rung). */
     readonly bufferBytes: number;
     /** live GPU texture bytes, the texture twin of {@link bufferBytes}. */
     readonly textureBytes: number;
@@ -87,7 +87,7 @@ export interface Profile {
      *  staging pool, that grows lazily under real GPU backpressure rather than deterministically for a
      *  fixed scenario at fixed params), so a byte-budget gate excludes it from its gated total and
      *  reports it separately: `bufferBytes + textureBytes - lazyBytes` is the exact, device-independent
-     *  quantity (`shallot-perf-gates` stage 4e). */
+     *  quantity. */
     readonly lazyBytes: number;
     /** cumulative `device.queue.submit` calls since attach. Each submit is a renderer→GPU-process IPC
      *  round-trip + a GPU serialization point, untimed by `timestampWrites` (the cost surfaces in fence
@@ -238,7 +238,7 @@ class ProfileImpl implements Profile {
 
         // TypeGPU builds every pipeline through these SYNCHRONOUS constructors, never the awaited
         // `*Async` pair above — so without this patch no typed pipeline ever reaches `compile` at all,
-        // and `.size` only counts hand-written `precompile` scope names (`shallot-perf-gates` stage 3a).
+        // and `.size` only counts hand-written `precompile` scope names.
         // The sync call returns before the driver finishes compiling, so the recorded span here is
         // near-zero and NOT a real compile duration — only the entry's presence (the pipeline count) is
         // trustworthy off this path. A typed pipeline's real duration is measured separately by the

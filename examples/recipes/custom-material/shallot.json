@@ -2,6 +2,6 @@
   "scene": "scenes/custom-material.scene",
   "plugins": {
     "Orbit": true,
-    "KitchenSurfaces": "./src/surfaces"
+    "ShallotSurfaces": "./src/surfaces"
   }
 }

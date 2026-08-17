@@ -12,7 +12,7 @@ import {
 import type { SkinInput } from "./vat";
 
 // one packed vertex = (px py pz u)(nx ny nz v). Integer lanes are f32-exact (toBe); the fractional uv
-// lanes round-trip through Float32Array so they need toBeCloseTo (coding.md float-equality discipline).
+// lanes round-trip through Float32Array so they need toBeCloseTo (float-equality discipline).
 function expectVertex(v: Float32Array, base: number, exp: number[]) {
     for (let i = 0; i < 8; i++) {
         if (i === 3 || i === 7) expect(v[base + i]).toBeCloseTo(exp[i], 5);

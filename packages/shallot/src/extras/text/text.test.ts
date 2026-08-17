@@ -15,7 +15,7 @@ const parseContent = traits.parse!.content as (raw: string) => number;
 const formatContent = traits.format!.content as (id: number) => string;
 const parseFont = traits.parse!.font as (name: string) => number;
 
-describe("kitchen text registry surface", () => {
+describe("shallot text registry surface", () => {
     test("text() interns a string and the trait formats the id back", () => {
         const id = text("Hello");
         expect(formatContent(id)).toBe("Hello");

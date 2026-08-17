@@ -182,7 +182,7 @@ export function projectPlugin(projectDir?: string): Plugin {
             if (id === virtualId) return resolvedId;
             // virtual:project is a virtual module with no location, so vite resolves its imports against
             // the host root. A relative local is already absolutized by the generator, but a bare package
-            // subpath (a project's installed/workspace plugin, e.g. `orrstead/core/grid`) would miss the
+            // subpath (a project's installed/workspace plugin, e.g. `my-plugin/core/grid`) would miss the
             // host's node_modules. Resolve those from the PROJECT dir, so a manifest can reference an
             // installed plugin by subpath (engine `@dylanebert/shallot` imports resolve here too, to the
             // project's copy).

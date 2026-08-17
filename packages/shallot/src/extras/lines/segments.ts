@@ -194,13 +194,13 @@ export function warmSegments(_device: GPUDevice): void {
     _segBuf = Compute.root
         .createBuffer(d.arrayOf(Segment, INITIAL))
         .$usage("storage")
-        .$name("kitchen-line-segments");
+        .$name("shallot-line-segments");
     Compute.buffers.set("lineSegments", Compute.root.unwrap(_segBuf));
     Compute.typed.set("lineSegments", _segBuf);
     Lines.args = Compute.root
         .createBuffer(DrawIndexedIndirect)
         .$usage("indirect")
-        .$name("kitchen-line-args");
+        .$name("shallot-line-args");
 }
 
 // grow the GPU buffer to match the CPU staging (rare); republish so sear re-resolves the binding, then
@@ -212,7 +212,7 @@ export function flushSegments(device: GPUDevice, quadBase: number): void {
         _segBuf = Compute.root
             .createBuffer(d.arrayOf(Segment, _cap))
             .$usage("storage")
-            .$name("kitchen-line-segments");
+            .$name("shallot-line-segments");
         Compute.buffers.set("lineSegments", Compute.root.unwrap(_segBuf));
         Compute.typed.set("lineSegments", _segBuf);
         device.queue.onSubmittedWorkDone().then(() => stale.destroy());

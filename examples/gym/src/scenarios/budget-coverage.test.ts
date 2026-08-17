@@ -11,7 +11,7 @@ import {
 } from "./budget-coverage";
 import "./index";
 
-// fixture-only red-proofs (coding.md "a check is evidence only if you've seen it fail" — each was run
+// fixture-only red-proofs ("a check is evidence only if you've seen it fail" — each was run
 // against a broken checker first and confirmed to fail before the checker was fixed to pass it): a table
 // key naming an unregistered scenario, an exemption with no reason, a (scenario, axis) pair both budgeted
 // and exempt, and a registered scenario missing coverage on an axis. None of these touch the real scenario
@@ -40,7 +40,7 @@ describe("budget registry checker (fixtures)", () => {
     });
 
     test("a (scenario, axis) pair both budgeted and exempt is a finding — dropping the exemption reds this too", () => {
-        // the dropped-exemption red-proof (`shallot-perf-gates` stage 3b/4b Validation): a scenario axis
+        // the dropped-exemption red-proof: a scenario axis
         // carrying both a golden AND an exemption reason is a contradiction (never both, `budgets.ts`'s
         // own doc), so removing an exemption while its budget entry stays is exactly the state this check
         // exists to catch — confirmed red here first, against the broken (pre-fix) checker that admitted
@@ -67,7 +67,7 @@ describe("budget registry checker (fixtures)", () => {
     });
 
     test("a scenario covered on one axis by a budget and the other by an exemption has no completeness finding", () => {
-        // this is the per-axis split itself (`shallot-perf-gates` stage 4b): `render`-shaped coverage,
+        // this is the per-axis split itself: `render`-shaped coverage,
         // pipelines budgeted + gpuBytes exempt, is complete — never both directions failing at once.
         const findings = checkBudgetCompleteness(
             { a: { pipelines: 1, pipelineCalls: 1 } },
@@ -262,7 +262,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
 
     // A fixture byte-exempt scenario (the real registry carries none since stage 4e — every row that used
     // to exempt `gpuBytes` regained an exact golden once the lazy-pool bytes were excluded at the
-    // allocation site, `shallot-perf-gates` stage 4e). Same injection shape as the "outline" fixture above,
+    // allocation site). Same injection shape as the "outline" fixture above,
     // shaped like the pre-4e `render` row (`pipelines` budgeted, `gpuBytes` exempt) so the per-axis
     // behavior these three tests pin stays covered even though no live row exercises it anymore.
     const FixtureBudgets = { "fixture-byte-exempt": { pipelines: 29 } };
@@ -289,7 +289,7 @@ describe("assertBudget (pure, no live Profile/GPU)", () => {
         expect(checks.find((c) => c.name === "budget:bytes")).toBeUndefined();
     });
 
-    // `shallot-perf-gates` stage 4b's own Validation criterion: exempting a scenario's `gpuBytes` axis
+    // Exempting a scenario's `gpuBytes` axis
     // must never drop its exact `pipelines` golden — this is precisely what the pre-4b per-scenario
     // exemption shape could not do (proven separately: a reconstruction of that shape returned `[]` for
     // this exact call, so no check existed to red at all).

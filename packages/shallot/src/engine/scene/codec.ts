@@ -185,7 +185,7 @@ export function readComponent(
  * survive-reload), or feed it back to `load` to rebuild. Pay-for-what-you-use, not a per-frame cost.
  *
  * By default it serializes the **authored** set — the entities `load` created.
- * `warm`-derived entities (orrstead's trees) are absent by construction and
+ * `warm`-derived entities are absent by construction and
  * rebuilt by `warm` on the next build, so a restore never doubles them; pass an
  * explicit `eids` to serialize a different set (entities spawned outside load).
  * Each entity keeps its scene `id`, and a `refs` field round-trips as `@<id>`

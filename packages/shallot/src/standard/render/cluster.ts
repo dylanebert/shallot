@@ -323,7 +323,7 @@ export const ClusterSystem: System = {
             used,
         );
         const pass = Render.encoder.beginComputePass({
-            label: "kitchen-cluster-aabbs",
+            label: "shallot-cluster-aabbs",
             timestampWrites: Compute.span?.("cluster:aabbs"),
         });
         bindGrid()
@@ -359,22 +359,22 @@ export function warmClusters(): void {
     _typedViews = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * (CLUSTER_VIEW_FLOATS / 4)))
         .$usage("storage")
-        .$name("kitchen-cluster-views");
+        .$name("shallot-cluster-views");
     Clusters.views = root.unwrap(_typedViews);
     // typegpu grants COPY_SRC on every buffer it creates, which is what the gym Mirror assert against
     // the TS oracle reads the AABBs back through
     _typedAabbs = root
         .createBuffer(d.arrayOf(d.vec4f, MAX_VIEWS * CLUSTER_COUNT * 2))
         .$usage("storage")
-        .$name("kitchen-cluster-aabbs");
+        .$name("shallot-cluster-aabbs");
     Clusters.aabbs = root.unwrap(_typedAabbs);
     Compute.buffers.set("clusterAabbs", Clusters.aabbs);
     Compute.typed.set("clusterAabbs", _typedAabbs);
 
-    _pipe = root.createComputePipeline({ compute: gridKernel }).$name("kitchen-cluster-aabbs");
+    _pipe = root.createComputePipeline({ compute: gridKernel }).$name("shallot-cluster-aabbs");
     // the bind, not just the dispatch, is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
-    precompile("kitchen-cluster-aabbs", () => {
+    precompile("shallot-cluster-aabbs", () => {
         const bound = bindGrid();
         bound.dispatchWorkgroups(0);
         return bound;
@@ -722,7 +722,7 @@ function checkOverflow(): void {
                 if (!_overflowWarned) {
                     _overflowWarned = true;
                     console.warn(
-                        `kitchen: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
+                        `shallot: light index pool overflow — ${dropped} cluster-light entries dropped this frame (pool ${LIGHT_POOL})`,
                     );
                 }
             } else {
@@ -759,7 +759,7 @@ export const LightCullSystem: System = {
         Render.encoder.clearBuffer(LightCull.lights!, 0, 16);
         Render.encoder.clearBuffer(LightCull.indices!, 0, POOL_HEADER * 4);
         const pass = Render.encoder.beginComputePass({
-            label: "kitchen-light-cull",
+            label: "shallot-light-cull",
             timestampWrites: Compute.span?.("light:cull"),
         });
         bindCompact()
@@ -789,28 +789,28 @@ export function warmLightCull(state: State): void {
     _cullBound = null;
     _overflowPending = false;
 
-    _typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("kitchen-lights");
+    _typedLights = root.createBuffer(PointLightsRw).$usage("storage").$name("shallot-lights");
     LightCull.lights = root.unwrap(_typedLights);
     // COPY_SRC throughout for the gym Mirror asserts against the TS oracle (typegpu grants it on the
     // buffers it creates)
     LightCull.grid = device.createBuffer({
-        label: "kitchen-light-grid",
+        label: "shallot-light-grid",
         size: MAX_VIEWS * CLUSTER_COUNT * 8,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
     LightCull.indices = device.createBuffer({
-        label: "kitchen-light-indices",
+        label: "shallot-light-indices",
         size: (POOL_HEADER + LIGHT_POOL) * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     LightCull.viewMats = device.createBuffer({
-        label: "kitchen-light-views",
+        label: "shallot-light-views",
         size: MAX_VIEWS * 64,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     _overflowInFlight = false;
     _overflowStaging = device.createBuffer({
-        label: "kitchen-light-overflow",
+        label: "shallot-light-overflow",
         size: 8,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
@@ -840,14 +840,14 @@ export function warmLightCull(state: State): void {
                 { base: volBit.gen * capacity, mask: volBit.mask },
             ),
         })
-        .$name("kitchen-light-compact");
-    _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("kitchen-light-cull");
-    precompile("kitchen-light-compact", () => {
+        .$name("shallot-light-compact");
+    _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
+    precompile("shallot-light-compact", () => {
         const bound = bindCompact();
         bound.dispatchWorkgroups(0);
         return bound;
     });
-    precompile("kitchen-light-cull", () => {
+    precompile("shallot-light-cull", () => {
         const bound = bindCull();
         bound.dispatchWorkgroups(0);
         return bound;

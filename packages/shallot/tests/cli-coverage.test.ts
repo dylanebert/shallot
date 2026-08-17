@@ -10,7 +10,7 @@ import {
     globToRegExp,
 } from "./cli-coverage";
 
-// fixture-only red-proofs (coding.md "a check is evidence only if you've seen it fail"): each of these
+// fixture-only red-proofs (a check is evidence only if you've seen it fail): each of these
 // was run against a broken registry first — see the spec's Live log / commit for the real-file mutations
 // this stage red-proved (deleting a row, adding an unrowed file, adding a second row for an already-
 // rowed file, adding an oracle/lab scratch file). None of these fixture cases touch the filesystem or

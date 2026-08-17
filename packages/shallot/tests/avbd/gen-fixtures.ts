@@ -1,5 +1,5 @@
 // Regenerates the dense AVBD parity fixtures by building and running the reference
-// C++ harness in `kex/reference/avbd-demo3d/`. Emits two param sets the oracle and
+// C++ harness in `reference/avbd-demo3d/`. Emits two param sets the oracle and
 // GPU validate against:
 //   canonical/ — 10 iters, betaLin 1e4, alpha 0.99 (reference defaults) — correctness
 //   budget/    — 4 iters, betaLin 1e5                                    — perf tuning
@@ -22,7 +22,7 @@ const fixtureRoot = resolve(import.meta.dir, "..", "fixtures", "avbd");
 if (!existsSync(refDir)) {
     console.error(`reference dir missing: ${refDir}`);
     console.error(
-        "expected the avbd-demo3d submodule (run `git submodule update --init` from kex/)",
+        "expected the avbd-demo3d submodule (run `git submodule update --init` from the repo root)",
     );
     process.exit(1);
 }

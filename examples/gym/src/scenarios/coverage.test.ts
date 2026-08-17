@@ -15,7 +15,7 @@ import {
     SCENARIO_GATES,
 } from "./coverage";
 
-// fixture-only red-proofs (coding.md "a check is evidence only if you've seen it fail" — each was run
+// fixture-only red-proofs ("a check is evidence only if you've seen it fail" — each was run
 // against a broken checker first and confirmed to fail before the checker was fixed to pass it):
 // a glob matching nothing, a registered scenario missing its entry, a module in neither covered nor
 // exempt, and an exemption that shadows an already-covered module. None of these touch the filesystem or

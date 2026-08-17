@@ -11,7 +11,7 @@ import { discoverScenes, manifestPath } from "../src/project/vite";
 // One toolchain merge shared by `shallot dev` and `shallot build`. A manifest project is pure data, but a
 // project that needs a framework (Svelte, React) declares it the standard vite way — its own
 // `vite.config.ts` with `@sveltejs/vite-plugin-svelte` etc. Both commands load + merge that config
-// identically here, so a framework project (orrstead) runs the same in dev and a build. No `vite.config` →
+// identically here, so a framework project runs the same in dev and a build. No `vite.config` →
 // the synthesized zero-config path (a manifest recipe is unaffected).
 
 /** dir holds a shallot project — a shallot.json manifest or a .scene file. */

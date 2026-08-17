@@ -1,4 +1,4 @@
-// The registry every stage-4 sample twin plugs into (spec tumble-inline stage 4): one entry per ported
+// The registry every stage-4 sample twin plugs into: one entry per ported
 // tumble.js sample — its committed gold, its build()/update() through the escape hatch, and 2-3 non-default
 // knob points for the boundedness probe (the gold trajectory exists at defaults only). `tumble-golds.test.ts`
 // iterates this list; a new sample twin adds ONE entry here — see that file's header for the full recipe.

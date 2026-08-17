@@ -2,8 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { REPO_ROOT, skipReason, teardownBridge, verify } from "./verify";
 
-// `bun run scripts/bench-tumble.ts` — the batched real-device gate for the tumble gym sample twins (spec tumble-inline
-// stage 4c). One browser boot serves every scenario: the WSL bridge (or a local chromium) starts once and is
+// `bun run scripts/bench-tumble.ts` — the batched real-device gate for the tumble gym sample twins. One browser boot serves every scenario: the WSL bridge (or a local chromium) starts once and is
 // reused across a `shallot verify examples/gym --query scenario=<slug>` page per twin, so the whole corpus
 // runs in one process on one bridge boot. Every twin's gold assert must pass and its wall time stay under
 // the standing budget; the run prints a per-scenario timing table and exits nonzero on any red row.

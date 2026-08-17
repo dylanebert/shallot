@@ -16,7 +16,7 @@
 //!   is the phaser (DaisySP's own `phaser.cpp` is a delay-line Schroeder allpass whose
 //!   top-level `Phaser::Process` sums identical parallel engines — degenerate to a
 //!   scaled single notch — so the standard first-order allpass *chain* is transcribed
-//!   from q instead; see `specs/audio-effect-nodes.md`).
+//!   from q instead).
 
 use core::f32::consts::PI;
 

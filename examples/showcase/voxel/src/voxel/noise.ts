@@ -3,7 +3,7 @@
 // `bun test` exercises the determinism foundation device-free — the GPU dispatch that consumes these lives
 // in generate.ts.
 //
-// Shape: orrstead's `generation/noise.ts` — a doubled-permutation table + an FBM WGSL chunk. The terrain is
+// Shape: a doubled-permutation table + an FBM WGSL chunk. The terrain is
 // a heightmap: a zero-mean multi-octave 2D perlin field (`fbm2`) lifts and drops the ground into rolling
 // hills (`surface = GROUND_LEVEL + fbm2(x,z)·RELIEF`), the textbook layered-perlin landscape. The grid
 // stays a full 3D density field — the carve brush sculpts overhangs by hand — but the initial generation is

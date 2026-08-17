@@ -6,8 +6,8 @@
 // One parameterized script covers every gold target — they differ only in the cmake target name and the
 // output filename. The valid names are the committed engine/*.gold.json files.
 //
-// The reference lives at ../reference/box3d beside the shallot checkout (the kex workspace layout —
-// sibling of kex/shallot). Absent it, this errors honestly. The committed gold is the frozen contract
+// The reference lives at ../reference/box3d beside this shallot checkout. Absent it, this errors
+// honestly. The committed gold is the frozen contract
 // (pin 29bf523); only run this at a deliberate upstream sync.
 //
 // Usage: bun run scripts/gen-tumble-gold.ts <name>   (from packages/shallot)
@@ -51,7 +51,7 @@ const outPath = resolve(pkgRoot, "src", "standard", "tumble", "engine", `${name}
 if (!existsSync(refDir)) {
     console.error(`box3d reference missing: ${refDir}`);
     console.error(
-        "expected the box3d reference at reference/box3d beside the shallot checkout (the kex workspace layout: kex/reference/box3d, sibling of kex/shallot) on branch `harness`.",
+        "expected the box3d reference at reference/box3d beside the shallot checkout (../reference/box3d relative to this repo) on branch `harness`.",
     );
     process.exit(1);
 }

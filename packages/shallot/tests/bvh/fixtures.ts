@@ -4,7 +4,7 @@
 // dependency-free, and are imported by both sides. Test scaffolding, not engine code —
 // kept out of the shipped src/ tree.
 //
-// AABB-only, matching kitchen/bvh/core: the builder's input is a primitive AABB array,
+// AABB-only, matching shallot/bvh/core: the builder's input is a primitive AABB array,
 // and its query is ray-AABB. Consumer-specific scenes (a ray-triangle leaf, two-level
 // instancing) would live with their consumer, building BVH input over this same Prims layout.
 //

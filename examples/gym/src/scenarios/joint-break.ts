@@ -1,4 +1,4 @@
-// events-joint-break — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `JointBreak` sample
+// events-joint-break — stage-4 gym twin: the tumble.js `JointBreak` sample
 // (`samples/src/samples/events.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. The threshold-crossing
 // joint cut lives in `update()`.

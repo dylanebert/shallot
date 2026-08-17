@@ -66,10 +66,6 @@ playwright-report/
 # Recordings
 recordings/
 
-# Large external assets symlinked in for local lab dev (e.g. Sponza from kex/reference)
-examples/lab/public/sponza
-examples/zoo/sponza/public/sponza
-
 # Benchmark SQLite journals
 *.db-wal
 *.db-shm

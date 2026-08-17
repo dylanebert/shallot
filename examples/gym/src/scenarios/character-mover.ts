@@ -1,4 +1,4 @@
-// character-mover — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `Character` sample
+// character-mover — stage-4 gym twin: the tumble.js `Character` sample
 // (`samples/src/samples/character.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold. A self-driven kinematic capsule mover patrols an arena on the plane solver — the drive
 // lives in `update()`, shoving dynamic crates it leans on.

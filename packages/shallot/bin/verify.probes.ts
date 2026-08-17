@@ -9,7 +9,8 @@ import {
 } from "./verify";
 
 // The `--timings` probes' real-browser red-proofs, split out of `verify.test.ts` as its own by-path gate
-// (`coding.md` Suite speed): each launches Chromium, which the default seconds-scale suite must not do —
+// (browser probes stay out of the default suite for speed): each launches Chromium, which the default
+// seconds-scale suite must not do —
 // and did flake once inside it. Run when you touch the probes:
 //
 //     bun test ./packages/shallot/bin/verify.probes.ts

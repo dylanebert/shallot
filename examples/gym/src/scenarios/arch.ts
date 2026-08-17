@@ -1,4 +1,4 @@
-// stacking-arch — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `Arch` sample
+// stacking-arch — stage-4 gym twin: the tumble.js `Arch` sample
 // (`samples/src/samples/stacks.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer. No knobs.
 

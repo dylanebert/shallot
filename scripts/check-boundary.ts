@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve, sep } from "path";
 
 // Distribution boundary: a consumer of the published @dylanebert/shallot surface
 // reaches the engine only through the package name, and only through its declared
-// `exports` — never repo-only directories (harness/, scripts/, tests/, sibling
+// `exports` — never repo-only directories (scripts/, tests/, sibling
 // examples) and never an unpublished internal. Two ways a consumer could break out:
 //
 //   1. a relative import that climbs out of its own project root, and
@@ -12,7 +12,7 @@ import { dirname, join, relative, resolve, sep } from "path";
 //      by package name, so a consumer using it is reaching an unexposed internal).
 //
 // Both are violations here. Cross-project access goes through the package name, into
-// a published subpath only. (coding.md onion layers; AGENTS.md "Don't deep-import
+// a published subpath only. (AGENTS.md "Don't deep-import
 // from src/".) Every example tier — recipes, gym, showcase — and external consumers
 // are held to this; they exist to use the engine as a user would.
 //
@@ -24,7 +24,7 @@ import { dirname, join, relative, resolve, sep } from "path";
 // use the published exports — the allowance is the tests/ oracle only, not `src/`.
 //
 // Default scans this repo's consumer examples. `--root <dir>` scans an external
-// consumer tree (e.g. orrstead), where every project is a consumer.
+// consumer tree, where every project is a consumer.
 
 const repoRoot = resolve(import.meta.dir, "..");
 
@@ -162,7 +162,7 @@ if (violations.length > 0) {
     console.error(
         "\nA consumer must reach the engine through the published @dylanebert/shallot\n" +
             "surface — a declared `exports` subpath — never a relative path into repo-only\n" +
-            "code (harness/, scripts/, tests/) nor an unpublished internal (src/...).",
+            "code (scripts/, tests/) nor an unpublished internal (src/...).",
     );
     process.exit(1);
 }

@@ -130,7 +130,7 @@ export interface BenchmarkCompileStats {
 }
 
 /** live GPU memory at the end of a measurement window: exact allocation totals, not a timing — the
- *  byte-budget gate's source (`shallot-perf-gates`). Read straight off {@link Profile.bufferBytes} /
+ *  byte-budget gate's source. Read straight off {@link Profile.bufferBytes} /
  *  {@link Profile.textureBytes} / {@link Profile.allocBytes} / {@link Profile.lazyBytes} — one source of
  *  truth, not a parallel derivation the overlay and the benchmark could drift apart on. */
 export interface BenchmarkMemoryStats {
@@ -142,7 +142,7 @@ export interface BenchmarkMemoryStats {
     byLabel: Record<string, number>;
     /** live bytes from an allocation marked lazily-grown (`LazyAlloc`, engine/runtime) — a subset of
      *  `bufferBytes + textureBytes`, timing-dependent under real GPU backpressure and excluded from the
-     *  byte-budget gate's total (`shallot-perf-gates` stage 4e). `bufferBytes + textureBytes - lazyBytes`
+     *  byte-budget gate's total. `bufferBytes + textureBytes - lazyBytes`
      *  is the gate's exact quantity. */
     lazyBytes: number;
 }

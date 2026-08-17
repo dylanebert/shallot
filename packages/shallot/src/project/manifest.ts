@@ -7,7 +7,7 @@
  * - `true` / `false` — an **engine** plugin's enablement, the `{ name: source }` dependency-map bool
  *   (npm / Unity `manifest.json`); resolved `${Name}Plugin` from the barrel by name.
  * - a module specifier `string` — a **local/external** plugin, enabled; the module **default-exports** a
- *   Plugin (Babel/PostCSS shorthand string; a relative `./src/x`, or a package subpath `orrstead/grid`).
+ *   Plugin (Babel/PostCSS shorthand string; a relative `./src/x`, or a package subpath `my-plugin/grid`).
  * - `[spec, false]` — the same local/external plugin kept but **disabled** (PostCSS's `["plugin", false]`
  *   disable, the Babel `[name, options]` tuple with `false` in the options slot). The spec survives the toggle.
  */

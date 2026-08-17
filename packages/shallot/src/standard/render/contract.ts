@@ -295,7 +295,7 @@ export const Surfaces: Registry<Surface> = new Registry<Surface>();
  * consumer-built object first meets the engine ({@link registerSurface}/{@link registerBackground}).
  * typegpu's brand markers are a per-copy `Symbol(...)` (never `Symbol.for`, `typegpu/shared/symbols.js`),
  * so `isTgpuFn`, imported from *this* engine's own resolution, reads `false` for a foreign copy's fn
- * even when its shape matches exactly (de-risked 2026-08-10, spec `shallot-peer-identity` stage 1: same
+ * even when its shape matches exactly (de-risked 2026-08-10: same
  * copy `true`, cross-copy `false`). This closes the ordering gap the module-load write-counter
  * (`checkTgsl`, `engine/runtime/gpu.ts`) can't: that counter can fold a duplicate's write into its own
  * baseline depending on which module evaluates first, but a foreign fn arriving here fails the brand

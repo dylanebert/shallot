@@ -1,4 +1,4 @@
-// Sear — the one kitchen renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
+// Sear — the one shallot renderer. A GPU-driven raster *forward* pass (Aaltonen-Haar / niagara
 // submission spine, primary visibility only) with sun shadows sampled inline in the FS, matching Bevy's
 // clustered-forward shape. One renderer, one plugin (`SearPlugin`), no layers behind seams: one color
 // pass (opaque draws then `blend` draws composited over them in a single `beginRenderPass`), an
@@ -819,7 +819,7 @@ export function precompileVariants(
             }
             return warmed;
         },
-        { after: ["kitchen-part-count"] },
+        { after: ["shallot-part-count"] },
     );
 }
 
@@ -1033,7 +1033,7 @@ function disposeSear(): void {
 }
 
 /**
- * Sear: the one kitchen renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
+ * Sear: the one shallot renderer. A GPU-driven raster forward pass: a 4× MSAA color pass (opaque draws
  * then `blend` draws composited over them, fused into one render pass) and an opt-in single-sample
  * prepass emitting per-camera lanes (the {@link Tag} → `view.tag` id lane, the {@link Depth} →
  * `view.depth` lane), with sun shadows sampled inline in the FS. Add `SearPlugin` and give a Camera the
@@ -1043,7 +1043,7 @@ function disposeSear(): void {
  * plugin, no coordination singleton: sear owns its own shadow map and binds it (Bevy's clustered-forward
  * shape). Sear renders into the offscreen
  * (`view.framebuffer`) and never the swapchain; presenting it is a separate **composite** the consumer
- * picks: {@link GlazePlugin} (the engine default postfx composite) or a custom one (orrstead ships a
+ * picks: {@link GlazePlugin} (the engine default postfx composite) or a custom one (a
  * fused compute composite). So sear depends only on {@link RenderPlugin}; list a composite alongside it
  * or nothing reaches the swapchain. `ColorSystem` still orders `before: [GlazeSystem]` so glaze, *when
  * present*, composites after the resolve (the ordering ref drops harmlessly when glaze isn't registered).

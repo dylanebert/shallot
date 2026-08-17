@@ -30,7 +30,7 @@
                     },
                     {
                         "type": "string",
-                        "description": "A local/external plugin: a module specifier (relative path like \"./src/x\" or a package subpath like \"orrstead/grid\") whose default export is the Plugin."
+                        "description": "A local/external plugin: a module specifier (relative path like \"./src/x\" or a package subpath like \"my-plugins/grid\") whose default export is the Plugin."
                     },
                     {
                         "type": "array",

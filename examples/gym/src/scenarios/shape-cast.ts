@@ -1,4 +1,4 @@
-// collision-shape-cast — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `ShapeCast` sample
+// collision-shape-cast — stage-4 gym twin: the tumble.js `ShapeCast` sample
 // (`samples/src/samples/collision.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold. The swept-sphere `castShape` sweep + HUD draw (`render()`) is outside the gold contract —
 // it only feeds debug-draw output, never mutates the world — so only `build()` ports.

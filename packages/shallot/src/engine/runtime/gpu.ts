@@ -38,8 +38,8 @@ const mb = (bytes: number): string => `${(bytes / (1 << 20)).toFixed(0)} MB`;
  * backpressure (a readback ring's staging slot, a slab's staging buffer) rather than deterministically
  * for a fixed scenario at fixed params. The allocator is the one thing that knows this, so the mark
  * travels on the descriptor already crossing `ProfilePlugin`'s patched `createBuffer` / `createTexture`
- * seam — never inferred from the label string, which would silently miss the next such pool
- * (`shallot-perf-gates` stage 4e). `Profile.lazyBytes` sums every allocation marked `lazy` separately
+ * seam — never inferred from the label string, which would silently miss the next such pool.
+ * `Profile.lazyBytes` sums every allocation marked `lazy` separately
  * from the exact `bufferBytes` / `textureBytes` totals a byte-budget gate reads.
  * @example
  * const desc: GPUBufferDescriptor & LazyAlloc = { label: "my-pool-slot", size, usage, lazy: true };

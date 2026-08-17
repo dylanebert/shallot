@@ -360,7 +360,7 @@ pub struct Sizes {
 }
 
 /// The storage any plan can ever need at `max_workers` threads, for a caller sizing a fixed buffer (the
-/// wasm path has no allocator — kex `tumble.md`). Every dim's block count is capped at
+/// wasm path has no allocator — `tumble.md`). Every dim's block count is capped at
 /// `BLOCKS_PER_WORKER * worker_count` by [`compute_block_count`], and a plan has 4 flat dims (body,
 /// wide, mesh, joint) plus 3 per color.
 pub const fn max_sizes(max_workers: usize) -> Sizes {

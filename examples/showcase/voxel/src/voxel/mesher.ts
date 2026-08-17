@@ -2,7 +2,7 @@
 // for every solid voxel whose neighbour across that face is air, atomically appending vertices / indices
 // into producer-owned buffers and the index count into an indirect draw record. Sear rasterizes the
 // result through one `drawIndirect` — the mesh never crosses back to the CPU. The 3D promotion of
-// orrstead's 2D terrain emit (`orrstead/package/src/render/terrain`): swap "cliff per non-ground
+// a 2D terrain emit: swap "cliff per non-ground
 // neighbour" for "cube face per air neighbour", in all six directions including interior (the bored
 // tunnel) and across chunk seams (the cross-chunk sphere). Single pass over a static grid — the two-pass
 // count-then-`dispatchWorkgroupsIndirect` and per-chunk draws arrive with streaming (Phase 4).

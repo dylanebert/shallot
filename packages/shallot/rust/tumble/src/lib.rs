@@ -7,7 +7,7 @@
 //! which is bit-identical to the wasm-simd128 path.
 
 // The FloatW fallback methods that only the tests touch today are the solver's foundation; the
-// wide-solver port (stage 3b) consumes them. Remove when it lands.
+// wide-solver port consumes them. Remove when it lands.
 #![allow(dead_code)]
 
 pub mod body;
@@ -40,7 +40,7 @@ pub mod wide;
 use simd::FloatW;
 
 /// Scratch region the TS loader views as a `Float32Array` to exercise the shared-memory FFI shape and
-/// the wasm-simd128 toolchain. Kept until the wide solver (stage 3b) exercises `FloatW` on a wired
+/// the wasm-simd128 toolchain. Kept until the wide solver exercises `FloatW` on a wired
 /// path — none of the scalar phases wired so far touch simd128, so `smokeScale` is the only cliff gate.
 const SCRATCH_LEN: usize = 1024;
 static mut SCRATCH: [f32; SCRATCH_LEN] = [0.0; SCRATCH_LEN];

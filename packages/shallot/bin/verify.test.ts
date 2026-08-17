@@ -478,7 +478,7 @@ describe("installHarnessProbe + harnessInstallMs — the pure setter mechanism",
 });
 
 // the cheap sentinel for `verify.probes.ts`, the browser-launching gate these two constants are proven
-// in (`coding.md`: a gate leaving the default suite leaves a sentinel behind). Both concerns must reach
+// in (a gate that leaves the default suite leaves a sentinel behind). Both concerns must reach
 // the page before the first request — a raised resource-timing buffer and the harness-install setter —
 // and dropping either from the init script is the silent failure the probes exist to prevent.
 describe("TIMINGS_INIT_SCRIPT — what --timings installs pre-navigation", () => {
@@ -733,7 +733,7 @@ describe("partitionSweep", () => {
         expect(isolate).toEqual(["b"]);
     });
 
-    // real data, as a declared registry asserted BOTH directions (`coding.md`): the literal below is the
+    // real data, as a declared registry asserted BOTH directions: the literal below is the
     // independent half. Deriving the expectation with the same `g.isolate` filter the production code
     // implements would re-derive the rule under test and discriminate almost nothing — it would pass for
     // any table, including one where somebody dropped `isolate` off `stress`. Naming the three scenarios
@@ -951,7 +951,7 @@ describe("reportBatch — the batch human/JSON rendering", () => {
     });
 });
 
-describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-perf-gates stage 7)", () => {
+describe("stdout survives process.exit — the 64 KiB pipe truncation", () => {
     // The truncation is a Node behavior, not a Bun one (measured: `bun -e "console.log(huge); process.exit(0)"`
     // piped never truncates; `node` does, exactly at 65,536 B). It's Node that hits it in production — the
     // WSL bridge runs a `bun build --target node` bundle of this CLI (`scripts/wsl-bridge.ts` buildBundle),
@@ -1134,8 +1134,8 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
 });
 
 // Every red verdict this repo's gates ever report routes through driveHarness's failure arms and
-// withGpuLog's merge — bench/flows/recipes only ever drive the green path (spec: shallot-cli-tests,
-// stage 4). A duck-typed page stub is not module mocking: Page is already typed `any`, and the stub
+// withGpuLog's merge — bench/flows/recipes only ever drive the green path. A duck-typed page stub is
+// not module mocking: Page is already typed `any`, and the stub
 // supplies only the boundary methods (`waitForFunction`, `evaluate`, `locator`) driveHarness itself
 // calls — the pre-existing seam the Locked decision names.
 describe("driveHarness — the red arms every gate's red routes through", () => {

@@ -875,7 +875,7 @@ async function buildCull(state: State, p: Params): Promise<void> {
     const seed = p.seed as number;
     count = p.count as number;
 
-    // bare lights — defaults match the kitchen scene's `<a ambient-light />`. The sun carries a `Shadow` so
+    // bare lights — defaults match the shallot scene's `<a ambient-light />`. The sun carries a `Shadow` so
     // the CSM cascade cameras pose + cull the box field (the `per-cascade-cull` oracle reads their survivors)
     state.add(state.create(), AmbientLight);
     const sun = state.create();
@@ -1452,7 +1452,7 @@ async function buildProbe(state: State, p: Params): Promise<void> {
         Camera.far.set(cam, 20000); // a wide near:far is what starves a forward-Z buffer's far precision
     }
     if (mode === "cascade-ortho") {
-        // the orrstead regression case: an orthographic camera posed far from the scene. The frustum-slice fit
+        // a regression case: an orthographic camera posed far from the scene. The frustum-slice fit
         // ran cascades along [near, distance] that never reach the ground at this forward distance — only the
         // single footprint box does. Orbit caps distance at 30 by default, so lift it for the distance-70 pose
         Camera.mode.set(cam, CameraMode.Orthographic);
@@ -3160,7 +3160,7 @@ async function assertSky(): Promise<Check[]> {
 }
 
 // ============================================================================
-// skin-live — the live joint-palette substrate on the real GPU (specs/tumble-shallot.md stage 6d)
+// skin-live — the live joint-palette substrate on the real GPU
 // ============================================================================
 //
 // A by-construction 2-bone rig posed entirely through the public `LiveSkin` seam — no glTF asset, no
@@ -3590,7 +3590,7 @@ async function assertSkinLive(): Promise<Check[]> {
 }
 
 // ============================================================================
-// ragdoll — the live palette's first physics producer (specs/tumble-shallot.md stage 7b)
+// ragdoll — the live palette's first physics producer
 // ============================================================================
 //
 // RiggedFigure imported `{live}` + an 11-capsule tumble ragdoll driving its 19-joint palette. Bones are

@@ -52,7 +52,8 @@ export function devConfig(
         // registry-installed package; toolchain.test.ts pins that an ejected project's own
         // `optimizeDeps` still carries this exclusion through the merge). `typegpu` needs its own entry
         // though, not coverage-by-association: a consumer's own source commonly imports `typegpu/data`
-        // directly (orrstead/spindle's real shape — install-test.ts's fixture now does too), a second,
+        // directly (a consumer project importing a typegpu subpath on its own — install-test.ts's
+        // fixture now does too), a second,
         // independent entry into the scanner distinct from the engine's. Verified empirically: without
         // this line, that shape produces a genuine same-version duplicate typegpu module (typegpu's own
         // "Found duplicate TypeGPU version. First was 0.11.9, this one is 0.11.9" warning fires) and
@@ -68,8 +69,9 @@ export function devConfig(
             headers: CROSS_ORIGIN_ISOLATION,
             // searchForWorkspaceRoot restores vite's default fs.allow root (which an explicit `allow`
             // overrides). The engine package (`@dylanebert/shallot`, with its `rust/audio/pkg/*.wasm`
-            // fetched over /@fs/) is covered by it when in-workspace; a cross-repo symlink (the orrstead
-            // dev setup) lands outside, so the CLI's own engine dir is allowed explicitly too.
+            // fetched over /@fs/) is covered by it when in-workspace; a cross-repo symlink (a project
+            // symlinked in from outside the workspace) lands outside, so the CLI's own engine dir is
+            // allowed explicitly too.
             fs: {
                 allow: [
                     searchForWorkspaceRoot(absProjectDir),

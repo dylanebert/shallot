@@ -1,4 +1,4 @@
-// ragdoll-ragdoll — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `Ragdoll` sample
+// ragdoll-ragdoll — stage-4 gym twin: the tumble.js `Ragdoll` sample
 // (`samples/src/samples/ragdoll.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 

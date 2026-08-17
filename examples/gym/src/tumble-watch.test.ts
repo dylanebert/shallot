@@ -1,4 +1,4 @@
-// The floor-vanish break rule, proven red-first (spec tumble-inline stage 6b / F1). The auto-dump watcher and
+// The floor-vanish break rule, proven red-first. The auto-dump watcher and
 // the trusted-input Playwright driver both decide "the floor vanished this frame" from one pure predicate,
 // {@link detectBreach} — a non-finite pose/transform, or a draw count that fell below the distinct-mesh count.
 // The GPU readback and the scan that feed it need a real device; the DECISION doesn't, so it's factored out

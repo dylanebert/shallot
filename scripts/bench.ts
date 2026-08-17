@@ -136,10 +136,10 @@ export function formatForResolution(matches: readonly ForMatch[]): string {
         .join("\n");
 }
 
-/** the sweep-vs-isolate partition (`specs/shallot-gate-ergonomics.md` Locked decision: a perf-threshold
- *  gate measured under back-to-back sweep contention is not trustworthy, grounded on the `stress`
- *  finding). Every declared `isolate: true` scenario runs in its own process; everything else shares one
- *  boot through batch mode. Pure over the table so the partition is red-provable without a real sweep. */
+/** the sweep-vs-isolate partition (a perf-threshold gate measured under back-to-back sweep contention is
+ *  not trustworthy, grounded on the `stress` finding). Every declared `isolate: true` scenario runs in
+ *  its own process; everything else shares one boot through batch mode. Pure over the table so the
+ *  partition is red-provable without a real sweep. */
 export interface SweepPlan {
     batch: string[];
     isolate: string[];
@@ -319,7 +319,7 @@ function printMeasurement(label: string, r: BenchmarkMeasurement): void {
         console.log(
             `  GPU memory: buffers ${mb(m.bufferBytes)} + textures ${mb(m.textureBytes)} = ${mb(m.bufferBytes + m.textureBytes)} MB`,
         );
-        // the byte-budget gate reads the total minus lazy-pool bytes (`shallot-perf-gates` stage 4e) —
+        // the byte-budget gate reads the total minus lazy-pool bytes —
         // print both so a printed number always matches what the gate compares against.
         if (m.lazyBytes > 0) {
             console.log(
@@ -388,7 +388,7 @@ async function registeredScenarios(): Promise<string[]> {
 // `bytes` (batch rows only — isolate rows have no separate byte-count channel) is the raw stdout size:
 // null `result` covers a real crash and a truncated-or-unparseable stream alike, and there's no way from
 // here to tell which, so the observable byte count is what gets reported (measured: a 64 KiB pipe-buffer
-// cutoff, `shallot-perf-gates` stage 7).
+// cutoff).
 function printSweepResult(name: string, result: VerifyResult | null, bytes?: number): boolean {
     if (!result) {
         const detail =

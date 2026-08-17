@@ -26,7 +26,7 @@
 //
 // Output lands in tests/tumble/samples/ (one <slug>.json per sample + index.json + README). The output
 // is deterministic — no timestamps — so a double mint is byte-identical. Absent the corpus (a plain
-// shallot checkout with no kex workspace around it), it errors honestly, mirroring gen-tumble-fixtures.
+// shallot checkout), it errors honestly, mirroring gen-tumble-fixtures.
 //
 // Usage: bun run scripts/gen-tumble-sample-golds.ts   (from packages/shallot)
 
@@ -55,7 +55,7 @@ const outDir = resolve(pkgRoot, "tests", "tumble", "samples");
 if (!existsSync(sampleIndex)) {
     console.error(`tumble.js sample corpus missing: ${sampleIndex}`);
     console.error(
-        "expected the tumble.js checkout at ../tumble.js beside the shallot repo (the kex workspace layout: kex/tumble.js, sibling of kex/shallot). It is the sample corpus this mint reads.",
+        "expected the tumble.js checkout at ../tumble.js beside the shallot repo. It is the sample corpus this mint reads.",
     );
     process.exit(1);
 }
@@ -272,7 +272,7 @@ scenario must reproduce bit-exact. Each is one tumble.js sample run headless at 
 the initial body snapshot, the per-step world-state hash, and the sample's camera pose + knob schema.
 The corpus registers ${registered} samples; ${count} mint a gold, ${exceptions.length} are excepted (below).
 
-A gym scenario (spec \`tumble-inline\` stage 3+) reproduces a sample's \`build()\` through the escape hatch
+A gym scenario reproduces a sample's \`build()\` through the escape hatch
 (\`Tumble.world\`) and replays it against the same engine these golds were minted with. Both sides are the
 same engine, so only authoring can differ — a wrong axis, wrong joint, or wrong shape mismatches the hash
 at the first divergent step. That is the oracle the earlier examples port lacked.
@@ -305,7 +305,7 @@ bun run scripts/gen-tumble-sample-golds.ts     # from packages/shallot
   after several; a pristine kernel is also what a single-scenario gym replay gets. Output is
   timestamp-free, so a double mint is byte-identical.
 
-Regenerating requires the tumble.js checkout at \`../tumble.js\` (the kex workspace layout). Absent it, the
+Regenerating requires the tumble.js checkout at \`../tumble.js\` (relative to this repo). Absent it, the
 script errors honestly. These golds are committed, so an outside shallot checkout needs neither the corpus
 nor a mint to run the ported scenarios' oracle.
 

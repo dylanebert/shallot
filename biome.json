@@ -5,7 +5,6 @@
             "packages/**/*.ts",
             "examples/**/*.ts",
             "evals/**/*.ts",
-            "research/**/*.ts",
             "scripts/**/*.ts",
             "!examples/*/public"
         ]

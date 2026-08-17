@@ -60,28 +60,28 @@ describe("ProfilePlugin", () => {
         try {
             ProfilePlugin.initialize?.(new State());
             const buffer = Compute.device.createBuffer({
-                label: "shallot-perf-gates-test",
+                label: "perf-gate-test",
                 size: 1024,
                 usage: GPUBufferUsage.STORAGE,
             });
 
             expect(Profile.bufferBytes).toBeGreaterThanOrEqual(1024);
-            expect(Profile.allocBytes.get("shallot-perf-gates-test")).toBe(1024);
+            expect(Profile.allocBytes.get("perf-gate-test")).toBe(1024);
 
             const before = Profile.bufferBytes;
             buffer.destroy();
             expect(Profile.bufferBytes).toBe(before - 1024);
-            expect(Profile.allocBytes.has("shallot-perf-gates-test")).toBe(false);
+            expect(Profile.allocBytes.has("perf-gate-test")).toBe(false);
 
             // a `LazyAlloc.lazy: true` descriptor is a lazily-grown pool entry (`Mirror`'s readback
             // ring / `Slab`'s staging pool): its bytes sum into `lazyBytes`, a subset of `bufferBytes`,
             // so `bufferBytes - lazyBytes` (the byte-budget gate's exact total) doesn't move — a bogus
             // LAZY allocation must not red the gate. A bogus GATED allocation (no `lazy` mark) does move
-            // it (`shallot-perf-gates` stage 4e).
+            // it.
             expect(Profile.lazyBytes).toBe(0);
             const gatedBefore = Profile.bufferBytes - Profile.lazyBytes;
             const lazyBuffer = Compute.device.createBuffer({
-                label: "shallot-perf-gates-lazy-test",
+                label: "perf-gate-lazy-test",
                 size: 4096,
                 usage: GPUBufferUsage.STORAGE,
                 lazy: true,
@@ -89,7 +89,7 @@ describe("ProfilePlugin", () => {
             expect(Profile.lazyBytes).toBe(4096);
             expect(Profile.bufferBytes - Profile.lazyBytes).toBe(gatedBefore);
             const gatedBuffer = Compute.device.createBuffer({
-                label: "shallot-perf-gates-gated-test",
+                label: "perf-gate-gated-test",
                 size: 256,
                 usage: GPUBufferUsage.STORAGE,
             });
@@ -101,8 +101,7 @@ describe("ProfilePlugin", () => {
             // TypeGPU builds every pipeline through the SYNCHRONOUS constructors
             // (`createRenderPipeline` / `createComputePipeline`), never the awaited `*Async` pair —
             // so a pipeline built this way must self-register in `compile` too, or `.size` stays a
-            // count of hand-written `precompile` scope names rather than real pipelines
-            // (shallot-perf-gates stage 3a).
+            // count of hand-written `precompile` scope names rather than real pipelines.
             expect(Profile.compile.has("sync-render-pipeline")).toBe(false);
             Compute.device.createRenderPipeline({
                 label: "sync-render-pipeline",
@@ -186,11 +185,11 @@ describe("ProfilePlugin", () => {
             Object.assign(Compute, { device: prev });
         }
         expect(Compute.precompiled).toBeDefined();
-        Compute.precompiled?.("kitchen-part-count", 100, 137.5);
-        expect(Profile.compile.get("kitchen-part-count")).toBe(37.5);
+        Compute.precompiled?.("shallot-part-count", 100, 137.5);
+        expect(Profile.compile.get("shallot-part-count")).toBe(37.5);
         // and it widens the startup span the same way an async pipeline's entry does
-        Compute.precompiled?.("kitchen-part-scan", 137.5, 200);
-        expect(Profile.compile.get("kitchen-part-scan")).toBe(62.5);
+        Compute.precompiled?.("shallot-part-scan", 137.5, 200);
+        expect(Profile.compile.get("shallot-part-scan")).toBe(62.5);
         expect(Profile.compileMs).toBeGreaterThanOrEqual(100);
     });
 

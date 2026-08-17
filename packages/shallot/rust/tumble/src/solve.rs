@@ -51,7 +51,7 @@ const MAX_THREADS: usize = IDENT_RECORDS;
 const MAX: stages::Sizes = max_sizes(MAX_THREADS);
 
 // The stage list, its blocks, and the active colors — the caller-owned storage `stages::build` lays the
-// plan into. Statics, not `Vec`s: the wasm path has no allocator (kex `tumble.md`), and these live in
+// plan into. Statics, not `Vec`s: the wasm path has no allocator (`tumble.md`), and these live in
 // the shared linear memory, so every thread's instance addresses the same bytes. Written only by
 // `solveBuild`, on the main thread, with the workers parked.
 static mut STAGES: [Stage; MAX.stages] = [Stage::EMPTY; MAX.stages];

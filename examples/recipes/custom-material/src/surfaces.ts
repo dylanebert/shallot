@@ -98,8 +98,8 @@ const gradientFs = tgpu.fn(
 // `surfaceLayout()` declares its group-2 resources, `fsCtxSchema()` types the fragment inputs, and the
 // TGSL function returns the final RGBA color. Geometry is per-entity (`Part.mesh`), so one surface shades
 // any mesh; `fragmentInputs` declares the optional mesh fields that actually cross the rasterizer.
-const KitchenSurfaces = {
-    name: "KitchenSurfaces",
+const ShallotSurfaces = {
+    name: "ShallotSurfaces",
     // RenderPlugin clears the surface registry and SearPlugin the backdrop registry on (re)build, so
     // register after both
     dependencies: [PartPlugin, SearPlugin],
@@ -145,4 +145,4 @@ const KitchenSurfaces = {
     },
 } satisfies Plugin;
 
-export default KitchenSurfaces;
+export default ShallotSurfaces;

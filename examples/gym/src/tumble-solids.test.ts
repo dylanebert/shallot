@@ -1,4 +1,4 @@
-// The stage-4b solid-layer derivation gate, proven red-first (spec tumble-inline — manual-pass finding:
+// The stage-4b solid-layer derivation gate, proven red-first (manual-pass finding:
 // a solid vanishing from the rendered layer under mouse-grab interaction). The native solid layer derives
 // one instanced Part per world solid shape each frame; the locked clause requires that derivation to be
 // TOTAL — every solid body in the world is derived, always. This test pins that invariant across a

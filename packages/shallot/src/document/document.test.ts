@@ -1284,7 +1284,7 @@ describe("serialize parity", () => {
             '<scene>\n    <a id="anchor" mark="v: 5" />\n    <a id="bob" ref="target: @anchor" />\n</scene>';
         const { state, doc } = setup(fixture);
 
-        // a derived entity (warm's orrstead-tree pattern): created outside `load`, so it's not in the
+        // a derived entity (created outside `load`), so it's not in the
         // authored set `serialize` captures nor in the node map the document path syncs — both omit it
         const tree = state.create();
         state.add(tree, Tree as never);

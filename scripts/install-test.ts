@@ -239,7 +239,7 @@ function ejectedViteConfig(): string {
     return doc.slice(start, fenceEnd);
 }
 
-// a true ejected shape (orrstead's / spindle's real shape, not the CLI's zero-config path): the
+// a true ejected shape (a real consumer's ejected shape, not the CLI's zero-config path): the
 // project owns its own index.html + vite.config.ts, so `shallot verify` roots a plain vite server
 // there (`bin/verify.ts`'s `serveEjected`) and vite auto-loads the config from disk — nothing merges
 // or overrides it, so this is the config a real boot actually runs. MIGRATION.md's block is the
@@ -357,8 +357,8 @@ async function ejectedFlow(work: string, engineTgz: string) {
     // No red-proof mutant here (found investigating 5b-2f-6, after the check above went green for the
     // first time): stripping this recipe's `optimizeDeps` line does NOT reproduce 5b-2f-5's
     // prebundle-before-transform defect for this boot path — verified three consecutive real-hardware
-    // runs, on both this minimal scene and one with a direct `typegpu/data` import (Orrstead/Spindle's
-    // shape). A controlled comparison against a genuine zero-config `shallot dev` project — identical
+    // runs, on both this minimal scene and one with a direct `typegpu/data` import (a consumer
+    // importing a typegpu subpath directly). A controlled comparison against a genuine zero-config `shallot dev` project — identical
     // scene, `devConfig`'s exclusion removed the same way — DOES reproduce the exact `Cannot resolve
     // struct cast from 'vertexVsOut' to 'vertexVs_Output'` error 5b-2f-5 diagnosed, so the defect is
     // real and the boot mechanism is the variable, not the scene: `serveEjected` (this flow, gym,
@@ -393,7 +393,7 @@ const TRANSPILED =
 // second physical copy — an alias install of the identical version (`npm:typegpu@~0.12.0`) landing in
 // its own `node_modules/typegpu2`, a distinct module-graph evaluation with its own `Symbol()` calls, not
 // a re-export of the first. The red arm is the whole point: a probe green on first run with no witnessed
-// red proves nothing (`coding.md`).
+// red proves nothing.
 function identityFlow(work: string, engineTgz: string) {
     console.log("typegpu peer identity (brand check, red-first)…");
     const proj = join(work, "identity");
@@ -710,7 +710,7 @@ function checkIdentityVerdict(label: string, result: VerifyResult | null, expect
 // The perturbation's own control. `optimizeDeps.exclude` is a claim made to Vite's config; nothing in
 // the brand verdict says whether Vite acted on it, and the whole perturbed arm is unreadable without
 // that — "the two identities meet harmlessly" and "the strip never reached the dev server" publish the
-// identical green (`coding.md`: a green check can pin nothing). Reads the `prebundled` check the
+// identical green (a green check can pin nothing). Reads the `prebundled` check the
 // fixtures' `identityOwnBody` publishes (self-read of the transformed source, not a post-hoc disk read —
 // see that function's comment for why the disk manifest is blind under this harness's fast teardown).
 function checkPrebundled(label: string, result: VerifyResult | null, expect: boolean) {
@@ -815,8 +815,7 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
     // instead: its entry is a real on-disk index.html, statically crawlable, so the exclusion-strip
     // there needs no runtime discovery at all. Both dev.ts escape hatches this arm would have needed
     // (`SHALLOT_TEST_STRIP_OPTIMIZE_EXCLUDE`, `SHALLOT_TEST_FORCE_OPTIMIZE_INCLUDE`) were reverted with
-    // it — a perturbation arm that cannot be shown to have taken effect is worth less than no arm
-    // (`coding.md`).
+    // it — a perturbation arm that cannot be shown to have taken effect is worth less than no arm.
 
     console.log("typegpu peer identity (browser, ejected fixture)…");
     const normalConfig = ejectedViteConfig();
@@ -1022,7 +1021,7 @@ try {
                 dependencies: {
                     "@dylanebert/shallot": `file:${engineTgz}`,
                     "shallot-widget-fixture": `file:${widgetTgz}`,
-                    // the shape orrstead/spindle actually ship: a consumer's own source imports
+                    // the shape a real consumer actually ships: a consumer's own source imports
                     // `typegpu/data` directly (not just transitively through the engine peer dep) —
                     // src/spin.ts below exercises it, so the prebundle-exclusion rung covers it too.
                     typegpu: "~0.12.0",
@@ -1054,7 +1053,7 @@ try {
     writeFileSync(
         join(sandbox, "src", "spin.ts"),
         // the `typegpu/data` import is load-bearing, not decoration: a consumer whose own source
-        // imports typegpu directly (orrstead/spindle's real shape) is a second entry into Vite's dep
+        // imports typegpu directly (a real consumer's shape) is a second entry into Vite's dep
         // scanner distinct from the engine's own bare specifier — the browser-boot rung below only
         // covers this shape because this file reaches it.
         `import type { Plugin, State, System } from "@dylanebert/shallot";\nimport * as d from "typegpu/data";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nconsole.log(d.f32);\nexport default SpinPlugin;\n`,
@@ -1155,7 +1154,7 @@ try {
         // rust/window ships in the tarball (package.json `files` includes `rust/window` minus
         // `target/`), so `shallot build --target <os>` from an installed package compiles the crate
         // lazily via cargo. A real native build is a multi-minute cargo/CEF arm — gated out of the
-        // default suite (coding.md suite-speed budgets). Here we assert the crate is present and
+        // default suite (suite-speed budgets). Here we assert the crate is present and
         // resolvable in the installed layout; the premise builds (spec gates 4+5) run it for real.
         check(
             "the rust/window crate ships in the installed package (lazy native-build source)",

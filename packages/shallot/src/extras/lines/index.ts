@@ -1,4 +1,4 @@
-// Lines — the kitchen debug-line producer. One shared segment buffer, two feeders: an immediate API
+// Lines — the shallot debug-line producer. One shared segment buffer, two feeders: an immediate API
 // (`segment` / `box` / `arrow`, appended and cleared each frame — the scale path) and the retained
 // `Line` / `Arrow` components (declarative scene annotations, expanded into segments each frame).
 // Everything draws as one instanced 6-vertex quad per segment, rendered as a sear `"alpha"` surface
@@ -134,7 +134,7 @@ const LinesSystem: System = {
 };
 
 /**
- * the kitchen debug-line producer: an immediate {@link segment} / {@link box} / {@link arrow} API plus
+ * the shallot debug-line producer: an immediate {@link segment} / {@link box} / {@link arrow} API plus
  * the retained {@link Line} / {@link Arrow} components, both feeding one instanced-quad draw rendered
  * as a sear `"alpha"` surface (screen-space constant-pixel width, no overlay pass). Depends on
  * {@link RenderPlugin}; a Sear camera renders it

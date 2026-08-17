@@ -5,8 +5,8 @@
 //
 // A budget is the golden `testing.md`'s exact-equality structural rung checks a scenario against, declared
 // at DEFAULT params (`bun bench` with no `--count`/`--param` override — the scenario's own declared
-// defaults, `gym.ts`'s `resolveParams`). The exemption is **per axis**, not per scenario
-// (`shallot-perf-gates` stage 4b): pipeline count is exact on every registered scenario by measurement, so
+// defaults, `gym.ts`'s `resolveParams`). The exemption is **per axis**, not per scenario:
+// pipeline count is exact on every registered scenario by measurement, so
 // every scenario gates on it, while GPU bytes is exact only where nothing allocates lazily off real-device
 // timing. A row can carry `pipelines` as a golden while `gpuBytes` carries an exemption reason — and
 // nothing in the type favors either direction, so the reverse (a byte golden with a pipeline-count
@@ -17,7 +17,7 @@
 //
 // - `pipelines` — the exact real-pipeline count: `[...Profile.compile.keys()].filter(k =>
 //   Profile.compiledPipelines.has(k)).length`, never `Profile.compile.size` directly — a `precompile`
-//   scope-only span (`sear-typed-variants`) is not a pipeline (`shallot-perf-gates` stage 3a).
+//   scope-only span (`sear-typed-variants`) is not a pipeline.
 // - `pipelineCalls` — the exact raw `create*Pipeline(Async)` invocation count (`Profile.pipelineCalls`),
 //   counted per CALL before labels collapse. It exists because `pipelines` counts DISTINCT labels and a
 //   named label overwrites in `recordCompile`, so a pipeline built under an existing label moves that
@@ -34,12 +34,12 @@
 //   live allocation EXCEPT one an allocator marked `LazyAlloc.lazy` at creation (`Mirror`'s readback ring,
 //   `Slab`'s staging pool — a pool that grows on real GPU backpressure, so its live-stager count is
 //   timing-dependent even at fixed params). Excluding those bytes at the mechanism, rather than exempting
-//   the whole scenario, is what makes this axis exact on nearly every row (`shallot-perf-gates` stage 4e);
+//   the whole scenario, is what makes this axis exact on nearly every row;
 //   the excluded bytes print separately in `bun bench`'s measurement block, never silently dropped.
 //
-// Exact equality, no tolerance (`shallot-perf-gates` Locked decision — counts and allocations are
+// Exact equality, no tolerance — counts and allocations are
 // deterministic and device-independent for a fixed scenario at fixed params, so a tolerance would be
-// invented, not derived). A scenario axis that legitimately can't be budgeted this way carries a
+// invented, not derived. A scenario axis that legitimately can't be budgeted this way carries a
 // `BUDGET_EXEMPTIONS` reason for that axis instead, never both.
 //
 // History: stage 3b landed the mechanism plus one entry (`render`); stage 4 measured the rest of the
@@ -75,8 +75,8 @@ export interface AxisBudget {
 /** the gated quantities, derived from {@link AxisBudget} rather than listed beside it. `Record<Axis, true>`
  *  is the pin: a third quantity added to the interface and not here is a `bun check` error, where a
  *  hand-written list would have left the new axis silently uncovered by `budget-coverage.ts`'s entries
- *  check, its completeness check, AND `assertBudget` at once — all three iterate this list
- *  (`shallot-perf-gates` architectural pass). Every other per-axis shape derives from {@link Axis} too:
+ *  check, its completeness check, AND `assertBudget` at once — all three iterate this list.
+ *  Every other per-axis shape derives from {@link Axis} too:
  *  {@link AxisExemption} and `budget-coverage.ts`'s `MeasuredBudget` are mapped types, so a new axis
  *  reaches the exemption table and the measurement record without a second edit. */
 export type Axis = keyof AxisBudget;
@@ -88,7 +88,7 @@ export type AxisExemption = { [K in Axis]?: string };
 export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // measured 2026-08-05, nvidia/lovelace via the WSL bridge, under the stage 4e exclusion (`gpuBytes` =
     // `Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes`) — a data-only re-harvest, not a
-    // re-measurement of the scene (`shallot-perf-gates` stage 4e). Every row here rests on TWO independent
+    // re-measurement of the scene. Every row here rests on TWO independent
     // agreeing samples, not one: the harvest `bun bench --sweep` that produced these numbers finished
     // 22:17, the numbers were written here at 22:29, the temporary harvest check (`assertBudget`'s
     // `pass: false` instrument) was removed at 22:30, and a second sweep ran 22:31–22:37 — clean 57/57
@@ -158,7 +158,7 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
 
 /** every axis explicitly exempted from a compile/memory budget, and why — keyed by scenario, one optional
  *  reason per axis. A scenario/axis pair appears in exactly one of this table or `SCENARIO_BUDGETS`, never
- *  both, checked in `budget-coverage.test.ts`. Empty since stage 4e (`shallot-perf-gates`, 2026-08-05):
+ *  both, checked in `budget-coverage.test.ts`. Empty since stage 4e (2026-08-05):
  *  every scenario previously exempt on `gpuBytes` was a lazily-grown pool (`Mirror`'s ring or `Slab`'s
  *  staging pool) under real GPU backpressure, and excluding those bytes at the allocation site made the
  *  remaining total exact on all 7 — see the history note on `SCENARIO_BUDGETS`. Kept non-empty-shaped (the

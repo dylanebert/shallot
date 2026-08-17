@@ -269,7 +269,7 @@ export async function settle(m: Mirror, max = 120): Promise<void> {
 const DRAW_ARG_U32S = 5;
 
 /**
- * per-pair `instanceCount` for one view slot, decoded from a {@link Mirror} of a kitchen cull
+ * per-pair `instanceCount` for one view slot, decoded from a {@link Mirror} of a shallot cull
  * producer's slot-major `drawArgs` buffer (`slot * pairCount + pair`). The compacted survivor
  * count a frustum cull writes — the GPU→CPU assert input every culling scenario reads. `null`
  * until the first snapshot resolves.
@@ -314,14 +314,14 @@ export function installHarness(
             // the probe drives the live scene (pointer drag, visual walk); it returns [] unless its opts
             // are set, so the standard gold gate stays a pure assert. Its checks join assert's in one verdict.
             const probed = await scenario.probe?.(state, opts ?? {});
-            // the compile/memory structural budget (`shallot-perf-gates` stage 3b): folded into every
+            // the compile/memory structural budget: folded into every
             // scenario's verdict generically, off `SCENARIO_BUDGETS`/`BUDGET_EXEMPTIONS` data alone — a
             // scenario earns the check by having a budget entry, never by editing its own `assert`. Reads
             // `Profile` directly (not `metrics.compile`, which isn't filtered to real pipelines).
             // `gpuBytes` excludes `Profile.lazyBytes` — bytes from an allocation the allocator marked
             // lazily-grown (a pool that grows under real GPU backpressure, `LazyAlloc`) are not exact for
             // a fixed scenario at fixed params, so the gate reads the total minus them, the quantity that
-            // IS exact by mechanism (`shallot-perf-gates` stage 4e).
+            // IS exact by mechanism.
             const budgeted = assertBudget(
                 scenario.name,
                 isDefaultParams(scenario.params ?? [], params),
