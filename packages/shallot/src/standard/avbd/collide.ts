@@ -106,7 +106,7 @@ const Mat3 = d.struct({ r0: d.vec3f, r1: d.vec3f, r2: d.vec3f }).$name("Mat3");
 
 /** up to {@link MAX_CONTACTS} reduced contact points + the contact basis (normal in row 0, B→A;
  *  tangents rows 1-2), with each point's local arms and its warmstart feature key.
- *  @internal exported for the step.ts collide-wrapper kernels (3b-iii), which call the SAT fns
+ *  @internal exported for the step.ts collide-wrapper kernels, which call the SAT fns
  *  directly rather than splicing their WGSL text — its shape is the wrapper's warmstart-merge input. */
 export const SatResult = d
     .struct({
@@ -1312,7 +1312,7 @@ const hullPoly = tgpu
     .$name("hullPoly");
 
 /** the shape-tagged constructor the collide pass calls: shape 3 = a registered hull, else a box.
- *  @internal exported for the step.ts hull/rounded-poly collide-wrapper kernels (3b-iii), which
+ *  @internal exported for the step.ts hull/rounded-poly collide-wrapper kernels, which
  *  build a {@link Convex} directly rather than splicing this by name into raw WGSL. */
 export const polyMake = tgpu
     .fn(
@@ -1628,8 +1628,8 @@ const clipPolyPlane = tgpu
  * convex-hull SAT (box × hull / hull × hull). `count == 0` = no overlap past the band. A box fed as a
  * {@link Convex} reproduces `collideBoxBox`'s face manifold (the box-as-hull gate). Mirrors
  * tests/avbd/hull.ts collideHull.
- * @internal exported for the step.ts hull collide-wrapper kernel (3b-iii) — called directly, not
- * spliced by name; the hull-data readers underneath stay raw WGSL (2b-ii), so this stays GPU-only.
+ * @internal exported for the step.ts hull collide-wrapper kernel — called directly, not
+ * spliced by name; the hull-data readers underneath stay raw WGSL, so this stays GPU-only.
  */
 export const collideHull = tgpu
     .fn(
@@ -2163,7 +2163,7 @@ const collideRoundedPolyA = tgpu
  * mixed rounded × polytope, A/B oriented like `collideBoxBox` (A = ia, B = ib). If A is the round
  * shape, collide directly; else (the polytope is A) collide round-as-A on the flipped sweep, then swap
  * the arms + flip the normal back into our A/B convention. Mirrors the oracle narrowphase branches.
- * @internal exported for the step.ts rounded-poly collide-wrapper kernel (3b-iii) — called directly.
+ * @internal exported for the step.ts rounded-poly collide-wrapper kernel — called directly.
  */
 export const collideRoundedPolytope = tgpu
     .fn(

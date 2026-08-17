@@ -634,7 +634,7 @@ function renderPrepass(
     view.depth = storeDepth ? depth : null;
 }
 
-// the camera's selected backdrop (legacy or typed) — or null (no `Backdrop` component, or its name
+// the camera's selected backdrop — or null (no `Backdrop` component, or its name
 // isn't a compiled background). Membership-gated — a bare `Backdrop.name.get` reads 0 for a non-member,
 // which would alias the first registered background, so the `state.has` check is what keeps the
 // no-backdrop path on the clear

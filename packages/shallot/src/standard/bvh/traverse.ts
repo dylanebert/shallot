@@ -225,7 +225,7 @@ const bvhTrailResetBelow = tgpu
 
 // highest ancestor level (scanning up) with a child still to enter, or BVH_INVALID when
 // traversal is done. Unsigned throughout: the shipped WGSL scanned down from `i32(level) - 1`
-// and returned -1, which is the signed-arithmetic trap the 3a port found; the sentinel is the
+// and returned -1, which is the signed-arithmetic trap; the sentinel is the
 // same scan with the same visit order and the same results.
 const bvhFindParent = tgpu
     .fn(

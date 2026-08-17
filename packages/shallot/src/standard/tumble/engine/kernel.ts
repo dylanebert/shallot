@@ -14,7 +14,7 @@
 import { KERNEL_WASM_BASE64 } from "./kernel.wasm";
 import { createPool, maxWorkers, type Pool } from "./pool";
 
-/** The kernel's exported surface. Grows as stage 3 ports each solver phase. */
+/** The kernel's exported surface — grows as each solver phase ports to wasm. */
 export type Kernel = {
     memory: WebAssembly.Memory;
     /** Toolchain smoke buffer offset + scale, the standing wasm-simd128 cliff gate (kernel.test.ts). */

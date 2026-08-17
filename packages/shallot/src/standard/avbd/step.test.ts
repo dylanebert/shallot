@@ -90,7 +90,7 @@ test("a kernel binds the shared solver group and never redeclares its three bind
 // gpu.md: `maxStorageBuffersPerShaderStage` is 10 and Chrome fails pipeline creation with no diagnostic
 // past it. The count now spans two groups — a kernel's own declarations plus the shared layout's two
 // storage entries, which count whether or not the shader declares them — so it's checked here rather than
-// left to a bench run (3b-iv adds `jointRecords`, and the four passes below sit exactly at the ceiling).
+// left to a bench run (`jointRecords` adds to the count, and the four passes below sit exactly at the ceiling).
 test("no pass exceeds the 10-storage-binding floor across both groups", () => {
     for (const [name, wgsl] of passes) {
         const src = wgsl();
@@ -256,11 +256,11 @@ test("the Step schema pins the uniform layout the CPU writer stages against", ()
     expect(at("substeps")).toBe(52);
 });
 
-// 3b-iv part 2a: commit / dual / joint-init / joint-dual / csr-color-small ported to typed pipelines over
+// commit / dual / joint-init / joint-dual / csr-color-small run as typed pipelines over
 // the shared solver factory (contactForce/contactContrib/springContrib/jointContrib/solvePose/dualSlot/
 // jointDualOne). No manual chunk()/ns splicing needed for these — each is a whole `tgpu.resolve([kernel])`
 // call, so the generic passes-loop tests above already cover duplicate-defs/idiv/pointer/storage-floor;
-// these pin the port's specific new shapes.
+// these pin the specific shapes below.
 
 test("commit reads its color index from a per-color static uniform, not a dynamic offset", () => {
     const src = stepWgsl.commit();
@@ -299,7 +299,7 @@ test("joint-dual's all-static gate mirrors joint-init's construction-time reject
 // joint-dual's only inputs are the shared roRo group + jointRecords, so with no forcing touch its
 // group-0 `counters` layout is invisible to tgpu.resolve's reference walk and the emitted WGSL omits
 // the binding entirely — a mismatch against the JS-side bind group that only Dawn's pipeline creation
-// catches (real-device only, per the 3b-iv part 2a port). Pins the touch structurally instead.
+// catches (real-device only). Pins the touch structurally instead.
 test("joint-dual references its own-group counters binding (the forcing touch)", () => {
     expect(stepWgsl.jointDual()).toContain(
         "var<storage, read_write> counters: array<atomic<u32>>;",
@@ -332,8 +332,8 @@ test("the three access variants describe the same three bindings", () => {
     expect(stepWgsl.velocity()).toContain("var<storage, read_write> bodies");
 });
 
-// 3b-iv part 2b: primal + solve-lds ported to typed pipelines over the shared solver factory (2a's
-// contactMath/contribMath/dualMath/jointDualMath), closing all of 3b. The raw MAT3_WGSL/CONTACT_FORCE_WGSL/
+// primal + solve-lds run as typed pipelines over the shared solver factory
+// (contactMath/contribMath/dualMath/jointDualMath). The raw MAT3_WGSL/CONTACT_FORCE_WGSL/
 // JOINT_REC_WGSL/SOLVE_MATH_WGSL/DUAL_MATH_WGSL/JOINT_DUAL_MATH_WGSL/STEP_CONSTS_WGSL chunks are gone —
 // these pin the shapes that replaced them.
 

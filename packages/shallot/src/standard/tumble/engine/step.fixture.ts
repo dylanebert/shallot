@@ -1204,7 +1204,7 @@ const builders: Record<string, (world: World, fx: Fixture) => void> = {
         });
         fast.createHull({ enableSensorEvents: true }, makeBoxHull(0.25, 0.25, 0.25));
     },
-    // Stage 14 benchmark scenes at reduced scale (mirror fixtures/gen.c's SceneBench* exactly). They
+    // benchmark scenes at reduced scale (mirror fixtures/gen.c's SceneBench* exactly). They
     // extend the bit-exact contract to scale; f32 discipline follows the port rule (fround per op, one
     // op per wrap). Values fed through the ported math helpers (quat/vec3) are already f32-rounded.
     "bench-pyramid": (world) => {
@@ -1615,33 +1615,33 @@ const SCENES: [string, boolean, boolean][] = [
     ["wheel-spin", false, false],
     ["wheel-steer", false, false],
     ["ragdoll", true, false],
-    // Stage 11 (CCD): continuous on.
+    // CCD: continuous on.
     ["ccd-drop", false, true],
     ["ccd-bullet", false, true],
-    // Stage 12 (mesh contacts): a box / sphere / capsule dropped onto a static grid-mesh floor.
+    // mesh contacts: a box / sphere / capsule dropped onto a static grid-mesh floor.
     ["mesh-box", false, false],
     ["mesh-sphere", false, false],
     ["mesh-capsule", false, false],
-    // Stage 12 (mesh CCD): a fast box swept onto the static mesh floor (continuous on).
+    // mesh CCD: a fast box swept onto the static mesh floor (continuous on).
     ["mesh-ccd", false, true],
-    // Stage 12 (height fields): box / sphere / capsule dropped onto a static grid height field, then
+    // height fields: box / sphere / capsule dropped onto a static grid height field, then
     // a fast box for the height-field CCD path (continuous on).
     ["height-box", false, false],
     ["height-sphere", false, false],
     ["height-capsule", false, false],
     ["height-ccd", false, true],
-    // Stage 12 (compound contacts): a box dropped onto a static compound floor built from hull /
+    // compound contacts: a box dropped onto a static compound floor built from hull /
     // capsule / sphere / mesh children (sleep off).
     ["compound-hull", false, false],
     ["compound-capsule", false, false],
     ["compound-sphere", false, false],
     ["compound-mesh", false, false],
-    // Stage 12 (compound CCD): a fast box swept onto the static two-hull compound floor (continuous on).
+    // compound CCD: a fast box swept onto the static two-hull compound floor (continuous on).
     ["compound-ccd", false, true],
-    // Stage 13 (sensors): a static sensor volume that dynamic bodies fall / sweep through — the sensor
+    // sensors: a static sensor volume that dynamic bodies fall / sweep through — the sensor
     // must not perturb dynamics, so the body hashes match the C oracle (continuous on for the fast body).
     ["sensor", false, true],
-    // Stage 14 (hardening): the benchmark scenes at reduced scale — the bit-exact contract at scale
+    // hardening: the benchmark scenes at reduced scale — the bit-exact contract at scale
     // (large islands, many islands, a big joint grid, kinematic contact churn, the move buffer), plus a
     // 2000-step drift gate. Sleep off; large-world spawns spheres via its stepFactory.
     ["bench-pyramid", false, false],

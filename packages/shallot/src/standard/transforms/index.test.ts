@@ -5,14 +5,14 @@ import { Slab } from "../slab";
 import { composeWgsl } from "./compose";
 import { composeTransform, Transform } from "./index";
 
-// Pre-test gate for the transform-firehose decompose-on-read change (roadmap render-perf Stage 1).
+// Pre-test gate for the transform-firehose decompose-on-read change (roadmap render-perf).
 // The firehose's content moves from a materialized mat4 to a decomposed {pos, scale, quat} struct every
 // reader reconstructs (niagara's reconstruct-on-read). These pin the math spec the change must meet,
 // against the production matrix compose (`composeTransform`) as the non-circular anchor:
 //   1. the decomposed application reproduces the matrix path (lossless vs today), and
 //   2. the decomposed normal transform `rotate(n / scale, q)` is the correct inverse-transpose normal —
 //      which today's `(R·S)·n` is NOT under non-uniform scale (the latent bug the change fixes).
-// The GPU twin (the WGSL `transform()` helper) is gated separately by the Sub-stage 1 render oracle on
+// The GPU twin (the WGSL `transform()` helper) is gated separately by the render oracle on
 // the real device; this is the CPU spec it implements. A gate, not a bug-fix TDD cycle, so it's green now.
 
 // the decomposed reader's rotation: active quaternion rotation of v (the convention COMPOSE_WGSL /

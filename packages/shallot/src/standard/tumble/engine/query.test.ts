@@ -1,4 +1,4 @@
-// Stage 13 (queries) tests: per-body ray cast, shape cast, and overlap. Ported from
+// queries tests: per-body ray cast, shape cast, and overlap. Ported from
 // test_body_query.c (CastRay*/CastShape*/Overlap* subtests). The per-body query functions take an
 // explicit world origin and an explicit body transform (not the body's stored pose): everything is
 // re-centered on the origin so the float collision math stays exact far from the world origin. These

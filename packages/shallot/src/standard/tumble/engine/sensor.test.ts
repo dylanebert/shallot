@@ -1,4 +1,4 @@
-// Stage 13 (sensors) tests. Sensors detect overlaps and report begin/end touch events without any
+// sensors tests. Sensors detect overlaps and report begin/end touch events without any
 // contact response, so — like queries — they never feed the world-state hash and the contract is
 // behavioral, not bit-exact. The overlap geometry reuses the batch-1 overlap primitives (gold-tested
 // already), so these pin the sensor-specific logic: the sorted begin/end diff, the double buffer,

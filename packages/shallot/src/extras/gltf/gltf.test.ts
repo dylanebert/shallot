@@ -693,7 +693,7 @@ function liveInput(over: Partial<SkinInput>): SkinInput {
 
 // The live joint-palette route (the runtime-posed twin of the VAT bake): the deviceless decode half — the
 // eligibility gate that rescues a clip-less rig skinBakeable drops, the JOINTS_0/WEIGHTS_0 quantization, and
-// the reach-bound derivation. The GPU wiring + placement land at the gym `render` `skin-live` gate (stage 6d).
+// the reach-bound derivation. The GPU wiring + placement land at the gym `render` `skin-live` gate.
 describe("live joint-palette skinning", () => {
     test("a clip-less rig imports live where skinBakeable dropped it", () => {
         const { gltf, buffers } = skinnedFixture();

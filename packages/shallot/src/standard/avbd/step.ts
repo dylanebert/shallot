@@ -347,7 +347,7 @@ const INVALID_PAIR = 0xffffffff;
 // The `bodies` cols-buffer column indices `packCountWgsl`'s still-raw `seedBody` names. A ported chunk
 // emits no WGSL consts — every constant folds into the expression that uses it — so the pack kernel, the
 // last raw consumer, reaches them by interpolating this TS-side block (the ported-chunk-emits-no-consts
-// law, Approach 3b-iv part 2b). Solve/dual/joint-record constants live only in the TGSL call sites they fold into.
+// law). Solve/dual/joint-record constants live only in the TGSL call sites they fold into.
 const PACK_B_CONSTS_WGSL = /* wgsl */ `
 const B_POS: u32 = ${B_POS}u;
 const B_QUAT: u32 = ${B_QUAT}u;
@@ -368,7 +368,7 @@ const B_ROUND: u32 = ${B_ROUND}u;
 // layout at group 1 and every kernel's own I/O keeps group 0 (the 3a `nodeLayout` shape, bind-by-layout-
 // object). WGSL access mode is part of a binding's type, so a read-only reader and a read-write writer
 // need distinct layouts — hence one variant per (bodies, pairContacts) access pair, and the accessors
-// below are FACTORIES over the variant (the 1c factory-closure law: one authored accessor re-emits per
+// below are FACTORIES over the variant (one authored accessor re-emits per
 // layout). A variant's chunks carry their own `Namespace`, so every variant emits the shared math + the
 // accessors under the authored names and a raw splice site calls `bPos` / `cc` by those names.
 //
@@ -771,7 +771,7 @@ const roRw = accessors("readonly", "mutable");
 /** bodies read-write, manifolds read-write: inertial / commit / velocity / joint / solve-lds */
 const rwRw = accessors("mutable", "mutable");
 
-// ── the shared solver factory (3b-iv part 2a) ──────────────────────────────────────────────────────
+// ── the shared solver factory ──────────────────────────────────────────────────────────────────────
 // MAT3 / CONTACT_FORCE / JOINT_REC ported to TGSL fns, parameterized by a pose-reader set (the 1c
 // factory-closure law: one authored kernel re-emits per reader set — storage readers now, 2b adds the
 // LDS set solve-lds shadows bPos/bQuat with). Unlike the typed kernels below, these are plain `tgpu.fn`
@@ -2613,8 +2613,8 @@ const inertialKernel = tgpu
     })
     .$name("inertialMain");
 
-/** the color index commit + primal read at a per-color STATIC bind group (the locked design, Approach
- *  3b-iv part 2a/2b): typegpu 0.11.9 has no dynamic-offset uniform binding, so `COLOR_CAP` one-buffer
+/** the color index commit + primal read at a per-color STATIC bind group (the locked design):
+ *  typegpu 0.11.9 has no dynamic-offset uniform binding, so `COLOR_CAP` one-buffer
  *  immutable groups replace the raw dynamic-offset UBO — one physical buffer each dodges the 256-B
  *  256-byte `minUniformBufferOffsetAlignment` rule. */
 const ColorIdx = d.struct({ value: d.u32 }).$name("ColorIdx");
@@ -2625,7 +2625,7 @@ const ColorIdx = d.struct({ value: d.u32 }).$name("ColorIdx");
 // one color's dispatch no body's `bodies` slot is both read (by a contact) and written, and a same-color
 // pair reduces to the paper's deferred-within-color (clean Jacobi), not a racy write-in-place.
 //
-// Own I/O splits across two groups: `primalOwnLayout` (group 0, unchanged since 3b-iii — csr/csrList/
+// Own I/O splits across two groups: `primalOwnLayout` (group 0, unchanged — csr/csrList/
 // constraintCsr/constraintList, forced by `solverRoRo.solvePose`'s internal reads, so the primal needs no
 // explicit reference of its own) + `primalColorLayout` (group {@link PRIMAL_COLOR_GROUP} — colors/eids/
 // solveOut + the per-color static uniform, group 0's commit shape repeated since group 0 is taken here).
@@ -3082,7 +3082,7 @@ const wgCount = tgpu.workgroupVar(d.u32);
 const wgColorMax = tgpu.workgroupVar(d.atomic(d.u32));
 const wgColors = tgpu.workgroupVar(d.u32);
 
-// the LDS-backed pose readers the shared solve/dual math goes through (the 1c factory-closure law: one
+// the LDS-backed pose readers the shared solve/dual math goes through (one
 // authored kernel re-emits per reader set — storage this stage's other kernels, workgroup memory here).
 // Every live eid's denseMap entry is written at kernel start, so a slot ≥ LDS_CAP means the body
 // overflowed residency → its storage pose (constant this step: an overflow body is never solved) is the
@@ -5347,8 +5347,8 @@ export class PhysicsStep {
      * dispatches `min(maxColors, usedColors + COLOR_MARGIN)` color-passes per iteration — a sparse scene runs
      * ~2-3 dispatched colors, a dense pile caps at `maxColors` (the empty color-passes above the used count
      * are the saving, the overhead-bound common case; gpu.md "Dispatch count is a first-class cost").
-     * `usedColors <= 0` (no readback yet / empty scene) keeps the full cap, the safe cold-start (legacy
-     * `colorsToRun = lastUsedColors > 0 ? … : MAX`). The margin covers the readback's 1-2 frame staleness; a
+     * `usedColors <= 0` (no readback yet / empty scene) keeps the full cap, the safe cold-start.
+     * The margin covers the readback's 1-2 frame staleness; a
      * frame that densifies further under-dispatches once (a soft convergence dip the next readback catches).
      * The solve math is unchanged — this resizes the loop, never the per-color solve (the gym GPU==oracle
      * gates, which drive `record` directly without a readback, stay at full dispatch + identical).

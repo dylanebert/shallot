@@ -123,7 +123,7 @@ export const lineVs = tgpu
         LinePatch,
     )((vsIn) => {
         "use gpu";
-        // the array-element read is a pointer, not a copy (3b-ii) — wrap in the element schema
+        // the array-element read is a pointer, not a copy — wrap in the element schema
         const seg = Segment(lineLayout.$.lineSegments[vsIn.iid]);
         // `view.viewProj` is re-read rather than bound to a local: a uniform-aliased local emits WGSL
         // pointer form (2c), the shape Metal's compiler is watched on

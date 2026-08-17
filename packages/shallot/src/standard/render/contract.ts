@@ -34,8 +34,8 @@ export const SURFACE_GROUP = 2;
 /**
  * the schema-carrying surface binding union. `uniform` takes the WGSL struct schema directly (`struct:
  * AnyWgslStruct`) and `storage` its element schema (`element: AnyWgslData`) — registry-kind resolution,
- * `mesh.bindings` overrides, and the `eids`+`transforms` instancing convention all carry over unchanged
- * from the legacy contract; only the payload each variant carries changes. Texture/sampler variants are
+ * `mesh.bindings` overrides, and the `eids`+`transforms` instancing convention carry over unchanged;
+ * only the payload each variant carries changes. Texture/sampler variants are
  * unchanged (no schema needed — `type` alone selects the WGSL type).
  */
 export type Binding =
@@ -59,7 +59,7 @@ type EntryFor<B extends Binding> = B extends { type: "uniform" }
     : B extends { type: "storage" }
       ? {
             // `d.arrayOf(element)` with no length is a runtime-sized-array *constructor* — this is the
-            // unsized `array<T>` shape a storage binding needs (the legacy contract's `array<${element}>`)
+            // unsized `array<T>` shape a storage binding needs
             storage: (elementCount: number) => WgslArray<B["element"]>;
             access: "mutable" | "readonly";
             visibility: ShaderStage[];
@@ -80,8 +80,8 @@ function layoutEntry<B extends Binding>(b: B): EntryFor<B> {
             return { uniform: b.struct, visibility: VS_FS } as EntryFor<B>;
         case "storage":
             return {
-                // the legacy contract's storage binding is always `array<element>` (`bindingDecl`,
-                // codegen.ts) — the typed contract keeps that shape, so a bound name reads an array
+                // a storage binding is always `array<element>` — the typed contract keeps that
+                // shape, so a bound name reads an array
                 storage: d.arrayOf(b.element),
                 access: b.access === "read_write" ? ("mutable" as const) : ("readonly" as const),
                 // WebGPU forbids a read-write storage binding visible to the vertex stage — a surface
@@ -120,7 +120,7 @@ const verticesDepth = {
 
 /** a synthesized typed surface layout: group 2, a consumer's own bindings by name (`layout.$.name`) plus
  *  the sear-injected `vertices` slot (color-pass shape). {@link depthVariant} is the same bindings at the
- *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the typed pipeline builder (c-2) selects
+ *  same `$idx`, `vertices` swapped to the prepass/shadow shape — the typed pipeline builder selects
  *  between them per pass, the same way `uniformWgsl(pass)` does today. */
 export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<
     { [K in keyof B]: EntryFor<B[K]> } & { vertices: typeof verticesColor }
@@ -182,8 +182,7 @@ export function backgroundLayout<B extends Record<string, Binding>>(bindings: B)
 
 /** what a `vs` chunk reads: the vertex-pull's pulled `localPos`/`localNormal`/`uv`, the
  *  `vidx`/`eid`/`iid` builtins, the resolved instance `xform`, and `world`/`worldNormal` — already carrying
- *  that transform when the surface is instanced (the `eids`+`transforms` convention), matching the legacy
- *  contract's `INSTANCE_VS` running before the surface's own vs chunk today. `xform` is identity for a
+ *  that transform when the surface is instanced (the `eids`+`transforms` convention). `xform` is identity for a
  *  non-instanced surface and lets a deforming vs replace local geometry without closing over one pass's
  *  concrete surface layout. */
 export const VsIn = d
@@ -245,7 +244,7 @@ export type TagFn<V extends Record<string, AnyWgslData> = Record<string, never>>
     (ctx: ReturnType<typeof fsCtxSchema<V>>, defaultTag: d.U32) => d.U32
 >;
 
-/** compile-time pipeline specialization, the typed twin of the legacy `Surface.specialize` — a JS
+/** compile-time pipeline specialization — a JS
  *  factory returning variant-folded fns (the outline `maskFragment` precedent: a captured JS boolean/number
  *  folds a branch at build time, no runtime cost), replacing gltf's string splicing. */
 export type Specialize<V extends Record<string, AnyWgslData> = Record<string, never>> = (
@@ -255,8 +254,7 @@ export type Specialize<V extends Record<string, AnyWgslData> = Record<string, ne
 /**
  * a surface authored against the typed contract: TGSL fns as the code (a synthesized `surfaceLayout()` is what
  * lets `vs`/`fs` close over `layout.$.name`, the accessor chicken-egg {@link surfaceLayout} solves). Structural
- * facts (`blend`/`screen`) carry over unchanged from the legacy `Surface` — they route the renderer,
- * they're not code.
+ * facts (`blend`/`screen`) route the renderer, they're not code.
  */
 export interface Surface<
     B extends Record<string, Binding> = Record<string, Binding>,

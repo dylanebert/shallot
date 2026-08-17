@@ -285,7 +285,7 @@ describe("serialize(state)", () => {
 const Link = { target: sparse(entity) };
 const Mark = { v: sparse(u32) };
 
-describe("serialize identity + refs (Stage 6)", () => {
+describe("serialize identity + refs", () => {
     test("an entity-ref field round-trips by scene id, not raw eid", () => {
         clear();
         register("link", Link, { defaults: () => ({ target: 0 }) });

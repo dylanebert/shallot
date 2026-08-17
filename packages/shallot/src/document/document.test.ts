@@ -1325,11 +1325,11 @@ describe("ReadbackSystem", () => {
     });
 });
 
-// Stage 1 — the editor's save path (`Document.serialize` over the readback-synced nodes) and the engine
+// the editor's save path (`Document.serialize` over the readback-synced nodes) and the engine
 // save path (`serialize(state)` over the authored set) are one truth. Components are registered in a
 // fixed order so `entries()`-order (which `serialize` emits) matches the fixture's author order, making
 // "same bytes" a clean byte comparison. `Ref.target` is `entity`-typed so it round-trips as `@<id>`.
-describe("serialize parity (Stage 1)", () => {
+describe("serialize parity", () => {
     const Mark = { v: sparse(u32) };
     const Ref = { target: sparse(entity) };
     const Tree = { kind: sparse(u32) };
