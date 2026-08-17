@@ -11,6 +11,7 @@ import {
     findDeadExports,
     isTestFile,
     resolveSpecifier,
+    shouldFail,
     stripComments,
 } from "../../../scripts/check-exports";
 
@@ -639,5 +640,93 @@ realFn();
 
         // `config` from the JSDoc @example is not a real export → not in the output at all
         expect(names).not.toContain("config");
+    });
+});
+
+describe("exit-condition split — only zero-consumer is fatal", () => {
+    test("shouldFail returns true when zero-consumer is non-empty", () => {
+        const dead = [
+            {
+                file: "a.ts",
+                name: "dead",
+                line: 1,
+                category: "zero-consumer" as const,
+                testConsumers: [],
+            },
+        ];
+        expect(shouldFail(dead)).toBe(true);
+    });
+
+    test("shouldFail returns false when only advisory buckets are non-empty", () => {
+        const dead = [
+            {
+                file: "a.ts",
+                name: "inFile",
+                line: 1,
+                category: "in-file-only" as const,
+                testConsumers: [],
+            },
+            {
+                file: "b.ts",
+                name: "testOnly",
+                line: 2,
+                category: "test-only" as const,
+                testConsumers: [{ file: "t.test.ts", line: 3 }],
+            },
+        ];
+        expect(shouldFail(dead)).toBe(false);
+    });
+
+    test("shouldFail returns false on an empty list", () => {
+        expect(shouldFail([])).toBe(false);
+    });
+
+    test("fixture: advisory buckets non-empty, zero-consumer empty → shouldFail is false (passing case)", async () => {
+        const root = fixture({
+            "packages/shallot/package.json": JSON.stringify({
+                exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
+            }),
+            "packages/shallot/src/module.ts": `
+export function inFileFn(): number { return inFileFn(); }
+export function testOnlyFn(): number { return 0; }
+`,
+            "packages/shallot/tests/test.test.ts": `
+import { testOnlyFn } from "../src/module";
+testOnlyFn();
+`,
+            // index re-exports neither — both are advisory, zero-consumer is empty
+            "packages/shallot/src/index.ts": `export const other = 1;`,
+        });
+
+        const dead = await findDeadExports(root);
+        // both are flagged but neither is zero-consumer
+        const zeroConsumer = dead.filter((d) => d.category === "zero-consumer");
+        const inFileOnly = dead.filter((d) => d.category === "in-file-only");
+        const testOnly = dead.filter((d) => d.category === "test-only");
+        expect(zeroConsumer).toHaveLength(0);
+        expect(inFileOnly.length).toBeGreaterThan(0);
+        expect(testOnly.length).toBeGreaterThan(0);
+        // the exit decision: advisory-only → pass
+        expect(shouldFail(dead)).toBe(false);
+    });
+
+    test("fixture: non-empty zero-consumer → shouldFail is true (failing case)", async () => {
+        const root = fixture({
+            "packages/shallot/package.json": JSON.stringify({
+                exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
+            }),
+            "packages/shallot/src/module.ts": `
+export function deadFn(): number { return 0; }
+export function inFileFn(): number { return inFileFn(); }
+`,
+            // index re-exports neither
+            "packages/shallot/src/index.ts": `export const other = 1;`,
+        });
+
+        const dead = await findDeadExports(root);
+        const zeroConsumer = dead.filter((d) => d.category === "zero-consumer");
+        expect(zeroConsumer.length).toBeGreaterThan(0);
+        // the exit decision: zero-consumer present → fail
+        expect(shouldFail(dead)).toBe(true);
     });
 });

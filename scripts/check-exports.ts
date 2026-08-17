@@ -649,44 +649,79 @@ export async function run(rootDir: string): Promise<{ dead: DeadExport[]; total:
     return { dead, total: dead.length };
 }
 
+// Only the zero-consumer bucket is fatal. in-file-only and test-only are advisory — they carry
+// different remedies (demote / reach via module path) and are reported on every run but do not
+// fail the check. This split lets stage 2 reach exit zero after deleting the zero-consumer set,
+// even while advisory buckets remain non-empty.
+export function shouldFail(dead: DeadExport[]): boolean {
+    return dead.some((d) => d.category === "zero-consumer");
+}
+
 if (import.meta.main) {
     const rootArgIdx = process.argv.indexOf("--root");
     const rootDir = resolve(
         rootArgIdx >= 0 ? process.argv[rootArgIdx + 1] : resolve(import.meta.dir, ".."),
     );
 
-    const { dead, total } = await run(rootDir);
+    const { dead } = await run(rootDir);
 
-    if (total > 0) {
-        const byCategory = {
-            "zero-consumer": dead.filter((d) => d.category === "zero-consumer"),
-            "in-file-only": dead.filter((d) => d.category === "in-file-only"),
-            "test-only": dead.filter((d) => d.category === "test-only"),
-        };
+    const byCategory = {
+        "zero-consumer": dead.filter((d) => d.category === "zero-consumer"),
+        "in-file-only": dead.filter((d) => d.category === "in-file-only"),
+        "test-only": dead.filter((d) => d.category === "test-only"),
+    };
 
-        console.error(`✗ ${total} dead export(s):\n`);
+    const fatal = shouldFail(dead);
+    const advisoryCount = byCategory["in-file-only"].length + byCategory["test-only"].length;
 
-        for (const [category, items] of Object.entries(byCategory)) {
-            if (items.length === 0) continue;
-            console.error(`  [${category}] (${items.length}):\n`);
-            for (const d of items) {
+    // --- Enforced class (zero-consumer) ---
+    if (fatal) {
+        console.error(
+            `✗ ${byCategory["zero-consumer"].length} zero-consumer export(s) — ENFORCED:\n`,
+        );
+        for (const d of byCategory["zero-consumer"]) {
+            console.error(`  ${d.file}:${d.line} ${d.name}`);
+        }
+        console.error();
+    }
+
+    // --- Advisory classes (in-file-only, test-only) — always reported, never fatal ---
+    if (advisoryCount > 0) {
+        console.error(`Advisory (${advisoryCount} total) — NOT enforced:\n`);
+        if (byCategory["in-file-only"].length > 0) {
+            console.error(`  [in-file-only] (${byCategory["in-file-only"].length}):`);
+            for (const d of byCategory["in-file-only"]) {
                 console.error(`    ${d.file}:${d.line} ${d.name}`);
-                if (d.category === "test-only") {
-                    for (const c of d.testConsumers) {
-                        console.error(`      consumed by: ${c.file}:${c.line}`);
-                    }
+            }
+            console.error();
+        }
+        if (byCategory["test-only"].length > 0) {
+            console.error(`  [test-only] (${byCategory["test-only"].length}):`);
+            for (const d of byCategory["test-only"]) {
+                console.error(`    ${d.file}:${d.line} ${d.name}`);
+                for (const c of d.testConsumers) {
+                    console.error(`      consumed by: ${c.file}:${c.line}`);
                 }
             }
             console.error();
         }
+    }
 
+    if (fatal) {
         console.error(
-            "An exported symbol with zero production consumers is dead — demote to internal\n" +
-                "(exports.md internal-stays-internal) or delete. Test-only consumers should reach\n" +
-                "the symbol via the module path, not through a public export.",
+            "zero-consumer is the enforced class — delete the export. in-file-only and\n" +
+                "test-only are advisory: demote to internal (exports.md internal-stays-internal)\n" +
+                "or reach via the module path. They are reported on every run but do not fail\n" +
+                "the check.",
         );
         process.exit(1);
     }
 
-    console.log("✓ no dead exports");
+    console.log("✓ no zero-consumer exports");
+    if (advisoryCount > 0) {
+        console.log(
+            `(${advisoryCount} advisory export(s) reported above — in-file-only and test-only\n` +
+                "are not enforced; see guidance.)",
+        );
+    }
 }
