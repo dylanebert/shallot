@@ -3,9 +3,9 @@
 // keyed (contactId << 1 | edgeIndex). Contacts are born non-touching; touching is discovered during
 // the step, which links islands and moves the contact into the constraint graph.
 //
-// Stage 7 (lifecycle) ports the create/destroy/register machinery and the deterministic shape
+// Ported from Box3D's contact.c (Erin Catto, MIT). Deterministic shape
 // ordering. No contact is actually created before the solver stage (pair finding runs in step), so
-// the manifold + graph paths here are seamed to the solver stage. fround discipline per the README.
+// the manifold + graph paths here are seamed to the solver stage. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { NULL_INDEX, swapRemove } from "./array";
 import { type Body, BodyFlags, wakeBody } from "./body";

@@ -267,9 +267,8 @@ function record(draw: Draw): Recorded | null {
 }
 
 // resolve a typed layout's own bindings (never the sear-injected `vertices`) to live resources by the
-// entry's kind — the typed twin of `record`'s `registryFor`/`bindResource` walk, with the same per-mesh
-// override + warn-once skip semantics. Returns the createBindGroup value record + the identity list, or
-// the missing binding's name
+// entry's kind. Returns the createBindGroup value record + the identity list, or the missing binding's
+// name
 function typedResources(
     entries: Record<string, object>,
     override?: Record<string, BindResource>,
@@ -288,7 +287,7 @@ function typedResources(
         if (!res) return name;
         if (isBuffer(res)) validateMeshBindingOverrides({ entries }, { [name]: res });
         resources.push(res);
-        // a texture binds a view of the schema's own dimension (the legacy `bindResource` shape)
+        // a texture binds a view of the schema's own dimension
         values[name] =
             "texture" in entry
                 ? (res as GPUTexture).createView({
@@ -301,10 +300,10 @@ function typedResources(
 }
 
 /**
- * the typed twin of {@link record}: compiled typed pipelines + the per-draw group-2 state (the two
- * layout-object caches the c-2 verdict names — `color` against `layout`; opaque depth-side groups against
- * `layout.depthVariant`; clip depth-side groups against the full layout so cutoff sees material UVs —
- * plus the atlas `eids` swaps and the slot-0 engine group the atlas passes bind).
+ * the typed twin of {@link record}: compiled typed pipelines + the per-draw group-2 state cached by
+ * layout name — `color` against `layout`; opaque depth-side groups against `layout.depthVariant`; clip
+ * depth-side groups against the full layout so cutoff sees material UVs — plus the atlas `eids` swaps
+ * and the slot-0 engine group the atlas passes bind.
  */
 function recordSurface(draw: Draw, surface: Surface): Recorded | null {
     const mesh = Meshes.get(draw.mesh);
@@ -635,11 +634,10 @@ function renderPrepass(
     view.depth = storeDepth ? depth : null;
 }
 
-// the camera's selected backdrop — legacy or typed, discriminated by the stored id's
-// BACKDROP_TYPED_BASE offset (BackdropTraits) — or null (no `Backdrop` component, or its name isn't a
-// compiled background). Membership-gated — a bare `Backdrop.name.get` reads 0 for a non-member, which
-// would alias the first registered background, so the `state.has` check is what keeps the no-backdrop
-// path on the clear
+// the camera's selected backdrop (legacy or typed) — or null (no `Backdrop` component, or its name
+// isn't a compiled background). Membership-gated — a bare `Backdrop.name.get` reads 0 for a non-member,
+// which would alias the first registered background, so the `state.has` check is what keeps the
+// no-backdrop path on the clear
 type BackdropPick = { bg: Background; ct: CompiledBackground };
 function backdrop(state: State, eid: number): BackdropPick | null {
     if (!state.has(eid, Backdrop)) return null;
@@ -652,9 +650,8 @@ function backdrop(state: State, eid: number): BackdropPick | null {
 }
 
 // build (and cache on the CompiledBackground) a typed background's own group-2 bind group — slot-invariant
-// (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip, like
-// `bgGroup`); a binding-free background carries no group at all (its empty layout never enters the
-// pipeline layout)
+// (the per-slot View rides the engine group 0). Returns null while a binding is unpublished (skip); a
+// binding-free background carries no group at all (its empty layout never enters the pipeline layout)
 function backgroundGroup(bg: Background, ct: CompiledBackground): GPUBindGroup | null | "none" {
     const entries = bg.layout.entries as Record<string, object>;
     if (Object.keys(entries).length === 0) return "none";
@@ -938,7 +935,7 @@ const ShadowMapSystem: System = {
 };
 
 // the typed twin of `litBindings`, group 2 (`layout()`'s $idx(2) synthesis) — same four bindings, same
-// element shapes, feeding the typed `default` surface below (4a-ii-c-2's template port).
+// element shapes, feeding the typed `default` surface.
 const typedDefaultLayout = typedLayout({
     eids: { type: "storage", element: d.u32 },
     transforms: { type: "storage", element: Xform },
@@ -972,8 +969,8 @@ const typedColorLayout = typedLayout({
     color: { type: "storage", element: d.u32 },
 });
 
-// the typed twin of the raw `unlit` fs above (4a-ii-c-3): `unpackLdrColor(color[eid]).rgb` verbatim, no
-// lighting call — the simplest surface the typed template carries.
+// the typed twin of the raw `unlit` fs: `unpackLdrColor(color[eid]).rgb` verbatim, no lighting call —
+// the simplest surface the typed template carries.
 const typedUnlitFs = tgpu.fn(
     [fsCtxSchema()],
     d.vec4f,

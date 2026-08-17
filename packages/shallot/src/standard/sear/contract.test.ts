@@ -31,7 +31,7 @@ describe("layout — group-2 synthesis", () => {
         expect(Surfaces.get("broken")).toBeUndefined();
     });
 
-    test("pins to group 2 (4a-ii design lock: engine 0 / shadow-or-atlas 1 / surface 2)", () => {
+    test("pins to group 2 (engine 0 / shadow-or-atlas 1 / surface 2)", () => {
         const l = layout({ items: { type: "storage", element: Item } });
         expect(l.index).toBe(2);
         expect(l.depthVariant.index).toBe(2);

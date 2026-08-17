@@ -10,7 +10,7 @@
 // surviving filters (self-body / sensor / shouldShapesCollide / joint walk) over the returned
 // candidates and creates the contacts. A found compound leaf stays on the TS path: the kernel emits a
 // placeholder, and TS maps the query bounds into the compound's local frame and recurses its inner
-// tree, each overlapping child a candidate with its child index. fround per the README.
+// tree, each overlapping child a candidate with its child index. fround per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { intVec, NULL_INDEX } from "./array";
 import { type Body, getBodyTransformQuick } from "./body";

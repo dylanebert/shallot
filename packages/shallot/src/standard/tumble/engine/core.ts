@@ -1,10 +1,10 @@
 // World-scoped physical constants and the length-unit base. Ported from Box3D's constants.h /
-// core.h (Erin Catto, MIT). fround discipline per the README.
+// core.h (Erin Catto, MIT). fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 //
 // Box3D scales its length-based constants by a settable length-unit (b3SetLengthUnitsPerMeter).
-// The port fixes the unit at the default 1.0 — every fixture is generated at 1.0, and stages 1-6
-// already bake `0.005` etc. as literals. A settable unit is a scoped follow-on: it would have to
-// sweep every module's constant at once, and no stage exercises a non-unit world. So the derived
+// The port fixes the unit at the default 1.0 — every fixture is generated at 1.0, and existing
+// modules already bake `0.005` etc. as literals. A settable unit is a scoped follow-on: it would have to
+// sweep every module's constant at once, and no implementation exercises a non-unit world. So the derived
 // constants below are the final, correct values for the locked scope, not a lesser stopgap.
 
 import { f32 } from "./math";

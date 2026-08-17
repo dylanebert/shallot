@@ -3,7 +3,7 @@
 // body through a doubly-linked shape list and to the broad-phase through a proxy key.
 //
 // Sphere/capsule/hull/mesh/height-field/compound shapes are ported: create/destroy, mass/AABB/extent/
-// centroid, the proxy, and materials. fround discipline per the README.
+// centroid, the proxy, and materials. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { NULL_INDEX } from "./array";
 import { type Body, getBodyTransformQuick, updateBodyMassData } from "./body";

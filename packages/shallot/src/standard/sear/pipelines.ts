@@ -63,18 +63,18 @@ export function resetPipelineCaches(): void {
     _bgQuant = null;
 }
 
-// ---- the typed pipeline builder (4a-ii-c, the template + its extensions): compiles a `Surface`'s
+// ---- the typed pipeline builder (the template + its extensions): compiles a `Surface`'s
 // `vs`/`fs` TGSL fns against the canonical `engineLayout` (group 0), the typed shadow group (group 1,
 // `shadowLayout` — the atlas passes bind `pointLayout`/`cascadeLayout` there instead), and
-// the surface's own synthesized `layout` (group 2 — `surfaceLayout()`'s $idx(2) synthesis, c-1): the
+// the surface's own synthesized `layout` (group 2 — `surfaceLayout()`'s $idx(2) synthesis): the
 // opaque color / transparent pipelines, the prepass depth + tag pipelines, and the point/cascade
 // shadow-atlas pipelines. A surface in `Surfaces` DRAWS through these in every pass — `record()`
-// consults the typed registry first (the built-in flip, c-3b), and `forward.ts`/`atlas.ts` issue the
+// consults the typed registry first (the built-in flip), and `forward.ts`/`atlas.ts` issue the
 // draws via `.with(pass)` on sear's own render passes. `screen` surfaces project through their own `vs`
 // chunk's `patch.clip` and draw un-culled (d-1); `"clip"` blend and `specialize` are carried for the glTF
 // typed migration.
 //
-// Cached beside the legacy `_compiled` map by name + material variant. `preparePipelines` compiles every
+// Cached by name + material variant. `preparePipelines` compiles every
 // non-specializing `Surfaces` entry and force-unwraps it, so the resolve + the sync
 // `createRenderPipeline` (the
 // 0a/1c spike finding) validate against the real device at warm — a malformed group split, a name
@@ -86,31 +86,31 @@ export interface CompiledSurface {
     layout: SurfaceLayout<Record<string, Binding>>;
     color: TgpuRenderPipeline<d.Vec4f> | null;
     transparent: TgpuRenderPipeline<d.Vec4f> | null;
-    // the prepass pipelines for this typed surface, keyed like the legacy `Compiled.prepass` map
-    // (`laneKey` — `""` the position-only depth pipeline, `"tag"` the id lane); empty for a `blend:
+    // the prepass pipelines for this typed surface (keyed by lane: `""` the position-only depth
+    // pipeline, `"tag"` the id lane); empty for a `blend:
     // "alpha"` surface (a transparent pixel has no single owner, writes no prepass depth, casts nothing —
-    // the same legacy rule `compileVariant` applies). Compiled off `layout.depthVariant` — a DISTINCT
-    // `TgpuBindGroupLayout` object from `layout` (the c-2 caching verdict), so a draw-time bind-group
+    // the same rule `compileVariant` applies). Compiled off `layout.depthVariant` — a DISTINCT
+    // `TgpuBindGroupLayout` object from `layout`, so a draw-time bind-group
     // cache for these needs its own key space, never `layout`'s (`SurfaceGroupEntry.depth`, `record`).
     // the map holds both the depth-only (`Void` output) and the tag-lane (`u32` output) pipeline under one
-    // key space — the same widening the legacy `Compiled.prepass: Map<string, GPURenderPipeline>` uses (a
+    // key space — holding both depth and tag pipelines under a single key namespace (a
     // bare `GPURenderPipeline` has no output type parameter either)
     prepass: Map<string, TgpuRenderPipeline<any>>;
-    // the point/cascade shadow-atlas pipelines (4a-ii-c-3a-3) — the former string shadow pipeline's typed twin. `null` for a
-    // non-instanced surface (only an instanced surface casts, the `castable` law `compileVariant` applies) —
+    // the point/cascade shadow-atlas pipelines — the former string shadow pipeline's typed twin. `null` for a
+    // non-instanced surface (only an instanced surface casts) —
     // never a silent gap, since a non-instanced typed surface has no per-instance `eids`/`transforms` to
     // re-gather against in the first place.
     point: TgpuRenderPipeline<any> | null;
     cascade: TgpuRenderPipeline<any> | null;
     // the single-sample (AA-off) color twin, compiled lazily by `ensureSingle` the first frame a
-    // no-AA camera draws this surface — the legacy `Compiled.single` shape, sync here (typegpu pipeline
+    // no-AA camera draws this surface — compiled here (typegpu pipeline
     // wrappers are cheap; the real resolve+create defers to first draw regardless)
     single: {
         color: TgpuRenderPipeline<d.Vec4f> | null;
         transparent: TgpuRenderPipeline<d.Vec4f> | null;
     } | null;
-    // the fixed inputs `ensureSingle` re-compiles the 1× twin from (the legacy `ColorArgs` shape —
-    // the entry fns are reused, so the twin shares the authored vs/fs, differing only in multisample)
+    // the fixed inputs `ensureSingle` re-compiles the 1× twin from; the entry fns are reused, so the
+    // twin shares the authored vs/fs, differing only in multisample
     args: {
         vertex: ReturnType<typeof typedColorVs> | ReturnType<typeof typedVaryingVs>;
         fragment: ReturnType<typeof typedColorFs>;
@@ -123,14 +123,14 @@ export interface CompiledSurface {
 }
 const _compiledTyped = new Map<string, CompiledSurface>();
 
-/** the per-draw group-2 state a typed draw binds (4a-ii-c-3b) — the typed twin of {@link GroupEntry}.
+/** the per-draw group-2 state a typed draw binds — the typed twin of the legacy string pipeline's GroupEntry.
  * `color` builds against `layout` (the 16 B main stream at the `vertices` slot); opaque depth/atlas
  * groups use the DISTINCT `layout.depthVariant` object (the 8 B position stream), while clipped groups
  * use the full layout/main stream because their fragment cutoff consumes material UVs. `point`/`cascade`
- * swap the `eids` lane to that atlas's re-gathered packed list (the legacy `eidsSwap`). View rides group
+ * swap the `eids` lane to that atlas's re-gathered packed list. View rides group
  * 0 per slot, so this state is slot-independent — one
- * instance per draw. `engineCache` holds the draw's engine group-0 instances per view slot (lazy, the
- * legacy `colorCache`/`prepassCache` lifetime: entry-scoped so a quant-buffer churn — a glTF import's
+ * instance per draw. `engineCache` holds the draw's engine group-0 instances per view slot (lazy,
+ * entry-scoped so a quant-buffer churn — a glTF import's
  * per-import buffers — drops the old groups with the overwritten entry, never a module map keyed on
  * buffer identity that grows for the app's life). `atlasG0` is its prebuilt slot-0 instance the
  * shadow-atlas passes bind (slot 0's View buffer as an unread placeholder — the atlas VS projects by
@@ -201,7 +201,7 @@ export function engineGroup(
 
 // a background reads no mesh, but `engineLayout` (the shared group-0 instance the Backgrounds lock
 // names) still carries the `meshQuant` slot — a one-record placeholder buffer fills it, never read (the
-// slot-0 View placeholder precedent, `record`'s eidsSwap)
+// slot-0 View placeholder precedent)
 let _bgQuant: GPUBuffer | null = null;
 
 /** the never-read `meshQuant` placeholder a typed background's engine group binds. */
@@ -422,7 +422,7 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
  * the typed color-pass fragment entry: fills the four `sear/engine.ts` shading-seam privateVars exactly
  * as the raw scaffold's `fragmentBody` does (`sunVisibility` via a real {@link sampleSunShadow} call —
  * matching the raw path's inline sample — `fragWorld`, `fragCoord`, `pointScale`), builds the surface's
- * `fsCtxSchema` context (`uv`/`localPos` cross for real from the vs — c-3), and returns the surface's own
+ * `fsCtxSchema` context (`uv`/`localPos` cross for real from the vs), and returns the surface's own
  * `fs` chunk's result verbatim (sear's `col` return,
  * unwrapped — a typed `fs` already returns `vec4f`, no lane locals: the prepass tag/depth lanes are a
  * separate pipeline, still unported).
@@ -481,7 +481,7 @@ function typedColorFs(surface: AnySurface) {
             // structurally satisfy (a TS quirk over a generic-default index signature, not a real type
             // error) — the escape is the same shape as the `layout.$` cast above.
             //
-            // `uv`/`localPos` now cross for real (c-3) — resolved from the vs's own interpolated output,
+            // `uv`/`localPos` now cross for real — resolved from the vs's own interpolated output,
             // not a zero-fill stand-in.
             const ctx = CtxSchema({
                 eid: input.eid,
@@ -499,8 +499,8 @@ function typedColorFs(surface: AnySurface) {
 /**
  * the position-only typed prepass vertex entry (empty lane set — the shadow map's own shape too): pulls
  * the 8 B position-only vertex from the surface's `layout.depthVariant` (a DISTINCT `TgpuBindGroupLayout`
- * instance from `layout` — the c-2 caching verdict), decodes position alone (normal defaults `+Z`, uv `0`
- * — the raw prepass's own shape, `pass === "prepass"` in `codegen.ts`'s the former string pipeline), applies the
+ * instance from `layout`), decodes position alone (normal defaults `+Z`, uv `0`
+ * — the raw prepass's own shape, `pass === "prepass"` in codegen.ts's the former string pipeline), applies the
  * standard instance transform, then splices the surface's own `vs` chunk when present. Inlined rather than
  * factored through a shared helper (probed live: a plain function marked `"use gpu"` can't take a host
  * object like `surface` as an argument — "Shellless functions can only accept arguments representing WGSL
@@ -524,8 +524,7 @@ function typedPrepassVs(surface: AnySurface) {
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
             // the raw prepass's own default (`codegen.ts`'s the former string pipeline, `pass === "prepass"`) — pinned
-            // for the life of the vs, never touched by the instance transform below (`INSTANCE_VS` mutates
-            // only `world`/`worldNormal`); a `vs` chunk reading `vsIn.localNormal` must see this default,
+            // for the life of the vs, never touched by the instance transform below; a `vs` chunk reading `vsIn.localNormal` must see this default,
             // not the transformed `worldNormal` (a real bug caught in review — passing `worldNormal` here
             // silently fed world-space data into a field the raw path documents as local-space)
             const localNormal = d.vec3f(0, 0, 1);
@@ -800,7 +799,7 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
 }
 
 /**
- * the varyings-carrying typed color/prepass vertex entry (4a-ii-c-3a, the varyings mechanism lock): TGSL has
+ * the varyings-carrying typed color/prepass vertex entry (the varyings mechanism): TGSL has
  * no object-spread and no dynamic-key struct construction, so a shared "use gpu" body can't vary its
  * return shape per surface — a surface declaring `varyings` gets its own **WGSL-bodied copier**, distinct
  * from a fixed shared body. The copier does the real vertex math (vertex pull, quantized decode,
@@ -808,7 +807,7 @@ function varyingClipFs(surface: AnySurface, tag: boolean) {
  * raw fn, its `out.<varying> = patched.<varying>;` lines JS-string-templated from `Object.keys(surface.
  * varyings)` (never through the transpiler). The thin entry stays real TGSL (typegpu's own header/
  * location machinery) and only binds + returns the copier's result — `const r = copier(...); return r;`,
- * since a direct return hits "Cannot resolve struct cast" (the c-1/c-2 API laws, probed live via
+ * since a direct return hits "Cannot resolve struct cast" (probed live via
  * `tgpu.resolve` before this landed).
  */
 function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" : "") {
@@ -827,9 +826,8 @@ function typedVaryingVs(surface: AnySurface, clip = false, suffix = clip ? "Clip
     const hasVs = !!vsFn;
     const fragmentFields = fragmentInterstage(surface);
     const instanced = typedInstanced(surface);
-    // a `screen` surface's own projection is the patch's `clip` lane (the former string pipeline's `out.clip =
-    // clipPos`); everything else projects `view.viewProj * world` after the chunk, so displacing `world`
-    // still projects
+    // a `screen` surface's own projection is the patch's `clip` lane; everything else projects
+    // `view.viewProj * world` after the chunk, so displacing `world` still projects
     const screen = !!surface.screen;
     const layout = surface.layout;
     const OutStruct = d
@@ -1274,9 +1272,9 @@ function typedVaryingTagFs(surface: AnySurface) {
 
 /**
  * compile a `Surface`'s color-pass pipeline(s): the opaque `color` pipeline, or — for a `blend:
- * "alpha"` surface (c-3) — the single blended `transparent` pipeline instead (the legacy `colorPipelines`
- * split: exactly one of the two compiles, never both, matching the raw path's "one non-opaque pipeline"
- * shape). Cached by name + material variant plus exact source-surface/layout identity, so replacing a
+ * "alpha"` surface — the single blended `transparent` pipeline instead (exactly one of the two
+ * compiles, never both, matching the raw path's "one non-opaque pipeline" shape). Cached by name +
+ * material variant plus exact source-surface/layout identity, so replacing a
  * registry entry after warm cannot inherit the previous owner's pipelines. A `screen` surface projects
  * through its own `vs` chunk (`patch.clip`) and rasterizes un-culled; `"clip"` and a surface's
  * `specialize` factory are resolved here for the glTF typed migration.
@@ -1380,7 +1378,7 @@ export function compileVariant<
 
 /**
  * compile a typed surface's single-sample (AA-off) color twin, once, the first frame a no-AA camera
- * draws it — the legacy {@link ensureSingle}'s typed twin, sync (the wrapper is cheap; the real
+ * draws it — the typed twin of the legacy string pipeline's pattern (the wrapper is cheap; the real
  * resolve+create lands at the twin's first draw). Reuses the compiled entry fns, so only
  * `multisample.count` differs.
  */
@@ -1423,7 +1421,7 @@ export function ensureSingle(t: CompiledSurface): void {
 }
 
 /**
- * compile a `Surface`'s prepass pipelines (4a-ii-c-3a-2): the position-only depth pipeline (key `""`,
+ * compile a `Surface`'s prepass pipelines: the position-only depth pipeline (key `""`,
  * vertex-only except for a `clip` surface's cutoff fragment) and the id-lane pipeline (key `"tag"`, the
  * raw `COLOR_LANES` id lane). Opaque depth-only surfaces compile off `layout.depthVariant`; clipped
  * surfaces execute their authored cutoff and therefore use the full layout/main vertex stream. An
@@ -1496,13 +1494,12 @@ function compileTypedPrepass(
 }
 
 /**
- * the shared typed point/cascade fragment entry (4a-ii-c-3a-3): the tile-seam discard alone, the former string shadow pipeline's
- * `fsPoint` twin — clamped to `layout.depthVariant` position + the `tileBox` varying its matching vs writes.
+ * the shared typed point/cascade fragment entry: the tile-seam discard alone — clamped to
+ * `layout.depthVariant` position + the `tileBox` varying its matching vs writes.
  * Atlas-size-independent (the vs bakes the atlas scale into `tileBox` already), so ONE instance serves every
- * typed surface's point pipeline AND every typed surface's cascade pipeline (the raw path's `fsPoint` is
- * textually identical between the two atlases too — only the VS's rect-index formula + atlas constant
- * differ, `codegen.ts`'s the former string shadow pipeline). A `clip` surface uses the wider per-surface fragment below so
- * the same material cutoff holes its atlas depth.
+ * typed surface's point pipeline AND every typed surface's cascade pipeline (the VS's rect-index formula
+ * and atlas constants differ per atlas, from codegen.ts). A `clip` surface uses the wider per-surface
+ * fragment below so the same material cutoff holes its atlas depth.
  */
 const typedShadowFs = tgpu
     .fragmentFn({
@@ -1520,14 +1517,14 @@ const typedShadowFs = tgpu
     .$name("shadowAtlasFs");
 
 /**
- * the typed point/cascade shadow-atlas vertex entry (4a-ii-c-3a-3): the former string shadow pipeline's VS, pinned
+ * the typed point/cascade shadow-atlas vertex entry: the former string shadow pipeline's VS, pinned
  * statement-for-statement — pulls the 8 B position-only vertex from `layout.depthVariant` (the
  * `typedPrepassVs` shape), reads the re-gathered `(combo << COMBO_SHIFT) | eid` packed instance at the
  * surface's `eids` lane, applies the instance transform, splices the surface's own `vs` chunk when present,
  * then projects by that combo's tile-folded viewProj (`shadowLayout.$.faceVP.m[combo]`) and computes the
  * `tileBox` seam-discard bounds from `shadowLayout.$.tileRects` (indexed `slot·6+face` for the point atlas,
- * `slot` alone for the cascade atlas — the former string shadow pipeline's `rectExpr` split) scaled by the atlas's pixel
- * size. Only an **instanced** surface reaches here (only `eids`+`transforms` gives a per-instance member to
+ * `slot` alone for the cascade atlas — indexed differently per atlas) scaled by the atlas's pixel size.
+ * Only an **instanced** surface reaches here (only `eids`+`transforms` gives a per-instance member to
  * re-gather against) — `compileTypedShadow` gates the call, so this never runs for a non-instanced surface.
  */
 function typedShadowVs(
@@ -1941,9 +1938,8 @@ function clipShadowFs(surface: AnySurface) {
 }
 
 /**
- * compile a `Surface`'s point + cascade shadow-atlas pipelines (4a-ii-c-3a-3) — `null` for a
- * non-instanced or `screen` surface (only an instanced, non-`screen` surface casts — the raw `castable`
- * law `compileVariant` applies, `!surface.screen && instanced` — a 2D overlay has no atlas placement).
+ * compile a `Surface`'s point + cascade shadow-atlas pipelines — `null` for a non-instanced or
+ * `screen` surface (only an instanced, non-`screen` surface casts — a 2D overlay has no atlas placement).
  * Opaque surfaces share {@link typedShadowFs}; clipped surfaces use their wider cutoff
  * vertex/fragment pair. Each closes over its own `pointLayout` / `cascadeLayout` group-1 and its
  * own atlas pixel size (the
@@ -2127,10 +2123,9 @@ export function prepassWgsl(surface: AnySurface, variant = 0): { "": string; tag
     };
 }
 
-// ---- the typed `Backgrounds` contract's pipeline builder (4a-ii-c-3a-4, the Backgrounds bindings lock):
+// ---- the typed `Backgrounds` contract's pipeline builder (the Backgrounds bindings lock):
 // the Surfaces contract minus mesh machinery, same group scheme. Group 0 = the shared `engineLayout`
-// instance (the color pass's own — `BG_BASE` dies on the typed path, matching the raw path's own group-0
-// sharing note in `compileBackground`'s docblock); group 1 = `shadowLayout`, declared-but-unused via
+// instance (the color pass's own); group 1 = `shadowLayout`, declared-but-unused via
 // the `forcedZero` scope-forcing precedent (preserving `compileBackground`'s documented group-count-
 // compatibility reason: a bg pipeline with only group 0 would drop group 1 for the blend draws that follow
 // in the same pass); group 2 = the background's own bindings, through `contract.ts`'s `bgLayout` — the
@@ -2144,9 +2139,9 @@ type AnyBackground = Background<Record<string, Binding>>;
 /**
  * the engine-owned fullscreen-triangle vertex entry every typed background shares — no per-background
  * variance (no mesh, no varyings, per the Backgrounds bindings lock), so ONE instance serves every typed
- * background's pipeline. Statement-for-statement the former string background pipeline's raw `vs` (codegen.ts): the three
- * corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0) so
- * {@link compileBackground}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
+ * background's pipeline. Statement-for-statement the former string background pipeline's raw vs (codegen.ts):
+ * the three corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0)
+ * so {@link compileBackground}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
  * un-rendered pixels.
  */
 const typedBgVs = tgpu
@@ -2161,12 +2156,11 @@ const typedBgVs = tgpu
 
 /**
  * a typed background's fragment entry: reconstructs the normalized world-space view ray `dir` from
- * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand the former string background pipeline's raw
- * reconstruct (codegen.ts), not an interstage varying (gpu.md rule 9) — forces `shadowLayout`'s
- * group-1 bindings into scope via the `forcedZero` fold (`typedColorFs`'s precedent, same reason:
- * `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
- * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col,
- * 1)`, the former string background pipeline's own contract).
+ * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand the former string
+ * background pipeline's raw reconstruct (codegen.ts), not an interstage varying (gpu.md rule 9) — forces
+ * `shadowLayout`'s group-1 bindings into scope via the `forcedZero` fold (`typedColorFs`'s precedent, same
+ * reason: `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
+ * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col, 1)`).
  */
 function typedBgFs(bg: AnyBackground) {
     return tgpu
@@ -2204,7 +2198,7 @@ function typedBgFs(bg: AnyBackground) {
 }
 
 /** a compiled typed background: the 4× MSAA + single-sample twins (a camera binds whichever its
- *  `Camera.antialias` selects — `CompiledBg`'s raw twin). */
+ *  `Camera.antialias` selects). */
 export interface CompiledBackground {
     /** exact registry spec + layout this pipeline/group state was derived from. */
     owner: AnyBackground;

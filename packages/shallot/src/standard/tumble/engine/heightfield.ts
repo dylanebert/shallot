@@ -7,7 +7,7 @@
 // The C stores the field as one byte blob with offsets into the height/material/flag arrays; the port
 // models it as a plain struct of arrays. The raw bytes are never hashed by the sim (only body/contact
 // state is), so the representation is free — the compression, the flag bits, and the query's triangle-
-// visit order are what must stay bit-exact. fround discipline per the README.
+// visit order are what must stay bit-exact. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { LINEAR_SLOP, MAX_AABB_MARGIN, OVERLAP_SLOP } from "./core";
 import {

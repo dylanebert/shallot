@@ -3,8 +3,8 @@
 // disabled, awake, and one set per sleeping island group. A body's sim lives in its set's bodySims
 // column; the awake set additionally holds a bodyStates column and the live islands.
 //
-// Stage 7 (lifecycle) ports destroy/wake/transferBody — the transfers reachable from body
-// create/destroy/setType. Stage 9 (islands+sleeping) adds trySleepIsland (the sleep transition) and
+// Ported from Box3D's solver_set.c (Erin Catto, MIT). Handles destroy/wake/transferBody — the transfers reachable from body
+// create/destroy/setType. trySleepIsland (the sleep transition) and
 // completes wake by transferring touching contacts back to the graph (via graph.ts). transferJoint
 // moves a joint's sim between sets (used by setType). MergeSolverSets stays seamed for the joints stage.
 

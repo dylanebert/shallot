@@ -3244,7 +3244,7 @@ const solveLdsKernel = tgpu
 /** interpolation alpha uniform — `time.fixedAlpha`, the fraction past the last fixed tick */
 const Interp = d.struct({ alpha: d.f32 }).$name("Interp");
 
-// nlerp toward the shortest arc: flip prev into curr's hemisphere, lerp, renormalize (legacy interpolate.wgsl)
+// nlerp toward the shortest arc: flip prev into curr's hemisphere, lerp, renormalize
 const nlerpShortest = tgpu
     .fn(
         [d.vec4f, d.vec4f, d.f32],

@@ -1,7 +1,7 @@
 // Triangle narrowphase — ports triangle_manifold.c from Box3D (Erin Catto, MIT). Sphere/capsule/
 // hull versus a single triangle, producing a manifold in the primary shape's local frame. These
 // feed the mesh/height-field multi-manifold driver (mesh_contact). The hull path reuses the SAT
-// cache and the shared clip/query helpers from manifold.ts. fround discipline per the README.
+// cache and the shared clip/query helpers from manifold.ts. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { type DistanceInput, emptyCache, type SimplexCache, shapeDistance } from "./distance";
 import type { Capsule, Sphere } from "./geometry";

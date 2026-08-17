@@ -2,7 +2,7 @@
 // alpha) blend — sharing one `surfaceLayout` (the gltf-trio / skin shape). Sprite adopts the
 // `eids`+`transforms` instancing convention (its own layout declares both), so `VsIn.eid`/`VsIn.xform`
 // replace the hand-rolled `transforms[spriteData[iid].eid]` lookup and the engine's instanced
-// `tag = eid` default applies for free — the authored tag line the string contract needed is gone.
+// `tag = eid` default applies for free — the authored tag line is no longer needed.
 // `spriteData` is itself eid-indexed (packed at `eid * SPRITE_FLOATS`, see pack.ts), not slot-indexed:
 // the point/cascade shadow atlas re-gathers casters mesh-major across combos and preserves only
 // `eid` in its own `eids` lane, so `iid` is a re-gather index in the shadow pass, not sprite's slot.

@@ -50,7 +50,7 @@ const ALPHA = 0.99;
 // carries λ/k across frames, so the ramp converges from the persisted state — the canonical 1e4 holds
 // a resting box to ~mg/k.
 const BETA_LIN = 1e4;
-// the joint angular penalty-ramp rate (Phase 6.2, joint.ts betaAng) — the canonical AVBD value; contacts
+// the joint angular penalty-ramp rate (Phase 6.2) — the canonical AVBD value; contacts
 // ignore it, so it only matters once a scene authors joints (via Avbd.step.setJoints).
 const BETA_ANG = 100;
 const GAMMA = 0.999;

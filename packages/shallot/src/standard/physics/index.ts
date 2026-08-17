@@ -7,7 +7,7 @@ import { Transform } from "../transforms";
 
 // The physics substrate — shared authoring components (`Body`/`Spring`/`Joint`), the CPU raycast + pick
 // layer, and a thin typed backend handle (`PhysicsBackend`) a backend plugin (`standard/avbd`'s
-// `AvbdPlugin`, later `standard/tumble`'s `TumblePlugin`) installs at `Physics.backend`. The substrate
+// `AvbdPlugin`, `standard/tumble`'s `TumblePlugin`) installs at `Physics.backend`. The substrate
 // owns the schedule contract (this file's `StepSystem` / `ConstraintSystem` / `ComposeSystem`, each
 // delegating to the installed handle); a backend owns its mechanism (GPU pipelines, a wasm world) plus a
 // richer imperative escape hatch (`Avbd.step`, `Tumble.world`) for anything past the atomic core.

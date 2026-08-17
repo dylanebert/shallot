@@ -1,12 +1,6 @@
 // Broad-phase — a port of Box3D's src/broad_phase.c (Erin Catto, MIT), the container over three
 // dynamic trees (static / kinematic / dynamic) plus the move buffer that records which proxies
 // changed this step, in deterministic insertion order.
-//
-// Stage-5 scope: the trees, proxy lifecycle, and the move buffer (bit-set-mirrors-array invariant).
-// The pair-finding half — b3PairQueryCallback / b3FindPairsTask / b3UpdateBroadPhasePairs and the
-// pairSet — is world-coupled (shapes, bodies, contacts, filters, sensors, joints) and ports at the
-// lifecycle/solver stages (7/8) where those types exist, alongside contact creation. It composes
-// from the tree Query already implemented here; building it now would need stub world types.
 
 import { GrowVec } from "./array";
 import { type BitSet, clearBit, createBitSet, getBit, setBitGrow } from "./bitset";
@@ -17,8 +11,7 @@ import { createSet, type HashSet } from "./table";
 import type { DynamicTree } from "./tree";
 import * as tree from "./tree";
 
-// b3BodyType. Local for now; hoists to lifecycle at stage 7. Static must be 0 so the proxy-key
-// pack/unpack (2-bit type) round-trips.
+// b3BodyType. Static must be 0 so the proxy-key pack/unpack (2-bit type) round-trips.
 export const BodyType = {
     Static: 0,
     Kinematic: 1,

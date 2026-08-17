@@ -4,7 +4,7 @@
 // solver velocity/delta state (b3BodyState, only in the awake set's bodyStates column). Static and
 // sleeping bodies have a sim but no state.
 //
-// fround discipline per the README. This file holds the types + accessors; the
+// fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity". This file holds the types + accessors; the
 // create/destroy/setType/mass machinery is appended below.
 
 import { NULL_INDEX, swapRemove } from "./array";

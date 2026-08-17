@@ -5,7 +5,7 @@
 // The C stores the mesh as one byte blob with offsets into node/vertex/triangle/material/flag arrays
 // (SIMD-aligned bitfield nodes); the port models it as a plain struct of arrays. The raw bytes are
 // never hashed by the sim, so the representation is free to change — only the BVH build order and the
-// query's triangle-visit order are load-bearing for bit-exactness. fround discipline per the README.
+// query's triangle-visit order are load-bearing for bit-exactness. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { HUGE, LINEAR_SLOP, OVERLAP_SLOP } from "./core";
 import {

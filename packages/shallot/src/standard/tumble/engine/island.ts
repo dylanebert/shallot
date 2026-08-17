@@ -3,11 +3,8 @@
 // in an island. Contacts/joints are stored as links carrying both body ids inline so the split
 // pass never touches b3Contact/b3Joint.
 //
-// Stage 7 (lifecycle) ports create/destroy — a body gets an island on creation — plus the contact
-// unlink that contact destroy needs. Stage 9 (islands+sleeping) adds merge (when a contact links two
-// islands), contact linking (b3LinkContact), and the union-find split (b3SplitIsland) that runs when a
-// touching contact stops. Joints (the join/split joint halves) are stage 10; island.joints is always
-// empty here. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
+// Persistent islands hold connected awake bodies. Contacts and joints are linked/unlinked as they form
+// and break. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
 
 import { NULL_INDEX, swapRemove } from "./array";
 import type { Contact } from "./contact";
@@ -163,7 +160,7 @@ function mergeIslands(world: WorldState, islandIdA: number, islandIdB: number): 
         bigIsland.contacts.push(link);
     }
 
-    // Migrate joints from smaller island to larger island (stage 10; always empty here)
+    // Migrate joints from smaller island to larger island
     for (let i = 0; i < smallIsland.joints.length; ++i) {
         const link = smallIsland.joints[i];
         const joint = world.joints[link.jointId];
@@ -358,7 +355,7 @@ export function splitIsland(world: WorldState, baseId: number): void {
         }
     }
 
-    // Union over joints, tracking per-component joint counts (stage 10; always empty here).
+    // Union over joints, tracking per-component joint counts.
     for (let i = 0; i < baseJointCount; ++i) {
         const bodyA = bodies[baseJoints[i].bodyIdA];
         const bodyB = bodies[baseJoints[i].bodyIdB];
@@ -434,7 +431,7 @@ export function splitIsland(world: WorldState, baseId: number): void {
         targetIsland.contacts.push(link);
     }
 
-    // Assign joints to the island of their bodies (stage 10; always empty here).
+    // Assign joints to the island of their bodies.
     for (let i = 0; i < baseJointCount; ++i) {
         const link = baseJoints[i];
         const joint = world.joints[link.jointId];
