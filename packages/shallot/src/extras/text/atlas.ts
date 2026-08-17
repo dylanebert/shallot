@@ -31,6 +31,17 @@ export interface GlyphAtlas {
     sdfGenerator: SDFGenerator;
 }
 
+/** tear down every atlas's GPU-owned state: the glyph texture and the SDF generator's own
+ *  {@link SDFGenerator.destroy} (its `_intermediateTexture`) — both, or a rebuilt atlas leaks the
+ *  generator's texture on every teardown. `@internal`, pure iteration over caller-owned handles so
+ *  `TextPlugin.dispose` and this module's test can drive the same code. */
+export function disposeAtlases(atlases: readonly (GlyphAtlas | null | undefined)[]): void {
+    for (const atlas of atlases) {
+        atlas?.sdfGenerator.destroy();
+        atlas?.texture.destroy();
+    }
+}
+
 export function createGlyphAtlas(device: GPUDevice, font: Font): GlyphAtlas {
     const width = 2048;
     const height = 2048;

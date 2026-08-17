@@ -44,17 +44,33 @@ export function typegpuPlugin(): Plugin {
 
 export function discoverScenes(dir: string): string[] {
     const scenes: string[] = [];
+    // per-directory try/catch, not one around the whole walk: an unreadable subtree (permissions, a
+    // broken symlink) used to throw out of the recursive `walk`, which the outer catch swallowed —
+    // silently truncating every sibling not yet visited at every ancestor level, not just the bad
+    // subtree, with no warning that the scene list was incomplete.
     function walk(current: string) {
-        for (const entry of readdirSync(current)) {
+        let entries: string[];
+        try {
+            entries = readdirSync(current);
+        } catch (e) {
+            console.warn(`  ! scene discovery: skipping unreadable directory "${current}": ${e}`);
+            return;
+        }
+        for (const entry of entries) {
             if (entry === "node_modules" || entry === "dist") continue;
             const full = join(current, entry);
-            if (statSync(full).isDirectory()) walk(full);
+            let isDirectory: boolean;
+            try {
+                isDirectory = statSync(full).isDirectory();
+            } catch (e) {
+                console.warn(`  ! scene discovery: skipping unreadable entry "${full}": ${e}`);
+                continue;
+            }
+            if (isDirectory) walk(full);
             else if (entry.endsWith(".scene")) scenes.push(relative(dir, full));
         }
     }
-    try {
-        walk(dir);
-    } catch {}
+    walk(dir);
     return scenes.sort();
 }
 

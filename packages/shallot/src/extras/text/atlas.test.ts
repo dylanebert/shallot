@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { computeGlyphMetrics, type GlyphAtlas } from "./atlas";
+import { computeGlyphMetrics, disposeAtlases, type GlyphAtlas } from "./atlas";
 import type { Font } from "./font";
 
 // computeGlyphMetrics is a shelf packer (place each glyph on the current row, wrap, or refuse once the
@@ -102,5 +102,52 @@ describe("computeGlyphMetrics", () => {
     test("throws once the atlas has no room even at column 0", () => {
         const atlas = fakeAtlas(fakeFont(), { width: 1000, height: 50 });
         expect(() => computeGlyphMetrics(atlas, "A")).toThrow("Glyph atlas full");
+    });
+});
+
+// TextPlugin.dispose() destroys atlas.texture but, before this fix, never called
+// atlas.sdfGenerator.destroy() — leaking the generator's own `_intermediateTexture` on every rebuild.
+// disposeAtlases is the pure iteration TextPlugin.dispose drives, so this test reaches the real teardown
+// path with duck-typed destroy spies instead of a live GPUDevice.
+describe("disposeAtlases", () => {
+    function fakeDisposable(font: Font): GlyphAtlas & {
+        textureDestroyed: boolean;
+        generatorDestroyed: boolean;
+    } {
+        const state = { textureDestroyed: false, generatorDestroyed: false };
+        return {
+            texture: { destroy: () => (state.textureDestroyed = true) } as unknown as GPUTexture,
+            textureView: null as never,
+            width: 0,
+            height: 0,
+            glyphs: new Map(),
+            rowHeight: 0,
+            cursorX: 0,
+            cursorY: 0,
+            font,
+            sdfGenerator: {
+                destroy: () => (state.generatorDestroyed = true),
+            } as unknown as GlyphAtlas["sdfGenerator"],
+            get textureDestroyed() {
+                return state.textureDestroyed;
+            },
+            get generatorDestroyed() {
+                return state.generatorDestroyed;
+            },
+        };
+    }
+
+    test("destroys both the texture and the SDF generator for every atlas", () => {
+        const a = fakeDisposable(fakeFont());
+        const b = fakeDisposable(fakeFont());
+        disposeAtlases([a, b]);
+        expect(a.textureDestroyed).toBe(true);
+        expect(a.generatorDestroyed).toBe(true);
+        expect(b.textureDestroyed).toBe(true);
+        expect(b.generatorDestroyed).toBe(true);
+    });
+
+    test("skips a hole left by a font that failed to load", () => {
+        expect(() => disposeAtlases([undefined])).not.toThrow();
     });
 });

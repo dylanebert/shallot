@@ -43,7 +43,8 @@ export interface Mouse {
 export interface Inputs {
     /** current mouse state: buttons, canvas-relative position, per-frame deltas */
     readonly mouse: Readonly<Mouse>;
-    /** entity id of the canvas holding input focus, or -1 when none is focused */
+    /** document-order index of the canvas holding input focus (the Nth `<canvas>` `InputSystem` bound),
+     *  or -1 when none is focused — not an ECS entity id */
     readonly focused: number;
     /** whether a key is currently held down */
     isKeyDown(code: string): boolean;
@@ -361,7 +362,9 @@ function attachGlobal(s: InputState, signal: AbortSignal): void {
     window.addEventListener("blur", s.windowBlur, { signal });
 }
 
-function setup(state: State, views: Map<number, any>): void {
+// `canvasElements` is document order — `focused`'s index into it, never an ECS entity id (Input has no
+// view/eid substrate of its own to draw a real one from; see the `Inputs.focused` JSDoc).
+function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
     const mouse: Mouse = {
         deltaX: 0,
         deltaY: 0,
@@ -377,13 +380,10 @@ function setup(state: State, views: Map<number, any>): void {
     };
 
     const canvases = new Map<HTMLCanvasElement, number>();
-    let firstCanvasEid = -1;
-
-    for (const [eid, view] of views) {
-        if (!view.element) continue;
-        canvases.set(view.element, eid);
-        view.element.style.touchAction = "none";
-        if (firstCanvasEid < 0) firstCanvasEid = eid;
+    for (let i = 0; i < canvasElements.length; i++) {
+        const element = canvasElements[i];
+        canvases.set(element, i);
+        element.style.touchAction = "none";
     }
 
     if (canvases.size === 0) return;
@@ -396,7 +396,7 @@ function setup(state: State, views: Map<number, any>): void {
         mouse,
         canvases,
         activeCanvas: null,
-        focused: firstCanvasEid,
+        focused: 0,
         lastPointerX: 0,
         lastPointerY: 0,
         activePointerId: null,
@@ -445,11 +445,7 @@ const InputSystem: System = {
         }
         const elements = Array.from(document.querySelectorAll("canvas"));
         if (elements.length === 0) return;
-        const synthetic = new Map<number, { element: HTMLCanvasElement }>();
-        for (let i = 0; i < elements.length; i++) {
-            synthetic.set(i, { element: elements[i] });
-        }
-        setup(state, synthetic);
+        setup(state, elements);
     },
 };
 
