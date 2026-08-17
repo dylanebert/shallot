@@ -3,8 +3,7 @@
 // in an island. Contacts/joints are stored as links carrying both body ids inline so the split
 // pass never touches b3Contact/b3Joint.
 //
-// Persistent islands hold connected awake bodies. Contacts and joints are linked/unlinked as they form
-// and break. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
+// Contacts and joints are linked/unlinked as they form and break. Validation is compiled out in the fixture build, so b3ValidateIsland is a no-op.
 
 import { NULL_INDEX, swapRemove } from "./array";
 import type { Contact } from "./contact";

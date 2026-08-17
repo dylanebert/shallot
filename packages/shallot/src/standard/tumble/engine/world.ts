@@ -3,7 +3,7 @@
 // array of records; the hot payload lives in solver sets. Worlds live in a fixed registry so a
 // stale world id (to a destroyed, possibly recycled, world) is detected by a generation mismatch.
 //
-// Ported from Box3D's physics_world.c (Erin Catto, MIT). fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
+// fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import type { Body } from "./body";
 import { type BodyStore, createBodyStore, releaseResident } from "./bodycolumns";
