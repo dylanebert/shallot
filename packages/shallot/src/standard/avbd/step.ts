@@ -5814,7 +5814,7 @@ export class PhysicsStep {
      * prior-frame coloring (no atomics, no in-pass read-after-write), then one sweep over the body pool
      * reading the contact graph the collide produced. Reads the dense→eid map (`eids`), so set it first.
      */
-    colorize(encoder: GPUCommandEncoder): void {
+    private colorize(encoder: GPUCommandEncoder): void {
         encoder.copyBufferToBuffer(this.colors, 0, this.colorScratch, 0, this.eidCap * 4);
         // reset the used-color count so this pass's atomicMax measures only this step's coloring (the
         // readback-bounded color loop's input, Phase 4.9 Lever 1). Word 0 only — word 1 is the live
@@ -5856,7 +5856,7 @@ export class PhysicsStep {
      * coloring reads). The count + scatter dispatch indirect off pairArgs (one thread per per-eid pair slot,
      * looping its records, skipping inactive records); the scan is the single-workgroup parallel prefix.
      */
-    buildCsr(encoder: GPUCommandEncoder): void {
+    private buildCsr(encoder: GPUCommandEncoder): void {
         // zero only the count region [eidCap, 2·eidCap); the offset region is fully rewritten by the scan
         encoder.clearBuffer(this.csr, this.eidCap * 4, this.eidCap * 4);
         {

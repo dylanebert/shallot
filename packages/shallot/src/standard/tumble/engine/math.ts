@@ -16,7 +16,6 @@ export const f32 = Math.fround;
 // biome-ignore lint/suspicious/noApproximativeNumericConstant: B3_PI verbatim — the port mirrors Box3D's constant, not Math.PI.
 export const PI = f32(3.14159265359);
 export const DEG_TO_RAD = f32(0.01745329251);
-export const RAD_TO_DEG = f32(57.2957795131);
 export const MIN_SCALE = f32(0.01);
 
 const FLT_EPSILON = f32(1.1920928955078125e-7); // 2^-23
@@ -67,10 +66,6 @@ export const clampInt = (a: number, lo: number, hi: number): number =>
     a < lo ? lo : hi < a ? hi : a;
 export const clampf = (a: number, lo: number, hi: number): number =>
     a < lo ? lo : hi < a ? hi : a;
-
-/** (1 - alpha) * a + alpha * b */
-export const lerpf = (a: number, b: number, alpha: number): number =>
-    f32(f32(f32(1 - alpha) * a) + f32(alpha * b));
 
 /**
  * Round every float field of a user-facing def/config to f32 once, where it crosses into the engine.
@@ -1227,20 +1222,14 @@ export const xf = {
 // World-position boundary. In float mode Pos ≡ Vec3 and WorldTransform ≡ Transform, so these
 // collapse to their pure-float counterparts; they exist so callers can name the boundary and so
 // a later large-world (double) build has a single set of seams to widen.
-export const toPos = (v: Vec3): Pos => ({ x: v.x, y: v.y, z: v.z });
 export const toVec3 = (p: Pos): Vec3 => ({ x: p.x, y: p.y, z: p.z });
 export const subPos = (a: Pos, b: Pos): Vec3 => vec3.sub(a, b);
 export const offsetPos = (p: Pos, d: Vec3): Pos => vec3.add(p, d);
-export const isValidPosition = (p: Pos): boolean =>
-    isValidFloat(p.x) && isValidFloat(p.y) && isValidFloat(p.z);
-export const makeWorldTransform = (t: Transform): WorldTransform => ({ p: toPos(t.p), q: t.q });
 /** Shift a world transform into the frame of a base position (b3ToRelativeTransform). */
 export const toRelativeTransform = (t: WorldTransform, base: Pos): Transform => ({
     q: t.q,
     p: subPos(t.p, base),
 });
-export const isValidWorldTransform = (t: WorldTransform): boolean =>
-    isValidPosition(t.p) && quat.isValid(t.q);
 export const transformWorldPoint = (t: WorldTransform, p: Vec3): Pos => xf.point(t, p);
 export const invTransformWorldPoint = (t: WorldTransform, p: Pos): Vec3 => xf.invPoint(t, p);
 export const invMulWorldTransforms = (a: WorldTransform, b: WorldTransform): Transform =>
@@ -1251,7 +1240,6 @@ export const invMulWorldTransformsOut = (
     o: Transform,
 ): Transform => xf.invMulOut(a, b, o);
 export const mulWorldTransforms = (a: WorldTransform, b: Transform): WorldTransform => xf.mul(a, b);
-export const isDoublePrecision = (): boolean => false;
 
 // --- aabb -----------------------------------------------------------------------------------
 

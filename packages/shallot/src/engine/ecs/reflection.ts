@@ -117,7 +117,6 @@ export function schema(name: string): Schema | null {
             });
         } else if (isColor(key, traits)) {
             fields.push({ name: key, kind: "color", default: defaults[key] as number });
-            for (const s of ["R", "G", "B"]) handled.add(key + s);
         } else if ((component[key] as { type?: Type } | undefined)?.type === entity) {
             // ref-ness lives on the field's type (`sparse(entity)`) — surface it so tooling
             // shows an `@name` reference, not a number

@@ -1,26 +1,18 @@
 import type { Node } from "../engine/scene";
 
-type Add = { type: "add"; parent: Node | null; node: Node; index: number };
-type Remove = { type: "remove"; parent: Node | null; node: Node; index: number };
+type Add = { type: "add"; node: Node; index: number };
+type Remove = { type: "remove"; node: Node; index: number };
 type AddAttr = { type: "addAttr"; node: Node; name: string; value: string };
 type RemoveAttr = { type: "removeAttr"; node: Node; name: string; prev: string; index: number };
 type SetAttr = { type: "setAttr"; node: Node; name: string; prev: string; next: string };
 type SetId = { type: "setId"; node: Node; prev: string | undefined; next: string | undefined };
-type Reorder = { type: "reorder"; parent: Node | null; node: Node; from: number; to: number };
-type Reparent = {
-    type: "reparent";
-    node: Node;
-    oldParent: Node | null;
-    oldIndex: number;
-    newParent: Node | null;
-    newIndex: number;
-};
+type Reorder = { type: "reorder"; node: Node; from: number; to: number };
 type ReorderAttr = { type: "reorderAttr"; node: Node; from: number; to: number };
 export type Compound = { type: "compound"; commands: Command[] };
 
 /**
- * a reversible scene-tree edit: add/remove a node, add/remove/set an attribute, set an id, reorder or
- * reparent, or a `compound` batch. Every case names the data needed to both apply and reverse it, so the
+ * a reversible scene-tree edit: add/remove a node, add/remove/set an attribute, set an id, reorder,
+ * or a `compound` batch. Every case names the data needed to both apply and reverse it, so the
  * undo stack replays without re-deriving state.
  */
 export type Command =
@@ -31,27 +23,20 @@ export type Command =
     | SetAttr
     | SetId
     | Reorder
-    | Reparent
     | ReorderAttr
     | Compound;
 
 export type Entry = { cmd: Command; selection: Node[] };
 export type History = { undo: Entry[]; redo: Entry[] };
 
-function getChildren(parent: Node | null, nodes: Node[]): Node[] {
-    return parent ? parent.children : nodes;
-}
-
 export function apply(nodes: Node[], cmd: Command): void {
     switch (cmd.type) {
         case "add": {
-            const children = getChildren(cmd.parent, nodes);
-            children.splice(cmd.index, 0, cmd.node);
+            nodes.splice(cmd.index, 0, cmd.node);
             break;
         }
         case "remove": {
-            const children = getChildren(cmd.parent, nodes);
-            children.splice(cmd.index, 1);
+            nodes.splice(cmd.index, 1);
             break;
         }
         case "addAttr": {
@@ -72,16 +57,8 @@ export function apply(nodes: Node[], cmd: Command): void {
             break;
         }
         case "reorder": {
-            const children = getChildren(cmd.parent, nodes);
-            children.splice(cmd.from, 1);
-            children.splice(cmd.to, 0, cmd.node);
-            break;
-        }
-        case "reparent": {
-            const oldChildren = getChildren(cmd.oldParent, nodes);
-            oldChildren.splice(cmd.oldIndex, 1);
-            const newChildren = getChildren(cmd.newParent, nodes);
-            newChildren.splice(cmd.newIndex, 0, cmd.node);
+            nodes.splice(cmd.from, 1);
+            nodes.splice(cmd.to, 0, cmd.node);
             break;
         }
         case "reorderAttr": {
@@ -98,13 +75,11 @@ export function apply(nodes: Node[], cmd: Command): void {
 export function reverse(nodes: Node[], cmd: Command): void {
     switch (cmd.type) {
         case "add": {
-            const children = getChildren(cmd.parent, nodes);
-            children.splice(cmd.index, 1);
+            nodes.splice(cmd.index, 1);
             break;
         }
         case "remove": {
-            const children = getChildren(cmd.parent, nodes);
-            children.splice(cmd.index, 0, cmd.node);
+            nodes.splice(cmd.index, 0, cmd.node);
             break;
         }
         case "addAttr": {
@@ -126,16 +101,8 @@ export function reverse(nodes: Node[], cmd: Command): void {
             break;
         }
         case "reorder": {
-            const children = getChildren(cmd.parent, nodes);
-            children.splice(cmd.to, 1);
-            children.splice(cmd.from, 0, cmd.node);
-            break;
-        }
-        case "reparent": {
-            const newChildren = getChildren(cmd.newParent, nodes);
-            newChildren.splice(cmd.newIndex, 1);
-            const oldChildren = getChildren(cmd.oldParent, nodes);
-            oldChildren.splice(cmd.oldIndex, 0, cmd.node);
+            nodes.splice(cmd.to, 1);
+            nodes.splice(cmd.from, 0, cmd.node);
             break;
         }
         case "reorderAttr": {

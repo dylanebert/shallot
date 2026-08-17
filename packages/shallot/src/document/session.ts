@@ -124,7 +124,7 @@ export class Session {
         if (value) this.syncAttr(name, value, eid);
     }
 
-    loadNode(node: Node, _parent: Node | null): void {
+    loadNode(node: Node): void {
         const eid = this.state.create();
         this.nodeMap.set(node, eid);
         for (const attr of node.attrs) this.attachComponent(attr.name, attr.value, eid);
@@ -172,15 +172,12 @@ export class Session {
             }
             case "add": {
                 if (isUndo) this.unloadNode(cmd.node);
-                else this.loadNode(cmd.node, cmd.parent);
+                else this.loadNode(cmd.node);
                 return true;
             }
             case "remove": {
-                if (isUndo) this.loadNode(cmd.node, cmd.parent);
+                if (isUndo) this.loadNode(cmd.node);
                 else this.unloadNode(cmd.node);
-                return true;
-            }
-            case "reparent": {
                 return true;
             }
             case "reorder":

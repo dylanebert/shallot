@@ -32,7 +32,7 @@ function decodeCtx(): AudioContext {
     return _decodeCtx;
 }
 
-export function downmixToMono(channels: Float32Array[], length: number): Float32Array {
+function downmixToMono(channels: Float32Array[], length: number): Float32Array {
     if (channels.length === 1) return new Float32Array(channels[0]);
     const mono = new Float32Array(length);
     for (const src of channels) {

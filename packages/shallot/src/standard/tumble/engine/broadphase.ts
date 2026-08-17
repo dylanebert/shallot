@@ -154,16 +154,6 @@ export function testOverlap(bp: BroadPhase, keyA: number, keyB: number): boolean
     return aabb.overlaps(overlapA, overlapB);
 }
 
-export function getShapeIndex(bp: BroadPhase, key: number): number {
-    bp.store.refreshIfStale();
-    return tree.getUserData(bp.trees[proxyType(key)], proxyId(key));
-}
-
-/** @returns whether a proxy is flagged as moved this step (b3GetBit on movedProxies). */
-export function getMoved(bp: BroadPhase, type: BodyTypeValue, id: number): boolean {
-    return getBit(bp.movedProxies[type], id);
-}
-
 /** Clear a proxy's moved flag (b3ClearBit on movedProxies). */
 export function clearMoved(bp: BroadPhase, type: BodyTypeValue, id: number): void {
     clearBit(bp.movedProxies[type], id);

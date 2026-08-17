@@ -17,10 +17,6 @@ export function popCount32(x: number): number {
     return (v * 0x01010101) >>> 24;
 }
 
-export function isPowerOf2(x: number): boolean {
-    return (x & (x - 1)) === 0;
-}
-
 /** ceil(log2(x)): the smallest exponent e with 2^e >= x. */
 export function boundingPowerOf2(x: number): number {
     if (x <= 1) {
