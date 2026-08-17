@@ -651,8 +651,8 @@ export async function run(rootDir: string): Promise<{ dead: DeadExport[]; total:
 
 // Only the zero-consumer bucket is fatal. in-file-only and test-only are advisory — they carry
 // different remedies (demote / reach via module path) and are reported on every run but do not
-// fail the check. This split lets stage 2 reach exit zero after deleting the zero-consumer set,
-// even while advisory buckets remain non-empty.
+// fail the check. The enforced bucket has an unambiguous remedy (delete); the advisory buckets
+// are large-N triage backlogs with different remedies, so gating on them keeps the check permanently red and unreadable.
 export function shouldFail(dead: DeadExport[]): boolean {
     return dead.some((d) => d.category === "zero-consumer");
 }
