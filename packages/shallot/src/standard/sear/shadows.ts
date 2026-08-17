@@ -1026,7 +1026,7 @@ export function destroyPointShadows(state: State): void {
 }
 
 /** forget the cached combo camera eids on a (re)build: the prior State owns its own teardown, a fresh
- * one recreates lazily (the same lifecycle-reset as {@link resetShadowCamera}) */
+ * one recreates lazily */
 export function resetPointShadows(): void {
     _comboEids = [];
     _capWarned = false;

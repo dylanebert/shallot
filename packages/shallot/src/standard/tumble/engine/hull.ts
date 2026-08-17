@@ -1,6 +1,6 @@
 // Convex hulls: quickhull builder, baking (weld/merge/reduction), mass properties, box/cylinder
 // generators. Ported op-for-op from Box3D's hull.c (Erin Catto; Dirk Gregorius contributed, MIT).
-// fround discipline per the README.
+// fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 //
 // The C builder carves all working memory from one block with pointer-based intrusive lists and
 // free lists for edge/face recycling. In TS the pointers are object references and the free lists

@@ -53,9 +53,9 @@ export const Tag = {};
 // Each lane is gated by a camera marker (Bevy's DepthPrepass / NormalPrepass shape). Two ship: the `depth`
 // lane (the depth-stencil itself, marker `Depth`, published as `view.depth`) and the id lane (a color
 // attachment, marker `Tag`, published as `view.tag`). normal / motion are the future rows — adding one is
-// a COLOR_LANES entry + a `View.*` field, and the subset codegen in the former string pipeline + the prepass already
-// iterate it; never a new pass. `depth` isn't a color attachment (it's the depth-stencil), so it's stored
-// or discarded by the `Depth` marker, separate from COLOR_LANES (the color attachments the prepass MRTs)
+// a COLOR_LANES entry + a `View.*` field; the prepass already iterates it, never a new pass. `depth` isn't
+// a color attachment (it's the depth-stencil), so it's stored or discarded by the `Depth` marker, separate
+// from COLOR_LANES (the color attachments the prepass MRTs)
 export interface ColorLane {
     // the `view.*` field + lane identity ("tag"); `set` publishes the rendered texture onto that field
     name: string;

@@ -1,6 +1,6 @@
 // GJK distance, shape casting, and conservative-advancement time of impact.
 // Ported op-for-op from Box3D's distance.c (Erin Catto, MIT; portions by Dirk Gregorius).
-// fround discipline + scalar-branch mirroring per the README.
+// fround discipline + scalar-branch mirroring per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 //
 // The whole query runs in shape A's frame using the relative pose of B in A, keeping the math
 // near the local origin. Results stay in frame A.

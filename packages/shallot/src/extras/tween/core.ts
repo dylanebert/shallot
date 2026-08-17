@@ -4,12 +4,9 @@ export { EASING_FUNCTIONS, type Easing, getEasing, getEasingIndex, getEasingName
 
 /** how a sampled value combines with the field's current value (WAAPI composite). */
 export const Composite = {
-    // overwrite the field. the default.
+    /** overwrite the field. the default. */
     Replace: 0,
-    // add the sampled value to the field's current value as a transient delta.
-    // the base stays authoritative, so an `add` tween over a field a sim also
-    // writes (a recoil, a flash) stops fighting it — completion with a delta of
-    // zero leaves the base untouched. the SSOT relaxation, made explicit.
+    /** add the sampled value to the field's current value as a transient delta. the base stays authoritative, so an `add` tween over a field a sim also writes (a recoil, a flash) stops fighting it — completion with a delta of zero leaves the base untouched. the SSOT relaxation, made explicit. */
     Add: 1,
 } as const;
 
@@ -19,12 +16,13 @@ export const Composite = {
  * tails.
  */
 export const Fill = {
-    // own only during the active interval — transient overlays (recoil, flash).
+    /** own only during the active interval — transient overlays (recoil, flash). */
     None: 0,
-    // also hold the end value after duration. the default — today's hold-end.
+    /** also hold the end value after duration. the default — today's hold-end. */
     Forwards: 1,
-    // also hold the start value before zero.
+    /** also hold the start value before zero. */
     Backwards: 2,
+    /** own both before and after the active interval. */
     Both: 3,
 } as const;
 

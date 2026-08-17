@@ -518,7 +518,7 @@ describe("Tumble.body handle accessor", () => {
 
 describe("same-update destroy+create realias", () => {
     test("a box destroyed and a sphere created at the recycled eid marshals the new body", async () => {
-        // the same-update destroy+create identity bug (tumble.md "Eid presence is not identity"): a box
+        // the same-update destroy+create identity bug (tumble.md "The wasm world is a singleton — dispose is load-bearing"): a box
         // is marshaled, then destroyed and its eid recycled by a NEW sphere Body in one update. SyncSystem
         // keys create/destroy on presence alone, so it neither sweeps the eid (it still has Body) nor
         // re-marshals it (it's still in `bodies`) — the old box handle survives entirely. The fix (1b)
@@ -863,7 +863,12 @@ describe("compose covers static bodies", () => {
             Physics.backend?.compose(undefined as unknown as GPUCommandEncoder, buffer, 1);
             expect(writes.get(box * 48)).toBeDefined();
             const still = writes.get(floor * 48);
-            if (still) expect(still[1]).toBeCloseTo(-0.1); // if reported, it's still the spawn pose
+            if (still) {
+                expect(still[1]).toBeCloseTo(-0.1); // if reported, it's still the spawn pose
+            } else {
+                // floor is static and not moving, so compose may or may not report it
+                expect(still).toBeUndefined();
+            }
         } finally {
             compute.device = priorDevice;
         }

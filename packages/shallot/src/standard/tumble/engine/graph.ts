@@ -8,10 +8,7 @@
 // (`convexContacts`). A color's `bodySet` tracks which bodies it already constrains (unused on the
 // overflow color, which imposes no sharing limit).
 //
-// FORCE_OVERFLOW mirrors C's `#if B3_FORCE_OVERFLOW` parity knob: when set, every constraint routes
-// to the overflow color and the coloring bit sets go unused — the shape the port shipped against the
-// force-overflow fixtures. It flips to false with the default-config fixture migration (the colored,
-// wide solve). The transient per-step constraint arrays live in wasm columns, not here.
+// The transient per-step constraint arrays live in wasm columns, not here.
 //
 // Coloring is integer-only, so no fround discipline applies here.
 

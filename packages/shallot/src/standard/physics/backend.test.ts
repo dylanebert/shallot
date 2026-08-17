@@ -1,9 +1,9 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { installBackend, Physics, type PhysicsBackend, uninstallBackend } from "./index";
 
-// The substrate's single-backend guard (specs/tumble-shallot.md "Locked decision"): a scene runs exactly
-// one physics backend at a time, so a second install must fail loud rather than silently clobbering the
-// first. No device or state needed — installBackend/uninstallBackend are pure over the module singleton.
+// The substrate's single-backend guard: a scene runs exactly one physics backend at a time, so a second
+// install must fail loud rather than silently clobbering the first. No device or state needed —
+// installBackend/uninstallBackend are pure over the module singleton.
 
 function fakeBackend(): PhysicsBackend {
     return {

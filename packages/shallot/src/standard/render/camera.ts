@@ -23,11 +23,17 @@ export const CameraMode = {
  * ```
  */
 export const Camera = {
+    /** perspective (0) or orthographic (1) projection, set via the `mode` scene attribute */
     mode: sparse(u32),
+    /** field of view in degrees (perspective mode) */
     fov: sparse(f32),
+    /** near plane distance */
     near: sparse(f32),
+    /** far plane distance */
     far: sparse(f32),
+    /** view size in world units (orthographic mode) */
     size: sparse(f32),
+    /** render target color as sRGB-encoded hex (e.g. 0x5cbfbf) */
     clearColor: sparse(u32),
     /** antialiasing: 1 = 4× MSAA (default), 0 = off (single-sample, crisp, for a pixel-art look) */
     antialias: sparse(u32),

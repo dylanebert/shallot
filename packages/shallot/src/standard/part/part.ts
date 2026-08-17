@@ -337,24 +337,6 @@ function writeMeshBounds(device: GPUDevice): Vec4fBuffer {
     return buffer;
 }
 
-/**
- * register one Draw per `(Part-compatible surface × mesh)` pair and seed every
- * slot's static indexed-indirect args (indexCount = `mesh.indexCount`, firstIndex =
- * `mesh.indexBase`, baseVertex = 0): the per-frame pack fills instanceCount + the
- * compacted firstInstance. The static args repeat across all `_viewDim` slots since a
- * camera attaching later reuses a slot whose geometry never changes; the Draw
- * points at the pair's slot-0 record and carries `viewStride = pairCount × 20`,
- * so sear reads `slot`'s record as `offset + slot * viewStride`. A surface is
- * instanced when it declares the `eids` + `transforms` bindings (sear applies
- * the standard transform). Every combination gets a Draw; the ones no entity uses pack to
- * `instanceCount: 0` and `drawIndirect` no-ops them. So a producer just
- * registers its mesh + surface and spawns Parts: the draw it needs already
- * exists, whenever its entities appear. (When `multi-draw-indirect` lands,
- * these per-pair draws fold into one call per surface on the GPU.) Re-run by
- * `syncBuffers` whenever a mesh registers or the view count grows: it re-seeds
- * every slot and repoints the Draws at the freshly grown `drawArgs`. The pair
- * offset is `mid * surfaceCount + sid`, so a new mesh only appends slots
- */
 /** publish Part's `(surface, mesh)` draw pairs and return the indirect records the GPU buffer needs.
  * Device-free so ordering tests can exercise the production publication seam without an adapter.
  * @internal */

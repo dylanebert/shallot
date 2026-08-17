@@ -4,8 +4,7 @@
 // shadowed by sear's point atlas, plus the directional sun shaft shadowed by sear's sun map (the same
 // froxel grid + shadow service sear's lit path uses, bound through `render/core` + `sear/core`), so
 // occluders cast dark shafts. It runs through the `sceneTransform` seam (after sear's color pass, before
-// glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off — the same pre-glaze slot
-// orrstead's fog uses. A scene opts in with one `Fog` singleton; a camera opts in with sear's `Depth` lane
+// glaze's tonemap), so the result is part of the HDR scene the tonemap rolls off. A scene opts in with one `Fog` singleton; a camera opts in with sear's `Depth` lane
 // (the march needs scene depth). Both absent → the pass no-ops, no auto-add. The march primitives + the Fog
 // uniform schema live in `./march`; the typed pipeline (the two bind-group layouts + the compute kernel
 // calling them) lives in `./pipeline`. Both the kernel and the CPU-side oracle the gym fog probe diffs

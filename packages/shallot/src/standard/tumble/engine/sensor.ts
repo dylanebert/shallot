@@ -5,7 +5,7 @@
 //
 // Single-threaded and serial: the C's per-worker sensor task + the event-publish pass collapse into
 // one loop, and the eventBits optimization drops out (a sensor whose overlaps didn't change emits no
-// events regardless, so the diff always runs). fround discipline per the README.
+// events regardless, so the diff always runs). fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { NULL_INDEX } from "./array";
 import { getBodyTransformQuick } from "./body";

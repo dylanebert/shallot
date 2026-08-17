@@ -759,14 +759,10 @@ test("Sear warms Part-published specializing variants; post-build variants stay 
     }
 });
 
-test("a specializing surface compiled at two distinct variants emits two distinct pipeline labels — the observable Profile.compile's pipeline-count golden depends on (shallot-perf-gates stage 3a review)", async () => {
-    // `compileVariant`'s own `args.name` is already `${surface.name}#${variant}` (the pattern
-    // `ensureSingle` reads back), but every `.$name()` call on the pipelines it actually creates used
-    // bare `surface.name` — so two variants of the same specializing surface compiled to the SAME
-    // descriptor label, and `Profile.compile` (keyed by that label, `shallot-perf-gates` stage 3a)
-    // silently dropped one. Assert the real observable — the labels `device.createRenderPipeline`
-    // actually receives are distinct per variant — not `recordCompile`'s own merge/overwrite logic,
-    // which a same-label mutant would satisfy trivially.
+test("a specializing surface compiled at two distinct variants emits two distinct pipeline labels", async () => {
+    // Assert the real observable — the labels `device.createRenderPipeline` actually receives are
+    // distinct per variant — not `recordCompile`'s own merge/overwrite logic, which a same-label
+    // mutant would satisfy trivially.
     const surface: Surface = {
         name: `variant-label-${Math.random()}`,
         layout: layout({
@@ -1110,9 +1106,9 @@ describe("typedVaryingFs — the 1-to-4 varying arity dispatch (gpu.md rule 9's 
     });
 });
 
-// `screen` surfaces (4a-ii-d-1): the raw path's `out.clip = clipPos` (codegen.ts's the former string pipeline) — the
-// vs chunk projects its own clip-space geometry, and back-face culling is off because those quads have no
-// consistent winding. Both typed vs shapes (the shared TGSL body and the per-surface WGSL copier) honor it.
+// `screen` surfaces: the raw path's `out.clip = clipPos` — the vs chunk projects its own clip-space
+// geometry, and back-face culling is off because those quads have no consistent winding. Both typed vs
+// shapes (the shared TGSL body and the per-surface WGSL copier) honor it.
 describe("screen surfaces — the vs chunk's patch.clip IS the clip position", () => {
     const screenLayout = layout({ items: { type: "storage", element: d.f32 } });
     const Patch = vsPatchSchema();
@@ -1440,7 +1436,7 @@ test("typed background pipeline and bind-group caches invalidate on exact spec/l
     }
 });
 
-describe("draw wiring (4a-ii-c-3b) — the depth-pipeline receiver stub + the color pipeline's real receiver", () => {
+describe("draw wiring — the depth-pipeline receiver stub + the color pipeline's real receiver", () => {
     // a vs-chunk surface whose chunk reaches litPbr → pointShadowOf, the shape that forces the stub:
     // the raw path's prepass/shadow modules splice SHADOW_STUB_WGSL for exactly this reach
     const varyings = { litColor: d.vec3f };
@@ -1517,7 +1513,7 @@ describe("draw wiring (4a-ii-c-3b) — the depth-pipeline receiver stub + the co
     });
 });
 
-describe("draw wiring (4a-ii-c-3b) — shadowLayout visibility mirrors the raw _shadowBgl", () => {
+describe("draw wiring — shadowLayout visibility mirrors the raw _shadowBgl", () => {
     test("sampler + point-shadow entries are vertex-visible (a per-vertex vs chunk reaches pointShadowOf); sun map + params stay fragment-only", () => {
         const entries = shadowLayout.entries as Record<string, { visibility?: string[] }>;
         expect(entries.shadowSamp.visibility).toEqual(["vertex", "fragment"]);
@@ -1553,7 +1549,7 @@ describe("draw wiring — the Backdrop registry id space", () => {
     });
 });
 
-describe("draw wiring (4a-ii-c-3b review) — typed group-state eviction", () => {
+describe("draw wiring — typed group-state eviction", () => {
     test("clearGroups drops a cached typed entry (the re-gather realloc + rebuild eviction path, and the engine-group lifetime rides the entry)", () => {
         const entry = {
             engineCache: new Map([[0, {} as GPUBindGroup]]),

@@ -191,9 +191,7 @@ export function computeCosSin(radians: number): CosSin {
     return { cosine: f32(c * invMag), sine: f32(s * invMag) };
 }
 
-/** @deprecated use computeCosSin */
 export const sin = (radians: number): number => computeCosSin(radians).sine;
-/** @deprecated use computeCosSin */
 export const cos = (radians: number): number => computeCosSin(radians).cosine;
 
 // --- vec3 -----------------------------------------------------------------------------------

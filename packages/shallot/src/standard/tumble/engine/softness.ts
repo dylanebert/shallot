@@ -1,6 +1,6 @@
 // Soft-constraint coefficients (Box3D's b3Softness / b3MakeSoft, Erin Catto, MIT). Extracted into
 // its own leaf module (math-only) so both the contact solver and the joints can pull it without an
-// import cycle through body.ts. fround discipline per the README.
+// import cycle through body.ts. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { f32, PI } from "./math";
 

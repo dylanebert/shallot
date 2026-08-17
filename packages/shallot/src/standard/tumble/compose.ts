@@ -22,7 +22,7 @@ export function nlerpShortest(
 }
 
 /** the render scale mapping a `Body`'s collider to its unit render mesh (avbd/step.ts `COMPOSE_PASS_WGSL`,
- *  physics.md "Storage + the Body / Transform contract"): box/hull → `2·halfExtents`, sphere → uniform
+ *  avbd.md "Storage + the Body / Transform contract"): box/hull → `2·halfExtents`, sphere → uniform
  *  `2·radius`, capsule → `(2·radius, halfExtents.y + radius, 2·radius)` (the caps distort under a
  *  non-proportional ratio — render-only; the collider stays exact). */
 export function renderScale(

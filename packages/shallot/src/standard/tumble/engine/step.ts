@@ -3,7 +3,7 @@
 // hash (the regression contract) is taken by the caller after the step returns.
 //
 // No recording. Single-threaded and serial, so the parallel task orchestration collapses to
-// straight-line calls. fround discipline per the README.
+// straight-line calls. fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 
 import { claimResident, reserveBodies } from "./bodycolumns";
 import { collide } from "./collide";

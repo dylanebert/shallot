@@ -16,8 +16,7 @@ import { Slab } from "../slab";
 import { shutdown } from "./engine";
 import { Tumble, TumblePlugin } from "./index";
 
-// World lifecycle conformance (specs/tumble-shallot.md "World lifecycle is exclusive and disposal is
-// mandatory"): the wasm kernel is a singleton with ONE resident region, so a leaked world on a rebuild is a
+// World lifecycle conformance: the wasm kernel is a singleton with ONE resident region, so a leaked world on a rebuild is a
 // hard failure, not a slow leak — the build→step→dispose ×2 roster entry this file is. No device needed:
 // TumblePlugin's own warm() never touches Compute (CPU-native), so this runs at the fast `bun test` tier —
 // bypasses `build()`/`app()` (register + Slab.collect + the lifecycle hooks directly), the orbit.test.ts shape.

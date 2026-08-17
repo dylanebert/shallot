@@ -7,7 +7,7 @@ import { engineLayout, engineScaffoldWgsl } from "./engine";
 // pin the exact operand order the migrated pipeline uses.
 
 describe("engineLayout", () => {
-    test("the seven pass-invariant group-0 entries, in order — no `vertices` (pass-variant, moves to the surface group at 4a-ii-c)", () => {
+    test("the seven pass-invariant group-0 entries, in order — no `vertices` (pass-variant, in the surface group)", () => {
         expect(Object.keys(engineLayout.entries)).toEqual([
             "frame",
             "view",

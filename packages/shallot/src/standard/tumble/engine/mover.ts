@@ -1,6 +1,6 @@
 // Character mover: the plane solver that pushes a capsule mover out of a set of collision planes,
 // and the velocity clip that projects motion along them. Ported op-for-op from Box3D's mover.c
-// (Erin Catto, MIT). fround discipline per the README.
+// (Erin Catto, MIT). fround discipline per .claude/rules/tumble.md § "The contract: bit-exact f32 parity".
 //
 // The collision planes fed here come from b3CollideMover (collideMover in shape.ts), which gathers a
 // b3PlaneResult per touched shape. The caller turns those into b3CollisionPlanes (adding a pushLimit

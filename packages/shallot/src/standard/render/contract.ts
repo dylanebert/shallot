@@ -1,7 +1,7 @@
 // The renderer-neutral schema-backed surface/background contract. Layouts are created before their TGSL functions so
 // shader code can close over `layout.$.name`; registration binds exact spec identity to a State lifetime.
 //
-// Group split (4a-ii design lock): a typed surface's own bindings + the sear-injected `vertices` slot pin
+// Group split: a typed surface's own bindings + the sear-injected `vertices` slot pin
 // to **group 2** (engine 0 / shadow-or-atlas 1 / surface 2) — `surfaceLayout()`'s `$idx(SURFACE_GROUP)`. The
 // `vertices` slot is pass-variant (color pass reads the 16 B main stream, prepass/shadow the 8 B
 // position-only stream, same physical slot) — `surfaceLayout()` synthesizes both variants; typegpu resolves only
@@ -27,7 +27,7 @@ type ShaderStage = "compute" | "vertex" | "fragment";
 /** the default visibility for an immutable surface resource. */
 const VS_FS: ShaderStage[] = ["vertex", "fragment"];
 
-/** group 2 (4a-ii design lock: engine 0 / shadow-or-atlas 1 / surface 2) — where a typed surface's own
+/** group 2 (engine 0 / shadow-or-atlas 1 / surface 2) — where a typed surface's own
  *  bindings + the sear-injected `vertices` slot pin. */
 export const SURFACE_GROUP = 2;
 
@@ -131,7 +131,7 @@ export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayo
 };
 
 /**
- * step one of the two-step typed registration (4a-ii design lock): synthesize a surface's group-2 layout
+ * step one of the two-step typed registration: synthesize a surface's group-2 layout
  * from its own bindings, so a typed `vs`/`fs` can close over `layout.$.name` while it's being authored —
  * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
  * bindings (sprite ×6, gltf trios — register the same layout object on each).
@@ -167,8 +167,8 @@ export type BgLayout<B extends Record<string, Binding>> = TgpuBindGroupLayout<{
 }>;
 
 /**
- * step one of a typed background's two-step registration, {@link surfaceLayout}'s twin for the Backgrounds seam
- * (the Backgrounds bindings lock, 4a-ii-c-3a-4): synthesize a background's group-2 layout from its own
+ * step one of a typed background's two-step registration, {@link surfaceLayout}'s twin for the Backgrounds seam:
+ * synthesize a background's group-2 layout from its own
  * bindings, so its typed `fs` can close over `layout.$.name` while it's being authored.
  *
  * @example
