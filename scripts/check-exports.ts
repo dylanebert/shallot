@@ -6,6 +6,13 @@
 // test files, zero production consumers). Re-export chains (barrel files) are followed to the
 // original exporter, so a symbol consumed through a barrel is not falsely flagged.
 //
+// **Dead = zero in-repo consumers AND not on the sanctioned public surface** — both clauses.
+// The public surface is the transitive re-export closure of the named entry points in
+// `package.json`'s `exports` map (the curated named entries — `./src/*` is ignored as an escape
+// hatch). A library's public exports legitimately have zero internal consumers, so in-repo
+// reachability alone reports the entire public API as dead. Comments are stripped before
+// scanning so a reference inside a JSDoc `@example` block is not counted as a consumer.
+//
 // `--root <dir>` points the check at an alternate tree (fixture-driven proof; check-scripts.ts
 // and check-boundary.ts carry the same flag for the same reason).
 
@@ -44,6 +51,64 @@ export function escapeRegExp(s: string): string {
 
 function lineOf(content: string, offset: number): number {
     return content.slice(0, offset).split("\n").length;
+}
+
+// Strip line comments (`// ...`) and block comments (`/* ... */`, including JSDoc) while
+// preserving string literals and newlines (for line-number accuracy). A reference inside a
+// JSDoc `@example` block is not a consumer.
+export function stripComments(content: string): string {
+    let result = "";
+    let i = 0;
+    const len = content.length;
+
+    while (i < len) {
+        // String literals — copy through, don't treat // or /* inside them as comments
+        if (content[i] === '"' || content[i] === "'" || content[i] === "`") {
+            const quote = content[i];
+            result += content[i];
+            i++;
+            while (i < len) {
+                if (content[i] === "\\" && i + 1 < len) {
+                    result += content[i] + content[i + 1];
+                    i += 2;
+                    continue;
+                }
+                result += content[i];
+                if (content[i] === quote) {
+                    i++;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+
+        // Line comments — skip to end of line (newline preserved by outer loop)
+        if (content[i] === "/" && i + 1 < len && content[i + 1] === "/") {
+            i += 2;
+            while (i < len && content[i] !== "\n") i++;
+            continue;
+        }
+
+        // Block comments (including JSDoc) — skip, but preserve newlines for line numbers
+        if (content[i] === "/" && i + 1 < len && content[i + 1] === "*") {
+            i += 2;
+            while (i < len) {
+                if (content[i] === "*" && i + 1 < len && content[i + 1] === "/") {
+                    i += 2;
+                    break;
+                }
+                if (content[i] === "\n") result += "\n";
+                i++;
+            }
+            continue;
+        }
+
+        result += content[i];
+        i++;
+    }
+
+    return result;
 }
 
 // --- Export extraction ------------------------------------------------------
@@ -279,6 +344,87 @@ export function resolveSpecifier(
     return null;
 }
 
+// --- Public surface computation --------------------------------------------
+
+// Resolve the named entry points from `package.json`'s `exports` map to file paths relative to
+// rootDir. The `./src/*` wildcard is an escape hatch — ignore it, or every file is nominately
+// reachable and nothing is ever dead.
+export function computeEntryFiles(
+    rootDir: string,
+    packageExports: Record<string, unknown>,
+): string[] {
+    const pkgDir = resolve(rootDir, "packages/shallot");
+    const entryFiles: string[] = [];
+
+    for (const [key, value] of Object.entries(packageExports)) {
+        if (key === "./src/*") continue;
+
+        const target = typeof value === "string" ? value : (value as { types?: string })?.types;
+        if (typeof target !== "string") continue;
+
+        const resolved = resolve(pkgDir, target);
+        if (existsSync(resolved)) {
+            entryFiles.push(relative(rootDir, resolved).replace(/\\/g, "/"));
+        }
+    }
+
+    return entryFiles;
+}
+
+// The transitive re-export closure of the entry points: every (file, name) pair where `name` is
+// directly exported from `file` and reachable from an entry point through re-exports. A star
+// re-export (`export * from`) makes all direct exports of the source file reachable; a named
+// re-export (`export { foo } from`) makes only `foo` reachable, following the chain to the
+// original exporter.
+export function computePublicSurface(
+    entryFiles: string[],
+    directExportsMap: Map<string, Set<string>>,
+    reExportsMap: Map<string, { names: string[] | "*"; sourceFile: string }[]>,
+): Set<string> {
+    const publicSurface = new Set<string>();
+
+    function addReachable(file: string, visited: Set<string>) {
+        if (visited.has(file)) return;
+        visited.add(file);
+
+        for (const name of directExportsMap.get(file) ?? []) {
+            publicSurface.add(`${file}::${name}`);
+        }
+
+        for (const re of reExportsMap.get(file) ?? []) {
+            if (re.names === "*") {
+                addReachable(re.sourceFile, visited);
+            } else {
+                for (const name of re.names) {
+                    addReachableNamed(re.sourceFile, name, new Set());
+                }
+            }
+        }
+    }
+
+    function addReachableNamed(file: string, name: string, visited: Set<string>) {
+        const key = `${file}::${name}`;
+        if (visited.has(key)) return;
+        visited.add(key);
+
+        if (directExportsMap.get(file)?.has(name)) {
+            publicSurface.add(key);
+        }
+
+        for (const re of reExportsMap.get(file) ?? []) {
+            if (re.names === "*" || re.names.includes(name)) {
+                addReachableNamed(re.sourceFile, name, visited);
+            }
+        }
+    }
+
+    for (const entry of entryFiles) {
+        addReachable(entry, new Set());
+    }
+
+    return publicSurface;
+}
+
 // --- Re-export chain resolution ---------------------------------------------
 
 function resolveExport(
@@ -339,7 +485,7 @@ export async function findDeadExports(
 
     const allowSet = new Set(allowlist.map((a) => `${a.file}::${a.name}`));
 
-    // Step 1: walk source files, extract direct exports and re-exports
+    // Step 1: walk source files, extract direct exports and re-exports (comments stripped)
     const directExportsMap = new Map<string, Set<string>>();
     const reExportsMap = new Map<string, { names: string[] | "*"; sourceFile: string }[]>();
     const allExports: ExportEntry[] = [];
@@ -349,7 +495,7 @@ export async function findDeadExports(
     for await (const path of srcGlob.scan({ cwd: srcDir })) {
         if (isTestFile(path)) continue;
         const full = resolve(srcDir, path);
-        const content = await Bun.file(full).text();
+        const content = stripComments(await Bun.file(full).text());
         const relPath = relative(rootDir, full).replace(/\\/g, "/");
         fileContents.set(relPath, content);
 
@@ -369,7 +515,11 @@ export async function findDeadExports(
         reExportsMap.set(relPath, resolved);
     }
 
-    // Step 2: walk consumer files, extract imports, resolve to original exporters
+    // Step 1b: compute the public surface (transitive re-export closure of entry points)
+    const entryFiles = computeEntryFiles(rootDir, packageExports);
+    const publicSurface = computePublicSurface(entryFiles, directExportsMap, reExportsMap);
+
+    // Step 2: walk consumer files, extract imports, resolve to original exporters (comments stripped)
     const consumed = new Map<string, Map<string, Consumer[]>>();
 
     const consumerDirs = [
@@ -390,7 +540,7 @@ export async function findDeadExports(
             if (path.includes("node_modules") || path.includes("dist/")) continue;
 
             const fullPath = resolve(full, path);
-            const content = await Bun.file(fullPath).text();
+            const content = stripComments(await Bun.file(fullPath).text());
             const relPath = relative(rootDir, fullPath).replace(/\\/g, "/");
             const isTest = isTestFile(relPath);
 
@@ -455,10 +605,11 @@ export async function findDeadExports(
         }
     }
 
-    // Step 3: find dead exports
+    // Step 3: find dead exports (zero in-repo consumers AND not on the public surface)
     const dead: DeadExport[] = [];
     for (const e of allExports) {
         if (allowSet.has(`${e.file}::${e.name}`)) continue;
+        if (publicSurface.has(`${e.file}::${e.name}`)) continue;
 
         const consumers = consumed.get(e.file)?.get(e.name) ?? [];
         const productionConsumers = consumers.filter((c) => !c.isTest);

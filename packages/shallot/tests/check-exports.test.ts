@@ -3,12 +3,15 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+    computeEntryFiles,
+    computePublicSurface,
     extractDirectExports,
     extractImports,
     extractReExports,
     findDeadExports,
     isTestFile,
     resolveSpecifier,
+    stripComments,
 } from "../../../scripts/check-exports";
 
 // Fixture trees live under the OS tmpdir, never the repo — `--root`-style isolation so a
@@ -46,6 +49,44 @@ describe("isTestFile", () => {
     test("passes non-test files", () => {
         expect(isTestFile("foo.ts")).toBe(false);
         expect(isTestFile("foo.spec.ts")).toBe(false);
+    });
+});
+
+describe("stripComments", () => {
+    test("strips line comments", () => {
+        const content = "const x = 1; // comment\nconst y = 2;";
+        const stripped = stripComments(content);
+        expect(stripped).toBe("const x = 1; \nconst y = 2;");
+    });
+
+    test("strips block comments including JSDoc", () => {
+        const content =
+            "/**\n * @example\n * export const config = 1;\n */\nexport const real = 2;";
+        const stripped = stripComments(content);
+        expect(stripped).toBe("\n\n\n\nexport const real = 2;");
+    });
+
+    test("preserves string literals containing // or /*", () => {
+        const content = 'const url = "http://example.com";\nconst path = "a/*b";';
+        const stripped = stripComments(content);
+        expect(stripped).toBe('const url = "http://example.com";\nconst path = "a/*b";');
+    });
+
+    test("does not match export const inside a JSDoc @example block", () => {
+        const content = `
+/**
+ * @example
+ * \`\`\`
+ * export const config: Config = { plugins: [] };
+ * \`\`\`
+ */
+export const TumblePlugin: Plugin = { name: "Tumble" };
+`;
+        const stripped = stripComments(content);
+        const exports = extractDirectExports(stripped);
+        const names = exports.map((e) => e.name);
+        expect(names).toContain("TumblePlugin");
+        expect(names).not.toContain("config");
     });
 });
 
@@ -103,26 +144,6 @@ export type { Foo };
 `;
         const exports = extractDirectExports(content);
         expect(exports.map((e) => e.name)).toEqual(["Foo"]);
-    });
-
-    test("does not match export const inside a JSDoc @example block", () => {
-        // A known limitation of regex-based parsing: `export const config` inside a JSDoc
-        // @example code block is matched as a real export. This test documents the limitation
-        // so a future fix (AST-based parsing) can flip it to false.
-        const content = `
-/**
- * @example
- * \`\`\`
- * export const config: Config = { plugins: [] };
- * \`\`\`
- */
-export const TumblePlugin: Plugin = { name: "Tumble" };
-`;
-        const exports = extractDirectExports(content);
-        const names = exports.map((e) => e.name);
-        expect(names).toContain("TumblePlugin");
-        // limitation: `config` is falsely captured from the JSDoc example
-        expect(names).toContain("config");
     });
 });
 
@@ -279,6 +300,89 @@ describe("resolveSpecifier", () => {
     });
 });
 
+describe("computeEntryFiles", () => {
+    test("resolves named entry points to file paths", () => {
+        const root = fixture({
+            "packages/shallot/src/index.ts": "export const foo = 1;",
+            "packages/shallot/src/extras/index.ts": "export const bar = 2;",
+            "packages/shallot/package.json": JSON.stringify({
+                exports: {
+                    ".": "./src/index.ts",
+                    "./extras": "./src/extras/index.ts",
+                    "./src/*": "./src/*",
+                },
+            }),
+        });
+        const entries = computeEntryFiles(root, {
+            ".": "./src/index.ts",
+            "./extras": "./src/extras/index.ts",
+            "./src/*": "./src/*",
+        });
+        expect(entries.sort()).toEqual(
+            ["packages/shallot/src/index.ts", "packages/shallot/src/extras/index.ts"].sort(),
+        );
+    });
+
+    test("ignores the ./src/* wildcard escape hatch", () => {
+        const root = fixture({
+            "packages/shallot/src/index.ts": "export const foo = 1;",
+            "packages/shallot/package.json": JSON.stringify({
+                exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
+            }),
+        });
+        const entries = computeEntryFiles(root, {
+            ".": "./src/index.ts",
+            "./src/*": "./src/*",
+        });
+        expect(entries).toEqual(["packages/shallot/src/index.ts"]);
+    });
+});
+
+describe("computePublicSurface", () => {
+    test("star re-export makes all direct exports of the source public", () => {
+        const directExports = new Map([
+            ["packages/shallot/src/index.ts", new Set(["reExportedFn"])],
+            ["packages/shallot/src/module.ts", new Set(["reExportedFn", "notReExported"])],
+        ]);
+        const reExports = new Map<string, { names: string[] | "*"; sourceFile: string }[]>([
+            [
+                "packages/shallot/src/index.ts",
+                [{ names: "*" as const, sourceFile: "packages/shallot/src/module.ts" }],
+            ],
+        ]);
+        const surface = computePublicSurface(
+            ["packages/shallot/src/index.ts"],
+            directExports,
+            reExports,
+        );
+        // star re-export: all direct exports of module.ts are public
+        expect(surface.has("packages/shallot/src/module.ts::reExportedFn")).toBe(true);
+        expect(surface.has("packages/shallot/src/module.ts::notReExported")).toBe(true);
+        // the barrel's own direct export is also public
+        expect(surface.has("packages/shallot/src/index.ts::reExportedFn")).toBe(true);
+    });
+
+    test("named re-export makes only the named symbol public, not siblings", () => {
+        const directExports = new Map([
+            ["packages/shallot/src/index.ts", new Set<string>()],
+            ["packages/shallot/src/module.ts", new Set(["foo", "bar"])],
+        ]);
+        const reExports = new Map([
+            [
+                "packages/shallot/src/index.ts",
+                [{ names: ["foo"], sourceFile: "packages/shallot/src/module.ts" }],
+            ],
+        ]);
+        const surface = computePublicSurface(
+            ["packages/shallot/src/index.ts"],
+            directExports,
+            reExports,
+        );
+        expect(surface.has("packages/shallot/src/module.ts::foo")).toBe(true);
+        expect(surface.has("packages/shallot/src/module.ts::bar")).toBe(false);
+    });
+});
+
 describe("findDeadExports — red-first proof", () => {
     test("flags a planted zero-consumer export and does not flag a live one", async () => {
         const root = fixture({
@@ -294,7 +398,8 @@ export function inFileFn(): number { return inFileFn(); }
 import { liveFn } from "./module";
 liveFn();
 `,
-            "packages/shallot/src/index.ts": `export * from "./module";`,
+            // index re-exports liveFn (public surface) but NOT deadFn or inFileFn
+            "packages/shallot/src/index.ts": `export { liveFn } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -331,7 +436,8 @@ prodFn();
 import { testOnlyFn } from "../src/module";
 testOnlyFn();
 `,
-            "packages/shallot/src/index.ts": `export * from "./module";`,
+            // index re-exports prodFn (public) but NOT testOnlyFn
+            "packages/shallot/src/index.ts": `export { prodFn } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -353,6 +459,7 @@ testOnlyFn();
             "packages/shallot/src/module.ts": `
 export function barrelFn(): number { return 0; }
 `,
+            // barrelFn is on the public surface (star re-exported from entry point) AND consumed
             "packages/shallot/src/index.ts": `export * from "./module";`,
             "packages/shallot/src/consumer.ts": `
 import { barrelFn } from "./index";
@@ -377,7 +484,8 @@ export function unusedNs(): number { return 0; }
 import * as ns from "./module";
 ns.usedNs();
 `,
-            "packages/shallot/src/index.ts": `export * from "./module";`,
+            // index re-exports usedNs (public) but NOT unusedNs
+            "packages/shallot/src/index.ts": `export { usedNs } from "./module";`,
         });
 
         const dead = await findDeadExports(root);
@@ -398,7 +506,8 @@ ns.usedNs();
 export function allowedDead(): number { return 0; }
 export function notAllowed(): number { return 0; }
 `,
-            "packages/shallot/src/index.ts": `export * from "./module";`,
+            // neither is re-exported from the entry point
+            "packages/shallot/src/index.ts": `export const other = 1;`,
         });
 
         const dead = await findDeadExports(root, [
@@ -420,10 +529,115 @@ export function liveFn(): number { return 1; }
 import { liveFn } from "./module";
 liveFn();
 `,
+            // liveFn is both consumed AND on the public surface
             "packages/shallot/src/index.ts": `export * from "./module";`,
         });
 
         const dead = await findDeadExports(root);
         expect(dead).toHaveLength(0);
+    });
+
+    // --- New semantics: public surface exclusion ---
+
+    test("a symbol with zero in-repo consumers but re-exported from a declared entry point is NOT flagged", async () => {
+        const root = fixture({
+            "packages/shallot/package.json": JSON.stringify({
+                exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
+            }),
+            "packages/shallot/src/module.ts": `
+export function publicFn(): number { return 0; }
+export function deadFn(): number { return 0; }
+`,
+            // index.ts re-exports publicFn but NOT deadFn
+            "packages/shallot/src/index.ts": `export { publicFn } from "./module";`,
+        });
+
+        const dead = await findDeadExports(root);
+        const names = dead.map((d) => d.name);
+
+        // publicFn is on the public surface (re-exported from the `.` entry point) → NOT flagged
+        expect(names).not.toContain("publicFn");
+
+        // deadFn is NOT on the public surface → flagged as zero-consumer
+        expect(names).toContain("deadFn");
+        expect(dead.find((d) => d.name === "deadFn")!.category).toBe("zero-consumer");
+    });
+
+    test("a symbol re-exported through a star barrel chain from an entry point is NOT flagged", async () => {
+        const root = fixture({
+            "packages/shallot/package.json": JSON.stringify({
+                exports: {
+                    ".": "./src/index.ts",
+                    "./extras": "./src/extras/index.ts",
+                    "./src/*": "./src/*",
+                },
+            }),
+            "packages/shallot/src/mod.ts": `
+export function deepFn(): number { return 0; }
+`,
+            "packages/shallot/src/extras/index.ts": `export * from "../mod";`,
+            "packages/shallot/src/index.ts": `export * from "./mod";`,
+        });
+
+        const dead = await findDeadExports(root);
+        // deepFn is reachable from both `.` and `./extras` entry points via star re-exports → NOT flagged
+        expect(dead.find((d) => d.name === "deepFn")).toBeUndefined();
+    });
+
+    test("the ./src/* wildcard is ignored: a symbol only reachable through it IS flagged", async () => {
+        const root = fixture({
+            "packages/shallot/package.json": JSON.stringify({
+                exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
+            }),
+            "packages/shallot/src/module.ts": `
+export function wildcardOnly(): number { return 0; }
+`,
+            // index.ts does NOT re-export from module — module is only reachable via ./src/*
+            "packages/shallot/src/index.ts": `export const other = 1;`,
+        });
+
+        const dead = await findDeadExports(root);
+        // wildcardOnly is only reachable through ./src/* which is ignored → flagged
+        const found = dead.find((d) => d.name === "wildcardOnly");
+        expect(found).toBeDefined();
+        expect(found!.category).toBe("zero-consumer");
+    });
+
+    test("JSDoc @example reference is not counted as a consumer or export", async () => {
+        const root = fixture({
+            "packages/shallot/package.json": JSON.stringify({
+                exports: { ".": "./src/index.ts", "./src/*": "./src/*" },
+            }),
+            "packages/shallot/src/module.ts": `
+/**
+ * @example
+ * \`\`\`
+ * export const config = { foo: 1 };
+ * \`\`\`
+ */
+export function realFn(): number { return 0; }
+export function deadFn(): number { return 0; }
+`,
+            "packages/shallot/src/consumer.ts": `
+// realFn is used here, but deadFn is only mentioned in a comment
+import { realFn } from "./module";
+realFn();
+// deadFn is mentioned here but not imported
+`,
+            // index re-exports realFn (public) but NOT deadFn
+            "packages/shallot/src/index.ts": `export { realFn } from "./module";`,
+        });
+
+        const dead = await findDeadExports(root);
+        const names = dead.map((d) => d.name);
+
+        // realFn is consumed → not flagged
+        expect(names).not.toContain("realFn");
+
+        // deadFn is not consumed (comment mention doesn't count) → flagged
+        expect(names).toContain("deadFn");
+
+        // `config` from the JSDoc @example is not a real export → not in the output at all
+        expect(names).not.toContain("config");
     });
 });
