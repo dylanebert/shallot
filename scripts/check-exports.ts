@@ -1,0 +1,727 @@
+// ts-prune-shaped: for every symbol exported from `packages/shallot/src/**`, determine whether
+// any *external* consumer imports it across `src/`, `examples/`, `scripts/`, and `tests/`.
+// Reports the zero-consumer ones (exported, nobody imports them, not even referenced in-file),
+// the in-file-only ones (exported, referenced within the defining file but not imported
+// externally — exports.md's internal-stays-internal), and the test-only ones (consumed only by
+// test files, zero production consumers). Re-export chains (barrel files) are followed to the
+// original exporter, so a symbol consumed through a barrel is not falsely flagged.
+//
+// **Dead = zero in-repo consumers AND not on the sanctioned public surface** — both clauses.
+// The public surface is the transitive re-export closure of the named entry points in
+// `package.json`'s `exports` map (the curated named entries — `./src/*` is ignored as an escape
+// hatch). A library's public exports legitimately have zero internal consumers, so in-repo
+// reachability alone reports the entire public API as dead. Comments are stripped before
+// scanning so a reference inside a JSDoc `@example` block is not counted as a consumer.
+//
+// `--root <dir>` points the check at an alternate tree (fixture-driven proof; check-scripts.ts
+// and check-boundary.ts carry the same flag for the same reason).
+
+import { existsSync } from "node:fs";
+import { dirname, join, relative, resolve } from "node:path";
+import { Glob } from "bun";
+
+const PKG = "@dylanebert/shallot";
+
+// --- Types ------------------------------------------------------------------
+
+export type ExportEntry = {
+    file: string; // path relative to rootDir, forward slashes
+    name: string;
+    line: number;
+    kind: string;
+};
+
+export type DeadExport = {
+    file: string;
+    name: string;
+    line: number;
+    category: "zero-consumer" | "in-file-only" | "test-only";
+    testConsumers: { file: string; line: number }[];
+};
+
+// --- Helpers ----------------------------------------------------------------
+
+export function isTestFile(path: string): boolean {
+    return /\.(test|oracle|lab|probes|tier)\.ts$/.test(path);
+}
+
+export function escapeRegExp(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function lineOf(content: string, offset: number): number {
+    return content.slice(0, offset).split("\n").length;
+}
+
+// Strip line comments (`// ...`) and block comments (`/* ... */`, including JSDoc) while
+// preserving string literals and newlines (for line-number accuracy). A reference inside a
+// JSDoc `@example` block is not a consumer.
+export function stripComments(content: string): string {
+    let result = "";
+    let i = 0;
+    const len = content.length;
+
+    while (i < len) {
+        // String literals — copy through, don't treat // or /* inside them as comments
+        if (content[i] === '"' || content[i] === "'" || content[i] === "`") {
+            const quote = content[i];
+            result += content[i];
+            i++;
+            while (i < len) {
+                if (content[i] === "\\" && i + 1 < len) {
+                    result += content[i] + content[i + 1];
+                    i += 2;
+                    continue;
+                }
+                result += content[i];
+                if (content[i] === quote) {
+                    i++;
+                    break;
+                }
+                i++;
+            }
+            continue;
+        }
+
+        // Line comments — skip to end of line (newline preserved by outer loop)
+        if (content[i] === "/" && i + 1 < len && content[i + 1] === "/") {
+            i += 2;
+            while (i < len && content[i] !== "\n") i++;
+            continue;
+        }
+
+        // Block comments (including JSDoc) — skip, but preserve newlines for line numbers
+        if (content[i] === "/" && i + 1 < len && content[i + 1] === "*") {
+            i += 2;
+            while (i < len) {
+                if (content[i] === "*" && i + 1 < len && content[i + 1] === "/") {
+                    i += 2;
+                    break;
+                }
+                if (content[i] === "\n") result += "\n";
+                i++;
+            }
+            continue;
+        }
+
+        result += content[i];
+        i++;
+    }
+
+    return result;
+}
+
+// --- Export extraction ------------------------------------------------------
+
+// Direct exports: symbols declared with `export` in the file, including `export { name }`
+// without `from` (re-export of local symbols). Re-exports with `from` are handled by
+// extractReExports — they are pass-throughs, not new symbols.
+export function extractDirectExports(content: string): ExportEntry[] {
+    const exports: ExportEntry[] = [];
+
+    const patterns: [RegExp, string][] = [
+        [/export\s+(?:async\s+)?function\s+(\w+)/g, "function"],
+        [/export\s+const\s+(\w+)/g, "const"],
+        [/export\s+let\s+(\w+)/g, "let"],
+        [/export\s+class\s+(\w+)/g, "class"],
+        [/export\s+type\s+(\w+)/g, "type"],
+        [/export\s+interface\s+(\w+)/g, "interface"],
+        [/export\s+enum\s+(\w+)/g, "enum"],
+    ];
+
+    for (const [pattern, kind] of patterns) {
+        for (const m of content.matchAll(pattern)) {
+            if (m.index === undefined) continue;
+            exports.push({ file: "", name: m[1], line: lineOf(content, m.index), kind });
+        }
+    }
+
+    // export { name1, name2 } (without `from` — re-export of local symbols)
+    // also handles export type { name1, name2 } without `from`
+    for (const m of content.matchAll(/export\s+(?:type\s+)?\{([^}]+)\}(?!\s*from\b)/g)) {
+        if (m.index === undefined) continue;
+        const names = m[1]
+            .split(",")
+            .map((s) =>
+                s
+                    .trim()
+                    .replace(/^type\s+/, "")
+                    .split(/\s+as\s+/)[0]
+                    .trim(),
+            )
+            .filter(Boolean);
+        for (const name of names) {
+            if (!exports.some((e) => e.name === name)) {
+                exports.push({ file: "", name, line: lineOf(content, m.index), kind: "re-export" });
+            }
+        }
+    }
+
+    return exports;
+}
+
+export type ReExportEntry = {
+    names: string[] | "*"; // "*" for export * from
+    source: string; // module specifier as written
+};
+
+// Re-exports: export { name } from "..." and export * from "..."
+export function extractReExports(content: string): ReExportEntry[] {
+    const reExports: ReExportEntry[] = [];
+
+    for (const m of content.matchAll(/export\s+\*\s+from\s+["']([^"']+)["']/g)) {
+        reExports.push({ names: "*", source: m[1] });
+    }
+
+    for (const m of content.matchAll(
+        /export\s+(?:type\s+)?\{([^}]+)\}\s*from\s+["']([^"']+)["']/g,
+    )) {
+        const names = m[1]
+            .split(",")
+            .map((s) =>
+                s
+                    .trim()
+                    .replace(/^type\s+/, "")
+                    .split(/\s+as\s+/)[0]
+                    .trim(),
+            )
+            .filter(Boolean);
+        reExports.push({ names, source: m[2] });
+    }
+
+    return reExports;
+}
+
+// --- Import extraction ------------------------------------------------------
+
+export type ImportEntry = {
+    names: string[]; // source names (before `as`); ["*"] for namespace imports
+    specifier: string;
+    line: number;
+    namespace: string | null; // namespace name for `import * as ns from`
+};
+
+export function extractImports(content: string): ImportEntry[] {
+    const imports: ImportEntry[] = [];
+
+    const parseNames = (str: string) =>
+        str
+            .split(",")
+            .map((s) =>
+                s
+                    .trim()
+                    .replace(/^type\s+/, "")
+                    .split(/\s+as\s+/)[0]
+                    .trim(),
+            )
+            .filter(Boolean);
+
+    // import { name1, name2 } from "..." / import type { ... } from "..."
+    for (const m of content.matchAll(
+        /import\s+(?:type\s+)?\{([^}]+)\}\s*from\s+["']([^"']+)["']/g,
+    )) {
+        if (m.index === undefined) continue;
+        imports.push({
+            names: parseNames(m[1]),
+            specifier: m[2],
+            line: lineOf(content, m.index),
+            namespace: null,
+        });
+    }
+
+    // import defaultName, { name1, name2 } from "..."
+    for (const m of content.matchAll(
+        /import\s+(\w+)\s*,\s*(?:type\s+)?\{([^}]+)\}\s*from\s+["']([^"']+)["']/g,
+    )) {
+        if (m.index === undefined) continue;
+        imports.push({
+            names: [m[1], ...parseNames(m[2])],
+            specifier: m[3],
+            line: lineOf(content, m.index),
+            namespace: null,
+        });
+    }
+
+    // import defaultName from "..." (not type-only, not mixed with named)
+    for (const m of content.matchAll(/import\s+(?!type\s)(\w+)\s+from\s+["']([^"']+)["']/g)) {
+        if (m.index === undefined) continue;
+        imports.push({
+            names: [m[1]],
+            specifier: m[2],
+            line: lineOf(content, m.index),
+            namespace: null,
+        });
+    }
+
+    // import type defaultName from "..."
+    for (const m of content.matchAll(/import\s+type\s+(\w+)\s+from\s+["']([^"']+)["']/g)) {
+        if (m.index === undefined) continue;
+        imports.push({
+            names: [m[1]],
+            specifier: m[2],
+            line: lineOf(content, m.index),
+            namespace: null,
+        });
+    }
+
+    // import * as name from "..." / import type * as name from "..."
+    for (const m of content.matchAll(
+        /import\s+(?:type\s+)?\*\s+as\s+(\w+)\s+from\s+["']([^"']+)["']/g,
+    )) {
+        if (m.index === undefined) continue;
+        imports.push({
+            names: ["*"],
+            specifier: m[2],
+            line: lineOf(content, m.index),
+            namespace: m[1],
+        });
+    }
+
+    return imports;
+}
+
+// --- Specifier resolution ---------------------------------------------------
+
+export function resolveSpecifier(
+    fromFile: string,
+    specifier: string,
+    rootDir: string,
+    packageExports: Record<string, unknown>,
+): string | null {
+    if (specifier.startsWith(".")) {
+        const fromDir = dirname(resolve(rootDir, fromFile));
+        const abs = resolve(fromDir, specifier);
+        for (const candidate of [abs + ".ts", join(abs, "index.ts"), abs]) {
+            if (existsSync(candidate)) {
+                return relative(rootDir, candidate).replace(/\\/g, "/");
+            }
+        }
+        return null;
+    }
+
+    if (specifier === PKG || specifier.startsWith(PKG + "/")) {
+        const subpath = specifier === PKG ? "." : `./${specifier.slice(PKG.length + 1)}`;
+        const pkgDir = resolve(rootDir, "packages/shallot");
+
+        const target = (entry: unknown) =>
+            typeof entry === "string" ? entry : (entry as { types?: string })?.types;
+
+        // exact match
+        const exact = packageExports[subpath];
+        if (exact) {
+            const t = target(exact);
+            if (t) {
+                const resolved = resolve(pkgDir, t);
+                if (existsSync(resolved)) return relative(rootDir, resolved).replace(/\\/g, "/");
+            }
+        }
+
+        // wildcard match (e.g. ./src/*)
+        for (const [key, value] of Object.entries(packageExports)) {
+            if (!key.includes("*")) continue;
+            const t = target(value);
+            if (typeof t !== "string" || !t.includes("*")) continue;
+
+            const keyStar = key.indexOf("*");
+            const keyPrefix = key.slice(0, keyStar);
+            const keySuffix = key.slice(keyStar + 1);
+            if (subpath.startsWith(keyPrefix) && subpath.endsWith(keySuffix)) {
+                const captured = subpath.slice(keyPrefix.length, subpath.length - keySuffix.length);
+                const tStar = t.indexOf("*");
+                const resolvedPath = t.slice(0, tStar) + captured + t.slice(tStar + 1);
+                for (const candidate of [
+                    resolve(pkgDir, resolvedPath + ".ts"),
+                    join(resolve(pkgDir, resolvedPath), "index.ts"),
+                    resolve(pkgDir, resolvedPath),
+                ]) {
+                    if (existsSync(candidate))
+                        return relative(rootDir, candidate).replace(/\\/g, "/");
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+// --- Public surface computation --------------------------------------------
+
+// Resolve the named entry points from `package.json`'s `exports` map to file paths relative to
+// rootDir. The `./src/*` wildcard is an escape hatch — ignore it, or every file is nominately
+// reachable and nothing is ever dead.
+export function computeEntryFiles(
+    rootDir: string,
+    packageExports: Record<string, unknown>,
+): string[] {
+    const pkgDir = resolve(rootDir, "packages/shallot");
+    const entryFiles: string[] = [];
+
+    for (const [key, value] of Object.entries(packageExports)) {
+        if (key === "./src/*") continue;
+
+        const target = typeof value === "string" ? value : (value as { types?: string })?.types;
+        if (typeof target !== "string") continue;
+
+        const resolved = resolve(pkgDir, target);
+        if (existsSync(resolved)) {
+            entryFiles.push(relative(rootDir, resolved).replace(/\\/g, "/"));
+        }
+    }
+
+    return entryFiles;
+}
+
+// The transitive re-export closure of the entry points: every (file, name) pair where `name` is
+// directly exported from `file` and reachable from an entry point through re-exports. A star
+// re-export (`export * from`) makes all direct exports of the source file reachable; a named
+// re-export (`export { foo } from`) makes only `foo` reachable, following the chain to the
+// original exporter.
+export function computePublicSurface(
+    entryFiles: string[],
+    directExportsMap: Map<string, Set<string>>,
+    reExportsMap: Map<string, { names: string[] | "*"; sourceFile: string }[]>,
+): Set<string> {
+    const publicSurface = new Set<string>();
+
+    function addReachable(file: string, visited: Set<string>) {
+        if (visited.has(file)) return;
+        visited.add(file);
+
+        for (const name of directExportsMap.get(file) ?? []) {
+            publicSurface.add(`${file}::${name}`);
+        }
+
+        for (const re of reExportsMap.get(file) ?? []) {
+            if (re.names === "*") {
+                addReachable(re.sourceFile, visited);
+            } else {
+                for (const name of re.names) {
+                    addReachableNamed(re.sourceFile, name, new Set());
+                }
+            }
+        }
+    }
+
+    function addReachableNamed(file: string, name: string, visited: Set<string>) {
+        const key = `${file}::${name}`;
+        if (visited.has(key)) return;
+        visited.add(key);
+
+        if (directExportsMap.get(file)?.has(name)) {
+            publicSurface.add(key);
+        }
+
+        for (const re of reExportsMap.get(file) ?? []) {
+            if (re.names === "*" || re.names.includes(name)) {
+                addReachableNamed(re.sourceFile, name, visited);
+            }
+        }
+    }
+
+    for (const entry of entryFiles) {
+        addReachable(entry, new Set());
+    }
+
+    return publicSurface;
+}
+
+// --- Re-export chain resolution ---------------------------------------------
+
+function resolveExport(
+    file: string,
+    name: string,
+    directExports: Map<string, Set<string>>,
+    reExports: Map<string, { names: string[] | "*"; sourceFile: string }[]>,
+    visited: Set<string>,
+): string | null {
+    if (visited.has(file)) return null;
+    visited.add(file);
+
+    if (directExports.get(file)?.has(name)) return file;
+
+    for (const re of reExports.get(file) ?? []) {
+        if (re.names === "*" || re.names.includes(name)) {
+            const result = resolveExport(re.sourceFile, name, directExports, reExports, visited);
+            if (result) return result;
+        }
+    }
+
+    return null;
+}
+
+// --- In-file usage check ----------------------------------------------------
+
+function isInFileOnly(content: string, name: string): boolean {
+    const pattern = new RegExp(`\\b${escapeRegExp(name)}\\b`, "g");
+    return (content.match(pattern) ?? []).length > 1;
+}
+
+// --- Consumer tracking ------------------------------------------------------
+
+type Consumer = { isTest: boolean; consumerFile: string; consumerLine: number };
+
+function addConsumer(
+    consumed: Map<string, Map<string, Consumer[]>>,
+    file: string,
+    name: string,
+    consumer: Consumer,
+): void {
+    if (!consumed.has(file)) consumed.set(file, new Map());
+    if (!consumed.get(file)!.has(name)) consumed.get(file)!.set(name, []);
+    consumed.get(file)!.get(name)!.push(consumer);
+}
+
+// --- Main -------------------------------------------------------------------
+
+export async function findDeadExports(
+    rootDir: string,
+    allowlist: { file: string; name: string }[] = [],
+): Promise<DeadExport[]> {
+    const srcDir = resolve(rootDir, "packages/shallot/src");
+    const pkgPath = resolve(rootDir, "packages/shallot/package.json");
+    if (!existsSync(pkgPath)) return [];
+    const pkg = (await Bun.file(pkgPath).json()) as { exports?: Record<string, unknown> };
+    const packageExports = pkg.exports ?? {};
+
+    const allowSet = new Set(allowlist.map((a) => `${a.file}::${a.name}`));
+
+    // Step 1: walk source files, extract direct exports and re-exports (comments stripped)
+    const directExportsMap = new Map<string, Set<string>>();
+    const reExportsMap = new Map<string, { names: string[] | "*"; sourceFile: string }[]>();
+    const allExports: ExportEntry[] = [];
+    const fileContents = new Map<string, string>();
+
+    const srcGlob = new Glob("**/*.ts");
+    for await (const path of srcGlob.scan({ cwd: srcDir })) {
+        if (isTestFile(path)) continue;
+        const full = resolve(srcDir, path);
+        const content = stripComments(await Bun.file(full).text());
+        const relPath = relative(rootDir, full).replace(/\\/g, "/");
+        fileContents.set(relPath, content);
+
+        const exports = extractDirectExports(content);
+        for (const e of exports) {
+            e.file = relPath;
+            allExports.push(e);
+        }
+        directExportsMap.set(relPath, new Set(exports.map((e) => e.name)));
+
+        const reExports = extractReExports(content);
+        const resolved: { names: string[] | "*"; sourceFile: string }[] = [];
+        for (const re of reExports) {
+            const sourceFile = resolveSpecifier(relPath, re.source, rootDir, packageExports);
+            if (sourceFile) resolved.push({ names: re.names, sourceFile });
+        }
+        reExportsMap.set(relPath, resolved);
+    }
+
+    // Step 1b: compute the public surface (transitive re-export closure of entry points)
+    const entryFiles = computeEntryFiles(rootDir, packageExports);
+    const publicSurface = computePublicSurface(entryFiles, directExportsMap, reExportsMap);
+
+    // Step 2: walk consumer files, extract imports, resolve to original exporters (comments stripped)
+    const consumed = new Map<string, Map<string, Consumer[]>>();
+
+    const consumerDirs = [
+        "packages/shallot/src",
+        "packages/shallot/tests",
+        "packages/shallot/bin",
+        "packages/shallot/scripts",
+        "scripts",
+        "examples",
+        "evals",
+    ];
+
+    for (const dir of consumerDirs) {
+        const full = resolve(rootDir, dir);
+        if (!existsSync(full)) continue;
+        const glob = new Glob("**/*.ts");
+        for await (const path of glob.scan({ cwd: full })) {
+            if (path.includes("node_modules") || path.includes("dist/")) continue;
+
+            const fullPath = resolve(full, path);
+            const content = stripComments(await Bun.file(fullPath).text());
+            const relPath = relative(rootDir, fullPath).replace(/\\/g, "/");
+            const isTest = isTestFile(relPath);
+
+            const imports = extractImports(content);
+            for (const imp of imports) {
+                const targetFile = resolveSpecifier(
+                    relPath,
+                    imp.specifier,
+                    rootDir,
+                    packageExports,
+                );
+                if (!targetFile) continue;
+                if (targetFile === relPath) continue; // self-import is not external
+
+                for (const name of imp.names) {
+                    if (name === "*") {
+                        // namespace import — only exports actually accessed through the namespace
+                        // (nsName.exportName in the file content) are consumed. A bare `import * as ns`
+                        // that never references ns.foo does not consume any export.
+                        const nsName = imp.namespace;
+                        if (nsName) {
+                            const nsPattern = new RegExp(
+                                `\\b${escapeRegExp(nsName)}\\.(\\w+)`,
+                                "g",
+                            );
+                            for (const m of content.matchAll(nsPattern)) {
+                                const accessedName = m[1];
+                                const original = resolveExport(
+                                    targetFile,
+                                    accessedName,
+                                    directExportsMap,
+                                    reExportsMap,
+                                    new Set(),
+                                );
+                                if (original) {
+                                    addConsumer(consumed, original, accessedName, {
+                                        isTest,
+                                        consumerFile: relPath,
+                                        consumerLine: imp.line,
+                                    });
+                                }
+                            }
+                        }
+                    } else {
+                        const original = resolveExport(
+                            targetFile,
+                            name,
+                            directExportsMap,
+                            reExportsMap,
+                            new Set(),
+                        );
+                        if (original) {
+                            addConsumer(consumed, original, name, {
+                                isTest,
+                                consumerFile: relPath,
+                                consumerLine: imp.line,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 3: find dead exports (zero in-repo consumers AND not on the public surface)
+    const dead: DeadExport[] = [];
+    for (const e of allExports) {
+        if (allowSet.has(`${e.file}::${e.name}`)) continue;
+        if (publicSurface.has(`${e.file}::${e.name}`)) continue;
+
+        const consumers = consumed.get(e.file)?.get(e.name) ?? [];
+        const productionConsumers = consumers.filter((c) => !c.isTest);
+        const testConsumers = consumers.filter((c) => c.isTest);
+
+        if (productionConsumers.length > 0) continue;
+
+        if (testConsumers.length > 0) {
+            dead.push({
+                file: e.file,
+                name: e.name,
+                line: e.line,
+                category: "test-only",
+                testConsumers: testConsumers.map((c) => ({
+                    file: c.consumerFile,
+                    line: c.consumerLine,
+                })),
+            });
+        } else {
+            const content = fileContents.get(e.file) ?? "";
+            const inFile = isInFileOnly(content, e.name);
+            dead.push({
+                file: e.file,
+                name: e.name,
+                line: e.line,
+                category: inFile ? "in-file-only" : "zero-consumer",
+                testConsumers: [],
+            });
+        }
+    }
+
+    return dead;
+}
+
+export async function run(rootDir: string): Promise<{ dead: DeadExport[]; total: number }> {
+    const dead = await findDeadExports(rootDir);
+    return { dead, total: dead.length };
+}
+
+// Only the zero-consumer bucket is fatal. in-file-only and test-only are advisory — they carry
+// different remedies (demote / reach via module path) and are reported on every run but do not
+// fail the check. This split lets stage 2 reach exit zero after deleting the zero-consumer set,
+// even while advisory buckets remain non-empty.
+export function shouldFail(dead: DeadExport[]): boolean {
+    return dead.some((d) => d.category === "zero-consumer");
+}
+
+if (import.meta.main) {
+    const rootArgIdx = process.argv.indexOf("--root");
+    const rootDir = resolve(
+        rootArgIdx >= 0 ? process.argv[rootArgIdx + 1] : resolve(import.meta.dir, ".."),
+    );
+
+    const { dead } = await run(rootDir);
+
+    const byCategory = {
+        "zero-consumer": dead.filter((d) => d.category === "zero-consumer"),
+        "in-file-only": dead.filter((d) => d.category === "in-file-only"),
+        "test-only": dead.filter((d) => d.category === "test-only"),
+    };
+
+    const fatal = shouldFail(dead);
+    const advisoryCount = byCategory["in-file-only"].length + byCategory["test-only"].length;
+
+    // --- Enforced class (zero-consumer) ---
+    if (fatal) {
+        console.error(
+            `✗ ${byCategory["zero-consumer"].length} zero-consumer export(s) — ENFORCED:\n`,
+        );
+        for (const d of byCategory["zero-consumer"]) {
+            console.error(`  ${d.file}:${d.line} ${d.name}`);
+        }
+        console.error();
+    }
+
+    // --- Advisory classes (in-file-only, test-only) — always reported, never fatal ---
+    if (advisoryCount > 0) {
+        console.error(`Advisory (${advisoryCount} total) — NOT enforced:\n`);
+        if (byCategory["in-file-only"].length > 0) {
+            console.error(`  [in-file-only] (${byCategory["in-file-only"].length}):`);
+            for (const d of byCategory["in-file-only"]) {
+                console.error(`    ${d.file}:${d.line} ${d.name}`);
+            }
+            console.error();
+        }
+        if (byCategory["test-only"].length > 0) {
+            console.error(`  [test-only] (${byCategory["test-only"].length}):`);
+            for (const d of byCategory["test-only"]) {
+                console.error(`    ${d.file}:${d.line} ${d.name}`);
+                for (const c of d.testConsumers) {
+                    console.error(`      consumed by: ${c.file}:${c.line}`);
+                }
+            }
+            console.error();
+        }
+    }
+
+    if (fatal) {
+        console.error(
+            "zero-consumer is the enforced class — delete the export. in-file-only and\n" +
+                "test-only are advisory: demote to internal (exports.md internal-stays-internal)\n" +
+                "or reach via the module path. They are reported on every run but do not fail\n" +
+                "the check.",
+        );
+        process.exit(1);
+    }
+
+    console.log("✓ no zero-consumer exports");
+    if (advisoryCount > 0) {
+        console.log(
+            `(${advisoryCount} advisory export(s) reported above — in-file-only and test-only\n` +
+                "are not enforced; see guidance.)",
+        );
+    }
+}
