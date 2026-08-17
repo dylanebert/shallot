@@ -1,7 +1,7 @@
 //! The body-state SoA column ABI: the shared memory layout the TS side hands the kernel and every
 //! solver phase reads. AoS-per-body (one body's fields contiguous) — matching box3d's own
 //! `b3BodyState` / `b3BodySim` array storage, which the wide contact solver gathers from by index.
-//! Scalar phases (integrate, finalize) read one body's struct; the wide solver (stage 3b) will gather
+//! Scalar phases (integrate, finalize) read one body's struct; the wide solver will gather
 //! four. Layout is free (the fixture hash pins arithmetic + solve order, not memory); this is the
 //! least-surprising choice and the one the gather pattern wants.
 //!

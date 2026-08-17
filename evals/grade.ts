@@ -53,7 +53,7 @@ interface Result {
         gate: Check & { skipped?: boolean; assertions?: Assertion[]; errors?: string[] };
     };
     // mechanical fields this script fills; the judgment fields (claimed*/verified*) are filled by the
-    // kex-side runner that reads the agent's transcript — verification honesty is a judgment, not a
+    // grading runner that reads the agent's transcript — verification honesty is a judgment, not a
     // mechanical check
     verification: {
         booted: boolean | null;

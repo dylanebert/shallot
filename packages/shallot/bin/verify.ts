@@ -1192,8 +1192,8 @@ async function verifyCommand(raw: string[]): Promise<number> {
                 const runCheckpoints: Checkpoint[] = [{ name: "start", t: Date.now() }];
                 const runProbes: TimingProbes = { harnessInstallMs: null, resourceTiming: null };
                 let runResult: Result;
-                // a fresh context + page per run, never reused: the one-verdict law (`shallot-gate-ergonomics`
-                // Locked decision) — module singletons and GPU device state must not bleed between runs.
+                // a fresh context + page per run, never reused: the one-verdict law — module singletons
+                // and GPU device state must not bleed between runs.
                 // `newContext()` itself is inside the try: a page/browser crash (the `page.on("crash")`
                 // case `attachErrorCapture` listens for) can take the whole browser process with it, and a
                 // subsequent `newContext()` then throws — that must fail only this run, not lose every

@@ -1,4 +1,4 @@
-// The interaction + visual standing probe for the tumble sample host (spec tumble-inline stage 5). Two
+// The interaction + visual standing probe for the tumble sample host. Two
 // param-gated phases the gym harness runs after the gold assert, on the live (still-stepping) scene — so
 // they drive it rather than reading a settled snapshot, and NEVER feed the gold oracle:
 //

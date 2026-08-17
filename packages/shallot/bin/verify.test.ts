@@ -951,7 +951,7 @@ describe("reportBatch — the batch human/JSON rendering", () => {
     });
 });
 
-describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-perf-gates stage 7)", () => {
+describe("stdout survives process.exit — the 64 KiB pipe truncation", () => {
     // The truncation is a Node behavior, not a Bun one (measured: `bun -e "console.log(huge); process.exit(0)"`
     // piped never truncates; `node` does, exactly at 65,536 B). It's Node that hits it in production — the
     // WSL bridge runs a `bun build --target node` bundle of this CLI (`scripts/wsl-bridge.ts` buildBundle),
@@ -1134,8 +1134,8 @@ describe("stdout survives process.exit — the 64 KiB pipe truncation (shallot-p
 });
 
 // Every red verdict this repo's gates ever report routes through driveHarness's failure arms and
-// withGpuLog's merge — bench/flows/recipes only ever drive the green path (spec: shallot-cli-tests,
-// stage 4). A duck-typed page stub is not module mocking: Page is already typed `any`, and the stub
+// withGpuLog's merge — bench/flows/recipes only ever drive the green path. A duck-typed page stub is
+// not module mocking: Page is already typed `any`, and the stub
 // supplies only the boundary methods (`waitForFunction`, `evaluate`, `locator`) driveHarness itself
 // calls — the pre-existing seam the Locked decision names.
 describe("driveHarness — the red arms every gate's red routes through", () => {

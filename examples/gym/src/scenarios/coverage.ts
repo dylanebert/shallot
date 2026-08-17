@@ -1,6 +1,6 @@
 // The both-directions coverage check over `SCENARIO_GATES` + `GATE_EXEMPTIONS`
-// (`specs/shallot-gate-ergonomics.md` Locked decision: "coverage is a declared registry asserted both
-// directions"). `checkGateEntries` is pure over plain data + a glob matcher, so `coverage.test.ts` can
+// (a declared registry asserted both directions). `checkGateEntries` is pure over plain data + a glob
+// matcher, so `coverage.test.ts` can
 // red-prove it against fixtures with no filesystem or scenario import; `gpuModulePopulation` is the one
 // real-filesystem seam, and `scenarioNames()` (imported for its side effect via `./index`) is the one
 // real-registration seam.

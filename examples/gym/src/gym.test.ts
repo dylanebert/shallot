@@ -32,7 +32,7 @@ test("static noRender declarations keep their diagnostic-scenario behavior", () 
     expect(resolveNoRender(undefined, {})).toBe(false);
 });
 
-// `run()` inlines the pipeline-count extraction (`shallot-perf-gates` stage 3b review finding 1):
+// `run()` inlines the pipeline-count extraction:
 // `[...Profile.compile.keys()].filter(k => Profile.compiledPipelines.has(k)).length`, never
 // `Profile.compile.size` — a `precompile` scope-only span (the `sear-typed-variants` shape) lands in
 // `compile` without ever registering in `compiledPipelines`, so `.size` overcounts. Seeds `Profile`'s
@@ -89,7 +89,7 @@ test("run() reports the filtered pipeline count, not Profile.compile.size", asyn
 });
 
 // `run()` computes `budget:bytes`'s measured quantity as `Profile.bufferBytes + Profile.textureBytes -
-// Profile.lazyBytes`, never the raw sum (`shallot-perf-gates` stage 4e): a lazily-grown pool's live bytes
+// Profile.lazyBytes`, never the raw sum: a lazily-grown pool's live bytes
 // are timing-dependent, so a lazy pool growing (bufferBytes AND lazyBytes moving together) must NOT red
 // the gate, while a bogus allocation landing in a GATED label (bufferBytes moving alone) must still red
 // it. Seeds `Profile`'s module-singleton scalar fields directly (no live GPU device needed) against the

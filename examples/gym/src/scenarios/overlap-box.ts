@@ -1,4 +1,4 @@
-// collision-overlap-box — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `OverlapBox` sample
+// collision-overlap-box — stage-4 gym twin: the tumble.js `OverlapBox` sample
 // (`samples/src/samples/collision.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold. The circling `overlapAABB` query + HUD count (`render()`) is outside the gold contract —
 // it only feeds debug-draw output, never mutates the world — so only `build()` ports.

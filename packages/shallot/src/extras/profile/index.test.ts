@@ -60,18 +60,18 @@ describe("ProfilePlugin", () => {
         try {
             ProfilePlugin.initialize?.(new State());
             const buffer = Compute.device.createBuffer({
-                label: "shallot-perf-gates-test",
+                label: "perf-gate-test",
                 size: 1024,
                 usage: GPUBufferUsage.STORAGE,
             });
 
             expect(Profile.bufferBytes).toBeGreaterThanOrEqual(1024);
-            expect(Profile.allocBytes.get("shallot-perf-gates-test")).toBe(1024);
+            expect(Profile.allocBytes.get("perf-gate-test")).toBe(1024);
 
             const before = Profile.bufferBytes;
             buffer.destroy();
             expect(Profile.bufferBytes).toBe(before - 1024);
-            expect(Profile.allocBytes.has("shallot-perf-gates-test")).toBe(false);
+            expect(Profile.allocBytes.has("perf-gate-test")).toBe(false);
 
             // a `LazyAlloc.lazy: true` descriptor is a lazily-grown pool entry (`Mirror`'s readback
             // ring / `Slab`'s staging pool): its bytes sum into `lazyBytes`, a subset of `bufferBytes`,
@@ -81,7 +81,7 @@ describe("ProfilePlugin", () => {
             expect(Profile.lazyBytes).toBe(0);
             const gatedBefore = Profile.bufferBytes - Profile.lazyBytes;
             const lazyBuffer = Compute.device.createBuffer({
-                label: "shallot-perf-gates-lazy-test",
+                label: "perf-gate-lazy-test",
                 size: 4096,
                 usage: GPUBufferUsage.STORAGE,
                 lazy: true,
@@ -89,7 +89,7 @@ describe("ProfilePlugin", () => {
             expect(Profile.lazyBytes).toBe(4096);
             expect(Profile.bufferBytes - Profile.lazyBytes).toBe(gatedBefore);
             const gatedBuffer = Compute.device.createBuffer({
-                label: "shallot-perf-gates-gated-test",
+                label: "perf-gate-gated-test",
                 size: 256,
                 usage: GPUBufferUsage.STORAGE,
             });

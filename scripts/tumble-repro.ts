@@ -3,8 +3,7 @@ import { resolve } from "node:path";
 import { skipReason } from "./verify";
 import { type Bridge, start as startBridge } from "./wsl-bridge";
 
-// `bun run scripts/tumble-repro.ts` — the trusted-input floor-vanish repro + standing gate (spec tumble-inline
-// stage 6b). A thin bun orchestrator over the node driver (scripts/tumble-repro-driver.mjs): it owns the
+// `bun run scripts/tumble-repro.ts` — the trusted-input floor-vanish repro + standing gate. A thin bun orchestrator over the node driver (scripts/tumble-repro-driver.mjs): it owns the
 // WSL→Windows bridge lifecycle exactly like scripts/bench-tumble.ts, then spawns the driver under NODE (Bun's Playwright client
 // hangs on the bridge — wsl-bridge.ts fact 2) with the bridge's `--connect` ws endpoint. The driver boots the
 // gym vite server, connects to the host's real-GPU browser, and drives a bridge plank with browser-trusted

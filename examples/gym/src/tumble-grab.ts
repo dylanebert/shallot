@@ -87,8 +87,8 @@ export function updateGrab(grab: Grab, origin: Vec3, dir: Vec3): void {
 // jump — a frame hitch, or synthetic trusted input — is not reachable by a hand, and it drives the kinematic
 // anchor to an unbounded velocity: setTargetTransform sets the anchor velocity to (target − anchor)/dt, so a
 // far one-frame target makes the motor joint inject a huge impulse into the grabbed body AND its joint-chain
-// neighbours in a single step, flinging them out of the camera frustum (the floor-vanish, spec tumble-inline
-// 6b — a correct cull of grab-flung bodies). The tumble.js source `Sample` (samples/src/sample.ts step()) has
+// neighbours in a single step, flinging them out of the camera frustum (the floor-vanish —
+// a correct cull of grab-flung bodies). The tumble.js source `Sample` (samples/src/sample.ts step()) has
 // NO such cap — it relies on the browser rate-limiting real pointermove events — so this bound is a documented
 // deviation from the source, not a missed port.
 //

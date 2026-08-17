@@ -1,4 +1,4 @@
-// mesh-torus — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `Torus` sample
+// mesh-torus — stage-4 gym twin: the tumble.js `Torus` sample
 // (`samples/src/samples/mesh.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw + mouse-grab layer.
 

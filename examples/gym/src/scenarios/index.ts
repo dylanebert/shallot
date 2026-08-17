@@ -26,7 +26,7 @@
 // pattern `accel`'s line draw uses), and the
 // three §6 physics scenarios by simulation type — `pile` (contact-settling
 // rigidbodies), `constraints` (springs + joints), `character` (the kinematic controller), each gated
-// against the f64 oracle. `backend` is the substrate swap gate (specs/tumble-shallot.md stage 4): one
+// against the f64 oracle. `backend` is the substrate swap gate: one
 // scene authored purely against `standard/physics` (settle, no-fall-through, raycast, kinematic drive +
 // firehose writeback) that runs unmodified under `--param backend=tumble|avbd` — behavioral parity, not
 // bit-exact (two solvers can't hash-match a trajectory), plus a per-system CPU-span perf snapshot. Three
@@ -42,7 +42,7 @@
 // `chain` is the phase-boundary microbench the physics waste audit reads
 // (scripts/physics-bench.ts --audit), and `stress` the bottleneck-saturation atom (induce one resource
 // axis, attribute the load via the per-pass profiler metric). `joints-paddle` is the tumble sample-host
-// pilot (spec tumble-inline stage 3): a tumble.js sample (`Paddle`) authored through the escape hatch
+// pilot: a tumble.js sample (`Paddle`) authored through the escape hatch
 // (`tumble-sample.ts` + `tumble-paddle.ts`), verified bit-exact against its committed gold and rendered via
 // the source-faithful debug-draw + mouse-grab layer every stage-4 sample twin reuses (the red-first oracle
 // proof is `tumble-pilot.test.ts`). The stage-4 burn-down adds one gym twin per tumble.js sample the same
@@ -81,7 +81,7 @@
 // — the `grid` knob — piling up together, bit-exact deterministic by construction), `character-mover` (a
 // self-driven kinematic capsule mover patrolling a walled arena on the plane solver — pogo ground-follow up
 // a ramp and steps, shoving crates; the drive lives in `update()`), with more
-// landing per `specs/tumble-inline.md` §4;
+// landing as the tumble-inline sample set is ported;
 // the full list + the shared gold-match test live in `tumble-registry.ts` / `tumble-golds.test.ts`. The tier doctrine — targeted real-device tier run per-scenario, triple-duty
 // atoms, in-flight dogfoods — is `CLAUDE.md` Examples + `testing.md`.
 import "./accel";

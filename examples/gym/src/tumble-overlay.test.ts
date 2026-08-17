@@ -1,4 +1,4 @@
-// The overlay channel's own output, headless (spec tumble-inline stage 4 — the demonstration-layer restore).
+// The overlay channel's own output, headless (the demonstration-layer restore).
 // The engine fold's first pass dropped every sample's `render()` overlay, so event/collision scenes read as
 // bare "boxes falling". This pins the mechanism the standing visual probe's `overlay-labels` check reads: a
 // sample's `render()` emits the labels + HUD lines its demonstration needs. events-joint-break is the gated

@@ -3160,7 +3160,7 @@ async function assertSky(): Promise<Check[]> {
 }
 
 // ============================================================================
-// skin-live — the live joint-palette substrate on the real GPU (specs/tumble-shallot.md stage 6d)
+// skin-live — the live joint-palette substrate on the real GPU
 // ============================================================================
 //
 // A by-construction 2-bone rig posed entirely through the public `LiveSkin` seam — no glTF asset, no
@@ -3590,7 +3590,7 @@ async function assertSkinLive(): Promise<Check[]> {
 }
 
 // ============================================================================
-// ragdoll — the live palette's first physics producer (specs/tumble-shallot.md stage 7b)
+// ragdoll — the live palette's first physics producer
 // ============================================================================
 //
 // RiggedFigure imported `{live}` + an 11-capsule tumble ragdoll driving its 19-joint palette. Bones are

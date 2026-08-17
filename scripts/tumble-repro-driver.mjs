@@ -1,4 +1,4 @@
-// Trusted-input floor-vanish repro driver (spec tumble-inline stage 6b / F1). Runs under NODE, not bun:
+// Trusted-input floor-vanish repro driver. Runs under NODE, not bun:
 // Bun's Playwright client hangs after the ws upgrade on WSL (scripts/wsl-bridge.ts fact 2), so the same
 // node-bundled path `shallot verify --connect` uses is the only one that can drive the host's real-GPU
 // browser. This is a SIBLING of that path — it reuses the wsl-bridge browser server (via `--connect`) but

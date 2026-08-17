@@ -1,6 +1,6 @@
 // The both-directions budget-registry check over `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS`, the same shape
-// `coverage.ts` already runs for `SCENARIO_GATES` + `GATE_EXEMPTIONS` — but per **axis**, not per scenario
-// (`shallot-perf-gates` stage 4b): pipeline count is exact on every registered scenario, so every scenario
+// `coverage.ts` already runs for `SCENARIO_GATES` + `GATE_EXEMPTIONS` — but per **axis**, not per scenario:
+// pipeline count is exact on every registered scenario, so every scenario
 // gates on it regardless of whether its byte axis is exempt. `checkBudgetEntries` is pure over plain data,
 // so `budget-coverage.test.ts` red-proves it against fixtures with no filesystem or scenario import;
 // `scenarioNames()` (imported for its side effect via `../gym`) is the one real-registration seam.
@@ -16,8 +16,7 @@ import {
     SCENARIO_BUDGETS,
 } from "./budgets";
 
-/** `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS` cover every registered scenario, per axis
- *  (`shallot-perf-gates` stage 4 populated the roster, stage 4b split the exemption per axis), so the
+/** `SCENARIO_BUDGETS` + `BUDGET_EXEMPTIONS` cover every registered scenario, per axis, so the
  *  completeness assertion in `budget-coverage.test.ts` runs unconditionally, the same
  *  `COMPLETENESS_ENFORCED` shape `coverage.ts` already uses. */
 export const BUDGETS_ENFORCED = true;
@@ -131,10 +130,10 @@ export type MeasuredBudget = { [K in Axis]: number };
 
 /** the runtime exact-equality check `installHarness` folds into every scenario's verdict, evaluated
  *  independently per axis (three today, `budgets.ts`): a budgeted axis at default params gets one
- *  exact-equality check; a budgeted axis at non-default params reports visibly inapplicable rather than silently skipping
- *  (`shallot-perf-gates` stage 3b); an **exempt** axis emits nothing — there is no golden to check against,
+ *  exact-equality check; a budgeted axis at non-default params reports visibly inapplicable rather than silently skipping;
+ *  an **exempt** axis emits nothing — there is no golden to check against,
  *  and the exemption reason already names why. A scenario's checks are therefore three, fewer, or none,
- *  depending on which axes it budgets vs. exempts (`shallot-perf-gates` stage 4b: `render` emits only
+ *  depending on which axes it budgets vs. exempts (`render` emits only
  *  `budget:pipelines`, its `budget:bytes` axis exempt). `table` and `exemptions` default to the real
  *  registry — `installHarness` never passes them — and are parameters (not a module-level read) so a
  *  fixture can drive the exempt branch without mutating the real table, the same injection shape

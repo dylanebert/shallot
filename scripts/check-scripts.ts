@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { Glob } from "bun";
 
-// shallot-script-surface's contract: a script name is sanctioned routine (suite-speed — a
+// A script name is sanctioned routine (suite-speed — a
 // sanctioned script is one the suite can run fast), so `package.json`'s script surface is asserted three ways rather than left to accrete
 // silently — the class of drift that shipped `test:full` and then had to delete it.
 //
@@ -313,7 +313,7 @@ if (import.meta.main) {
         }
         console.error(
             "\nA script name is sanctioned routine (suite-speed — a sanctioned script is one the suite " +
-                "can run fast; shallot-script-surface's three classes) — fix the target, cite it, or delete the alias.",
+                "can run fast) — fix the target, cite it, or delete the alias.",
         );
         process.exit(1);
     }

@@ -12,7 +12,7 @@
 //   `benchTimeout` is the resolution.
 // - `isolate` — true for a scenario carrying perf-threshold checks. The sweep driver (stage 4) runs an
 //   `isolate` scenario in its own process, never folded into the shared-boot batch — grounded on the
-//   `stress` sweep-contention finding (`specs/shallot-gate-ergonomics.md` Locked decision): a
+//   `stress` sweep-contention finding: a
 //   perf-threshold gate measured under back-to-back sweep contention is not trustworthy.
 // - `covers` — glob(s) into `packages/shallot/src` naming the GPU-side modules this scenario exercises.
 //   The coverage check (`coverage.ts`) asserts every glob resolves, every table key is a registered
@@ -28,7 +28,7 @@
 // frame counts run at a bounded per-frame time (the wall is defined as ms/frame, ~28 ms), so the runtime is
 // roughly hardware-independent — a slower device reaches the wall at a lower induced level and runs fewer
 // ramp windows, not longer ones. 180_000 is ~2.6× the measured wall-clock: comfortably clear of run-to-run
-// variance, matches the sweep's proven-green 180s reference (specs/shallot-081-release.md stage 3), and
+// variance, matches the sweep's proven-green 180s reference, and
 // stays well under a genuinely-hung run. It also `isolate`s: it is the scenario the sweep-contention
 // finding was measured on (failed mid-sweep on its bandwidth/submission saturation rows, passed standalone
 // at two different commits), so its perf-threshold checks run in their own process, never batched.
@@ -90,7 +90,7 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         ],
     },
 
-    // the release-prerequisite final-compositor hardening fixture (spec shallot-typegpu 5b-2f-0): a
+    // the release-prerequisite final-compositor hardening fixture: a
     // custom-registered surface + a Part entity on the built-in `unlit` surface, both drawn through the
     // real part/render/sear pipeline — folds into the same modules `render`'s entry already covers.
     "mesh-fixture": {
@@ -194,8 +194,8 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
 };
 
 /** every module path this scenario's checks are explicitly exempted from covering, and why. Stage 3b
- *  populates the rest — an honest partial list here is deliberate (`specs/shallot-gate-ergonomics.md`
- *  Locked decision: "an honest initial exemption list is the point"), not a gap. A reason names the property
+ *  populates the rest — an honest partial list here is deliberate ("an honest initial exemption list is
+ *  the point"), not a gap. A reason names the property
  *  that is actually load-bearing — no GPU surface — never a structural shape a reader would have to
  *  re-verify: "barrel re-export" was twice the stated reason for a file that was nothing of the kind. */
 export const GATE_EXEMPTIONS: Record<string, string> = {

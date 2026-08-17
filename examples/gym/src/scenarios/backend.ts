@@ -43,7 +43,7 @@ import { bodyCandidates, raycast, StepSystem } from "@dylanebert/shallot/physics
 import { threads } from "@dylanebert/shallot/tumble/core";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
 
-// backend — the substrate swap gate (specs/tumble-shallot.md stage 4): ONE scene, authored purely against
+// backend — the substrate swap gate: ONE scene, authored purely against
 // the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
 // the `transforms` firehose), that runs unmodified under EITHER `TumblePlugin` (default) or `AvbdPlugin`
 // (`--param backend=tumble|avbd`) — the one-line manifest swap the substrate's typed `PhysicsBackend`

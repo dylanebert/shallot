@@ -1,4 +1,4 @@
-// joints-paddle — the tumble sample host's pilot scenario (spec tumble-inline stage 3): the Paddle sample
+// joints-paddle — the tumble sample host's pilot scenario: the Paddle sample
 // ported through the escape hatch, verified bit-exact against its committed gold, rendered with the
 // source-faithful debug-draw layer + mouse-grab. It replaces the dropped powered-rotor recipe as the
 // motor-joint verification home (the red-first oracle proof lives in `tumble-pilot.test.ts`).

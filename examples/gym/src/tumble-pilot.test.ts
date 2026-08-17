@@ -1,4 +1,4 @@
-// The stage-3 host-layer gate, proven red-first (spec tumble-inline §3), plus the 6b/F3 grab-energy cap.
+// The stage-3 host-layer gate, proven red-first, plus the 6b/F3 grab-energy cap.
 // Headless (GPU-free) checks over the gold-match oracle + the ported mouse-grab:
 //   1. the faithful Paddle authoring reproduces its committed gold bit-exact for every step (GREEN);
 //   2. a wrong-axis motor (spin about y, not z) diverges — the oracle catches the class of defect a
@@ -132,7 +132,7 @@ test("a light grab does not launch a settled stack", async () => {
 });
 
 test("a one-frame cursor whip cannot inject unbounded velocity into the grabbed body", async () => {
-    // The floor-vanish root cause (spec tumble-inline 6b): a one-frame cursor teleport (a frame hitch, or
+    // The floor-vanish root cause: a one-frame cursor teleport (a frame hitch, or
     // trusted synthetic input) drives the kinematic grab anchor to an unbounded velocity, which the motor
     // joint injects into the grabbed body — flinging it (and its joint/contact neighbours) out of frustum.
     // `driveGrab`'s cap bounds the anchor's per-step move to MAX_DRAG_FRACTION·depth, so the injected velocity

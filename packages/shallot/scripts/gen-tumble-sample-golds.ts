@@ -272,7 +272,7 @@ scenario must reproduce bit-exact. Each is one tumble.js sample run headless at 
 the initial body snapshot, the per-step world-state hash, and the sample's camera pose + knob schema.
 The corpus registers ${registered} samples; ${count} mint a gold, ${exceptions.length} are excepted (below).
 
-A gym scenario (spec \`tumble-inline\` stage 3+) reproduces a sample's \`build()\` through the escape hatch
+A gym scenario reproduces a sample's \`build()\` through the escape hatch
 (\`Tumble.world\`) and replays it against the same engine these golds were minted with. Both sides are the
 same engine, so only authoring can differ — a wrong axis, wrong joint, or wrong shape mismatches the hash
 at the first divergent step. That is the oracle the earlier examples port lacked.

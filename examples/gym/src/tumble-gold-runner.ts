@@ -1,5 +1,5 @@
-// One gold-test job — a single tumble world — run in an isolated child process (spec tumble-inline stage
-// 4). The spawner (`tumble-golds.test.ts`) launches this once per job, `bun run tumble-gold-runner.ts
+// One gold-test job — a single tumble world — run in an isolated child process. The
+// spawner (`tumble-golds.test.ts`) launches this once per job, `bun run tumble-gold-runner.ts
 // --slug <slug> [--knob <index>]`, ~4 at a time:
 //   --slug X              replay entry X's gold bit-exact vs its committed trajectory
 //   --slug X --knob N     step entry X at knob point N, asserting finite positions (boundedness only —

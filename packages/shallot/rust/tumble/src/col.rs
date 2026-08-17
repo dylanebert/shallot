@@ -19,7 +19,7 @@
 //! is `Copy` and travels into workers by value.
 //!
 //! Bounds live in `len` and are checked in debug only: the release path is an unchecked load/store,
-//! which is the same bounds-check elimination the wide gather already banks on (kex `tumble.md`).
+//! which is the same bounds-check elimination the wide gather already banks on (`tumble.md`).
 //!
 //! The lifetime is real — a `Col<'a, T>` borrows its storage for `'a`, so the native harnesses get
 //! use-after-free protection for free. The wasm arena's `'static` columns are the exception, and they

@@ -1,4 +1,4 @@
-// collision-ray-curtain — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `RayCurtain` sample
+// collision-ray-curtain — stage-4 gym twin: the tumble.js `RayCurtain` sample
 // (`samples/src/samples/collision.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold. The sweeping `castRayClosest` curtain + HUD line/point draw (`render()`) is outside the
 // gold contract — it only feeds debug-draw output, never mutates the world — so only `build()` ports.

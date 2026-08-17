@@ -1,4 +1,4 @@
-// compound-tile-floor — stage-4 gym twin (spec tumble-inline stage 4): the tumble.js `TileFloor` sample
+// compound-tile-floor — stage-4 gym twin: the tumble.js `TileFloor` sample
 // (`samples/src/samples/compound.ts`) ported through the escape hatch, verified bit-exact against its
 // committed gold and rendered via the source-faithful debug-draw layer.
 

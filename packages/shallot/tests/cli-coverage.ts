@@ -1,4 +1,4 @@
-// The stage 1 deliverable of `specs/shallot-cli-tests.md`: a registry over the CLI/toolchain layer's
+// The stage 1 deliverable: a registry over the CLI/toolchain layer's
 // tier-of-truth ("Classify by tier-of-truth, then close what nothing reaches. No coverage floor" — the
 // spec's Locked decision), asserted both directions against a mechanically walked file population
 // (`examples/gym/src/scenarios/coverage.ts`'s pattern, re-housed rather than imported so this package

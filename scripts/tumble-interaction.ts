@@ -1,7 +1,7 @@
 import { skipReason, teardownBridge, verify } from "./verify";
 
 // `bun run scripts/tumble-interaction.ts` — the standing interaction + visual gate for the tumble gym
-// sample host (spec tumble-inline stage 5). A thin wrapper over the shipped gate exactly like
+// sample host. A thin wrapper over the shipped gate exactly like
 // scripts/bench-tumble.ts / recipes / flows: it drives `shallot verify examples/gym --query
 // scenario=<slug>` on a real device, reusing one
 // bridge session, and reads the probe's Verdict checks.
