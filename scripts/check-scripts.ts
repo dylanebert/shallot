@@ -22,6 +22,12 @@ import { Glob } from "bun";
 
 export type Violation = { file: string; script: string; detail: string };
 
+// Entry points invoked by path (`bun run evals/setup.ts red-box`), not declared as a package.json
+// script — direction 1/3's `scripts/*` scope doesn't reach `evals/`, and without this list they
+// ride no gate at all. Direction 2's citation coverage is the property that matters (a reader has
+// to find the command somewhere); extend it to these by name, same corpus.
+const PATH_ENTRY_POINTS = ["evals/setup.ts", "evals/grade.ts"];
+
 export function escapeRegExp(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -99,10 +105,13 @@ export async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
     return violations;
 }
 
-// Direction 2 — every root script name is cited in AGENTS.md or .claude/rules/*.md.
+// Direction 2 — every root script name is cited in AGENTS.md or .claude/rules/*.md, plus any
+// path-invoked entry point named in `pathEntryPoints` (defaults to none — callers that want the
+// `evals/*.ts` coverage pass `PATH_ENTRY_POINTS` explicitly, `run()` below does).
 export async function checkDocs(
     rootDir: string,
     rootScripts: Record<string, string>,
+    pathEntryPoints: string[] = [],
 ): Promise<Violation[]> {
     const docPaths = [resolve(rootDir, "AGENTS.md")];
     const rulesDir = resolve(rootDir, ".claude/rules");
@@ -132,6 +141,18 @@ export async function checkDocs(
                 file: "package.json",
                 script: name,
                 detail: `not cited as \`bun ${name}\` / \`bun run ${name}\` in AGENTS.md or .claude/rules/*.md`,
+            });
+        }
+    }
+    for (const entry of pathEntryPoints) {
+        // Same citation shape as a script name, but the token is a path (`evals/setup.ts`), so no
+        // word-boundary trailing guard is needed — a `/` and `.` already bound it on both sides.
+        const cited = new RegExp(`\\bbun\\s+(?:run\\s+)?${escapeRegExp(entry)}\\b`).test(combined);
+        if (!cited) {
+            violations.push({
+                file: entry,
+                script: entry,
+                detail: `not cited as \`bun ${entry}\` / \`bun run ${entry}\` in AGENTS.md or .claude/rules/*.md`,
             });
         }
     }
@@ -247,8 +268,14 @@ export async function run(rootDir: string): Promise<{
     const rootScripts = rootPkg.scripts ?? {};
     const pkgPaths = [rootPkgPath, ...(await workspacePkgPaths(rootDir, rootPkg.workspaces ?? []))];
 
+    // Only assert citation coverage for entry points this tree actually has — a fixture root
+    // with no `evals/` carries nothing to cite, and that's not a violation of its own.
+    const pathEntryPoints = PATH_ENTRY_POINTS.filter((entry) =>
+        existsSync(resolve(rootDir, entry)),
+    );
+
     const existsViolations = await checkExists(pkgPaths);
-    const docViolations = await checkDocs(rootDir, rootScripts);
+    const docViolations = await checkDocs(rootDir, rootScripts, pathEntryPoints);
     const reachViolations = await checkReachable(rootDir, rootScripts);
 
     return { pkgPaths, rootScripts, existsViolations, docViolations, reachViolations };
