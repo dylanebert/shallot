@@ -18,7 +18,7 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import * as overlayAtlas from "../overlay/atlas";
 import { packStrokeTile, strokeRect } from "../overlay/stroke";
-import { DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
+import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
 import {
     GridIndices,
@@ -107,7 +107,7 @@ const terrainFs = tgpu.fn(
     // codec overlay/tiles.ts's encodeDist writes (kept in sync by hand: DIST_RANGE is the one shared
     // constant both sides read; TGSL can't call a plain JS helper, so this stays inline).
     const dist = (distSample - d.f32(0.5)) * d.f32(2) * d.f32(DIST_RANGE);
-    const fw = std.fwidth(dist) * d.f32(0.5) + d.f32(1e-5);
+    const fw = std.fwidth(dist) * d.f32(COVERAGE_BAND_PX) + d.f32(1e-5);
     const resident = std.select(d.f32(0), d.f32(1), layer >= 0);
     const coverage = std.clamp(d.f32(0.5) - dist / fw, 0, 1) * resident;
     color = std.mix(color, overlay, coverage);

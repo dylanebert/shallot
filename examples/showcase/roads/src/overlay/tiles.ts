@@ -42,6 +42,14 @@ export const DIST_FORMAT = "r8unorm" as const;
 export const DIST_BYTES_PER_TEXEL = 1;
 export const DIST_RANGE = 1; // metres, half-range
 
+// the fwidth-thresholded coverage band's half-width, in screen pixels: the fs's `fw = COVERAGE_BAND_PX *
+// fwidth(dist)` coefficient (terrain.ts). `fwidth` is the change in its argument over one screen pixel, and
+// coverage leaves [0, 1] exactly when `dist` moves by `fw` — so this coefficient *is* the band width the
+// composite antialiases over, and the capture gate's pixel tolerance is a fixed multiple of it
+// (capture.ts's TRANSITION_TOLERANCE_PX). Two readers, one value: the shader can't import a JS constant
+// through TGSL's resolver, but it can be *interpolated* into it, which is what terrain.ts does.
+export const COVERAGE_BAND_PX = 0.5;
+
 /** encode a signed world-metre distance to its r8unorm byte — the CPU write-path's half of the codec
  *  `terrain.ts`'s fs decodes (`(sampled - 0.5) * 2 * DIST_RANGE`), read back verbatim by unorm sampling. */
 export function encodeDist(metres: number): number {

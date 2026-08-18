@@ -1,6 +1,7 @@
 import { computeViewProj, Views } from "@dylanebert/shallot/render/core";
 import { decodePos } from "@dylanebert/shallot/utils/core";
 import { OFF_ROAD_POINT, ON_ROAD_POINT } from "./overlay/stroke";
+import { COVERAGE_BAND_PX } from "./overlay/tiles";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { gridX, gridZ, VERTS } from "./terrain/grid";
 import { readVertices } from "./terrain/terrain";
@@ -95,7 +96,7 @@ export async function capturePoints(): Promise<{
 /**
  * the derived antialiasing-band screen-pixel tolerance for the capture's boundary-transition probe.
  *
- * The governing mechanism is the fs's own coverage formula (`terrain.ts`): `fw = 0.5·fwidth(dist) + ε`,
+ * The governing mechanism is the fs's own coverage formula (`terrain.ts`): `fw = COVERAGE_BAND_PX·fwidth(dist) + ε`,
  * `coverage = clamp(0.5 − dist/fw, 0, 1)`. Coverage leaves `[0, 1]` exactly when `dist/fw` leaves
  * `[−0.5, 0.5]` — i.e. when `dist` moves by `fw ≈ 0.5·fwidth(dist)` — and `fwidth` is *defined* as the
  * change in its argument over one screen pixel (`|ddx| + |ddy|`), so the coverage band is designed to span
@@ -103,9 +104,9 @@ export async function capturePoints(): Promise<{
  * self-scaling property is the whole point of fwidth-thresholded AA, Green SIGGRAPH 2007 — a texel-size
  * bound converted through the camera's fov/depth would be the *wrong* quantity, and reads far too tight
  * whenever the atlas is minified, the common case at this showcase's camera distance). This constant
- * allows a further ×4 over that ~0.5 px formula band for what the formula doesn't model: the `ε` softening
+ * is that band ×4 — imported, not restated, so the two can't drift — allowing for what the formula doesn't model: the `ε` softening
  * term, the atlas sampler's own bilinear interpolation (one more texel-to-texel blend before `fwidth` ever
  * measures it), and discrete-pixel sampling slop in the probe itself — a fixed multiple of the mechanism's
  * own band, not a value fitted to one observed capture.
  */
-export const TRANSITION_TOLERANCE_PX = 2;
+export const TRANSITION_TOLERANCE_PX = COVERAGE_BAND_PX * 4;

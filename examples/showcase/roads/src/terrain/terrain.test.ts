@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat } from "../../../../../packages/shallot/tests/wgsl";
-import { DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
+import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
 import { terrainFsWgsl } from "./terrain";
 
 // The overlay composite's structural gate — the device-free seam this stage's `bun test` relies on for the
@@ -55,6 +55,10 @@ describe("terrain fs — overlay composite", () => {
         const fs = flat(body(wgsl, "fn terrainFs"));
         expect(fs).toContain(`* ${DIST_RANGE}f`);
         expect(fs).toContain("fwidth(");
+        // the coverage band's own coefficient, not just that fwidth appears: capture.ts derives
+        // TRANSITION_TOLERANCE_PX as a multiple of COVERAGE_BAND_PX, so a shader-side drift in this
+        // factor silently widens the band the capture gate's tolerance was sized against.
+        expect(fs).toMatch(new RegExp(`fwidth\\(dist_\\d*\\) \\* ${COVERAGE_BAND_PX}f`));
         // Green 2007's alpha-tested-magnification form, masked by the residency select above (an
         // unallocated tile's coverage is forced to 0 regardless of what garbage the clamped-layer sample
         // returns) — never a branch, per the uniform-control-flow test above.
