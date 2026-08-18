@@ -22,10 +22,25 @@ const CARPARK_MARGIN = 4; // metres — clearance between the carpark's near edg
 
 // keep every primitive off the world edge: a road endpoint or carpark corner within this margin of
 // WORLD_HALF would push `overlay/tiles.ts`'s `dirtyTiles` clamp to the boundary column, silently
-// truncating its own AABB rather than reading as a placement bug — the margin is one road's own maximum
-// half-width-plus-length contribution, generous enough that no primitive this generator emits can reach
-// the clamp.
-const WORLD_MARGIN = ROAD_MAX_LENGTH / 2 + CARPARK_HALF * 2;
+// truncating its own AABB rather than reading as a placement bug. Derived, not tuned — two terms, proven
+// by construction, not by sampling:
+//
+//   1. A road's *far* endpoint is `x0 + cos(heading) * length`, reaching the FULL `ROAD_MAX_LENGTH` from
+//      its start in either direction — not half of it (the bug an earlier version of this constant had:
+//      `ROAD_MAX_LENGTH / 2` bounded only the start point, so a full-length road placed near the old
+//      margin's edge still walked its endpoint past WORLD_HALF — demonstrated at seed 615,
+//      `network.test.ts`'s own pinned regression witness).
+//   2. The carpark's own reach *beyond whichever road primitive it's anchored to* — {@link CARPARK_REACH}
+//      below — since its centre is offset from road 0's midpoint by up to `ROAD_HALF_WIDTH +
+//      CARPARK_MARGIN + CARPARK_HALF`, and a corner reaches a further `CARPARK_HALF` past its own centre.
+//
+// With `bound = WORLD_HALF - WORLD_MARGIN` bounding a road's *start* point (x0, z0): a road endpoint
+// satisfies `|x1| = |x0 + cosθ·length| <= bound + ROAD_MAX_LENGTH = WORLD_HALF - CARPARK_REACH` (and the
+// same for z, sinθ); road 0's midpoint sits between its own two endpoints, so it inherits that same
+// `WORLD_HALF - CARPARK_REACH` bound too; and a carpark corner, reaching at most CARPARK_REACH beyond that
+// midpoint, therefore stays within exactly `WORLD_HALF` — never past it, on either axis, for any seed.
+const CARPARK_REACH = ROAD_HALF_WIDTH + CARPARK_MARGIN + CARPARK_HALF * 2; // 48
+const WORLD_MARGIN = ROAD_MAX_LENGTH + CARPARK_REACH;
 
 /** the seeded procedural road network: {@link ROAD_COUNT} straight single-segment roads at random
  *  positions/headings/lengths within the world footprint (minus {@link WORLD_MARGIN}), plus one carpark

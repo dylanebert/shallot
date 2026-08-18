@@ -41,8 +41,42 @@ describe("generateNetwork — shape", () => {
         expect(doc.polygons[0].points.length).toBe(4);
     });
 
-    test("every primitive stays within the world footprint (no clamped-AABB edge case)", () => {
-        const doc = generateNetwork(99);
+    test("every primitive stays within the world footprint over a wide seed scan (no clamped-AABB edge case)", () => {
+        // a single hardcoded seed is a fixture, not a corpus (checks.md) — an earlier version of this
+        // arm ran only seed 99, which happens not to trigger the escape a WORLD_MARGIN bounding only the
+        // segment's *start* point allows: the endpoint is `x0 + cos(heading) * length` with `length` up
+        // to ROAD_MAX_LENGTH in either direction, not half of it. Scan a real range, and pin the exact
+        // seed (615) the adversarial pass demonstrated the escape with, so a regression names itself.
+        const SeedScan = 5000;
+        let worst = 0;
+        let worstSeed = -1;
+        for (let seed = 0; seed <= SeedScan; seed++) {
+            const doc = generateNetwork(seed);
+            for (const seg of flattenSegments(doc)) {
+                for (const x of [seg.ax, seg.bx, seg.az, seg.bz]) {
+                    if (Math.abs(x) > worst) {
+                        worst = Math.abs(x);
+                        worstSeed = seed;
+                    }
+                }
+            }
+            for (const [x, z] of doc.polygons[0].points) {
+                for (const v of [x, z]) {
+                    if (Math.abs(v) > worst) {
+                        worst = Math.abs(v);
+                        worstSeed = seed;
+                    }
+                }
+            }
+        }
+        expect(
+            worst,
+            `worst abs coord: ${worst} WORLD_HALF: ${WORLD_HALF} seed: ${worstSeed}`,
+        ).toBeLessThan(WORLD_HALF);
+    });
+
+    test("seed 615 specifically — the adversarial pass's own witness for the escape", () => {
+        const doc = generateNetwork(615);
         for (const seg of flattenSegments(doc)) {
             for (const x of [seg.ax, seg.bx]) expect(Math.abs(x)).toBeLessThan(WORLD_HALF);
             for (const z of [seg.az, seg.bz]) expect(Math.abs(z)).toBeLessThan(WORLD_HALF);
