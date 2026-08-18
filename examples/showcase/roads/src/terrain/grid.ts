@@ -26,13 +26,24 @@ export const GridVertices = d.arrayOf(d.vec4u, VERTEX_COUNT);
 export const GridPosition = d.arrayOf(d.vec2u, VERTEX_COUNT);
 export const GridIndices = d.arrayOf(d.u32, INDEX_COUNT);
 
-/** grid column (ix, iz) → world (x, z), centred on the origin. The inverse a reader would need lives
- *  nowhere yet (stage 1 has no picking) — added when a later stage needs it. */
+/** grid column (ix, iz) → world (x, z), centred on the origin. */
 export function worldX(ix: number): number {
     return (ix - HALF) * SPACING;
 }
 export function worldZ(iz: number): number {
     return (iz - HALF) * SPACING;
+}
+
+/** the inverse of {@link worldX}/{@link worldZ} — a grid-aligned world (x, z) → its exact column (ix, iz),
+ *  used by the overlay capture gate (`capture.ts`) to read a probe point's real generated height off
+ *  `readVertices()` rather than re-deriving the noise function in JS. `Math.round` rather than a plain
+ *  divide since a caller passing an exact multiple of SPACING can still land a hair off an integer to
+ *  floating-point error. */
+export function gridX(x: number): number {
+    return Math.round(x / SPACING) + HALF;
+}
+export function gridZ(z: number): number {
+    return Math.round(z / SPACING) + HALF;
 }
 
 /** grid column (ix, iz) → flat vertex index, row-major over x within z. The GPU kernel and this CPU

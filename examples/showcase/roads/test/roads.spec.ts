@@ -11,6 +11,12 @@ interface Check {
     detail: string;
 }
 
+interface ScreenPoint {
+    x: number;
+    y: number;
+    depth: number;
+}
+
 // Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
 // and D3D's WARP. Deliberately a name list rather than a capability probe — SwiftShader clears shallot's
 // whole base floor (all three `BASE_FEATURES` plus 10 storage buffers per stage, measured under WSL
@@ -62,4 +68,112 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     for (const c of checks) {
         expect(c.pass, `${c.name}: ${c.detail}`).toBe(true);
     }
+
+    // Phase 2: the overlay substrate's own flagged-risk validation (spec's Locked decision) — a real
+    // captured frame, machine-read, with the hand-authored stroke (overlay/stroke.ts). The compute-write
+    // half is proven device-free (overlay/stroke.test.ts's seeded-tile readback oracle); this is the fs
+    // composite's own arm, observable only in the rendered frame (checks.md: layers are a granularity).
+    await page.waitForFunction(
+        () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
+        null,
+        { timeout: 10_000 },
+    );
+
+    const { onRoad, offRoad } = (await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsCapturePoints: () => Promise<{
+                    onRoad: [number, number, number];
+                    offRoad: [number, number, number];
+                }>;
+            }
+        ).__roadsCapturePoints(),
+    )) as { onRoad: [number, number, number]; offRoad: [number, number, number] };
+
+    const [onRoadScreen, offRoadScreen] = (await page.evaluate(
+        (points) =>
+            (
+                window as unknown as {
+                    __roadsProbe: (pts: [number, number, number][]) => ScreenPoint[];
+                }
+            ).__roadsProbe(points),
+        [onRoad, offRoad],
+    )) as ScreenPoint[];
+
+    const screenshot = await page.screenshot();
+    const capture = await page.evaluate(
+        async ({ base64, onRoadScreen, offRoadScreen, tolerancePx }) => {
+            const binary = atob(base64);
+            const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+            const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("roads capture: 2D screenshot context unavailable");
+            context.drawImage(bitmap, 0, 0);
+            const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+
+            const luminanceAt = (fracX: number, fracY: number): number => {
+                const x = Math.min(bitmap.width - 1, Math.max(0, Math.round(fracX * bitmap.width)));
+                const y = Math.min(
+                    bitmap.height - 1,
+                    Math.max(0, Math.round(fracY * bitmap.height)),
+                );
+                const at = (y * bitmap.width + x) * 4;
+                return 0.3 * data[at] + 0.59 * data[at + 1] + 0.11 * data[at + 2];
+            };
+
+            const onRoadLum = luminanceAt(onRoadScreen.x, onRoadScreen.y);
+            const offRoadLum = luminanceAt(offRoadScreen.x, offRoadScreen.y);
+
+            // walk pixels along the on-road → off-road screen segment; the transition band is the run of
+            // consecutive samples whose luminance sits strictly between the two endpoints (not at either
+            // plateau) — its pixel length is what the derived tolerance bounds.
+            const dxPx = (offRoadScreen.x - onRoadScreen.x) * bitmap.width;
+            const dyPx = (offRoadScreen.y - onRoadScreen.y) * bitmap.height;
+            const spanPx = Math.hypot(dxPx, dyPx);
+            const steps = Math.max(8, Math.ceil(spanPx * 2)); // ≥2 samples/pixel along the segment
+            const lo = Math.min(onRoadLum, offRoadLum);
+            const hi = Math.max(onRoadLum, offRoadLum);
+            const band = hi - lo;
+            const plateau = band * 0.1; // within 10% of an endpoint counts as "at" that endpoint
+            let transitionSamples = 0;
+            for (let i = 0; i <= steps; i++) {
+                const t = i / steps;
+                const fx = onRoadScreen.x + (offRoadScreen.x - onRoadScreen.x) * t;
+                const fy = onRoadScreen.y + (offRoadScreen.y - onRoadScreen.y) * t;
+                const lum = luminanceAt(fx, fy);
+                if (lum > lo + plateau && lum < hi - plateau) transitionSamples++;
+            }
+            const transitionPx = (transitionSamples / steps) * spanPx;
+
+            return { onRoadLum, offRoadLum, transitionPx, spanPx, tolerancePx };
+        },
+        {
+            base64: screenshot.toString("base64"),
+            onRoadScreen,
+            offRoadScreen,
+            tolerancePx: await page.evaluate(
+                () =>
+                    (window as unknown as { __roadsTransitionTolerancePx: number })
+                        .__roadsTransitionTolerancePx,
+            ),
+        },
+    );
+
+    // on-road classifies as road albedo (dark, low-chroma asphalt), off-road as terrain (brighter grass) —
+    // a luminance ratio, not a fixed RGB band, since ambient/directional lighting scales both pixels by
+    // roughly the same local factor: the albedo constants alone put road/grass luminance at ≈0.40 (asphalt
+    // [0.05,0.05,0.06] vs grass [0.09,0.16,0.05] through the same 0.3/0.59/0.11 weights terrain.ts's `lit`
+    // uses), so 0.75 leaves comfortable margin while still ruling out "no overlay reached the frame".
+    expect(
+        capture.onRoadLum,
+        `on-road ${capture.onRoadLum.toFixed(1)} vs off-road ${capture.offRoadLum.toFixed(1)}`,
+    ).toBeLessThan(capture.offRoadLum * 0.75);
+
+    expect(
+        capture.transitionPx,
+        `boundary transition ${capture.transitionPx.toFixed(2)}px over a ${capture.spanPx.toFixed(2)}px probe span (tolerance ${capture.tolerancePx}px)`,
+    ).toBeLessThanOrEqual(capture.tolerancePx);
+
+    expect(errors, errors.join("\n")).toEqual([]);
 });
