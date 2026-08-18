@@ -9,6 +9,7 @@ import {
     formatRoster,
     forUnmatchedReason,
     groupByTimeout,
+    missingAssets,
     normalizeForPath,
     partitionSweep,
     resolveFor,
@@ -651,6 +652,73 @@ describe("formatRoster", () => {
 
     test("empty roster is an empty string, not a crash", () => {
         expect(formatRoster([])).toBe("");
+    });
+});
+
+// `missingAssets` drives both the sweep's and the single-scenario run's skip path: it reads the
+// filesystem under examples/gym/public/ before booting a page, so a missing mount skips instantly with
+// a named announcement instead of a 60s ready timeout. The `assets` declarations in timeouts.ts are a
+// side table nothing else polices — a declared path drifting from the path the scenario actually fetches
+// would surface only at runtime, so these tests pin the declared paths to what the loader expects.
+//
+// The mounts (sponza, gltf-samples) are gitignored local-only symlinks into reference/ (testing.md:176),
+// absent in a clean checkout — so `missingAssets` reports them as missing here. A consumer who mounted
+// them locally would see `null` instead; that's the non-standard state, not this one.
+describe("missingAssets", () => {
+    test("a scenario with no assets declaration returns null", () => {
+        expect(missingAssets("stress", [])).toBeNull();
+        expect(missingAssets("outline", [])).toBeNull();
+    });
+
+    test("gltf with default params reports the sponza path", () => {
+        expect(missingAssets("gltf", [])).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
+    });
+
+    test("gltf with source=fox reports the Fox path", () => {
+        expect(missingAssets("gltf", ["source=fox"])).toEqual(["gltf-samples/Fox/glTF/Fox.gltf"]);
+    });
+
+    test("render with mode=gltf-animated reports the Fox path", () => {
+        expect(missingAssets("render", ["mode=gltf-animated"])).toEqual([
+            "gltf-samples/Fox/glTF/Fox.gltf",
+        ]);
+    });
+
+    test("render with a non-gltf mode returns null (no mount needed)", () => {
+        expect(missingAssets("render", [])).toBeNull();
+        expect(missingAssets("render", ["mode=cull"])).toBeNull();
+        expect(missingAssets("render", ["mode=fog"])).toBeNull();
+    });
+
+    // the drift rung that matters: the asset check resolves against REPO_ROOT, not process.cwd(), so a
+    // bench run from a non-root cwd still finds (or misses) the same mounts. Before the fix, resolving
+    // the relative GYM against a foreign cwd made the check cwd-dependent — a false skip from /tmp, or a
+    // false pass from a subdir that happened to shadow examples/gym/public/. This holds the fix: a temp
+    // cwd that shadows the mount path with a real file must NOT make `missingAssets` report the asset as
+    // present, because the check never reads that cwd.
+    test("the result is independent of process.cwd() (a shadowing cwd does not false-pass)", () => {
+        const original = process.cwd();
+        const shadow = mkdtempSync(join(import.meta.dir, "shadow-cwd-"));
+        try {
+            // plant a file at <shadow>/examples/gym/public/sponza/Sponza-KTX-Draco.glb — the relative
+            // path the pre-fix resolve(GYM, "public", p) would have read from process.cwd().
+            mkdirSync(join(shadow, "examples/gym/public/sponza"), { recursive: true });
+            writeFileSync(
+                join(shadow, "examples/gym/public/sponza/Sponza-KTX-Draco.glb"),
+                "shadow",
+            );
+
+            const fromRoot = missingAssets("gltf", []);
+            process.chdir(shadow);
+            const fromShadow = missingAssets("gltf", []);
+            // the shadow file exists at the cwd-relative path, but the check resolves against REPO_ROOT
+            // where the mount is absent — so both report the asset as missing, never a false pass.
+            expect(fromShadow).toEqual(fromRoot);
+            expect(fromShadow).toEqual(["sponza/Sponza-KTX-Draco.glb"]);
+        } finally {
+            process.chdir(original);
+            rmSync(shadow, { recursive: true, force: true });
+        }
     });
 });
 

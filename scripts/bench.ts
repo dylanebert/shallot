@@ -98,7 +98,7 @@ export function missingAssets(scenario: string, paramStrings: readonly string[])
     const params = parseParamStrings(paramStrings);
     const paths = gate.assets(params);
     if (paths.length === 0) return null;
-    const missing = paths.filter((p) => !existsSync(resolve(GYM, "public", p)));
+    const missing = paths.filter((p) => !existsSync(resolve(REPO_ROOT, GYM, "public", p)));
     return missing.length > 0 ? missing : null;
 }
 
