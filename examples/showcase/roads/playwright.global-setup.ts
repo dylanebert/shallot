@@ -14,6 +14,15 @@ import { resolve } from "node:path";
 // and a worker process re-imports the config fresh rather than sharing this process's memory. The endpoint
 // file is the handoff Playwright's own docs name for this shape: globalSetup runs once in the root process
 // before any worker spawns, writes what it found, and each worker's later re-import reads it back.
+//
+// Known, accepted gaps (adversarial review, 2026-08-18): this is a second caller into `wsl-bridge.ts`'s
+// single-session bridge alongside `scripts/verify.ts`'s wrappers — running this gate concurrently with
+// `bun bench`/`bun run flows` races the same host staging dir, same as any two bridge callers would (the
+// bridge itself, not this diff, owns the one-at-a-time constraint; a lock is a separate unit). And the
+// bridge-launched browser only carries `wsl-bridge.ts`'s own hardcoded launch flags, not this config's
+// `--enable-dawn-features=allow_unsafe_apis` (`connectOptions` makes `launchOptions` inert) — unused by
+// today's `__roadsGate` checks, so no live failure, but a future Dawn-unsafe-API use in `roads` would only
+// hit it over the bridge path.
 const REPO_ROOT = resolve(import.meta.dirname, "../../..");
 const BRIDGE_CONNECT = resolve(REPO_ROOT, "scripts/wsl-bridge-connect.ts");
 export const ENDPOINT_FILE = resolve(
@@ -43,7 +52,11 @@ function waitForHandshake(
                 if (m) {
                     clearTimeout(timer);
                     child.stdout?.off("data", onData);
-                    resolve(JSON.parse(m[1]));
+                    try {
+                        resolve(JSON.parse(m[1]));
+                    } catch (e) {
+                        reject(new Error(`bridge connect: malformed handshake payload: ${e}`));
+                    }
                     return;
                 }
             }
@@ -92,8 +105,16 @@ export default async function globalSetup(): Promise<(() => Promise<void>) | voi
         return;
     }
 
-    mkdirSync(resolve(ENDPOINT_FILE, ".."), { recursive: true });
-    writeFileSync(ENDPOINT_FILE, JSON.stringify({ wsEndpoint: handshake.connectUrl }));
+    try {
+        mkdirSync(resolve(ENDPOINT_FILE, ".."), { recursive: true });
+        writeFileSync(ENDPOINT_FILE, JSON.stringify({ wsEndpoint: handshake.connectUrl }));
+    } catch (e) {
+        child.stdin?.end();
+        console.log(
+            `roads gate: bridge unavailable (couldn't write the endpoint handoff: ${e instanceof Error ? e.message : e}), falling back to local adapter`,
+        );
+        return;
+    }
 
     return async () => {
         child.stdin?.end();
