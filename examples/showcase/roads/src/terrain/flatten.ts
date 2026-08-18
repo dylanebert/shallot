@@ -1,11 +1,17 @@
 // Edit-time heightfield flattening under the road network — the spec's Locked decision's "second half of
-// the anti-decal argument" (UE Landscape Splines' "Apply Splines to Landscape" semantics): a road's own
-// centreline follows the natural terrain height (so a straight XZ path still reads as terrain-conformed),
-// but the ground is flattened *across* the road's width, cosine-eased back out to unmodified terrain by
-// {@link FALLOFF}. `generate.ts`'s height kernel calls {@link flattenedHeightAt} in place of a bare
-// `heightAt` at the vertex and its four finite-difference neighbours, so the emitted normal reflects the
-// flattened surface too ("affected-region remesh" — every reseed/regenerate re-dispatches the whole
-// kernel, so there's no separate patch step).
+// the anti-decal argument" (UE Landscape Splines' "Apply Splines to Landscape" semantics): the ground is
+// flattened *across* the road's width, cosine-eased back out to unmodified terrain over {@link
+// computeFalloff}'s derived distance. `generate.ts`'s height kernel calls {@link flattenedHeightAt} in
+// place of a bare `heightAt` at the vertex and its four finite-difference neighbours, so the emitted
+// normal reflects the flattened surface too ("affected-region remesh" — every reseed/regenerate
+// re-dispatches the whole kernel, so there's no separate patch step).
+//
+// Stage 8 (2026-08-18, road profile smoothing): the road's own *longitudinal* target height used to be a
+// bare `heightAt` at the projected centreline point — every noise octave at the 4 m vertex scale rode
+// straight into the road surface. `terrain/profile.ts`'s {@link buildPolylineProfile} now pre-samples,
+// low-passes, and grade-limits each polyline's own elevation once per `setNetwork` call; `networkCore`
+// interpolates between the resulting control points' stored heights by the same clamped projection
+// parameter `t` it already computes, instead of re-sampling `heightAt` at every query point.
 //
 // Two independently-derived cosine-ease forms (the same split `overlay/document.ts`/`overlay/rasterize.ts`
 // use for distance): {@link flattenHeight} is the CPU reference `flatten.test.ts` pins directly;
@@ -17,18 +23,34 @@ import { Compute, type State } from "@dylanebert/shallot";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { flattenSegments, type StrokeDocument } from "../overlay/document";
+import type { StrokeDocument } from "../overlay/document";
 import { SPACING } from "./grid";
-import { heightAt } from "./noise";
+import { heightAt, makePermutation } from "./noise";
+import { buildPolylineProfile, heightAtCpu } from "./profile";
 
-// FALLOFF derivation: `overlay/stroke.ts`'s OFF_ROAD_POINT is deliberately built "one grid cell (SPACING)
-// beyond the road edge" — i.e. at `coreDist === SPACING` on the hand-authored stroke — so its own comment
-// already promises "grid-aligned for an exact readVertices height" against *unmodified* terrain. Setting
-// FALLOFF to exactly SPACING makes that promise true under flattening too: OFF_ROAD_POINT lands precisely
-// at the falloff's own terminus (`flattenHeight`'s `coreDist >= falloff` arm), reading fully natural
-// height with no coincidence required — not a value tuned to the capture, a value equal to a margin
-// stage 4 already chose for an unrelated reason.
-export const FALLOFF = SPACING; // 4 m
+// FALLOFF is no longer `= SPACING` (stage 6's choice, derived only from a capture probe's own grid
+// alignment, not a road-geometry argument). Once the profile is smoothed the cut depth at a given point
+// can grow past what a fixed 4 m band eases gracefully — a deep cut eased back over 4 m reads as a cliff
+// wall, not a shoulder. {@link computeFalloff} re-derives it per network, from the network's own measured
+// cut depth (the largest |natural - target| the flatten pipeline actually produces this reseed) and a
+// cited side-slope limit, so the transition is only ever as wide as the deepest cut demands.
+//
+// AASHTO's Roadside Design Guide draws the line between a "traversable, non-recoverable" and a "critical,
+// non-traversable" roadside slope at 1V:3H (~33%) — steeper reads as a cliff face to a driver leaving the
+// shoulder. That's the target slope for the flatten transition's own *steepest* point, not its average:
+// the cosine ease `0.5 - 0.5·cos(π·t)` has derivative `0.5·π·sin(π·t)`, peaking at `t = 0.5` (the
+// transition's midpoint) at `π/2` — so a cut of depth `D` eased over a falloff distance `F` peaks at slope
+// `D·(π/2)/F`. Solving for `F` at the side-slope limit gives the derivation below.
+export const SIDE_SLOPE_LIMIT = 1 / 3; // AASHTO Roadside Design Guide, 1V:3H, rise/run
+
+/** the falloff distance (metres) whose cosine-ease transition peaks at exactly {@link SIDE_SLOPE_LIMIT}
+ *  for a cut of `cutDepth` metres — floored at {@link SPACING}, since a transition narrower than the mesh's
+ *  own vertex spacing can't be resolved by the heightfield regardless of what the formula asks for.
+ * @example computeFalloff(0) // SPACING — no cut, the floor wins
+ * @example computeFalloff(4) // (Math.PI / 2) * 4 / SIDE_SLOPE_LIMIT, well past the floor */
+export function computeFalloff(cutDepth: number): number {
+    return Math.max(SPACING, ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT);
+}
 
 /** cosine-eased blend from `target` (the flattened plateau, at `coreDist <= 0`) out to `natural`
  *  (unmodified terrain, at `coreDist >= falloff`) — monotone in `coreDist` since the ease term's own
@@ -64,14 +86,26 @@ export const flattenHeightGpu = tgpu.fn(
     return targetHeight + (natural - targetHeight) * ease;
 });
 
-/** one flattened polyline segment, GPU-side. */
-const NetworkSegment = d.struct({ a: d.vec2f, b: d.vec2f, halfWidth: d.f32 });
+/** one flattened profile sub-segment, GPU-side — finer than the road's own two endpoints
+ *  (`terrain/profile.ts`'s `buildPolylineProfile` resamples every polyline at <= vertex-spacing arc
+ *  length), each carrying its own smoothed, grade-limited elevation at `aHeight`/`bHeight` so
+ *  `networkCore` interpolates between them instead of re-sampling `heightAt`. */
+const NetworkSegment = d.struct({
+    a: d.vec2f,
+    b: d.vec2f,
+    halfWidth: d.f32,
+    aHeight: d.f32,
+    bHeight: d.f32,
+});
 /** one polygon stamp's vertex span within the shared `polyVerts` buffer, plus its precomputed centroid —
  *  the single flat target height under the whole footprint (a real carpark is one flat plane, not a
- *  cross-section following its own nearest edge, which is what a per-edge target would produce). */
+ *  cross-section following its own nearest edge, which is what a per-edge target would produce). No
+ *  profile: a carpark has no length to smooth along, so its target still samples `heightAt` directly. */
 const NetworkPolygon = d.struct({ start: d.u32, count: d.u32, centroid: d.vec2f });
 
-const NetworkParams = d.struct({ segmentCount: d.u32, polygonCount: d.u32 });
+/** `falloff` is {@link computeFalloff}'s output for the current network — re-derived, not a compile-time
+ *  constant, since it depends on the actual cut depth this reseed produced. */
+const NetworkParams = d.struct({ segmentCount: d.u32, polygonCount: d.u32, falloff: d.f32 });
 
 export const networkLayout = tgpu.bindGroupLayout({
     segments: { storage: d.arrayOf(NetworkSegment), access: "readonly" },
@@ -85,10 +119,13 @@ const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
 /** the nearest network primitive's core boundary distance + target height at (px, pz) — the GPU-side
  *  geometry half of the flatten pipeline. Segments: clamped-projection distance to the core boundary
  *  (the same clamped form `overlay/rasterize.ts`'s `segmentDistanceGpu` uses — an independent derivation
- *  from `overlay/document.ts`'s cross-product form) minus half-width; target is the *natural* height at
- *  the projected point, so the road's longitudinal profile still tracks the terrain. Polygons: ray-cast
- *  winding for the sign, nearest-edge distance for the magnitude (mirrors `rasterize.ts`'s
- *  `polygonDistanceGpu`); target is the natural height at the polygon's own centroid. */
+ *  from `overlay/document.ts`'s cross-product form) minus half-width; target is the segment's own
+ *  pre-smoothed profile height, linearly interpolated by the same clamped projection parameter `t` the
+ *  distance calculation already computes — never a fresh `heightAt` sample at the projected point (stage
+ *  8's fix: that was every noise octave riding straight into the road surface). Polygons: ray-cast winding
+ *  for the sign, nearest-edge distance for the magnitude (mirrors `rasterize.ts`'s `polygonDistanceGpu`);
+ *  target is the natural height at the polygon's own centroid — a carpark is one flat plane, no profile to
+ *  smooth. */
 const networkCore = tgpu.fn(
     [d.f32, d.f32],
     NetworkCore,
@@ -112,7 +149,7 @@ const networkCore = tgpu.fn(
         const core = std.distance(d.vec2f(px, pz), d.vec2f(cx, cz)) - seg.halfWidth;
         if (core < bestCore) {
             bestCore = core;
-            bestTarget = heightAt(cx, cz);
+            bestTarget = std.mix(seg.aHeight, seg.bHeight, t);
         }
     }
 
@@ -152,10 +189,12 @@ const networkCore = tgpu.fn(
 });
 
 /** the flattened height at world (x, z): natural terrain height blended toward the nearest network
- *  primitive's core target via {@link flattenHeightGpu}'s cosine ease. `generate.ts`'s height kernel calls
- *  this in place of a bare `heightAt`, at the vertex and its four finite-difference neighbours alike, so
- *  the emitted normal reflects the flattened surface. An empty network (no segments, no polygons) leaves
- *  `bestCore` at its f32-max sentinel, always `>= FALLOFF`, so this degrades to plain `heightAt`. */
+ *  primitive's core target via {@link flattenHeightGpu}'s cosine ease, over the network's own
+ *  per-reseed {@link computeFalloff} distance (`networkLayout.$.params.falloff`, written by `setNetwork`).
+ *  `generate.ts`'s height kernel calls this in place of a bare `heightAt`, at the vertex and its four
+ *  finite-difference neighbours alike, so the emitted normal reflects the flattened surface. An empty
+ *  network (no segments, no polygons) leaves `bestCore` at its f32-max sentinel, always `>= falloff`, so
+ *  this degrades to plain `heightAt`. */
 export const flattenedHeightAt = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
@@ -163,7 +202,12 @@ export const flattenedHeightAt = tgpu.fn(
     "use gpu";
     const natural = heightAt(x, z);
     const core = networkCore(x, z);
-    return flattenHeightGpu(natural, core.targetHeight, core.coreDist, d.f32(FALLOFF));
+    return flattenHeightGpu(
+        natural,
+        core.targetHeight,
+        core.coreDist,
+        networkLayout.$.params.falloff,
+    );
 });
 
 type FlattenRoot = typeof Compute.root;
@@ -193,18 +237,85 @@ export function warmNetwork(state: State): void {
     state.onDispose(teardownNetworkBuffers);
 }
 
-/** (re)build the network's GPU geometry buffers + bind group from `doc` — called once at warm and again
- *  on every reseed (`terrain.ts`'s `regenerate`), since a new network has a different segment/polygon
- *  count. Mirrors `overlay/rasterize.ts`'s per-tile buffer-rebuild shape, but persists across the height
- *  kernel's own dispatches instead of being rebuilt per redraw — the kernel dispatches once per reseed,
- *  not once per throttled tile. */
-export function setNetwork(doc: StrokeDocument): void {
+/** one flattened profile sub-segment — a `flatten.ts`-local extension of `overlay/document.ts`'s
+ *  `Segment` shape with the two elevation control-point heights `networkCore` interpolates between. */
+export interface ProfileSegment {
+    readonly ax: number;
+    readonly az: number;
+    readonly bx: number;
+    readonly bz: number;
+    readonly halfWidth: number;
+    readonly aHeight: number;
+    readonly bHeight: number;
+}
+
+/** {@link buildNetworkGeometry}'s output: the GPU-bound sub-segment list plus the measured cut depth
+ *  {@link computeFalloff} derives the falloff from. */
+export interface NetworkGeometry {
+    readonly segments: readonly ProfileSegment[];
+    readonly cutDepth: number;
+}
+
+/**
+ * pure CPU builder: every polyline in `doc`, resampled into its own smoothed-profile sub-segments
+ * (`terrain/profile.ts`'s `buildPolylineProfile`), plus the measured cut depth — the largest
+ * `|natural - target|` over every profile point this network actually produces, the real input
+ * {@link computeFalloff} re-derives the falloff from (not a network-independent worst case). Deliberately
+ * builds each polyline directly from `doc.polylines` rather than reusing `overlay/document.ts`'s
+ * `flattenSegments`: that helper flattens a polyline to its own bare endpoint-to-endpoint segments, which
+ * carry no per-point elevation to interpolate — this needs the finer, height-bearing resampling instead.
+ * Device-free (`setNetwork` below is the only GPU-touching caller), so `flatten.test.ts` pins the
+ * profile-to-segment marshaling and the cut-depth measurement without a device — the split
+ * `overlay/document.ts` uses for its own geometry math.
+ */
+export function buildNetworkGeometry(
+    doc: StrokeDocument,
+    seed: number,
+    smoothRadius: number,
+): NetworkGeometry {
+    const perm = makePermutation(seed);
+    const segments: ProfileSegment[] = [];
+    let cutDepth = 0;
+    for (const line of doc.polylines) {
+        const profile = buildPolylineProfile(line.points, perm, smoothRadius);
+        for (let i = 0; i < profile.length - 1; i++) {
+            const a = profile[i];
+            const b = profile[i + 1];
+            segments.push({
+                ax: a.x,
+                az: a.z,
+                bx: b.x,
+                bz: b.z,
+                halfWidth: line.halfWidth,
+                aHeight: a.height,
+                bHeight: b.height,
+            });
+        }
+        for (const p of profile) {
+            cutDepth = Math.max(cutDepth, Math.abs(heightAtCpu(p.x, p.z, perm) - p.height));
+        }
+    }
+    return { segments, cutDepth };
+}
+
+/** (re)build the network's GPU geometry buffers + bind group from `doc` at `seed` (the same seed the
+ *  height kernel's own permutation buffer uses, so the profile's natural samples and the falloff
+ *  terminus's `heightAt` agree) with `smoothRadius`'s longitudinal profile smoothing — called once at warm
+ *  and again on every reseed or smoothing-strength change (`terrain.ts`'s `regenerate`/`setSmoothRadius`),
+ *  since a new network or radius produces a different segment list and falloff. Mirrors
+ *  `overlay/rasterize.ts`'s per-tile buffer-rebuild shape, but persists across the height kernel's own
+ *  dispatches instead of being rebuilt per redraw — the kernel dispatches once per reseed, not once per
+ *  throttled tile. */
+export function setNetwork(doc: StrokeDocument, seed: number, smoothRadius: number): void {
     teardownNetworkBuffers();
     const { device, root } = Compute;
 
-    const segments = flattenSegments(doc);
-    const segmentsData =
-        segments.length > 0 ? segments : [{ ax: 0, az: 0, bx: 0, bz: 0, halfWidth: 0 }];
+    const { segments, cutDepth } = buildNetworkGeometry(doc, seed, smoothRadius);
+    const falloff = computeFalloff(cutDepth);
+    const segmentsData: readonly ProfileSegment[] =
+        segments.length > 0
+            ? segments
+            : [{ ax: 0, az: 0, bx: 0, bz: 0, halfWidth: 0, aHeight: 0, bHeight: 0 }];
     segRaw = device.createBuffer({
         label: "network-segments",
         size: segmentsData.length * d.sizeOf(NetworkSegment),
@@ -218,6 +329,8 @@ export function setNetwork(doc: StrokeDocument): void {
             a: d.vec2f(s.ax, s.az),
             b: d.vec2f(s.bx, s.bz),
             halfWidth: s.halfWidth,
+            aHeight: s.aHeight,
+            bHeight: s.bHeight,
         })),
     );
 
@@ -270,7 +383,7 @@ export function setNetwork(doc: StrokeDocument): void {
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const paramsBuf = root.createBuffer(NetworkParams, paramsRaw).$usage("uniform");
-    paramsBuf.write({ segmentCount: segments.length, polygonCount: doc.polygons.length });
+    paramsBuf.write({ segmentCount: segments.length, polygonCount: doc.polygons.length, falloff });
 
     bindGroup = root.createBindGroup(networkLayout, {
         segments: segBuf,

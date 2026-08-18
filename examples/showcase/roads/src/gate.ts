@@ -3,7 +3,7 @@ import type { Check } from "./harness";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { VERTEX_COUNT } from "./terrain/grid";
 import { RELIEF } from "./terrain/noise";
-import { generate, readVertices, SEED } from "./terrain/terrain";
+import { generate, readVertices, SEED, syncNetworkForSeed } from "./terrain/terrain";
 
 // The terrain generator's correctness gate — the seed-determinism readback the spec's Validation names
 // ("Overlay correctness"/"Rasterizer fidelity" are later stages; this stage's own arm is the height
@@ -52,6 +52,10 @@ function equalStream(a: Uint32Array, b: Uint32Array): boolean {
 export async function gate(): Promise<Check[]> {
     const checks: Check[] = [];
 
+    // the flatten targets are baked CPU-side per seed (`terrain.ts`'s `syncNetworkForSeed`) — keep them in
+    // step with each probe seed's own permutation before dispatching, or the road's plateau would blend
+    // toward a stale seed's terrain under this seed's natural surface.
+    syncNetworkForSeed(GATE_SEED_A);
     await generate(GATE_SEED_A);
     const first = await readVertices();
     checks.push({
@@ -68,6 +72,7 @@ export async function gate(): Promise<Check[]> {
         detail: "seed → bit-identical vertex stream across two runs",
     });
 
+    syncNetworkForSeed(GATE_SEED_B);
     await generate(GATE_SEED_B);
     const reseeded = await readVertices();
     checks.push({
@@ -88,6 +93,7 @@ export async function gate(): Promise<Check[]> {
     });
 
     // restore the boot seed's terrain for the live view.
+    syncNetworkForSeed(SEED);
     await generate(SEED);
     return checks;
 }
