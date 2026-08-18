@@ -15,11 +15,16 @@ import { detectEdgeOffset, raggedness } from "../src/straightness";
 // and reports the raggedness for *that* build — the reading in the spec's Live log is two separate runs
 // of this file, one per source edit, never asserted against each other in-process.
 
+// arm-labeled so re-running under a different source edit (SPACING/TILE_RES/DIST_RANGE) doesn't
+// overwrite the previous arm's capture — needed to diff two arms' frames against each other as a
+// positive witness that a treatment actually reached the rendered image (`ROADS_ARM_LABEL`, default
+// "run", never read by the assertion below — purely a filename for cross-arm comparison).
+const ARM_LABEL = process.env.ROADS_ARM_LABEL ?? "run";
 const CAPTURE_PATH = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
     "test-results",
-    "straightness-capture.png",
+    `straightness-capture-${ARM_LABEL}.png`,
 );
 
 interface GrazingAnchor {
@@ -108,15 +113,20 @@ test("boundary straightness — grazing-view discriminator (opt-in, not a gate)"
     // analytically on the boundary, so its ±radius endpoints should straddle road and terrain) rather than
     // a shared on/off-road pair from elsewhere on screen — the grazing camera's framing gives no guarantee
     // stage 4/7's own probe points land anywhere near this view.
-    const offsets = anchors.map((a) => {
+    // diagnostic per anchor — kept alongside the offset itself so a null is legible (excluded for low
+    // contrast vs. searched and found nothing) rather than a bare `null` an evidence table can't explain.
+    const diagnostics = anchors.map((a, i) => {
         const ax = a.x * png.width;
         const ay = a.y * png.height;
         const s0 = luminanceAt(ax - a.dirX * SEARCH_RADIUS_PX, ay - a.dirY * SEARCH_RADIUS_PX);
         const s1 = luminanceAt(ax + a.dirX * SEARCH_RADIUS_PX, ay + a.dirY * SEARCH_RADIUS_PX);
         const lo = Math.min(s0, s1);
         const hi = Math.max(s0, s1);
-        if (hi - lo < MIN_CONTRAST) return null; // no real road/terrain contrast straddled — exclude
-        return detectEdgeOffset(
+        const contrast = hi - lo;
+        if (contrast < MIN_CONTRAST) {
+            return { i, offset: null, contrast, reason: "low-contrast" as const };
+        }
+        const offset = detectEdgeOffset(
             (x, y) => luminanceAt(x, y),
             ax,
             ay,
@@ -127,17 +137,26 @@ test("boundary straightness — grazing-view discriminator (opt-in, not a gate)"
             SEARCH_RADIUS_PX,
             STEPS_PER_PX,
         );
+        return {
+            i,
+            offset,
+            contrast,
+            reason: offset === null ? ("no-crossing" as const) : ("found" as const),
+        };
     });
+    const offsets = diagnostics.map((d) => d.offset);
     const r = raggedness(offsets);
 
     console.log(
         `STRAIGHTNESS_READING ${JSON.stringify({
+            armLabel: ARM_LABEL,
             meshParams,
             anchorCount: anchors.length,
             foundCount: r.n,
             rmsPx: r.rms,
             maxPx: r.max,
             offsets,
+            diagnostics,
         })}`,
     );
 
