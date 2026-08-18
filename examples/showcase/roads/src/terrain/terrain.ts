@@ -31,6 +31,7 @@ import {
     VERTEX_COUNT,
     WORLD_HALF,
 } from "./grid";
+import { DEFAULT_SMOOTH_RADIUS, MAX_SMOOTH_RADIUS, MIN_SMOOTH_RADIUS } from "./profile";
 
 export { generate } from "./generate";
 
@@ -166,6 +167,11 @@ function teardown(): void {
 // swaps to a fresh random seed on demand (the seed control, `boot.ts`'s F9 handler), exercising the exact
 // same `markDirty`/`redraw`/flatten path this boot document already takes.
 let liveDocument: StrokeDocument = generateNetwork(SEED);
+let currentSeed = SEED;
+// the longitudinal smoothing strength (`terrain/profile.ts`'s box-filter radius, samples each side) —
+// the spec's taste handover: a live control (`boot.ts`'s bracket-key idiom), not a value baked in and
+// declared good. `setSmoothRadius` below is the control's own entry point.
+let smoothRadius = DEFAULT_SMOOTH_RADIUS;
 
 async function warm(state: State): Promise<void> {
     teardown(); // a rebuild (HMR) re-warms — clear the prior generation's buffers first
@@ -243,7 +249,8 @@ async function warm(state: State): Promise<void> {
 
     bindTerrainKernel(vertices, position);
     warmNetwork(state); // its own onDispose registration, the same pattern
-    setNetwork(liveDocument); // the flatten kernel's geometry input, kept in sync with the overlay's own
+    setNetwork(liveDocument, currentSeed, smoothRadius); // the flatten kernel's geometry input, kept in
+    // sync with the overlay's own document and the height kernel's own permutation seed
     if (state.signal.aborted) return;
     await generate(SEED);
 }
@@ -271,10 +278,53 @@ const OverlayRedrawSystem: System = {
  * decision this stage inherits, not one it revisits).
  */
 export async function regenerate(seed: number): Promise<void> {
+    currentSeed = seed;
     liveDocument = generateNetwork(seed);
-    setNetwork(liveDocument);
+    setNetwork(liveDocument, seed, smoothRadius);
     overlayAtlas.markDirty(liveDocument);
     await generate(seed);
+}
+
+/**
+ * the longitudinal smoothing-strength live control (`boot.ts`'s bracket-key handler): re-derives the
+ * network's flatten geometry at the new radius and re-dispatches the height kernel, without touching the
+ * overlay (2D coverage/albedo is unaffected by a change that only moves target *heights*, so no
+ * `markDirty`/redraw is needed here — unlike {@link regenerate}, which also gets a new document). Clamped
+ * to `[MIN_SMOOTH_RADIUS, MAX_SMOOTH_RADIUS]` (`terrain/profile.ts`).
+ */
+export async function setSmoothRadius(radius: number): Promise<void> {
+    smoothRadius = Math.min(MAX_SMOOTH_RADIUS, Math.max(MIN_SMOOTH_RADIUS, radius));
+    setNetwork(liveDocument, currentSeed, smoothRadius);
+    await generate(currentSeed);
+}
+
+/** the live smoothing-strength radius — read by the boot's key handler to step relative to the current
+ *  value, and by tests. */
+export function getSmoothRadius(): number {
+    return smoothRadius;
+}
+
+/**
+ * re-bake {@link liveDocument}'s flatten geometry for `seed` without swapping the document or touching the
+ * overlay — `gate.ts`'s own seed-determinism probe dispatches `generate` at seeds other than the live
+ * one, and the flatten targets are baked CPU-side against a specific seed's permutation (`setNetwork`'s own
+ * doc comment): left unsynced, the gate's alternate-seed dispatch would flatten toward a stale seed's
+ * terrain under a different seed's natural surface — invisible to today's gate checks (none read the
+ * flatten boundary), but wrong regardless. Call before every `generate(seed)` whose seed isn't
+ * {@link currentSeed}.
+ *
+ * Deliberately doesn't touch {@link currentSeed} itself — `gate.ts` always restores to the boot `SEED`
+ * at the end regardless of any live F9 reseed (its own pre-existing "restore the boot seed's terrain for
+ * the live view" contract), so this only re-syncs the baked geometry, not the module's live-seed
+ * bookkeeping. Residue: if `__roadsGate()` is ever invoked *after* a live F9 reseed, `currentSeed` stays
+ * at the F9 seed even though the gate has just forced the displayed terrain back to `SEED` — a later
+ * `setSmoothRadius` call would then bake against the wrong permutation until the next `regenerate`. Not
+ * reachable by today's single-fresh-page-load gate flow, so left as documented residue rather than a
+ * bigger restructure (`gate.ts` resetting `liveDocument` itself is a separate, pre-existing design choice
+ * this stage didn't touch).
+ */
+export function syncNetworkForSeed(seed: number): void {
+    setNetwork(liveDocument, seed, smoothRadius);
 }
 
 /** whether every marked overlay tile has drained through the atlas — the device gate polls this before

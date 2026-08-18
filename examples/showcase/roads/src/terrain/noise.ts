@@ -17,9 +17,13 @@ import * as std from "typegpu/std";
 // street level" brief.
 export const HFREQ = 0.003;
 export const RELIEF = 40;
-const OCTAVES = 5; // baked into fbm2 below — broad shapes + medium hills + fine detail
-const PERSISTENCE = d.f32(0.5); // each octave's amplitude vs the last
-const LACUNARITY = d.f32(2.0); // each octave's frequency vs the last
+export const OCTAVES = 5; // baked into fbm2 below — broad shapes + medium hills + fine detail
+// plain-number exports so terrain/profile.ts's CPU mirror (heightAtCpu) shares these instead of
+// re-declaring its own copies — one source, the d.f32 wrap below is this module's own GPU-side need.
+export const PERSISTENCE = 0.5; // each octave's amplitude vs the last
+export const LACUNARITY = 2.0; // each octave's frequency vs the last
+const PERSISTENCE_F32 = d.f32(PERSISTENCE);
+const LACUNARITY_F32 = d.f32(LACUNARITY);
 export const GROUND_LEVEL = 0; // terrain centred on world Y=0 (the grid's own XZ centring, grid.ts)
 
 const PERM_SIZE = 256;
@@ -149,8 +153,8 @@ export const fbm2 = tgpu.fn(
     for (; i < d.u32(OCTAVES); i = i + d.u32(1)) {
         sum = sum + perlin2(std.mul(p, freq)) * amp;
         norm = norm + amp;
-        amp = amp * PERSISTENCE;
-        freq = freq * LACUNARITY;
+        amp = amp * PERSISTENCE_F32;
+        freq = freq * LACUNARITY_F32;
     }
     return sum / norm;
 });

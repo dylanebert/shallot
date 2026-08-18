@@ -1,33 +1,49 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat, integerDiscipline } from "../../../../../packages/shallot/tests/wgsl";
-import { FALLOFF, flattenHeight, flattenHeightGpu, flattenWgsl } from "./flatten";
+import { generateNetwork } from "../overlay/network";
+import {
+    buildNetworkGeometry,
+    computeFalloff,
+    flattenHeight,
+    flattenHeightGpu,
+    flattenWgsl,
+    SIDE_SLOPE_LIMIT,
+} from "./flatten";
+import { SPACING } from "./grid";
 import { mulberry32 } from "./noise";
+import { MAX_GRADE, PROFILE_STEP } from "./profile";
+
+// FALLOFF is no longer a fixed module constant (stage 8's re-derivation, `flatten.ts`'s module header) —
+// these pure-math tests exercise `flattenHeight`/`flattenHeightGpu` at an arbitrary representative
+// falloff, since the formula's own correctness doesn't depend on which falloff a network happened to
+// produce.
+const TEST_FALLOFF = 4;
 
 // The flatten formula's own gate — the spec's Validation criterion, "Flattening — oracle: centerline
 // height + monotone falloff". Pure cosine-ease math (`flatten.ts`'s module header), device-free.
 
 describe("flattenHeight — the CPU reference", () => {
     test("at or inside the core boundary (coreDist <= 0), the target height wins outright — the centerline case", () => {
-        expect(flattenHeight(100, 10, 0, FALLOFF)).toBe(10);
-        expect(flattenHeight(100, 10, -0.001, FALLOFF)).toBe(10);
-        expect(flattenHeight(100, 10, -50, FALLOFF)).toBe(10); // deep inside a wide road's core
+        expect(flattenHeight(100, 10, 0, TEST_FALLOFF)).toBe(10);
+        expect(flattenHeight(100, 10, -0.001, TEST_FALLOFF)).toBe(10);
+        expect(flattenHeight(100, 10, -50, TEST_FALLOFF)).toBe(10); // deep inside a wide road's core
     });
 
     test("at or past the falloff distance, fully natural — unmodified terrain", () => {
-        expect(flattenHeight(100, 10, FALLOFF, FALLOFF)).toBe(100);
-        expect(flattenHeight(100, 10, FALLOFF + 0.001, FALLOFF)).toBe(100);
-        expect(flattenHeight(100, 10, 1000, FALLOFF)).toBe(100);
+        expect(flattenHeight(100, 10, TEST_FALLOFF, TEST_FALLOFF)).toBe(100);
+        expect(flattenHeight(100, 10, TEST_FALLOFF + 0.001, TEST_FALLOFF)).toBe(100);
+        expect(flattenHeight(100, 10, 1000, TEST_FALLOFF)).toBe(100);
     });
 
     test("monotone across the falloff band, moving from target toward natural with no overshoot", () => {
         const natural = 40;
         const target = -10;
         const steps = 50;
-        let prev = flattenHeight(natural, target, 0, FALLOFF);
+        let prev = flattenHeight(natural, target, 0, TEST_FALLOFF);
         expect(prev).toBe(target);
         for (let i = 1; i <= steps; i++) {
-            const coreDist = (i / steps) * FALLOFF;
-            const h = flattenHeight(natural, target, coreDist, FALLOFF);
+            const coreDist = (i / steps) * TEST_FALLOFF;
+            const h = flattenHeight(natural, target, coreDist, TEST_FALLOFF);
             expect(h).toBeGreaterThanOrEqual(prev - 1e-9); // monotone: never steps back toward target
             expect(h).toBeLessThanOrEqual(Math.max(natural, target) + 1e-9); // never overshoots either endpoint
             expect(h).toBeGreaterThanOrEqual(Math.min(natural, target) - 1e-9);
@@ -39,18 +55,18 @@ describe("flattenHeight — the CPU reference", () => {
     test("monotonicity holds with natural below target too (a cutting, not a fill)", () => {
         const natural = -20;
         const target = 5;
-        let prev = flattenHeight(natural, target, 0, FALLOFF);
+        let prev = flattenHeight(natural, target, 0, TEST_FALLOFF);
         for (let i = 1; i <= 20; i++) {
-            const coreDist = (i / 20) * FALLOFF;
-            const h = flattenHeight(natural, target, coreDist, FALLOFF);
+            const coreDist = (i / 20) * TEST_FALLOFF;
+            const h = flattenHeight(natural, target, coreDist, TEST_FALLOFF);
             expect(h).toBeLessThanOrEqual(prev + 1e-9); // moving downward toward natural, monotonically
             prev = h;
         }
     });
 
     test("natural === target collapses the whole band to one constant height", () => {
-        for (const coreDist of [-5, 0, FALLOFF / 2, FALLOFF, FALLOFF * 3]) {
-            expect(flattenHeight(7, 7, coreDist, FALLOFF)).toBe(7);
+        for (const coreDist of [-5, 0, TEST_FALLOFF / 2, TEST_FALLOFF, TEST_FALLOFF * 3]) {
+            expect(flattenHeight(7, 7, coreDist, TEST_FALLOFF)).toBe(7);
         }
     });
 });
@@ -95,6 +111,87 @@ describe("flattenedHeightAt — degenerate empty network", () => {
         // returns exactly the natural height regardless of target — the degradation this module's header
         // comment promises.
         const sentinel = 3.402823e38;
-        expect(flattenHeight(12.5, 0, sentinel, FALLOFF)).toBe(12.5);
+        expect(flattenHeight(12.5, 0, sentinel, TEST_FALLOFF)).toBe(12.5);
+    });
+});
+
+describe("computeFalloff — the re-derived FALLOFF (stage 8)", () => {
+    test("floors at SPACING when the cut depth is zero — a transition narrower than the mesh can't resolve", () => {
+        expect(computeFalloff(0)).toBe(SPACING);
+        expect(computeFalloff(-5)).toBe(SPACING); // a negative cut depth is nonsensical input, still floors
+    });
+
+    test("past the floor, the cosine ease's peak slope equals SIDE_SLOPE_LIMIT by construction", () => {
+        for (const cutDepth of [1, 4, 10, 40]) {
+            const falloff = computeFalloff(cutDepth);
+            expect(falloff).toBeGreaterThan(SPACING);
+            // flattenHeight's ease derivative peaks at coreDist = falloff / 2 (t = 0.5): d/dCoreDist of
+            // targetHeight + (natural - targetHeight) * (0.5 - 0.5 cos(pi t)), t = coreDist / falloff.
+            const eps = 1e-4;
+            const mid = falloff / 2;
+            const h0 = flattenHeight(cutDepth, 0, mid - eps, falloff);
+            const h1 = flattenHeight(cutDepth, 0, mid + eps, falloff);
+            const peakSlope = (h1 - h0) / (2 * eps);
+            expect(peakSlope).toBeCloseTo(SIDE_SLOPE_LIMIT, 3);
+        }
+    });
+
+    test("monotone in cut depth — a deeper cut always widens the transition, never narrows it", () => {
+        expect(computeFalloff(20)).toBeGreaterThan(computeFalloff(10));
+        expect(computeFalloff(10)).toBeGreaterThan(computeFalloff(5));
+    });
+});
+
+describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
+    test("every polyline resamples to <= PROFILE_STEP-spaced sub-segments spanning its own endpoints", () => {
+        const doc = generateNetwork(42);
+        const { segments } = buildNetworkGeometry(doc, 1337, 3);
+        expect(segments.length).toBeGreaterThan(doc.polylines.length); // each 2-point road subdivides
+        for (const seg of segments) {
+            const len = Math.hypot(seg.bx - seg.ax, seg.bz - seg.az);
+            expect(len).toBeLessThanOrEqual(PROFILE_STEP + 1e-6);
+        }
+    });
+
+    test("consecutive sub-segments of one road chain endpoint to endpoint, no gap", () => {
+        const doc = generateNetwork(7);
+        const { segments: roadSegs } = buildNetworkGeometry(doc, 1337, 0);
+        // segments are emitted per-polyline in order (buildNetworkGeometry's own loop) — walk that same
+        // order and check each polyline's own run chains endpoint to endpoint.
+        let i = 0;
+        for (const line of doc.polylines) {
+            const [[ax, az], [bx, bz]] = line.points;
+            const len = Math.hypot(bx - ax, bz - az);
+            const n = Math.max(1, Math.ceil(len / PROFILE_STEP));
+            for (let s = 0; s < n; s++) {
+                const seg = roadSegs[i++];
+                if (s > 0) {
+                    const prev = roadSegs[i - 2];
+                    expect(seg.ax).toBeCloseTo(prev.bx, 9);
+                    expect(seg.az).toBeCloseTo(prev.bz, 9);
+                    expect(seg.aHeight).toBeCloseTo(prev.bHeight, 9);
+                }
+            }
+        }
+    });
+
+    test("grade never exceeds MAX_GRADE along any road's own smoothed profile, at radius 0 (grade-clamp alone)", () => {
+        const doc = generateNetwork(615); // stage 6's pinned regression seed — still a good stress case
+        const { segments } = buildNetworkGeometry(doc, 1337, 0);
+        for (const seg of segments) {
+            const len = Math.hypot(seg.bx - seg.ax, seg.bz - seg.az);
+            if (len < 1e-6) continue;
+            const grade = Math.abs(seg.bHeight - seg.aHeight) / len;
+            expect(grade).toBeLessThanOrEqual(MAX_GRADE + 1e-6);
+        }
+    });
+
+    test("cut depth is a non-negative real measurement, not a network-independent worst case", () => {
+        const flat = buildNetworkGeometry({ polylines: [], polygons: [] }, 1337, 3);
+        expect(flat.cutDepth).toBe(0); // no polylines, nothing to cut
+        const doc = generateNetwork(42);
+        const withRoads = buildNetworkGeometry(doc, 1337, 3);
+        expect(withRoads.cutDepth).toBeGreaterThanOrEqual(0);
+        expect(Number.isFinite(withRoads.cutDepth)).toBe(true);
     });
 });
