@@ -93,10 +93,26 @@ const segmentsDistanceGpu = tgpu.fn(
     return best;
 });
 
+/** apply the inside/outside sign convention to a polygon's nearest-edge distance — negative inside,
+ *  positive outside, `inside` decided by ray-cast winding. Factored out of `polygonDistanceGpu` as its
+ *  own pure fn (`checks.md`'s "factor inward") purely so it's CPU-callable with no bound storage:
+ *  `polygonDistanceGpu`'s enclosing reduction reads the shared `polyVerts` buffer and can only run
+ *  inside a real dispatch, but the sign convention itself takes no storage — stage 5's differential
+ *  oracle calls this directly to pin the sign, the exact axis a flipped `select` breaks.
+ * @example polygonSignedDistanceGpu(3, false) // 3 — outside, magnitude unchanged
+ * @example polygonSignedDistanceGpu(3, true) // -3 — inside, negated */
+export const polygonSignedDistanceGpu = tgpu.fn(
+    [d.f32, d.bool],
+    d.f32,
+)((nearestEdge, inside) => {
+    "use gpu";
+    return std.select(nearestEdge, -nearestEdge, inside);
+});
+
 /** one polygon stamp's signed distance at (px, pz) — ray-cast winding for the sign, nearest zero-width
  *  edge distance for the magnitude, reading `poly`'s span out of the shared `polyVerts` buffer. The GPU
  *  twin of `document.ts`'s `polygonDistance`, same construction, independently written GPU-side. */
-const polygonDistanceGpu = tgpu.fn(
+export const polygonDistanceGpu = tgpu.fn(
     [d.f32, d.f32, GpuPolygon],
     d.f32,
 )((px, pz, poly) => {
@@ -114,7 +130,7 @@ const polygonDistanceGpu = tgpu.fn(
         const edge = segmentDistanceGpu(px, pz, a.x, a.y, b.x, b.y, 0);
         if (edge < nearestEdge) nearestEdge = edge;
     }
-    return std.select(nearestEdge, -nearestEdge, inside);
+    return polygonSignedDistanceGpu(nearestEdge, inside);
 });
 
 /** the document's full distance at (px, pz) — the minimum over every segment and every polygon stamp,
