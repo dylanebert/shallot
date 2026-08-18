@@ -5,7 +5,7 @@ import { GROUND_LEVEL, HFREQ, makePermutation, noiseWgsl, RELIEF } from "./noise
 describe("makePermutation", () => {
     // the seed → identical terrain determinism (validated end-to-end on the GPU in the roads gate) rests
     // on the permutation table being deterministic in its seed. These pin that CPU-side foundation —
-    // `testing.md`'s observation ladder never binds a device in `bun test`.
+    // `bun test` never binds a device, so this is the device-free half of that guarantee.
 
     test("is deterministic in the seed", () => {
         expect(makePermutation(1337)).toEqual(makePermutation(1337));

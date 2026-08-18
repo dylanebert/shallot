@@ -3,8 +3,8 @@
 // (x, z) metres instead of voxel grid cells. No engine/GPU imports, so `bun test` exercises the
 // determinism foundation device-free — the GPU dispatch that consumes this lives in generate.ts.
 //
-// Showcase examples don't import each other's `src/` (examples.md: each is a self-contained project), so
-// this is its own copy of the perlin/fbm/permutation shape, not a shared import from voxel.
+// Showcase examples don't import each other's `src/` — each is a self-contained project — so this is
+// its own copy of the perlin/fbm/permutation shape, not a shared import from voxel.
 
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
@@ -33,8 +33,8 @@ export const noiseLayout = tgpu.bindGroupLayout({
 
 /** the seeded RNG both the permutation table (below) and the procedural network generator
  *  (`overlay/network.ts`) share — one source, not two independently authored copies, since both are
- *  deterministic-in-seed data generators within this one project (`examples.md`'s no-cross-import rule is
- *  about *other* showcase projects, not modules inside this one). */
+ *  deterministic-in-seed data generators within this one project (the no-cross-import rule between
+ *  showcase projects is about *other* projects, not modules inside this one). */
 export function mulberry32(seed: number): () => number {
     let s = seed >>> 0;
     return () => {

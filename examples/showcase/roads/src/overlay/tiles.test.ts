@@ -36,9 +36,9 @@ describe("tile addressing", () => {
 
 describe("dirtyTiles — the dirty-set oracle", () => {
     // an independent hand-derivation of the analytic tile set, walking the full grid by its own formula
-    // rather than calling dirtyTiles' own tileOf/tileId — checks.md's "an agreement check between two
-    // things one author wrote from one document tests the document's self-consistency, never its truth":
-    // this derives the set a different way (world-space overlap of each tile's known footprint) so the two
+    // rather than calling dirtyTiles' own tileOf/tileId — an agreement check between two things one author
+    // wrote from one document tests the document's self-consistency, never its truth: this derives the set
+    // a different way (world-space overlap of each tile's known footprint) so the two
     // can actually disagree if either has a bug.
     function handDerivedDirtySet(minX: number, minZ: number, maxX: number, maxZ: number): number[] {
         const out: number[] = [];

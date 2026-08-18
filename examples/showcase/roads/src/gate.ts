@@ -13,8 +13,8 @@ import { generate, readVertices, SEED } from "./terrain/terrain";
 // (`test/roads.spec.ts`) drives it on a GPU.
 //
 // `bun test ./src` (noise.test.ts, grid.test.ts, generate.test.ts) covers the device-free half: the
-// permutation table's seed determinism, the WGSL structural resolve, and the grid-topology oracle
-// (`testing.md`'s observation ladder — never bind a device in `bun test`). This gate covers the one thing
+// permutation table's seed determinism, the WGSL structural resolve, and the grid-topology oracle —
+// `bun test` never binds a device. This gate covers the one thing
 // only a real device can show: that two GPU dispatches at the same seed actually produce byte-identical
 // vertex content, and two different seeds don't.
 

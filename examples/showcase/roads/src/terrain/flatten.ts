@@ -7,9 +7,9 @@
 // flattened surface too ("affected-region remesh" — every reseed/regenerate re-dispatches the whole
 // kernel, so there's no separate patch step).
 //
-// Two independently-derived cosine-ease forms (`checks.md`'s two-derivations discipline, the same split
-// `overlay/document.ts`/`overlay/rasterize.ts` use for distance): {@link flattenHeight} is the CPU
-// reference `flatten.test.ts` pins directly; {@link flattenHeightGpu} is TGSL's own re-authoring of the
+// Two independently-derived cosine-ease forms (the same split `overlay/document.ts`/`overlay/rasterize.ts`
+// use for distance): {@link flattenHeight} is the CPU reference `flatten.test.ts` pins directly;
+// {@link flattenHeightGpu} is TGSL's own re-authoring of the
 // same formula (it *can't* call the CPU one — TGSL has no FFI into plain JS), checked against it by a
 // randomized differential test.
 
@@ -51,7 +51,7 @@ export function flattenHeight(
 
 /** the GPU kernel's own cosine-ease derivation — written independently of {@link flattenHeight} (TGSL
  *  can't call a plain JS function anyway), CPU-callable so `flatten.test.ts`'s differential oracle can
- *  compare the two forms with no device (`testing.md`'s logic tier). */
+ *  compare the two forms with no device. */
 export const flattenHeightGpu = tgpu.fn(
     [d.f32, d.f32, d.f32, d.f32],
     d.f32,
