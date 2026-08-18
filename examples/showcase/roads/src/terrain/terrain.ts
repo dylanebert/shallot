@@ -19,7 +19,6 @@ import * as std from "typegpu/std";
 import * as overlayAtlas from "../overlay/atlas";
 import type { StrokeDocument } from "../overlay/document";
 import { generateNetwork } from "../overlay/network";
-import { strokeDocument } from "../overlay/stroke";
 import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
 import { setNetwork, warmNetwork } from "./flatten";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
@@ -158,15 +157,15 @@ function teardown(): void {
     buffers = null;
 }
 
-// The boot document stays the hand-authored known pattern (`overlay/stroke.ts`'s `strokeDocument`) — the
-// exact same one stage 4/5's device gate already validates (fixed on/off-road probe points, an analytic
-// zero-height at the origin) — rather than the freshly-built procedural network (`overlay/network.ts`).
-// Stage 7 is what re-points the capture gate at "the full procedural network" (the spec's own words for
-// its Approach); flipping the *rendered* boot document here would silently invalidate stage 4/5's fixed
-// probe points before that rewiring exists. The generator is real and live from this stage on, though:
-// {@link regenerate} swaps to it on demand (the seed control, `boot.ts`'s F9 handler), exercising the
-// exact same `markDirty`/`redraw`/flatten path production will use once stage 7 makes it the default.
-let liveDocument: StrokeDocument = strokeDocument();
+// The boot document is the seeded procedural network (`overlay/network.ts`'s `generateNetwork`) at this
+// module's own {@link SEED} — the same pinned seed the height kernel boots with, so a fresh load and a
+// capture both see one fixed network. `capture.ts`'s `capturePoints` derives its on/off-road probe points
+// from this exact `generateNetwork(SEED)` call (`overlay/network.ts`'s `captureProbePoints`), so the two
+// can't drift apart. `overlay/stroke.ts`'s hand-authored stroke stays live only as the CPU-vs-GPU
+// differential's known pattern (`document.test.ts`), no longer what boots on screen. {@link regenerate}
+// swaps to a fresh random seed on demand (the seed control, `boot.ts`'s F9 handler), exercising the exact
+// same `markDirty`/`redraw`/flatten path this boot document already takes.
+let liveDocument: StrokeDocument = generateNetwork(SEED);
 
 async function warm(state: State): Promise<void> {
     teardown(); // a rebuild (HMR) re-warms — clear the prior generation's buffers first
@@ -237,9 +236,9 @@ async function warm(state: State): Promise<void> {
     Meshes.register(mesh);
     Draws.register({ name: "terrain", surface: "terrain", mesh: "terrain", args: { indirect } });
 
-    // the boot document (overlay/stroke.ts's known pattern), expressed as a StrokeDocument and rasterized
-    // by overlay/rasterize.ts's GPU kernel (stage 5). Marking it dirty here (not per-frame) means one
-    // redraw burst at warm, not a repeated mark.
+    // the boot document (the procedural network at this module's SEED, above), rasterized by
+    // overlay/rasterize.ts's GPU kernel. Marking it dirty here (not per-frame) means one redraw burst at
+    // warm, not a repeated mark.
     overlayAtlas.markDirty(liveDocument);
 
     bindTerrainKernel(vertices, position);

@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { WORLD_HALF } from "../terrain/grid";
-import { documentDirtyTiles, flattenSegments } from "./document";
-import { generateNetwork, ROAD_COUNT, ROAD_HALF_WIDTH } from "./network";
+import { gridX, gridZ, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
+import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
+import { captureProbePoints, generateNetwork, ROAD_COUNT, ROAD_HALF_WIDTH } from "./network";
+
+// this module's own copy of `terrain/terrain.ts`'s boot SEED — kept a plain literal rather than an
+// import so this file's tests stay in the pure-data tier (no pull-in of terrain.ts's device-bound module
+// graph); `capture.test.ts` and the device gate exercise the real import.
+const BOOT_SEED = 1337;
 
 // The network generator's determinism gate — the spec's own Validation criterion ("network determinism
 // in its seed"). No device needed: `generateNetwork` is pure XZ placement (module header).
@@ -42,7 +47,7 @@ describe("generateNetwork — shape", () => {
     });
 
     test("every primitive stays within the world footprint over a wide seed scan (no clamped-AABB edge case)", () => {
-        // a single hardcoded seed is a fixture, not a corpus (checks.md) — an earlier version of this
+        // a single hardcoded seed is a fixture, not a corpus — an earlier version of this
         // arm ran only seed 99, which happens not to trigger the escape a WORLD_MARGIN bounding only the
         // segment's *start* point allows: the endpoint is `x0 + cos(heading) * length` with `length` up
         // to ROAD_MAX_LENGTH in either direction, not half of it. Scan a real range, and pin the exact
@@ -91,5 +96,47 @@ describe("generateNetwork — shape", () => {
         const doc = generateNetwork(7);
         expect(() => documentDirtyTiles(doc)).not.toThrow();
         expect(documentDirtyTiles(doc).length).toBeGreaterThan(0);
+    });
+});
+
+describe("captureProbePoints — the device gate's on/off-road pair over the procedural network", () => {
+    test("at the boot seed: both points are grid-aligned, and classify as their names say", () => {
+        const doc = generateNetwork(BOOT_SEED);
+        const { onRoad, offRoad } = captureProbePoints(BOOT_SEED);
+
+        // grid-aligned: worldX(gridX(x)) round-trips exactly for a point already sitting on the grid.
+        expect(worldX(gridX(onRoad[0]))).toBe(onRoad[0]);
+        expect(worldZ(gridZ(onRoad[1]))).toBe(onRoad[1]);
+        expect(worldX(gridX(offRoad[0]))).toBe(offRoad[0]);
+        expect(worldZ(gridZ(offRoad[1]))).toBe(offRoad[1]);
+
+        expect(documentDistance(onRoad[0], onRoad[1], doc)).toBeLessThan(0);
+        expect(documentDistance(offRoad[0], offRoad[1], doc)).toBeGreaterThan(0);
+    });
+
+    test("pinned witness at the boot seed — a regression names itself against these exact coordinates", () => {
+        // computed once against generateNetwork(1337) and checked by hand against documentDistance
+        // (on-road ≈ -3.20 m inside the road's 4 m half-width; off-road ≈ +4.10 m outside it, one grid
+        // step further out — the nearest-to-origin road at this seed, not necessarily road 0).
+        const { onRoad, offRoad } = captureProbePoints(BOOT_SEED);
+        expect(onRoad).toEqual([-8, -24]);
+        expect(offRoad).toEqual([0, -28]);
+    });
+
+    test("is deterministic in the seed, like generateNetwork itself", () => {
+        expect(captureProbePoints(99)).toEqual(captureProbePoints(99));
+    });
+
+    test("classifies correctly over a scan of seeds, not just the boot seed", () => {
+        // ROAD_HALF_WIDTH/ROAD_MIN_LENGTH are fixed across every seed (network.ts), so the derivation's
+        // inside/outside read shouldn't be a boot-seed coincidence — scan a real range rather than trust
+        // one witness, the same lesson the network's own edge-case test above learned at seed 615: a
+        // single hardcoded seed is a fixture, not a corpus.
+        for (let seed = 0; seed < 200; seed++) {
+            const doc = generateNetwork(seed);
+            const { onRoad, offRoad } = captureProbePoints(seed);
+            expect(documentDistance(onRoad[0], onRoad[1], doc)).toBeLessThan(0);
+            expect(documentDistance(offRoad[0], offRoad[1], doc)).toBeGreaterThan(0);
+        }
     });
 });

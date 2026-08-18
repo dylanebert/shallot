@@ -2,16 +2,16 @@ import { dirtyTiles, type Rect, TEXEL_SIZE } from "./tiles";
 
 // The stroke document: pure data (polylines + width, polygon stamps) plus the CPU analytic distance math
 // stage 5's differential oracle checks the GPU rasterizer (`rasterize.ts`) against. No GPU/engine
-// imports, so `bun test` exercises every formula here without a device (`testing.md`'s logic tier) — the
-// same device-free split `tiles.ts` and `terrain/noise.ts` use.
+// imports, so `bun test` exercises every formula here without a device — the same device-free split
+// `tiles.ts` and `terrain/noise.ts` use.
 //
 // `segmentDistance` below is deliberately a *different* derivation from `rasterize.ts`'s
 // `segmentDistanceGpu`: this one finds the signed perpendicular offset via a 2D cross product once the
 // projection falls strictly between the endpoints, falling back to the nearer endpoint distance outside
 // that range; `rasterize.ts`'s GPU form instead clamps the projection parameter `t` to [0, 1] and always
 // measures straight-line distance to the clamped point. Same geometric quantity, two independently
-// written code paths — `checks.md`'s rule that an agreement check between two things written from one
-// source tests self-consistency, not correctness.
+// written code paths — an agreement check between two things written from one source tests
+// self-consistency, not correctness.
 
 /** one road-width centreline — consecutive points define its segments, `halfWidth` is constant along its
  *  whole length (a real network's per-segment width variation is out of this stage's scope). */

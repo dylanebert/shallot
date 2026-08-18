@@ -15,6 +15,26 @@ import {
     tileCoordOf,
 } from "./tiles";
 
+// Why a tiled overlay atlas, sampled inside the terrain surface, rather than projected decals:
+//
+// Cost model. A decal is its own geometry (a box or a screen-space quad) rendered over the terrain; its
+// per-frame cost is proportional to how many decal volumes overlap a given pixel — cheap for a handful of
+// bullet holes or footprints, expensive once decals cover most of the visible ground, since a dense
+// overlapping set means every covered pixel re-evaluates every decal that reaches it. This atlas inverts
+// that: the terrain's own fragment shader pays one indirection lookup into {@link Indirection} plus one
+// atlas sample (`terrain/terrain.ts`'s composite) every frame, *regardless* of how many roads or carparks
+// exist — a network of 5 primitives and one of 500 cost the same per-frame sample. The part of the cost
+// that scales with primitive count is the rasterization into dirty tiles below, and that's paid once per
+// edit, throttled ({@link THROTTLE} tiles/frame), never once per frame per pixel.
+//
+// Same-surface sampling. A decal is a second piece of geometry positioned just above the terrain, which
+// needs a depth bias to keep it from z-fighting the surface underneath it — flickering where the two
+// depths are close enough that which one wins a given pixel becomes numerically unstable. That bias is a
+// tuned constant with no value that's simultaneously right at every camera distance and every terrain
+// slope. Reading this atlas from inside the terrain fs, instead of drawing a second surface, has nothing
+// to z-fight: there's exactly one depth value written per pixel, the terrain's own, so the failure mode
+// isn't tuned away, it has no surface to occur on.
+//
 // The overlay atlas's GPU state: two texture-2d-arrays (albedo + boundary distance, `tiles.ts`'s formats)
 // sized to {@link ATLAS_LAYERS} — smaller than {@link TILE_COUNT}, the "small indirection" the spec's
 // Approach names — plus the indirection storage buffer the terrain fs (`terrain/terrain.ts`) looks tile id
@@ -153,7 +173,7 @@ export function redraw(doc: StrokeDocument): number {
 }
 
 /** whether every marked tile has drained through {@link redraw} — the boot path polls this so the
- *  hand-authored stroke is fully resident before the device gate's capture reads the frame. */
+ *  procedural network is fully resident before the device gate's capture reads the frame. */
 export function idle(): boolean {
     return pending.length === 0;
 }

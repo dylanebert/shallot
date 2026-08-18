@@ -33,8 +33,9 @@ export const ROAD_ALBEDO: readonly [number, number, number] = [0.05, 0.05, 0.06]
 
 /** signed distance in world metres from (x, z) to the stroke's road edge — negative inside the road,
  *  positive outside, zero at the boundary. The primitive stage 5's differential oracle will re-derive
- *  independently against a GPU rasterization of the same shape (`checks.md`'s two-derivations discipline);
- *  here it's the one source both the CPU packer and this stage's unit tests read. */
+ *  independently against a GPU rasterization of the same shape — two derivations written from scratch,
+ *  neither calling the other; here it's the one source both the CPU packer and this stage's unit tests
+ *  read. */
 export function strokeDistance(x: number, z: number): number {
     const clampedX = Math.max(-STROKE_HALF_LENGTH, Math.min(STROKE_HALF_LENGTH, x));
     const dx = x - clampedX;

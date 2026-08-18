@@ -55,7 +55,7 @@ const rasterLayout = tgpu.bindGroupLayout({
 /**
  * point-segment signed distance (minus half-width), the compute kernel's own derivation: clamp the
  * projection parameter `t` onto [0, 1], measure straight-line distance to the clamped point. CPU-callable
- * (`testing.md`'s logic tier) so `bun test` exercises this exact math with no device — the GPU half of
+ * so `bun test` exercises this exact math with no device — the GPU half of
  * stage 5's differential oracle against `document.ts`'s independently-derived `segmentDistance`.
  * @example segmentDistanceGpu(5, 0, -10, 0, 10, 0, 2) // -2 (on the centreline, inside a 2 m half-width)
  */
@@ -95,7 +95,7 @@ const segmentsDistanceGpu = tgpu.fn(
 
 /** apply the inside/outside sign convention to a polygon's nearest-edge distance — negative inside,
  *  positive outside, `inside` decided by ray-cast winding. Factored out of `polygonDistanceGpu` as its
- *  own pure fn (`coding.md`'s "factor inward") purely so it's CPU-callable with no bound storage:
+ *  own pure fn purely so it's CPU-callable with no bound storage:
  *  `polygonDistanceGpu`'s enclosing reduction reads the shared `polyVerts` buffer and can only run
  *  inside a real dispatch, but the sign convention itself takes no storage — stage 5's differential
  *  oracle calls this directly to pin the sign, the exact axis a flipped `select` breaks.

@@ -1,17 +1,17 @@
 import { computeViewProj, Views } from "@dylanebert/shallot/render/core";
 import { decodePos } from "@dylanebert/shallot/utils/core";
-import { OFF_ROAD_POINT, ON_ROAD_POINT } from "./overlay/stroke";
+import { captureProbePoints } from "./overlay/network";
 import { COVERAGE_BAND_PX } from "./overlay/tiles";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { gridX, gridZ, VERTS } from "./terrain/grid";
-import { readVertices } from "./terrain/terrain";
+import { readVertices, SEED } from "./terrain/terrain";
 
-// The device gate's world→screen bridge for the pixel-probe capture (the spec's flagged-risk validation,
-// stage 4's own arm — `checks.md`: the fs composite is observable only in the rendered frame). Rather than
-// hand-deriving the orbit camera's trig in the Playwright driver, this reads the *real* live viewProj the
-// renderer itself uses (`computeViewProj`, `@dylanebert/shallot/render/core`) — so the mapping can't drift
-// from whatever the scene's orbit distance/pitch/fov actually are, and the driver never re-implements
-// camera math it doesn't own.
+// The device gate's world→screen bridge for the pixel-probe capture (the spec's flagged-risk validation —
+// the fs composite is observable only in the rendered frame, never in the compute-write half `bun test`
+// already covers). Rather than hand-deriving the orbit camera's trig in the Playwright driver, this reads
+// the *real* live viewProj the renderer itself uses (`computeViewProj`, `@dylanebert/shallot/render/core`)
+// — so the mapping can't drift from whatever the scene's orbit distance/pitch/fov actually are, and the
+// driver never re-implements camera math it doesn't own.
 
 /** a world point's screen position as a fraction of the canvas (0,0 = top-left, 1,1 = bottom-right) — the
  *  unit `test/roads.spec.ts` multiplies by the captured screenshot's own pixel dimensions, so the mapping
@@ -69,8 +69,8 @@ export function worldToScreen(
 
 /** one grid-aligned world (x, z) → its full 3D world point, height read from the real generated vertex
  *  stream (`readVertices`, `terrain.ts`) rather than re-deriving the noise function in JS — {@link gridX}/
- *  {@link gridZ} require an exact grid column, which `overlay/stroke.ts`'s ON_ROAD_POINT/OFF_ROAD_POINT are
- *  built to be. */
+ *  {@link gridZ} require an exact grid column, which `overlay/network.ts`'s `captureProbePoints` are
+ *  built to return. */
 async function withHeight(x: number, z: number): Promise<[x: number, y: number, z: number]> {
     const raw = await readVertices();
     const ix = gridX(x);
@@ -80,17 +80,19 @@ async function withHeight(x: number, z: number): Promise<[x: number, y: number, 
     return [x, y, z];
 }
 
-/** the capture gate's fixed on-road/off-road world probe points, heights read from the live generated
- *  terrain (`overlay/stroke.ts`'s ON_ROAD_POINT/OFF_ROAD_POINT). */
+/** the capture gate's on-road/off-road world probe points over the full procedural network at the boot's
+ *  pinned {@link SEED} (`overlay/network.ts`'s `captureProbePoints`, `terrain.ts`'s live boot document),
+ *  heights read from the live generated terrain. */
 export async function capturePoints(): Promise<{
     onRoad: [number, number, number];
     offRoad: [number, number, number];
 }> {
-    const [onRoad, offRoad] = await Promise.all([
-        withHeight(...ON_ROAD_POINT),
-        withHeight(...OFF_ROAD_POINT),
+    const { onRoad, offRoad } = captureProbePoints(SEED);
+    const [onRoadPoint, offRoadPoint] = await Promise.all([
+        withHeight(...onRoad),
+        withHeight(...offRoad),
     ]);
-    return { onRoad, offRoad };
+    return { onRoad: onRoadPoint, offRoad: offRoadPoint };
 }
 
 /**

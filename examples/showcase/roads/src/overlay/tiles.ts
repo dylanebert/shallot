@@ -2,7 +2,7 @@ import { WORLD_EXTENT, WORLD_HALF } from "../terrain/grid";
 
 // The overlay's fixed world-space tile grid: pure addressing + packing math, no GPU/engine imports (the
 // same device-free split terrain/grid.ts and terrain/noise.ts use) — `bun test` exercises every formula
-// here without a device (testing.md's logic tier). `atlas.ts` is the GPU-resident half that consumes it.
+// here without a device. `atlas.ts` is the GPU-resident half that consumes it.
 //
 // Tile size: 64 m (spec-given, matching Anno's own 512² tile precedent). 1024 m / 64 m = 16 tiles/side
 // exactly (grid.ts's WORLD_EXTENT), so the tile grid tiles the terrain footprint with no partial edge tile

@@ -1,4 +1,17 @@
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
+
+// where every run's capture lands — a fixed, git-ignored path (`test-results/`, this project's
+// `.gitignore`) rather than a per-run timestamped name, so "the latest capture" always has one findable
+// location for the spec's human release-look gate to read.
+const CAPTURE_PATH = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "test-results",
+    "roads-capture.png",
+);
 
 // Drive the terrain generator's device gate: load the app, wait for it to warm and expose
 // `window.__roadsGate`, run it on the real GPU, and assert every check passes (and the page raised no
@@ -70,9 +83,10 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     }
 
     // Phase 2: the overlay substrate's own flagged-risk validation (spec's Locked decision) — a real
-    // captured frame, machine-read, with the hand-authored stroke (overlay/stroke.ts). The compute-write
+    // captured frame, machine-read, over the full procedural network (overlay/network.ts). The compute-write
     // half is proven device-free (overlay/stroke.test.ts's seeded-tile readback oracle); this is the fs
-    // composite's own arm, observable only in the rendered frame (checks.md: layers are a granularity).
+    // composite's own arm, observable only in the rendered frame — the compute-write and the sampled-pixel
+    // output are different granularities, and only this arm sees the second one.
     await page.waitForFunction(
         () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
         null,
@@ -101,6 +115,8 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     )) as ScreenPoint[];
 
     const screenshot = await page.screenshot();
+    mkdirSync(dirname(CAPTURE_PATH), { recursive: true });
+    writeFileSync(CAPTURE_PATH, screenshot);
     const capture = await page.evaluate(
         async ({ base64, onRoadScreen, offRoadScreen, tolerancePx }) => {
             const binary = atob(base64);

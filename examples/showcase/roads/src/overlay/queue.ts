@@ -31,8 +31,7 @@ export interface Allocation {
  * resolve tile `id`'s atlas layer against the indirection CPU mirror `cpu` (negative = unallocated):
  * already resident → its existing layer, unchanged counter; otherwise the next free layer, `cpu[id]`
  * written in place. Throws when `nextLayer` would exceed `capacity` rather than silently overwriting a
- * resident layer or wrapping the counter (`coding.md`'s Robust clause — no plausible-fallback substitute
- * for a real capacity limit).
+ * resident layer or wrapping the counter — no plausible-fallback substitute for a real capacity limit.
  *
  * @example allocate(new Int32Array(4).fill(-1), 2, 0, 4) // → { layer: 0, nextLayer: 1 }, cpu[2] === 0
  */

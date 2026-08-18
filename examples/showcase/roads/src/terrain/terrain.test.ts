@@ -4,10 +4,10 @@ import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../over
 import { terrainFsWgsl } from "./terrain";
 
 // The overlay composite's structural gate — the device-free seam this stage's `bun test` relies on for the
-// fs's atlas-sampling half (`testing.md`'s ladder: CPU-callable/resolved-WGSL first, never a bound
-// device). The composite's actual pixel output is the capture gate's own arm (`gate.ts`/`test/roads.spec.ts`)
-// — checks.md's "layers are a granularity": the compute-write half is proven by the seeded-tile readback
-// oracle (`overlay/stroke.test.ts`), this half by resolution + the capture, neither alone.
+// fs's atlas-sampling half (CPU-callable/resolved-WGSL first, never a bound device). The composite's
+// actual pixel output is the capture gate's own arm (`gate.ts`/`test/roads.spec.ts`) — layers are a
+// granularity: the compute-write half is proven by the seeded-tile readback oracle (`overlay/stroke.test.ts`),
+// this half by resolution + the capture, neither alone.
 
 describe("terrain fs — overlay composite", () => {
     const wgsl = terrainFsWgsl();

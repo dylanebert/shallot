@@ -1,12 +1,17 @@
-import { WORLD_HALF } from "../terrain/grid";
+import { gridX, gridZ, SPACING, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
 import { mulberry32 } from "../terrain/noise";
-import type { PolygonStamp, Polyline, StrokeDocument } from "./document";
+import {
+    documentDistance,
+    type PolygonStamp,
+    type Polyline,
+    type StrokeDocument,
+} from "./document";
 
 // The seeded procedural network: "a handful" of straight-segment roads plus one carpark polygon, placed
 // by a deterministic RNG (`terrain/noise.ts`'s `mulberry32`, the same seeded-RNG shape the permutation
-// table uses — one source, `coding.md`'s One-source-of-truth). Pure XZ placement, no engine/GPU imports
-// (the same device-free split `overlay/tiles.ts`/`overlay/document.ts` use) — `bun test` exercises the
-// generator's determinism with no device.
+// table uses — one source, not two independently authored copies). Pure XZ placement, no engine/GPU
+// imports (the same device-free split `overlay/tiles.ts`/`overlay/document.ts` use) — `bun test`
+// exercises the generator's determinism with no device.
 //
 // "Terrain-conformed" is the flatten step's job, not this one's (`terrain/flatten.ts`): a road's
 // *longitudinal* profile follows the natural terrain height along its own centreline, so a straight-line
@@ -93,4 +98,72 @@ export function generateNetwork(seed: number): StrokeDocument {
     };
 
     return { polylines, polygons: [polygon] };
+}
+
+/**
+ * deterministic capture-gate probe points for {@link generateNetwork}'s output at `seed` — grid-aligned
+ * so the capture's world→screen bridge can read the real generated terrain height at an exact grid vertex
+ * (`terrain/grid.ts`'s `gridX`/`gridZ`), generalizing `overlay/stroke.ts`'s hand-authored on/off-road pair
+ * (fixed, axis-aligned points valid only for that stroke's own straight-along-+X shape) to a network whose
+ * roads land at arbitrary headings and positions.
+ *
+ * Picks whichever road's midpoint sits nearest the world origin, not always `polylines[0]`: the scene's
+ * fixed orbit camera (`public/scenes/roads.scene`) frames the whole 1024 m grid from its default target,
+ * the world origin, so a road far out near the world's edge projects to only a few screen pixels — its
+ * on/off-road pair would then sit closer than one screen pixel apart, sampling the same rounded pixel
+ * twice (measured: a seed whose nearest road sat 260 m out read identical on/off-road luminance on the
+ * real device). The on-road point is that midpoint's nearest grid vertex; the off-road point steps
+ * outward one grid cell at a time along the segment's own normal, trying both normal directions since
+ * only `polylines[0]` has a carpark anchored to one particular side (`generateNetwork`, above) — whichever
+ * direction clears the road first is a clean single-boundary crossing. Both points are confirmed
+ * inside/outside by {@link documentDistance} at derivation time rather than assumed from the geometry
+ * alone, so a network change that breaks the pairing fails loud instead of silently reading the wrong
+ * pixels.
+ */
+export function captureProbePoints(seed: number): {
+    onRoad: readonly [x: number, z: number];
+    offRoad: readonly [x: number, z: number];
+} {
+    const doc = generateNetwork(seed);
+
+    let nearest = doc.polylines[0];
+    let nearestDist = Number.POSITIVE_INFINITY;
+    for (const line of doc.polylines) {
+        const [[ax, az], [bx, bz]] = line.points;
+        const d = Math.hypot((ax + bx) / 2, (az + bz) / 2);
+        if (d < nearestDist) {
+            nearestDist = d;
+            nearest = line;
+        }
+    }
+
+    const [[ax, az], [bx, bz]] = nearest.points;
+    const mx = (ax + bx) / 2;
+    const mz = (az + bz) / 2;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len;
+    const nz = dx / len;
+    const halfWidth = nearest.halfWidth;
+
+    const snap = (x: number, z: number): [number, number] => [worldX(gridX(x)), worldZ(gridZ(z))];
+
+    const onRoad = snap(mx, mz);
+    if (documentDistance(onRoad[0], onRoad[1], doc) >= 0) {
+        throw new Error(
+            `captureProbePoints: derived on-road point (${onRoad[0]}, ${onRoad[1]}) is not inside the network at seed ${seed}`,
+        );
+    }
+
+    for (const sign of [1, -1]) {
+        for (let step = 1; step <= 32; step++) {
+            const reach = halfWidth + step * SPACING;
+            const offRoad = snap(mx + sign * nx * reach, mz + sign * nz * reach);
+            if (documentDistance(offRoad[0], offRoad[1], doc) > 0) return { onRoad, offRoad };
+        }
+    }
+    throw new Error(
+        `captureProbePoints: no off-road grid point found within search radius at seed ${seed}`,
+    );
 }

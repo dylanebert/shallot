@@ -18,9 +18,9 @@ import {
 import { DIST_RANGE, decodeDist, encodeDist, TEXEL_SIZE } from "./tiles";
 
 // Stage 5's differential oracle: `segmentDistanceGpu` (rasterize.ts, clamped-projection form, CPU-called
-// through TypeGPU's dual execution — testing.md's logic tier) against `document.ts`'s `segmentDistance`
-// (perpendicular-offset-via-cross-product form) — two independently written derivations of the same
-// geometric quantity (checks.md). The GPU side is additionally quantized through `encodeDistGpu` +
+// through TypeGPU's dual execution) against `document.ts`'s `segmentDistance` (perpendicular-offset-via-
+// cross-product form) — two independently written derivations of the same geometric quantity. The GPU
+// side is additionally quantized through `encodeDistGpu` +
 // `tiles.ts`'s `decodeDist`, the exact byte round-trip the real kernel's output goes through, so the
 // tolerance is the r8unorm quantization step the spec's Approach names, not a raw-float tolerance.
 const QUANT_STEP = (2 * DIST_RANGE) / 255;
@@ -82,9 +82,9 @@ describe("differential oracle — segmentDistanceGpu vs document.ts's segmentDis
 
     test("a multi-primitive (segments + polygons) reduction agrees with documentDistance", () => {
         // documentDistanceGpu itself reads its segments/polygons out of bound storage buffers
-        // (rasterLayout.$.segments / .polygons / .polyVerts), so it can't be CPU-called without a device
-        // (testing.md: "never bind a device in bun test") — the kernel's reduction loop is instead pinned
-        // structurally below ("emitted WGSL"). This exercises the same reduction (min over every segment's
+        // (rasterLayout.$.segments / .polygons / .polyVerts), so it can't be CPU-called without a device —
+        // the kernel's reduction loop is instead pinned structurally below ("emitted WGSL"). This exercises
+        // the same reduction (min over every segment's
         // segmentDistanceGpu AND every polygon's winding+edge reduction) in plain JS, over the same
         // per-primitive kernel math the earlier tests already validated CPU-side — and, unlike the
         // segment-only reduction this replaces, carries a non-empty `polygons` array so
@@ -144,8 +144,8 @@ describe("differential oracle — segmentDistanceGpu vs document.ts's segmentDis
 
 /**
  * plain-JS mirror of `polygonDistanceGpu`'s winding + nearest-edge reduction — over `segmentDistanceGpu`
- * (the same CPU-callable primitive the real reduction calls per edge, `checks.md`'s independent-derivation
- * rule), finishing with the real, exported `polygonSignedDistanceGpu` for the sign. The reduction loop
+ * (the same CPU-callable primitive the real reduction calls per edge, kept as an independent derivation),
+ * finishing with the real, exported `polygonSignedDistanceGpu` for the sign. The reduction loop
  * (winding parity, nearest-edge min) is a JS reimplementation — like `segmentsDistanceGpu`'s reduction
  * above, it reads a bound storage array GPU-side and can't be CPU-called directly — but the sign
  * convention itself, the exact axis a flipped `select` breaks, calls the real kernel code, not a copy.
@@ -346,7 +346,7 @@ describe("emitted WGSL — structural", () => {
             }
         });
 
-        test("the packing expression itself (a cheap structural sentinel, in addition to the eval-based pins above — never the only one, checks.md)", () => {
+        test("the packing expression itself (a cheap structural sentinel, in addition to the eval-based pins above — never the only one)", () => {
             expect(kernel).toContain("let texelX = ((gx * 4u) + k);");
         });
     });

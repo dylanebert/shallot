@@ -59,9 +59,9 @@ describe("packStrokeTile — the seeded-tile readback oracle", () => {
 
         // independent re-derivation: recompute the expected texel content at a handful of coordinates by
         // hand-walking the tile's own world origin and texel size, never calling packStrokeTile's internal
-        // texelOffset — an agreement check against the same formula would only prove self-consistency
-        // (checks.md), so this reads the origin from tileOrigin (a different module function) and computes
-        // the byte offset with an inline formula.
+        // texelOffset — an agreement check against the same formula would only prove self-consistency, so
+        // this reads the origin from tileOrigin (a different module function) and computes the byte offset
+        // with an inline formula.
         const [ox, oz] = tileOrigin(tx, tz);
         const probes: Array<[number, number]> = [
             [0, 0],

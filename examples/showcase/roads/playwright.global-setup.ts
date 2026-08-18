@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 // Routes this project's gate through `scripts/wsl-bridge.ts` when on WSL, so it drives the Windows host's
-// real GPU instead of falling to the software adapter (`testing.md:145`'s adapter-name skip). The bridge
+// real GPU instead of falling to the software adapter (the driver's own adapter-name skip). The bridge
 // itself only runs under bun (`Bun.spawnSync`/`Bun.spawn` throughout); `playwright test` loads this config
 // under real node (its bin script's node shebang, confirmed empirically — bun's script runner honors
 // shebangs rather than forcing bun), so `scripts/wsl-bridge-connect.ts` is the one bun subprocess this
