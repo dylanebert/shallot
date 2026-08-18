@@ -2,15 +2,13 @@ import { Compute, type State } from "@dylanebert/shallot";
 import type { MeshBinding } from "@dylanebert/shallot/render/core";
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
+import { documentDirtyTiles, type StrokeDocument } from "./document";
 import { allocate, drain } from "./queue";
+import { rasterizeTile, warm as rasterizeWarm } from "./rasterize";
 import {
-    ALBEDO_BYTES_PER_TEXEL,
     ALBEDO_FORMAT,
     ATLAS_LAYERS,
-    DIST_BYTES_PER_TEXEL,
     DIST_FORMAT,
-    dirtyTiles,
-    type Rect,
     THROTTLE,
     TILE_COUNT,
     TILE_RES,
@@ -21,9 +19,12 @@ import {
 // sized to {@link ATLAS_LAYERS} — smaller than {@link TILE_COUNT}, the "small indirection" the spec's
 // Approach names — plus the indirection storage buffer the terrain fs (`terrain/terrain.ts`) looks tile id
 // up in. A tile's layer is allocated the first time it's marked dirty (never evicted — out of scope, see
-// tiles.ts); `redraw` drains the dirty queue at a fixed per-frame throttle, so a burst of edits (this
-// stage's hand-authored stroke, or a future full network regeneration) never stalls one frame with every
-// tile's `writeTexture` call at once.
+// tiles.ts); `redraw` drains the dirty queue at a fixed per-frame throttle, so a burst of edits (a hand-
+// authored stroke, or a future full network regeneration) never stalls one frame with every tile's
+// rasterize dispatch at once. Stage 5 moved the per-tile content from a CPU `TilePacker` (`writeTexture`
+// on a JS-computed `Uint8Array`) to `rasterize.ts`'s GPU compute dispatch (`copyBufferToTexture` off a
+// packed storage buffer) — `redraw` below is the seam that changed; `queue.ts`'s `drain`/`allocate` are
+// untouched.
 
 /** the indirection buffer's declared element schema: `array<i32, TILE_COUNT>` — negative = unallocated
  *  (`terrain.ts`'s fs reads `< 0` as "no overlay here"). Exported so the surface layout and this module's
@@ -66,6 +67,7 @@ function teardown(): void {
 export function warm(state: State): void {
     teardown();
     state.onDispose(teardown);
+    rasterizeWarm(state); // its own teardown/onDispose registration, the same pattern
     const { device, root } = Compute;
 
     albedoTex = device.createTexture({
@@ -118,27 +120,23 @@ export function bindings(): Record<string, MeshBinding> {
     };
 }
 
-/** mark every tile `rect` overlaps dirty (`tiles.ts`'s analytic dirty set) — idempotent: a tile already
- *  pending isn't re-queued. */
-export function markDirty(rect: Rect): void {
-    for (const id of dirtyTiles(rect)) {
+/** mark every tile `doc` touches dirty (`document.ts`'s exact per-primitive union, not one bounding rect
+ *  over the whole document) — idempotent: a tile already pending isn't re-queued. */
+export function markDirty(doc: StrokeDocument): void {
+    for (const id of documentDirtyTiles(doc)) {
         if (pendingSet.has(id)) continue;
         pendingSet.add(id);
         pending.push(id);
     }
 }
 
-/** a tile's packed content: tightly-packed row-major albedo (rgba8unorm) + distance (r8unorm) buffers,
- *  `tiles.ts`'s `texelOffset` addressing — `stroke.ts`'s `packStrokeTile` is this stage's producer. */
-export type TilePacker = (tx: number, tz: number) => { albedo: Uint8Array; dist: Uint8Array };
-
 /**
- * drain up to {@link THROTTLE} pending dirty tiles: allocate each one's atlas layer, write its content via
- * `pack`, and flush the changed indirection entries. Returns the number of tiles redrawn — 0 once the
- * queue is empty, so a caller (the per-frame `OverlaySystem`, `terrain.ts`) can poll it every frame with no
- * extra bookkeeping.
+ * drain up to {@link THROTTLE} pending dirty tiles: allocate each one's atlas layer, rasterize `doc`'s
+ * content into it via `rasterize.ts`'s GPU dispatch, and flush the changed indirection entries. Returns
+ * the number of tiles redrawn — 0 once the queue is empty, so a caller (the per-frame `OverlaySystem`,
+ * `terrain.ts`) can poll it every frame with no extra bookkeeping.
  */
-export function redraw(pack: TilePacker): number {
+export function redraw(doc: StrokeDocument): number {
     if (!albedoTex || !distTex || !indirectionRaw) return 0;
     const ids = drain(pending, pendingSet, THROTTLE);
     if (ids.length === 0) return 0;
@@ -148,19 +146,7 @@ export function redraw(pack: TilePacker): number {
         nextLayer = alloc.nextLayer;
         const layer = alloc.layer;
         const [tx, tz] = tileCoordOf(id);
-        const { albedo, dist } = pack(tx, tz);
-        device.queue.writeTexture(
-            { texture: albedoTex, origin: { x: 0, y: 0, z: layer } },
-            albedo as Uint8Array<ArrayBuffer>,
-            { bytesPerRow: TILE_RES * ALBEDO_BYTES_PER_TEXEL, rowsPerImage: TILE_RES },
-            { width: TILE_RES, height: TILE_RES, depthOrArrayLayers: 1 },
-        );
-        device.queue.writeTexture(
-            { texture: distTex, origin: { x: 0, y: 0, z: layer } },
-            dist as Uint8Array<ArrayBuffer>,
-            { bytesPerRow: TILE_RES * DIST_BYTES_PER_TEXEL, rowsPerImage: TILE_RES },
-            { width: TILE_RES, height: TILE_RES, depthOrArrayLayers: 1 },
-        );
+        rasterizeTile(doc, tx, tz, albedoTex, distTex, layer);
         device.queue.writeBuffer(indirectionRaw, id * 4, new Int32Array([layer]));
     }
     return ids.length;

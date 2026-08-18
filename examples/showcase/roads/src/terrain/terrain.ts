@@ -17,7 +17,8 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import * as overlayAtlas from "../overlay/atlas";
-import { packStrokeTile, strokeRect } from "../overlay/stroke";
+import type { StrokeDocument } from "../overlay/document";
+import { strokeDocument } from "../overlay/stroke";
 import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
 import {
@@ -155,6 +156,11 @@ function teardown(): void {
     buffers = null;
 }
 
+// this stage's only producer is the hand-authored stroke (`overlay/stroke.ts`'s `strokeDocument`) —
+// a later stage (6) replaces it with a seeded procedural network. One module-level document, not rebuilt
+// per frame: the stroke's own content is fixed for this stage's lifetime.
+const DOCUMENT: StrokeDocument = strokeDocument();
+
 async function warm(state: State): Promise<void> {
     teardown(); // a rebuild (HMR) re-warms — clear the prior generation's buffers first
     // `Plugin.dispose` only fires on `App.dispose`, never on a direct `state.dispose()` (the path an
@@ -224,24 +230,25 @@ async function warm(state: State): Promise<void> {
     Meshes.register(mesh);
     Draws.register({ name: "terrain", surface: "terrain", mesh: "terrain", args: { indirect } });
 
-    // the stage's hand-authored known pattern (overlay/stroke.ts) — stands in for a real stroke document
-    // (stage 5). Marking it dirty here (not per-frame) means one redraw burst at warm, not a repeated mark.
-    overlayAtlas.markDirty(strokeRect());
+    // the stage's hand-authored known pattern (overlay/stroke.ts), expressed as a StrokeDocument and
+    // rasterized by overlay/rasterize.ts's GPU kernel (stage 5). Marking it dirty here (not per-frame)
+    // means one redraw burst at warm, not a repeated mark.
+    overlayAtlas.markDirty(DOCUMENT);
 
     bindTerrainKernel(vertices, position);
     if (state.signal.aborted) return;
     await generate(SEED);
 }
 
-/** drain the overlay's per-frame dirty-tile throttle (`overlay/atlas.ts`'s `redraw`) — this stage's only
- *  producer is the hand-authored stroke, so `packStrokeTile` stands in for the real stroke-document
- *  rasterizer (stage 5). Exported so the device gate can assert draining actually happened. */
+/** drain the overlay's per-frame dirty-tile throttle (`overlay/atlas.ts`'s `redraw`), rasterizing
+ *  {@link DOCUMENT}'s content into every drained tile via `overlay/rasterize.ts`'s GPU kernel. Exported so
+ *  the device gate can assert draining actually happened. */
 const OverlayRedrawSystem: System = {
     name: "roads-overlay-redraw",
     group: "simulation",
     annotations: { mode: "always" },
     update() {
-        overlayAtlas.redraw(packStrokeTile);
+        overlayAtlas.redraw(DOCUMENT);
     },
 };
 
