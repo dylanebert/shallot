@@ -67,11 +67,13 @@ export function worldToScreen(
     });
 }
 
-/** one grid-aligned world (x, z) → its full 3D world point, height read from the real generated vertex
- *  stream (`readVertices`, `terrain.ts`) rather than re-deriving the noise function in JS — {@link gridX}/
- *  {@link gridZ} require an exact grid column, which `overlay/network.ts`'s `captureProbePoints` are
- *  built to return. */
-async function withHeight(x: number, z: number): Promise<[x: number, y: number, z: number]> {
+/** one arbitrary world (x, z) → its full 3D world point, height read from the real generated vertex
+ *  stream (`readVertices`, `terrain.ts`) at the *nearest* grid column, rather than re-deriving the noise
+ *  function in JS — exact for a grid-aligned input (`overlay/network.ts`'s `captureProbePoints`), and a
+ *  bounded-error approximation (at most half a grid cell's own height gradient) for an off-grid point such
+ *  as a straightness probe's analytic edge anchor (`grazingCapture.ts`), which only needs a point close
+ *  enough to the real surface to project sensibly, not the exact flattened height. */
+export async function withHeight(x: number, z: number): Promise<[x: number, y: number, z: number]> {
     const raw = await readVertices();
     const ix = gridX(x);
     const iz = gridZ(z);
