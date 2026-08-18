@@ -168,3 +168,114 @@ test("boundary straightness — grazing-view discriminator (opt-in, not a gate)"
         Math.floor(anchors.length * 0.6),
     );
 });
+
+// Stage 10: stage 9's mechanism finding (`shallot-roads.md`'s Approach) — the road boundary staircase a
+// person reads as metre-scale lives in the flattened corridor's *height*, not its albedo edge, so a
+// screen-space luminance probe (above) is structurally blind to it (0.74 px rms genuine spread against a
+// complaint a person reads as metres). This probe re-points the same anchor machinery at the world-space
+// heightfield directly (`window.__roadsHeightSilhouette`, `grazingCapture.ts`) — no screen projection, no
+// luminance, no camera dependence for the reading itself. `window.__roadsGrazingCapture` is still called
+// first, purely to move the camera and save an evidence screenshot a person can look at alongside the
+// number; the PNG is decoded only for a non-blank sanity check, never fed into the height reading.
+// a network whose deepest cut is below this reads as "no meaningful cut" (the flat-ground/zeroed-RELIEF
+// control) — derived from the same MIN_CONTRAST_M floor `grazingCapture.ts` uses per-anchor (100x the
+// height quantization step), so the same noise floor gates both the per-anchor and the whole-run read.
+const MIN_MEANINGFUL_CUT_M = 0.12;
+
+test("boundary straightness — height-axis world-space discriminator (opt-in, not a gate)", async ({
+    page,
+}) => {
+    test.skip(
+        !process.env.ROADS_STRAIGHTNESS,
+        "opt-in: set ROADS_STRAIGHTNESS=1 to run the height-axis straightness reading",
+    );
+
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+
+    await page.goto("/");
+
+    const adapter = await adapterName(page);
+    console.log(`height-silhouette probe adapter: ${adapter || "none offered"}`);
+    test.skip(
+        adapter === "" || SOFTWARE.test(adapter),
+        `no real-GPU adapter (${adapter || "none offered"})`,
+    );
+
+    await page.waitForFunction(() => typeof window.__roadsGate === "function", null, {
+        timeout: 120_000,
+    });
+    await page.waitForFunction(
+        () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
+        null,
+        { timeout: 10_000 },
+    );
+
+    const meshParams = await page.evaluate(
+        () => (window as unknown as { __roadsMeshParams: unknown }).__roadsMeshParams,
+    );
+
+    // evidence only — the height reading below needs no camera pose at all.
+    await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsGrazingCapture: () => Promise<unknown>;
+            }
+        ).__roadsGrazingCapture(),
+    );
+    const evidenceScreenshot = await page.screenshot();
+    const evidencePath = join(
+        dirname(fileURLToPath(import.meta.url)),
+        "..",
+        "test-results",
+        `height-silhouette-capture-${ARM_LABEL}.png`,
+    );
+    mkdirSync(dirname(evidencePath), { recursive: true });
+    writeFileSync(evidencePath, evidenceScreenshot);
+    const png = PNG.sync.read(evidenceScreenshot);
+    const nonBlack = png.data.some((v, i) => i % 4 !== 3 && v > 0);
+    expect(nonBlack, "evidence screenshot is entirely black — camera pose likely wrong").toBe(true);
+
+    const result = (await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsHeightSilhouette: () => Promise<{
+                    falloffM: number;
+                    cutDepthM: number;
+                    anchorCount: number;
+                    readings: unknown[];
+                    rmsM: number;
+                    maxM: number;
+                    foundCount: number;
+                }>;
+            }
+        ).__roadsHeightSilhouette(),
+    )) as {
+        falloffM: number;
+        cutDepthM: number;
+        anchorCount: number;
+        readings: unknown[];
+        rmsM: number;
+        maxM: number;
+        foundCount: number;
+    };
+
+    console.log(
+        `HEIGHT_SILHOUETTE_READING ${JSON.stringify({
+            armLabel: ARM_LABEL,
+            meshParams,
+            ...result,
+        })}`,
+    );
+
+    expect(errors, errors.join("\n")).toEqual([]);
+    // same validity bar as the screen-space probe: the instrument itself has to work (find most of its
+    // anchors, when there's a real cut to find) before its reading means anything — never a straightness
+    // pass/fail, which stays stage 11's job.
+    if (result.cutDepthM > MIN_MEANINGFUL_CUT_M) {
+        expect(
+            result.foundCount,
+            `found ${result.foundCount}/${result.anchorCount} height crossings`,
+        ).toBeGreaterThanOrEqual(Math.floor(result.anchorCount * 0.6));
+    }
+});

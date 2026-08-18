@@ -3,7 +3,7 @@ import { decodePos } from "@dylanebert/shallot/utils/core";
 import { captureProbePoints } from "./overlay/network";
 import { COVERAGE_BAND_PX } from "./overlay/tiles";
 import { TERRAIN_QUANT } from "./terrain/generate";
-import { gridX, gridZ, VERTS } from "./terrain/grid";
+import { gridX, gridZ, HALF, SPACING, VERTS } from "./terrain/grid";
 import { readVertices, SEED } from "./terrain/terrain";
 
 // The device gate's world→screen bridge for the pixel-probe capture (the spec's flagged-risk validation —
@@ -80,6 +80,38 @@ export async function withHeight(x: number, z: number): Promise<[x: number, y: n
     const idx = iz * VERTS + ix;
     const y = decodePos(raw[idx * 4], raw[idx * 4 + 1], TERRAIN_QUANT).y;
     return [x, y, z];
+}
+
+/** the real rendered surface height at an arbitrary off-grid world (x, z) — a two-triangle-per-quad linear
+ *  reconstruction from the four surrounding vertices (`grid.ts`'s own split: `(i0,i2,i1)` and `(i1,i2,i3)`),
+ *  the same plane the rasterizer actually draws. Unlike {@link withHeight}'s nearest-vertex read (a
+ *  bounded approximation, fine for projecting a point sensibly), this is exact everywhere inside the
+ *  mesh's footprint — `straightness.ts`'s height-silhouette criterion (`grazingCapture.ts`) needs the
+ *  surface a viewer's eye actually sees at a point that generally doesn't land on a vertex, since the
+ *  defect it measures *is* the gap between this reconstruction and the continuous analytic height at the
+ *  same point. `raw` is one `readVertices()` readback, reused across every sample in a scan so the GPU is
+ *  read back once, not once per probe step. */
+export function meshHeightAt(raw: Uint32Array, x: number, z: number): number {
+    const fx = x / SPACING + HALF;
+    const fz = z / SPACING + HALF;
+    const ix0 = Math.floor(fx);
+    const iz0 = Math.floor(fz);
+    const tx = fx - ix0;
+    const tz = fz - iz0;
+    const heightOf = (ix: number, iz: number): number => {
+        const idx = iz * VERTS + ix;
+        return decodePos(raw[idx * 4], raw[idx * 4 + 1], TERRAIN_QUANT).y;
+    };
+    const h00 = heightOf(ix0, iz0);
+    const h10 = heightOf(ix0 + 1, iz0);
+    const h01 = heightOf(ix0, iz0 + 1);
+    const h11 = heightOf(ix0 + 1, iz0 + 1);
+    // lower-left triangle (i0, i2, i1) covers tx + tz <= 1; upper-right (i1, i2, i3) the complement —
+    // grid.ts's own winding, so this interpolates over exactly the triangle the renderer draws there.
+    if (tx + tz <= 1) return h00 + tx * (h10 - h00) + tz * (h01 - h00);
+    const utx = 1 - tx;
+    const utz = 1 - tz;
+    return h11 + utx * (h01 - h11) + utz * (h10 - h11);
 }
 
 /** the capture gate's on-road/off-road world probe points over the full procedural network at the boot's
