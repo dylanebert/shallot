@@ -1,3 +1,4 @@
+import type { StrokeDocument } from "./document";
 import {
     ALBEDO_BYTES_PER_TEXEL,
     DIST_BYTES_PER_TEXEL,
@@ -9,13 +10,12 @@ import {
     tileOrigin,
 } from "./tiles";
 
-// The stage's hand-authored "known pattern": a single straight road-width stroke, standing in for the real
-// stroke document a later stage authors (spec's Approach step 5 — "Road rasterizer" owns polylines/stamps
-// and a compute rasterizer). Stage 4's job is the substrate (atlas + indirection + composite + dirty/
-// redraw), so this is deliberately the simplest shape that exercises every layer of it: a pure
-// distance-to-segment function (the same primitive the real rasterizer will differential-test against,
-// `checks.md`'s two-independent-derivations shape for stage 5) plus a CPU-side packer that stands in for
-// the TGSL compute rasterizer stage 5 builds.
+// The stage's hand-authored "known pattern": a single straight road-width stroke. Stage 4 built this as
+// the substrate's CPU stand-in (atlas + indirection + composite + dirty/redraw); stage 5's `rasterize.ts`
+// is the real GPU rasterizer `strokeDocument()` (below) now feeds in production (`terrain.ts`). This
+// module's own `strokeDistance`/`packStrokeTile` stay live as the CPU analytic reference: `document.test.ts`
+// cross-checks `documentDistance` over `strokeDocument()` against `strokeDistance` directly, and this
+// file's own tests still pin the hand-derived pattern stage 4 built them against.
 //
 // Run along +X through the world origin at Z=0 (grid.ts centres the terrain there, and `heightAt(0, 0)` is
 // the one analytically known height on the seeded surface — an exact perlin-lattice point samples zero
@@ -92,3 +92,22 @@ export const OFF_ROAD_POINT: readonly [x: number, z: number] = [
     0,
     STROKE_Z + STROKE_HALF_WIDTH + 4,
 ];
+
+/** this stage's hand-authored stroke, expressed as a one-polyline {@link StrokeDocument} — the real input
+ *  `terrain.ts` marks dirty and redraws through `rasterize.ts`'s GPU kernel in production. Geometrically
+ *  identical to `strokeDistance`'s pattern (same endpoints, same half-width), so the capture gate's
+ *  on/off-road probes stay valid unchanged. */
+export function strokeDocument(): StrokeDocument {
+    return {
+        polylines: [
+            {
+                points: [
+                    [-STROKE_HALF_LENGTH, STROKE_Z],
+                    [STROKE_HALF_LENGTH, STROKE_Z],
+                ],
+                halfWidth: STROKE_HALF_WIDTH,
+            },
+        ],
+        polygons: [],
+    };
+}
