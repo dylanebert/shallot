@@ -311,7 +311,17 @@ export function getSmoothRadius(): number {
  * doc comment): left unsynced, the gate's alternate-seed dispatch would flatten toward a stale seed's
  * terrain under a different seed's natural surface — invisible to today's gate checks (none read the
  * flatten boundary), but wrong regardless. Call before every `generate(seed)` whose seed isn't
- * {@link currentSeed}, restoring `currentSeed` after.
+ * {@link currentSeed}.
+ *
+ * Deliberately doesn't touch {@link currentSeed} itself — `gate.ts` always restores to the boot `SEED`
+ * at the end regardless of any live F9 reseed (its own pre-existing "restore the boot seed's terrain for
+ * the live view" contract), so this only re-syncs the baked geometry, not the module's live-seed
+ * bookkeeping. Residue: if `__roadsGate()` is ever invoked *after* a live F9 reseed, `currentSeed` stays
+ * at the F9 seed even though the gate has just forced the displayed terrain back to `SEED` — a later
+ * `setSmoothRadius` call would then bake against the wrong permutation until the next `regenerate`. Not
+ * reachable by today's single-fresh-page-load gate flow, so left as documented residue rather than a
+ * bigger restructure (`gate.ts` resetting `liveDocument` itself is a separate, pre-existing design choice
+ * this stage didn't touch).
  */
 export function syncNetworkForSeed(seed: number): void {
     setNetwork(liveDocument, seed, smoothRadius);
