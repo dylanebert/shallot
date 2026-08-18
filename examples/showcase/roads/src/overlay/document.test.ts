@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
     documentDirtyTiles,
     documentDistance,
+    drivable,
     flattenSegments,
     type PolygonStamp,
     polygonDistance,
@@ -198,5 +199,55 @@ describe("only-touched-tiles oracle", () => {
         // reaches tx=9). A single-bounding-rect implementation would incorrectly include it.
         const id = 5 * 16 + 9;
         expect(documentDirtyTiles(cross)).not.toContain(id);
+    });
+});
+
+describe("drivable", () => {
+    const doc: StrokeDocument = {
+        polylines: [
+            {
+                points: [
+                    [-50, 0],
+                    [50, 0],
+                ],
+                halfWidth: 4,
+            },
+        ],
+        polygons: [
+            {
+                points: [
+                    [100, 100],
+                    [120, 100],
+                    [120, 120],
+                    [100, 120],
+                ],
+            },
+        ],
+    };
+
+    test("on the centreline and well inside the half-width — true", () => {
+        expect(drivable(0, 0, doc)).toBe(true);
+        expect(drivable(0, 3, doc)).toBe(true);
+    });
+
+    test("just past the half-width — false; the same point mirrored inward — true", () => {
+        expect(drivable(0, 4.5, doc)).toBe(false);
+        expect(drivable(0, 3.5, doc)).toBe(true);
+    });
+
+    test("inside the carpark polygon — true; a point equidistant outside it — false", () => {
+        expect(drivable(110, 110, doc)).toBe(true);
+        expect(drivable(200, 200, doc)).toBe(false);
+    });
+
+    test("agrees with documentDistance's own sign — the query it wraps, not a second definition", () => {
+        for (const [x, z] of [
+            [0, 0],
+            [0, 10],
+            [110, 110],
+            [500, 500],
+        ] as const) {
+            expect(drivable(x, z, doc)).toBe(documentDistance(x, z, doc) <= 0);
+        }
     });
 });
