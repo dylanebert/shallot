@@ -25,6 +25,9 @@ export interface Manifest {
     scene?: string;
     plugins?: Record<string, PluginValue>;
     capacity?: number;
+    /** the bundle identifier for native builds (mac `CFBundleIdentifier`). Omit for the default
+     *  `com.shallot.<basename>`. */
+    identifier?: string;
 }
 
 /** parse persisted manifest JSON, tolerating absent or corrupt storage (a first run, a hand-edit) */
@@ -44,6 +47,7 @@ export function normalize(raw: string | null): Manifest {
         manifest.plugins = obj.plugins as Record<string, PluginValue>;
     }
     if (typeof obj.capacity === "number") manifest.capacity = obj.capacity;
+    if (typeof obj.identifier === "string") manifest.identifier = obj.identifier;
     return manifest;
 }
 

@@ -36,6 +36,11 @@ export interface ScenarioGate {
     timeoutMs?: number;
     isolate?: boolean;
     covers?: string[];
+    /** the public asset paths (relative to `examples/gym/public/`) this scenario needs, resolved
+     *  against the run's params so per-mode selection is exact. `bun bench` checks these on the
+     *  filesystem before booting a page; a missing path skips the scenario with a clear message
+     *  instead of failing through the glTF loader. Return `[]` when the params need no mount. */
+    assets?: (params: Record<string, string | number | boolean>) => string[];
 }
 
 export const SCENARIO_GATES: Record<string, ScenarioGate> = {
@@ -55,6 +60,13 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     },
     gltf: {
         covers: ["packages/shallot/src/extras/gltf/**/*.ts"],
+        // keyed to gltf.ts's SOURCES — the same paths loadGltf fetches
+        assets: (p) => {
+            const source = (p.source as string) ?? "sponza";
+            return source === "fox"
+                ? ["gltf-samples/Fox/glTF/Fox.gltf"]
+                : ["sponza/Sponza-KTX-Draco.glb"];
+        },
     },
     // `accel`'s framebuffer probe (`assertLineDraw`) reads the restored live scene through the lines
     // surface's real rendered output (the ray overlay) — a verified real GPU exerciser of `extras/lines`,
@@ -88,6 +100,51 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
             "packages/shallot/src/extras/skin/**/*.ts",
             "packages/shallot/src/engine/utils/encode.ts",
         ],
+        // keyed to render.ts's GLTF_VARIANTS / FOX / SPILL_ASSETS / MULTI / WORKER_* — the same paths
+        // loadGltf and the scene preloader fetch. Only the gltf modes need mounts; cull/shaded/fog
+        // etc. author their scenes in code.
+        assets: (p) => {
+            const mode = (p.mode as string) ?? "cull";
+            const gltfModes = [
+                "gltf-model",
+                "gltf-animated",
+                "gltf-spill",
+                "gltf-multi",
+                "gltf-worker",
+            ];
+            if (!gltfModes.includes(mode)) return [];
+            if (mode === "gltf-model") {
+                const variant = (p.variant as string) ?? "gltf";
+                const variants: Record<string, string> = {
+                    gltf: "sponza/Sponza.gltf",
+                    draco: "sponza/Sponza-Draco.glb",
+                    ktx: "sponza/Sponza-KTX.glb",
+                    "ktx-draco": "sponza/Sponza-KTX-Draco.glb",
+                };
+                return [variants[variant] ?? variants.gltf];
+            }
+            if (mode === "gltf-animated") return ["gltf-samples/Fox/glTF/Fox.gltf"];
+            if (mode === "gltf-spill")
+                return [
+                    "gltf-samples/StainedGlassLamp/glTF-KTX-BasisU/StainedGlassLamp.gltf",
+                    "gltf-samples/ChronographWatch/glTF-KTX-BasisU/ChronographWatch.gltf",
+                ];
+            if (mode === "gltf-multi")
+                return [
+                    "gltf-samples/DamagedHelmet/glTF/DamagedHelmet.gltf",
+                    "gltf-samples/WaterBottle/glTF/WaterBottle.gltf",
+                    "gltf-samples/Fox/glTF/Fox.gltf",
+                    "gltf-samples/CesiumMan/glTF/CesiumMan.gltf",
+                ];
+            // gltf-worker: the scene authors Box/Draco + BoxTextured by name (preloader), and the
+            // assert decodes KTX + Corrupt directly — all under gltf-samples/
+            return [
+                "gltf-samples/Box/glTF-Draco/Box.gltf",
+                "gltf-samples/BoxTextured/glTF-Binary/BoxTextured.glb",
+                "gltf-samples/AnisotropyBarnLamp/glTF-KTX-BasisU/AnisotropyBarnLamp.gltf",
+                "gltf-samples/Box/glTF-Draco/Box.bin",
+            ];
+        },
     },
 
     // the release-prerequisite final-compositor hardening fixture: a

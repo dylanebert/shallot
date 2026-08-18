@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 import type { BenchmarkMeasurement } from "@dylanebert/shallot/extras";
 import { globToRegExp } from "../examples/gym/src/scenarios/coverage";
@@ -75,6 +76,35 @@ Options:
 export function benchTimeout(scenario: string, cliTimeoutMs?: number): number | undefined {
     if (cliTimeoutMs != null) return cliTimeoutMs;
     return SCENARIO_GATES[scenario]?.timeoutMs;
+}
+
+/** parse `--param key=value` strings into a record the `assets` function reads. */
+function parseParamStrings(params: readonly string[]): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const p of params) {
+        const eq = p.indexOf("=");
+        if (eq > 0) out[p.slice(0, eq)] = p.slice(eq + 1);
+    }
+    return out;
+}
+
+/** the public asset paths a scenario needs for the given params, or `null` when it needs none.
+ *  Checks the filesystem under `examples/gym/public/` — cheaper and more honest than an in-page
+ *  fetch, and it skips before booting a page so no ready timeout burns. Returns the missing paths
+ *  so the caller can name them in the skip announcement. */
+export function missingAssets(scenario: string, paramStrings: readonly string[]): string[] | null {
+    const gate = SCENARIO_GATES[scenario];
+    if (!gate?.assets) return null;
+    const params = parseParamStrings(paramStrings);
+    const paths = gate.assets(params);
+    if (paths.length === 0) return null;
+    const missing = paths.filter((p) => !existsSync(resolve(REPO_ROOT, GYM, "public", p)));
+    return missing.length > 0 ? missing : null;
+}
+
+/** the skip announcement for a scenario whose assets are absent. */
+function assetSkipMessage(scenario: string, missing: string[]): string {
+    return `· ${scenario} — skipped (assets not found: ${missing.join(", ")} — mount them locally under examples/gym/public/, see .claude/rules/testing.md)`;
 }
 
 /** `--list`'s roster, sorted — pure so the sort/format is unit-tested without booting a page. */
@@ -416,10 +446,30 @@ function printSweepResult(name: string, result: VerifyResult | null, bytes?: num
  *  retained-leak sampler adds ~1.2s/run and gates nothing, and a `⚠ LEAK` on a passing run trains agents
  *  to ignore warnings. Returns true iff every scenario passed. */
 async function sweep(names: string[], args: Args): Promise<boolean> {
-    const { batch, isolate } = partitionSweep(names, SCENARIO_GATES);
+    const { batch: batchAll, isolate: isolateAll } = partitionSweep(names, SCENARIO_GATES);
     const shared = [`seed=${args.seed}`, `warmup=${args.warmup}`, `frames=${args.frames}`];
     if (args.count != null) shared.push(`count=${args.count}`);
     shared.push(...args.params);
+
+    // skip scenarios whose declared assets are absent from the filesystem — a missing mount skips
+    // with a clear message instead of failing through the glTF loader. Skipped scenarios don't run
+    // and don't count as failures (the locked fork says skip, not fail).
+    const batch = batchAll.filter((name) => {
+        const missing = missingAssets(name, args.params);
+        if (missing) {
+            console.log(assetSkipMessage(name, missing));
+            return false;
+        }
+        return true;
+    });
+    const isolate = isolateAll.filter((name) => {
+        const missing = missingAssets(name, args.params);
+        if (missing) {
+            console.log(assetSkipMessage(name, missing));
+            return false;
+        }
+        return true;
+    });
 
     let allPass = true;
 
@@ -524,6 +574,15 @@ async function main(): Promise<void> {
     const timeoutMs = benchTimeout(args.scenario, args.timeoutMs);
     if (timeoutMs != null) extra.push("--timeout", String(timeoutMs));
     if (args.leak != null) extra.push("--leak", String(args.leak));
+
+    // check assets on the filesystem before booting a page — a missing mount skips with a clear
+    // message instead of burning the 60s ready timeout on a 404 through the glTF loader.
+    const missing = missingAssets(args.scenario, args.params);
+    if (missing) {
+        console.log(`\n${assetSkipMessage(args.scenario, missing)}`);
+        await teardownBridge();
+        return;
+    }
 
     const result = await verify(GYM, extra);
     if (!result) {

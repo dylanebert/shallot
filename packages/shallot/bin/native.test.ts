@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
+    bundleIdentifier,
     cargoTarget,
     dropSwiftshader,
     findCefDir,
@@ -159,7 +160,7 @@ describe("macHelperBin", () => {
 });
 
 describe("macInfoPlist", () => {
-    const base = { executable: "demo", bundleName: "demo", identifier: "com.multiplekex.demo" };
+    const base = { executable: "demo", bundleName: "demo", identifier: "com.shallot.demo" };
 
     test("a helper bundle gets LSUIElement, a main app doesn't", () => {
         const helper = macInfoPlist({ ...base, helper: true, icon: false });
@@ -260,5 +261,24 @@ describe("dropSwiftshader", () => {
             if (prev === undefined) delete process.env.SHALLOT_DROP_SWIFTSHADER;
             else process.env.SHALLOT_DROP_SWIFTSHADER = prev;
         }
+    });
+});
+
+describe("bundleIdentifier", () => {
+    test("defaults to com.shallot.<name> when the manifest has no identifier", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-bundle-id-"));
+        writeFileSync(join(dir, "shallot.json"), '{ "scene": null }\n');
+        expect(bundleIdentifier(dir, "my-game")).toBe("com.shallot.my-game");
+    });
+
+    test("defaults to com.shallot.<name> when no manifest exists", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-bundle-id-"));
+        expect(bundleIdentifier(dir, "my-game")).toBe("com.shallot.my-game");
+    });
+
+    test("uses the manifest's identifier when present", () => {
+        const dir = mkdtempSync(join(tmpdir(), "shallot-bundle-id-"));
+        writeFileSync(join(dir, "shallot.json"), '{ "identifier": "com.example.custom" }\n');
+        expect(bundleIdentifier(dir, "my-game")).toBe("com.example.custom");
     });
 });
