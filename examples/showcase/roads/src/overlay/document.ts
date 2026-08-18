@@ -139,6 +139,16 @@ function polygonRect(poly: PolygonStamp): Rect {
     return { minX: minX - MARGIN, maxX: maxX + MARGIN, minZ: minZ - MARGIN, maxZ: maxZ + MARGIN };
 }
 
+/** whether (px, pz) sits on a road or inside a carpark stamp — the same coverage region the overlay's
+ *  fwidth-thresholded composite renders as pavement (`documentDistance <= 0`, `terrain.ts`'s fs). No
+ *  separate "is it a road vs a carpark" distinction: both are drivable surface for this query's purpose
+ *  (the spec names one `drivable(x, z)` query, not a per-primitive-kind one).
+ * @example drivable(0, 0, strokeDocument()) // true — the origin sits on the hand-authored stroke's centreline
+ * @example drivable(1000, 1000, strokeDocument()) // false — off the world footprint entirely */
+export function drivable(px: number, pz: number, doc: StrokeDocument): boolean {
+    return documentDistance(px, pz, doc) <= 0;
+}
+
 /**
  * the document's exact dirty-tile set: the union, over every segment and every polygon *individually*, of
  * `dirtyTiles` on that one primitive's own AABB (`tiles.ts`). Deliberately not one bounding rect over the

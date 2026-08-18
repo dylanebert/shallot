@@ -4,11 +4,15 @@
 // (`vertexIndex(ix, iz)`, grid.ts) and there's no race to arbitrate. This is voxel's mesher simplified by
 // the one fact a heightfield has that a voxel volume doesn't: the vertex/index count is known up front.
 //
-// Each thread samples {@link heightAt} at its own column and its four neighbours (a finite-difference
-// normal — the standard heightfield trick: for `y = h(x, z)`, `normal = normalize(-∂h/∂x, 1, -∂h/∂z)`),
-// then writes the encoded position + oct-normal directly into the mesh's quantized main + position
-// streams (gpu.md rule 6) via the published `encodePos`/`encodeUv`/`octEncodeNormal` codecs — the same
-// producer-writes-quantized-storage-directly pattern voxel's `emitKernel` uses.
+// Each thread samples {@link flattenedHeightAt} (`flatten.ts` — natural `heightAt` blended toward the
+// road network's flattened core, a no-op away from any road) at its own column and its four neighbours
+// (a finite-difference normal — the standard heightfield trick: for `y = h(x, z)`, `normal =
+// normalize(-∂h/∂x, 1, -∂h/∂z)`), then writes the encoded position + oct-normal directly into the mesh's
+// quantized main + position streams (gpu.md rule 6) via the published `encodePos`/`encodeUv`/
+// `octEncodeNormal` codecs — the same producer-writes-quantized-storage-directly pattern voxel's
+// `emitKernel` uses. Sampling the flattened surface (not bare `heightAt`) at every finite-difference
+// neighbour, not just the vertex itself, is what makes the emitted normal reflect the flattened ground
+// too — a flat road with an unflattened normal would still light like a slope.
 
 import { Compute } from "@dylanebert/shallot";
 import { precompile, precompileScope } from "@dylanebert/shallot/runtime";
@@ -21,8 +25,9 @@ import {
 import tgpu, { type StorageFlag, type TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { flattenedHeightAt, networkBindGroup } from "./flatten";
 import { GridPosition, GridVertices, HALF, SPACING, VERTS } from "./grid";
-import { GROUND_LEVEL, heightAt, makePermutation, noiseLayout, PermData, RELIEF } from "./noise";
+import { GROUND_LEVEL, makePermutation, noiseLayout, PermData, RELIEF } from "./noise";
 
 const WORLD_HALF = ((VERTS - 1) / 2) * SPACING;
 const WORLD_EXTENT = (VERTS - 1) * SPACING;
@@ -59,11 +64,11 @@ const heightKernel = tgpu
         const z = (d.f32(iz) - d.f32(HALF)) * d.f32(SPACING);
         const eps = d.f32(SPACING);
 
-        const y = heightAt(x, z);
-        const yx0 = heightAt(x - eps, z);
-        const yx1 = heightAt(x + eps, z);
-        const yz0 = heightAt(x, z - eps);
-        const yz1 = heightAt(x, z + eps);
+        const y = flattenedHeightAt(x, z);
+        const yx0 = flattenedHeightAt(x - eps, z);
+        const yx1 = flattenedHeightAt(x + eps, z);
+        const yz0 = flattenedHeightAt(x, z - eps);
+        const yz1 = flattenedHeightAt(x, z + eps);
         const normal = std.normalize(
             d.vec3f(
                 -(yx1 - yx0) / (d.f32(2.0) * eps),
@@ -83,7 +88,9 @@ const heightKernel = tgpu
 
 /** the emitted height-kernel WGSL — the device-free structural seam the terrain tests resolve. */
 export function heightKernelWgsl(): string {
-    return tgpu.resolve([octEncodeNormal, encodePos, encodeUv, heightKernel], { names: "strict" });
+    return tgpu.resolve([octEncodeNormal, encodePos, encodeUv, flattenedHeightAt, heightKernel], {
+        names: "strict",
+    });
 }
 
 type TerrainRoot = typeof Compute.root;
@@ -131,6 +138,7 @@ async function run(seed: number): Promise<void> {
                 activePipeline
                     .with(noiseGroup)
                     .with(activeBindGroup)
+                    .with(networkBindGroup())
                     .with(pass)
                     .dispatchWorkgroups(0);
                 pass.end();
@@ -158,6 +166,7 @@ async function run(seed: number): Promise<void> {
         activePipeline
             .with(noiseGroup)
             .with(activeBindGroup)
+            .with(networkBindGroup())
             .with(pass)
             .dispatchWorkgroups(DISPATCH.x, DISPATCH.y, 1);
         pass.end();

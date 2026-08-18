@@ -31,7 +31,11 @@ export const noiseLayout = tgpu.bindGroupLayout({
     perm: { storage: PermData, access: "readonly" },
 });
 
-function mulberry32(seed: number): () => number {
+/** the seeded RNG both the permutation table (below) and the procedural network generator
+ *  (`overlay/network.ts`) share — one source, not two independently authored copies, since both are
+ *  deterministic-in-seed data generators within this one project (`examples.md`'s no-cross-import rule is
+ *  about *other* showcase projects, not modules inside this one). */
+export function mulberry32(seed: number): () => number {
     let s = seed >>> 0;
     return () => {
         s = (s + 0x6d2b79f5) | 0;

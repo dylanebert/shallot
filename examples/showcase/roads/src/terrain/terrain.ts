@@ -18,8 +18,10 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import * as overlayAtlas from "../overlay/atlas";
 import type { StrokeDocument } from "../overlay/document";
+import { generateNetwork } from "../overlay/network";
 import { strokeDocument } from "../overlay/stroke";
 import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
+import { setNetwork, warmNetwork } from "./flatten";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
 import {
     GridIndices,
@@ -156,10 +158,15 @@ function teardown(): void {
     buffers = null;
 }
 
-// this stage's only producer is the hand-authored stroke (`overlay/stroke.ts`'s `strokeDocument`) —
-// a later stage (6) replaces it with a seeded procedural network. One module-level document, not rebuilt
-// per frame: the stroke's own content is fixed for this stage's lifetime.
-const DOCUMENT: StrokeDocument = strokeDocument();
+// The boot document stays the hand-authored known pattern (`overlay/stroke.ts`'s `strokeDocument`) — the
+// exact same one stage 4/5's device gate already validates (fixed on/off-road probe points, an analytic
+// zero-height at the origin) — rather than the freshly-built procedural network (`overlay/network.ts`).
+// Stage 7 is what re-points the capture gate at "the full procedural network" (the spec's own words for
+// its Approach); flipping the *rendered* boot document here would silently invalidate stage 4/5's fixed
+// probe points before that rewiring exists. The generator is real and live from this stage on, though:
+// {@link regenerate} swaps to it on demand (the seed control, `boot.ts`'s F9 handler), exercising the
+// exact same `markDirty`/`redraw`/flatten path production will use once stage 7 makes it the default.
+let liveDocument: StrokeDocument = strokeDocument();
 
 async function warm(state: State): Promise<void> {
     teardown(); // a rebuild (HMR) re-warms — clear the prior generation's buffers first
@@ -230,27 +237,46 @@ async function warm(state: State): Promise<void> {
     Meshes.register(mesh);
     Draws.register({ name: "terrain", surface: "terrain", mesh: "terrain", args: { indirect } });
 
-    // the stage's hand-authored known pattern (overlay/stroke.ts), expressed as a StrokeDocument and
-    // rasterized by overlay/rasterize.ts's GPU kernel (stage 5). Marking it dirty here (not per-frame)
-    // means one redraw burst at warm, not a repeated mark.
-    overlayAtlas.markDirty(DOCUMENT);
+    // the boot document (overlay/stroke.ts's known pattern), expressed as a StrokeDocument and rasterized
+    // by overlay/rasterize.ts's GPU kernel (stage 5). Marking it dirty here (not per-frame) means one
+    // redraw burst at warm, not a repeated mark.
+    overlayAtlas.markDirty(liveDocument);
 
     bindTerrainKernel(vertices, position);
+    warmNetwork(state); // its own onDispose registration, the same pattern
+    setNetwork(liveDocument); // the flatten kernel's geometry input, kept in sync with the overlay's own
     if (state.signal.aborted) return;
     await generate(SEED);
 }
 
 /** drain the overlay's per-frame dirty-tile throttle (`overlay/atlas.ts`'s `redraw`), rasterizing
- *  {@link DOCUMENT}'s content into every drained tile via `overlay/rasterize.ts`'s GPU kernel. Exported so
- *  the device gate can assert draining actually happened. */
+ *  {@link liveDocument}'s content into every drained tile via `overlay/rasterize.ts`'s GPU kernel. Exported
+ *  so the device gate can assert draining actually happened. */
 const OverlayRedrawSystem: System = {
     name: "roads-overlay-redraw",
     group: "simulation",
     annotations: { mode: "always" },
     update() {
-        overlayAtlas.redraw(DOCUMENT);
+        overlayAtlas.redraw(liveDocument);
     },
 };
+
+/**
+ * swap the live document to a freshly seeded procedural network (`overlay/network.ts`'s
+ * `generateNetwork`) and re-dispatch the height kernel — the seed control's live reseed (`boot.ts`'s F9
+ * handler). Marks the new network's tiles dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set oracle
+ * `document.test.ts` pins) and rebinds the flatten kernel's geometry (`flatten.ts`'s `setNetwork`) before
+ * `generate` re-dispatches, so the next-drawn frame's heights and overlay both reflect the new network in
+ * one call — the "affected-region remesh" the spec's Approach names. A tile the previous document touched
+ * but the new one doesn't keeps its stale content (`tiles.ts`'s ATLAS_LAYERS never evicts, a stage-4
+ * decision this stage inherits, not one it revisits).
+ */
+export async function regenerate(seed: number): Promise<void> {
+    liveDocument = generateNetwork(seed);
+    setNetwork(liveDocument);
+    overlayAtlas.markDirty(liveDocument);
+    await generate(seed);
+}
 
 /** whether every marked overlay tile has drained through the atlas — the device gate polls this before
  *  its capture reads the frame (`gate.ts`). */
