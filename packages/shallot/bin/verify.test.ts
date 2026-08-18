@@ -20,7 +20,10 @@ import {
     buildUrl,
     type Checkpoint,
     coerceVerdict,
+    displayGateExit,
+    displayGateMessage,
     driveHarness,
+    EXIT_NO_DISPLAY,
     type FrameSample,
     failureArtifacts,
     fitMemory,
@@ -33,6 +36,7 @@ import {
     harnessPass,
     hasStructure,
     installHarnessProbe,
+    isSoftwareAdapter,
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
@@ -250,6 +254,57 @@ describe("bootArm", () => {
 
     test("neither shape → none (the actionable setup error)", () => {
         expect(bootArm(false, false)).toBe("none");
+    });
+});
+
+// The CLI's own display gate: on a software adapter the run clears every feature/limit check and then
+// dies mid-execution (`GPU device lost`, oversized `mappedAtCreation`) — measured 2026-08-18 running this
+// exact CLI against `examples/showcase/voxel` and `roads` under WSL's `dzn`/SwiftShader fallback, hardware
+// read as "google / swiftshader". `isSoftwareAdapter` is the pure classification that refuses it before
+// any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, testable without
+// binding a device (`testing.md`: never bind a device in `bun test`).
+describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", () => {
+    test("real-hardware identity strings pass", () => {
+        expect(isSoftwareAdapter("nvidia / ... / geforce rtx 4090 / ...")).toBe(false);
+        expect(isSoftwareAdapter("apple / metal / apple m2 / apple m2")).toBe(false);
+        expect(isSoftwareAdapter("amd / vulkan / radeon rx 7900 xtx")).toBe(false);
+        expect(isSoftwareAdapter("intel / vulkan / intel(r) uhd graphics")).toBe(false);
+    });
+
+    test("software rasterizer strings refuse — the showcase drivers' name list, plus the measured WSL string", () => {
+        expect(isSoftwareAdapter("google / swiftshader")).toBe(true); // measured 2026-08-18, this sandbox
+        expect(isSoftwareAdapter("mesa / llvmpipe")).toBe(true);
+        expect(isSoftwareAdapter("mesa / lavapipe")).toBe(true);
+        expect(isSoftwareAdapter("microsoft basic render driver")).toBe(true);
+        expect(isSoftwareAdapter("d3d12 / warp")).toBe(true);
+    });
+
+    test('no adapter offered at all (readHardware\'s "unknown" fallback) refuses too', () => {
+        expect(isSoftwareAdapter("unknown")).toBe(true);
+    });
+
+    test("an unlisted adapter still passes — bias narrow, never over-block real hardware", () => {
+        expect(isSoftwareAdapter("some future vendor / new arch")).toBe(false);
+    });
+
+    test("displayGateExit maps the classification to the distinct refusal exit code, or null to proceed", () => {
+        expect(displayGateExit("google / swiftshader")).toBe(EXIT_NO_DISPLAY);
+        expect(displayGateExit("unknown")).toBe(EXIT_NO_DISPLAY);
+        expect(displayGateExit("nvidia / ... / geforce rtx 4090 / ...")).toBeNull();
+        // distinct from every other exit code this CLI already uses
+        expect(EXIT_NO_DISPLAY).toBe(4);
+    });
+
+    test("displayGateMessage names the adapter and the reason, never the caller or its environment", () => {
+        const msg = displayGateMessage("google / swiftshader");
+        expect(msg).toContain("google / swiftshader");
+        expect(msg).toContain("software rasterizer");
+        expect(msg.toLowerCase()).not.toContain("wsl");
+        expect(msg.toLowerCase()).not.toContain("kex");
+        expect(msg.toLowerCase()).not.toContain("bridge");
+
+        const noAdapter = displayGateMessage("unknown");
+        expect(noAdapter).toContain("no GPU adapter was offered");
     });
 });
 

@@ -24,6 +24,47 @@ const EXIT_PASS = 0;
 const EXIT_FAIL = 1; // booted, but the verdict was false (assertions / render / page errors)
 const EXIT_SETUP = 2; // bad flags, no project, missing dist, boot failed — never reached a verdict
 const EXIT_NO_PLAYWRIGHT = 3; // playwright module or its chromium browser isn't installed
+export const EXIT_NO_DISPLAY = 4; // the browser only offered a software adapter — refused before any check ran
+
+// Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
+// and D3D's WARP. Deliberately a name list rather than a capability probe — a software adapter clears
+// shallot's whole base floor (every feature + limit check), so nothing about the floor distinguishes it;
+// only *execution* dies (`GPU device lost`, oversized `mappedAtCreation` allocations that read as engine
+// bugs). Mirrors the showcase drivers' proven shape (voxel.spec.ts/roads.spec.ts), biased narrow: an
+// unlisted software adapter still fails loudly rather than silently pass having tested nothing.
+const SOFTWARE_ADAPTER = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
+
+/**
+ * true when `hardware` (a joined `GPUAdapterInfo` identity string, or `readHardware`'s `"unknown"`
+ * fallback when no adapter was offered at all) is not real GPU hardware. Pure — testable without a
+ * browser. The CLI's own display gate: probed before any check runs, so a software adapter is refused
+ * outright rather than left to crash mid-run.
+ */
+export function isSoftwareAdapter(hardware: string): boolean {
+    return hardware === "unknown" || SOFTWARE_ADAPTER.test(hardware);
+}
+
+/** the display gate's decision for a probed adapter identity: {@link EXIT_NO_DISPLAY} to refuse, `null`
+ *  to proceed. The seam `verifyCommand`'s refusal path reduces to, so the decision — and its exit code —
+ *  is unit-testable without a browser (`testing.md`: never bind a device in `bun test`). */
+export function displayGateExit(hardware: string): number | null {
+    return isSoftwareAdapter(hardware) ? EXIT_NO_DISPLAY : null;
+}
+
+/** the refusal diagnostic for a non-hardware adapter: names what was offered and why the CLI won't run
+ *  checks against it, never the caller or its environment (`branding.md` — point at the diagnostic). */
+export function displayGateMessage(hardware: string): string {
+    const reason =
+        hardware === "unknown"
+            ? "no GPU adapter was offered at all"
+            : `the adapter is a software rasterizer ("${hardware}")`;
+    return (
+        `shallot verify needs a real GPU adapter, but ${reason}. A software adapter clears every ` +
+        `feature/limit check and then crashes mid-run instead (GPU device lost, oversized buffer ` +
+        `allocations) — a false engine-bug reading rather than a missing display. Run against a browser ` +
+        `backed by real hardware, or attach to one via --connect.`
+    );
+}
 
 // Match real failure signatures only — "adapter limits" / "requestAdapter" are normal startup chatter.
 // Salvaged verbatim from harness/core/page.ts (the proven signature set).
@@ -1167,6 +1208,35 @@ async function verifyCommand(raw: string[]): Promise<number> {
                 : `could not launch the chromium browser (${msg.split("\n")[0]}) — install it: ${INSTALL_PLAYWRIGHT}`;
             reportError(how, args.json);
             return EXIT_NO_PLAYWRIGHT;
+        }
+
+        // The display gate: probe the adapter identity on a throwaway page before running any check —
+        // refuse a software adapter outright rather than let it clear the feature/limit floor and then
+        // die mid-run. Refuse, not skip: this CLI is a user-invoked verifier, so a silent zero-exit here
+        // would be the same class of lie in the other direction — a caller that wants skip-on-no-display
+        // (this repo's own wrappers, `skipReason()`) owns that decision itself, upstream of this CLI.
+        // One probe covers both the single-run and batch paths below (the adapter is a property of this
+        // browser session, not of any one run). Navigates to the booted URL first: `requestAdapter`
+        // returns no adapter at all on an opaque `about:blank` origin (measured), the same real page load
+        // the actual run does — a nav failure here says nothing about the display, so it falls through to
+        // the real run's own retry + setup-error path rather than misreporting as "no adapter".
+        let gateContext: Context | undefined;
+        try {
+            gateContext = await browser.newContext();
+            const gatePage = await gateContext.newPage();
+            try {
+                await gatePage.goto(booter.url, { timeout: 30_000 });
+                const hardware = await readHardware(gatePage).catch(() => "unknown");
+                const exit = displayGateExit(hardware);
+                if (exit !== null) {
+                    reportError(displayGateMessage(hardware), args.json);
+                    return exit;
+                }
+            } catch {
+                // navigation itself failed — the real run's own goto retry + setup-error path handles it.
+            }
+        } finally {
+            await gateContext?.close().catch(() => {});
         }
 
         if (args.run.length === 0) {
