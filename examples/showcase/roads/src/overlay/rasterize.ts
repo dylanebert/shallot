@@ -95,7 +95,7 @@ const segmentsDistanceGpu = tgpu.fn(
 
 /** apply the inside/outside sign convention to a polygon's nearest-edge distance — negative inside,
  *  positive outside, `inside` decided by ray-cast winding. Factored out of `polygonDistanceGpu` as its
- *  own pure fn (`checks.md`'s "factor inward") purely so it's CPU-callable with no bound storage:
+ *  own pure fn (`coding.md`'s "factor inward") purely so it's CPU-callable with no bound storage:
  *  `polygonDistanceGpu`'s enclosing reduction reads the shared `polyVerts` buffer and can only run
  *  inside a real dispatch, but the sign convention itself takes no storage — stage 5's differential
  *  oracle calls this directly to pin the sign, the exact axis a flipped `select` breaks.
