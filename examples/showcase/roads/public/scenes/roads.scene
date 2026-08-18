@@ -1,0 +1,20 @@
+<scene>
+    <!-- the declarative environment for the roads terrain showcase: ambient + a casting sun, and a plain
+         orbit camera. The heightfield grid is a non-Part producer built in code (terrain/terrain.ts), so
+         only the lights + camera live here. -->
+    <a ambient-light />
+    <a directional-light shadow="distance: 1200" />
+
+    <!-- orbit camera framing the ~1 km² grid (terrain/grid.ts: 1024 m × 1024 m, centred on the world
+         origin — the grid's own centring). distance/max-distance are sized to the terrain's footprint
+         the same way voxel sizes its orbit to the voxel grid: the orbit defaults (distance 10 / max 30)
+         would frame a speck of a 1024 m field and clamp on first zoom. min-distance drops low enough to
+         read ground-level detail near the camera. clear-color is a daytime sky (sRGB hex). The sun shadow
+         distance (above) covers the grid so terrain self-shadows across its relief. -->
+    <a
+        camera="clear-color: 0x78a7ff"
+        sear
+        orbit="distance: 900; max-distance: 2500; min-distance: 10; pitch: 0.5"
+        transform
+    />
+</scene>

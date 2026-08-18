@@ -1,0 +1,17 @@
+{
+    "name": "roads",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "test": "bun test --cwd ../../.. ./examples/showcase/roads/src",
+        "gate": "playwright test"
+    },
+    "dependencies": {
+        "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.12.0"
+    },
+    "devDependencies": {
+        "@playwright/test": "^1.58.2"
+    }
+}

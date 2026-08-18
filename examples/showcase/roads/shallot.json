@@ -1,0 +1,11 @@
+{
+  "scene": "scenes/roads.scene",
+  "plugins": {
+    "Part": false,
+    "Orbit": true,
+    "Mirror": true,
+    "Profile": true,
+    "Terrain": "./src/terrain/terrain",
+    "RoadsBoot": "./src/boot"
+  }
+}
