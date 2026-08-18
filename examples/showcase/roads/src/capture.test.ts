@@ -80,7 +80,7 @@ describe("meshHeightAt — the real rendered surface, not nearest-vertex", () =>
         expect(h).toBeCloseTo(9, 1);
     });
 
-    test("mutation: swapping the triangle split (as if grid.ts's winding flipped) changes the reading — the\n     test discriminates the split, not just the corner values", () => {
+    test("mutation: swapping the triangle split (as if grid.ts's winding flipped) changes the reading — the test discriminates the split, not just the corner values", () => {
         const raw = rawWithQuad(ix0, iz0, 0, 0, 0, 10); // only h11 is non-zero
         const inLowerLeft = meshHeightAt(raw, x0 + SPACING * 0.2, z0 + SPACING * 0.2);
         const inUpperRight = meshHeightAt(raw, x0 + SPACING * 0.8, z0 + SPACING * 0.8);

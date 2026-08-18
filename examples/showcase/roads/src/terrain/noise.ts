@@ -9,14 +9,16 @@
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { envNumber } from "../env";
 
 // heightmap knobs, in world units (metres), since the terrain kernel samples world position directly —
 // unlike voxel, which samples grid-cell coordinates. HFREQ's period (1/HFREQ ≈ 330 m) puts about three
 // broad hills across the 1024 m field (grid.ts); RELIEF is the vertical amplitude in metres (|fbm2| ≤ 1
 // ⇒ height ∈ GROUND_LEVEL ± RELIEF) — gentle rolling hills, not mountains, the showcase's "readable at
-// street level" brief.
+// street level" brief. RELIEF is `VITE_ROADS_RELIEF`-overridable: the straightness instrument's flat-
+// ground control needs undeformed terrain, not just a disabled flatten step (`env.ts`).
 export const HFREQ = 0.003;
-export const RELIEF = 40;
+export const RELIEF = envNumber("VITE_ROADS_RELIEF", 40);
 export const OCTAVES = 5; // baked into fbm2 below — broad shapes + medium hills + fine detail
 // plain-number exports so terrain/profile.ts's CPU mirror (heightAtCpu) shares these instead of
 // re-declaring its own copies — one source, the d.f32 wrap below is this module's own GPU-side need.

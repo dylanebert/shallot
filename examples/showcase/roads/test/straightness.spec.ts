@@ -169,7 +169,7 @@ test("boundary straightness — grazing-view discriminator (opt-in, not a gate)"
     );
 });
 
-// Stage 10: stage 9's mechanism finding (`shallot-roads.md`'s Approach) — the road boundary staircase a
+// Stage 10: stage 9's mechanism finding (the spec's Approach) — the road boundary staircase a
 // person reads as metre-scale lives in the flattened corridor's *height*, not its albedo edge, so a
 // screen-space luminance probe (above) is structurally blind to it (0.74 px rms genuine spread against a
 // complaint a person reads as metres). This probe re-points the same anchor machinery at the world-space
@@ -277,5 +277,24 @@ test("boundary straightness — height-axis world-space discriminator (opt-in, n
             result.foundCount,
             `found ${result.foundCount}/${result.anchorCount} height crossings`,
         ).toBeGreaterThanOrEqual(Math.floor(result.anchorCount * 0.6));
+        // a magnitude validity bound, not a straightness tolerance (stage 11's own job): rmsM must sit
+        // comfortably above sub-instrument-resolution noise and can never structurally exceed falloffM,
+        // the search radius `heightSilhouette` walks each anchor over (`grazingCapture.ts`) — a reading
+        // outside either bound means the instrument itself regressed, not that the road did.
+        // RMS_FLOOR_M: two orders of magnitude below the mesh's own vertex spacing (SPACING) — the same
+        // "100x the physical noise floor" margin `grazingCapture.ts`'s own MIN_CONTRAST_M uses against
+        // height quantization, applied here to the mesh's spatial resolution. A reading this much smaller
+        // than the grid itself is sub-millimetre axis-blindness (stage 9's own screen-space defect, 0.74
+        // px rms against a metre-scale complaint), not a real quantized boundary.
+        const spacingM = (meshParams as { spacing: number }).spacing;
+        const rmsFloorM = spacingM / 100;
+        expect(
+            result.rmsM,
+            `rmsM ${result.rmsM} is sub-instrument-resolution against SPACING ${spacingM}`,
+        ).toBeGreaterThan(rmsFloorM);
+        expect(
+            result.rmsM,
+            `rmsM ${result.rmsM} exceeds falloffM ${result.falloffM}, the instrument's own search radius`,
+        ).toBeLessThanOrEqual(result.falloffM);
     }
 });

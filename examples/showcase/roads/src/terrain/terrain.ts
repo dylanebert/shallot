@@ -16,6 +16,7 @@ import { MeshQuant } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { envFlag } from "../env";
 import * as overlayAtlas from "../overlay/atlas";
 import type { StrokeDocument } from "../overlay/document";
 import { generateNetwork } from "../overlay/network";
@@ -168,6 +169,14 @@ function teardown(): void {
 // same `markDirty`/`redraw`/flatten path this boot document already takes.
 let liveDocument: StrokeDocument = generateNetwork(SEED);
 let currentSeed = SEED;
+// the straightness instrument's no-cut control: `liveDocument` still drives the overlay and the height-
+// axis anchors (the analytic road edge stays a real, checkable position), only the *flatten* kernel gets
+// an empty network — `flatten.ts`'s own documented fallback ("empty network... degrades to plain
+// heightAt") — so the rendered mesh is genuinely undeformed terrain rather than a cut against zeroed
+// RELIEF. `VITE_ROADS_NO_CUT`-gated (`env.ts`); paired with `VITE_ROADS_RELIEF=0` (`noise.ts`) for the
+// spec's "zeroed-RELIEF, no-cut control" arm.
+const NO_CUT = envFlag("VITE_ROADS_NO_CUT");
+const EMPTY_DOCUMENT: StrokeDocument = { polylines: [], polygons: [] };
 // the longitudinal smoothing strength (`terrain/profile.ts`'s box-filter radius, samples each side) —
 // the spec's taste handover: a live control (`boot.ts`'s bracket-key idiom), not a value baked in and
 // declared good. `setSmoothRadius` below is the control's own entry point.
@@ -249,8 +258,9 @@ async function warm(state: State): Promise<void> {
 
     bindTerrainKernel(vertices, position);
     warmNetwork(state); // its own onDispose registration, the same pattern
-    setNetwork(liveDocument, currentSeed, smoothRadius); // the flatten kernel's geometry input, kept in
-    // sync with the overlay's own document and the height kernel's own permutation seed
+    setNetwork(NO_CUT ? EMPTY_DOCUMENT : liveDocument, currentSeed, smoothRadius); // the flatten kernel's
+    // geometry input, kept in sync with the overlay's own document and the height kernel's own
+    // permutation seed — except under the no-cut control arm, above
     if (state.signal.aborted) return;
     await generate(SEED);
 }

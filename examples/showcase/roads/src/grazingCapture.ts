@@ -1,8 +1,13 @@
 import { Orbit } from "@dylanebert/shallot/extras";
 import { Views } from "@dylanebert/shallot/render/core";
+import {
+    edgeAnchorPoints,
+    heightMidpointAnchor,
+    roadFrame,
+    worldEdgeAnchors,
+} from "./boundaryAnchors";
 import { meshHeightAt, withHeight, worldToScreen } from "./capture";
 import { frames } from "./harness";
-import { documentDistance } from "./overlay/document";
 import { generateNetwork } from "./overlay/network";
 import { detectEdgeOffset, raggedness } from "./straightness";
 import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
@@ -19,9 +24,9 @@ import { getSmoothRadius, readVertices, SEED } from "./terrain/terrain";
 // `test/straightness.spec.ts` still saves; the actual reading (`heightSilhouette`, below) is now
 // camera-independent — it lives entirely in the heightfield, not in what a camera happens to project.
 //
-// Reuses the *same* boot document every run (`generateNetwork(SEED)`, `terrain.ts`'s own boot document) —
-// road index 0's own first segment, deterministic — so a SPACING/TILE_RES/DIST_RANGE edit between runs
-// changes only the mesh/atlas resolution under test, never the network geometry the camera is framed to.
+// The analytic anchor derivation (road frame, per-probe boundary point, world-space anchor) lives in
+// `boundaryAnchors.ts` — this module only adds the camera-dependent half (`grazingCapture`, needs
+// `Orbit`/`Views`) and the height-axis reading (`heightSilhouette`, needs the mesh readback).
 //
 // Stage 10: stage 9's `detectEdgeOffset`/`raggedness` (`straightness.ts`) are dimension-agnostic — a 1D
 // sampler walked over a search axis, looking for a crossing — so the height-axis criterion below reuses
@@ -32,13 +37,9 @@ import { getSmoothRadius, readVertices, SEED } from "./terrain/terrain";
 // camera's projection of it — the same reason it needs no camera pose at all.
 
 const TARGET_T = 0.08; // fraction along the road from its start — near one end, so the far ~90% recedes
-const PROBE_T_LO = 0.2;
-const PROBE_T_HI = 0.8;
-const PROBE_COUNT = 16; // anchors along the visible run, avoiding both ends' falloff/off-frame risk
 const PITCH = 0.06; // radians (~3.4°) — near-horizontal, the grazing angle itself
 const DISTANCE = 15; // world metres — close to the scene's own min-distance (10), low and near the edge
 const EYE_MARGIN = 0.4; // metres above the read terrain height, clearing z-fighting/embedding
-const ON_BOUNDARY_TOLERANCE = 0.02; // metres — the analytic edge point must sit this close to dist=0
 
 export interface GrazingAnchor {
     /** the analytic (ground-truth) boundary point's screen position, as a fraction of canvas size. */
@@ -48,14 +49,6 @@ export interface GrazingAnchor {
      *  this anchor — the axis `straightness.ts`'s `detectEdgeOffset` walks. */
     dirX: number;
     dirY: number;
-}
-
-/** the boot document's first road, flattened to its own single segment — the fixed geometry every grazing
- *  capture (any SPACING/TILE_RES/DIST_RANGE run) frames against. */
-function roadSegment(): { ax: number; az: number; bx: number; bz: number; halfWidth: number } {
-    const doc = generateNetwork(SEED);
-    const [[ax, az], [bx, bz]] = doc.polylines[0].points;
-    return { ax, az, bx, bz, halfWidth: doc.polylines[0].halfWidth };
 }
 
 /** the canvas-presenting camera's eid — the same `Views` disambiguation `capture.ts`'s `cameraEid` uses
@@ -77,14 +70,8 @@ function cameraEid(): number {
  */
 export async function grazingCapture(): Promise<{ anchors: GrazingAnchor[] }> {
     const eid = cameraEid();
-    const { ax, az, bx, bz, halfWidth } = roadSegment();
-    const dx = bx - ax;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dz) || 1;
-    const ux = dx / len;
-    const uz = dz / len;
-    const nx = -uz; // unit normal, network.ts's own convention
-    const nz = ux;
+    const frame = roadFrame();
+    const { ax, az, ux, uz, len } = frame;
 
     const targetX = ax + ux * len * TARGET_T;
     const targetZ = az + uz * len * TARGET_T;
@@ -107,23 +94,7 @@ export async function grazingCapture(): Promise<{ anchors: GrazingAnchor[] }> {
 
     const anchors: GrazingAnchor[] = [];
     const doc = generateNetwork(SEED);
-    for (let i = 0; i < PROBE_COUNT; i++) {
-        const t = PROBE_T_LO + ((PROBE_T_HI - PROBE_T_LO) * i) / (PROBE_COUNT - 1);
-        const cx = ax + ux * len * t;
-        const cz = az + uz * len * t;
-        // the far side from the carpark (network.ts anchors it on the +normal side of road 0), so the
-        // probe's search corridor never crosses carpark-rasterized tiles.
-        const ex = cx - nx * halfWidth;
-        const ez = cz - nz * halfWidth;
-        const edgeDist = documentDistance(ex, ez, doc);
-        if (Math.abs(edgeDist) > ON_BOUNDARY_TOLERANCE) {
-            // the analytic edge point should sit within quantization noise of dist=0 by construction; a
-            // gross miss here means the road geometry assumption drifted and the probe would be silently
-            // wrong rather than loudly wrong — fail fast instead of returning a garbage anchor.
-            throw new Error(
-                `grazingCapture: probe ${i} analytic edge point isn't on the boundary (dist ${edgeDist.toFixed(3)})`,
-            );
-        }
+    for (const { ex, ez } of edgeAnchorPoints(frame, doc)) {
         const [, ey] = await withHeight(ex, ez);
         const [pt] = worldToScreen([[ex, ey, ez]]);
 
@@ -147,56 +118,11 @@ export async function grazingCapture(): Promise<{ anchors: GrazingAnchor[] }> {
     return { anchors };
 }
 
-/** one boundary anchor for the height-axis criterion: the same analytic edge point
- *  {@link grazingCapture}'s anchors project to screen space, plus a world-space unit search direction
- *  (perpendicular to the road centreline, metres) instead of a screen one. */
-export interface WorldEdgeAnchor {
-    ex: number;
-    ez: number;
-    nx: number;
-    nz: number;
-}
-
-/** the same {@link PROBE_COUNT} boundary anchors {@link grazingCapture} derives, in raw world coordinates
- *  rather than a screen projection — stage 10's height-axis criterion needs the point and a world-space
- *  search axis, never a camera. Exported separately since a camera pose plays no role in this reading. */
-export function worldEdgeAnchors(): WorldEdgeAnchor[] {
-    const { ax, az, bx, bz, halfWidth } = roadSegment();
-    const dx = bx - ax;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dz) || 1;
-    const ux = dx / len;
-    const uz = dz / len;
-    const nx = -uz;
-    const nz = ux;
-    const doc = generateNetwork(SEED);
-
-    const anchors: WorldEdgeAnchor[] = [];
-    for (let i = 0; i < PROBE_COUNT; i++) {
-        const t = PROBE_T_LO + ((PROBE_T_HI - PROBE_T_LO) * i) / (PROBE_COUNT - 1);
-        const cx = ax + ux * len * t;
-        const cz = az + uz * len * t;
-        const ex = cx - nx * halfWidth;
-        const ez = cz - nz * halfWidth;
-        const edgeDist = documentDistance(ex, ez, doc);
-        if (Math.abs(edgeDist) > ON_BOUNDARY_TOLERANCE) {
-            throw new Error(
-                `worldEdgeAnchors: probe ${i} analytic edge point isn't on the boundary (dist ${edgeDist.toFixed(3)})`,
-            );
-        }
-        // the outward search axis: away from the corridor's own centreline, toward natural terrain — the
-        // sign only labels which side of the anchor is "positive", detection works either way (`detectEdgeOffset`
-        // scans symmetrically), but a consistent outward convention keeps the sign of a returned offset legible.
-        anchors.push({ ex, ez, nx: -nx, nz: -nz });
-    }
-    return anchors;
-}
-
-/** one anchor's height-axis reading: the world-metre offset (along {@link WorldEdgeAnchor.nx}/`nz`) between
- *  the analytic boundary point and where the *real* mesh height actually crosses from the flattened
- *  corridor to natural terrain — `null` when no crossing was found (the search radius missed it) or the
- *  endpoints didn't differ enough to trust as a real transition (`reason: "low-contrast"`, the flat-ground
- *  control case: no cut, no differential, nothing to find). */
+/** one anchor's height-axis reading: the world-metre offset (along the anchor's own outward normal)
+ *  between the analytic boundary's {@link heightMidpointAnchor} and where the *real* mesh height actually
+ *  crosses from the flattened corridor to natural terrain — `null` when no crossing was found (the search
+ *  radius missed it) or the endpoints didn't differ enough to trust as a real transition (`reason:
+ *  "low-contrast"`, the flat-ground control case: no cut, no differential, nothing to find). */
 export interface HeightReading {
     i: number;
     offset: number | null;
@@ -223,13 +149,13 @@ const MIN_CONTRAST_M = 100 * (TERRAIN_QUANT.posScale.y / 65535);
 const STEPS_PER_M = 8; // sub-decimetre crossing resolution — cheap at this anchor/radius count
 
 /** stage 10's height-axis straightness criterion: walks the *real* rendered mesh height
- *  (`capture.ts`'s `meshHeightAt`) outward from each analytic boundary anchor over the network's own
- *  derived falloff distance, and finds where it actually crosses from the flattened plateau to natural
- *  terrain — the deviation from the anchor (which sits exactly on the analytic boundary by construction)
- *  is the height-silhouette offset, in world metres. `raggedness` (`straightness.ts`) aggregates the same
- *  way stage 9's screen-space instrument did; what changed is only the sampled quantity and its axis
- *  (world height, not screen luminance) — the corrected criterion `boot.ts` exposes as
- *  `window.__roadsHeightSilhouette`. */
+ *  (`capture.ts`'s `meshHeightAt`) outward from each analytic boundary anchor's
+ *  `boundaryAnchors.ts`'s {@link heightMidpointAnchor} over the network's own derived falloff distance,
+ *  and finds where it actually crosses from the flattened plateau to natural terrain — the deviation from
+ *  that ground-truth midpoint is the height-silhouette offset, in world metres. `raggedness`
+ *  (`straightness.ts`) aggregates the same way stage 9's screen-space instrument did; what changed is only
+ *  the sampled quantity and its axis (world height, not screen luminance) — the corrected criterion
+ *  `boot.ts` exposes as `window.__roadsHeightSilhouette`. */
 export async function heightSilhouette(): Promise<HeightSilhouetteResult> {
     const anchors = worldEdgeAnchors();
     const raw = await readVertices();
@@ -248,17 +174,8 @@ export async function heightSilhouette(): Promise<HeightSilhouetteResult> {
         if (contrastM < MIN_CONTRAST_M) {
             return { i, offset: null, contrastM, reason: "low-contrast" as const };
         }
-        const offset = detectEdgeOffset(
-            sampleAt,
-            a.ex,
-            a.ez,
-            a.nx,
-            a.nz,
-            lo,
-            hi,
-            falloff,
-            STEPS_PER_M,
-        );
+        const { mx, mz } = heightMidpointAnchor(a, falloff);
+        const offset = detectEdgeOffset(sampleAt, mx, mz, a.nx, a.nz, lo, hi, falloff, STEPS_PER_M);
         return {
             i,
             offset,
