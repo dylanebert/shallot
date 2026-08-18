@@ -1,18 +1,32 @@
 import type { Plugin, System } from "@dylanebert/shallot";
 import { Meshes } from "@dylanebert/shallot/render/core";
+import { capturePoints, type ScreenPoint, TRANSITION_TOLERANCE_PX, worldToScreen } from "./capture";
 import { gate } from "./gate";
 import type { Check } from "./harness";
+import { overlayIdle } from "./terrain/terrain";
 
 // The roads showcase's boot orchestration, as a plugin (a manifest project has no `main.ts` entry) —
 // the same shape as voxel's `boot.ts`. Terrain generation itself runs inside `terrain.ts`'s own `warm()`
 // (the grid's topology is fixed, so there's no separate "wait for buffers, then generate" step the way
-// voxel's carve-capable mesher needs); this plugin's only job is installing the device gate once the
-// terrain mesh is registered. `mode: always` so the poll runs in edit mode too, not just play.
+// voxel's carve-capable mesher needs); this plugin's only job is installing the device gate + the capture
+// bridge once the terrain mesh is registered. `mode: always` so the poll runs in edit mode too, not just
+// play.
 
 declare global {
     interface Window {
         // the device gate, driven by the project's own Playwright on a real GPU (test/roads.spec.ts).
         __roadsGate?: () => Promise<Check[]>;
+        // the pixel-probe capture's world→screen bridge (capture.ts), its on-road/off-road world points
+        // (real generated terrain height), and an overlay-drained poll — all real ECS/GPU state Playwright
+        // can't compute itself.
+        __roadsProbe?: (points: ReadonlyArray<readonly [number, number, number]>) => ScreenPoint[];
+        __roadsCapturePoints?: () => ReturnType<typeof capturePoints>;
+        __roadsOverlayIdle?: () => boolean;
+        // a plain re-export of capture.ts's derived constant — never imported directly into the Playwright
+        // driver (this project's src/ runs in the browser via the dev server; a direct Node-side import of
+        // it pulls in the published `@dylanebert/shallot` package graph under Playwright's own loader,
+        // which chokes on the package's `exports` map — `test/roads.spec.ts` stays bridge-only).
+        __roadsTransitionTolerancePx?: number;
     }
 }
 
@@ -29,9 +43,17 @@ const BootSystem: System = {
         if (!armed || !Meshes.get("terrain")) return;
         armed = false;
         window.__roadsGate = () => gate();
+        window.__roadsProbe = (points) => worldToScreen(points);
+        window.__roadsCapturePoints = () => capturePoints();
+        window.__roadsOverlayIdle = () => overlayIdle();
+        window.__roadsTransitionTolerancePx = TRANSITION_TOLERANCE_PX;
     },
     dispose() {
         delete window.__roadsGate;
+        delete window.__roadsProbe;
+        delete window.__roadsCapturePoints;
+        delete window.__roadsOverlayIdle;
+        delete window.__roadsTransitionTolerancePx;
     },
 };
 
