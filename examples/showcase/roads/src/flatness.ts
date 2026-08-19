@@ -38,11 +38,16 @@
 //     metres (4 m on this network) at *both* ends of every segment (`sampleWindow`, below): past that
 //     margin, `networkCoreCpu`'s own nearest-*point* clamp is a different geometric case from the
 //     nearest-*line* interior this oracle checks. A green run says nothing about the geometry within one
-//     `halfWidth` of any road endpoint or junction — precisely the band stage 15's own fix (`terrain/
-//     flatten.ts`'s `FLAT_CORE_MARGIN`-widened core plus blending overlapping primitives' falloffs across
-//     `networkCore`'s former hard nearest-primitive switch) concentrates its change in, so this oracle's
-//     green reading is evidence about the mid-segment crease only, not the junction one, unless this
-//     margin narrows too — still open, carried forward rather than closed here.
+//     `halfWidth` of any road endpoint.
+//
+// The oracle carries four exclusions, and their union's extent is itself an assertion (reported as
+// `excludedStationCount`/`excludedStationFraction` beside `sampleCount`): (1) the per-segment endpoint
+// cap above; (2) the named blind axes (albedo, normals, off-footprint, reseed staleness); (3) the
+// designed junction zone (`inJunctionZone`, `√2·SPACING` band — two primitives' plateaus both claim the
+// point, so cross-section flatness for both at once is unsatisfiable in principle, judged by stage 16's
+// look); (4) the footprint interior (the oracle only walks centreline + edge lines inside a footprint).
+// The junction band is closed by exclusion, not carried forward — it is measured and pinned in the same
+// diff that adds it, and is invariant under `FLAT_CORE_MARGIN` (the band reads `JUNCTION_ZONE` alone).
 
 import { encodePos } from "@dylanebert/shallot/utils/core";
 import * as d from "typegpu/data";
@@ -87,8 +92,14 @@ export function gradeBound(ds: number): number {
 }
 
 /** the cross-section bound: two footprint points at the same longitudinal station should read the same
- *  height (the flatten target is a pure function of station, `networkCoreCpu`'s own `t`-only interpolation
- *  below), up to two independent reconstructions' quantization noise. */
+ *  height up to two independent reconstructions' quantization noise. The flatten *field* is a pure
+ *  function of station (`networkCoreCpu`'s own `t`-only interpolation), but the piecewise-linear
+ *  *reconstruction* this oracle reads is not — a triangle straddling the footprint edge blends one
+ *  corner's off-road height into a point whose analytic position is still inside the road, so two
+ *  same-station footprint points can read different heights by mesh construction, not by blend design.
+ *  This is the distinction Leg A (the field, exactly zero outside the zone) and Leg B (the mesh,
+ *  convergence) separate — a single absolute bound over the reconstruction reading is fitted whichever
+ *  number it takes. */
 export const CROSS_SECTION_TOL = 2 * QUANT_TOL;
 
 /** how far inside the road edge the two edge lines sit — small relative to `SPACING` so the probe stays
@@ -132,13 +143,14 @@ export const JUNCTION_ZONE = Math.SQRT2 * SPACING;
  *  nearest keeps full weight, one deeper by ≥ FLAT_CORE_MARGIN is fully suppressed. This requires
  *  `bestCore` before any weight is computed, so the function is two passes: pass 1 finds `bestCore` and
  *  stores per-primitive (core, target) pairs; pass 2 computes the weighted blend with the depth factor. */
-function networkCoreCpu(
+export function networkCoreCpu(
     px: number,
     pz: number,
     segments: readonly ProfileSegment[],
     polygons: readonly PolygonStamp[],
     naturalHeightAt: (x: number, z: number) => number,
     falloff: number,
+    suppressionBand: number = FLAT_CORE_MARGIN,
 ): { coreDist: number; targetHeight: number } {
     // Pass 1: find bestCore and store per-primitive (core, target) pairs.
     const roadBest = new Map<number, { core: number; target: number }>();
@@ -206,8 +218,20 @@ function networkCoreCpu(
     const accumulate = (core: number, target: number) => {
         const t = Math.min(1, Math.max(0, core / falloff));
         const baseWeight = 1 - (0.5 - 0.5 * Math.cos(Math.PI * t));
-        const depthT = Math.min(1, Math.max(0, (core - bestCore) / FLAT_CORE_MARGIN));
-        const depthFactor = 1 - (0.5 - 0.5 * Math.cos(Math.PI * depthT));
+        // band = 0 is the hard-switch limit (only the nearest primitive contributes) — the form
+        // 15b's consult refuted as a candidate, reproduced here as Leg A's red-first arm.
+        const depthFactor =
+            suppressionBand === 0
+                ? core <= bestCore
+                    ? 1
+                    : 0
+                : 1 -
+                  (0.5 -
+                      0.5 *
+                          Math.cos(
+                              Math.PI *
+                                  Math.min(1, Math.max(0, (core - bestCore) / suppressionBand)),
+                          ));
         const weight = baseWeight * depthFactor;
         sumWeight += weight;
         sumWeightedTarget += weight * target;
@@ -218,6 +242,35 @@ function networkCoreCpu(
 
     const bestTarget = sumWeight > 0 ? sumWeightedTarget / sumWeight : 0;
     return { coreDist: bestCore, targetHeight: bestTarget };
+}
+
+/** the continuous flattened field at (px, pz) — {@link networkCoreCpu}'s blended target eased toward
+ *  natural via {@link flattenHeight}, with no mesh at all. This is the analytic limit Leg A (spec
+ *  Validation, 2026-08-19 second consult) samples: outside the designed junction zone the field is
+ *  exactly flat by construction (the relative-depth suppression makes the host primitive's target win
+ *  outright), so a non-zero reading outside the zone is the blend's design, not the mesh's
+ *  discretization. `suppressionBand` defaults to the shipped {@link FLAT_CORE_MARGIN}; the red-first
+ *  arms pass `falloff` (suppression too slow, 417 / 0.493 m) or `0` (the hard switch, 0.392 m). */
+export function flattenFieldAt(
+    px: number,
+    pz: number,
+    segments: readonly ProfileSegment[],
+    polygons: readonly PolygonStamp[],
+    falloff: number,
+    naturalHeightAt: (x: number, z: number) => number,
+    suppressionBand: number = FLAT_CORE_MARGIN,
+): number {
+    const natural = naturalHeightAt(px, pz);
+    const { coreDist, targetHeight } = networkCoreCpu(
+        px,
+        pz,
+        segments,
+        polygons,
+        naturalHeightAt,
+        falloff,
+        suppressionBand,
+    );
+    return flattenHeight(natural, targetHeight, coreDist, falloff);
 }
 
 /** discretize the continuous flatten field (`segments`/`polygons`/`falloff`, `naturalHeightAt`) onto a
@@ -405,6 +458,15 @@ export interface FlatnessResult {
     /** the worst cross-section excess inside the junction zone (0 when no in-zone station violates). */
     readonly maxCrossSectionExcessInZone: number;
     readonly sampleCount: number;
+    /** how many sampled footprint points fall inside the designed junction zone (excluded from both
+     *  axes' gates by the carve-out). Reported beside `sampleCount` so the carve-out's own extent is
+     *  itself an assertion — an exclusion is a deletion primitive (`checks.md`). */
+    readonly excludedStationCount: number;
+    /** `excludedStationCount / sampleCount` — the fraction of sampled footprint the junction-zone
+     *  carve-out excludes. A document-only property: `inJunctionZone` reads `doc`'s geometry and
+     *  `JUNCTION_ZONE` alone, never `FLAT_CORE_MARGIN`, so this fraction is invariant under a future
+     *  treatment widening the margin. */
+    readonly excludedStationFraction: number;
 }
 
 /**
@@ -434,6 +496,7 @@ export function checkSurfaceFlatness(
     let maxLongitudinalExcess = 0;
     let maxCrossSectionExcess = 0;
     let maxCrossSectionExcessInZone = 0;
+    let excludedStationCount = 0;
 
     const frames = segmentFrames(doc);
     for (let roadIndex = 0; roadIndex < frames.length; roadIndex++) {
@@ -456,6 +519,13 @@ export function checkSurfaceFlatness(
         const centreZone = centre.map((s) => inJunctionZone(s.x, s.z, doc));
         const edgePosZone = edgePos.map((s) => inJunctionZone(s.x, s.z, doc));
         const edgeNegZone = edgeNeg.map((s) => inJunctionZone(s.x, s.z, doc));
+
+        // the carve-out's own extent: count every sampled point that falls inside the junction zone
+        // across all three lines. Reported beside `sampleCount` so the exclusion is measured in the
+        // diff that owns it, not disclosed in prose (`checks.md`'s deletion-primitive clause).
+        for (const z of centreZone) if (z) excludedStationCount++;
+        for (const z of edgePosZone) if (z) excludedStationCount++;
+        for (const z of edgeNegZone) if (z) excludedStationCount++;
 
         // cross-section: same station (same t by construction — sampleLine shares tLo/tHi/n), every
         // footprint line should read the centreline's own height. The carve-out checks both the
@@ -534,6 +604,8 @@ export function checkSurfaceFlatness(
         maxCrossSectionExcess,
         maxCrossSectionExcessInZone,
         sampleCount,
+        excludedStationCount,
+        excludedStationFraction: sampleCount > 0 ? excludedStationCount / sampleCount : 0,
     };
 }
 
@@ -550,8 +622,10 @@ export function inFootprint(x: number, z: number, doc: StrokeDocument): boolean 
  *  is a whole polyline (reduced to its nearest segment) or a polygon stamp, matching the blend's own
  *  grouping. Uses `doc`'s own polyline segments (not the profile sub-segments `networkCoreCpu` uses) —
  *  the difference is at most `PROFILE_STEP` (< `SPACING`), well inside the `JUNCTION_ZONE` band, so the
- *  carve-out's boundary is unaffected. */
-function inJunctionZone(px: number, pz: number, doc: StrokeDocument): boolean {
+ *  carve-out's boundary is unaffected. Never reads `FLAT_CORE_MARGIN`: the margin cancels in
+ *  `second − nearest` (every core loses the same constant), so the core terms state it without the
+ *  margin and the docstring's never-reads-the-treatment claim is true by construction. */
+export function inJunctionZone(px: number, pz: number, doc: StrokeDocument): boolean {
     let nearest = Number.POSITIVE_INFINITY;
     let second = Number.POSITIVE_INFINITY;
     const track = (core: number) => {
@@ -576,7 +650,11 @@ function inJunctionZone(px: number, pz: number, doc: StrokeDocument): boolean {
             const t = dd > 0 ? Math.min(1, Math.max(0, (apx * abx + apz * abz) / dd)) : 0;
             const cx = ax + t * abx;
             const cz = az + t * abz;
-            const core = Math.hypot(px - cx, pz - cz) - (line.halfWidth + FLAT_CORE_MARGIN);
+            // FLAT_CORE_MARGIN is deliberately absent: it cancels in `second − nearest` (every core
+            // loses the same constant), so stating the core without it makes the docstring's
+            // never-reads-the-treatment claim true by construction, not by arithmetic a per-primitive
+            // margin would break silently if the margin ever changed.
+            const core = Math.hypot(px - cx, pz - cz) - line.halfWidth;
             if (core < minCore) minCore = core;
         }
         track(minCore);
@@ -604,7 +682,7 @@ function inJunctionZone(px: number, pz: number, doc: StrokeDocument): boolean {
             const edgeDist = Math.hypot(px - ecx, pz - ecz);
             if (edgeDist < nearestEdge) nearestEdge = edgeDist;
         }
-        const core = (inside ? -nearestEdge : nearestEdge) - FLAT_CORE_MARGIN;
+        const core = inside ? -nearestEdge : nearestEdge;
         track(core);
     }
 
