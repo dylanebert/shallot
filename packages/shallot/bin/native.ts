@@ -12,7 +12,7 @@ import {
     writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, resolve } from "node:path";
+import { basename, isAbsolute, relative, resolve } from "node:path";
 import { normalize } from "../src/project/manifest";
 import { manifestPath } from "../src/project/vite";
 import { buildWeb } from "./build";
@@ -162,6 +162,10 @@ export function resolveCargoInvocation(
 // Releases (tag v<version>) is downloaded + SHA256-verified + extracted into a cache dir; any miss
 // (404, offline, checksum mismatch, source checkout) falls through to cargoBuild with a one-line
 // note. Debug stays lazy — dev-iteration machines have the toolchain.
+//
+// SHA256SUMS ships from the same release as the archive, so the checksum defends transport
+// corruption, not a compromised release (an attacker who can publish assets can publish a matching
+// SHA256SUMS).
 
 export type PrebuiltMode = "system" | "portable";
 
@@ -170,7 +174,9 @@ export type PrebuiltFetchResult =
     | "not-found"
     | "offline"
     | "checksum-mismatch"
-    | "source-checkout";
+    | "source-checkout"
+    | "extract-failed"
+    | "cache-error";
 
 export interface PrebuiltDecision {
     decision: "prebuilt" | "lazy";
@@ -216,6 +222,13 @@ export function resolvePrebuiltDecision(
                 decision: "lazy",
                 reason: "source checkout — no published release to download",
             };
+        case "extract-failed":
+            return {
+                decision: "lazy",
+                reason: "extract failed — archive may be corrupt or disk full",
+            };
+        case "cache-error":
+            return { decision: "lazy", reason: "cache error — could not write to cache dir" };
     }
 }
 
@@ -265,6 +278,23 @@ export function parseSha256Sums(sums: string, archiveName: string): string | nul
 /** Extract a .tar.gz archive into `destDir` (creates it if needed). Uses the system `tar`. */
 export function extractTarGz(archivePath: string, destDir: string): void {
     mkdirSync(destDir, { recursive: true });
+    // Containment guard (F4): reject archive entries that would land outside destDir — absolute
+    // paths or `..` traversal. This defends a *malformed archive our own CI could produce*, not a
+    // compromised release: under a compromised release the executed binary is the strictly greater
+    // threat, and the archive is SHA256-verified against a same-origin SHA256SUMS (see the comment
+    // at the comparison in tryPrebuilt) which blocks transport corruption but not a malicious
+    // publisher. We list entries and refuse the set before extracting.
+    const entries = execSync(`tar -tzf "${archivePath}"`, { encoding: "utf8" })
+        .split("\n")
+        .filter(Boolean);
+    for (const entry of entries) {
+        const cleaned = entry.replace(/^\.\//, "").replace(/\/$/, "");
+        const target = resolve(destDir, cleaned);
+        const rel = relative(destDir, target);
+        if (rel.startsWith("..") || isAbsolute(rel)) {
+            throw new Error(`archive entry escapes dest dir: ${entry}`);
+        }
+    }
     execSync(`tar -xzf "${archivePath}" -C "${destDir}"`, { stdio: "pipe" });
 }
 
@@ -331,16 +361,18 @@ function buildPrebuiltResult(
  * Try to resolve a prebuilt shell for (target, release, portable). Returns the binary path (and CEF
  * dir for portable) on a hit, null on any miss — the caller falls back to cargoBuild. Debug stays
  * lazy (returns null immediately). Every failure class prints a one-line note before returning null.
+ * The optional `version` parameter defaults to the detected package version; tests pass it
+ * explicitly to bypass the node_modules check.
  */
 export async function tryPrebuilt(
     target: string,
     release: boolean,
     portable: boolean,
+    version: string | null = getPackageVersion(),
 ): Promise<PrebuiltResult | null> {
     if (!release) return null;
 
     const mode: PrebuiltMode = portable ? "portable" : "system";
-    const version = getPackageVersion();
 
     if (version === null) {
         const d = resolvePrebuiltDecision(null, target, mode, false, null);
@@ -351,8 +383,12 @@ export async function tryPrebuilt(
     const cacheDir = prebuiltCacheDir(version, target, mode);
     const binaryName = target.includes("windows") ? "shallot-window.exe" : "shallot-window";
     const binaryPath = resolve(cacheDir, binaryName);
+    // Sentinel written only after a fully successful extract, so a partial extraction (process
+    // killed mid-write, disk full) is never read as a cache hit — the hit path checks this, not
+    // just the binary's existence (F1).
+    const completeMarker = resolve(cacheDir, ".complete");
 
-    if (existsSync(binaryPath)) {
+    if (existsSync(completeMarker)) {
         const d = resolvePrebuiltDecision(version, target, mode, true, null);
         console.log(`  prebuilt: ${d.reason}`);
         return buildPrebuiltResult(cacheDir, binaryPath, target, portable);
@@ -370,14 +406,36 @@ export async function tryPrebuilt(
         if (expectedHash === null) {
             fetchResult = "not-found";
         } else if (sha256Hex(archiveBuf) !== expectedHash) {
+            // SHA256SUMS ships from the same release as the archive, so this defends transport
+            // corruption, not a compromised release (see the section-header comment above).
             fetchResult = "checksum-mismatch";
         } else {
-            mkdirSync(cacheDir, { recursive: true });
-            const tmpArchive = resolve(cacheDir, archiveName);
-            writeFileSync(tmpArchive, archiveBuf);
-            extractTarGz(tmpArchive, cacheDir);
-            rmSync(tmpArchive, { force: true });
-            fetchResult = existsSync(binaryPath) ? "ok" : "not-found";
+            try {
+                mkdirSync(cacheDir, { recursive: true });
+                const tmpArchive = resolve(cacheDir, archiveName);
+                writeFileSync(tmpArchive, archiveBuf);
+                try {
+                    extractTarGz(tmpArchive, cacheDir);
+                } catch {
+                    // Partial extraction must not poison the cache (F1): a half-extracted dir
+                    // would read as a hit on the next run. Clean up so the miss is honest.
+                    rmSync(cacheDir, { recursive: true, force: true });
+                    throw new PrebuiltFetchError("extract-failed");
+                }
+                rmSync(tmpArchive, { force: true });
+                if (existsSync(binaryPath)) {
+                    writeFileSync(completeMarker, "");
+                    fetchResult = "ok";
+                } else {
+                    rmSync(cacheDir, { recursive: true, force: true });
+                    fetchResult = "not-found";
+                }
+            } catch (e) {
+                if (e instanceof PrebuiltFetchError) throw e;
+                // mkdir/writeFileSync failure: unwritable cache dir, not a network problem (F3).
+                rmSync(cacheDir, { recursive: true, force: true });
+                throw new PrebuiltFetchError("cache-error");
+            }
         }
     } catch (e) {
         fetchResult = e instanceof PrebuiltFetchError ? e.kind : "offline";
