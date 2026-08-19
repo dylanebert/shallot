@@ -94,19 +94,22 @@ describe("worldEdgeAnchors — the analytic road-edge anchors the height-axis in
 });
 
 // Stage 11b: stage 10's `heightSilhouette` scanned and anchored on `computeFalloff(cutDepth)` directly —
-// the AASHTO side-slope term maxed with a mesh-sampling floor (`SPACING` today, a differently-derived
-// multiple of it on 11a's still-unshipped branch) — so a wider floor widened the search window into raw
-// terrain *and* moved the threshold anchor, with no change on the ground either was supposed to measure.
-// `sideSlopeWindow` is the AASHTO term alone, upstream of any floor.
+// the AASHTO side-slope term maxed with a mesh-sampling floor (`SPACING` on 11b's own branch;
+// `FALLOFF_SAMPLE_SEGMENTS * SPACING` once 11a's floor rebases in) — so a wider floor widened the search
+// window into raw terrain *and* moved the threshold anchor, with no change on the ground either was
+// supposed to measure. `sideSlopeWindow` is the AASHTO term alone, upstream of any floor.
 describe("sideSlopeWindow — the decoupled measurement window", () => {
-    test("matches computeFalloff's own AASHTO branch when the shipped SPACING floor doesn't bind", () => {
-        // 2.976 is this network's real measured cut depth (spec Live log, stage 11b) — well past the
-        // point (~0.849 m, where (π/2)·cutDepth/SIDE_SLOPE_LIMIT = SPACING) the shipped 4 m floor binds,
-        // so today computeFalloff and sideSlopeWindow are the *same number*: the fix changes nothing about
-        // today's reading, only what happens when a floor grows past the AASHTO term.
+    test("stays put on today's real network even though 11a's floor now binds computeFalloff", () => {
+        // 2.976 is this network's real measured cut depth (spec Live log, stage 11b), written against
+        // 11b's own branch where the shipped floor was a bare SPACING (4 m) and didn't bind here — this
+        // test predates 11a's floor rebasing in. 11a's floor (FALLOFF_SAMPLE_SEGMENTS * SPACING = 16 m)
+        // exceeds the AASHTO term (14.024 m) at this cut depth, so computeFalloff now binds on the floor
+        // — exactly the case sideSlopeWindow exists to stay clear of. It does: the window is still the
+        // bare AASHTO term, unmoved, strictly narrower than computeFalloff's floored output.
         const cutDepth = 2.976;
-        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(computeFalloff(cutDepth), 6);
-        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(14.026, 2); // spec's recorded falloffM, rounded to 3dp
+        expect(computeFalloff(cutDepth)).toBeCloseTo(16, 6);
+        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(14.026, 2); // spec's recorded falloffM/windowM, pre-11a
+        expect(sideSlopeWindow(cutDepth)).toBeLessThan(computeFalloff(cutDepth));
     });
 
     test("is exactly the AASHTO formula, with no floor term at all", () => {
