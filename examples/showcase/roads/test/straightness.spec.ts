@@ -241,6 +241,7 @@ test("boundary straightness — height-axis world-space discriminator (opt-in, n
             window as unknown as {
                 __roadsHeightSilhouette: () => Promise<{
                     falloffM: number;
+                    windowM: number;
                     cutDepthM: number;
                     anchorCount: number;
                     readings: unknown[];
@@ -252,6 +253,7 @@ test("boundary straightness — height-axis world-space discriminator (opt-in, n
         ).__roadsHeightSilhouette(),
     )) as {
         falloffM: number;
+        windowM: number;
         cutDepthM: number;
         anchorCount: number;
         readings: unknown[];
@@ -278,9 +280,11 @@ test("boundary straightness — height-axis world-space discriminator (opt-in, n
             `found ${result.foundCount}/${result.anchorCount} height crossings`,
         ).toBeGreaterThanOrEqual(Math.floor(result.anchorCount * 0.6));
         // a magnitude validity bound, not a straightness tolerance (stage 11's own job): rmsM must sit
-        // comfortably above sub-instrument-resolution noise and can never structurally exceed falloffM,
-        // the search radius `heightSilhouette` walks each anchor over (`grazingCapture.ts`) — a reading
-        // outside either bound means the instrument itself regressed, not that the road did.
+        // comfortably above sub-instrument-resolution noise and can never structurally exceed windowM,
+        // the search radius `heightSilhouette` actually walks each anchor over as of stage 11b
+        // (`grazingCapture.ts`, `boundaryAnchors.ts`'s `sideSlopeWindow`) — a reading outside either bound
+        // means the instrument itself regressed, not that the road did. `falloffM` (the real, floor-
+        // inclusive `computeFalloff` output) rides along for evidence only and is no longer the bound.
         // RMS_FLOOR_M: two orders of magnitude below the mesh's own vertex spacing (SPACING) — the same
         // "100x the physical noise floor" margin `grazingCapture.ts`'s own MIN_CONTRAST_M uses against
         // height quantization, applied here to the mesh's spatial resolution. A reading this much smaller
@@ -294,8 +298,8 @@ test("boundary straightness — height-axis world-space discriminator (opt-in, n
         ).toBeGreaterThan(rmsFloorM);
         expect(
             result.rmsM,
-            `rmsM ${result.rmsM} exceeds falloffM ${result.falloffM}, the instrument's own search radius`,
-        ).toBeLessThanOrEqual(result.falloffM);
+            `rmsM ${result.rmsM} exceeds windowM ${result.windowM}, the instrument's own search radius`,
+        ).toBeLessThanOrEqual(result.windowM);
     } else {
         // the control arm (zeroed RELIEF, no cut): with no meaningful cut there is no height silhouette
         // to find, so a "found" reading here can only be MIN_CONTRAST_M's per-anchor gate tripping on
