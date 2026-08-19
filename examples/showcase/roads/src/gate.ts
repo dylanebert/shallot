@@ -7,7 +7,6 @@ import { VERTEX_COUNT } from "./terrain/grid";
 import { RELIEF } from "./terrain/noise";
 import {
     generate,
-    getFalloffScale,
     getSmoothRadius,
     readVertices,
     SEED,
@@ -115,13 +114,7 @@ export async function gate(): Promise<Check[]> {
     // device-free suite pass or fail for the wrong reason entirely.
     const liveDoc = generateNetwork(SEED);
     const deviceRaw = await readVertices();
-    const agreement = reconstructionAgreement(
-        deviceRaw,
-        liveDoc,
-        SEED,
-        getSmoothRadius(),
-        getFalloffScale(),
-    );
+    const agreement = reconstructionAgreement(deviceRaw, liveDoc, SEED, getSmoothRadius());
     checks.push({
         name: "surface-flatness-reconstruction-agreement",
         pass: agreement.maxDiffM <= RECONSTRUCTION_AGREEMENT_TOL,

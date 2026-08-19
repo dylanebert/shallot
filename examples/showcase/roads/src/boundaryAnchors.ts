@@ -139,27 +139,23 @@ export function heightMidpointAnchor(
 /**
  * stage 11b's decoupled measurement window (metres): the AASHTO side-slope term alone —
  * `(π/2)·cutDepth/SIDE_SLOPE_LIMIT`, the same derivation `terrain/flatten.ts`'s `computeFalloff` uses for
- * its own non-floor branch — deliberately omitting `computeFalloff`'s sampling floor (denominated in
- * `SPACING`, or a differently-derived floor on stage 11a's still-unshipped branch). The floor exists only
- * to keep the *mesh's* piecewise-linear reconstruction resolvable; it carries no side-slope-safety meaning
- * and is exactly the term stage 11 gates (the floor is what widens when 11a's falloff scale grows). This
- * function's only input is `cutDepth` — the network's own measured cut, `buildNetworkGeometry`'s output,
- * upstream of `computeFalloff` entirely — so by construction no floor-widening treatment can reach it: the
- * treatment appears in neither the search window nor (via {@link heightMidpointAnchor}) the threshold
- * anchor built from it. `grazingCapture.ts`'s `heightSilhouette` scans and anchors against this instead of
- * `computeFalloff`'s output, so two networks whose floor differs (today's `SPACING`, 11a's derived
- * multiple of it, any future floor) read on the same window and are comparable. Known limit: whenever a
- * floor actually binds (`computeFalloff`'s output exceeds this), the *real* rendered transition is wider
- * than this window measures against — an accepted scope boundary (`shallot-roads.md` stage 11b). **Live on
- * this branch**, where 11a's sampling floor (`FALLOFF_SAMPLE_SEGMENTS · SPACING` = 16 m) binds against this
- * network's side-slope term of 14.026 m. The consequence is quantified: `heightMidpointAnchor` places the
- * ground-truth anchor at `window / 2`, but the real ease reaches its midpoint at `computeFalloff / 2`, so a
- * bound floor offsets the anchor outward by `(computeFalloff − sideSlopeWindow) / 2` — 0.988 m here. That is
- * stage 10's anchor-offset bias recurring at reduced magnitude, and it inflates the reading rather than
- * deflating it, so a floor measured this way is scored against itself. Readings stay comparable across floor
- * derivations (the point of this window) but are *absolute* only while no floor binds.
+ * its own non-floor branch — deliberately omitting `computeFalloff`'s sampling floor (`SPACING`). The
+ * floor exists only to keep the *mesh's* piecewise-linear reconstruction resolvable; it carries no
+ * side-slope-safety meaning and is exactly the term stage 11 gates. This function's only input is
+ * `cutDepth` — the network's own measured cut, `buildNetworkGeometry`'s output, upstream of
+ * `computeFalloff` entirely — so by construction no floor-widening treatment can reach it: the treatment
+ * appears in neither the search window nor (via {@link heightMidpointAnchor}) the threshold anchor built
+ * from it. `grazingCapture.ts`'s `heightSilhouette` scans and anchors against this instead of
+ * `computeFalloff`'s output, so two networks whose floor differs read on the same window and are
+ * comparable. Known limit: whenever a floor actually binds (`computeFalloff`'s output exceeds this), the
+ * *real* rendered transition is wider than this window measures against — an accepted scope boundary
+ * (`shallot-roads.md` stage 11b). **Inert on today's network** (stage 13 reverted `computeFalloff`'s floor
+ * to bare `SPACING` = 4 m, well below this network's own side-slope term of 14.026 m), so `computeFalloff`
+ * and `sideSlopeWindow` agree exactly here and `heightMidpointAnchor`'s ground-truth anchor carries no
+ * offset — the bound-floor case (`boundaryAnchors.test.ts`'s generic `coupled(floor)` machinery) is still
+ * proven, against a synthetic floor, for whenever a future floor derivation binds again.
  * @example sideSlopeWindow(0) // 0 — no cut, no transition to measure
- * @example sideSlopeWindow(2.976) // 14.026, below computeFalloff(2.976) = 16 — 11a's floor binds here */
+ * @example sideSlopeWindow(2.976) // 14.026, equal to computeFalloff(2.976) on today's network */
 export function sideSlopeWindow(cutDepth: number): number {
     return ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT;
 }
