@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten";
 import { gridX, gridZ, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
+import { DEFAULT_SMOOTH_RADIUS } from "../terrain/profile";
 import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
-import { captureProbePoints, generateNetwork, ROAD_COUNT, ROAD_HALF_WIDTH } from "./network";
+import {
+    captureProbePoints,
+    generateNetwork,
+    ROAD_COUNT,
+    ROAD_HALF_WIDTH,
+    roadFootprintDistance,
+    roadPolygonFootprintDistance,
+} from "./network";
 import { tileId, tileOf } from "./tiles";
 
 // this module's own copy of `terrain/terrain.ts`'s boot SEED — kept a plain literal rather than an
@@ -117,11 +126,11 @@ describe("captureProbePoints — the device gate's on/off-road pair over the pro
 
     test("pinned witness at the boot seed — a regression names itself against these exact coordinates", () => {
         // computed once against generateNetwork(1337) and checked by hand against documentDistance
-        // (on-road ≈ -3.20 m inside the road's 4 m half-width; off-road ≈ +4.10 m outside it, one grid
+        // (on-road ≈ -2.84 m inside the road's 4 m half-width; off-road ≈ +3.34 m outside it, one grid
         // step further out — the nearest-to-origin road at this seed, not necessarily road 0).
         const { onRoad, offRoad } = captureProbePoints(BOOT_SEED);
-        expect(onRoad).toEqual([-8, -24]);
-        expect(offRoad).toEqual([0, -28]);
+        expect(onRoad).toEqual([-60, 84]);
+        expect(offRoad).toEqual([-52, 80]);
     });
 
     test("is deterministic in the seed, like generateNetwork itself", () => {
@@ -157,5 +166,96 @@ describe("stage 14's device-arm reseed seeds — neither touches the boot networ
             const ids = documentDirtyTiles(generateNetwork(seed));
             expect(ids).not.toContain(bootOnRoadTile);
         }
+    });
+});
+
+describe("stage 18 — non-overlap by construction: footprint disjointness over a seed scan", () => {
+    // The spec's "Non-overlap by construction" criterion (Validation): over a seed scan 0–5000,
+    // no two primitives' footprints come within `computeFalloff(cutDepth) + ROAD_HALF_WIDTH +
+    // FLAT_CORE_MARGIN`, and every primitive stays inside `WORLD_HALF`. A single seed is
+    // inadmissible — stage 6's own live defect (a road 60 m outside the world at seed 615) was
+    // invisible to a single-seed footprint arm. The clearance is derived from the network's own cut
+    // depth (measured between chord endpoints), never a hardcoded constant — a deeper cut widens
+    // both the falloff and the required separation.
+    const SeedScan = 5000;
+    let minClearance = Number.POSITIVE_INFINITY;
+    let minClearanceSeed = -1;
+    let minClearancePair = "";
+    let worstContainment = Number.POSITIVE_INFINITY;
+    let worstContainmentSeed = -1;
+
+    for (let seed = 0; seed <= SeedScan; seed++) {
+        const doc = generateNetwork(seed);
+        const { cutDepth } = buildNetworkGeometry(doc, seed, DEFAULT_SMOOTH_RADIUS);
+        const falloff = computeFalloff(cutDepth);
+        const required = falloff + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN;
+
+        // road–road pairs
+        for (let i = 0; i < doc.polylines.length; i++) {
+            for (let j = i + 1; j < doc.polylines.length; j++) {
+                const [a1, a2] = doc.polylines[i].points;
+                const [b1, b2] = doc.polylines[j].points;
+                const dist = roadFootprintDistance(a1, a2, b1, b2);
+                if (dist < minClearance) {
+                    minClearance = dist;
+                    minClearanceSeed = seed;
+                    minClearancePair = `road ${i}–road ${j}`;
+                }
+                expect(
+                    dist,
+                    `seed ${seed}: road ${i}–road ${j} footprint dist ${dist.toFixed(2)} < required ${required.toFixed(2)}`,
+                ).toBeGreaterThanOrEqual(required);
+            }
+        }
+
+        // road–carpark pairs
+        for (const [i, line] of doc.polylines.entries()) {
+            const [a1, a2] = line.points;
+            const dist = roadPolygonFootprintDistance(a1, a2, doc.polygons[0]);
+            if (dist < minClearance) {
+                minClearance = dist;
+                minClearanceSeed = seed;
+                minClearancePair = `road ${i}–carpark`;
+            }
+            expect(
+                dist,
+                `seed ${seed}: road ${i}–carpark footprint dist ${dist.toFixed(2)} < required ${required.toFixed(2)}`,
+            ).toBeGreaterThanOrEqual(required);
+        }
+
+        // world containment
+        for (const seg of flattenSegments(doc)) {
+            for (const x of [seg.ax, seg.bx, seg.az, seg.bz]) {
+                if (Math.abs(x) < worstContainment) {
+                    worstContainment = Math.abs(x);
+                    worstContainmentSeed = seed;
+                }
+                expect(Math.abs(x)).toBeLessThan(WORLD_HALF);
+            }
+        }
+        for (const [x, z] of doc.polygons[0].points) {
+            for (const v of [x, z]) {
+                if (Math.abs(v) < worstContainment) {
+                    worstContainment = Math.abs(v);
+                    worstContainmentSeed = seed;
+                }
+                expect(Math.abs(v)).toBeLessThan(WORLD_HALF);
+            }
+        }
+    }
+
+    test(`the scan reports the tightest clearance and worst containment (not a gate — diagnostics)`, () => {
+        const { cutDepth } = buildNetworkGeometry(
+            generateNetwork(BOOT_SEED),
+            BOOT_SEED,
+            DEFAULT_SMOOTH_RADIUS,
+        );
+        const falloff = computeFalloff(cutDepth);
+        const required = falloff + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN;
+        console.log(
+            `DISJOINTNESS_SCAN minClearance=${minClearance.toFixed(2)} (seed ${minClearanceSeed}, ${minClearancePair}) required=${required.toFixed(2)} worstContainment=${worstContainment.toFixed(2)} (seed ${worstContainmentSeed})`,
+        );
+        expect(minClearance).toBeFinite();
+        expect(worstContainment).toBeFinite();
     });
 });

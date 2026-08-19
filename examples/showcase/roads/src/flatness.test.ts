@@ -76,25 +76,56 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
     // suppression makes the host primitive's target win outright), so a non-zero reading outside the zone
     // is the blend's design, not the mesh's discretization. This is the leg that gates the blend's design
     // and it carries no fitted number.
-
-    const doc = generateNetwork(SEED);
+    //
+    // Stage 18: the real generator no longer produces overlaps, so the red-first arm uses a hand-built
+    // overlapping pair (two parallel roads 15 m apart at 30° heading — close enough that their falloff
+    // bands overlap and the edge+ is outside the junction zone, so violations are not excluded,
+    // but far enough that the suppression with band = falloff doesn't fully kill the distant road,
+    // so the blend is a position-weighted combination of two affine fields and is not affine). The
+    // green arm uses the real non-overlapping `generateNetwork(SEED)`, which reads exactly zero.
+    const overlapHeading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
+    const overlapSep = 15; // metres, perpendicular separation (centreline-to-centreline)
+    const oux = Math.cos(overlapHeading);
+    const ouz = Math.sin(overlapHeading);
+    const onx = -ouz;
+    const onz = oux;
+    const ocx2 = onx * overlapSep;
+    const ocz2 = onz * overlapSep;
+    const overlapDoc: StrokeDocument = {
+        polylines: [
+            {
+                points: [
+                    [-oux * 100, -ouz * 100],
+                    [oux * 100, ouz * 100],
+                ],
+                halfWidth: 4,
+            },
+            {
+                points: [
+                    [ocx2 - oux * 100, ocz2 - ouz * 100],
+                    [ocx2 + oux * 100, ocz2 + ouz * 100],
+                ],
+                halfWidth: 4,
+            },
+        ],
+        polygons: [],
+    };
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(doc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED, DEFAULT_SMOOTH_RADIUS);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
-    test("red-first: band = falloff still reads non-zero — the chord's affine target reduces but does not eliminate the slow-suppression contamination", () => {
+    test("red-first: band = falloff still reads non-zero on a hand-built overlapping pair", () => {
         // the suppression band set to the falloff distance is too slow — primitives farther away still
-        // contribute, so the blend contamination leaks outside the junction zone. Under the smoothed
-        // profile this read 417 / 0.493 m (the consult's refuted candidate); under the chord it reads
-        // 311 / 0.383 m — the amplitude drops (the chord's affine target is less curved than the
-        // smoothed profile's) but is still clearly non-zero, witnessing the instrument discriminates (a
-        // pin that reads green on a broken blend is worth nothing — `coding.md`'s "a check is evidence
-        // only if you've seen it fail"). Pinned with a band, not the old fitted `> 0.4` equality, since
-        // the chord genuinely changed the amplitude.
+        // contribute, so the blend contamination leaks outside the junction zone. The hand-built
+        // overlapping pair (10 m apart) guarantees the falloff bands overlap, so the composite target
+        // is a position-weighted combination of two affine fields and is not affine — exactness
+        // dies there and nowhere else. This arm MUST stay red — it is the discriminator that proves
+        // non-overlap is what buys exactness (a pin that reads green on a broken blend is worth
+        // nothing — `coding.md`'s "a check is evidence only if you've seen it fail").
         const sample = (x: number, z: number) =>
-            flattenFieldAt(x, z, segments, doc.polygons, falloff, natural, falloff);
-        const result = checkSurfaceFlatness(sample, doc);
+            flattenFieldAt(x, z, segments, overlapDoc.polygons, falloff, natural, falloff);
+        const result = checkSurfaceFlatness(sample, overlapDoc);
         console.log(
             `LEG_A_FALLOFF_CHORD crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)}`,
         );
@@ -102,14 +133,30 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
         expect(result.maxCrossSectionExcess).toBeGreaterThan(0.1);
     });
 
-    test("the shipped band reads exactly zero outside the junction zone on both axes", () => {
-        // the shipped suppression band (`FLAT_CORE_MARGIN`): outside the junction zone the host
-        // primitive's target wins outright by construction, so the continuous field is exactly flat —
-        // zero violations, zero amplitude on both axes. This is the structural claim 15b's consult made
-        // and the leg that gates the blend's design; it carries no fitted number, only the exact zero.
+    test("the shipped band reads exactly zero on the real (non-overlapping) generator", () => {
+        // the shipped suppression band (`FLAT_CORE_MARGIN`): on the real non-overlapping generator
+        // the host primitive's target wins outright by construction, so the continuous field is
+        // exactly flat — zero violations, zero amplitude on both axes. This is the structural claim
+        // 15b's consult made and the leg that gates the blend's design; it carries no fitted
+        // number, only the exact zero.
+        const realDoc = generateNetwork(SEED);
+        const { segments: realSegs, cutDepth: realCutDepth } = buildNetworkGeometry(
+            realDoc,
+            SEED,
+            DEFAULT_SMOOTH_RADIUS,
+        );
+        const realFalloff = computeFalloff(realCutDepth);
         const sample = (x: number, z: number) =>
-            flattenFieldAt(x, z, segments, doc.polygons, falloff, natural, FLAT_CORE_MARGIN);
-        const result = checkSurfaceFlatness(sample, doc);
+            flattenFieldAt(
+                x,
+                z,
+                realSegs,
+                realDoc.polygons,
+                realFalloff,
+                natural,
+                FLAT_CORE_MARGIN,
+            );
+        const result = checkSurfaceFlatness(sample, realDoc);
         console.log(
             `LEG_A_GREEN longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess} maxLongitudinalExcess=${result.maxLongitudinalExcess} crossSectionInZone=${result.crossSectionInZone.length}`,
         );
@@ -142,7 +189,7 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
         // (`crossSectionInZone`). The partition invariant: every in-zone member satisfies `inJunctionZone`,
         // every out-of-zone member does not, and the union equals the un-partitioned run (the oracle
         // checks every station and pushes each violation to exactly one bucket, so the union is complete by
-        // construction). This stays true when the junction compromise improves — a dirt-demand pin
+        // construction). This stays true when the junction compromise improves to zero — a dirt-demand pin
         // (`crossSectionInZone.length > 0` / `maxInZone > 0.1`) would break if the compromise improved to
         // zero, but the partition invariant holds either way.
         for (const v of result.crossSectionInZone) {
@@ -151,10 +198,9 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
         for (const v of result.crossSection) {
             expect(inJunctionZone(v.x, v.z, doc)).toBe(false);
         }
-        // the union is complete: every cross-section violation is in exactly one bucket (by construction
-        // — the oracle's loop checks every station and partitions). The total is non-zero: the shipped
-        // mesh reads real violations on both sides of the carve-out.
-        expect(result.crossSection.length + result.crossSectionInZone.length).toBeGreaterThan(0);
+        // Stage 18: the non-overlapping generator eliminates all junction zones, so both buckets
+        // are empty — the union is vacuously complete (0 + 0 = 0). The invariant holds trivially.
+        expect(result.crossSection.length + result.crossSectionInZone.length).toBe(0);
     });
 
     test("the exclusion extent is a document-only property, invariant under FLAT_CORE_MARGIN", () => {
@@ -165,9 +211,11 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
         // the core terms), so the exclusion fraction is invariant under a future treatment widening the
         // margin. The document-only prediction is ≈15% of sampled stations (read off the null control
         // falling 283 → 241 under the carve-out alone, ≈14.8% of longitudinal comparisons).
-        expect(result.excludedStationCount).toBeGreaterThan(0);
-        expect(result.excludedStationFraction).toBeGreaterThan(0.1);
-        expect(result.excludedStationFraction).toBeLessThan(0.2);
+        // Stage 18: the non-overlapping generator eliminates all junction zones, so the exclusion
+        // extent is exactly zero — `excludedStationCount === 0` is the structural precondition for
+        // the exact-zero claim (the carve-out is a deletion primitive, `checks.md`).
+        expect(result.excludedStationCount).toBe(0);
+        expect(result.excludedStationFraction).toBe(0);
     });
 
     test("every violation (including in-zone) sits inside the road footprint the document defines", () => {
@@ -186,79 +234,70 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
     });
 });
 
-describe("surface flatness — Leg B: convergence (the real mesh outside the zone)", () => {
-    // Leg B (spec Validation, 2026-08-19 second consult): the real mesh's residual outside the junction
-    // zone is first-order reconstruction error of a C⁰ field over a `SPACING` cell, so the assertion is
-    // convergence, never a bound — amplitude at `SPACING/2` falls to [0.25, 0.75]× its `SPACING` value and
-    // both counts strictly decrease. No absolute out-of-zone amplitude bound is admissible (Blocker 3):
-    // any bound derived from the reconstruction term is ≥ MAX_GRADE·SPACING = 0.48 m and reads stage 12's
-    // own 0.471 m founding defect green, and anything under it is fitted to today's residual. The
-    // mesh-resolution leg's fitted percentage floor (19.2% → 2% → 10%, three floors each set just under
-    // its own round's fresh reading) is merged into this ratio band — derived from the mechanism's
-    // convergence order and un-refittable.
-
+describe("surface flatness — stage 18 arm (b): real generator reads exactly zero at both resolutions", () => {
+    // The real-generator exactness arm (spec Validation, "Surface flatness in the corridor — exactly zero,
+    // unconditional"): `checkSurfaceFlatness` over `buildLatticeVertices` on the real `generateNetwork(SEED)`
+    // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. This is the
+    // reading the unit still owes and which no green so far licenses. The non-overlapping generator
+    // guarantees no two primitives' falloff bands overlap at any sampled station, so the composite
+    // target is affine everywhere the oracle samples, and barycentric interpolation reproduces an affine
+    // field exactly at any cell size and any road angle. Both a `sampleCount > 1000` vacuity guard and
+    // the `excludedStationCount === 0` pin are asserted at both resolutions, so an emptied population
+    // reds instead of passing on empty arrays.
     const doc = generateNetwork(SEED);
     const perm = makePermutation(SEED);
     const { segments, cutDepth } = buildNetworkGeometry(doc, SEED, DEFAULT_SMOOTH_RADIUS);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
-    const coarseRaw = buildLatticeVertices(
-        SPACING,
-        CELLS,
-        segments,
-        doc.polygons,
-        falloff,
-        natural,
-    );
-    const coarse = checkSurfaceFlatness(
-        (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
-        doc,
-    );
-
-    const fineSpacing = SPACING / 2;
-    const fineCells = CELLS * 2;
-    const fineRaw = buildLatticeVertices(
-        fineSpacing,
-        fineCells,
-        segments,
-        doc.polygons,
-        falloff,
-        natural,
-    );
-    const fine = checkSurfaceFlatness(
-        (x, z) => meshHeightAt(fineRaw, x, z, fineSpacing, fineCells),
-        doc,
-    );
-
-    test("amplitude at SPACING/2 is within [0.25, 0.75]× its SPACING value (convergence ratio band)", () => {
-        // the residual is first-order in cell size: amplitude halves (roughly) when the cell halves. The
-        // ratio band [0.25, 0.75] is derived from the mechanism's convergence order (a first-order term
-        // over a C⁰ field), not fitted to today's reading — stage 15's blend-driven residual sat at ratio
-        // ≈ 0.96 and fails it; today's 0.432 passes. The `Math.abs` is dropped: a finer mesh reading
-        // *worse* (ratio > 1) would pass the old `Math.abs` form, hiding a divergence the convergence leg
-        // exists to catch.
-        const ratio = fine.maxCrossSectionExcess / coarse.maxCrossSectionExcess;
-        console.log(
-            `LEG_B_RATIO coarse_max=${coarse.maxCrossSectionExcess.toFixed(4)} fine_max=${fine.maxCrossSectionExcess.toFixed(4)} ratio=${ratio.toFixed(4)}`,
+    test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
+        const coarseRaw = buildLatticeVertices(
+            SPACING,
+            CELLS,
+            segments,
+            doc.polygons,
+            falloff,
+            natural,
         );
-        expect(ratio).toBeGreaterThanOrEqual(0.25);
-        expect(ratio).toBeLessThanOrEqual(0.75);
+        const result = checkSurfaceFlatness(
+            (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
+            doc,
+        );
+        console.log(
+            `REAL_EXACTNESS_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
+        );
+        expect(result.sampleCount).toBeGreaterThan(1000);
+        expect(result.excludedStationCount).toBe(0);
+        expect(result.crossSection.length).toBe(0);
+        expect(result.maxCrossSectionExcess).toBe(0);
+        expect(result.longitudinal.length).toBe(0);
+        expect(result.maxLongitudinalExcess).toBe(0);
     });
 
-    test("cross-section count strictly decreases from SPACING to SPACING/2 (longitudinal is non-discriminating)", () => {
-        // convergence is monotone: halving the cell halves the cross-section violations. The cross-section
-        // count is the discriminating axis (it moves with the blend's non-affine contamination); the
-        // longitudinal count is a non-discriminating statistic (amplitude, never count — `checks.md`'s
-        // clause), and on the chord profile it is small enough (2 at SPACING, 3 at SPACING/2) that a
-        // strict-decrease assertion is noise, not signal. Stage 17: the chord's longitudinal count
-        // actually *increases* 2→3 (both are junction-zone samples, and the finer mesh has more samples
-        // near the zone), so the old both-counts-decrease assertion is retired and only the
-        // cross-section count is pinned.
-        console.log(
-            `LEG_B_COUNTS coarse_crossSection=${coarse.crossSection.length} fine_crossSection=${fine.crossSection.length} coarse_longitudinal=${coarse.longitudinal.length} fine_longitudinal=${fine.longitudinal.length}`,
+    test("exactly 0 violations and 0.0000 m on both axes at SPACING/2", () => {
+        const fineSpacing = SPACING / 2;
+        const fineCells = CELLS * 2;
+        const fineRaw = buildLatticeVertices(
+            fineSpacing,
+            fineCells,
+            segments,
+            doc.polygons,
+            falloff,
+            natural,
         );
-        expect(fine.crossSection.length).toBeLessThan(coarse.crossSection.length);
+        const result = checkSurfaceFlatness(
+            (x, z) => meshHeightAt(fineRaw, x, z, fineSpacing, fineCells),
+            doc,
+        );
+        console.log(
+            `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount}`,
+        );
+        expect(result.sampleCount).toBeGreaterThan(1000);
+        expect(result.excludedStationCount).toBe(0);
+        expect(result.crossSection.length).toBe(0);
+        expect(result.maxCrossSectionExcess).toBe(0);
+        expect(result.longitudinal.length).toBe(0);
+        expect(result.maxLongitudinalExcess).toBe(0);
     });
 });
 
@@ -455,32 +494,67 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     });
 });
 
-describe("surface flatness — stage 17 arm (b): chord over overlapping generateNetwork(SEED) stays non-zero", () => {
-    // the red-first overlap arm — the same chord profile over `generateNetwork(SEED)`'s overlapping
-    // roads. This arm is the discriminating proof that non-overlap is what buys exactness: where two
-    // primitives' falloffs overlap, `networkCoreCpu` blends their targets by a position-dependent weight,
-    // so the composite target is a position-weighted combination of two affine fields and is NOT affine.
-    // Barycentric interpolation cannot reproduce a non-affine field, so the reconstruction error is
-    // non-zero exactly there and nowhere else. This arm MUST stay red — it is the evidence that the
-    // synthetic arm's zero is a property of non-overlap, not of the chord profile alone. A zero reading
-    // here would mean the generator no longer produces overlaps, which is stage 18's guarantee, not this
-    // stage's. Pinned with a band (not a fitted equality) because the count is a non-discriminating
-    // statistic (amplitude, never count) and the exact digits are a scoping measurement, not a floor.
-    const doc = generateNetwork(SEED);
+describe("surface flatness — stage 18 arm (c): hand-built overlapping pair stays non-zero", () => {
+    // The red-first overlap arm, rewritten for a generator that no longer produces overlaps: a hand-built
+    // OVERLAPPING pair (two parallel roads 15 m apart at 30° heading — close enough that their falloff
+    // bands overlap and the edge+ is outside the junction zone, so violations are not excluded).
+    // This arm is the discriminating proof that non-overlap is what buys exactness: where two
+    // primitives' falloffs overlap, `networkCoreCpu` blends their targets by a position-dependent
+    // weight, so the composite target is a position-weighted combination of two affine fields and is
+    // NOT affine. Barycentric interpolation cannot reproduce a non-affine field, so the reconstruction
+    // error is non-zero exactly there and nowhere else. This arm MUST stay red — it is the evidence
+    // that the exactness arm's zero is a property of non-overlap, not of the chord profile alone.
+    const overlapHeading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
+    const overlapSep = 15; // metres, perpendicular separation (centreline-to-centreline)
+    const oux = Math.cos(overlapHeading);
+    const ouz = Math.sin(overlapHeading);
+    const onx = -ouz;
+    const onz = oux;
+    const ocx2 = onx * overlapSep;
+    const ocz2 = onz * overlapSep;
+    const overlapDoc: StrokeDocument = {
+        polylines: [
+            {
+                points: [
+                    [-oux * 100, -ouz * 100],
+                    [oux * 100, ouz * 100],
+                ],
+                halfWidth: 4,
+            },
+            {
+                points: [
+                    [ocx2 - oux * 100, ocz2 - ouz * 100],
+                    [ocx2 + oux * 100, ocz2 + ouz * 100],
+                ],
+                halfWidth: 4,
+            },
+        ],
+        polygons: [],
+    };
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(doc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED, DEFAULT_SMOOTH_RADIUS);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
     test("non-zero at SPACING — cross-section violations and amplitude both clearly above zero", () => {
-        const raw = buildLatticeVertices(SPACING, CELLS, segments, doc.polygons, falloff, natural);
-        const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z, SPACING, CELLS), doc);
+        const raw = buildLatticeVertices(
+            SPACING,
+            CELLS,
+            segments,
+            overlapDoc.polygons,
+            falloff,
+            natural,
+        );
+        const result = checkSurfaceFlatness(
+            (x, z) => meshHeightAt(raw, x, z, SPACING, CELLS),
+            overlapDoc,
+        );
         console.log(
             `OVERLAP_ARM_SPACING crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} longitudinal=${result.longitudinal.length} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)}`,
         );
-        // band: well above zero, not fitted to the exact reading (scoping: 99 / 0.23559 m).
-        // The amplitude is the discriminating statistic — it sat still at 0.2373 → 0.2356 m across the
-        // smoothed → chord profile swap, proving the chord removed the non-junction reconstruction error
+        // band: well above zero, not fitted to the exact reading. The amplitude is the discriminating
+        // statistic — it sat still at 0.2373 → 0.2356 m across the smoothed → chord profile swap on the
+        // old overlapping generator, proving the chord removed the non-junction reconstruction error
         // (count fell 362 → 99) without touching the overlap contamination (amplitude stayed).
         expect(result.crossSection.length).toBeGreaterThan(50);
         expect(result.maxCrossSectionExcess).toBeGreaterThan(0.1);
@@ -493,19 +567,17 @@ describe("surface flatness — stage 17 arm (b): chord over overlapping generate
             fineSpacing,
             fineCells,
             segments,
-            doc.polygons,
+            overlapDoc.polygons,
             falloff,
             natural,
         );
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(raw, x, z, fineSpacing, fineCells),
-            doc,
+            overlapDoc,
         );
         console.log(
             `OVERLAP_ARM_SPACING_HALF crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} longitudinal=${result.longitudinal.length} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)}`,
         );
-        // band: scoping measurement 50 / 0.11164 m. The amplitude is ~0.47× the SPACING reading,
-        // consistent with first-order convergence — but still clearly non-zero.
         expect(result.crossSection.length).toBeGreaterThan(20);
         expect(result.maxCrossSectionExcess).toBeGreaterThan(0.05);
     });
