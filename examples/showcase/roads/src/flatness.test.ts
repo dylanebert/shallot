@@ -8,15 +8,13 @@ import {
     EDGE_EPSILON,
     flattenFieldAt,
     gradeBound,
-    inJunctionZone,
-    JUNCTION_ZONE,
     RECONSTRUCTION_AGREEMENT_TOL,
     reconstructionAgreement,
     SAMPLE_STEP,
 } from "./flatness";
 import type { PolygonStamp, Polyline, StrokeDocument } from "./overlay/document";
 import { generateNetwork } from "./overlay/network";
-import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "./terrain/flatten";
+import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
 import { CELLS, SPACING } from "./terrain/grid";
 import { GROUND_LEVEL, makePermutation } from "./terrain/noise";
 import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
@@ -24,10 +22,9 @@ import { SEED } from "./terrain/terrain";
 
 // Stage 15c's pin legitimacy — the criterion 15b's numbers are read against (spec Validation, "Surface
 // flatness along the road", 2026-08-19 second consult). No code under test changes behaviour; the pins
-// are replaced with the two-leg criterion (Leg A: the field, Leg B: the mesh's convergence), the
-// partition invariant, and the measured exclusion extent. Numbers are measured, not predicted — every
-// bound below is read off an actual run, with margin for run-to-run float noise, never fitted so tight a
-// legitimate reading could flip the assertion.
+// are replaced with the two-leg criterion (Leg A: the field, Leg B: the mesh's convergence). Numbers are
+// measured, not predicted — every bound below is read off an actual run, with margin for run-to-run
+// float noise, never fitted so tight a legitimate reading could flip the assertion.
 
 describe("surface flatness — sanity (the oracle can read flat)", () => {
     test("a manufactured target === natural profile reads flat on both axes", () => {
@@ -72,10 +69,10 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
 describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", () => {
     // Leg A (spec Validation, 2026-08-19 second consult): the continuous flattened field —
     // `networkCoreCpu`'s blended target eased toward natural via `flattenHeight`, with no mesh at all.
-    // Outside the designed junction zone the field is exactly flat by construction (non-overlapping
-    // primitives never contend, so exactly one weight survives away from any overlap), so a non-zero
-    // reading outside the zone is the blend's design, not the mesh's discretization. This is the leg
-    // that gates the blend's design and it carries no fitted number.
+    // The field is exactly flat by construction (non-overlapping primitives never contend, so exactly
+    // one weight survives at every sampled point), so a non-zero reading is the blend's design, not
+    // the mesh's discretization. This is the leg that gates the blend's design and it carries no
+    // fitted number.
     //
     // Stage 20: the relative-depth suppression factor and its `suppressionBand` parameter are deleted
     // (non-overlapping primitives never contend, so the suppression had nothing left to suppress). The
@@ -98,7 +95,7 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
             flattenFieldAt(x, z, realSegs, realDoc.polygons, realFalloff, natural);
         const result = checkSurfaceFlatness(sample, realDoc);
         console.log(
-            `LEG_A_GREEN longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess} maxLongitudinalExcess=${result.maxLongitudinalExcess} crossSectionInZone=${result.crossSectionInZone.length}`,
+            `LEG_A_GREEN longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess} maxLongitudinalExcess=${result.maxLongitudinalExcess}`,
         );
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
@@ -114,60 +111,21 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
     test("the readings are reported (no fitted bound — Leg B gates the mesh, Leg A gates the field)", () => {
         // 15c: the fitted bounds (`longitudinal.length < 20`, `maxCrossSectionExcess < 0.3`) are deleted
         // — they were written to 15b's own reading and would defend the miss once the blend improves. The
-        // mesh residual outside the zone is gated by Leg B's convergence assertion (amplitude ratio +
+        // mesh residual is gated by Leg B's convergence assertion (amplitude ratio +
         // count decrease), not by an absolute bound (Blocker 3: any honest bound is ≥ MAX_GRADE·SPACING =
         // 0.48 m and reads stage 12's founding 0.471 m defect green). The readings are logged as evidence.
         console.log(
-            `SURFACE_FLATNESS_SHIPPED longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} crossSectionInZone=${result.crossSectionInZone.length} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount} excludedStationFraction=${result.excludedStationFraction.toFixed(4)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(4)} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(4)} maxCrossSectionExcessInZone=${result.maxCrossSectionExcessInZone.toFixed(4)}`,
+            `SURFACE_FLATNESS_SHIPPED longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(4)} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(4)}`,
         );
-        // no absolute out-of-zone amplitude bound is admissible (Blocker 3) — the readings are reported,
+        // no absolute amplitude bound is admissible (Blocker 3) — the readings are reported,
         // not gated here. Leg A gates the field (exactly zero), Leg B gates the mesh (convergence).
     });
 
-    test("the partition invariant: zone membership matches the carve-out's classification", () => {
-        // the carve-out partitions cross-section violations into out-of-zone (`crossSection`) and in-zone
-        // (`crossSectionInZone`). The partition invariant: every in-zone member satisfies `inJunctionZone`,
-        // every out-of-zone member does not, and the union equals the un-partitioned run (the oracle
-        // checks every station and pushes each violation to exactly one bucket, so the union is complete by
-        // construction). This stays true when the junction compromise improves to zero — a dirt-demand pin
-        // (`crossSectionInZone.length > 0` / `maxInZone > 0.1`) would break if the compromise improved to
-        // zero, but the partition invariant holds either way.
-        for (const v of result.crossSectionInZone) {
-            expect(inJunctionZone(v.x, v.z, doc)).toBe(true);
-        }
-        for (const v of result.crossSection) {
-            expect(inJunctionZone(v.x, v.z, doc)).toBe(false);
-        }
-        // Stage 18: the non-overlapping generator eliminates all junction zones, so both buckets
-        // are empty — the union is vacuously complete (0 + 0 = 0). The invariant holds trivially.
-        expect(result.crossSection.length + result.crossSectionInZone.length).toBe(0);
-    });
-
-    test("the exclusion extent is a document-only property, invariant under FLAT_CORE_MARGIN", () => {
-        // the carve-out's extent (excluded-station count + fraction) is reported beside `sampleCount` —
-        // an exclusion is a deletion primitive (`checks.md`), measured in the diff that adds it. The
-        // extent is a document-only property: `inJunctionZone` reads `doc`'s geometry and `JUNCTION_ZONE`
-        // alone (never `FLAT_CORE_MARGIN` — the margin cancels in `second − nearest` and is deleted from
-        // the core terms), so the exclusion fraction is invariant under a future treatment widening the
-        // margin. The document-only prediction is ≈15% of sampled stations (read off the null control
-        // falling 283 → 241 under the carve-out alone, ≈14.8% of longitudinal comparisons).
-        // Stage 18: the non-overlapping generator eliminates all junction zones, so the exclusion
-        // extent is exactly zero — `excludedStationCount === 0` is the structural precondition for
-        // the exact-zero claim (the carve-out is a deletion primitive, `checks.md`).
-        expect(result.excludedStationCount).toBe(0);
-        expect(result.excludedStationFraction).toBe(0);
-    });
-
-    test("every violation (including in-zone) sits inside the road footprint the document defines", () => {
+    test("every violation sits inside the road footprint the document defines", () => {
         // the oracle only ever walks centreline/edge lines derived from `doc`'s own halfWidth — a
         // violation reported outside the document's footprint would mean the sampler drifted off the road
-        // it claims to be checking. The containment check covers `crossSectionInZone` too, not just the
-        // out-of-zone violations.
-        for (const v of [
-            ...result.longitudinal,
-            ...result.crossSection,
-            ...result.crossSectionInZone,
-        ]) {
+        // it claims to be checking.
+        for (const v of [...result.longitudinal, ...result.crossSection]) {
             expect(v.roadIndex).toBeGreaterThanOrEqual(0);
             expect(v.roadIndex).toBeLessThan(doc.polylines.length);
         }
@@ -181,9 +139,8 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
     // reading the unit still owes and which no green so far licenses. The non-overlapping generator
     // guarantees no two primitives' falloff bands overlap at any sampled station, so the composite
     // target is affine everywhere the oracle samples, and barycentric interpolation reproduces an affine
-    // field exactly at any cell size and any road angle. Both a `sampleCount > 1000` vacuity guard and
-    // the `excludedStationCount === 0` pin are asserted at both resolutions, so an emptied population
-    // reds instead of passing on empty arrays.
+    // field exactly at any cell size and any road angle. A `sampleCount > 1000` vacuity guard is asserted
+    // at both resolutions, so an emptied population reds instead of passing on empty arrays.
     const doc = generateNetwork(SEED);
     const perm = makePermutation(SEED);
     const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
@@ -204,14 +161,13 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
             doc,
         );
         console.log(
-            `REAL_EXACTNESS_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
+            `REAL_EXACTNESS_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING)
         // so a future change that silently shrinks the population reds instead of passing on a
         // thinner array. Old margin (halfWidth): 2031; new margin: 1860 at both resolutions.
         expect(result.sampleCount).toBe(1860);
-        expect(result.excludedStationCount).toBe(0);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -234,13 +190,12 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
             doc,
         );
         console.log(
-            `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount}`,
+            `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount}`,
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
         // Old margin (halfWidth): 2031; new margin: 1860 at both resolutions.
         expect(result.sampleCount).toBe(1860);
-        expect(result.excludedStationCount).toBe(0);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -318,11 +273,9 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         console.log(
             `SURFACE_FLATNESS_NO_CUT longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount}`,
         );
-        // measured (2026-08-19, post-carve-out): 241 longitudinal violations of 2052 samples, well above
-        // the shipped pipeline's own 11 — raw undeformed relief violates the grade bound far more often
-        // than the flattened corridor does, exactly the "real signal" this control is meant to prove
-        // exists. (Pre-carve-out the reading was 283; the junction-zone exclusion cut it to 241, also
-        // cutting the sensitivity of the arm that polices the carve-out — a disclosed trade.)
+        // measured (2026-08-19): 241 longitudinal violations of 2052 samples, well above the shipped
+        // pipeline's own 11 — raw undeformed relief violates the grade bound far more often than the
+        // flattened corridor does, exactly the "real signal" this control is meant to prove exists.
         expect(result.longitudinal.length).toBeGreaterThan(100);
     });
 });
@@ -339,14 +292,6 @@ describe("checkSurfaceFlatness — window/threshold derivation, no candidate tre
         expect(CROSS_SECTION_TOL).toBeLessThan(0.01); // quantization-scale, not a road-scale slack
         expect(EDGE_EPSILON).toBeGreaterThan(0);
         expect(EDGE_EPSILON).toBeLessThan(SPACING / 10);
-    });
-
-    test("JUNCTION_ZONE is the mesh cell diagonal, not a treatment quantity", () => {
-        // the carve-out band reads `√2·SPACING` (the oracle's own mesh constant), never `FLAT_CORE_MARGIN`
-        // — a future treatment widening the margin cannot silently widen the carve-out. The two coincide
-        // by shared derivation, not by reading the same variable.
-        expect(JUNCTION_ZONE).toBe(Math.SQRT2 * SPACING);
-        expect(JUNCTION_ZONE).toBe(FLAT_CORE_MARGIN);
     });
 });
 
@@ -380,8 +325,8 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     // 200 m apart perpendicular to the heading, 200 m long, plus one 32 m carpark square clear of all
     // roads. Chord endpoint heights are the natural terrain heights (`heightAtCpu`). The 200 m spacing
     // is well above the ~63 m clearance the chord's own falloff demands (`computeFalloff(cutDepth) +
-    // halfWidth + FLAT_CORE_MARGIN`), so no two primitives' falloff bands overlap — the junction zone is
-    // empty by construction, and the affine-exactness argument holds at every sampled station.
+    // halfWidth + FLAT_CORE_MARGIN`), so no two primitives' falloff bands overlap, and the
+    // affine-exactness argument holds at every sampled station.
     const Heading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
     const RoadSpacing = 200; // metres, perpendicular separation between adjacent roads
     const RoadLen = 200; // metres
@@ -422,10 +367,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
-    test("the junction zone is empty — no two primitives' cores come within JUNCTION_ZONE", () => {
-        // with 200 m spacing and the carpark 516 m from the nearest road, no sampled station falls
-        // inside a junction zone — `excludedStationCount === 0` is the structural precondition for the
-        // exact-zero claim (the carve-out is a deletion primitive, `checks.md`).
+    test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
         const coarseRaw = buildLatticeVertices(
             SPACING,
             CELLS,
@@ -439,23 +381,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
             syntheticDoc,
         );
         console.log(
-            `SYNTH_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} excludedStationCount=${result.excludedStationCount} sampleCount=${result.sampleCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
-        );
-        expect(result.excludedStationCount).toBe(0);
-    });
-
-    test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
-        const coarseRaw = buildLatticeVertices(
-            SPACING,
-            CELLS,
-            segments,
-            polygons,
-            falloff,
-            natural,
-        );
-        const result = checkSurfaceFlatness(
-            (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
-            syntheticDoc,
+            `SYNTH_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
         expect(result.crossSection.length).toBe(0);
@@ -480,10 +406,9 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
             syntheticDoc,
         );
         console.log(
-            `SYNTH_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} excludedStationCount=${result.excludedStationCount} sampleCount=${result.sampleCount}`,
+            `SYNTH_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount}`,
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
-        expect(result.excludedStationCount).toBe(0);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -494,7 +419,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
 describe("surface flatness — stage 18 arm (c): hand-built overlapping pair stays non-zero", () => {
     // The red-first overlap arm, rewritten for a generator that no longer produces overlaps: a hand-built
     // OVERLAPPING pair (two parallel roads 15 m apart at 30° heading — close enough that their falloff
-    // bands overlap and the edge+ is outside the junction zone, so violations are not excluded).
+    // bands overlap).
     // This arm is the discriminating proof that non-overlap is what buys exactness: where two
     // primitives' falloffs overlap, `networkCoreCpu` blends their targets by a position-dependent
     // weight, so the composite target is a position-weighted combination of two affine fields and is
