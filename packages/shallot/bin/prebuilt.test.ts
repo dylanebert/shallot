@@ -589,4 +589,50 @@ describe("release.yml producer/consumer contract", () => {
         // pattern that would pass on wrong-but-similar gates (e.g. refs/heads/v* or refs/tags/nightly).
         expect(ifCond).toContain("refs/tags/v");
     });
+
+    // Arm 4: the release step creates the GitHub Release object when the tag has none.
+    // shallot's release procedure (testing.md § Release gate) ends at publish + push tag — it
+    // never creates a Release object. So on the first tag push there is nothing to upload into,
+    // and `gh release upload` alone would fail "release not found". The step must branch on
+    // `gh release view` and create with --verify-tag (the tag is guaranteed present — the
+    // workflow is tag-triggered) and --generate-notes, not a `||` chain that would swallow an
+    // unrelated failure.
+    test("release step creates the Release when the tag has none (create-if-missing)", () => {
+        const wf = loadWorkflowYaml();
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+        const allSteps = Object.values(jobs).flatMap(
+            (job) => (job.steps as Record<string, unknown>[] | undefined) ?? [],
+        );
+        // Finder stays specific to the release step: it must contain `gh release upload`
+        // (the upload-into-existing path). A generic run: step would not match.
+        const releaseStep = allSteps.find((s) => {
+            const run = String(s.run ?? "");
+            return run.includes("gh release upload");
+        });
+        expect(releaseStep).toBeDefined();
+        const run = String(releaseStep?.run ?? "");
+        // Must branch on `gh release view` (explicit branch, not a `||` chain).
+        expect(run).toContain("gh release view");
+        // Must create the Release with --verify-tag and --generate-notes.
+        expect(run).toContain("gh release create");
+        expect(run).toContain("--verify-tag");
+        expect(run).toContain("--generate-notes");
+    });
+
+    // Arm 5: a re-run (Release already exists) uploads with --clobber so a partial upload
+    // converges instead of erroring on the first already-present asset.
+    test("release step uploads with --clobber for an existing Release (idempotent re-run)", () => {
+        const wf = loadWorkflowYaml();
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+        const allSteps = Object.values(jobs).flatMap(
+            (job) => (job.steps as Record<string, unknown>[] | undefined) ?? [],
+        );
+        const releaseStep = allSteps.find((s) => {
+            const run = String(s.run ?? "");
+            return run.includes("gh release upload");
+        });
+        expect(releaseStep).toBeDefined();
+        const run = String(releaseStep?.run ?? "");
+        expect(run).toContain("--clobber");
+    });
 });

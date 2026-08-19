@@ -264,15 +264,31 @@ jobs:
       # branch ref (refs/heads/<branch>), never refs/tags/v*, so this step is skipped on dispatch.
       # Do NOT remove or broaden this condition.
       #
-      # Uses `gh release upload` (gh is preinstalled on GitHub runners) rather than a third-party
-      # action. The glob `archives/shallot-window-*.tar.gz` makes a zero-match an error: bash passes
-      # the unmatched literal to gh, which fails because the file does not exist — so a partial
-      # assembly cannot publish a SHA256SUMS with no archives beside it.
+      # CREATE-IF-MISSING: shallot's release procedure (testing.md § Release gate) ends at
+      # publish + push tag — it never creates a GitHub Release object. So on the first tag push
+      # there is no Release to upload into; `gh release upload` alone would fail "release not
+      # found". The step branches on `gh release view` (an explicit branch, not a `||` chain
+      # that would swallow an unrelated failure): if the Release is absent it is created with
+      # --verify-tag (the tag is guaranteed present — the workflow is tag-triggered) and
+      # --generate-notes, attaching the archives at creation; if it already exists the upload
+      # uses --clobber so a re-run after a partial upload converges instead of erroring on the
+      # first already-present asset.
+      #
+      # Uses `gh` (preinstalled on GitHub runners) rather than a third-party action. The glob
+      # `archives/shallot-window-*.tar.gz` makes a zero-match an error: bash passes the unmatched
+      # literal to gh, which fails because the file does not exist — so a partial assembly cannot
+      # publish a SHA256SUMS with no archives beside it.
       - name: Attach archives to release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release upload "${{ github.ref_name }}" \
-            archives/shallot-window-*.tar.gz \
-            SHA256SUMS
+          if gh release view "${{ github.ref_name }}" > /dev/null 2>&1; then
+            gh release upload "${{ github.ref_name }}" --clobber \
+              archives/shallot-window-*.tar.gz \
+              SHA256SUMS
+          else
+            gh release create "${{ github.ref_name }}" --verify-tag --generate-notes \
+              archives/shallot-window-*.tar.gz \
+              SHA256SUMS
+          fi
