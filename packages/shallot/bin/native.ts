@@ -270,7 +270,7 @@ export function sha256Hex(buf: Buffer): string {
 export function parseSha256Sums(sums: string, archiveName: string): string | null {
     for (const line of sums.split("\n")) {
         const parts = line.trim().split(/\s+/);
-        if (parts.length >= 2 && parts[1] === archiveName) return parts[0];
+        if (parts.length >= 2 && parts[1].replace(/^\*/, "") === archiveName) return parts[0];
     }
     return null;
 }
