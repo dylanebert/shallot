@@ -19,7 +19,7 @@ import { generateNetwork } from "./overlay/network";
 import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "./terrain/flatten";
 import { CELLS, SPACING } from "./terrain/grid";
 import { GROUND_LEVEL, makePermutation } from "./terrain/noise";
-import { DEFAULT_SMOOTH_RADIUS, heightAtCpu, MAX_GRADE } from "./terrain/profile";
+import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
 import { SEED } from "./terrain/terrain";
 
 // Stage 15c's pin legitimacy — the criterion 15b's numbers are read against (spec Validation, "Surface
@@ -111,7 +111,7 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
         polygons: [],
     };
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -140,11 +140,7 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
         // 15b's consult made and the leg that gates the blend's design; it carries no fitted
         // number, only the exact zero.
         const realDoc = generateNetwork(SEED);
-        const { segments: realSegs, cutDepth: realCutDepth } = buildNetworkGeometry(
-            realDoc,
-            SEED,
-            DEFAULT_SMOOTH_RADIUS,
-        );
+        const { segments: realSegs, cutDepth: realCutDepth } = buildNetworkGeometry(realDoc, SEED);
         const realFalloff = computeFalloff(realCutDepth);
         const sample = (x: number, z: number) =>
             flattenFieldAt(
@@ -168,7 +164,7 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
 
 describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)", () => {
     const doc = generateNetwork(SEED);
-    const raw = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const raw = buildDeviceFreeVertices(doc, SEED);
     const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
 
     test("the readings are reported (no fitted bound — Leg B gates the mesh, Leg A gates the field)", () => {
@@ -246,7 +242,7 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
     // reds instead of passing on empty arrays.
     const doc = generateNetwork(SEED);
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(doc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -323,7 +319,6 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
             const { segments: scanSegs, cutDepth: scanCutDepth } = buildNetworkGeometry(
                 scanDoc,
                 seed,
-                DEFAULT_SMOOTH_RADIUS,
             );
             const scanFalloff = computeFalloff(scanCutDepth);
             const scanNatural = (x: number, z: number) => heightAtCpu(x, z, scanPerm);
@@ -390,7 +385,7 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
 
 describe("checkSurfaceFlatness — window/threshold derivation, no candidate treatment", () => {
     test("gradeBound scales with Δs and the road-design grade limit alone", () => {
-        // MAX_GRADE is the only slope-scaling input — no falloff/smoothRadius term appears.
+        // MAX_GRADE is the only slope-scaling input — no falloff term appears.
         expect(gradeBound(SAMPLE_STEP)).toBeGreaterThan(MAX_GRADE * SAMPLE_STEP);
         expect(gradeBound(2 * SAMPLE_STEP)).toBeGreaterThan(gradeBound(SAMPLE_STEP));
     });
@@ -416,13 +411,13 @@ describe("reconstructionAgreement — the device arm's own fidelity pin", () => 
         // `bun test` has no real device, so this exercises the differential's own logic against a second,
         // independently-called `buildDeviceFreeVertices` run standing in for `readVertices()` — the real
         // device arm lives in `gate.ts` (`bun run gate`), which calls this same function against the real
-        // GPU. Same seed/smoothRadius in, so the two builds should be exactly reproducible (this project's
+        // GPU. Same seed in, so the two builds should be exactly reproducible (this project's
         // height kernel is itself deterministic-in-seed, `gate.ts`'s own `deterministic` check) — this
         // pins that {@link reconstructionAgreement}'s own comparison logic reads zero when there's nothing
         // to disagree about, before it's trusted as the real device's fidelity gate.
         const doc = generateNetwork(SEED);
-        const deviceStandIn = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS);
-        const agreement = reconstructionAgreement(deviceStandIn, doc, SEED, DEFAULT_SMOOTH_RADIUS);
+        const deviceStandIn = buildDeviceFreeVertices(doc, SEED);
+        const agreement = reconstructionAgreement(deviceStandIn, doc, SEED);
         expect(agreement.sampleCount).toBeGreaterThan(0);
         expect(agreement.maxDiffM).toBeLessThanOrEqual(RECONSTRUCTION_AGREEMENT_TOL);
     });
@@ -479,7 +474,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     const syntheticDoc: StrokeDocument = { polylines, polygons };
 
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(syntheticDoc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const { segments, cutDepth } = buildNetworkGeometry(syntheticDoc, SEED);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -590,7 +585,7 @@ describe("surface flatness — stage 18 arm (c): hand-built overlapping pair sta
         polygons: [],
     };
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED, DEFAULT_SMOOTH_RADIUS);
+    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -611,7 +606,7 @@ describe("surface flatness — stage 18 arm (c): hand-built overlapping pair sta
             `OVERLAP_ARM_SPACING crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} longitudinal=${result.longitudinal.length} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)}`,
         );
         // band: well above zero, not fitted to the exact reading. The amplitude is the discriminating
-        // statistic — it sat still at 0.2373 → 0.2356 m across the smoothed → chord profile swap on the
+        // statistic — it sat still at 0.2373 → 0.2356 m across the pre-chord → chord profile swap on the
         // old overlapping generator, proving the chord removed the non-junction reconstruction error
         // (count fell 362 → 99) without touching the overlap contamination (amplitude stayed).
         expect(result.crossSection.length).toBeGreaterThan(50);

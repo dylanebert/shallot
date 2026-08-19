@@ -4,8 +4,8 @@
 // defect); the spec's own diagnosis routes this stage to a different axis entirely — the mesh's
 // piecewise-linear *reconstruction* across the footprint edge, not the boundary's own width or position.
 //
-// A vertex-only check is insufficient by construction: footprint vertices already carry the smoothed,
-// grade-limited profile (`terrain/flatten.ts`'s `networkCore` interpolates `mix(aHeight, bHeight, t)`), so
+// A vertex-only check is insufficient by construction: footprint vertices already carry the flattened
+// chord profile (`terrain/flatten.ts`'s `networkCore` interpolates `mix(aHeight, bHeight, t)`), so
 // away from junctions they're flat to a few centimetres — a vertex-only oracle would read green over the
 // live defect, the sixth instrument failing the way the first five did (stage 9's screen-space albedo
 // probe, stage 10's un-anchored height probe, stage 11's width-only floor). The predicted defect lives in
@@ -67,9 +67,9 @@ import {
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { CELLS, SPACING } from "./terrain/grid";
 import { makePermutation } from "./terrain/noise";
-import { heightAtCpu, MAX_GRADE, MAX_GRADE_BREAK, PROFILE_STEP } from "./terrain/profile";
+import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
 
-// --- derived window + tolerance — no candidate treatment (falloff, smoothRadius) appears in any of these,
+// --- derived window + tolerance — no candidate treatment (falloff) appears in any of these,
 // per the spec's own non-coupling requirement (stage 11's whole lesson: a criterion whose window or
 // threshold is a function of the parameter under test is not a differential over that parameter).
 
@@ -81,18 +81,12 @@ export const SAMPLE_STEP = SPACING / 4;
  *  the unorm16 range, the same derivation `capture.test.ts`'s `meshHeightAt` oracle uses. */
 const QUANT_TOL = TERRAIN_QUANT.posScale.y / 65535;
 
-/** the profile's own piecewise-linearity error: half a grade-break step over one arc-length increment
- *  (`terrain/profile.ts`'s own derivation, ≈ 2 cm at the shipped constants) — the profile control points
- *  themselves are a grade-*limited*, not grade-*continuous*, sequence, so even a perfect reconstruction of
- *  them carries this much slack against the idealized continuous grade bound. */
-const PROFILE_LINEARITY_TOL = 0.5 * MAX_GRADE_BREAK * PROFILE_STEP;
-
-/** the longitudinal grade bound over a `ds`-metre step: the road-design grade limit (`MAX_GRADE`) plus the
- *  profile's own linearity slack plus two independent quantized height reads (one at each end of the
- *  step). Neither `MAX_GRADE`/`MAX_GRADE_BREAK`/`PROFILE_STEP` (road-design + mesh constants) nor
- *  `QUANT_TOL` (the codec's own AABB) depends on any candidate treatment. */
+/** the longitudinal grade bound over a `ds`-metre step: the road-design grade limit (`MAX_GRADE`) plus two
+ *  independent quantized height reads (one at each end of the step). Neither `MAX_GRADE`/`PROFILE_STEP`
+ *  (road-design + mesh constants) nor `QUANT_TOL` (the codec's own AABB) depends on any candidate
+ *  treatment. */
 export function gradeBound(ds: number): number {
-    return MAX_GRADE * ds + PROFILE_LINEARITY_TOL + 2 * QUANT_TOL;
+    return MAX_GRADE * ds + 2 * QUANT_TOL;
 }
 
 /** the cross-section bound: two footprint points at the same longitudinal station should read the same
@@ -318,19 +312,15 @@ export function buildLatticeVertices(
     return raw;
 }
 
-/** the production-shape reconstruction: `doc`'s own network flattened at `seed`/`smoothRadius`, at the
+/** the production-shape reconstruction: `doc`'s own network flattened at `seed`, at the
  *  mesh's real `SPACING`/`CELLS` — a drop-in `readVertices()` substitute with no device, `flatness.test.ts`'s
  *  and `gate.ts`'s shared entry point. `flattenDoc` and `sampleDoc` (the caller's own footprint definition,
  *  `checkSurfaceFlatness`) are deliberately the same `doc` here; {@link buildLatticeVertices} lets a caller
  *  split them (stage 12's own null-control arm: an empty `flattenDoc` with the real network's footprint
  *  still standing, `flatness.test.ts`'s "no-cut" arm). */
-export function buildDeviceFreeVertices(
-    flattenDoc: StrokeDocument,
-    seed: number,
-    smoothRadius: number,
-): Uint32Array {
+export function buildDeviceFreeVertices(flattenDoc: StrokeDocument, seed: number): Uint32Array {
     const perm = makePermutation(seed);
-    const { segments, cutDepth } = buildNetworkGeometry(flattenDoc, seed, smoothRadius);
+    const { segments, cutDepth } = buildNetworkGeometry(flattenDoc, seed);
     const falloff = computeFalloff(cutDepth);
     return buildLatticeVertices(SPACING, CELLS, segments, flattenDoc.polygons, falloff, (x, z) =>
         heightAtCpu(x, z, perm),
@@ -384,8 +374,8 @@ function segmentFrames(doc: StrokeDocument): RoadFrame[] {
 // same diagonal keeps every vertex the oracle interpolates from inside the affine region. This is the
 // longitudinal-direction twin of stage-18 repair R1's perpendicular-direction `√2·SPACING` clearance: the
 // same lattice-vertex argument, applied to the endpoint edge rather than the side edge. Treatment-free:
-// only `halfWidth` and `SPACING` (the document and mesh constants), never `computeFalloff`, a falloff
-// scale, or the smoothing radius — the generator's own placement/clearance appears in neither the window
+// only `halfWidth` and `SPACING` (the document and mesh constants), never `computeFalloff` or a falloff
+// scale — the generator's own placement/clearance appears in neither the window
 // nor the threshold.
 function endpointMargin(frame: RoadFrame): number {
     return frame.halfWidth + Math.SQRT2 * SPACING;
@@ -482,7 +472,7 @@ export interface FlatnessResult {
 
 /**
  * the stage 12 property (spec Validation, "Surface flatness along the road"): within the road footprint,
- * rendered mesh height is a grade-limited function of longitudinal station alone.
+ * rendered mesh height is a bounded-grade function of longitudinal station alone.
  *
  * (a) *cross-section* — at each sampled station, the centreline and both edge lines (`±(halfWidth −
  *     {@link EDGE_EPSILON})`) must read the same height within {@link CROSS_SECTION_TOL}.
@@ -493,7 +483,7 @@ export interface FlatnessResult {
  * the real `readVertices()`, this function never knows which. The window (which stations/lines get
  * sampled) comes only from `doc`'s own geometry (`halfWidth`, segment endpoints); the threshold comes only
  * from road-design constants and the codec's own quantization — {@link gradeBound}/{@link
- * CROSS_SECTION_TOL} take no falloff or smoothing-radius input, so no candidate treatment can move the
+ * CROSS_SECTION_TOL} take no falloff input, so no candidate treatment can move the
  * window or the threshold (the non-coupling stage 11's whole investigation turned on).
  */
 export function checkSurfaceFlatness(
@@ -702,7 +692,7 @@ export function inJunctionZone(px: number, pz: number, doc: StrokeDocument): boo
 
 /**
  * pins the default-suite CPU reconstruction against the real device: rebuilds the identical lattice
- * ({@link buildDeviceFreeVertices}) at the live network's own `seed`/`smoothRadius` and compares its
+ * ({@link buildDeviceFreeVertices}) at the live network's own `seed` and compares its
  * footprint-line samples against `deviceRaw` (a real `readVertices()` readback) point for point. This is
  * the "device arm" the spec asks for — it validates the CPU builder's *fidelity* against the real GPU
  * output (a reference/differential check), not the surface-flatness property itself (which `bun test`'s
@@ -716,9 +706,8 @@ export function reconstructionAgreement(
     deviceRaw: Uint32Array,
     doc: StrokeDocument,
     seed: number,
-    smoothRadius: number,
 ): { maxDiffM: number; sampleCount: number } {
-    const cpuRaw = buildDeviceFreeVertices(doc, seed, smoothRadius);
+    const cpuRaw = buildDeviceFreeVertices(doc, seed);
     const deviceSample = (x: number, z: number) => meshHeightAt(deviceRaw, x, z);
     const cpuSample = (x: number, z: number) => meshHeightAt(cpuRaw, x, z);
 

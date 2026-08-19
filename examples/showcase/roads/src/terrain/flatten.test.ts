@@ -147,7 +147,7 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         // the chord profile returns exactly two profile points per polyline (the endpoints), so
         // `buildNetworkGeometry` emits one segment per road — no resampling, no sub-segments.
         const doc = generateNetwork(42);
-        const { segments } = buildNetworkGeometry(doc, 1337, 3);
+        const { segments } = buildNetworkGeometry(doc, 1337);
         expect(segments.length).toBe(doc.polylines.length);
         for (const [i, line] of doc.polylines.entries()) {
             const seg = segments[i];
@@ -163,7 +163,7 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         // stage 17: the chord is one segment per road, so there's no chain to check — each segment's
         // endpoints ARE the polyline's endpoints. This pin verifies that directly.
         const doc = generateNetwork(7);
-        const { segments } = buildNetworkGeometry(doc, 1337, 0);
+        const { segments } = buildNetworkGeometry(doc, 1337);
         expect(segments.length).toBe(doc.polylines.length);
         for (const [i, line] of doc.polylines.entries()) {
             const seg = segments[i];
@@ -186,7 +186,7 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         const SeedScan = 500;
         for (let seed = 0; seed <= SeedScan; seed++) {
             const doc = generateNetwork(seed);
-            const { segments } = buildNetworkGeometry(doc, 1337, 3);
+            const { segments } = buildNetworkGeometry(doc, 1337);
             expect(segments.length).toBe(doc.polylines.length);
             for (let i = 1; i < segments.length; i++) {
                 expect(segments[i].road).toBeGreaterThanOrEqual(segments[i - 1].road);
@@ -197,10 +197,10 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     test("grade stays under MAX_GRADE along any road's chord — by measurement, not by a limiter (stage 17)", () => {
         // stage 17: the chord has no grade limiter — the grade is the natural chord grade between the
         // endpoint heights. It stays under MAX_GRADE by measurement (worst chord grade 10.51% on
-        // SEED=1337), not by clampGrade. This pin reads that measurement on seed 615's network against
+        // SEED=1337). This pin reads that measurement on seed 615's network against
         // perm 1337's terrain.
         const doc = generateNetwork(615);
-        const { segments } = buildNetworkGeometry(doc, 1337, 0);
+        const { segments } = buildNetworkGeometry(doc, 1337);
         for (const seg of segments) {
             const len = Math.hypot(seg.bx - seg.ax, seg.bz - seg.az);
             if (len < 1e-6) continue;
@@ -210,10 +210,10 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     });
 
     test("cut depth is a non-negative real measurement, not a network-independent worst case", () => {
-        const flat = buildNetworkGeometry({ polylines: [], polygons: [] }, 1337, 3);
+        const flat = buildNetworkGeometry({ polylines: [], polygons: [] }, 1337);
         expect(flat.cutDepth).toBe(0); // no polylines, nothing to cut
         const doc = generateNetwork(42);
-        const withRoads = buildNetworkGeometry(doc, 1337, 3);
+        const withRoads = buildNetworkGeometry(doc, 1337);
         expect(withRoads.cutDepth).toBeGreaterThanOrEqual(0);
         expect(Number.isFinite(withRoads.cutDepth)).toBe(true);
     });
