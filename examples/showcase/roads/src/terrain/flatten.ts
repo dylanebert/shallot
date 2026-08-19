@@ -154,6 +154,16 @@ const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
  *  target exactly; where two primitives' falloff bands overlap (a bisector, a junction), both contribute
  *  and the target cross-fades instead of switching.
  *
+ *  Stage 15b: each primitive's blend weight is multiplied by a relative-depth suppression factor
+ *  `1 − ease(clamp((core_i − bestCore) / FLAT_CORE_MARGIN, 0, 1))` — a primitive at the same depth as
+ *  the nearest (core_i === bestCore) keeps full weight, one deeper by ≥ FLAT_CORE_MARGIN is fully
+ *  suppressed. This requires `bestCore` to be known before any weight is computed, so the function is now
+ *  two passes: pass 1 finds `bestCore` (the global minimum core across all sub-segments and polygons — no
+ *  road grouping needed, since the min of per-road minima equals the min of all sub-segments); pass 2
+ *  computes the weighted blend, each weight carrying the depth factor. Contamination is exactly zero
+ *  outside designed junction zones by construction, not by sample — the host's target wins outright
+ *  wherever every other primitive's core exceeds the nearest's by ≥ the band.
+ *
  *  A *primitive* is a whole road or a whole carpark, never one fine profile sub-segment: a road's own
  *  chain of sub-segments is already continuous by construction (`buildNetworkGeometry`'s per-point
  *  interpolation chains `aHeight`/`bHeight` endpoint to endpoint), so blending across sub-segments the way
@@ -171,7 +181,58 @@ const networkCore = tgpu.fn(
 )((px, pz) => {
     "use gpu";
     const falloff = networkLayout.$.params.falloff;
+
+    // Pass 1: find bestCore — the global minimum core distance across all sub-segments and polygons.
+    // No road grouping needed: the min of per-road minima equals the min of all sub-segments.
     let bestCore = d.f32(3.402823e38);
+    let si = d.u32(0);
+    for (; si < networkLayout.$.params.segmentCount; si = si + d.u32(1)) {
+        const seg = networkLayout.$.segments[si];
+        const abx = seg.b.x - seg.a.x;
+        const abz = seg.b.y - seg.a.y;
+        const apx = px - seg.a.x;
+        const apz = pz - seg.a.y;
+        const dd = abx * abx + abz * abz;
+        let t = d.f32(0);
+        if (dd > 0) t = std.clamp((apx * abx + apz * abz) / dd, 0, 1);
+        const cx = seg.a.x + t * abx;
+        const cz = seg.a.y + t * abz;
+        const core =
+            std.distance(d.vec2f(px, pz), d.vec2f(cx, cz)) -
+            (seg.halfWidth + d.f32(FLAT_CORE_MARGIN));
+        if (core < bestCore) bestCore = core;
+    }
+    let pi = d.u32(0);
+    for (; pi < networkLayout.$.params.polygonCount; pi = pi + d.u32(1)) {
+        const poly = networkLayout.$.polygons[pi];
+        let inside = false;
+        let nearestEdge = d.f32(3.402823e38);
+        let k = d.u32(0);
+        for (; k < poly.count; k = k + d.u32(1)) {
+            const a = networkLayout.$.polyVerts[poly.start + k];
+            const b = networkLayout.$.polyVerts[poly.start + ((k + d.u32(1)) % poly.count)];
+            if (a.y > pz !== b.y > pz) {
+                const xCross = a.x + ((pz - a.y) / (b.y - a.y)) * (b.x - a.x);
+                if (px < xCross) inside = !inside;
+            }
+            const eAbx = b.x - a.x;
+            const eAbz = b.y - a.y;
+            const eApx = px - a.x;
+            const eApz = pz - a.y;
+            const eDd = eAbx * eAbx + eAbz * eAbz;
+            let et = d.f32(0);
+            if (eDd > 0) et = std.clamp((eApx * eAbx + eApz * eAbz) / eDd, 0, 1);
+            const ecx = a.x + et * eAbx;
+            const ecz = a.y + et * eAbz;
+            const edgeDist = std.distance(d.vec2f(px, pz), d.vec2f(ecx, ecz));
+            if (edgeDist < nearestEdge) nearestEdge = edgeDist;
+        }
+        const core = std.select(nearestEdge, -nearestEdge, inside) - d.f32(FLAT_CORE_MARGIN);
+        if (core < bestCore) bestCore = core;
+    }
+
+    // Pass 2: weighted blend across primitives, each weight multiplied by the relative-depth suppression
+    // factor 1 − ease(clamp((core_i − bestCore) / FLAT_CORE_MARGIN, 0, 1)).
     let sumWeight = d.f32(0);
     let sumWeightedTarget = d.f32(0);
 
@@ -184,11 +245,13 @@ const networkCore = tgpu.fn(
     for (; i < networkLayout.$.params.segmentCount; i = i + d.u32(1)) {
         const seg = networkLayout.$.segments[i];
         if (haveRoad && seg.road !== curRoad) {
-            if (roadBestCore < bestCore) bestCore = roadBestCore;
             const rt = std.clamp(roadBestCore / falloff, 0, 1);
             const rw = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * rt));
-            sumWeight = sumWeight + rw;
-            sumWeightedTarget = sumWeightedTarget + rw * roadBestTarget;
+            const dt = std.clamp((roadBestCore - bestCore) / d.f32(FLAT_CORE_MARGIN), 0, 1);
+            const df = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * dt));
+            const w = rw * df;
+            sumWeight = sumWeight + w;
+            sumWeightedTarget = sumWeightedTarget + w * roadBestTarget;
             roadBestCore = d.f32(3.402823e38);
             roadBestTarget = d.f32(0);
         }
@@ -213,11 +276,13 @@ const networkCore = tgpu.fn(
         }
     }
     if (haveRoad) {
-        if (roadBestCore < bestCore) bestCore = roadBestCore;
         const rt = std.clamp(roadBestCore / falloff, 0, 1);
         const rw = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * rt));
-        sumWeight = sumWeight + rw;
-        sumWeightedTarget = sumWeightedTarget + rw * roadBestTarget;
+        const dt = std.clamp((roadBestCore - bestCore) / d.f32(FLAT_CORE_MARGIN), 0, 1);
+        const df = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * dt));
+        const w = rw * df;
+        sumWeight = sumWeight + w;
+        sumWeightedTarget = sumWeightedTarget + w * roadBestTarget;
     }
 
     let p = d.u32(0);
@@ -246,12 +311,14 @@ const networkCore = tgpu.fn(
             if (edgeDist < nearestEdge) nearestEdge = edgeDist;
         }
         const core = std.select(nearestEdge, -nearestEdge, inside) - d.f32(FLAT_CORE_MARGIN);
-        if (core < bestCore) bestCore = core;
         const target = heightAt(poly.centroid.x, poly.centroid.y);
         const pt = std.clamp(core / falloff, 0, 1);
-        const weight = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * pt));
-        sumWeight = sumWeight + weight;
-        sumWeightedTarget = sumWeightedTarget + weight * target;
+        const pw = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * pt));
+        const dt = std.clamp((core - bestCore) / d.f32(FLAT_CORE_MARGIN), 0, 1);
+        const df = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * dt));
+        const w = pw * df;
+        sumWeight = sumWeight + w;
+        sumWeightedTarget = sumWeightedTarget + w * target;
     }
 
     const bestTarget = std.select(d.f32(0), sumWeightedTarget / sumWeight, sumWeight > 0);

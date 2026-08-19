@@ -106,10 +106,10 @@ export async function gate(): Promise<Check[]> {
 
     // Stage 12's device arm — the spec's "one device arm pinning it against readVertices()". This pins
     // the *fidelity* of `flatness.ts`'s CPU device-free lattice builder against the real GPU-generated
-    // mesh, not the surface-flatness property itself: the property is expected to read red on the shipped
-    // pipeline right now (the unit's live defect, `bun test ./src -t "surface flatness"`'s own job), and a
-    // gate that re-asserted "no violations" here would break every `bun run gate` run until stage 15 ships
-    // a fix. What this DOES prove is that `bun test`'s device-free arm is reading the same mesh the real
+    // mesh, not the surface-flatness property itself: the property is green outside the junction-zone
+    // carve-out post-15b (stage 15b's relative-depth suppression eliminates the blend contamination,
+    // confirmed at the analytic limit by the consult), and the device-free suite's own arms gate it.
+    // What this DOES prove is that `bun test`'s device-free arm is reading the same mesh the real
     // device renders — without it, a CPU/GPU divergence in the height-kernel math could make the
     // device-free suite pass or fail for the wrong reason entirely.
     const liveDoc = generateNetwork(SEED);

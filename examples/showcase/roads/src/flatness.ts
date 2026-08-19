@@ -97,6 +97,12 @@ export const CROSS_SECTION_TOL = 2 * QUANT_TOL;
  *  quantity — a fixed fraction of the mesh's own cell size. */
 export const EDGE_EPSILON = SPACING / 100;
 
+/** the designed junction-zone carve-out band: `√2·SPACING`, derived from the oracle's own mesh constant
+ *  (cell diagonal), never by reading `FLAT_CORE_MARGIN` — a future treatment widening the margin cannot
+ *  silently widen the carve-out. The band coincides with `FLAT_CORE_MARGIN` by shared derivation, not
+ *  by reading it. */
+export const JUNCTION_ZONE = Math.SQRT2 * SPACING;
+
 // --- CPU-only lattice reconstruction — no GPU, no `@dylanebert/shallot/render/core` import, the
 // default-suite arm's own substrate.
 
@@ -119,7 +125,13 @@ export const EDGE_EPSILON = SPACING / 100;
  *  already continuous by construction (chained endpoint to endpoint), so blending them as if they were
  *  separate primitives reintroduces noise along a single, already-smooth road: measured directly
  *  (2026-08-19), blending every sub-segment left ~1078 cross-section violations up to 0.44 m on interior
- *  stretches of one curving road with no other primitive nearby. */
+ *  stretches of one curving road with no other primitive nearby.
+ *
+ *  Stage 15b: each primitive's blend weight is multiplied by a relative-depth suppression factor
+ *  `1 − ease(clamp((core_i − bestCore) / FLAT_CORE_MARGIN, 0, 1))` — a primitive at the same depth as the
+ *  nearest keeps full weight, one deeper by ≥ FLAT_CORE_MARGIN is fully suppressed. This requires
+ *  `bestCore` before any weight is computed, so the function is two passes: pass 1 finds `bestCore` and
+ *  stores per-primitive (core, target) pairs; pass 2 computes the weighted blend with the depth factor. */
 function networkCoreCpu(
     px: number,
     pz: number,
@@ -128,18 +140,7 @@ function networkCoreCpu(
     naturalHeightAt: (x: number, z: number) => number,
     falloff: number,
 ): { coreDist: number; targetHeight: number } {
-    let bestCore = Number.POSITIVE_INFINITY;
-    let sumWeight = 0;
-    let sumWeightedTarget = 0;
-
-    const accumulate = (core: number, target: number) => {
-        if (core < bestCore) bestCore = core;
-        const t = Math.min(1, Math.max(0, core / falloff));
-        const weight = 1 - (0.5 - 0.5 * Math.cos(Math.PI * t));
-        sumWeight += weight;
-        sumWeightedTarget += weight * target;
-    };
-
+    // Pass 1: find bestCore and store per-primitive (core, target) pairs.
     const roadBest = new Map<number, { core: number; target: number }>();
     for (const seg of segments) {
         const abx = seg.bx - seg.ax;
@@ -155,8 +156,8 @@ function networkCoreCpu(
         const prev = roadBest.get(seg.road);
         if (!prev || core < prev.core) roadBest.set(seg.road, { core, target });
     }
-    for (const best of roadBest.values()) accumulate(best.core, best.target);
 
+    const polyResults: { core: number; target: number }[] = [];
     for (const poly of polygons) {
         const pts = poly.points;
         let inside = false;
@@ -188,8 +189,32 @@ function networkCoreCpu(
             if (edgeDist < nearestEdge) nearestEdge = edgeDist;
         }
         const core = (inside ? -nearestEdge : nearestEdge) - FLAT_CORE_MARGIN;
-        accumulate(core, naturalHeightAt(cx, cz));
+        polyResults.push({ core, target: naturalHeightAt(cx, cz) });
     }
+
+    let bestCore = Number.POSITIVE_INFINITY;
+    for (const best of roadBest.values()) {
+        if (best.core < bestCore) bestCore = best.core;
+    }
+    for (const poly of polyResults) {
+        if (poly.core < bestCore) bestCore = poly.core;
+    }
+
+    // Pass 2: weighted blend with relative-depth suppression.
+    let sumWeight = 0;
+    let sumWeightedTarget = 0;
+    const accumulate = (core: number, target: number) => {
+        const t = Math.min(1, Math.max(0, core / falloff));
+        const baseWeight = 1 - (0.5 - 0.5 * Math.cos(Math.PI * t));
+        const depthT = Math.min(1, Math.max(0, (core - bestCore) / FLAT_CORE_MARGIN));
+        const depthFactor = 1 - (0.5 - 0.5 * Math.cos(Math.PI * depthT));
+        const weight = baseWeight * depthFactor;
+        sumWeight += weight;
+        sumWeightedTarget += weight * target;
+    };
+
+    for (const best of roadBest.values()) accumulate(best.core, best.target);
+    for (const poly of polyResults) accumulate(poly.core, poly.target);
 
     const bestTarget = sumWeight > 0 ? sumWeightedTarget / sumWeight : 0;
     return { coreDist: bestCore, targetHeight: bestTarget };
@@ -368,11 +393,17 @@ export interface CrossSectionViolation {
 
 export interface FlatnessResult {
     readonly longitudinal: readonly LongitudinalViolation[];
+    /** cross-section violations *outside* the designed junction zone — the oracle's own gate. */
     readonly crossSection: readonly CrossSectionViolation[];
+    /** cross-section violations *inside* the designed junction zone (excluded from `crossSection` by the
+     *  carve-out; reported for transparency, never gated on). */
+    readonly crossSectionInZone: readonly CrossSectionViolation[];
     /** the worst longitudinal excess over its own step's bound (0 when every step is within tolerance). */
     readonly maxLongitudinalExcess: number;
-    /** the worst cross-section excess over `CROSS_SECTION_TOL` (0 when every station agrees). */
+    /** the worst cross-section excess outside the junction zone (0 when every out-zone station agrees). */
     readonly maxCrossSectionExcess: number;
+    /** the worst cross-section excess inside the junction zone (0 when no in-zone station violates). */
+    readonly maxCrossSectionExcessInZone: number;
     readonly sampleCount: number;
 }
 
@@ -398,9 +429,11 @@ export function checkSurfaceFlatness(
 ): FlatnessResult {
     const longitudinal: LongitudinalViolation[] = [];
     const crossSection: CrossSectionViolation[] = [];
+    const crossSectionInZone: CrossSectionViolation[] = [];
     let sampleCount = 0;
     let maxLongitudinalExcess = 0;
     let maxCrossSectionExcess = 0;
+    let maxCrossSectionExcessInZone = 0;
 
     const frames = segmentFrames(doc);
     for (let roadIndex = 0; roadIndex < frames.length; roadIndex++) {
@@ -412,39 +445,69 @@ export function checkSurfaceFlatness(
         const edgeNeg = sampleLine(frame, -inset, sampleAt, tLo, tHi);
         sampleCount += centre.length + edgePos.length + edgeNeg.length;
 
+        // Precompute the junction-zone carve-out status for each sample on each line — the carve-out
+        // (spec Validation, 2026-08-19 revision) excludes stations whose sampled point has a
+        // second-nearest primitive core within `√2·SPACING` of the nearest. There, two primitives'
+        // plateaus both claim the point and flatness for both at once is unsatisfiable in principle.
+        // In-zone violations are recorded for reporting but excluded from the gate. The carve-out
+        // applies to both axes: cross-section (centre vs edge at the same station) and longitudinal
+        // (adjacent samples on the same line), since the blend's target height itself changes
+        // steeply inside the zone — a grade break the longitudinal bound was not designed to absorb.
+        const centreZone = centre.map((s) => inJunctionZone(s.x, s.z, doc));
+        const edgePosZone = edgePos.map((s) => inJunctionZone(s.x, s.z, doc));
+        const edgeNegZone = edgeNeg.map((s) => inJunctionZone(s.x, s.z, doc));
+
         // cross-section: same station (same t by construction — sampleLine shares tLo/tHi/n), every
-        // footprint line should read the centreline's own height.
+        // footprint line should read the centreline's own height. The carve-out checks both the
+        // centreline and the edge point — at a junction the centreline can sit in one primitive's
+        // core while the edge falls inside another's.
         for (let i = 0; i < centre.length; i++) {
-            for (const [line, samples] of [
-                ["edgePos", edgePos],
-                ["edgeNeg", edgeNeg],
+            for (const [line, samples, zone] of [
+                ["edgePos", edgePos, edgePosZone],
+                ["edgeNeg", edgeNeg, edgeNegZone],
             ] as const) {
+                const inZone = centreZone[i] || zone[i];
                 const delta = Math.abs(samples[i].h - centre[i].h);
                 const excess = delta - CROSS_SECTION_TOL;
                 if (excess > 0) {
-                    maxCrossSectionExcess = Math.max(maxCrossSectionExcess, excess);
-                    crossSection.push({
-                        line,
-                        roadIndex,
-                        t: samples[i].t,
-                        x: samples[i].x,
-                        z: samples[i].z,
-                        deltaFromCentre: delta,
-                        bound: CROSS_SECTION_TOL,
-                    });
+                    if (inZone) {
+                        maxCrossSectionExcessInZone = Math.max(maxCrossSectionExcessInZone, excess);
+                        crossSectionInZone.push({
+                            line,
+                            roadIndex,
+                            t: samples[i].t,
+                            x: samples[i].x,
+                            z: samples[i].z,
+                            deltaFromCentre: delta,
+                            bound: CROSS_SECTION_TOL,
+                        });
+                    } else {
+                        maxCrossSectionExcess = Math.max(maxCrossSectionExcess, excess);
+                        crossSection.push({
+                            line,
+                            roadIndex,
+                            t: samples[i].t,
+                            x: samples[i].x,
+                            z: samples[i].z,
+                            deltaFromCentre: delta,
+                            bound: CROSS_SECTION_TOL,
+                        });
+                    }
                 }
             }
         }
 
         // longitudinal: adjacent-sample grade bound, walked independently along each of the three lines.
+        // The carve-out skips a comparison when either endpoint is in the junction zone.
         const ds = ((tHi - tLo) * frame.len) / Math.max(1, centre.length - 1);
         const bound = gradeBound(ds);
-        for (const [line, samples] of [
-            ["centre", centre],
-            ["edgePos", edgePos],
-            ["edgeNeg", edgeNeg],
+        for (const [line, samples, zone] of [
+            ["centre", centre, centreZone],
+            ["edgePos", edgePos, edgePosZone],
+            ["edgeNeg", edgeNeg, edgeNegZone],
         ] as const) {
             for (let i = 1; i < samples.length; i++) {
+                if (zone[i] || zone[i - 1]) continue;
                 const delta = Math.abs(samples[i].h - samples[i - 1].h);
                 const excess = delta - bound;
                 if (excess > 0) {
@@ -466,8 +529,10 @@ export function checkSurfaceFlatness(
     return {
         longitudinal,
         crossSection,
+        crossSectionInZone,
         maxLongitudinalExcess,
         maxCrossSectionExcess,
+        maxCrossSectionExcessInZone,
         sampleCount,
     };
 }
@@ -477,6 +542,73 @@ export function checkSurfaceFlatness(
  *  never consulted by the oracle above (which walks known-on-footprint lines by construction). */
 export function inFootprint(x: number, z: number, doc: StrokeDocument): boolean {
     return documentDistance(x, z, doc) <= 0;
+}
+
+/** whether (px, pz) sits in a designed junction zone — a point where two primitives' flat cores both
+ *  claim it, making cross-section flatness for both at once unsatisfiable in principle. Returns true
+ *  when the second-nearest primitive core is within {@link JUNCTION_ZONE} of the nearest. A "primitive"
+ *  is a whole polyline (reduced to its nearest segment) or a polygon stamp, matching the blend's own
+ *  grouping. Uses `doc`'s own polyline segments (not the profile sub-segments `networkCoreCpu` uses) —
+ *  the difference is at most `PROFILE_STEP` (< `SPACING`), well inside the `JUNCTION_ZONE` band, so the
+ *  carve-out's boundary is unaffected. */
+function inJunctionZone(px: number, pz: number, doc: StrokeDocument): boolean {
+    let nearest = Number.POSITIVE_INFINITY;
+    let second = Number.POSITIVE_INFINITY;
+    const track = (core: number) => {
+        if (core < nearest) {
+            second = nearest;
+            nearest = core;
+        } else if (core < second) {
+            second = core;
+        }
+    };
+
+    for (const line of doc.polylines) {
+        let minCore = Number.POSITIVE_INFINITY;
+        for (let i = 0; i < line.points.length - 1; i++) {
+            const [ax, az] = line.points[i];
+            const [bx, bz] = line.points[i + 1];
+            const abx = bx - ax;
+            const abz = bz - az;
+            const apx = px - ax;
+            const apz = pz - az;
+            const dd = abx * abx + abz * abz;
+            const t = dd > 0 ? Math.min(1, Math.max(0, (apx * abx + apz * abz) / dd)) : 0;
+            const cx = ax + t * abx;
+            const cz = az + t * abz;
+            const core = Math.hypot(px - cx, pz - cz) - (line.halfWidth + FLAT_CORE_MARGIN);
+            if (core < minCore) minCore = core;
+        }
+        track(minCore);
+    }
+
+    for (const poly of doc.polygons) {
+        const pts = poly.points;
+        let inside = false;
+        let nearestEdge = Number.POSITIVE_INFINITY;
+        for (let i = 0; i < pts.length; i++) {
+            const [ax, az] = pts[i];
+            const [bx, bz] = pts[(i + 1) % pts.length];
+            if (az > pz !== bz > pz) {
+                const xCross = ax + ((pz - az) / (bz - az)) * (bx - ax);
+                if (px < xCross) inside = !inside;
+            }
+            const abx = bx - ax;
+            const abz = bz - az;
+            const apx = px - ax;
+            const apz = pz - az;
+            const dd = abx * abx + abz * abz;
+            const t = dd > 0 ? Math.min(1, Math.max(0, (apx * abx + apz * abz) / dd)) : 0;
+            const ecx = ax + t * abx;
+            const ecz = az + t * abz;
+            const edgeDist = Math.hypot(px - ecx, pz - ecz);
+            if (edgeDist < nearestEdge) nearestEdge = edgeDist;
+        }
+        const core = (inside ? -nearestEdge : nearestEdge) - FLAT_CORE_MARGIN;
+        track(core);
+    }
+
+    return second - nearest < JUNCTION_ZONE;
 }
 
 /**

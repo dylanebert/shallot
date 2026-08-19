@@ -175,6 +175,21 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         }
     });
 
+    test("segments are emitted road-contiguously — each road's sub-segments form one contiguous run", () => {
+        // The GPU mirror (`networkCore` in `flatten.ts`) groups sub-segments into their owning road
+        // by detecting `seg.road` changes in the segment array — it relies on segments being emitted
+        // contiguously per road (all of road 0's sub-segments, then all of road 1's, etc.). The CPU
+        // mirror (`networkCoreCpu` in `flatness.ts`) uses a Map keyed by `road`, so it does not rely
+        // on contiguity — the invariant is load-bearing on one side only. This pin proves the
+        // invariant holds: the `road` field is non-decreasing across the segment array.
+        const doc = generateNetwork(42);
+        const { segments } = buildNetworkGeometry(doc, 1337, 3);
+        expect(segments.length).toBeGreaterThan(doc.polylines.length);
+        for (let i = 1; i < segments.length; i++) {
+            expect(segments[i].road).toBeGreaterThanOrEqual(segments[i - 1].road);
+        }
+    });
+
     test("grade never exceeds MAX_GRADE along any road's own smoothed profile, at radius 0 (grade-clamp alone)", () => {
         const doc = generateNetwork(615); // stage 6's pinned regression seed — still a good stress case
         const { segments } = buildNetworkGeometry(doc, 1337, 0);
