@@ -13,6 +13,7 @@ import {
 } from "./flatness";
 import type { StrokeDocument } from "./overlay/document";
 import { generateNetwork } from "./overlay/network";
+import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
 import { CELLS, SPACING } from "./terrain/grid";
 import { GROUND_LEVEL, makePermutation } from "./terrain/noise";
 import { DEFAULT_SMOOTH_RADIUS, heightAtCpu, MAX_GRADE } from "./terrain/profile";
@@ -131,6 +132,69 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         // bound far more often than the flattened corridor does, exactly the "real signal" this control is
         // meant to prove exists.
         expect(result.longitudinal.length).toBeGreaterThan(100);
+    });
+});
+
+describe("surface flatness — mesh-resolution discrimination (independent of the deleted falloff-scale knob)", () => {
+    // Stage 12's arm (iv) originally swept two treatments side by side (falloff-scale and mesh
+    // resolution) to prove the oracle discriminates on a real geometric change while staying ~inert to
+    // the (now-deleted) falloff-scale knob. The falloff-scale leg died with stage 13's removal, but this
+    // leg's own subject — does halving the mesh spacing move the oracle's reported amplitude, the way a
+    // reconstruction-axis defect predicts it should — has nothing to do with that knob and stays live: a
+    // still-real check that the oracle is sensitive to the axis it exists to gate, not a check on 11a.
+    test("halving mesh spacing moves cross-section amplitude by a real, non-trivial margin", () => {
+        const doc = generateNetwork(SEED);
+        const perm = makePermutation(SEED);
+        const { segments, cutDepth } = buildNetworkGeometry(doc, SEED, DEFAULT_SMOOTH_RADIUS);
+        const falloff = computeFalloff(cutDepth);
+        const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
+
+        const rawCoarse = buildLatticeVertices(
+            SPACING,
+            CELLS,
+            segments,
+            doc.polygons,
+            falloff,
+            natural,
+        );
+        const coarse = checkSurfaceFlatness(
+            (x, z) => meshHeightAt(rawCoarse, x, z, SPACING, CELLS),
+            doc,
+        );
+
+        const fineSpacing = SPACING / 2;
+        const fineCells = CELLS * 2;
+        const rawFine = buildLatticeVertices(
+            fineSpacing,
+            fineCells,
+            segments,
+            doc.polygons,
+            falloff,
+            natural,
+        );
+        const fine = checkSurfaceFlatness(
+            (x, z) => meshHeightAt(rawFine, x, z, fineSpacing, fineCells),
+            doc,
+        );
+
+        const crossDeltaCoarse = coarse.crossSection.reduce(
+            (m, v) => Math.max(m, v.deltaFromCentre),
+            0,
+        );
+        const crossDeltaFine = fine.crossSection.reduce(
+            (m, v) => Math.max(m, v.deltaFromCentre),
+            0,
+        );
+        const crossAmpChange = Math.abs(crossDeltaFine - crossDeltaCoarse) / crossDeltaCoarse;
+
+        console.log(
+            `SURFACE_FLATNESS_MESH_RESOLUTION coarse_crossMaxDelta=${crossDeltaCoarse.toFixed(4)} fine_crossMaxDelta=${crossDeltaFine.toFixed(4)} crossAmpChange=${(crossAmpChange * 100).toFixed(1)}%`,
+        );
+
+        // measured (2026-08-18): ~19.2% — a loose floor at 5%, well below the measured reading, just
+        // ruling out "the oracle reads flat to mesh resolution changes" (the property this leg exists to
+        // rule out), not fitted tight to today's exact number.
+        expect(crossAmpChange).toBeGreaterThan(0.05);
     });
 });
 
