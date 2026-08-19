@@ -69,9 +69,10 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, the unit's 
     const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
 
     test("reads red on both axes — cross-section and longitudinal both violate", () => {
-        // measured (2026-08-18, this worktree): 25 longitudinal violations (max delta ~0.335 m against a
-        // ~0.14 m bound) and 1067 cross-section violations (max delta ~0.494 m against a ~0.0024 m bound)
-        // over 1962 total footprint samples across the network's 5 roads. Both axes read red — the
+        // measured (2026-08-18, this worktree, after the endpoint-margin fix — arc-length halfWidth, not
+        // a fraction of segment length): 34 longitudinal violations (max delta ~0.344 m against a ~0.14 m
+        // bound) and 1117 cross-section violations (max delta ~0.471 m against a ~0.0024 m bound) over
+        // 2052 total footprint samples across the network's 5 roads. Both axes read red — the
         // reconstruction-axis defect isn't confined to the longitudinal profile the way stages 6-7's own
         // (different, vertex-only) flattening oracle stayed green on.
         console.log(
@@ -126,9 +127,10 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         console.log(
             `SURFACE_FLATNESS_NO_CUT longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount}`,
         );
-        // measured (2026-08-18): 271 longitudinal violations of 1962 samples, well above the shipped
-        // pipeline's own 25 — raw undeformed relief violates the grade bound far more often than the
-        // flattened corridor does, exactly the "real signal" this control is meant to prove exists.
+        // measured (2026-08-18, after the endpoint-margin fix): 283 longitudinal violations of 2052
+        // samples, well above the shipped pipeline's own 34 — raw undeformed relief violates the grade
+        // bound far more often than the flattened corridor does, exactly the "real signal" this control is
+        // meant to prove exists.
         expect(result.longitudinal.length).toBeGreaterThan(100);
     });
 });
@@ -145,10 +147,11 @@ describe("surface flatness — discrimination (arm iv)", () => {
         console.log(
             `SURFACE_FLATNESS_FALLOFF_SCALE scale1_count=${r1.longitudinal.length} scale1_maxDelta=${d1.toFixed(4)} scale3_count=${r3.longitudinal.length} scale3_maxDelta=${d3.toFixed(4)}`,
         );
-        // measured (2026-08-18): maxDelta moves from ~0.335 m to ~0.331 m (~1.3%) across a 3x falloff
-        // widening — reproduces 11c's live-camera verdict ("it does absolutely nothing for the road
-        // stairstep issue") on this oracle's own reconstruction-axis reading. A 10% relative-change floor
-        // is loose margin against run-to-run drift, not a value fitted to today's ~1.3%.
+        // measured (2026-08-18, after the endpoint-margin fix): maxDelta moves from ~0.344 m to ~0.340 m
+        // (~1.1%) across a 3x falloff widening — reproduces 11c's live-camera verdict ("it does absolutely
+        // nothing for the road stairstep issue") on this oracle's own reconstruction-axis reading. A 10%
+        // relative-change floor is loose margin against run-to-run drift, not a value fitted to today's
+        // ~1.1%.
         expect(Math.abs(d3 - d1) / d1).toBeLessThan(0.1);
     });
 
@@ -192,13 +195,14 @@ describe("surface flatness — discrimination (arm iv)", () => {
         console.log(
             `SURFACE_FLATNESS_SPACING coarse_count=${coarse.longitudinal.length} coarse_maxDelta=${dCoarse.toFixed(4)} fine_count=${fine.longitudinal.length} fine_maxDelta=${dFine.toFixed(4)}`,
         );
-        // measured (2026-08-18): count drops (25 -> 21, fewer *steps* wide enough at Δs=SAMPLE_STEP/2 to
-        // cross the grade bound) while maxDelta *rises* (~0.335 -> ~0.404 m) — the finer lattice resolves
-        // the true crease more sharply rather than smoothing it away over a wider quad. Both readings move
-        // by double digits of a percent (>10%), unlike the falloff-scale arm above (~1.3%) — the
-        // discrimination this arm exists to show: the criterion is sensitive to the mesh-resolution axis
-        // and (per the arm above) insensitive to the falloff-width axis, matching the mechanism's own
-        // predicted asymmetry.
+        // measured (2026-08-18, after the endpoint-margin fix): count drops sharply (34 -> 21, ~38%,
+        // fewer *steps* wide enough at Δs=SAMPLE_STEP/2 to cross the grade bound) while maxDelta rises more
+        // modestly (~0.344 -> ~0.354 m, ~3%) — the finer lattice resolves the true crease more sharply
+        // rather than smoothing it away over a wider quad. The count move alone clears double digits of a
+        // percent (>10%), unlike the falloff-scale arm above (~1.1%) — the discrimination this arm exists
+        // to show survives the margin fix: the criterion is sensitive to the mesh-resolution axis and (per
+        // the arm above) insensitive to the falloff-width axis, matching the mechanism's own predicted
+        // asymmetry.
         const countChange =
             Math.abs(fine.longitudinal.length - coarse.longitudinal.length) /
             coarse.longitudinal.length;
