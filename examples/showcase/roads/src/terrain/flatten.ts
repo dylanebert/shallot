@@ -26,7 +26,7 @@ import * as std from "typegpu/std";
 import type { StrokeDocument } from "../overlay/document";
 import { SPACING } from "./grid";
 import { heightAt, makePermutation } from "./noise";
-import { buildPolylineProfile, heightAtCpu } from "./profile";
+import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
 
 // FALLOFF is no longer `= SPACING` (stage 6's choice, derived only from a capture probe's own grid
 // alignment, not a road-geometry argument). Once the profile is smoothed the cut depth at a given point
@@ -432,8 +432,23 @@ export function buildNetworkGeometry(
                 road,
             });
         }
-        for (const p of profile) {
-            cutDepth = Math.max(cutDepth, Math.abs(heightAtCpu(p.x, p.z, perm) - p.height));
+        // cutDepth measured along the chord: the chord's target height at the endpoints equals the
+        // natural height there (by construction), so the profile points themselves read zero — the
+        // actual cut lives *between* the endpoints, where natural terrain deviates from the straight
+        // chord. Sample at <= PROFILE_STEP arc-length increments (the same resolution the old resampled
+        // profile used) and measure |natural - chord_target| at each, the same formula as today.
+        const first = line.points[0];
+        const last = line.points[line.points.length - 1];
+        const chordLen = Math.hypot(last[0] - first[0], last[1] - first[1]);
+        const aH = profile[0].height;
+        const bH = profile[profile.length - 1].height;
+        const n = Math.max(1, Math.ceil(chordLen / PROFILE_STEP));
+        for (let s = 0; s <= n; s++) {
+            const t = s / n;
+            const x = first[0] + (last[0] - first[0]) * t;
+            const z = first[1] + (last[1] - first[1]) * t;
+            const chordHeight = aH + (bH - aH) * t;
+            cutDepth = Math.max(cutDepth, Math.abs(heightAtCpu(x, z, perm) - chordHeight));
         }
     }
     return { segments, cutDepth };
