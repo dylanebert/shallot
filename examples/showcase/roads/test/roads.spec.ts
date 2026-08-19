@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
+import { captureProbePoints } from "../src/overlay/network";
 
 // where every run's capture lands — a fixed, git-ignored path (`test-results/`, this project's
 // `.gitignore`) rather than a per-run timestamped name, so "the latest capture" always has one findable
@@ -202,6 +203,16 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // re-touches the boot network's on-road tile (device-free, `overlay/network.test.ts`'s "stage 14's
     // device-arm reseed seeds" pin) — a coincidental real road there would make a still-stale read pass
     // by accident.
+    //
+    // Two complementary probes, not one: the old boot network's on-road point must stop reading road
+    // (`invalidate()` actually released it), *and* the final reseeded network's own on-road point must
+    // start reading road (the swapped-in document actually queued and drained). An arm that only checked
+    // the first half passed even when `regenerate()`'s two calls ran in the wrong order — `markDirty`
+    // then `invalidate` wipes the very pending-queue entries `markDirty` just pushed, so the old road
+    // vanishes for the wrong reason (nothing ever redraws again) and the first probe alone can't tell the
+    // difference (adversarial review, 2026-08-19). The final network's on-road point is derived the same
+    // way `overlay/network.test.ts` derives its disjointness pin — real `captureProbePoints` against the
+    // real reseed seed, not a hand-picked coordinate.
     const ReseedSeedA = 111111;
     const ReseedSeedB = 222222;
 
@@ -220,32 +231,44 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
         );
     }
 
-    // the boot network's on-road world (x, z) is fixed, but its surface height isn't — the old network's
-    // flatten target is gone once the live document swaps twice, so re-derive the real generated height
-    // there (`__roadsHeightAt`) rather than reusing the stale flattened point from Phase 2.
-    const staleWorldPoint = (await page.evaluate(
-        (xz) =>
-            (
-                window as unknown as {
-                    __roadsHeightAt: (x: number, z: number) => Promise<[number, number, number]>;
-                }
-            ).__roadsHeightAt(xz[0], xz[1]),
-        [onRoad[0], onRoad[2]] as [number, number],
-    )) as [number, number, number];
+    const { onRoad: newRoad } = captureProbePoints(ReseedSeedB);
 
-    const [staleScreen] = (await page.evaluate(
+    // both probed world (x, z) are fixed, but their surface heights aren't — the old point's flatten
+    // target is gone and the new point's has just been baked — so re-derive the real generated height at
+    // each (`__roadsHeightAt`) rather than reusing Phase 2's stale flattened point.
+    const [staleWorldPoint, newRoadWorldPoint] = (await page.evaluate(
+        (points) =>
+            Promise.all(
+                points.map((xz) =>
+                    (
+                        window as unknown as {
+                            __roadsHeightAt: (
+                                x: number,
+                                z: number,
+                            ) => Promise<[number, number, number]>;
+                        }
+                    ).__roadsHeightAt(xz[0], xz[1]),
+                ),
+            ),
+        [
+            [onRoad[0], onRoad[2]],
+            [newRoad[0], newRoad[1]],
+        ] as [number, number][],
+    )) as [number, number, number][];
+
+    const [staleScreen, newRoadScreen] = (await page.evaluate(
         (points) =>
             (
                 window as unknown as {
                     __roadsProbe: (pts: [number, number, number][]) => ScreenPoint[];
                 }
             ).__roadsProbe(points),
-        [staleWorldPoint],
+        [staleWorldPoint, newRoadWorldPoint],
     )) as ScreenPoint[];
 
-    const staleScreenshot = await page.screenshot();
-    const staleCapture = await page.evaluate(
-        async ({ base64, staleScreen, offRoadScreen }) => {
+    const reseedScreenshot = await page.screenshot();
+    const reseedCapture = await page.evaluate(
+        async ({ base64, staleScreen, newRoadScreen, offRoadScreen }) => {
             const binary = atob(base64);
             const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
             const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
@@ -267,23 +290,33 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
             return {
                 staleLum: luminanceAt(staleScreen.x, staleScreen.y),
+                newRoadLum: luminanceAt(newRoadScreen.x, newRoadScreen.y),
                 offRoadLum: luminanceAt(offRoadScreen.x, offRoadScreen.y),
             };
         },
         {
-            base64: staleScreenshot.toString("base64"),
+            base64: reseedScreenshot.toString("base64"),
             staleScreen,
+            newRoadScreen,
             offRoadScreen,
         },
     );
 
-    // the same road-vs-terrain luminance ratio the Phase 2 assertion above uses, inverted: a tile still
-    // stuck with the old network's road albedo would read dark, < offRoadLum * 0.75 (asserted true for a
-    // real road, above); a correctly invalidated tile reads as bare terrain, at or above that ratio.
+    // complement 1: a tile still stuck with the old network's road albedo would read dark, < offRoadLum *
+    // 0.75 (the same ratio Phase 2 asserts true for a real road, above); a correctly invalidated tile
+    // reads as bare terrain, at or above that ratio.
     expect(
-        staleCapture.staleLum,
-        `stale boot-network on-road point ${staleCapture.staleLum.toFixed(1)} vs off-road ${staleCapture.offRoadLum.toFixed(1)} — still reads as road after two reseeds`,
-    ).toBeGreaterThanOrEqual(staleCapture.offRoadLum * 0.75);
+        reseedCapture.staleLum,
+        `stale boot-network on-road point ${reseedCapture.staleLum.toFixed(1)} vs off-road ${reseedCapture.offRoadLum.toFixed(1)} — still reads as road after two reseeds`,
+    ).toBeGreaterThanOrEqual(reseedCapture.offRoadLum * 0.75);
+
+    // complement 2: the final reseeded network's own road must actually be there — the arm this finding
+    // was missing. A `markDirty`-then-`invalidate` ordering bug passes complement 1 (the old road is gone)
+    // while failing this one (the new road never queued, so nothing redrew after the swap).
+    expect(
+        reseedCapture.newRoadLum,
+        `final-network on-road point ${reseedCapture.newRoadLum.toFixed(1)} vs off-road ${reseedCapture.offRoadLum.toFixed(1)} — doesn't read as road after the reseed that should have drawn it`,
+    ).toBeLessThan(reseedCapture.offRoadLum * 0.75);
 
     expect(errors, errors.join("\n")).toEqual([]);
 });
