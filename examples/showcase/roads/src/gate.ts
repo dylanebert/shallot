@@ -11,13 +11,7 @@ import { generateNetwork } from "./overlay/network";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { VERTEX_COUNT } from "./terrain/grid";
 import { RELIEF } from "./terrain/noise";
-import {
-    generate,
-    getSmoothRadius,
-    readVertices,
-    SEED,
-    syncNetworkForSeed,
-} from "./terrain/terrain";
+import { generate, readVertices, SEED, syncNetworkForSeed } from "./terrain/terrain";
 
 // The terrain generator's correctness gate — the seed-determinism readback the spec's Validation names
 // ("Overlay correctness"/"Rasterizer fidelity" are later stages; this stage's own arm is the height
@@ -121,7 +115,7 @@ export async function gate(): Promise<Check[]> {
     // the convergence ratio (Leg B) needs two resolutions and lives in the device-free suite.
     const liveDoc = generateNetwork(SEED);
     const deviceRaw = await readVertices();
-    const agreement = reconstructionAgreement(deviceRaw, liveDoc, SEED, getSmoothRadius());
+    const agreement = reconstructionAgreement(deviceRaw, liveDoc, SEED);
     checks.push({
         name: "surface-flatness-reconstruction-agreement",
         pass: agreement.maxDiffM <= RECONSTRUCTION_AGREEMENT_TOL,
@@ -130,7 +124,7 @@ export async function gate(): Promise<Check[]> {
 
     // the property pin: the real device's mesh reads the same out-of-zone violation counts as the
     // device-free lattice (the flatness property, not just point-by-point height fidelity).
-    const cpuRaw = buildDeviceFreeVertices(liveDoc, SEED, getSmoothRadius());
+    const cpuRaw = buildDeviceFreeVertices(liveDoc, SEED);
     const deviceResult = checkSurfaceFlatness((x, z) => meshHeightAt(deviceRaw, x, z), liveDoc);
     const cpuResult = checkSurfaceFlatness((x, z) => meshHeightAt(cpuRaw, x, z), liveDoc);
     checks.push({

@@ -6,12 +6,12 @@
 // normal reflects the flattened surface too ("affected-region remesh" — every reseed/regenerate
 // re-dispatches the whole kernel, so there's no separate patch step).
 //
-// Stage 8 (2026-08-18, road profile smoothing): the road's own *longitudinal* target height used to be a
+// Stage 8 (2026-08-18, road profile linearization): the road's own *longitudinal* target height used to be a
 // bare `heightAt` at the projected centreline point — every noise octave at the 4 m vertex scale rode
-// straight into the road surface. `terrain/profile.ts`'s {@link buildPolylineProfile} now pre-samples,
-// low-passes, and grade-limits each polyline's own elevation once per `setNetwork` call; `networkCore`
-// interpolates between the resulting control points' stored heights by the same clamped projection
-// parameter `t` it already computes, instead of re-sampling `heightAt` at every query point.
+// straight into the road surface. `terrain/profile.ts`'s {@link buildPolylineProfile} now returns one
+// straight chord per polyline; `networkCore` interpolates between its endpoint heights by the same
+// clamped projection parameter `t` it already computes, instead of re-sampling `heightAt` at every query
+// point.
 //
 // Two independently-derived cosine-ease forms (the same split `overlay/document.ts`/`overlay/rasterize.ts`
 // use for distance): {@link flattenHeight} is the CPU reference `flatten.test.ts` pins directly;
@@ -29,7 +29,7 @@ import { heightAt, makePermutation } from "./noise";
 import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
 
 // FALLOFF is no longer `= SPACING` (stage 6's choice, derived only from a capture probe's own grid
-// alignment, not a road-geometry argument). Once the profile is smoothed the cut depth at a given point
+// alignment, not a road-geometry argument). Once the profile is the straight chord the cut depth at a given point
 // can grow past what a fixed 4 m band eases gracefully — a deep cut eased back over 4 m reads as a cliff
 // wall, not a shoulder. {@link computeFalloff} re-derives it per network, from the network's own measured
 // cut depth (the largest |natural - target| the flatten pipeline actually produces this reseed) and a
@@ -96,9 +96,9 @@ export const flattenHeightGpu = tgpu.fn(
     return targetHeight + (natural - targetHeight) * ease;
 });
 
-/** one flattened profile sub-segment, GPU-side — finer than the road's own two endpoints
- *  (`terrain/profile.ts`'s `buildPolylineProfile` resamples every polyline at <= vertex-spacing arc
- *  length), each carrying its own smoothed, grade-limited elevation at `aHeight`/`bHeight` so
+/** one flattened profile sub-segment, GPU-side — the road's own two chord endpoints
+ *  (`terrain/profile.ts`'s `buildPolylineProfile` returns one straight chord per polyline), each
+ *  carrying its own natural elevation at `aHeight`/`bHeight` so
  *  `networkCore` interpolates between them instead of re-sampling `heightAt`. `road` is the owning
  *  polyline's own index in `doc.polylines` (stage 15) — segments are emitted contiguously per road
  *  (`buildNetworkGeometry`'s own per-line loop), which `networkCore` relies on to fold a road's own chain
@@ -137,7 +137,7 @@ const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
  *  half of the flatten pipeline. Segments: clamped-projection distance to the core boundary (the same
  *  clamped form `overlay/rasterize.ts`'s `segmentDistanceGpu` uses — an independent derivation from
  *  `overlay/document.ts`'s cross-product form) minus half-width, widened by {@link FLAT_CORE_MARGIN};
- *  target is the segment's own pre-smoothed profile height, linearly interpolated by the same clamped
+ *  target is the segment's own chord profile height, linearly interpolated by the same clamped
  *  projection parameter `t` the distance calculation already computes — never a fresh `heightAt` sample at
  *  the projected point (stage 8's fix: that was every noise octave riding straight into the road surface).
  *  Polygons: ray-cast winding for the sign, nearest-edge distance for the magnitude (mirrors
@@ -397,7 +397,7 @@ export interface NetworkGeometry {
 }
 
 /**
- * pure CPU builder: every polyline in `doc`, resampled into its own smoothed-profile sub-segments
+ * pure CPU builder: every polyline in `doc`, built into its own straight-chord profile segments
  * (`terrain/profile.ts`'s `buildPolylineProfile`), plus the measured cut depth — the largest
  * `|natural - target|` over every profile point this network actually produces, the real input
  * {@link computeFalloff} re-derives the falloff from (not a network-independent worst case). Deliberately
@@ -408,16 +408,12 @@ export interface NetworkGeometry {
  * profile-to-segment marshaling and the cut-depth measurement without a device — the split
  * `overlay/document.ts` uses for its own geometry math.
  */
-export function buildNetworkGeometry(
-    doc: StrokeDocument,
-    seed: number,
-    smoothRadius: number,
-): NetworkGeometry {
+export function buildNetworkGeometry(doc: StrokeDocument, seed: number): NetworkGeometry {
     const perm = makePermutation(seed);
     const segments: ProfileSegment[] = [];
     let cutDepth = 0;
     for (const [road, line] of doc.polylines.entries()) {
-        const profile = buildPolylineProfile(line.points, perm, smoothRadius);
+        const profile = buildPolylineProfile(line.points, perm);
         for (let i = 0; i < profile.length - 1; i++) {
             const a = profile[i];
             const b = profile[i + 1];
@@ -435,7 +431,7 @@ export function buildNetworkGeometry(
         // cutDepth measured along the chord: the chord's target height at the endpoints equals the
         // natural height there (by construction), so the profile points themselves read zero — the
         // actual cut lives *between* the endpoints, where natural terrain deviates from the straight
-        // chord. Sample at <= PROFILE_STEP arc-length increments (the same resolution the old resampled
+        // chord. Sample at <= PROFILE_STEP arc-length increments (the same resolution the pre-chord
         // profile used) and measure |natural - chord_target| at each, the same formula as today.
         const first = line.points[0];
         const last = line.points[line.points.length - 1];
@@ -456,17 +452,16 @@ export function buildNetworkGeometry(
 
 /** (re)build the network's GPU geometry buffers + bind group from `doc` at `seed` (the same seed the
  *  height kernel's own permutation buffer uses, so the profile's natural samples and the falloff
- *  terminus's `heightAt` agree) with `smoothRadius`'s longitudinal profile smoothing — called once at warm
- *  and again on every reseed or smoothing-strength change (`terrain.ts`'s `regenerate`/`setSmoothRadius`),
- *  since a new network or radius produces a different segment list and falloff. Mirrors
+ *  terminus's `heightAt` agree) — called once at warm and again on every reseed
+ *  (`terrain.ts`'s `regenerate`), since a new network produces a different segment list and falloff. Mirrors
  *  `overlay/rasterize.ts`'s per-tile buffer-rebuild shape, but persists across the height kernel's own
  *  dispatches instead of being rebuilt per redraw — the kernel dispatches once per reseed, not once per
  *  throttled tile. */
-export function setNetwork(doc: StrokeDocument, seed: number, smoothRadius: number): void {
+export function setNetwork(doc: StrokeDocument, seed: number): void {
     teardownNetworkBuffers();
     const { device, root } = Compute;
 
-    const { segments, cutDepth } = buildNetworkGeometry(doc, seed, smoothRadius);
+    const { segments, cutDepth } = buildNetworkGeometry(doc, seed);
     const falloff = computeFalloff(cutDepth);
     const segmentsData: readonly ProfileSegment[] =
         segments.length > 0

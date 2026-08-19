@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten";
 import { gridX, gridZ, SPACING, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
-import { DEFAULT_SMOOTH_RADIUS, PROFILE_STEP } from "../terrain/profile";
+import { PROFILE_STEP } from "../terrain/profile";
 import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
 import {
     captureProbePoints,
@@ -218,7 +218,7 @@ describe("stage 18 — non-overlap by construction: footprint disjointness over 
 
         for (let seed = 0; seed <= SeedScan; seed++) {
             const doc = generateNetwork(seed);
-            const { cutDepth } = buildNetworkGeometry(doc, seed, DEFAULT_SMOOTH_RADIUS);
+            const { cutDepth } = buildNetworkGeometry(doc, seed);
             const falloff = computeFalloff(cutDepth);
             // R1: the derived non-contamination bound — F + FCM + √2·SPACING. The generator enforces
             // this plus h = ROAD_HALF_WIDTH of slack; the arm asserts the bound itself.

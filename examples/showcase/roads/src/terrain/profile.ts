@@ -5,14 +5,10 @@
 // segment the longitudinal station `s` is an affine function of `(x, z)`, so a linear profile in `s`
 // makes the flatten target an affine function of `(x, z)` — barycentric interpolation over a triangle
 // reproduces an affine field exactly, so the in-corridor reconstruction error vanishes identically rather
-// than shrinking with cell size. The resample → box-filter → grade-limit chain this replaces (stage 8's
-// "low-pass, don't linearize") made the target a curved function of station; that curvature was the entire
-// remaining defect.
-//
-// The smoothing apparatus (`boxFilter`, `clampGrade`, `limitProfile`, `MAX_GRADE_BREAK`, the
-// `smoothRadius` plumbing) stays in place for stage 19's own deletion PR — `buildPolylineProfile` no
-// longer calls any of it. `limitProfile` in particular is exported only to keep biome's
-// `noUnusedVariables` quiet, is unreachable from production, and is deleted at stage 19.
+// than shrinking with cell size. The resample-and-limit chain this replaced (stage 8's "low-pass, don't
+// linearize") made the target a curved function of station; that curvature was the entire remaining
+// defect, and the whole apparatus was deleted at stage 19 — `buildPolylineProfile` no longer calls any
+// of it.
 //
 // Pure CPU module (the device-free split `overlay/document.ts`/`overlay/tiles.ts` use) — `heightAtCpu`
 // below is a from-scratch JS re-authoring of `noise.ts`'s TGSL `perlin2`/`fbm2`/`heightAt` (not a call
@@ -33,29 +29,10 @@ import { GROUND_LEVEL, HFREQ, LACUNARITY, OCTAVES, PERSISTENCE, RELIEF } from ".
 
 export const PROFILE_STEP = SPACING; // 4 m
 
-// Smoothing strength: a live control (`boot.ts`'s bracket-key idiom, mirroring the F9 seed control) —
-// the number of samples averaged on each side of a profile point. Not mine to pick a final value for
-// (the spec's taste handover); MIN/MAX bound the control's range, DEFAULT is the shipped starting point.
-export const MIN_SMOOTH_RADIUS = 0; // no box averaging — grade-clamp (below) still always applies
-export const MAX_SMOOTH_RADIUS = 8; // a 17-sample, ~68 m window at PROFILE_STEP
-export const DEFAULT_SMOOTH_RADIUS = 3; // a 7-sample, ~28 m window
-
 // Grade limit: AASHTO's "A Policy on Geometric Design of Highways and Streets" (the Green Book) puts 12%
 // as the practical ceiling for a low-speed local road in rolling/mountainous terrain — the steepest a real
 // road standard permits, not a value fitted to this terrain's own relief.
 export const MAX_GRADE = 0.12; // rise/run
-
-// Jitter bound: independent of MAX_GRADE, deliberately — a bound derived from the grade limit alone (via
-// the triangle inequality on two grade-bounded steps) is satisfied automatically by any profile that
-// already passes the grade check, since |Δ²h| <= |Δh_i+1| + |Δh_i| whenever both terms are individually
-// grade-bounded; that would make the jitter check redundant, never discriminating anything the grade check
-// didn't already catch. A profile that zigzags direction every sample while staying under MAX_GRADE at
-// every single step is exactly the case a rider still feels as choppy, so the standard for *this* axis is
-// the one road-design practice actually uses for it: whether a grade change needs its own vertical curve.
-// AASHTO guidance treats an algebraic grade break under about 1% as unnoticeable at low design speeds —
-// under that, no vertical curve is needed to ride smoothly; over it, the break itself reads as a bump.
-export const MAX_GRADE_BREAK = 0.01; // dimensionless — the change in grade (not the grade itself) allowed
-// between two adjacent steps, one step-pair to the next.
 
 /** the seeded permutation table's hash, mirroring `noise.ts`'s `grad2` — a from-scratch switch instead of
  *  an if-chain (a different code shape over the same 8-direction gradient set, same independent-derivation
@@ -131,91 +108,11 @@ export function heightAtCpu(x: number, z: number, perm: Uint32Array): number {
     return GROUND_LEVEL + fbm2Cpu(x * HFREQ, z * HFREQ, perm) * RELIEF;
 }
 
-/** a box filter (unweighted moving average) over `heights`, radius samples each side, clamped at the
- *  sequence's own ends (no wrap, no zero-padding — both would pull the endpoint average toward a value
- *  the profile never actually has). `radius <= 0` is a no-op copy. */
-export function boxFilter(heights: readonly number[], radius: number): number[] {
-    if (radius <= 0) return heights.slice();
-    const n = heights.length;
-    const out = new Array<number>(n);
-    for (let i = 0; i < n; i++) {
-        let sum = 0;
-        let count = 0;
-        for (let k = -radius; k <= radius; k++) {
-            const j = Math.min(n - 1, Math.max(0, i + k));
-            sum += heights[j];
-            count++;
-        }
-        out[i] = sum / count;
-    }
-    return out;
-}
-
-/**
- * grade-limit `heights` so no adjacent pair (spaced `steps[i]` metres apart, `steps.length === heights.length - 1`)
- * differs by more than `maxGrade * steps[i]` — a forward-then-backward envelope clamp (a standard
- * slope-limiting technique for a sampled profile: each pass alone is sufficient to satisfy the bound
- * against its own direction's neighbour, moving the *smaller* correction needed; running both keeps the
- * result closer to the input than either pass alone would, since each pass can only pull a point toward
- * its neighbour's own already-adjusted value). The backward pass is what fixes the final adjacent-pair
- * bound: by the time it sets `out[i]`, `out[i + 1]` is already final, so `|out[i] - out[i + 1]| <= maxDelta`
- * holds by construction for every `i`, which is exactly the grade the longitudinal oracle checks.
- * @example clampGrade([0, 10], [1], 1) // [0, 1] — a 10 m rise over 1 m (1000% grade) clipped to 100%
- */
-export function clampGrade(
-    heights: readonly number[],
-    steps: readonly number[],
-    maxGrade: number,
-): number[] {
-    const out = heights.slice();
-    for (let i = 1; i < out.length; i++) {
-        const maxDelta = maxGrade * steps[i - 1];
-        out[i] = Math.min(Math.max(out[i], out[i - 1] - maxDelta), out[i - 1] + maxDelta);
-    }
-    for (let i = out.length - 2; i >= 0; i--) {
-        const maxDelta = maxGrade * steps[i];
-        out[i] = Math.min(Math.max(out[i], out[i + 1] - maxDelta), out[i + 1] + maxDelta);
-    }
-    return out;
-}
-
-/** one profile control point: world (x, z) plus its smoothed, grade-limited height. */
+/** one profile control point: world (x, z) plus its natural terrain height. */
 export interface ProfilePoint {
     readonly x: number;
     readonly z: number;
     readonly height: number;
-}
-
-/**
- * limit a height sequence on *both* difference axes: the grade (first difference, {@link MAX_GRADE}) and
- * the grade break (second difference, {@link MAX_GRADE_BREAK}) — not one clamp on heights, which only
- * reaches the first difference. A hard height clamp that repeatedly saturates against noisy input (climb
- * to the grade cap, then immediately back down) produces exactly the sharp alternating-direction ramps the
- * grade-break axis exists to catch (measured: `flatten.test.ts`'s own longitudinal-oracle sweep, an
- * envelope-clamped-only profile failed the grade-break check on effectively every road). Working in *grade
- * space* instead fixes it: convert heights to a grade sequence, clamp its own adjacent differences with
- * the same forward-backward envelope technique {@link clampGrade} uses (grade values now play the role
- * heights did, one grade-break apart per adjacent pair), clip to the absolute grade bound, then integrate
- * back to heights anchored at the sequence's first sample.
- */
-export function limitProfile(
-    heights: readonly number[],
-    steps: readonly number[],
-    maxGrade: number,
-): number[] {
-    const grade: number[] = [];
-    for (let i = 0; i < heights.length - 1; i++) {
-        grade.push(steps[i] > 1e-9 ? (heights[i + 1] - heights[i]) / steps[i] : 0);
-    }
-    const clippedGrade = grade.map((g) => Math.max(-maxGrade, Math.min(maxGrade, g)));
-    const breakSteps = new Array(Math.max(0, clippedGrade.length - 1)).fill(1);
-    const smoothedGrade = clampGrade(clippedGrade, breakSteps, MAX_GRADE_BREAK).map((g) =>
-        Math.max(-maxGrade, Math.min(maxGrade, g)),
-    );
-
-    const out = [heights[0]];
-    for (let i = 0; i < smoothedGrade.length; i++) out.push(out[i] + smoothedGrade[i] * steps[i]);
-    return out;
 }
 
 /**
@@ -226,17 +123,11 @@ export function limitProfile(
  * function of station — affine in `(x, z)` on a straight segment — and barycentric interpolation
  * reproduces it exactly at any cell size and any road angle. `cutDepth` is measured along the chord as
  * today (`buildNetworkGeometry`'s own loop over the returned profile points).
- *
- * `radius` is retained for the `smoothRadius` plumbing (`boot.ts`'s `[`/`]` control, `terrain.ts`'s
- * `setSmoothRadius`) but is not consulted — the smoothing apparatus (`boxFilter`, `clampGrade`,
- * `limitProfile`) stays exported and tested for stage 19's own deletion PR.
  */
 export function buildPolylineProfile(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
-    radius: number,
 ): ProfilePoint[] {
-    void radius; // retained for the smoothRadius plumbing; the chord ignores it
     const first = points[0];
     const last = points[points.length - 1];
     return [
@@ -246,23 +137,19 @@ export function buildPolylineProfile(
 }
 
 /** {@link longitudinalOracle}'s verdict: whether `profile` satisfies the spec's longitudinal Validation
- *  criterion on each axis, plus the worst observed value on each for diagnostics. */
+ *  criterion, plus the worst observed grade for diagnostics. */
 export interface LongitudinalCheck {
     readonly gradeOk: boolean;
-    readonly jitterOk: boolean;
     readonly maxGrade: number;
-    readonly maxJitter: number;
 }
 
 /**
  * the longitudinal flattening oracle (spec's Validation, added by the release look, 2026-08-18): checks a
- * sampled centreline profile's first difference (grade) against {@link MAX_GRADE}, and its second
- * difference — the change *in* grade from one step-pair to the next — against {@link MAX_GRADE_BREAK}, a
- * bound independent of the grade limit itself (see the constant's own doc for why sharing one derivation
- * between the two axes would make the second check redundant). Neither bound is fitted to any one
- * network's own output. Generic over any `x, z, height` sequence, not just {@link buildPolylineProfile}'s
- * own output: this is what `flatten.test.ts`'s/`profile.test.ts`'s mutation proof runs against both the
- * smoothed profile (should pass) and a reconstruction of stage 6's raw, unsmoothed one (should fail).
+ * sampled centreline profile's first difference (grade) against {@link MAX_GRADE}. The bound is not fitted
+ * to any one network's own output. Generic over any `x, z, height` sequence, not just
+ * {@link buildPolylineProfile}'s own output: this is what `flatten.test.ts`'s/`profile.test.ts`'s mutation
+ * proof runs against both the chord profile (should pass) and a reconstruction of stage 6's raw one
+ * (should fail).
  */
 export function longitudinalOracle(profile: readonly ProfilePoint[]): LongitudinalCheck {
     const steps: number[] = [];
@@ -270,27 +157,13 @@ export function longitudinalOracle(profile: readonly ProfilePoint[]): Longitudin
         steps.push(Math.hypot(profile[i].x - profile[i - 1].x, profile[i].z - profile[i - 1].z));
     }
 
-    // signed grade, not magnitude: a V-shaped kink (steep up, then equally steep down) has identical
-    // |grade| on both sides, so an unsigned jitter check would read it as zero change — exactly the sharp
-    // direction reversal this axis exists to catch. gradeOk still checks magnitude (a limit on steepness,
-    // not direction); jitterOk needs the signed change to see a reversal at all.
-    const signedGrades: number[] = [];
     let maxGrade = 0;
     let gradeOk = true;
     for (let i = 0; i < steps.length; i++) {
         const signed = steps[i] > 1e-9 ? (profile[i + 1].height - profile[i].height) / steps[i] : 0;
-        signedGrades.push(signed);
         maxGrade = Math.max(maxGrade, Math.abs(signed));
         if (Math.abs(signed) > MAX_GRADE + 1e-9) gradeOk = false;
     }
 
-    let maxJitter = 0;
-    let jitterOk = true;
-    for (let i = 1; i < signedGrades.length; i++) {
-        const jitter = Math.abs(signedGrades[i] - signedGrades[i - 1]);
-        maxJitter = Math.max(maxJitter, jitter);
-        if (jitter > MAX_GRADE_BREAK + 1e-9) jitterOk = false;
-    }
-
-    return { gradeOk, jitterOk, maxGrade, maxJitter };
+    return { gradeOk, maxGrade };
 }

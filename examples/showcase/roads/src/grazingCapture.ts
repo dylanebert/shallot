@@ -13,7 +13,7 @@ import { generateNetwork } from "./overlay/network";
 import { detectEdgeOffset, raggedness } from "./straightness";
 import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
 import { TERRAIN_QUANT } from "./terrain/generate";
-import { getSmoothRadius, readVertices, SEED } from "./terrain/terrain";
+import { readVertices, SEED } from "./terrain/terrain";
 
 // Stage 9's discriminator — the grazing-view half. The release-look screenshot that opened this stage was
 // a hand-orbited shot; this reproduces it as a *fixed, reproducible* camera pose so the two-resolution
@@ -184,7 +184,7 @@ export async function heightSilhouette(): Promise<HeightSilhouetteResult> {
     const anchors = worldEdgeAnchors();
     const raw = await readVertices();
     const doc = generateNetwork(SEED);
-    const { cutDepth } = buildNetworkGeometry(doc, SEED, getSmoothRadius());
+    const { cutDepth } = buildNetworkGeometry(doc, SEED);
     const falloff = computeFalloff(cutDepth); // informational only — see HeightSilhouetteResult.falloffM
     const win = sideSlopeWindow(cutDepth); // what the search + threshold below actually read
 
