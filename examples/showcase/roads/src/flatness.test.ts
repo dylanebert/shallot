@@ -136,28 +136,75 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
 });
 
 describe("surface flatness — discrimination (arm iv)", () => {
-    test("falloff scale (1 vs 3) moves the reading ~not at all — the axis 11c already refuted", () => {
+    // The spec's own Validation criterion (`shallot-roads.md` stage 12) names *amplitude*, not count: "at
+    // SPACING/2 the violation amplitude moves in the mechanism's predicted direction, and across
+    // falloff-scale 1 vs 3 it moves ≈ not at all." An earlier version of these tests asserted on
+    // violation *count* instead — a population statistic that moves whenever any small geometric
+    // perturbation pushes samples across the bound, so it responds to perturbation-in-general rather than
+    // to the specific mechanism this arm exists to isolate. Measured directly (below): falloff-scale moves
+    // count by 23.5%/34.0% (longitudinal/cross-section) against mesh resolution's 38.2%/38.8% — comparable
+    // orders, no clean separation. Amplitude (maxDelta) is what actually discriminates, and cross-section
+    // is the axis where it does so cleanly; longitudinal amplitude moves the same *direction* but weakly,
+    // so it's corroboration, not a second independent discriminator.
+    //
+    // "≈ not at all" vs "moves" is read here as *at least one order of magnitude apart* — a falloff-scale
+    // effect within 10x of the mesh-resolution effect on the same statistic isn't negligible relative to
+    // it, whatever its absolute size. That threshold is chosen from the spec's own contrastive language,
+    // not fitted to today's readings (which come in at ~90x separation on cross-section amplitude, far
+    // inside the 10x bar).
+
+    test("cross-section amplitude: falloff-scale ~inert, mesh resolution moves — the primary discriminator", () => {
         const doc = generateNetwork(SEED);
         const raw1 = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS, 1);
         const raw3 = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS, 3);
         const r1 = checkSurfaceFlatness((x, z) => meshHeightAt(raw1, x, z), doc);
         const r3 = checkSurfaceFlatness((x, z) => meshHeightAt(raw3, x, z), doc);
-        const d1 = r1.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
-        const d3 = r3.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+
+        const crossDelta1 = r1.crossSection.reduce((m, v) => Math.max(m, v.deltaFromCentre), 0);
+        const crossDelta3 = r3.crossSection.reduce((m, v) => Math.max(m, v.deltaFromCentre), 0);
+        const longDelta1 = r1.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+        const longDelta3 = r3.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+
         console.log(
-            `SURFACE_FLATNESS_FALLOFF_SCALE scale1_count=${r1.longitudinal.length} scale1_maxDelta=${d1.toFixed(4)} scale3_count=${r3.longitudinal.length} scale3_maxDelta=${d3.toFixed(4)}`,
+            `SURFACE_FLATNESS_FALLOFF_SCALE scale1_longCount=${r1.longitudinal.length} scale1_longMaxDelta=${longDelta1.toFixed(4)} scale1_crossCount=${r1.crossSection.length} scale1_crossMaxDelta=${crossDelta1.toFixed(4)} scale3_longCount=${r3.longitudinal.length} scale3_longMaxDelta=${longDelta3.toFixed(4)} scale3_crossCount=${r3.crossSection.length} scale3_crossMaxDelta=${crossDelta3.toFixed(4)}`,
         );
-        // measured (2026-08-18, after the endpoint-margin fix): maxDelta moves from ~0.344 m to ~0.340 m
-        // (~1.1%) across a 3x falloff widening — reproduces 11c's live-camera verdict ("it does absolutely
-        // nothing for the road stairstep issue") on this oracle's own reconstruction-axis reading. A 10%
-        // relative-change floor is loose margin against run-to-run drift, not a value fitted to today's
-        // ~1.1%.
-        expect(Math.abs(d3 - d1) / d1).toBeLessThan(0.1);
+
+        // measured (2026-08-18, after the endpoint-margin fix): cross-section maxDelta moves ~0.2%
+        // (0.4737 -> 0.4730 m), longitudinal maxDelta ~1.1% (0.3436 -> 0.3399 m) across a 3x falloff
+        // widening — this is the arm's primary discriminator; see the paired mesh-resolution test below
+        // for the comparison that makes "~inert" meaningful (a percentage alone means nothing without the
+        // other leg to compare against).
+        expect(Math.abs(crossDelta3 - crossDelta1) / crossDelta1).toBeLessThan(0.1);
     });
 
-    test("mesh resolution (SPACING/2) moves the reading — the axis this stage is actually about", () => {
+    test("mesh resolution (SPACING/2) moves cross-section amplitude an order of magnitude more than falloff-scale — and violation count does NOT discriminate (negative result, pinned)", () => {
         const doc = generateNetwork(SEED);
         const perm = makePermutation(SEED);
+
+        // falloff-scale leg, recomputed here (cheap, same SPACING) so this test stands on its own —
+        // both legs need to sit side by side for the comparison and the count-negative-result pin.
+        const raw1 = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS, 1);
+        const raw3 = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS, 3);
+        const r1 = checkSurfaceFlatness((x, z) => meshHeightAt(raw1, x, z), doc);
+        const r3 = checkSurfaceFlatness((x, z) => meshHeightAt(raw3, x, z), doc);
+        const falloffCrossDelta1 = r1.crossSection.reduce(
+            (m, v) => Math.max(m, v.deltaFromCentre),
+            0,
+        );
+        const falloffCrossDelta3 = r3.crossSection.reduce(
+            (m, v) => Math.max(m, v.deltaFromCentre),
+            0,
+        );
+        const falloffLongDelta1 = r1.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+        const falloffLongDelta3 = r3.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+        const falloffCrossCountChange =
+            Math.abs(r3.crossSection.length - r1.crossSection.length) / r1.crossSection.length;
+        const falloffLongCountChange =
+            Math.abs(r3.longitudinal.length - r1.longitudinal.length) / r1.longitudinal.length;
+
+        // mesh-resolution leg: segments/falloff held fixed at production values (falloffScale = 1),
+        // only the reconstruction lattice's own spacing/cells vary — isolates the mesh-resolution axis
+        // from any falloff-width change (the same split the original arm used).
         const { segments, cutDepth } = buildNetworkGeometry(doc, SEED, DEFAULT_SMOOTH_RADIUS);
         const falloff = computeFalloff(cutDepth, 1);
         const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
@@ -190,24 +237,65 @@ describe("surface flatness — discrimination (arm iv)", () => {
             doc,
         );
 
-        const dCoarse = coarse.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
-        const dFine = fine.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
-        console.log(
-            `SURFACE_FLATNESS_SPACING coarse_count=${coarse.longitudinal.length} coarse_maxDelta=${dCoarse.toFixed(4)} fine_count=${fine.longitudinal.length} fine_maxDelta=${dFine.toFixed(4)}`,
+        const spacingCrossDeltaCoarse = coarse.crossSection.reduce(
+            (m, v) => Math.max(m, v.deltaFromCentre),
+            0,
         );
-        // measured (2026-08-18, after the endpoint-margin fix): count drops sharply (34 -> 21, ~38%,
-        // fewer *steps* wide enough at Δs=SAMPLE_STEP/2 to cross the grade bound) while maxDelta rises more
-        // modestly (~0.344 -> ~0.354 m, ~3%) — the finer lattice resolves the true crease more sharply
-        // rather than smoothing it away over a wider quad. The count move alone clears double digits of a
-        // percent (>10%), unlike the falloff-scale arm above (~1.1%) — the discrimination this arm exists
-        // to show survives the margin fix: the criterion is sensitive to the mesh-resolution axis and (per
-        // the arm above) insensitive to the falloff-width axis, matching the mechanism's own predicted
-        // asymmetry.
-        const countChange =
+        const spacingCrossDeltaFine = fine.crossSection.reduce(
+            (m, v) => Math.max(m, v.deltaFromCentre),
+            0,
+        );
+        const spacingLongDeltaCoarse = coarse.longitudinal.reduce(
+            (m, v) => Math.max(m, v.delta),
+            0,
+        );
+        const spacingLongDeltaFine = fine.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+        const spacingCrossCountChange =
+            Math.abs(fine.crossSection.length - coarse.crossSection.length) /
+            coarse.crossSection.length;
+        const spacingLongCountChange =
             Math.abs(fine.longitudinal.length - coarse.longitudinal.length) /
             coarse.longitudinal.length;
-        const deltaChange = Math.abs(dFine - dCoarse) / dCoarse;
-        expect(Math.max(countChange, deltaChange)).toBeGreaterThan(0.1);
+
+        console.log(
+            `SURFACE_FLATNESS_SPACING coarse_longCount=${coarse.longitudinal.length} coarse_longMaxDelta=${spacingLongDeltaCoarse.toFixed(4)} coarse_crossCount=${coarse.crossSection.length} coarse_crossMaxDelta=${spacingCrossDeltaCoarse.toFixed(4)} fine_longCount=${fine.longitudinal.length} fine_longMaxDelta=${spacingLongDeltaFine.toFixed(4)} fine_crossCount=${fine.crossSection.length} fine_crossMaxDelta=${spacingCrossDeltaFine.toFixed(4)}`,
+        );
+
+        const falloffCrossAmpChange =
+            Math.abs(falloffCrossDelta3 - falloffCrossDelta1) / falloffCrossDelta1;
+        const spacingCrossAmpChange =
+            Math.abs(spacingCrossDeltaFine - spacingCrossDeltaCoarse) / spacingCrossDeltaCoarse;
+        const falloffLongAmpChange =
+            Math.abs(falloffLongDelta3 - falloffLongDelta1) / falloffLongDelta1;
+        const spacingLongAmpChange =
+            Math.abs(spacingLongDeltaFine - spacingLongDeltaCoarse) / spacingLongDeltaCoarse;
+
+        // measured (2026-08-18, after the endpoint-margin fix): cross-section amplitude moves ~19.2%
+        // under SPACING/2 against falloff-scale's own ~0.2% on the same statistic — an order of
+        // magnitude the "≈ not at all" vs "moves" bar (defined above) reads as a real discrimination,
+        // not noise on either side.
+        expect(falloffCrossAmpChange * 10).toBeLessThan(spacingCrossAmpChange);
+
+        // longitudinal amplitude moves the same *direction* (falloff-scale smaller than mesh
+        // resolution) but weakly — ~1.1% vs ~3.1%, roughly 3x apart, not the order-of-magnitude split
+        // cross-section shows. Asserted only as a directional ordering, per the coordinator's own
+        // read: "1.1% vs 3.1% is not a clean split" — this is corroboration that the direction is
+        // right, not a second independent discriminator standing on its own.
+        expect(falloffLongAmpChange).toBeLessThan(spacingLongAmpChange);
+
+        // Negative result, pinned so a later stage (13's removal gate, 15's fix gate) can't cite
+        // violation *count* as a comparable-across-treatments reading the way this arm's own history
+        // briefly did: on both axes, falloff-scale's count change sits within ~15 percentage points of
+        // mesh-resolution's own count change (23.5% vs 38.2% longitudinal, 34.0% vs 38.8%
+        // cross-section) — the same population-noise ballpark as the treatment's own effect, not an
+        // order of magnitude apart the way amplitude is. 20 points is a coarse "same ballpark" bound,
+        // chosen because it is far short of the multiplicative order-of-magnitude gap amplitude shows
+        // above (a 20-point *absolute* gap on a same-order base is nowhere near a 10x *relative* one) —
+        // if this ever tightens to a real order-of-magnitude gap, count would have become a
+        // discriminator after all and this assertion should fail loudly, not be widened to keep it
+        // green.
+        expect(Math.abs(falloffLongCountChange - spacingLongCountChange)).toBeLessThan(0.2);
+        expect(Math.abs(falloffCrossCountChange - spacingCrossCountChange)).toBeLessThan(0.2);
     }, 20_000);
 });
 
