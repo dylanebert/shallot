@@ -4,6 +4,7 @@ import { generateNetwork } from "../overlay/network";
 import {
     buildNetworkGeometry,
     computeFalloff,
+    FALLOFF_SAMPLE_SEGMENTS,
     flattenHeight,
     flattenHeightGpu,
     flattenWgsl,
@@ -115,16 +116,20 @@ describe("flattenedHeightAt — degenerate empty network", () => {
     });
 });
 
-describe("computeFalloff — the re-derived FALLOFF (stage 8)", () => {
-    test("floors at SPACING when the cut depth is zero — a transition narrower than the mesh can't resolve", () => {
-        expect(computeFalloff(0)).toBe(SPACING);
-        expect(computeFalloff(-5)).toBe(SPACING); // a negative cut depth is nonsensical input, still floors
+describe("computeFalloff — the re-derived FALLOFF (stage 8), sampling floor (stage 11)", () => {
+    test("floors at FALLOFF_SAMPLE_SEGMENTS * SPACING when the cut depth is zero — a transition narrower\n     than the mesh's own reconstruction can't read as a curve", () => {
+        expect(computeFalloff(0)).toBe(FALLOFF_SAMPLE_SEGMENTS * SPACING);
+        expect(computeFalloff(-5)).toBe(FALLOFF_SAMPLE_SEGMENTS * SPACING); // nonsensical input, still floors
+    });
+
+    test("the sampling floor is strictly wider than the old one-quad floor it replaces", () => {
+        expect(FALLOFF_SAMPLE_SEGMENTS * SPACING).toBeGreaterThan(SPACING);
     });
 
     test("past the floor, the cosine ease's peak slope equals SIDE_SLOPE_LIMIT by construction", () => {
-        for (const cutDepth of [1, 4, 10, 40]) {
+        for (const cutDepth of [10, 40, 100]) {
             const falloff = computeFalloff(cutDepth);
-            expect(falloff).toBeGreaterThan(SPACING);
+            expect(falloff).toBeGreaterThan(FALLOFF_SAMPLE_SEGMENTS * SPACING);
             // flattenHeight's ease derivative peaks at coreDist = falloff / 2 (t = 0.5): d/dCoreDist of
             // targetHeight + (natural - targetHeight) * (0.5 - 0.5 cos(pi t)), t = coreDist / falloff.
             const eps = 1e-4;
@@ -137,8 +142,48 @@ describe("computeFalloff — the re-derived FALLOFF (stage 8)", () => {
     });
 
     test("monotone in cut depth — a deeper cut always widens the transition, never narrows it", () => {
-        expect(computeFalloff(20)).toBeGreaterThan(computeFalloff(10));
-        expect(computeFalloff(10)).toBeGreaterThan(computeFalloff(5));
+        expect(computeFalloff(80)).toBeGreaterThan(computeFalloff(40));
+        expect(computeFalloff(40)).toBeGreaterThan(computeFalloff(20));
+    });
+
+    test("scale multiplies the derived result — the live handover's own entry point", () => {
+        expect(computeFalloff(0, 2)).toBe(computeFalloff(0) * 2);
+        expect(computeFalloff(40, 1.5)).toBe(computeFalloff(40) * 1.5);
+        expect(computeFalloff(0)).toBe(computeFalloff(0, 1)); // default scale is a no-op
+    });
+});
+
+describe("FALLOFF_SAMPLE_SEGMENTS — the sampling-derived floor's own justification", () => {
+    // The observable this pins: sampling flattenHeight's own ease at N+1 evenly spaced vertex positions
+    // and reading the sign pattern of the piecewise-linear reconstruction's slopes. This is the property
+    // FALLOFF_SAMPLE_SEGMENTS is chosen to guarantee, not the ease formula's arithmetic restated.
+    function sampledSlopes(segments: number, falloff: number): number[] {
+        const step = falloff / segments;
+        const heights: number[] = [];
+        for (let i = 0; i <= segments; i++) {
+            heights.push(flattenHeight(1, 0, i * step, falloff)); // natural=1, target=0
+        }
+        const slopes: number[] = [];
+        for (let i = 0; i < segments; i++) slopes.push(heights[i + 1] - heights[i]);
+        return slopes;
+    }
+
+    test("at 2 segments the sampled slopes are identical — the ease's own point symmetry collapses the\n     reconstruction to a straight line, indistinguishable from no easing at all", () => {
+        const slopes = sampledSlopes(2, TEST_FALLOFF);
+        expect(slopes.length).toBe(2);
+        expect(slopes[0]).toBeCloseTo(slopes[1], 10);
+    });
+
+    test("at FALLOFF_SAMPLE_SEGMENTS (4) each of the ease's two monotone arcs gets its own interior\n     sample, so both arcs individually show non-constant slope rather than just the whole curve", () => {
+        const slopes = sampledSlopes(FALLOFF_SAMPLE_SEGMENTS, TEST_FALLOFF);
+        expect(slopes.length).toBe(4);
+        // arc 1 (segments 0-1, t in [0, 0.5]) and arc 2 (segments 2-3, t in [0.5, 1]) each split into two
+        // sub-segments with different slopes — the concave arc's own curvature and the convex arc's own
+        // curvature both register, not just an asymmetry between the halves.
+        expect(Math.abs(slopes[1] - slopes[0])).toBeGreaterThan(1e-6); // arc 1 shows curvature on its own
+        expect(Math.abs(slopes[3] - slopes[2])).toBeGreaterThan(1e-6); // arc 2 shows curvature on its own
+        expect(slopes[0]).toBeCloseTo(slopes[3], 10); // point-symmetric about the midpoint, as expected
+        expect(slopes[1]).toBeCloseTo(slopes[2], 10);
     });
 });
 
