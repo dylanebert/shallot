@@ -273,6 +273,8 @@
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
+        "@types/pngjs": "^6.0.5",
+        "pngjs": "^7.0.0",
       },
     },
     "examples/showcase/sandbox": {

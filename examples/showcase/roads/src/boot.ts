@@ -2,7 +2,12 @@ import type { Plugin, System } from "@dylanebert/shallot";
 import { Meshes } from "@dylanebert/shallot/render/core";
 import { capturePoints, type ScreenPoint, TRANSITION_TOLERANCE_PX, worldToScreen } from "./capture";
 import { gate } from "./gate";
-import { type GrazingAnchor, grazingCapture } from "./grazingCapture";
+import {
+    type GrazingAnchor,
+    grazingCapture,
+    type HeightSilhouetteResult,
+    heightSilhouette,
+} from "./grazingCapture";
 import type { Check } from "./harness";
 import { DIST_RANGE, TILE_RES } from "./overlay/tiles";
 import { SPACING } from "./terrain/grid";
@@ -41,6 +46,10 @@ declare global {
         // same bridge-only shape as the rest of this file: `test/straightness.spec.ts` never imports
         // engine/ECS code directly, only reads this window global.
         __roadsGrazingCapture?: () => Promise<{ anchors: GrazingAnchor[] }>;
+        // stage 10's corrected straightness criterion (`grazingCapture.ts`'s `heightSilhouette`) — the
+        // same anchors, but the world-space height axis instead of the screen-space albedo edge. No camera
+        // pose to set up first, unlike `__roadsGrazingCapture` above.
+        __roadsHeightSilhouette?: () => Promise<HeightSilhouetteResult>;
         // the live mesh/atlas resolution constants under test — read by `test/straightness.spec.ts` so the
         // two-resolution reading is self-labeling rather than trusting whatever the driver assumed was
         // edited before the run.
@@ -67,6 +76,7 @@ const BootSystem: System = {
         window.__roadsTransitionTolerancePx = TRANSITION_TOLERANCE_PX;
         window.__roadsSmoothRadius = () => getSmoothRadius();
         window.__roadsGrazingCapture = () => grazingCapture();
+        window.__roadsHeightSilhouette = () => heightSilhouette();
         window.__roadsMeshParams = { spacing: SPACING, tileRes: TILE_RES, distRange: DIST_RANGE };
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `[`/`]` step the longitudinal smoothing radius (`terrain/profile.ts`'s box-filter
@@ -98,6 +108,7 @@ const BootSystem: System = {
         delete window.__roadsTransitionTolerancePx;
         delete window.__roadsSmoothRadius;
         delete window.__roadsGrazingCapture;
+        delete window.__roadsHeightSilhouette;
         delete window.__roadsMeshParams;
     },
 };
