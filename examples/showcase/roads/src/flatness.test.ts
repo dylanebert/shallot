@@ -557,7 +557,13 @@ describe("surface flatness — stage 18 arm (c): hand-built overlapping pair sta
         expect(result.maxCrossSectionExcess).toBeGreaterThan(0.1);
     });
 
-    test("non-zero at SPACING/2 — amplitude roughly half of SPACING (convergence), still clearly above zero", () => {
+    // Resolution-INDEPENDENT by measurement, not converging: 728 / 0.31385 m at SPACING and
+    // 728 / 0.29993 m at SPACING/2 (stage 20). The contamination is a property of the non-affine
+    // blended field, so refining the mesh does not reduce it — and 728 is the whole cross-section
+    // comparison population (182 stations × 2 edge lines × 2 roads), so the COUNT sits at its
+    // ceiling and can only fall. Amplitude is the discriminating statistic here; the count's job is
+    // amputation detection (a shrinking population reads below 728).
+    test("non-zero at SPACING/2 — resolution-independent amplitude, still clearly above zero", () => {
         const fineSpacing = SPACING / 2;
         const fineCells = CELLS * 2;
         const raw = buildLatticeVertices(
