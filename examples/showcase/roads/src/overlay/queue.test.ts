@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { documentDirtyTiles } from "./document";
 import { generateNetwork } from "./network";
-import { allocate, drain } from "./queue";
+import { allocate, drain, invalidate } from "./queue";
 import { ATLAS_LAYERS, THROTTLE, TILE_COUNT } from "./tiles";
 
 describe("drain — the per-frame throttle", () => {
@@ -113,5 +113,56 @@ describe("allocate — atlas layer assignment", () => {
         }
         expect(overflowed.seed).toBeLessThanOrEqual(SeedBudget);
         expect(nextLayer).toBe(ATLAS_LAYERS); // every real layer got spent before the real throw fired
+    });
+});
+
+describe("invalidate — the atlas's document-swap reset", () => {
+    test("releases every resident tile, restarts the layer counter, and drops anything still queued", () => {
+        const cpu = new Int32Array(8).fill(-1);
+        allocate(cpu, 3, 0, 8);
+        const b = allocate(cpu, 5, 1, 8);
+        expect(cpu[3]).toBe(0);
+        expect(cpu[5]).toBe(1);
+        const pending = [6, 7];
+        const pendingSet = new Set(pending);
+
+        const nextLayer = invalidate(cpu, pending, pendingSet);
+
+        expect(nextLayer).toBe(0);
+        expect(Array.from(cpu)).toEqual(new Array(8).fill(-1));
+        expect(pending).toEqual([]);
+        expect(pendingSet.size).toBe(0);
+        // the freed layer is immediately reusable, not skipped as if still owned
+        expect(allocate(cpu, 3, nextLayer, 8)).toEqual({ layer: 0, nextLayer: 1 });
+        expect(b.layer).toBe(1); // sanity: the pre-invalidate assignment really did use layer 1
+    });
+
+    // The regression this closes: `terrain.ts`'s `regenerate` used to call `markDirty` on the swapped-in
+    // document without first releasing the outgoing document's resident layers, so repeated F9 presses
+    // accumulated layers across reseeds — the "real cumulative reseeds" test above shows that unfixed path
+    // overflowing on real generator output (found by seed ~4 in a from-empty scan; a probe against the
+    // boot seed 1337 plus sequential reseeds throws by the 3rd swap, `git log`'s red-first evidence for
+    // this stage). `regenerate` now calls `overlayAtlas.invalidate()` before `markDirty` — this drives that
+    // exact fixed shape (reset, then allocate) against hundreds of real reseeds and asserts it never
+    // breaches ATLAS_LAYERS, since invalidation means only the *current* document's own footprint is ever
+    // resident at once, and `tiles.ts` sizes ATLAS_LAYERS well past any single network's footprint.
+    test("real reseeds through the fixed invalidate-before-mark order never breach ATLAS_LAYERS", () => {
+        const cpu = new Int32Array(TILE_COUNT).fill(-1);
+        const pending: number[] = [];
+        const pendingSet = new Set<number>();
+        let nextLayer = 0;
+        let maxNextLayer = 0;
+
+        for (let seed = 0; seed <= 500; seed++) {
+            nextLayer = invalidate(cpu, pending, pendingSet); // atlas.ts's swap invalidation, run first
+            const ids = documentDirtyTiles(generateNetwork(seed));
+            for (const id of ids) {
+                nextLayer = allocate(cpu, id, nextLayer, ATLAS_LAYERS).nextLayer; // never throws post-fix
+            }
+            maxNextLayer = Math.max(maxNextLayer, nextLayer);
+        }
+
+        expect(maxNextLayer).toBeLessThanOrEqual(ATLAS_LAYERS);
+        expect(maxNextLayer).toBeGreaterThan(0); // sanity: reseeds actually allocated something
     });
 });
