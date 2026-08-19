@@ -481,7 +481,7 @@ describe("surface flatness — stage 17 arm (b): chord over overlapping generate
         // band: well above zero, not fitted to the exact reading (scoping: 99 / 0.23559 m).
         // The amplitude is the discriminating statistic — it sat still at 0.2373 → 0.2356 m across the
         // smoothed → chord profile swap, proving the chord removed the non-junction reconstruction error
-        // (count fell 362 → 96) without touching the overlap contamination (amplitude stayed).
+        // (count fell 362 → 99) without touching the overlap contamination (amplitude stayed).
         expect(result.crossSection.length).toBeGreaterThan(50);
         expect(result.maxCrossSectionExcess).toBeGreaterThan(0.1);
     });
