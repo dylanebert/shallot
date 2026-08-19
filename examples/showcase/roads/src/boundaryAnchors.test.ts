@@ -94,22 +94,18 @@ describe("worldEdgeAnchors — the analytic road-edge anchors the height-axis in
 });
 
 // Stage 11b: stage 10's `heightSilhouette` scanned and anchored on `computeFalloff(cutDepth)` directly —
-// the AASHTO side-slope term maxed with a mesh-sampling floor (`SPACING` on 11b's own branch;
-// `FALLOFF_SAMPLE_SEGMENTS * SPACING` once 11a's floor rebases in) — so a wider floor widened the search
-// window into raw terrain *and* moved the threshold anchor, with no change on the ground either was
+// the AASHTO side-slope term maxed with a mesh-sampling floor (`SPACING`) — so a wider floor widened the
+// search window into raw terrain *and* moved the threshold anchor, with no change on the ground either was
 // supposed to measure. `sideSlopeWindow` is the AASHTO term alone, upstream of any floor.
 describe("sideSlopeWindow — the decoupled measurement window", () => {
-    test("stays put on today's real network even though 11a's floor now binds computeFalloff", () => {
-        // 2.976 is this network's real measured cut depth (spec Live log, stage 11b), written against
-        // 11b's own branch where the shipped floor was a bare SPACING (4 m) and didn't bind here — this
-        // test predates 11a's floor rebasing in. 11a's floor (FALLOFF_SAMPLE_SEGMENTS * SPACING = 16 m)
-        // exceeds the AASHTO term (14.024 m) at this cut depth, so computeFalloff now binds on the floor
-        // — exactly the case sideSlopeWindow exists to stay clear of. It does: the window is still the
-        // bare AASHTO term, unmoved, strictly narrower than computeFalloff's floored output.
+    test("agrees exactly with computeFalloff on today's real network — the floor is inert here", () => {
+        // 2.976 is this network's real measured cut depth (spec Live log, stage 11b). computeFalloff's
+        // floor is bare SPACING (4 m, stage 13's revert), well below the AASHTO term (14.026 m) at this
+        // cut depth, so the floor never binds and the two functions read the same number.
         const cutDepth = 2.976;
-        expect(computeFalloff(cutDepth)).toBeCloseTo(16, 6);
-        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(14.026, 2); // spec's recorded falloffM/windowM, pre-11a
-        expect(sideSlopeWindow(cutDepth)).toBeLessThan(computeFalloff(cutDepth));
+        expect(computeFalloff(cutDepth)).toBeCloseTo(14.026, 2);
+        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(14.026, 2); // spec's recorded falloffM/windowM
+        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(computeFalloff(cutDepth), 6);
     });
 
     test("is exactly the AASHTO formula, with no floor term at all", () => {
@@ -123,42 +119,17 @@ describe("sideSlopeWindow — the decoupled measurement window", () => {
     test("zero cut depth gives a zero window — no floor to fall back on", () => {
         expect(sideSlopeWindow(0)).toBe(0);
     });
-
-    // Guards the cost of the decoupling, not just its benefit. `heightSilhouette` anchors ground truth at
-    // `heightMidpointAnchor(a, sideSlopeWindow(cutDepth))`, i.e. at half the *window*; the real cosine ease
-    // reaches its midpoint at half `computeFalloff`'s *output*. While no floor binds those are the same
-    // point. Once one binds they separate, reintroducing stage 10's anchor-offset bias at reduced
-    // magnitude — outward, so it inflates the reading and scores a floor against itself. This pins the
-    // magnitude so `sideSlopeWindow`'s docstring cannot drift from the code, and so a future floor
-    // derivation cannot widen the gap silently.
-    test("a bound floor offsets the ground-truth anchor by half the floor's excess", () => {
-        const cutDepth = 2.976; // today's real network
-        const window = sideSlopeWindow(cutDepth);
-        const real = computeFalloff(cutDepth);
-        expect(real).toBeGreaterThan(window); // precondition: the floor actually binds here
-
-        const a = worldEdgeAnchors()[0];
-        const anchored = heightMidpointAnchor(a, window);
-        const truth = heightMidpointAnchor(a, real);
-        const offset = Math.hypot(truth.mx - anchored.mx, truth.mz - anchored.mz);
-
-        expect(offset).toBeCloseTo((real - window) / 2, 9);
-        expect(offset).toBeCloseTo(0.988, 3); // the docstring's number, derived not fitted
-    });
 });
 
-// The flat-across-an-inert-treatment arm, run CPU-side against a synthetic straight edge. Written on 11b's
-// branch when 11a's concrete floor derivation (`FALLOFF_SAMPLE_SEGMENTS * SPACING`) was still unshipped and
-// unportable; 11a has since rebased in, so that floor is live here. The generic form below is kept
-// deliberately: it models the *class* of defect (any floor derivation), which is the durable statement, and
-// the live 16 m case is pinned separately above. What it proves: `computeFalloff`'s own shape is
-// `max(floor, AASHTO(cutDepth))` for *some* floor value — stage 10's instrument reads whatever that max
-// produces. `coupled` below reconstructs exactly that shape, generic in `floor`, to model the *class* of
-// defect (any floor derivation), not 11a's specific one. The synthetic edge's true transition is built
-// from the real `flattenHeight` at a *fixed* embedded width (`TRUE_WINDOW`, matching production's
-// `sideSlopeWindow(2.976)`) — the "boundary" here is a fixed array of sampled heights, so a floor value
-// that only feeds `couple`'s own `Math.max` (never the sampler) provably cannot move it. Any reading
-// swing as `floor` varies is the instrument, not the road.
+// The flat-across-an-inert-treatment arm, run CPU-side against a synthetic straight edge. Predates 11a
+// (written on 11b's branch, when 11a's own floor derivation was still unshipped) and outlives it (11a's
+// concrete floor was removed at stage 13) — kept deliberately generic: it models the *class* of defect
+// (any floor derivation binding against `computeFalloff`'s `max(floor, AASHTO(cutDepth))` shape), which is
+// the durable statement, not any one floor's own number. `coupled` below reconstructs that shape, generic
+// in `floor`. The synthetic edge's true transition is built from the real `flattenHeight` at a *fixed*
+// embedded width (`TRUE_WINDOW`, matching production's `sideSlopeWindow(2.976)`) — the "boundary" here is
+// a fixed array of sampled heights, so a floor value that only feeds `couple`'s own `Math.max` (never the
+// sampler) provably cannot move it. Any reading swing as `floor` varies is the instrument, not the road.
 describe("flat-across-an-inert-treatment: a floor change moves the coupled window, not the boundary", () => {
     const TrueCutDepth = 2.976;
     const TrueWindow = sideSlopeWindow(TrueCutDepth); // 14.026 — the synthetic edge's real, fixed width

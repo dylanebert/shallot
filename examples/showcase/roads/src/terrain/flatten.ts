@@ -43,55 +43,13 @@ import { buildPolylineProfile, heightAtCpu } from "./profile";
 // `D·(π/2)/F`. Solving for `F` at the side-slope limit gives the derivation below.
 export const SIDE_SLOPE_LIMIT = 1 / 3; // AASHTO Roadside Design Guide, 1V:3H, rise/run
 
-// Stage 11 (2026-08-18): the previous floor, a bare `SPACING`, was one quad wide — the mesh only carries a
-// height *value* at each vertex and linearly interpolates between them, so a falloff one quad wide has
-// exactly one interior region and reads as a straight-line ramp between two heights, not a cosine. That's
-// the root cause stage 9 traced the metre-scale staircase to.
-//
-// How many vertices does the transition need before its piecewise-linear reconstruction can even *look*
-// like the cosine ease rather than a plain ramp? Any 2-point chord is a straight line by definition, so a
-// single segment across a curved arc can never register that the arc bows away from its own endpoints —
-// revealing an arc's curvature needs an interior sample point splitting it into (at least) two
-// sub-segments. The ease `0.5 - 0.5·cos(π·t)` is exactly two such arcs, concave on `t ∈ [0, 0.5]` and
-// convex on `t ∈ [0.5, 1]`, meeting at the single inflection its own point symmetry locates at `t = 0.5`
-// (`ease(t) + ease(1 - t) = 1` for every `t`, since `cos(π·t)` and `cos(π - π·t) = -cos(π·t)` cancel —
-// which is also *why* a coarser, 2-segment sampling fails outright: its only interior point sits exactly
-// on that symmetric midpoint, where `ease(0.5) = 0.5` lands precisely on the endpoint-to-endpoint chord,
-// so both segments measure the same slope and the reconstruction is indistinguishable from a bare linear
-// ramp — proven directly, not just for this cosine, by the identity above).
-//
-// Applying "an arc needs an interior sample to show it isn't straight" to each of the two monotone arcs
-// separately — not just to the whole curve — takes two sub-segments per arc, four total. `flatten.test.ts`
-// pins this as an observable property of {@link flattenHeight}'s own sampled output (each arc's sampled
-// slopes differ from each other), not the arithmetic restated.
-export const FALLOFF_SAMPLE_SEGMENTS = 4;
-
-// The stage's live handover (spec Approach, stage 11): a wider falloff is a visible look change — roads
-// sit in visibly wider cuttings — and that width is a taste call inside a locked technique
-// (`taste.md` row 2), the same shape as stage 8's smoothing radius. `scale` is the live control's own
-// entry point: it multiplies the *result* of the two derived constraints above, never substitutes for
-// either, so `MIN_FALLOFF_SCALE = 1` (`terrain.ts`'s `setFalloffScale` clamp) can never narrow the
-// transition below what either constraint demands — only widen it further, which is the only direction a
-// taste call over this parameter has room to move without contradicting the derivations.
-export const MIN_FALLOFF_SCALE = 1;
-export const MAX_FALLOFF_SCALE = 3; // an arbitrary live-control ceiling, not a derived bound — 3x the
-// technique's own derived width is well past where a cutting reads as a road rather than a valley
-export const DEFAULT_FALLOFF_SCALE = 1; // ships at the derived width itself, not a verdict
-
 /** the falloff distance (metres) whose cosine-ease transition peaks at exactly {@link SIDE_SLOPE_LIMIT}
- *  for a cut of `cutDepth` metres — floored at the max of two independently justified constraints on the
- *  same quantity: {@link FALLOFF_SAMPLE_SEGMENTS} × {@link SPACING} (a transition narrower than that can't
- *  be resolved by the heightfield's own piecewise-linear reconstruction, regardless of what the AASHTO
- *  slope term asks for) and the AASHTO side-slope term below (the slope a driver survives). AASHTO sets
- *  the width the road demands; sampling sets the width the mesh can represent — whichever is wider wins.
- *  `scale` is the live handover's own multiplier on top of both, defaulting to 1 (untouched).
- * @example computeFalloff(0) // FALLOFF_SAMPLE_SEGMENTS * SPACING — no cut, the sampling floor wins
- * @example computeFalloff(40) // (Math.PI / 2) * 40 / SIDE_SLOPE_LIMIT, well past either floor */
-export function computeFalloff(cutDepth: number, scale = 1): number {
-    return (
-        Math.max(FALLOFF_SAMPLE_SEGMENTS * SPACING, ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT) *
-        scale
-    );
+ *  for a cut of `cutDepth` metres — floored at {@link SPACING}, since a transition narrower than the mesh's
+ *  own vertex spacing can't be resolved by the heightfield regardless of what the formula asks for.
+ * @example computeFalloff(0) // SPACING — no cut, the floor wins
+ * @example computeFalloff(4) // (Math.PI / 2) * 4 / SIDE_SLOPE_LIMIT, well past the floor */
+export function computeFalloff(cutDepth: number): number {
+    return Math.max(SPACING, ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT);
 }
 
 /** cosine-eased blend from `target` (the flattened plateau, at `coreDist <= 0`) out to `natural`
@@ -347,20 +305,13 @@ export function buildNetworkGeometry(
  *  since a new network or radius produces a different segment list and falloff. Mirrors
  *  `overlay/rasterize.ts`'s per-tile buffer-rebuild shape, but persists across the height kernel's own
  *  dispatches instead of being rebuilt per redraw — the kernel dispatches once per reseed, not once per
- *  throttled tile. `falloffScale` is the live handover's own multiplier ({@link computeFalloff}'s `scale`
- *  argument, `terrain.ts`'s `setFalloffScale`) — defaults to 1 (untouched) for every caller that doesn't
- *  pass one. */
-export function setNetwork(
-    doc: StrokeDocument,
-    seed: number,
-    smoothRadius: number,
-    falloffScale = 1,
-): void {
+ *  throttled tile. */
+export function setNetwork(doc: StrokeDocument, seed: number, smoothRadius: number): void {
     teardownNetworkBuffers();
     const { device, root } = Compute;
 
     const { segments, cutDepth } = buildNetworkGeometry(doc, seed, smoothRadius);
-    const falloff = computeFalloff(cutDepth, falloffScale);
+    const falloff = computeFalloff(cutDepth);
     const segmentsData: readonly ProfileSegment[] =
         segments.length > 0
             ? segments

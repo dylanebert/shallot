@@ -38,12 +38,12 @@ import { getSmoothRadius, readVertices, SEED } from "./terrain/terrain";
 // camera's projection of it — the same reason it needs no camera pose at all.
 //
 // Stage 11b: stage 10's window and threshold scanned `computeFalloff(cutDepth)` directly — the real
-// rendered transition width, floor included — so widening the floor (11a's still-unshipped deliverable)
-// widened the search window and moved the threshold with no real change on the ground, making the reading
-// non-comparable across two floor derivations (spec Approach, stage 11b; `boundaryAnchors.ts`'s
-// `sideSlopeWindow` doc comment has the full argument). `heightSilhouette` below now scans and anchors on
-// `sideSlopeWindow(cutDepth)` instead — a pure function of the network's own measured cut, upstream of any
-// floor — and reports the real `computeFalloff` output separately, as `falloffM`, for evidence only.
+// rendered transition width, floor included — so widening the floor widened the search window and moved
+// the threshold with no real change on the ground, making the reading non-comparable across two floor
+// derivations (spec Approach, stage 11b; `boundaryAnchors.ts`'s `sideSlopeWindow` doc comment has the full
+// argument). `heightSilhouette` below now scans and anchors on `sideSlopeWindow(cutDepth)` instead — a
+// pure function of the network's own measured cut, upstream of any floor — and reports the real
+// `computeFalloff` output separately, as `falloffM`, for evidence only.
 
 const TARGET_T = 0.08; // fraction along the road from its start — near one end, so the far ~90% recedes
 const PITCH = 0.06; // radians (~3.4°) — near-horizontal, the grazing angle itself
@@ -172,9 +172,9 @@ const STEPS_PER_M = 8; // sub-decimetre crossing resolution — cheap at this an
  *  terrain; the deviation from that ground-truth midpoint is the height-silhouette offset, in world
  *  metres. Stage 10's version scanned and anchored on `computeFalloff`'s output directly, which bundles
  *  the AASHTO side-slope term with a mesh-sampling floor denominated in `SPACING` — so widening that floor
- *  (11a's still-unshipped deliverable) widened the search window into raw terrain *and* moved the
- *  threshold, without a real change on the ground the window was supposed to measure (spec Approach, stage
- *  11b). `sideSlopeWindow` is a pure function of `cutDepth` alone, upstream of the floor entirely, so a
+ *  widened the search window into raw terrain *and* moved the threshold, without a real change on the
+ *  ground the window was supposed to measure (spec Approach, stage 11b). `sideSlopeWindow` is a pure
+ *  function of `cutDepth` alone, upstream of the floor entirely, so a
  *  floor change can't reach either the window or the threshold — the property that makes two falloff
  *  floors comparable. `computeFalloff`'s real output still rides along as `falloffM`, informational only.
  *  `raggedness` (`straightness.ts`) aggregates the same way stage 9's screen-space instrument did; what

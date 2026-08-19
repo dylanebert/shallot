@@ -21,13 +21,7 @@ import * as overlayAtlas from "../overlay/atlas";
 import type { StrokeDocument } from "../overlay/document";
 import { generateNetwork } from "../overlay/network";
 import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
-import {
-    DEFAULT_FALLOFF_SCALE,
-    MAX_FALLOFF_SCALE,
-    MIN_FALLOFF_SCALE,
-    setNetwork,
-    warmNetwork,
-} from "./flatten";
+import { setNetwork, warmNetwork } from "./flatten";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
 import {
     GridIndices,
@@ -187,10 +181,6 @@ const EMPTY_DOCUMENT: StrokeDocument = { polylines: [], polygons: [] };
 // the spec's taste handover: a live control (`boot.ts`'s bracket-key idiom), not a value baked in and
 // declared good. `setSmoothRadius` below is the control's own entry point.
 let smoothRadius = DEFAULT_SMOOTH_RADIUS;
-// stage 11's live handover, the other half of the same session (`boot.ts`'s bracket-key idiom again):
-// the falloff-width multiplier (`terrain/flatten.ts`'s `computeFalloff` `scale` argument). `setFalloffScale`
-// below is the control's own entry point.
-let falloffScale = DEFAULT_FALLOFF_SCALE;
 
 async function warm(state: State): Promise<void> {
     teardown(); // a rebuild (HMR) re-warms — clear the prior generation's buffers first
@@ -268,7 +258,7 @@ async function warm(state: State): Promise<void> {
 
     bindTerrainKernel(vertices, position);
     warmNetwork(state); // its own onDispose registration, the same pattern
-    setNetwork(NO_CUT ? EMPTY_DOCUMENT : liveDocument, currentSeed, smoothRadius, falloffScale); // the flatten kernel's
+    setNetwork(NO_CUT ? EMPTY_DOCUMENT : liveDocument, currentSeed, smoothRadius); // the flatten kernel's
     // geometry input, kept in sync with the overlay's own document and the height kernel's own
     // permutation seed — except under the no-cut control arm, above
     if (state.signal.aborted) return;
@@ -300,7 +290,7 @@ const OverlayRedrawSystem: System = {
 export async function regenerate(seed: number): Promise<void> {
     currentSeed = seed;
     liveDocument = generateNetwork(seed);
-    setNetwork(liveDocument, seed, smoothRadius, falloffScale);
+    setNetwork(liveDocument, seed, smoothRadius);
     overlayAtlas.markDirty(liveDocument);
     await generate(seed);
 }
@@ -314,7 +304,7 @@ export async function regenerate(seed: number): Promise<void> {
  */
 export async function setSmoothRadius(radius: number): Promise<void> {
     smoothRadius = Math.min(MAX_SMOOTH_RADIUS, Math.max(MIN_SMOOTH_RADIUS, radius));
-    setNetwork(liveDocument, currentSeed, smoothRadius, falloffScale);
+    setNetwork(liveDocument, currentSeed, smoothRadius);
     await generate(currentSeed);
 }
 
@@ -322,26 +312,6 @@ export async function setSmoothRadius(radius: number): Promise<void> {
  *  value, and by tests. */
 export function getSmoothRadius(): number {
     return smoothRadius;
-}
-
-/**
- * the falloff-width live control (`boot.ts`'s `-`/`=` handler, stage 11's own half of this session's two-
- * knob handover): re-derives the network's flatten geometry at the new scale and re-dispatches the height
- * kernel — the same shape as {@link setSmoothRadius}, no overlay `markDirty` needed for the same reason
- * (only target heights move). Clamped to `[MIN_FALLOFF_SCALE, MAX_FALLOFF_SCALE]` (`terrain/flatten.ts`) —
- * the lower bound is 1, never narrowing the transition below either of `computeFalloff`'s two derived
- * constraints.
- */
-export async function setFalloffScale(scale: number): Promise<void> {
-    falloffScale = Math.min(MAX_FALLOFF_SCALE, Math.max(MIN_FALLOFF_SCALE, scale));
-    setNetwork(liveDocument, currentSeed, smoothRadius, falloffScale);
-    await generate(currentSeed);
-}
-
-/** the live falloff-width scale — read by the boot's key handler to step relative to the current value,
- *  and by tests. */
-export function getFalloffScale(): number {
-    return falloffScale;
 }
 
 /**
@@ -364,7 +334,7 @@ export function getFalloffScale(): number {
  * this stage didn't touch).
  */
 export function syncNetworkForSeed(seed: number): void {
-    setNetwork(liveDocument, seed, smoothRadius, falloffScale);
+    setNetwork(liveDocument, seed, smoothRadius);
 }
 
 /** whether every marked overlay tile has drained through the atlas — the device gate polls this before

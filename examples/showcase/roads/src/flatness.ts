@@ -58,9 +58,9 @@ import { CELLS, SPACING } from "./terrain/grid";
 import { makePermutation } from "./terrain/noise";
 import { heightAtCpu, MAX_GRADE, MAX_GRADE_BREAK, PROFILE_STEP } from "./terrain/profile";
 
-// --- derived window + tolerance — no candidate treatment (falloff, smoothRadius, falloffScale) appears
-// in any of these, per the spec's own non-coupling requirement (stage 11's whole lesson: a criterion whose
-// window or threshold is a function of the parameter under test is not a differential over that parameter).
+// --- derived window + tolerance — no candidate treatment (falloff, smoothRadius) appears in any of these,
+// per the spec's own non-coupling requirement (stage 11's whole lesson: a criterion whose window or
+// threshold is a function of the parameter under test is not a differential over that parameter).
 
 /** the spec's own longitudinal sample spacing bound: no coarser than a quarter of the mesh's own vertex
  *  spacing, so no triangle edge along a sampled line is ever skipped between two adjacent samples. */
@@ -210,10 +210,9 @@ export function buildLatticeVertices(
     return raw;
 }
 
-/** the production-shape reconstruction: `doc`'s own network flattened at `seed`/`smoothRadius`
- *  (optionally `falloffScale`, stage 11a's still-live multiplier on this branch), at the mesh's real
- *  `SPACING`/`CELLS` — a drop-in `readVertices()` substitute with no device, `flatness.test.ts`'s and
- *  `gate.ts`'s shared entry point. `flattenDoc` and `sampleDoc` (the caller's own footprint definition,
+/** the production-shape reconstruction: `doc`'s own network flattened at `seed`/`smoothRadius`, at the
+ *  mesh's real `SPACING`/`CELLS` — a drop-in `readVertices()` substitute with no device, `flatness.test.ts`'s
+ *  and `gate.ts`'s shared entry point. `flattenDoc` and `sampleDoc` (the caller's own footprint definition,
  *  `checkSurfaceFlatness`) are deliberately the same `doc` here; {@link buildLatticeVertices} lets a caller
  *  split them (stage 12's own null-control arm: an empty `flattenDoc` with the real network's footprint
  *  still standing, `flatness.test.ts`'s "no-cut" arm). */
@@ -221,11 +220,10 @@ export function buildDeviceFreeVertices(
     flattenDoc: StrokeDocument,
     seed: number,
     smoothRadius: number,
-    falloffScale = 1,
 ): Uint32Array {
     const perm = makePermutation(seed);
     const { segments, cutDepth } = buildNetworkGeometry(flattenDoc, seed, smoothRadius);
-    const falloff = computeFalloff(cutDepth, falloffScale);
+    const falloff = computeFalloff(cutDepth);
     return buildLatticeVertices(SPACING, CELLS, segments, flattenDoc.polygons, falloff, (x, z) =>
         heightAtCpu(x, z, perm),
     );
@@ -365,8 +363,8 @@ export interface FlatnessResult {
  * the real `readVertices()`, this function never knows which. The window (which stations/lines get
  * sampled) comes only from `doc`'s own geometry (`halfWidth`, segment endpoints); the threshold comes only
  * from road-design constants and the codec's own quantization — {@link gradeBound}/{@link
- * CROSS_SECTION_TOL} take no falloff, smoothing radius, or falloff-scale input, so no candidate treatment
- * can move the window or the threshold (the non-coupling stage 11's whole investigation turned on).
+ * CROSS_SECTION_TOL} take no falloff or smoothing-radius input, so no candidate treatment can move the
+ * window or the threshold (the non-coupling stage 11's whole investigation turned on).
  */
 export function checkSurfaceFlatness(
     sampleAt: (x: number, z: number) => number,
@@ -457,24 +455,23 @@ export function inFootprint(x: number, z: number, doc: StrokeDocument): boolean 
 
 /**
  * pins the default-suite CPU reconstruction against the real device: rebuilds the identical lattice
- * ({@link buildDeviceFreeVertices}) at the live network's own `seed`/`smoothRadius`/`falloffScale` and
- * compares its footprint-line samples against `deviceRaw` (a real `readVertices()` readback) point for
- * point. This is the "device arm" the spec asks for — it validates the CPU builder's *fidelity* against
- * the real GPU output (a reference/differential check), not the surface-flatness property itself (which
- * `bun test`'s default-suite arm already checks device-free, and is allowed to read red on the shipped
- * pipeline, `gate.ts` would break every run if it re-asserted "no violations" here). Tolerance is
- * quantization noise only, doubled for two independent codec round-trips plus float-precision drift
- * between the CPU (f64) and GPU (f32) paths (`terrain/profile.ts`'s own module header names this same
- * drift as expected and harmless).
+ * ({@link buildDeviceFreeVertices}) at the live network's own `seed`/`smoothRadius` and compares its
+ * footprint-line samples against `deviceRaw` (a real `readVertices()` readback) point for point. This is
+ * the "device arm" the spec asks for — it validates the CPU builder's *fidelity* against the real GPU
+ * output (a reference/differential check), not the surface-flatness property itself (which `bun test`'s
+ * default-suite arm already checks device-free, and is allowed to read red on the shipped pipeline,
+ * `gate.ts` would break every run if it re-asserted "no violations" here). Tolerance is quantization noise
+ * only, doubled for two independent codec round-trips plus float-precision drift between the CPU (f64) and
+ * GPU (f32) paths (`terrain/profile.ts`'s own module header names this same drift as expected and
+ * harmless).
  */
 export function reconstructionAgreement(
     deviceRaw: Uint32Array,
     doc: StrokeDocument,
     seed: number,
     smoothRadius: number,
-    falloffScale: number,
 ): { maxDiffM: number; sampleCount: number } {
-    const cpuRaw = buildDeviceFreeVertices(doc, seed, smoothRadius, falloffScale);
+    const cpuRaw = buildDeviceFreeVertices(doc, seed, smoothRadius);
     const deviceSample = (x: number, z: number) => meshHeightAt(deviceRaw, x, z);
     const cpuSample = (x: number, z: number) => meshHeightAt(cpuRaw, x, z);
 

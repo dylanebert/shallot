@@ -11,14 +11,7 @@ import {
 import type { Check } from "./harness";
 import { DIST_RANGE, TILE_RES } from "./overlay/tiles";
 import { SPACING } from "./terrain/grid";
-import {
-    getFalloffScale,
-    getSmoothRadius,
-    overlayIdle,
-    regenerate,
-    setFalloffScale,
-    setSmoothRadius,
-} from "./terrain/terrain";
+import { getSmoothRadius, overlayIdle, regenerate, setSmoothRadius } from "./terrain/terrain";
 
 // The roads showcase's boot orchestration, as a plugin (a manifest project has no `main.ts` entry) —
 // the same shape as voxel's `boot.ts`. Terrain generation itself runs inside `terrain.ts`'s own `warm()`
@@ -26,12 +19,9 @@ import {
 // voxel's carve-capable mesher needs); this plugin's only job is installing the device gate + the capture
 // bridge once the terrain mesh is registered, the seed control's F9 key (the spec's "a seed control in
 // the voxel-toolbar idiom at most" — a key, not a toolbar: this example has no drawing tool for a toolbar
-// to switch between), stage 8's longitudinal smoothing-strength control on the same idiom — `[`/`]`
-// step `terrain/profile.ts`'s box-filter radius down/up by one sample — and stage 11's falloff-width
-// control, `-`/`=`, stepping `terrain/flatten.ts`'s `computeFalloff` scale multiplier. Both live controls
-// land in the same session (spec Approach, stage 11's handover) since the confound that parked the radius
-// (cross-section quantization vs. longitudinal profile on the same edge) is resolved once the falloff
-// lands. `mode: always` so the poll runs in edit mode too, not just play.
+// to switch between), and stage 8's longitudinal smoothing-strength control on the same idiom — `[`/`]`
+// step `terrain/profile.ts`'s box-filter radius down/up by one sample. `mode: always` so the poll runs in
+// edit mode too, not just play.
 
 declare global {
     interface Window {
@@ -46,8 +36,6 @@ declare global {
         // stage 8's smoothing-strength control (`[`/`]`, below) — the live radius, for a driver or test to
         // read without re-deriving it, the same read-bridge shape as the other __roads* globals.
         __roadsSmoothRadius?: () => number;
-        // stage 11's falloff-width control (`-`/`=`, below) — the live scale, the same read-bridge shape.
-        __roadsFalloffScale?: () => number;
         // a plain re-export of capture.ts's derived constant — never imported directly into the Playwright
         // driver (this project's src/ runs in the browser via the dev server; a direct Node-side import of
         // it pulls in the published `@dylanebert/shallot` package graph under Playwright's own loader,
@@ -87,7 +75,6 @@ const BootSystem: System = {
         window.__roadsOverlayIdle = () => overlayIdle();
         window.__roadsTransitionTolerancePx = TRANSITION_TOLERANCE_PX;
         window.__roadsSmoothRadius = () => getSmoothRadius();
-        window.__roadsFalloffScale = () => getFalloffScale();
         window.__roadsGrazingCapture = () => grazingCapture();
         window.__roadsHeightSilhouette = () => heightSilhouette();
         window.__roadsMeshParams = { spacing: SPACING, tileRes: TILE_RES, distRange: DIST_RANGE };
@@ -108,12 +95,6 @@ const BootSystem: System = {
                 } else if (e.key === "]") {
                     e.preventDefault();
                     void setSmoothRadius(getSmoothRadius() + 1);
-                } else if (e.key === "-") {
-                    e.preventDefault();
-                    void setFalloffScale(getFalloffScale() - 0.25);
-                } else if (e.key === "=") {
-                    e.preventDefault();
-                    void setFalloffScale(getFalloffScale() + 0.25);
                 }
             },
             { signal: state.signal },
@@ -126,7 +107,6 @@ const BootSystem: System = {
         delete window.__roadsOverlayIdle;
         delete window.__roadsTransitionTolerancePx;
         delete window.__roadsSmoothRadius;
-        delete window.__roadsFalloffScale;
         delete window.__roadsGrazingCapture;
         delete window.__roadsHeightSilhouette;
         delete window.__roadsMeshParams;
