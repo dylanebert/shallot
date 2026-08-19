@@ -1,7 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { gridX, gridZ, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
+import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten";
+import { gridX, gridZ, SPACING, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
+import { DEFAULT_SMOOTH_RADIUS, PROFILE_STEP } from "../terrain/profile";
 import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
-import { captureProbePoints, generateNetwork, ROAD_COUNT, ROAD_HALF_WIDTH } from "./network";
+import {
+    captureProbePoints,
+    generateNetwork,
+    ROAD_COUNT,
+    ROAD_HALF_WIDTH,
+    roadFootprintDistance,
+    roadPolygonFootprintDistance,
+} from "./network";
 import { tileId, tileOf } from "./tiles";
 
 // this module's own copy of `terrain/terrain.ts`'s boot SEED — kept a plain literal rather than an
@@ -117,11 +126,11 @@ describe("captureProbePoints — the device gate's on/off-road pair over the pro
 
     test("pinned witness at the boot seed — a regression names itself against these exact coordinates", () => {
         // computed once against generateNetwork(1337) and checked by hand against documentDistance
-        // (on-road ≈ -3.20 m inside the road's 4 m half-width; off-road ≈ +4.10 m outside it, one grid
+        // (on-road ≈ -2.84 m inside the road's 4 m half-width; off-road ≈ +3.34 m outside it, one grid
         // step further out — the nearest-to-origin road at this seed, not necessarily road 0).
         const { onRoad, offRoad } = captureProbePoints(BOOT_SEED);
-        expect(onRoad).toEqual([-8, -24]);
-        expect(offRoad).toEqual([0, -28]);
+        expect(onRoad).toEqual([-60, 84]);
+        expect(offRoad).toEqual([-52, 80]);
     });
 
     test("is deterministic in the seed, like generateNetwork itself", () => {
@@ -157,5 +166,134 @@ describe("stage 14's device-arm reseed seeds — neither touches the boot networ
             const ids = documentDirtyTiles(generateNetwork(seed));
             expect(ids).not.toContain(bootOnRoadTile);
         }
+    });
+});
+
+describe("stage 18 — non-overlap by construction: footprint disjointness over a seed scan", () => {
+    // The spec's "Non-overlap by construction" criterion (Validation): over a seed scan 0–5000,
+    // no two primitives' footprints come within the derived non-contamination bound, and every
+    // primitive stays inside `WORLD_HALF`. A single seed is inadmissible — stage 6's own live
+    // defect (a road 60 m outside the world at seed 615) was invisible to a single-seed footprint
+    // arm. The clearance is derived from the network's own cut depth (measured between chord
+    // endpoints), never a hardcoded constant — a deeper cut widens both the falloff and the required
+    // separation.
+    //
+    // R1 (stage-18 repair): the arm asserts the derived non-contamination BOUND, not the generator's
+    // own enforcement constant. A road contributes to the blend while its centreline distance is
+    // < F + h + FCM (`networkCore`: coreDist = dist_to_centreline − h − FCM, active while coreDist < F).
+    // `checkSurfaceFlatness` samples the centreline and both edge-offset lines, and the piecewise-linear
+    // reconstruction at a sample point interpolates the enclosing triangle's vertices, which can sit up
+    // to one cell diagonal √2·SPACING outside the footprint edge. So a contributing vertex can sit at
+    // centreline distance ≥ D − h − √2·SPACING (D = centreline separation). Non-contamination needs
+    // D − h − √2·SPACING ≥ F + h + FCM, i.e. the footprint-edge clearance R = D − 2h ≥
+    // F + FCM + √2·SPACING — the bound. The generator enforces R = F + h + FCM + √2·SPACING (the
+    // bound plus h = 4 m of slack); the arm asserts the bound itself, so the check is a claim about
+    // the mechanism rather than a restatement of the constant the generator also uses. √2·SPACING is
+    // the COARSE lattice's diagonal (the coarser lattice is the weaker case, so it bounds both
+    // SPACING and SPACING/2).
+    //
+    // R3 (stage-18 repair): the seed loop runs inside a named `test()` so a failing seed is
+    // attributable, appears in the test count, and is selectable with `-t`.
+    //
+    // R4 (stage-18 repair): `worstContainment` tracks the minimum containment SLACK
+    // (WORLD_HALF − max|coord|), not the minimum |coord| (which reads 0.00 for a road through the
+    // world centre and is meaningless).
+    //
+    // R5 (stage-18 repair): the diagnostics print the minimum per-seed SLACK (dist − required_seed,
+    // minimised over seeds and pairs) with its seed and pair, so the line reads as a margin rather
+    // than an incomparable global-minimum clearance against the boot seed's requirement.
+    //
+    // R6 (stage-18 repair): the road–carpark assertion accounts for the PROFILE_STEP sampling error.
+    // `segmentToPolygonDistance` samples the segment at PROFILE_STEP intervals, so it overestimates
+    // the true distance by up to PROFILE_STEP/2 (`polygonDistance` is 1-Lipschitz, so PROFILE_STEP/2
+    // is a bound, not a guess). The arm asserts `sampled ≥ bound + PROFILE_STEP/2`, which implies
+    // `true ≥ bound`. The generator enforces `bound + h + PROFILE_STEP` (tighter by h − PROFILE_STEP/2).
+    test("over seeds 0–5000, every pair clears the derived non-contamination bound and stays in-world", () => {
+        const SeedScan = 5000;
+        let minSlack = Number.POSITIVE_INFINITY; // R5: min (dist − required) over all seeds and pairs
+        let minSlackSeed = -1;
+        let minSlackPair = "";
+        let minContainmentSlack = Number.POSITIVE_INFINITY; // R4: min (WORLD_HALF − max|coord|)
+        let minContainmentSeed = -1;
+
+        for (let seed = 0; seed <= SeedScan; seed++) {
+            const doc = generateNetwork(seed);
+            const { cutDepth } = buildNetworkGeometry(doc, seed, DEFAULT_SMOOTH_RADIUS);
+            const falloff = computeFalloff(cutDepth);
+            // R1: the derived non-contamination bound — F + FCM + √2·SPACING. The generator enforces
+            // this plus h = ROAD_HALF_WIDTH of slack; the arm asserts the bound itself.
+            const bound = falloff + FLAT_CORE_MARGIN + Math.SQRT2 * SPACING;
+            // R6: the road–carpark bound widens by PROFILE_STEP/2 to account for the sampling error in
+            // segmentToPolygonDistance (polygonDistance is 1-Lipschitz, so PROFILE_STEP/2 is a bound).
+            const carparkBound = bound + PROFILE_STEP / 2;
+
+            // road–road pairs
+            for (let i = 0; i < doc.polylines.length; i++) {
+                for (let j = i + 1; j < doc.polylines.length; j++) {
+                    const [a1, a2] = doc.polylines[i].points;
+                    const [b1, b2] = doc.polylines[j].points;
+                    const dist = roadFootprintDistance(a1, a2, b1, b2);
+                    const slack = dist - bound;
+                    if (slack < minSlack) {
+                        minSlack = slack;
+                        minSlackSeed = seed;
+                        minSlackPair = `road ${i}–road ${j}`;
+                    }
+                    expect(
+                        dist,
+                        `seed ${seed}: road ${i}–road ${j} footprint dist ${dist.toFixed(2)} < bound ${bound.toFixed(2)}`,
+                    ).toBeGreaterThanOrEqual(bound);
+                }
+            }
+
+            // road–carpark pairs (R6: assert against bound + PROFILE_STEP/2)
+            for (const [i, line] of doc.polylines.entries()) {
+                const [a1, a2] = line.points;
+                const dist = roadPolygonFootprintDistance(a1, a2, doc.polygons[0]);
+                const slack = dist - carparkBound;
+                if (slack < minSlack) {
+                    minSlack = slack;
+                    minSlackSeed = seed;
+                    minSlackPair = `road ${i}–carpark`;
+                }
+                expect(
+                    dist,
+                    `seed ${seed}: road ${i}–carpark footprint dist ${dist.toFixed(2)} < bound ${carparkBound.toFixed(2)}`,
+                ).toBeGreaterThanOrEqual(carparkBound);
+            }
+
+            // world containment (R4: track min slack = WORLD_HALF − max|coord|, not min |coord|)
+            let maxAbsCoord = 0;
+            for (const seg of flattenSegments(doc)) {
+                for (const x of [seg.ax, seg.bx, seg.az, seg.bz]) {
+                    maxAbsCoord = Math.max(maxAbsCoord, Math.abs(x));
+                }
+            }
+            for (const [x, z] of doc.polygons[0].points) {
+                for (const v of [x, z]) {
+                    maxAbsCoord = Math.max(maxAbsCoord, Math.abs(v));
+                }
+            }
+            const containmentSlack = WORLD_HALF - maxAbsCoord;
+            if (containmentSlack < minContainmentSlack) {
+                minContainmentSlack = containmentSlack;
+                minContainmentSeed = seed;
+            }
+            for (const seg of flattenSegments(doc)) {
+                for (const x of [seg.ax, seg.bx]) expect(Math.abs(x)).toBeLessThan(WORLD_HALF);
+                for (const z of [seg.az, seg.bz]) expect(Math.abs(z)).toBeLessThan(WORLD_HALF);
+            }
+            for (const [x, z] of doc.polygons[0].points) {
+                expect(Math.abs(x)).toBeLessThan(WORLD_HALF);
+                expect(Math.abs(z)).toBeLessThan(WORLD_HALF);
+            }
+        }
+
+        // R5: diagnostics — minimum per-seed slack (a readable margin, not an incomparable clearance)
+        console.log(
+            `DISJOINTNESS_SCAN minSlack=${minSlack.toFixed(2)} (seed ${minSlackSeed}, ${minSlackPair}) minContainmentSlack=${minContainmentSlack.toFixed(2)} (seed ${minContainmentSeed})`,
+        );
+        expect(minSlack).toBeFinite();
+        expect(minContainmentSlack).toBeFinite();
     });
 });
