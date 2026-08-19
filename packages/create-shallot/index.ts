@@ -119,8 +119,10 @@ bunx shallot build
 \`\`\`
 
 Builds a web bundle to \`dist/\`. Native targets
-(\`--target windows|mac|linux\`) require the Rust toolchain and target system
-dependencies; see the repo README for the per-target table.
+(\`--target windows|mac|linux\`) download a prebuilt release shell when one exists
+for your installed version, and otherwise fall back to compiling from source,
+which needs the Rust toolchain and target system dependencies; see the repo
+README for the per-target table.
 `;
 
 const agents = (name: string) => `# ${name}
