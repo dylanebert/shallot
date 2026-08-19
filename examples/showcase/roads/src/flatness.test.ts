@@ -72,86 +72,30 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
 describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", () => {
     // Leg A (spec Validation, 2026-08-19 second consult): the continuous flattened field —
     // `networkCoreCpu`'s blended target eased toward natural via `flattenHeight`, with no mesh at all.
-    // Outside the designed junction zone the field is exactly flat by construction (15b's relative-depth
-    // suppression makes the host primitive's target win outright), so a non-zero reading outside the zone
-    // is the blend's design, not the mesh's discretization. This is the leg that gates the blend's design
-    // and it carries no fitted number.
+    // Outside the designed junction zone the field is exactly flat by construction (non-overlapping
+    // primitives never contend, so exactly one weight survives away from any overlap), so a non-zero
+    // reading outside the zone is the blend's design, not the mesh's discretization. This is the leg
+    // that gates the blend's design and it carries no fitted number.
     //
-    // Stage 18: the real generator no longer produces overlaps, so the red-first arm uses a hand-built
-    // overlapping pair (two parallel roads 15 m apart at 30° heading — close enough that their falloff
-    // bands overlap and the edge+ is outside the junction zone, so violations are not excluded,
-    // but far enough that the suppression with band = falloff doesn't fully kill the distant road,
-    // so the blend is a position-weighted combination of two affine fields and is not affine). The
-    // green arm uses the real non-overlapping `generateNetwork(SEED)`, which reads exactly zero.
-    const overlapHeading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
-    const overlapSep = 15; // metres, perpendicular separation (centreline-to-centreline)
-    const oux = Math.cos(overlapHeading);
-    const ouz = Math.sin(overlapHeading);
-    const onx = -ouz;
-    const onz = oux;
-    const ocx2 = onx * overlapSep;
-    const ocz2 = onz * overlapSep;
-    const overlapDoc: StrokeDocument = {
-        polylines: [
-            {
-                points: [
-                    [-oux * 100, -ouz * 100],
-                    [oux * 100, ouz * 100],
-                ],
-                halfWidth: 4,
-            },
-            {
-                points: [
-                    [ocx2 - oux * 100, ocz2 - ouz * 100],
-                    [ocx2 + oux * 100, ocz2 + ouz * 100],
-                ],
-                halfWidth: 4,
-            },
-        ],
-        polygons: [],
-    };
+    // Stage 20: the relative-depth suppression factor and its `suppressionBand` parameter are deleted
+    // (non-overlapping primitives never contend, so the suppression had nothing left to suppress). The
+    // band-`= falloff` red-first arm whose subject was the deleted mechanism is removed with it; the
+    // overlapping-pair null control in "stage 18 arm (c)" still reads non-zero through the mesh
+    // reconstruction, so the instrument survives.
     const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED);
-    const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
-    test("red-first: band = falloff still reads non-zero on a hand-built overlapping pair", () => {
-        // the suppression band set to the falloff distance is too slow — primitives farther away still
-        // contribute, so the blend contamination leaks outside the junction zone. The hand-built
-        // overlapping pair (10 m apart) guarantees the falloff bands overlap, so the composite target
-        // is a position-weighted combination of two affine fields and is not affine — exactness
-        // dies there and nowhere else. This arm MUST stay red — it is the discriminator that proves
-        // non-overlap is what buys exactness (a pin that reads green on a broken blend is worth
-        // nothing — `coding.md`'s "a check is evidence only if you've seen it fail").
-        const sample = (x: number, z: number) =>
-            flattenFieldAt(x, z, segments, overlapDoc.polygons, falloff, natural, falloff);
-        const result = checkSurfaceFlatness(sample, overlapDoc);
-        console.log(
-            `LEG_A_FALLOFF_CHORD crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)}`,
-        );
-        expect(result.crossSection.length).toBeGreaterThan(100);
-        expect(result.maxCrossSectionExcess).toBeGreaterThan(0.1);
-    });
-
-    test("the shipped band reads exactly zero on the real (non-overlapping) generator", () => {
-        // the shipped suppression band (`FLAT_CORE_MARGIN`): on the real non-overlapping generator
-        // the host primitive's target wins outright by construction, so the continuous field is
-        // exactly flat — zero violations, zero amplitude on both axes. This is the structural claim
-        // 15b's consult made and the leg that gates the blend's design; it carries no fitted
-        // number, only the exact zero.
+    test("the continuous field reads exactly zero on the real (non-overlapping) generator", () => {
+        // on the real non-overlapping generator exactly one primitive's weight survives at every
+        // sampled point (the others are past their own falloff), so the continuous field is exactly
+        // flat — zero violations, zero amplitude on both axes. This is the structural claim 15b's
+        // consult made and the leg that gates the blend's design; it carries no fitted number, only
+        // the exact zero.
         const realDoc = generateNetwork(SEED);
         const { segments: realSegs, cutDepth: realCutDepth } = buildNetworkGeometry(realDoc, SEED);
         const realFalloff = computeFalloff(realCutDepth);
         const sample = (x: number, z: number) =>
-            flattenFieldAt(
-                x,
-                z,
-                realSegs,
-                realDoc.polygons,
-                realFalloff,
-                natural,
-                FLAT_CORE_MARGIN,
-            );
+            flattenFieldAt(x, z, realSegs, realDoc.polygons, realFalloff, natural);
         const result = checkSurfaceFlatness(sample, realDoc);
         console.log(
             `LEG_A_GREEN longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess} maxLongitudinalExcess=${result.maxLongitudinalExcess} crossSectionInZone=${result.crossSectionInZone.length}`,
