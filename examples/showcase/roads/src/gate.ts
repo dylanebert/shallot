@@ -1,9 +1,18 @@
 import { decodePos } from "@dylanebert/shallot/utils/core";
+import { RECONSTRUCTION_AGREEMENT_TOL, reconstructionAgreement } from "./flatness";
 import type { Check } from "./harness";
+import { generateNetwork } from "./overlay/network";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { VERTEX_COUNT } from "./terrain/grid";
 import { RELIEF } from "./terrain/noise";
-import { generate, readVertices, SEED, syncNetworkForSeed } from "./terrain/terrain";
+import {
+    generate,
+    getFalloffScale,
+    getSmoothRadius,
+    readVertices,
+    SEED,
+    syncNetworkForSeed,
+} from "./terrain/terrain";
 
 // The terrain generator's correctness gate — the seed-determinism readback the spec's Validation names
 // ("Overlay correctness"/"Rasterizer fidelity" are later stages; this stage's own arm is the height
@@ -95,5 +104,29 @@ export async function gate(): Promise<Check[]> {
     // restore the boot seed's terrain for the live view.
     syncNetworkForSeed(SEED);
     await generate(SEED);
+
+    // Stage 12's device arm — the spec's "one device arm pinning it against readVertices()". This pins
+    // the *fidelity* of `flatness.ts`'s CPU device-free lattice builder against the real GPU-generated
+    // mesh, not the surface-flatness property itself: the property is expected to read red on the shipped
+    // pipeline right now (the unit's live defect, `bun test ./src -t "surface flatness"`'s own job), and a
+    // gate that re-asserted "no violations" here would break every `bun run gate` run until stage 15 ships
+    // a fix. What this DOES prove is that `bun test`'s device-free arm is reading the same mesh the real
+    // device renders — without it, a CPU/GPU divergence in the height-kernel math could make the
+    // device-free suite pass or fail for the wrong reason entirely.
+    const liveDoc = generateNetwork(SEED);
+    const deviceRaw = await readVertices();
+    const agreement = reconstructionAgreement(
+        deviceRaw,
+        liveDoc,
+        SEED,
+        getSmoothRadius(),
+        getFalloffScale(),
+    );
+    checks.push({
+        name: "surface-flatness-reconstruction-agreement",
+        pass: agreement.maxDiffM <= RECONSTRUCTION_AGREEMENT_TOL,
+        detail: `CPU device-free lattice vs real readVertices(): max |Δh| ${agreement.maxDiffM.toFixed(6)} m over ${agreement.sampleCount} footprint samples (tol ${RECONSTRUCTION_AGREEMENT_TOL.toFixed(6)} m)`,
+    });
+
     return checks;
 }

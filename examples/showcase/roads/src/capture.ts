@@ -3,7 +3,7 @@ import { decodePos } from "@dylanebert/shallot/utils/core";
 import { captureProbePoints } from "./overlay/network";
 import { COVERAGE_BAND_PX } from "./overlay/tiles";
 import { TERRAIN_QUANT } from "./terrain/generate";
-import { gridX, gridZ, HALF, SPACING, VERTS } from "./terrain/grid";
+import { CELLS, gridX, gridZ, SPACING, VERTS } from "./terrain/grid";
 import { readVertices, SEED } from "./terrain/terrain";
 
 // The device gate's world→screen bridge for the pixel-probe capture (the spec's flagged-risk validation —
@@ -90,16 +90,27 @@ export async function withHeight(x: number, z: number): Promise<[x: number, y: n
  *  surface a viewer's eye actually sees at a point that generally doesn't land on a vertex, since the
  *  defect it measures *is* the gap between this reconstruction and the continuous analytic height at the
  *  same point. `raw` is one `readVertices()` readback, reused across every sample in a scan so the GPU is
- *  read back once, not once per probe step. */
-export function meshHeightAt(raw: Uint32Array, x: number, z: number): number {
-    const fx = x / SPACING + HALF;
-    const fz = z / SPACING + HALF;
+ *  read back once, not once per probe step. `spacing`/`cells` default to the live mesh's own
+ *  `grid.ts` constants — `flatness.ts`'s mesh-resolution discrimination arm (stage 12) is the one caller
+ *  that overrides them, reconstructing a *different*-resolution lattice `raw` was built at without a
+ *  second, independently-drifting copy of this same triangle-interpolation formula. */
+export function meshHeightAt(
+    raw: Uint32Array,
+    x: number,
+    z: number,
+    spacing: number = SPACING,
+    cells: number = CELLS,
+): number {
+    const half = cells / 2;
+    const verts = cells + 1;
+    const fx = x / spacing + half;
+    const fz = z / spacing + half;
     const ix0 = Math.floor(fx);
     const iz0 = Math.floor(fz);
     const tx = fx - ix0;
     const tz = fz - iz0;
     const heightOf = (ix: number, iz: number): number => {
-        const idx = iz * VERTS + ix;
+        const idx = iz * verts + ix;
         return decodePos(raw[idx * 4], raw[idx * 4 + 1], TERRAIN_QUANT).y;
     };
     const h00 = heightOf(ix0, iz0);
