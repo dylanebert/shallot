@@ -18,13 +18,17 @@ import {
 // no device).
 //
 // Stage 18 (non-overlap by construction): every road and the carpark are placed by rejection sampling so
-// no two primitives' footprints come within `computeFalloff(cutDepth) + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN`
-// — the clearance derived from the network's own cut depth, never a hardcoded constant. A deeper cut
-// widens both the falloff and the required separation. Cut depth is measured *between* chord endpoints
-// (the chord's target equals natural height at its endpoints by construction, so sampling at the profile's
-// own points reads 0 and collapses `computeFalloff` to its `SPACING` floor — the same trap
+// no two primitives' footprints come within `computeFalloff(cutDepth) + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN +
+// √2·SPACING` — the clearance derived from the network's own cut depth, never a hardcoded constant. The
+// √2·SPACING lattice-diagonal term (see the derivation at the placement predicate) covers the mesh vertices
+// the exactness oracle interpolates from, which can sit one cell diagonal outside the footprint edge; the
+// shipped `F + h + FCM` clearance was short by √2·SPACING and left h − √2·SPACING = −1.66 m of slack. A
+// deeper cut widens both the falloff and the required separation. Cut depth is measured *between* chord
+// endpoints (the chord's target equals natural height at its endpoints by construction, so sampling at the
+// profile's own points reads 0 and collapses `computeFalloff` to its `SPACING` floor — the same trap
 // `buildNetworkGeometry` guards against, followed here). The carpark is placed independently (no longer
-// anchored to road 0's midpoint), clear of every road by the same clearance.
+// anchored to road 0's midpoint), clear of every road by the same clearance plus a PROFILE_STEP sampling
+// margin.
 
 export const ROAD_COUNT = 5; // "a handful" — enough to read as a network, not a maze
 export const ROAD_HALF_WIDTH = 4; // metres — matches terrain/grid.ts's SPACING, `overlay/stroke.ts`'s own convention
@@ -138,11 +142,13 @@ export function roadPolygonFootprintDistance(
 
 /** the seeded procedural road network: {@link ROAD_COUNT} straight single-segment roads plus one carpark
  *  polygon, placed by rejection sampling so no two primitives' footprints come within
- *  `computeFalloff(cutDepth) + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN` — the clearance derived from the
- *  network's own cut depth (measured between chord endpoints), never a hardcoded constant. The carpark is
- *  placed independently, clear of every road by the same clearance. Deterministic in `seed` — the same seed
- *  always returns the identical document (`network.test.ts` pins this directly); a different seed almost
- *  certainly returns a different one. */
+ *  `computeFalloff(cutDepth) + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN + √2·SPACING` — the clearance derived from
+ *  the network's own cut depth (measured between chord endpoints), never a hardcoded constant. The
+ *  √2·SPACING term covers the lattice vertices the exactness oracle interpolates from (see the derivation
+ *  at the placement predicate). The carpark is placed independently, clear of every road by the same
+ *  clearance plus a PROFILE_STEP sampling margin. Deterministic in `seed` — the same seed always returns
+ *  the identical document (`network.test.ts` pins this directly); a different seed almost certainly returns
+ *  a different one. */
 export function generateNetwork(seed: number): StrokeDocument {
     const rng = mulberry32(seed);
     const rand = (lo: number, hi: number) => lo + rng() * (hi - lo);
@@ -175,7 +181,29 @@ export function generateNetwork(seed: number): StrokeDocument {
             const candidateCutDepth = computeRoadCutDepth(candidate, perm);
             const tentativeMaxCutDepth = Math.max(maxCutDepth, candidateCutDepth);
             const falloff = computeFalloff(tentativeMaxCutDepth);
-            const clearance = falloff + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN;
+            // R = F + h + FCM + √2·SPACING — the footprint-edge clearance the generator enforces.
+            //
+            // Derivation (stage-18 repair R1): a road contributes to the blend while its centreline
+            // distance is < F + h + FCM (`networkCore`: coreDist = dist_to_centreline − h − FCM,
+            // active while coreDist < F). `checkSurfaceFlatness` samples the centreline and both
+            // edge-offset lines, and the piecewise-linear reconstruction at a sample point
+            // interpolates the enclosing triangle's vertices, which can sit up to one cell diagonal
+            // √2·SPACING outside the footprint edge. So a contributing vertex can sit at centreline
+            // distance ≥ D − h − √2·SPACING (D = centreline separation). Non-contamination needs
+            // D − h − √2·SPACING ≥ F + h + FCM, i.e. the footprint-edge clearance
+            // R = D − 2h ≥ F + FCM + √2·SPACING. The generator enforces R = F + h + FCM + √2·SPACING,
+            // which is the bound (F + FCM + √2·SPACING) plus h = 4 m of slack — restoring the 4 m
+            // margin the shipped R = F + h + FCM lost (slack h − √2·SPACING = 4 − 5.657 = −1.66 m,
+            // i.e. contamination was possible). The disjointness arm asserts the bound itself
+            // (F + FCM + √2·SPACING), so the check is a claim about the mechanism rather than a
+            // restatement of this constant.
+            //
+            // Why √2·SPACING and not √2·(SPACING/2): the exactness oracle runs at both SPACING and
+            // SPACING/2, and the coarser lattice (SPACING) is the weaker case — its vertices sit
+            // farther apart, so a triangle corner can wander √2·SPACING outside the footprint. The
+            // finer lattice's diagonal (√2·SPACING/2) is smaller, so the coarse bound dominates and
+            // covers both resolutions.
+            const clearance = falloff + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN + Math.SQRT2 * SPACING;
 
             const allLines = [...polylines, { points: candidate, halfWidth: ROAD_HALF_WIDTH }];
             let ok = true;
@@ -196,10 +224,17 @@ export function generateNetwork(seed: number): StrokeDocument {
         if (!placed) throw new Error(`generateNetwork: could not place road ${i} at seed ${seed}`);
     }
 
-    // Carpark placed independently — clear of every road by the same clearance. The PROFILE_STEP
-    // sampling margin in segmentToPolygonDistance guards against missing the closest polygon edge.
+    // Carpark placed independently — clear of every road by the same R = F + h + FCM +
+    // √2·SPACING clearance (the lattice-vertex argument applies to the polygon's footprint edge too),
+    // plus a PROFILE_STEP sampling margin: `segmentToPolygonDistance` samples the segment at
+    // PROFILE_STEP intervals, so it can overestimate the true centreline-to-boundary distance by up to
+    // PROFILE_STEP/2 (polygonDistance is 1-Lipschitz, so PROFILE_STEP/2 is a bound, not a guess —
+    // R6). The arm asserts the road–carpark pair against the bound + PROFILE_STEP/2 for the same
+    // reason; the generator enforces the bound + h + PROFILE_STEP, which is tighter by h −
+    // PROFILE_STEP/2 = 4 − 2 = 2 m.
     const falloff = computeFalloff(maxCutDepth);
-    const clearance = falloff + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN + PROFILE_STEP;
+    const clearance =
+        falloff + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN + Math.SQRT2 * SPACING + PROFILE_STEP;
 
     let carpark: PolygonStamp | null = null;
     for (let attempt = 0; attempt < MAX_ATTEMPTS && !carpark; attempt++) {

@@ -372,16 +372,23 @@ function segmentFrames(doc: StrokeDocument): RoadFrame[] {
 
 // stay off each segment's own endpoint cap (a distinct geometric case — nearest-*point* rather than
 // nearest-*line*, `networkCoreCpu`'s own clamp-to-[0,1] projection: past either endpoint the nearest
-// primitive distance is measured to that endpoint, not perpendicular to the segment). The excluded band
-// is an *arc-length* margin of exactly {@link RoadFrame.halfWidth} metres at each end — the same
-// document-geometry quantity the spec already names for the window, not a fraction of the segment's own
-// length (a fraction silently widens on a longer road and has no geometric referent at all — the bug this
-// replaces sampled a fixed 5% of segment length, 4.6-9.6 m on this network's own five roads, wider than
-// SPACING and comparable to the falloff width, quietly excising the junction/endpoint band stage 15's fix
-// concentrates its own change in). Treatment-free: only `halfWidth`, never `computeFalloff`, a falloff
-// scale, or the smoothing radius.
+// primitive distance is measured to that endpoint, not perpendicular to the segment, and the chord target
+// is the endpoint height (constant), not the affine chord extrapolation — the affine region is strictly
+// *between* the endpoints). The excluded band is an *arc-length* margin of `halfWidth + √2·SPACING`
+// metres at each end. The `halfWidth` term is the same document-geometry quantity the spec already names
+// for the window; the `√2·SPACING` term (the coarse lattice's own cell diagonal — the coarser lattice is
+// the weaker case, so it bounds both `SPACING` and `SPACING/2`) is the mesh constant the piecewise-linear
+// reconstruction reaches: a sample point's enclosing triangle has vertices up to one cell diagonal away,
+// so a vertex can sit `√2·SPACING` past the endpoint while the sample point is still inside the window,
+// reading the clamped (non-affine) target and contaminating the interpolation. Widening the margin by that
+// same diagonal keeps every vertex the oracle interpolates from inside the affine region. This is the
+// longitudinal-direction twin of stage-18 repair R1's perpendicular-direction `√2·SPACING` clearance: the
+// same lattice-vertex argument, applied to the endpoint edge rather than the side edge. Treatment-free:
+// only `halfWidth` and `SPACING` (the document and mesh constants), never `computeFalloff`, a falloff
+// scale, or the smoothing radius — the generator's own placement/clearance appears in neither the window
+// nor the threshold.
 function endpointMargin(frame: RoadFrame): number {
-    return frame.halfWidth;
+    return frame.halfWidth + Math.SQRT2 * SPACING;
 }
 
 /** the sampled `[tLo, tHi]` interior of `frame` after excising {@link endpointMargin} at each end.

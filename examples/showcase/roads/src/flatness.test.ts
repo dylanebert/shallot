@@ -267,6 +267,10 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
             `REAL_EXACTNESS_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
+        // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING)
+        // so a future change that silently shrinks the population reds instead of passing on a
+        // thinner array. Old margin (halfWidth): 2031; new margin: 1860 at both resolutions.
+        expect(result.sampleCount).toBe(1860);
         expect(result.excludedStationCount).toBe(0);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
@@ -293,11 +297,65 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
             `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} excludedStationCount=${result.excludedStationCount}`,
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
+        // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
+        // Old margin (halfWidth): 2031; new margin: 1860 at both resolutions.
+        expect(result.sampleCount).toBe(1860);
         expect(result.excludedStationCount).toBe(0);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
         expect(result.maxLongitudinalExcess).toBe(0);
+    });
+
+    // R2 (stage-18 repair): the exactness arm ran at one seed (SEED = 1337), so "by construction"
+    // was untested across seeds. The boot seed keeps its full both-resolutions reading above; this
+    // scan exercises additional seeds at SPACING, asserting exactly 0 violations and 0 max excess on
+    // both axes. The seed count is the largest that keeps the suite comfortably fast — measured at
+    // ~360 ms/seed (building the full lattice + checkSurfaceFlatness), 8 seeds adds ~2.9 s to the
+    // suite's ~8.8 s baseline. The seeds are a fixed spread chosen to include the 5 seeds the pre-fix
+    // scan found violated (1522, 1596, 1818, 2558, 3076 — the endpoint-clamping defect) so the fix is
+    // exercised, not just the clean seeds.
+    test("R2: a multi-seed scan at SPACING reads exactly 0 on both axes across 8 additional seeds", () => {
+        const scanSeeds = [42, 1522, 1596, 1818, 2558, 3076, 5000, 7000];
+        for (const seed of scanSeeds) {
+            const scanDoc = generateNetwork(seed);
+            const scanPerm = makePermutation(seed);
+            const { segments: scanSegs, cutDepth: scanCutDepth } = buildNetworkGeometry(
+                scanDoc,
+                seed,
+                DEFAULT_SMOOTH_RADIUS,
+            );
+            const scanFalloff = computeFalloff(scanCutDepth);
+            const scanNatural = (x: number, z: number) => heightAtCpu(x, z, scanPerm);
+            const scanRaw = buildLatticeVertices(
+                SPACING,
+                CELLS,
+                scanSegs,
+                scanDoc.polygons,
+                scanFalloff,
+                scanNatural,
+            );
+            const result = checkSurfaceFlatness(
+                (x, z) => meshHeightAt(scanRaw, x, z, SPACING, CELLS),
+                scanDoc,
+            );
+            expect(
+                result.crossSection.length,
+                `seed ${seed}: crossSection=${result.crossSection.length} (expected 0)`,
+            ).toBe(0);
+            expect(
+                result.maxCrossSectionExcess,
+                `seed ${seed}: maxCrossSectionExcess=${result.maxCrossSectionExcess} (expected 0)`,
+            ).toBe(0);
+            expect(
+                result.longitudinal.length,
+                `seed ${seed}: longitudinal=${result.longitudinal.length} (expected 0)`,
+            ).toBe(0);
+            expect(
+                result.maxLongitudinalExcess,
+                `seed ${seed}: maxLongitudinalExcess=${result.maxLongitudinalExcess} (expected 0)`,
+            ).toBe(0);
+        }
     });
 });
 
