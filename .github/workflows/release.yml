@@ -38,6 +38,13 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
 
+# D1 fix: Windows runners default `run:` steps to PowerShell, but every body in this workflow is
+# bash. A single workflow-level default covers every `run:` step so no step can forget it — rather
+# than a per-step `shell:` sprinkle. Bash is present on the Windows runner (Git Bash).
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     strategy:
@@ -87,9 +94,21 @@ jobs:
       - name: Add Rust target
         run: rustup target add ${{ matrix.target }}
 
-      - name: Install Linux CEF build deps
-        if: runner.os == 'Linux' && matrix.mode == 'portable'
-        run: sudo apt-get update && sudo apt-get install -y g++ pkg-config
+      # D2/D3 fix: the Linux system build (wry → WebKitGTK) needs glib/GTK dev headers discoverable
+      # by pkg-config, and the Linux portable build (CEF) needs X11 dev headers to link -lX11. The
+      # README documents "WebKitGTK dev headers" for the system build (README § native build
+      # prerequisites); the X11 dev headers for the portable build are NOT documented there (the README
+      # only names the CEF runtime download) and were derived from the -lX11 link failure. Gates to
+      # Linux only — mac and Windows are green and must not grow an install step.
+      - name: Install Linux build deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libx11-dev \
+            g++ \
+            pkg-config
 
       - name: Build shallot-window shell (release)
         working-directory: packages/shallot/rust/window
@@ -107,7 +126,6 @@ jobs:
       # The CEF runtime is discovered via the same findCefDir search pattern native.ts uses
       # (target/<triple>/release/build/cef-dll-sys-*/out/<subdir>/), NOT by re-deriving the CDN URL.
       - name: Assemble archive
-        shell: bash
         env:
           TARGET: ${{ matrix.target }}
           MODE: ${{ matrix.mode }}

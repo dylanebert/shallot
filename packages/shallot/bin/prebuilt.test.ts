@@ -635,4 +635,86 @@ describe("release.yml producer/consumer contract", () => {
         const run = String(releaseStep?.run ?? "");
         expect(run).toContain("--clobber");
     });
+
+    // Arm 6 (D1 fix): the workflow declares a workflow-level `defaults: run: shell: bash` so every
+    // `run:` step executes in bash, not the Windows runner's default PowerShell. Without this, every
+    // bash construct in the build/assemble bodies (`if [ ... ]`, `$(...)`, `for ... in`, etc.) dies
+    // with a PowerShell ParserError on the windows-latest cells. The arm asserts the default exists
+    // at the workflow top level and is `bash` — removing it or narrowing it (e.g. to `sh`, or moving
+    // it to a single step) fails here. It also checks that no `run:` step overrides the default with
+    // a non-bash shell, so a per-step `shell: powershell` cannot silently re-introduce the defect.
+    test("workflow declares a bash shell default covering every run step (D1 fix)", () => {
+        const wf = loadWorkflowYaml();
+
+        // The workflow-level default must exist and set shell to bash.
+        const defaults = wf.defaults as Record<string, unknown> | undefined;
+        expect(defaults).toBeDefined();
+        const runDefault = defaults?.run as Record<string, unknown> | undefined;
+        expect(runDefault).toBeDefined();
+        expect(runDefault?.shell).toBe("bash");
+
+        // Every `run:` step across all jobs must either inherit the default (no explicit shell) or
+        // explicitly set shell to bash — a step that overrides with a non-bash shell re-introduces
+        // the defect on Windows. This catches a per-step `shell: powershell` that would slip past a
+        // default-only check.
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+        const allSteps = Object.values(jobs).flatMap(
+            (job) => (job.steps as Record<string, unknown>[] | undefined) ?? [],
+        );
+        const runSteps = allSteps.filter((s) => typeof s.run === "string");
+        expect(runSteps.length).toBeGreaterThan(0);
+        for (const step of runSteps) {
+            const shell = step.shell as string | undefined;
+            // If a step declares an explicit shell, it must be bash — not powershell, not sh.
+            if (shell !== undefined) {
+                expect(shell).toBe("bash");
+            }
+        }
+    });
+
+    // Arm 7 (D2/D3 fix): the ubuntu cells reach a dependency-install step, and the mac/windows cells
+    // do not. The Linux system build (wry → WebKitGTK) needs glib/GTK dev headers (D2), and the
+    // Linux portable build (CEF) needs X11 dev headers (D3). The install step must be gated to
+    // `runner.os == 'Linux'` so mac and Windows — already green — do not grow an install step. The
+    // arm asserts the step exists, its `if:` gates narrowly on Linux, and it installs the packages
+    // that fix both failures (a webkit package for D2, an x11 package for D3). It also verifies no
+    // other install step reaches mac or Windows by checking every apt-get step's `if:` condition.
+    test("ubuntu cells reach a dependency-install step; mac/windows do not (D2/D3 fix)", () => {
+        const wf = loadWorkflowYaml();
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+        const buildSteps = jobs.build.steps as Record<string, unknown>[];
+
+        // Find the dependency-install step: a `run:` step whose body includes apt-get install.
+        const installStep = buildSteps.find(
+            (s) => typeof s.run === "string" && s.run.includes("apt-get install"),
+        );
+        expect(installStep).toBeDefined();
+
+        // The step must be gated to Linux only — not unguarded, not gated to a broader condition
+        // that would also fire on mac or Windows. The condition must name `runner.os` and `Linux`.
+        const ifCond = String(installStep?.if ?? "");
+        expect(ifCond).toContain("runner.os");
+        expect(ifCond).toMatch(/Linux/);
+        // Must NOT be gated to portable-only (the old step was `Linux && portable`, which left the
+        // system build without glib/GTK headers — D2).
+        expect(ifCond).not.toContain("portable");
+
+        // The install must include a WebKitGTK dev package (D2: glib-2.0 not found by pkg-config) and
+        // an X11 dev package (D3: -lX11 not linkable). Checking for the package names, not just the
+        // step's existence, catches a step that installs only the old g++/pkg-config pair.
+        const installRun = String(installStep?.run ?? "");
+        expect(installRun).toMatch(/libwebkit2gtk-4\.[01]-dev/);
+        expect(installRun).toMatch(/libx11-dev/);
+
+        // No apt-get install step may fire on mac or Windows: every apt-get step's `if:` must gate
+        // on Linux. A step with no `if:` (unguarded) would run on all runners — fail it.
+        const aptSteps = buildSteps.filter(
+            (s) => typeof s.run === "string" && s.run.includes("apt-get"),
+        );
+        for (const step of aptSteps) {
+            const cond = String(step.if ?? "");
+            expect(cond).toContain("runner.os");
+            expect(cond).toMatch(/Linux/);
+        }
+    });
 });
