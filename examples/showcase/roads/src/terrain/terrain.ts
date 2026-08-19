@@ -280,17 +280,21 @@ const OverlayRedrawSystem: System = {
 /**
  * swap the live document to a freshly seeded procedural network (`overlay/network.ts`'s
  * `generateNetwork`) and re-dispatch the height kernel — the seed control's live reseed (`boot.ts`'s F9
- * handler). Marks the new network's tiles dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set oracle
- * `document.test.ts` pins) and rebinds the flatten kernel's geometry (`flatten.ts`'s `setNetwork`) before
- * `generate` re-dispatches, so the next-drawn frame's heights and overlay both reflect the new network in
- * one call — the "affected-region remesh" the spec's Approach names. A tile the previous document touched
- * but the new one doesn't keeps its stale content (`tiles.ts`'s ATLAS_LAYERS never evicts, a stage-4
- * decision this stage inherits, not one it revisits).
+ * handler). `overlayAtlas.invalidate()` releases every tile the outgoing document left resident (the
+ * indirection mirror reset to unallocated, the layer counter restarted, any still-pending redraw dropped)
+ * *before* the new network's tiles are marked dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set
+ * oracle `document.test.ts` pins) — otherwise a tile the old document touched but the new one doesn't
+ * would keep its stale content forever, and each reseed's fresh handful of layers would pile onto the
+ * last's until the fixed-size atlas ran out (`overlay/queue.test.ts`'s real-generator-output demonstration
+ * of both failure modes, pre-invalidation). Rebinds the flatten kernel's geometry (`flatten.ts`'s
+ * `setNetwork`) before `generate` re-dispatches, so the next-drawn frame's heights and overlay both
+ * reflect the new network in one call — the "affected-region remesh" the spec's Approach names.
  */
 export async function regenerate(seed: number): Promise<void> {
     currentSeed = seed;
     liveDocument = generateNetwork(seed);
     setNetwork(liveDocument, seed, smoothRadius);
+    overlayAtlas.invalidate();
     overlayAtlas.markDirty(liveDocument);
     await generate(seed);
 }

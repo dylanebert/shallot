@@ -3,7 +3,7 @@ import type { MeshBinding } from "@dylanebert/shallot/render/core";
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { documentDirtyTiles, type StrokeDocument } from "./document";
-import { allocate, drain } from "./queue";
+import { allocate, drain, invalidate as invalidateQueue } from "./queue";
 import { rasterizeTile, warm as rasterizeWarm } from "./rasterize";
 import {
     ALBEDO_FORMAT,
@@ -38,10 +38,13 @@ import {
 // The overlay atlas's GPU state: two texture-2d-arrays (albedo + boundary distance, `tiles.ts`'s formats)
 // sized to {@link ATLAS_LAYERS} — smaller than {@link TILE_COUNT}, the "small indirection" the spec's
 // Approach names — plus the indirection storage buffer the terrain fs (`terrain/terrain.ts`) looks tile id
-// up in. A tile's layer is allocated the first time it's marked dirty (never evicted — out of scope, see
-// tiles.ts); `redraw` drains the dirty queue at a fixed per-frame throttle, so a burst of edits (a hand-
-// authored stroke, or a future full network regeneration) never stalls one frame with every tile's
-// rasterize dispatch at once. Stage 5 moved the per-tile content from a CPU `TilePacker` (`writeTexture`
+// up in. A tile's layer is allocated the first time it's marked dirty and never evicted within one
+// document's lifetime (per-tile eviction/paging is out of scope, see tiles.ts) — but a document *swap*
+// (`terrain.ts`'s `regenerate`, the F9 reseed control) is a coarser event: {@link invalidate} releases
+// every resident layer at once, so the incoming document allocates into a fresh atlas rather than
+// accreting on top of the outgoing one. `redraw` drains the dirty queue at a fixed per-frame throttle, so
+// a burst of edits (a hand-authored stroke, or a full network regeneration) never stalls one frame with
+// every tile's rasterize dispatch at once. Stage 5 moved the per-tile content from a CPU `TilePacker` (`writeTexture`
 // on a JS-computed `Uint8Array`) to `rasterize.ts`'s GPU compute dispatch (`copyBufferToTexture` off a
 // packed storage buffer) — `redraw` below is the seam that changed; `queue.ts`'s `drain`/`allocate` are
 // untouched.
@@ -76,10 +79,7 @@ function teardown(): void {
     sampler = null;
     indirectionRaw = null;
     indirectionTyped = null;
-    indirectionCpu.fill(-1);
-    nextLayer = 0;
-    pending.length = 0;
-    pendingSet.clear();
+    nextLayer = invalidateQueue(indirectionCpu, pending, pendingSet);
 }
 
 /** allocate the atlas's GPU resources — textures, sampler, indirection buffer, all cleared to "no tile
@@ -117,12 +117,27 @@ export function warm(state: State): void {
         size: TILE_COUNT * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    indirectionCpu.fill(-1);
+    nextLayer = invalidateQueue(indirectionCpu, pending, pendingSet);
     device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
     indirectionTyped = root.createBuffer(Indirection, indirectionRaw).$usage("storage");
-    nextLayer = 0;
-    pending.length = 0;
-    pendingSet.clear();
+}
+
+/**
+ * invalidate every resident tile on a document swap (`terrain.ts`'s `regenerate`, the F9 reseed control):
+ * releases the indirection CPU mirror, restarts the free-running layer counter, and drops any redraw
+ * still queued from the outgoing document — then flushes the reset indirection straight to the GPU buffer
+ * the terrain fs reads (`terrain.ts`'s composite treats `layer < 0` as "no overlay here"), so a tile the
+ * old document touched but the new one doesn't reads terrain, not stale road, the very next frame rather
+ * than whenever its old layer happens to get reused. The atlas *textures* keep their stale texels — inert
+ * until a fresh `redraw` overwrites them, since nothing samples an unindexed layer — so this only needs to
+ * touch indirection, not `writeTexture` every layer. Call before {@link markDirty} marks the swapped-in
+ * document's own tiles, or they'd pack onto the tail of a still-full atlas instead of a freshly emptied
+ * one — the ordering `queue.ts`'s `invalidate` doc comment names.
+ */
+export function invalidate(): void {
+    if (!indirectionRaw) return; // warm() hasn't run yet — nothing resident to release
+    nextLayer = invalidateQueue(indirectionCpu, pending, pendingSet);
+    Compute.device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
 }
 
 /** the terrain mesh's `bindings` override for the four overlay entries the surface layout declares

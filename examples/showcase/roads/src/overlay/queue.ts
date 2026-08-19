@@ -28,6 +28,23 @@ export interface Allocation {
 }
 
 /**
+ * reset every previously-resident tile, the free-running layer counter, and any redraw still queued —
+ * `atlas.ts`'s document-swap invalidation (`terrain.ts`'s `regenerate`, the F9 reseed control), called
+ * before the swapped-in document's own tiles are marked dirty so they land in a freshly emptied atlas
+ * rather than packing onto whatever the old document left resident. Mutates `cpu`/`pending`/`pendingSet`
+ * in place, the same convention {@link drain} uses; returns the counter's reset value (always 0) so a
+ * caller assigns it exactly like {@link allocate}'s `nextLayer`.
+ *
+ * @example invalidate(Int32Array.from([2, -1, 0]), [5], new Set([5])) // → 0; array now [-1,-1,-1], pending []
+ */
+export function invalidate(cpu: Int32Array, pending: number[], pendingSet: Set<number>): number {
+    cpu.fill(-1);
+    pending.length = 0;
+    pendingSet.clear();
+    return 0;
+}
+
+/**
  * resolve tile `id`'s atlas layer against the indirection CPU mirror `cpu` (negative = unallocated):
  * already resident → its existing layer, unchanged counter; otherwise the next free layer, `cpu[id]`
  * written in place. Throws when `nextLayer` would exceed `capacity` rather than silently overwriting a

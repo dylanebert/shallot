@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { gridX, gridZ, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
 import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
 import { captureProbePoints, generateNetwork, ROAD_COUNT, ROAD_HALF_WIDTH } from "./network";
+import { tileId, tileOf } from "./tiles";
 
 // this module's own copy of `terrain/terrain.ts`'s boot SEED — kept a plain literal rather than an
 // import so this file's tests stay in the pure-data tier (no pull-in of terrain.ts's device-bound module
@@ -137,6 +138,24 @@ describe("captureProbePoints — the device gate's on/off-road pair over the pro
             const { onRoad, offRoad } = captureProbePoints(seed);
             expect(documentDistance(onRoad[0], onRoad[1], doc)).toBeLessThan(0);
             expect(documentDistance(offRoad[0], offRoad[1], doc)).toBeGreaterThan(0);
+        }
+    });
+});
+
+describe("stage 14's device-arm reseed seeds — neither touches the boot network's on-road tile", () => {
+    // `test/roads.spec.ts`'s reseed-integrity check (F9 twice, then read the boot network's own on-road
+    // point) needs two fixed reseed seeds that don't coincidentally re-touch that exact tile — a real
+    // road there after the swap would make a still-stale read pass for the wrong reason. Pinned here,
+    // device-free, so a network.ts change that breaks the disjointness fails loud at this tier instead of
+    // silently flaking the device gate.
+    test("RESEED_SEED_A (111111) and RESEED_SEED_B (222222) both miss the boot on-road tile", () => {
+        const { onRoad } = captureProbePoints(BOOT_SEED);
+        const [tx, tz] = tileOf(onRoad[0], onRoad[1]);
+        const bootOnRoadTile = tileId(tx, tz);
+
+        for (const seed of [111111, 222222]) {
+            const ids = documentDirtyTiles(generateNetwork(seed));
+            expect(ids).not.toContain(bootOnRoadTile);
         }
     });
 });

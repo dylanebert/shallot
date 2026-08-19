@@ -1,6 +1,12 @@
 import type { Plugin, System } from "@dylanebert/shallot";
 import { Meshes } from "@dylanebert/shallot/render/core";
-import { capturePoints, type ScreenPoint, TRANSITION_TOLERANCE_PX, worldToScreen } from "./capture";
+import {
+    capturePoints,
+    type ScreenPoint,
+    TRANSITION_TOLERANCE_PX,
+    withHeight,
+    worldToScreen,
+} from "./capture";
 import { gate } from "./gate";
 import {
     type GrazingAnchor,
@@ -54,6 +60,15 @@ declare global {
         // two-resolution reading is self-labeling rather than trusting whatever the driver assumed was
         // edited before the run.
         __roadsMeshParams?: { spacing: number; tileRes: number; distRange: number };
+        // stage 14's reseed-integrity device arm (`test/roads.spec.ts`) — a deterministic bridge onto the
+        // real F9 handler's own `regenerate` call, so the check can drive two reseeds by fixed seed
+        // instead of `Math.random()`'s live keypress (which could coincidentally re-touch the probed
+        // tile and make a still-stale read look correct by accident). `__roadsHeightAt` re-derives a
+        // world point's real generated surface height after a reseed changes it (`capture.ts`'s
+        // `withHeight`), since the probe's world (x, z) is fixed but its height isn't once the old
+        // network's flatten target is gone.
+        __roadsRegenerate?: (seed: number) => Promise<void>;
+        __roadsHeightAt?: (x: number, z: number) => Promise<[number, number, number]>;
     }
 }
 
@@ -78,6 +93,8 @@ const BootSystem: System = {
         window.__roadsGrazingCapture = () => grazingCapture();
         window.__roadsHeightSilhouette = () => heightSilhouette();
         window.__roadsMeshParams = { spacing: SPACING, tileRes: TILE_RES, distRange: DIST_RANGE };
+        window.__roadsRegenerate = (seed) => regenerate(seed);
+        window.__roadsHeightAt = (x, z) => withHeight(x, z);
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `[`/`]` step the longitudinal smoothing radius (`terrain/profile.ts`'s box-filter
         // radius) down/up by one sample — the strength itself is a human taste call the spec hands back,
@@ -110,6 +127,8 @@ const BootSystem: System = {
         delete window.__roadsGrazingCapture;
         delete window.__roadsHeightSilhouette;
         delete window.__roadsMeshParams;
+        delete window.__roadsRegenerate;
+        delete window.__roadsHeightAt;
     },
 };
 
