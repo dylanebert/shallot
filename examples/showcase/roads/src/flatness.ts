@@ -34,6 +34,14 @@
 //     unconstrained by design; this oracle only walks centreline + edge lines *inside* a footprint.
 //   - reseed staleness — this always samples the *live* document's own current geometry; a stale
 //     atlas/dirty-tile residue (stage 14's subject) leaves no trace on the heightfield this oracle reads.
+//   - the segment endpoint cap — every sampled line excises an arc-length margin of exactly `halfWidth`
+//     metres (4 m on this network) at *both* ends of every segment (`sampleWindow`, below): past that
+//     margin, `networkCoreCpu`'s own nearest-*point* clamp is a different geometric case from the
+//     nearest-*line* interior this oracle checks. A green run says nothing about the geometry within one
+//     `halfWidth` of any road endpoint or junction — precisely the band stage 15's own fix (blending
+//     overlapping primitives' falloffs across `networkCore`'s hard nearest-primitive switch) concentrates
+//     its change in, so a green oracle after that fix is evidence about the mid-segment crease only, not
+//     the junction one, unless this margin narrows too.
 
 import { encodePos } from "@dylanebert/shallot/utils/core";
 import * as d from "typegpu/data";
@@ -256,10 +264,34 @@ function segmentFrames(doc: StrokeDocument): RoadFrame[] {
     return frames;
 }
 
-// stay off each segment's own endpoint cap (a distinct geometric case — nearest-point rather than
-// nearest-line — out of this oracle's scope) by sampling only the segment's interior.
-const T_LO = 0.05;
-const T_HI = 0.95;
+// stay off each segment's own endpoint cap (a distinct geometric case — nearest-*point* rather than
+// nearest-*line*, `networkCoreCpu`'s own clamp-to-[0,1] projection: past either endpoint the nearest
+// primitive distance is measured to that endpoint, not perpendicular to the segment). The excluded band
+// is an *arc-length* margin of exactly {@link RoadFrame.halfWidth} metres at each end — the same
+// document-geometry quantity the spec already names for the window, not a fraction of the segment's own
+// length (a fraction silently widens on a longer road and has no geometric referent at all — the bug this
+// replaces sampled a fixed 5% of segment length, 4.6-9.6 m on this network's own five roads, wider than
+// SPACING and comparable to the falloff width, quietly excising the junction/endpoint band stage 15's fix
+// concentrates its own change in). Treatment-free: only `halfWidth`, never `computeFalloff`, a falloff
+// scale, or the smoothing radius.
+function endpointMargin(frame: RoadFrame): number {
+    return frame.halfWidth;
+}
+
+/** the sampled `[tLo, tHi]` interior of `frame` after excising {@link endpointMargin} at each end.
+ *  Degenerates to a single point at the segment's own midpoint (`tLo === tHi === 0.5`) when the two
+ *  margins would cross — a segment shorter than `2 * halfWidth` has no interior left once both endpoint
+ *  caps are removed. Not reachable by this project's own generator (`ROAD_MIN_LENGTH = 80` against
+ *  `halfWidth = 4`), but a reused caller could feed a shorter segment, and the alternative (sampling
+ *  nothing, silently) is exactly the failure mode this stage's own finding was about — so this returns one
+ *  real sample point instead of an empty line. */
+function sampleWindow(frame: RoadFrame): { tLo: number; tHi: number } {
+    const margin = endpointMargin(frame);
+    const tLo = margin / frame.len;
+    const tHi = 1 - tLo;
+    if (tLo >= tHi) return { tLo: 0.5, tHi: 0.5 };
+    return { tLo, tHi };
+}
 
 interface LineSample {
     readonly t: number;
@@ -272,11 +304,14 @@ function sampleLine(
     frame: RoadFrame,
     offset: number,
     sampleAt: (x: number, z: number) => number,
+    tLo: number,
+    tHi: number,
 ): LineSample[] {
-    const n = Math.max(1, Math.ceil(((T_HI - T_LO) * frame.len) / SAMPLE_STEP));
+    const span = tHi - tLo;
+    const n = span <= 0 ? 0 : Math.max(1, Math.ceil((span * frame.len) / SAMPLE_STEP));
     const out: LineSample[] = [];
     for (let s = 0; s <= n; s++) {
-        const t = T_LO + ((T_HI - T_LO) * s) / n;
+        const t = n === 0 ? tLo : tLo + (span * s) / n;
         const station = t * frame.len;
         const x = frame.ax + frame.ux * station + frame.nx * offset;
         const z = frame.az + frame.uz * station + frame.nz * offset;
@@ -347,12 +382,13 @@ export function checkSurfaceFlatness(
     for (let roadIndex = 0; roadIndex < frames.length; roadIndex++) {
         const frame = frames[roadIndex];
         const inset = frame.halfWidth - EDGE_EPSILON;
-        const centre = sampleLine(frame, 0, sampleAt);
-        const edgePos = sampleLine(frame, inset, sampleAt);
-        const edgeNeg = sampleLine(frame, -inset, sampleAt);
+        const { tLo, tHi } = sampleWindow(frame);
+        const centre = sampleLine(frame, 0, sampleAt, tLo, tHi);
+        const edgePos = sampleLine(frame, inset, sampleAt, tLo, tHi);
+        const edgeNeg = sampleLine(frame, -inset, sampleAt, tLo, tHi);
         sampleCount += centre.length + edgePos.length + edgeNeg.length;
 
-        // cross-section: same station (same t by construction — sampleLine shares T_LO/T_HI/n), every
+        // cross-section: same station (same t by construction — sampleLine shares tLo/tHi/n), every
         // footprint line should read the centreline's own height.
         for (let i = 0; i < centre.length; i++) {
             for (const [line, samples] of [
@@ -377,7 +413,7 @@ export function checkSurfaceFlatness(
         }
 
         // longitudinal: adjacent-sample grade bound, walked independently along each of the three lines.
-        const ds = ((T_HI - T_LO) * frame.len) / Math.max(1, centre.length - 1);
+        const ds = ((tHi - tLo) * frame.len) / Math.max(1, centre.length - 1);
         const bound = gradeBound(ds);
         for (const [line, samples] of [
             ["centre", centre],
@@ -446,8 +482,9 @@ export function reconstructionAgreement(
     let sampleCount = 0;
     for (const frame of segmentFrames(doc)) {
         const inset = frame.halfWidth - EDGE_EPSILON;
+        const { tLo, tHi } = sampleWindow(frame);
         for (const offset of [0, inset, -inset]) {
-            for (const s of sampleLine(frame, offset, deviceSample)) {
+            for (const s of sampleLine(frame, offset, deviceSample, tLo, tHi)) {
                 const cpuH = cpuSample(s.x, s.z);
                 maxDiffM = Math.max(maxDiffM, Math.abs(s.h - cpuH));
                 sampleCount++;
