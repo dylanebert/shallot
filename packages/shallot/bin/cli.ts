@@ -18,9 +18,12 @@ const usage = `
     recipe    Copy an example recipe out of the package (bare: list them)
 
   Options
-    --target <platform>   web (default), windows, mac, linux. Native builds work from a standard
-                          install and require the Rust toolchain (+ per-target prerequisites;
-                          portable auto-downloads CEF on first build, or set CEF_PATH).
+    --target <platform>   web (default), windows, mac, linux. Native release builds download a prebuilt
+                          shell from GitHub Releases when available (no Rust toolchain needed); any miss
+                          (404, offline, checksum mismatch, source checkout) silently falls back to
+                          compiling the Rust window host from source, which requires the Rust toolchain
+                          (+ per-target prerequisites; portable auto-downloads CEF on first build, or
+                          set CEF_PATH). Debug builds always compile from source.
     --release             Optimized build (build, run)
     --portable            Bundle the Chromium runtime (CEF) instead of the system webview.
                           Larger, but self-contained and runs anywhere. Required on Linux
