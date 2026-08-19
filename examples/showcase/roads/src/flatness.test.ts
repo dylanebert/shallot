@@ -273,9 +273,14 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         console.log(
             `SURFACE_FLATNESS_NO_CUT longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount}`,
         );
-        // measured (2026-08-19): 241 longitudinal violations of 2052 samples, well above the shipped
-        // pipeline's own 11 — raw undeformed relief violates the grade bound far more often than the
-        // flattened corridor does, exactly the "real signal" this control is meant to prove exists.
+        // measured (2026-08-19, stage 21): 409 longitudinal and 1234 cross-section violations of 1860
+        // samples, against the shipped pipeline's own exact 0 — raw undeformed relief violates the grade
+        // bound constantly where the flattened corridor never does, exactly the "real signal" this control
+        // is meant to prove exists. The population is pinned, not just the failing count: a shrinking
+        // sample array would otherwise buy this arm a green the same way it would buy the exactness arms
+        // one (this unit's own residue — an amputated instrument degrades the quantifier, not just the
+        // population). The prior comment read "241 of 2052", both superseded by stage 18's window widening.
+        expect(result.sampleCount).toBe(1860);
         expect(result.longitudinal.length).toBeGreaterThan(100);
     });
 });

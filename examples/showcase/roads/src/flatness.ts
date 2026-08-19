@@ -34,11 +34,14 @@
 //     unconstrained by design; this oracle only walks centreline + edge lines *inside* a footprint.
 //   - reseed staleness — this always samples the *live* document's own current geometry; a stale
 //     atlas/dirty-tile residue (stage 14's subject) leaves no trace on the heightfield this oracle reads.
-//   - the segment endpoint cap — every sampled line excises an arc-length margin of exactly `halfWidth`
-//     metres (4 m on this network) at *both* ends of every segment (`sampleWindow`, below): past that
-//     margin, `networkCoreCpu`'s own nearest-*point* clamp is a different geometric case from the
-//     nearest-*line* interior this oracle checks. A green run says nothing about the geometry within one
-//     `halfWidth` of any road endpoint.
+//   - the segment endpoint cap — every sampled line excises an arc-length margin of `halfWidth +
+//     √2·SPACING` (9.66 m on this network) at *both* ends of every segment (`endpointMargin`, below):
+//     past that margin, `networkCoreCpu`'s own nearest-*point* clamp is a different geometric case from
+//     the nearest-*line* interior this oracle checks, and the reconstruction reaches one cell diagonal
+//     past its sample point. A green run says nothing about the geometry within that margin of any road
+//     endpoint. Both terms are treatment-free: `halfWidth` is document geometry, `SPACING` is the mesh
+//     constant. This cap is the criterion's *only* remaining exclusion — the junction carve-out, the
+//     partition invariant, and the exclusion fraction are all gone (stage 21).
 //
 // The oracle's sampling window is the per-segment endpoint cap (`halfWidth + √2·SPACING` at each
 // end, derived from the affine region and the lattice — see `endpointMargin` below); beyond that, the
