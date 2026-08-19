@@ -35,6 +35,8 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+// GitHub run artifacts expire (~90 days). If this run's artifacts are gone, substitute a fresh
+// workflow_dispatch run id from `gh run list --workflow release.yml`.
 const GREEN_RUN_ID = "32253745114";
 const REPO = "dylanebert/shallot";
 const LINUX_TARGET = "x86_64-unknown-linux-gnu";

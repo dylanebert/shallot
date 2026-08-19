@@ -73,14 +73,19 @@ describe("resolvePrebuiltDecision", () => {
         expect(d.decision).toBe("lazy");
     });
 
+    // Exhaustive over PrebuiltFetchResult. The Record<..., true> assignment fails at compile time
+    // if the union gains a member, so the arm's name stays true to its assertion (checks.md).
     test("every fetch result maps to a decision with a non-empty reason", () => {
-        const results: PrebuiltFetchResult[] = [
-            "ok",
-            "not-found",
-            "offline",
-            "checksum-mismatch",
-            "source-checkout",
-        ];
+        const exhaustive: Record<PrebuiltFetchResult, true> = {
+            ok: true,
+            "not-found": true,
+            offline: true,
+            "checksum-mismatch": true,
+            "source-checkout": true,
+            "extract-failed": true,
+            "cache-error": true,
+        };
+        const results = Object.keys(exhaustive) as PrebuiltFetchResult[];
         for (const fr of results) {
             const d = resolvePrebuiltDecision("1.0.0", target, mode, false, fr);
             expect(d.reason.length).toBeGreaterThan(0);
@@ -363,6 +368,128 @@ describe("tryPrebuilt resolver", () => {
             else process.env.XDG_CACHE_HOME = prevXdg;
             globalThis.fetch = prevFetch;
             console.log = prevLog;
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    // F5: a successful extract returns a non-null result with the binary path and a .complete
+    // sentinel. All four existing arms assert toBeNull(); without a success arm, reverting the
+    // success wiring to `return null` leaves the suite green — the exact regression this arm
+    // catches. Reuses the extractTarGz fixture machinery (tar -czf from a src dir).
+    test("successful system extract -> non-null result with binary path + sentinel", async () => {
+        const tmp = mkdtempSync(join(tmpdir(), "shallot-f5-sys-"));
+        const prevXdg = process.env.XDG_CACHE_HOME;
+        const prevFetch = globalThis.fetch;
+        process.env.XDG_CACHE_HOME = tmp;
+        try {
+            const srcDir = join(tmp, "src");
+            mkdirSync(srcDir, { recursive: true });
+            writeFileSync(join(srcDir, "shallot-window"), "#!/bin/sh\necho hi\n");
+            const archivePath = join(tmp, "test.tar.gz");
+            execSync(`tar -czf "${archivePath}" -C "${srcDir}" .`, { stdio: "pipe" });
+            const archiveBuf = readFileSync(archivePath);
+            const archiveHash = sha256Hex(archiveBuf);
+            const archiveName = prebuiltArchiveName(LINUX, "system");
+            const sumsContent = `${archiveHash}  ${archiveName}\n`;
+
+            globalThis.fetch = ((url: string) => {
+                if (url.includes("SHA256SUMS")) {
+                    return Promise.resolve(new Response(sumsContent, { status: 200 }));
+                }
+                return Promise.resolve(new Response(archiveBuf, { status: 200 }));
+            }) as unknown as typeof fetch;
+
+            const result = await tryPrebuilt(LINUX, true, false, "1.0.0");
+            expect(result).not.toBeNull();
+            const cacheDir = prebuiltCacheDir("1.0.0", LINUX, "system");
+            expect(result!.binaryPath).toBe(resolve(cacheDir, "shallot-window"));
+            expect(result!.cefDir).toBeUndefined();
+            expect(existsSync(join(cacheDir, ".complete"))).toBe(true);
+        } finally {
+            if (prevXdg === undefined) delete process.env.XDG_CACHE_HOME;
+            else process.env.XDG_CACHE_HOME = prevXdg;
+            globalThis.fetch = prevFetch;
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    // F5 (linux portable): cefDir points at the cef/ subdir, not the cache root.
+    test("successful linux portable extract -> non-null result with binary/cefDir paths + sentinel", async () => {
+        const tmp = mkdtempSync(join(tmpdir(), "shallot-f5-lx-"));
+        const prevXdg = process.env.XDG_CACHE_HOME;
+        const prevFetch = globalThis.fetch;
+        process.env.XDG_CACHE_HOME = tmp;
+        try {
+            const srcDir = join(tmp, "src");
+            mkdirSync(join(srcDir, "cef"), { recursive: true });
+            writeFileSync(join(srcDir, "shallot-window"), "#!/bin/sh\necho hi\n");
+            writeFileSync(join(srcDir, "cef", "libcef.so"), "fake cef");
+            const archivePath = join(tmp, "test.tar.gz");
+            execSync(`tar -czf "${archivePath}" -C "${srcDir}" .`, { stdio: "pipe" });
+            const archiveBuf = readFileSync(archivePath);
+            const archiveHash = sha256Hex(archiveBuf);
+            const archiveName = prebuiltArchiveName(LINUX, "portable");
+            const sumsContent = `${archiveHash}  ${archiveName}\n`;
+
+            globalThis.fetch = ((url: string) => {
+                if (url.includes("SHA256SUMS")) {
+                    return Promise.resolve(new Response(sumsContent, { status: 200 }));
+                }
+                return Promise.resolve(new Response(archiveBuf, { status: 200 }));
+            }) as unknown as typeof fetch;
+
+            const result = await tryPrebuilt(LINUX, true, true, "1.0.0");
+            expect(result).not.toBeNull();
+            const cacheDir = prebuiltCacheDir("1.0.0", LINUX, "portable");
+            expect(result!.binaryPath).toBe(resolve(cacheDir, "shallot-window"));
+            expect(result!.cefDir).toBe(resolve(cacheDir, "cef"));
+            expect(existsSync(join(cacheDir, ".complete"))).toBe(true);
+        } finally {
+            if (prevXdg === undefined) delete process.env.XDG_CACHE_HOME;
+            else process.env.XDG_CACHE_HOME = prevXdg;
+            globalThis.fetch = prevFetch;
+            rmSync(tmp, { recursive: true, force: true });
+        }
+    });
+
+    // F5 (mac portable): cefDir is the cache root itself (CEF framework at top level), and
+    // helperPath points at shallot-helper — the two path shapes the other arms don't reach.
+    const Mac = "aarch64-apple-darwin";
+    test("successful mac portable extract -> non-null result with binary/cefDir/helper paths + sentinel", async () => {
+        const tmp = mkdtempSync(join(tmpdir(), "shallot-f5-mac-"));
+        const prevXdg = process.env.XDG_CACHE_HOME;
+        const prevFetch = globalThis.fetch;
+        process.env.XDG_CACHE_HOME = tmp;
+        try {
+            const srcDir = join(tmp, "src");
+            mkdirSync(srcDir, { recursive: true });
+            writeFileSync(join(srcDir, "shallot-window"), "#!/bin/sh\necho hi\n");
+            writeFileSync(join(srcDir, "shallot-helper"), "#!/bin/sh\necho helper\n");
+            const archivePath = join(tmp, "test.tar.gz");
+            execSync(`tar -czf "${archivePath}" -C "${srcDir}" .`, { stdio: "pipe" });
+            const archiveBuf = readFileSync(archivePath);
+            const archiveHash = sha256Hex(archiveBuf);
+            const archiveName = prebuiltArchiveName(Mac, "portable");
+            const sumsContent = `${archiveHash}  ${archiveName}\n`;
+
+            globalThis.fetch = ((url: string) => {
+                if (url.includes("SHA256SUMS")) {
+                    return Promise.resolve(new Response(sumsContent, { status: 200 }));
+                }
+                return Promise.resolve(new Response(archiveBuf, { status: 200 }));
+            }) as unknown as typeof fetch;
+
+            const result = await tryPrebuilt(Mac, true, true, "1.0.0");
+            expect(result).not.toBeNull();
+            const cacheDir = prebuiltCacheDir("1.0.0", Mac, "portable");
+            expect(result!.binaryPath).toBe(resolve(cacheDir, "shallot-window"));
+            expect(result!.cefDir).toBe(cacheDir);
+            expect(result!.helperPath).toBe(resolve(cacheDir, "shallot-helper"));
+            expect(existsSync(join(cacheDir, ".complete"))).toBe(true);
+        } finally {
+            if (prevXdg === undefined) delete process.env.XDG_CACHE_HOME;
+            else process.env.XDG_CACHE_HOME = prevXdg;
+            globalThis.fetch = prevFetch;
             rmSync(tmp, { recursive: true, force: true });
         }
     });

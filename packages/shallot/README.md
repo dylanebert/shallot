@@ -15,7 +15,7 @@ bun install
 bunx shallot dev    # run it, with hot reload
 ```
 
-`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). Native builds (`--target windows|mac|linux`) work from a standard install: the rust window host ships as crate source and compiles on first build, so you need the Rust toolchain plus your target's system dependencies.
+`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). Native builds (`--target windows|mac|linux`) download a prebuilt release shell from GitHub Releases when available (no Rust toolchain needed); on any miss — 404, offline, checksum mismatch, or a source checkout — they fall back to compiling the Rust window host from source, which needs the Rust toolchain plus per-target system dependencies.
 
 ## add to an existing project
 
