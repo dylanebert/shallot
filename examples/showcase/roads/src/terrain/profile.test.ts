@@ -101,19 +101,23 @@ describe("longitudinalOracle — the spec's own Validation criterion, proven by 
     test("stage 6's shipped raw-profile behaviour FAILS this oracle on the same network — the mutation the spec calls for, run, not reasoned about", () => {
         const perm = makePermutation(1337);
         let checked = 0;
-        let sawGradeFailure = false;
+        let gradeFailures = 0;
         for (const seed of [1, 42, 615, 9001, 271828]) {
             const doc = generateNetwork(seed);
             for (const line of doc.polylines) {
                 const raw = rawCenterlineProfile(line.points, perm);
                 const check = longitudinalOracle(raw);
                 checked++;
-                if (!check.gradeOk) sawGradeFailure = true;
+                if (!check.gradeOk) gradeFailures++;
             }
         }
-        expect(checked).toBeGreaterThan(0);
-        // the grade axis independently demonstrates a violation somewhere in the sweep, proving the oracle
-        // discriminates on the axis it checks (not trivially always-green).
-        expect(sawGradeFailure).toBe(true);
+        // stage 19 deleted the jitter axis with `MAX_GRADE_BREAK`, so this mutation proof went from a
+        // universal verdict (`gradeOk && jitterOk` false for every road) to a grade-only one, which is not
+        // universal — 2 of the 25 raw profiles happen to satisfy MAX_GRADE. An amputated instrument owes its
+        // extent pinned in the same diff (the spec's Residue), so the *population and the failing count* are
+        // pinned rather than an existential `> 0`: a future change that quietly drains the null control's
+        // signal (stage 22's route selection is the live candidate) reds here instead of passing on one road.
+        expect(checked).toBe(25);
+        expect(gradeFailures).toBe(23);
     });
 });
