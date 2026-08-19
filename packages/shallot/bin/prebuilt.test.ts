@@ -186,6 +186,16 @@ describe("parseSha256Sums", () => {
             "a".repeat(64),
         );
     });
+
+    // R8: GNU `sha256sum -b` emits `<hash> *<name>` (binary mode). Without stripping the leading `*`,
+    // the parser compares `*<name>` === `<name>` and silently returns null — the resolver falls back
+    // to lazy compile forever, the exact expensive-class failure this unit exists to remove.
+    test("handles binary-mode format (leading * before archive name)", () => {
+        const sums = `${"c".repeat(64)} *shallot-window-x86_64-unknown-linux-gnu-system.tar.gz\n`;
+        expect(parseSha256Sums(sums, "shallot-window-x86_64-unknown-linux-gnu-system.tar.gz")).toBe(
+            "c".repeat(64),
+        );
+    });
 });
 
 // --- Extraction (local fixture archives, no network) ---
@@ -402,6 +412,16 @@ function buildTarGz(entries: { name: string; content: string }[]): Buffer {
 // on the tag trigger so a workflow_dispatch dry run can never create or mutate a release. These arms
 // parse the YAML and assert that contract structurally; the CI dispatch itself is the coordinator's
 // to run (network-fenced here).
+//
+// WHAT THESE ARMS CANNOT SEE (be honest about the gap):
+//   • Inner archive layout — the arms verify the matrix names and that upload/download steps exist,
+//     but not what's *inside* each tar.gz (binary present, CEF file-set correct, helper for mac).
+//   • That the build actually produces the binary — the arms see the cargo build step exists, but
+//     cannot verify it compiles or produces a working shallot-window.
+//   • CEF file-set correctness — the assemble step's bash is not parsed; a wrong file list or a
+//     missing findCefDir marker would pass these arms.
+// The CI dry run (workflow_dispatch) is the gate for those — it exercises the real build, assemble,
+// and upload pipeline end-to-end.
 
 const WORKFLOW_PATH = resolve(import.meta.dir, "../../../.github/workflows/release.yml");
 
@@ -472,11 +492,39 @@ describe("release.yml producer/consumer contract", () => {
         // The set must equal the expected 3×2 enumeration exactly.
         expect(produced).toEqual(EXPECTED_ARCHIVE_NAMES);
 
-        // Every expected name must appear in the YAML text (in an upload/assembly step),
-        // confirming the workflow actually references each archive — not just the matrix.
-        const text = readFileSync(WORKFLOW_PATH, "utf8");
+        // Structural reachability: each cell's archive must be referenced by a real step, not
+        // just present in the matrix text (the names live in the matrix, which is in the text —
+        // a text-containment check is always true when the matrix is right). The build job must
+        // have an upload-artifact step whose with.name or with.path references matrix.archive, and
+        // the checksums job must have a download-artifact step whose with.pattern matches every
+        // archive name. A workflow with a correct matrix but no upload step (or no collect/download
+        // step) fails here.
+        const buildSteps = jobs.build.steps as Record<string, unknown>[];
+        const uploadStep = buildSteps.find((s) => String(s.uses ?? "").includes("upload-artifact"));
+        expect(uploadStep).toBeDefined();
+        const uploadWith = uploadStep?.with as Record<string, unknown> | undefined;
+        expect(uploadWith).toBeDefined();
+        const uploadName = String(uploadWith?.name ?? "");
+        const uploadPath = String(uploadWith?.path ?? "");
+        expect(uploadName.includes("matrix.archive") || uploadPath.includes("matrix.archive")).toBe(
+            true,
+        );
+
+        const checksumsSteps = jobs.checksums.steps as Record<string, unknown>[];
+        const downloadStep = checksumsSteps.find((s) =>
+            String(s.uses ?? "").includes("download-artifact"),
+        );
+        expect(downloadStep).toBeDefined();
+        const downloadWith = downloadStep?.with as Record<string, unknown> | undefined;
+        expect(downloadWith).toBeDefined();
+        const pattern = String(downloadWith?.pattern ?? "");
+        expect(pattern).toBeTruthy();
+        // Convert the glob to a regex and verify it matches every expected archive name.
+        const globRegex = new RegExp(
+            `^${pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")}$`,
+        );
         for (const name of EXPECTED_ARCHIVE_NAMES) {
-            expect(text).toContain(name);
+            expect(globRegex.test(name)).toBe(true);
         }
     });
 
@@ -510,12 +558,12 @@ describe("release.yml producer/consumer contract", () => {
         expect(typeof sumsStep?.run).toBe("string");
         expect(sumsStep?.run as string).toContain("sha256sum");
 
-        // All six archive names must appear in the YAML text — they are all produced by the
-        // build matrix, downloaded by the checksums job, and covered by sha256sum.
-        const text = readFileSync(WORKFLOW_PATH, "utf8");
-        for (const name of EXPECTED_ARCHIVE_NAMES) {
-            expect(text).toContain(name);
-        }
+        // Structural: the sha256sum run command must reference a glob covering all six
+        // archive names — not just a text-containment check that passes when the matrix is right.
+        const sumsRun = String(sumsStep?.run ?? "");
+        expect(sumsRun).toContain("sha256sum");
+        // The sha256sum command must reference the archive glob (shallot-window-*.tar.gz).
+        expect(sumsRun).toMatch(/shallot-window-\*\.tar\.gz/);
     });
 
     // Arm 3: the release-upload step is gated on the tag trigger (a dispatch run cannot reach it).
@@ -523,21 +571,22 @@ describe("release.yml producer/consumer contract", () => {
         const wf = loadWorkflowYaml();
         const jobs = wf.jobs as Record<string, Record<string, unknown>>;
 
-        // Find the step that uploads to a GitHub release.
+        // Find the step that uploads to a GitHub release — now a `gh release upload` run step
+        // (was softprops/action-gh-release; replaced with first-party gh to zero the third-party surface).
         const allSteps = Object.values(jobs).flatMap(
             (job) => (job.steps as Record<string, unknown>[] | undefined) ?? [],
         );
         const releaseStep = allSteps.find((s) => {
-            const uses = String(s.uses ?? "");
-            return uses.includes("gh-release") || uses.includes("upload-release");
+            const run = String(s.run ?? "");
+            return run.includes("gh release upload");
         });
         expect(releaseStep).toBeDefined();
 
         // The step must have an if: condition that gates on the tag trigger.
         expect(releaseStep?.if).toBeDefined();
         const ifCond = String(releaseStep?.if);
-        // Must reference tags — not just push (which would also fire on branch pushes),
-        // and not be absent (which would let a dispatch run upload to a release).
-        expect(ifCond).toMatch(/tags|startsWith.*ref/i);
+        // Must gate on the literal tag ref prefix refs/tags/v — not a loose /tags|startsWith.*ref/i
+        // pattern that would pass on wrong-but-similar gates (e.g. refs/heads/v* or refs/tags/nightly).
+        expect(ifCond).toContain("refs/tags/v");
     });
 });

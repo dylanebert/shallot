@@ -21,8 +21,19 @@ on:
       - "v*"
   workflow_dispatch:
 
+# First-party actions on major tags, deliberately. SHA pinning is owed to a seat that can verify
+# the SHAs (this seat's network is fenced, and an unverifiable hand-written SHA is a harder
+# failure than a first-party mutable tag — the action fails to resolve at all).
+
 permissions:
-  contents: write # needed only by the tag-gated release-upload step; unused on dispatch
+  contents: read # write is granted only on the checksums job that carries the tag-gated upload
+
+concurrency:
+  # Keyed on the ref so two tag pushes (or a re-run racing its original) cannot both attach
+  # assets to one release. Do not cancel in-progress for tag runs — a cancelled build mid-upload
+  # could leave a half-attached release.
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -68,11 +79,13 @@ jobs:
             archive: shallot-window-aarch64-apple-darwin-portable.tar.gz
     runs-on: ${{ matrix.runner }}
     steps:
+      # First-party actions on major tags, deliberately (see comment at top of file).
       - uses: actions/checkout@v4
 
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
-        with:
-          target: ${{ matrix.target }}
+      # GitHub runners ship rustup + a stable Rust toolchain preinstalled; only the cross-compile
+      # target may need adding. No third-party rust setup action.
+      - name: Add Rust target
+        run: rustup target add ${{ matrix.target }}
 
       - name: Install Linux CEF build deps
         if: runner.os == 'Linux' && matrix.mode == 'portable'
@@ -224,7 +237,10 @@ jobs:
   checksums:
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed only by the tag-gated release-upload step below
     steps:
+      # First-party actions on major tags, deliberately (see comment at top of file).
       - uses: actions/download-artifact@v4
         with:
           path: archives
@@ -247,10 +263,16 @@ jobs:
       # The if: gate is the dry-run safety property — a workflow_dispatch run's github.ref is a
       # branch ref (refs/heads/<branch>), never refs/tags/v*, so this step is skipped on dispatch.
       # Do NOT remove or broaden this condition.
+      #
+      # Uses `gh release upload` (gh is preinstalled on GitHub runners) rather than a third-party
+      # action. The glob `archives/shallot-window-*.tar.gz` makes a zero-match an error: bash passes
+      # the unmatched literal to gh, which fails because the file does not exist — so a partial
+      # assembly cannot publish a SHA256SUMS with no archives beside it.
       - name: Attach archives to release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            archives/shallot-window-*.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ github.ref_name }}" \
+            archives/shallot-window-*.tar.gz \
             SHA256SUMS
