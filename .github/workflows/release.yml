@@ -1,0 +1,256 @@
+# Prebuilt shallot-window shell release pipeline.
+#
+# This is the repo's first CI. It produces the prebuilt binary archives that `shallot build --target`
+# downloads when available (stage B's `tryPrebuilt` in bin/native.ts), falling back to lazy compile on
+# any miss. One `shallot-window-<triple>-<mode>.tar.gz` per matrix cell, plus a top-level `SHA256SUMS`
+# covering all six.
+#
+# TRIGGER ASYMMETRY — the dry run's whole safety property:
+#   • push to tag v*  → builds, assembles, AND attaches archives + SHA256SUMS to the GitHub Release.
+#   • workflow_dispatch → builds and assembles the SAME archives, but uploads them as RUN ARTIFACTS
+#     only. A dispatch run MUST NOT create, mutate, or upload to any release. The release-upload
+#     step (below, in the `checksums` job) carries `if: startsWith(github.ref, 'refs/tags/v')' so a
+#     dispatch run (whose github.ref is a branch ref, never a tag) cannot reach it. Do NOT remove that
+#     gate — it is the only thing keeping a dry run from publishing.
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed only by the tag-gated release-upload step; unused on dispatch
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu → linux (x86_64-unknown-linux-gnu)
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            mode: system
+            binary: shallot-window
+            archive: shallot-window-x86_64-unknown-linux-gnu-system.tar.gz
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            mode: portable
+            binary: shallot-window
+            archive: shallot-window-x86_64-unknown-linux-gnu-portable.tar.gz
+          # windows → windows (x86_64-pc-windows-msvc)
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            mode: system
+            binary: shallot-window.exe
+            archive: shallot-window-x86_64-pc-windows-msvc-system.tar.gz
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            mode: portable
+            binary: shallot-window.exe
+            archive: shallot-window-x86_64-pc-windows-msvc-portable.tar.gz
+          # macos-14 (Apple Silicon) → mac (aarch64-apple-darwin)
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            mode: system
+            binary: shallot-window
+            archive: shallot-window-aarch64-apple-darwin-system.tar.gz
+          - target: aarch64-apple-darwin
+            runner: macos-14
+            mode: portable
+            binary: shallot-window
+            archive: shallot-window-aarch64-apple-darwin-portable.tar.gz
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+
+      - name: Install Linux CEF build deps
+        if: runner.os == 'Linux' && matrix.mode == 'portable'
+        run: sudo apt-get update && sudo apt-get install -y g++ pkg-config
+
+      - name: Build shallot-window shell (release)
+        working-directory: packages/shallot/rust/window
+        run: |
+          if [ "${{ matrix.mode }}" = "portable" ]; then
+            cargo build --release --target ${{ matrix.target }} --no-default-features --features portable
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      # Assemble the archive per the pinned contract:
+      #   system       → shallot-window[.exe]
+      #   linux/win portable → shallot-window[.exe] + cef/ (copyCefLibs/copyCefDlls file sets)
+      #   mac portable → shallot-window + shallot-helper + Chromium Embedded Framework.framework/
+      # The CEF runtime is discovered via the same findCefDir search pattern native.ts uses
+      # (target/<triple>/release/build/cef-dll-sys-*/out/<subdir>/), NOT by re-deriving the CDN URL.
+      - name: Assemble archive
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          MODE: ${{ matrix.mode }}
+          BINARY: ${{ matrix.binary }}
+          ARCHIVE: ${{ matrix.archive }}
+        run: |
+          set -e
+          CRATE="packages/shallot/rust/window"
+          STAGE="stage"
+          mkdir -p "$STAGE"
+
+          # Copy the shell binary.
+          cp "$CRATE/target/$TARGET/release/$BINARY" "$STAGE/"
+
+          if [ "$MODE" = "portable" ]; then
+            if echo "$TARGET" | grep -q darwin; then
+              # macOS: CEF framework is a directory (mirrors findCefDir marker CEF_FRAMEWORK).
+              CEF_DIR=$(find "$CRATE/target/$TARGET/release/build" \
+                -path "*/cef-dll-sys-*/out/*" \
+                -name "Chromium Embedded Framework.framework" \
+                -print -quit 2>/dev/null | head -1)
+              if [ -z "$CEF_DIR" ]; then
+                echo "CEF framework not found under $CRATE/target/$TARGET/release/build" >&2
+                exit 1
+              fi
+
+              # Copy the helper binary (mac-portable only, per the archive contract).
+              cp "$CRATE/target/$TARGET/release/shallot-helper" "$STAGE/"
+
+              # ditto preserves symlinks/perms/xattrs — canonical for copying a macOS framework.
+              ditto "$CEF_DIR" "$STAGE/Chromium Embedded Framework.framework"
+
+              # Trim non-English locales (mirrors trimMacLocales in native.ts).
+              RES="$STAGE/Chromium Embedded Framework.framework/Resources"
+              if [ -d "$RES" ]; then
+                for lproj in "$RES"/*.lproj; do
+                  base="$(basename "$lproj")"
+                  if [ "$base" != "en.lproj" ] && [ "$base" != "en_US.lproj" ]; then
+                    rm -rf "$lproj"
+                  fi
+                done
+                if [ -d "$RES/locales" ]; then
+                  for pak in "$RES/locales"/*.pak; do
+                    base="$(basename "$pak")"
+                    if [ "$base" != "en-US.pak" ]; then
+                      rm -f "$pak"
+                    fi
+                  done
+                fi
+              fi
+
+              # Strip the framework binary (release only; -x -S keeps external symbols for dylib load).
+              strip -x -S "$STAGE/Chromium Embedded Framework.framework/Chromium Embedded Framework" 2>/dev/null || true
+
+            elif echo "$TARGET" | grep -q windows; then
+              # Windows: CEF files in cef/ subdir (consumer's buildPrebuiltResult expects cef/).
+              MARKER=$(find "$CRATE/target/$TARGET/release/build" \
+                -path "*/cef-dll-sys-*/out/*" \
+                -name "libcef.dll" \
+                -print -quit 2>/dev/null | head -1)
+              if [ -z "$MARKER" ]; then
+                echo "libcef.dll not found under $CRATE/target/$TARGET/release/build" >&2
+                exit 1
+              fi
+              CEF_DIR="$(dirname "$MARKER")"
+              mkdir -p "$STAGE/cef"
+
+              # copyCefDlls file set (native.ts).
+              for f in \
+                libcef.dll chrome_elf.dll d3dcompiler_47.dll dxcompiler.dll dxil.dll \
+                libEGL.dll libGLESv2.dll vulkan-1.dll icudtl.dat snapshot_blob.bin \
+                v8_context_snapshot.bin chrome_100_percent.pak chrome_200_percent.pak \
+                resources.pak vk_swiftshader.dll vk_swiftshader_icd.json; do
+                [ -f "$CEF_DIR/$f" ] && cp "$CEF_DIR/$f" "$STAGE/cef/"
+              done
+
+              # Active locale only (copyLocale: en-US.pak).
+              mkdir -p "$STAGE/cef/locales"
+              [ -f "$CEF_DIR/locales/en-US.pak" ] && cp "$CEF_DIR/locales/en-US.pak" "$STAGE/cef/locales/"
+
+            else
+              # Linux: CEF files in cef/ subdir (consumer's buildPrebuiltResult expects cef/).
+              MARKER=$(find "$CRATE/target/$TARGET/release/build" \
+                -path "*/cef-dll-sys-*/out/*" \
+                -name "libcef.so" \
+                -print -quit 2>/dev/null | head -1)
+              if [ -z "$MARKER" ]; then
+                echo "libcef.so not found under $CRATE/target/$TARGET/release/build" >&2
+                exit 1
+              fi
+              CEF_DIR="$(dirname "$MARKER")"
+              mkdir -p "$STAGE/cef"
+
+              # copyCefLibs file set (native.ts).
+              for f in \
+                libcef.so libEGL.so libGLESv2.so libvulkan.so.1 icudtl.dat \
+                v8_context_snapshot.bin chrome-sandbox chrome_100_percent.pak \
+                chrome_200_percent.pak resources.pak libvk_swiftshader.so; do
+                [ -f "$CEF_DIR/$f" ] && cp "$CEF_DIR/$f" "$STAGE/cef/"
+              done
+
+              # Active locale only (copyLocale: en-US.pak).
+              mkdir -p "$STAGE/cef/locales"
+              [ -f "$CEF_DIR/locales/en-US.pak" ] && cp "$CEF_DIR/locales/en-US.pak" "$STAGE/cef/locales/"
+
+              # SwiftShader dir (copyCefLibs copies it when not dropped).
+              if [ -d "$CEF_DIR/swiftshader" ]; then
+                cp -r "$CEF_DIR/swiftshader" "$STAGE/cef/"
+              fi
+
+              # Strip libcef.so (release only).
+              strip "$STAGE/cef/libcef.so" 2>/dev/null || true
+            fi
+          fi
+
+          # Pack the archive.
+          tar -czf "$ARCHIVE" -C "$STAGE" .
+
+      # Always upload as a run artifact — both tag and dispatch runs do this.
+      - name: Upload archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.archive }}
+          path: ${{ matrix.archive }}
+
+  # Final job: collect all six archives, generate SHA256SUMS, and (tag only) attach to the release.
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: archives
+          pattern: shallot-window-*.tar.gz
+          merge-multiple: true
+
+      - name: Generate SHA256SUMS
+        run: |
+          cd archives
+          sha256sum shallot-window-*.tar.gz > ../SHA256SUMS
+          cat ../SHA256SUMS
+
+      - name: Upload SHA256SUMS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: SHA256SUMS
+
+      # TAG-ONLY: attach archives + SHA256SUMS to the GitHub Release.
+      # The if: gate is the dry-run safety property — a workflow_dispatch run's github.ref is a
+      # branch ref (refs/heads/<branch>), never refs/tags/v*, so this step is skipped on dispatch.
+      # Do NOT remove or broaden this condition.
+      - name: Attach archives to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            archives/shallot-window-*.tar.gz
+            SHA256SUMS

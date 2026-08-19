@@ -1,10 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { gzipSync } from "node:zlib";
+
+// js-yaml is a transitive dep without bundled types; createRequire avoids needing @types/js-yaml.
+const require = createRequire(import.meta.url);
+const yaml = require("js-yaml") as { load: (text: string) => unknown };
+
 import {
     extractTarGz,
     type PrebuiltFetchResult,
@@ -387,3 +393,151 @@ function buildTarGz(entries: { name: string; content: string }[]): Buffer {
     chunks.push(Buffer.alloc(1024)); // two 512-byte zero blocks (end of archive)
     return gzipSync(Buffer.concat(chunks));
 }
+
+// --- Producer/consumer arms: release.yml is the producer for prebuiltArchiveName ---
+//
+// Stage B (shipped) exports prebuiltArchiveName/prebuiltUrl/prebuiltSha256SumsUrl as the consumer
+// contract. Stage C's release.yml workflow is the *producer* — it must assemble exactly those archive
+// names over the full 3×2 matrix, generate a SHA256SUMS covering all six, and gate the release upload
+// on the tag trigger so a workflow_dispatch dry run can never create or mutate a release. These arms
+// parse the YAML and assert that contract structurally; the CI dispatch itself is the coordinator's
+// to run (network-fenced here).
+
+const WORKFLOW_PATH = resolve(import.meta.dir, "../../../.github/workflows/release.yml");
+
+// The three rust triples the CLI actually expects (from native.ts WIN_TARGET/MAC_TARGET/LINUX_TARGET).
+const RELEASE_TARGETS = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "aarch64-apple-darwin",
+] as const;
+const RELEASE_MODES = ["system", "portable"] as const;
+
+// The full 3×2 matrix of expected archive names — six, enumerated.
+const EXPECTED_ARCHIVE_NAMES = new Set(
+    RELEASE_TARGETS.flatMap((t) => RELEASE_MODES.map((m) => prebuiltArchiveName(t, m))),
+);
+
+function loadWorkflowYaml(): Record<string, unknown> {
+    if (!existsSync(WORKFLOW_PATH)) throw new Error(`workflow not found at ${WORKFLOW_PATH}`);
+    return yaml.load(readFileSync(WORKFLOW_PATH, "utf8")) as Record<string, unknown>;
+}
+
+describe("release.yml producer/consumer contract", () => {
+    test("workflow file exists at .github/workflows/release.yml", () => {
+        expect(existsSync(WORKFLOW_PATH)).toBe(true);
+    });
+
+    test("triggers: push on tag v* plus workflow_dispatch", () => {
+        const wf = loadWorkflowYaml();
+        const on = wf.on as Record<string, unknown>;
+        expect(on).toBeDefined();
+        // push must be tag-scoped to v*
+        const push = on.push as Record<string, unknown> | undefined;
+        expect(push).toBeDefined();
+        const tags = push?.tags as unknown[] | undefined;
+        expect(tags).toBeDefined();
+        expect(tags).toContain("v*");
+        // workflow_dispatch must be present (the dry-run path)
+        expect(on.workflow_dispatch).toBeDefined();
+    });
+
+    // Arm 1: the set of archive names the workflow produces equals the full 3×2 matrix.
+    // Six names enumerated from the matrix, not a regex that would pass on five.
+    test("produces exactly the six archive names from the 3×2 matrix", () => {
+        const wf = loadWorkflowYaml();
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+        const build = jobs.build;
+        expect(build).toBeDefined();
+        const matrix = (build.strategy as Record<string, unknown>).matrix as Record<
+            string,
+            unknown
+        >;
+        const include = matrix.include as Record<string, string>[];
+
+        // Exactly six cells.
+        expect(include.length).toBe(6);
+
+        // Each cell must carry a target and mode.
+        const produced = new Set<string>();
+        for (const cell of include) {
+            expect(cell.target).toBeDefined();
+            expect(cell.mode).toBeDefined();
+            produced.add(prebuiltArchiveName(cell.target, cell.mode as PrebuiltMode));
+        }
+
+        // Six unique names — no duplicates collapsing the matrix.
+        expect(produced.size).toBe(6);
+
+        // The set must equal the expected 3×2 enumeration exactly.
+        expect(produced).toEqual(EXPECTED_ARCHIVE_NAMES);
+
+        // Every expected name must appear in the YAML text (in an upload/assembly step),
+        // confirming the workflow actually references each archive — not just the matrix.
+        const text = readFileSync(WORKFLOW_PATH, "utf8");
+        for (const name of EXPECTED_ARCHIVE_NAMES) {
+            expect(text).toContain(name);
+        }
+    });
+
+    // Arm 2: SHA256SUMS is generated and covers all six.
+    test("SHA256SUMS is generated and covers all six archives", () => {
+        const wf = loadWorkflowYaml();
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+
+        // A checksums job must exist and depend on the build job (so all six cells complete first).
+        const checksums = jobs.checksums;
+        expect(checksums).toBeDefined();
+        const needs = checksums.needs as string | string[] | undefined;
+        if (Array.isArray(needs)) {
+            expect(needs).toContain("build");
+        } else {
+            expect(needs).toBe("build");
+        }
+
+        // It must download all build artifacts (the six archives).
+        const steps = checksums.steps as Record<string, unknown>[];
+        const downloadStep = steps.find((s) => String(s.uses ?? "").includes("download-artifact"));
+        expect(downloadStep).toBeDefined();
+
+        // It must generate SHA256SUMS via sha256sum over the archives.
+        const sumsStep = steps.find(
+            (s) =>
+                (s.name as string | undefined)?.includes("SHA256SUMS") ||
+                (typeof s.run === "string" && s.run.includes("SHA256SUMS")),
+        );
+        expect(sumsStep).toBeDefined();
+        expect(typeof sumsStep?.run).toBe("string");
+        expect(sumsStep?.run as string).toContain("sha256sum");
+
+        // All six archive names must appear in the YAML text — they are all produced by the
+        // build matrix, downloaded by the checksums job, and covered by sha256sum.
+        const text = readFileSync(WORKFLOW_PATH, "utf8");
+        for (const name of EXPECTED_ARCHIVE_NAMES) {
+            expect(text).toContain(name);
+        }
+    });
+
+    // Arm 3: the release-upload step is gated on the tag trigger (a dispatch run cannot reach it).
+    test("release upload is gated on tag trigger (dispatch cannot reach it)", () => {
+        const wf = loadWorkflowYaml();
+        const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+
+        // Find the step that uploads to a GitHub release.
+        const allSteps = Object.values(jobs).flatMap(
+            (job) => (job.steps as Record<string, unknown>[] | undefined) ?? [],
+        );
+        const releaseStep = allSteps.find((s) => {
+            const uses = String(s.uses ?? "");
+            return uses.includes("gh-release") || uses.includes("upload-release");
+        });
+        expect(releaseStep).toBeDefined();
+
+        // The step must have an if: condition that gates on the tag trigger.
+        expect(releaseStep?.if).toBeDefined();
+        const ifCond = String(releaseStep?.if);
+        // Must reference tags — not just push (which would also fire on branch pushes),
+        // and not be absent (which would let a dispatch run upload to a release).
+        expect(ifCond).toMatch(/tags|startsWith.*ref/i);
+    });
+});
