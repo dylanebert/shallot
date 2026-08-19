@@ -40,8 +40,12 @@
 //     nearest-*line* interior this oracle checks. A green run says nothing about the geometry within one
 //     `halfWidth` of any road endpoint.
 //
-// The oracle carries four exclusions, and their union's extent is itself an assertion (reported as
-// `excludedStationCount`/`excludedStationFraction` beside `sampleCount`): (1) the per-segment endpoint
+// The oracle carries four exclusions. Only one of them is *counted*: `excludedStationCount` /
+// `excludedStationFraction` (reported beside `sampleCount`, pinned in `flatness.test.ts`) measure the
+// junction zone's extent alone — the endpoint cap is a fixed `halfWidth` arc-length margin stated above,
+// the blind axes are out-of-instrument by construction, and the footprint interior is never sampled, so
+// none of the three is a per-run quantity this counter could aggregate. Read the fraction as the junction
+// carve-out's extent, never as the union's: (1) the per-segment endpoint
 // cap above; (2) the named blind axes (albedo, normals, off-footprint, reseed staleness); (3) the
 // designed junction zone (`inJunctionZone`, `√2·SPACING` band — two primitives' plateaus both claim the
 // point, so cross-section flatness for both at once is unsatisfiable in principle, judged by stage 16's
