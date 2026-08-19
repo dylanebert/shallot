@@ -1,5 +1,6 @@
 import { documentDistance, type StrokeDocument } from "./overlay/document";
 import { generateNetwork } from "./overlay/network";
+import { SIDE_SLOPE_LIMIT } from "./terrain/flatten";
 import { SEED } from "./terrain/terrain";
 
 // The analytic (ground-truth) boundary anchor derivation `grazingCapture.ts`'s two straightness
@@ -117,18 +118,43 @@ export function worldEdgeAnchors(): WorldEdgeAnchor[] {
 }
 
 /** the height-axis instrument's own ground-truth zero point: not the road edge itself
- *  ({@link WorldEdgeAnchor.ex}/`ez`, `coreDist = 0`) but `terrain/flatten.ts`'s `flattenHeight` cosine
- *  ease's own midpoint (`coreDist = falloff / 2`). `straightness.ts`'s `detectEdgeOffset` reports where
- *  the sampled signal crosses the *midpoint* between its `lo`/`hi` brackets; the ease
- *  `0.5 - 0.5·cos(π·t)` reaches exactly `0.5` at `t = 0.5`, i.e. `coreDist = falloff / 2` — so that is
- *  where a perfectly straight edge's detected crossing sits by construction, not at the road edge.
- *  Anchoring the reading at `coreDist = 0` instead reports a constant `falloff / 2` bias on every
- *  straight edge, indistinguishable from boundary raggedness (`boundaryAnchors.test.ts` proves the bias
- *  and the fix against a synthetic straight edge). */
+ *  ({@link WorldEdgeAnchor.ex}/`ez`, `coreDist = 0`) but the cosine ease's own midpoint
+ *  (`coreDist = window / 2`, `window` being whatever transition width the caller is measuring against —
+ *  `terrain/flatten.ts`'s `flattenHeight` reaches `0.5 - 0.5·cos(π·t) = 0.5` at `t = 0.5`).
+ *  `straightness.ts`'s `detectEdgeOffset` reports where the sampled signal crosses the *midpoint* between
+ *  its `lo`/`hi` brackets, so that ease-midpoint, not the road edge, is where a perfectly straight edge's
+ *  detected crossing sits by construction. Anchoring the reading at `coreDist = 0` instead reports a
+ *  constant `window / 2` bias on every straight edge, indistinguishable from boundary raggedness
+ *  (`boundaryAnchors.test.ts` proves the bias and the fix against a synthetic straight edge). Generic in
+ *  `window` rather than hard-coded to {@link sideSlopeWindow}'s output: the caller decides which
+ *  transition width it's measuring against. */
 export function heightMidpointAnchor(
     a: WorldEdgeAnchor,
-    falloff: number,
+    window: number,
 ): { mx: number; mz: number } {
-    const half = falloff / 2;
+    const half = window / 2;
     return { mx: a.ex + a.nx * half, mz: a.ez + a.nz * half };
+}
+
+/**
+ * stage 11b's decoupled measurement window (metres): the AASHTO side-slope term alone —
+ * `(π/2)·cutDepth/SIDE_SLOPE_LIMIT`, the same derivation `terrain/flatten.ts`'s `computeFalloff` uses for
+ * its own non-floor branch — deliberately omitting `computeFalloff`'s sampling floor (denominated in
+ * `SPACING`, or a differently-derived floor on stage 11a's still-unshipped branch). The floor exists only
+ * to keep the *mesh's* piecewise-linear reconstruction resolvable; it carries no side-slope-safety meaning
+ * and is exactly the term stage 11 gates (the floor is what widens when 11a's falloff scale grows). This
+ * function's only input is `cutDepth` — the network's own measured cut, `buildNetworkGeometry`'s output,
+ * upstream of `computeFalloff` entirely — so by construction no floor-widening treatment can reach it: the
+ * treatment appears in neither the search window nor (via {@link heightMidpointAnchor}) the threshold
+ * anchor built from it. `grazingCapture.ts`'s `heightSilhouette` scans and anchors against this instead of
+ * `computeFalloff`'s output, so two networks whose floor differs (today's `SPACING`, 11a's derived
+ * multiple of it, any future floor) read on the same window and are comparable. Known limit: whenever a
+ * floor actually binds (`computeFalloff`'s output exceeds this), the *real* rendered transition is wider
+ * than this window measures against — an accepted scope boundary (`shallot-roads.md` stage 11b), inert on
+ * this branch since the shipped `SPACING` floor (4 m) never binds for any network with a meaningful cut
+ * (binds only below `cutDepth ≈ 0.849 m`, per this same formula) — the risk is a future floor, not today's.
+ * @example sideSlopeWindow(0) // 0 — no cut, no transition to measure
+ * @example sideSlopeWindow(2.976) // 14.026, matching computeFalloff(2.976) — this network's floor doesn't bind */
+export function sideSlopeWindow(cutDepth: number): number {
+    return ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT;
 }

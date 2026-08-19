@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { heightMidpointAnchor, worldEdgeAnchors } from "./boundaryAnchors";
+import { heightMidpointAnchor, sideSlopeWindow, worldEdgeAnchors } from "./boundaryAnchors";
 import { detectEdgeOffset } from "./straightness";
-import { flattenHeight } from "./terrain/flatten";
+import { computeFalloff, flattenHeight, SIDE_SLOPE_LIMIT } from "./terrain/flatten";
 
 // Stage 10 repair, blocker 1: `heightSilhouette`'s pre-fix reading anchored the height-axis crossing
 // detector at the road edge itself (`WorldEdgeAnchor.ex`/`ez`, `coreDist = 0`). `detectEdgeOffset`
@@ -90,5 +90,105 @@ describe("worldEdgeAnchors — the analytic road-edge anchors the height-axis in
         for (const a of anchors) {
             expect(Math.hypot(a.nx, a.nz)).toBeCloseTo(1, 5);
         }
+    });
+});
+
+// Stage 11b: stage 10's `heightSilhouette` scanned and anchored on `computeFalloff(cutDepth)` directly —
+// the AASHTO side-slope term maxed with a mesh-sampling floor (`SPACING` today, a differently-derived
+// multiple of it on 11a's still-unshipped branch) — so a wider floor widened the search window into raw
+// terrain *and* moved the threshold anchor, with no change on the ground either was supposed to measure.
+// `sideSlopeWindow` is the AASHTO term alone, upstream of any floor.
+describe("sideSlopeWindow — the decoupled measurement window", () => {
+    test("matches computeFalloff's own AASHTO branch when the shipped SPACING floor doesn't bind", () => {
+        // 2.976 is this network's real measured cut depth (spec Live log, stage 11b) — well past the
+        // point (~0.849 m, where (π/2)·cutDepth/SIDE_SLOPE_LIMIT = SPACING) the shipped 4 m floor binds,
+        // so today computeFalloff and sideSlopeWindow are the *same number*: the fix changes nothing about
+        // today's reading, only what happens when a floor grows past the AASHTO term.
+        const cutDepth = 2.976;
+        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(computeFalloff(cutDepth), 6);
+        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(14.026, 2); // spec's recorded falloffM, rounded to 3dp
+    });
+
+    test("is exactly the AASHTO formula, with no floor term at all", () => {
+        const cutDepth = 5;
+        expect(sideSlopeWindow(cutDepth)).toBeCloseTo(
+            ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT,
+            9,
+        );
+    });
+
+    test("zero cut depth gives a zero window — no floor to fall back on", () => {
+        expect(sideSlopeWindow(0)).toBe(0);
+    });
+});
+
+// The flat-across-an-inert-treatment arm the stage owes, run CPU-side against a synthetic straight edge
+// since the concrete floor derivation that would widen `computeFalloff` on a real device (11a's
+// `FALLOFF_SAMPLE_SEGMENTS * SPACING`) lives on a separate, unshipped branch this stage may not port or
+// re-derive (spec Boundaries). What's provable without it: `computeFalloff`'s own shape is
+// `max(floor, AASHTO(cutDepth))` for *some* floor value — stage 10's instrument reads whatever that max
+// produces. `coupled` below reconstructs exactly that shape, generic in `floor`, to model the *class* of
+// defect (any floor derivation), not 11a's specific one. The synthetic edge's true transition is built
+// from the real `flattenHeight` at a *fixed* embedded width (`TRUE_WINDOW`, matching production's
+// `sideSlopeWindow(2.976)`) — the "boundary" here is a fixed array of sampled heights, so a floor value
+// that only feeds `couple`'s own `Math.max` (never the sampler) provably cannot move it. Any reading
+// swing as `floor` varies is the instrument, not the road.
+describe("flat-across-an-inert-treatment: a floor change moves the coupled window, not the boundary", () => {
+    const TrueCutDepth = 2.976;
+    const TrueWindow = sideSlopeWindow(TrueCutDepth); // 14.026 — the synthetic edge's real, fixed width
+    const Natural = 100;
+    const Target = 10;
+    const StepsPerM = 20;
+    const a = worldEdgeAnchors()[0];
+    const sampleAt = (x: number, z: number): number => {
+        const coreDist = (x - a.ex) * a.nx + (z - a.ez) * a.nz;
+        return flattenHeight(Natural, Target, coreDist, TrueWindow);
+    };
+
+    /** stage 10's instrument shape, generalized: `computeFalloff`'s own `max(floor, AASHTO)`, with
+     *  `floor` a free parameter standing in for whatever mesh-sampling derivation produced it — the
+     *  treatment this arm varies. Never reads the sampler or `TRUE_CUT_DEPTH`'s embedding, only
+     *  `sideSlopeWindow`'s own output, exactly mirroring `computeFalloff`'s two-term max. */
+    function coupled(floor: number): number {
+        return Math.max(floor, sideSlopeWindow(TrueCutDepth));
+    }
+
+    function readAt(window: number): number | null {
+        const { mx, mz } = heightMidpointAnchor(a, window);
+        return detectEdgeOffset(sampleAt, mx, mz, a.nx, a.nz, Target, Natural, window, StepsPerM);
+    }
+
+    test("red-first: the coupled (stage-10-shaped) window reads a floor-sized bias on a perfectly straight edge", () => {
+        const inflatedFloor = 20; // > TRUE_WINDOW (14.026) — the treatment: a wider floor, real geometry untouched
+        const window = coupled(inflatedFloor);
+        expect(window).toBeCloseTo(inflatedFloor, 6); // the floor won the max — this is what "coupled" means
+        const offset = readAt(window);
+        expect(offset).not.toBeNull();
+        // biased by -(inflatedFloor - TRUE_WINDOW) / 2: the ease-midpoint anchor moves *outward* with the
+        // window (past the true crossing), so the detector finds it back toward the anchor's own origin —
+        // even though the sampled edge never moved (the same mechanism stage 10's own repair fixed, one
+        // level up: the wrong quantity feeding heightMidpointAnchor, not a wrong constant inside it).
+        expect(offset as number).toBeCloseTo(-(inflatedFloor - TrueWindow) / 2, 1);
+        expect(Math.abs(offset as number)).toBeGreaterThan(1); // not noise — metre-scale, same order as the real defect
+    });
+
+    test("the decoupled window reads flat across the same floor treatment — 0, 20, and 100", () => {
+        const readings = [0, 20, 100].map((floor) => {
+            const window = sideSlopeWindow(TrueCutDepth); // floor never enters this call at all
+            expect(window).toBeCloseTo(TrueWindow, 9); // literally the same number regardless of `floor`
+            return { floor, offset: readAt(window) };
+        });
+        for (const { floor, offset } of readings) {
+            expect(offset, `floor ${floor}`).not.toBeNull();
+            expect(Math.abs(offset as number), `floor ${floor}`).toBeLessThan(0.01);
+        }
+    });
+
+    test("the coupled window, by contrast, moves across the same three floor values — not flat", () => {
+        const offsets = [0, 20, 100].map((floor) => readAt(coupled(floor)));
+        const values = offsets.map((o) => o as number);
+        // 0 and 100 floor: AASHTO term (14.026) wins at floor=0, the floor wins at floor=100 — the spread
+        // across the swept treatment is the coupling, in the same units the real defect was measured in.
+        expect(Math.max(...values) - Math.min(...values)).toBeGreaterThan(1);
     });
 });
