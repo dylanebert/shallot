@@ -43,7 +43,9 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
             ],
             polygons: [],
         };
-        const segments = [{ ax: -50, az: 0, bx: 50, bz: 0, halfWidth: 4, aHeight: 5, bHeight: 5 }];
+        const segments = [
+            { ax: -50, az: 0, bx: 50, bz: 0, halfWidth: 4, aHeight: 5, bHeight: 5, road: 0 },
+        ];
         const raw = buildLatticeVertices(SPACING, CELLS, segments, [], 16, () => 5);
         const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
         expect(result.longitudinal.length).toBe(0);
@@ -63,37 +65,43 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
     });
 });
 
-describe("surface flatness — shipped pipeline at SEED=1337 (arm i, the unit's live defect)", () => {
+describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15's candidate — still red)", () => {
     const doc = generateNetwork(SEED);
     const raw = buildDeviceFreeVertices(doc, SEED, DEFAULT_SMOOTH_RADIUS);
     const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
 
-    test("reads red on both axes — cross-section and longitudinal both violate", () => {
-        // measured (2026-08-18, this worktree, after the endpoint-margin fix — arc-length halfWidth, not
-        // a fraction of segment length): 34 longitudinal violations (max delta ~0.344 m against a ~0.14 m
-        // bound) and 1117 cross-section violations (max delta ~0.471 m against a ~0.0024 m bound) over
-        // 2052 total footprint samples across the network's 5 roads. Both axes read red — the
-        // reconstruction-axis defect isn't confined to the longitudinal profile the way stages 6-7's own
-        // (different, vertex-only) flattening oracle stayed green on.
+    test("longitudinal is fixed to noise level; cross-section is reduced but still reads red", () => {
+        // Stage 15's candidate (widen the flat core by FLAT_CORE_MARGIN, blend targets across distinct
+        // primitives — road vs. road, road vs. carpark — rather than switching hard at the nearest one)
+        // fixes the mechanism stage 12 diagnosed (a triangle straddling the footprint edge bleeding into
+        // off-road terrain) essentially completely on the longitudinal axis: 35 -> 3 violations, the
+        // survivors sitting within 3% of their own bound (noise, not the metre-scale defect this gate
+        // exists to catch). Cross-section drops substantially (1143 -> 738 violations, max delta 0.47 m ->
+        // 0.38 m) but stays red — root-caused (2026-08-19, this worktree) to a *second*, distinct
+        // mechanism the candidate doesn't reach: where two primitives' falloff bands overlap at short
+        // range (a road passing within its own falloff distance of an unrelated road, never touching it),
+        // the blend weight of the intruding primitive can swing steeply over one 4 m mesh cell (measured:
+        // road index 2's own blend weight into road index 3's corridor moved 0.122 -> 0.439 over one cell,
+        // at a point neither road's centreline comes within 7 m of) — a real, continuous field that the
+        // 4 m mesh under-resolves, not a discontinuity the candidate was designed to remove. Verdict-shaped
+        // per the spec: the candidate is implemented and doesn't fully close the oracle, so this stays red
+        // rather than reaching for a second, untested candidate in the same session.
         console.log(
             `SURFACE_FLATNESS_SHIPPED longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(4)} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(4)}`,
         );
-        expect(result.longitudinal.length).toBeGreaterThan(0);
-        expect(result.crossSection.length).toBeGreaterThan(0);
+        expect(result.longitudinal.length).toBeLessThan(10); // was 35 pre-fix; near-zero residual now
+        expect(result.crossSection.length).toBeGreaterThan(0); // still red — the open finding
     });
 
-    test("violation magnitude sits an order of magnitude over tolerance, not at the noise floor", () => {
-        const maxLongitudinalDelta = result.longitudinal.reduce((m, v) => Math.max(m, v.delta), 0);
+    test("cross-section violation magnitude dropped from the pre-fix reading but is still metre-scale", () => {
         const maxCrossSectionDelta = result.crossSection.reduce(
             (m, v) => Math.max(m, v.deltaFromCentre),
             0,
         );
-        // a loose floor (measured ~0.33 m / ~0.49 m) — not fitted tight to today's exact reading, just
-        // ruling out "this is quantization noise wearing a violation's clothes." CROSS_SECTION_TOL is
-        // ~2 mm and the longitudinal step bound ~0.1-0.15 m, so either reading landing here is already
-        // 10-30x its own tolerance.
-        expect(maxLongitudinalDelta).toBeGreaterThan(0.15);
+        // pre-fix (stage 12/13): ~0.47 m. post stage-15-candidate: ~0.38 m — real reduction, still well
+        // over CROSS_SECTION_TOL (~2 mm), so this is not quantization noise wearing a violation's clothes.
         expect(maxCrossSectionDelta).toBeGreaterThan(0.15);
+        expect(maxCrossSectionDelta).toBeLessThan(0.47); // improved over the recorded pre-fix reading
     });
 
     test("every violation sits inside the road footprint the document itself defines", () => {
@@ -191,10 +199,14 @@ describe("surface flatness — mesh-resolution discrimination (independent of th
             `SURFACE_FLATNESS_MESH_RESOLUTION coarse_crossMaxDelta=${crossDeltaCoarse.toFixed(4)} fine_crossMaxDelta=${crossDeltaFine.toFixed(4)} crossAmpChange=${(crossAmpChange * 100).toFixed(1)}%`,
         );
 
-        // measured (2026-08-18): ~19.2% — a loose floor at 5%, well below the measured reading, just
-        // ruling out "the oracle reads flat to mesh resolution changes" (the property this leg exists to
-        // rule out), not fitted tight to today's exact number.
-        expect(crossAmpChange).toBeGreaterThan(0.05);
+        // measured (2026-08-18, pre stage-15): ~19.2%. Stage 15's candidate (widening the flat core,
+        // blending across primitives) shrinks the residual cross-section defect to a shallower, more
+        // gradient-driven signal (the near-primitive blend-weight mechanism `flatness.test.ts`'s "shipped
+        // pipeline" describe block root-causes) — re-measured (2026-08-19, this worktree): ~3.6%. Floor
+        // lowered to 2%, well below the re-measured reading, just ruling out "the oracle reads flat to
+        // mesh resolution changes" (the property this leg exists to rule out); no longer fitted to the
+        // pre-fix 19.2%, since that number belonged to a mechanism this stage's candidate partly removed.
+        expect(crossAmpChange).toBeGreaterThan(0.02);
     });
 });
 
