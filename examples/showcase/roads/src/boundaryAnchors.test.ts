@@ -123,12 +123,35 @@ describe("sideSlopeWindow — the decoupled measurement window", () => {
     test("zero cut depth gives a zero window — no floor to fall back on", () => {
         expect(sideSlopeWindow(0)).toBe(0);
     });
+
+    // Guards the cost of the decoupling, not just its benefit. `heightSilhouette` anchors ground truth at
+    // `heightMidpointAnchor(a, sideSlopeWindow(cutDepth))`, i.e. at half the *window*; the real cosine ease
+    // reaches its midpoint at half `computeFalloff`'s *output*. While no floor binds those are the same
+    // point. Once one binds they separate, reintroducing stage 10's anchor-offset bias at reduced
+    // magnitude — outward, so it inflates the reading and scores a floor against itself. This pins the
+    // magnitude so `sideSlopeWindow`'s docstring cannot drift from the code, and so a future floor
+    // derivation cannot widen the gap silently.
+    test("a bound floor offsets the ground-truth anchor by half the floor's excess", () => {
+        const cutDepth = 2.976; // today's real network
+        const window = sideSlopeWindow(cutDepth);
+        const real = computeFalloff(cutDepth);
+        expect(real).toBeGreaterThan(window); // precondition: the floor actually binds here
+
+        const a = worldEdgeAnchors()[0];
+        const anchored = heightMidpointAnchor(a, window);
+        const truth = heightMidpointAnchor(a, real);
+        const offset = Math.hypot(truth.mx - anchored.mx, truth.mz - anchored.mz);
+
+        expect(offset).toBeCloseTo((real - window) / 2, 9);
+        expect(offset).toBeCloseTo(0.988, 3); // the docstring's number, derived not fitted
+    });
 });
 
-// The flat-across-an-inert-treatment arm the stage owes, run CPU-side against a synthetic straight edge
-// since the concrete floor derivation that would widen `computeFalloff` on a real device (11a's
-// `FALLOFF_SAMPLE_SEGMENTS * SPACING`) lives on a separate, unshipped branch this stage may not port or
-// re-derive (spec Boundaries). What's provable without it: `computeFalloff`'s own shape is
+// The flat-across-an-inert-treatment arm, run CPU-side against a synthetic straight edge. Written on 11b's
+// branch when 11a's concrete floor derivation (`FALLOFF_SAMPLE_SEGMENTS * SPACING`) was still unshipped and
+// unportable; 11a has since rebased in, so that floor is live here. The generic form below is kept
+// deliberately: it models the *class* of defect (any floor derivation), which is the durable statement, and
+// the live 16 m case is pinned separately above. What it proves: `computeFalloff`'s own shape is
 // `max(floor, AASHTO(cutDepth))` for *some* floor value — stage 10's instrument reads whatever that max
 // produces. `coupled` below reconstructs exactly that shape, generic in `floor`, to model the *class* of
 // defect (any floor derivation), not 11a's specific one. The synthetic edge's true transition is built
