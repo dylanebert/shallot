@@ -136,11 +136,7 @@ export const JUNCTION_ZONE = Math.SQRT2 * SPACING;
  *  (2026-08-19), blending every sub-segment left ~1078 cross-section violations up to 0.44 m on interior
  *  stretches of one curving road with no other primitive nearby.
  *
- *  Stage 15b: each primitive's blend weight is multiplied by a relative-depth suppression factor
- *  `1 − ease(clamp((core_i − bestCore) / FLAT_CORE_MARGIN, 0, 1))` — a primitive at the same depth as the
- *  nearest keeps full weight, one deeper by ≥ FLAT_CORE_MARGIN is fully suppressed. This requires
- *  `bestCore` before any weight is computed, so the function is two passes: pass 1 finds `bestCore` and
- *  stores per-primitive (core, target) pairs; pass 2 computes the weighted blend with the depth factor. */
+ */
 export function networkCoreCpu(
     px: number,
     pz: number,
@@ -148,9 +144,9 @@ export function networkCoreCpu(
     polygons: readonly PolygonStamp[],
     naturalHeightAt: (x: number, z: number) => number,
     falloff: number,
-    suppressionBand: number = FLAT_CORE_MARGIN,
 ): { coreDist: number; targetHeight: number } {
-    // Pass 1: find bestCore and store per-primitive (core, target) pairs.
+    // Build per-primitive (core, target) pairs and find bestCore (the global minimum core, returned
+    // as coreDist).
     const roadBest = new Map<number, { core: number; target: number }>();
     for (const seg of segments) {
         const abx = seg.bx - seg.ax;
@@ -210,27 +206,15 @@ export function networkCoreCpu(
         if (poly.core < bestCore) bestCore = poly.core;
     }
 
-    // Pass 2: weighted blend with relative-depth suppression.
+    // Weighted blend across primitives — each weight is the cosine-ease fade of the primitive's own
+    // target toward natural (`1 - ease(core / falloff)`), with no depth suppression: non-overlapping
+    // primitives never contend (stage 18), so the suppression factor the blend once carried has
+    // nothing left to suppress (deleted at stage 20).
     let sumWeight = 0;
     let sumWeightedTarget = 0;
     const accumulate = (core: number, target: number) => {
         const t = Math.min(1, Math.max(0, core / falloff));
-        const baseWeight = 1 - (0.5 - 0.5 * Math.cos(Math.PI * t));
-        // band = 0 is the hard-switch limit (only the nearest primitive contributes) — the form
-        // 15b's consult refuted as a candidate, reproduced here as Leg A's red-first arm.
-        const depthFactor =
-            suppressionBand === 0
-                ? core <= bestCore
-                    ? 1
-                    : 0
-                : 1 -
-                  (0.5 -
-                      0.5 *
-                          Math.cos(
-                              Math.PI *
-                                  Math.min(1, Math.max(0, (core - bestCore) / suppressionBand)),
-                          ));
-        const weight = baseWeight * depthFactor;
+        const weight = 1 - (0.5 - 0.5 * Math.cos(Math.PI * t));
         sumWeight += weight;
         sumWeightedTarget += weight * target;
     };
@@ -245,10 +229,9 @@ export function networkCoreCpu(
 /** the continuous flattened field at (px, pz) — {@link networkCoreCpu}'s blended target eased toward
  *  natural via {@link flattenHeight}, with no mesh at all. This is the analytic limit Leg A (spec
  *  Validation, 2026-08-19 second consult) samples: outside the designed junction zone the field is
- *  exactly flat by construction (the relative-depth suppression makes the host primitive's target win
- *  outright), so a non-zero reading outside the zone is the blend's design, not the mesh's
- *  discretization. `suppressionBand` defaults to the shipped {@link FLAT_CORE_MARGIN}; the red-first
- *  arms pass `falloff` (suppression too slow, 417 / 0.493 m) or `0` (the hard switch, 0.392 m). */
+ *  exactly flat by construction (non-overlapping primitives never contend, so exactly one weight
+ *  survives away from any overlap), so a non-zero reading outside the zone is the blend's design,
+ *  not the mesh's discretization. */
 export function flattenFieldAt(
     px: number,
     pz: number,
@@ -256,7 +239,6 @@ export function flattenFieldAt(
     polygons: readonly PolygonStamp[],
     falloff: number,
     naturalHeightAt: (x: number, z: number) => number,
-    suppressionBand: number = FLAT_CORE_MARGIN,
 ): number {
     const natural = naturalHeightAt(px, pz);
     const { coreDist, targetHeight } = networkCoreCpu(
@@ -266,7 +248,6 @@ export function flattenFieldAt(
         polygons,
         naturalHeightAt,
         falloff,
-        suppressionBand,
     );
     return flattenHeight(natural, targetHeight, coreDist, falloff);
 }
