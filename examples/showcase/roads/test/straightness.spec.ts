@@ -296,5 +296,22 @@ test("boundary straightness — height-axis world-space discriminator (opt-in, n
             result.rmsM,
             `rmsM ${result.rmsM} exceeds falloffM ${result.falloffM}, the instrument's own search radius`,
         ).toBeLessThanOrEqual(result.falloffM);
+    } else {
+        // the control arm (zeroed RELIEF, no cut): with no meaningful cut there is no height silhouette
+        // to find, so a "found" reading here can only be MIN_CONTRAST_M's per-anchor gate tripping on
+        // something other than a real transition — a regression in the instrument, not a road. The bound
+        // is derived, not fit to today's 0: MIN_CONTRAST_M (`grazingCapture.ts`) is built with a 100x
+        // margin over raw quantization noise specifically so that margin can't be crossed by noise alone;
+        // treating that same 1-in-100 margin as a per-anchor false-positive tolerance and scaling it by
+        // the anchor count (rounded up to a whole anchor) gives the largest count consistent with "still
+        // just noise" rather than a real crossing. At 16 anchors this is 1 — today's control reads 0,
+        // comfortably inside it, but the bound doesn't move if the anchor set does.
+        const controlFoundBound = Math.ceil(result.anchorCount * (1 / 100));
+        expect(
+            result.foundCount,
+            `found ${result.foundCount}/${result.anchorCount} height crossings on the zeroed-RELIEF, ` +
+                `no-cut control — expected at most ${controlFoundBound} (noise floor), since there is no ` +
+                "cut for a genuine height silhouette to cross",
+        ).toBeLessThanOrEqual(controlFoundBound);
     }
 });
