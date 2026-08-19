@@ -58,7 +58,7 @@ fn gen_assets() {
 
     if files.is_empty() && std::env::var("PROFILE").as_deref() == Ok("release") {
         println!(
-            "cargo:warning=SHALLOT_DIST unset or empty — release binary embeds no web assets and will render blank"
+            "cargo:warning=SHALLOT_DIST unset or empty — release binary embeds no web assets; it will serve the sibling dist/ on disk (Contents/Resources/dist on mac) instead"
         );
     }
 
