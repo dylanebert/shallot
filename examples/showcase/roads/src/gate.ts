@@ -1,5 +1,11 @@
 import { decodePos } from "@dylanebert/shallot/utils/core";
-import { RECONSTRUCTION_AGREEMENT_TOL, reconstructionAgreement } from "./flatness";
+import { meshHeightAt } from "./capture";
+import {
+    buildDeviceFreeVertices,
+    checkSurfaceFlatness,
+    RECONSTRUCTION_AGREEMENT_TOL,
+    reconstructionAgreement,
+} from "./flatness";
 import type { Check } from "./harness";
 import { generateNetwork } from "./overlay/network";
 import { TERRAIN_QUANT } from "./terrain/generate";
@@ -104,14 +110,15 @@ export async function gate(): Promise<Check[]> {
     syncNetworkForSeed(SEED);
     await generate(SEED);
 
-    // Stage 12's device arm — the spec's "one device arm pinning it against readVertices()". This pins
-    // the *fidelity* of `flatness.ts`'s CPU device-free lattice builder against the real GPU-generated
-    // mesh, not the surface-flatness property itself: the property is expected to read red on the shipped
-    // pipeline right now (the unit's live defect, `bun test ./src -t "surface flatness"`'s own job), and a
-    // gate that re-asserted "no violations" here would break every `bun run gate` run until stage 15 ships
-    // a fix. What this DOES prove is that `bun test`'s device-free arm is reading the same mesh the real
-    // device renders — without it, a CPU/GPU divergence in the height-kernel math could make the
-    // device-free suite pass or fail for the wrong reason entirely.
+    // Stage 15c's device arm — re-pinned on the property (the surface-flatness readings on the real
+    // device's mesh), not just the fidelity of the CPU lattice against the GPU. The fidelity check
+    // (`reconstructionAgreement`) stays — it proves `bun test`'s device-free arm reads the same mesh the
+    // real device renders, without which a CPU/GPU divergence could make the device-free suite pass or
+    // fail for the wrong reason. But 15c also runs `checkSurfaceFlatness` on the real `readVertices()`
+    // and asserts the out-of-zone violation counts match the device-free lattice's counts — the property
+    // itself reads the same on both sides, not just the heights. No absolute amplitude bound is asserted
+    // (Blocker 3: any honest bound is ≥ MAX_GRADE·SPACING and reads stage 12's founding defect green);
+    // the convergence ratio (Leg B) needs two resolutions and lives in the device-free suite.
     const liveDoc = generateNetwork(SEED);
     const deviceRaw = await readVertices();
     const agreement = reconstructionAgreement(deviceRaw, liveDoc, SEED, getSmoothRadius());
@@ -119,6 +126,21 @@ export async function gate(): Promise<Check[]> {
         name: "surface-flatness-reconstruction-agreement",
         pass: agreement.maxDiffM <= RECONSTRUCTION_AGREEMENT_TOL,
         detail: `CPU device-free lattice vs real readVertices(): max |Δh| ${agreement.maxDiffM.toFixed(6)} m over ${agreement.sampleCount} footprint samples (tol ${RECONSTRUCTION_AGREEMENT_TOL.toFixed(6)} m)`,
+    });
+
+    // the property pin: the real device's mesh reads the same out-of-zone violation counts as the
+    // device-free lattice (the flatness property, not just point-by-point height fidelity).
+    const cpuRaw = buildDeviceFreeVertices(liveDoc, SEED, getSmoothRadius());
+    const deviceResult = checkSurfaceFlatness((x, z) => meshHeightAt(deviceRaw, x, z), liveDoc);
+    const cpuResult = checkSurfaceFlatness((x, z) => meshHeightAt(cpuRaw, x, z), liveDoc);
+    checks.push({
+        name: "surface-flatness-property-on-device",
+        pass:
+            deviceResult.crossSection.length === cpuResult.crossSection.length &&
+            deviceResult.longitudinal.length === cpuResult.longitudinal.length &&
+            Math.abs(deviceResult.maxCrossSectionExcess - cpuResult.maxCrossSectionExcess) <
+                RECONSTRUCTION_AGREEMENT_TOL,
+        detail: `device crossSection=${deviceResult.crossSection.length} longitudinal=${deviceResult.longitudinal.length} maxExcess=${deviceResult.maxCrossSectionExcess.toFixed(4)} vs CPU crossSection=${cpuResult.crossSection.length} longitudinal=${cpuResult.longitudinal.length} maxExcess=${cpuResult.maxCrossSectionExcess.toFixed(4)}`,
     });
 
     return checks;
