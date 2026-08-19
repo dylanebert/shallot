@@ -11,7 +11,8 @@
 //
 // The smoothing apparatus (`boxFilter`, `clampGrade`, `limitProfile`, `MAX_GRADE_BREAK`, the
 // `smoothRadius` plumbing) stays in place for stage 19's own deletion PR — `buildPolylineProfile` no
-// longer calls any of it, but the exports and their tests remain green.
+// longer calls any of it. `limitProfile` in particular is exported only to keep biome's
+// `noUnusedVariables` quiet, is unreachable from production, and is deleted at stage 19.
 //
 // Pure CPU module (the device-free split `overlay/document.ts`/`overlay/tiles.ts` use) — `heightAtCpu`
 // below is a from-scratch JS re-authoring of `noise.ts`'s TGSL `perlin2`/`fbm2`/`heightAt` (not a call

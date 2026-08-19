@@ -343,7 +343,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     // a hand-built NON-OVERLAPPING network: five straight roads at 30° heading (not 0°/45°/90°),
     // 200 m apart perpendicular to the heading, 200 m long, plus one 32 m carpark square clear of all
     // roads. Chord endpoint heights are the natural terrain heights (`heightAtCpu`). The 200 m spacing
-    // is well above the ~57 m clearance the chord's own falloff demands (`computeFalloff(cutDepth) +
+    // is well above the ~63 m clearance the chord's own falloff demands (`computeFalloff(cutDepth) +
     // halfWidth + FLAT_CORE_MARGIN`), so no two primitives' falloff bands overlap — the junction zone is
     // empty by construction, and the affine-exactness argument holds at every sampled station.
     const Heading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
@@ -368,7 +368,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
             halfWidth: RoadHw,
         });
     }
-    // carpark at (450, 450) — far from every road (nearest road centre is ~800 m away)
+    // carpark at (450, 450) — far from every road (nearest road centre is ~516 m away)
     const polygons: PolygonStamp[] = [
         {
             points: [
@@ -387,7 +387,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
     test("the junction zone is empty — no two primitives' cores come within JUNCTION_ZONE", () => {
-        // with 200 m spacing and the carpark 800 m from the nearest road, no sampled station falls
+        // with 200 m spacing and the carpark 516 m from the nearest road, no sampled station falls
         // inside a junction zone — `excludedStationCount === 0` is the structural precondition for the
         // exact-zero claim (the carve-out is a deletion primitive, `checks.md`).
         const coarseRaw = buildLatticeVertices(
@@ -421,6 +421,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
             (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
             syntheticDoc,
         );
+        expect(result.sampleCount).toBeGreaterThan(1000);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -443,8 +444,10 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
             syntheticDoc,
         );
         console.log(
-            `SYNTH_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} excludedStationCount=${result.excludedStationCount}`,
+            `SYNTH_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} excludedStationCount=${result.excludedStationCount} sampleCount=${result.sampleCount}`,
         );
+        expect(result.sampleCount).toBeGreaterThan(1000);
+        expect(result.excludedStationCount).toBe(0);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -475,7 +478,7 @@ describe("surface flatness — stage 17 arm (b): chord over overlapping generate
         console.log(
             `OVERLAP_ARM_SPACING crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} longitudinal=${result.longitudinal.length} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)}`,
         );
-        // band: well above zero, not fitted to the exact reading (scoping: 96 / 0.23559 m).
+        // band: well above zero, not fitted to the exact reading (scoping: 99 / 0.23559 m).
         // The amplitude is the discriminating statistic — it sat still at 0.2373 → 0.2356 m across the
         // smoothed → chord profile swap, proving the chord removed the non-junction reconstruction error
         // (count fell 362 → 96) without touching the overlap contamination (amplitude stayed).
