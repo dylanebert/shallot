@@ -1,18 +1,26 @@
-// The longitudinal road profile: a low-pass, grade-limited elevation control-point sequence sampled along
-// each polyline's own centreline — the spec's Locked decision for stage 8 ("low-pass the longitudinal
-// profile, don't linearize it"). `flatten.ts`'s `setNetwork` calls {@link buildPolylineProfile} once per
-// polyline to build the GPU segment list's per-endpoint heights; `networkCore` (flatten.ts) then
-// interpolates between them by the clamped projection parameter `t` it already computes, instead of
-// re-sampling raw `heightAt` at the projected point (stage 6/7's defect: every noise octave at the 4 m
-// vertex scale rode straight into the road's own surface).
+// The longitudinal road profile: a straight chord per polyline — the spec's Locked decision half two
+// (stage 17, the 2026-08-19 rescope). `flatten.ts`'s `setNetwork` calls {@link buildPolylineProfile} once
+// per polyline to build the GPU segment list's per-endpoint heights; `networkCore` (flatten.ts) then
+// interpolates between them by the clamped projection parameter `t` it already computes. On a straight
+// segment the longitudinal station `s` is an affine function of `(x, z)`, so a linear profile in `s`
+// makes the flatten target an affine function of `(x, z)` — barycentric interpolation over a triangle
+// reproduces an affine field exactly, so the in-corridor reconstruction error vanishes identically rather
+// than shrinking with cell size. The resample → box-filter → grade-limit chain this replaces (stage 8's
+// "low-pass, don't linearize") made the target a curved function of station; that curvature was the entire
+// remaining defect.
+//
+// The smoothing apparatus (`boxFilter`, `clampGrade`, `limitProfile`, `MAX_GRADE_BREAK`, the
+// `smoothRadius` plumbing) stays in place for stage 19's own deletion PR — `buildPolylineProfile` no
+// longer calls any of it. `limitProfile` in particular is exported only to keep biome's
+// `noUnusedVariables` quiet, is unreachable from production, and is deleted at stage 19.
 //
 // Pure CPU module (the device-free split `overlay/document.ts`/`overlay/tiles.ts` use) — `heightAtCpu`
 // below is a from-scratch JS re-authoring of `noise.ts`'s TGSL `perlin2`/`fbm2`/`heightAt` (not a call
 // into them: those are `tgpu.fn`s bound through `noiseLayout`'s storage binding, which has no meaning
 // outside a dispatched kernel). A small CPU/GPU numerical drift (f64 vs f32, ULP-level) is expected and
-// harmless here — the profile's own smoothing changes the height by decimetres to metres by design, which
-// dwarfs it — but the *algorithm* has to match, or the falloff terminus (`flatten.ts`'s cosine ease, which
-// blends back to `heightAt` computed by the real GPU kernel) would show a visible seam.
+// harmless here — the chord's own height changes by decimetres to metres by design, which dwarfs it — but
+// the *algorithm* has to match, or the falloff terminus (`flatten.ts`'s cosine ease, which blends back to
+// `heightAt` computed by the real GPU kernel) would show a visible seam.
 
 const SQRT1_2 = Math.SQRT1_2;
 
@@ -190,7 +198,7 @@ export interface ProfilePoint {
  * heights did, one grade-break apart per adjacent pair), clip to the absolute grade bound, then integrate
  * back to heights anchored at the sequence's first sample.
  */
-function limitProfile(
+export function limitProfile(
     heights: readonly number[],
     steps: readonly number[],
     maxGrade: number,
@@ -211,41 +219,30 @@ function limitProfile(
 }
 
 /**
- * resample `points` (a polyline's own consecutive vertices — 2 for every road this stage's generator
- * produces, `overlay/network.ts`) at <= {@link PROFILE_STEP} arc-length increments, sample natural height
- * at each (`heightAtCpu`), box-filter by `radius` ({@link boxFilter}), then limit on both difference axes
- * ({@link limitProfile}, always active regardless of `radius` — the correctness bound, not the taste
- * dial). Consecutive input segments share their joint vertex (no duplicate sample there), so the whole
- * polyline resamples as one continuous sequence, not per-segment independently — a multi-point future
- * polyline would stay smooth across its own interior joints instead of re-starting the filter at each one.
+ * the straight-chord profile (stage 17, the spec's Locked decision half two): one {@link ProfilePoint} per
+ * polyline endpoint — `points[0]` and `points[points.length - 1]` — with `height` the natural terrain
+ * height there (`heightAtCpu`). `buildNetworkGeometry` (`flatten.ts`) emits exactly one `ProfileSegment`
+ * per polyline spanning these two points, so `networkCore`'s `mix(aHeight, bHeight, t)` is a linear
+ * function of station — affine in `(x, z)` on a straight segment — and barycentric interpolation
+ * reproduces it exactly at any cell size and any road angle. `cutDepth` is measured along the chord as
+ * today (`buildNetworkGeometry`'s own loop over the returned profile points).
+ *
+ * `radius` is retained for the `smoothRadius` plumbing (`boot.ts`'s `[`/`]` control, `terrain.ts`'s
+ * `setSmoothRadius`) but is not consulted — the smoothing apparatus (`boxFilter`, `clampGrade`,
+ * `limitProfile`) stays exported and tested for stage 19's own deletion PR.
  */
 export function buildPolylineProfile(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
     radius: number,
 ): ProfilePoint[] {
-    const raw: { x: number; z: number }[] = [{ x: points[0][0], z: points[0][1] }];
-    for (let i = 0; i < points.length - 1; i++) {
-        const [ax, az] = points[i];
-        const [bx, bz] = points[i + 1];
-        const len = Math.hypot(bx - ax, bz - az);
-        const n = Math.max(1, Math.ceil(len / PROFILE_STEP));
-        for (let s = 1; s <= n; s++) {
-            const t = s / n;
-            raw.push({ x: ax + (bx - ax) * t, z: az + (bz - az) * t });
-        }
-    }
-
-    const steps: number[] = [];
-    for (let i = 0; i < raw.length - 1; i++) {
-        steps.push(Math.hypot(raw[i + 1].x - raw[i].x, raw[i + 1].z - raw[i].z));
-    }
-
-    const natural = raw.map((p) => heightAtCpu(p.x, p.z, perm));
-    const smoothed = boxFilter(natural, radius);
-    const limited = limitProfile(smoothed, steps, MAX_GRADE);
-
-    return raw.map((p, i) => ({ x: p.x, z: p.z, height: limited[i] }));
+    void radius; // retained for the smoothRadius plumbing; the chord ignores it
+    const first = points[0];
+    const last = points[points.length - 1];
+    return [
+        { x: first[0], z: first[1], height: heightAtCpu(first[0], first[1], perm) },
+        { x: last[0], z: last[1], height: heightAtCpu(last[0], last[1], perm) },
+    ];
 }
 
 /** {@link longitudinalOracle}'s verdict: whether `profile` satisfies the spec's longitudinal Validation

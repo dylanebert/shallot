@@ -86,60 +86,41 @@ describe("clampGrade", () => {
     });
 });
 
-describe("buildPolylineProfile", () => {
-    test("resamples a straight 2-point line at <= PROFILE_STEP arc-length spacing, endpoints preserved", () => {
+describe("buildPolylineProfile — the straight chord (stage 17)", () => {
+    test("returns exactly the two polyline endpoints, no resampling — one segment per road", () => {
         const perm = makePermutation(1337);
         const points: [number, number][] = [
             [-100, 0],
             [100, 0],
         ];
         const profile = buildPolylineProfile(points, perm, DEFAULT_SMOOTH_RADIUS);
+        expect(profile).toHaveLength(2);
         expect(profile[0].x).toBeCloseTo(-100, 9);
         expect(profile[0].z).toBeCloseTo(0, 9);
-        expect(profile[profile.length - 1].x).toBeCloseTo(100, 9);
-        for (let i = 1; i < profile.length; i++) {
-            const dist = Math.hypot(
-                profile[i].x - profile[i - 1].x,
-                profile[i].z - profile[i - 1].z,
-            );
-            expect(dist).toBeLessThanOrEqual(PROFILE_STEP + 1e-6);
-        }
+        expect(profile[1].x).toBeCloseTo(100, 9);
+        expect(profile[1].z).toBeCloseTo(0, 9);
     });
 
-    test("grade-limits the output even at radius 0 (no box smoothing) — the correctness bound stays active regardless of the taste dial", () => {
-        const perm = makePermutation(9001); // an arbitrary seed likely to hit real terrain variation
+    test("endpoint heights are the natural terrain heights there (heightAtCpu), not smoothed or grade-limited", () => {
+        const perm = makePermutation(9001);
         const points: [number, number][] = [
             [-150, -80],
             [150, 90],
         ];
-        const profile = buildPolylineProfile(points, perm, MIN_SMOOTH_RADIUS);
-        for (let i = 1; i < profile.length; i++) {
-            const dist = Math.hypot(
-                profile[i].x - profile[i - 1].x,
-                profile[i].z - profile[i - 1].z,
-            );
-            if (dist < 1e-9) continue;
-            const grade = Math.abs(profile[i].height - profile[i - 1].height) / dist;
-            expect(grade).toBeLessThanOrEqual(MAX_GRADE + 1e-6);
-        }
+        const profile = buildPolylineProfile(points, perm, DEFAULT_SMOOTH_RADIUS);
+        expect(profile[0].height).toBeCloseTo(heightAtCpu(-150, -80, perm), 9);
+        expect(profile[1].height).toBeCloseTo(heightAtCpu(150, 90, perm), 9);
     });
 
-    test("a higher smoothing radius never increases the profile's own total variation versus a lower one", () => {
+    test("the chord ignores the smoothRadius parameter — same output at any radius (plumbing retained, stage 19)", () => {
         const perm = makePermutation(2024);
         const points: [number, number][] = [
             [-110, 40],
             [110, -40],
         ];
-        const totalVariation = (radius: number) => {
-            const profile = buildPolylineProfile(points, perm, radius);
-            let sum = 0;
-            for (let i = 1; i < profile.length; i++)
-                sum += Math.abs(profile[i].height - profile[i - 1].height);
-            return sum;
-        };
-        expect(totalVariation(MAX_SMOOTH_RADIUS)).toBeLessThanOrEqual(
-            totalVariation(MIN_SMOOTH_RADIUS) + 1e-6,
-        );
+        const atMin = buildPolylineProfile(points, perm, MIN_SMOOTH_RADIUS);
+        const atMax = buildPolylineProfile(points, perm, MAX_SMOOTH_RADIUS);
+        expect(atMin).toEqual(atMax);
     });
 });
 
@@ -193,7 +174,9 @@ describe("longitudinalOracle — the spec's own Validation criterion, proven by 
         expect(check.jitterOk).toBe(false); // but the grade change (2g) exceeds MAX_GRADE_BREAK
     });
 
-    test("stage 8's smoothed profile passes on every road of a real generated network, several seeds", () => {
+    test("the chord profile passes on every road of a real generated network, several seeds", () => {
+        // stage 17: the chord is one straight segment per road — grade is constant along it (so jitter is
+        // zero by construction, one step) and stays under MAX_GRADE by measurement, not by a limiter.
         const perm = makePermutation(1337);
         for (const seed of [1, 42, 615, 9001]) {
             const doc = generateNetwork(seed);
