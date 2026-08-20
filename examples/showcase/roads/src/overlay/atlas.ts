@@ -36,14 +36,12 @@ import {
 // isn't tuned away, it has no surface to occur on.
 //
 // The overlay atlas's GPU state: two texture-2d-arrays (albedo + boundary distance, `tiles.ts`'s formats)
-// sized to {@link ATLAS_LAYERS} — equal to {@link TILE_COUNT} (256), so every tile is fully resident and
-// the indirection table is a 1:1 tile→layer map with no compaction — plus the indirection storage buffer
-// the terrain fs (`terrain/terrain.ts`) looks tile id up in. The indirection is retained (the fs still
-// reads it as "which layer holds this tile?"), but it no longer packs a larger tile space into a smaller
-// atlas: it is an identity map, since stage 4c raised capacity to full residency to cover the worst-case
-// corner-to-corner chord. A tile's layer is allocated the first time it's marked dirty and never evicted
-// within one
-// document's lifetime (per-tile eviction/paging is out of scope, see tiles.ts) — but a document *swap*
+// sized to {@link ATLAS_LAYERS} — 64 layers (measured worst-case swath 46 + headroom, stage 4d), so
+// the indirection table maps 256 tile ids into 64 atlas layers with compaction — plus the indirection
+// storage buffer the terrain fs (`terrain/terrain.ts`) looks tile id up in. The indirection is retained
+// (the fs still reads it as "which layer holds this tile?"), and it packs a larger tile space into a
+// smaller atlas: a tile's layer is allocated the first time it's marked dirty and never evicted within
+// one document's lifetime (per-tile eviction/paging is out of scope, see tiles.ts) — but a document *swap*
 // (`terrain.ts`'s `regenerate`, the F9 reseed control) is a coarser event: {@link invalidate} releases
 // every resident layer at once, so the incoming document allocates into a fresh atlas rather than
 // accreting on top of the outgoing one. `redraw` drains the dirty queue at a fixed per-frame throttle, so

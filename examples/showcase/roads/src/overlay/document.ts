@@ -7,6 +7,9 @@ import {
     LINE_HALF_WIDTH,
     type Rect,
     TEXEL_SIZE,
+    TILE_SIZE,
+    tileCoordOf,
+    tileOrigin,
 } from "./tiles";
 
 // The stroke document: pure data (one road's polyline + width) plus the CPU analytic distance math
@@ -152,7 +155,9 @@ export function markingDistance(px: number, pz: number, doc: StrokeDocument): nu
 const MARGIN = TEXEL_SIZE; // the one-texel margin `stroke.ts`'s `strokeRect` used, so the fwidth-
 // antialiased edge (terrain.ts's fs) never samples a texel this document didn't write.
 
-/** one segment's world-space AABB, expanded by its half-width plus {@link MARGIN}. */
+/** one segment's world-space AABB, expanded by its half-width plus {@link MARGIN} — the cheap candidate
+ *  prefilter for the capsule test: every tile the capsule touches is inside this rect, so it narrows the
+ *  per-tile test to a small set without walking the whole grid. */
 function segmentRect(seg: Segment): Rect {
     return {
         minX: Math.min(seg.ax, seg.bx) - seg.halfWidth - MARGIN,
@@ -160,6 +165,78 @@ function segmentRect(seg: Segment): Rect {
         minZ: Math.min(seg.az, seg.bz) - seg.halfWidth - MARGIN,
         maxZ: Math.max(seg.az, seg.bz) + seg.halfWidth + MARGIN,
     };
+}
+
+/** raw (no halfWidth subtraction) distance from (px, pz) to the segment's centreline — the nearest
+ *  point on the infinite line clamped to the segment's endpoints. */
+function pointToSegmentDistance(px: number, pz: number, seg: Segment): number {
+    const { ax, az, bx, bz } = seg;
+    const abx = bx - ax;
+    const abz = bz - az;
+    const len = Math.hypot(abx, abz);
+    if (len === 0) return Math.hypot(px - ax, pz - az);
+    const ux = abx / len;
+    const uz = abz / len;
+    const along = (px - ax) * ux + (pz - az) * uz;
+    if (along <= 0) return Math.hypot(px - ax, pz - az);
+    if (along >= len) return Math.hypot(px - bx, pz - bz);
+    const cross = (px - ax) * uz - (pz - az) * ux;
+    return Math.abs(cross);
+}
+
+/** distance from (px, pz) to an axis-aligned rect — 0 inside, the nearest edge distance outside. */
+function pointToRectDistance(px: number, pz: number, rect: Rect): number {
+    const dx = Math.max(rect.minX - px, 0, px - rect.maxX);
+    const dz = Math.max(rect.minZ - pz, 0, pz - rect.maxZ);
+    return Math.hypot(dx, dz);
+}
+
+/** whether a segment intersects an axis-aligned rect — the separating-axis theorem over the X axis,
+ *  the Z axis, and the segment's own normal. */
+function segmentIntersectsRect(seg: Segment, rect: Rect): boolean {
+    const segMinX = Math.min(seg.ax, seg.bx);
+    const segMaxX = Math.max(seg.ax, seg.bx);
+    const segMinZ = Math.min(seg.az, seg.bz);
+    const segMaxZ = Math.max(seg.az, seg.bz);
+    if (segMaxX < rect.minX || segMinX > rect.maxX || segMaxZ < rect.minZ || segMinZ > rect.maxZ)
+        return false;
+    // separating axis along the segment's normal: (-dz, dx)
+    const dx = seg.bx - seg.ax;
+    const dz = seg.bz - seg.az;
+    const na = -dz * seg.ax + dx * seg.az;
+    const nb = -dz * seg.bx + dx * seg.bz;
+    const segLo = Math.min(na, nb);
+    const segHi = Math.max(na, nb);
+    const r0 = -dz * rect.minX + dx * rect.minZ;
+    const r1 = -dz * rect.maxX + dx * rect.minZ;
+    const r2 = -dz * rect.minX + dx * rect.maxZ;
+    const r3 = -dz * rect.maxX + dx * rect.maxZ;
+    const rectLo = Math.min(r0, r1, r2, r3);
+    const rectHi = Math.max(r0, r1, r2, r3);
+    return segHi >= rectLo && segLo <= rectHi;
+}
+
+/** the minimum distance from a world-space rect to a segment's centreline — 0 if they intersect,
+ *  otherwise the nearest point-to-point distance (min of rect-corner-to-segment and
+ *  segment-endpoint-to-rect). Exported so {@link document.test.ts} can verify the capsule test's
+ *  correctness: every tile the narrowing drops must have `segmentRectDistance > halfWidth + margin`. */
+export function segmentRectDistance(seg: Segment, rect: Rect): number {
+    if (segmentIntersectsRect(seg, rect)) return 0;
+    let best = Math.min(
+        pointToRectDistance(seg.ax, seg.az, rect),
+        pointToRectDistance(seg.bx, seg.bz, rect),
+    );
+    best = Math.min(best, pointToSegmentDistance(rect.minX, rect.minZ, seg));
+    best = Math.min(best, pointToSegmentDistance(rect.maxX, rect.minZ, seg));
+    best = Math.min(best, pointToSegmentDistance(rect.minX, rect.maxZ, seg));
+    best = Math.min(best, pointToSegmentDistance(rect.maxX, rect.maxZ, seg));
+    return best;
+}
+
+/** the tile columns (tx, tz) → the tile's world-space rect. */
+function tileWorldRect(tx: number, tz: number): Rect {
+    const [ox, oz] = tileOrigin(tx, tz);
+    return { minX: ox, minZ: oz, maxX: ox + TILE_SIZE, maxZ: oz + TILE_SIZE };
 }
 
 /** whether (px, pz) sits on a road — the same coverage region the overlay's fwidth-thresholded composite
@@ -171,17 +248,32 @@ export function drivable(px: number, pz: number, doc: StrokeDocument): boolean {
 }
 
 /**
- * the document's exact dirty-tile set: the union, over every segment *individually*, of `dirtyTiles` on
- * that one primitive's own AABB (`tiles.ts`). Deliberately not one bounding rect over the whole document —
- * two primitives far apart would otherwise mark every tile *between* them too, which is exactly the
- * over-approximation the spec's "only-touched-tiles oracle" (assert the redrawn set equals the analytic
- * set, not the visual) rules out. Sorted ascending by tile id, de-duplicated. Empty documents throw — an
- * empty edit (`markDirty` on nothing) is a caller bug, not a valid zero-tile mark.
+ * the document's exact dirty-tile set: the union, over every segment *individually*, of the tiles whose
+ * rect is within `halfWidth + margin` of the segment — a capsule (offset-rectangle) test, not the
+ * segment's axis-aligned bounding box. The AABB is kept as a cheap candidate prefilter
+ * ({@link segmentRect} → {@link dirtyTiles}), but the emitted set is the capsule test's: a tile is dirty
+ * iff the distance from that tile's rect to the segment is `<= halfWidth + margin`.
+ *
+ * Why the capsule and not the AABB: for an axis-aligned chord the AABB *is* the swath and the count is
+ * exact (a full-width chord reads 32 tiles); for a diagonal chord the AABB is the whole enclosing rect,
+ * so a corner-to-corner chord reads 256 — every tile in the world — against a true swath of at most
+ * `2 × TILES_PER_SIDE − 1 = 31` tiles before width. The AABB was a dirty-set coarseness hiding behind the
+ * deleted `ROAD_MAX_LENGTH` ceiling; the capsule narrows it to the chord's actual footprint
+ * (`roads-interactive.md` stage 4d).
+ *
+ * Deliberately not one bounding rect over the whole document — two primitives far apart would otherwise
+ * mark every tile *between* them too, which is exactly the over-approximation the spec's
+ * "only-touched-tiles oracle" rules out. Sorted ascending by tile id, de-duplicated. Empty documents
+ * throw — an empty edit (`markDirty` on nothing) is a caller bug, not a valid zero-tile mark.
  */
 export function documentDirtyTiles(doc: StrokeDocument): number[] {
     const ids = new Set<number>();
     for (const seg of flattenSegments(doc))
-        for (const id of dirtyTiles(segmentRect(seg))) ids.add(id);
+        for (const id of dirtyTiles(segmentRect(seg))) {
+            const [tx, tz] = tileCoordOf(id);
+            if (segmentRectDistance(seg, tileWorldRect(tx, tz)) <= seg.halfWidth + MARGIN)
+                ids.add(id);
+        }
     if (ids.size === 0) {
         throw new Error("documentDirtyTiles: an empty document (no polylines) touches no tile");
     }

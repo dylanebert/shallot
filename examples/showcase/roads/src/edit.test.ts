@@ -174,11 +174,17 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
     });
 });
 
-describe("edit — worst-case chord capacity (stage 4c)", () => {
+describe("edit — worst-case chord capacity (stage 4d)", () => {
     // The arm that survived the ROAD_MAX_LENGTH deletion, re-anchored on the invariant that mattered:
     // "no admissible drag can throw out of `allocate`". The worst case the world allows is a
     // corner-to-corner chord across the bounded 1024 m world. Its `documentDirtyTiles` count must be
-    // at or under `ATLAS_LAYERS` (now `TILE_COUNT = 256`, sized by this measurement).
+    // at or under `ATLAS_LAYERS` (now 64, sized by the stage 4d capsule-test measurement of 46 + headroom).
+    //
+    // Stage 4d narrowed the dirty set from the segment's AABB to its capsule (swath): the diagonal's
+    // count dropped from 256 (the whole grid under the AABB) to 46 (the true swath). ATLAS_LAYERS fell
+    // from TILE_COUNT (256, full residency) back to 64 — the original pre-4c value — with ~39% headroom
+    // over the measured 46. The capacity arms in `queue.test.ts` are witnesses again: with capacity
+    // below full residency, `allocate` can throw if `release` breaks.
     test("the worst-case corner-to-corner chord stays at or under ATLAS_LAYERS resident tiles", () => {
         const bound = WORLD_HALF - ROAD_HALF_WIDTH;
         const worstDoc: StrokeDocument = {
@@ -194,11 +200,13 @@ describe("edit — worst-case chord capacity (stage 4c)", () => {
         };
         // the chord length is the full diagonal of the bounded region (~1437 m)
         expect(chordLength(worstDoc)).toBeGreaterThan(1400);
-        // the dirty-tile count is at or under ATLAS_LAYERS
+        // the dirty-tile count (capsule swath) is at or under ATLAS_LAYERS
         const count = residentTileCount(worstDoc);
         expect(count).toBeLessThanOrEqual(ATLAS_LAYERS);
-        // ATLAS_LAYERS is TILE_COUNT (256) — fully resident
-        expect(ATLAS_LAYERS).toBe(TILE_COUNT);
+        // the measured worst-case swath is 46 (stage 4d), ATLAS_LAYERS is 64 with headroom
+        expect(count).toBe(46);
+        expect(ATLAS_LAYERS).toBe(64);
+        expect(ATLAS_LAYERS).toBeLessThan(TILE_COUNT);
     });
 });
 

@@ -180,15 +180,13 @@ describe("invalidate — the atlas's document-swap reset", () => {
 // equals documentDirtyTiles(current), released ids read -1, allocate never throws, and
 // resident + free always sums to ATLAS_LAYERS.
 //
-// NOTE (stage 4c): ATLAS_LAYERS rose to TILE_COUNT (256) — full residency — so the "allocate never
-// throws" clause of this assertion is now a regression guard that went tautological: 256 tiles fit in
-// 256 layers even if `release` is completely broken, so no random document sequence can exhaust the
-// pool. The live witness for `release` is the `resident === documentDirtyTiles(current)` assertion
-// above — that is the check that fails if release stops returning layers to the free list, because
-// without release the resident set accretes across edits and diverges from the current document's
-// dirty set. The "allocate never throws" and "resident + free = ATLAS_LAYERS" clauses stay as
-// regression guards over the new shape; a follow-up stage narrowing the dirty set will restore
-// capacity as a live constraint and make them witnesses again.
+// NOTE (stage 4d): ATLAS_LAYERS fell from TILE_COUNT (256, full residency under stage 4c's AABB
+// measurement) back to 64 (the capsule-test measurement of 46 + headroom), so the "allocate never
+// throws" clause is a live witness again: 65 fresh tiles do not fit in 64 layers without release between
+// edits, so a broken `release` makes `allocate` throw. The `resident === documentDirtyTiles(current)`
+// assertion remains the primary witness for `release`'s correctness (it fails if release stops returning
+// layers), and "allocate never throws" is the capacity witness that was tautological under full residency
+// and is live again now.
 
 const WORLD_HALF = 512;
 const TILE_SIZE = 64;
@@ -207,8 +205,8 @@ function mulberry32(seed: number): () => number {
 
 /** a random road document whose chord stays within world bounds and at or above ROAD_MIN_LENGTH —
  *  the same constraints the drag (stage 4c) enforces via clamping. Stage 4c deleted ROAD_MAX_LENGTH,
- *  so the length is unbounded above (any length the world contains); ATLAS_LAYERS is sized to TILE_COUNT
- *  (256) to cover the worst-case corner-to-corner chord, so every document's footprint fits. */
+ *  so the length is unbounded above (any length the world contains); ATLAS_LAYERS is 64 (stage 4d:
+ *  measured worst-case swath 46 + headroom), so every document's footprint fits. */
 function randomDoc(rng: () => number): StrokeDocument {
     const margin = ROAD_HALF_WIDTH + 1;
     const lo = -WORLD_HALF + margin;
@@ -333,13 +331,14 @@ describe("property: tile release over random edit sequences", () => {
     // The specific red-first input: ≥65 edits each touching a fresh tile. With the free list's release
     // between edits, this never throws — the old counter threw at the 65th (see the docblock above).
     //
-    // NOTE (stage 4c): this arm is a regression guard that went tautological when capacity rose to full
-    // residency (ATLAS_LAYERS = TILE_COUNT = 256). 65 fresh tiles fit in 256 layers even if `release` is
-    // completely broken, so this arm can no longer fail from a release defect. The live witness for
-    // `release` is the property arm's `resident === documentDirtyTiles(current)` assertion — that is
-    // the check that fails if release stops returning layers. This arm stays as a guard over the new
-    // shape; a follow-up stage narrowing the dirty set will restore capacity as a live constraint and
-    // make it a witness again.
+    // Stage 4d restored this arm as a live witness: ATLAS_LAYERS fell from 256 (full residency) back to
+    // 64, so 65 fresh tiles do not fit without release. RED-FIRST EVIDENCE (stage 4d): with `release`
+    // replaced by a no-op, this arm throws at edit 56 with
+    //   "overlay atlas: capacity exceeded (64 layers) allocating tile 56"
+    // because the free list is never replenished and the 57th allocation finds it empty. Under full
+    // residency (ATLAS_LAYERS = 256) this arm was tautological — 65 tiles fit in 256 layers even with
+    // release broken — so it was labelled a guard. The capsule-test narrowing (46 worst case) brought
+    // capacity back under TILE_COUNT and made the arm live again.
     test("65 edits each touching a fresh tile never throws with the free list", () => {
         const cpu = new Int32Array(TILE_COUNT).fill(-1);
         const free: number[] = [];

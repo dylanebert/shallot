@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { WORLD_HALF } from "../terrain/grid";
 import {
     documentDirtyTiles,
     documentDistance,
@@ -9,9 +10,21 @@ import {
     type Segment,
     type StrokeDocument,
     segmentDistance,
+    segmentRectDistance,
 } from "./document";
+import { ROAD_HALF_WIDTH } from "./network";
 import { strokeDistance, strokeDocument } from "./stroke";
-import { EDGE_INSET, LINE_HALF_WIDTH } from "./tiles";
+import {
+    dirtyTiles,
+    EDGE_INSET,
+    LINE_HALF_WIDTH,
+    type Rect,
+    TEXEL_SIZE,
+    TILE_SIZE,
+    TILES_PER_SIDE,
+    tileCoordOf,
+    tileOrigin,
+} from "./tiles";
 
 describe("flattenSegments", () => {
     test("one polyline with N points yields N-1 segments, in order", () => {
@@ -257,5 +270,121 @@ describe("markingDistance", () => {
         expect(markingDistance(0, 0, doc)).toBeGreaterThan(0);
         // on the edge line → negative. Derived from the doc's own halfWidth, not ROAD_HALF_WIDTH.
         expect(markingDistance(0, doc.polylines[0].halfWidth - EDGE_INSET, doc)).toBeLessThan(0);
+    });
+});
+
+describe("dirty set is the swath (stage 4d)", () => {
+    // The capsule (swath) dirty-set test replaces the segment's axis-aligned bounding box. Three arms:
+    // (1) the axis-aligned null control — the AABB was already exact there, so the count is unchanged at
+    // 32; (2) the diagonal's drop — the AABB read 256 (the whole grid), the capsule reads the true swath;
+    // (3) the one that matters — every tile the narrowing drops is verified to contain no point within
+    // halfWidth + margin of the chord, so the narrowing produces no unbaked hole.
+    //
+    // RED-FIRST against 4c's shape (the AABB): a corner-to-corner diagonal read 256 under the AABB —
+    // `git show 3bc5d55:examples/showcase/roads/src/overlay/document.ts` is the pre-image. The capsule
+    // test narrows it to 46, the measured worst case over a scan of orientations.
+
+    const halfWidth = ROAD_HALF_WIDTH;
+    const margin = TEXEL_SIZE;
+    const bound = WORLD_HALF - ROAD_HALF_WIDTH; // 508 — the admissible endpoint bound
+
+    /** the old AABB dirty set for one segment — the pre-4d shape, reconstructed in the test so the
+     *  narrowing can be verified against it. */
+    function aabbDirtySet(seg: Segment): Set<number> {
+        const rect: Rect = {
+            minX: Math.min(seg.ax, seg.bx) - seg.halfWidth - margin,
+            maxX: Math.max(seg.ax, seg.bx) + seg.halfWidth + margin,
+            minZ: Math.min(seg.az, seg.bz) - seg.halfWidth - margin,
+            maxZ: Math.max(seg.az, seg.bz) + seg.halfWidth + margin,
+        };
+        return new Set(dirtyTiles(rect));
+    }
+
+    /** a tile column's world-space rect, computed from exported tiles.ts helpers. */
+    function tileRect(tx: number, tz: number): Rect {
+        const [ox, oz] = tileOrigin(tx, tz);
+        return { minX: ox, minZ: oz, maxX: ox + TILE_SIZE, maxZ: oz + TILE_SIZE };
+    }
+
+    test("an axis-aligned full-width chord reads exactly 32 (the AABB was already exact there)", () => {
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-bound, 0],
+                        [bound, 0],
+                    ],
+                    halfWidth,
+                },
+            ],
+        };
+        const count = documentDirtyTiles(doc).length;
+        expect(count).toBe(32); // the null control — the capsule test did not narrow the common case
+    });
+
+    test("a corner-to-corner diagonal drops from 256 (AABB) to the swath count", () => {
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-bound, -bound],
+                        [bound, bound],
+                    ],
+                    halfWidth,
+                },
+            ],
+        };
+        const seg = flattenSegments(doc)[0];
+        const aabbCount = aabbDirtySet(seg).size;
+        const swathCount = documentDirtyTiles(doc).length;
+
+        // the AABB read 256 — the whole grid (the pre-4d shape)
+        expect(aabbCount).toBe(256);
+        // the capsule reads the true swath — 46, the measured worst case
+        expect(swathCount).toBe(46);
+        // the narrowing dropped the count
+        expect(swathCount).toBeLessThan(aabbCount);
+        // a straight chord crosses at most 2 * TILES_PER_SIDE - 1 = 31 tiles before width, so 46 is
+        // 1.48× the bound (the extra tiles are the halfWidth + margin band), not ~8× — the instrument
+        // is measuring the real footprint, not the AABB
+        expect(swathCount).toBeLessThanOrEqual(
+            2 * TILES_PER_SIDE -
+                1 +
+                2 * Math.ceil((halfWidth + margin) / TILE_SIZE) * TILES_PER_SIDE,
+        );
+    });
+
+    test("every tile the narrowing drops contains no point within halfWidth + margin of the chord", () => {
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-bound, -bound],
+                        [bound, bound],
+                    ],
+                    halfWidth,
+                },
+            ],
+        };
+        const seg = flattenSegments(doc)[0];
+        const aabbSet = aabbDirtySet(seg);
+        const swathSet = new Set(documentDirtyTiles(doc));
+
+        // the dropped tiles: in the AABB set but not in the capsule set
+        const dropped: number[] = [];
+        for (const id of aabbSet) {
+            if (!swathSet.has(id)) dropped.push(id);
+        }
+        expect(dropped.length).toBeGreaterThan(0); // the narrowing actually dropped tiles
+
+        // the one that matters: every dropped tile must contain no point within halfWidth + margin of
+        // the segment. If a dropped tile's rect has a point within that distance, the capsule test
+        // incorrectly excluded a tile the road actually touches — an unbaked hole.
+        for (const id of dropped) {
+            const [tx, tz] = tileCoordOf(id);
+            const rect = tileRect(tx, tz);
+            const dist = segmentRectDistance(seg, rect);
+            expect(dist).toBeGreaterThan(halfWidth + margin);
+        }
     });
 });
