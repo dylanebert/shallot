@@ -78,28 +78,38 @@ describe("edit — applyEdit", () => {
 });
 
 describe("edit — every drag constraint clamps (stage 4c)", () => {
-    // RED-FIRST WITNESS: against the shipped shape (stage 4 before 4c), a target past ROAD_MAX_LENGTH
-    // (220 m) was *refused* — `isAdmissibleDrag` returned false, `applyEdit` was never called, and the
-    // document came back unchanged. The person read the resulting freeze as "the grab isn't sticky."
-    // This arm replaces the old refusal arms ("a drag shortening under ROAD_MIN_LENGTH is refused",
-    // "a drag lengthening past ROAD_MAX_LENGTH is refused") which encoded the freeze as the contract.
+    // REGRESSION GUARD (not a red-first witness): this arm calls `clampDragTarget`, which did not
+    // exist at the pre-image `3ea0417` (the pre-image had `isAdmissibleDrag`, a refusal predicate), so
+    // it cannot compile against the old shape, let alone fail against it. It is a regression guard over
+    // the new clamp shape: over a scan of drag targets, `applyEdit` (after `clampToBound` +
+    // `clampDragTarget`) always moves the dragged endpoint for every input whose target differs from
+    // the current position, and the resulting chord holds both the bound and the floor.
+    //
+    // The real red-first evidence for the ceiling deletion lives in two other arms: (1) the worst-case
+    // chord capacity arm below (`edit.test.ts`, "the worst-case corner-to-corner chord stays at or under
+    // ATLAS_LAYERS"), which fails at the pre-image because a corner-to-corner chord touches >64 tiles
+    // against ATLAS_LAYERS=64; and (2) the device corner arm (`test/roads.spec.ts`, `cornerApplied ===
+    // false` at the pre-image), where the old `__roadsEdit` bridge refused a target past ROAD_MAX_LENGTH
+    // and returned false instead of applying the clamped edit.
+    //
+    // Historical note: the old arms this replaces ("a drag shortening under ROAD_MIN_LENGTH is refused",
+    // "a drag lengthening past ROAD_MAX_LENGTH is refused") were green while pinning the freeze — they
+    // encoded the refusal as the contract, so the suite passed over the defect the person rejected.
     //
     // The clamp law (`roads-interactive.md`'s Locked decision): a constraint on a dragged quantity is a
-    // projection onto the nearest admissible value, never a no-op. So over a scan of drag targets —
-    // including ones far past the world bound and ones that would shorten the chord under the floor —
-    // `applyEdit` (after `clampToBound` + `clampDragTarget`) always moves the dragged endpoint for every
-    // input whose target differs from the current position, and the resulting chord holds both the bound
-    // and the floor. The one admissible no-op is a target equal to the current position.
+    // projection onto the nearest admissible value, never a no-op. The one admissible no-op is a target
+    // equal to the current position.
 
     const doc = generateNetwork();
     const [ax, az] = doc.polylines[0].points[0] as [number, number];
     const [bx, bz] = doc.polylines[0].points[1] as [number, number];
 
-    // a scan of drag targets for endpoint 1: normal, past world bound, under floor, and the no-op
+    // a scan of drag targets for endpoint 1: normal, past the old 220 m ceiling (inside world),
+    // past the world bound, under floor, and the no-op
     const targets: { x: number; z: number; label: string }[] = [
         { x: 50, z: 30, label: "normal (within bounds and floor)" },
-        { x: 200, z: 200, label: "past world bound" },
-        { x: -200, z: -200, label: "past world bound (negative)" },
+        { x: 200, z: 200, label: "past old 220 m ceiling (inside world bound)" },
+        { x: -200, z: -200, label: "past old 220 m ceiling (inside world bound, negative)" },
         { x: 10000, z: 10000, label: "far past world bound" },
         { x: -90, z: 0, label: "would shorten under floor (chord ~10 m)" },
         { x: -99, z: 0, label: "would shorten under floor (chord ~1 m)" },

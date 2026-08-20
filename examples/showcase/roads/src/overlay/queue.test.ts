@@ -168,7 +168,7 @@ describe("invalidate — the atlas's document-swap reset", () => {
 //
 // RED-FIRST WITNESS (run against the pre-change free-running counter allocator, before the free list
 // landed): with 65 edits each touching a fresh tile, the old counter threw at the 65th edit (0-indexed
-// edit 64) because ATLAS_LAYERS is 64 and the counter never releases. The throw was:
+// edit 64) because ATLAS_LAYERS was 64 when this witness ran and the counter never releases. The throw was:
 //   "overlay atlas: capacity exceeded (64 layers) allocating tile 64"
 // with nextLayer=64 at the point of failure. The free list replaces the counter: `release` pushes
 // layers back between edits, so the same 65-edit sequence (and any sequence where each edit's footprint
@@ -179,6 +179,16 @@ describe("invalidate — the atlas's document-swap reset", () => {
 // The property: over random document sequences, after every edit (retile + drain) the resident set
 // equals documentDirtyTiles(current), released ids read -1, allocate never throws, and
 // resident + free always sums to ATLAS_LAYERS.
+//
+// NOTE (stage 4c): ATLAS_LAYERS rose to TILE_COUNT (256) — full residency — so the "allocate never
+// throws" clause of this assertion is now a regression guard that went tautological: 256 tiles fit in
+// 256 layers even if `release` is completely broken, so no random document sequence can exhaust the
+// pool. The live witness for `release` is the `resident === documentDirtyTiles(current)` assertion
+// above — that is the check that fails if release stops returning layers to the free list, because
+// without release the resident set accretes across edits and diverges from the current document's
+// dirty set. The "allocate never throws" and "resident + free = ATLAS_LAYERS" clauses stay as
+// regression guards over the new shape; a follow-up stage narrowing the dirty set will restore
+// capacity as a live constraint and make them witnesses again.
 
 const WORLD_HALF = 512;
 const TILE_SIZE = 64;
@@ -322,6 +332,14 @@ describe("property: tile release over random edit sequences", () => {
 
     // The specific red-first input: ≥65 edits each touching a fresh tile. With the free list's release
     // between edits, this never throws — the old counter threw at the 65th (see the docblock above).
+    //
+    // NOTE (stage 4c): this arm is a regression guard that went tautological when capacity rose to full
+    // residency (ATLAS_LAYERS = TILE_COUNT = 256). 65 fresh tiles fit in 256 layers even if `release` is
+    // completely broken, so this arm can no longer fail from a release defect. The live witness for
+    // `release` is the property arm's `resident === documentDirtyTiles(current)` assertion — that is
+    // the check that fails if release stops returning layers. This arm stays as a guard over the new
+    // shape; a follow-up stage narrowing the dirty set will restore capacity as a live constraint and
+    // make it a witness again.
     test("65 edits each touching a fresh tile never throws with the free list", () => {
         const cpu = new Int32Array(TILE_COUNT).fill(-1);
         const free: number[] = [];

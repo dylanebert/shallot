@@ -81,8 +81,6 @@ declare global {
         }>;
         // stage 4's handle position bridge — returns the two handle entities' world (x, y, z).
         __roadsHandlePos?: () => [[number, number, number], [number, number, number]];
-        // stage 4's vertex fingerprint — a checksum of the raw vertex buffer.
-        __roadsVertexFingerprint?: () => Promise<number>;
     }
 }
 
@@ -125,18 +123,6 @@ const BootSystem: System = {
             };
         };
         window.__roadsHandlePos = () => handlePositions();
-        window.__roadsVertexFingerprint = async () => {
-            const raw = await readVertices();
-            // FNV-1a 32-bit rolling hash over every word of the vertex buffer — order-sensitive, so
-            // any change (even one that cancels in a sum) changes it. Kept in `Math.imul`/`>>> 0`
-            // integer arithmetic so it stays exact.
-            let hash = 0x811c9dc5 >>> 0;
-            for (let i = 0; i < raw.length; i++) {
-                hash ^= raw[i] >>> 0;
-                hash = Math.imul(hash, 0x01000193) >>> 0;
-            }
-            return hash;
-        };
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `{ signal: state.signal }` detaches the listener at `state.dispose()`, no removal
         // code needed.
@@ -166,7 +152,6 @@ const BootSystem: System = {
         delete window.__roadsEdit;
         delete window.__roadsFlatnessViolations;
         delete window.__roadsHandlePos;
-        delete window.__roadsVertexFingerprint;
     },
 };
 
