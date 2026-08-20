@@ -10,19 +10,20 @@
 // flanking the corridor in frame (the corridor must read *set into* terrain, or the look loses its
 // comparison).
 //
-// This module is pure (no `@dylanebert/shallot` imports) so the CPU arm (`corridorPose.test.ts`)
-// can import it under `bun test` and the browser-side `corridorCapture.ts` can import it alongside
-// its `Orbit.*` writes — the same separation as `flatten-math.ts` / `flatten.ts`.
+// This module is pure: it imports nothing. The pose and the document constants are fixed literals
+// (the derivation written in comments beside them), so the CPU arm (`corridorPose.test.ts`) can
+// import this module under plain `bun test` and independently verify the budget by computing cutDepth
+// from the real network geometry. A future stage that moves cutDepth reds the arm because the
+// fixed-literal pose no longer satisfies the budget at the new cutDepth — the pose does not
+// auto-adjust, which is the whole point (per checks.md's "re-derives its own rule" and this unit's
+// Residue: "re-run that arithmetic whenever any earlier stage moves the subject's magnitude").
 
-import { generateNetwork, ROAD_HALF_WIDTH } from "./overlay/network";
-import { buildNetworkGeometry } from "./terrain/flatten";
-import { computeFalloff } from "./terrain/flatten-math";
-
-// ─── Scene constants (from the scene file and the camera defaults) ────────────────────────────
+// ─── Scene constants (Playwright defaults and camera defaults — see sourcing arm) ─────────────
 //
 // The viewport is Playwright's default: 1280 × 720 (`playwright.config.ts` sets no `viewport`).
 // The camera's FOV is 60° (`roads.scene` sets no `fov`; `render/index.ts`'s Camera trait defaults
-// `fov: 60`). These are the scene's own quantities, not fitted to this arm.
+// `fov: 60`). These are assumed, not verified by this module — the sourcing arm in
+// `corridorPose.test.ts` checks that neither config file overrides the default.
 
 /** Playwright's default viewport height in pixels (`playwright.config.ts` sets no `viewport`). */
 export const VIEWPORT_HEIGHT = 720;
@@ -33,40 +34,38 @@ export const VIEWPORT_WIDTH = 1280;
 /** The camera's vertical field of view in degrees (`roads.scene` sets no `fov`; default 60). */
 export const CAMERA_FOV_DEG = 60;
 
-// ─── Document constants (from the network geometry and the flatten math) ──────────────────────
+// ─── Document constants (measured from the network geometry at seed 1337) ──────────────────────
 //
 // cutDepth and falloff are the network's own measured quantities at the pinned seed 1337
 // (`buildNetworkGeometry(generateNetwork(1337), 1337)`), the same figures the spec's Live log
-// records (1.4404 m → 6.7876 m). halfWidth is `ROAD_HALF_WIDTH` from `overlay/network.ts`.
-
-const doc = generateNetwork(1337);
-const { cutDepth } = buildNetworkGeometry(doc, 1337);
-const falloff = computeFalloff(cutDepth);
-const halfWidth = ROAD_HALF_WIDTH;
+// records (1.4404 m → 6.7876 m). halfWidth is `ROAD_HALF_WIDTH` from `overlay/network.ts` (= 4).
+//
+// These are fixed literals so the pose (below) does not auto-adjust when cutDepth changes — the
+// arm independently re-derives cutDepth from the real network and asserts the budget against the
+// fixed-literal pose, so a future stage that moves cutDepth reds the arm.
 
 /** The network's measured cut depth at seed 1337, in metres. */
-export const CUT_DEPTH = cutDepth;
+export const CUT_DEPTH = 1.4404;
 
-/** The network's falloff distance at seed 1337, in metres. */
-export const FALLOFF = falloff;
+/** The network's falloff distance at seed 1337, in metres (computeFalloff(CUT_DEPTH)). */
+export const FALLOFF = 6.7876;
 
 /** The road's half-width in metres (`ROAD_HALF_WIDTH` from `overlay/network.ts`). */
-export const HALF_WIDTH = halfWidth;
+export const HALF_WIDTH = 4;
 
-// ─── The derived pose ─────────────────────────────────────────────────────────────────────────
+// ─── The derived pose (fixed literals — derivation in comments) ────────────────────────────────
 //
 // f_px (focal length in pixels) = (h/2) / tan(fov/2):
 //   f_px = (720/2) / tan(30°) = 360 / 0.57735 = 623.54 px
 //
 // A vertical world displacement Δh at orbit distance D, pitch θ projects to
 //   screen_px = Δh × cos(θ) × f_px / D
-// (the component of the vertical displacement perpendicular to the view direction at pitch θ).
 //
 // Constraint 1 — cutDepth ≥ 5 px vertical:
 //   cutDepth × cos(θ) × f_px / D ≥ 5
 //   D ≤ cutDepth × cos(θ) × f_px / 5 = 1.4404 × cos(θ) × 623.54 / 5 = 179.6 × cos(θ)
 //
-// The 5 px anchor is the road's own already-resolved on-screen width at the current pose:
+// The 5 px anchor is the road's own already-resolved on-screen width at the default pose:
 // 8 m (2 × halfWidth) × f_px / 900 = 5.54 px — the smallest extent this artifact demonstrably
 // resolves, so the threshold is anchored on a resolved quantity in the same frame rather than
 // picked to make something pass.
@@ -78,34 +77,34 @@ export const HALF_WIDTH = halfWidth;
 //   → tan(fov_h/2) = tan(30°) × 1280/720 = 1.0264
 //   D ≥ (4 + 6.7876 + 30) / 1.0264 = 39.74 m
 //
-// Pitch derivation: the corridor's average side-slope angle is atan(cutDepth / falloff) =
-// atan(1.4404 / 6.7876) = 0.2094 rad (12.0°). The pitch is set to half this angle — below the
-// side-slope angle so the camera sees the transition as a surface (not edge-on), with enough
-// elevation to read terrain on both sides while keeping the vertical excursion maximally
-// projected (cos(0.1047) = 0.9945, losing <1% of the vertical signal).
+// The admissible interval is [39.74 m, 179.6 × cos(θ)].
 //
-// Distance: set to the maximum satisfying cutDepth = 5 px at the derived pitch
-// (maximum terrain context at the resolution threshold):
-//   D = 179.6 × cos(0.1047) = 178.6 m
+// Pitch: half the corridor's average side-slope angle: atan(cutDepth / falloff) / 2 =
+//   atan(1.4404 / 6.7876) / 2 = atan(0.21216) / 2 = 0.20940 / 2 = 0.10470 rad (6.0°)
+// Below the side-slope angle so the camera sees the transition as a surface (not edge-on), with
+// enough elevation to read terrain on both sides while keeping cos(θ) ≈ 1 (0.9945, losing <1%).
 //
-// Verification:
-//   cutDepth px = 1.4404 × cos(0.1047) × 623.54 / 178.6 = 5.00 px ≥ 5  ✓
-//   flanking    = 178.6 × 1.0264 − (4 + 6.7876) = 172.6 m ≥ 30        ✓
+// Operating point: D = 120 m — inside the interval [39.74, 178.6], carrying margin on the axis that
+// matters (the earthwork's vertical extent). At D = 120:
+//   earthwork_px = 1.4404 × cos(0.10470) × 623.54 / 120 = 7.44 px (≥5, 49% margin over the floor)
+//   flanking     = 120 × 1.0264 − (4 + 6.7876) = 112.4 m (≥30, 3.7× margin)
 //
-// A reviewer at stage 24's split prescribed distance ~120, pitch ~0.12 — taken as measurement,
-// not remedy. This derivation's pitch (0.1047) lands near that band; the distance (178.6) lands
-// ~50% beyond it. The difference: this derivation sets cutDepth to exactly 5 px (the resolution
-// threshold), so D is the maximum distance that still resolves the excursion. D = 120 would give
-// cutDepth ≈7.4 px — more margin, but the threshold is 5, not 7, and no derivation selects 7.
+// What selected D = 120: the confounder ratio (earthwork_px / confounder_px) is constant across the
+// interval — both earthwork and confounder scale the same way with D and θ — so it does not
+// constrain the distance. The absolute 5 px floor is what constrains it, and the shipped pose sat
+// at D_max = 178.6 m where earthwork = exactly 5 px (the resolution threshold, zero margin). D = 120
+// gives 7.44 px (49% margin), the reviewer's own measurement of a suitable pose (stage 24's split,
+// taken as measurement not remedy per this unit's Residue). The confounder comparison is an
+// assertion (see corridorPose.test.ts), not what selected the distance.
 
-/** Half the corridor's average side-slope angle: atan(cutDepth / falloff) / 2.
- *  Below the side-slope angle so the camera sees the transition as a surface; enough elevation
- *  to read terrain on both sides while keeping cos(θ) ≈ 1. */
-export const CORRIDOR_PITCH = Math.atan(CUT_DEPTH / FALLOFF) / 2;
+/** Half the corridor's average side-slope angle: atan(CUT_DEPTH / FALLOFF) / 2 = 0.10470 rad.
+ *  Fixed literal — does not auto-adjust if cutDepth changes. */
+export const CORRIDOR_PITCH = 0.1047;
 
-/** Maximum orbit distance at which cutDepth projects to ≥5 px at {@link CORRIDOR_PITCH}.
- *  Derived: cutDepth × cos(pitch) × f_px / 5. */
-export const CORRIDOR_DISTANCE = (CUT_DEPTH * Math.cos(CORRIDOR_PITCH) * fPx()) / 5;
+/** Orbit distance in metres. Fixed literal: 120, inside the admissible interval [39.74, 178.6].
+ *  At this distance cutDepth projects to 7.44 px (49% margin over the 5 px floor) and 112.4 m of
+ *  unflattened terrain flanks the corridor (3.7× margin over the 30 m floor). */
+export const CORRIDOR_DISTANCE = 120;
 
 // ─── Budget computation (used by the CPU arm and re-used by the capture) ───────────────────────
 
@@ -121,9 +120,9 @@ export function fovHRad(): number {
     return 2 * Math.atan(Math.tan(fovVRad / 2) * aspect);
 }
 
-/** The vertical screen-pixel extent of {@link CUT_DEPTH} at the derived pose. */
-export function cutDepthPx(): number {
-    return (CUT_DEPTH * Math.cos(CORRIDOR_PITCH) * fPx()) / CORRIDOR_DISTANCE;
+/** The vertical screen-pixel extent of a vertical displacement `heightM` at the derived pose. */
+export function verticalPx(heightM: number): number {
+    return (heightM * Math.cos(CORRIDOR_PITCH) * fPx()) / CORRIDOR_DISTANCE;
 }
 
 /** The metres of unflattened terrain flanking the corridor at the derived pose.

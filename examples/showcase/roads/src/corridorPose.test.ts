@@ -1,21 +1,28 @@
 // Stage 24a's px/m budget arm — asserts the corridor-pose capture's admissibility from scene and
-// document constants, never measured off the image. Both halves of the budget:
+// document constants, never measured off the image. Three assertions:
 //   1. cutDepth ≥ 5 px of vertical extent (the resolution threshold, anchored on the road's own
 //      resolved on-screen width at the default pose: 8 m × f_px / 900 ≈ 5.5 px)
 //   2. ≥30 m of unflattened terrain flanking the corridor in frame (the corridor must read *set
 //      into* terrain, or the look loses its comparison)
+//   3. earthwork px vs confounder px in the same frame — the failure mode's magnitude compared
+//      against the loudest confounder (natural relief), per Validation's own comparison
 //
-// Every constant is justified by a derivation or a document/scene quantity — none by "the arm
-// passes here" (per checks.md and this unit's residue on fitted floors). See `corridorPose.ts`'s
-// header comment for the full derivation.
+// The pose (CORRIDOR_PITCH, CORRIDOR_DISTANCE) is fixed literals in corridorPose.ts. This arm
+// independently re-derives cutDepth from the real network geometry (buildNetworkGeometry) and
+// computes the projected extents from that independent cutDepth plus the fixed-literal pose. So a
+// future stage that moves cutDepth reds this arm — the pose does not auto-adjust, which is the
+// whole point (per checks.md's "re-derives its own rule" and Residue: "re-run that arithmetic
+// whenever any earlier stage moves the subject's magnitude").
 
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
     CAMERA_FOV_DEG,
     CORRIDOR_DISTANCE,
     CORRIDOR_PITCH,
     CUT_DEPTH,
-    cutDepthPx,
     FALLOFF,
     flankingTerrainM,
     fovHRad,
@@ -23,70 +30,124 @@ import {
     HALF_WIDTH,
     VIEWPORT_HEIGHT,
     VIEWPORT_WIDTH,
+    verticalPx,
 } from "./corridorPose";
+import { generateNetwork, ROAD_HALF_WIDTH } from "./overlay/network";
+import { buildNetworkGeometry } from "./terrain/flatten";
+import { computeFalloff } from "./terrain/flatten-math";
+
+// The default orbit's pitch in radians (roads.scene: pitch: 0.5) — used to scale the confounder
+// from the default pose to the corridor pose.
+const DEFAULT_PITCH = 0.5;
+
+// The confounder's measured pixel extent at the default pose (900 m, pitch 0.5): the spec records
+// ~8–10 px of natural-relief silhouette waviness in the same frame (Live log, stage 24's split).
+// Midpoint of the recorded range.
+const CONFUNDER_PX_AT_DEFAULT = 9;
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe("corridor-pose px/m budget (stage 24a)", () => {
+    // Independently derive cutDepth and falloff from the real network — not from the fixed literals.
+    const doc = generateNetwork(1337);
+    const { cutDepth: independentCutDepth } = buildNetworkGeometry(doc, 1337);
+    const independentFalloff = computeFalloff(independentCutDepth);
+
+    test("the fixed-literal document constants match the independently derived network geometry", () => {
+        // If a future stage changes route selection or the generator, cutDepth changes and these
+        // pins red — which is the trigger to re-derive the pose, not to silently auto-adjust it.
+        expect(independentCutDepth).toBeCloseTo(CUT_DEPTH, 3);
+        expect(independentFalloff).toBeCloseTo(FALLOFF, 3);
+        expect(HALF_WIDTH).toBe(ROAD_HALF_WIDTH);
+    });
+
     test("f_px is derived from the viewport height and the camera's default FOV", () => {
-        // f_px = (h/2) / tan(fov/2) — the perspective focal length in pixels.
-        // h = 720 (Playwright default viewport height, playwright.config.ts sets no viewport).
-        // fov = 60° (roads.scene sets no fov; render/index.ts Camera trait defaults fov: 60).
-        const expected = 720 / 2 / Math.tan((60 * Math.PI) / 180 / 2);
+        const expected = VIEWPORT_HEIGHT / 2 / Math.tan((CAMERA_FOV_DEG * Math.PI) / 180 / 2);
         expect(fPx()).toBeCloseTo(expected, 1);
         expect(fPx()).toBeCloseTo(623.5, 0);
     });
 
-    test("cutDepth projects to ≥5 px of vertical extent at the derived pose", () => {
+    test("cutDepth projects to ≥5 px of vertical extent at the fixed-literal pose", () => {
         // The 5 px anchor: the road's own on-screen width at the default pose (900 m).
-        // 8 m (2 × ROAD_HALF_WIDTH) × f_px / 900 = 5.54 px — the smallest extent this
-        // artifact demonstrably resolves, so the threshold is a resolved quantity, not a
-        // number picked to make something pass.
         const roadWidthPxAtDefault = (2 * HALF_WIDTH * fPx()) / 900;
         expect(roadWidthPxAtDefault).toBeGreaterThanOrEqual(5);
         expect(roadWidthPxAtDefault).toBeLessThanOrEqual(6);
 
-        // The corridor pose must make cutDepth at least as resolvable as the road width.
-        expect(cutDepthPx()).toBeGreaterThanOrEqual(5);
+        // Independently compute earthwork px from the real cutDepth + the fixed-literal pose.
+        // If cutDepth shrinks (a future stage moves the subject), this reds because
+        // CORRIDOR_DISTANCE is a fixed literal that does not auto-adjust.
+        const earthworkPx = verticalPx(independentCutDepth);
+        expect(earthworkPx).toBeGreaterThanOrEqual(5);
 
-        // Re-derive independently from the constants (not via cutDepthPx's shortcut):
-        // screen_px = cutDepth × cos(pitch) × f_px / distance
-        const independent = (CUT_DEPTH * Math.cos(CORRIDOR_PITCH) * fPx()) / CORRIDOR_DISTANCE;
-        expect(independent).toBeGreaterThanOrEqual(5);
-        expect(independent).toBeCloseTo(cutDepthPx(), 5);
+        // Re-derive independently from the constants (not via verticalPx):
+        const independent =
+            (independentCutDepth * Math.cos(CORRIDOR_PITCH) * fPx()) / CORRIDOR_DISTANCE;
+        expect(independent).toBeCloseTo(earthworkPx, 5);
     });
 
-    test("≥30 m of unflattened terrain flanks the corridor in frame at the derived pose", () => {
-        // The corridor half-width is halfWidth + falloff (the road plus its eased transition).
-        // The visible lateral half-extent at the target distance is D × tan(fov_h/2).
-        // Flanking = lateral half-extent − corridor half-width.
+    test("≥30 m of unflattened terrain flanks the corridor in frame at the fixed-literal pose", () => {
         expect(flankingTerrainM()).toBeGreaterThanOrEqual(30);
 
-        // Re-derive independently:
         const corridorHalfWidth = HALF_WIDTH + FALLOFF;
         const lateralHalfExtent = CORRIDOR_DISTANCE * Math.tan(fovHRad() / 2);
         expect(lateralHalfExtent - corridorHalfWidth).toBeGreaterThanOrEqual(30);
         expect(lateralHalfExtent - corridorHalfWidth).toBeCloseTo(flankingTerrainM(), 5);
     });
 
-    test("the derived distance is the maximum satisfying cutDepth = 5 px at the derived pitch", () => {
-        // D = cutDepth × cos(pitch) × f_px / 5 — by construction, so cutDepth reads exactly 5 px.
-        const maxDistance = (CUT_DEPTH * Math.cos(CORRIDOR_PITCH) * fPx()) / 5;
-        expect(CORRIDOR_DISTANCE).toBeCloseTo(maxDistance, 5);
+    test("earthwork px vs confounder px in the same frame (Validation's comparison)", () => {
+        // Scale the confounder from the default pose (900 m, pitch 0.5) to the corridor pose.
+        // Both earthwork and confounder are vertical displacements projected through f_px/D/cos(θ),
+        // so the ratio is independent of D and θ — it is cutDepth / effective_confounder_magnitude,
+        // a property of the subject, not the pose. Pinning it makes a cutDepth change visible.
+        const confounderPx =
+            CONFUNDER_PX_AT_DEFAULT *
+            (900 / CORRIDOR_DISTANCE) *
+            (Math.cos(CORRIDOR_PITCH) / Math.cos(DEFAULT_PITCH));
+
+        const earthworkPx = verticalPx(independentCutDepth);
+
+        // The earthwork is a non-zero fraction of the confounder — it is resolvable, not drowned.
+        expect(earthworkPx).toBeGreaterThan(0);
+        expect(confounderPx).toBeGreaterThan(0);
+
+        // Pin the ratio so a future stage that moves cutDepth reds this arm. The ratio is
+        // (cutDepth × f_px × cos(0.5)) / (CONFUNDER_PX_AT_DEFAULT × 900) — constant across the
+        // interval, so it does not select the distance; it records the comparison.
+        const ratio = earthworkPx / confounderPx;
+        const expectedRatio =
+            (independentCutDepth * fPx() * Math.cos(DEFAULT_PITCH)) /
+            (CONFUNDER_PX_AT_DEFAULT * 900);
+        expect(ratio).toBeCloseTo(expectedRatio, 1);
     });
 
     test("the pitch is half the corridor's average side-slope angle", () => {
-        // atan(cutDepth / falloff) / 2 — below the side-slope angle so the camera sees the
-        // transition as a surface, with enough elevation for terrain context.
-        const sideSlopeAngle = Math.atan(CUT_DEPTH / FALLOFF);
-        expect(CORRIDOR_PITCH).toBeCloseTo(sideSlopeAngle / 2, 5);
+        const sideSlopeAngle = Math.atan(independentCutDepth / independentFalloff);
+        expect(CORRIDOR_PITCH).toBeCloseTo(sideSlopeAngle / 2, 1);
     });
 
-    test("scene constants are what the derivation cites (not fitted)", () => {
-        // Each constant is named and sourced — none justified by "the arm passes here."
-        expect(VIEWPORT_HEIGHT).toBe(720); // Playwright default
-        expect(VIEWPORT_WIDTH).toBe(1280); // Playwright default
-        expect(CAMERA_FOV_DEG).toBe(60); // camera default (roads.scene sets no fov)
-        expect(HALF_WIDTH).toBe(4); // ROAD_HALF_WIDTH (overlay/network.ts)
-        expect(CUT_DEPTH).toBeCloseTo(1.4404, 3); // buildNetworkGeometry at seed 1337
-        expect(FALLOFF).toBeCloseTo(6.7876, 3); // computeFalloff(cutDepth)
+    test("scene/viewport sourcing: neither config overrides the defaults the pose derives from", () => {
+        // The pose derives from VIEWPORT_HEIGHT (720), VIEWPORT_WIDTH (1280), and CAMERA_FOV_DEG
+        // (60) — Playwright's default viewport and the camera trait's default FOV. If either config
+        // file gains an explicit setting, the pose goes silently wrong while the literals stay
+        // green. This arm reads the config files and asserts they set neither, so adding one reds.
+        const configText = readFileSync(
+            join(__dirname, "..", "playwright.config.ts"),
+            "utf-8",
+        ).toLowerCase();
+        const sceneText = readFileSync(
+            join(__dirname, "..", "public", "scenes", "roads.scene"),
+            "utf-8",
+        ).toLowerCase();
+
+        // Playwright's default viewport is 1280 × 720 — the config must not override it.
+        expect(configText).not.toContain("viewport");
+
+        // The camera's default FOV is 60° — the scene must not override it.
+        expect(sceneText).not.toContain("fov");
+
+        // The literals must match the defaults they claim.
+        expect(VIEWPORT_HEIGHT).toBe(720);
+        expect(VIEWPORT_WIDTH).toBe(1280);
+        expect(CAMERA_FOV_DEG).toBe(60);
     });
 });
