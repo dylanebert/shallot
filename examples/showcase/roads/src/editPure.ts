@@ -53,8 +53,9 @@ export function applyEdit(doc: StrokeDocument, end: 0 | 1, x: number, z: number)
  *  floor is returned unchanged. Pure, device-free.
  *
  *  The ceiling (`ROAD_MAX_LENGTH`) is deleted: a chord is any length the world contains, and capacity is
- *  sized by measurement (`ATLAS_LAYERS = TILE_COUNT`), not by a refusal (`roads-interactive.md`'s Locked
- *  decision). */
+ *  sized by measurement — the worst-case single-document swath under the capsule dirty-set test, sized
+ *  with headroom over the measured worst case — not by a refusal (`roads-interactive.md`'s Locked
+ *  decision). See `overlay/tiles.ts`'s `ATLAS_LAYERS` for the derivation and the measured number. */
 export function clampDragTarget(
     doc: StrokeDocument,
     end: 0 | 1,

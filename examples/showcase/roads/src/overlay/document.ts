@@ -218,8 +218,8 @@ function segmentIntersectsRect(seg: Segment, rect: Rect): boolean {
 
 /** the minimum distance from a world-space rect to a segment's centreline — 0 if they intersect,
  *  otherwise the nearest point-to-point distance (min of rect-corner-to-segment and
- *  segment-endpoint-to-rect). Exported so {@link document.test.ts} can verify the capsule test's
- *  correctness: every tile the narrowing drops must have `segmentRectDistance > halfWidth + margin`. */
+ *  segment-endpoint-to-rect). Used by {@link documentDirtyTiles}'s capsule test to decide whether a
+ *  tile is within `halfWidth + margin` of the segment. */
 export function segmentRectDistance(seg: Segment, rect: Rect): number {
     if (segmentIntersectsRect(seg, rect)) return 0;
     let best = Math.min(

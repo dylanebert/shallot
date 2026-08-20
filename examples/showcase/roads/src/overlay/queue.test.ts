@@ -328,18 +328,20 @@ describe("property: tile release over random edit sequences", () => {
         }
     });
 
-    // The specific red-first input: ≥65 edits each touching a fresh tile. With the free list's release
-    // between edits, this never throws — the old counter threw at the 65th (see the docblock above).
+    // The specific red-first input: ATLAS_LAYERS + 1 edits each touching a fresh tile (derived from
+    // ATLAS_LAYERS, not a hardcoded 65 — the arm's subject is release/allocate, not the constant, so
+    // the bound follows a future ATLAS_LAYERS change). With the free list's release between edits,
+    // this never throws — the old counter threw at the (ATLAS_LAYERS + 1)th (see the docblock above).
     //
     // Stage 4d restored this arm as a live witness: ATLAS_LAYERS fell from 256 (full residency) back to
-    // 64, so 65 fresh tiles do not fit without release. RED-FIRST EVIDENCE (stage 4d): with `release`
-    // replaced by a no-op, this arm throws at edit 56 with
+    // 64, so ATLAS_LAYERS + 1 = 65 fresh tiles do not fit without release. RED-FIRST EVIDENCE (stage
+    // 4d): with `release` replaced by a no-op, this arm throws at edit 56 with
     //   "overlay atlas: capacity exceeded (64 layers) allocating tile 56"
     // because the free list is never replenished and the 57th allocation finds it empty. Under full
     // residency (ATLAS_LAYERS = 256) this arm was tautological — 65 tiles fit in 256 layers even with
     // release broken — so it was labelled a guard. The capsule-test narrowing (46 worst case) brought
     // capacity back under TILE_COUNT and made the arm live again.
-    test("65 edits each touching a fresh tile never throws with the free list", () => {
+    test("ATLAS_LAYERS + 1 edits each touching a fresh tile never throws with the free list", () => {
         const cpu = new Int32Array(TILE_COUNT).fill(-1);
         const free: number[] = [];
         const pending: number[] = [];
@@ -357,7 +359,7 @@ describe("property: tile release over random edit sequences", () => {
             for (const id of ids) allocate(cpu, id, free, ATLAS_LAYERS);
         }
 
-        for (let i = 0; i < 65; i++) {
+        for (let i = 0; i < ATLAS_LAYERS + 1; i++) {
             // place a road entirely inside one tile so each edit touches a fresh tile
             const tileX = i % 16;
             const tileZ = Math.floor(i / 16);
@@ -403,7 +405,7 @@ describe("property: tile release over random edit sequences", () => {
             current = newDoc;
         }
 
-        // if we got here, allocate never threw across all 65 fresh-tile edits
+        // if we got here, allocate never threw across all ATLAS_LAYERS + 1 fresh-tile edits
         expect(residentSet(cpu).size + free.length).toBe(ATLAS_LAYERS);
     });
 });
