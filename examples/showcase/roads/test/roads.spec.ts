@@ -14,6 +14,16 @@ const CAPTURE_PATH = join(
     "roads-capture.png",
 );
 
+// Stage 24a's corridor-pose capture — a second file alongside the gate's own, written at the derived
+// corridor pose (corridorPose.ts). The default-orbit capture above stays unchanged in pose; this one
+// is the admissible artifact for 24b's release look.
+const CORRIDOR_CAPTURE_PATH = join(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "test-results",
+    "roads-corridor-capture.png",
+);
+
 // Drive the terrain generator's device gate: load the app, wait for it to warm and expose
 // `window.__roadsGate`, run it on the real GPU, and assert every check passes (and the page raised no
 // error). The checks themselves live in `src/gate.ts` against the published surface — this driver is the
@@ -317,6 +327,25 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
         reseedCapture.newRoadLum,
         `final-network on-road point ${reseedCapture.newRoadLum.toFixed(1)} vs off-road ${reseedCapture.offRoadLum.toFixed(1)} — doesn't read as road after the reseed that should have drawn it`,
     ).toBeLessThan(reseedCapture.offRoadLum * 0.75);
+
+    expect(errors, errors.join("\n")).toEqual([]);
+
+    // Phase 4: stage 24a's corridor-pose capture. Reposition the orbit to the derived corridor pose
+    // (corridorCapture.ts via window.__roadsCorridorCapture), wait for it to settle, and save the
+    // screenshot to a second file. The default-orbit capture (Phase 2) is already saved and must not
+    // move — it feeds the fs-composite pixel probes. This capture is the admissible artifact for 24b's
+    // human release look: the earthwork's 1.4404 m vertical excursion projects to ≥5 px at this pose
+    // (asserted device-free by corridorPose.test.ts), while ≥30 m of unflattened terrain flanks the
+    // corridor in frame.
+    await page.evaluate(() =>
+        (
+            window as unknown as { __roadsCorridorCapture: () => Promise<void> }
+        ).__roadsCorridorCapture(),
+    );
+    await page.waitForTimeout(500); // let the render loop paint the re-posed frame
+    const corridorScreenshot = await page.screenshot();
+    mkdirSync(dirname(CORRIDOR_CAPTURE_PATH), { recursive: true });
+    writeFileSync(CORRIDOR_CAPTURE_PATH, corridorScreenshot);
 
     expect(errors, errors.join("\n")).toEqual([]);
 });
