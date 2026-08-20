@@ -251,9 +251,17 @@ const terrainFs = tgpu.fn(
         coverFn(d.f32(DASH_PERIOD + DASH_SEGMENT), sRel, sP) -
         coverFn(d.f32(DASH_PERIOD), sRel, sP);
     let dashCoverage = std.clamp(dashCov + dashCovWrap, 0, 1);
-    // converge to DASH_DUTY opacity as fwidth(s) approaches DASH_PERIOD — a far dashed line reads as a
-    // faint continuous line, never as resolved flickering dots (roads-interactive.md Locked decision).
-    const nyquist = std.clamp(sP / d.f32(DASH_PERIOD), 0, 1);
+    // Nyquist blend: aliasing begins when the sample footprint passes half the dash period — the
+    // highest frequency a signal can represent is 2 samples per cycle, so below half a period the dash
+    // is still fully resolvable and the blend must be inactive (otherwise the pattern washes toward
+    // continuous inside the regime where it still reads crisp). The blend starts at half a period and
+    // reaches full convergence at one period: a far dashed line reads as a faint continuous line at
+    // DASH_DUTY opacity, never as resolved flickering dots (roads-interactive.md Locked decision).
+    const nyquist = std.clamp(
+        (sP - d.f32(DASH_PERIOD) * d.f32(0.5)) / (d.f32(DASH_PERIOD) * d.f32(0.5)),
+        0,
+        1,
+    );
     dashCoverage = std.mix(dashCoverage, d.f32(DASH_DUTY), nyquist);
 
     // endpoint: the centreline exists only for station in [0, len]

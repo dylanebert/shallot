@@ -99,7 +99,7 @@ export function documentDistance(px: number, pz: number, doc: StrokeDocument): n
  *  (centred at d = −EDGE_INSET on the existing edge distance) and a broken centreline (perpendicular
  *  distance to the centreline via d + halfWidth, station along the chord via fract(s / DASH_PERIOD) <
  *  DASH_DUTY). Cross-product derivation, like {@link segmentDistance} — the CPU twin the GPU's
- *  `markingDistanceGpu` (rasterize.ts, clamped-projection form) is checked against, independently.
+ *  `markingDistanceFromChord` (terrain/terrain.ts, clamped-projection form) is checked against, independently.
  *
  *  Geometry per the Locked decision: one chord, so the dash phase has no joint to break at.
  *  Two-lane two-way: broken yellow centreline, solid white edges. */
@@ -142,7 +142,7 @@ export function markingDistanceForSegment(px: number, pz: number, seg: Segment):
 }
 
 /** the document's analytic marking distance at (px, pz) — the minimum (nearest) signed distance to any
- *  road marking over every segment. The CPU half of stage 3's marking differential oracle. */
+ *  road marking over every segment. The CPU half of stage 8's marking differential oracle. */
 export function markingDistance(px: number, pz: number, doc: StrokeDocument): number {
     let best = Number.POSITIVE_INFINITY;
     for (const seg of flattenSegments(doc)) {

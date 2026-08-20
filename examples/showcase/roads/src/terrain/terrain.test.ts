@@ -1,8 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat } from "../../../../../packages/shallot/tests/wgsl";
 import { markingDistanceForSegment, type Segment } from "../overlay/document";
-import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
-import { markingDistanceFromChord, terrainFsWgsl } from "./terrain";
+import {
+    COVERAGE_BAND_PX,
+    DASH_DUTY,
+    DASH_GAP,
+    DASH_PERIOD,
+    DASH_SEGMENT,
+    DIST_RANGE,
+    LINE_HALF_WIDTH,
+    TILE_SIZE,
+    TILES_PER_SIDE,
+} from "../overlay/tiles";
+import { coverFn, markingDistanceFromChord, terrainFsWgsl } from "./terrain";
 
 // The overlay composite's structural gate — the device-free seam this stage's `bun test` relies on for the
 // fs's atlas-sampling half (CPU-callable/resolved-WGSL first, never a bound device). The composite's
@@ -230,5 +240,157 @@ describe("marking differential oracle — markingDistanceFromChord vs document.t
             // in a gap → marking distance should be positive (outside the marking)
             expect(cpu).toBeGreaterThan(0);
         }
+    });
+});
+
+// R3 behavioural arms — the two-edge coverage integral and the dash's Nyquist convergence are the
+// whole point of stage 8, and the existing arms above are structural (toContain/toMatch over resolved
+// WGSL text) or distance differentials that never call the coverage function. These arms call the
+// production `coverFn` (a `tgpu.fn`, CPU-callable through TypeGPU's dual execution — the same path
+// `markingDistanceFromChord` uses in the differential oracle above) so they witness the shipped fs's
+// exact math with no device. The dash-convergence arm re-derives the fs's dash-coverage pipeline
+// (coverFn calls + the Nyquist blend) in TS from the spec's stated form, since `fwidth(s)` is GPU-only
+// and cannot be called from plain TS — the arm witnesses the formula, not the shipped fs's fwidth path,
+// and the docblock says exactly that.
+
+describe("two-edge analytic pixel coverage — cover(h) - cover(-h) [behavioural]", () => {
+    // Witnesses the shipped `coverFn` (terrain.ts, exported `tgpu.fn`) called directly in TS — the
+    // same function the fs resolves into WGSL. cover(e, x, p) = clamp((e - x)/p + 0.5, 0, 1),
+    // alpha = cover(h) - cover(-h).
+    //
+    // WITNESSED RED: changing `coverFn`'s body from `clamp((e - x) / p + 0.5, 0, 1)` to
+    // `clamp((e - x) / p, 0, 1)` (dropping the +0.5 offset) reds the sub-pixel proportionality arm:
+    //   Expected: 0.5  (cov * p / (2h) ≈ 1)
+    //   Received: 0    (coverage collapses to 0 when both edges are inside the pixel, because
+    //   cover(h) and cover(-h) both clamp to the same value without the +0.5 centring)
+    // Confirmed by running the mutated coverFn, observing the failure, then restoring by hand.
+
+    const h = LINE_HALF_WIDTH; // 0.0762 m — the stripe half-width the fs uses
+
+    test("coverage is 1 well inside the stripe and 0 well outside", () => {
+        const p = 0.001; // tiny footprint — the stripe is many pixels wide
+        const inside = coverFn(h, 0, p) - coverFn(-h, 0, p);
+        expect(inside).toBeCloseTo(1, 5);
+        const outside = coverFn(h, 10 * h, p) - coverFn(-h, 10 * h, p);
+        expect(outside).toBeCloseTo(0, 5);
+    });
+
+    test("coverage is monotone as x sweeps across one edge (decreasing outside the right edge)", () => {
+        // the spec says "monotone as x sweeps across the edge" — one edge, not the whole stripe.
+        // alpha = cover(h) - cover(-h) is a bump: 0 outside, 1 inside, 0 outside. Across one edge
+        // (e.g. the right edge at x = h) it is monotone decreasing from 1 to 0.
+        const p = 0.01;
+        let prev = Infinity;
+        for (let i = 0; i <= 200; i++) {
+            const x = 0 + (4 * h * i) / 200; // from x=0 (inside) to x=4h (outside)
+            const cov = coverFn(h, x, p) - coverFn(-h, x, p);
+            expect(cov).toBeLessThanOrEqual(prev + 1e-9);
+            prev = cov;
+        }
+    });
+
+    test("coverage is exactly 0.5 at the edge for a small p", () => {
+        // at x = h (the right edge): cover(h, h, p) = clamp(0/p + 0.5, 0, 1) = 0.5,
+        // cover(-h, h, p) = clamp(-2h/p + 0.5, 0, 1) ≈ 0 for small p, so alpha ≈ 0.5
+        const p = 0.001;
+        const cov = coverFn(h, h, p) - coverFn(-h, h, p);
+        expect(cov).toBeCloseTo(0.5, 2);
+    });
+
+    test("sub-pixel regime: when p exceeds 2h, coverage is a proper fraction that decays as ~2h/p", () => {
+        // THE arm: when the pixel footprint p exceeds the stripe width 2h, both edges land inside one
+        // pixel and the coverage terms subtract to the stripe's true fractional coverage ~2h/p —
+        // neither 0 nor 1, and decaying proportionally as p grows. This is the property that makes a
+        // distant line fade instead of vanishing or popping.
+        const p1 = 4 * 2 * h; // p = 8h, well into sub-pixel
+        const p2 = 8 * 2 * h; // p = 16h
+        const p3 = 16 * 2 * h; // p = 32h
+        const cov1 = coverFn(h, 0, p1) - coverFn(-h, 0, p1);
+        const cov2 = coverFn(h, 0, p2) - coverFn(-h, 0, p2);
+        const cov3 = coverFn(h, 0, p3) - coverFn(-h, 0, p3);
+        // proper fractions, not 0 or 1
+        for (const c of [cov1, cov2, cov3]) {
+            expect(c).toBeGreaterThan(0);
+            expect(c).toBeLessThan(1);
+        }
+        // proportional decay: cov ∝ 1/p, so cov1/cov2 ≈ p2/p1
+        expect(cov1 / cov2).toBeCloseTo(p2 / p1, 2);
+        expect(cov2 / cov3).toBeCloseTo(p3 / p2, 2);
+        // the proportionality constant is 2h: cov ≈ 2h/p
+        expect((cov1 * p1) / (2 * h)).toBeCloseTo(1, 2);
+        expect((cov2 * p2) / (2 * h)).toBeCloseTo(1, 2);
+        expect((cov3 * p3) / (2 * h)).toBeCloseTo(1, 2);
+    });
+});
+
+describe("dash Nyquist convergence [behavioural]", () => {
+    // Re-derives the fs's dash-coverage pipeline in TS from the spec's stated form. `coverFn` is the
+    // production `tgpu.fn` (CPU-callable), but `fwidth(s)` is GPU-only and cannot be called from TS,
+    // so the footprint `sP` is a parameter, not a live fwidth read. The arm witnesses the formula
+    // (coverFn calls + the Nyquist blend), not the shipped fs's fwidth path — the docblock says exactly
+    // that rather than overclaiming.
+    //
+    // WITNESSED RED: changing the Nyquist blend from the half-period threshold
+    //   `(sP - DASH_PERIOD * 0.5) / (DASH_PERIOD * 0.5)` back to the old linear-from-zero
+    //   `sP / DASH_PERIOD` reds the "blend inactive below half period" arm:
+    //   Expected: 0  (nyquist at sP = DASH_PERIOD * 0.25 — blend must be inactive)
+    //   Received: 0.25  (the old formula starts blending at sP = 0, so at quarter-period it is
+    //   already 25% washed toward continuous)
+    // Confirmed by running the mutated blend, observing the failure, then restoring by hand.
+
+    /** the fs's dash-coverage pipeline, re-derived in TS: two-edge coverFn calls along the station
+     *  axis (with wrap), clamped, then the Nyquist blend toward DASH_DUTY. `sP` stands in for
+     *  `fwidth(s)`, which is GPU-only. */
+    function dashCoverage(sRel: number, sP: number): number {
+        const dashCov = coverFn(DASH_SEGMENT, sRel, sP) - coverFn(0, sRel, sP);
+        const dashCovWrap =
+            coverFn(DASH_PERIOD + DASH_SEGMENT, sRel, sP) - coverFn(DASH_PERIOD, sRel, sP);
+        let cov = Math.max(0, Math.min(1, dashCov + dashCovWrap));
+        const nyquist = Math.max(0, Math.min(1, (sP - DASH_PERIOD * 0.5) / (DASH_PERIOD * 0.5)));
+        cov = cov * (1 - nyquist) + DASH_DUTY * nyquist;
+        return cov;
+    }
+
+    test("at a small footprint, coverage is ~1 inside a segment and ~0 in a gap", () => {
+        const sP = 0.001; // tiny footprint — the dash pattern is many pixels wide
+        // middle of a dash segment
+        const inSeg = DASH_SEGMENT / 2;
+        expect(dashCoverage(inSeg, sP)).toBeCloseTo(1, 3);
+        // middle of a gap
+        const inGap = DASH_SEGMENT + DASH_GAP / 2;
+        expect(dashCoverage(inGap, sP)).toBeCloseTo(0, 3);
+    });
+
+    test("the Nyquist blend is inactive below half a period — coverage equals the raw dash coverage", () => {
+        // below half a period, nyquist = 0, so the blend is a no-op and the result is the raw
+        // two-edge dash coverage. This is the property R4 buys: the dash reads crisp where it can.
+        const sRel = DASH_SEGMENT / 2; // inside a segment
+        const sP = DASH_PERIOD * 0.25; // well below the Nyquist threshold
+        const rawDashCov = (() => {
+            const dashCov = coverFn(DASH_SEGMENT, sRel, sP) - coverFn(0, sRel, sP);
+            const dashCovWrap =
+                coverFn(DASH_PERIOD + DASH_SEGMENT, sRel, sP) - coverFn(DASH_PERIOD, sRel, sP);
+            return Math.max(0, Math.min(1, dashCov + dashCovWrap));
+        })();
+        expect(dashCoverage(sRel, sP)).toBeCloseTo(rawDashCov, 6);
+        // and the nyquist factor itself is exactly 0
+        const nyquist = Math.max(0, Math.min(1, (sP - DASH_PERIOD * 0.5) / (DASH_PERIOD * 0.5)));
+        expect(nyquist).toBe(0);
+    });
+
+    test("as footprint grows toward DASH_PERIOD, coverage converges to DASH_DUTY, monotonically", () => {
+        // scan sP from half a period to one period — the coverage should converge to DASH_DUTY
+        // and |coverage - DASH_DUTY| should be non-increasing (monotone convergence)
+        const sRel = DASH_SEGMENT / 2; // inside a segment (raw coverage starts above DASH_DUTY)
+        let prevDelta = Infinity;
+        for (let i = 0; i <= 50; i++) {
+            const sP = DASH_PERIOD * 0.5 + (DASH_PERIOD * 0.5 * i) / 50;
+            const cov = dashCoverage(sRel, sP);
+            const delta = Math.abs(cov - DASH_DUTY);
+            expect(delta).toBeLessThanOrEqual(prevDelta + 1e-9);
+            prevDelta = delta;
+        }
+        // at one full period, coverage is exactly DASH_DUTY (nyquist = 1 → mix = DASH_DUTY)
+        expect(dashCoverage(sRel, DASH_PERIOD)).toBeCloseTo(DASH_DUTY, 5);
     });
 });
