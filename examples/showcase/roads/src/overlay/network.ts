@@ -1,4 +1,4 @@
-import { computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten";
+import { computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten-math";
 import { gridX, gridZ, SPACING, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
 import { makePermutation, mulberry32 } from "../terrain/noise";
 import { heightAtCpu, PROFILE_STEP } from "../terrain/profile";

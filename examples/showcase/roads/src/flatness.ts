@@ -21,9 +21,11 @@
 // `Uint32Array` + `meshHeightAt` — never which device produced it:
 //   - {@link buildDeviceFreeVertices} — a CPU-only mirror of `terrain/generate.ts`'s height-kernel loop
 //     (no GPU dispatch), the default-suite arm (`flatness.test.ts`, `bun test ./src -t "surface flatness"`).
-//   - the real `readVertices()` (`terrain/terrain.ts`) — the device arm inside `bun run gate`
-//     (`gate.ts`'s `reconstructionAgreement`, which pins the CPU builder's fidelity against the real GPU
-//     output rather than re-asserting the property device-side).
+//   - the real `readVertices()` (`terrain/terrain.ts`) — the device arms inside `bun run gate`, two of
+//     them since stage 23: `gate.ts`'s `reconstructionAgreement` pins the CPU builder's *fidelity*
+//     against the real GPU output, and its `surface-flatness-property-on-device` check re-asserts the
+//     *property* device-side — the same unconditional exact zero the default suite asserts, over real
+//     `readVertices()`.
 //
 // What this oracle cannot see (name the blind axes, `checks.md`'s granularity clause):
 //   - albedo registration — the overlay's own texel/coverage crispness is a separate render-half property
@@ -534,9 +536,11 @@ export function inFootprint(x: number, z: number, doc: StrokeDocument): boolean 
  * ({@link buildDeviceFreeVertices}) at the live network's own `seed` and compares its
  * footprint-line samples against `deviceRaw` (a real `readVertices()` readback) point for point. This is
  * the "device arm" the spec asks for — it validates the CPU builder's *fidelity* against the real GPU
- * output (a reference/differential check), not the surface-flatness property itself (which `bun test`'s
- * default-suite arm already checks device-free, and is allowed to read red on the shipped pipeline,
- * `gate.ts` would break every run if it re-asserted "no violations" here). Tolerance is quantization noise
+ * output (a reference/differential check), not the surface-flatness property itself — that is a separate
+ * `gate.ts` check (`surface-flatness-property-on-device`, stage 23), which asserts exact zero over the same
+ * `deviceRaw` because the property has read exactly zero on the shipped pipeline since stage 18. Keep the
+ * two apart: this one is a tolerance-bounded differential and must stay one, since a fidelity tolerance
+ * cannot express an unconditional zero. Tolerance is quantization noise
  * only, doubled for two independent codec round-trips plus float-precision drift between the CPU (f64) and
  * GPU (f32) paths (`terrain/profile.ts`'s own module header names this same drift as expected and
  * harmless).
