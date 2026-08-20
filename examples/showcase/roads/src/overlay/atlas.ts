@@ -3,7 +3,7 @@ import type { MeshBinding } from "@dylanebert/shallot/render/core";
 import type { StorageFlag, TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import { documentDirtyTiles, type StrokeDocument } from "./document";
-import { allocate, drain, invalidate as invalidateQueue } from "./queue";
+import { allocate, drain, invalidate as invalidateQueue, release } from "./queue";
 import { rasterizeTile, warm as rasterizeWarm } from "./rasterize";
 import {
     ALBEDO_FORMAT,
@@ -60,10 +60,10 @@ let sampler: GPUSampler | null = null;
 let indirectionRaw: GPUBuffer | null = null;
 let indirectionTyped: (TgpuBuffer<typeof Indirection> & StorageFlag) | null = null;
 
-// the indirection table's CPU mirror (so allocateLayer can read "already resident?" without a GPU
-// readback) + the free-running layer counter. Reset at warm.
+// the indirection table's CPU mirror (so allocate can read "already resident?" without a GPU
+// readback) + the free list of available atlas layers. Reset to full capacity at warm.
 const indirectionCpu = new Int32Array(TILE_COUNT).fill(-1);
-let nextLayer = 0;
+const free: number[] = [];
 
 // the dirty queue: an array (FIFO order — earliest marks redraw first) + a parallel Set for O(1)
 // de-duplication (`markDirty` called twice for the same tile before it drains must not double-queue it).
@@ -79,7 +79,7 @@ function teardown(): void {
     sampler = null;
     indirectionRaw = null;
     indirectionTyped = null;
-    nextLayer = invalidateQueue(indirectionCpu, pending, pendingSet);
+    invalidateQueue(indirectionCpu, free, ATLAS_LAYERS, pending, pendingSet);
 }
 
 /** allocate the atlas's GPU resources — textures, sampler, indirection buffer, all cleared to "no tile
@@ -117,26 +117,26 @@ export function warm(state: State): void {
         size: TILE_COUNT * 4,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
-    nextLayer = invalidateQueue(indirectionCpu, pending, pendingSet);
+    invalidateQueue(indirectionCpu, free, ATLAS_LAYERS, pending, pendingSet);
     device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
     indirectionTyped = root.createBuffer(Indirection, indirectionRaw).$usage("storage");
 }
 
 /**
  * invalidate every resident tile on a document swap (`terrain.ts`'s `regenerate`, the F9 reseed control):
- * releases the indirection CPU mirror, restarts the free-running layer counter, and drops any redraw
- * still queued from the outgoing document — then flushes the reset indirection straight to the GPU buffer
- * the terrain fs reads (`terrain.ts`'s composite treats `layer < 0` as "no overlay here"), so a tile the
- * old document touched but the new one doesn't reads terrain, not stale road, the very next frame rather
- * than whenever its old layer happens to get reused. The atlas *textures* keep their stale texels — inert
- * until a fresh `redraw` overwrites them, since nothing samples an unindexed layer — so this only needs to
- * touch indirection, not `writeTexture` every layer. Call before {@link markDirty} marks the swapped-in
- * document's own tiles, or they'd pack onto the tail of a still-full atlas instead of a freshly emptied
- * one — the ordering `queue.ts`'s `invalidate` doc comment names.
+ * releases every resident layer back to the free list, clears the indirection CPU mirror, and drops any
+ * redraw still queued from the outgoing document — then flushes the reset indirection straight to the GPU
+ * buffer the terrain fs reads (`terrain.ts`'s composite treats `layer < 0` as "no overlay here"), so a
+ * tile the old document touched but the new one doesn't reads terrain, not stale road, the very next frame
+ * rather than whenever its old layer happens to get reused. The atlas *textures* keep their stale texels —
+ * inert until a fresh `redraw` overwrites them, since nothing samples an unindexed layer — so this only
+ * needs to touch indirection, not `writeTexture` every layer. Call before {@link markDirty} marks the
+ * swapped-in document's own tiles, or they'd pack onto the tail of a still-full atlas instead of a freshly
+ * emptied one — the ordering `queue.ts`'s `invalidate` doc comment names.
  */
 export function invalidate(): void {
     if (!indirectionRaw) return; // warm() hasn't run yet — nothing resident to release
-    nextLayer = invalidateQueue(indirectionCpu, pending, pendingSet);
+    invalidateQueue(indirectionCpu, free, ATLAS_LAYERS, pending, pendingSet);
     Compute.device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
 }
 
@@ -166,6 +166,32 @@ export function markDirty(doc: StrokeDocument): void {
 }
 
 /**
+ * re-tile the atlas for a document edit: mark `tiles(old) ∪ tiles(new)` dirty (so every tile whose content
+ * changed or appeared is redrawn) and release `tiles(old) − tiles(new)` (so tiles the old document touched
+ * but the new one doesn't have their indirection cleared to −1 and their layer pushed back to the free
+ * list). The mark-dirty runs before the release — `release` removes a released id from the pending queue,
+ * so a tile in the difference is first marked dirty then unmarked, never redrawn. After `retile` the
+ * pending queue holds exactly `tiles(new)` (the union minus the difference), and the resident set is the
+ * previous resident minus the difference; once {@link redraw} drains, the resident set equals
+ * `tiles(new)` and the free list has absorbed every layer the difference freed. Flushes the changed
+ * indirection entries to the GPU buffer so a released tile reads terrain, not stale road, the very next
+ * frame. This is the edit path; {@link invalidate} is the reseed path — both share `release`.
+ */
+export function retile(oldDoc: StrokeDocument, newDoc: StrokeDocument): void {
+    if (!indirectionRaw) return; // warm() hasn't run yet — nothing to retile
+    const oldTiles = new Set(documentDirtyTiles(oldDoc));
+    const newTiles = new Set(documentDirtyTiles(newDoc));
+    markDirty(oldDoc);
+    markDirty(newDoc);
+    const toRelease: number[] = [];
+    for (const id of oldTiles) {
+        if (!newTiles.has(id)) toRelease.push(id);
+    }
+    release(indirectionCpu, toRelease, free, pending, pendingSet);
+    Compute.device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
+}
+
+/**
  * drain up to {@link THROTTLE} pending dirty tiles: allocate each one's atlas layer, rasterize `doc`'s
  * content into it via `rasterize.ts`'s GPU dispatch, and flush the changed indirection entries. Returns
  * the number of tiles redrawn — 0 once the queue is empty, so a caller (the per-frame `OverlaySystem`,
@@ -177,9 +203,7 @@ export function redraw(doc: StrokeDocument): number {
     if (ids.length === 0) return 0;
     const { device } = Compute;
     for (const id of ids) {
-        const alloc = allocate(indirectionCpu, id, nextLayer, ATLAS_LAYERS);
-        nextLayer = alloc.nextLayer;
-        const layer = alloc.layer;
+        const layer = allocate(indirectionCpu, id, free, ATLAS_LAYERS);
         const [tx, tz] = tileCoordOf(id);
         rasterizeTile(doc, tx, tz, albedoTex, distTex, layer);
         device.queue.writeBuffer(indirectionRaw, id * 4, new Int32Array([layer]));
