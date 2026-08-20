@@ -11,7 +11,8 @@ import { computeFalloff, flattenHeight, SIDE_SLOPE_LIMIT } from "./terrain/flatt
 // edge, anchored at the edge, reads a constant `falloff / 2` bias, mistaken for raggedness.
 // `heightMidpointAnchor` moves the anchor to that ease midpoint instead — this file proves both halves on
 // a synthetic straight edge built from the real `flattenHeight` formula, pure math, no device.
-const FALLOFF = 14.026; // an arbitrary representative falloff, same order as computeFalloff's own range
+const FALLOFF = 14.026; // historical (stage 11b), same order as computeFalloff's own range; not today's
+// network's falloff (6.7876) — kept as a fixed anchor for the synthetic edge, do NOT re-anchor
 const NATURAL = 100;
 const TARGET = 10;
 const STEPS_PER_M = 20;
@@ -99,9 +100,13 @@ describe("worldEdgeAnchors — the analytic road-edge anchors the height-axis in
 // supposed to measure. `sideSlopeWindow` is the AASHTO term alone, upstream of any floor.
 describe("sideSlopeWindow — the decoupled measurement window", () => {
     test("agrees exactly with computeFalloff on today's real network — the floor is inert here", () => {
-        // 2.976 is this network's real measured cut depth (spec Live log, stage 11b). computeFalloff's
-        // floor is bare SPACING (4 m, stage 13's revert), well below the AASHTO term (14.026 m) at this
-        // cut depth, so the floor never binds and the two functions read the same number.
+        // 2.976 is a historical measurement point (stage 11b's pre-route-selection network, cutDepth
+        // 2.976 m). Stage 22's route selection moved cutDepth to 1.4404 m (falloff 6.7876 m), so this is
+        // no longer today's network's real cut depth. The value is kept as a historical anchor for the
+        // test's synthetic edge — do NOT update it to track today's network (re-anchoring an instrument's
+        // literals is the fitted-constant inversion stage 24a paid for). computeFalloff's floor is bare
+        // SPACING (4 m, stage 13's revert), well below the AASHTO term (14.026 m) at this cut depth, so
+        // the floor never binds and the two functions read the same number.
         const cutDepth = 2.976;
         expect(computeFalloff(cutDepth)).toBeCloseTo(14.026, 2);
         expect(sideSlopeWindow(cutDepth)).toBeCloseTo(14.026, 2); // spec's recorded falloffM/windowM
@@ -131,8 +136,10 @@ describe("sideSlopeWindow — the decoupled measurement window", () => {
 // a fixed array of sampled heights, so a floor value that only feeds `couple`'s own `Math.max` (never the
 // sampler) provably cannot move it. Any reading swing as `floor` varies is the instrument, not the road.
 describe("flat-across-an-inert-treatment: a floor change moves the coupled window, not the boundary", () => {
-    const TrueCutDepth = 2.976;
-    const TrueWindow = sideSlopeWindow(TrueCutDepth); // 14.026 — the synthetic edge's real, fixed width
+    const TrueCutDepth = 2.976; // historical (stage 11b) — not today's network's cutDepth (1.4404); kept
+    // as a fixed anchor for the synthetic edge, do NOT re-anchor onto today's network
+    const TrueWindow = sideSlopeWindow(TrueCutDepth); // 14.026 — historical (stage 11b), the synthetic
+    // edge's real, fixed width; not today's network's falloff (6.7876)
     const Natural = 100;
     const Target = 10;
     const StepsPerM = 20;

@@ -370,8 +370,8 @@ export function generateNetwork(seed: number, options?: GenerateNetworkOptions):
  * on/off-road pair would then sit closer than one screen pixel apart, sampling the same rounded pixel
  * twice (measured: a seed whose nearest road sat 260 m out read identical on/off-road luminance on the
  * real device). The on-road point is that midpoint's nearest grid vertex; the off-road point steps
- * outward one grid cell at a time along the segment's own normal, trying both normal directions since
- * only `polylines[0]` has a carpark anchored to one particular side (`generateNetwork`, above) — whichever
+ * outward one grid cell at a time along the segment's own normal, trying both normal directions
+ * since the carpark is placed independently and may sit on either side of the probed road — whichever
  * direction clears the road first is a clean single-boundary crossing. Both points are confirmed
  * inside/outside by {@link documentDistance} at derivation time rather than assumed from the geometry
  * alone, so a network change that breaks the pairing fails loud instead of silently reading the wrong

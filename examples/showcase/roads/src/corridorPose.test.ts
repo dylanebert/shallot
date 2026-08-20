@@ -115,14 +115,22 @@ describe("corridor-pose px/m budget (stage 24a)", () => {
         expect(earthworkPx).toBeGreaterThan(0);
         expect(confounderPx).toBeGreaterThan(0);
 
-        // Pin the ratio so a future stage that moves cutDepth reds this arm. The ratio is
+        // Pin the ratio against the FROZEN LITERAL CUT_DEPTH (not independentCutDepth) so a future
+        // stage that moves the real cutDepth reds this arm. The ratio is
         // (cutDepth × f_px × cos(0.5)) / (CONFUNDER_PX_AT_DEFAULT × 900) — constant across the
-        // interval, so it does not select the distance; it records the comparison.
+        // interval, so it does not select the distance; it records the comparison. Deriving the
+        // expectation from independentCutDepth (as the first attempt did) makes the arm a tautology:
+        // CORRIDOR_PITCH and CORRIDOR_DISTANCE cancel between earthworkPx and confounderPx, so the
+        // ratio always equals the expectation by construction and no change to the subject can red it
+        // — the exact defect the spec's fifth fitted-constant instance names. Using the frozen literal
+        // breaks the tautology: if independentCutDepth drifts from CUT_DEPTH the two sides diverge.
+        // Red-first demonstrated: perturbing CUT_DEPTH to 2.0 (while independentCutDepth stays
+        // ~1.4404) makes ratio ≠ expectedRatio (diff 0.0378 > 0.005 tolerance), exit 1 — the ratio
+        // arm itself reds, not just the constants-match arm.
         const ratio = earthworkPx / confounderPx;
         const expectedRatio =
-            (independentCutDepth * fPx() * Math.cos(DEFAULT_PITCH)) /
-            (CONFUNDER_PX_AT_DEFAULT * 900);
-        expect(ratio).toBeCloseTo(expectedRatio, 1);
+            (CUT_DEPTH * fPx() * Math.cos(DEFAULT_PITCH)) / (CONFUNDER_PX_AT_DEFAULT * 900);
+        expect(ratio).toBeCloseTo(expectedRatio, 2);
     });
 
     test("the pitch is half the corridor's average side-slope angle", () => {

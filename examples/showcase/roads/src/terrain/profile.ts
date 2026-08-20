@@ -128,6 +128,13 @@ export function buildPolylineProfile(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
 ): ProfilePoint[] {
+    if (points.length > 2) {
+        throw new Error(
+            `buildPolylineProfile: polyline has ${points.length} points, but the one-chord premise ` +
+                `(spec Locked decision: one straight segment per road) supports exactly 2 — interior ` +
+                `points are not supported and would ship a non-affine target with every gate green`,
+        );
+    }
     const first = points[0];
     const last = points[points.length - 1];
     return [

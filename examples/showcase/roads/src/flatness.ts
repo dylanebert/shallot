@@ -1,5 +1,5 @@
-// Stage 12's surface-flatness oracle — the spec's Validation "Surface flatness along the road (the
-// reconstruction axis)", the unit's live defect gate. Stage 9-11 all measured a *boundary* axis (albedo
+// Stage 12's surface-flatness oracle — the spec's Validation "Surface flatness in the corridor —
+// exactly zero, unconditional", the unit's defect gate. Stage 9-11 all measured a *boundary* axis (albedo
 // straightness, then height straightness, then a falloff-width knob 11c proved orthogonal to the reported
 // defect); the spec's own diagnosis routes this stage to a different axis entirely — the mesh's
 // piecewise-linear *reconstruction* across the footprint edge, not the boundary's own width or position.
@@ -54,7 +54,7 @@
 import { encodePos } from "@dylanebert/shallot/utils/core";
 import * as d from "typegpu/data";
 import { meshHeightAt } from "./capture";
-import { documentDistance, type PolygonStamp, type StrokeDocument } from "./overlay/document";
+import type { PolygonStamp, StrokeDocument } from "./overlay/document";
 import {
     buildNetworkGeometry,
     computeFalloff,
@@ -522,13 +522,6 @@ export function checkSurfaceFlatness(
         maxCrossSectionExcess,
         sampleCount,
     };
-}
-
-/** a shared derivation `checkSurfaceFlatness` doesn't otherwise need: whether (x, z) sits in *any*
- *  footprint at all — exported only for tests that want to sanity-check a sampled point's own membership,
- *  never consulted by the oracle above (which walks known-on-footprint lines by construction). */
-export function inFootprint(x: number, z: number, doc: StrokeDocument): boolean {
-    return documentDistance(x, z, doc) <= 0;
 }
 
 /**

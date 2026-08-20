@@ -103,7 +103,9 @@ const BootSystem: System = {
             (e) => {
                 if (e.key === "F9") {
                     e.preventDefault();
-                    void regenerate((Math.random() * 0x1_0000_0000) >>> 0);
+                    regenerate((Math.random() * 0x1_0000_0000) >>> 0).catch((err) => {
+                        console.error("roads: F9 reseed failed", err);
+                    });
                 }
             },
             { signal: state.signal },
