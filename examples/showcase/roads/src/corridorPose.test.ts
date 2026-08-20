@@ -1,7 +1,10 @@
 // Stage 24a's px/m budget arm — asserts the corridor-pose capture's admissibility from scene and
 // document constants, never measured off the image. Three assertions:
 //   1. cutDepth ≥ 5 px of vertical extent (the resolution threshold, anchored on the road's own
-//      resolved on-screen width at the default pose: 8 m × f_px / 900 ≈ 5.5 px)
+//      resolved on-screen width at the *measurement point* — the pre-stage-25 scene default,
+//      900 m: 8 m × f_px / 900 ≈ 5.5 px. Every 900 in this file is that historical measurement
+//      point, never the scene's current default, which stage 25 moved to 120 m; the literals are
+//      fixed on purpose and re-fitting them to the scene would track a presentation choice)
 //   2. ≥30 m of unflattened terrain flanking the corridor in frame (the corridor must read *set
 //      into* terrain, or the look loses its comparison)
 //   3. earthwork px vs confounder px in the same frame — the failure mode's magnitude compared
@@ -40,7 +43,8 @@ import { computeFalloff } from "./terrain/flatten-math";
 // from the default pose to the corridor pose.
 const DEFAULT_PITCH = 0.5;
 
-// The confounder's measured pixel extent at the default pose (900 m, pitch 0.5): the spec records
+// The confounder's measured pixel extent at the measurement point (900 m, pitch 0.5 — the
+// pre-stage-25 scene default, not the current one): the spec records
 // ~8–10 px of natural-relief silhouette waviness in the same frame (Live log, stage 24's split).
 // Midpoint of the recorded range.
 const CONFUNDER_PX_AT_DEFAULT = 9;
@@ -68,7 +72,8 @@ describe("corridor-pose px/m budget (stage 24a)", () => {
     });
 
     test("cutDepth projects to ≥5 px of vertical extent at the fixed-literal pose", () => {
-        // The 5 px anchor: the road's own on-screen width at the default pose (900 m).
+        // The 5 px anchor: the road's own on-screen width at the measurement point (900 m, the
+        // pre-stage-25 scene default). The literal is provenance, not the live scene value.
         const roadWidthPxAtDefault = (2 * HALF_WIDTH * fPx()) / 900;
         expect(roadWidthPxAtDefault).toBeGreaterThanOrEqual(5);
         expect(roadWidthPxAtDefault).toBeLessThanOrEqual(6);
@@ -95,7 +100,7 @@ describe("corridor-pose px/m budget (stage 24a)", () => {
     });
 
     test("earthwork px vs confounder px in the same frame (Validation's comparison)", () => {
-        // Scale the confounder from the default pose (900 m, pitch 0.5) to the corridor pose.
+        // Scale the confounder from the measurement point (900 m, pitch 0.5) to the corridor pose.
         // Both earthwork and confounder are vertical displacements projected through f_px/D/cos(θ),
         // so the ratio is independent of D and θ — it is cutDepth / effective_confounder_magnitude,
         // a property of the subject, not the pose. Pinning it makes a cutDepth change visible.
