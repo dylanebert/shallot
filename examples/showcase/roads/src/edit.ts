@@ -3,68 +3,24 @@
 // `OrbitPick.claim` so a press over a handle suppresses orbit rotation for the whole drag. On a claimed
 // press, each frame marches `flattenFieldAt` along the cursor ray to find the world point, clamps to
 // the world bounds, and refuses a drag leaving the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH` band in both
-// directions. `applyEdit` and the clamp are pure and device-free (no `@dylanebert/shallot` imports) so
-// `edit.test.ts` exercises them under `bun test` without pulling in the engine's device-bound module
-// graph; the Playwright Node side stays bridge-only for the same reason (Node ≥26 rejects the package's
-// bare `package.json` import).
+// directions. The pure, device-free halves (`applyEdit`, `clampToBound`, `isAdmissibleDrag`,
+// `chordLength`, `residentTileCount`, `HANDLE_RADIUS`) live in `editPure.ts`, which imports nothing
+// from `@dylanebert/shallot`; this module imports them from there and re-exports them for consumers
+// like `boot.ts`. `edit.test.ts` imports the pure halves from `./editPure` so it exercises them under
+// `bun test` without pulling in the engine's device-bound module graph; the Playwright Node side stays
+// bridge-only for the same reason (Node ≥26 rejects the package's bare `package.json` import).
 
-import type { StrokeDocument } from "./overlay/document";
-import { documentDirtyTiles } from "./overlay/document";
-import { ROAD_HALF_WIDTH, ROAD_MAX_LENGTH, ROAD_MIN_LENGTH } from "./overlay/network";
-import { WORLD_HALF } from "./terrain/grid";
+// re-export the pure halves for consumers that imported them from ./edit (e.g. boot.ts)
+export {
+    applyEdit,
+    chordLength,
+    clampToBound,
+    HANDLE_RADIUS,
+    isAdmissibleDrag,
+    residentTileCount,
+} from "./editPure";
 
-// --- pure, device-free helpers (no @dylanebert/shallot imports) ---
-
-/** the world-bound margin: keeps the handle sphere (radius `halfWidth/2`) and the road's own half-width
- *  inside the grid so the road never extends past the terrain's edge. Derived from the road, like the
- *  handle radius. */
-const BOUND_MARGIN = ROAD_HALF_WIDTH;
-
-/** the handle's world-space radius — half the road's half-width, so the handle sits on the road without
- *  dwarfing it. The sphere mesh has radius 0.5, so the Transform scale is `HANDLE_RADIUS / 0.5`. */
-export const HANDLE_RADIUS = ROAD_HALF_WIDTH / 2;
-
-/** clamp (x, z) to the world bounds so the handle never leaves the grid: `|x|, |z| ≤ WORLD_HALF − margin`.
- *  Pure, device-free. */
-export function clampToBound(x: number, z: number): [number, number] {
-    const bound = WORLD_HALF - BOUND_MARGIN;
-    return [Math.max(-bound, Math.min(bound, x)), Math.max(-bound, Math.min(bound, z))];
-}
-
-/** the chord length of a one-road document — the distance between its two endpoints. */
-export function chordLength(doc: StrokeDocument): number {
-    const [a, b] = doc.polylines[0].points;
-    return Math.hypot(b[0] - a[0], b[1] - a[1]);
-}
-
-/** pure, device-free: return a new document with endpoint `end` (0 or 1) moved to `(x, z)`. The input
- *  document is not mutated — a new `StrokeDocument` is returned with the moved endpoint replacing the
- *  original, every other point unchanged. */
-export function applyEdit(doc: StrokeDocument, end: 0 | 1, x: number, z: number): StrokeDocument {
-    const line = doc.polylines[0];
-    const points = [...line.points] as [number, number][];
-    points[end] = [x, z];
-    return {
-        polylines: [{ points, halfWidth: line.halfWidth }],
-    };
-}
-
-/** whether moving endpoint `end` to `(x, z)` keeps the chord within the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH`
- *  band. The ceiling is atlas capacity, not taste: a chord past `ROAD_MAX_LENGTH` touches more than
- *  `ATLAS_LAYERS` tiles, and `allocate` throws `capacity exceeded (64 layers)` mid-drag. Pure,
- *  device-free. */
-export function isAdmissibleDrag(doc: StrokeDocument, end: 0 | 1, x: number, z: number): boolean {
-    const edited = applyEdit(doc, end, x, z);
-    const len = chordLength(edited);
-    return len >= ROAD_MIN_LENGTH && len <= ROAD_MAX_LENGTH;
-}
-
-/** the number of atlas tiles a document touches — `documentDirtyTiles`'s count, which is the exact
- *  per-primitive union the overlay's own oracle pins. Device-free (delegates to `document.ts`'s pure
- *  math). */
-export function residentTileCount(doc: StrokeDocument): number {
-    return documentDirtyTiles(doc).length;
-}
+import { applyEdit, clampToBound, HANDLE_RADIUS, isAdmissibleDrag } from "./editPure";
 
 // --- the device-bound plugin (imports from @dylanebert/shallot below this line) ---
 

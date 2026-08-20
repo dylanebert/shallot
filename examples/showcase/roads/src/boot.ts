@@ -68,9 +68,10 @@ declare global {
             dash: [number, number, number];
         }>;
         // stage 4's edit bridge — drive `__roadsEdit(end, x, z)` to move an endpoint. Returns true if
-        // the edit was applied (admissible), false if refused (outside the length band or clamped to
-        // bounds without changing the document). The device gate drives this, waits for overlay idle,
-        // and reads the flatness and handle position back.
+        // the edit was applied (admissible — within the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH` band after
+        // clamping to bounds), false if refused (the clamped position leaves the chord outside the
+        // length band). The device gate drives this, waits for overlay idle, and reads the flatness
+        // and handle position back.
         __roadsEdit?: (end: number, x: number, z: number) => Promise<boolean>;
         // stage 4's flatness bridge — reads `readVertices()` and runs `checkSurfaceFlatness` against the
         // live document, returning the violation counts on both axes.
@@ -127,9 +128,16 @@ const BootSystem: System = {
         window.__roadsHandlePos = () => handlePositions();
         window.__roadsVertexFingerprint = async () => {
             const raw = await readVertices();
-            let sum = 0;
-            for (let i = 0; i < raw.length; i++) sum += raw[i];
-            return sum;
+            // FNV-1a 32-bit rolling hash over every word of the vertex buffer — order-sensitive, so a
+            // refused edit that leaves `readVertices()` byte-identical produces the same digest while
+            // any change (even one that cancels in a sum) changes it. Kept in `Math.imul`/`>>> 0`
+            // integer arithmetic so it stays exact.
+            let hash = 0x811c9dc5 >>> 0;
+            for (let i = 0; i < raw.length; i++) {
+                hash ^= raw[i] >>> 0;
+                hash = Math.imul(hash, 0x01000193) >>> 0;
+            }
+            return hash;
         };
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `{ signal: state.signal }` detaches the listener at `state.dispose()`, no removal

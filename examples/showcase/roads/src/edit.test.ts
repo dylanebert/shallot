@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { meshHeightAt } from "./capture";
-import { applyEdit, chordLength, clampToBound, isAdmissibleDrag, residentTileCount } from "./edit";
+import {
+    applyEdit,
+    chordLength,
+    clampToBound,
+    isAdmissibleDrag,
+    residentTileCount,
+} from "./editPure";
 import { buildLatticeVertices, checkSurfaceFlatness } from "./flatness";
 import type { StrokeDocument } from "./overlay/document";
 import { documentDirtyTiles } from "./overlay/document";
@@ -17,8 +23,9 @@ import { SEED } from "./terrain/terrain";
 // over 200 random admissible drags. The device-bound halves (the live drag, the handle entity's y, the
 // refused-edit byte-identical readback) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
 //
-// `applyEdit` and `clampToBound` stay free of `@dylanebert/shallot` imports (the Node ≥26 gotcha), so
-// this file exercises them under `bun test` without pulling in the engine's device-bound module graph.
+// The pure halves live in `./editPure`, which imports nothing from `@dylanebert/shallot` (the Node ≥26
+// gotcha), so this file exercises them under `bun test` without pulling in the engine's device-bound
+// module graph.
 
 const BOUND = WORLD_HALF - ROAD_HALF_WIDTH;
 

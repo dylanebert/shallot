@@ -647,10 +647,11 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     const expectedY = heightAtCpu(editX, editZ, bootPerm);
     expect(handlePos[editEnd][0]).toBeCloseTo(editX, 1);
     expect(handlePos[editEnd][2]).toBeCloseTo(editZ, 1);
-    expect(
-        Math.abs(handlePos[editEnd][1] - expectedY),
-        `handle y ${handlePos[editEnd][1].toFixed(3)} vs heightAtCpu ${expectedY.toFixed(3)} — handle not snapped to terrain`,
-    ).toBeLessThan(0.5);
+    // Both sides compute `heightAtCpu` with `makePermutation(1337)`, so the only admissible
+    // difference is f32 rounding — not two estimates of one height. `toBeCloseTo(expectedY, 4)`
+    // requires agreement to 4 decimal places (5e-5 m), far tighter than the 0.5 m window that would
+    // pass on a stale position or a wrong permutation.
+    expect(handlePos[editEnd][1]).toBeCloseTo(expectedY, 4);
 
     // (3) a refused edit leaves readVertices() byte-identical — fingerprint before and after a refused edit
     const fpAfterEdit = (await page.evaluate(() =>
