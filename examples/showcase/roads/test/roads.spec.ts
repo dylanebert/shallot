@@ -133,6 +133,24 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
         [onRoad, offRoad],
     )) as ScreenPoint[];
 
+    // In-frame assertion: each probe's fractional screen coordinates must be strictly inside (0, 1)
+    // before any pixel is read — `luminanceAt` clamps out-of-range coordinates to the border, so an
+    // off-screen probe silently reads a border pixel and passes instead of reding (the same class as
+    // the unreachable null control, `checks.md`'s audit-check-vacuity). Measured on the shipped default
+    // (distance 120 m): onRoad sits at 0.905/0.464 and offRoad at 0.929/0.492 of frame — on-screen, but
+    // one small camera change from the clamp. Red-first demonstrated: tightening the x-bound to
+    // `toBeLessThan(0.9)` reds on the offRoad probe (x=0.917), exit 1 — the assertion fires before
+    // `luminanceAt` can clamp.
+    for (const [name, sp] of [
+        ["onRoad", onRoadScreen],
+        ["offRoad", offRoadScreen],
+    ] as const) {
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeLessThan(1);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeLessThan(1);
+    }
+
     const screenshot = await page.screenshot();
     mkdirSync(dirname(CAPTURE_PATH), { recursive: true });
     writeFileSync(CAPTURE_PATH, screenshot);
@@ -283,6 +301,17 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
             ).__roadsProbe(points),
         [staleWorldPoint, newRoadWorldPoint],
     )) as ScreenPoint[];
+
+    // In-frame assertion for the reseed probes (same rationale as Phase 2's pair above).
+    for (const [name, sp] of [
+        ["stale", staleScreen],
+        ["newRoad", newRoadScreen],
+    ] as const) {
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeLessThan(1);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeLessThan(1);
+    }
 
     const reseedScreenshot = await page.screenshot();
     const reseedCapture = await page.evaluate(

@@ -27,7 +27,9 @@ export function envNumber(key: string, fallback: number): number {
 }
 
 /** `envFlag("VITE_ROADS_NO_CUT")` — true only for `"1"`/`"true"`, false otherwise (unset, absent
- *  `import.meta.env`, or any other value). */
+ *  `import.meta.env`, or any other value). A manual-only diagnostic, not a gate control: `test/roads.spec.ts`
+ *  Phase 4 asserts the corridor is flattened and runs before Phase 5's capture, so a no-cut run reds
+ *  before any control frame is written — the flag cannot be emitted by the device gate. */
 export function envFlag(key: string): boolean {
     const raw = readEnv(key);
     return raw === "1" || raw === "true";

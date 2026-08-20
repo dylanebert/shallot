@@ -168,12 +168,14 @@ function teardown(): void {
 // same `markDirty`/`redraw`/flatten path this boot document already takes.
 let liveDocument: StrokeDocument = generateNetwork(SEED);
 let currentSeed = SEED;
-// the straightness instrument's no-cut control: `liveDocument` still drives the overlay and the height-
+// The straightness instrument's no-cut diagnostic: `liveDocument` still drives the overlay and the height-
 // axis anchors (the analytic road edge stays a real, checkable position), only the *flatten* kernel gets
 // an empty network — `flatten.ts`'s own documented fallback ("empty network... degrades to plain
 // heightAt") — so the rendered mesh is genuinely undeformed terrain rather than a cut against zeroed
-// RELIEF. `VITE_ROADS_NO_CUT`-gated (`env.ts`); paired with `VITE_ROADS_RELIEF=0` (`noise.ts`) for the
-// spec's "zeroed-RELIEF, no-cut control" arm.
+// RELIEF. `VITE_ROADS_NO_CUT`-gated (`env.ts`); a manual-only diagnostic, not a gate control —
+// `test/roads.spec.ts` Phase 4 asserts the corridor is flattened and runs before Phase 5's capture, so a
+// no-cut run reds before any control frame is written. Paired with `VITE_ROADS_RELIEF=0` (`noise.ts`) for
+// the spec's "zeroed-RELIEF, no-cut" manual diagnostic.
 const NO_CUT = envFlag("VITE_ROADS_NO_CUT");
 const EMPTY_DOCUMENT: StrokeDocument = { polylines: [], polygons: [] };
 
@@ -255,7 +257,7 @@ async function warm(state: State): Promise<void> {
     warmNetwork(state); // its own onDispose registration, the same pattern
     setNetwork(NO_CUT ? EMPTY_DOCUMENT : liveDocument, currentSeed); // the flatten kernel's
     // geometry input, kept in sync with the overlay's own document and the height kernel's own
-    // permutation seed — except under the no-cut control arm, above
+    // permutation seed — except under the no-cut manual diagnostic, above
     if (state.signal.aborted) return;
     await generate(SEED);
 }

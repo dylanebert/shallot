@@ -56,6 +56,21 @@ describe("buildPolylineProfile — the straight chord (stage 17)", () => {
         expect(profile[0].height).toBeCloseTo(heightAtCpu(-150, -80, perm), 9);
         expect(profile[1].height).toBeCloseTo(heightAtCpu(150, 90, perm), 9);
     });
+
+    test("refuses a 3-point polyline — the one-chord premise is structural, not a silent drop", () => {
+        // Red-first demonstrated: a 3-point polyline must throw, because `buildPolylineProfile` used to
+        // silently drop interior points (the overlay rasterizes every point while the flatten chords only
+        // the endpoints), so a multi-point road would ship a non-affine target and a geometry mismatch
+        // with every gate green. One chord per road is the spec's locked decision, and "Out of scope"
+        // forbids the polyline generalization, so a refusal is the correct shape, not a TODO.
+        const perm = makePermutation(1337);
+        const points: [number, number][] = [
+            [-100, 0],
+            [0, 50],
+            [100, 0],
+        ];
+        expect(() => buildPolylineProfile(points, perm)).toThrow(/one-chord premise/);
+    });
 });
 
 /** reconstruction of stage 6's shipped (pre-stage-8) raw-profile behaviour: `flatten.ts`'s `networkCore`

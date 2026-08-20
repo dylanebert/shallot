@@ -41,7 +41,7 @@ export interface RoadFrame {
 }
 
 /** {@link roadSegment}'s endpoints resolved into the frame every boundary probe anchors to: unit tangent
- *  (`ux`/`uz`), unit outward-from-carpark normal (`nx`/`nz`, `network.ts`'s own convention), and the
+ *  (`ux`/`uz`), unit outward normal (`nx`/`nz`, `network.ts`'s own convention), and the
  *  segment length. */
 export function roadFrame(): RoadFrame {
     const { ax, az, bx, bz, halfWidth } = roadSegment();
@@ -61,8 +61,8 @@ export interface EdgeAnchorPoint {
 }
 
 /** probe `i`'s analytic boundary point along `frame` — `PROBE_T_LO..PROBE_T_HI` fraction along the
- *  centreline, offset by `halfWidth` toward the far side from the carpark (network.ts anchors it on the
- *  +normal side of road 0, so the probe's search corridor never crosses carpark-rasterized tiles). */
+ *  centreline, offset by `halfWidth` toward the `-normal` side of road 0 (the side the probes search
+ *  outward from, by `network.ts`'s own normal convention). */
 function edgeAnchorPoint(i: number, frame: RoadFrame): EdgeAnchorPoint {
     const t = PROBE_T_LO + ((PROBE_T_HI - PROBE_T_LO) * i) / (PROBE_COUNT - 1);
     const cx = frame.ax + frame.ux * frame.len * t;
@@ -154,8 +154,16 @@ export function heightMidpointAnchor(
  * and `sideSlopeWindow` agree exactly here and `heightMidpointAnchor`'s ground-truth anchor carries no
  * offset — the bound-floor case (`boundaryAnchors.test.ts`'s generic `coupled(floor)` machinery) is still
  * proven, against a synthetic floor, for whenever a future floor derivation binds again.
+ *
+ * Historical measurement points, not today's network: the 14.026 m and 2.976 m figures below are from
+ * stage 11b's pre-route-selection network (cutDepth 2.976 m, falloff 14.026 m). Stage 22's route
+ * selection moved cutDepth to 1.4404 m (falloff 6.7876 m), so these numbers no longer match the shipped
+ * network. They are kept as historical anchors for the docstring examples and the test's synthetic edge —
+ * do NOT update them to track today's network, because re-anchoring an instrument's literals onto the
+ * current network is the fitted-constant inversion stage 24a paid for.
  * @example sideSlopeWindow(0) // 0 — no cut, no transition to measure
- * @example sideSlopeWindow(2.976) // 14.026, equal to computeFalloff(2.976) on today's network */
+ * @example sideSlopeWindow(2.976) // 14.026 — historical (stage 11b), equal to computeFalloff(2.976) on
+ * // that pre-stage-22 network; not today's network's values (cutDepth 1.4404, falloff 6.7876) */
 export function sideSlopeWindow(cutDepth: number): number {
     return ((Math.PI / 2) * cutDepth) / SIDE_SLOPE_LIMIT;
 }

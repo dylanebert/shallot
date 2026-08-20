@@ -135,12 +135,14 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
 describe("surface flatness — stage 18 arm (b): real generator reads exactly zero at both resolutions", () => {
     // The real-generator exactness arm (spec Validation, "Surface flatness in the corridor — exactly zero,
     // unconditional"): `checkSurfaceFlatness` over `buildLatticeVertices` on the real `generateNetwork(SEED)`
-    // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. This is the
-    // reading the unit still owes and which no green so far licenses. The non-overlapping generator
-    // guarantees no two primitives' falloff bands overlap at any sampled station, so the composite
-    // target is affine everywhere the oracle samples, and barycentric interpolation reproduces an affine
-    // field exactly at any cell size and any road angle. A `sampleCount > 1000` vacuity guard is asserted
-    // at both resolutions, so an emptied population reds instead of passing on empty arrays.
+    // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. This reading
+    // landed at stage 18 and is what licenses the exactness claim on the shipped pipeline — it is not an
+    // owed reading. The non-overlapping generator guarantees no two primitives' falloff bands overlap at
+    // any sampled station, so the composite target is affine everywhere the oracle samples, and
+    // barycentric interpolation reproduces an affine field exactly at any cell size and any road angle.
+    // The population is pinned `toBe(1197)` at both resolutions (stage 22), so an emptied population reds
+    // instead of passing on empty arrays — do not reintroduce a `sampleCount > 1000` inequality beside
+    // the exact pin (the spec forbids it; the exact pin is strictly stronger).
     const doc = generateNetwork(SEED);
     const perm = makePermutation(SEED);
     const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
@@ -254,8 +256,10 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
 
 describe("surface flatness — null control: no cut, real relief (arm iii)", () => {
     test("still finds a real signal — proves the instrument detects steps, not just 'nothing is flat'", () => {
-        // the device-side control is `VITE_ROADS_NO_CUT=1` on real relief (`terrain.ts`'s own `NO_CUT`
-        // env flag) — the flatten kernel is skipped entirely (empty segments/polygons, `flattenHeight`'s
+        // the device-side no-cut diagnostic is `VITE_ROADS_NO_CUT=1` on real relief (`terrain.ts`'s own `NO_CUT`
+        // env flag) — a manual-only diagnostic, not a gate control (`test/roads.spec.ts` Phase 4 asserts the
+        // corridor is flattened before Phase 5's capture, so a no-cut run reds before any control frame is
+        // written). The flatten kernel is skipped entirely (empty segments/polygons, `flattenHeight`'s
         // own documented empty-network fallback degrades to plain `heightAt`), but the *document* used to
         // define the sampled footprint is still the real network — so the sampled lines run through
         // genuinely undeformed, rolling terrain (RELIEF=40) that was never asked to be flat. This is a
