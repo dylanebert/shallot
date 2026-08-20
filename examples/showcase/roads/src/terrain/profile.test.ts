@@ -119,6 +119,8 @@ describe("longitudinalOracle — the spec's own Validation criterion, proven by 
         // signal reds here instead of passing on one road. Stage 22's route selection moved the roads
         // (different positions/lengths): gradeFailures 23 → 18 (7 of 25 raw profiles now satisfy MAX_GRADE,
         // because route selection prefers shorter, cheaper chords whose raw centreline grade is lower).
+        // The control is now thin (18 of 25) — a future stage driving this toward zero has amputated
+        // the control rather than improved anything.
         expect(checked).toBe(25);
         expect(gradeFailures).toBe(18);
     });

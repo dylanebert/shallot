@@ -41,14 +41,18 @@ import {
 
 export const ROAD_COUNT = 5; // "a handful" — enough to read as a network, not a maze
 export const ROAD_HALF_WIDTH = 4; // metres — matches terrain/grid.ts's SPACING, `overlay/stroke.ts`'s own convention
-const ROAD_MIN_LENGTH = 80; // metres
-const ROAD_MAX_LENGTH = 220; // metres — keeps a single road well under the world's 1024 m span
+export const ROAD_MIN_LENGTH = 80; // metres
+export const ROAD_MAX_LENGTH = 220; // metres — keeps a single road well under the world's 1024 m span
 const CARPARK_HALF = 20; // metres — half-extent of the one carpark stamp (a 40 m × 40 m lot)
 const MAX_ATTEMPTS = 2000; // rejection-sampling cap — average is ~2–4, not 2000
 
-/** the default number of candidate routes scored per road placement attempt — chosen by measurement
- *  (the N sweep in `network.test.ts`'s differential arm), not taste. N = 1 is the unselected generator
- *  (no route selection); the default applies selection. */
+/** the default number of candidate routes scored per road placement attempt — justified by the
+ *  reduction curve, not by any gate's pass/fail. The recorded curve (median cutDepth reduction over a
+ *  seed scan, selected vs unselected): N=64 → +65.9%, N=128 → +71.4%, N=256 → +75.3%, N=512 → +79.6%.
+ *  Marginal return flattens from +5.5% (64→128) to +3.9% (128→256), so N=128 sits where the curve stops
+ *  paying for itself. Cost is ~2 ms/seed (~15× the N=1 incumbent), acceptable for a showcase generator
+ *  that runs once per reseed. N = 1 is the unselected generator (no route selection); the default
+ *  applies selection. */
 export const ROUTE_CANDIDATES = 128;
 
 // Every primitive stays inside WORLD_HALF: road start points are within `bound = WORLD_HALF - WORLD_MARGIN`,
@@ -84,12 +88,14 @@ function computeRoadCutDepth(
 }
 
 /** the chord cost of a candidate route — endpoint height difference plus the maximum deviation of
- *  natural height from the straight chord along the route, sampled strictly between the endpoints (the
- *  same trap as {@link computeRoadCutDepth}: the chord's target equals natural height at the endpoints by
- *  construction, so sampling at the endpoints reads 0 and blinds the score to the thing it scores). This
- *  is what real road alignment minimizes: a route whose chord is cheap needs less earthwork, so a
- *  shallower cut and a narrower {@link computeFalloff} corridor. */
-function computeRouteScore(
+ *  natural height from the straight chord along the route, sampled at {@link PROFILE_STEP} arc-length
+ *  increments *including* the endpoints (the loop is `s = 0..n`, endpoint-inclusive). The endpoints
+ *  contribute exactly 0 by construction (the chord's target equals natural height at its endpoints,
+ *  so `|natural − chord| = 0` there), so the interior samples are what carry the signal — the score
+ *  is effectively the endpoint height difference plus the max interior deviation. This is what real
+ *  road alignment minimizes: a route whose chord is cheap needs less earthwork, so a shallower cut and
+ *  a narrower {@link computeFalloff} corridor. */
+export function computeRouteScore(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
 ): number {

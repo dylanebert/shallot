@@ -163,7 +163,6 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         console.log(
             `REAL_EXACTNESS_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
         );
-        expect(result.sampleCount).toBeGreaterThan(1000);
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING)
         // so a future change that silently shrinks the population reds instead of passing on a
         // thinner array. Old margin (halfWidth): 2031; stage-18 margin: 1860; stage-22 route selection
@@ -193,7 +192,6 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         console.log(
             `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount}`,
         );
-        expect(result.sampleCount).toBeGreaterThan(1000);
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
         // Old margin (halfWidth): 2031; stage-18 margin: 1860; stage-22 route selection: 1860 → 1197.
         expect(result.sampleCount).toBe(1197);
@@ -281,6 +279,8 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         // population is pinned, not just the failing count: a shrinking sample array would otherwise
         // buy this arm a green the same way it would buy the exactness arms one (this unit's own
         // residue — an amputated instrument degrades the quantifier, not just the population).
+        // The control is now thin (26 of 1197) — a future stage driving this toward zero has
+        // amputated the control rather than improved anything.
         expect(result.sampleCount).toBe(1197);
         expect(result.longitudinal.length).toBe(26);
     });

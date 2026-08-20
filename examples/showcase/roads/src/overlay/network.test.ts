@@ -1,13 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten";
 import { gridX, gridZ, SPACING, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
+import { makePermutation, mulberry32 } from "../terrain/noise";
 import { PROFILE_STEP } from "../terrain/profile";
 import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
 import {
     captureProbePoints,
+    computeRouteScore,
     generateNetwork,
     ROAD_COUNT,
     ROAD_HALF_WIDTH,
+    ROAD_MAX_LENGTH,
+    ROAD_MIN_LENGTH,
     ROUTE_CANDIDATES,
     roadFootprintDistance,
     roadPolygonFootprintDistance,
@@ -323,69 +327,97 @@ describe("stage 22 — route selection: N=1 is the unselected generator by const
     });
 });
 
-describe("stage 22 — route selection: the differential gate (selected vs unselected)", () => {
-    // The load-bearing gate: measure the unselected generator (N=1) and the selected generator
-    // (N=ROUTE_CANDIDATES) in the same run, and assert the selected one is strictly cheaper — per
-    // seed, over a seed scan. No recorded floor (this unit has written three fitted floors and retired
-    // all three); the control is N=1 by construction, so the differential needs no constant.
+describe("stage 22 — route selection: structural arm (the argmin is by construction)", () => {
+    // The structural arm: for each road, the kept route is the argmin of `computeRouteScore` over that
+    // road's own candidates. This is true **by construction of a minimum** — the generator's candidate
+    // loop keeps the lowest-scoring candidate, which is the argmin by definition — at any N, on any
+    // seed. No scan, no threshold, no fitted number. This is the arm that actually witnesses the
+    // mechanism.
     //
-    // The scan is 200 seeds (0–199), chosen as a fixed contiguous range (not cherry-picked). Over a
-    // 500-seed scan all 500 pass; over a 2000-seed scan 1 seed (1854) shows a −0.019 m increase —
-    // route selection changes the network composition (N× more random draws → different road positions),
-    // so the network's max cutDepth can occasionally increase even though each individual road is
-    // cheaper. The 200-seed scan is the gate's population; the 2000-seed result is reported in the
-    // stage's report, not asserted here.
-    const Scan = 200;
+    // We verify it by replaying the RNG for the first road's first attempt (which always succeeds: no
+    // previously placed roads, so the pairwise clearance check is trivially satisfied), scoring each
+    // in-world candidate with the exported `computeRouteScore`, and confirming the generated network's
+    // first road is the argmin. The mechanism is identical for every road, so witnessing it on the first
+    // road across several seeds is sufficient.
+    const structSeeds = [42, 1337, 615, 5000];
 
-    test("over seeds 0–199, the selected generator's cutDepth is strictly below the unselected's, per seed", () => {
+    test("the kept route is the argmin of computeRouteScore over the road's own candidates — by construction of a minimum", () => {
+        for (const seed of structSeeds) {
+            // Replay the RNG exactly as generateNetwork does for the first road's first attempt.
+            const rng = mulberry32(seed);
+            const rand = (lo: number, hi: number) => lo + rng() * (hi - lo);
+            const perm = makePermutation(seed);
+            const bound = WORLD_HALF - (ROAD_MAX_LENGTH + 1);
+
+            let best: { points: [number, number][]; score: number } | null = null;
+            for (let c = 0; c < ROUTE_CANDIDATES; c++) {
+                const x0 = rand(-bound, bound);
+                const z0 = rand(-bound, bound);
+                const heading = rand(0, Math.PI * 2);
+                const length = rand(ROAD_MIN_LENGTH, ROAD_MAX_LENGTH);
+                const x1 = x0 + Math.cos(heading) * length;
+                const z1 = z0 + Math.sin(heading) * length;
+                if (Math.abs(x1) >= WORLD_HALF || Math.abs(z1) >= WORLD_HALF) continue;
+                const pts: [number, number][] = [
+                    [x0, z0],
+                    [x1, z1],
+                ];
+                const score = computeRouteScore(pts, perm);
+                if (!best || score < best.score) {
+                    best = { points: pts, score };
+                }
+            }
+
+            // The first road always places on the first attempt (no clearance constraints), so the
+            // generated network's first road must be the argmin candidate.
+            expect(
+                best,
+                `seed ${seed}: no in-world candidate found in first attempt`,
+            ).not.toBeNull();
+            const doc = generateNetwork(seed);
+            expect(
+                doc.polylines[0].points,
+                `seed ${seed}: first road is not the argmin candidate`,
+            ).toEqual(best!.points);
+        }
+    });
+});
+
+describe("stage 22 — route selection: aggregate empirical arm (the earthwork reduction)", () => {
+    // The aggregate empirical arm for the thing stage 24 cares about (the earthwork). Bar is aggregate,
+    // never per-seed: median cutDepth reduction > 0 and ≥99% of seeds strictly improving. The scan is
+    // 2000 seeds (0–1999), wide enough to contain the known counter-example: seed 1854 shows a −0.019 m
+    // increase (selected cutDepth above unselected). Route selection changes the network composition
+    // (N× more RNG draws → different road positions), so the network's max cutDepth can occasionally rise
+    // even though each individual road is cheaper — a second-order composition effect. Seed 1854 is a
+    // known member of the non-improving <1%, disclosed here rather than scanned around.
+    const Scan = 2000;
+
+    test("median cutDepth reduction > 0 and ≥99% of seeds strictly improving, over a 2000-seed scan", () => {
         const cutReductions: number[] = [];
-        const falloffReductions: number[] = [];
-        const baseCuts: number[] = [];
-        const baseFalloffs: number[] = [];
+        let strictlyImproving = 0;
 
         for (let seed = 0; seed < Scan; seed++) {
             const baseDoc = generateNetwork(seed, { candidates: 1 });
             const { cutDepth: baseCut } = buildNetworkGeometry(baseDoc, seed);
-            const baseFalloff = computeFalloff(baseCut);
-            baseCuts.push(baseCut);
-            baseFalloffs.push(baseFalloff);
 
             const doc = generateNetwork(seed, { candidates: ROUTE_CANDIDATES });
             const { cutDepth } = buildNetworkGeometry(doc, seed);
-            const falloff = computeFalloff(cutDepth);
 
             const cutRed = baseCut - cutDepth;
-            const falloffRed = baseFalloff - falloff;
             cutReductions.push(cutRed);
-            falloffReductions.push(falloffRed);
-
-            expect(
-                cutDepth,
-                `seed ${seed}: selected cutDepth ${cutDepth.toFixed(4)} >= unselected ${baseCut.toFixed(4)}`,
-            ).toBeLessThan(baseCut);
-            expect(
-                falloff,
-                `seed ${seed}: selected falloff ${falloff.toFixed(4)} >= unselected ${baseFalloff.toFixed(4)}`,
-            ).toBeLessThan(baseFalloff);
+            if (cutRed > 0) strictlyImproving++;
         }
 
-        const median = (arr: number[]) => {
-            const sorted = [...arr].sort((a, b) => a - b);
-            return sorted[Math.floor(sorted.length / 2)];
-        };
-
-        const medianCutRed = median(cutReductions);
-        const medianFalloffRed = median(falloffReductions);
-        const worstCutRed = Math.min(...cutReductions);
-        const worstFalloffRed = Math.min(...falloffReductions);
-        const medianBaseCut = median(baseCuts);
-        const medianBaseFalloff = median(baseFalloffs);
+        const sorted = [...cutReductions].sort((a, b) => a - b);
+        const medianCutRed = sorted[Math.floor(sorted.length / 2)];
+        const improvingFraction = strictlyImproving / Scan;
 
         console.log(
-            `DIFFERENTIAL medianCutReduction=${medianCutRed.toFixed(4)} (${((medianCutRed / medianBaseCut) * 100).toFixed(1)}%) ` +
-                `medianFalloffReduction=${medianFalloffRed.toFixed(4)} (${((medianFalloffRed / medianBaseFalloff) * 100).toFixed(1)}%) ` +
-                `worstCutReduction=${worstCutRed.toFixed(4)} worstFalloffReduction=${worstFalloffRed.toFixed(4)} ` +
-                `N=${ROUTE_CANDIDATES} scan=${Scan}`,
+            `AGGREGATE_DIFFERENTIAL medianCutReduction=${medianCutRed.toFixed(4)} strictlyImproving=${strictlyImproving}/${Scan} (${(improvingFraction * 100).toFixed(1)}%) N=${ROUTE_CANDIDATES} scan=${Scan}`,
         );
-    }, 30000);
+
+        expect(medianCutRed).toBeGreaterThan(0);
+        expect(improvingFraction).toBeGreaterThanOrEqual(0.99);
+    }, 60000);
 });
