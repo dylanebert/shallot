@@ -7,6 +7,7 @@ import {
     withHeight,
     worldToScreen,
 } from "./capture";
+import { corridorCapture } from "./corridorCapture";
 import { gate } from "./gate";
 import {
     type GrazingAnchor,
@@ -55,6 +56,10 @@ declare global {
         // two-resolution reading is self-labeling rather than trusting whatever the driver assumed was
         // edited before the run.
         __roadsMeshParams?: { spacing: number; tileRes: number; distRange: number };
+        // stage 24a's corridor-pose capture (`corridorCapture.ts`) — repositions the orbit to the
+        // derived corridor pose for 24b's release-look screenshot. The Playwright driver calls this,
+        // waits, and saves the screenshot to a second file alongside the gate's own.
+        __roadsCorridorCapture?: () => Promise<void>;
         // stage 14's reseed-integrity device arm (`test/roads.spec.ts`) — a deterministic bridge onto the
         // real F9 handler's own `regenerate` call, so the check can drive two reseeds by fixed seed
         // instead of `Math.random()`'s live keypress (which could coincidentally re-touch the probed
@@ -84,6 +89,7 @@ const BootSystem: System = {
         window.__roadsCapturePoints = () => capturePoints();
         window.__roadsOverlayIdle = () => overlayIdle();
         window.__roadsTransitionTolerancePx = TRANSITION_TOLERANCE_PX;
+        window.__roadsCorridorCapture = () => corridorCapture();
         window.__roadsGrazingCapture = () => grazingCapture();
         window.__roadsHeightSilhouette = () => heightSilhouette();
         window.__roadsMeshParams = { spacing: SPACING, tileRes: TILE_RES, distRange: DIST_RANGE };
@@ -109,6 +115,7 @@ const BootSystem: System = {
         delete window.__roadsCapturePoints;
         delete window.__roadsOverlayIdle;
         delete window.__roadsTransitionTolerancePx;
+        delete window.__roadsCorridorCapture;
         delete window.__roadsGrazingCapture;
         delete window.__roadsHeightSilhouette;
         delete window.__roadsMeshParams;
