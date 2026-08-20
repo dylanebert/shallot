@@ -1,20 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat, integerDiscipline } from "../../../../../packages/shallot/tests/wgsl";
-import {
-    documentDistance,
-    flattenSegments,
-    type PolygonStamp,
-    polygonDistance,
-    type Segment,
-    type StrokeDocument,
-    segmentDistance,
-} from "./document";
-import {
-    encodeDistGpu,
-    polygonSignedDistanceGpu,
-    rasterizeWgsl,
-    segmentDistanceGpu,
-} from "./rasterize";
+import { type Segment, segmentDistance } from "./document";
+import { encodeDistGpu, rasterizeWgsl, segmentDistanceGpu } from "./rasterize";
 import { DIST_RANGE, decodeDist, encodeDist, TEXEL_SIZE } from "./tiles";
 
 // Stage 5's differential oracle: `segmentDistanceGpu` (rasterize.ts, clamped-projection form, CPU-called
@@ -26,8 +13,7 @@ import { DIST_RANGE, decodeDist, encodeDist, TEXEL_SIZE } from "./tiles";
 const QUANT_STEP = (2 * DIST_RANGE) / 255;
 const TOLERANCE = QUANT_STEP / 2 + 1e-6; // half a quantization step, plus f32-roundoff slack
 
-/** the same CPU-side r8unorm quantization `encodeDist`/`encodeDistGpu` both perform, inlined once here
- *  so both differential oracles (segment, polygon) key off one derivation rather than two copies. */
+/** the same CPU-side r8unorm quantization `encodeDist`/`encodeDistGpu` both perform, inlined once here. */
 function quantizeCpu(metres: number): number {
     return decodeDist(
         Math.round(
@@ -78,141 +64,6 @@ describe("differential oracle — segmentDistanceGpu vs document.ts's segmentDis
             // and the raw (unquantized) forms agree far tighter — same geometric quantity, f32 roundoff only
             expect(Math.abs(gpuRaw - cpu)).toBeLessThan(1e-4);
         }
-    });
-
-    test("a multi-primitive (segments + polygons) reduction agrees with documentDistance", () => {
-        // documentDistanceGpu itself reads its segments/polygons out of bound storage buffers
-        // (rasterLayout.$.segments / .polygons / .polyVerts), so it can't be CPU-called without a device —
-        // the kernel's reduction loop is instead pinned structurally below ("emitted WGSL"). This exercises
-        // the same reduction (min over every segment's
-        // segmentDistanceGpu AND every polygon's winding+edge reduction) in plain JS, over the same
-        // per-primitive kernel math the earlier tests already validated CPU-side — and, unlike the
-        // segment-only reduction this replaces, carries a non-empty `polygons` array so
-        // `documentDistanceGpu`'s polygon arm is exercised by more than the empty-array default every
-        // other test in this file used.
-        const doc: StrokeDocument = {
-            polylines: [
-                {
-                    points: [
-                        [-50, 0],
-                        [50, 0],
-                    ],
-                    halfWidth: 3,
-                },
-                {
-                    points: [
-                        [0, -50],
-                        [0, 50],
-                    ],
-                    halfWidth: 2,
-                },
-            ],
-            polygons: [
-                {
-                    points: [
-                        [20, 20],
-                        [35, 20],
-                        [35, 32],
-                        [20, 32],
-                    ],
-                },
-            ],
-        };
-        const samples: Array<[number, number]> = [
-            [0, 0],
-            [10, 10],
-            [-30, 5],
-            [40, 40],
-            [27, 26], // inside the polygon stamp
-            [27, 40], // outside every primitive, nearest the polygon
-        ];
-        for (const [px, pz] of samples) {
-            const cpu = documentDistance(px, pz, doc);
-            let gpu = Number.POSITIVE_INFINITY;
-            for (const seg of flattenSegments(doc)) {
-                const d = segmentDistanceGpu(px, pz, seg.ax, seg.az, seg.bx, seg.bz, seg.halfWidth);
-                if (d < gpu) gpu = d;
-            }
-            for (const poly of doc.polygons) {
-                const d = jsPolygonSignedDistance(px, pz, poly.points);
-                if (d < gpu) gpu = d;
-            }
-            expect(Math.abs(gpu - cpu)).toBeLessThan(1e-4);
-        }
-    });
-});
-
-/**
- * plain-JS mirror of `polygonDistanceGpu`'s winding + nearest-edge reduction — over `segmentDistanceGpu`
- * (the same CPU-callable primitive the real reduction calls per edge, kept as an independent derivation),
- * finishing with the real, exported `polygonSignedDistanceGpu` for the sign. The reduction loop
- * (winding parity, nearest-edge min) is a JS reimplementation — like `segmentsDistanceGpu`'s reduction
- * above, it reads a bound storage array GPU-side and can't be CPU-called directly — but the sign
- * convention itself, the exact axis a flipped `select` breaks, calls the real kernel code, not a copy.
- */
-function jsPolygonSignedDistance(
-    px: number,
-    pz: number,
-    pts: ReadonlyArray<readonly [number, number]>,
-): number {
-    let inside = false;
-    let nearestEdge = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < pts.length; i++) {
-        const [ax, az] = pts[i];
-        const [bx, bz] = pts[(i + 1) % pts.length];
-        if (az > pz !== bz > pz) {
-            const xCross = ax + ((pz - az) / (bz - az)) * (bx - ax);
-            if (px < xCross) inside = !inside;
-        }
-        const edge = segmentDistanceGpu(px, pz, ax, az, bx, bz, 0);
-        if (edge < nearestEdge) nearestEdge = edge;
-    }
-    return polygonSignedDistanceGpu(nearestEdge, inside);
-}
-
-describe("differential oracle — polygonDistanceGpu's sign convention vs document.ts's polygonDistance", () => {
-    test("agree within one quantization step over random polygons and sample points", () => {
-        const rng = mulberry32(11);
-        const rand = (lo: number, hi: number) => lo + rng() * (hi - lo);
-        for (let i = 0; i < 150; i++) {
-            const n = 3 + Math.floor(rng() * 5); // 3..7 vertices, roughly convex
-            const cx = rand(-50, 50);
-            const cz = rand(-50, 50);
-            const r = rand(3, 20);
-            const pts: Array<[number, number]> = [];
-            for (let v = 0; v < n; v++) {
-                const a = (v / n) * Math.PI * 2 + rand(-0.2, 0.2);
-                pts.push([cx + Math.cos(a) * r, cz + Math.sin(a) * r]);
-            }
-            const poly: PolygonStamp = { points: pts };
-            const px = rand(-70, 70);
-            const pz = rand(-70, 70);
-
-            const cpu = polygonDistance(px, pz, poly);
-            const gpuRaw = jsPolygonSignedDistance(px, pz, pts);
-            const gpuQuantized = decodeDist(encodeDistGpu(gpuRaw));
-            const cpuQuantized = quantizeCpu(cpu);
-            expect(Math.abs(gpuQuantized - cpuQuantized)).toBeLessThanOrEqual(TOLERANCE);
-            // and the raw (unquantized) forms agree far tighter — same geometric quantity, f32 roundoff only
-            expect(Math.abs(gpuRaw - cpu)).toBeLessThan(1e-4);
-        }
-    });
-
-    test("the sign flips exactly at the boundary: a point moved just inside/outside a square flips sign", () => {
-        const square: Array<[number, number]> = [
-            [-10, -10],
-            [10, -10],
-            [10, 10],
-            [-10, 10],
-        ];
-        const inside = jsPolygonSignedDistance(0, 0, square);
-        const outside = jsPolygonSignedDistance(20, 20, square);
-        expect(inside).toBeLessThan(0);
-        expect(outside).toBeGreaterThan(0);
-        // demonstrated mutation this pins: swapping polygonSignedDistanceGpu's select args would make
-        // `inside` positive and `outside` negative — both assertions above would fail.
-        expect(polygonSignedDistanceGpu(5, false)).toBe(5);
-        expect(polygonSignedDistanceGpu(5, true)).toBe(-5);
     });
 });
 

@@ -54,7 +54,7 @@
 import { encodePos } from "@dylanebert/shallot/utils/core";
 import * as d from "typegpu/data";
 import { meshHeightAt } from "./capture";
-import type { PolygonStamp, StrokeDocument } from "./overlay/document";
+import type { StrokeDocument } from "./overlay/document";
 import {
     buildNetworkGeometry,
     computeFalloff,
@@ -107,34 +107,31 @@ export const EDGE_EPSILON = SPACING / 100;
 // --- CPU-only lattice reconstruction — no GPU, no `@dylanebert/shallot/render/core` import, the
 // default-suite arm's own substrate.
 
-/** the network's own core distance (union of every primitive's, still a plain min — continuous) + a
- *  **blended** target height at (px, pz) — a plain-JS re-authoring of `terrain/flatten.ts`'s GPU
- *  `networkCore`, deliberately the *same* formula (not an independent derivation the way
- *  `overlay/rasterize.ts`'s distance math is): this function's job is to reconstruct exactly what the real
- *  mesh does, not to provide a second opinion on it — the property under test is the mesh's own triangle
- *  reconstruction, and the height *per vertex* has to match production's own `flattenedHeightAt` or the
- *  built lattice isn't the mesh this oracle is meant to read.
+/** the network's own core distance (still a plain min — continuous) + a **blended** target height at
+ *  (px, pz) — a plain-JS re-authoring of `terrain/flatten.ts`'s GPU `networkCore`, deliberately the
+ *  *same* formula (not an independent derivation the way `overlay/rasterize.ts`'s distance math is):
+ *  this function's job is to reconstruct exactly what the real mesh does, not to provide a second opinion
+ *  on it — the property under test is the mesh's own triangle reconstruction, and the height *per vertex*
+ *  has to match production's own `flattenedHeightAt` or the built lattice isn't the mesh this oracle is
+ *  meant to read.
  *
  *  Stage 15: each primitive's core distance is widened by `terrain/flatten.ts`'s {@link FLAT_CORE_MARGIN}
  *  (a grid cell's own diagonal, so every vertex that can support a footprint-intersecting triangle reads
- *  the flat plateau), and `bestTarget` is a weighted blend across every *primitive* (a whole road or a
- *  whole carpark, never one fine profile sub-segment) whose falloff band reaches (px, pz) — weight
- *  `1 - ease(coreDist / falloff)`, the same cosine ease {@link flattenHeight} fades a single primitive's
- *  target toward natural with — rather than the old hard `core < bestCore` switch, whose discontinuity
- *  across two primitives' bisector was the fork's own visible step. A road's own sub-segments are reduced
- *  to one (core, target) pair by a hard nearest-sub-segment min *first* (`roadBest`, below) — they're
- *  already continuous by construction (chained endpoint to endpoint), so blending them as if they were
- *  separate primitives reintroduces noise along a single, already-smooth road: measured directly
- *  (2026-08-19), blending every sub-segment left ~1078 cross-section violations up to 0.44 m on interior
- *  stretches of one curving road with no other primitive nearby.
- *
- */
+ *  the flat plateau), and `bestTarget` is a weighted blend across every *primitive* (a whole road, never
+ *  one fine profile sub-segment) whose falloff band reaches (px, pz) — weight `1 - ease(coreDist /
+ *  falloff)`, the same cosine ease {@link flattenHeight} fades a single primitive's target toward natural
+ *  with — rather than the old hard `core < bestCore` switch, whose discontinuity across two primitives'
+ *  bisector was the fork's own visible step. A road's own sub-segments are reduced to one (core, target)
+ *  pair by a hard nearest-sub-segment min *first* (`roadBest`, below) — they're already continuous by
+ *  construction (chained endpoint to endpoint), so blending them as if they were separate primitives
+ *  reintroduces noise along a single, already-smooth road: measured directly (2026-08-19), blending every
+ *  sub-segment left ~1078 cross-section violations up to 0.44 m on interior stretches of one curving road
+ *  with no other primitive nearby. Stage 1 (`roads-interactive.md`) retired the carpark-polygon primitive
+ *  kind and its own ray-cast/nearest-edge leg here, mirroring `terrain/flatten.ts`'s GPU `networkCore`. */
 export function networkCoreCpu(
     px: number,
     pz: number,
     segments: readonly ProfileSegment[],
-    polygons: readonly PolygonStamp[],
-    naturalHeightAt: (x: number, z: number) => number,
     falloff: number,
 ): { coreDist: number; targetHeight: number } {
     // Build per-primitive (core, target) pairs and find bestCore (the global minimum core, returned
@@ -155,47 +152,9 @@ export function networkCoreCpu(
         if (!prev || core < prev.core) roadBest.set(seg.road, { core, target });
     }
 
-    const polyResults: { core: number; target: number }[] = [];
-    for (const poly of polygons) {
-        const pts = poly.points;
-        let inside = false;
-        let nearestEdge = Number.POSITIVE_INFINITY;
-        let cx = 0;
-        let cz = 0;
-        for (const [x, z] of pts) {
-            cx += x;
-            cz += z;
-        }
-        cx /= pts.length;
-        cz /= pts.length;
-        for (let i = 0; i < pts.length; i++) {
-            const [ax, az] = pts[i];
-            const [bx, bz] = pts[(i + 1) % pts.length];
-            if (az > pz !== bz > pz) {
-                const xCross = ax + ((pz - az) / (bz - az)) * (bx - ax);
-                if (px < xCross) inside = !inside;
-            }
-            const abx = bx - ax;
-            const abz = bz - az;
-            const apx = px - ax;
-            const apz = pz - az;
-            const dd = abx * abx + abz * abz;
-            const t = dd > 0 ? Math.min(1, Math.max(0, (apx * abx + apz * abz) / dd)) : 0;
-            const ecx = ax + t * abx;
-            const ecz = az + t * abz;
-            const edgeDist = Math.hypot(px - ecx, pz - ecz);
-            if (edgeDist < nearestEdge) nearestEdge = edgeDist;
-        }
-        const core = (inside ? -nearestEdge : nearestEdge) - FLAT_CORE_MARGIN;
-        polyResults.push({ core, target: naturalHeightAt(cx, cz) });
-    }
-
     let bestCore = Number.POSITIVE_INFINITY;
     for (const best of roadBest.values()) {
         if (best.core < bestCore) bestCore = best.core;
-    }
-    for (const poly of polyResults) {
-        if (poly.core < bestCore) bestCore = poly.core;
     }
 
     // Weighted blend across primitives — each weight is the cosine-ease fade of the primitive's own
@@ -204,15 +163,12 @@ export function networkCoreCpu(
     // nothing left to suppress (deleted at stage 20).
     let sumWeight = 0;
     let sumWeightedTarget = 0;
-    const accumulate = (core: number, target: number) => {
-        const t = Math.min(1, Math.max(0, core / falloff));
+    for (const best of roadBest.values()) {
+        const t = Math.min(1, Math.max(0, best.core / falloff));
         const weight = 1 - (0.5 - 0.5 * Math.cos(Math.PI * t));
         sumWeight += weight;
-        sumWeightedTarget += weight * target;
-    };
-
-    for (const best of roadBest.values()) accumulate(best.core, best.target);
-    for (const poly of polyResults) accumulate(poly.core, poly.target);
+        sumWeightedTarget += weight * best.target;
+    }
 
     const bestTarget = sumWeight > 0 ? sumWeightedTarget / sumWeight : 0;
     return { coreDist: bestCore, targetHeight: bestTarget };
@@ -227,23 +183,15 @@ export function flattenFieldAt(
     px: number,
     pz: number,
     segments: readonly ProfileSegment[],
-    polygons: readonly PolygonStamp[],
     falloff: number,
     naturalHeightAt: (x: number, z: number) => number,
 ): number {
     const natural = naturalHeightAt(px, pz);
-    const { coreDist, targetHeight } = networkCoreCpu(
-        px,
-        pz,
-        segments,
-        polygons,
-        naturalHeightAt,
-        falloff,
-    );
+    const { coreDist, targetHeight } = networkCoreCpu(px, pz, segments, falloff);
     return flattenHeight(natural, targetHeight, coreDist, falloff);
 }
 
-/** discretize the continuous flatten field (`segments`/`polygons`/`falloff`, `naturalHeightAt`) onto a
+/** discretize the continuous flatten field (`segments`/`falloff`, `naturalHeightAt`) onto a
  *  `spacing`-metre, `cells`-quad lattice, encoded the same way `terrain/generate.ts`'s height kernel
  *  encodes its own vertex stream (`encodePos` against the live `TERRAIN_QUANT`) — the output is a
  *  `meshHeightAt`-compatible raw buffer regardless of resolution, so the same reconstruction function reads
@@ -254,7 +202,6 @@ export function buildLatticeVertices(
     spacing: number,
     cells: number,
     segments: readonly ProfileSegment[],
-    polygons: readonly PolygonStamp[],
     falloff: number,
     naturalHeightAt: (x: number, z: number) => number,
 ): Uint32Array {
@@ -266,14 +213,7 @@ export function buildLatticeVertices(
             const x = (ix - half) * spacing;
             const z = (iz - half) * spacing;
             const natural = naturalHeightAt(x, z);
-            const { coreDist, targetHeight } = networkCoreCpu(
-                x,
-                z,
-                segments,
-                polygons,
-                naturalHeightAt,
-                falloff,
-            );
+            const { coreDist, targetHeight } = networkCoreCpu(x, z, segments, falloff);
             const y = flattenHeight(natural, targetHeight, coreDist, falloff);
             const idx = (iz * verts + ix) * 4;
             const m = encodePos(d.vec3f(x, y, z), 0, TERRAIN_QUANT);
@@ -294,7 +234,7 @@ export function buildDeviceFreeVertices(flattenDoc: StrokeDocument, seed: number
     const perm = makePermutation(seed);
     const { segments, cutDepth } = buildNetworkGeometry(flattenDoc, seed);
     const falloff = computeFalloff(cutDepth);
-    return buildLatticeVertices(SPACING, CELLS, segments, flattenDoc.polygons, falloff, (x, z) =>
+    return buildLatticeVertices(SPACING, CELLS, segments, falloff, (x, z) =>
         heightAtCpu(x, z, perm),
     );
 }

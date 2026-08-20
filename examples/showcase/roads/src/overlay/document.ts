@@ -1,6 +1,6 @@
 import { dirtyTiles, type Rect, TEXEL_SIZE } from "./tiles";
 
-// The stroke document: pure data (polylines + width, polygon stamps) plus the CPU analytic distance math
+// The stroke document: pure data (one road's polyline + width) plus the CPU analytic distance math
 // stage 5's differential oracle checks the GPU rasterizer (`rasterize.ts`) against. No GPU/engine
 // imports, so `bun test` exercises every formula here without a device — the same device-free split
 // `tiles.ts` and `terrain/noise.ts` use.
@@ -20,15 +20,10 @@ export interface Polyline {
     readonly halfWidth: number;
 }
 
-/** a filled area stamp (a carpark, a plaza) — its boundary is the polygon edge, no width parameter. */
-export interface PolygonStamp {
-    readonly points: ReadonlyArray<readonly [number, number]>;
-}
-
-/** the rasterizer's whole input: every polyline stroke plus every polygon stamp for one redraw. */
+/** the rasterizer's whole input: every polyline stroke for one redraw — one road, no carpark
+ *  (`roads-interactive.md` stage 1: the polygon-stamp path is deleted, not kept dormant). */
 export interface StrokeDocument {
     readonly polylines: readonly Polyline[];
-    readonly polygons: readonly PolygonStamp[];
 }
 
 /** one polyline segment, flattened to its own endpoints + width — the unit both the CPU oracle and the
@@ -76,36 +71,12 @@ export function segmentDistance(px: number, pz: number, seg: Segment): number {
     return Math.abs(cross) - halfWidth;
 }
 
-/** signed distance in world metres from (px, pz) to a polygon stamp's boundary — negative inside (a
- *  ray-cast winding test), magnitude the nearest edge distance (each edge a zero-width segment). */
-export function polygonDistance(px: number, pz: number, poly: PolygonStamp): number {
-    const pts = poly.points;
-    let inside = false;
-    let nearestEdge = Number.POSITIVE_INFINITY;
-    for (let i = 0; i < pts.length; i++) {
-        const [ax, az] = pts[i];
-        const [bx, bz] = pts[(i + 1) % pts.length];
-        // standard ray-cast: does the horizontal ray from (px, pz) cross edge (a, b)?
-        if (az > pz !== bz > pz) {
-            const xCross = ax + ((pz - az) / (bz - az)) * (bx - ax);
-            if (px < xCross) inside = !inside;
-        }
-        const edge = segmentDistance(px, pz, { ax, az, bx, bz, halfWidth: 0 });
-        if (edge < nearestEdge) nearestEdge = edge;
-    }
-    return inside ? -nearestEdge : nearestEdge;
-}
-
 /** the document's analytic distance at (px, pz) — the minimum (nearest, most-inside) signed distance
- *  over every segment and polygon. The CPU half of stage 5's differential oracle. */
+ *  over every segment. The CPU half of stage 5's differential oracle. */
 export function documentDistance(px: number, pz: number, doc: StrokeDocument): number {
     let best = Number.POSITIVE_INFINITY;
     for (const seg of flattenSegments(doc)) {
         const d = segmentDistance(px, pz, seg);
-        if (d < best) best = d;
-    }
-    for (const poly of doc.polygons) {
-        const d = polygonDistance(px, pz, poly);
         if (d < best) best = d;
     }
     return best;
@@ -124,25 +95,8 @@ function segmentRect(seg: Segment): Rect {
     };
 }
 
-/** one polygon's point AABB, plus {@link MARGIN}. */
-function polygonRect(poly: PolygonStamp): Rect {
-    let minX = Number.POSITIVE_INFINITY;
-    let minZ = Number.POSITIVE_INFINITY;
-    let maxX = Number.NEGATIVE_INFINITY;
-    let maxZ = Number.NEGATIVE_INFINITY;
-    for (const [x, z] of poly.points) {
-        minX = Math.min(minX, x);
-        maxX = Math.max(maxX, x);
-        minZ = Math.min(minZ, z);
-        maxZ = Math.max(maxZ, z);
-    }
-    return { minX: minX - MARGIN, maxX: maxX + MARGIN, minZ: minZ - MARGIN, maxZ: maxZ + MARGIN };
-}
-
-/** whether (px, pz) sits on a road or inside a carpark stamp — the same coverage region the overlay's
- *  fwidth-thresholded composite renders as pavement (`documentDistance <= 0`, `terrain.ts`'s fs). No
- *  separate "is it a road vs a carpark" distinction: both are drivable surface for this query's purpose
- *  (the spec names one `drivable(x, z)` query, not a per-primitive-kind one).
+/** whether (px, pz) sits on a road — the same coverage region the overlay's fwidth-thresholded composite
+ *  renders as pavement (`documentDistance <= 0`, `terrain.ts`'s fs).
  * @example drivable(0, 0, strokeDocument()) // true — the origin sits on the hand-authored stroke's centreline
  * @example drivable(1000, 1000, strokeDocument()) // false — off the world footprint entirely */
 export function drivable(px: number, pz: number, doc: StrokeDocument): boolean {
@@ -150,22 +104,19 @@ export function drivable(px: number, pz: number, doc: StrokeDocument): boolean {
 }
 
 /**
- * the document's exact dirty-tile set: the union, over every segment and every polygon *individually*, of
- * `dirtyTiles` on that one primitive's own AABB (`tiles.ts`). Deliberately not one bounding rect over the
- * whole document — two primitives far apart would otherwise mark every tile *between* them too, which is
- * exactly the over-approximation the spec's "only-touched-tiles oracle" (assert the redrawn set equals
- * the analytic set, not the visual) rules out. Sorted ascending by tile id, de-duplicated. Empty
- * documents throw — an empty edit (`markDirty` on nothing) is a caller bug, not a valid zero-tile mark.
+ * the document's exact dirty-tile set: the union, over every segment *individually*, of `dirtyTiles` on
+ * that one primitive's own AABB (`tiles.ts`). Deliberately not one bounding rect over the whole document —
+ * two primitives far apart would otherwise mark every tile *between* them too, which is exactly the
+ * over-approximation the spec's "only-touched-tiles oracle" (assert the redrawn set equals the analytic
+ * set, not the visual) rules out. Sorted ascending by tile id, de-duplicated. Empty documents throw — an
+ * empty edit (`markDirty` on nothing) is a caller bug, not a valid zero-tile mark.
  */
 export function documentDirtyTiles(doc: StrokeDocument): number[] {
     const ids = new Set<number>();
     for (const seg of flattenSegments(doc))
         for (const id of dirtyTiles(segmentRect(seg))) ids.add(id);
-    for (const poly of doc.polygons) for (const id of dirtyTiles(polygonRect(poly))) ids.add(id);
     if (ids.size === 0) {
-        throw new Error(
-            "documentDirtyTiles: an empty document (no polylines or polygons) touches no tile",
-        );
+        throw new Error("documentDirtyTiles: an empty document (no polylines) touches no tile");
     }
     return [...ids].sort((a, b) => a - b);
 }

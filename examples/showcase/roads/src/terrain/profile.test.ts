@@ -99,44 +99,29 @@ function rawCenterlineProfile(
 }
 
 describe("longitudinalOracle — the spec's own Validation criterion, proven by mutation", () => {
-    test("the chord profile passes on every road of a real generated network, several seeds", () => {
+    // Stage 1 (`roads-interactive.md`) deleted route selection: `generateNetwork` takes no seed and
+    // always returns the one fixed standard chord, so the seed scan these two arms used to run is gone
+    // with it — there is exactly one road to check, not several per seed.
+
+    test("the chord profile passes on the standard road", () => {
         // stage 17: the chord is one straight segment per road — grade is constant along it and stays
         // under MAX_GRADE by measurement, not by a limiter.
         const perm = makePermutation(1337);
-        for (const seed of [1, 42, 615, 9001]) {
-            const doc = generateNetwork(seed);
-            for (const line of doc.polylines) {
-                const profile = buildPolylineProfile(line.points, perm);
-                const check = longitudinalOracle(profile);
-                expect(check.gradeOk).toBe(true);
-            }
+        const doc = generateNetwork();
+        for (const line of doc.polylines) {
+            const profile = buildPolylineProfile(line.points, perm);
+            const check = longitudinalOracle(profile);
+            expect(check.gradeOk).toBe(true);
         }
     });
 
-    test("stage 6's shipped raw-profile behaviour FAILS this oracle on the same network — the mutation the spec calls for, run, not reasoned about", () => {
+    test("stage 6's shipped raw-profile behaviour FAILS this oracle on the same road — the mutation the spec calls for, run, not reasoned about", () => {
         const perm = makePermutation(1337);
-        let checked = 0;
-        let gradeFailures = 0;
-        for (const seed of [1, 42, 615, 9001, 271828]) {
-            const doc = generateNetwork(seed);
-            for (const line of doc.polylines) {
-                const raw = rawCenterlineProfile(line.points, perm);
-                const check = longitudinalOracle(raw);
-                checked++;
-                if (!check.gradeOk) gradeFailures++;
-            }
+        const doc = generateNetwork();
+        for (const line of doc.polylines) {
+            const raw = rawCenterlineProfile(line.points, perm);
+            const check = longitudinalOracle(raw);
+            expect(check.gradeOk).toBe(false);
         }
-        // stage 19 deleted the jitter axis with `MAX_GRADE_BREAK`, so this mutation proof went from a
-        // universal verdict (`gradeOk && jitterOk` false for every road) to a grade-only one, which is not
-        // universal — 2 of the 25 raw profiles happen to satisfy MAX_GRADE. An amputated instrument owes its
-        // extent pinned in the same diff (the spec's Residue), so the *population and the failing count* are
-        // pinned rather than an existential `> 0`: a future change that quietly drains the null control's
-        // signal reds here instead of passing on one road. Stage 22's route selection moved the roads
-        // (different positions/lengths): gradeFailures 23 → 18 (7 of 25 raw profiles now satisfy MAX_GRADE,
-        // because route selection prefers shorter, cheaper chords whose raw centreline grade is lower).
-        // The control is now thin (18 of 25) — a future stage driving this toward zero has amputated
-        // the control rather than improved anything.
-        expect(checked).toBe(25);
-        expect(gradeFailures).toBe(18);
     });
 });

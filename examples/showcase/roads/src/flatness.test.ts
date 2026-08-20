@@ -12,7 +12,7 @@ import {
     reconstructionAgreement,
     SAMPLE_STEP,
 } from "./flatness";
-import type { PolygonStamp, Polyline, StrokeDocument } from "./overlay/document";
+import type { Polyline, StrokeDocument } from "./overlay/document";
 import { generateNetwork } from "./overlay/network";
 import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
 import { CELLS, SPACING } from "./terrain/grid";
@@ -25,6 +25,12 @@ import { SEED } from "./terrain/terrain";
 // are replaced with the two-leg criterion (Leg A: the field, Leg B: the mesh's convergence). Numbers are
 // measured, not predicted — every bound below is read off an actual run, with margin for run-to-run
 // float noise, never fitted so tight a legitimate reading could flip the assertion.
+
+// Stage 1 (`roads-interactive.md`) deleted route selection: `generateNetwork` takes no seed and always
+// returns the one fixed standard chord. The sample population these two constants pin was re-measured
+// against that chord (not carried over from the seed-1337 route-selected network they replace).
+const SAMPLE_COUNT_SPACING = 546;
+const NO_CUT_LONGITUDINAL = 57;
 
 describe("surface flatness — sanity (the oracle can read flat)", () => {
     test("a manufactured target === natural profile reads flat on both axes", () => {
@@ -42,12 +48,11 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
                     halfWidth: 4,
                 },
             ],
-            polygons: [],
         };
         const segments = [
             { ax: -50, az: 0, bx: 50, bz: 0, halfWidth: 4, aHeight: 5, bHeight: 5, road: 0 },
         ];
-        const raw = buildLatticeVertices(SPACING, CELLS, segments, [], 16, () => 5);
+        const raw = buildLatticeVertices(SPACING, CELLS, segments, 16, () => 5);
         const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
         expect(result.longitudinal.length).toBe(0);
         expect(result.crossSection.length).toBe(0);
@@ -55,11 +60,10 @@ describe("surface flatness — sanity (the oracle can read flat)", () => {
 
     test("flat natural terrain with no cut at all reads within tolerance — the RELIEF=0 analogue (arm ii)", () => {
         // undeformed (GROUND_LEVEL everywhere) natural terrain, no flatten target to blend toward
-        // (empty segments/polygons) — the device-side control is `VITE_ROADS_RELIEF=0` (env-gated, so it
-        // can only be exercised through the real Vite/browser build, `env.ts`'s own module comment); this
-        // is its device-free analogue over the real network's own footprint geometry.
-        const doc = generateNetwork(SEED);
-        const raw = buildLatticeVertices(SPACING, CELLS, [], [], 16, () => GROUND_LEVEL);
+        // (empty segments) — the device-free analogue of a zeroed-RELIEF, no-cut build over the real
+        // network's own footprint geometry.
+        const doc = generateNetwork();
+        const raw = buildLatticeVertices(SPACING, CELLS, [], 16, () => GROUND_LEVEL);
         const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
         expect(result.longitudinal.length).toBe(0);
         expect(result.crossSection.length).toBe(0);
@@ -76,9 +80,14 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
     //
     // Stage 20: the relative-depth suppression factor and its `suppressionBand` parameter are deleted
     // (non-overlapping primitives never contend, so the suppression had nothing left to suppress). The
-    // band-`= falloff` red-first arm whose subject was the deleted mechanism is removed with it; the
-    // overlapping-pair null control in "stage 18 arm (c)" still reads non-zero through the mesh
-    // reconstruction, so the instrument survives.
+    // band-`= falloff` red-first arm whose subject was the deleted mechanism is removed with it.
+    //
+    // Stage 1 (`roads-interactive.md`): the "stage 18 arm (c)" overlapping-pair null control — the
+    // discriminating proof that non-overlap is what buys exactness — is deleted along with the
+    // multi-road generator's own non-overlap-by-construction guarantee it was proving (one road cannot
+    // overlap, so there is no clearance/non-overlap machinery left for that arm to be a foil against;
+    // `checks.md`'s hollowed-foil rule). The "stage 17 arm (a)" synthetic non-overlapping network below
+    // still exercises the surviving multi-road blend machinery directly.
     const perm = makePermutation(SEED);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -88,11 +97,11 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
         // flat — zero violations, zero amplitude on both axes. This is the structural claim 15b's
         // consult made and the leg that gates the blend's design; it carries no fitted number, only
         // the exact zero.
-        const realDoc = generateNetwork(SEED);
+        const realDoc = generateNetwork();
         const { segments: realSegs, cutDepth: realCutDepth } = buildNetworkGeometry(realDoc, SEED);
         const realFalloff = computeFalloff(realCutDepth);
         const sample = (x: number, z: number) =>
-            flattenFieldAt(x, z, realSegs, realDoc.polygons, realFalloff, natural);
+            flattenFieldAt(x, z, realSegs, realFalloff, natural);
         const result = checkSurfaceFlatness(sample, realDoc);
         console.log(
             `LEG_A_GREEN longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess} maxLongitudinalExcess=${result.maxLongitudinalExcess}`,
@@ -104,7 +113,7 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
 });
 
 describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)", () => {
-    const doc = generateNetwork(SEED);
+    const doc = generateNetwork();
     const raw = buildDeviceFreeVertices(doc, SEED);
     const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
 
@@ -134,30 +143,25 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
 
 describe("surface flatness — stage 18 arm (b): real generator reads exactly zero at both resolutions", () => {
     // The real-generator exactness arm (spec Validation, "Surface flatness in the corridor — exactly zero,
-    // unconditional"): `checkSurfaceFlatness` over `buildLatticeVertices` on the real `generateNetwork(SEED)`
+    // unconditional"): `checkSurfaceFlatness` over `buildLatticeVertices` on the real `generateNetwork()`
     // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. This reading
     // landed at stage 18 and is what licenses the exactness claim on the shipped pipeline — it is not an
     // owed reading. The non-overlapping generator guarantees no two primitives' falloff bands overlap at
     // any sampled station, so the composite target is affine everywhere the oracle samples, and
     // barycentric interpolation reproduces an affine field exactly at any cell size and any road angle.
-    // The population is pinned `toBe(1197)` at both resolutions (stage 22), so an emptied population reds
-    // instead of passing on empty arrays — do not reintroduce a `sampleCount > 1000` inequality beside
-    // the exact pin (the spec forbids it; the exact pin is strictly stronger).
-    const doc = generateNetwork(SEED);
+    // The population is pinned `toBe(SAMPLE_COUNT_SPACING)` at both resolutions, so an emptied population
+    // reds instead of passing on empty arrays — do not reintroduce a `sampleCount > 1000` inequality
+    // beside the exact pin (the spec forbids it; the exact pin is strictly stronger). Stage 1
+    // (`roads-interactive.md`) re-pinned the population at the standard chord's own reading (546, not
+    // carried over from the seed-1337 route-selected network's 1197).
+    const doc = generateNetwork();
     const perm = makePermutation(SEED);
     const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
     test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
-        const coarseRaw = buildLatticeVertices(
-            SPACING,
-            CELLS,
-            segments,
-            doc.polygons,
-            falloff,
-            natural,
-        );
+        const coarseRaw = buildLatticeVertices(SPACING, CELLS, segments, falloff, natural);
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
             doc,
@@ -167,9 +171,10 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         );
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING)
         // so a future change that silently shrinks the population reds instead of passing on a
-        // thinner array. Old margin (halfWidth): 2031; stage-18 margin: 1860; stage-22 route selection
-        // moved the roads (different positions/lengths): 1860 → 1197 (−35.6%) at both resolutions.
-        expect(result.sampleCount).toBe(1197);
+        // thinner array. Stage 1 (`roads-interactive.md`) reduced the network to one road: the
+        // population re-pinned at the one-road document's own reading (re-measured, not carried over
+        // from the five-road network).
+        expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -179,14 +184,7 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
     test("exactly 0 violations and 0.0000 m on both axes at SPACING/2", () => {
         const fineSpacing = SPACING / 2;
         const fineCells = CELLS * 2;
-        const fineRaw = buildLatticeVertices(
-            fineSpacing,
-            fineCells,
-            segments,
-            doc.polygons,
-            falloff,
-            natural,
-        );
+        const fineRaw = buildLatticeVertices(fineSpacing, fineCells, segments, falloff, natural);
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(fineRaw, x, z, fineSpacing, fineCells),
             doc,
@@ -195,98 +193,47 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
             `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount}`,
         );
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
-        // Old margin (halfWidth): 2031; stage-18 margin: 1860; stage-22 route selection: 1860 → 1197.
-        expect(result.sampleCount).toBe(1197);
+        // Stage 1 (`roads-interactive.md`): re-pinned at the one-road document's own reading.
+        expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
         expect(result.maxLongitudinalExcess).toBe(0);
     });
 
-    // R2 (stage-18 repair): the exactness arm ran at one seed (SEED = 1337), so "by construction"
-    // was untested across seeds. The boot seed keeps its full both-resolutions reading above; this
-    // scan exercises additional seeds at SPACING, asserting exactly 0 violations and 0 max excess on
-    // both axes. The seed count is the largest that keeps the suite comfortably fast — measured at
-    // ~360 ms/seed (building the full lattice + checkSurfaceFlatness), 8 seeds adds ~2.9 s to the
-    // suite's ~8.8 s baseline. The seeds are a fixed spread chosen to include the 5 seeds the pre-fix
-    // scan found violated (1522, 1596, 1818, 2558, 3076 — the endpoint-clamping defect) so the fix is
-    // exercised, not just the clean seeds.
-    test("R2: a multi-seed scan at SPACING reads exactly 0 on both axes across 8 additional seeds", () => {
-        const scanSeeds = [42, 1522, 1596, 1818, 2558, 3076, 5000, 7000];
-        for (const seed of scanSeeds) {
-            const scanDoc = generateNetwork(seed);
-            const scanPerm = makePermutation(seed);
-            const { segments: scanSegs, cutDepth: scanCutDepth } = buildNetworkGeometry(
-                scanDoc,
-                seed,
-            );
-            const scanFalloff = computeFalloff(scanCutDepth);
-            const scanNatural = (x: number, z: number) => heightAtCpu(x, z, scanPerm);
-            const scanRaw = buildLatticeVertices(
-                SPACING,
-                CELLS,
-                scanSegs,
-                scanDoc.polygons,
-                scanFalloff,
-                scanNatural,
-            );
-            const result = checkSurfaceFlatness(
-                (x, z) => meshHeightAt(scanRaw, x, z, SPACING, CELLS),
-                scanDoc,
-            );
-            expect(
-                result.crossSection.length,
-                `seed ${seed}: crossSection=${result.crossSection.length} (expected 0)`,
-            ).toBe(0);
-            expect(
-                result.maxCrossSectionExcess,
-                `seed ${seed}: maxCrossSectionExcess=${result.maxCrossSectionExcess} (expected 0)`,
-            ).toBe(0);
-            expect(
-                result.longitudinal.length,
-                `seed ${seed}: longitudinal=${result.longitudinal.length} (expected 0)`,
-            ).toBe(0);
-            expect(
-                result.maxLongitudinalExcess,
-                `seed ${seed}: maxLongitudinalExcess=${result.maxLongitudinalExcess} (expected 0)`,
-            ).toBe(0);
-        }
-    });
+    // R2 (stage-18 repair) deleted at stage 1 (`roads-interactive.md`): the multi-seed scan existed to
+    // witness "by construction" holding across the route-selected generator's seed-dependent placements.
+    // `generateNetwork` no longer takes a seed — it always returns the one fixed standard chord, so a
+    // seed loop here would just re-check the same document N times. The arm's subject (seed-varying
+    // placement) is gone; the both-resolutions reading above is the whole population now.
 });
 
 describe("surface flatness — null control: no cut, real relief (arm iii)", () => {
     test("still finds a real signal — proves the instrument detects steps, not just 'nothing is flat'", () => {
-        // the device-side no-cut diagnostic is `VITE_ROADS_NO_CUT=1` on real relief (`terrain.ts`'s own `NO_CUT`
-        // env flag) — a manual-only diagnostic, not a gate control (`test/roads.spec.ts` Phase 4 asserts the
-        // corridor is flattened before Phase 5's capture, so a no-cut run reds before any control frame is
-        // written). The flatten kernel is skipped entirely (empty segments/polygons, `flattenHeight`'s
-        // own documented empty-network fallback degrades to plain `heightAt`), but the *document* used to
+        // the device-free analogue of a no-cut build on real relief: the flatten kernel is skipped
+        // entirely (empty segments, `flattenHeight`'s own
+        // documented empty-network fallback degrades to plain `heightAt`), but the *document* used to
         // define the sampled footprint is still the real network — so the sampled lines run through
         // genuinely undeformed, rolling terrain (RELIEF=40) that was never asked to be flat. This is a
         // *different* mechanism from the shipped defect (raw noise steepness, not a reconstruction crease)
         // — it's the null control that still has something to find (`checks.md`'s witness-distinguishable
         // clause): a broken instrument that always reads "flat" would fail this arm the same way it would
         // pass arm ii, so the two arms together are what makes either one meaningful.
-        const doc = generateNetwork(SEED);
+        const doc = generateNetwork();
         const perm = makePermutation(SEED);
-        const raw = buildLatticeVertices(SPACING, CELLS, [], [], 16, (x, z) =>
-            heightAtCpu(x, z, perm),
-        );
+        const raw = buildLatticeVertices(SPACING, CELLS, [], 16, (x, z) => heightAtCpu(x, z, perm));
         const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
         console.log(
             `SURFACE_FLATNESS_NO_CUT longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount}`,
         );
-        // measured (2026-08-19, stage 21): 409 longitudinal and 1234 cross-section violations of 1860
-        // samples; stage 22 (route selection): 26 longitudinal and 796 cross-section of 1197 samples —
-        // fewer because route selection prefers shorter, cheaper chords (fewer stations to sample),
-        // but the signal is still clearly present against the shipped pipeline's own exact 0. The
-        // population is pinned, not just the failing count: a shrinking sample array would otherwise
-        // buy this arm a green the same way it would buy the exactness arms one (this unit's own
-        // residue — an amputated instrument degrades the quantifier, not just the population).
-        // The control is now thin (26 of 1197) — a future stage driving this toward zero has
-        // amputated the control rather than improved anything.
-        expect(result.sampleCount).toBe(1197);
-        expect(result.longitudinal.length).toBe(26);
+        // Stage 1 (`roads-interactive.md`) reduced the network to one road, re-pinning the population and
+        // the failing count at the one-road document's own reading (re-measured, not carried over from
+        // the five-road network) — the population is pinned, not just the failing count: a shrinking
+        // sample array would otherwise buy this arm a green the same way it would buy the exactness arms
+        // one (this unit's own residue — an amputated instrument degrades the quantifier, not just the
+        // population).
+        expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
+        expect(result.longitudinal.length).toBe(NO_CUT_LONGITUDINAL);
     });
 });
 
@@ -314,7 +261,7 @@ describe("reconstructionAgreement — the device arm's own fidelity pin", () => 
         // height kernel is itself deterministic-in-seed, `gate.ts`'s own `deterministic` check) — this
         // pins that {@link reconstructionAgreement}'s own comparison logic reads zero when there's nothing
         // to disagree about, before it's trusted as the real device's fidelity gate.
-        const doc = generateNetwork(SEED);
+        const doc = generateNetwork();
         const deviceStandIn = buildDeviceFreeVertices(doc, SEED);
         const agreement = reconstructionAgreement(deviceStandIn, doc, SEED);
         expect(agreement.sampleCount).toBeGreaterThan(0);
@@ -322,26 +269,29 @@ describe("reconstructionAgreement — the device arm's own fidelity pin", () => 
     });
 });
 
-// Stage 17's two exactness arms — the instrument that decides a round ships with the chord profile
+// Stage 17's exactness arm — the instrument that decides a round ships with the chord profile
 // (spec Validation, "Surface flatness in the corridor"). The chord's affine target makes the in-corridor
 // reconstruction error vanish identically on a non-overlapping network (barycentric interpolation
-// reproduces an affine field exactly at any cell size and any road angle), and the overlap arm is the
-// discriminating proof that non-overlap is what buys exactness: where two primitives' falloffs overlap,
-// the composite target is a position-weighted combination of two affine fields and is not affine, so
-// exactness dies there and nowhere else.
+// reproduces an affine field exactly at any cell size and any road angle). Stage 1
+// (`roads-interactive.md`) deleted "stage 18 arm (c)"'s hand-built OVERLAPPING pair — the discriminating
+// proof that non-overlap is what buys exactness — along with the multi-road generator's own
+// non-overlap-by-construction guarantee it was a foil against: one road cannot overlap, so there is no
+// clearance/non-overlap machinery left in `overlay/network.ts` for that arm to prove anything about
+// (`checks.md`'s hollowed-foil rule). This arm still exercises the surviving multi-road blend machinery
+// in `networkCoreCpu` directly, over a hand-built non-overlapping synthetic network — that machinery
+// generalizes over `NetworkSegment.road` even though the real generator only ever emits one road.
 
 describe("surface flatness — stage 17 arm (a): synthetic non-overlapping network reads exactly zero", () => {
     // a hand-built NON-OVERLAPPING network: five straight roads at 30° heading (not 0°/45°/90°),
-    // 200 m apart perpendicular to the heading, 200 m long, plus one 32 m carpark square clear of all
-    // roads. Chord endpoint heights are the natural terrain heights (`heightAtCpu`). The 200 m spacing
-    // is well above the ~63 m clearance the chord's own falloff demands (`computeFalloff(cutDepth) +
-    // halfWidth + FLAT_CORE_MARGIN`), so no two primitives' falloff bands overlap, and the
-    // affine-exactness argument holds at every sampled station.
+    // 200 m apart perpendicular to the heading, 200 m long. Chord endpoint heights are the natural
+    // terrain heights (`heightAtCpu`). The 200 m spacing is well above the ~63 m clearance the chord's
+    // own falloff demands (`computeFalloff(cutDepth) + halfWidth + FLAT_CORE_MARGIN`), so no two
+    // primitives' falloff bands overlap, and the affine-exactness argument holds at every sampled
+    // station.
     const Heading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
     const RoadSpacing = 200; // metres, perpendicular separation between adjacent roads
     const RoadLen = 200; // metres
     const RoadHw = 4; // halfWidth, matching the generator's ROAD_HALF_WIDTH
-    const CarparkHalf = 16; // 32 m carpark square, half-extent
     const ux = Math.cos(Heading);
     const uz = Math.sin(Heading);
     const nx = -uz;
@@ -359,18 +309,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
             halfWidth: RoadHw,
         });
     }
-    // carpark at (450, 450) — far from every road (nearest road centre is ~516 m away)
-    const polygons: PolygonStamp[] = [
-        {
-            points: [
-                [450 - CarparkHalf, 450 - CarparkHalf],
-                [450 + CarparkHalf, 450 - CarparkHalf],
-                [450 + CarparkHalf, 450 + CarparkHalf],
-                [450 - CarparkHalf, 450 + CarparkHalf],
-            ],
-        },
-    ];
-    const syntheticDoc: StrokeDocument = { polylines, polygons };
+    const syntheticDoc: StrokeDocument = { polylines };
 
     const perm = makePermutation(SEED);
     const { segments, cutDepth } = buildNetworkGeometry(syntheticDoc, SEED);
@@ -378,14 +317,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
     test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
-        const coarseRaw = buildLatticeVertices(
-            SPACING,
-            CELLS,
-            segments,
-            polygons,
-            falloff,
-            natural,
-        );
+        const coarseRaw = buildLatticeVertices(SPACING, CELLS, segments, falloff, natural);
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
             syntheticDoc,
@@ -403,14 +335,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     test("exactly 0 violations and 0.0000 m on both axes at SPACING/2", () => {
         const fineSpacing = SPACING / 2;
         const fineCells = CELLS * 2;
-        const fineRaw = buildLatticeVertices(
-            fineSpacing,
-            fineCells,
-            segments,
-            polygons,
-            falloff,
-            natural,
-        );
+        const fineRaw = buildLatticeVertices(fineSpacing, fineCells, segments, falloff, natural);
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(fineRaw, x, z, fineSpacing, fineCells),
             syntheticDoc,
@@ -423,100 +348,5 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
         expect(result.maxLongitudinalExcess).toBe(0);
-    });
-});
-
-describe("surface flatness — stage 18 arm (c): hand-built overlapping pair stays non-zero", () => {
-    // The red-first overlap arm, rewritten for a generator that no longer produces overlaps: a hand-built
-    // OVERLAPPING pair (two parallel roads 15 m apart at 30° heading — close enough that their falloff
-    // bands overlap).
-    // This arm is the discriminating proof that non-overlap is what buys exactness: where two
-    // primitives' falloffs overlap, `networkCoreCpu` blends their targets by a position-dependent
-    // weight, so the composite target is a position-weighted combination of two affine fields and is
-    // NOT affine. Barycentric interpolation cannot reproduce a non-affine field, so the reconstruction
-    // error is non-zero exactly there and nowhere else. This arm MUST stay red — it is the evidence
-    // that the exactness arm's zero is a property of non-overlap, not of the chord profile alone.
-    const overlapHeading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
-    const overlapSep = 15; // metres, perpendicular separation (centreline-to-centreline)
-    const oux = Math.cos(overlapHeading);
-    const ouz = Math.sin(overlapHeading);
-    const onx = -ouz;
-    const onz = oux;
-    const ocx2 = onx * overlapSep;
-    const ocz2 = onz * overlapSep;
-    const overlapDoc: StrokeDocument = {
-        polylines: [
-            {
-                points: [
-                    [-oux * 100, -ouz * 100],
-                    [oux * 100, ouz * 100],
-                ],
-                halfWidth: 4,
-            },
-            {
-                points: [
-                    [ocx2 - oux * 100, ocz2 - ouz * 100],
-                    [ocx2 + oux * 100, ocz2 + ouz * 100],
-                ],
-                halfWidth: 4,
-            },
-        ],
-        polygons: [],
-    };
-    const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(overlapDoc, SEED);
-    const falloff = computeFalloff(cutDepth);
-    const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
-
-    test("non-zero at SPACING — cross-section violations and amplitude both clearly above zero", () => {
-        const raw = buildLatticeVertices(
-            SPACING,
-            CELLS,
-            segments,
-            overlapDoc.polygons,
-            falloff,
-            natural,
-        );
-        const result = checkSurfaceFlatness(
-            (x, z) => meshHeightAt(raw, x, z, SPACING, CELLS),
-            overlapDoc,
-        );
-        console.log(
-            `OVERLAP_ARM_SPACING crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} longitudinal=${result.longitudinal.length} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)}`,
-        );
-        // band: well above zero, not fitted to the exact reading. The amplitude is the discriminating
-        // statistic — it sat still at 0.2373 → 0.2356 m across the pre-chord → chord profile swap on the
-        // old overlapping generator, proving the chord removed the non-junction reconstruction error
-        // (count fell 362 → 99) without touching the overlap contamination (amplitude stayed).
-        expect(result.crossSection.length).toBeGreaterThan(50);
-        expect(result.maxCrossSectionExcess).toBeGreaterThan(0.1);
-    });
-
-    // Resolution-INDEPENDENT by measurement, not converging: 728 / 0.31385 m at SPACING and
-    // 728 / 0.29993 m at SPACING/2 (stage 20). The contamination is a property of the non-affine
-    // blended field, so refining the mesh does not reduce it — and 728 is the whole cross-section
-    // comparison population (182 stations × 2 edge lines × 2 roads), so the COUNT sits at its
-    // ceiling and can only fall. Amplitude is the discriminating statistic here; the count's job is
-    // amputation detection (a shrinking population reads below 728).
-    test("non-zero at SPACING/2 — resolution-independent amplitude, still clearly above zero", () => {
-        const fineSpacing = SPACING / 2;
-        const fineCells = CELLS * 2;
-        const raw = buildLatticeVertices(
-            fineSpacing,
-            fineCells,
-            segments,
-            overlapDoc.polygons,
-            falloff,
-            natural,
-        );
-        const result = checkSurfaceFlatness(
-            (x, z) => meshHeightAt(raw, x, z, fineSpacing, fineCells),
-            overlapDoc,
-        );
-        console.log(
-            `OVERLAP_ARM_SPACING_HALF crossSection=${result.crossSection.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} longitudinal=${result.longitudinal.length} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)}`,
-        );
-        expect(result.crossSection.length).toBeGreaterThan(20);
-        expect(result.maxCrossSectionExcess).toBeGreaterThan(0.05);
     });
 });

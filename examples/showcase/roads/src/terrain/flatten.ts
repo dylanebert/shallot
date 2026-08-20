@@ -100,36 +100,25 @@ const NetworkSegment = d.struct({
     bHeight: d.f32,
     road: d.u32,
 });
-/** one polygon stamp's vertex span within the shared `polyVerts` buffer, plus its precomputed centroid —
- *  the single flat target height under the whole footprint (a real carpark is one flat plane, not a
- *  cross-section following its own nearest edge, which is what a per-edge target would produce). No
- *  profile: a carpark has no length to smooth along, so its target still samples `heightAt` directly. */
-const NetworkPolygon = d.struct({ start: d.u32, count: d.u32, centroid: d.vec2f });
-
 /** `falloff` is {@link computeFalloff}'s output for the current network — re-derived, not a compile-time
  *  constant, since it depends on the actual cut depth this reseed produced. */
-const NetworkParams = d.struct({ segmentCount: d.u32, polygonCount: d.u32, falloff: d.f32 });
+const NetworkParams = d.struct({ segmentCount: d.u32, falloff: d.f32 });
 
 export const networkLayout = tgpu.bindGroupLayout({
     segments: { storage: d.arrayOf(NetworkSegment), access: "readonly" },
-    polygons: { storage: d.arrayOf(NetworkPolygon), access: "readonly" },
-    polyVerts: { storage: d.arrayOf(d.vec2f), access: "readonly" },
     params: { uniform: NetworkParams },
 });
 
 const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
 
-/** the network's own core boundary distance (the union of every primitive's, still a plain nearest-SDF
- *  min — continuous by construction) + a **blended** target height at (px, pz) — the GPU-side geometry
- *  half of the flatten pipeline. Segments: clamped-projection distance to the core boundary (the same
- *  clamped form `overlay/rasterize.ts`'s `segmentDistanceGpu` uses — an independent derivation from
- *  `overlay/document.ts`'s cross-product form) minus half-width, widened by {@link FLAT_CORE_MARGIN};
- *  target is the segment's own chord profile height, linearly interpolated by the same clamped
- *  projection parameter `t` the distance calculation already computes — never a fresh `heightAt` sample at
- *  the projected point (stage 8's fix: that was every noise octave riding straight into the road surface).
- *  Polygons: ray-cast winding for the sign, nearest-edge distance for the magnitude (mirrors
- *  `rasterize.ts`'s `polygonDistanceGpu`), same margin; target is the natural height at the polygon's own
- *  centroid — a carpark is one flat plane, no profile to smooth.
+/** the network's own core boundary distance (still a plain nearest-SDF min — continuous by construction)
+ *  + a **blended** target height at (px, pz) — the GPU-side geometry half of the flatten pipeline.
+ *  Clamped-projection distance to the core boundary (the same clamped form `overlay/rasterize.ts`'s
+ *  `segmentDistanceGpu` uses — an independent derivation from `overlay/document.ts`'s cross-product form)
+ *  minus half-width, widened by {@link FLAT_CORE_MARGIN}; target is the segment's own chord profile
+ *  height, linearly interpolated by the same clamped projection parameter `t` the distance calculation
+ *  already computes — never a fresh `heightAt` sample at the projected point (stage 8's fix: that was
+ *  every noise octave riding straight into the road surface).
  *
  *  Stage 15: `bestTarget` used to be the *nearest* primitive's own target, picked by a hard `core <
  *  bestCore` switch — continuous in `bestCore` (a min of SDFs) but discontinuous in the target it carries,
@@ -139,19 +128,21 @@ const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
  *  1]`) — a primitive fully inside its own core contributes weight 1, one past its own falloff contributes
  *  0, so away from any overlap exactly one weight survives and this reduces to the old nearest-primitive
  *  target exactly; where two primitives' falloff bands overlap (a bisector, a junction), both contribute
- *  and the target cross-fades instead of switching.
+ *  and the target cross-fades instead of switching. Stage 1 (`roads-interactive.md`) retired the
+ *  carpark-polygon primitive kind and its own ray-cast/nearest-edge leg here, but kept the multi-road
+ *  blend machinery below — the network's own generator only ever emits one road, but this function
+ *  generalizes over `NetworkSegment.road` regardless.
  *
- *  A *primitive* is a whole road or a whole carpark, never one fine profile sub-segment: a road's own
- *  chain of sub-segments is already continuous by construction (`buildNetworkGeometry`'s per-point
- *  interpolation chains `aHeight`/`bHeight` endpoint to endpoint), so blending across sub-segments the way
- *  distinct primitives blend would reintroduce noise along a single, already-smooth road — measured
- *  directly (2026-08-19): treating every sub-segment as its own blend contributor left ~1078 cross-section
- *  violations up to 0.44 m, entirely on interior stretches of a single curving road with no other primitive
- *  within its falloff. `NetworkSegment.road` groups sub-segments back into their own road: the loop below
- *  takes a hard nearest-sub-segment reduction *within* a road (`roadBestCore`/`roadBestTarget`, flushed
- *  whenever `seg.road` changes — segments are emitted contiguously per road, `NetworkSegment`'s own
- *  docstring), then folds each road's single reduced (core, target) into the cross-primitive blend the same
- *  way a polygon's own single (core, target) does. */
+ *  A *primitive* is a whole road, never one fine profile sub-segment: a road's own chain of sub-segments
+ *  is already continuous by construction (`buildNetworkGeometry`'s per-point interpolation chains
+ *  `aHeight`/`bHeight` endpoint to endpoint), so blending across sub-segments the way distinct primitives
+ *  blend would reintroduce noise along a single, already-smooth road — measured directly (2026-08-19):
+ *  treating every sub-segment as its own blend contributor left ~1078 cross-section violations up to
+ *  0.44 m, entirely on interior stretches of a single curving road with no other primitive within its
+ *  falloff. `NetworkSegment.road` groups sub-segments back into their own road: the loop below takes a
+ *  hard nearest-sub-segment reduction *within* a road (`roadBestCore`/`roadBestTarget`, flushed whenever
+ *  `seg.road` changes — segments are emitted contiguously per road, `NetworkSegment`'s own docstring),
+ *  then folds each road's single reduced (core, target) into the cross-primitive blend. */
 const networkCore = tgpu.fn(
     [d.f32, d.f32],
     NetworkCore,
@@ -208,40 +199,6 @@ const networkCore = tgpu.fn(
         if (roadBestCore < bestCore) bestCore = roadBestCore;
     }
 
-    let p = d.u32(0);
-    for (; p < networkLayout.$.params.polygonCount; p = p + d.u32(1)) {
-        const poly = networkLayout.$.polygons[p];
-        let inside = false;
-        let nearestEdge = d.f32(3.402823e38);
-        let k = d.u32(0);
-        for (; k < poly.count; k = k + d.u32(1)) {
-            const a = networkLayout.$.polyVerts[poly.start + k];
-            const b = networkLayout.$.polyVerts[poly.start + ((k + d.u32(1)) % poly.count)];
-            if (a.y > pz !== b.y > pz) {
-                const xCross = a.x + ((pz - a.y) / (b.y - a.y)) * (b.x - a.x);
-                if (px < xCross) inside = !inside;
-            }
-            const eAbx = b.x - a.x;
-            const eAbz = b.y - a.y;
-            const eApx = px - a.x;
-            const eApz = pz - a.y;
-            const eDd = eAbx * eAbx + eAbz * eAbz;
-            let et = d.f32(0);
-            if (eDd > 0) et = std.clamp((eApx * eAbx + eApz * eAbz) / eDd, 0, 1);
-            const ecx = a.x + et * eAbx;
-            const ecz = a.y + et * eAbz;
-            const edgeDist = std.distance(d.vec2f(px, pz), d.vec2f(ecx, ecz));
-            if (edgeDist < nearestEdge) nearestEdge = edgeDist;
-        }
-        const core = std.select(nearestEdge, -nearestEdge, inside) - d.f32(FLAT_CORE_MARGIN);
-        const target = heightAt(poly.centroid.x, poly.centroid.y);
-        const pt = std.clamp(core / falloff, 0, 1);
-        const w = d.f32(1) - (d.f32(0.5) - d.f32(0.5) * std.cos(d.f32(Math.PI) * pt));
-        sumWeight = sumWeight + w;
-        sumWeightedTarget = sumWeightedTarget + w * target;
-        if (core < bestCore) bestCore = core;
-    }
-
     const bestTarget = std.select(d.f32(0), sumWeightedTarget / sumWeight, sumWeight > 0);
     return NetworkCore({ coreDist: bestCore, targetHeight: bestTarget });
 });
@@ -251,8 +208,8 @@ const networkCore = tgpu.fn(
  *  per-reseed {@link computeFalloff} distance (`networkLayout.$.params.falloff`, written by `setNetwork`).
  *  `generate.ts`'s height kernel calls this in place of a bare `heightAt`, at the vertex and its four
  *  finite-difference neighbours alike, so the emitted normal reflects the flattened surface. An empty
- *  network (no segments, no polygons) leaves `bestCore` at its f32-max sentinel, always `>= falloff`, so
- *  this degrades to plain `heightAt`. */
+ *  network (no segments) leaves `bestCore` at its f32-max sentinel, always `>= falloff`, so this degrades
+ *  to plain `heightAt`. */
 export const flattenedHeightAt = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
@@ -271,19 +228,13 @@ export const flattenedHeightAt = tgpu.fn(
 type FlattenRoot = typeof Compute.root;
 
 let segRaw: GPUBuffer | null = null;
-let polyRaw: GPUBuffer | null = null;
-let vertsRaw: GPUBuffer | null = null;
 let paramsRaw: GPUBuffer | null = null;
 let bindGroup: ReturnType<FlattenRoot["createBindGroup"]> | null = null;
 
 function teardownNetworkBuffers(): void {
     segRaw?.destroy();
-    polyRaw?.destroy();
-    vertsRaw?.destroy();
     paramsRaw?.destroy();
     segRaw = null;
-    polyRaw = null;
-    vertsRaw = null;
     paramsRaw = null;
     bindGroup = null;
 }
@@ -407,61 +358,16 @@ export function setNetwork(doc: StrokeDocument, seed: number): void {
         })),
     );
 
-    const polyVerts: { x: number; y: number }[] = [];
-    const polygonsData = doc.polygons.map((poly) => {
-        const start = polyVerts.length;
-        let cx = 0;
-        let cz = 0;
-        for (const [x, z] of poly.points) {
-            polyVerts.push({ x, y: z });
-            cx += x;
-            cz += z;
-        }
-        cx /= poly.points.length;
-        cz /= poly.points.length;
-        return { start, count: poly.points.length, centroid: { x: cx, y: cz } };
-    });
-    const polygonsSafe =
-        polygonsData.length > 0 ? polygonsData : [{ start: 0, count: 0, centroid: { x: 0, y: 0 } }];
-    polyRaw = device.createBuffer({
-        label: "network-polygons",
-        size: polygonsSafe.length * d.sizeOf(NetworkPolygon),
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const polyBuf = root
-        .createBuffer(d.arrayOf(NetworkPolygon, polygonsSafe.length), polyRaw)
-        .$usage("storage");
-    polyBuf.write(
-        polygonsSafe.map((p) => ({
-            start: p.start,
-            count: p.count,
-            centroid: d.vec2f(p.centroid.x, p.centroid.y),
-        })),
-    );
-
-    const vertsSafe = polyVerts.length > 0 ? polyVerts : [{ x: 0, y: 0 }];
-    vertsRaw = device.createBuffer({
-        label: "network-polyverts",
-        size: vertsSafe.length * d.sizeOf(d.vec2f),
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const vertsBuf = root
-        .createBuffer(d.arrayOf(d.vec2f, vertsSafe.length), vertsRaw)
-        .$usage("storage");
-    vertsBuf.write(vertsSafe.map((v) => d.vec2f(v.x, v.y)));
-
     paramsRaw = device.createBuffer({
         label: "network-params",
         size: d.sizeOf(NetworkParams),
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const paramsBuf = root.createBuffer(NetworkParams, paramsRaw).$usage("uniform");
-    paramsBuf.write({ segmentCount: segments.length, polygonCount: doc.polygons.length, falloff });
+    paramsBuf.write({ segmentCount: segments.length, falloff });
 
     bindGroup = root.createBindGroup(networkLayout, {
         segments: segBuf,
-        polygons: polyBuf,
-        polyVerts: vertsBuf,
         params: paramsBuf,
     });
 }

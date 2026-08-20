@@ -110,9 +110,11 @@ export async function gate(): Promise<Check[]> {
     // real device renders, without which a CPU/GPU divergence could make the device-free suite pass or
     // fail for the wrong reason. The property arm now asserts the same unconditional exact-zero the CPU
     // suite does: 0 violations and 0.0000 m on both axes over the real device's mesh — no exclusions,
-    // no junction zone, no `excludedStationCount` (deleted at stage 21). The `sampleCount` pin (1197
-    // since stage 22's route selection) prevents an emptied population from passing on empty arrays.
-    const liveDoc = generateNetwork(SEED);
+    // no junction zone, no `excludedStationCount` (deleted at stage 21). The `sampleCount` pin (546,
+    // re-pinned at stage 1: `roads-interactive.md` deleted route selection, so the boot document is
+    // the one fixed standard chord, not a seed-selected route) prevents an emptied population from
+    // passing on empty arrays.
+    const liveDoc = generateNetwork();
     const deviceRaw = await readVertices();
     const agreement = reconstructionAgreement(deviceRaw, liveDoc, SEED);
     checks.push({
@@ -132,7 +134,7 @@ export async function gate(): Promise<Check[]> {
             deviceResult.longitudinal.length === 0 &&
             deviceResult.maxCrossSectionExcess === 0 &&
             deviceResult.maxLongitudinalExcess === 0 &&
-            deviceResult.sampleCount === 1197,
+            deviceResult.sampleCount === 546,
         detail: `device crossSection=${deviceResult.crossSection.length} longitudinal=${deviceResult.longitudinal.length} maxCrossSectionExcess=${deviceResult.maxCrossSectionExcess.toFixed(4)} maxLongitudinalExcess=${deviceResult.maxLongitudinalExcess.toFixed(4)} sampleCount=${deviceResult.sampleCount}`,
     });
 

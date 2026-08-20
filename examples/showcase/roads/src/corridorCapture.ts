@@ -1,9 +1,5 @@
 // Stage 24a's corridor-pose capture — repositions the scene's orbit camera to the derived corridor
-// pose (corridorPose.ts) so a screenshot can be taken for 24b's release look. Reuses the same
-// `Orbit.*` write mechanism `grazingCapture.ts` uses (Orbit.pitch/yaw/distance/pan/smoothness),
-// not a second pose-override mechanism — only the constants differ, and they are re-derived from
-// the px/m budget rather than borrowed from the grazing pose (which frames a boundary at pitch
-// 0.06 / distance 15, not a corridor in terrain).
+// pose (corridorPose.ts) so a screenshot can be taken for 24b's release look.
 //
 // Exposed as `window.__roadsCorridorCapture` (`boot.ts`); the Playwright driver
 // (`test/roads.spec.ts`) calls it, waits, and saves the screenshot to a second file alongside the
@@ -18,13 +14,13 @@ import { CORRIDOR_DISTANCE, CORRIDOR_PITCH } from "./corridorPose";
 import { frames } from "./harness";
 
 // Target at the road's midpoint (t = 0.5) — the corridor is visible in both directions with
-// terrain flanking on both sides, unlike grazingCapture's t = 0.08 (near one end, for a boundary).
+// terrain flanking on both sides.
 const TARGET_T = 0.5;
 const EYE_MARGIN = 0.4; // metres above the read terrain height, clearing z-fighting/embedding
 
-/** the canvas-presenting camera's eid — the same `Views` disambiguation `capture.ts`'s
- *  `cameraEid` and `grazingCapture.ts`'s `cameraEid` use (a shadow-casting light's pooled shadow
- *  camera also carries `Camera`, so only a live `canvas` picks the display camera out). */
+/** the canvas-presenting camera's eid — the same `Views` disambiguation `capture.ts`'s `cameraEid`
+ *  uses (a shadow-casting light's pooled shadow camera also carries `Camera`, so only a live
+ *  `canvas` picks the display camera out). */
 function cameraEid(): number {
     for (const [eid, view] of Views) {
         if (view.canvas) return eid;

@@ -9,15 +9,7 @@ import {
 } from "./capture";
 import { corridorCapture } from "./corridorCapture";
 import { gate } from "./gate";
-import {
-    type GrazingAnchor,
-    grazingCapture,
-    type HeightSilhouetteResult,
-    heightSilhouette,
-} from "./grazingCapture";
 import type { Check } from "./harness";
-import { DIST_RANGE, TILE_RES } from "./overlay/tiles";
-import { SPACING } from "./terrain/grid";
 import { overlayIdle, regenerate } from "./terrain/terrain";
 
 // The roads showcase's boot orchestration, as a plugin (a manifest project has no `main.ts` entry) —
@@ -43,19 +35,6 @@ declare global {
         // it pulls in the published `@dylanebert/shallot` package graph under Playwright's own loader,
         // which chokes on the package's `exports` map — `test/roads.spec.ts` stays bridge-only).
         __roadsTransitionTolerancePx?: number;
-        // stage 9's straightness discriminator (`grazingCapture.ts`) — repositions the camera to a fixed
-        // grazing pose and returns the analytic boundary anchors a straightness probe scans around. The
-        // same bridge-only shape as the rest of this file: `test/straightness.spec.ts` never imports
-        // engine/ECS code directly, only reads this window global.
-        __roadsGrazingCapture?: () => Promise<{ anchors: GrazingAnchor[] }>;
-        // stage 10's corrected straightness criterion (`grazingCapture.ts`'s `heightSilhouette`) — the
-        // same anchors, but the world-space height axis instead of the screen-space albedo edge. No camera
-        // pose to set up first, unlike `__roadsGrazingCapture` above.
-        __roadsHeightSilhouette?: () => Promise<HeightSilhouetteResult>;
-        // the live mesh/atlas resolution constants under test — read by `test/straightness.spec.ts` so the
-        // two-resolution reading is self-labeling rather than trusting whatever the driver assumed was
-        // edited before the run.
-        __roadsMeshParams?: { spacing: number; tileRes: number; distRange: number };
         // stage 24a's corridor-pose capture (`corridorCapture.ts`) — repositions the orbit to the
         // derived corridor pose for 24b's release-look screenshot. The Playwright driver calls this,
         // waits, and saves the screenshot to a second file alongside the gate's own.
@@ -90,9 +69,6 @@ const BootSystem: System = {
         window.__roadsOverlayIdle = () => overlayIdle();
         window.__roadsTransitionTolerancePx = TRANSITION_TOLERANCE_PX;
         window.__roadsCorridorCapture = () => corridorCapture();
-        window.__roadsGrazingCapture = () => grazingCapture();
-        window.__roadsHeightSilhouette = () => heightSilhouette();
-        window.__roadsMeshParams = { spacing: SPACING, tileRes: TILE_RES, distRange: DIST_RANGE };
         window.__roadsRegenerate = (seed) => regenerate(seed);
         window.__roadsHeightAt = (x, z) => withHeight(x, z);
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
@@ -118,9 +94,6 @@ const BootSystem: System = {
         delete window.__roadsOverlayIdle;
         delete window.__roadsTransitionTolerancePx;
         delete window.__roadsCorridorCapture;
-        delete window.__roadsGrazingCapture;
-        delete window.__roadsHeightSilhouette;
-        delete window.__roadsMeshParams;
         delete window.__roadsRegenerate;
         delete window.__roadsHeightAt;
     },

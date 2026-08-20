@@ -42,19 +42,22 @@ export const CAMERA_FOV_DEG = 60;
 
 // ─── Document constants (measured from the network geometry at seed 1337) ──────────────────────
 //
-// cutDepth and falloff are the network's own measured quantities at the pinned seed 1337
-// (`buildNetworkGeometry(generateNetwork(1337), 1337)`), the same figures the spec's Live log
-// records (1.4404 m → 6.7876 m). halfWidth is `ROAD_HALF_WIDTH` from `overlay/network.ts` (= 4).
+// cutDepth and falloff are the network's own measured quantities on the boot document — the fixed
+// standard chord `roads-interactive.md` stage 1 replaced route selection with — at the terrain's own
+// pinned noise seed 1337 (`buildNetworkGeometry(generateNetwork(), 1337)`; the noise seed feeds
+// `heightAtCpu` alone, the chord itself is no longer seeded). Re-measured at stage 1: 3.8720 m →
+// 18.2464 m (was 1.4404 m → 6.7876 m under the retired route-selected chord). halfWidth is
+// `ROAD_HALF_WIDTH` from `overlay/network.ts` (= 4).
 //
 // These are fixed literals so the pose (below) does not auto-adjust when cutDepth changes — the
 // arm independently re-derives cutDepth from the real network and asserts the budget against the
 // fixed-literal pose, so a future stage that moves cutDepth reds the arm.
 
-/** The network's measured cut depth at seed 1337, in metres. */
-export const CUT_DEPTH = 1.4404;
+/** The network's measured cut depth on the boot document, in metres. */
+export const CUT_DEPTH = 3.872;
 
-/** The network's falloff distance at seed 1337, in metres (computeFalloff(CUT_DEPTH)). */
-export const FALLOFF = 6.7876;
+/** The network's falloff distance on the boot document, in metres (computeFalloff(CUT_DEPTH)). */
+export const FALLOFF = 18.2464;
 
 /** The road's half-width in metres (`ROAD_HALF_WIDTH` from `overlay/network.ts`). */
 export const HALF_WIDTH = 4;
@@ -69,7 +72,7 @@ export const HALF_WIDTH = 4;
 //
 // Constraint 1 — cutDepth ≥ 5 px vertical:
 //   cutDepth × cos(θ) × f_px / D ≥ 5
-//   D ≤ cutDepth × cos(θ) × f_px / 5 = 1.4404 × cos(θ) × 623.54 / 5 = 179.6 × cos(θ)
+//   D ≤ cutDepth × cos(θ) × f_px / 5 = 3.8720 × cos(θ) × 623.54 / 5 = 483.06 × cos(θ)
 //
 // The 5 px anchor is the road's own already-resolved on-screen width at the *measurement point*
 // (the pre-stage-25 scene default, 900 m): 8 m (2 × halfWidth) × f_px / 900 = 5.54 px — the smallest
@@ -77,42 +80,50 @@ export const HALF_WIDTH = 4;
 // quantity in that frame rather than picked to make something pass. The anchor stays at 900 m by
 // design: it is the frame the ≈0.9 px inadmissibility reading came from, and re-deriving it at stage
 // 25's 120 m default (where the road is ~41.6 px) would raise the floor to track a presentation
-// choice rather than a resolved quantity.
+// choice rather than a resolved quantity. Unaffected by stage 1's route-selection deletion — it
+// depends only on halfWidth, f_px, and the 900 m measurement point, none of which moved.
 //
 // Constraint 2 — ≥30 m of unflattened terrain flanking the corridor in frame:
 //   D × tan(fov_h/2) − (halfWidth + falloff) ≥ 30
 //   D ≥ (halfWidth + falloff + 30) / tan(fov_h/2)
-// where fov_h = 2 × atan(tan(fov/2) × aspect) = 2 × atan(tan(30°) × 1280/720) = 91.48°
+// where fov_h = 2 × atan(tan(fov/2) × aspect) = 2 × atan(tan(30°) × 1280/720) = 91.49°
 //   → tan(fov_h/2) = tan(30°) × 1280/720 = 1.0264
-//   D ≥ (4 + 6.7876 + 30) / 1.0264 = 39.74 m
+//   D ≥ (4 + 18.2464 + 30) / 1.0264 = 50.90 m
 //
-// The admissible interval is [39.74 m, 179.6 × cos(θ)].
+// The admissible interval is [50.90 m, 483.06 × cos(θ)].
 //
 // Pitch: half the corridor's average side-slope angle: atan(cutDepth / falloff) / 2 =
-//   atan(1.4404 / 6.7876) / 2 = atan(0.21216) / 2 = 0.20940 / 2 = 0.10470 rad (6.0°)
+//   atan(3.8720 / 18.2464) / 2 = atan(0.21219) / 2 = 0.20911 / 2 = 0.10455 rad (6.0°) — the same
+// ratio as under the retired route-selected chord (`computeFalloff`'s own side-slope-limit
+// derivation holds cutDepth/falloff roughly constant), so the pitch barely moved despite cutDepth
+// and falloff both roughly tripling.
 // Below the side-slope angle so the camera sees the transition as a surface (not edge-on), with
 // enough elevation to read terrain on both sides while keeping cos(θ) ≈ 1 (0.9945, losing <1%).
 //
-// Operating point: D = 120 m — inside the interval [39.74, 178.6], carrying margin on the axis that
+// Operating point: D = 120 m — inside the interval [50.90, 480.23], carrying margin on the axis that
 // matters (the earthwork's vertical extent). At D = 120:
-//   earthwork_px = 1.4404 × cos(0.10470) × 623.54 / 120 = 7.44 px (≥5, 49% margin over the floor)
-//   flanking     = 120 × 1.0264 − (4 + 6.7876) = 112.4 m (≥30, 3.7× margin)
+//   earthwork_px = 3.8720 × cos(0.10455) × 623.54 / 120 = 20.01 px (≥5, 4.0× margin over the floor)
+//   flanking     = 120 × 1.0264 − (4 + 18.2464) = 100.92 m (≥30, 3.4× margin)
 //
-// What selected D = 120: the confounder ratio (earthwork_px / confounder_px) is constant across the
+// D = 120 was picked before stage 1's route-selection deletion, for the confounder-ratio reasoning
+// below, and stayed inside the admissible interval after the chord's own re-measurement (comfortably
+// so — the floor moved to 50.90 m, still well under 120), so it is not re-picked here. What selected
+// it originally: the confounder ratio (earthwork_px / confounder_px) is constant across the
 // interval — both earthwork and confounder scale the same way with D and θ — so it does not
-// constrain the distance. The absolute 5 px floor is what constrains it, and the shipped pose sat
-// at D_max = 178.6 m where earthwork = exactly 5 px (the resolution threshold, zero margin). D = 120
-// gives 7.44 px (49% margin), the reviewer's own measurement of a suitable pose (stage 24's split,
-// taken as measurement not remedy per this unit's Residue). The confounder comparison is an
-// assertion (see corridorPose.test.ts), not what selected the distance.
+// constrain the distance. The absolute 5 px floor is what constrained it, and the pre-stage-1 pose
+// sat at D_max = 178.6 m where earthwork was exactly 5 px (the resolution threshold, zero margin).
+// D = 120 gave 7.44 px there (49% margin, the reviewer's own measurement of a suitable pose, stage
+// 24's split, taken as measurement not remedy per this unit's Residue); it now gives 20.01 px (4.0×
+// margin) against the re-measured chord. The confounder comparison is an assertion (see
+// corridorPose.test.ts), not what selected the distance.
 
-/** Half the corridor's average side-slope angle: atan(CUT_DEPTH / FALLOFF) / 2 = 0.10470 rad.
+/** Half the corridor's average side-slope angle: atan(CUT_DEPTH / FALLOFF) / 2 = 0.10455 rad.
  *  Fixed literal — does not auto-adjust if cutDepth changes. */
-export const CORRIDOR_PITCH = 0.1047;
+export const CORRIDOR_PITCH = 0.1046;
 
-/** Orbit distance in metres. Fixed literal: 120, inside the admissible interval [39.74, 178.6].
- *  At this distance cutDepth projects to 7.44 px (49% margin over the 5 px floor) and 112.4 m of
- *  unflattened terrain flanks the corridor (3.7× margin over the 30 m floor). */
+/** Orbit distance in metres. Fixed literal: 120, inside the admissible interval [50.90, 483.06].
+ *  At this distance cutDepth projects to 20.01 px (4.0× margin over the 5 px floor) and 100.92 m of
+ *  unflattened terrain flanks the corridor (3.4× margin over the 30 m floor). */
 export const CORRIDOR_DISTANCE = 120;
 
 // ─── Budget computation (used by the CPU arm and re-used by the capture) ───────────────────────

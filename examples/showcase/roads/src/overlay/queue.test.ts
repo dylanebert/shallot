@@ -89,7 +89,7 @@ describe("allocate — atlas layer assignment", () => {
         const SeedBudget = 50; // generous: the spike above found overflow by seed 4
 
         while (overflowed === null && seed <= SeedBudget) {
-            const ids = documentDirtyTiles(generateNetwork(seed));
+            const ids = documentDirtyTiles(generateNetwork());
             for (const id of ids) {
                 if (cpu[id] >= 0) continue; // already resident from an earlier reseed — no new layer spent
                 try {
@@ -155,7 +155,7 @@ describe("invalidate — the atlas's document-swap reset", () => {
 
         for (let seed = 0; seed <= 500; seed++) {
             nextLayer = invalidate(cpu, pending, pendingSet); // atlas.ts's swap invalidation, run first
-            const ids = documentDirtyTiles(generateNetwork(seed));
+            const ids = documentDirtyTiles(generateNetwork());
             for (const id of ids) {
                 nextLayer = allocate(cpu, id, nextLayer, ATLAS_LAYERS).nextLayer; // never throws post-fix
             }

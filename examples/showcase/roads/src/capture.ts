@@ -4,7 +4,7 @@ import { captureProbePoints } from "./overlay/network";
 import { COVERAGE_BAND_PX } from "./overlay/tiles";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { CELLS, gridX, gridZ, SPACING, VERTS } from "./terrain/grid";
-import { readVertices, SEED } from "./terrain/terrain";
+import { readVertices } from "./terrain/terrain";
 
 // The device gate's world→screen bridge for the pixel-probe capture (the spec's flagged-risk validation —
 // the fs composite is observable only in the rendered frame, never in the compute-write half `bun test`
@@ -70,9 +70,9 @@ export function worldToScreen(
 /** one arbitrary world (x, z) → its full 3D world point, height read from the real generated vertex
  *  stream (`readVertices`, `terrain.ts`) at the *nearest* grid column, rather than re-deriving the noise
  *  function in JS — exact for a grid-aligned input (`overlay/network.ts`'s `captureProbePoints`), and a
- *  bounded-error approximation (at most half a grid cell's own height gradient) for an off-grid point such
- *  as a straightness probe's analytic edge anchor (`grazingCapture.ts`), which only needs a point close
- *  enough to the real surface to project sensibly, not the exact flattened height. */
+ *  bounded-error approximation (at most half a grid cell's own height gradient) for an off-grid point,
+ *  which only needs a point close enough to the real surface to project sensibly, not the exact flattened
+ *  height. */
 export async function withHeight(x: number, z: number): Promise<[x: number, y: number, z: number]> {
     const raw = await readVertices();
     const ix = gridX(x);
@@ -86,14 +86,14 @@ export async function withHeight(x: number, z: number): Promise<[x: number, y: n
  *  reconstruction from the four surrounding vertices (`grid.ts`'s own split: `(i0,i2,i1)` and `(i1,i2,i3)`),
  *  the same plane the rasterizer actually draws. Unlike {@link withHeight}'s nearest-vertex read (a
  *  bounded approximation, fine for projecting a point sensibly), this is exact everywhere inside the
- *  mesh's footprint — `straightness.ts`'s height-silhouette criterion (`grazingCapture.ts`) needs the
- *  surface a viewer's eye actually sees at a point that generally doesn't land on a vertex, since the
- *  defect it measures *is* the gap between this reconstruction and the continuous analytic height at the
- *  same point. `raw` is one `readVertices()` readback, reused across every sample in a scan so the GPU is
- *  read back once, not once per probe step. `spacing`/`cells` default to the live mesh's own
- *  `grid.ts` constants — `flatness.ts`'s mesh-resolution discrimination arm (stage 12) is the one caller
- *  that overrides them, reconstructing a *different*-resolution lattice `raw` was built at without a
- *  second, independently-drifting copy of this same triangle-interpolation formula. */
+ *  mesh's footprint — `flatness.ts`'s corridor-flatness oracle needs the surface a viewer's eye actually
+ *  sees at a point that generally doesn't land on a vertex, since the defect it measures *is* the gap
+ *  between this reconstruction and the continuous analytic height at the same point. `raw` is one
+ *  `readVertices()` readback, reused across every sample in a scan so the GPU is read back once, not once
+ *  per probe step. `spacing`/`cells` default to the live mesh's own `grid.ts` constants —
+ *  `flatness.ts`'s mesh-resolution discrimination arm (stage 12) is the one caller that overrides them,
+ *  reconstructing a *different*-resolution lattice `raw` was built at without a second,
+ *  independently-drifting copy of this same triangle-interpolation formula. */
 export function meshHeightAt(
     raw: Uint32Array,
     x: number,
@@ -125,14 +125,14 @@ export function meshHeightAt(
     return h11 + utx * (h01 - h11) + utz * (h10 - h11);
 }
 
-/** the capture gate's on-road/off-road world probe points over the full procedural network at the boot's
- *  pinned {@link SEED} (`overlay/network.ts`'s `captureProbePoints`, `terrain.ts`'s live boot document),
- *  heights read from the live generated terrain. */
+/** the capture gate's on-road/off-road world probe points over the network's one fixed standard chord
+ *  (`overlay/network.ts`'s `captureProbePoints`, `terrain.ts`'s live boot document — no seed,
+ *  `roads-interactive.md` stage 1), heights read from the live generated terrain. */
 export async function capturePoints(): Promise<{
     onRoad: [number, number, number];
     offRoad: [number, number, number];
 }> {
-    const { onRoad, offRoad } = captureProbePoints(SEED);
+    const { onRoad, offRoad } = captureProbePoints();
     const [onRoadPoint, offRoadPoint] = await Promise.all([
         withHeight(...onRoad),
         withHeight(...offRoad),

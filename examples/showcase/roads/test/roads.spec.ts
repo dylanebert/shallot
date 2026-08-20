@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
-import { captureProbePoints, generateNetwork } from "../src/overlay/network";
+import { generateNetwork } from "../src/overlay/network";
 import { makePermutation } from "../src/terrain/noise";
 import { buildPolylineProfile, heightAtCpu } from "../src/terrain/profile";
 
@@ -235,20 +235,20 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // handler calls, `boot.ts`), rather than real random keypresses: a live F9 draws a fresh
     // `Math.random()` seed every press, and this stage's `overlay/queue.test.ts` already covers the
     // reset mechanics device-free — what only the device can show is that the *composite* actually reads
-    // the reset indirection. Two fixed seeds chosen so neither reseed's own network coincidentally
-    // re-touches the boot network's on-road tile (device-free, `overlay/network.test.ts`'s "stage 14's
-    // device-arm reseed seeds" pin) — a coincidental real road there would make a still-stale read pass
-    // by accident.
+    // the reset indirection.
     //
-    // Two complementary probes, not one: the old boot network's on-road point must stop reading road
-    // (`invalidate()` actually released it), *and* the final reseeded network's own on-road point must
-    // start reading road (the swapped-in document actually queued and drained). An arm that only checked
-    // the first half passed even when `regenerate()`'s two calls ran in the wrong order — `markDirty`
-    // then `invalidate` wipes the very pending-queue entries `markDirty` just pushed, so the old road
-    // vanishes for the wrong reason (nothing ever redraws again) and the first probe alone can't tell the
-    // difference (adversarial review, 2026-08-19). The final network's on-road point is derived the same
-    // way `overlay/network.test.ts` derives its disjointness pin — real `captureProbePoints` against the
-    // real reseed seed, not a hand-picked coordinate.
+    // `roads-interactive.md` stage 1 deleted route selection: `regenerate(seed)`'s seed now reseeds the
+    // noise permutation alone and resets the road to the standard chord (`overlay/network.ts`'s
+    // `generateNetwork` — no seed), so there is no longer an "old road" and a "new road" at different
+    // positions — every reseed lands the identical document at the identical on-road probe point. The
+    // two-complement stale-vs-new arm this used to run (one probe must stop reading road, a second must
+    // start reading road) has no subject left: read it as one complement instead — the single, unmoved
+    // on-road point must still read road after two full invalidate/redraw cycles, proving the redraw
+    // survived `regenerate`'s `invalidate()` → `markDirty()` → `generate()` sequence rather than leaving
+    // the tile stuck unresolved. A `markDirty`-then-`invalidate` ordering bug (the regression this arm
+    // was written to catch, adversarial review 2026-08-19) still reds it: that ordering wipes the very
+    // pending-queue entries `markDirty` just pushed, so the road never redraws after the reseed and the
+    // probe reads bare terrain instead.
     const ReseedSeedA = 111111;
     const ReseedSeedB = 233332;
 
@@ -267,12 +267,9 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
         );
     }
 
-    const { onRoad: newRoad } = captureProbePoints(ReseedSeedB);
-
-    // both probed world (x, z) are fixed, but their surface heights aren't — the old point's flatten
-    // target is gone and the new point's has just been baked — so re-derive the real generated height at
-    // each (`__roadsHeightAt`) rather than reusing Phase 2's stale flattened point.
-    const [staleWorldPoint, newRoadWorldPoint] = (await page.evaluate(
+    // the on-road point is the fixed standard chord's own probe — re-derive its real generated height
+    // post-reseed (`__roadsHeightAt`) rather than reusing Phase 2's now-stale flattened point.
+    const [onRoadWorldPoint] = (await page.evaluate(
         (points) =>
             Promise.all(
                 points.map((xz) =>
@@ -286,36 +283,40 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
                     ).__roadsHeightAt(xz[0], xz[1]),
                 ),
             ),
-        [
-            [onRoad[0], onRoad[2]],
-            [newRoad[0], newRoad[1]],
-        ] as [number, number][],
+        [[onRoad[0], onRoad[2]]] as [number, number][],
     )) as [number, number, number][];
 
-    const [staleScreen, newRoadScreen] = (await page.evaluate(
+    const [onRoadReseedScreen] = (await page.evaluate(
         (points) =>
             (
                 window as unknown as {
                     __roadsProbe: (pts: [number, number, number][]) => ScreenPoint[];
                 }
             ).__roadsProbe(points),
-        [staleWorldPoint, newRoadWorldPoint],
+        [onRoadWorldPoint],
     )) as ScreenPoint[];
 
-    // In-frame assertion for the reseed probes (same rationale as Phase 2's pair above).
-    for (const [name, sp] of [
-        ["stale", staleScreen],
-        ["newRoad", newRoadScreen],
-    ] as const) {
-        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeGreaterThan(0);
-        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeLessThan(1);
-        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeGreaterThan(0);
-        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeLessThan(1);
-    }
+    // In-frame assertion for the reseed probe (same rationale as Phase 2's pair above).
+    expect(
+        onRoadReseedScreen.x,
+        `onRoad probe x=${onRoadReseedScreen.x} is not in-frame (0, 1)`,
+    ).toBeGreaterThan(0);
+    expect(
+        onRoadReseedScreen.x,
+        `onRoad probe x=${onRoadReseedScreen.x} is not in-frame (0, 1)`,
+    ).toBeLessThan(1);
+    expect(
+        onRoadReseedScreen.y,
+        `onRoad probe y=${onRoadReseedScreen.y} is not in-frame (0, 1)`,
+    ).toBeGreaterThan(0);
+    expect(
+        onRoadReseedScreen.y,
+        `onRoad probe y=${onRoadReseedScreen.y} is not in-frame (0, 1)`,
+    ).toBeLessThan(1);
 
     const reseedScreenshot = await page.screenshot();
     const reseedCapture = await page.evaluate(
-        async ({ base64, staleScreen, newRoadScreen, offRoadScreen }) => {
+        async ({ base64, onRoadReseedScreen, offRoadScreen }) => {
             const binary = atob(base64);
             const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
             const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
@@ -336,44 +337,30 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
             };
 
             return {
-                staleLum: luminanceAt(staleScreen.x, staleScreen.y),
-                newRoadLum: luminanceAt(newRoadScreen.x, newRoadScreen.y),
+                onRoadLum: luminanceAt(onRoadReseedScreen.x, onRoadReseedScreen.y),
                 offRoadLum: luminanceAt(offRoadScreen.x, offRoadScreen.y),
             };
         },
         {
             base64: reseedScreenshot.toString("base64"),
-            staleScreen,
-            newRoadScreen,
+            onRoadReseedScreen,
             offRoadScreen,
         },
     );
 
-    // complement 1: a tile still stuck with the old network's road albedo would read dark, < offRoadLum *
-    // 0.75 (the same ratio Phase 2 asserts true for a real road, above); a correctly invalidated tile
-    // reads as bare terrain, at or above that ratio.
+    // the standard chord's own on-road point must still read as road after two full reseed/redraw
+    // cycles — the same ratio Phase 2 asserts true for the boot frame, above.
     expect(
-        reseedCapture.staleLum,
-        `stale boot-network on-road point ${reseedCapture.staleLum.toFixed(1)} vs off-road ${reseedCapture.offRoadLum.toFixed(1)} — still reads as road after two reseeds`,
-    ).toBeGreaterThanOrEqual(reseedCapture.offRoadLum * 0.75);
-
-    // complement 2: the final reseeded network's own road must actually be there — the arm this finding
-    // was missing. A `markDirty`-then-`invalidate` ordering bug passes complement 1 (the old road is gone)
-    // while failing this one (the new road never queued, so nothing redrew after the swap).
-    expect(
-        reseedCapture.newRoadLum,
-        `final-network on-road point ${reseedCapture.newRoadLum.toFixed(1)} vs off-road ${reseedCapture.offRoadLum.toFixed(1)} — doesn't read as road after the reseed that should have drawn it`,
+        reseedCapture.onRoadLum,
+        `on-road point ${reseedCapture.onRoadLum.toFixed(1)} vs off-road ${reseedCapture.offRoadLum.toFixed(1)} — doesn't read as road after two reseeds`,
     ).toBeLessThan(reseedCapture.offRoadLum * 0.75);
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Restore the boot seed after Phase 3's reseeds. Phase 3 reseeds to 111111 then 233332 (both
-    // deliberately chosen so neither network has a road at the probe point — that property is what
-    // makes Phase 3's arm valid, and it is exactly what guarantees the corridor capture would be empty
-    // if the boot seed were not restored). The corridor pose (corridorPose.ts / corridorCapture.ts) is
-    // derived from `generateNetwork(1337)` via `roadFrame()` (boundaryAnchors.ts), so the camera points
-    // at seed 1337's road-0 midpoint. The capture must be taken with the live terrain on the same
-    // network the pose was derived from — restore the boot seed, then reposition and capture.
+    // Restore the boot seed's noise after Phase 3's reseeds — the corridor pose (corridorPose.ts /
+    // corridorCapture.ts) is derived against the boot seed's own terrain (`buildNetworkGeometry`
+    // samples natural height with `SEED`'s permutation), so a mismatched noise seed would flatten the
+    // corridor's earthwork depth differently than the pose's own literals assume.
     await page.evaluate(
         (s) =>
             (
@@ -390,13 +377,13 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // Phase 4: corridor content arm — assert against the live device scene that the corridor is
     // actually in frame and set into terrain. This closes the gate the blocker proved missing: nothing
     // previously checked the corridor capture's content — the screenshot was written to a file and
-    // never inspected, so a capture of empty terrain (seed 233332's, with no road at the probe point)
-    // passed every gate. The arm checks two things: (1) the live height at the corridor centre matches
-    // the chord's flatten target (the terrain is flattened there — a road is present), and (2) the
-    // live height ~30 m to the side does not match the flatten target (unflattened terrain flanks the
-    // corridor — it reads set into terrain, not flat everywhere). Both checks use the boot seed's
-    // network geometry and natural heights, so a wrong-seed terrain reds both.
-    const bootDoc = generateNetwork(BOOT_SEED);
+    // never inspected, so a capture of empty terrain passed every gate. The arm checks two things: (1)
+    // the live height at the corridor centre matches the chord's flatten target (the terrain is
+    // flattened there — a road is present), and (2) the live height ~30 m to the side does not match
+    // the flatten target (unflattened terrain flanks the corridor — it reads set into terrain, not flat
+    // everywhere). Both checks use the boot seed's network geometry and natural heights, so a
+    // wrong-seed terrain reds both.
+    const bootDoc = generateNetwork();
     const [[roadAx, roadAz], [roadBx, roadBz]] = bootDoc.polylines[0].points;
     const roadDx = roadBx - roadAx;
     const roadDz = roadBz - roadAz;
@@ -469,7 +456,7 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // (corridorCapture.ts via window.__roadsCorridorCapture), wait for it to settle, and save the
     // screenshot to a second file. The default-orbit capture (Phase 2) is already saved and must not
     // move — it feeds the fs-composite pixel probes. This capture is the admissible artifact for 24b's
-    // human release look: the earthwork's 1.4404 m vertical excursion projects to ≥5 px at this pose
+    // human release look: the earthwork's 3.8720 m vertical excursion projects to ≥5 px at this pose
     // (asserted device-free by corridorPose.test.ts), while ≥30 m of unflattened terrain flanks the
     // corridor in frame.
     await page.evaluate(() =>

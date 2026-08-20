@@ -94,7 +94,7 @@ describe("flattenedHeightAt — WGSL structural resolve", () => {
         for (const helper of ["flattenedHeightAt", "flattenHeightGpu", "networkCore", "heightAt"]) {
             expect(wgsl).toContain(`fn ${helper}(`);
         }
-        expect(wgsl.match(/var<storage/g)?.length).toBeGreaterThanOrEqual(3); // segments + polygons + polyVerts
+        expect(wgsl.match(/var<storage/g)?.length).toBeGreaterThanOrEqual(1); // segments
     });
 
     test("integer discipline holds over the network-geometry loops", () => {
@@ -146,7 +146,7 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     test("every polyline produces exactly one chord segment spanning its own endpoints (stage 17)", () => {
         // the chord profile returns exactly two profile points per polyline (the endpoints), so
         // `buildNetworkGeometry` emits one segment per road — no resampling, no sub-segments.
-        const doc = generateNetwork(42);
+        const doc = generateNetwork();
         const { segments } = buildNetworkGeometry(doc, 1337);
         expect(segments.length).toBe(doc.polylines.length);
         for (const [i, line] of doc.polylines.entries()) {
@@ -162,7 +162,7 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     test("each road's single chord segment spans its own polyline endpoints — no sub-segment chain", () => {
         // stage 17: the chord is one segment per road, so there's no chain to check — each segment's
         // endpoints ARE the polyline's endpoints. This pin verifies that directly.
-        const doc = generateNetwork(7);
+        const doc = generateNetwork();
         const { segments } = buildNetworkGeometry(doc, 1337);
         expect(segments.length).toBe(doc.polylines.length);
         for (const [i, line] of doc.polylines.entries()) {
@@ -175,31 +175,30 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         }
     });
 
-    test("segments are emitted road-contiguously — one segment per road, road field non-decreasing (seed scan)", () => {
+    test("segments are emitted road-contiguously — one segment per road, road field non-decreasing", () => {
         // The GPU mirror (`networkCore` in `flatten.ts`) groups sub-segments into their owning road
         // by detecting `seg.road` changes in the segment array — it relies on segments being emitted
         // contiguously per road. The CPU mirror (`networkCoreCpu` in `flatness.ts`) uses a Map keyed
         // by `road`, so it does not rely on contiguity — the invariant is load-bearing on one side
         // only. Stage 17: one segment per road, so the invariant is trivially true — the `road` field
-        // is strictly increasing (0, 1, 2, ..., ROAD_COUNT-1). Widened off a single seed to a scan —
-        // stage 6's lesson: a single hardcoded seed is a fixture, not a corpus.
-        const SeedScan = 500;
-        for (let seed = 0; seed <= SeedScan; seed++) {
-            const doc = generateNetwork(seed);
-            const { segments } = buildNetworkGeometry(doc, 1337);
-            expect(segments.length).toBe(doc.polylines.length);
-            for (let i = 1; i < segments.length; i++) {
-                expect(segments[i].road).toBeGreaterThanOrEqual(segments[i - 1].road);
-            }
+        // is strictly increasing (0, 1, 2, ..., ROAD_COUNT-1). Stage 1 (`roads-interactive.md`)
+        // deleted route selection: `generateNetwork` always returns the one fixed standard chord, so
+        // the seed scan this arm used to run over is gone with it — there is exactly one document to
+        // check.
+        const doc = generateNetwork();
+        const { segments } = buildNetworkGeometry(doc, 1337);
+        expect(segments.length).toBe(doc.polylines.length);
+        for (let i = 1; i < segments.length; i++) {
+            expect(segments[i].road).toBeGreaterThanOrEqual(segments[i - 1].road);
         }
     });
 
     test("grade stays under MAX_GRADE along any road's chord — by measurement, not by a limiter (stage 17)", () => {
         // stage 17: the chord has no grade limiter — the grade is the natural chord grade between the
-        // endpoint heights. It stays under MAX_GRADE by measurement (worst chord grade 10.51% on
-        // SEED=1337). This pin reads that measurement on seed 615's network against
-        // perm 1337's terrain.
-        const doc = generateNetwork(615);
+        // endpoint heights. It stays under MAX_GRADE by measurement. Stage 1 (`roads-interactive.md`)
+        // replaced route selection with the one fixed standard chord, so this reads that measurement
+        // on the standard chord against perm 1337's terrain.
+        const doc = generateNetwork();
         const { segments } = buildNetworkGeometry(doc, 1337);
         for (const seg of segments) {
             const len = Math.hypot(seg.bx - seg.ax, seg.bz - seg.az);
@@ -210,9 +209,9 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     });
 
     test("cut depth is a non-negative real measurement, not a network-independent worst case", () => {
-        const flat = buildNetworkGeometry({ polylines: [], polygons: [] }, 1337);
+        const flat = buildNetworkGeometry({ polylines: [] }, 1337);
         expect(flat.cutDepth).toBe(0); // no polylines, nothing to cut
-        const doc = generateNetwork(42);
+        const doc = generateNetwork();
         const withRoads = buildNetworkGeometry(doc, 1337);
         expect(withRoads.cutDepth).toBeGreaterThanOrEqual(0);
         expect(Number.isFinite(withRoads.cutDepth)).toBe(true);
