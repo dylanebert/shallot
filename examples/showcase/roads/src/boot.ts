@@ -2,6 +2,7 @@ import type { Plugin, System } from "@dylanebert/shallot";
 import { Meshes } from "@dylanebert/shallot/render/core";
 import {
     capturePoints,
+    markingProbePoints,
     type ScreenPoint,
     TRANSITION_TOLERANCE_PX,
     withHeight,
@@ -48,6 +49,15 @@ declare global {
         // network's flatten target is gone.
         __roadsRegenerate?: (seed: number) => Promise<void>;
         __roadsHeightAt?: (x: number, z: number) => Promise<[number, number, number]>;
+        // stage 3's marking device probes — four world points derived from the document, each on a
+        // distinct marking class (edge line, asphalt, dash gap, dash). The device gate asserts the
+        // luminance bands at these points are disjoint.
+        __roadsMarkingProbePoints?: () => Promise<{
+            edgeLine: [number, number, number];
+            asphalt: [number, number, number];
+            dashGap: [number, number, number];
+            dash: [number, number, number];
+        }>;
     }
 }
 
@@ -71,6 +81,7 @@ const BootSystem: System = {
         window.__roadsCorridorCapture = () => corridorCapture();
         window.__roadsRegenerate = (seed) => regenerate(seed);
         window.__roadsHeightAt = (x, z) => withHeight(x, z);
+        window.__roadsMarkingProbePoints = () => markingProbePoints();
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `{ signal: state.signal }` detaches the listener at `state.dispose()`, no removal
         // code needed.
@@ -96,6 +107,7 @@ const BootSystem: System = {
         delete window.__roadsCorridorCapture;
         delete window.__roadsRegenerate;
         delete window.__roadsHeightAt;
+        delete window.__roadsMarkingProbePoints;
     },
 };
 

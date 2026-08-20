@@ -230,6 +230,97 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
+    // Phase 2b: stage 3's marking device probes — four world points derived from the document, each on
+    // a distinct marking class (edge line, asphalt, dash gap, dash). The device gate asserts the
+    // luminance bands at these points are DISJOINT, so a probe that cannot discriminate the classes it
+    // gates is not evidence (roads-interactive.md stage 3, Marking fidelity).
+    const markingProbes = (await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsMarkingProbePoints: () => Promise<{
+                    edgeLine: [number, number, number];
+                    asphalt: [number, number, number];
+                    dashGap: [number, number, number];
+                    dash: [number, number, number];
+                }>;
+            }
+        ).__roadsMarkingProbePoints(),
+    )) as {
+        edgeLine: [number, number, number];
+        asphalt: [number, number, number];
+        dashGap: [number, number, number];
+        dash: [number, number, number];
+    };
+
+    const markingScreen = (await page.evaluate(
+        (points) =>
+            (
+                window as unknown as {
+                    __roadsProbe: (pts: [number, number, number][]) => ScreenPoint[];
+                }
+            ).__roadsProbe(points),
+        [markingProbes.edgeLine, markingProbes.asphalt, markingProbes.dashGap, markingProbes.dash],
+    )) as ScreenPoint[];
+
+    // In-frame assertion for each marking probe.
+    for (const [name, sp] of [
+        ["edgeLine", markingScreen[0]],
+        ["asphalt", markingScreen[1]],
+        ["dashGap", markingScreen[2]],
+        ["dash", markingScreen[3]],
+    ] as const) {
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeLessThan(1);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeLessThan(1);
+    }
+
+    const markingLum = (await page.evaluate(
+        async ({ base64, probes }) => {
+            const binary = atob(base64);
+            const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+            const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("roads capture: 2D screenshot context unavailable");
+            context.drawImage(bitmap, 0, 0);
+            const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+            const luminanceAt = (fracX: number, fracY: number): number => {
+                const x = Math.min(bitmap.width - 1, Math.max(0, Math.round(fracX * bitmap.width)));
+                const y = Math.min(
+                    bitmap.height - 1,
+                    Math.max(0, Math.round(fracY * bitmap.height)),
+                );
+                const at = (y * bitmap.width + x) * 4;
+                return 0.3 * data[at] + 0.59 * data[at + 1] + 0.11 * data[at + 2];
+            };
+            return probes.map((p) => luminanceAt(p.x, p.y));
+        },
+        { base64: screenshot.toString("base64"), probes: markingScreen },
+    )) as number[];
+
+    // Assert the bands are DISJOINT: edge line (white) > dash (yellow) > asphalt (dark) ≈ dash gap (dark).
+    // A probe that cannot discriminate the classes it gates is not evidence.
+    expect(
+        markingLum[0],
+        `edge line ${markingLum[0].toFixed(1)} should be brighter than dash ${markingLum[3].toFixed(1)}`,
+    ).toBeGreaterThan(markingLum[3]);
+    expect(
+        markingLum[3],
+        `dash ${markingLum[3].toFixed(1)} should be brighter than asphalt ${markingLum[1].toFixed(1)}`,
+    ).toBeGreaterThan(markingLum[1]);
+    expect(
+        markingLum[2],
+        `dash gap ${markingLum[2].toFixed(1)} should be dark like asphalt ${markingLum[1].toFixed(1)}, not bright`,
+    ).toBeLessThan(markingLum[3]);
+    // edge line (white) and dash (yellow) are in disjoint bands — white is brighter than yellow
+    expect(
+        markingLum[0],
+        `edge line ${markingLum[0].toFixed(1)} vs dash ${markingLum[3].toFixed(1)} — bands not disjoint`,
+    ).toBeGreaterThan(markingLum[3] * 1.05);
+
+    expect(errors, errors.join("\n")).toEqual([]);
+
     // Phase 3: stage 14's reseed-integrity device arm (spec Validation, "Reseed integrity" — device half).
     // F9 twice via `__roadsRegenerate` (a deterministic bridge onto the same `regenerate()` the real F9
     // handler calls, `boot.ts`), rather than real random keypresses: a live F9 draws a fresh

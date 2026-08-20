@@ -1,7 +1,8 @@
 import { computeViewProj, Views } from "@dylanebert/shallot/render/core";
 import { decodePos } from "@dylanebert/shallot/utils/core";
-import { captureProbePoints } from "./overlay/network";
-import { COVERAGE_BAND_PX } from "./overlay/tiles";
+import { markingDistance } from "./overlay/document";
+import { captureProbePoints, generateNetwork } from "./overlay/network";
+import { COVERAGE_BAND_PX, DASH_DUTY, DASH_OFFSET, DASH_PERIOD, EDGE_INSET } from "./overlay/tiles";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { CELLS, gridX, gridZ, SPACING, VERTS } from "./terrain/grid";
 import { readVertices } from "./terrain/terrain";
@@ -138,6 +139,103 @@ export async function capturePoints(): Promise<{
         withHeight(...offRoad),
     ]);
     return { onRoad: onRoadPoint, offRoad: offRoadPoint };
+}
+
+/**
+ * the capture gate's marking probe points — four world points derived from the document (never
+ * hand-placed), each sitting on a distinct marking class the fs composites: one on an edge line
+ * (solid white), one on the asphalt between the edge line and the centreline, one in a dash gap
+ * (centreline absent → reads road), and one on a dash (broken yellow centreline). The device gate
+ * asserts the luminance bands at these four points are DISJOINT — a probe that cannot discriminate
+ * the classes it gates is not evidence (roads-interactive.md stage 3, Marking fidelity).
+ *
+ * Derivation: the standard chord's midpoint, offset along the road's normal by (halfWidth −
+ * EDGE_INSET) for the edge line, by halfWidth/2 for the asphalt between, and along the centreline
+ * at stations chosen by the dash phase (fract(s / DASH_PERIOD) < DASH_DUTY for a dash, >= DASH_DUTY
+ * for a gap). Heights read from the live generated terrain.
+ */
+export async function markingProbePoints(): Promise<{
+    edgeLine: [number, number, number];
+    asphalt: [number, number, number];
+    dashGap: [number, number, number];
+    dash: [number, number, number];
+}> {
+    const doc = generateNetwork();
+    const line = doc.polylines[0];
+    const [[ax, az], [bx, bz]] = line.points;
+    const mx = (ax + bx) / 2;
+    const mz = (az + bz) / 2;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dz) || 1;
+    const nx = -dz / len; // unit normal (network.ts's convention)
+    const nz = dx / len;
+    const halfWidth = line.halfWidth;
+
+    // edge line: midpoint, offset laterally by (halfWidth - EDGE_INSET) toward one edge
+    const edgeOffset = halfWidth - EDGE_INSET;
+    const edgeLineX = mx + nx * edgeOffset;
+    const edgeLineZ = mz + nz * edgeOffset;
+
+    // asphalt between: midpoint, offset laterally by halfWidth/2 (between centreline and edge line)
+    const asphaltOffset = halfWidth / 2;
+    const asphaltX = mx + nx * asphaltOffset;
+    const asphaltZ = mz + nz * asphaltOffset;
+
+    // dash / dash gap: scan along the centreline for the first station in a dash and the first in a gap.
+    // Start at the midpoint (station = len/2) and step in both directions to find each class.
+    const midStation = len / 2;
+    let dashStation = -1;
+    let gapStation = -1;
+    const step = 0.5; // half-metre steps — finer than LINE_WIDTH, coarse enough to be fast
+    for (let s = midStation; s < len && (dashStation < 0 || gapStation < 0); s += step) {
+        const phase = ((s + DASH_OFFSET) / DASH_PERIOD) % 1;
+        if (dashStation < 0 && phase < DASH_DUTY) dashStation = s;
+        if (gapStation < 0 && phase >= DASH_DUTY) gapStation = s;
+    }
+    // fall back to scanning backward if forward didn't find both
+    for (let s = midStation - step; s >= 0 && (dashStation < 0 || gapStation < 0); s -= step) {
+        const phase = ((s + DASH_OFFSET) / DASH_PERIOD) % 1;
+        if (dashStation < 0 && phase < DASH_DUTY) dashStation = s;
+        if (gapStation < 0 && phase >= DASH_DUTY) gapStation = s;
+    }
+    if (dashStation < 0 || gapStation < 0) {
+        throw new Error("markingProbePoints: could not find both a dash and a gap station");
+    }
+
+    const ux = dx / len;
+    const uz = dz / len;
+    const dashX = ax + ux * dashStation;
+    const dashZ = az + uz * dashStation;
+    const gapX = ax + ux * gapStation;
+    const gapZ = az + uz * gapStation;
+
+    // verify the probe points classify correctly against the document
+    if (markingDistance(edgeLineX, edgeLineZ, doc) >= 0) {
+        throw new Error("markingProbePoints: edge line probe is not inside a marking");
+    }
+    if (markingDistance(asphaltX, asphaltZ, doc) <= 0) {
+        throw new Error("markingProbePoints: asphalt probe is inside a marking");
+    }
+    if (markingDistance(dashX, dashZ, doc) >= 0) {
+        throw new Error("markingProbePoints: dash probe is not inside a marking");
+    }
+    if (markingDistance(gapX, gapZ, doc) <= 0) {
+        throw new Error("markingProbePoints: dash gap probe is inside a marking");
+    }
+
+    const [edgeLinePt, asphaltPt, dashPt, gapPt] = await Promise.all([
+        withHeight(edgeLineX, edgeLineZ),
+        withHeight(asphaltX, asphaltZ),
+        withHeight(dashX, dashZ),
+        withHeight(gapX, gapZ),
+    ]);
+    return {
+        edgeLine: edgeLinePt,
+        asphalt: asphaltPt,
+        dashGap: gapPt,
+        dash: dashPt,
+    };
 }
 
 /**

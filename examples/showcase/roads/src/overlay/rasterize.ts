@@ -23,7 +23,17 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { flattenSegments, type StrokeDocument } from "./document";
 import { ROAD_ALBEDO } from "./stroke";
-import { DIST_RANGE, TEXEL_SIZE, TILE_RES, tileOrigin } from "./tiles";
+import {
+    DASH_DUTY,
+    DASH_OFFSET,
+    DASH_PERIOD,
+    DIST_RANGE,
+    EDGE_INSET,
+    LINE_HALF_WIDTH,
+    TEXEL_SIZE,
+    TILE_RES,
+    tileOrigin,
+} from "./tiles";
 
 const GROUP_TEXELS = 4; // texels packed per output distance/index word (4 × r8 = one u32, little-endian)
 const GROUPS_PER_SIDE = TILE_RES / GROUP_TEXELS; // 128 — TILE_RES is a multiple of 4 by construction
@@ -112,17 +122,72 @@ export const encodeDistGpu = tgpu.fn(
     return d.u32(std.round(unit * d.f32(255)));
 });
 
-/** pack ROAD_ALBEDO's rgb + full alpha into rgba8unorm's little-endian byte order — every texel gets the
- *  same word (stage 4's `packStrokeTile` wrote albedo everywhere too: cheap, and the fs never reads it
- *  past the coverage the distance channel derives). Computed once at module load, not per-thread. */
-function packAlbedoWord(rgb: readonly [number, number, number]): number {
+/** pack ROAD_ALBEDO's rgb into rgba8unorm's little-endian byte order — the alpha byte is now per-texel
+ *  (the encoded marking distance, not the constant 255 it used to be). Computed once at module load. */
+function packAlbedoRgb(rgb: readonly [number, number, number]): number {
     const r = Math.round(rgb[0] * 255);
     const g = Math.round(rgb[1] * 255);
     const b = Math.round(rgb[2] * 255);
-    return (r | (g << 8) | (b << 16) | (255 << 24)) >>> 0;
+    return (r | (g << 8) | (b << 16)) >>> 0;
 }
 
-const albedoWord = tgpu.const(d.u32, packAlbedoWord(ROAD_ALBEDO)).$name("roadAlbedoWord");
+const roadAlbedoRgb = tgpu.const(d.u32, packAlbedoRgb(ROAD_ALBEDO)).$name("roadAlbedoRgb");
+
+/** the signed distance to the nearest road marking for one segment — the GPU twin of
+ *  `document.ts`'s `markingDistanceForSegment`, independently derived via the clamped-projection form
+ *  (same split as `segmentDistanceGpu` vs `segmentDistance`). Two solid edge lines inset from the road
+ *  edge (centred at d = −EDGE_INSET on the existing edge distance) and a broken centreline (perpendicular
+ *  distance via the cross product, station along the chord via fract(s / DASH_PERIOD) < DASH_DUTY).
+ *  CPU-callable so `bun test` exercises this exact math with no device — the GPU half of stage 3's
+ *  marking differential oracle. `rasterize.ts` never imports `markingDistance` — the two derivations are
+ *  independent by contract.
+ * @example markingDistanceGpu(0, 0, -100, 0, 100, 0, 4) // on the centreline, inside a dash → negative */
+export const markingDistanceGpu = tgpu.fn(
+    [d.f32, d.f32, d.f32, d.f32, d.f32, d.f32, d.f32],
+    d.f32,
+)((px, pz, ax, az, bx, bz, halfWidth) => {
+    "use gpu";
+    const abx = bx - ax;
+    const abz = bz - az;
+    const apx = px - ax;
+    const apz = pz - az;
+    const dd = abx * abx + abz * abz;
+    let t = d.f32(0);
+    let tRaw = d.f32(0);
+    if (dd > 0) {
+        tRaw = (apx * abx + apz * abz) / dd;
+        t = std.clamp(tRaw, 0, 1);
+    }
+    const cx = ax + t * abx;
+    const cz = az + t * abz;
+    const dist = std.distance(d.vec2f(px, pz), d.vec2f(cx, cz));
+    const edgeDist = dist - halfWidth;
+
+    // edge line: solid, centred at d = −EDGE_INSET, width LINE_WIDTH
+    const edgeLineDist = std.abs(edgeDist + d.f32(EDGE_INSET)) - d.f32(LINE_HALF_WIDTH);
+
+    // centreline: broken, lateral from the cross product, longitudinal from the dash phase
+    const len = std.sqrt(dd);
+    const cross = len > 0 ? (apx * abz - apz * abx) / len : 0;
+    const lateral = std.abs(cross) - d.f32(LINE_HALF_WIDTH);
+    const along = t * len;
+    let longitudinal = d.f32(0);
+    if (tRaw < 0) {
+        longitudinal = -tRaw * len;
+    } else if (tRaw > 1) {
+        longitudinal = (tRaw - 1) * len;
+    } else {
+        const phase = std.fract((along + d.f32(DASH_OFFSET)) / d.f32(DASH_PERIOD));
+        if (phase < d.f32(DASH_DUTY)) {
+            longitudinal = -std.min(phase, d.f32(DASH_DUTY) - phase) * d.f32(DASH_PERIOD);
+        } else {
+            longitudinal = std.min(phase - d.f32(DASH_DUTY), d.f32(1) - phase) * d.f32(DASH_PERIOD);
+        }
+    }
+    const centreDist = std.max(lateral, longitudinal);
+
+    return std.min(edgeLineDist, centreDist);
+});
 
 const rasterKernel = tgpu
     .computeFn({
@@ -142,12 +207,45 @@ const rasterKernel = tgpu
         for (; k < d.u32(GROUP_TEXELS); k = k + d.u32(1)) {
             const texelX = gx * d.u32(GROUP_TEXELS) + k;
             const worldX = origin.x + (d.f32(texelX) + d.f32(0.5)) * d.f32(TEXEL_SIZE);
-            const dist = documentDistanceGpu(worldX, worldZ);
-            const byte = encodeDistGpu(dist);
+
+            // nearest-segment tracking: loop over segments once, carrying both the coverage distance
+            // and the marking distance — the two derivations are independent (this kernel never imports
+            // `markingDistance`), but they share the same segment loop so one dispatch computes both.
+            let bestCoverage = d.f32(3.402823e38);
+            let bestMarking = d.f32(3.402823e38);
+            let i = d.u32(0);
+            for (; i < rasterLayout.$.params.segmentCount; i = i + d.u32(1)) {
+                const seg = rasterLayout.$.segments[i];
+                const cov = segmentDistanceGpu(
+                    worldX,
+                    worldZ,
+                    seg.a.x,
+                    seg.a.y,
+                    seg.b.x,
+                    seg.b.y,
+                    seg.halfWidth,
+                );
+                if (cov < bestCoverage) bestCoverage = cov;
+                const m = markingDistanceGpu(
+                    worldX,
+                    worldZ,
+                    seg.a.x,
+                    seg.a.y,
+                    seg.b.x,
+                    seg.b.y,
+                    seg.halfWidth,
+                );
+                if (m < bestMarking) bestMarking = m;
+            }
+
+            const byte = encodeDistGpu(bestCoverage);
             word = word | (byte << (k * d.u32(8)));
 
+            // the marking distance encoded into the albedo word's alpha byte (constant 255 until stage 3),
+            // using the coverage channel's own encodeDist codec.
+            const markingByte = encodeDistGpu(bestMarking);
             const albedoIdx = gy * d.u32(TILE_RES) + texelX;
-            rasterLayout.$.albedoOut[albedoIdx] = albedoWord.$;
+            rasterLayout.$.albedoOut[albedoIdx] = roadAlbedoRgb.$ | (markingByte << d.u32(24));
         }
         const distIdx = gy * d.u32(GROUPS_PER_SIDE) + gx;
         rasterLayout.$.distOut[distIdx] = word;
@@ -157,7 +255,14 @@ const rasterKernel = tgpu
 /** the emitted rasterizer WGSL — the device-free structural seam stage 5's tests resolve. */
 export function rasterizeWgsl(): string {
     return tgpu.resolve(
-        [segmentDistanceGpu, segmentsDistanceGpu, documentDistanceGpu, encodeDistGpu, rasterKernel],
+        [
+            segmentDistanceGpu,
+            segmentsDistanceGpu,
+            documentDistanceGpu,
+            encodeDistGpu,
+            markingDistanceGpu,
+            rasterKernel,
+        ],
         { names: "strict" },
     );
 }
