@@ -5,16 +5,38 @@
     <a ambient-light />
     <a directional-light shadow="distance: 1200" />
 
-    <!-- orbit camera framing the ~1 km² grid (terrain/grid.ts: 1024 m × 1024 m, centred on the world
-         origin — the grid's own centring). distance/max-distance are sized to the terrain's footprint
-         the same way voxel sizes its orbit to the voxel grid: the orbit defaults (distance 10 / max 30)
-         would frame a speck of a 1024 m field and clamp on first zoom. min-distance drops low enough to
-         read ground-level detail near the camera. clear-color is a daytime sky (sRGB hex). The sun shadow
-         distance (above) covers the grid so terrain self-shadows across its relief. -->
+    <!-- orbit camera framing the road, not the grid (terrain/grid.ts: 1024 m × 1024 m, centred on the
+         world origin — the grid's own centring). The subject is an 8 m road inside a ~36 m earthwork
+         corridor (cutDepth 1.44 m → falloff 6.79 m per side, per corridorPose.ts's measured figures at
+         seed 1337), not the 1 km² grid that contains it.
+
+         distance: derived from the subject the way corridorPose.ts derives its corridor-pose distance —
+         the earthwork corridor (~36 m wide) must be resolvable in frame. corridorPose.ts derives an
+         admissible interval [39.74 m, 178.6 m] from the constraints (≥5 px vertical for cutDepth, ≥30 m
+         flanking terrain) and operates at 120 m (49% margin over the 5 px floor). That interval was
+         derived at the *corridor* pose's grazing pitch (0.10470); at this scene's pitch 0.5 the upper
+         end tightens to ~157 m, and 120 m sits inside both — so borrowing the number is sound, but it
+         is a presentation choice (deliberately ungated, per the 24b read) and not a derived bound. The
+         scene default uses the same 120 m so the demo opens on the subject rather than a speck — the prior 900 m was
+         derived to frame the 1024 m grid footprint (900·tan(30°)·2 ≈ 1040 m ≈ the grid), which made
+         the 8 m road sub-pixel. max-distance stays at 2500 so the user can still zoom out to survey
+         the full grid. min-distance drops low enough to read ground-level detail near the camera.
+
+         far: derived from the reachable orbit — the farthest point the camera can see is max-distance
+         (2500) plus the grid's half-diagonal (WORLD_HALF·√2 = 512·1.4142 ≈ 724 m), so far = 2500 + 724
+         = 3224, rounded up to 3225. The bound is deliberately the 2D (xz) one: adding terrain relief
+         (RELIEF = 40 m) moves the worst case to √(3224² + 40²) = 3224.25, which the rounding already
+         covers. The engine default (far: 1000, render/index.ts:369) clips the far grid corner at every
+         orbit past ~276 m of distance — that was every default view before this stage (900 + 724 =
+         1624 > 1000) and is still every zoom-out toward max-distance (3224 > 1000); at this stage's
+         120 m default the far corner sits at 844 m and does not clip, so the clip is a zoom-out bug
+         rather than an opening-frame one, and the derived bound is what covers both. clear-color is a daytime sky
+         (sRGB hex). The sun shadow distance (above) covers the grid so terrain self-shadows across
+         its relief. -->
     <a
-        camera="clear-color: 0x78a7ff"
+        camera="clear-color: 0x78a7ff; far: 3225"
         sear
-        orbit="distance: 900; max-distance: 2500; min-distance: 10; pitch: 0.5"
+        orbit="distance: 120; max-distance: 2500; min-distance: 10; pitch: 0.5"
         transform
     />
 </scene>
