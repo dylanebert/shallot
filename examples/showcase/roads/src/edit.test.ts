@@ -233,8 +233,18 @@ describe("edit — sticky grab latch (stage 4b)", () => {
     // over a handle while the button is still held *does* start a drag, because `!dragging` is true and
     // `hovered >= 0` is now satisfied. The failure text witnessed before the rising-edge fix:
     //   "expected { dragging: true, dragEnd: 0, prevLeft: true } to equal { dragging: false, dragEnd: 0, prevLeft: true }"
-    // (frame 3 of sequence 1 — the old `stepGrab` starts a drag when the cursor reaches a handle
-    // mid-hold, the new one does not because the rising edge already passed).
+    // (frame 3 of sequence 1 — the old inline gate in `update()` starts a drag when the cursor reaches
+    // a handle mid-hold, the new one does not because the rising edge already passed). There was no
+    // `stepGrab` before this stage: the old logic was inline in `update()`, and the pre-image is
+    // `git show a3827a7:examples/showcase/roads/src/edit.ts`.
+    //
+    // Only THIS first arm discriminates the new shape from the old. The other three produce identical
+    // traces under both shapes, because the old gate's `dragging` already survived hover misses (once
+    // true, only `!left` cleared it) — the real shipped defect was the mid-hold *start* plus an
+    // `OrbitPick.claim` that re-ran a fresh hover test every frame and so released orbit suppression
+    // mid-drag, which is what the person saw as "grab/ungrab mid movement". The remaining three arms
+    // are regression guards over the new shape, not red-first witnesses; keeping that distinction
+    // explicit is why this note exists.
     //
     // The latch is device-free state, so this is a unit arm over a synthetic press → move-off →
     // move-back → release sequence — not a device probe.

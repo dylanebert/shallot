@@ -28,7 +28,7 @@ export {
 // latches nothing. Extracted as a pure function so `edit.test.ts` can drive a synthetic press →
 // move-off → move-back → release sequence without a device.
 
-export interface GrabState {
+interface GrabState {
     dragging: boolean;
     dragEnd: 0 | 1;
     prevLeft: boolean;
