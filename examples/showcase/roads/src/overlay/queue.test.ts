@@ -97,13 +97,15 @@ describe("invalidate — the atlas's document-swap reset", () => {
 
     // The regression this closes: `terrain.ts`'s `regenerate` used to call `markDirty` on the swapped-in
     // document without first releasing the outgoing document's resident layers, so repeated F9 presses
-    // accumulated layers across reseeds — the "real cumulative reseeds" test above shows that unfixed path
-    // overflowing on real generator output (found by seed ~4 in a from-empty scan; a probe against the
-    // boot seed 1337 plus sequential reseeds throws by the 3rd swap, `git log`'s red-first evidence for
-    // this stage). `regenerate` now calls `overlayAtlas.invalidate()` before `markDirty` — this drives that
-    // exact fixed shape (reset, then allocate) against hundreds of real reseeds and asserts it never
-    // breaches ATLAS_LAYERS, since invalidation means only the *current* document's own footprint is ever
-    // resident at once, and `tiles.ts` sizes ATLAS_LAYERS well past any single network's footprint.
+    // accumulated layers across reseeds until the fixed-size atlas ran out. `regenerate` now calls
+    // `overlayAtlas.invalidate()` before `markDirty` — this drives that fixed shape (reset, then allocate)
+    // against hundreds of real reseeds and asserts it never breaches ATLAS_LAYERS, since invalidation
+    // means only the *current* document's own footprint is ever resident at once.
+    //
+    // No arm demonstrates the *unfixed* path overflowing any more, and none can: since stage 1 the road is
+    // a fixed chord that does not move with the seed, so every reseed re-marks the same tiles and reseeding
+    // stopped being a capacity input at all. The accumulation this guards is now reachable only from edits
+    // (stage 4's drag), which is where stage 2's release path and its own red-first fixture live.
     test("real reseeds through the fixed invalidate-before-mark order never breach ATLAS_LAYERS", () => {
         const cpu = new Int32Array(TILE_COUNT).fill(-1);
         const pending: number[] = [];

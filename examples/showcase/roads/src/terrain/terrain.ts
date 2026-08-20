@@ -272,7 +272,8 @@ const OverlayRedrawSystem: System = {
  * marked dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set oracle `document.test.ts` pins) —
  * otherwise a tile the old document touched but the new one doesn't would keep its stale content forever,
  * and each reseed's fresh handful of layers would pile onto the last's until the fixed-size atlas ran out
- * (`overlay/queue.test.ts`'s real-generator-output demonstration of both failure modes, pre-invalidation).
+ * (`overlay/queue.test.ts` drives the fixed order against real reseeds; the pre-invalidation overflow has
+ * no live demonstration, the road no longer moving with the seed — see that file's note).
  * Rebinds the flatten kernel's geometry (`flatten.ts`'s `setNetwork`) before `generate` re-dispatches, so
  * the next-drawn frame's heights and overlay both reflect the new terrain in one call — the
  * "affected-region remesh" the spec's Approach names.
