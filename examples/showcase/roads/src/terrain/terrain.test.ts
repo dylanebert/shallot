@@ -65,9 +65,54 @@ describe("terrain fs — overlay composite", () => {
         expect(fs).toMatch(/clamp\(\(0\.5f - \(dist_\d* \/ fw\)\), 0f, 1f\) \* resident/);
     });
 
-    test("composites the overlay over the base color by coverage — never a second draw", () => {
+    test("composites the overlay (with markings mixed in) over the base color by coverage — never a second draw", () => {
         const fs = flat(body(wgsl, "fn terrainFs"));
-        expect(fs).toContain("color = mix(color, overlay, coverage);");
+        expect(fs).toContain("color = mix(color, overlayWithMarkings, coverage);");
         expect(wgsl.match(/fn terrainFs\(/g)?.length).toBe(1); // exactly one fs entry — no second pass
+    });
+});
+
+describe("terrain fs — marking channel (stage 3)", () => {
+    const wgsl = terrainFsWgsl();
+    const fs = flat(body(wgsl, "fn terrainFs"));
+
+    test("decodes the albedo alpha byte as a signed marking distance using the same DIST_RANGE codec", () => {
+        // the alpha byte stores the encoded marking distance (rasterize.ts's encodeDistGpu, the coverage
+        // channel's own codec). The fs decodes it back: (sampled.w - 0.5) * 2 * DIST_RANGE — the same
+        // decode the coverage channel uses, applied to the albedo's w component, not the dist texture.
+        // Anchored on the albedoSample expression (not just `* ${DIST_RANGE}f` alone, which the coverage
+        // decode also emits — a bare toContain is blind to its own subject, satisfied by the wrong channel).
+        expect(fs).toMatch(new RegExp(`albedoSample.*\\.w.*0\\.5f.*2f.*${DIST_RANGE}f`));
+    });
+
+    test("thresholds the marking distance with a second fwidth, exactly as coverage is", () => {
+        // a second fwidth call on the marking distance, with the same COVERAGE_BAND_PX coefficient —
+        // sub-texel crisp lines at any zoom (the property the Locked decision sells)
+        expect(fs).toMatch(new RegExp(`fwidth\\(markingDist_?\\d*\\) \\* ${COVERAGE_BAND_PX}f`));
+        // the marking coverage formula mirrors the coverage formula: clamp(0.5 - dist/fw, 0, 1) * resident
+        expect(fs).toMatch(
+            /clamp\(\(0\.5f - \(markingDist_?\d* \/ markingFw_?\d*\)\), 0f, 1f\) \* resident/,
+        );
+    });
+
+    test("selects the marking albedo by comparing the decoded marking distance with the edge-line distance", () => {
+        // the marking class (edge vs centre) is determined by comparing the decoded marking distance with
+        // the edge-line distance computed independently from the coverage distance: if the marking distance
+        // is smaller, the nearest marking is the centreline; otherwise the edge line.
+        // 0.3 is EDGE_INSET and 0.05 is LINE_HALF_WIDTH — both deliberately literals here, not derived
+        // from the exported constants: if the regex were built from EDGE_INSET/LINE_HALF_WIDTH, changing
+        // the constant would change both sides and the arm would stay green, asserting only that the
+        // shader emitted *some* number consistent with itself, not the *right* number. The literals
+        // freeze the derived quantity so the arm reds exactly when the emitted value moves.
+        expect(fs).toMatch(/abs\(\(dist_\d* \+ 0\.3\d*f\)\) - 0\.05\d*f/);
+        expect(fs).toMatch(/select\(vec3f\(/);
+        expect(fs).toMatch(/isCentre/);
+    });
+
+    test("mixes the marking albedo over the road albedo before the terrain composite", () => {
+        // the order matters: marking over road first, then road+marking over terrain — so a marking
+        // never bleeds outside the road's coverage boundary
+        expect(fs).toContain("mix(overlay, markingAlbedo, markingCoverage)");
+        expect(fs).toContain("color = mix(color, overlayWithMarkings, coverage);");
     });
 });

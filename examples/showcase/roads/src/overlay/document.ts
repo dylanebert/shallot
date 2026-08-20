@@ -1,4 +1,13 @@
-import { dirtyTiles, type Rect, TEXEL_SIZE } from "./tiles";
+import {
+    DASH_DUTY,
+    DASH_OFFSET,
+    DASH_PERIOD,
+    dirtyTiles,
+    EDGE_INSET,
+    LINE_HALF_WIDTH,
+    type Rect,
+    TEXEL_SIZE,
+} from "./tiles";
 
 // The stroke document: pure data (one road's polyline + width) plus the CPU analytic distance math
 // stage 5's differential oracle checks the GPU rasterizer (`rasterize.ts`) against. No GPU/engine
@@ -77,6 +86,64 @@ export function documentDistance(px: number, pz: number, doc: StrokeDocument): n
     let best = Number.POSITIVE_INFINITY;
     for (const seg of flattenSegments(doc)) {
         const d = segmentDistance(px, pz, seg);
+        if (d < best) best = d;
+    }
+    return best;
+}
+
+/** the signed distance to the nearest road marking at (px, pz) for one segment — negative inside a
+ *  marking, zero at its boundary, positive outside. Two solid edge lines inset from the road edge
+ *  (centred at d = −EDGE_INSET on the existing edge distance) and a broken centreline (perpendicular
+ *  distance to the centreline via d + halfWidth, station along the chord via fract(s / DASH_PERIOD) <
+ *  DASH_DUTY). Cross-product derivation, like {@link segmentDistance} — the CPU twin the GPU's
+ *  `markingDistanceGpu` (rasterize.ts, clamped-projection form) is checked against, independently.
+ *
+ *  Geometry per the Locked decision: one chord, so the dash phase has no joint to break at.
+ *  Two-lane two-way: broken yellow centreline, solid white edges. */
+export function markingDistanceForSegment(px: number, pz: number, seg: Segment): number {
+    const { ax, az, bx, bz } = seg;
+    const abx = bx - ax;
+    const abz = bz - az;
+    const len = Math.hypot(abx, abz);
+    if (len === 0) return Number.POSITIVE_INFINITY;
+    const ux = abx / len;
+    const uz = abz / len;
+    const along = (px - ax) * ux + (pz - az) * uz; // signed station along the chord from A
+    const cross = (px - ax) * uz - (pz - az) * ux; // signed perpendicular offset (2D cross product)
+    const edgeDist = segmentDistance(px, pz, seg); // the existing edge distance (handles endpoints)
+
+    // edge line: solid, centred at d = −EDGE_INSET, width LINE_WIDTH
+    const edgeLineDist = Math.abs(edgeDist + EDGE_INSET) - LINE_HALF_WIDTH;
+
+    // centreline: broken, lateral distance from the perpendicular offset, longitudinal from the dash phase
+    const lateral = Math.abs(cross) - LINE_HALF_WIDTH;
+    let longitudinal: number;
+    if (along < 0) {
+        longitudinal = -along; // before A — centreline does not extend past the endpoint
+    } else if (along > len) {
+        longitudinal = along - len; // after B
+    } else {
+        const phase =
+            (along + DASH_OFFSET) / DASH_PERIOD - Math.floor((along + DASH_OFFSET) / DASH_PERIOD); // fract((s + DASH_OFFSET) / DASH_PERIOD)
+        if (phase < DASH_DUTY) {
+            // inside a dash — distance to the nearer dash boundary (negative = inside)
+            longitudinal = -Math.min(phase, DASH_DUTY - phase) * DASH_PERIOD;
+        } else {
+            // inside a gap — distance to the nearer dash (positive = outside)
+            longitudinal = Math.min(phase - DASH_DUTY, 1 - phase) * DASH_PERIOD;
+        }
+    }
+    const centreDist = Math.max(lateral, longitudinal);
+
+    return Math.min(edgeLineDist, centreDist);
+}
+
+/** the document's analytic marking distance at (px, pz) — the minimum (nearest) signed distance to any
+ *  road marking over every segment. The CPU half of stage 3's marking differential oracle. */
+export function markingDistance(px: number, pz: number, doc: StrokeDocument): number {
+    let best = Number.POSITIVE_INFINITY;
+    for (const seg of flattenSegments(doc)) {
+        const d = markingDistanceForSegment(px, pz, seg);
         if (d < best) best = d;
     }
     return best;

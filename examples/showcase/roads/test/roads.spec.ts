@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import { generateNetwork } from "../src/overlay/network";
+import { ROAD_ALBEDO } from "../src/overlay/stroke";
+import { CENTRE_ALBEDO } from "../src/overlay/tiles";
 import { makePermutation } from "../src/terrain/noise";
 import { buildPolylineProfile, heightAtCpu } from "../src/terrain/profile";
 
@@ -21,6 +23,13 @@ const CAPTURE_PATH = join(
     "test-results",
     "roads-capture.png",
 );
+
+// Luminance using the same 0.3/0.59/0.11 weights as the probe's luminanceAt — so the band
+// tolerance is in the same units the probe reads, not an abstract scale.
+const albedoLuminance = (rgb: readonly [number, number, number]): number =>
+    0.3 * rgb[0] * 255 + 0.59 * rgb[1] * 255 + 0.11 * rgb[2] * 255;
+const roadLuminance = albedoLuminance(ROAD_ALBEDO);
+const centreLuminance = albedoLuminance(CENTRE_ALBEDO);
 
 // Stage 24a's corridor-pose capture — a second file alongside the gate's own, written at the derived
 // corridor pose (corridorPose.ts). The default-orbit capture above stays unchanged in pose; this one
@@ -227,6 +236,111 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
         capture.transitionPx,
         `boundary transition ${capture.transitionPx.toFixed(2)}px over a ${capture.spanPx.toFixed(2)}px probe span (tolerance ${capture.tolerancePx}px)`,
     ).toBeLessThanOrEqual(capture.tolerancePx);
+
+    expect(errors, errors.join("\n")).toEqual([]);
+
+    // Phase 2b: stage 3's marking device probes — four world points derived from the document, each on
+    // a distinct marking class (edge line, asphalt, dash gap, dash). The device gate asserts the
+    // luminance bands at these points are DISJOINT, so a probe that cannot discriminate the classes it
+    // gates is not evidence (roads-interactive.md stage 3, Marking fidelity).
+    const markingProbes = (await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsMarkingProbePoints: () => Promise<{
+                    edgeLine: [number, number, number];
+                    asphalt: [number, number, number];
+                    dashGap: [number, number, number];
+                    dash: [number, number, number];
+                }>;
+            }
+        ).__roadsMarkingProbePoints(),
+    )) as {
+        edgeLine: [number, number, number];
+        asphalt: [number, number, number];
+        dashGap: [number, number, number];
+        dash: [number, number, number];
+    };
+
+    const markingScreen = (await page.evaluate(
+        (points) =>
+            (
+                window as unknown as {
+                    __roadsProbe: (pts: [number, number, number][]) => ScreenPoint[];
+                }
+            ).__roadsProbe(points),
+        [markingProbes.edgeLine, markingProbes.asphalt, markingProbes.dashGap, markingProbes.dash],
+    )) as ScreenPoint[];
+
+    // In-frame assertion for each marking probe.
+    for (const [name, sp] of [
+        ["edgeLine", markingScreen[0]],
+        ["asphalt", markingScreen[1]],
+        ["dashGap", markingScreen[2]],
+        ["dash", markingScreen[3]],
+    ] as const) {
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.x, `${name} probe x=${sp.x} is not in-frame (0, 1)`).toBeLessThan(1);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeGreaterThan(0);
+        expect(sp.y, `${name} probe y=${sp.y} is not in-frame (0, 1)`).toBeLessThan(1);
+    }
+
+    const markingLum = (await page.evaluate(
+        async ({ base64, probes }) => {
+            const binary = atob(base64);
+            const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+            const bitmap = await createImageBitmap(new Blob([bytes], { type: "image/png" }));
+            const canvas = new OffscreenCanvas(bitmap.width, bitmap.height);
+            const context = canvas.getContext("2d");
+            if (!context) throw new Error("roads capture: 2D screenshot context unavailable");
+            context.drawImage(bitmap, 0, 0);
+            const data = context.getImageData(0, 0, bitmap.width, bitmap.height).data;
+            const luminanceAt = (fracX: number, fracY: number): number => {
+                const x = Math.min(bitmap.width - 1, Math.max(0, Math.round(fracX * bitmap.width)));
+                const y = Math.min(
+                    bitmap.height - 1,
+                    Math.max(0, Math.round(fracY * bitmap.height)),
+                );
+                const at = (y * bitmap.width + x) * 4;
+                return 0.3 * data[at] + 0.59 * data[at + 1] + 0.11 * data[at + 2];
+            };
+            return probes.map((p) => luminanceAt(p.x, p.y));
+        },
+        { base64: screenshot.toString("base64"), probes: markingScreen },
+    )) as number[];
+
+    // Assert the four probes as BANDS, not a pairwise chain: the two road-class probes (asphalt,
+    // dashGap) agree with each other within a tolerance, and each marking class (edgeLine, dash)
+    // sits in a band brighter than the road band. The previous pairwise chain never compared
+    // dashGap to asphalt, so a bug painting the dash gap as a third thing darker than the dash
+    // passed every assertion.
+    //
+    // The tolerance is a stated luminance margin: 10% of the luminance gap between the road albedo
+    // and the nearest marking class (the yellow centreline), computed from the exported albedo
+    // constants and the same 0.3/0.59/0.11 weights the probe's luminanceAt uses. This is generous
+    // for two probes reading the same road albedo (terrain lighting varies the pixel by far less
+    // than 10% of the road-to-marking gap), while a probe reading a different class exceeds it by
+    // an order of magnitude — so the band assertion reds exactly when a probe misclassifies.
+    const roadBandTolerance = (centreLuminance - roadLuminance) * 0.1;
+    // the two road-class probes agree within the tolerance
+    expect(
+        Math.abs(markingLum[1] - markingLum[2]),
+        `asphalt ${markingLum[1].toFixed(1)} vs dash gap ${markingLum[2].toFixed(1)} — road-class probes disagree beyond ${roadBandTolerance.toFixed(1)}`,
+    ).toBeLessThanOrEqual(roadBandTolerance);
+    // each marking class sits in a band brighter than the road band
+    const roadBandHi = Math.max(markingLum[1], markingLum[2]) + roadBandTolerance;
+    expect(
+        markingLum[0],
+        `edge line ${markingLum[0].toFixed(1)} is not above the road band hi ${roadBandHi.toFixed(1)}`,
+    ).toBeGreaterThan(roadBandHi);
+    expect(
+        markingLum[3],
+        `dash ${markingLum[3].toFixed(1)} is not above the road band hi ${roadBandHi.toFixed(1)}`,
+    ).toBeGreaterThan(roadBandHi);
+    // edge line (white) and dash (yellow) are in disjoint bands — white is brighter than yellow
+    expect(
+        markingLum[0],
+        `edge line ${markingLum[0].toFixed(1)} vs dash ${markingLum[3].toFixed(1)} — marking bands not disjoint`,
+    ).toBeGreaterThan(markingLum[3] + roadBandTolerance);
 
     expect(errors, errors.join("\n")).toEqual([]);
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { body, flat, integerDiscipline } from "../../../../../packages/shallot/tests/wgsl";
-import { type Segment, segmentDistance } from "./document";
-import { encodeDistGpu, rasterizeWgsl, segmentDistanceGpu } from "./rasterize";
+import { markingDistanceForSegment, type Segment, segmentDistance } from "./document";
+import { encodeDistGpu, markingDistanceGpu, rasterizeWgsl, segmentDistanceGpu } from "./rasterize";
 import { DIST_RANGE, decodeDist, encodeDist, TEXEL_SIZE } from "./tiles";
 
 // Stage 5's differential oracle: `segmentDistanceGpu` (rasterize.ts, clamped-projection form, CPU-called
@@ -110,10 +110,10 @@ describe("emitted WGSL — structural", () => {
         expect(kernel).toContain("word = (word | (byte << (k * 8u)))");
     });
 
-    test("albedo is written once per texel with the precomputed constant word, not recomputed per-thread", () => {
-        expect(flat(wgsl)).toContain("const roadAlbedoWord: u32 =");
+    test("albedo rgb is a precomputed constant; the per-texel alpha carries the encoded marking distance", () => {
+        expect(flat(wgsl)).toContain("const roadAlbedoRgb: u32 =");
         const kernel = flat(body(wgsl, "@compute @workgroup_size(8, 8, 1) fn roadsrasterize"));
-        expect(kernel).toContain("albedoOut[albedoIdx] = roadAlbedoWord");
+        expect(kernel).toContain("albedoOut[albedoIdx] = (roadAlbedoRgb | (markingByte << 24u))");
     });
 
     describe("texel-group column ↔ world-x ↔ byte-column correspondence", () => {
@@ -200,5 +200,103 @@ describe("emitted WGSL — structural", () => {
         test("the packing expression itself (a cheap structural sentinel, in addition to the eval-based pins above — never the only one)", () => {
             expect(kernel).toContain("let texelX = ((gx * 4u) + k);");
         });
+    });
+});
+
+// Stage 3's marking differential oracle: `markingDistanceGpu` (rasterize.ts, clamped-projection form,
+// CPU-called through TypeGPU's dual execution) against `document.ts`'s `markingDistanceForSegment`
+// (cross-product form) — two independently written derivations of the same geometric quantity, the
+// signed distance to the nearest road marking (edge lines + broken centreline). The GPU side is
+// quantized through `encodeDistGpu` + `tiles.ts`'s `decodeDist`, the exact byte round-trip the real
+// kernel's output goes through, so the tolerance is the same r8unorm quantization step as the coverage
+// differential above. `rasterize.ts` never imports `markingDistance` — the two derivations are
+// independent by contract, because the differential arm is worthless if one side calls the other.
+//
+// RED-FIRST CONTROL: mutating one side's dash duty (DASH_DUTY) was witnessed red — changing the CPU
+// side's DASH_DUTY to DASH_DUTY * 0.5 (halving the dash fraction) while leaving the GPU side unchanged
+// produces disagreement at points inside a dash whose phase falls in the second half of the original
+// duty cycle: the CPU side now reads those points as in a gap (marking distance positive) while the GPU
+// side still reads them as in a dash (marking distance negative), exceeding the tolerance. This was
+// confirmed by running the mutated comparison and observing the failure before restoring the real duty.
+describe("marking differential oracle — markingDistanceGpu vs document.ts's markingDistanceForSegment", () => {
+    test("agree within one quantization step over random segments and sample points", () => {
+        const rng = mulberry32(42);
+        const rand = (lo: number, hi: number) => lo + rng() * (hi - lo);
+        for (let i = 0; i < 200; i++) {
+            const seg: Segment = {
+                ax: rand(-100, 100),
+                az: rand(-100, 100),
+                bx: rand(-100, 100),
+                bz: rand(-100, 100),
+                halfWidth: rand(1, 8),
+            };
+            const px = rand(-120, 120);
+            const pz = rand(-120, 120);
+
+            const cpu = markingDistanceForSegment(px, pz, seg);
+            const gpuRaw = markingDistanceGpu(
+                px,
+                pz,
+                seg.ax,
+                seg.az,
+                seg.bx,
+                seg.bz,
+                seg.halfWidth,
+            );
+            const gpuQuantized = decodeDist(encodeDistGpu(gpuRaw));
+            const cpuQuantized = quantizeCpu(cpu);
+            expect(Math.abs(gpuQuantized - cpuQuantized)).toBeLessThanOrEqual(TOLERANCE);
+            // and the raw (unquantized) forms agree far tighter — same geometric quantity, f32 roundoff only
+            expect(Math.abs(gpuRaw - cpu)).toBeLessThan(1e-4);
+        }
+    });
+
+    test("agree on the centreline (where the dash phase is the nearest marking), inside a dash and in a gap", () => {
+        // a horizontal road from (-100, 0) to (100, 0), halfWidth 4 — the standard chord's shape.
+        // Points on the centreline (z=0) are where the centreline marking is nearest, so the dash
+        // duty actually determines the distance — this is the axis the red-first control mutates.
+        const seg: Segment = { ax: -100, az: 0, bx: 100, bz: 0, halfWidth: 4 };
+        // station 100: phase = fract((100 + DASH_OFFSET) / DASH_PERIOD) ≈ 0.45 >= DASH_DUTY (0.25) → in a gap (offset shifts midpoint into gap)
+        // station 120: phase = fract((120 + DASH_OFFSET) / DASH_PERIOD) ≈ 0.09 < DASH_DUTY → in a dash
+        const inDash: Array<[number, number]> = [
+            [20, 0], // station 120, on the centreline, in a dash
+            [70, 0.01], // station 170, near the centreline, in a dash
+        ];
+        // station 100 (midpoint): phase ≈ 0.45 >= DASH_DUTY → in a gap (the offset's purpose)
+        // station 50: phase = fract((50 + DASH_OFFSET) / DASH_PERIOD) ≈ 0.35 >= DASH_DUTY → in a gap
+        const inGap: Array<[number, number]> = [
+            [0, 0], // station 100, on the centreline, in a gap
+            [-50, 0.01], // station 50, near the centreline, in a gap
+        ];
+        for (const [px, pz] of inDash) {
+            const cpu = markingDistanceForSegment(px, pz, seg);
+            const gpuRaw = markingDistanceGpu(
+                px,
+                pz,
+                seg.ax,
+                seg.az,
+                seg.bx,
+                seg.bz,
+                seg.halfWidth,
+            );
+            expect(Math.abs(gpuRaw - cpu)).toBeLessThan(1e-4);
+            // inside a dash → marking distance should be negative (inside the marking)
+            expect(cpu).toBeLessThan(0);
+        }
+        for (const [px, pz] of inGap) {
+            const cpu = markingDistanceForSegment(px, pz, seg);
+            const gpuRaw = markingDistanceGpu(
+                px,
+                pz,
+                seg.ax,
+                seg.az,
+                seg.bx,
+                seg.bz,
+                seg.halfWidth,
+            );
+            expect(Math.abs(gpuRaw - cpu)).toBeLessThan(1e-4);
+            // in a gap → marking distance should be positive (outside the marking)
+            expect(cpu).toBeGreaterThan(0);
+        }
     });
 });

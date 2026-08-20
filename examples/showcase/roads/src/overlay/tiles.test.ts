@@ -1,10 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { WORLD_HALF } from "../terrain/grid";
 import {
+    DASH_DUTY,
+    DASH_GAP,
+    DASH_PERIOD,
+    DASH_SEGMENT,
     DIST_RANGE,
     decodeDist,
     dirtyTiles,
+    EDGE_INSET,
     encodeDist,
+    LINE_HALF_WIDTH,
+    LINE_WIDTH,
     TILE_COUNT,
     TILE_RES,
     TILE_SIZE,
@@ -138,5 +145,32 @@ describe("texelOffset — an independent stride derivation", () => {
             }
             expect(texelOffset(px, py, bpt)).toBe(counted);
         }
+    });
+});
+
+describe("marking constants (stage 3)", () => {
+    test("LINE_WIDTH is in the MUTCD normal-line range (4–6 in = 0.1016–0.1524 m)", () => {
+        expect(LINE_WIDTH).toBeGreaterThanOrEqual(0.1);
+        expect(LINE_WIDTH).toBeLessThanOrEqual(0.16);
+        expect(LINE_HALF_WIDTH).toBe(LINE_WIDTH / 2);
+    });
+
+    test("EDGE_INSET places the edge line fully inside the road", () => {
+        // the edge line centre is EDGE_INSET metres inside the road from the edge,
+        // so the line's outer boundary is EDGE_INSET - LINE_HALF_WIDTH from the edge — must be > 0
+        expect(EDGE_INSET - LINE_HALF_WIDTH).toBeGreaterThan(0);
+    });
+
+    test("DASH_SEGMENT and DASH_GAP match the MUTCD broken-line pattern (10 ft / 30 ft)", () => {
+        // 1 ft = 0.3048 m: 10 ft = 3.048 m, 30 ft = 9.144 m
+        expect(DASH_SEGMENT).toBeCloseTo(3.048, 10);
+        expect(DASH_GAP).toBeCloseTo(9.144, 10);
+    });
+
+    test("DASH_PERIOD is the sum of segment + gap, and DASH_DUTY is the fraction that is dash", () => {
+        expect(DASH_PERIOD).toBe(DASH_SEGMENT + DASH_GAP);
+        expect(DASH_DUTY).toBe(DASH_SEGMENT / DASH_PERIOD);
+        expect(DASH_DUTY).toBeGreaterThan(0);
+        expect(DASH_DUTY).toBeLessThan(1);
     });
 });

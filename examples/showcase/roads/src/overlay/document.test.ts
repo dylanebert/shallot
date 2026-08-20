@@ -4,10 +4,14 @@ import {
     documentDistance,
     drivable,
     flattenSegments,
+    markingDistance,
+    markingDistanceForSegment,
+    type Segment,
     type StrokeDocument,
     segmentDistance,
 } from "./document";
 import { strokeDistance, strokeDocument } from "./stroke";
+import { EDGE_INSET, LINE_HALF_WIDTH } from "./tiles";
 
 describe("flattenSegments", () => {
     test("one polyline with N points yields N-1 segments, in order", () => {
@@ -191,5 +195,67 @@ describe("drivable", () => {
         ] as const) {
             expect(drivable(x, z, doc)).toBe(documentDistance(x, z, doc) <= 0);
         }
+    });
+});
+
+describe("markingDistanceForSegment", () => {
+    // the standard chord's shape: a horizontal road from (-100, 0) to (100, 0), halfWidth 4
+    const seg: Segment = { ax: -100, az: 0, bx: 100, bz: 0, halfWidth: 4 };
+
+    test("negative inside an edge line (centred at d = -EDGE_INSET, width LINE_WIDTH)", () => {
+        // the edge line is at |z| = halfWidth - EDGE_INSET = 3.7 m from the centreline.
+        // Derived from the segment's own halfWidth, not ROAD_HALF_WIDTH, so the probe stays on the
+        // edge line whatever the road width is — one fixture, one source of truth.
+        const edgeLineZ = seg.halfWidth - EDGE_INSET; // 3.7
+        const result = markingDistanceForSegment(0, edgeLineZ, seg);
+        expect(result).toBeLessThan(0); // inside the edge line
+    });
+
+    test("zero at the edge line boundary (LINE_HALF_WIDTH from the centre)", () => {
+        const edgeLineZ = seg.halfWidth - EDGE_INSET; // 3.7
+        const boundary = edgeLineZ + LINE_HALF_WIDTH; // 3.75
+        expect(markingDistanceForSegment(0, boundary, seg)).toBeCloseTo(0, 6);
+    });
+
+    test("negative on the centreline inside a dash (station 120, phase < DASH_DUTY with offset)", () => {
+        // with DASH_OFFSET, station 120: phase = fract((120 + DASH_OFFSET) / DASH_PERIOD) ≈ 0.09 < 0.25 → in a dash
+        // world point at station 120 from A=(-100,0) along +X is (20, 0)
+        const result = markingDistanceForSegment(20, 0, seg);
+        expect(result).toBeLessThan(0); // inside the centreline dash
+    });
+
+    test("positive on the centreline in a gap (station 100/midpoint, phase >= DASH_DUTY with offset)", () => {
+        // with DASH_OFFSET, station 100 (midpoint): phase = fract((100 + DASH_OFFSET) / DASH_PERIOD) ≈ 0.45 >= 0.25 → in a gap
+        // world point at station 100 from A=(-100,0) along +X is (0, 0) — the on-road probe point
+        const result = markingDistanceForSegment(0, 0, seg);
+        expect(result).toBeGreaterThan(0); // in a gap, outside the marking
+    });
+
+    test("positive on the asphalt between the edge line and the centreline", () => {
+        // |z| = 2.0 m: between the edge line (3.7 m) and the centreline (0 m)
+        const result = markingDistanceForSegment(0, 2, seg);
+        expect(result).toBeGreaterThan(0); // on the asphalt, no marking here
+    });
+});
+
+describe("markingDistance", () => {
+    test("is the minimum over every segment, same as documentDistance's shape", () => {
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-100, 0],
+                        [100, 0],
+                    ],
+                    halfWidth: 4,
+                },
+            ],
+        };
+        // on the centreline, in a dash (station 120 with offset) → negative
+        expect(markingDistance(20, 0, doc)).toBeLessThan(0);
+        // on the centreline, in a gap (station 100/midpoint with offset) → positive
+        expect(markingDistance(0, 0, doc)).toBeGreaterThan(0);
+        // on the edge line → negative. Derived from the doc's own halfWidth, not ROAD_HALF_WIDTH.
+        expect(markingDistance(0, doc.polylines[0].halfWidth - EDGE_INSET, doc)).toBeLessThan(0);
     });
 });

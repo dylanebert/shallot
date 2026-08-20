@@ -42,6 +42,36 @@ export const DIST_FORMAT = "r8unorm" as const;
 export const DIST_BYTES_PER_TEXEL = 1;
 export const DIST_RANGE = 1; // metres, half-range
 
+// Road markings — a second distance channel in the same tile's albedo alpha byte, thresholded in the
+// fs with its own fwidth exactly as coverage is (roads-interactive.md Locked decision). Dimensions from
+// the MUTCD's normal line and broken-line pattern, in metres — a legibility standard, not a compliance
+// claim.
+
+// MUTCD normal line width: 4–6 in (0.1016–0.1524 m). Lower bound used so a 0.10 m line reads against
+// the 0.125 m texel as sub-texel detail the fwidth threshold keeps crisp, not a 1–2 texel blob.
+export const LINE_WIDTH = 0.1; // metres — MUTCD normal line, 4 in (0.1016 m), lower bound
+export const LINE_HALF_WIDTH = LINE_WIDTH / 2; // derived: half the line width
+
+// Edge line inset from the road edge — a showcase design choice, not a MUTCD dimension. The edge
+// line's centre sits EDGE_INSET metres inside the road from the edge (d = −EDGE_INSET on the existing
+// edge distance), so the line is fully on the asphalt with margin to the road boundary.
+export const EDGE_INSET = 0.3; // metres — design choice, places the edge line inside the road
+
+// MUTCD broken-line pattern: 10 ft segment, 30 ft gap. 1 ft = 0.3048 m.
+export const DASH_SEGMENT = 3.048; // metres — MUTCD 10 ft segment (10 ft × 0.3048 m/ft)
+export const DASH_GAP = 9.144; // metres — MUTCD 30 ft gap (30 ft × 0.3048 m/ft)
+export const DASH_PERIOD = DASH_SEGMENT + DASH_GAP; // derived: one full dash cycle (segment + gap)
+export const DASH_DUTY = DASH_SEGMENT / DASH_PERIOD; // derived: fraction of the period that is dash
+// Dash phase offset — shifts the dash pattern along the chord so the road's midpoint (the capture gate's
+// on-road probe point) falls in a gap, not on a dash. A design choice: the spec names the dash pattern
+// (segment/gap ratio) but not where it starts, and one chord means no joint to break at. Offset = one
+// DASH_SEGMENT shifts the phase by exactly DASH_DUTY, swapping dash and gap at the midpoint.
+export const DASH_OFFSET = DASH_SEGMENT;
+
+// Marking albedo — two-lane two-way road: solid white edges, broken yellow centreline.
+export const EDGE_ALBEDO: readonly [number, number, number] = [0.85, 0.85, 0.85]; // white edge lines
+export const CENTRE_ALBEDO: readonly [number, number, number] = [0.85, 0.75, 0.15]; // yellow centreline
+
 // the fwidth-thresholded coverage band's half-width, in screen pixels: the fs's `fw = COVERAGE_BAND_PX *
 // fwidth(dist)` coefficient (terrain.ts). `fwidth` is the change in its argument over one screen pixel, and
 // coverage leaves [0, 1] exactly when `dist` moves by `fw` — so this coefficient *is* the band width the

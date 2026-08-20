@@ -19,7 +19,16 @@ import * as std from "typegpu/std";
 import * as overlayAtlas from "../overlay/atlas";
 import type { StrokeDocument } from "../overlay/document";
 import { generateNetwork } from "../overlay/network";
-import { COVERAGE_BAND_PX, DIST_RANGE, TILE_SIZE, TILES_PER_SIDE } from "../overlay/tiles";
+import {
+    CENTRE_ALBEDO,
+    COVERAGE_BAND_PX,
+    DIST_RANGE,
+    EDGE_ALBEDO,
+    EDGE_INSET,
+    LINE_HALF_WIDTH,
+    TILE_SIZE,
+    TILES_PER_SIDE,
+} from "../overlay/tiles";
 import { setNetwork, warmNetwork } from "./flatten";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
 import {
@@ -99,12 +108,13 @@ const terrainFs = tgpu.fn(
         uv,
         layerU,
     ).x;
-    const overlay = std.textureSample(
+    const albedoSample = std.textureSample(
         terrainSurfaceLayout.$.albedo,
         terrainSurfaceLayout.$.overlaySamp,
         uv,
         layerU,
-    ).xyz;
+    );
+    const overlay = albedoSample.xyz;
     // decode the r8unorm distance channel back to a signed world-metre distance — the fs's half of the
     // codec overlay/tiles.ts's encodeDist writes (kept in sync by hand: DIST_RANGE is the one shared
     // constant both sides read; TGSL can't call a plain JS helper, so this stays inline).
@@ -112,7 +122,26 @@ const terrainFs = tgpu.fn(
     const fw = std.fwidth(dist) * d.f32(COVERAGE_BAND_PX) + d.f32(1e-5);
     const resident = std.select(d.f32(0), d.f32(1), layer >= 0);
     const coverage = std.clamp(d.f32(0.5) - dist / fw, 0, 1) * resident;
-    color = std.mix(color, overlay, coverage);
+
+    // the marking channel: the albedo alpha byte stores the signed distance to the nearest road marking
+    // (the coverage channel's own encodeDist codec, DIST_RANGE at 8 bits). Decode it and threshold with
+    // a second fwidth exactly as coverage is — sub-texel crisp lines at any zoom (roads-interactive.md
+    // Locked decision). The marking class (edge vs centre) is determined by comparing the decoded
+    // marking distance with the edge-line distance computed independently from the coverage distance:
+    // if the marking distance is smaller, the nearest marking is the centreline; otherwise the edge line.
+    const markingDist = (albedoSample.w - d.f32(0.5)) * d.f32(2) * d.f32(DIST_RANGE);
+    const markingFw = std.fwidth(markingDist) * d.f32(COVERAGE_BAND_PX) + d.f32(1e-5);
+    const markingCoverage = std.clamp(d.f32(0.5) - markingDist / markingFw, 0, 1) * resident;
+    const edgeLineDist = std.abs(dist + d.f32(EDGE_INSET)) - d.f32(LINE_HALF_WIDTH);
+    const isCentre = markingDist < edgeLineDist;
+    const markingAlbedo = std.select(
+        d.vec3f(d.f32(EDGE_ALBEDO[0]), d.f32(EDGE_ALBEDO[1]), d.f32(EDGE_ALBEDO[2])),
+        d.vec3f(d.f32(CENTRE_ALBEDO[0]), d.f32(CENTRE_ALBEDO[1]), d.f32(CENTRE_ALBEDO[2])),
+        isCentre,
+    );
+    // mix the marking albedo over the road albedo before the terrain composite
+    const overlayWithMarkings = std.mix(overlay, markingAlbedo, markingCoverage);
+    color = std.mix(color, overlayWithMarkings, coverage);
 
     return d.vec4f(lit(color, ctx.worldNormal), 1);
 });
