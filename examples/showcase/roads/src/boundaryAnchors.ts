@@ -150,7 +150,8 @@ export function heightMidpointAnchor(
  * comparable. Known limit: whenever a floor actually binds (`computeFalloff`'s output exceeds this), the
  * *real* rendered transition is wider than this window measures against — an accepted scope boundary
  * (`shallot-roads.md` stage 11b). **Inert on today's network** (stage 13 reverted `computeFalloff`'s floor
- * to bare `SPACING` = 4 m, well below this network's own side-slope term of 14.026 m), so `computeFalloff`
+ * to bare `SPACING` = 4 m, well below the shipped network's side-slope term of 6.7876 m — 14.026 m before
+ * stage 22's route selection, and the floor is inert against either), so `computeFalloff`
  * and `sideSlopeWindow` agree exactly here and `heightMidpointAnchor`'s ground-truth anchor carries no
  * offset — the bound-floor case (`boundaryAnchors.test.ts`'s generic `coupled(floor)` machinery) is still
  * proven, against a synthetic floor, for whenever a future floor derivation binds again.
