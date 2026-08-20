@@ -1,0 +1,325 @@
+// Stage 4 — handles and drag (`roads-interactive.md` stage 4). Two Part `sphere` entities at the
+// endpoints, a `Color` slab carrying idle / hover / grabbed, hover via `cursorRay` → `raySphere`, and
+// `OrbitPick.claim` so a press over a handle suppresses orbit rotation for the whole drag. On a claimed
+// press, each frame marches `flattenFieldAt` along the cursor ray to find the world point, clamps to
+// the world bounds, and refuses a drag leaving the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH` band in both
+// directions. `applyEdit` and the clamp are pure and device-free (no `@dylanebert/shallot` imports) so
+// `edit.test.ts` exercises them under `bun test` without pulling in the engine's device-bound module
+// graph; the Playwright Node side stays bridge-only for the same reason (Node ≥26 rejects the package's
+// bare `package.json` import).
+
+import type { StrokeDocument } from "./overlay/document";
+import { documentDirtyTiles } from "./overlay/document";
+import { ROAD_HALF_WIDTH, ROAD_MAX_LENGTH, ROAD_MIN_LENGTH } from "./overlay/network";
+import { WORLD_HALF } from "./terrain/grid";
+
+// --- pure, device-free helpers (no @dylanebert/shallot imports) ---
+
+/** the world-bound margin: keeps the handle sphere (radius `halfWidth/2`) and the road's own half-width
+ *  inside the grid so the road never extends past the terrain's edge. Derived from the road, like the
+ *  handle radius. */
+const BOUND_MARGIN = ROAD_HALF_WIDTH;
+
+/** the handle's world-space radius — half the road's half-width, so the handle sits on the road without
+ *  dwarfing it. The sphere mesh has radius 0.5, so the Transform scale is `HANDLE_RADIUS / 0.5`. */
+export const HANDLE_RADIUS = ROAD_HALF_WIDTH / 2;
+
+/** clamp (x, z) to the world bounds so the handle never leaves the grid: `|x|, |z| ≤ WORLD_HALF − margin`.
+ *  Pure, device-free. */
+export function clampToBound(x: number, z: number): [number, number] {
+    const bound = WORLD_HALF - BOUND_MARGIN;
+    return [Math.max(-bound, Math.min(bound, x)), Math.max(-bound, Math.min(bound, z))];
+}
+
+/** the chord length of a one-road document — the distance between its two endpoints. */
+export function chordLength(doc: StrokeDocument): number {
+    const [a, b] = doc.polylines[0].points;
+    return Math.hypot(b[0] - a[0], b[1] - a[1]);
+}
+
+/** pure, device-free: return a new document with endpoint `end` (0 or 1) moved to `(x, z)`. The input
+ *  document is not mutated — a new `StrokeDocument` is returned with the moved endpoint replacing the
+ *  original, every other point unchanged. */
+export function applyEdit(doc: StrokeDocument, end: 0 | 1, x: number, z: number): StrokeDocument {
+    const line = doc.polylines[0];
+    const points = [...line.points] as [number, number][];
+    points[end] = [x, z];
+    return {
+        polylines: [{ points, halfWidth: line.halfWidth }],
+    };
+}
+
+/** whether moving endpoint `end` to `(x, z)` keeps the chord within the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH`
+ *  band. The ceiling is atlas capacity, not taste: a chord past `ROAD_MAX_LENGTH` touches more than
+ *  `ATLAS_LAYERS` tiles, and `allocate` throws `capacity exceeded (64 layers)` mid-drag. Pure,
+ *  device-free. */
+export function isAdmissibleDrag(doc: StrokeDocument, end: 0 | 1, x: number, z: number): boolean {
+    const edited = applyEdit(doc, end, x, z);
+    const len = chordLength(edited);
+    return len >= ROAD_MIN_LENGTH && len <= ROAD_MAX_LENGTH;
+}
+
+/** the number of atlas tiles a document touches — `documentDirtyTiles`'s count, which is the exact
+ *  per-primitive union the overlay's own oracle pins. Device-free (delegates to `document.ts`'s pure
+ *  math). */
+export function residentTileCount(doc: StrokeDocument): number {
+    return documentDirtyTiles(doc).length;
+}
+
+// --- the device-bound plugin (imports from @dylanebert/shallot below this line) ---
+
+import {
+    Camera,
+    Color,
+    Inputs,
+    Part,
+    type Plugin,
+    type State,
+    type System,
+    Transform,
+} from "@dylanebert/shallot";
+import { OrbitPick } from "@dylanebert/shallot/extras";
+import { cursorRay, type Ray, raySphere } from "@dylanebert/shallot/physics/core";
+import { Meshes, Surfaces } from "@dylanebert/shallot/render/core";
+import { flattenFieldAt } from "./flatness";
+import { buildNetworkGeometry, computeFalloff, type ProfileSegment } from "./terrain/flatten";
+import { makePermutation } from "./terrain/noise";
+import { heightAtCpu } from "./terrain/profile";
+import { editDocument, getDocument, SEED } from "./terrain/terrain";
+
+// handle colours — idle (white), hover (yellow), grabbed (orange). Design parameters, not gates: the
+// spec's drag-feel check-in is about lag/jump/detach, not colour choice.
+const IDLE_COLOR: readonly [number, number, number] = [0.85, 0.85, 0.85];
+const HOVER_COLOR: readonly [number, number, number] = [0.9, 0.8, 0.2];
+const GRABBED_COLOR: readonly [number, number, number] = [0.95, 0.55, 0.1];
+
+// the cursor-ray march: step size and max distance. 1 m steps are finer than the grid's 4 m spacing, so
+// the march catches the surface within one cell; 2000 m reaches past the orbit's max distance.
+const MARCH_STEP = 1;
+const MARCH_MAX = 2000;
+
+let liveState: State | null = null;
+let camEid = -1;
+let handleEids: [number, number] = [-1, -1];
+let hovered = -1;
+let dragging = false;
+let dragEnd: 0 | 1 = 0;
+let claimInstalled = false;
+
+/** march `ray` against the continuous flattened field (`flattenFieldAt`) and return the (x, z) where the
+ *  ray crosses the surface, or null if it doesn't within `MARCH_MAX`. The field is the oracle's own
+ *  mirror — CPU, no GPU readback on the interaction path (the spec's Locked decision). */
+function marchFlattenField(
+    ray: Ray,
+    segments: readonly ProfileSegment[],
+    falloff: number,
+    naturalHeightAt: (x: number, z: number) => number,
+): [number, number] | null {
+    const [ox, oy, oz] = ray.origin;
+    const [dx, dy, dz] = ray.dir;
+    let prevDelta = oy - flattenFieldAt(ox, oz, segments, falloff, naturalHeightAt);
+    for (let t = MARCH_STEP; t <= MARCH_MAX; t += MARCH_STEP) {
+        const x = ox + dx * t;
+        const y = oy + dy * t;
+        const z = oz + dz * t;
+        const fieldY = flattenFieldAt(x, z, segments, falloff, naturalHeightAt);
+        const delta = y - fieldY;
+        if (prevDelta > 0 !== delta > 0) return [x, z];
+        prevDelta = delta;
+    }
+    return null;
+}
+
+/** create the two Part `sphere` handle entities at the document's endpoints, with `Color` set to idle. */
+function createHandles(state: State): [number, number] {
+    const sphereMesh = Meshes.id("sphere");
+    const unlitSurface = Surfaces.id("unlit");
+    const scale = HANDLE_RADIUS / 0.5; // sphere mesh radius 0.5 → world radius HANDLE_RADIUS
+    const eids: [number, number] = [-1, -1];
+    for (let i = 0; i < 2; i++) {
+        const eid = state.create();
+        state.add(eid, Transform);
+        Transform.scale.set(eid, scale, scale, scale, 0);
+        state.add(eid, Part);
+        if (sphereMesh !== undefined) Part.mesh.set(eid, sphereMesh);
+        if (unlitSurface !== undefined) Part.surface.set(eid, unlitSurface);
+        state.add(eid, Color);
+        Color.rgba.set(eid, IDLE_COLOR[0], IDLE_COLOR[1], IDLE_COLOR[2], 1);
+        eids[i] = eid;
+    }
+    return eids;
+}
+
+/** the handle entities' world positions — the device gate reads this to assert the handle's `y` equals
+ *  `heightAtCpu` at its `(x, z)` after an edit. */
+export function handlePositions(): [[number, number, number], [number, number, number]] {
+    if (handleEids[0] < 0 || handleEids[1] < 0) {
+        throw new Error("roads: handles not yet created");
+    }
+    return [
+        [
+            Transform.pos.x.get(handleEids[0]),
+            Transform.pos.y.get(handleEids[0]),
+            Transform.pos.z.get(handleEids[0]),
+        ],
+        [
+            Transform.pos.x.get(handleEids[1]),
+            Transform.pos.y.get(handleEids[1]),
+            Transform.pos.z.get(handleEids[1]),
+        ],
+    ];
+}
+
+const EditSystem: System = {
+    name: "roads-edit",
+    group: "simulation",
+    annotations: { mode: "always" },
+
+    update(state) {
+        liveState = state;
+        // find the canvas-presenting camera once
+        if (camEid < 0) {
+            for (const eid of state.query([Camera])) {
+                if (state.has(eid, Transform)) {
+                    camEid = eid;
+                    break;
+                }
+            }
+        }
+        if (camEid < 0) return;
+
+        // create the handle entities once the sphere mesh is registered
+        if (handleEids[0] < 0 && Meshes.id("sphere") !== undefined) {
+            handleEids = createHandles(state);
+        }
+        if (handleEids[0] < 0) return;
+
+        // read the live document and place the handles at its endpoints (y = heightAtCpu)
+        const doc = getDocument();
+        const line = doc.polylines[0];
+        const perm = makePermutation(SEED);
+        for (let i = 0; i < 2; i++) {
+            const [x, z] = line.points[i];
+            const y = heightAtCpu(x, z, perm);
+            Transform.pos.set(handleEids[i], x, y, z, 0);
+        }
+
+        // hover test: cursorRay → raySphere against both handle spheres
+        const ray = cursorRay(state, camEid);
+        hovered = -1;
+        if (ray) {
+            for (let i = 0; i < 2; i++) {
+                const hx = Transform.pos.x.get(handleEids[i]);
+                const hy = Transform.pos.y.get(handleEids[i]);
+                const hz = Transform.pos.z.get(handleEids[i]);
+                if (
+                    raySphere(
+                        ray.origin[0],
+                        ray.origin[1],
+                        ray.origin[2],
+                        ray.dir[0],
+                        ray.dir[1],
+                        ray.dir[2],
+                        hx,
+                        hy,
+                        hz,
+                        HANDLE_RADIUS,
+                    ) !== null
+                ) {
+                    hovered = i;
+                    break;
+                }
+            }
+        }
+
+        // install the OrbitPick.claim once — the closure reads live Transform positions at call time, so
+        // it stays correct across edits without re-installation. The claim returns true when a handle is
+        // hovered, suppressing orbit rotation for the whole drag (pan and zoom untouched).
+        if (!claimInstalled) {
+            OrbitPick.claim = () => {
+                if (!liveState || camEid < 0 || handleEids[0] < 0) return false;
+                const claimRay = cursorRay(liveState, camEid);
+                if (!claimRay) return false;
+                for (let i = 0; i < 2; i++) {
+                    const hx = Transform.pos.x.get(handleEids[i]);
+                    const hy = Transform.pos.y.get(handleEids[i]);
+                    const hz = Transform.pos.z.get(handleEids[i]);
+                    if (
+                        raySphere(
+                            claimRay.origin[0],
+                            claimRay.origin[1],
+                            claimRay.origin[2],
+                            claimRay.dir[0],
+                            claimRay.dir[1],
+                            claimRay.dir[2],
+                            hx,
+                            hy,
+                            hz,
+                            HANDLE_RADIUS,
+                        ) !== null
+                    ) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+            claimInstalled = true;
+        }
+
+        // drag state: the orbit button is left (button 0). Start a drag on the press edge over a handle;
+        // end on release.
+        const orbitHeld = Inputs.mouse.left;
+        if (orbitHeld && !dragging && hovered >= 0) {
+            dragging = true;
+            dragEnd = hovered as 0 | 1;
+        }
+        if (!orbitHeld) {
+            dragging = false;
+        }
+
+        // drag: march the cursor ray against the flattened field, clamp, refuse the length band, apply
+        if (dragging && ray) {
+            const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
+            const falloff = computeFalloff(cutDepth);
+            const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
+            const hit = marchFlattenField(ray, segments, falloff, natural);
+            if (hit) {
+                const [cx, cz] = clampToBound(hit[0], hit[1]);
+                if (isAdmissibleDrag(doc, dragEnd, cx, cz)) {
+                    const newDoc = applyEdit(doc, dragEnd, cx, cz);
+                    void editDocument(newDoc).catch((err) => {
+                        console.error("roads: edit failed", err);
+                    });
+                }
+            }
+        }
+
+        // update handle colours based on hover / drag state
+        for (let i = 0; i < 2; i++) {
+            const color =
+                dragging && i === dragEnd
+                    ? GRABBED_COLOR
+                    : i === hovered
+                      ? HOVER_COLOR
+                      : IDLE_COLOR;
+            Color.rgba.set(handleEids[i], color[0], color[1], color[2], 1);
+        }
+    },
+
+    dispose() {
+        OrbitPick.claim = undefined;
+        handleEids = [-1, -1];
+        camEid = -1;
+        liveState = null;
+        hovered = -1;
+        dragging = false;
+        claimInstalled = false;
+    },
+};
+
+const RoadsEditPlugin: Plugin = {
+    name: "RoadsEdit",
+    systems: [EditSystem],
+};
+
+export default RoadsEditPlugin;

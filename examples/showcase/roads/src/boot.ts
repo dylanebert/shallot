@@ -3,15 +3,24 @@ import { Meshes } from "@dylanebert/shallot/render/core";
 import {
     capturePoints,
     markingProbePoints,
+    meshHeightAt,
     type ScreenPoint,
     TRANSITION_TOLERANCE_PX,
     withHeight,
     worldToScreen,
 } from "./capture";
 import { corridorCapture } from "./corridorCapture";
+import { applyEdit, clampToBound, handlePositions, isAdmissibleDrag } from "./edit";
+import { checkSurfaceFlatness } from "./flatness";
 import { gate } from "./gate";
 import type { Check } from "./harness";
-import { overlayIdle, regenerate } from "./terrain/terrain";
+import {
+    editDocument,
+    getDocument,
+    overlayIdle,
+    readVertices,
+    regenerate,
+} from "./terrain/terrain";
 
 // The roads showcase's boot orchestration, as a plugin (a manifest project has no `main.ts` entry) —
 // the same shape as voxel's `boot.ts`. Terrain generation itself runs inside `terrain.ts`'s own `warm()`
@@ -58,6 +67,22 @@ declare global {
             dashGap: [number, number, number];
             dash: [number, number, number];
         }>;
+        // stage 4's edit bridge — drive `__roadsEdit(end, x, z)` to move an endpoint. Returns true if
+        // the edit was applied (admissible), false if refused (outside the length band or clamped to
+        // bounds without changing the document). The device gate drives this, waits for overlay idle,
+        // and reads the flatness and handle position back.
+        __roadsEdit?: (end: number, x: number, z: number) => Promise<boolean>;
+        // stage 4's flatness bridge — reads `readVertices()` and runs `checkSurfaceFlatness` against the
+        // live document, returning the violation counts on both axes.
+        __roadsFlatnessViolations?: () => Promise<{
+            longitudinal: number;
+            crossSection: number;
+        }>;
+        // stage 4's handle position bridge — returns the two handle entities' world (x, y, z).
+        __roadsHandlePos?: () => [[number, number, number], [number, number, number]];
+        // stage 4's vertex fingerprint — a checksum of the raw vertex buffer, for the byte-identical
+        // refused-edit check.
+        __roadsVertexFingerprint?: () => Promise<number>;
     }
 }
 
@@ -82,6 +107,30 @@ const BootSystem: System = {
         window.__roadsRegenerate = (seed) => regenerate(seed);
         window.__roadsHeightAt = (x, z) => withHeight(x, z);
         window.__roadsMarkingProbePoints = () => markingProbePoints();
+        window.__roadsEdit = async (end, x, z) => {
+            const doc = getDocument();
+            const [cx, cz] = clampToBound(x, z);
+            if (!isAdmissibleDrag(doc, end as 0 | 1, cx, cz)) return false;
+            const newDoc = applyEdit(doc, end as 0 | 1, cx, cz);
+            await editDocument(newDoc);
+            return true;
+        };
+        window.__roadsFlatnessViolations = async () => {
+            const raw = await readVertices();
+            const doc = getDocument();
+            const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
+            return {
+                longitudinal: result.longitudinal.length,
+                crossSection: result.crossSection.length,
+            };
+        };
+        window.__roadsHandlePos = () => handlePositions();
+        window.__roadsVertexFingerprint = async () => {
+            const raw = await readVertices();
+            let sum = 0;
+            for (let i = 0; i < raw.length; i++) sum += raw[i];
+            return sum;
+        };
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `{ signal: state.signal }` detaches the listener at `state.dispose()`, no removal
         // code needed.
@@ -108,6 +157,10 @@ const BootSystem: System = {
         delete window.__roadsRegenerate;
         delete window.__roadsHeightAt;
         delete window.__roadsMarkingProbePoints;
+        delete window.__roadsEdit;
+        delete window.__roadsFlatnessViolations;
+        delete window.__roadsHandlePos;
+        delete window.__roadsVertexFingerprint;
     },
 };
 
