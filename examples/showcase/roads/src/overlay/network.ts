@@ -61,11 +61,13 @@ export const ROUTE_CANDIDATES = 128;
 // `bound`, so its corners reach `bound + CARPARK_HALF < WORLD_HALF` (CARPARK_HALF = 20 ≪ WORLD_MARGIN).
 const WORLD_MARGIN = ROAD_MAX_LENGTH + 1;
 
-/** the cut depth of a single road, measured *between* its chord endpoints — the largest
- *  `|natural - chord_target|` along the chord at {@link PROFILE_STEP} arc-length increments. The chord's
- *  target equals natural height at the endpoints by construction (`buildPolylineProfile`), so the profile's
- *  own points read exactly 0; the actual cut lives between them, where natural terrain deviates from the
- *  straight chord. Mirrors `buildNetworkGeometry`'s own cut-depth loop. */
+/** the cut depth of a single road — the largest `|natural - chord_target|` along the chord at
+ *  {@link PROFILE_STEP} arc-length increments. The loop is endpoint-*inclusive* (`s = 0..n`), not
+ *  endpoint-exclusive: the chord's target equals natural height at the endpoints by construction
+ *  (`buildPolylineProfile`), so those two samples contribute exactly 0 and the interior samples are what
+ *  carry the depth. That is why depth must never be read off the profile's own endpoints alone — the cut
+ *  lives between them, where natural terrain deviates from the straight chord. Mirrors
+ *  `buildNetworkGeometry`'s own cut-depth loop. */
 function computeRoadCutDepth(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
