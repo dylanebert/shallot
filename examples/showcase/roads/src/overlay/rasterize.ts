@@ -34,19 +34,13 @@ const DISPATCH = { x: Math.ceil(GROUPS_PER_SIDE / WG), y: Math.ceil(TILE_RES / W
 /** one flattened polyline segment, GPU-side: two endpoints + half-width. */
 const GpuSegment = d.struct({ a: d.vec2f, b: d.vec2f, halfWidth: d.f32 });
 
-/** one polygon stamp's vertex span within the shared `polyVerts` buffer. */
-const GpuPolygon = d.struct({ start: d.u32, count: d.u32 });
-
 const RasterParams = d.struct({
     tileOrigin: d.vec2f,
     segmentCount: d.u32,
-    polygonCount: d.u32,
 });
 
 const rasterLayout = tgpu.bindGroupLayout({
     segments: { storage: d.arrayOf(GpuSegment), access: "readonly" },
-    polygons: { storage: d.arrayOf(GpuPolygon), access: "readonly" },
-    polyVerts: { storage: d.arrayOf(d.vec2f), access: "readonly" },
     params: { uniform: RasterParams },
     albedoOut: { storage: d.arrayOf(d.u32), access: "mutable" },
     distOut: { storage: d.arrayOf(d.u32), access: "mutable" },
@@ -93,60 +87,14 @@ const segmentsDistanceGpu = tgpu.fn(
     return best;
 });
 
-/** apply the inside/outside sign convention to a polygon's nearest-edge distance — negative inside,
- *  positive outside, `inside` decided by ray-cast winding. Factored out of `polygonDistanceGpu` as its
- *  own pure fn purely so it's CPU-callable with no bound storage:
- *  `polygonDistanceGpu`'s enclosing reduction reads the shared `polyVerts` buffer and can only run
- *  inside a real dispatch, but the sign convention itself takes no storage — stage 5's differential
- *  oracle calls this directly to pin the sign, the exact axis a flipped `select` breaks.
- * @example polygonSignedDistanceGpu(3, false) // 3 — outside, magnitude unchanged
- * @example polygonSignedDistanceGpu(3, true) // -3 — inside, negated */
-export const polygonSignedDistanceGpu = tgpu.fn(
-    [d.f32, d.bool],
-    d.f32,
-)((nearestEdge, inside) => {
-    "use gpu";
-    return std.select(nearestEdge, -nearestEdge, inside);
-});
-
-/** one polygon stamp's signed distance at (px, pz) — ray-cast winding for the sign, nearest zero-width
- *  edge distance for the magnitude, reading `poly`'s span out of the shared `polyVerts` buffer. The GPU
- *  twin of `document.ts`'s `polygonDistance`, same construction, independently written GPU-side. */
-export const polygonDistanceGpu = tgpu.fn(
-    [d.f32, d.f32, GpuPolygon],
-    d.f32,
-)((px, pz, poly) => {
-    "use gpu";
-    let inside = false;
-    let nearestEdge = d.f32(3.402823e38);
-    let i = d.u32(0);
-    for (; i < poly.count; i = i + d.u32(1)) {
-        const a = rasterLayout.$.polyVerts[poly.start + i];
-        const b = rasterLayout.$.polyVerts[poly.start + ((i + d.u32(1)) % poly.count)];
-        if (a.y > pz !== b.y > pz) {
-            const xCross = a.x + ((pz - a.y) / (b.y - a.y)) * (b.x - a.x);
-            if (px < xCross) inside = !inside;
-        }
-        const edge = segmentDistanceGpu(px, pz, a.x, a.y, b.x, b.y, 0);
-        if (edge < nearestEdge) nearestEdge = edge;
-    }
-    return polygonSignedDistanceGpu(nearestEdge, inside);
-});
-
-/** the document's full distance at (px, pz) — the minimum over every segment and every polygon stamp,
- *  the GPU twin of `document.ts`'s `documentDistance`. */
+/** the document's full distance at (px, pz) — the minimum over every segment, the GPU twin of
+ *  `document.ts`'s `documentDistance`. */
 export const documentDistanceGpu = tgpu.fn(
     [d.f32, d.f32],
     d.f32,
 )((px, pz) => {
     "use gpu";
-    let best = segmentsDistanceGpu(px, pz);
-    let p = d.u32(0);
-    for (; p < rasterLayout.$.params.polygonCount; p = p + d.u32(1)) {
-        const dist = polygonDistanceGpu(px, pz, rasterLayout.$.polygons[p]);
-        if (dist < best) best = dist;
-    }
-    return best;
+    return segmentsDistanceGpu(px, pz);
 });
 
 /** quantize a signed world-metre distance to its r8unorm byte — TGSL reimplementation of `tiles.ts`'s
@@ -209,14 +157,7 @@ const rasterKernel = tgpu
 /** the emitted rasterizer WGSL — the device-free structural seam stage 5's tests resolve. */
 export function rasterizeWgsl(): string {
     return tgpu.resolve(
-        [
-            segmentDistanceGpu,
-            segmentsDistanceGpu,
-            polygonDistanceGpu,
-            documentDistanceGpu,
-            encodeDistGpu,
-            rasterKernel,
-        ],
+        [segmentDistanceGpu, segmentsDistanceGpu, documentDistanceGpu, encodeDistGpu, rasterKernel],
         { names: "strict" },
     );
 }
@@ -262,7 +203,7 @@ export function warm(state: State): void {
 /**
  * rasterize `doc` into tile (tx, tz)'s content and copy it straight into `albedoTex`/`distTex`'s `layer`
  * — one compute dispatch + two `copyBufferToTexture` calls, all GPU-side (no CPU readback, so `atlas.ts`'s
- * `redraw` stays synchronous). The segment/polygon buffers are rebuilt each call, sized to `doc`'s actual
+ * `redraw` stays synchronous). The segment buffer is rebuilt each call, sized to `doc`'s actual
  * content (the same create-per-call shape `terrain/generate.ts`'s permutation buffer uses) — a redrawn
  * tile is throttled to a handful per frame (`tiles.ts`'s THROTTLE), so this isn't a hot per-frame path.
  */
@@ -298,34 +239,6 @@ export function rasterizeTile(
         })),
     );
 
-    const polyVerts: { x: number; y: number }[] = [];
-    const polygonsData = doc.polygons.map((poly) => {
-        const start = polyVerts.length;
-        for (const [x, z] of poly.points) polyVerts.push({ x, y: z });
-        return { start, count: poly.points.length };
-    });
-    const polygonsSafe = polygonsData.length > 0 ? polygonsData : [{ start: 0, count: 0 }];
-    const polyRaw = device.createBuffer({
-        label: "roads-raster-polygons",
-        size: polygonsSafe.length * d.sizeOf(GpuPolygon),
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const polyBuf = root
-        .createBuffer(d.arrayOf(GpuPolygon, polygonsSafe.length), polyRaw)
-        .$usage("storage");
-    polyBuf.write(polygonsSafe);
-
-    const vertsSafe = polyVerts.length > 0 ? polyVerts : [{ x: 0, y: 0 }];
-    const vertsRaw = device.createBuffer({
-        label: "roads-raster-polyverts",
-        size: vertsSafe.length * d.sizeOf(d.vec2f),
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
-    const vertsBuf = root
-        .createBuffer(d.arrayOf(d.vec2f, vertsSafe.length), vertsRaw)
-        .$usage("storage");
-    vertsBuf.write(vertsSafe.map((v) => d.vec2f(v.x, v.y)));
-
     const [ox, oz] = tileOrigin(tx, tz);
     const paramsRaw = device.createBuffer({
         label: "roads-raster-params",
@@ -333,11 +246,7 @@ export function rasterizeTile(
         usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
     const paramsBuf = root.createBuffer(RasterParams, paramsRaw).$usage("uniform");
-    paramsBuf.write({
-        tileOrigin: d.vec2f(ox, oz),
-        segmentCount: segments.length,
-        polygonCount: doc.polygons.length,
-    });
+    paramsBuf.write({ tileOrigin: d.vec2f(ox, oz), segmentCount: segments.length });
 
     const albedoOut = root
         .createBuffer(d.arrayOf(d.u32, ALBEDO_WORDS), albedoRaw)
@@ -346,8 +255,6 @@ export function rasterizeTile(
 
     const bindGroup = root.createBindGroup(rasterLayout, {
         segments: segBuf,
-        polygons: polyBuf,
-        polyVerts: vertsBuf,
         params: paramsBuf,
         albedoOut,
         distOut,
@@ -371,8 +278,6 @@ export function rasterizeTile(
         device.queue.submit([enc.finish()]);
     } finally {
         segRaw.destroy();
-        polyRaw.destroy();
-        vertsRaw.destroy();
         paramsRaw.destroy();
     }
 }

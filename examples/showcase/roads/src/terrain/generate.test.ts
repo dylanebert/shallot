@@ -33,8 +33,9 @@ describe("height kernel reference", () => {
         expect(flat(wgsl)).toContain(
             "@group(0) @binding(0) var<storage, read> perm_1: array<u32, 512>;",
         );
-        // perm + vertices + position + the flatten network's segments/polygons/polyVerts
-        expect(wgsl.match(/var<storage/g)?.length).toBeGreaterThanOrEqual(6);
+        // perm + vertices + position + the flatten network's segments (`roads-interactive.md` stage
+        // 1 deleted the polygon-stamp path's own polygons/polyVerts storage bindings)
+        expect(wgsl.match(/var<storage/g)?.length).toBeGreaterThanOrEqual(4);
     });
 
     test("dispatches one thread per vertex, with a bounds guard at the fence-post edge", () => {

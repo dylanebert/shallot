@@ -72,48 +72,6 @@ describe("allocate — atlas layer assignment", () => {
         for (let i = 0; i < 2; i++) next = allocate(cpu, i, next, 2).nextLayer;
         expect(() => allocate(cpu, 2, next, 2)).toThrow(/capacity exceeded/);
     });
-
-    // `tiles.ts`'s own comment sizes ATLAS_LAYERS off "well past stage 6's 'a handful of roads + one
-    // carpark' network... on the order of ten tiles" — a *single* generated network never overflows by
-    // design. `overlay/atlas.ts`'s ATLAS_LAYERS are also never evicted (tiles.ts's own architecture), so
-    // the real overflow path is cumulative: repeated reseeds (`terrain.ts`'s `regenerate`, driven live by
-    // `boot.ts`'s F9) each allocate a fresh handful of layers on top of whatever's already resident, until
-    // the fixed 64-layer atlas runs out. This drives that path with real generator output, not a synthetic
-    // fixture (stage 4's own residue note) — real `documentDirtyTiles` output from real `generateNetwork`
-    // seeds, fed through the real `allocate`.
-    test("real cumulative reseeds — not a single oversized network — overflow the real 64-layer atlas", () => {
-        const cpu = new Int32Array(TILE_COUNT).fill(-1);
-        let nextLayer = 0;
-        let seed = 1;
-        let overflowed: { seed: number; tileId: number } | null = null;
-        const SeedBudget = 50; // generous: the spike above found overflow by seed 4
-
-        while (overflowed === null && seed <= SeedBudget) {
-            const ids = documentDirtyTiles(generateNetwork(seed));
-            for (const id of ids) {
-                if (cpu[id] >= 0) continue; // already resident from an earlier reseed — no new layer spent
-                try {
-                    nextLayer = allocate(cpu, id, nextLayer, ATLAS_LAYERS).nextLayer;
-                } catch (cause) {
-                    overflowed = { seed, tileId: id };
-                    expect(String(cause)).toMatch(/capacity exceeded/);
-                    break;
-                }
-            }
-            seed++;
-        }
-
-        if (overflowed === null) {
-            throw new Error(
-                `generateNetwork's cumulative tile footprint never exceeded ATLAS_LAYERS (${ATLAS_LAYERS}) ` +
-                    `across ${SeedBudget} reseeds (${nextLayer} layers allocated) — the capacity-exceeded ` +
-                    "throw is real code but this run found no real input that reaches it; widen SeedBudget " +
-                    "or revisit the network's own sizing rather than asserting a fixture.",
-            );
-        }
-        expect(overflowed.seed).toBeLessThanOrEqual(SeedBudget);
-        expect(nextLayer).toBe(ATLAS_LAYERS); // every real layer got spent before the real throw fired
-    });
 });
 
 describe("invalidate — the atlas's document-swap reset", () => {
@@ -139,13 +97,15 @@ describe("invalidate — the atlas's document-swap reset", () => {
 
     // The regression this closes: `terrain.ts`'s `regenerate` used to call `markDirty` on the swapped-in
     // document without first releasing the outgoing document's resident layers, so repeated F9 presses
-    // accumulated layers across reseeds — the "real cumulative reseeds" test above shows that unfixed path
-    // overflowing on real generator output (found by seed ~4 in a from-empty scan; a probe against the
-    // boot seed 1337 plus sequential reseeds throws by the 3rd swap, `git log`'s red-first evidence for
-    // this stage). `regenerate` now calls `overlayAtlas.invalidate()` before `markDirty` — this drives that
-    // exact fixed shape (reset, then allocate) against hundreds of real reseeds and asserts it never
-    // breaches ATLAS_LAYERS, since invalidation means only the *current* document's own footprint is ever
-    // resident at once, and `tiles.ts` sizes ATLAS_LAYERS well past any single network's footprint.
+    // accumulated layers across reseeds until the fixed-size atlas ran out. `regenerate` now calls
+    // `overlayAtlas.invalidate()` before `markDirty` — this drives that fixed shape (reset, then allocate)
+    // against hundreds of real reseeds and asserts it never breaches ATLAS_LAYERS, since invalidation
+    // means only the *current* document's own footprint is ever resident at once.
+    //
+    // No arm demonstrates the *unfixed* path overflowing any more, and none can: since stage 1 the road is
+    // a fixed chord that does not move with the seed, so every reseed re-marks the same tiles and reseeding
+    // stopped being a capacity input at all. The accumulation this guards is now reachable only from edits
+    // (stage 4's drag), which is where stage 2's release path and its own red-first fixture live.
     test("real reseeds through the fixed invalidate-before-mark order never breach ATLAS_LAYERS", () => {
         const cpu = new Int32Array(TILE_COUNT).fill(-1);
         const pending: number[] = [];
@@ -155,7 +115,7 @@ describe("invalidate — the atlas's document-swap reset", () => {
 
         for (let seed = 0; seed <= 500; seed++) {
             nextLayer = invalidate(cpu, pending, pendingSet); // atlas.ts's swap invalidation, run first
-            const ids = documentDirtyTiles(generateNetwork(seed));
+            const ids = documentDirtyTiles(generateNetwork());
             for (const id of ids) {
                 nextLayer = allocate(cpu, id, nextLayer, ATLAS_LAYERS).nextLayer; // never throws post-fix
             }

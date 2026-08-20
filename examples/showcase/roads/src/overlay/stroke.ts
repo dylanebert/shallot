@@ -109,6 +109,5 @@ export function strokeDocument(): StrokeDocument {
                 halfWidth: STROKE_HALF_WIDTH,
             },
         ],
-        polygons: [],
     };
 }

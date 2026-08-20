@@ -4,8 +4,6 @@ import {
     documentDistance,
     drivable,
     flattenSegments,
-    type PolygonStamp,
-    polygonDistance,
     type StrokeDocument,
     segmentDistance,
 } from "./document";
@@ -24,7 +22,6 @@ describe("flattenSegments", () => {
                     halfWidth: 2,
                 },
             ],
-            polygons: [],
         };
         const segs = flattenSegments(doc);
         expect(segs.length).toBe(2);
@@ -33,7 +30,7 @@ describe("flattenSegments", () => {
     });
 
     test("an empty document flattens to no segments", () => {
-        expect(flattenSegments({ polylines: [], polygons: [] })).toEqual([]);
+        expect(flattenSegments({ polylines: [] })).toEqual([]);
     });
 });
 
@@ -59,33 +56,8 @@ describe("segmentDistance", () => {
     });
 });
 
-describe("polygonDistance", () => {
-    // a 10×10 square centred on the origin
-    const square: PolygonStamp = {
-        points: [
-            [-5, -5],
-            [5, -5],
-            [5, 5],
-            [-5, 5],
-        ],
-    };
-
-    test("negative well inside, positive well outside", () => {
-        expect(polygonDistance(0, 0, square)).toBeLessThan(0);
-        expect(polygonDistance(20, 20, square)).toBeGreaterThan(0);
-    });
-
-    test("magnitude at the centre equals the distance to the nearest edge", () => {
-        expect(polygonDistance(0, 0, square)).toBeCloseTo(-5, 10);
-    });
-
-    test("near-zero right at the boundary", () => {
-        expect(Math.abs(polygonDistance(5, 0, square))).toBeCloseTo(0, 10);
-    });
-});
-
 describe("documentDistance", () => {
-    test("is the minimum over every segment and polygon", () => {
+    test("is the minimum over every segment", () => {
         const doc: StrokeDocument = {
             polylines: [
                 {
@@ -96,21 +68,8 @@ describe("documentDistance", () => {
                     halfWidth: 2,
                 },
             ],
-            polygons: [
-                {
-                    points: [
-                        [40, 40],
-                        [60, 40],
-                        [60, 60],
-                        [40, 60],
-                    ],
-                },
-            ],
         };
-        // near the polyline, not the polygon
         expect(documentDistance(0, 0, doc)).toBeCloseTo(-2, 10);
-        // inside the polygon, far from the polyline
-        expect(documentDistance(50, 50, doc)).toBeCloseTo(-10, 10);
     });
 
     test("cross-checks stroke.ts's hand-rolled strokeDistance over strokeDocument()", () => {
@@ -135,7 +94,7 @@ describe("documentDistance", () => {
 
 describe("documentDirtyTiles", () => {
     test("an empty document throws rather than producing a degenerate set", () => {
-        expect(() => documentDirtyTiles({ polylines: [], polygons: [] })).toThrow();
+        expect(() => documentDirtyTiles({ polylines: [] })).toThrow();
     });
 
     test("matches strokeRect/dirtyTiles' original row/column set for strokeDocument()", () => {
@@ -174,7 +133,6 @@ describe("only-touched-tiles oracle", () => {
                 halfWidth: 1,
             }, // z in [-161,161] -> tz [5,10], tx {7,8}
         ],
-        polygons: [],
     };
 
     test("the redrawn tile set is exactly the per-arm union, nothing more", () => {
@@ -213,16 +171,6 @@ describe("drivable", () => {
                 halfWidth: 4,
             },
         ],
-        polygons: [
-            {
-                points: [
-                    [100, 100],
-                    [120, 100],
-                    [120, 120],
-                    [100, 120],
-                ],
-            },
-        ],
     };
 
     test("on the centreline and well inside the half-width — true", () => {
@@ -235,16 +183,10 @@ describe("drivable", () => {
         expect(drivable(0, 3.5, doc)).toBe(true);
     });
 
-    test("inside the carpark polygon — true; a point equidistant outside it — false", () => {
-        expect(drivable(110, 110, doc)).toBe(true);
-        expect(drivable(200, 200, doc)).toBe(false);
-    });
-
     test("agrees with documentDistance's own sign — the query it wraps, not a second definition", () => {
         for (const [x, z] of [
             [0, 0],
             [0, 10],
-            [110, 110],
             [500, 500],
         ] as const) {
             expect(drivable(x, z, doc)).toBe(documentDistance(x, z, doc) <= 0);

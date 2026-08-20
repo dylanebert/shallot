@@ -16,7 +16,6 @@ import { MeshQuant } from "@dylanebert/shallot/utils/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { envFlag } from "../env";
 import * as overlayAtlas from "../overlay/atlas";
 import type { StrokeDocument } from "../overlay/document";
 import { generateNetwork } from "../overlay/network";
@@ -158,26 +157,16 @@ function teardown(): void {
     buffers = null;
 }
 
-// The boot document is the seeded procedural network (`overlay/network.ts`'s `generateNetwork`) at this
-// module's own {@link SEED} — the same pinned seed the height kernel boots with, so a fresh load and a
-// capture both see one fixed network. `capture.ts`'s `capturePoints` derives its on/off-road probe points
-// from this exact `generateNetwork(SEED)` call (`overlay/network.ts`'s `captureProbePoints`), so the two
-// can't drift apart. `overlay/stroke.ts`'s hand-authored stroke stays live only as the CPU-vs-GPU
-// differential's known pattern (`document.test.ts`), no longer what boots on screen. {@link regenerate}
-// swaps to a fresh random seed on demand (the seed control, `boot.ts`'s F9 handler), exercising the exact
-// same `markDirty`/`redraw`/flatten path this boot document already takes.
-let liveDocument: StrokeDocument = generateNetwork(SEED);
+// The boot document is the network's one fixed standard chord (`overlay/network.ts`'s
+// `generateNetwork`, no longer seeded — `roads-interactive.md` stage 1 deleted route selection).
+// `capture.ts`'s `capturePoints` derives its on/off-road probe points from this exact
+// `generateNetwork()` call (`overlay/network.ts`'s `captureProbePoints`), so the two can't drift
+// apart. `overlay/stroke.ts`'s hand-authored stroke stays live only as the CPU-vs-GPU differential's
+// known pattern (`document.test.ts`), no longer what boots on screen. {@link regenerate} draws a
+// fresh terrain seed on demand (the seed control, `boot.ts`'s F9 handler) and resets the road to the
+// standard chord — the seed drives the noise permutation alone, never the road's placement.
+let liveDocument: StrokeDocument = generateNetwork();
 let currentSeed = SEED;
-// The straightness instrument's no-cut diagnostic: `liveDocument` still drives the overlay and the height-
-// axis anchors (the analytic road edge stays a real, checkable position), only the *flatten* kernel gets
-// an empty network — `flatten.ts`'s own documented fallback ("empty network... degrades to plain
-// heightAt") — so the rendered mesh is genuinely undeformed terrain rather than a cut against zeroed
-// RELIEF. `VITE_ROADS_NO_CUT`-gated (`env.ts`); a manual-only diagnostic, not a gate control —
-// `test/roads.spec.ts` Phase 4 asserts the corridor is flattened and runs before Phase 5's capture, so a
-// no-cut run reds before any control frame is written. Paired with `VITE_ROADS_RELIEF=0` (`noise.ts`) for
-// the spec's "zeroed-RELIEF, no-cut" manual diagnostic.
-const NO_CUT = envFlag("VITE_ROADS_NO_CUT");
-const EMPTY_DOCUMENT: StrokeDocument = { polylines: [], polygons: [] };
 
 async function warm(state: State): Promise<void> {
     teardown(); // a rebuild (HMR) re-warms — clear the prior generation's buffers first
@@ -255,9 +244,8 @@ async function warm(state: State): Promise<void> {
 
     bindTerrainKernel(vertices, position);
     warmNetwork(state); // its own onDispose registration, the same pattern
-    setNetwork(NO_CUT ? EMPTY_DOCUMENT : liveDocument, currentSeed); // the flatten kernel's
-    // geometry input, kept in sync with the overlay's own document and the height kernel's own
-    // permutation seed — except under the no-cut manual diagnostic, above
+    setNetwork(liveDocument, currentSeed); // the flatten kernel's geometry input, kept in sync with
+    // the overlay's own document and the height kernel's own permutation seed
     if (state.signal.aborted) return;
     await generate(SEED);
 }
@@ -275,21 +263,24 @@ const OverlayRedrawSystem: System = {
 };
 
 /**
- * swap the live document to a freshly seeded procedural network (`overlay/network.ts`'s
- * `generateNetwork`) and re-dispatch the height kernel — the seed control's live reseed (`boot.ts`'s F9
- * handler). `overlayAtlas.invalidate()` releases every tile the outgoing document left resident (the
- * indirection mirror reset to unallocated, the layer counter restarted, any still-pending redraw dropped)
- * *before* the new network's tiles are marked dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set
- * oracle `document.test.ts` pins) — otherwise a tile the old document touched but the new one doesn't
- * would keep its stale content forever, and each reseed's fresh handful of layers would pile onto the
- * last's until the fixed-size atlas ran out (`overlay/queue.test.ts`'s real-generator-output demonstration
- * of both failure modes, pre-invalidation). Rebinds the flatten kernel's geometry (`flatten.ts`'s
- * `setNetwork`) before `generate` re-dispatches, so the next-drawn frame's heights and overlay both
- * reflect the new network in one call — the "affected-region remesh" the spec's Approach names.
+ * reseed the terrain's noise permutation and re-dispatch the height kernel, resetting the live document
+ * to the standard chord — the seed control's live reseed (`boot.ts`'s F9 handler). The seed drives the
+ * noise permutation alone (`roads-interactive.md` stage 1: "the road is not seeded"), never the road's
+ * placement — a person's drag is the only thing that ever moves it (stage 4). `overlayAtlas.invalidate()`
+ * releases every tile the outgoing document left resident (the indirection mirror reset to unallocated,
+ * the layer counter restarted, any still-pending redraw dropped) *before* the new network's tiles are
+ * marked dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set oracle `document.test.ts` pins) —
+ * otherwise a tile the old document touched but the new one doesn't would keep its stale content forever,
+ * and each reseed's fresh handful of layers would pile onto the last's until the fixed-size atlas ran out
+ * (`overlay/queue.test.ts` drives the fixed order against real reseeds; the pre-invalidation overflow has
+ * no live demonstration, the road no longer moving with the seed — see that file's note).
+ * Rebinds the flatten kernel's geometry (`flatten.ts`'s `setNetwork`) before `generate` re-dispatches, so
+ * the next-drawn frame's heights and overlay both reflect the new terrain in one call — the
+ * "affected-region remesh" the spec's Approach names.
  */
 export async function regenerate(seed: number): Promise<void> {
     currentSeed = seed;
-    liveDocument = generateNetwork(seed);
+    liveDocument = generateNetwork();
     setNetwork(liveDocument, seed);
     overlayAtlas.invalidate();
     overlayAtlas.markDirty(liveDocument);

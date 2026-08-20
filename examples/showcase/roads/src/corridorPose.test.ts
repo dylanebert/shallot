@@ -53,7 +53,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 describe("corridor-pose px/m budget (stage 24a)", () => {
     // Independently derive cutDepth and falloff from the real network — not from the fixed literals.
-    const doc = generateNetwork(1337);
+    // `generateNetwork` no longer takes a seed (stage 1: route selection is gone, the boot road is a
+    // fixed standard chord); 1337 here is only the terrain's noise seed `buildNetworkGeometry` samples
+    // natural height against.
+    const doc = generateNetwork();
     const { cutDepth: independentCutDepth } = buildNetworkGeometry(doc, 1337);
     const independentFalloff = computeFalloff(independentCutDepth);
 
@@ -124,9 +127,10 @@ describe("corridor-pose px/m budget (stage 24a)", () => {
         // ratio always equals the expectation by construction and no change to the subject can red it
         // — the exact defect the spec's fifth fitted-constant instance names. Using the frozen literal
         // breaks the tautology: if independentCutDepth drifts from CUT_DEPTH the two sides diverge.
-        // Red-first demonstrated: perturbing CUT_DEPTH to 2.0 (while independentCutDepth stays
-        // ~1.4404) makes ratio ≠ expectedRatio (diff 0.0378 > 0.005 tolerance), exit 1 — the ratio
-        // arm itself reds, not just the constants-match arm.
+        // Red-first demonstrated (pre-stage-1, at the retired route-selected chord): perturbing
+        // CUT_DEPTH to 2.0 (while independentCutDepth stayed ~1.4404) made ratio ≠ expectedRatio
+        // (diff 0.0378 > 0.005 tolerance), exit 1 — the ratio arm itself reds, not just the
+        // constants-match arm.
         const ratio = earthworkPx / confounderPx;
         const expectedRatio =
             (CUT_DEPTH * fPx() * Math.cos(DEFAULT_PITCH)) / (CONFUNDER_PX_AT_DEFAULT * 900);
