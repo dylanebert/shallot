@@ -116,8 +116,10 @@ describe("longitudinalOracle — the spec's own Validation criterion, proven by 
         // universal — 2 of the 25 raw profiles happen to satisfy MAX_GRADE. An amputated instrument owes its
         // extent pinned in the same diff (the spec's Residue), so the *population and the failing count* are
         // pinned rather than an existential `> 0`: a future change that quietly drains the null control's
-        // signal (stage 22's route selection is the live candidate) reds here instead of passing on one road.
+        // signal reds here instead of passing on one road. Stage 22's route selection moved the roads
+        // (different positions/lengths): gradeFailures 23 → 18 (7 of 25 raw profiles now satisfy MAX_GRADE,
+        // because route selection prefers shorter, cheaper chords whose raw centreline grade is lower).
         expect(checked).toBe(25);
-        expect(gradeFailures).toBe(23);
+        expect(gradeFailures).toBe(18);
     });
 });

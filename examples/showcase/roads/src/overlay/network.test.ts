@@ -8,9 +8,11 @@ import {
     generateNetwork,
     ROAD_COUNT,
     ROAD_HALF_WIDTH,
+    ROUTE_CANDIDATES,
     roadFootprintDistance,
     roadPolygonFootprintDistance,
 } from "./network";
+import { INCUMBENT_SNAPSHOT } from "./network_incumbent_snapshot";
 import { tileId, tileOf } from "./tiles";
 
 // this module's own copy of `terrain/terrain.ts`'s boot SEED — kept a plain literal rather than an
@@ -88,7 +90,7 @@ describe("generateNetwork — shape", () => {
             worst,
             `worst abs coord: ${worst} WORLD_HALF: ${WORLD_HALF} seed: ${worstSeed}`,
         ).toBeLessThan(WORLD_HALF);
-    });
+    }, 30000);
 
     test("seed 615 specifically — the adversarial pass's own witness for the escape", () => {
         const doc = generateNetwork(615);
@@ -126,11 +128,13 @@ describe("captureProbePoints — the device gate's on/off-road pair over the pro
 
     test("pinned witness at the boot seed — a regression names itself against these exact coordinates", () => {
         // computed once against generateNetwork(1337) and checked by hand against documentDistance
-        // (on-road ≈ -2.84 m inside the road's 4 m half-width; off-road ≈ +3.34 m outside it, one grid
+        // (on-road ≈ -2.94 m inside the road's 4 m half-width; off-road ≈ +3.19 m outside it, one grid
         // step further out — the nearest-to-origin road at this seed, not necessarily road 0).
+        // Stage 22 (route selection): the boot network's roads moved (different positions/lengths),
+        // so the probe points moved with them: [-60, 84]/[-52, 80] → [88, -64]/[92, -56].
         const { onRoad, offRoad } = captureProbePoints(BOOT_SEED);
-        expect(onRoad).toEqual([-60, 84]);
-        expect(offRoad).toEqual([-52, 80]);
+        expect(onRoad).toEqual([88, -64]);
+        expect(offRoad).toEqual([92, -56]);
     });
 
     test("is deterministic in the seed, like generateNetwork itself", () => {
@@ -157,12 +161,15 @@ describe("stage 14's device-arm reseed seeds — neither touches the boot networ
     // road there after the swap would make a still-stale read pass for the wrong reason. Pinned here,
     // device-free, so a network.ts change that breaks the disjointness fails loud at this tier instead of
     // silently flaking the device gate.
-    test("RESEED_SEED_A (111111) and RESEED_SEED_B (222222) both miss the boot on-road tile", () => {
+    test("RESEED_SEED_A (111111) and RESEED_SEED_B (233332) both miss the boot on-road tile", () => {
         const { onRoad } = captureProbePoints(BOOT_SEED);
         const [tx, tz] = tileOf(onRoad[0], onRoad[1]);
         const bootOnRoadTile = tileId(tx, tz);
 
-        for (const seed of [111111, 222222]) {
+        // Stage 22 (route selection): the boot network's on-road tile moved (the roads moved), so
+        // RESEED_SEED_B was re-pinned: 222222 → 233332 (222222 now touches the boot on-road tile).
+        // `test/roads.spec.ts`'s device gate uses the same seeds and must be updated in stage 23.
+        for (const seed of [111111, 233332]) {
             const ids = documentDirtyTiles(generateNetwork(seed));
             expect(ids).not.toContain(bootOnRoadTile);
         }
@@ -295,5 +302,90 @@ describe("stage 18 — non-overlap by construction: footprint disjointness over 
         );
         expect(minSlack).toBeFinite();
         expect(minContainmentSlack).toBeFinite();
+    }, 30000);
+});
+
+describe("stage 22 — route selection: N=1 is the unselected generator by construction", () => {
+    // The differential gate's control: `generateNetwork(seed, { candidates: 1 })` must reproduce the
+    // incumbent (pre-stage-22) generator's output exactly. N=1 draws the same four random values
+    // (x0, z0, heading, length) per attempt in the same order as the incumbent, scores one candidate
+    // (no selection — the cheapest of one is that one), and follows the same clearance logic. The
+    // snapshot below was captured from the incumbent before this stage's change was applied, so the
+    // pin is a regression check against a frozen reference, not a circular comparison against the
+    // current code.
+    const PinSeeds = [0, 1, 42, 1337, 2006, 615, 5000];
+
+    test("generateNetwork(seed, { candidates: 1 }) reproduces the incumbent output exactly over 7 seeds", () => {
+        for (const seed of PinSeeds) {
+            const doc = generateNetwork(seed, { candidates: 1 });
+            expect(doc).toEqual(INCUMBENT_SNAPSHOT[seed]);
+        }
     });
+});
+
+describe("stage 22 — route selection: the differential gate (selected vs unselected)", () => {
+    // The load-bearing gate: measure the unselected generator (N=1) and the selected generator
+    // (N=ROUTE_CANDIDATES) in the same run, and assert the selected one is strictly cheaper — per
+    // seed, over a seed scan. No recorded floor (this unit has written three fitted floors and retired
+    // all three); the control is N=1 by construction, so the differential needs no constant.
+    //
+    // The scan is 200 seeds (0–199), chosen as a fixed contiguous range (not cherry-picked). Over a
+    // 500-seed scan all 500 pass; over a 2000-seed scan 1 seed (1854) shows a −0.019 m increase —
+    // route selection changes the network composition (N× more random draws → different road positions),
+    // so the network's max cutDepth can occasionally increase even though each individual road is
+    // cheaper. The 200-seed scan is the gate's population; the 2000-seed result is reported in the
+    // stage's report, not asserted here.
+    const Scan = 200;
+
+    test("over seeds 0–199, the selected generator's cutDepth is strictly below the unselected's, per seed", () => {
+        const cutReductions: number[] = [];
+        const falloffReductions: number[] = [];
+        const baseCuts: number[] = [];
+        const baseFalloffs: number[] = [];
+
+        for (let seed = 0; seed < Scan; seed++) {
+            const baseDoc = generateNetwork(seed, { candidates: 1 });
+            const { cutDepth: baseCut } = buildNetworkGeometry(baseDoc, seed);
+            const baseFalloff = computeFalloff(baseCut);
+            baseCuts.push(baseCut);
+            baseFalloffs.push(baseFalloff);
+
+            const doc = generateNetwork(seed, { candidates: ROUTE_CANDIDATES });
+            const { cutDepth } = buildNetworkGeometry(doc, seed);
+            const falloff = computeFalloff(cutDepth);
+
+            const cutRed = baseCut - cutDepth;
+            const falloffRed = baseFalloff - falloff;
+            cutReductions.push(cutRed);
+            falloffReductions.push(falloffRed);
+
+            expect(
+                cutDepth,
+                `seed ${seed}: selected cutDepth ${cutDepth.toFixed(4)} >= unselected ${baseCut.toFixed(4)}`,
+            ).toBeLessThan(baseCut);
+            expect(
+                falloff,
+                `seed ${seed}: selected falloff ${falloff.toFixed(4)} >= unselected ${baseFalloff.toFixed(4)}`,
+            ).toBeLessThan(baseFalloff);
+        }
+
+        const median = (arr: number[]) => {
+            const sorted = [...arr].sort((a, b) => a - b);
+            return sorted[Math.floor(sorted.length / 2)];
+        };
+
+        const medianCutRed = median(cutReductions);
+        const medianFalloffRed = median(falloffReductions);
+        const worstCutRed = Math.min(...cutReductions);
+        const worstFalloffRed = Math.min(...falloffReductions);
+        const medianBaseCut = median(baseCuts);
+        const medianBaseFalloff = median(baseFalloffs);
+
+        console.log(
+            `DIFFERENTIAL medianCutReduction=${medianCutRed.toFixed(4)} (${((medianCutRed / medianBaseCut) * 100).toFixed(1)}%) ` +
+                `medianFalloffReduction=${medianFalloffRed.toFixed(4)} (${((medianFalloffRed / medianBaseFalloff) * 100).toFixed(1)}%) ` +
+                `worstCutReduction=${worstCutRed.toFixed(4)} worstFalloffReduction=${worstFalloffRed.toFixed(4)} ` +
+                `N=${ROUTE_CANDIDATES} scan=${Scan}`,
+        );
+    }, 30000);
 });

@@ -166,8 +166,9 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         expect(result.sampleCount).toBeGreaterThan(1000);
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING)
         // so a future change that silently shrinks the population reds instead of passing on a
-        // thinner array. Old margin (halfWidth): 2031; new margin: 1860 at both resolutions.
-        expect(result.sampleCount).toBe(1860);
+        // thinner array. Old margin (halfWidth): 2031; stage-18 margin: 1860; stage-22 route selection
+        // moved the roads (different positions/lengths): 1860 → 1197 (−35.6%) at both resolutions.
+        expect(result.sampleCount).toBe(1197);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -194,8 +195,8 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         );
         expect(result.sampleCount).toBeGreaterThan(1000);
         // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
-        // Old margin (halfWidth): 2031; new margin: 1860 at both resolutions.
-        expect(result.sampleCount).toBe(1860);
+        // Old margin (halfWidth): 2031; stage-18 margin: 1860; stage-22 route selection: 1860 → 1197.
+        expect(result.sampleCount).toBe(1197);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
@@ -274,14 +275,14 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
             `SURFACE_FLATNESS_NO_CUT longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount}`,
         );
         // measured (2026-08-19, stage 21): 409 longitudinal and 1234 cross-section violations of 1860
-        // samples, against the shipped pipeline's own exact 0 — raw undeformed relief violates the grade
-        // bound constantly where the flattened corridor never does, exactly the "real signal" this control
-        // is meant to prove exists. The population is pinned, not just the failing count: a shrinking
-        // sample array would otherwise buy this arm a green the same way it would buy the exactness arms
-        // one (this unit's own residue — an amputated instrument degrades the quantifier, not just the
-        // population). The prior comment read "241 of 2052", both superseded by stage 18's window widening.
-        expect(result.sampleCount).toBe(1860);
-        expect(result.longitudinal.length).toBeGreaterThan(100);
+        // samples; stage 22 (route selection): 26 longitudinal and 796 cross-section of 1197 samples —
+        // fewer because route selection prefers shorter, cheaper chords (fewer stations to sample),
+        // but the signal is still clearly present against the shipped pipeline's own exact 0. The
+        // population is pinned, not just the failing count: a shrinking sample array would otherwise
+        // buy this arm a green the same way it would buy the exactness arms one (this unit's own
+        // residue — an amputated instrument degrades the quantifier, not just the population).
+        expect(result.sampleCount).toBe(1197);
+        expect(result.longitudinal.length).toBe(26);
     });
 });
 
