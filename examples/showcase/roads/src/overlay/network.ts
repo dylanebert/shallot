@@ -363,8 +363,10 @@ export function generateNetwork(seed: number, options?: GenerateNetworkOptions):
  * roads land at arbitrary headings and positions.
  *
  * Picks whichever road's midpoint sits nearest the world origin, not always `polylines[0]`: the scene's
- * fixed orbit camera (`public/scenes/roads.scene`) frames the whole 1024 m grid from its default target,
- * the world origin, so a road far out near the world's edge projects to only a few screen pixels — its
+ * fixed orbit camera (`public/scenes/roads.scene`) targets the world origin, so a road far out near the
+ * world's edge is either off-frame entirely (at stage 25's 120 m default, which frames ~250 m across) or
+ * projects to only a few screen pixels (at the pre-stage-25 900 m default, which framed the whole grid,
+ * and at any zoomed-out orbit the user can reach) — its
  * on/off-road pair would then sit closer than one screen pixel apart, sampling the same rounded pixel
  * twice (measured: a seed whose nearest road sat 260 m out read identical on/off-road luminance on the
  * real device). The on-road point is that midpoint's nearest grid vertex; the off-road point steps
