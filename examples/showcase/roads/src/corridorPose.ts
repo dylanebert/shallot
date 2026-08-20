@@ -1,11 +1,17 @@
 // Stage 24a's corridor-pose derivation — the admissible artifact for the release look (24b).
 //
 // The gate's default-orbit capture (`test-results/roads-capture.png`) is the scene's own orbit
-// (`public/scenes/roads.scene`: distance 900, pitch 0.5), where the post-selection earthwork's
-// 1.4404 m vertical excursion projects to ≈0.9 px — under the frame's FBM mottling and an order of
-// magnitude below the ~8–10 px of natural-relief silhouette waviness. 24b's hostile read against
-// "the earthwork reads as an artificial trench/embankment rather than terrain" is unreadable at that
-// pose whether or not the failure is present. This module derives a second pose that makes the
+// (`public/scenes/roads.scene`). **At the pose this module was derived against — the pre-stage-25
+// default, distance 900, pitch 0.5 — the post-selection earthwork's 1.4404 m vertical excursion
+// projects to ≈0.9 px**, under the frame's FBM mottling and an order of magnitude below the ~8–10 px
+// of natural-relief silhouette waviness, so 24b's hostile read against "the earthwork reads as an
+// artificial trench/embankment rather than terrain" was unreadable at that pose whether or not the
+// failure was present. **Every 900 m figure in this module and its arm is that historical
+// measurement point, not the scene's current default** — stage 25 moved the scene default to 120 m
+// (where the same excursion projects to ≈6.6 px) for presentation reasons, and deliberately did not
+// re-anchor this module on it: the pose and its anchors are fixed literals precisely so they cannot
+// drift with an unrelated stage (24a's whole finding). A future reader must not "update" the 900s to
+// track the scene — that would re-fit the anchors to the treatment. This module derives a second pose that makes the
 // earthwork's vertical excursion resolvable (≥5 px) while keeping ≥30 m of unflattened terrain
 // flanking the corridor in frame (the corridor must read *set into* terrain, or the look loses its
 // comparison).
@@ -65,10 +71,13 @@ export const HALF_WIDTH = 4;
 //   cutDepth × cos(θ) × f_px / D ≥ 5
 //   D ≤ cutDepth × cos(θ) × f_px / 5 = 1.4404 × cos(θ) × 623.54 / 5 = 179.6 × cos(θ)
 //
-// The 5 px anchor is the road's own already-resolved on-screen width at the default pose:
-// 8 m (2 × halfWidth) × f_px / 900 = 5.54 px — the smallest extent this artifact demonstrably
-// resolves, so the threshold is anchored on a resolved quantity in the same frame rather than
-// picked to make something pass.
+// The 5 px anchor is the road's own already-resolved on-screen width at the *measurement point*
+// (the pre-stage-25 scene default, 900 m): 8 m (2 × halfWidth) × f_px / 900 = 5.54 px — the smallest
+// extent this artifact was demonstrated to resolve, so the threshold is anchored on a resolved
+// quantity in that frame rather than picked to make something pass. The anchor stays at 900 m by
+// design: it is the frame the ≈0.9 px inadmissibility reading came from, and re-deriving it at stage
+// 25's 120 m default (where the road is ~41.6 px) would raise the floor to track a presentation
+// choice rather than a resolved quantity.
 //
 // Constraint 2 — ≥30 m of unflattened terrain flanking the corridor in frame:
 //   D × tan(fov_h/2) − (halfWidth + falloff) ≥ 30
