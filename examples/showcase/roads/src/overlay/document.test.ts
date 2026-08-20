@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { WORLD_HALF } from "../terrain/grid";
 import {
     documentDirtyTiles,
     documentDistance,
@@ -10,8 +11,20 @@ import {
     type StrokeDocument,
     segmentDistance,
 } from "./document";
+import { ROAD_HALF_WIDTH } from "./network";
 import { strokeDistance, strokeDocument } from "./stroke";
-import { EDGE_INSET, LINE_HALF_WIDTH } from "./tiles";
+import {
+    ATLAS_LAYERS,
+    dirtyTiles,
+    EDGE_INSET,
+    LINE_HALF_WIDTH,
+    type Rect,
+    TEXEL_SIZE,
+    TILE_SIZE,
+    TILES_PER_SIDE,
+    tileCoordOf,
+    tileOrigin,
+} from "./tiles";
 
 describe("flattenSegments", () => {
     test("one polyline with N points yields N-1 segments, in order", () => {
@@ -257,5 +270,307 @@ describe("markingDistance", () => {
         expect(markingDistance(0, 0, doc)).toBeGreaterThan(0);
         // on the edge line → negative. Derived from the doc's own halfWidth, not ROAD_HALF_WIDTH.
         expect(markingDistance(0, doc.polylines[0].halfWidth - EDGE_INSET, doc)).toBeLessThan(0);
+    });
+});
+
+describe("dirty set is the swath (stage 4d)", () => {
+    // The capsule (swath) dirty-set test replaces the segment's axis-aligned bounding box. Three arms:
+    // (1) the axis-aligned null control — the AABB was already exact there, so the count is unchanged at
+    // 32; (2) the diagonal's drop — the AABB read 256 (the whole grid), the capsule reads the true swath;
+    // (3) the one that matters — every tile the narrowing drops is verified to contain no point within
+    // halfWidth + margin of the chord, so the narrowing produces no unbaked hole.
+    //
+    // RED-FIRST against 4c's shape (the AABB): a corner-to-corner diagonal read 256 under the AABB —
+    // `git show 3bc5d55:examples/showcase/roads/src/overlay/document.ts` is the pre-image. The capsule
+    // test narrows it to 46, the measured worst case over a scan of orientations.
+
+    const halfWidth = ROAD_HALF_WIDTH;
+    const margin = TEXEL_SIZE;
+    const bound = WORLD_HALF - ROAD_HALF_WIDTH; // 508 — the admissible endpoint bound
+
+    /** the old AABB dirty set for one segment — the pre-4d shape, reconstructed in the test so the
+     *  narrowing can be verified against it. */
+    function aabbDirtySet(seg: Segment): Set<number> {
+        const rect: Rect = {
+            minX: Math.min(seg.ax, seg.bx) - seg.halfWidth - margin,
+            maxX: Math.max(seg.ax, seg.bx) + seg.halfWidth + margin,
+            minZ: Math.min(seg.az, seg.bz) - seg.halfWidth - margin,
+            maxZ: Math.max(seg.az, seg.bz) + seg.halfWidth + margin,
+        };
+        return new Set(dirtyTiles(rect));
+    }
+
+    /** a tile column's world-space rect, computed from exported tiles.ts helpers. */
+    function tileRect(tx: number, tz: number): Rect {
+        const [ox, oz] = tileOrigin(tx, tz);
+        return { minX: ox, minZ: oz, maxX: ox + TILE_SIZE, maxZ: oz + TILE_SIZE };
+    }
+
+    /** whether a dropped tile is adjacent (4-neighbour) to any tile in the swath set — the only
+     *  dropped tiles that could contain a point within halfWidth + margin of the chord, since the
+     *  swath is thin against 64 m tiles. */
+    function isBoundaryDropped(id: number, swathSet: Set<number>): boolean {
+        const [tx, tz] = tileCoordOf(id);
+        const neighbors = [
+            [tx - 1, tz],
+            [tx + 1, tz],
+            [tx, tz - 1],
+            [tx, tz + 1],
+        ];
+        for (const [nx, nz] of neighbors) {
+            if (nx < 0 || nx >= TILES_PER_SIDE || nz < 0 || nz >= TILES_PER_SIDE) continue;
+            if (swathSet.has(nz * TILES_PER_SIDE + nx)) return true;
+        }
+        return false;
+    }
+
+    test("an axis-aligned full-width chord reads exactly 32 (the AABB was already exact there)", () => {
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-bound, 0],
+                        [bound, 0],
+                    ],
+                    halfWidth,
+                },
+            ],
+        };
+        const count = documentDirtyTiles(doc).length;
+        expect(count).toBe(32); // the null control — the capsule test did not narrow the common case
+    });
+
+    test("a corner-to-corner diagonal drops from 256 (AABB) to the swath count", () => {
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-bound, -bound],
+                        [bound, bound],
+                    ],
+                    halfWidth,
+                },
+            ],
+        };
+        const seg = flattenSegments(doc)[0];
+        const aabbCount = aabbDirtySet(seg).size;
+        const swathCount = documentDirtyTiles(doc).length;
+
+        // the AABB read 256 — the whole grid (the pre-4d shape)
+        expect(aabbCount).toBe(256);
+        // the capsule reads the true swath — 46, the measured worst case
+        expect(swathCount).toBe(46);
+        // the narrowing dropped the count
+        expect(swathCount).toBeLessThan(aabbCount);
+        // a straight chord crosses at most 2 * TILES_PER_SIDE - 1 = 31 tiles before width, so 46 is
+        // 1.48× the bound (the extra tiles are the halfWidth + margin band), not ~8× — the instrument
+        // is measuring the real footprint, not the AABB
+        expect(swathCount).toBeLessThanOrEqual(
+            2 * TILES_PER_SIDE -
+                1 +
+                2 * Math.ceil((halfWidth + margin) / TILE_SIZE) * TILES_PER_SIDE,
+        );
+    });
+
+    // B2 repair: the original arm asserted `segmentRectDistance(seg, tileRect(...)) > halfWidth +
+    // margin` for each dropped tile — but `documentDirtyTiles` emits a tile iff
+    // `segmentRectDistance(seg, tileWorldRect(...)) <= halfWidth + MARGIN`, and the test's `tileRect`
+    // was byte-identical to production's `tileWorldRect`. So a dropped tile satisfied the assertion by
+    // definition: if `segmentRectDistance` over-estimates distance and drops a tile the road actually
+    // touches — the unbaked hole this arm exists to refuse — the arm still passed. The rewritten arm
+    // derives its expectation independently: for each dropped tile, sample a dense grid of points over
+    // the tile's rect and compute each point's distance to the segment by a brute-force parametric
+    // sweep (march t over [0, 1], min Euclidean distance to lerp(a, b, t)) — never calling
+    // `pointToSegmentDistance`, `pointToRectDistance`, `segmentRectDistance` or
+    // `segmentIntersectsRect`, and importing nothing from `document.ts` for the distance itself.
+    //
+    // Chord: a 10° chord (not the 45° diagonal). The 45° diagonal is degenerate for this arm: the
+    // segment passes through tile corners, so `segmentRectDistance` is 0 for every swath tile, and
+    // no threshold-based over-narrowing mutation can drop any of them — the arm cannot red. A 10°
+    // chord has swath tiles with non-zero `segmentRectDistance` (tiles in the halfWidth band, not
+    // intersected by the centreline), so a threshold mutation can incorrectly drop them.
+    //
+    // WITNESSED RED: to prove the arm can red, the production threshold in `documentDirtyTiles`
+    // (document.ts: `seg.halfWidth + MARGIN`) was mutated to `seg.halfWidth * 0.5` (over-narrowing the
+    // dirty set from 4.125 m to 2.0 m). The rewritten arm went red with:
+    //   "expect(received).toBeGreaterThan(expected)
+    //        Expected: > 4.125
+    //        Received: 3.66888"
+    // (a dropped tile whose brute-force sampled minimum was 3.67 m — within the 4.125 m the road
+    // actually covers — proving the arm catches an over-narrowing that the tautological original
+    // could not). The mutation was then reverted.
+    //
+    // Sampling: 128×128 grid per tile (0.5 m spacing over the 64 m tile), 1000 parametric-sweep steps
+    // over [0, 1]. The brute-force minimum is an overestimate of the true minimum (it checks a
+    // subset of tile points and segment points), so a passing assertion (brute > threshold) is
+    // conservative — the true minimum is also above threshold. Only tiles adjacent to the swath
+    // boundary are sampled — the swath is thin (8.25 m) against 64 m tiles, so the only dropped
+    // tiles that could contain a point within halfWidth + margin of the chord are those next to a
+    // kept tile; tiles deep in the AABB (far from the swath) are trivially far from the chord.
+
+    /** brute-force parametric sweep: the minimum Euclidean distance from (px, pz) to the segment
+     *  (ax, az)→(bx, bz), computed by marching t over [0, 1] in `steps` increments and taking the
+     *  min distance to lerp(a, b, t). Deliberately independent of document.ts's distance helpers
+     *  — no shared helper, no import — so the unbaked-hole arm's expectation is derived from first
+     *  principles, not a re-spelling of the production capsule test. */
+    function brutePointToSegment(
+        px: number,
+        pz: number,
+        ax: number,
+        az: number,
+        bx: number,
+        bz: number,
+        steps: number,
+    ): number {
+        let best = Infinity;
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const qx = ax + (bx - ax) * t;
+            const qz = az + (bz - az) * t;
+            const d = Math.hypot(px - qx, pz - qz);
+            if (d < best) best = d;
+        }
+        return best;
+    }
+
+    /** the minimum brute-force distance from any sampled grid point in `rect` to the segment — a
+     *  dense grid of (gridSteps+1)² points over the tile's world rect, each swept parametrically. */
+    function bruteTileMinDistance(
+        rect: Rect,
+        ax: number,
+        az: number,
+        bx: number,
+        bz: number,
+        gridSteps: number,
+        sweepSteps: number,
+    ): number {
+        let best = Infinity;
+        const w = rect.maxX - rect.minX;
+        const h = rect.maxZ - rect.minZ;
+        for (let i = 0; i <= gridSteps; i++) {
+            const px = rect.minX + w * (i / gridSteps);
+            for (let j = 0; j <= gridSteps; j++) {
+                const pz = rect.minZ + h * (j / gridSteps);
+                const d = brutePointToSegment(px, pz, ax, az, bx, bz, sweepSteps);
+                if (d < best) best = d;
+            }
+        }
+        return best;
+    }
+
+    test("every dropped tile's brute-force sampled minimum exceeds halfWidth + margin — no unbaked hole", () => {
+        // A 10° chord: non-degenerate for the unbaked-hole test (the 45° diagonal has all swath
+        // tiles at distance 0, so no threshold mutation can over-narrow — see the docblock above).
+        const deg = 10;
+        const rad = (deg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const halfLen = bound / Math.max(Math.abs(cos), Math.abs(sin));
+        const doc: StrokeDocument = {
+            polylines: [
+                {
+                    points: [
+                        [-halfLen * cos, -halfLen * sin],
+                        [halfLen * cos, halfLen * sin],
+                    ],
+                    halfWidth,
+                },
+            ],
+        };
+        const seg = flattenSegments(doc)[0];
+        const aabbSet = aabbDirtySet(seg);
+        const swathSet = new Set(documentDirtyTiles(doc));
+
+        // the dropped tiles: in the AABB set but not in the capsule set
+        const dropped: number[] = [];
+        for (const id of aabbSet) {
+            if (!swathSet.has(id)) dropped.push(id);
+        }
+        expect(dropped.length).toBeGreaterThan(0); // the narrowing actually dropped tiles
+
+        // the one that matters: every boundary-adjacent dropped tile must contain no point within
+        // halfWidth + margin of the segment, derived by brute-force parametric sweep (not
+        // segmentRectDistance). If a dropped tile has a sampled point within that distance, the
+        // capsule test incorrectly excluded a tile the road actually touches — an unbaked hole.
+        // Only tiles adjacent to the swath boundary are sampled: the swath is thin (8.25 m) against
+        // 64 m tiles, so only tiles next to a kept tile could contain a point within the threshold;
+        // tiles deep in the AABB are trivially far from the chord.
+        const gridSteps = 128; // 0.5 m spacing over the 64 m tile
+        const sweepSteps = 1000; // parametric sweep resolution
+        for (const id of dropped) {
+            if (!isBoundaryDropped(id, swathSet)) continue;
+            const [tx, tz] = tileCoordOf(id);
+            const rect = tileRect(tx, tz);
+            const minDist = bruteTileMinDistance(
+                rect,
+                seg.ax,
+                seg.az,
+                seg.bx,
+                seg.bz,
+                gridSteps,
+                sweepSteps,
+            );
+            expect(minDist).toBeGreaterThan(halfWidth + margin);
+        }
+    });
+});
+
+describe("worst-case swath over a scan of orientations (stage 4d, N1)", () => {
+    // N1: ATLAS_LAYERS = 64 rests on a worst case of 46 that a scratch script measured over
+    // orientations and was then deleted, so nothing shipped re-derives it. This arm ships the scan:
+    // over a scan of chord orientations across the admissible domain, assert the maximum
+    // documentDirtyTiles count is <= ATLAS_LAYERS and pin the maximum found and the orientation
+    // that produced it. The pinned literal stays a literal (so the arm reds when the subject moves)
+    // while the arm re-derives its own inputs — the assertion does not re-derive the rule it checks.
+    //
+    // Step: 1° from 0° to 180° (181 orientations). A chord at angle θ is the same as θ + 180°
+    // (same segment, reversed endpoints), so [0°, 180°) covers every unique orientation. 1° is fine
+    // because the swath count changes slowly with angle — the capsule test is a continuous function
+    // of the chord's geometry, and the worst case (45°, the corner-to-corner diagonal) is a broad
+    // maximum, not a narrow spike that a coarser step would miss.
+
+    const halfWidth = ROAD_HALF_WIDTH;
+    const bound = WORLD_HALF - ROAD_HALF_WIDTH; // 508 — the admissible endpoint bound
+
+    test("the maximum documentDirtyTiles over all orientations is <= ATLAS_LAYERS, pinned at 46 / 45°", () => {
+        let maxCount = 0;
+        let maxAngle = 0;
+
+        for (let deg = 0; deg < 180; deg++) {
+            const rad = (deg * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
+            // the longest chord at this orientation within the bounded square [-bound, bound]²:
+            // half-length = bound / max(|cos|, |sin|), centred at the origin
+            const halfLen = bound / Math.max(Math.abs(cos), Math.abs(sin));
+            const ax = -halfLen * cos;
+            const az = -halfLen * sin;
+            const bx = halfLen * cos;
+            const bz = halfLen * sin;
+            const doc: StrokeDocument = {
+                polylines: [
+                    {
+                        points: [
+                            [ax, az],
+                            [bx, bz],
+                        ],
+                        halfWidth,
+                    },
+                ],
+            };
+            const count = documentDirtyTiles(doc).length;
+            if (count > maxCount) {
+                maxCount = count;
+                maxAngle = deg;
+            }
+        }
+
+        // the rule: the worst-case swath fits within ATLAS_LAYERS
+        expect(maxCount).toBeLessThanOrEqual(ATLAS_LAYERS);
+        // the pinned literal: the measured worst case is 46 at 45° (the corner-to-corner diagonal).
+        // This reds if the subject moves — e.g. if ATLAS_LAYERS or the dirty-set test changes —
+        // while the arm re-derives maxCount from the scan, not from the constant.
+        expect(maxCount).toBe(46);
+        expect(maxAngle).toBe(45);
     });
 });

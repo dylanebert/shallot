@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { documentDirtyTiles, type Polyline, type StrokeDocument } from "./document";
-import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MAX_LENGTH, ROAD_MIN_LENGTH } from "./network";
+import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MIN_LENGTH } from "./network";
 import { allocate, drain, invalidate, release } from "./queue";
 import { ATLAS_LAYERS, THROTTLE, TILE_COUNT } from "./tiles";
 
@@ -168,7 +168,7 @@ describe("invalidate — the atlas's document-swap reset", () => {
 //
 // RED-FIRST WITNESS (run against the pre-change free-running counter allocator, before the free list
 // landed): with 65 edits each touching a fresh tile, the old counter threw at the 65th edit (0-indexed
-// edit 64) because ATLAS_LAYERS is 64 and the counter never releases. The throw was:
+// edit 64) because ATLAS_LAYERS was 64 when this witness ran and the counter never releases. The throw was:
 //   "overlay atlas: capacity exceeded (64 layers) allocating tile 64"
 // with nextLayer=64 at the point of failure. The free list replaces the counter: `release` pushes
 // layers back between edits, so the same 65-edit sequence (and any sequence where each edit's footprint
@@ -179,6 +179,14 @@ describe("invalidate — the atlas's document-swap reset", () => {
 // The property: over random document sequences, after every edit (retile + drain) the resident set
 // equals documentDirtyTiles(current), released ids read -1, allocate never throws, and
 // resident + free always sums to ATLAS_LAYERS.
+//
+// NOTE (stage 4d): ATLAS_LAYERS fell from TILE_COUNT (256, full residency under stage 4c's AABB
+// measurement) back to 64 (the capsule-test measurement of 46 + headroom), so the "allocate never
+// throws" clause is a live witness again: 65 fresh tiles do not fit in 64 layers without release between
+// edits, so a broken `release` makes `allocate` throw. The `resident === documentDirtyTiles(current)`
+// assertion remains the primary witness for `release`'s correctness (it fails if release stops returning
+// layers), and "allocate never throws" is the capacity witness that was tautological under full residency
+// and is live again now.
 
 const WORLD_HALF = 512;
 const TILE_SIZE = 64;
@@ -195,21 +203,25 @@ function mulberry32(seed: number): () => number {
     };
 }
 
-/** a random road document whose chord stays within world bounds, between ROAD_MIN_LENGTH and
- *  ROAD_MAX_LENGTH — the same constraints the drag (stage 4) enforces, so every document's footprint
- *  fits within ATLAS_LAYERS (a 220 m road on a 64 m grid touches at most ~30 tiles). */
+/** a random road document whose chord stays within world bounds and at or above ROAD_MIN_LENGTH —
+ *  the same constraints the drag (stage 4c) enforces via clamping. Stage 4c deleted ROAD_MAX_LENGTH,
+ *  so the length is unbounded above (any length the world contains); ATLAS_LAYERS is 64 (stage 4d:
+ *  measured worst-case swath 46 + headroom), so every document's footprint fits. */
 function randomDoc(rng: () => number): StrokeDocument {
     const margin = ROAD_HALF_WIDTH + 1;
     const lo = -WORLD_HALF + margin;
     const hi = WORLD_HALF - margin;
     const ax = lo + rng() * (hi - lo);
     const az = lo + rng() * (hi - lo);
-    // pick a second endpoint within [ROAD_MIN_LENGTH, ROAD_MAX_LENGTH] of the first, within bounds
+    // pick a second endpoint at or above ROAD_MIN_LENGTH from the first, within bounds — unbounded
+    // above (any length the world contains)
     let bx: number;
     let bz: number;
     for (;;) {
         const angle = rng() * Math.PI * 2;
-        const len = ROAD_MIN_LENGTH + rng() * (ROAD_MAX_LENGTH - ROAD_MIN_LENGTH);
+        // length from ROAD_MIN_LENGTH up to the full diagonal of the bounded region
+        const maxLen = Math.hypot(hi - lo, hi - lo);
+        const len = ROAD_MIN_LENGTH + rng() * (maxLen - ROAD_MIN_LENGTH);
         bx = ax + Math.cos(angle) * len;
         bz = az + Math.sin(angle) * len;
         if (bx < lo || bx > hi || bz < lo || bz > hi) continue;
@@ -316,9 +328,20 @@ describe("property: tile release over random edit sequences", () => {
         }
     });
 
-    // The specific red-first input: ≥65 edits each touching a fresh tile. With the free list's release
-    // between edits, this never throws — the old counter threw at the 65th (see the docblock above).
-    test("65 edits each touching a fresh tile never throws with the free list", () => {
+    // The specific red-first input: ATLAS_LAYERS + 1 edits each touching a fresh tile (derived from
+    // ATLAS_LAYERS, not a hardcoded 65 — the arm's subject is release/allocate, not the constant, so
+    // the bound follows a future ATLAS_LAYERS change). With the free list's release between edits,
+    // this never throws — the old counter threw at the (ATLAS_LAYERS + 1)th (see the docblock above).
+    //
+    // Stage 4d restored this arm as a live witness: ATLAS_LAYERS fell from 256 (full residency) back to
+    // 64, so ATLAS_LAYERS + 1 = 65 fresh tiles do not fit without release. RED-FIRST EVIDENCE (stage
+    // 4d): with `release` replaced by a no-op, this arm throws at edit 56 with
+    //   "overlay atlas: capacity exceeded (64 layers) allocating tile 56"
+    // because the free list is never replenished and the 57th allocation finds it empty. Under full
+    // residency (ATLAS_LAYERS = 256) this arm was tautological — 65 tiles fit in 256 layers even with
+    // release broken — so it was labelled a guard. The capsule-test narrowing (46 worst case) brought
+    // capacity back under TILE_COUNT and made the arm live again.
+    test("ATLAS_LAYERS + 1 edits each touching a fresh tile never throws with the free list", () => {
         const cpu = new Int32Array(TILE_COUNT).fill(-1);
         const free: number[] = [];
         const pending: number[] = [];
@@ -336,7 +359,7 @@ describe("property: tile release over random edit sequences", () => {
             for (const id of ids) allocate(cpu, id, free, ATLAS_LAYERS);
         }
 
-        for (let i = 0; i < 65; i++) {
+        for (let i = 0; i < ATLAS_LAYERS + 1; i++) {
             // place a road entirely inside one tile so each edit touches a fresh tile
             const tileX = i % 16;
             const tileZ = Math.floor(i / 16);
@@ -382,7 +405,7 @@ describe("property: tile release over random edit sequences", () => {
             current = newDoc;
         }
 
-        // if we got here, allocate never threw across all 65 fresh-tile edits
+        // if we got here, allocate never threw across all ATLAS_LAYERS + 1 fresh-tile edits
         expect(residentSet(cpu).size + free.length).toBe(ATLAS_LAYERS);
     });
 });

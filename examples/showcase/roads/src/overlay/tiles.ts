@@ -18,17 +18,30 @@ export const TEXEL_SIZE = TILE_SIZE / TILE_RES; // world metres per atlas texel 
 export const TILES_PER_SIDE = WORLD_EXTENT / TILE_SIZE; // 16
 export const TILE_COUNT = TILES_PER_SIDE * TILES_PER_SIDE; // 256
 
-// Atlas capacity: smaller than TILE_COUNT (the "small indirection" the spec's Approach names — every
-// unwritten tile costs no atlas layer, only an indirection slot). A layer is allocated the first time a
-// tile is marked dirty and never evicted (residency/eviction is the explicitly out-of-scope "tier above" —
-// this world is small enough that the spec's own argument against full VT paging applies to overlay
-// capacity too). Sized off the redraw throttle below: ATLAS_LAYERS = 8 × THROTTLE gives 8 fully-throttled
-// frames of sustained new-tile allocation before capacity is reached — well past stage 6's "a handful of
-// roads + one carpark" network, which (a few hundred metres of centreline over 64 m tiles) touches on the
-// order of ten tiles. Exceeding it is a fail-loud error (atlas.ts), not silent eviction — a residue for a
-// later stage if the network ever grows past this working set.
+// Atlas capacity: a layer is allocated the first time a tile is marked dirty and never evicted (the
+// spec's Locked decision forbids eviction — this atlas is single-resolution with no coarse tier to fall
+// back to, so an eviction miss mid-drag degrades to a hole). Sized by measurement (stage 4d): the
+// worst-case single-document footprint under the capsule (swath) dirty-set test — a corner-to-corner
+// diagonal chord at 45° across the bounded 1024 m world (~1437 m long, 8 m wide + 1-texel margin) —
+// touches **46** tiles. Measured over a scan of orientations across the admissible domain (0–180° at
+// 1° steps); the worst case is the 45° diagonal, not an axis-aligned chord.
+//
+// The null controls: an axis-aligned full-width chord reads exactly **32** (the AABB was already exact
+// there, so the capsule test did not narrow it); the diagonal dropped from **256** (the whole grid under
+// the old AABB) to **46** — the true swath. A straight chord crosses at most `2 × TILES_PER_SIDE − 1 =
+// 31` tiles before width, so 46 is 1.48× the hand-derived bound (the extra tiles are the halfWidth +
+// margin band on each side), not ~8× — the instrument is now measuring the artifact's real footprint,
+// not the AABB's. Stage 4c's residue rule: a measurement ~8× the bound means the instrument is wrong,
+// not that the buffer is small; 46 is well within the plausible range.
+//
+// `ATLAS_LAYERS = 64` gives ~39% headroom over the measured 46 (64 − 46 = 18 spare layers). This is also
+// the original pre-4c value, so the ceiling deletion the spec predicted ("the plausible reading is
+// under 64 and the ceiling deletes with no capacity change at all") is confirmed — the ceiling was
+// hiding the AABB, and the capsule test brings the true footprint back under 64. Memory: 64 layers ×
+// (512² texels × 4 B/texel rgba8unorm + 512² × 1 B/texel r8unorm) = 64 × 512² × 5 B = 83,886,080 B ≈ 80 MiB.
+// Exceeding it is a fail-loud error (atlas.ts), not silent eviction.
 export const THROTTLE = 8; // dirty-tile redraws (writeTexture calls) per frame
-export const ATLAS_LAYERS = 8 * THROTTLE; // 64
+export const ATLAS_LAYERS = 64; // measured worst-case swath 46 + headroom (stage 4d)
 
 export const ALBEDO_FORMAT = "rgba8unorm" as const;
 export const ALBEDO_BYTES_PER_TEXEL = 4;

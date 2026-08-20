@@ -317,6 +317,31 @@ export async function regenerate(seed: number): Promise<void> {
 }
 
 /**
+ * apply an edited road document to the live terrain: re-bake the flatten kernel's geometry
+ * (`flatten.ts`'s `setNetwork`), re-tile the overlay atlas (`overlay/atlas.ts`'s `retile` — marks
+ * `tiles(old) ∪ tiles(new)` dirty and releases `tiles(old) − tiles(new)`), and re-dispatch the height
+ * kernel (`generate(currentSeed)`). The seed is unchanged — a person's drag moves the road, not the
+ * terrain permutation (`roads-interactive.md`'s locked decision: "the seed owns the terrain; the road is
+ * not seeded"). The edit system's per-frame system (`edit.ts`) calls this on an admissible drag; the
+ * handle re-placement is the edit system's own job (it reads {@link getDocument} each frame and sets the
+ * handle Transform positions to the endpoints at `y = heightAtCpu`).
+ */
+export async function editDocument(doc: StrokeDocument): Promise<void> {
+    const oldDoc = liveDocument;
+    liveDocument = doc;
+    setNetwork(doc, currentSeed);
+    overlayAtlas.retile(oldDoc, doc);
+    await generate(currentSeed);
+}
+
+/** the live road document — the edit system reads this each frame to place the handles at the endpoints
+ *  and to clamp a drag to the `ROAD_MIN_LENGTH` floor. A reseed (`regenerate`) resets it to the standard
+ *  chord. */
+export function getDocument(): StrokeDocument {
+    return liveDocument;
+}
+
+/**
  * re-bake {@link liveDocument}'s flatten geometry for `seed` without swapping the document or touching the
  * overlay — `gate.ts`'s own seed-determinism probe dispatches `generate` at seeds other than the live
  * one, and the flatten targets are baked CPU-side against a specific seed's permutation (`setNetwork`'s own
