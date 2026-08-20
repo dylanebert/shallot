@@ -18,12 +18,13 @@ import { documentDistance, type Polyline, type StrokeDocument } from "./document
 
 export const ROAD_COUNT = 1;
 export const ROAD_HALF_WIDTH = 4; // metres — matches terrain/grid.ts's SPACING, `overlay/stroke.ts`'s own convention
-export const ROAD_MIN_LENGTH = 80; // metres — the drag's own refused-shortening floor (stage 4)
-export const ROAD_MAX_LENGTH = 220; // metres — keeps a single road well under the world's 1024 m span
+export const ROAD_MIN_LENGTH = 80; // metres — the drag's clamp floor: a drag that would shorten past
+// this clamps the endpoint to the closest point holding the floor (stage 4c). Its reason is the artifact
+// (a degenerate chord, an unreadable dash phase), not a buffer size — so it survives as a clamp.
 
-/** the boot road's fixed standard chord — centred on the origin, along +X, length 200 m (inside
- *  [{@link ROAD_MIN_LENGTH}, {@link ROAD_MAX_LENGTH}]). Not seeded, not searched: a person's drag is what
- *  picks a route that needs less earthwork now (`roads-interactive.md`'s locked decision). */
+/** the boot road's fixed standard chord — centred on the origin, along +X, length 200 m (above
+ *  {@link ROAD_MIN_LENGTH}). Not seeded, not searched: a person's drag is what picks a route that needs
+ *  less earthwork now (`roads-interactive.md`'s locked decision). */
 const STANDARD_CHORD: readonly [readonly [number, number], readonly [number, number]] = [
     [-100, 0],
     [100, 0],

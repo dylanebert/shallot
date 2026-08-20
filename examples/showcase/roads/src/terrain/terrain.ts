@@ -335,7 +335,8 @@ export async function editDocument(doc: StrokeDocument): Promise<void> {
 }
 
 /** the live road document — the edit system reads this each frame to place the handles at the endpoints
- *  and to compute the length band on a drag. A reseed (`regenerate`) resets it to the standard chord. */
+ *  and to clamp a drag to the `ROAD_MIN_LENGTH` floor. A reseed (`regenerate`) resets it to the standard
+ *  chord. */
 export function getDocument(): StrokeDocument {
     return liveDocument;
 }

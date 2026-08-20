@@ -10,7 +10,7 @@ import {
     worldToScreen,
 } from "./capture";
 import { corridorCapture } from "./corridorCapture";
-import { applyEdit, clampToBound, handlePositions, isAdmissibleDrag } from "./edit";
+import { applyEdit, clampDragTarget, clampToBound, handlePositions } from "./edit";
 import { checkSurfaceFlatness } from "./flatness";
 import { gate } from "./gate";
 import type { Check } from "./harness";
@@ -67,11 +67,11 @@ declare global {
             dashGap: [number, number, number];
             dash: [number, number, number];
         }>;
-        // stage 4's edit bridge — drive `__roadsEdit(end, x, z)` to move an endpoint. Returns true if
-        // the edit was applied (admissible — within the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH` band after
-        // clamping to bounds), false if refused (the clamped position leaves the chord outside the
-        // length band). The device gate drives this, waits for overlay idle, and reads the flatness
-        // and handle position back.
+        // stage 4's edit bridge — drive `__roadsEdit(end, x, z)` to move an endpoint. The target is
+        // clamped to the world bounds and then to the `ROAD_MIN_LENGTH` floor (never refused — a
+        // constraint on a dragged quantity clamps, never no-ops). Returns true once the edit is applied.
+        // The device gate drives this, waits for overlay idle, and reads the flatness and handle
+        // position back.
         __roadsEdit?: (end: number, x: number, z: number) => Promise<boolean>;
         // stage 4's flatness bridge — reads `readVertices()` and runs `checkSurfaceFlatness` against the
         // live document, returning the violation counts on both axes.
@@ -81,8 +81,7 @@ declare global {
         }>;
         // stage 4's handle position bridge — returns the two handle entities' world (x, y, z).
         __roadsHandlePos?: () => [[number, number, number], [number, number, number]];
-        // stage 4's vertex fingerprint — a checksum of the raw vertex buffer, for the byte-identical
-        // refused-edit check.
+        // stage 4's vertex fingerprint — a checksum of the raw vertex buffer.
         __roadsVertexFingerprint?: () => Promise<number>;
     }
 }
@@ -111,8 +110,8 @@ const BootSystem: System = {
         window.__roadsEdit = async (end, x, z) => {
             const doc = getDocument();
             const [cx, cz] = clampToBound(x, z);
-            if (!isAdmissibleDrag(doc, end as 0 | 1, cx, cz)) return false;
-            const newDoc = applyEdit(doc, end as 0 | 1, cx, cz);
+            const [fx, fz] = clampDragTarget(doc, end as 0 | 1, cx, cz);
+            const newDoc = applyEdit(doc, end as 0 | 1, fx, fz);
             await editDocument(newDoc);
             return true;
         };
@@ -128,8 +127,7 @@ const BootSystem: System = {
         window.__roadsHandlePos = () => handlePositions();
         window.__roadsVertexFingerprint = async () => {
             const raw = await readVertices();
-            // FNV-1a 32-bit rolling hash over every word of the vertex buffer — order-sensitive, so a
-            // refused edit that leaves `readVertices()` byte-identical produces the same digest while
+            // FNV-1a 32-bit rolling hash over every word of the vertex buffer — order-sensitive, so
             // any change (even one that cancels in a sum) changes it. Kept in `Math.imul`/`>>> 0`
             // integer arithmetic so it stays exact.
             let hash = 0x811c9dc5 >>> 0;

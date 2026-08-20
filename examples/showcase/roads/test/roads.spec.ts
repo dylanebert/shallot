@@ -587,14 +587,18 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     // Phase 6: stage 4's edit device arms — drive `__roadsEdit` to a new position, wait for overlay idle,
     // and read exactly 0 violations on both axes from `readVertices()` on the edited live document. Then
-    // check the handle entity's `y` equals `heightAtCpu` at its `(x, z)` after the edit, and that a refused
-    // edit leaves `readVertices()` byte-identical.
+    // check the handle entity's `y` equals `heightAtCpu` at its `(x, z)` after the edit, and that a drag
+    // past the world corner leaves the handle on the boundary rather than frozen mid-map.
     //
     // Stage 3 trap: `capture.ts`'s marking probes are derived from the chord's own station, so a drag moves
     // every marking probe with it. The marking probes were read in Phase 2b (before any edits), so they are
     // not used across this edit — no re-derivation needed. After this phase, the boot document is restored.
+    //
+    // Stage 4c: the old refused-edit arm (a drag under ROAD_MIN_LENGTH returns false and leaves vertices
+    // byte-identical) is replaced by the clamp arm — every drag moves the endpoint, clamped to the bound
+    // and the floor. A drag past the world corner leaves the handle on the boundary, not frozen.
 
-    // an admissible edit: move endpoint 1 to (50, 30) — chord from (-100, 0) to (50, 30), length ≈ 153 m
+    // an edit: move endpoint 1 to (50, 30) — chord from (-100, 0) to (50, 30), length ≈ 153 m
     const editEnd = 1;
     const editX = 50;
     const editZ = 30;
@@ -607,7 +611,7 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
             ).__roadsEdit(end, x, z),
         { end: editEnd, x: editX, z: editZ },
     )) as boolean;
-    expect(applied, `edit to (${editX}, ${editZ}) was refused (should be admissible)`).toBe(true);
+    expect(applied, `edit to (${editX}, ${editZ}) was not applied`).toBe(true);
 
     await page.waitForFunction(
         () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
@@ -653,37 +657,41 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // pass on a stale position or a wrong permutation.
     expect(handlePos[editEnd][1]).toBeCloseTo(expectedY, 4);
 
-    // (3) a refused edit leaves readVertices() byte-identical — fingerprint before and after a refused edit
-    const fpAfterEdit = (await page.evaluate(() =>
-        (
-            window as unknown as { __roadsVertexFingerprint: () => Promise<number> }
-        ).__roadsVertexFingerprint(),
-    )) as number;
-
-    // a refused edit: move endpoint 1 to (-90, 0) — chord from (-100, 0) to (-90, 0), length 10 m — under
-    // ROAD_MIN_LENGTH (80). The bridge should refuse and return false.
-    const refused = (await page.evaluate(
+    // (3) a drag past the world corner leaves the handle on the boundary, not frozen mid-map.
+    // Drive endpoint 1 to (10000, 10000) — far past the world bound. The bridge clamps to the bound
+    // and applies (never refuses), so the handle should land on the boundary (BOUND = 508), not stay
+    // at (50, 30).
+    const cornerApplied = (await page.evaluate(
         ({ end, x, z }) =>
             (
                 window as unknown as {
                     __roadsEdit: (end: number, x: number, z: number) => Promise<boolean>;
                 }
             ).__roadsEdit(end, x, z),
-        { end: editEnd, x: -90, z: 0 },
+        { end: editEnd, x: 10000, z: 10000 },
     )) as boolean;
-    expect(refused, `edit to (-90, 0) was applied (should be refused — chord too short)`).toBe(
-        false,
+    expect(cornerApplied, `edit to (10000, 10000) was not applied`).toBe(true);
+
+    await page.waitForFunction(
+        () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
+        null,
+        { timeout: 10_000 },
     );
 
-    const fpAfterRefused = (await page.evaluate(() =>
+    const cornerHandlePos = (await page.evaluate(() =>
         (
-            window as unknown as { __roadsVertexFingerprint: () => Promise<number> }
-        ).__roadsVertexFingerprint(),
-    )) as number;
-    expect(
-        fpAfterRefused,
-        `vertex fingerprint changed after a refused edit (${fpAfterEdit} → ${fpAfterRefused}) — should be byte-identical`,
-    ).toBe(fpAfterEdit);
+            window as unknown as {
+                __roadsHandlePos: () => [[number, number, number], [number, number, number]];
+            }
+        ).__roadsHandlePos(),
+    )) as [[number, number, number], [number, number, number]];
+    // the handle should be on the boundary, not frozen at (50, 30)
+    const cornerBound = 512 - 4; // WORLD_HALF - ROAD_HALF_WIDTH
+    expect(cornerHandlePos[editEnd][0]).toBeCloseTo(cornerBound, 0);
+    expect(cornerHandlePos[editEnd][2]).toBeCloseTo(cornerBound, 0);
+    // the handle's y should match heightAtCpu at the clamped position
+    const cornerY = heightAtCpu(cornerBound, cornerBound, bootPerm);
+    expect(cornerHandlePos[editEnd][1]).toBeCloseTo(cornerY, 4);
 
     expect(errors, errors.join("\n")).toEqual([]);
 

@@ -2,21 +2,23 @@
 // endpoints, a `Color` slab carrying idle / hover / grabbed, hover via `cursorRay` → `raySphere`, and
 // `OrbitPick.claim` so a press over a handle suppresses orbit rotation for the whole drag. On a claimed
 // press, each frame marches `flattenFieldAt` along the cursor ray to find the world point, clamps to
-// the world bounds, and refuses a drag leaving the `ROAD_MIN_LENGTH`–`ROAD_MAX_LENGTH` band in both
-// directions. The pure, device-free halves (`applyEdit`, `clampToBound`, `isAdmissibleDrag`,
-// `chordLength`, `residentTileCount`, `HANDLE_RADIUS`) live in `editPure.ts`, which imports nothing
-// from `@dylanebert/shallot`; this module imports them from there and re-exports them for consumers
-// like `boot.ts`. `edit.test.ts` imports the pure halves from `./editPure` so it exercises them under
-// `bun test` without pulling in the engine's device-bound module graph; the Playwright Node side stays
-// bridge-only for the same reason (Node ≥26 rejects the package's bare `package.json` import).
+// the world bounds, and clamps to the `ROAD_MIN_LENGTH` floor (never refuses — a constraint on a dragged
+// quantity clamps, never no-ops). When the march returns null (the ray misses the surface), the drag
+// holds its last valid target instead of skipping the frame. The pure, device-free halves (`applyEdit`,
+// `clampToBound`, `clampDragTarget`, `chordLength`, `residentTileCount`, `HANDLE_RADIUS`) live in
+// `editPure.ts`, which imports nothing from `@dylanebert/shallot`; this module imports them from there
+// and re-exports them for consumers like `boot.ts`. `edit.test.ts` imports the pure halves from
+// `./editPure` so it exercises them under `bun test` without pulling in the engine's device-bound module
+// graph; the Playwright Node side stays bridge-only for the same reason (Node ≥26 rejects the package's
+// bare `package.json` import).
 
 // re-export the pure halves for consumers that imported them from ./edit (e.g. boot.ts)
 export {
     applyEdit,
     chordLength,
+    clampDragTarget,
     clampToBound,
     HANDLE_RADIUS,
-    isAdmissibleDrag,
     residentTileCount,
 } from "./editPure";
 
@@ -52,7 +54,7 @@ export function stepGrab(state: GrabState, left: boolean, hovered: number): Grab
     return { dragging, dragEnd, prevLeft: left };
 }
 
-import { applyEdit, clampToBound, HANDLE_RADIUS, isAdmissibleDrag } from "./editPure";
+import { applyEdit, clampDragTarget, clampToBound, HANDLE_RADIUS } from "./editPure";
 
 // --- the device-bound plugin (imports from @dylanebert/shallot below this line) ---
 
@@ -92,6 +94,7 @@ let handleEids: [number, number] = [-1, -1];
 let hovered = -1;
 let grab = createGrabState();
 let claimInstalled = false;
+let lastValidTarget: [number, number] | null = null;
 
 /** march `ray` against the continuous flattened field (`flattenFieldAt`) and return the (x, z) where the
  *  ray crosses the surface, or null if it doesn't within `MARCH_MAX`. The field is the oracle's own
@@ -260,20 +263,25 @@ const EditSystem: System = {
         grab = stepGrab(grab, Inputs.mouse.left, hovered);
         const { dragging, dragEnd } = grab;
 
-        // drag: march the cursor ray against the flattened field, clamp, refuse the length band, apply
+        // drag: march the cursor ray against the flattened field, clamp to bounds, clamp to the
+        // ROAD_MIN_LENGTH floor, and apply. When the march returns null (the ray misses the surface),
+        // the drag holds its last valid target instead of skipping the frame.
+        if (!dragging) {
+            lastValidTarget = null;
+        }
         if (dragging && ray) {
             const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
             const falloff = computeFalloff(cutDepth);
             const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
             const hit = marchFlattenField(ray, segments, falloff, natural);
-            if (hit) {
-                const [cx, cz] = clampToBound(hit[0], hit[1]);
-                if (isAdmissibleDrag(doc, dragEnd, cx, cz)) {
-                    const newDoc = applyEdit(doc, dragEnd, cx, cz);
-                    void editDocument(newDoc).catch((err) => {
-                        console.error("roads: edit failed", err);
-                    });
-                }
+            if (hit) lastValidTarget = hit;
+            if (lastValidTarget) {
+                const [cx, cz] = clampToBound(lastValidTarget[0], lastValidTarget[1]);
+                const [fx, fz] = clampDragTarget(doc, dragEnd, cx, cz);
+                const newDoc = applyEdit(doc, dragEnd, fx, fz);
+                void editDocument(newDoc).catch((err) => {
+                    console.error("roads: edit failed", err);
+                });
             }
         }
 
@@ -297,6 +305,7 @@ const EditSystem: System = {
         hovered = -1;
         grab = createGrabState();
         claimInstalled = false;
+        lastValidTarget = null;
     },
 };
 

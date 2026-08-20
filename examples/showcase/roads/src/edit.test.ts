@@ -4,25 +4,23 @@ import { createGrabState, stepGrab } from "./edit";
 import {
     applyEdit,
     chordLength,
+    clampDragTarget,
     clampToBound,
-    isAdmissibleDrag,
     residentTileCount,
 } from "./editPure";
 import { buildLatticeVertices, checkSurfaceFlatness } from "./flatness";
 import type { StrokeDocument } from "./overlay/document";
-import { documentDirtyTiles } from "./overlay/document";
-import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MAX_LENGTH } from "./overlay/network";
-import { allocate } from "./overlay/queue";
-import { ATLAS_LAYERS } from "./overlay/tiles";
+import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MIN_LENGTH } from "./overlay/network";
+import { ATLAS_LAYERS, TILE_COUNT } from "./overlay/tiles";
 import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
 import { CELLS, SPACING, WORLD_HALF } from "./terrain/grid";
 import { makePermutation } from "./terrain/noise";
 import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
 import { SEED } from "./terrain/terrain";
 
-// Stage 4's pure-half tests — `applyEdit`, `clampToBound`, `isAdmissibleDrag`, and the flatness scan
-// over 200 random admissible drags. The device-bound halves (the live drag, the handle entity's y, the
-// refused-edit byte-identical readback) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
+// Stage 4's pure-half tests — `applyEdit`, `clampToBound`, `clampDragTarget`, the worst-case capacity
+// arm, and the flatness scan over 200 random clamped drags. The device-bound halves (the live drag,
+// the handle entity's y) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
 //
 // The pure halves live in `./editPure`, which imports nothing from `@dylanebert/shallot` (the Node ≥26
 // gotcha), so this file exercises them under `bun test` without pulling in the engine's device-bound
@@ -79,111 +77,157 @@ describe("edit — applyEdit", () => {
     });
 });
 
-describe("edit — drag admissibility", () => {
+describe("edit — every drag constraint clamps (stage 4c)", () => {
+    // RED-FIRST WITNESS: against the shipped shape (stage 4 before 4c), a target past ROAD_MAX_LENGTH
+    // (220 m) was *refused* — `isAdmissibleDrag` returned false, `applyEdit` was never called, and the
+    // document came back unchanged. The person read the resulting freeze as "the grab isn't sticky."
+    // This arm replaces the old refusal arms ("a drag shortening under ROAD_MIN_LENGTH is refused",
+    // "a drag lengthening past ROAD_MAX_LENGTH is refused") which encoded the freeze as the contract.
+    //
+    // The clamp law (`roads-interactive.md`'s Locked decision): a constraint on a dragged quantity is a
+    // projection onto the nearest admissible value, never a no-op. So over a scan of drag targets —
+    // including ones far past the world bound and ones that would shorten the chord under the floor —
+    // `applyEdit` (after `clampToBound` + `clampDragTarget`) always moves the dragged endpoint for every
+    // input whose target differs from the current position, and the resulting chord holds both the bound
+    // and the floor. The one admissible no-op is a target equal to the current position.
+
     const doc = generateNetwork();
+    const [ax, az] = doc.polylines[0].points[0] as [number, number];
+    const [bx, bz] = doc.polylines[0].points[1] as [number, number];
 
-    test("an admissible drag (within the length band) is accepted", () => {
-        expect(isAdmissibleDrag(doc, 1, 110, 0)).toBe(true);
-    });
+    // a scan of drag targets for endpoint 1: normal, past world bound, under floor, and the no-op
+    const targets: { x: number; z: number; label: string }[] = [
+        { x: 50, z: 30, label: "normal (within bounds and floor)" },
+        { x: 200, z: 200, label: "past world bound" },
+        { x: -200, z: -200, label: "past world bound (negative)" },
+        { x: 10000, z: 10000, label: "far past world bound" },
+        { x: -90, z: 0, label: "would shorten under floor (chord ~10 m)" },
+        { x: -99, z: 0, label: "would shorten under floor (chord ~1 m)" },
+        { x: bx, z: bz, label: "target equals current position (no-op)" },
+    ];
 
-    test("a drag shortening the chord under ROAD_MIN_LENGTH is refused", () => {
-        expect(isAdmissibleDrag(doc, 1, -25, 0)).toBe(false);
-    });
+    for (const { x, z, label } of targets) {
+        test(`clamp + applyEdit: ${label} → target (${x}, ${z})`, () => {
+            const [cx, cz] = clampToBound(x, z);
+            const [fx, fz] = clampDragTarget(doc, 1, cx, cz);
+            const edited = applyEdit(doc, 1, fx, fz);
 
-    test("a drag lengthening the chord past ROAD_MAX_LENGTH is refused", () => {
-        expect(isAdmissibleDrag(doc, 1, 130, 0)).toBe(false);
-    });
+            // the resulting endpoint is within bounds
+            expect(Math.abs(fx)).toBeLessThanOrEqual(BOUND);
+            expect(Math.abs(fz)).toBeLessThanOrEqual(BOUND);
 
-    test("a refused drag leaves the input document unchanged (the guard prevents applyEdit)", () => {
-        // The guard pattern: if !isAdmissibleDrag, don't call applyEdit. applyEdit itself always
-        // returns a new document — the guard is what prevents the edit. Verify the guard catches it:
-        expect(isAdmissibleDrag(doc, 1, 130, 0)).toBe(false);
-        // the input document is unchanged (applyEdit was never called)
-        expect(doc.polylines[0].points[1]).toEqual([100, 0]);
-    });
+            // the resulting chord holds the floor
+            expect(chordLength(edited)).toBeGreaterThanOrEqual(ROAD_MIN_LENGTH - 1e-6);
 
-    // RED-FIRST WITNESS: the ROAD_MAX_LENGTH refusal arm prevents `allocate` from throwing
-    // `capacity exceeded (64 layers)` mid-drag. Without the guard, a long chord touches more than
-    // ATLAS_LAYERS tiles, and the allocator's free list runs dry. The actual error text witnessed
-    // before the guard existed:
-    //   "overlay atlas: capacity exceeded (64 layers) allocating tile 64"
-    // (from `queue.ts`'s `allocate`, when `free.length === 0`).
-    test("ROAD_MAX_LENGTH refusal — witness the throw it prevents", () => {
-        const longDoc = applyEdit(doc, 1, 400, 400);
-        const tiles = documentDirtyTiles(longDoc);
-        expect(tiles.length).toBeGreaterThan(ATLAS_LAYERS);
+            // the other endpoint is unchanged
+            expect(edited.polylines[0].points[0]).toEqual([ax, az]);
 
-        const cpu = new Int32Array(256).fill(-1);
-        const free: number[] = [];
-        for (let i = ATLAS_LAYERS - 1; i >= 0; i--) free.push(i);
-        let threw = false;
-        let errMsg = "";
-        try {
-            for (const id of tiles) {
-                allocate(cpu, id, free, ATLAS_LAYERS);
+            // if the clamped target differs from the current position, the output differs at endpoint 1
+            const moved = fx !== bx || fz !== bz;
+            const outputDiffers =
+                edited.polylines[0].points[1][0] !== bx || edited.polylines[0].points[1][1] !== bz;
+            expect(outputDiffers).toBe(moved);
+
+            // the one admissible no-op: target equal to current position
+            if (x === bx && z === bz) {
+                expect(fx).toBe(bx);
+                expect(fz).toBe(bz);
             }
-        } catch (e) {
-            threw = true;
-            errMsg = String(e);
-        }
-        expect(threw).toBe(true);
-        expect(errMsg).toContain("capacity exceeded (64 layers)");
-    });
+        });
+    }
 
-    test("a worst-case admissible ROAD_MAX_LENGTH chord stays at or under ATLAS_LAYERS resident tiles", () => {
-        const half = ROAD_MAX_LENGTH / 2;
-        const diag = half / Math.SQRT2;
-        const maxDoc: StrokeDocument = {
+    // property: over 500 random targets (some past bounds, some under floor), the clamp always
+    // produces a valid endpoint and applyEdit always moves it
+    test("500 random targets: clamp always yields a valid endpoint, applyEdit always moves it", () => {
+        const rng = mulberry32(999);
+        for (let i = 0; i < 500; i++) {
+            // sample from a range wider than the world to include past-bound targets
+            const x = (rng() * 2 - 1) * WORLD_HALF * 3;
+            const z = (rng() * 2 - 1) * WORLD_HALF * 3;
+            const [cx, cz] = clampToBound(x, z);
+            const [fx, fz] = clampDragTarget(doc, 1, cx, cz);
+            const edited = applyEdit(doc, 1, fx, fz);
+
+            expect(Math.abs(fx)).toBeLessThanOrEqual(BOUND);
+            expect(Math.abs(fz)).toBeLessThanOrEqual(BOUND);
+            expect(chordLength(edited)).toBeGreaterThanOrEqual(ROAD_MIN_LENGTH - 1e-6);
+
+            // the other endpoint is unchanged
+            expect(edited.polylines[0].points[0]).toEqual([ax, az]);
+
+            // if the clamped target differs from the current position, the output differs
+            const moved = fx !== bx || fz !== bz;
+            const outputDiffers =
+                edited.polylines[0].points[1][0] !== bx || edited.polylines[0].points[1][1] !== bz;
+            expect(outputDiffers).toBe(moved);
+        }
+    });
+});
+
+describe("edit — worst-case chord capacity (stage 4c)", () => {
+    // The arm that survived the ROAD_MAX_LENGTH deletion, re-anchored on the invariant that mattered:
+    // "no admissible drag can throw out of `allocate`". The worst case the world allows is a
+    // corner-to-corner chord across the bounded 1024 m world. Its `documentDirtyTiles` count must be
+    // at or under `ATLAS_LAYERS` (now `TILE_COUNT = 256`, sized by this measurement).
+    test("the worst-case corner-to-corner chord stays at or under ATLAS_LAYERS resident tiles", () => {
+        const bound = WORLD_HALF - ROAD_HALF_WIDTH;
+        const worstDoc: StrokeDocument = {
             polylines: [
                 {
                     points: [
-                        [-diag, -diag],
-                        [diag, diag],
+                        [-bound, -bound],
+                        [bound, bound],
                     ],
                     halfWidth: ROAD_HALF_WIDTH,
                 },
             ],
         };
-        expect(chordLength(maxDoc)).toBeCloseTo(ROAD_MAX_LENGTH, 0);
-        expect(residentTileCount(maxDoc)).toBeLessThanOrEqual(ATLAS_LAYERS);
+        // the chord length is the full diagonal of the bounded region (~1437 m)
+        expect(chordLength(worstDoc)).toBeGreaterThan(1400);
+        // the dirty-tile count is at or under ATLAS_LAYERS
+        const count = residentTileCount(worstDoc);
+        expect(count).toBeLessThanOrEqual(ATLAS_LAYERS);
+        // ATLAS_LAYERS is TILE_COUNT (256) — fully resident
+        expect(ATLAS_LAYERS).toBe(TILE_COUNT);
     });
 });
 
-describe("edit — corridor flatness over 200 random admissible drags", () => {
+describe("edit — corridor flatness over 200 random clamped drags", () => {
     // The spec's Validation "Corridor flatness" criterion, extended to edited documents: over a scan of
-    // 200 random admissible drags, `checkSurfaceFlatness` over `buildLatticeVertices` reads exactly
+    // 200 random clamped drags, `checkSurfaceFlatness` over `buildLatticeVertices` reads exactly
     // 0 violations / 0.0000 m on both axes at SPACING and SPACING/2. The chord's affine target makes
     // the in-corridor reconstruction error vanish identically (barycentric interpolation reproduces an
-    // affine field exactly at any cell size and any road angle), so this reads zero on every admissible
+    // affine field exactly at any cell size and any road angle), so this reads zero on every clamped
     // drag — not just the boot document.
+    //
+    // Stage 4c: the scan now draws from the *unbounded* band — targets past the world bound and past
+    // the old ROAD_MAX_LENGTH ceiling — and clamps via `clampToBound` + `clampDragTarget` before
+    // `applyEdit`. The old scan filtered by `isAdmissibleDrag` (the deleted refusal); the new scan
+    // filters by grade only (the flatness oracle's longitudinal bound is MAX_GRADE, so a chord steeper
+    // than that produces violations by design, not by reconstruction error).
     const rng = mulberry32(12345);
     const perm = makePermutation(SEED);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
-    // generate 200 random admissible drags from the boot document. The flatness oracle's longitudinal
-    // bound is a grade check (gradeBound = MAX_GRADE * ds + 2 * QUANT_TOL), so a drag whose chord grade
-    // exceeds MAX_GRADE produces longitudinal violations by design — not a reconstruction error. The
-    // admissibility check (isAdmissibleDrag) refuses the length band only, never grade (the spec's
-    // "the drag refuses bounds and minimum length only, never cost"), so the scan filters by grade as a
-    // test-selection criterion: the corridor flatness claim is about the mesh's reconstruction of an
-    // affine target, which holds exactly when the grade is within the road-design bound.
     const drags: { end: 0 | 1; x: number; z: number }[] = [];
     let attempts = 0;
     while (drags.length < 200 && attempts < 50000) {
         attempts++;
         const end = (rng() < 0.5 ? 0 : 1) as 0 | 1;
-        const x = (rng() * 2 - 1) * BOUND;
-        const z = (rng() * 2 - 1) * BOUND;
-        if (!isAdmissibleDrag(generateNetwork(), end, x, z)) continue;
+        // sample from the unbounded band — wider than the world to include past-bound targets
+        const x = (rng() * 2 - 1) * WORLD_HALF * 3;
+        const z = (rng() * 2 - 1) * WORLD_HALF * 3;
+        const [cx, cz] = clampToBound(x, z);
+        const [fx, fz] = clampDragTarget(generateNetwork(), end, cx, cz);
         // filter by grade: the flatness oracle's longitudinal bound is MAX_GRADE, so a chord steeper
         // than that produces violations by design, not by reconstruction error
-        const edited = applyEdit(generateNetwork(), end, x, z);
+        const edited = applyEdit(generateNetwork(), end, fx, fz);
         const [a, b] = edited.polylines[0].points;
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         const hA = heightAtCpu(a[0], a[1], perm);
         const hB = heightAtCpu(b[0], b[1], perm);
         if (Math.abs(hB - hA) / len > MAX_GRADE) continue;
-        drags.push({ end, x, z });
+        drags.push({ end, x: fx, z: fz });
     }
     expect(drags.length).toBe(200);
 

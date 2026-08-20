@@ -18,17 +18,24 @@ export const TEXEL_SIZE = TILE_SIZE / TILE_RES; // world metres per atlas texel 
 export const TILES_PER_SIDE = WORLD_EXTENT / TILE_SIZE; // 16
 export const TILE_COUNT = TILES_PER_SIDE * TILES_PER_SIDE; // 256
 
-// Atlas capacity: smaller than TILE_COUNT (the "small indirection" the spec's Approach names — every
-// unwritten tile costs no atlas layer, only an indirection slot). A layer is allocated the first time a
-// tile is marked dirty and never evicted (residency/eviction is the explicitly out-of-scope "tier above" —
-// this world is small enough that the spec's own argument against full VT paging applies to overlay
-// capacity too). Sized off the redraw throttle below: ATLAS_LAYERS = 8 × THROTTLE gives 8 fully-throttled
-// frames of sustained new-tile allocation before capacity is reached — well past stage 6's "a handful of
-// roads + one carpark" network, which (a few hundred metres of centreline over 64 m tiles) touches on the
-// order of ten tiles. Exceeding it is a fail-loud error (atlas.ts), not silent eviction — a residue for a
-// later stage if the network ever grows past this working set.
+// Atlas capacity: every tile resident. A layer is allocated the first time a tile is marked dirty and
+// never evicted (the spec's Locked decision forbids eviction — this atlas is single-resolution with no
+// coarse tier to fall back to, so an eviction miss mid-drag degrades to a hole). Sized by measurement
+// (stage 4c): the worst-case single-document footprint — a corner-to-corner chord from (-508, -508) to
+// (508, 508) across the bounded 1024 m world (~1437 m long, 8 m wide + 1-texel margin) — touches all 256
+// tiles. `documentDirtyTiles` counts the segment's *bounding rect* (its AABB expanded by half-width +
+// margin), not the chord's actual swath, so a diagonal chord's bounding rect covers the entire 16×16
+// grid. A straight chord crosses at most 2 × TILES_PER_SIDE − 1 = 31 tiles before width, so the true
+// swath is far smaller — but the dirty-set is what `allocate` sees, so capacity must cover it. This makes
+// the old `ROAD_MAX_LENGTH = 220` ceiling a dirty-set coarseness hiding behind a design position: the
+// ceiling was the only thing keeping the bbox from spanning the whole grid.
+//
+// ATLAS_LAYERS = TILE_COUNT = 256 is the limit the spec names ("at the limit ATLAS_LAYERS = TILE_COUNT =
+// 256, fully resident"). Memory: 256 layers × (512² texels × 4 B/texel rgba8unorm + 512² × 1 B/texel
+// r8unorm) = 256 × 512² × 5 B = 335,544,320 B ≈ 320 MiB. Exceeding it is a fail-loud error (atlas.ts),
+// not silent eviction.
 export const THROTTLE = 8; // dirty-tile redraws (writeTexture calls) per frame
-export const ATLAS_LAYERS = 8 * THROTTLE; // 64
+export const ATLAS_LAYERS = TILE_COUNT; // 256 — fully resident, sized to the worst-case bbox
 
 export const ALBEDO_FORMAT = "rgba8unorm" as const;
 export const ALBEDO_BYTES_PER_TEXEL = 4;
