@@ -80,33 +80,6 @@ export const segmentDistanceGpu = tgpu.fn(
     return std.distance(d.vec2f(px, pz), d.vec2f(cx, cz)) - halfWidth;
 });
 
-/** the document's segment-only distance at (px, pz) — loops `rasterLayout.$.segments` up to
- *  `params.segmentCount`, the GPU-side twin of `document.ts`'s `flattenSegments` + minimum. */
-const segmentsDistanceGpu = tgpu.fn(
-    [d.f32, d.f32],
-    d.f32,
-)((px, pz) => {
-    "use gpu";
-    let best = d.f32(3.402823e38); // f32 max — no segment yet
-    let i = d.u32(0);
-    for (; i < rasterLayout.$.params.segmentCount; i = i + d.u32(1)) {
-        const seg = rasterLayout.$.segments[i];
-        const dist = segmentDistanceGpu(px, pz, seg.a.x, seg.a.y, seg.b.x, seg.b.y, seg.halfWidth);
-        if (dist < best) best = dist;
-    }
-    return best;
-});
-
-/** the document's full distance at (px, pz) — the minimum over every segment, the GPU twin of
- *  `document.ts`'s `documentDistance`. */
-export const documentDistanceGpu = tgpu.fn(
-    [d.f32, d.f32],
-    d.f32,
-)((px, pz) => {
-    "use gpu";
-    return segmentsDistanceGpu(px, pz);
-});
-
 /** quantize a signed world-metre distance to its r8unorm byte — TGSL reimplementation of `tiles.ts`'s
  *  `encodeDist` (no shared source: this is what the kernel actually runs; `tiles.ts`'s stays the CPU
  *  codec the fs's decode and the differential oracle's tolerance both key off). CPU-callable, so the
@@ -254,17 +227,9 @@ const rasterKernel = tgpu
 
 /** the emitted rasterizer WGSL — the device-free structural seam stage 5's tests resolve. */
 export function rasterizeWgsl(): string {
-    return tgpu.resolve(
-        [
-            segmentDistanceGpu,
-            segmentsDistanceGpu,
-            documentDistanceGpu,
-            encodeDistGpu,
-            markingDistanceGpu,
-            rasterKernel,
-        ],
-        { names: "strict" },
-    );
+    return tgpu.resolve([segmentDistanceGpu, encodeDistGpu, markingDistanceGpu, rasterKernel], {
+        names: "strict",
+    });
 }
 
 type RasterRoot = typeof Compute.root;

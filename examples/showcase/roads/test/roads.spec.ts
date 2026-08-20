@@ -3,6 +3,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
 import { generateNetwork } from "../src/overlay/network";
+import { ROAD_ALBEDO } from "../src/overlay/stroke";
+import { CENTRE_ALBEDO } from "../src/overlay/tiles";
 import { makePermutation } from "../src/terrain/noise";
 import { buildPolylineProfile, heightAtCpu } from "../src/terrain/profile";
 
@@ -21,6 +23,13 @@ const CAPTURE_PATH = join(
     "test-results",
     "roads-capture.png",
 );
+
+// Luminance using the same 0.3/0.59/0.11 weights as the probe's luminanceAt — so the band
+// tolerance is in the same units the probe reads, not an abstract scale.
+const albedoLuminance = (rgb: readonly [number, number, number]): number =>
+    0.3 * rgb[0] * 255 + 0.59 * rgb[1] * 255 + 0.11 * rgb[2] * 255;
+const roadLuminance = albedoLuminance(ROAD_ALBEDO);
+const centreLuminance = albedoLuminance(CENTRE_ALBEDO);
 
 // Stage 24a's corridor-pose capture — a second file alongside the gate's own, written at the derived
 // corridor pose (corridorPose.ts). The default-orbit capture above stays unchanged in pose; this one
@@ -299,25 +308,39 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
         { base64: screenshot.toString("base64"), probes: markingScreen },
     )) as number[];
 
-    // Assert the bands are DISJOINT: edge line (white) > dash (yellow) > asphalt (dark) ≈ dash gap (dark).
-    // A probe that cannot discriminate the classes it gates is not evidence.
+    // Assert the four probes as BANDS, not a pairwise chain: the two road-class probes (asphalt,
+    // dashGap) agree with each other within a tolerance, and each marking class (edgeLine, dash)
+    // sits in a band brighter than the road band. The previous pairwise chain never compared
+    // dashGap to asphalt, so a bug painting the dash gap as a third thing darker than the dash
+    // passed every assertion.
+    //
+    // The tolerance is a stated luminance margin: 10% of the luminance gap between the road albedo
+    // and the nearest marking class (the yellow centreline), computed from the exported albedo
+    // constants and the same 0.3/0.59/0.11 weights the probe's luminanceAt uses. This is generous
+    // for two probes reading the same road albedo (terrain lighting varies the pixel by far less
+    // than 10% of the road-to-marking gap), while a probe reading a different class exceeds it by
+    // an order of magnitude — so the band assertion reds exactly when a probe misclassifies.
+    const roadBandTolerance = (centreLuminance - roadLuminance) * 0.1;
+    // the two road-class probes agree within the tolerance
+    expect(
+        Math.abs(markingLum[1] - markingLum[2]),
+        `asphalt ${markingLum[1].toFixed(1)} vs dash gap ${markingLum[2].toFixed(1)} — road-class probes disagree beyond ${roadBandTolerance.toFixed(1)}`,
+    ).toBeLessThanOrEqual(roadBandTolerance);
+    // each marking class sits in a band brighter than the road band
+    const roadBandHi = Math.max(markingLum[1], markingLum[2]) + roadBandTolerance;
     expect(
         markingLum[0],
-        `edge line ${markingLum[0].toFixed(1)} should be brighter than dash ${markingLum[3].toFixed(1)}`,
-    ).toBeGreaterThan(markingLum[3]);
+        `edge line ${markingLum[0].toFixed(1)} is not above the road band hi ${roadBandHi.toFixed(1)}`,
+    ).toBeGreaterThan(roadBandHi);
     expect(
         markingLum[3],
-        `dash ${markingLum[3].toFixed(1)} should be brighter than asphalt ${markingLum[1].toFixed(1)}`,
-    ).toBeGreaterThan(markingLum[1]);
-    expect(
-        markingLum[2],
-        `dash gap ${markingLum[2].toFixed(1)} should be dark like asphalt ${markingLum[1].toFixed(1)}, not bright`,
-    ).toBeLessThan(markingLum[3]);
+        `dash ${markingLum[3].toFixed(1)} is not above the road band hi ${roadBandHi.toFixed(1)}`,
+    ).toBeGreaterThan(roadBandHi);
     // edge line (white) and dash (yellow) are in disjoint bands — white is brighter than yellow
     expect(
         markingLum[0],
-        `edge line ${markingLum[0].toFixed(1)} vs dash ${markingLum[3].toFixed(1)} — bands not disjoint`,
-    ).toBeGreaterThan(markingLum[3] * 1.05);
+        `edge line ${markingLum[0].toFixed(1)} vs dash ${markingLum[3].toFixed(1)} — marking bands not disjoint`,
+    ).toBeGreaterThan(markingLum[3] + roadBandTolerance);
 
     expect(errors, errors.join("\n")).toEqual([]);
 

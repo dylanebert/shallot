@@ -80,8 +80,9 @@ describe("terrain fs — marking channel (stage 3)", () => {
         // the alpha byte stores the encoded marking distance (rasterize.ts's encodeDistGpu, the coverage
         // channel's own codec). The fs decodes it back: (sampled.w - 0.5) * 2 * DIST_RANGE — the same
         // decode the coverage channel uses, applied to the albedo's w component, not the dist texture.
-        expect(fs).toMatch(/albedoSample.*\.w.*0\.5f.*2f/);
-        expect(fs).toContain(`* ${DIST_RANGE}f`);
+        // Anchored on the albedoSample expression (not just `* ${DIST_RANGE}f` alone, which the coverage
+        // decode also emits — a bare toContain is blind to its own subject, satisfied by the wrong channel).
+        expect(fs).toMatch(new RegExp(`albedoSample.*\\.w.*0\\.5f.*2f.*${DIST_RANGE}f`));
     });
 
     test("thresholds the marking distance with a second fwidth, exactly as coverage is", () => {
@@ -98,8 +99,12 @@ describe("terrain fs — marking channel (stage 3)", () => {
         // the marking class (edge vs centre) is determined by comparing the decoded marking distance with
         // the edge-line distance computed independently from the coverage distance: if the marking distance
         // is smaller, the nearest marking is the centreline; otherwise the edge line.
-        expect(fs).toMatch(/abs\(\(dist_\d* \+ 0\.3/);
-        expect(fs).toMatch(/- 0\.05/);
+        // 0.3 is EDGE_INSET and 0.05 is LINE_HALF_WIDTH — both deliberately literals here, not derived
+        // from the exported constants: if the regex were built from EDGE_INSET/LINE_HALF_WIDTH, changing
+        // the constant would change both sides and the arm would stay green, asserting only that the
+        // shader emitted *some* number consistent with itself, not the *right* number. The literals
+        // freeze the derived quantity so the arm reds exactly when the emitted value moves.
+        expect(fs).toMatch(/abs\(\(dist_\d* \+ 0\.3\d*f\)\) - 0\.05\d*f/);
         expect(fs).toMatch(/select\(vec3f\(/);
         expect(fs).toMatch(/isCentre/);
     });

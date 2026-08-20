@@ -10,7 +10,6 @@ import {
     type StrokeDocument,
     segmentDistance,
 } from "./document";
-import { ROAD_HALF_WIDTH } from "./network";
 import { strokeDistance, strokeDocument } from "./stroke";
 import { EDGE_INSET, LINE_HALF_WIDTH } from "./tiles";
 
@@ -204,14 +203,16 @@ describe("markingDistanceForSegment", () => {
     const seg: Segment = { ax: -100, az: 0, bx: 100, bz: 0, halfWidth: 4 };
 
     test("negative inside an edge line (centred at d = -EDGE_INSET, width LINE_WIDTH)", () => {
-        // the edge line is at |z| = halfWidth - EDGE_INSET = 3.7 m from the centreline
-        const edgeLineZ = ROAD_HALF_WIDTH - EDGE_INSET; // 3.7
+        // the edge line is at |z| = halfWidth - EDGE_INSET = 3.7 m from the centreline.
+        // Derived from the segment's own halfWidth, not ROAD_HALF_WIDTH, so the probe stays on the
+        // edge line whatever the road width is — one fixture, one source of truth.
+        const edgeLineZ = seg.halfWidth - EDGE_INSET; // 3.7
         const result = markingDistanceForSegment(0, edgeLineZ, seg);
         expect(result).toBeLessThan(0); // inside the edge line
     });
 
     test("zero at the edge line boundary (LINE_HALF_WIDTH from the centre)", () => {
-        const edgeLineZ = ROAD_HALF_WIDTH - EDGE_INSET; // 3.7
+        const edgeLineZ = seg.halfWidth - EDGE_INSET; // 3.7
         const boundary = edgeLineZ + LINE_HALF_WIDTH; // 3.75
         expect(markingDistanceForSegment(0, boundary, seg)).toBeCloseTo(0, 6);
     });
@@ -254,7 +255,7 @@ describe("markingDistance", () => {
         expect(markingDistance(20, 0, doc)).toBeLessThan(0);
         // on the centreline, in a gap (station 100/midpoint with offset) → positive
         expect(markingDistance(0, 0, doc)).toBeGreaterThan(0);
-        // on the edge line → negative
-        expect(markingDistance(0, ROAD_HALF_WIDTH - EDGE_INSET, doc)).toBeLessThan(0);
+        // on the edge line → negative. Derived from the doc's own halfWidth, not ROAD_HALF_WIDTH.
+        expect(markingDistance(0, doc.polylines[0].halfWidth - EDGE_INSET, doc)).toBeLessThan(0);
     });
 });
