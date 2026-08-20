@@ -22,6 +22,10 @@ import { generateNetwork } from "../overlay/network";
 import {
     CENTRE_ALBEDO,
     COVERAGE_BAND_PX,
+    DASH_DUTY,
+    DASH_OFFSET,
+    DASH_PERIOD,
+    DASH_SEGMENT,
     DIST_RANGE,
     EDGE_ALBEDO,
     EDGE_INSET,
@@ -58,6 +62,76 @@ const terrainSurfaceLayout = surfaceLayout({
     dist: { type: "texture-2d-array" },
     overlaySamp: { type: "sampler" },
     indirection: { type: "storage", element: d.i32 },
+    chord: { type: "uniform", struct: overlayAtlas.ChordUniform },
+});
+
+/** two-edge analytic pixel coverage — the fraction of a pixel a stripe of half-width `h` covers
+ *  on signed cross-coordinate `x` with pixel footprint `p`. `cover(e) = clamp((e - x)/p + 0.5, 0, 1)`,
+ *  `alpha = cover(h) - cover(-h)`. Correct through the sub-pixel regime by construction: when both
+ *  edges land inside one pixel the terms subtract to the stripe's true fractional coverage, so the line
+ *  fades proportionally instead of snapping to fully-opaque or vanishing (roads-interactive.md Locked
+ *  decision, stage 8). CPU-callable so `bun test` exercises this exact math with no device. */
+export const coverFn = tgpu.fn(
+    [d.f32, d.f32, d.f32],
+    d.f32,
+)((e, x, p) => {
+    "use gpu";
+    return std.clamp((e - x) / p + d.f32(0.5), 0, 1);
+});
+
+/** the signed distance to the nearest road marking from the chord — the GPU twin of `document.ts`'s
+ *  `markingDistanceForSegment`, independently derived via the clamped-projection form (same split as
+ *  `segmentDistanceGpu` vs `segmentDistance`). Two solid edge lines inset from the road edge (centred
+ *  at d = −EDGE_INSET on the existing edge distance) and a broken centreline (perpendicular distance via
+ *  the cross product, station along the chord via fract(s / DASH_PERIOD) < DASH_DUTY). CPU-callable so
+ *  `bun test` exercises this exact math with no device — the GPU half of stage 8's marking differential
+ *  oracle. `terrain.ts` never imports `markingDistance` — the two derivations are independent by contract.
+ * @example markingDistanceFromChord(0, 0, -100, 0, 100, 0, 4) // on the centreline, in a gap → positive */
+export const markingDistanceFromChord = tgpu.fn(
+    [d.f32, d.f32, d.f32, d.f32, d.f32, d.f32, d.f32],
+    d.f32,
+)((px, pz, ax, az, bx, bz, halfWidth) => {
+    "use gpu";
+    const abx = bx - ax;
+    const abz = bz - az;
+    const apx = px - ax;
+    const apz = pz - az;
+    const dd = abx * abx + abz * abz;
+    let t = d.f32(0);
+    let tRaw = d.f32(0);
+    if (dd > 0) {
+        tRaw = (apx * abx + apz * abz) / dd;
+        t = std.clamp(tRaw, 0, 1);
+    }
+    const cx = ax + t * abx;
+    const cz = az + t * abz;
+    const dist = std.distance(d.vec2f(px, pz), d.vec2f(cx, cz));
+    const edgeDist = dist - halfWidth;
+
+    // edge line: solid, centred at d = −EDGE_INSET, width LINE_WIDTH
+    const edgeLineDist = std.abs(edgeDist + d.f32(EDGE_INSET)) - d.f32(LINE_HALF_WIDTH);
+
+    // centreline: broken, lateral from the cross product, longitudinal from the dash phase
+    const len = std.sqrt(dd);
+    const cross = len > 0 ? (apx * abz - apz * abx) / len : 0;
+    const lateral = std.abs(cross) - d.f32(LINE_HALF_WIDTH);
+    const along = t * len;
+    let longitudinal = d.f32(0);
+    if (tRaw < 0) {
+        longitudinal = -tRaw * len;
+    } else if (tRaw > 1) {
+        longitudinal = (tRaw - 1) * len;
+    } else {
+        const phase = std.fract((along + d.f32(DASH_OFFSET)) / d.f32(DASH_PERIOD));
+        if (phase < d.f32(DASH_DUTY)) {
+            longitudinal = -std.min(phase, d.f32(DASH_DUTY) - phase) * d.f32(DASH_PERIOD);
+        } else {
+            longitudinal = std.min(phase - d.f32(DASH_DUTY), d.f32(1) - phase) * d.f32(DASH_PERIOD);
+        }
+    }
+    const centreDist = std.max(lateral, longitudinal);
+
+    return std.min(edgeLineDist, centreDist);
 });
 
 const terrainFs = tgpu.fn(
@@ -123,22 +197,90 @@ const terrainFs = tgpu.fn(
     const resident = std.select(d.f32(0), d.f32(1), layer >= 0);
     const coverage = std.clamp(d.f32(0.5) - dist / fw, 0, 1) * resident;
 
-    // the marking channel: the albedo alpha byte stores the signed distance to the nearest road marking
-    // (the coverage channel's own encodeDist codec, DIST_RANGE at 8 bits). Decode it and threshold with
-    // a second fwidth exactly as coverage is — sub-texel crisp lines at any zoom (roads-interactive.md
-    // Locked decision). The marking class (edge vs centre) is determined by comparing the decoded
-    // marking distance with the edge-line distance computed independently from the coverage distance:
-    // if the marking distance is smaller, the nearest marking is the centreline; otherwise the edge line.
-    const markingDist = (albedoSample.w - d.f32(0.5)) * d.f32(2) * d.f32(DIST_RANGE);
-    const markingFw = std.fwidth(markingDist) * d.f32(COVERAGE_BAND_PX) + d.f32(1e-5);
-    const markingCoverage = std.clamp(d.f32(0.5) - markingDist / markingFw, 0, 1) * resident;
-    const edgeLineDist = std.abs(dist + d.f32(EDGE_INSET)) - d.f32(LINE_HALF_WIDTH);
+    // the marking channel: analytic in the fs from the chord uniform (stage 8), not baked into a texel.
+    // Two-edge pixel coverage — the fraction of the pixel the marking covers — not a smoothstep threshold.
+    // For a stripe of half-width h on signed cross-coordinate x with p = max(fwidth(x), 1e-6):
+    //   cover(e) = clamp((e - x)/p + 0.5, 0, 1),  alpha = cover(h) - cover(-h)
+    // This is correct through the sub-pixel regime by construction (roads-interactive.md Locked decision).
+    const chord = terrainSurfaceLayout.$.chord;
+    const ax = chord.a.x;
+    const az = chord.a.y;
+    const bx = chord.b.x;
+    const bz = chord.b.y;
+    const halfWidth = chord.halfWidth;
+
+    // chord projection
+    const abx = bx - ax;
+    const abz = bz - az;
+    const apx = ctx.world.x - ax;
+    const apz = ctx.world.z - az;
+    const dd = abx * abx + abz * abz;
+    let tRaw = d.f32(0);
+    if (dd > 0) tRaw = (apx * abx + apz * abz) / dd;
+    const t = std.clamp(tRaw, 0, 1);
+    const cx = ax + t * abx;
+    const cz = az + t * abz;
+    const distToSegment = std.distance(d.vec2f(ctx.world.x, ctx.world.z), d.vec2f(cx, cz));
+    const len = std.sqrt(dd);
+    const cross = len > 0 ? (apx * abz - apz * abx) / len : 0;
+
+    // edge line: solid, two-edge coverage on the edge cross-coordinate
+    // (centred at d = −EDGE_INSET on the edge distance, half-width LINE_HALF_WIDTH)
+    const edgeX = distToSegment - halfWidth + d.f32(EDGE_INSET);
+    const edgeP = std.max(std.fwidth(edgeX), d.f32(1e-6));
+    const edgeAlpha =
+        coverFn(d.f32(LINE_HALF_WIDTH), edgeX, edgeP) -
+        coverFn(-d.f32(LINE_HALF_WIDTH), edgeX, edgeP);
+
+    // centreline: broken, lateral coverage * dash coverage * endpoint coverage
+    // lateral: two-edge coverage on the signed perpendicular distance (cross)
+    const centreP = std.max(std.fwidth(cross), d.f32(1e-6));
+    const lateralAlpha =
+        coverFn(d.f32(LINE_HALF_WIDTH), cross, centreP) -
+        coverFn(-d.f32(LINE_HALF_WIDTH), cross, centreP);
+
+    // dash: two-edge coverage along the station axis, converging to DASH_DUTY past Nyquist
+    const s = tRaw * len;
+    const sP = std.max(std.fwidth(s), d.f32(1e-6));
+    const sRel =
+        s +
+        d.f32(DASH_OFFSET) -
+        std.floor((s + d.f32(DASH_OFFSET)) / d.f32(DASH_PERIOD)) * d.f32(DASH_PERIOD);
+    const dashCov = coverFn(d.f32(DASH_SEGMENT), sRel, sP) - coverFn(d.f32(0), sRel, sP);
+    const dashCovWrap =
+        coverFn(d.f32(DASH_PERIOD + DASH_SEGMENT), sRel, sP) -
+        coverFn(d.f32(DASH_PERIOD), sRel, sP);
+    let dashCoverage = std.clamp(dashCov + dashCovWrap, 0, 1);
+    // converge to DASH_DUTY opacity as fwidth(s) approaches DASH_PERIOD — a far dashed line reads as a
+    // faint continuous line, never as resolved flickering dots (roads-interactive.md Locked decision).
+    const nyquist = std.clamp(sP / d.f32(DASH_PERIOD), 0, 1);
+    dashCoverage = std.mix(dashCoverage, d.f32(DASH_DUTY), nyquist);
+
+    // endpoint: the centreline exists only for station in [0, len]
+    const endpointAlpha = coverFn(d.f32(len), s, sP) - coverFn(d.f32(0), s, sP);
+
+    const centreAlpha = lateralAlpha * dashCoverage * endpointAlpha;
+
+    // select the marking class: the nearest marking (edge vs centre) determines the albedo
+    const markingDist = markingDistanceFromChord(
+        ctx.world.x,
+        ctx.world.z,
+        ax,
+        az,
+        bx,
+        bz,
+        halfWidth,
+    );
+    const edgeLineDist =
+        std.abs(distToSegment - halfWidth + d.f32(EDGE_INSET)) - d.f32(LINE_HALF_WIDTH);
     const isCentre = markingDist < edgeLineDist;
     const markingAlbedo = std.select(
         d.vec3f(d.f32(EDGE_ALBEDO[0]), d.f32(EDGE_ALBEDO[1]), d.f32(EDGE_ALBEDO[2])),
         d.vec3f(d.f32(CENTRE_ALBEDO[0]), d.f32(CENTRE_ALBEDO[1]), d.f32(CENTRE_ALBEDO[2])),
         isCentre,
     );
+    const markingCoverage = std.max(edgeAlpha, centreAlpha);
+
     // mix the marking albedo over the road albedo before the terrain composite
     const overlayWithMarkings = std.mix(overlay, markingAlbedo, markingCoverage);
     color = std.mix(color, overlayWithMarkings, coverage);
@@ -149,7 +291,7 @@ const terrainFs = tgpu.fn(
 /** the emitted terrain fs WGSL — the device-free structural seam the overlay composite tests resolve
  *  (`terrain.test.ts`, the `generate.test.ts`/`noise.test.ts` idiom). */
 export function terrainFsWgsl(): string {
-    return tgpu.resolve([terrainFs], { names: "strict" });
+    return tgpu.resolve([coverFn, markingDistanceFromChord, terrainFs], { names: "strict" });
 }
 
 /** the terrain mesh's local-space bounding sphere: the grid's XZ half-extent + the relief's half-height,
@@ -261,7 +403,7 @@ async function warm(state: State): Promise<void> {
         indexCount: INDEX_COUNT,
         bounds: terrainBounds(),
         dynamic: true, // content (not topology) is compute-rewritten on reseed — a stale BLAS would cast wrong
-        bindings: overlayAtlas.bindings(), // the four overlay entries terrainSurfaceLayout declares
+        bindings: overlayAtlas.bindings(), // the overlay entries terrainSurfaceLayout declares
     };
     Meshes.register(mesh);
     Draws.register({ name: "terrain", surface: "terrain", mesh: "terrain", args: { indirect } });
@@ -275,6 +417,7 @@ async function warm(state: State): Promise<void> {
     warmNetwork(state); // its own onDispose registration, the same pattern
     setNetwork(liveDocument, currentSeed); // the flatten kernel's geometry input, kept in sync with
     // the overlay's own document and the height kernel's own permutation seed
+    overlayAtlas.updateChord(liveDocument); // the fs's marking geometry input (stage 8)
     if (state.signal.aborted) return;
     await generate(SEED);
 }
@@ -311,6 +454,7 @@ export async function regenerate(seed: number): Promise<void> {
     currentSeed = seed;
     liveDocument = generateNetwork();
     setNetwork(liveDocument, seed);
+    overlayAtlas.updateChord(liveDocument);
     overlayAtlas.invalidate();
     overlayAtlas.markDirty(liveDocument);
     await generate(seed);
@@ -330,6 +474,7 @@ export async function editDocument(doc: StrokeDocument): Promise<void> {
     const oldDoc = liveDocument;
     liveDocument = doc;
     setNetwork(doc, currentSeed);
+    overlayAtlas.updateChord(doc);
     overlayAtlas.retile(oldDoc, doc);
     await generate(currentSeed);
 }

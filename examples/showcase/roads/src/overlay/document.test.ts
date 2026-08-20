@@ -226,7 +226,7 @@ describe("markingDistanceForSegment", () => {
 
     test("zero at the edge line boundary (LINE_HALF_WIDTH from the centre)", () => {
         const edgeLineZ = seg.halfWidth - EDGE_INSET; // 3.7
-        const boundary = edgeLineZ + LINE_HALF_WIDTH; // 3.75
+        const boundary = edgeLineZ + LINE_HALF_WIDTH; // 3.7762 (3.7 + 0.0762, with stage 8's 6 in line width)
         expect(markingDistanceForSegment(0, boundary, seg)).toBeCloseTo(0, 6);
     });
 
