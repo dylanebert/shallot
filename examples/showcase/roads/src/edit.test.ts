@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { meshHeightAt } from "./capture";
+import { createGrabState, stepGrab } from "./edit";
 import {
     applyEdit,
     chordLength,
@@ -224,4 +225,82 @@ describe("edit — corridor flatness over 200 random admissible drags", () => {
             expect(fine.maxLongitudinalExcess).toBe(0);
         });
     }
+});
+
+describe("edit — sticky grab latch (stage 4b)", () => {
+    // RED-FIRST WITNESS: the shipped shape uses `left && !dragging && hovered >= 0` to start the drag —
+    // not a rising-edge latch. A press with no handle under it latches nothing, but moving the cursor
+    // over a handle while the button is still held *does* start a drag, because `!dragging` is true and
+    // `hovered >= 0` is now satisfied. The failure text witnessed before the rising-edge fix:
+    //   "expected { dragging: true, dragEnd: 0, prevLeft: true } to equal { dragging: false, dragEnd: 0, prevLeft: true }"
+    // (frame 3 of sequence 1 — the old `stepGrab` starts a drag when the cursor reaches a handle
+    // mid-hold, the new one does not because the rising edge already passed).
+    //
+    // The latch is device-free state, so this is a unit arm over a synthetic press → move-off →
+    // move-back → release sequence — not a device probe.
+
+    test("a press with no handle under it latches nothing", () => {
+        let s = createGrabState();
+        // frame 1: idle
+        s = stepGrab(s, false, -1);
+        expect(s).toEqual({ dragging: false, dragEnd: 0, prevLeft: false });
+        // frame 2: press with no handle under it
+        s = stepGrab(s, true, -1);
+        expect(s).toEqual({ dragging: false, dragEnd: 0, prevLeft: true });
+        // frame 3: move over handle 0 while still held — must NOT latch
+        s = stepGrab(s, true, 0);
+        expect(s).toEqual({ dragging: false, dragEnd: 0, prevLeft: true });
+        // frame 4: release
+        s = stepGrab(s, false, 0);
+        expect(s).toEqual({ dragging: false, dragEnd: 0, prevLeft: false });
+    });
+
+    test("latched index is unchanged through press → move-off → move-back → release", () => {
+        let s = createGrabState();
+        // frame 1: idle
+        s = stepGrab(s, false, -1);
+        expect(s).toEqual({ dragging: false, dragEnd: 0, prevLeft: false });
+        // frame 2: press over handle 1 — latches dragEnd=1
+        s = stepGrab(s, true, 1);
+        expect(s).toEqual({ dragging: true, dragEnd: 1, prevLeft: true });
+        // frame 3: move off the handle (hover miss) — dragging stays, dragEnd unchanged
+        s = stepGrab(s, true, -1);
+        expect(s).toEqual({ dragging: true, dragEnd: 1, prevLeft: true });
+        // frame 4: move back over handle 0 — dragEnd stays 1, not 0
+        s = stepGrab(s, true, 0);
+        expect(s).toEqual({ dragging: true, dragEnd: 1, prevLeft: true });
+        // frame 5: release — clears dragging, dragEnd stays at last value
+        s = stepGrab(s, false, 0);
+        expect(s).toEqual({ dragging: false, dragEnd: 1, prevLeft: false });
+    });
+
+    test("the release edge, and only the release edge, clears it", () => {
+        let s = createGrabState();
+        // press over handle 0
+        s = stepGrab(s, true, 0);
+        expect(s.dragging).toBe(true);
+        // move off — still dragging
+        s = stepGrab(s, true, -1);
+        expect(s.dragging).toBe(true);
+        // move over handle 1 — still dragging, still dragEnd 0
+        s = stepGrab(s, true, 1);
+        expect(s.dragging).toBe(true);
+        expect(s.dragEnd).toBe(0);
+        // release — clears
+        s = stepGrab(s, false, -1);
+        expect(s.dragging).toBe(false);
+    });
+
+    test("a second press after release latches fresh", () => {
+        let s = createGrabState();
+        // first press over handle 0
+        s = stepGrab(s, true, 0);
+        expect(s).toEqual({ dragging: true, dragEnd: 0, prevLeft: true });
+        // release
+        s = stepGrab(s, false, -1);
+        expect(s.dragging).toBe(false);
+        // second press over handle 1
+        s = stepGrab(s, true, 1);
+        expect(s).toEqual({ dragging: true, dragEnd: 1, prevLeft: true });
+    });
 });

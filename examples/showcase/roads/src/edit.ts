@@ -20,6 +20,38 @@ export {
     residentTileCount,
 } from "./editPure";
 
+// --- the grab latch (pure, device-free state machine) ---
+//
+// `stepGrab` is the press-edge latch the spec's stage 4b names: on the rising edge of `left` while
+// `hovered >= 0`, record the handle index and set `dragging`; `dragging` survives every subsequent
+// frame regardless of hover and clears only on the falling edge; a press with no handle under it
+// latches nothing. Extracted as a pure function so `edit.test.ts` can drive a synthetic press →
+// move-off → move-back → release sequence without a device.
+
+export interface GrabState {
+    dragging: boolean;
+    dragEnd: 0 | 1;
+    prevLeft: boolean;
+}
+
+export function createGrabState(): GrabState {
+    return { dragging: false, dragEnd: 0, prevLeft: false };
+}
+
+export function stepGrab(state: GrabState, left: boolean, hovered: number): GrabState {
+    const rising = left && !state.prevLeft;
+    let dragging = state.dragging;
+    let dragEnd = state.dragEnd;
+    if (rising && hovered >= 0) {
+        dragging = true;
+        dragEnd = hovered as 0 | 1;
+    }
+    if (!left) {
+        dragging = false;
+    }
+    return { dragging, dragEnd, prevLeft: left };
+}
+
 import { applyEdit, clampToBound, HANDLE_RADIUS, isAdmissibleDrag } from "./editPure";
 
 // --- the device-bound plugin (imports from @dylanebert/shallot below this line) ---
@@ -58,8 +90,7 @@ let liveState: State | null = null;
 let camEid = -1;
 let handleEids: [number, number] = [-1, -1];
 let hovered = -1;
-let dragging = false;
-let dragEnd: 0 | 1 = 0;
+let grab = createGrabState();
 let claimInstalled = false;
 
 /** march `ray` against the continuous flattened field (`flattenFieldAt`) and return the (x, z) where the
@@ -189,11 +220,13 @@ const EditSystem: System = {
         }
 
         // install the OrbitPick.claim once — the closure reads live Transform positions at call time, so
-        // it stays correct across edits without re-installation. The claim returns true when a handle is
-        // hovered, suppressing orbit rotation for the whole drag (pan and zoom untouched).
+        // it stays correct across edits without re-installation. The claim reads the latch when a drag is
+        // held (so orbit stays suppressed for the whole drag even when the cursor leaves the handle), and
+        // runs a fresh hover test only when no drag is held.
         if (!claimInstalled) {
             OrbitPick.claim = () => {
                 if (!liveState || camEid < 0 || handleEids[0] < 0) return false;
+                if (grab.dragging) return true;
                 const claimRay = cursorRay(liveState, camEid);
                 if (!claimRay) return false;
                 for (let i = 0; i < 2; i++) {
@@ -222,16 +255,10 @@ const EditSystem: System = {
             claimInstalled = true;
         }
 
-        // drag state: the orbit button is left (button 0). Start a drag on the press edge over a handle;
-        // end on release.
-        const orbitHeld = Inputs.mouse.left;
-        if (orbitHeld && !dragging && hovered >= 0) {
-            dragging = true;
-            dragEnd = hovered as 0 | 1;
-        }
-        if (!orbitHeld) {
-            dragging = false;
-        }
+        // grab latch: the orbit button is left (button 0). `stepGrab` latches on the rising edge over a
+        // handle and holds until the falling edge — hover feeds only the colour, never the drag.
+        grab = stepGrab(grab, Inputs.mouse.left, hovered);
+        const { dragging, dragEnd } = grab;
 
         // drag: march the cursor ray against the flattened field, clamp, refuse the length band, apply
         if (dragging && ray) {
@@ -268,7 +295,7 @@ const EditSystem: System = {
         camEid = -1;
         liveState = null;
         hovered = -1;
-        dragging = false;
+        grab = createGrabState();
         claimInstalled = false;
     },
 };
