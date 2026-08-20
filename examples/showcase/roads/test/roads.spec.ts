@@ -2,7 +2,15 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, type Page, test } from "@playwright/test";
-import { captureProbePoints } from "../src/overlay/network";
+import { captureProbePoints, generateNetwork } from "../src/overlay/network";
+import { makePermutation } from "../src/terrain/noise";
+import { buildPolylineProfile, heightAtCpu } from "../src/terrain/profile";
+
+// The boot seed (`terrain.ts`'s `SEED = 1337`) — the network the corridor pose is derived from and
+// the terrain that must be live when the corridor capture is taken. Not imported from `terrain.ts`
+// because that module imports `@dylanebert/shallot` at module top level, which Node ≥26 rejects
+// (bare `package.json` import) — the Playwright driver stays clear of that package on the Node side.
+const BOOT_SEED = 1337;
 
 // where every run's capture lands — a fixed, git-ignored path (`test-results/`, this project's
 // `.gitignore`) rather than a per-run timestamped name, so "the latest capture" always has one findable
@@ -330,7 +338,105 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Phase 4: stage 24a's corridor-pose capture. Reposition the orbit to the derived corridor pose
+    // Restore the boot seed after Phase 3's reseeds. Phase 3 reseeds to 111111 then 233332 (both
+    // deliberately chosen so neither network has a road at the probe point — that property is what
+    // makes Phase 3's arm valid, and it is exactly what guarantees the corridor capture would be empty
+    // if the boot seed were not restored). The corridor pose (corridorPose.ts / corridorCapture.ts) is
+    // derived from `generateNetwork(1337)` via `roadFrame()` (boundaryAnchors.ts), so the camera points
+    // at seed 1337's road-0 midpoint. The capture must be taken with the live terrain on the same
+    // network the pose was derived from — restore the boot seed, then reposition and capture.
+    await page.evaluate(
+        (s) =>
+            (
+                window as unknown as { __roadsRegenerate: (seed: number) => Promise<void> }
+            ).__roadsRegenerate(s),
+        BOOT_SEED,
+    );
+    await page.waitForFunction(
+        () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
+        null,
+        { timeout: 10_000 },
+    );
+
+    // Phase 4: corridor content arm — assert against the live device scene that the corridor is
+    // actually in frame and set into terrain. This closes the gate the blocker proved missing: nothing
+    // previously checked the corridor capture's content — the screenshot was written to a file and
+    // never inspected, so a capture of empty terrain (seed 233332's, with no road at the probe point)
+    // passed every gate. The arm checks two things: (1) the live height at the corridor centre matches
+    // the chord's flatten target (the terrain is flattened there — a road is present), and (2) the
+    // live height ~30 m to the side does not match the flatten target (unflattened terrain flanks the
+    // corridor — it reads set into terrain, not flat everywhere). Both checks use the boot seed's
+    // network geometry and natural heights, so a wrong-seed terrain reds both.
+    const bootDoc = generateNetwork(BOOT_SEED);
+    const [[roadAx, roadAz], [roadBx, roadBz]] = bootDoc.polylines[0].points;
+    const roadDx = roadBx - roadAx;
+    const roadDz = roadBz - roadAz;
+    const roadLen = Math.hypot(roadDx, roadDz) || 1;
+    const roadUx = roadDx / roadLen;
+    const roadUz = roadDz / roadLen;
+    const roadNx = -roadUz; // unit normal (network.ts's convention)
+    const roadNz = roadUx;
+
+    // corridor centre: road-0 midpoint (t = 0.5) — the same point corridorCapture.ts targets
+    const centreX = roadAx + roadUx * roadLen * 0.5;
+    const centreZ = roadAz + roadUz * roadLen * 0.5;
+
+    // chord target at the centre: linear interpolation of the endpoints' natural heights
+    const bootPerm = makePermutation(BOOT_SEED);
+    const profile = buildPolylineProfile(bootDoc.polylines[0].points, bootPerm);
+    const chordTarget = profile[0].height + (profile[1].height - profile[0].height) * 0.5;
+
+    // flank: 30 m perpendicular to the road from the centre (well beyond halfWidth + falloff ≈ 10.8 m)
+    const FlankOffset = 30;
+    const flankX = centreX + roadNx * FlankOffset;
+    const flankZ = centreZ + roadNz * FlankOffset;
+    const naturalFlank = heightAtCpu(flankX, flankZ, bootPerm);
+
+    const [liveCentre, liveFlank] = (await page.evaluate(
+        (points) =>
+            Promise.all(
+                points.map((xz) =>
+                    (
+                        window as unknown as {
+                            __roadsHeightAt: (
+                                x: number,
+                                z: number,
+                            ) => Promise<[number, number, number]>;
+                        }
+                    ).__roadsHeightAt(xz[0], xz[1]),
+                ),
+            ),
+        [
+            [centreX, centreZ],
+            [flankX, flankZ],
+        ] as [number, number][],
+    )) as [number, number, number][];
+
+    // (1) The corridor centre is flattened: the live height matches the chord target (within the
+    // nearest-vertex approximation — `withHeight` reads the nearest grid vertex, at most SPACING/2
+    // from the centre, and the chord target varies by < 0.3 m over that distance).
+    expect(
+        Math.abs(liveCentre[1] - chordTarget),
+        `corridor centre live height ${liveCentre[1].toFixed(2)} vs chord target ${chordTarget.toFixed(2)} — corridor is not flattened at the capture point (wrong seed?)`,
+    ).toBeLessThan(0.5);
+
+    // (2) The flank is unflattened: the live height matches the natural terrain height (within the
+    // nearest-vertex approximation on natural terrain — at most ~3 m of gradient over SPACING/2).
+    expect(
+        Math.abs(liveFlank[1] - naturalFlank),
+        `flank live height ${liveFlank[1].toFixed(2)} vs natural ${naturalFlank.toFixed(2)} — flank is not natural terrain`,
+    ).toBeLessThan(3.0);
+
+    // (3) The corridor is set into terrain: the chord target differs from the natural flank height
+    // (the flatten operation cut into terrain, not flat ground).
+    expect(
+        Math.abs(chordTarget - naturalFlank),
+        `chord target ${chordTarget.toFixed(2)} vs natural flank ${naturalFlank.toFixed(2)} — corridor is not set into terrain`,
+    ).toBeGreaterThan(0.5);
+
+    expect(errors, errors.join("\n")).toEqual([]);
+
+    // Phase 5: stage 24a's corridor-pose capture. Reposition the orbit to the derived corridor pose
     // (corridorCapture.ts via window.__roadsCorridorCapture), wait for it to settle, and save the
     // screenshot to a second file. The default-orbit capture (Phase 2) is already saved and must not
     // move — it feeds the fs-composite pixel probes. This capture is the admissible artifact for 24b's
