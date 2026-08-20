@@ -214,7 +214,7 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     // way `overlay/network.test.ts` derives its disjointness pin — real `captureProbePoints` against the
     // real reseed seed, not a hand-picked coordinate.
     const ReseedSeedA = 111111;
-    const ReseedSeedB = 222222;
+    const ReseedSeedB = 233332;
 
     for (const seed of [ReseedSeedA, ReseedSeedB]) {
         await page.evaluate(

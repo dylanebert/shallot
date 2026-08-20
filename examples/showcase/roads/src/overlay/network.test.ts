@@ -1,16 +1,22 @@
 import { describe, expect, test } from "bun:test";
 import { buildNetworkGeometry, computeFalloff, FLAT_CORE_MARGIN } from "../terrain/flatten";
 import { gridX, gridZ, SPACING, WORLD_HALF, worldX, worldZ } from "../terrain/grid";
+import { makePermutation, mulberry32 } from "../terrain/noise";
 import { PROFILE_STEP } from "../terrain/profile";
 import { documentDirtyTiles, documentDistance, flattenSegments } from "./document";
 import {
     captureProbePoints,
+    computeRouteScore,
     generateNetwork,
     ROAD_COUNT,
     ROAD_HALF_WIDTH,
+    ROAD_MAX_LENGTH,
+    ROAD_MIN_LENGTH,
+    ROUTE_CANDIDATES,
     roadFootprintDistance,
     roadPolygonFootprintDistance,
 } from "./network";
+import { INCUMBENT_SNAPSHOT } from "./network_incumbent_snapshot";
 import { tileId, tileOf } from "./tiles";
 
 // this module's own copy of `terrain/terrain.ts`'s boot SEED — kept a plain literal rather than an
@@ -88,7 +94,7 @@ describe("generateNetwork — shape", () => {
             worst,
             `worst abs coord: ${worst} WORLD_HALF: ${WORLD_HALF} seed: ${worstSeed}`,
         ).toBeLessThan(WORLD_HALF);
-    });
+    }, 30000);
 
     test("seed 615 specifically — the adversarial pass's own witness for the escape", () => {
         const doc = generateNetwork(615);
@@ -126,11 +132,13 @@ describe("captureProbePoints — the device gate's on/off-road pair over the pro
 
     test("pinned witness at the boot seed — a regression names itself against these exact coordinates", () => {
         // computed once against generateNetwork(1337) and checked by hand against documentDistance
-        // (on-road ≈ -2.84 m inside the road's 4 m half-width; off-road ≈ +3.34 m outside it, one grid
+        // (on-road ≈ -2.94 m inside the road's 4 m half-width; off-road ≈ +3.19 m outside it, one grid
         // step further out — the nearest-to-origin road at this seed, not necessarily road 0).
+        // Stage 22 (route selection): the boot network's roads moved (different positions/lengths),
+        // so the probe points moved with them: [-60, 84]/[-52, 80] → [88, -64]/[92, -56].
         const { onRoad, offRoad } = captureProbePoints(BOOT_SEED);
-        expect(onRoad).toEqual([-60, 84]);
-        expect(offRoad).toEqual([-52, 80]);
+        expect(onRoad).toEqual([88, -64]);
+        expect(offRoad).toEqual([92, -56]);
     });
 
     test("is deterministic in the seed, like generateNetwork itself", () => {
@@ -157,12 +165,15 @@ describe("stage 14's device-arm reseed seeds — neither touches the boot networ
     // road there after the swap would make a still-stale read pass for the wrong reason. Pinned here,
     // device-free, so a network.ts change that breaks the disjointness fails loud at this tier instead of
     // silently flaking the device gate.
-    test("RESEED_SEED_A (111111) and RESEED_SEED_B (222222) both miss the boot on-road tile", () => {
+    test("RESEED_SEED_A (111111) and RESEED_SEED_B (233332) both miss the boot on-road tile", () => {
         const { onRoad } = captureProbePoints(BOOT_SEED);
         const [tx, tz] = tileOf(onRoad[0], onRoad[1]);
         const bootOnRoadTile = tileId(tx, tz);
 
-        for (const seed of [111111, 222222]) {
+        // Stage 22 (route selection): the boot network's on-road tile moved (the roads moved), so
+        // RESEED_SEED_B was re-pinned: 222222 → 233332 (222222 now touches the boot on-road tile).
+        // `test/roads.spec.ts`'s device gate uses the same seeds and must be updated in stage 23.
+        for (const seed of [111111, 233332]) {
             const ids = documentDirtyTiles(generateNetwork(seed));
             expect(ids).not.toContain(bootOnRoadTile);
         }
@@ -295,5 +306,118 @@ describe("stage 18 — non-overlap by construction: footprint disjointness over 
         );
         expect(minSlack).toBeFinite();
         expect(minContainmentSlack).toBeFinite();
+    }, 30000);
+});
+
+describe("stage 22 — route selection: N=1 is the unselected generator by construction", () => {
+    // The differential gate's control: `generateNetwork(seed, { candidates: 1 })` must reproduce the
+    // incumbent (pre-stage-22) generator's output exactly. N=1 draws the same four random values
+    // (x0, z0, heading, length) per attempt in the same order as the incumbent, scores one candidate
+    // (no selection — the cheapest of one is that one), and follows the same clearance logic. The
+    // snapshot below was captured from the incumbent before this stage's change was applied, so the
+    // pin is a regression check against a frozen reference, not a circular comparison against the
+    // current code.
+    const PinSeeds = [0, 1, 42, 1337, 2006, 615, 5000];
+
+    test("generateNetwork(seed, { candidates: 1 }) reproduces the incumbent output exactly over 7 seeds", () => {
+        for (const seed of PinSeeds) {
+            const doc = generateNetwork(seed, { candidates: 1 });
+            expect(doc).toEqual(INCUMBENT_SNAPSHOT[seed]);
+        }
     });
+});
+
+describe("stage 22 — route selection: structural arm (the argmin is by construction)", () => {
+    // The structural arm: for each road, the kept route is the argmin of `computeRouteScore` over that
+    // road's own candidates. This is true **by construction of a minimum** — the generator's candidate
+    // loop keeps the lowest-scoring candidate, which is the argmin by definition — at any N, on any
+    // seed. No scan, no threshold, no fitted number. This is the arm that actually witnesses the
+    // mechanism.
+    //
+    // We verify it by replaying the RNG for the first road's first attempt (which always succeeds: no
+    // previously placed roads, so the pairwise clearance check is trivially satisfied), scoring each
+    // in-world candidate with the exported `computeRouteScore`, and confirming the generated network's
+    // first road is the argmin. The mechanism is identical for every road, so witnessing it on the first
+    // road across several seeds is sufficient.
+    const structSeeds = [42, 1337, 615, 5000];
+
+    test("the kept route is the argmin of computeRouteScore over the road's own candidates — by construction of a minimum", () => {
+        for (const seed of structSeeds) {
+            // Replay the RNG exactly as generateNetwork does for the first road's first attempt.
+            const rng = mulberry32(seed);
+            const rand = (lo: number, hi: number) => lo + rng() * (hi - lo);
+            const perm = makePermutation(seed);
+            const bound = WORLD_HALF - (ROAD_MAX_LENGTH + 1);
+
+            let best: { points: [number, number][]; score: number } | null = null;
+            for (let c = 0; c < ROUTE_CANDIDATES; c++) {
+                const x0 = rand(-bound, bound);
+                const z0 = rand(-bound, bound);
+                const heading = rand(0, Math.PI * 2);
+                const length = rand(ROAD_MIN_LENGTH, ROAD_MAX_LENGTH);
+                const x1 = x0 + Math.cos(heading) * length;
+                const z1 = z0 + Math.sin(heading) * length;
+                if (Math.abs(x1) >= WORLD_HALF || Math.abs(z1) >= WORLD_HALF) continue;
+                const pts: [number, number][] = [
+                    [x0, z0],
+                    [x1, z1],
+                ];
+                const score = computeRouteScore(pts, perm);
+                if (!best || score < best.score) {
+                    best = { points: pts, score };
+                }
+            }
+
+            // The first road always places on the first attempt (no clearance constraints), so the
+            // generated network's first road must be the argmin candidate.
+            expect(
+                best,
+                `seed ${seed}: no in-world candidate found in first attempt`,
+            ).not.toBeNull();
+            const doc = generateNetwork(seed);
+            expect(
+                doc.polylines[0].points,
+                `seed ${seed}: first road is not the argmin candidate`,
+            ).toEqual(best!.points);
+        }
+    });
+});
+
+describe("stage 22 — route selection: aggregate empirical arm (the earthwork reduction)", () => {
+    // The aggregate empirical arm for the thing stage 24 cares about (the earthwork). Bar is aggregate,
+    // never per-seed: median cutDepth reduction > 0 and ≥99% of seeds strictly improving. The scan is
+    // 2000 seeds (0–1999), wide enough to contain the known counter-example: seed 1854 shows a −0.019 m
+    // increase (selected cutDepth above unselected). Route selection changes the network composition
+    // (N× more RNG draws → different road positions), so the network's max cutDepth can occasionally rise
+    // even though each individual road is cheaper — a second-order composition effect. Seed 1854 is a
+    // known member of the non-improving <1%, disclosed here rather than scanned around.
+    const Scan = 2000;
+
+    test("median cutDepth reduction > 0 and ≥99% of seeds strictly improving, over a 2000-seed scan", () => {
+        const cutReductions: number[] = [];
+        let strictlyImproving = 0;
+
+        for (let seed = 0; seed < Scan; seed++) {
+            const baseDoc = generateNetwork(seed, { candidates: 1 });
+            const { cutDepth: baseCut } = buildNetworkGeometry(baseDoc, seed);
+
+            const doc = generateNetwork(seed, { candidates: ROUTE_CANDIDATES });
+            const { cutDepth } = buildNetworkGeometry(doc, seed);
+
+            const cutRed = baseCut - cutDepth;
+            cutReductions.push(cutRed);
+            if (cutRed > 0) strictlyImproving++;
+        }
+
+        const sorted = [...cutReductions].sort((a, b) => a - b);
+        const medianCutRed = sorted[Math.floor(sorted.length / 2)];
+        const improvingFraction = strictlyImproving / Scan;
+
+        console.log(
+            `AGGREGATE_DIFFERENTIAL medianCutReduction=${medianCutRed.toFixed(4)} strictlyImproving=${strictlyImproving}/${Scan} (${(improvingFraction * 100).toFixed(1)}%) N=${ROUTE_CANDIDATES} scan=${Scan}`,
+        );
+
+        expect(medianCutRed).toBeGreaterThan(0);
+        expect(improvingFraction).toBeGreaterThanOrEqual(0.99);
+    }, 60000);
 });

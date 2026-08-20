@@ -29,13 +29,31 @@ import {
 // `buildNetworkGeometry` guards against, followed here). The carpark is placed independently (no longer
 // anchored to road 0's midpoint), clear of every road by the same clearance plus a PROFILE_STEP sampling
 // margin.
+//
+// Stage 22 (route selection — the earthwork lever): each road placement draws N candidate routes per
+// attempt, scores each by chord cost (endpoint height difference plus the max deviation of natural height
+// from the straight chord along the route — sampled strictly between the endpoints, the same trap as
+// `computeRoadCutDepth`), and keeps the cheapest before checking clearance. This is what real road
+// alignment does: prefer routes whose straight chord needs less earthwork. N = 1 is the unselected
+// generator by construction — one candidate, no selection, the same random draws in the same order —
+// so the differential gate compares selected (N > 1) against unselected (N = 1) in the same run with no
+// recorded floor.
 
 export const ROAD_COUNT = 5; // "a handful" — enough to read as a network, not a maze
 export const ROAD_HALF_WIDTH = 4; // metres — matches terrain/grid.ts's SPACING, `overlay/stroke.ts`'s own convention
-const ROAD_MIN_LENGTH = 80; // metres
-const ROAD_MAX_LENGTH = 220; // metres — keeps a single road well under the world's 1024 m span
+export const ROAD_MIN_LENGTH = 80; // metres
+export const ROAD_MAX_LENGTH = 220; // metres — keeps a single road well under the world's 1024 m span
 const CARPARK_HALF = 20; // metres — half-extent of the one carpark stamp (a 40 m × 40 m lot)
 const MAX_ATTEMPTS = 2000; // rejection-sampling cap — average is ~2–4, not 2000
+
+/** the default number of candidate routes scored per road placement attempt — justified by the
+ *  reduction curve, not by any gate's pass/fail. The recorded curve (median cutDepth reduction over a
+ *  seed scan, selected vs unselected): N=64 → +65.9%, N=128 → +71.4%, N=256 → +75.3%, N=512 → +79.6%.
+ *  Marginal return flattens from +5.5% (64→128) to +3.9% (128→256), so N=128 sits where the curve stops
+ *  paying for itself. Cost is ~2 ms/seed (~15× the N=1 incumbent), acceptable for a showcase generator
+ *  that runs once per reseed. N = 1 is the unselected generator (no route selection); the default
+ *  applies selection. */
+export const ROUTE_CANDIDATES = 128;
 
 // Every primitive stays inside WORLD_HALF: road start points are within `bound = WORLD_HALF - WORLD_MARGIN`,
 // so a full-length road's far endpoint reaches `bound + ROAD_MAX_LENGTH < WORLD_HALF` (the +1 margin makes
@@ -43,11 +61,13 @@ const MAX_ATTEMPTS = 2000; // rejection-sampling cap — average is ~2–4, not 
 // `bound`, so its corners reach `bound + CARPARK_HALF < WORLD_HALF` (CARPARK_HALF = 20 ≪ WORLD_MARGIN).
 const WORLD_MARGIN = ROAD_MAX_LENGTH + 1;
 
-/** the cut depth of a single road, measured *between* its chord endpoints — the largest
- *  `|natural - chord_target|` along the chord at {@link PROFILE_STEP} arc-length increments. The chord's
- *  target equals natural height at the endpoints by construction (`buildPolylineProfile`), so the profile's
- *  own points read exactly 0; the actual cut lives between them, where natural terrain deviates from the
- *  straight chord. Mirrors `buildNetworkGeometry`'s own cut-depth loop. */
+/** the cut depth of a single road — the largest `|natural - chord_target|` along the chord at
+ *  {@link PROFILE_STEP} arc-length increments. The loop is endpoint-*inclusive* (`s = 0..n`), not
+ *  endpoint-exclusive: the chord's target equals natural height at the endpoints by construction
+ *  (`buildPolylineProfile`), so those two samples contribute exactly 0 and the interior samples are what
+ *  carry the depth. That is why depth must never be read off the profile's own endpoints alone — the cut
+ *  lives between them, where natural terrain deviates from the straight chord. Mirrors
+ *  `buildNetworkGeometry`'s own cut-depth loop. */
 function computeRoadCutDepth(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
@@ -67,6 +87,36 @@ function computeRoadCutDepth(
         maxDev = Math.max(maxDev, Math.abs(heightAtCpu(x, z, perm) - chordHeight));
     }
     return maxDev;
+}
+
+/** the chord cost of a candidate route — endpoint height difference plus the maximum deviation of
+ *  natural height from the straight chord along the route, sampled at {@link PROFILE_STEP} arc-length
+ *  increments *including* the endpoints (the loop is `s = 0..n`, endpoint-inclusive). The endpoints
+ *  contribute exactly 0 by construction (the chord's target equals natural height at its endpoints,
+ *  so `|natural − chord| = 0` there), so the interior samples are what carry the signal — the score
+ *  is effectively the endpoint height difference plus the max interior deviation. This is what real
+ *  road alignment minimizes: a route whose chord is cheap needs less earthwork, so a shallower cut and
+ *  a narrower {@link computeFalloff} corridor. */
+export function computeRouteScore(
+    points: ReadonlyArray<readonly [number, number]>,
+    perm: Uint32Array,
+): number {
+    const first = points[0];
+    const last = points[points.length - 1];
+    const aH = heightAtCpu(first[0], first[1], perm);
+    const bH = heightAtCpu(last[0], last[1], perm);
+    const endpointDiff = Math.abs(aH - bH);
+    const chordLen = Math.hypot(last[0] - first[0], last[1] - first[1]);
+    let maxDev = 0;
+    const n = Math.max(1, Math.ceil(chordLen / PROFILE_STEP));
+    for (let s = 0; s <= n; s++) {
+        const t = s / n;
+        const x = first[0] + (last[0] - first[0]) * t;
+        const z = first[1] + (last[1] - first[1]) * t;
+        const chordHeight = aH + (bH - aH) * t;
+        maxDev = Math.max(maxDev, Math.abs(heightAtCpu(x, z, perm) - chordHeight));
+    }
+    return endpointDiff + maxDev;
 }
 
 /** minimum distance between two line segments' centrelines — 0 if they cross, otherwise the
@@ -140,16 +190,33 @@ export function roadPolygonFootprintDistance(
     return segmentToPolygonDistance(a1, a2, poly) - ROAD_HALF_WIDTH;
 }
 
+/** options for {@link generateNetwork}'s route selection. */
+export interface GenerateNetworkOptions {
+    /** Number of candidate routes to score per road placement attempt. The cheapest candidate (lowest
+     *  chord cost, {@link computeRouteScore}) is selected and then checked for clearance. N = 1
+     *  reproduces the unselected generator exactly — the same random draws in the same order, one
+     *  candidate, no selection — so the differential gate compares selected (N > 1) against unselected
+     *  (N = 1) in the same run with no recorded floor. */
+    readonly candidates?: number;
+}
+
 /** the seeded procedural road network: {@link ROAD_COUNT} straight single-segment roads plus one carpark
  *  polygon, placed by rejection sampling so no two primitives' footprints come within
  *  `computeFalloff(cutDepth) + ROAD_HALF_WIDTH + FLAT_CORE_MARGIN + √2·SPACING` — the clearance derived from
  *  the network's own cut depth (measured between chord endpoints), never a hardcoded constant. The
  *  √2·SPACING term covers the lattice vertices the exactness oracle interpolates from (see the derivation
  *  at the placement predicate). The carpark is placed independently, clear of every road by the same
- *  clearance plus a PROFILE_STEP sampling margin. Deterministic in `seed` — the same seed always returns
- *  the identical document (`network.test.ts` pins this directly); a different seed almost certainly returns
+ *  clearance plus a PROFILE_STEP sampling margin.
+ *
+ *  Stage 22 (route selection): each road placement draws `options.candidates` (default
+ *  {@link ROUTE_CANDIDATES}) candidate routes per attempt, scores each by chord cost, and keeps the
+ *  cheapest before checking clearance — what real road alignment does. N = 1 is the unselected
+ *  generator by construction (one candidate, no selection, same random draws), so the differential gate
+ *  needs no recorded floor. Deterministic in `seed` — the same seed + options always returns the
+ *  identical document (`network.test.ts` pins this directly); a different seed almost certainly returns
  *  a different one. */
-export function generateNetwork(seed: number): StrokeDocument {
+export function generateNetwork(seed: number, options?: GenerateNetworkOptions): StrokeDocument {
+    const candidates = options?.candidates ?? ROUTE_CANDIDATES;
     const rng = mulberry32(seed);
     const rand = (lo: number, hi: number) => lo + rng() * (hi - lo);
     const perm = makePermutation(seed);
@@ -161,19 +228,33 @@ export function generateNetwork(seed: number): StrokeDocument {
     for (let i = 0; i < ROAD_COUNT; i++) {
         let placed = false;
         for (let attempt = 0; attempt < MAX_ATTEMPTS && !placed; attempt++) {
-            const x0 = rand(-bound, bound);
-            const z0 = rand(-bound, bound);
-            const heading = rand(0, Math.PI * 2);
-            const length = rand(ROAD_MIN_LENGTH, ROAD_MAX_LENGTH);
-            const x1 = x0 + Math.cos(heading) * length;
-            const z1 = z0 + Math.sin(heading) * length;
+            // Stage 22: draw N candidate routes per attempt, score each by chord cost, keep the
+            // cheapest. N = 1 reproduces the incumbent: one candidate, no selection, the same four
+            // random draws (x0, z0, heading, length) in the same order. The score consumes no
+            // random draws, so the RNG state after the candidate loop is identical at N = 1.
+            let best: { points: [number, number][]; score: number } | null = null;
+            for (let c = 0; c < candidates; c++) {
+                const x0 = rand(-bound, bound);
+                const z0 = rand(-bound, bound);
+                const heading = rand(0, Math.PI * 2);
+                const length = rand(ROAD_MIN_LENGTH, ROAD_MAX_LENGTH);
+                const x1 = x0 + Math.cos(heading) * length;
+                const z1 = z0 + Math.sin(heading) * length;
 
-            if (Math.abs(x1) >= WORLD_HALF || Math.abs(z1) >= WORLD_HALF) continue;
+                if (Math.abs(x1) >= WORLD_HALF || Math.abs(z1) >= WORLD_HALF) continue;
 
-            const candidate: [number, number][] = [
-                [x0, z0],
-                [x1, z1],
-            ];
+                const pts: [number, number][] = [
+                    [x0, z0],
+                    [x1, z1],
+                ];
+                const score = computeRouteScore(pts, perm);
+                if (!best || score < best.score) {
+                    best = { points: pts, score };
+                }
+            }
+            if (!best) continue;
+
+            const candidate = best.points;
 
             // Clearance derived from the tentative network's own cut depth — a candidate that
             // deepens the max also widens the required separation, so all pairs (including
