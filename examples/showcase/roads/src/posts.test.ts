@@ -36,9 +36,9 @@ describe("posts emitted WGSL", () => {
         // index `segments[0i]` (not `segments[1i]`). Each would fail under the mutation it names.
         const wgsl = flat(postsWgsl());
 
-        // station: (i + 1) * POST_SPACING emits as `(f32(i) + 1f) * 20f` — the `+ 1f` is what
-        // discriminates from `i * POST_SPACING` which emits `(f32(i) * 20f)` with no `+ 1f`.
-        expect(wgsl).toContain("(f32(i) + 1f) * 20f");
+        // station: (i + 1) * POST_SPACING emits as `(f32(i) + 1f) * 2f` — the `+ 1f` is what
+        // discriminates from `i * POST_SPACING` which emits `(f32(i) * 2f)` with no `+ 1f`.
+        expect(wgsl).toContain("(f32(i) + 1f) * 2f");
 
         // lateral sign: even → +1, odd → −1, emitted as `select(1f, -1f, ((i & 1u) == 1u))` —
         // a swapped sign emits `select(-1f, 1f, ...)` and a constant sign emits no `select` at all.
@@ -53,7 +53,7 @@ describe("posts emitted WGSL", () => {
 describe("post station derivation", () => {
     test("postStation(i) = (i + 1) * POST_SPACING — first post at POST_SPACING, not station 0", () => {
         // independently derived: (i + 1) * POST_SPACING, not i * POST_SPACING
-        // red: mutating postStation to return i * POST_SPACING makes postStation(0) = 0 (not 20)
+        // red: mutating postStation to return i * POST_SPACING makes postStation(0) = 0 (not 2)
         for (const i of [0, 1, 2, 5, 10, 72]) {
             expect(postStation(i)).toBe((i + 1) * POST_SPACING);
         }
@@ -80,10 +80,10 @@ describe("post lateral derivation", () => {
 describe("live-slot count derivation", () => {
     test("liveSlotCount = floor(chordLength / POST_SPACING) — not ceil or floor + 1", () => {
         // independently derived: Math.floor(chordLength / POST_SPACING)
-        // red: mutating liveSlotCount to Math.ceil makes liveSlotCount(201) = 11 (not 10)
-        expect(liveSlotCount(200)).toBe(10);
-        expect(liveSlotCount(201)).toBe(10);
-        expect(liveSlotCount(199)).toBe(9);
+        // red: mutating liveSlotCount to Math.ceil makes liveSlotCount(201) = 101 (not 100)
+        expect(liveSlotCount(200)).toBe(100);
+        expect(liveSlotCount(201)).toBe(100);
+        expect(liveSlotCount(199)).toBe(99);
         expect(liveSlotCount(0)).toBe(0);
         expect(liveSlotCount(POST_SPACING)).toBe(1);
         expect(liveSlotCount(POST_SPACING - 0.001)).toBe(0);

@@ -49,8 +49,12 @@ import { getCurrentSeed, getDocument } from "./terrain/terrain";
 
 // --- constants --------------------------------------------------------------
 
-/** metres between posts along the chord. */
-export const POST_SPACING = 20;
+/** metres between posts along the chord.
+ *
+ *  Referent: NACTO Urban Street Design Guide — traffic-calming / channelizing bollards are spaced
+ *  1.5–2.0 m apart for pedestrian channelization (nacto.org, accessed 2026-08-22). 2.0 m is the upper
+ *  bound of that range, within the spec's ~2 m band. */
+export const POST_SPACING = 2;
 
 /** the lateral offset from the road edge to the post centre, in metres.
  *
@@ -73,19 +77,30 @@ export const POST_SPACING = 20;
 export const POST_OFFSET = SPACING;
 
 /** the post's visual height in metres. The capsule mesh spans y ∈ [−1, 1] (height 2), so the VS scales
- *  y by `POST_HEIGHT / 2`. */
-const POST_HEIGHT = 4;
+ *  y by `POST_HEIGHT / 2`.
+ *
+ *  Referent: a standard roadside bollard is ~1.0 m above grade. Reliance Foundry R-7181 cast-iron
+ *  bollard: 36 in (0.914 m) above grade (reliance-fd.com, accessed 2026-08-22); UK DfT Traffic Signs
+ *  Manual Chapter 4 describes traffic bollards at approximately 1.0 m. 1.0 m is within the spec's
+ *  ~1 m band. */
+const POST_HEIGHT = 1;
 
 /** the post's visual radius in metres. The capsule mesh has radius 0.5, so the VS scales x/z by
- *  `POST_RADIUS / 0.5 = POST_RADIUS * 2`. */
-const POST_RADIUS = 0.3;
+ *  `POST_RADIUS / 0.5 = POST_RADIUS * 2`.
+ *
+ *  Referent: a standard pipe bollard made from 10 in Schedule 40 steel pipe has an OD of 10.75 in
+ *  (273 mm, radius 0.137 m); 8 in Schedule 40 has OD 8.625 in (219 mm, radius 0.11 m). 0.12 m (diameter
+ *  240 mm) sits between the two, within the spec's ~0.1–0.15 m band. */
+const POST_RADIUS = 0.12;
 
 /** the world's own diagonal — the maximum chord length the world contains (`WORLD_EXTENT · √2` ≈ 1448 m),
  *  since `ROAD_MAX_LENGTH` was deleted in stage 4c. This is the ceiling `POST_COUNT` is sized against. */
 const WORLD_DIAGONAL = WORLD_EXTENT * Math.SQRT2;
 
 /** the fixed slot count — sized off the world's own diagonal divided by `POST_SPACING`, so `instanceCount`
- *  stays fixed across edits and short chords leave most slots at scale 0. */
+ *  stays fixed across edits and short chords leave most slots at scale 0. At `POST_SPACING = 2` this is
+ *  ≈725 slots (up from ~73 at 20 m spacing); the instanced draw handles this trivially — 725 instances of
+ *  a capsule mesh is well within WebGPU's instancing limits, and the record buffer is 725 × 16 B ≈ 11 KB. */
 export const POST_COUNT = Math.ceil(WORLD_DIAGONAL / POST_SPACING);
 
 const POST_WORKGROUP = 64;
