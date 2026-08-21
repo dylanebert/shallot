@@ -14,8 +14,12 @@
 //
 // Stage 11 re-derived every constant off **one referent** (see the constant block's header) and rewrote
 // the VS's mesh mapping as a core/cap decomposition with a buried base (see {@link postVertexOffset}).
-// The kernel and the placement record are untouched by that pass, so the placement arms are its null
-// control.
+// **Only the mesh half has the placement arms as its null control.** The kernel's own *code* is untouched
+// — every expression in it (station, lateral sign, slot index, the `flattenedHeightAt` call) and the
+// record's shape are byte-for-byte stage 5's — but `POST_OFFSET` moved 4 → 0.4, and the kernel reads it,
+// so every live record's x/z (and the `y` that follows from them) moved ~3.6 m laterally and
+// `checkPosts`'s lateral assertion had to be re-anchored on the new offset. The mesh rewrite is what the
+// placement arms are blind to; the offset move is not, and it reds the device gate against the pre-image.
 
 import { Compute, type State } from "@dylanebert/shallot";
 import {
@@ -57,23 +61,31 @@ import { getCurrentSeed, getDocument } from "./terrain/terrain";
 //
 // THE REFERENT (stage 11, `roads-interactive.md`'s Locked decision): **one kerbside pipe bollard**, the
 // galvanized/painted steel pipe set in a footing at the kerb line of an urban street edge — a single
-// object, and every `POST_*` constant below is read off that one object rather than off a per-dimension
-// citation. Stage 10 cited a pipe OD for the radius, a foundry catalogue for the height and NACTO
-// channelization for the spacing: three numbers from three different objects, which is what left the row
+// object. Stage 10 cited a pipe OD for the radius, a foundry catalogue for the height and NACTO
+// channelization for the spacing: three numbers from three different *objects*, which is what left the row
 // still reading wrong (spec: "a decorative element's referent is a single thing in the world, and every
 // constant describing it is read off that one thing").
 //
-// The referent's own dimensions, as one object (`[snippet]`-grade, 1800bollards.com + the OSHA colour-use
-// interpretation, read 2026-08-22, recorded in the spec's Locked decision): ~1 m tall above grade, set at
-// the **kerb line** rather than out in the grass, **1.5–2.0 m** apart along the kerb, finished in RAL 1023
-// traffic yellow (the high-visibility default), RAL 9005 jet black, or bare galvanized grey. Its shaft is a
-// steel pipe — 8–10 in Schedule 40, OD 219–273 mm — closed with a domed cap and **embedded in a footing**,
-// so it meets the pavement at a line, never at a visible bulge.
+// **Five constants are read off that object: `POST_HEIGHT`, `POST_RADIUS`, `POST_SPACING`, `POST_OFFSET`,
+// `POST_COLOR`.** The header claims nothing about the rest, because the rest are not the referent's to
+// fix and each carries its own derivation in its own docblock: `POST_COUNT` and `WORLD_DIAGONAL` come from
+// the world's diagonal, `MAX_CHORD_GRADE` from the flatten field and the drag's length floor, and
+// `POST_BURIAL_DEPTH`/`POST_SHAFT_LENGTH` from that grade plus the post's own geometry. The referent says a
+// bollard is *set in a footing*; it does not say how deep, and this scene's grade is what answers that.
 //
-// What that one object fixes, constant by constant: `POST_HEIGHT` (~1 m above grade), `POST_RADIUS`
-// (the pipe's own OD/2), `POST_SPACING` (the kerb row's 2.0 m), `POST_OFFSET` (the kerb line, ~0.4 m off
-// the pavement edge), `POST_COLOR` (RAL 1023), and `POST_BURIAL_DEPTH` (the footing — derived below from
-// the grade the road carries, not chosen by eye).
+// The referent's dimensions, as one object, from two evidence sources for two different kinds of fact —
+// which is not stage 10's defect, since both describe the same object rather than three:
+//   * the **kerbside-bollard snippet** (`[snippet]`-grade, 1800bollards.com + the OSHA colour-use
+//     interpretation, read 2026-08-22, recorded in the spec's Locked decision) records what the object
+//     is *in the street*: ~1 m tall above grade, set at the **kerb line** rather than out in the grass,
+//     **1.5–2.0 m** apart along the kerb, finished in RAL 1023 traffic yellow (the high-visibility
+//     default), RAL 9005 jet black, or bare galvanized grey, closed with a domed cap and **embedded in a
+//     footing**, so it meets the pavement at a line and never at a visible bulge. It records **no pipe
+//     schedule and no OD** — a colour-use interpretation cannot support a pipe dimension.
+//   * the **Schedule 40 NPS pipe dimension table** (ASME B36.10M: 8 NPS OD 8.625 in = 219.1 mm, 10 NPS OD
+//     10.75 in = 273.1 mm) records what the *pipe such a bollard is made from* measures. This is the
+//     source the pipe OD is cited to — a dimension standard for the stock, read for the one constant that
+//     is a property of the stock (`POST_RADIUS`), not folded into the snippet that does not carry it.
 
 /** metres between posts along the chord — the kerb row's own spacing.
  *
@@ -114,14 +126,21 @@ export const POST_OFFSET = 0.4;
  *  the burial depth below is added *below* it rather than taken out of it, so the height a person sees is
  *  this number exactly.
  *
- *  Referent value: the kerbside pipe bollard stands ~1 m above grade (the R-7181 pipe bollard's 36 in =
- *  0.914 m is the same object's catalogue instance). Held at 1 m by stage 11. */
+ *  Referent value: **the kerbside-bollard snippet's own ~1 m above grade** — that is what this constant
+ *  rests on, and it is the snippet's own quantity. Stage 10's Reliance Foundry R-7181 (a cast-iron bollard
+ *  at 36 in / 0.914 m, reliance-fd.com, read 2026-08-22) is kept only as a **corroborating catalogue
+ *  reading in the same class**, not as "the same object": the snippet does not name that catalogue and the
+ *  catalogue names a different casting, so resting the height on it would be stage 10's three-objects
+ *  defect wearing one sentence. Held at 1 m by stage 11. */
 export const POST_HEIGHT = 1;
 
 /** the post's radius in metres — the referent's pipe OD / 2, and the radius of **both** spherical caps.
  *
- *  Referent value: the same kerbside pipe bollard is 8–10 in Schedule 40 steel pipe, OD 219 mm (r =
- *  0.110 m) to 273 mm (r = 0.137 m); 0.12 m (OD 240 mm) sits between the two. Held at 0.12 m by stage 11. */
+ *  Referent value: the referent's shaft is Schedule 40 steel pipe in the 8–10 NPS range, and the OD is
+ *  cited to the **pipe dimension table** rather than to the kerbside snippet, which carries no schedule and
+ *  no OD (see the block header): ASME B36.10M gives 8 NPS OD 8.625 in = 219.1 mm (r = 0.1096 m) and 10 NPS
+ *  OD 10.75 in = 273.1 mm (r = 0.1366 m). 0.12 m (OD 240 mm) sits between the two. Held at 0.12 m by
+ *  stage 11. */
 export const POST_RADIUS = 0.12;
 
 /** the bollard's finish colour, in the same 0–1 linear-albedo convention as `ROAD_ALBEDO`/`EDGE_ALBEDO`
@@ -142,9 +161,18 @@ export const POST_COLOR: readonly [number, number, number] = [0.941, 0.792, 0.0]
  *  RELIEF` with `|fbm2| ≤ 1`, so `|Δh| ≤ 2 · RELIEF = 80 m`, and the drag clamps the chord at
  *  `ROAD_MIN_LENGTH = 80 m` — hence a ceiling of exactly 1.0. This is an analytic ceiling over the whole
  *  admissible domain, not a fitted number; the *measured* worst case over a 5-seed × 400-chord scan of
- *  admissible chords (half of them drawn short, since grade is |Δh| / length) is **0.1508** — `posts.test.ts`
- *  asserts the scan stays under this ceiling and that it reaches grades worth burying. So the ceiling is
- *  ~6.6× the measurement, and the footing is sized against the domain rather than against a sample. */
+ *  admissible chords (half of them drawn short, since grade is |Δh| / length) is **0.151686** —
+ *  `posts.test.ts` asserts the scan stays under this ceiling, and separately keeps a non-vacuity tripwire
+ *  under the reading (that arm does **not** witness that the depth is needed — see its own note). So the
+ *  ceiling is ~6.6× the measurement, and the footing is sized against the domain rather than a sample.
+ *
+ *  **Boundary note — this is the repo's second grade ceiling and they are 8× apart.** `terrain/profile.ts`
+ *  owns `MAX_GRADE = 0.12`, the bound the *sampled centreline profile's* first difference is checked
+ *  against (`flatten.test.ts`'s gated arm). They are not the same quantity and neither subsumes the other:
+ *  `MAX_GRADE` bounds the profile the flattener is allowed to *build* on a chord it accepts, while this
+ *  constant is the analytic worst case over every chord the drag *admits*, which is the domain a footing
+ *  has to survive. The honest cross-reference is one-way from here — `profile.ts` is outside this stage's
+ *  footprint, so the pointer back from `MAX_GRADE` to this constant is unwritten and owed. */
 export const MAX_CHORD_GRADE = (2 * RELIEF) / ROAD_MIN_LENGTH;
 
 /** the footing: how far below the surface the shaft's base sits, in metres — so the shaft meets the
@@ -676,6 +704,20 @@ export async function checkPosts(): Promise<Check> {
             // `halfWidth` and `halfWidth + FLAT_CORE_MARGIN` — passed for any offset in a 5.66 m band and
             // so could not witness the offset at all), and the post's whole footing, ±POST_RADIUS about
             // that, is strictly inside the flat core and strictly off the pavement.
+            //
+            // The `0.01` tolerance is the same f32-readback slack `maxDiff` takes below: the record is a
+            // vec4f written by the kernel from f32 chord endpoints, so the exact-offset comparison needs a
+            // tolerance, and 1 cm is ~4 orders of magnitude above f32 error at these magnitudes (|x| up to
+            // 512 m → ~6e-5 m of representation slack) while being 12× under the smallest offset error
+            // that could matter (POST_RADIUS = 0.12 m, at which the footing overhangs the asphalt).
+            //
+            // The two footing-band predicates that follow **cannot fire given the equality above** — at
+            // `dist = halfWidth + 0.4 ± 0.01` the footing spans 4.27–4.53 m from the centreline, inside
+            // both `halfWidth = 4` and `halfWidth + FLAT_CORE_MARGIN = 9.657`, so anything that failed
+            // them already failed the equality. They are kept as the *stated* band rather than as live
+            // discriminators: they are the two inequalities `POST_OFFSET`'s own docblock derives, written
+            // where a future offset change is read, and they would fire the moment the equality's
+            // tolerance is widened or the offset moves without this file being reread.
             const dist = perpDist(rec.x, rec.z, a[0], a[1], b[0], b[1]);
             if (Math.abs(dist - (halfWidth + POST_OFFSET)) > 0.01) lateralOk = false;
             if (dist - POST_RADIUS <= halfWidth) lateralOk = false;

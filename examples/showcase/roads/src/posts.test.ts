@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { flat } from "../../../../packages/shallot/tests/wgsl";
+import { mulberry32 } from "./dragCorpus";
+import { clampToBound } from "./editPure";
 import { ROAD_MIN_LENGTH } from "./overlay/network";
 import {
     isLiveSlot,
@@ -161,9 +163,10 @@ describe("POST_OFFSET flat-core band", () => {
 
     test("POST_OFFSET is the kerb line (~0.4 m), not stage 5's flat-core convenience (SPACING = 4 m)", () => {
         // the referent's own value, pinned as a literal: a kerbside bollard stands immediately off the
-        // pavement edge. 4 m (13 ft) is what made the row read as posts standing in a field.
+        // pavement edge. 4 m (13 ft) is what made the row read as posts standing in a field. The literal
+        // is the whole assertion — a companion `not.toBe(SPACING)` was dropped at stage 11's repair as
+        // vacuous, since `toBe(0.4)` already refutes every value `SPACING` could hold.
         expect(POST_OFFSET).toBe(0.4);
-        expect(POST_OFFSET).not.toBe(SPACING);
     });
 
     test("FLAT_CORE_MARGIN = √2 * SPACING (flatten-math.ts's own derivation)", () => {
@@ -208,35 +211,40 @@ describe("the footing depth's derivation", () => {
 
     test("no admissible chord's grade exceeds the ceiling the footing is sized against", () => {
         // the measurement the stage reports, asserted: a 5-seed × 400-chord scan of admissible chords
-        // (both endpoints inside the world, length >= ROAD_MIN_LENGTH) against the analytic ceiling. Half
-        // the corpus is drawn as SHORT chords — length in [ROAD_MIN_LENGTH, 2 · ROAD_MIN_LENGTH] — because
-        // grade is |Δh| / length and a uniform endpoint pair is almost always long, so an unbiased scan
-        // reads 0.1092 against this corpus's measured 0.1508. The arm asserts the ceiling holds (a
-        // bound over the domain) and, separately, that the scan really exercises grades worth burying
-        // (or it would pass on a corpus that found nothing).
+        // (both endpoints clamped into the world by the live drag's own `clampToBound`, length >=
+        // ROAD_MIN_LENGTH) against the analytic ceiling. Half the corpus is drawn as SHORT chords — length
+        // in [ROAD_MIN_LENGTH, 2 · ROAD_MIN_LENGTH] — because grade is |Δh| / length and a uniform endpoint
+        // pair is almost always long: measured at stage 11's repair, the corpus reads **0.151686** while
+        // its uniform-endpoint half alone reads **0.123455**.
+        //
+        // **Why this scan and not `dragCorpus`** (stage 12's frozen fixture, the one derivation both
+        // flatness tiers read): `dragCorpus` *filters by* `MAX_GRADE = 0.12` — it rejects exactly the steep
+        // chords this arm exists to find, because the flatness oracle's longitudinal bound is that grade.
+        // A corpus that discards its steepest members cannot measure the steepest member. What this arm
+        // does take from the live path is the **bound**: `clampToBound` (`editPure.ts`), so "admissible"
+        // here means what the drag means by it, rather than the `WORLD_HALF − SPACING` this arm used to
+        // hand-roll (equal at 4 m today by coincidence — `BOUND_MARGIN = ROAD_HALF_WIDTH`, an unrelated
+        // concept). The RNG is the repo's own `mulberry32`, so this file hand-rolls no generator either.
         let worst = 0;
-        let state = 0x9e3779b9;
-        const rand = () => {
-            // a plain LCG — the corpus must be deterministic, and this file owns no generator
-            state = (state * 1664525 + 1013904223) >>> 0;
-            return state / 0x100000000;
-        };
-        const bound = WORLD_HALF - SPACING;
+        const rand = mulberry32(0x9e3779b9);
         for (const seed of [1337, 1, 2, 99, 4242]) {
             const perm = makePermutation(seed);
             for (let n = 0; n < 400; n++) {
-                const ax = (rand() * 2 - 1) * bound;
-                const az = (rand() * 2 - 1) * bound;
+                const [ax, az] = clampToBound(
+                    (rand() * 2 - 1) * WORLD_HALF,
+                    (rand() * 2 - 1) * WORLD_HALF,
+                );
                 let bx: number;
                 let bz: number;
                 if (n % 2 === 0) {
-                    bx = (rand() * 2 - 1) * bound;
-                    bz = (rand() * 2 - 1) * bound;
+                    [bx, bz] = clampToBound(
+                        (rand() * 2 - 1) * WORLD_HALF,
+                        (rand() * 2 - 1) * WORLD_HALF,
+                    );
                 } else {
                     const theta = rand() * Math.PI * 2;
                     const L = ROAD_MIN_LENGTH * (1 + rand());
-                    bx = Math.min(Math.max(ax + Math.cos(theta) * L, -bound), bound);
-                    bz = Math.min(Math.max(az + Math.sin(theta) * L, -bound), bound);
+                    [bx, bz] = clampToBound(ax + Math.cos(theta) * L, az + Math.sin(theta) * L);
                 }
                 const len = Math.hypot(bx - ax, bz - az);
                 if (len < ROAD_MIN_LENGTH) continue;
@@ -245,9 +253,17 @@ describe("the footing depth's derivation", () => {
             }
         }
         expect(worst).toBeLessThanOrEqual(MAX_CHORD_GRADE);
-        // the scan is not vacuous: it finds grades steep enough that the footing matters. The floor is a
-        // literal well under the reading rather than the reading itself — a corpus assertion pinned to
-        // its own output cannot survive a seed change.
+        // a **corpus non-vacuity tripwire**, and nothing more — restated at stage 11's repair, because the
+        // old wording ("grades steep enough that the footing matters") was false at this value: grade 0.1
+        // needs 0.012 m of burial, 5 % of the shipped 0.24 m. **No arm in this file can witness that the
+        // depth is needed**, because the domain it is sized for (grade → MAX_CHORD_GRADE = 1.0) is ~6.6×
+        // outside anything this terrain reaches — the footing is sized against the admissible domain by
+        // construction, which is the trade the derivation states. What this floor catches is a scan that
+        // stopped scanning: a broken RNG, a clamp that collapses every chord, or a filter that rejects the
+        // whole corpus would all read near 0 and are all silent against the ceiling assertion above. The
+        // literal sits well under the reading (0.151686) rather than at it, so a seed change does not red
+        // it — and it is under the uniform half's own 0.123455 too, so it survives losing the short-chord
+        // half entirely.
         expect(worst).toBeGreaterThan(0.1);
     });
 
@@ -278,10 +294,16 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
         // the bottom cap's highest point is the shaft's base ring (localY = −0.5), and the uphill side of
         // that ring sits MAX_CHORD_GRADE · POST_RADIUS above the sampled centre height — so the ring must
         // sit at least that far below the surface, and the cap's own lowest point below it again.
-        // red-first against the shipped shape, witnessed 2026-08-22: `POST_BURIAL_DEPTH = 0` (stage 5's
-        // mapping, whose lowest mesh point sat ON the surface) puts the base ring flush at y = 0, so the
-        // uphill side of the ring reads 0.12 m ABOVE the surface — `Expected: <= 0, Received: 0.12` — and
-        // three more arms red with it (the depth, the derived shaft length, and the emitted VS literals).
+        // red-first, witnessed 2026-08-22 at `POST_BURIAL_DEPTH = 0`: the base ring sits flush at y = 0, so
+        // the uphill side of the ring reads 0.12 m ABOVE the surface — `Expected: <= 0, Received: 0.12` —
+        // and three more arms red with it (the depth, the derived shaft length, and the emitted VS
+        // literals). **`burial = 0` is NOT the shape stage 5 shipped**, and calling it that would overclaim
+        // the witness: stage 5 mapped the mesh's *lowest point* to the surface, putting the base ring
+        // 0.25 m ABOVE grade with the whole bottom hemisphere on show, so no value of
+        // `POST_BURIAL_DEPTH` reproduces it — `burial = 0` is already a strictly better shape (0.12 m of
+        // exposure against 0.25 m). The pre-image witness is the companion assertion in the emitted-VS arm
+        // below, `not.toContain("input.localPos.y * 0.5f")`, which is stage 5's actual y scale. This arm's
+        // mutation witnesses that the *depth* is load-bearing, not that stage 5 is refuted.
         const baseRing = postVertexOffset(0, -0.5, 0)[1];
         expect(baseRing).toBeCloseTo(-POST_BURIAL_DEPTH, 12);
         expect(baseRing + MAX_CHORD_GRADE * POST_RADIUS).toBeLessThanOrEqual(0);
@@ -314,15 +336,24 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
     });
 
     test("the shaft is a cylinder of POST_RADIUS — the core term carries the length, the radial term the width", () => {
+        // the discriminating half is the RADIAL one: `side[0] ≈ POST_RADIUS` at every height, which is
+        // what makes the shaft a cylinder rather than a taper. The y half is pinned as **literals** at the
+        // shaft's two ends rather than as the function's own expression — restating
+        // `ly * shaftLength + shaftLength/2 − burial` here would re-derive the subject's own rule and go
+        // green on wrong constants (stage 3's precedent, and the defect this repair closes).
         for (const ly of [-0.5, -0.2, 0, 0.25, 0.5]) {
             const side = postVertexOffset(0.5, ly, 0);
             expect(side[0]).toBeCloseTo(POST_RADIUS, 12);
-            // the shaft spans POST_SHAFT_LENGTH from base ring to dome underside
-            expect(side[1]).toBeCloseTo(
-                ly * POST_SHAFT_LENGTH + POST_SHAFT_LENGTH / 2 - POST_BURIAL_DEPTH,
-                12,
-            );
         }
+        // the base ring sits POST_BURIAL_DEPTH below the surface: −0.24 m.
+        expect(postVertexOffset(0.5, -0.5, 0)[1]).toBeCloseTo(-0.24, 12);
+        // the dome's underside sits at shaftLength − burial = 1.12 − 0.24 = 0.88 m above it.
+        expect(postVertexOffset(0.5, 0.5, 0)[1]).toBeCloseTo(0.88, 12);
+        // and the z factor is the same radial one x takes — asserted at nonzero `lz`, which no other arm
+        // does (every other mesh arm passes `lz = 0`, where a dropped or wrong z factor is invisible).
+        expect(postVertexOffset(0, 0, 0.5)[2]).toBeCloseTo(POST_RADIUS, 12);
+        expect(postVertexOffset(0, 0, -0.5)[2]).toBeCloseTo(-POST_RADIUS, 12);
+        expect(postVertexOffset(0, 0, 0.25)[2]).toBeCloseTo(POST_RADIUS / 2, 12);
     });
 
     test("a scale-0 slot collapses to the record position (the fixed-instanceCount mechanism)", () => {
@@ -344,6 +375,24 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
         expect(wgsl).toContain("(cap * radial)");
         expect(wgsl).toContain("(input.localPos.x * radial)");
         expect(wgsl).toContain("(input.localPos.z * radial)");
+        // and `radial`'s own VALUE, not just its identifier — added at stage 11's repair, which found that
+        // the three assertions above pin only that one shared factor exists and pass unchanged under any
+        // value for it. Nothing else in the suite reads the VS's numbers: `postVertexOffset` carries its
+        // own `params.radius * 2`, `checkPosts` reads records rather than vertices, and the fs probes are
+        // on-road while the posts are now off it — so the post's rendered width and its cap radius, this
+        // stage's headline property, were unpinned in production. POST_RADIUS * 2 = 0.24 in f32.
+        // red witnessed 2026-08-22 — the VS's own `radial` mutated to `d.f32(POST_RADIUS)` (dropping the
+        // mesh's 0.5-radius compensation, the plausible wrong factor), this file run, the production line
+        // then restored byte-identical. Verbatim, with the emitted WGSL of `Received` elided after the
+        // decomposition:
+        //   error: expect(received).toMatch(expected)
+        //   Expected substring or pattern: /radial = 0\.2399\d*f/
+        //   Received: "... let core = clamp(input.localPos.y, -0.5f, 0.5f); let cap =
+        //   (input.localPos.y - core); const radial = 0.11999999731779099f; let sx =
+        //   ((input.localPos.x * radial) * scale); ..."
+        //   at <anonymous> (.../examples/showcase/roads/src/posts.test.ts, the assertion below)
+        // (26 pass / 1 fail — this arm alone, which is the point: nothing else in the file moved.)
+        expect(wgsl).toMatch(/radial = 0\.2399\d*f/);
         // the shaft length on the core term, and the burial in the translation — f32 roundings of
         // 1.12 and 1.12/2 − 0.24 = 0.32.
         expect(wgsl).toMatch(/core \* 1\.12\d*f/);
