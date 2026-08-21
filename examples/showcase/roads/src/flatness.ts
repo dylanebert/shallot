@@ -205,8 +205,9 @@ export function flattenFieldAt(
  *  `spacing`-metre, `cells`-quad lattice, encoded the same way `terrain/generate.ts`'s height kernel
  *  encodes its own vertex stream (`encodePos` against the live `TERRAIN_QUANT`) — the output is a
  *  `meshHeightAt`-compatible raw buffer regardless of resolution, so the same reconstruction function reads
- *  both the production-resolution lattice and {@link buildDeviceFreeVertices}'s discrimination arm at a
- *  different resolution (`flatness.test.ts`'s banded/full null control runs it at both). Normal/UV words
+ *  both the production-resolution lattice and one built at another `spacing`/`cells`: `flatness.test.ts`'s
+ *  banded-vs-full null control calls this builder directly at `SPACING` and at `SPACING/2`, while {@link
+ *  buildDeviceFreeVertices} — its only non-test caller — always builds at production resolution. Normal/UV words
  *  are left at zero — nothing downstream of this buffer reads them (`meshHeightAt` only decodes the
  *  position words). */
 export function buildLatticeVertices(
