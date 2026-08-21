@@ -1,8 +1,9 @@
 import { Compute, type State } from "@dylanebert/shallot";
 import type { MeshBinding } from "@dylanebert/shallot/render/core";
-import type { StorageFlag, TgpuBuffer } from "typegpu";
+import type { StorageFlag, TgpuBuffer, UniformFlag } from "typegpu";
 import * as d from "typegpu/data";
 import { documentDirtyTiles, type StrokeDocument } from "./document";
+import { chordOf } from "./network";
 import { allocate, drain, invalidate as invalidateQueue, release } from "./queue";
 import { rasterizeTile, warm as rasterizeWarm } from "./rasterize";
 import {
@@ -56,11 +57,22 @@ import {
  *  own typed buffer agree on one schema, never two independently-constructed `d.arrayOf` calls. */
 export const Indirection = d.arrayOf(d.i32, TILE_COUNT);
 
+/** the chord uniform's schema: two endpoints (vec2f, world x/z) + halfWidth — the analytic fs's marking
+ *  geometry input (stage 8). Exported so `terrain.ts`'s surface layout and this module's typed buffer
+ *  agree on one struct, never two independently-constructed `d.struct` calls. */
+export const ChordUniform = d.struct({
+    a: d.vec2f,
+    b: d.vec2f,
+    halfWidth: d.f32,
+});
+
 let albedoTex: GPUTexture | null = null;
 let distTex: GPUTexture | null = null;
 let sampler: GPUSampler | null = null;
 let indirectionRaw: GPUBuffer | null = null;
 let indirectionTyped: (TgpuBuffer<typeof Indirection> & StorageFlag) | null = null;
+let chordRaw: GPUBuffer | null = null;
+let chordTyped: (TgpuBuffer<typeof ChordUniform> & UniformFlag) | null = null;
 
 // the indirection table's CPU mirror (so allocate can read "already resident?" without a GPU
 // readback) + the free list of available atlas layers. Reset to full capacity at warm.
@@ -76,11 +88,14 @@ function teardown(): void {
     albedoTex?.destroy();
     distTex?.destroy();
     indirectionRaw?.destroy();
+    chordRaw?.destroy();
     albedoTex = null;
     distTex = null;
     sampler = null;
     indirectionRaw = null;
     indirectionTyped = null;
+    chordRaw = null;
+    chordTyped = null;
     invalidateQueue(indirectionCpu, free, ATLAS_LAYERS, pending, pendingSet);
 }
 
@@ -122,6 +137,15 @@ export function warm(state: State): void {
     invalidateQueue(indirectionCpu, free, ATLAS_LAYERS, pending, pendingSet);
     device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
     indirectionTyped = root.createBuffer(Indirection, indirectionRaw).$usage("storage");
+
+    // the chord uniform — the analytic fs's marking geometry input (stage 8). Written once at warm
+    // and re-written on every document change via updateChord.
+    chordRaw = device.createBuffer({
+        label: "overlay-chord",
+        size: d.sizeOf(ChordUniform),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    chordTyped = root.createBuffer(ChordUniform, chordRaw).$usage("uniform");
 }
 
 /**
@@ -146,7 +170,7 @@ export function invalidate(): void {
  *  (`terrain.ts`). Reads live GPU resource identities — the renderer resolves a texture binding to a view
  *  each frame, so no bind group here needs manual (re)construction. */
 export function bindings(): Record<string, MeshBinding> {
-    if (!albedoTex || !distTex || !sampler || !indirectionTyped) {
+    if (!albedoTex || !distTex || !sampler || !indirectionTyped || !chordTyped) {
         throw new Error("overlay atlas: bindings() read before warm()");
     }
     return {
@@ -154,7 +178,21 @@ export function bindings(): Record<string, MeshBinding> {
         dist: distTex,
         overlaySamp: sampler,
         indirection: indirectionTyped,
+        chord: chordTyped,
     };
+}
+
+/** write the chord uniform from `doc`'s one road — call wherever the live document changes
+ *  (`terrain.ts`'s `warm`, `regenerate`, `editDocument`), or the fs renders markings for the old chord
+ *  and the drag's markings lag behind the handle. */
+export function updateChord(doc: StrokeDocument): void {
+    if (!chordTyped || !chordRaw) return;
+    const { a, b, halfWidth } = chordOf(doc);
+    chordTyped.write({
+        a: d.vec2f(a[0], a[1]),
+        b: d.vec2f(b[0], b[1]),
+        halfWidth,
+    });
 }
 
 /** mark every tile `doc` touches dirty (`document.ts`'s exact per-primitive union, not one bounding rect

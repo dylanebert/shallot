@@ -30,6 +30,22 @@ const STANDARD_CHORD: readonly [readonly [number, number], readonly [number, num
     [100, 0],
 ];
 
+/** the chord (endpoints + halfWidth) of the one road in `doc` — the analytic fs's marking geometry
+ *  input. One road means one chord; the fs receives this as a uniform and computes marking distances
+ *  from it directly, without decoding a texel. */
+export function chordOf(doc: StrokeDocument): {
+    a: readonly [number, number];
+    b: readonly [number, number];
+    halfWidth: number;
+} {
+    const line = doc.polylines[0];
+    return {
+        a: line.points[0],
+        b: line.points[1],
+        halfWidth: line.halfWidth,
+    };
+}
+
 /** the road network: {@link ROAD_COUNT} (one) straight single-segment road at the fixed
  *  {@link STANDARD_CHORD}. One road cannot contend with itself, so this carries no clearance/non-overlap
  *  machinery — that non-overlap guarantee, and every arm that existed to witness it, belonged to the

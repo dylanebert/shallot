@@ -8,8 +8,9 @@ import { WORLD_EXTENT, WORLD_HALF } from "../terrain/grid";
 // exactly (grid.ts's WORLD_EXTENT), so the tile grid tiles the terrain footprint with no partial edge tile
 // — a round number a reader can check, not a fit. Atlas resolution: 512² texels/tile (Anno precedent,
 // spec's Locked decision) — one row is 512 texels regardless of TILE_SIZE, so a texel is
-// TILE_SIZE / TILE_RES = 0.125 m, the sub-texel-crisp unit the fwidth-thresholded distance channel
-// (terrain.ts's fs) reads against.
+// TILE_SIZE / TILE_RES = 0.125 m, the sub-texel-crisp unit the fwidth-thresholded coverage distance
+// channel (terrain.ts's fs) reads against. The marking channel is no longer baked into a texel —
+// stage 8 moved it to analytic fs evaluation from the chord uniform.
 
 export const TILE_SIZE = 64; // world metres per tile side
 export const TILE_RES = 512; // atlas texels per tile side (Anno's 512² slices)
@@ -50,19 +51,23 @@ export const ALBEDO_BYTES_PER_TEXEL = 4;
 // fwidth-thresholded composite (terrain.ts) only ever reads distance within a few texels of its zero
 // crossing (0.125 m/texel × a handful of texels), so saturating the unorm range at ±1 m spends every
 // quantization step (2 m / 255 ≈ 0.0078 m ≈ 0.06 texel) where the antialiasing actually samples, instead of
-// wasting range on interior distances no reader needs precisely.
+// wasting range on interior distances no reader needs precisely. The marking channel no longer uses this
+// codec — stage 8 moved markings to analytic fs evaluation.
 export const DIST_FORMAT = "r8unorm" as const;
 export const DIST_BYTES_PER_TEXEL = 1;
 export const DIST_RANGE = 1; // metres, half-range
 
-// Road markings — a second distance channel in the same tile's albedo alpha byte, thresholded in the
-// fs with its own fwidth exactly as coverage is (roads-interactive.md Locked decision). Dimensions from
-// the MUTCD's normal line and broken-line pattern, in metres — a legibility standard, not a compliance
-// claim.
+// Road markings — evaluated analytically in the fs from the chord uniform (endpoints + halfWidth),
+// not baked into a texel (roads-interactive.md Locked decision, stage 8). The marking channel is a
+// two-edge analytic pixel-coverage form, not a distance threshold — a feature narrower than a texel is
+// a regime mismatch to bake, not a tuning problem. Dimensions from the MUTCD's normal line and
+// broken-line pattern, in metres — a legibility standard, not a compliance claim.
 
-// MUTCD normal line width: 4–6 in (0.1016–0.1524 m). Lower bound used so a 0.10 m line reads against
-// the 0.125 m texel as sub-texel detail the fwidth threshold keeps crisp, not a 1–2 texel blob.
-export const LINE_WIDTH = 0.1; // metres — MUTCD normal line, 4 in (0.1016 m), lower bound
+// MUTCD normal line width: 4–6 in (0.1016–0.1524 m). Upper bound (6 in = 0.1524 m) — the lower bound was
+// chosen to survive the 0.125 m texel the bake stored the marking in, and stage 8 removes that texel
+// from the path entirely, so the parameter is free to take the standard's upper bound: 50 % more pixel
+// coverage at every distance, still inside the standard.
+export const LINE_WIDTH = 0.1524; // metres — MUTCD normal line, 6 in (0.1524 m), upper bound
 export const LINE_HALF_WIDTH = LINE_WIDTH / 2; // derived: half the line width
 
 // Edge line inset from the road edge — a showcase design choice, not a MUTCD dimension. The edge
