@@ -83,7 +83,8 @@ declare global {
         // stage 4's handle position bridge — returns the two handle entities' world (x, y, z).
         __roadsHandlePos?: () => [[number, number, number], [number, number, number]];
         // stage 5's posts check bridge — reads back the posts buffer and verifies every Validation
-        // criterion (y = flattenFieldAt, lateral inside the flat core, lateral sign matches
+        // criterion (y = flattenFieldAt, lateral pinned at exactly `halfWidth + POST_OFFSET` — the kerb
+        // line — with the footing ±POST_RADIUS inside the flat core, lateral sign matches
         // postLateralSign(i), live-slot count, scale-0). The device gate drives this after an
         // __roadsEdit to re-verify post placement on the edited chord.
         __roadsPostsCheck?: () => Promise<{ name: string; pass: boolean; detail: string }>;

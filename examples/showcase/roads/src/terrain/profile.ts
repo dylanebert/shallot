@@ -32,6 +32,12 @@ export const PROFILE_STEP = SPACING; // 4 m
 // Grade limit: AASHTO's "A Policy on Geometric Design of Highways and Streets" (the Green Book) puts 12%
 // as the practical ceiling for a low-speed local road in rolling/mountainous terrain — the steepest a real
 // road standard permits, not a value fitted to this terrain's own relief.
+//
+// Every reader is an oracle or a fixture (`longitudinalOracle` below, `flatness.ts`'s `gradeBound`,
+// `dragCorpus.ts`'s corpus filter, test assertions): **no production path enforces or clamps it**, so a
+// drag can hand the flattener a steeper chord and the flattener will build it. This is the repo's second
+// grade ceiling and they are 8× apart — `posts.ts`'s `MAX_CHORD_GRADE = 1.0` is the analytic worst case
+// over every chord the drag *admits*, and its docblock carries the consequence of the gap.
 export const MAX_GRADE = 0.12; // rise/run
 
 /** the seeded permutation table's hash, mirroring `noise.ts`'s `grad2` — a from-scratch switch instead of

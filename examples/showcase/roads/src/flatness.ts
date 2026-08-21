@@ -28,9 +28,13 @@
 //     `editCorridor.tier.ts` — both of those through `dragCorpus.ts`'s `scanDrag`.
 //   - {@link buildDeviceFreeVertices} — a CPU-only mirror of `terrain/generate.ts`'s height-kernel loop
 //     (no GPU dispatch, the full {@link buildLatticeVertices} fill at `SPACING`/`CELLS`). It feeds
-//     `checkSurfaceFlatness` from one default-suite arm only — the shipped-pipeline reading
-//     (`flatness.test.ts`, arm i, stage 15b) — and is otherwise {@link reconstructionAgreement}'s own CPU
-//     side, where every vertex is needed because the comparison is against a real readback.
+//     `checkSurfaceFlatness` from one default-suite `describe` only — the shipped-pipeline reading
+//     (`flatness.test.ts`, arm i, stage 15b), whose `result` two tests then read: the first *reports* the
+//     readings (a `console.log`, no `expect` — deliberate, Blocker 3's "no absolute amplitude bound is
+//     admissible", and labelled in its own body), the second asserts every violation sits inside the road
+//     footprint. So the substrate feeds one reading and one assertion, not one arm — and is otherwise
+//     {@link reconstructionAgreement}'s own CPU side, where every vertex is needed because the comparison
+//     is against a real readback.
 //   - the real `readVertices()` (`terrain/terrain.ts`) — the device arms inside `bun run gate`, two of
 //     them since stage 23: `gate.ts`'s `reconstructionAgreement` pins the CPU builder's *fidelity*
 //     against the real GPU output, and its `surface-flatness-property-on-device` check re-asserts the

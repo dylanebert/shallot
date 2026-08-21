@@ -7,9 +7,9 @@ import {
     clampDragTarget,
     clampToBound,
     projectRayToBound,
-    residentTileCount,
 } from "./editPure";
 import type { StrokeDocument } from "./overlay/document";
+import { documentDirtyTiles } from "./overlay/document";
 import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MIN_LENGTH } from "./overlay/network";
 import { ATLAS_LAYERS, TILE_COUNT } from "./overlay/tiles";
 import { WORLD_HALF } from "./terrain/grid";
@@ -185,8 +185,10 @@ describe("edit — worst-case chord capacity (stage 4d)", () => {
         };
         // the chord length is the full diagonal of the bounded region (~1437 m)
         expect(chordLength(worstDoc)).toBeGreaterThan(1400);
-        // the dirty-tile count (capsule swath) is at or under ATLAS_LAYERS
-        const count = residentTileCount(worstDoc);
+        // the dirty-tile count (capsule swath) is at or under ATLAS_LAYERS. Read straight off
+        // `documentDirtyTiles` — the production export the overlay itself calls — rather than through a
+        // wrapper whose only reader was this arm (close sweep, B2).
+        const count = documentDirtyTiles(worstDoc).length;
         expect(count).toBeLessThanOrEqual(ATLAS_LAYERS);
         // the measured worst-case swath is 46 (stage 4d), ATLAS_LAYERS is 64 with headroom
         expect(count).toBe(46);
@@ -378,7 +380,11 @@ describe("edit — no no-op frames in the drag's target derivation (stage 9)", (
         }
     });
 
-    test("projectRayToBound never returns the previous frame's target — different rays yield different targets", () => {
+    // Named for what it checks and not for the caller's property: `projectRayToBound` is stateless, so
+    // pairwise distinctness over a ray scan discriminates a constant return and nothing about frame
+    // history. "Every frame of a held drag moves the endpoint" is carried by the clamp arms above plus
+    // the no-hold-path arm below, not here (close sweep, N4).
+    test("projectRayToBound is injective over a ray scan — distinct rays yield distinct targets", () => {
         const origin: [number, number, number] = [0, 200, 0];
         // a scan of distinct ray directions — each should produce a distinct target
         const directions: [number, number, number][] = [
@@ -423,9 +429,10 @@ describe("edit — no no-op frames in the drag's target derivation (stage 9)", (
         }
     });
 
-    test("lastValidTarget has no readers in edit.ts", async () => {
-        // A hold path that still exists anywhere in `edit.ts` after this stage is the finding.
-        // `lastValidTarget` was the hold variable — it must have no readers and no declaration.
+    test("the identifier lastValidTarget appears nowhere in edit.ts", async () => {
+        // Extent, stated because the old name implied more: this greps **one identifier**. A hold path
+        // under any other name passes it, so it witnesses that *this* variable is gone and not that no
+        // hold path exists — that is a reviewer's read of the drag block, not an arm (close sweep, N4).
         const source = await Bun.file(`${import.meta.dir}/edit.ts`).text();
         expect(
             source.includes("lastValidTarget"),
