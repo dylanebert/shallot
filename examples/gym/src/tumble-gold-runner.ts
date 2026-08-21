@@ -1,6 +1,7 @@
 // One gold-test job — a single tumble world — run in an isolated child process. The
-// spawner (`tumble-golds.test.ts`) launches this once per job, `bun run tumble-gold-runner.ts
-// --slug <slug> [--knob <index>]`, ~4 at a time:
+// spawner (`tumble-gold-pool.ts`, shared by both the sentinel `tumble-golds.test.ts` and the
+// tier `tumble-golds.tier.ts`) launches this once per job as
+// `Bun.spawn(["bun", "--preload", setup, runner, "--slug", <slug>, "--knob", <index>])`, ~4 at a time:
 //   --slug X              replay entry X's gold bit-exact vs its committed trajectory
 //   --slug X --knob N     step entry X at knob point N, asserting finite positions (boundedness only —
 //                         the gold trajectory exists at defaults, so a knob run is bounded-checked, never
