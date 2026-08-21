@@ -14,6 +14,7 @@ import { applyEdit, clampDragTarget, clampToBound, handlePositions } from "./edi
 import { checkSurfaceFlatness } from "./flatness";
 import { gate } from "./gate";
 import type { Check } from "./harness";
+import { checkPosts } from "./posts";
 import {
     editDocument,
     getDocument,
@@ -81,6 +82,10 @@ declare global {
         }>;
         // stage 4's handle position bridge — returns the two handle entities' world (x, y, z).
         __roadsHandlePos?: () => [[number, number, number], [number, number, number]];
+        // stage 5's posts check bridge — reads back the posts buffer and verifies every Validation
+        // criterion (y = flattenFieldAt, lateral inside the flat core, live-slot count, scale-0). The
+        // device gate drives this after an __roadsEdit to re-verify post placement on the edited chord.
+        __roadsPostsCheck?: () => Promise<{ name: string; pass: boolean; detail: string }>;
     }
 }
 
@@ -123,6 +128,7 @@ const BootSystem: System = {
             };
         };
         window.__roadsHandlePos = () => handlePositions();
+        window.__roadsPostsCheck = () => checkPosts();
         // F9 reseeds the live procedural network (`terrain.ts`'s `regenerate`) — the same key voxel's own
         // reseed uses. `{ signal: state.signal }` detaches the listener at `state.dispose()`, no removal
         // code needed.
@@ -152,6 +158,7 @@ const BootSystem: System = {
         delete window.__roadsEdit;
         delete window.__roadsFlatnessViolations;
         delete window.__roadsHandlePos;
+        delete window.__roadsPostsCheck;
     },
 };
 

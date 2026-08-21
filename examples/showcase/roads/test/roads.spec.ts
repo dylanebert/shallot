@@ -695,6 +695,26 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
+    // Phase 6.5: stage 5's post-placement re-check after an edit. The gate already checked posts at
+    // boot (Phase 1); this re-verifies on the edited chord — the Validation criterion "re-read after an
+    // __roadsEdit". The bridge reads back the posts buffer and checks y = flattenFieldAt, lateral
+    // inside the flat core, live-slot count, and scale-0 — all in the browser (flattenFieldAt is not
+    // Node-safe), so the test only reads the pass/fail verdict.
+    const postsCheck = (await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsPostsCheck: () => Promise<{
+                    name: string;
+                    pass: boolean;
+                    detail: string;
+                }>;
+            }
+        ).__roadsPostsCheck(),
+    )) as { name: string; pass: boolean; detail: string };
+    expect(postsCheck.pass, `post-placement check after edit: ${postsCheck.detail}`).toBe(true);
+
+    expect(errors, errors.join("\n")).toEqual([]);
+
     // Restore the boot document so subsequent runs and the live view start from the standard chord.
     await page.evaluate(
         (s) =>

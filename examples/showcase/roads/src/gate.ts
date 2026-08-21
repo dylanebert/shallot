@@ -7,6 +7,7 @@ import {
 } from "./flatness";
 import type { Check } from "./harness";
 import { generateNetwork } from "./overlay/network";
+import { checkPosts } from "./posts";
 import { TERRAIN_QUANT } from "./terrain/generate";
 import { VERTEX_COUNT } from "./terrain/grid";
 import { RELIEF } from "./terrain/noise";
@@ -137,6 +138,11 @@ export async function gate(): Promise<Check[]> {
             deviceResult.sampleCount === 546,
         detail: `device crossSection=${deviceResult.crossSection.length} longitudinal=${deviceResult.longitudinal.length} maxCrossSectionExcess=${deviceResult.maxCrossSectionExcess.toFixed(4)} maxLongitudinalExcess=${deviceResult.maxLongitudinalExcess.toFixed(4)} sampleCount=${deviceResult.sampleCount}`,
     });
+
+    // stage 5's post-placement check — reads back the posts buffer and verifies every Validation
+    // criterion: every live slot's y equals CPU flattenFieldAt, lateral offset inside the flat core,
+    // floor(chordLength / POST_SPACING) live slots, and every slot past the chord at scale 0.
+    checks.push(await checkPosts());
 
     return checks;
 }
