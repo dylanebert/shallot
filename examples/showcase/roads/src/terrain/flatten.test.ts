@@ -193,11 +193,17 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         }
     });
 
-    test("grade stays under MAX_GRADE along any road's chord — by measurement, not by a limiter (stage 17)", () => {
+    test("the boot chord's grade at perm 1337 stays under MAX_GRADE — by measurement, not by a limiter", () => {
         // stage 17: the chord has no grade limiter — the grade is the natural chord grade between the
         // endpoint heights. It stays under MAX_GRADE by measurement. Stage 1 (`roads-interactive.md`)
         // replaced route selection with the one fixed standard chord, so this reads that measurement
         // on the standard chord against perm 1337's terrain.
+        //
+        // Extent, stated because the old name ("any road's chord") overclaimed it: this is one document at
+        // one permutation, and it is **not** a property of the drag's domain. Nothing in production clamps
+        // grade (see `profile.ts`'s note on `MAX_GRADE`), and an admissible drag can exceed 0.12 —
+        // `dragCorpus.ts:81` filters those chords out of the frozen corpus, so no arm here or in the
+        // corridor tier covers the edited-document case.
         const doc = generateNetwork();
         const { segments } = buildNetworkGeometry(doc, 1337);
         for (const seg of segments) {

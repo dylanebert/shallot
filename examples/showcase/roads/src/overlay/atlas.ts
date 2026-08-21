@@ -23,7 +23,7 @@ import {
 // bullet holes or footprints, expensive once decals cover most of the visible ground, since a dense
 // overlapping set means every covered pixel re-evaluates every decal that reaches it. This atlas inverts
 // that: the terrain's own fragment shader pays one indirection lookup into {@link Indirection} plus one
-// atlas sample (`terrain/terrain.ts`'s composite) every frame, *regardless* of how many roads or carparks
+// atlas sample (`terrain/terrain.ts`'s composite) every frame, *regardless* of how many road primitives
 // exist — a network of 5 primitives and one of 500 cost the same per-frame sample. The part of the cost
 // that scales with primitive count is the rasterization into dirty tiles below, and that's paid once per
 // edit, throttled ({@link THROTTLE} tiles/frame), never once per frame per pixel.

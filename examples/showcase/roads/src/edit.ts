@@ -7,22 +7,16 @@
 // `MARCH_MAX`), the ray's projection onto the world bound is returned instead — never null, so every
 // frame of a held drag produces a target (stage 9, the clamp-never-refuse law on the derivation chain).
 // The pure, device-free halves (`applyEdit`, `clampToBound`, `clampDragTarget`, `chordLength`,
-// `residentTileCount`, `HANDLE_RADIUS`, `projectRayToBound`) live in `editPure.ts`, which imports nothing
-// from `@dylanebert/shallot`; this module imports them from there and re-exports them for consumers like
-// `boot.ts`. `edit.test.ts` imports the pure halves from `./editPure` so it exercises them under `bun test`
+// `HANDLE_RADIUS`, `projectRayToBound`) live in `editPure.ts`, which imports nothing
+// from `@dylanebert/shallot`; this module imports what it needs from there and re-exports the three
+// `boot.ts` reads. `edit.test.ts` imports the pure halves from `./editPure` so it exercises them under `bun test`
 // without pulling in the engine's device-bound module graph; the Playwright Node side stays bridge-only for
 // the same reason (Node ≥26 rejects the package's bare `package.json` import).
 
-// re-export the pure halves for consumers that imported them from ./edit (e.g. boot.ts)
-export {
-    applyEdit,
-    chordLength,
-    clampDragTarget,
-    clampToBound,
-    HANDLE_RADIUS,
-    projectRayToBound,
-    residentTileCount,
-} from "./editPure";
+// re-export exactly the pure halves `boot.ts` imports from ./edit — nothing more, since a re-export with
+// no consumer is dormant residue this spec forbids (close sweep, B2). Every other pure half is imported
+// from `./editPure` by the module that reads it.
+export { applyEdit, clampDragTarget, clampToBound } from "./editPure";
 
 // --- the grab latch (pure, device-free state machine) ---
 //

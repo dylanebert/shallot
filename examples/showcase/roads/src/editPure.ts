@@ -1,12 +1,11 @@
 // The pure, device-free halves of the edit plugin — `applyEdit`, `clampToBound`, the drag-floor clamp,
-// and the chord-length / tile-count helpers. This module imports nothing from
+// the ray-to-bound projection and `chordLength`. This module imports nothing from
 // `@dylanebert/shallot`, so importing it under `bun test` (or under Playwright's Node side) does not
 // pull in the engine's device-bound module graph — the Node ≥26 hazard Approach stage 4 names (the
 // package's bare `package.json` import is rejected there). The device-bound plugin (`edit.ts`) imports
 // these and re-exports them for its own consumers; `edit.test.ts` exercises the pure halves from here.
 
 import type { StrokeDocument } from "./overlay/document";
-import { documentDirtyTiles } from "./overlay/document";
 import { ROAD_HALF_WIDTH, ROAD_MIN_LENGTH } from "./overlay/network";
 import { WORLD_HALF } from "./terrain/grid";
 
@@ -99,13 +98,6 @@ export function clampDragTarget(
         return [ox + (tdx / tdist) * ROAD_MIN_LENGTH, oz + (tdz / tdist) * ROAD_MIN_LENGTH];
     }
     return [px + ddx * s, pz + ddz * s];
-}
-
-/** the number of atlas tiles a document touches — `documentDirtyTiles`'s count, which is the exact
- *  per-primitive union the overlay's own oracle pins. Device-free (delegates to `document.ts`'s pure
- *  math). */
-export function residentTileCount(doc: StrokeDocument): number {
-    return documentDirtyTiles(doc).length;
 }
 
 /** Project a ray onto the world bound — find where the ray's (x, z) trajectory hits the world bound

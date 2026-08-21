@@ -169,10 +169,15 @@ export const POST_COLOR: readonly [number, number, number] = [0.941, 0.792, 0.0]
  *  **Boundary note — this is the repo's second grade ceiling and they are 8× apart.** `terrain/profile.ts`
  *  owns `MAX_GRADE = 0.12`, the bound the *sampled centreline profile's* first difference is checked
  *  against (`flatten.test.ts`'s gated arm). They are not the same quantity and neither subsumes the other:
- *  `MAX_GRADE` bounds the profile the flattener is allowed to *build* on a chord it accepts, while this
- *  constant is the analytic worst case over every chord the drag *admits*, which is the domain a footing
- *  has to survive. The honest cross-reference is one-way from here — `profile.ts` is outside this stage's
- *  footprint, so the pointer back from `MAX_GRADE` to this constant is unwritten and owed. */
+ *  `MAX_GRADE` is a *road-design* limit that only the flatness oracles read (`profile.ts`'s
+ *  `longitudinalOracle`, `flatness.ts`'s `gradeBound`, `dragCorpus.ts`'s corpus filter) — **no production
+ *  path enforces or clamps it**, so the flattener builds the linear profile for whatever chord the drag
+ *  hands it, up to this constant's ceiling. This constant is the analytic worst case over every chord the
+ *  drag *admits*, which is the domain a footing has to survive. Consequence worth knowing before either
+ *  number is touched: because `gradeBound` is derived from `MAX_GRADE` rather than from the document's own
+ *  chord grade, an admissible drag steeper than 0.12 reads its road's *design* grade as a longitudinal
+ *  flatness violation — `dragCorpus.ts:81` filters exactly those chords out of the frozen corpus, so no arm
+ *  in the suite reaches it (a named member exists: 0.1227 at 5000 attempts, `dragCorpus.ts`'s own note). */
 export const MAX_CHORD_GRADE = (2 * RELIEF) / ROAD_MIN_LENGTH;
 
 /** the footing: how far below the surface the shaft's base sits, in metres — so the shaft meets the
@@ -235,7 +240,9 @@ export function liveSlotCount(chordLength: number): number {
 }
 
 /** whether slot `i` is live (scale ≠ 0) for a chord of `chordLength` metres: the station is within the
- *  chord (`station <= chordLength`). Slots past the chord are scale 0. */
+ *  chord (`station <= chordLength`). Slots past the chord are scale 0. `checkPosts` is the production
+ *  reader, so the predicate exists once rather than twice (the same one-expression rule stage 5 applied
+ *  to `postStation`; a second inlined copy is what lets an arm agree with a stale twin). */
 export function isLiveSlot(i: number, chordLength: number): boolean {
     return postStation(i) <= chordLength;
 }
@@ -694,7 +701,6 @@ export async function checkPosts(): Promise<Check> {
 
     for (let i = 0; i < posts.length; i++) {
         const rec = posts[i];
-        const station = postStation(i);
         if (rec.scale !== 0) {
             liveCount++;
             const expectedY = flattenFieldAt(rec.x, rec.z, segments, falloff, natural);
@@ -729,7 +735,7 @@ export async function checkPosts(): Promise<Check> {
             const signed = signedPerpDist(rec.x, rec.z, a[0], a[1], b[0], b[1]);
             if (Math.sign(signed) !== postLateralSign(i)) lateralSignOk = false;
         } else {
-            if (station <= chordLength) scale0Ok = false;
+            if (isLiveSlot(i, chordLength)) scale0Ok = false;
         }
     }
 
