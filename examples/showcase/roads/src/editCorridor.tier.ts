@@ -10,11 +10,21 @@ import { CORPUS_DRAGS, dragCorpus, scanDrag } from "./dragCorpus";
 // Run by path, one file per invocation:
 //   bun test ./examples/showcase/roads/src/editCorridor.tier.ts     (from the shallot root)
 //
-// Which edits are the cue to run it is derived once, in the superproject's tier registry — the
-// `shallot/examples/showcase/roads/src/editCorridor.tier.ts` row in kex's `harness/path-tiers.ts`, whose
-// `touches` is this file's transitive import cone. That row is the derivation and its comment carries the
-// walk; this pointer is deliberately not a second copy of the list. The registry is advisory, so nothing
-// runs this tier automatically — a person reads the row and runs the command above.
+// Which edits are the cue to run it is this file's own transitive import cone — every `.ts` file reachable
+// from this file's `./`-relative imports, walked mechanically. The tier imports `dragCorpus.ts` alone;
+// `dragCorpus.ts` imports `capture.ts`, `editPure.ts`, `flatness.ts`, `overlay/network.ts` and
+// `terrain/{flatten,grid,noise,profile,terrain}.ts`; `capture.ts` adds `overlay/document.ts`,
+// `overlay/tiles.ts` and `terrain/generate.ts`; `terrain/flatten.ts` adds `terrain/flatten-math.ts`;
+// `terrain/terrain.ts` adds `overlay/{atlas,queue,rasterize,stroke}.ts` and `posts.ts`, and `posts.ts`
+// adds `harness.ts` — 20 files beyond the tier itself. The cone is wider than the set of modules the
+// scan's readings are a *function* of (`overlay/queue.ts` and `posts.ts` cannot move a flatness
+// reading, they arrive because `terrain/terrain.ts` exports `SEED`): that over-inclusion is what a
+// derived list costs and it is accepted rather than re-narrowed by hand (`checks.md`, by-path tier
+// trigger lists). The tier reads no non-imported file at runtime, so there is no runtime-read input to
+// list beside the cone.
+//
+// Advisory, not a trigger: nothing runs this tier automatically — a person reads this header and runs
+// the command above when an edit touches one of these paths.
 
 describe(`edit — corridor flatness over ${CORPUS_DRAGS} random clamped drags`, () => {
     // The spec's Validation "Corridor flatness" criterion, extended to edited documents: over the whole

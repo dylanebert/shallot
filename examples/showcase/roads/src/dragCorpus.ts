@@ -3,8 +3,7 @@
 // (`coding.md` Suite speed: a golden gate leaving the default suite leaves a cheap sentinel behind
 // against the same frozen fixture):
 //   - `editCorridor.tier.ts` — the full 200-drag corpus, run by path. Which edits are the cue to run it
-//     is derived once, in the superproject's tier registry (that file's row in kex's
-//     `harness/path-tiers.ts`, whose `touches` is the tier's transitive import cone) — not listed here.
+//     is that file's own header (its transitive import cone, walked there) — not listed here.
 //   - `edit.test.ts` — the sentinel, the corpus's own first `SENTINEL_DRAGS` entries.
 // The corpus is a prefix-stable sequence: `dragCorpus(n)` is the first `n` entries of `dragCorpus(m)`
 // for any `m >= n`, so the sentinel is a slice of the tier's population and not a second fixture.
