@@ -2,8 +2,9 @@
 // default suite and the by-path tier scan the *same* corpus rather than two hand-picked ones
 // (`coding.md` Suite speed: a golden gate leaving the default suite leaves a cheap sentinel behind
 // against the same frozen fixture):
-//   - `editCorridor.tier.ts` — the full 200-drag corpus, run by path when `flatness.ts`, `editPure.ts`,
-//     `overlay/network.ts`, `terrain/flatten.ts` or `terrain/profile.ts` is touched.
+//   - `editCorridor.tier.ts` — the full 200-drag corpus, run by path. Which edits are the cue to run it
+//     is derived once, in the superproject's tier registry (that file's row in kex's
+//     `harness/path-tiers.ts`, whose `touches` is the tier's transitive import cone) — not listed here.
 //   - `edit.test.ts` — the sentinel, the corpus's own first `SENTINEL_DRAGS` entries.
 // The corpus is a prefix-stable sequence: `dragCorpus(n)` is the first `n` entries of `dragCorpus(m)`
 // for any `m >= n`, so the sentinel is a slice of the tier's population and not a second fixture.
@@ -69,6 +70,15 @@ export function dragCorpus(count: number): CorpusDrag[] {
         const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
         const hA = heightAtCpu(a[0], a[1], perm);
         const hB = heightAtCpu(b[0], b[1], perm);
+        // Measured extent of this exclusion on the frozen corpus (`checks.md`: an exclusion's extent is
+        // measured in the diff that adds it) — it never fires. All 200 corpus drags come out of the
+        // first 200 attempts: 0 rejections, steepest chord 0.0509 (42 % of `MAX_GRADE` = 0.12), median
+        // 0.0073. So on this corpus neither the `attempts < 50000` guard nor the tier's "fully
+        // populated" arm can discriminate: both are loop bounds, not witnesses for this filter. Stated
+        // rather than left to read as coverage. The filter is not inert in general — extending the same
+        // draw to 5000 attempts rejects 2 (steepest 0.1227, 1.02× the bound) — and it stays because the
+        // flatness oracle's longitudinal bound *is* `MAX_GRADE`: a steeper chord would read violations
+        // by design rather than by reconstruction error, which is a different claim from this scan's.
         if (Math.abs(hB - hA) / len > MAX_GRADE) continue;
         drags.push({ end, x: fx, z: fz });
     }

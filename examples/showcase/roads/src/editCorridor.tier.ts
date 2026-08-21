@@ -10,12 +10,11 @@ import { CORPUS_DRAGS, dragCorpus, scanDrag } from "./dragCorpus";
 // Run by path, one file per invocation:
 //   bun test ./examples/showcase/roads/src/editCorridor.tier.ts     (from the shallot root)
 //
-// Trigger — every module this scan's readings are a function of, so a touch to any of them re-runs it:
-// `src/flatness.ts` (the banded builder + the oracle), `src/dragCorpus.ts` (the fixture and the scan),
-// `src/editPure.ts` (the clamps the corpus is drawn through), `src/capture.ts` (`meshHeightAt`),
-// `src/overlay/network.ts` (the chord and its halfWidth), `src/terrain/flatten.ts` (the flatten field),
-// `src/terrain/grid.ts` (`SPACING`/`CELLS`), `src/terrain/profile.ts` (`heightAtCpu`, `MAX_GRADE`) and
-// `src/terrain/generate.ts` (`TERRAIN_QUANT`).
+// Which edits are the cue to run it is derived once, in the superproject's tier registry — the
+// `shallot/examples/showcase/roads/src/editCorridor.tier.ts` row in kex's `harness/path-tiers.ts`, whose
+// `touches` is this file's transitive import cone. That row is the derivation and its comment carries the
+// walk; this pointer is deliberately not a second copy of the list. The registry is advisory, so nothing
+// runs this tier automatically — a person reads the row and runs the command above.
 
 describe(`edit — corridor flatness over ${CORPUS_DRAGS} random clamped drags`, () => {
     // The spec's Validation "Corridor flatness" criterion, extended to edited documents: over the whole
@@ -31,6 +30,9 @@ describe(`edit — corridor flatness over ${CORPUS_DRAGS} random clamped drags`,
     // null control in `flatness.test.ts` ("the banded lattice reads what the full lattice reads").
     const drags = dragCorpus(CORPUS_DRAGS);
 
+    // A fixture-shape pin, not a witness for the corpus's grade filter: that filter rejects 0 of the
+    // first 200 attempts, so this length can only move if the fixture's own draw or clamps change
+    // (measurement beside the filter in `dragCorpus.ts`).
     test(`the corpus is fully populated (${CORPUS_DRAGS} admissible drags)`, () => {
         expect(drags.length).toBe(CORPUS_DRAGS);
     });

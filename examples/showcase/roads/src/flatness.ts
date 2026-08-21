@@ -17,10 +17,20 @@
 // buffer) rather than the continuous `flattenHeight` function is what makes this oracle able to see that —
 // the continuous function has no triangles to straddle.
 //
-// Two vertex-buffer sources feed the one oracle below (`checkSurfaceFlatness`), which only ever touches a
+// Three vertex-buffer sources feed the one oracle below (`checkSurfaceFlatness`), which only ever touches a
 // `Uint32Array` + `meshHeightAt` — never which device produced it:
+//   - {@link buildBandedLatticeVertices} — the same full-resolution lattice with **only** the vertices
+//     within one cell diagonal of the chords filled, so it is valid for a footprint-interior-only reader
+//     and for nothing else (its own docblock carries the derivation and the caveat). This is now the
+//     oracle's main substrate: six default-suite arms in `flatness.test.ts` build from it (the
+//     real-generator exactness pair, the banded-vs-full null control pair, the synthetic 30°-network
+//     exactness pair), plus `edit.test.ts`'s corridor-flatness sentinel and the whole 200-drag corpus in
+//     `editCorridor.tier.ts` — both of those through `dragCorpus.ts`'s `scanDrag`.
 //   - {@link buildDeviceFreeVertices} — a CPU-only mirror of `terrain/generate.ts`'s height-kernel loop
-//     (no GPU dispatch), the default-suite arm (`flatness.test.ts`, `bun test ./src -t "surface flatness"`).
+//     (no GPU dispatch, the full {@link buildLatticeVertices} fill at `SPACING`/`CELLS`). It feeds
+//     `checkSurfaceFlatness` from one default-suite arm only — the shipped-pipeline reading
+//     (`flatness.test.ts`, arm i, stage 15b) — and is otherwise {@link reconstructionAgreement}'s own CPU
+//     side, where every vertex is needed because the comparison is against a real readback.
 //   - the real `readVertices()` (`terrain/terrain.ts`) — the device arms inside `bun run gate`, two of
 //     them since stage 23: `gate.ts`'s `reconstructionAgreement` pins the CPU builder's *fidelity*
 //     against the real GPU output, and its `surface-flatness-property-on-device` check re-asserts the
