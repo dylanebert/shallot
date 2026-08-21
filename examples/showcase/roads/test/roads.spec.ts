@@ -716,6 +716,71 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
+    // Phase 7: reseed-then-drag handle-height arm — the witnessing arm for the edit.ts CPU-twin fix
+    // (edit.ts's `makePermutation`/`buildNetworkGeometry` now bake against `getCurrentSeed()` instead
+    // of the boot `SEED`). After an F9 reseed the GPU terrain is at the reseeded seed, so the handle's
+    // `y` — set by `EditSystem.update` as `heightAtCpu(x, z, makePermutation(getCurrentSeed()))` — must
+    // match `heightAtCpu` at the reseeded seed's permutation, not the boot seed's. Against the pre-fix
+    // code (which used `SEED = 1337`), the handle's `y` would be `heightAtCpu(x, z, makePermutation(1337))`
+    // while the terrain is at the reseeded seed — a device-visible divergence after every reseed.
+    const reseedSeed = 77777;
+    await page.evaluate(
+        (s) =>
+            (
+                window as unknown as { __roadsRegenerate: (seed: number) => Promise<void> }
+            ).__roadsRegenerate(s),
+        reseedSeed,
+    );
+    await page.waitForFunction(
+        () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
+        null,
+        { timeout: 10_000 },
+    );
+
+    // drive an edit on the reseeded terrain: move endpoint 1 to (60, -40) — within bounds, chord
+    // length ≈ 165 m (well above ROAD_MIN_LENGTH = 80), so no clamping intervenes.
+    const reseedEditEnd = 1;
+    const reseedEditX = 60;
+    const reseedEditZ = -40;
+    const reseedApplied = (await page.evaluate(
+        ({ end, x, z }) =>
+            (
+                window as unknown as {
+                    __roadsEdit: (end: number, x: number, z: number) => Promise<boolean>;
+                }
+            ).__roadsEdit(end, x, z),
+        { end: reseedEditEnd, x: reseedEditX, z: reseedEditZ },
+    )) as boolean;
+    expect(reseedApplied, `reseed edit to (${reseedEditX}, ${reseedEditZ}) was not applied`).toBe(
+        true,
+    );
+
+    await page.waitForFunction(
+        () => (window as unknown as { __roadsOverlayIdle: () => boolean }).__roadsOverlayIdle(),
+        null,
+        { timeout: 10_000 },
+    );
+
+    // read the handle position and assert y matches heightAtCpu at the reseeded seed's permutation
+    const reseedHandlePos = (await page.evaluate(() =>
+        (
+            window as unknown as {
+                __roadsHandlePos: () => [[number, number, number], [number, number, number]];
+            }
+        ).__roadsHandlePos(),
+    )) as [[number, number, number], [number, number, number]];
+    const reseedPerm = makePermutation(reseedSeed);
+    const reseedExpectedY = heightAtCpu(reseedEditX, reseedEditZ, reseedPerm);
+    expect(reseedHandlePos[reseedEditEnd][0]).toBeCloseTo(reseedEditX, 1);
+    expect(reseedHandlePos[reseedEditEnd][2]).toBeCloseTo(reseedEditZ, 1);
+    // f32 tolerance (4 decimal places, ~5e-5 m) — the handle's y is heightAtCpu at the reseeded
+    // seed, not the boot seed. Against the pre-fix code this reds because edit.ts baked against
+    // SEED = 1337 while the terrain is at reseedSeed = 77777 — the permutations differ, so the
+    // heights differ by far more than f32 rounding.
+    expect(reseedHandlePos[reseedEditEnd][1]).toBeCloseTo(reseedExpectedY, 4);
+
+    expect(errors, errors.join("\n")).toEqual([]);
+
     // Restore the boot document so subsequent runs and the live view start from the standard chord.
     await page.evaluate(
         (s) =>

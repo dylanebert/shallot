@@ -75,7 +75,7 @@ import { flattenFieldAt } from "./flatness";
 import { buildNetworkGeometry, computeFalloff, type ProfileSegment } from "./terrain/flatten";
 import { makePermutation } from "./terrain/noise";
 import { heightAtCpu } from "./terrain/profile";
-import { editDocument, getDocument, SEED } from "./terrain/terrain";
+import { editDocument, getCurrentSeed, getDocument } from "./terrain/terrain";
 
 // handle colours — idle (white), hover (yellow), grabbed (orange). Design parameters, not gates: the
 // spec's drag-feel check-in is about lag/jump/detach, not colour choice.
@@ -187,7 +187,7 @@ const EditSystem: System = {
         // read the live document and place the handles at its endpoints (y = heightAtCpu)
         const doc = getDocument();
         const line = doc.polylines[0];
-        const perm = makePermutation(SEED);
+        const perm = makePermutation(getCurrentSeed());
         for (let i = 0; i < 2; i++) {
             const [x, z] = line.points[i];
             const y = heightAtCpu(x, z, perm);
@@ -270,7 +270,7 @@ const EditSystem: System = {
             lastValidTarget = null;
         }
         if (dragging && ray) {
-            const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
+            const { segments, cutDepth } = buildNetworkGeometry(doc, getCurrentSeed());
             const falloff = computeFalloff(cutDepth);
             const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
             const hit = marchFlattenField(ray, segments, falloff, natural);
