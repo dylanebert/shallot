@@ -1,8 +1,9 @@
 // The pure, device-free halves of the edit plugin — `applyEdit`, `clampToBound`, the drag-floor clamp,
 // the ray-to-bound projection and `chordLength`. This module imports nothing from
 // `@dylanebert/shallot`, so importing it under `bun test` (or under Playwright's Node side) does not
-// pull in the engine's device-bound module graph — the Node ≥26 hazard Approach stage 4 names (the
-// package's bare `package.json` import is rejected there). The device-bound plugin (`edit.ts`) imports
+// pull in the engine's device-bound module graph — the barrel reaches `standard/sear/codegen.ts`, which
+// reads `GPUTextureUsage` at module scope, a `ReferenceError` under Node's own loader. The device-bound
+// plugin (`edit.ts`) imports
 // these and re-exports them for its own consumers; `edit.test.ts` exercises the pure halves from here.
 
 import type { StrokeDocument } from "./overlay/document";

@@ -22,7 +22,7 @@ import {
     postsWgsl,
     postVertexOffset,
 } from "./posts";
-import { FLAT_CORE_MARGIN } from "./terrain/flatten-math";
+import { FLAT_CORE_MARGIN } from "./terrain/flatten";
 import { SPACING, WORLD_EXTENT, WORLD_HALF } from "./terrain/grid";
 import { makePermutation, RELIEF } from "./terrain/noise";
 import { heightAtCpu } from "./terrain/profile";
@@ -142,7 +142,7 @@ describe("POST_COUNT sizing", () => {
 
 describe("POST_OFFSET flat-core band", () => {
     test("the whole footing is strictly inside the flat core: POST_RADIUS < POST_OFFSET < FLAT_CORE_MARGIN − POST_RADIUS", () => {
-        // independently derived from flatten-math.ts: the flat core reaches halfWidth + FLAT_CORE_MARGIN
+        // independently derived from flatten.ts: the flat core reaches halfWidth + FLAT_CORE_MARGIN
         // from the centreline, and the post occupies halfWidth + POST_OFFSET ± POST_RADIUS — so the whole
         // footing is strictly inside the affine region (where the mesh reproduces the field exactly, the
         // property the placement oracle reads) and strictly off the pavement iff both bounds below hold.
@@ -169,7 +169,7 @@ describe("POST_OFFSET flat-core band", () => {
         expect(POST_OFFSET).toBe(0.4);
     });
 
-    test("FLAT_CORE_MARGIN = √2 * SPACING (flatten-math.ts's own derivation)", () => {
+    test("FLAT_CORE_MARGIN = √2 * SPACING (flatten.ts's own derivation)", () => {
         // the constant the band is derived against, re-checked here so the band test
         // doesn't silently pass if FLAT_CORE_MARGIN moves
         expect(FLAT_CORE_MARGIN).toBe(Math.SQRT2 * SPACING);

@@ -47,11 +47,11 @@ import { ROAD_MIN_LENGTH } from "./overlay/network";
 import {
     buildNetworkGeometry,
     computeFalloff,
+    FLAT_CORE_MARGIN,
     flattenedHeightAt,
     networkBindGroup,
     networkLayout,
 } from "./terrain/flatten";
-import { FLAT_CORE_MARGIN } from "./terrain/flatten-math";
 import { WORLD_EXTENT } from "./terrain/grid";
 import { makePermutation, noiseLayout, PermData, RELIEF } from "./terrain/noise";
 import { heightAtCpu } from "./terrain/profile";
@@ -103,7 +103,7 @@ export const POST_SPACING = 2;
  *  core band's convenience and never a fact about bollards — it is why the row read as posts standing in
  *  a field.
  *
- *  Admissibility, re-measured at stage 11's claim against `flatten-math.ts` rather than assumed safer for
+ *  Admissibility, re-measured at stage 11's claim against `flatten.ts`'s own constants rather than assumed safer for
  *  being smaller (the *lower* end of the band is the one 0.4 m approaches). The flat core is the region
  *  `coreDist <= 0` (`flatten.ts`'s `networkCore`), i.e. perpendicular distance from the centreline up to
  *  `halfWidth + FLAT_CORE_MARGIN`, where `FLAT_CORE_MARGIN = √2 · SPACING = √2 · 4 = 5.65685 m`. Inside

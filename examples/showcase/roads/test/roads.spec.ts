@@ -10,8 +10,11 @@ import { buildPolylineProfile, heightAtCpu } from "../src/terrain/profile";
 
 // The boot seed (`terrain.ts`'s `SEED = 1337`) — the network the corridor pose is derived from and
 // the terrain that must be live when the corridor capture is taken. Not imported from `terrain.ts`
-// because that module imports `@dylanebert/shallot` at module top level, which Node ≥26 rejects
-// (bare `package.json` import) — the Playwright driver stays clear of that package on the Node side.
+// because that module imports the `@dylanebert/shallot` barrel at module top level, and the barrel
+// reaches `standard/sear/codegen.ts`, which reads `GPUTextureUsage` at module scope — under Node
+// (this driver's own loader) that is a `ReferenceError` at load, no device involved. The engine's
+// Node ≥26 JSON-import defect is fixed as of 0.9.3 (`scripts/check-node-import.ts` is the arm), so
+// the module-scope WebGPU globals are what still keeps the Playwright driver clear of the barrel.
 const BOOT_SEED = 1337;
 
 // where every run's capture lands — a fixed, git-ignored path (`test-results/`, this project's
