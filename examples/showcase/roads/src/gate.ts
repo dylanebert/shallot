@@ -140,9 +140,11 @@ export async function gate(): Promise<Check[]> {
     });
 
     // stage 5's post-placement check — reads back the posts buffer and verifies every Validation
-    // criterion: every live slot's y equals CPU flattenFieldAt (baked against the live seed), lateral
-    // offset inside the flat core, lateral sign matches postLateralSign(i),
-    // floor(chordLength / POST_SPACING) live slots, and every slot past the chord at scale 0.
+    // criterion: every live slot's y equals CPU flattenFieldAt (baked against the live seed), the lateral
+    // offset pinned at exactly halfWidth + POST_OFFSET (the kerb line, stage 11 — it replaced the old
+    // "somewhere inside the flat core" band, which passed for any offset in a 5.66 m window), lateral sign
+    // matches postLateralSign(i), floor(chordLength / POST_SPACING) live slots, and every slot past the
+    // chord at scale 0.
     checks.push(await checkPosts());
 
     return checks;
