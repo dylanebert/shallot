@@ -34,9 +34,17 @@
 //
 // Run: `bun run scripts/check-node-import.ts` (in `bun check`).
 
-import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    realpathSync,
+    rmSync,
+    symlinkSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const NODE_MODULES = resolve(REPO_ROOT, "node_modules");
@@ -70,6 +78,17 @@ try {
     // `@playwright/test` and `@dylanebert/shallot` resolve — the workspace link realpaths back into
     // `packages/shallot`, i.e. the arm reads the same source the tarball ships.
     symlinkSync(NODE_MODULES, join(work, "node_modules"));
+    // The arm asserts its subject: the workspace link must realpath back into `packages/shallot` (the
+    // source the tarball ships). If root `node_modules/@dylanebert/shallot` ever resolves to an extracted
+    // tarball or registry copy, the arm would green on a published artifact while the tree is broken —
+    // fail instead of reading the wrong subject.
+    const shallotPkg = join(REPO_ROOT, "packages/shallot");
+    const resolvedSubject = realpathSync(join(NODE_MODULES, "@dylanebert/shallot"));
+    if (resolvedSubject !== shallotPkg && !resolvedSubject.startsWith(shallotPkg + sep)) {
+        fail(
+            `the resolved subject realpaths to ${resolvedSubject}, not under ${shallotPkg} — the arm would read a published artifact, not the tree`,
+        );
+    }
     mkdirSync(join(work, "test"));
     // `"type": "module"` is load-bearing, not boilerplate: without it Playwright compiles the spec (and the
     // engine source it pulls in) to **CJS**, so the JSON import becomes a `require` that Node is perfectly
@@ -95,6 +114,24 @@ try {
             `});\n`,
     );
 
+    // Read the spawned `node`'s version *before* the run: a stale-PATH `node` that predates import
+    // attributes (<20.10) must red with its own diagnostic rather than look like a source defect, and a
+    // missing `node` gets the script's own message instead of an uncaught `Bun.spawnSync` throw.
+    const versionProc = Bun.spawnSync(["node", "--version"], { stdout: "pipe", stderr: "pipe" });
+    if (versionProc.exitCode !== 0 || !versionProc.stdout.toString().trim()) {
+        fail(
+            "`node` is missing or not on PATH — this arm spawns a real `node` binary, never bun",
+            versionProc.stderr.toString().trim(),
+        );
+    }
+    const nodeVersion = versionProc.stdout.toString().trim();
+    const [major, minor] = nodeVersion.replace(/^v/, "").split(".").map(Number);
+    if (major < 20 || (major === 20 && minor < 10)) {
+        fail(
+            `\`node\` ${nodeVersion} predates import-attribute support — the arm needs Node >= 20.10`,
+        );
+    }
+
     const proc = Bun.spawnSync(["node", PW_CLI, "test", "--config", "playwright.config.mjs"], {
         cwd: work,
         stdout: "pipe",
@@ -111,9 +148,6 @@ try {
             out.trim().split("\n").slice(-25).join("\n"),
         );
     }
-    const nodeVersion = Bun.spawnSync(["node", "--version"], { stdout: "pipe" })
-        .stdout.toString()
-        .trim();
     console.log(
         `✓ real node (${nodeVersion}) imports ${SUBJECT} with ${EXPECTED_EXPORTS.length} live exports`,
     );

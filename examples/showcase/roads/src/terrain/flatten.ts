@@ -24,6 +24,10 @@ import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import type { StrokeDocument } from "../overlay/document";
+import { SPACING } from "./grid";
+import { heightAt, makePermutation } from "./noise";
+import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
+
 // FALLOFF is no longer `= SPACING` (stage 6's choice, derived only from a capture probe's own grid
 // alignment, not a road-geometry argument). Once the profile is the straight chord the cut depth at a given point
 // can grow past what a fixed 4 m band eases gracefully — a deep cut eased back over 4 m reads as a cliff
@@ -37,10 +41,6 @@ import type { StrokeDocument } from "../overlay/document";
 // the cosine ease `0.5 - 0.5·cos(π·t)` has derivative `0.5·π·sin(π·t)`, peaking at `t = 0.5` (the
 // transition's midpoint) at `π/2` — so a cut of depth `D` eased over a falloff distance `F` peaks at slope
 // `D·(π/2)/F`. Solving for `F` at the side-slope limit gives the derivation below.
-import { SPACING } from "./grid";
-import { heightAt, makePermutation } from "./noise";
-import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
-
 export const SIDE_SLOPE_LIMIT = 1 / 3; // AASHTO Roadside Design Guide, 1V:3H, rise/run
 
 // Stage 15 (2026-08-19, the reconstruction-axis fix `flatness.ts` diagnosed): a triangle straddling the

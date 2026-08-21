@@ -19,8 +19,9 @@ import { WORLD_HALF } from "./terrain/grid";
 // (the whole 200-drag corpus is `editCorridor.tier.ts`, run by path). The device-bound halves (the live
 // drag, the handle entity's y) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
 //
-// The pure halves live in `./editPure`, which imports nothing from `@dylanebert/shallot` (the Node ≥26
-// gotcha), so this file exercises them under `bun test` without pulling in the engine's device-bound
+// The pure halves live in `./editPure`, which imports nothing from `@dylanebert/shallot` (the barrel
+// reaches `standard/sear/codegen.ts`, which reads `GPUTextureUsage` at module scope — a `ReferenceError`
+// under Node), so this file exercises them under `bun test` without pulling in the engine's device-bound
 // module graph.
 
 const BOUND = WORLD_HALF - ROAD_HALF_WIDTH;

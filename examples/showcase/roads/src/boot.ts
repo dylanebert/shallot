@@ -44,7 +44,8 @@ declare global {
         // a plain re-export of capture.ts's derived constant — never imported directly into the Playwright
         // driver (this project's src/ runs in the browser via the dev server; a direct Node-side import of
         // it pulls in the published `@dylanebert/shallot` package graph under Playwright's own loader,
-        // which chokes on the package's `exports` map — `test/roads.spec.ts` stays bridge-only).
+        // which reaches `standard/sear/codegen.ts` reading `GPUTextureUsage` at module scope — a
+        // `ReferenceError` under Node; `test/roads.spec.ts` stays bridge-only).
         __roadsTransitionTolerancePx?: number;
         // stage 24a's corridor-pose capture (`corridorCapture.ts`) — repositions the orbit to the
         // derived corridor pose for 24b's release-look screenshot. The Playwright driver calls this,
