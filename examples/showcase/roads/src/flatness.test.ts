@@ -315,17 +315,21 @@ describe(BANDED_NULL_CONTROL, () => {
             // overshoots that continuous area by the band's own boundary ring, measured at 1.031× at
             // SPACING (646 / 66049 = 0.00978 against an analytic 0.00949) and 1.021× at SPACING/2
             // (1787 / 263169 = 0.00679 against 0.00665), so the window is [0.90, 1.15] × analytic —
-            // ~10 % either side of both measured ratios, and the ±0.5-vertex row/column difference
-            // between `(cells+1)²` vertices and `world²/spacing²` cells sits inside it. It reds ~100×
-            // over on a band that failed to narrow (fill fraction 1.0), and — unlike the `< 1/10` bound
-            // it replaces — also reds on a band merely *widened* by half a cell (r 9.657 → 11.657 at
-            // SPACING, ~1.2× the fill).
+            // ~10 % either side of both measured ratios, and the one extra vertex row and column
+            // (`(cells+1)²` vertices against `world²/spacing²` = `cells²` cells, +0.8 %) sits inside it. A
+            // band that failed to narrow reds ~100× over (fill fraction 1.0). Two mutations run against
+            // this bound, both measured at this repair: widening `withinBand`'s reach by half a cell reds
+            // this arm at SPACING (`0.011355` against `< 0.010912`, r 9.657 → 11.657) while the SPACING/2
+            // arm stays green (+14.6 % against the 15 % window), so the upper bound is a coarse-resolution
+            // witness only; narrowing the reach to `halfWidth + spacing` reds the *lower* bound at both
+            // resolutions (`0.007858` against `> 0.008540`, `0.005844` against `> 0.005987`) — before the
+            // identity below is reached, which is why the verbatim identity diff quoted above was read off
+            // the pre-repair arm.
             expect(segments.length).toBe(1); // the single-capsule area formula below assumes one chord
             const seg = segments[0];
             const r = seg.halfWidth + Math.SQRT2 * spacing;
             const chordLen = Math.hypot(seg.bx - seg.ax, seg.bz - seg.az);
-            const analyticFill =
-                (2 * r * chordLen + Math.PI * r * r) / (cells * spacing) ** 2;
+            const analyticFill = (2 * r * chordLen + Math.PI * r * r) / (cells * spacing) ** 2;
             const fill = nonZeroVertices(banded) / nonZeroVertices(full);
             expect(fill).toBeGreaterThan(0.9 * analyticFill);
             expect(fill).toBeLessThan(1.15 * analyticFill);
