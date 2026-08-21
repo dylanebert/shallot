@@ -23,6 +23,20 @@ class ListenerTracker {
     removeEventListener = () => {};
 }
 
+// a fixed rect the mock canvas reports — the window-level pointerMove handler reads it to
+// compute canvas-relative coordinates while a pointer is active, so the mock must provide one.
+const MOCK_RECT: DOMRect = {
+    x: 0,
+    y: 0,
+    left: 0,
+    top: 0,
+    width: 800,
+    height: 600,
+    right: 800,
+    bottom: 600,
+    toJSON() {},
+} as DOMRect;
+
 function mockCanvas(): HTMLCanvasElement & { tracker: ListenerTracker } {
     const tracker = new ListenerTracker();
     return {
@@ -32,6 +46,9 @@ function mockCanvas(): HTMLCanvasElement & { tracker: ListenerTracker } {
         releasePointerCapture() {},
         hasPointerCapture() {
             return false;
+        },
+        getBoundingClientRect() {
+            return MOCK_RECT;
         },
         style: {} as CSSStyleDeclaration,
         tracker: tracker,
@@ -384,6 +401,57 @@ describe("InputPlugin", () => {
         const beforeAttach = canvas.tracker.added.length;
         s.step();
         expect(canvas.tracker.added.length).toBe(beforeAttach);
+    });
+
+    // RED-FIRST WITNESS (stage 9, roads-interactive.md): while a pointer is active, the window-level
+    // pointermove handler must keep mouse.x/y tracking even when the pointer's target is not the canvas.
+    // Against the shipped shape, mouse.x/y were written only by the canvas-scoped pointerHover handler
+    // (which early-returns unless e.target is a registered canvas), so a pointermove dispatched at a
+    // non-canvas target froze the coordinates while hover stayed true (pointerLeave only clears hover
+    // when activePointerId === null). The failure text witnessed before the fix:
+    //   "expected 200 to be 300" (mouse.y did not update from the initial 200 to the moved 300)
+    // The fix: the window-level pointerMove handler writes mouse.x/y using the active canvas's rect.
+    test("a held-pointer move at a non-canvas target keeps mouse.x/y tracking", () => {
+        // pointer enters the canvas — sets hover true
+        onCanvas("pointerenter")({ target: canvas });
+        expect(Inputs.mouse.hover).toBe(true);
+        // pointer down on the canvas — establishes the active pointer and activeCanvas
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 200,
+            preventDefault() {},
+        });
+        // initial position from the canvas-scoped pointerHover
+        onCanvas("pointermove")({
+            target: canvas,
+            pointerId: 1,
+            buttons: 1,
+            clientX: 100,
+            clientY: 200,
+            preventDefault() {},
+        });
+        expect(Inputs.mouse.x).toBe(100);
+        expect(Inputs.mouse.y).toBe(200);
+
+        // now the pointer moves off the canvas — the window-level pointermove fires with a
+        // non-canvas target. The canvas-scoped pointerHover does NOT fire (e.target is not the
+        // canvas), so without the fix, mouse.x/y would stay at (100, 200).
+        onWindow("pointermove")({
+            pointerId: 1,
+            buttons: 1,
+            clientX: 300,
+            clientY: 400,
+            preventDefault() {},
+        });
+        // mouse.x/y must track the new position (300 - rect.left=0, 400 - rect.top=0)
+        expect(Inputs.mouse.x).toBe(300);
+        expect(Inputs.mouse.y).toBe(400);
+        // hover stays true — the drag survives leaving the canvas
+        expect(Inputs.mouse.hover).toBe(true);
     });
 });
 

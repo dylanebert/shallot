@@ -6,6 +6,7 @@ import {
     chordLength,
     clampDragTarget,
     clampToBound,
+    projectRayToBound,
     residentTileCount,
 } from "./editPure";
 import { buildLatticeVertices, checkSurfaceFlatness } from "./flatness";
@@ -374,5 +375,114 @@ describe("edit — sticky grab latch (stage 4b)", () => {
         // second press over handle 1
         s = stepGrab(s, true, 1);
         expect(s).toEqual({ dragging: true, dragEnd: 1, prevLeft: true });
+    });
+});
+
+describe("edit — no no-op frames in the drag's target derivation (stage 9)", () => {
+    // The clamp-never-refuse law applied to the drag's whole derivation chain, not just the constraints
+    // at its end. Three no-op paths shipped: stale cursor coordinates (the engine seam, fixed in
+    // `input/index.ts`), a missed march holding `lastValidTarget` (fixed: the miss now projects onto
+    // the world bound), and a null ray skipping the frame outright (fixed: the `if (dragging && ray)`
+    // guard is gone). The contract: while a drag is held, every frame produces a target.
+    //
+    // RED-FIRST WITNESS: against the shipped shape, `marchFlattenField` returned null on a miss and
+    // the caller held `lastValidTarget`. The arm witnesses the red by asserting `projectRayToBound`
+    // returns a target inside the world bound for rays that miss the field entirely (aimed at the
+    // sky, aimed past MARCH_MAX), and that the target differs between ray directions (never the
+    // previous frame's target). The failure text witnessed before the fix:
+    //   "expected null to not be null" (marchFlattenField returned null for a skyward ray)
+    //
+    // The companion arm asserts `lastValidTarget` has no readers — a hold path that still exists
+    // anywhere in `edit.ts` after this stage is the finding.
+
+    const Bound = WORLD_HALF - ROAD_HALF_WIDTH;
+
+    test("projectRayToBound returns a target inside the world bound for every ray direction", () => {
+        // a camera position above the world centre, looking outward
+        const origin: [number, number, number] = [0, 200, 0];
+        // a scan of ray directions: aimed at the sky, aimed past MARCH_MAX, and normal downward rays
+        const directions: { dir: [number, number, number]; label: string }[] = [
+            // aimed at the sky (dy > 0) — the ray goes up, never crosses the ground
+            { dir: [0.3, 0.5, 0.4], label: "skyward (up-right)" },
+            { dir: [-0.2, 0.8, 0.1], label: "skyward (up-left)" },
+            { dir: [0, 1, 0], label: "straight up" },
+            // aimed so the crossing sits past MARCH_MAX — very shallow downward angle
+            { dir: [0.999, -0.001, 0.001], label: "shallow past MARCH_MAX (x-axis)" },
+            { dir: [0.001, -0.001, 0.999], label: "shallow past MARCH_MAX (z-axis)" },
+            // normal downward rays
+            { dir: [0.3, -0.7, 0.4], label: "downward (right-forward)" },
+            { dir: [-0.5, -0.5, -0.5], label: "downward (left-back)" },
+            { dir: [0, -1, 0], label: "straight down" },
+            // horizontal rays
+            { dir: [1, 0, 0], label: "horizontal (x-axis)" },
+            { dir: [0, 0, 1], label: "horizontal (z-axis)" },
+        ];
+
+        for (const { dir, label } of directions) {
+            const [x, z] = projectRayToBound(origin, dir);
+            expect(
+                Math.abs(x),
+                `${label}: |x|=${Math.abs(x)} past bound ${Bound}`,
+            ).toBeLessThanOrEqual(Bound);
+            expect(
+                Math.abs(z),
+                `${label}: |z|=${Math.abs(z)} past bound ${Bound}`,
+            ).toBeLessThanOrEqual(Bound);
+        }
+    });
+
+    test("projectRayToBound never returns the previous frame's target — different rays yield different targets", () => {
+        const origin: [number, number, number] = [0, 200, 0];
+        // a scan of distinct ray directions — each should produce a distinct target
+        const directions: [number, number, number][] = [
+            [0.3, 0.5, 0.4],
+            [-0.2, 0.8, 0.1],
+            [0.999, -0.001, 0.001],
+            [0.3, -0.7, 0.4],
+            [-0.5, -0.5, -0.5],
+            [1, 0, 0],
+            [0, 0, 1],
+            [0.7, 0.1, -0.7],
+        ];
+
+        const targets = directions.map((dir) => projectRayToBound(origin, dir));
+        // every pair of distinct directions should yield a distinct target (not the same hold point)
+        for (let i = 0; i < targets.length; i++) {
+            for (let j = i + 1; j < targets.length; j++) {
+                const [xi, zi] = targets[i];
+                const [xj, zj] = targets[j];
+                const same = xi === xj && zi === zj;
+                expect(
+                    same,
+                    `directions ${i} and ${j} both yielded (${xi}, ${zi}) — target did not change`,
+                ).toBe(false);
+            }
+        }
+    });
+
+    test("projectRayToBound from an off-centre camera still lands inside the bound", () => {
+        // camera at a corner, looking inward and upward
+        const origin: [number, number, number] = [400, 100, -400];
+        const directions: [number, number, number][] = [
+            [-0.5, 0.5, 0.5], // up and inward
+            [-0.3, -0.3, 0.3], // down and inward
+            [0, 1, 0], // straight up
+            [-1, 0, 0], // horizontal inward
+        ];
+        for (const dir of directions) {
+            const [x, z] = projectRayToBound(origin, dir);
+            expect(Math.abs(x)).toBeLessThanOrEqual(Bound);
+            expect(Math.abs(z)).toBeLessThanOrEqual(Bound);
+        }
+    });
+
+    test("lastValidTarget has no readers in edit.ts", async () => {
+        // A hold path that still exists anywhere in `edit.ts` after this stage is the finding.
+        // `lastValidTarget` was the hold variable — it must have no readers and no declaration.
+        const source = await Bun.file(`${import.meta.dir}/edit.ts`).text();
+        expect(
+            source.includes("lastValidTarget"),
+            "edit.ts still references lastValidTarget — the hold path was not fully removed",
+        ).toBe(false);
     });
 });
