@@ -1,17 +1,17 @@
-# Migrating from 0.8 to 0.9.2
+# Migrating from 0.8 to 0.9.3
 
 This port touches GPU code only: the ECS, scene, and ordinary component APIs keep their 0.8 shape. What moves is the GPU substrate. Layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources.
 
-Port to 0.9.2, the newest patch. The 0.9 API is the same across all three, and the patches carry the fixes a port hits first: compiled tooling exports, a duplicate-TypeGPU check that catches two copies of the same pinned minor, and the TypeGPU 0.12 toolchain the install block below pins. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
+Port to 0.9.3, the newest patch. The 0.9 API is the same across all four apart from the two breaks 0.9.3 ships — the oklab shader helpers renamed into the chunk table below, and `document`'s parent-tree machinery removed — and the patches carry the fixes a port hits first: compiled tooling exports, a duplicate-TypeGPU check that catches two copies of the same pinned minor, and the TypeGPU 0.12 toolchain the install block below pins. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
 
-Already on 0.9.0 or 0.9.1? You need none of this guide: only the TypeGPU toolchain bump in that install block, since 0.9.2 moved the peer to the 0.12 minor.
+Already on 0.9.0 or 0.9.1? You need none of the GPU-substrate port: the TypeGPU toolchain bump in that install block, since 0.9.2 moved the peer to the 0.12 minor, plus 0.9.3's two breaks above.
 
 ## Install the GPU toolchain
 
 Install the engine and its TypeGPU peer at the same time. Keep TypeGPU on the 0.12 minor used by Shallot; two copies in one bundle race over the same metadata map. The TypeGPU plugin versions move with the library, never independently.
 
 ```bash
-bun add @dylanebert/shallot@^0.9.2 typegpu@~0.12.0
+bun add @dylanebert/shallot@^0.9.3 typegpu@~0.12.0
 bun add -d unplugin-typegpu@~0.12.1 eslint@^9 eslint-plugin-typegpu@~0.12.0
 bun add -d @babel/core@^7.28.6 @babel/eslint-parser@^7.28.6 @babel/plugin-syntax-typescript@^7.28.5
 ```
@@ -272,7 +272,7 @@ Relocatable shader text is now usually resolved lazily from the same TGSL functi
 | `LDR_COLOR_UNPACK_WGSL` | `ldrColorUnpackWgsl()` |
 | `pack2x16unorm` / `unpack2x16unorm` | `packUnorm2x16` / `unpackUnorm2x16` |
 
-`LINEAR_TO_OKLAB_WGSL` and `OKLAB_TO_LINEAR_WGSL` remain exported raw constants; do not rename them. The already-lowercase `casterWgsl()` and `pointShadowWgsl()` names also remain. Call each new thunk when composing raw WGSL. Do not resolve a chunk at module import time; resolution needs the active feature set and shared namespace.
+`LINEAR_TO_OKLAB_WGSL` and `OKLAB_TO_LINEAR_WGSL` stayed exported raw constants through 0.9.2 and became `linearToOklabWgsl()` and `oklabToLinearWgsl()` in 0.9.3, joining the rest of this table; a port targeting 0.9.3 calls the thunks, and no alias under the old names exists. The already-lowercase `casterWgsl()` and `pointShadowWgsl()` names also remain. Call each new thunk when composing raw WGSL. Do not resolve a chunk at module import time; resolution needs the active feature set and shared namespace.
 
 ## Warm typed pipelines
 
