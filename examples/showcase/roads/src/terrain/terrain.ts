@@ -33,6 +33,7 @@ import {
     TILE_SIZE,
     TILES_PER_SIDE,
 } from "../overlay/tiles";
+import { dispatchPosts, warmPosts } from "../posts";
 import { setNetwork, warmNetwork } from "./flatten";
 import { bindTerrainKernel, generate, TERRAIN_QUANT } from "./generate";
 import {
@@ -423,9 +424,11 @@ async function warm(state: State): Promise<void> {
 
     bindTerrainKernel(vertices, position);
     warmNetwork(state); // its own onDispose registration, the same pattern
+    warmPosts(state); // posts buffer + surface + registered draw (stage 5)
     setNetwork(liveDocument, currentSeed); // the flatten kernel's geometry input, kept in sync with
     // the overlay's own document and the height kernel's own permutation seed
     overlayAtlas.updateChord(liveDocument); // the fs's marking geometry input (stage 8)
+    await dispatchPosts(currentSeed); // write post positions for the boot chord (stage 5)
     if (state.signal.aborted) return;
     await generate(SEED);
 }
@@ -462,6 +465,7 @@ export async function regenerate(seed: number): Promise<void> {
     currentSeed = seed;
     liveDocument = generateNetwork();
     setNetwork(liveDocument, seed);
+    await dispatchPosts(seed); // re-write post positions for the reset chord (stage 5)
     overlayAtlas.updateChord(liveDocument);
     overlayAtlas.invalidate();
     overlayAtlas.markDirty(liveDocument);
@@ -482,6 +486,7 @@ export async function editDocument(doc: StrokeDocument): Promise<void> {
     const oldDoc = liveDocument;
     liveDocument = doc;
     setNetwork(doc, currentSeed);
+    await dispatchPosts(currentSeed); // re-write post positions for the edited chord (stage 5)
     overlayAtlas.updateChord(doc);
     overlayAtlas.retile(oldDoc, doc);
     await generate(currentSeed);
@@ -492,6 +497,16 @@ export async function editDocument(doc: StrokeDocument): Promise<void> {
  *  chord. */
 export function getDocument(): StrokeDocument {
     return liveDocument;
+}
+
+/** the seed the height kernel was last dispatched with — the live permutation seed, not the boot
+ *  constant `SEED`. After an F9 reseed (`regenerate`) this differs from `SEED`, and a CPU twin that
+ *  bakes against `SEED` instead of this accessor (e.g. `checkPosts`'s `makePermutation`/
+ *  `buildNetworkGeometry`, which formerly used `SEED`) diverges from the GPU output — the permutation
+ *  and the falloff change with the seed. An accessor rather than exporting `currentSeed` directly so the
+ *  mutable module state stays write-only from outside this module. */
+export function getCurrentSeed(): number {
+    return currentSeed;
 }
 
 /**
