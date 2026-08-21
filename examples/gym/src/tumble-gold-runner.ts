@@ -10,7 +10,7 @@
 // One world per process is correctness, not tidiness. The tumble kernel is a process-wide wasm singleton
 // whose grow-only regions carry a high-water across sequential worlds; after several rich worlds in one
 // process `queryPairs` traps `unreachable`, and below that threshold stepping can silently lose determinism
-// (a gold that matches in isolation diverges given a different set of worlds ahead of it) — spec Residue
+// (a gold that matches in isolation diverges given a different set of worlds ahead of it) — the
 // "sequential-world kernel trap". Even a single entry's oracle + its 2-3 knob probes exceeded the trap for
 // shape-soup (4 rich worlds), so each is its own child; a fresh kernel per world is exactly what the gold
 // mint used (`scripts/gen-tumble-sample-golds.ts`), making registry order irrelevant to every verdict.
