@@ -272,7 +272,7 @@ Relocatable shader text is now usually resolved lazily from the same TGSL functi
 | `LDR_COLOR_UNPACK_WGSL` | `ldrColorUnpackWgsl()` |
 | `pack2x16unorm` / `unpack2x16unorm` | `packUnorm2x16` / `unpackUnorm2x16` |
 
-`LINEAR_TO_OKLAB_WGSL` and `OKLAB_TO_LINEAR_WGSL` remain exported raw constants; do not rename them. The already-lowercase `casterWgsl()` and `pointShadowWgsl()` names also remain. Call each new thunk when composing raw WGSL. Do not resolve a chunk at module import time; resolution needs the active feature set and shared namespace.
+`LINEAR_TO_OKLAB_WGSL` and `OKLAB_TO_LINEAR_WGSL` stayed exported raw constants through 0.9.2 and became `linearToOklabWgsl()` and `oklabToLinearWgsl()` in 0.9.3, joining the rest of this table; a port targeting 0.9.3 calls the thunks, and no alias under the old names exists. The already-lowercase `casterWgsl()` and `pointShadowWgsl()` names also remain. Call each new thunk when composing raw WGSL. Do not resolve a chunk at module import time; resolution needs the active feature set and shared namespace.
 
 ## Warm typed pipelines
 
