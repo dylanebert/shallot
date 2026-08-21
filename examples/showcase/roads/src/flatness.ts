@@ -17,10 +17,20 @@
 // buffer) rather than the continuous `flattenHeight` function is what makes this oracle able to see that —
 // the continuous function has no triangles to straddle.
 //
-// Two vertex-buffer sources feed the one oracle below (`checkSurfaceFlatness`), which only ever touches a
+// Three vertex-buffer sources feed the one oracle below (`checkSurfaceFlatness`), which only ever touches a
 // `Uint32Array` + `meshHeightAt` — never which device produced it:
+//   - {@link buildBandedLatticeVertices} — the same full-resolution lattice with **only** the vertices
+//     within one cell diagonal of the chords filled, so it is valid for a footprint-interior-only reader
+//     and for nothing else (its own docblock carries the derivation and the caveat). This is now the
+//     oracle's main substrate: six default-suite arms in `flatness.test.ts` build from it (the
+//     real-generator exactness pair, the banded-vs-full null control pair, the synthetic 30°-network
+//     exactness pair), plus `edit.test.ts`'s corridor-flatness sentinel and the whole 200-drag corpus in
+//     `editCorridor.tier.ts` — both of those through `dragCorpus.ts`'s `scanDrag`.
 //   - {@link buildDeviceFreeVertices} — a CPU-only mirror of `terrain/generate.ts`'s height-kernel loop
-//     (no GPU dispatch), the default-suite arm (`flatness.test.ts`, `bun test ./src -t "surface flatness"`).
+//     (no GPU dispatch, the full {@link buildLatticeVertices} fill at `SPACING`/`CELLS`). It feeds
+//     `checkSurfaceFlatness` from one default-suite arm only — the shipped-pipeline reading
+//     (`flatness.test.ts`, arm i, stage 15b) — and is otherwise {@link reconstructionAgreement}'s own CPU
+//     side, where every vertex is needed because the comparison is against a real readback.
 //   - the real `readVertices()` (`terrain/terrain.ts`) — the device arms inside `bun run gate`, two of
 //     them since stage 23: `gate.ts`'s `reconstructionAgreement` pins the CPU builder's *fidelity*
 //     against the real GPU output, and its `surface-flatness-property-on-device` check re-asserts the
@@ -195,9 +205,11 @@ export function flattenFieldAt(
  *  `spacing`-metre, `cells`-quad lattice, encoded the same way `terrain/generate.ts`'s height kernel
  *  encodes its own vertex stream (`encodePos` against the live `TERRAIN_QUANT`) — the output is a
  *  `meshHeightAt`-compatible raw buffer regardless of resolution, so the same reconstruction function reads
- *  both the production-resolution lattice and {@link buildDeviceFreeVertices}'s discrimination arm at a
- *  different resolution (`flatness.test.ts`'s `SPACING/2` arm). Normal/UV words are left at zero — nothing
- *  downstream of this buffer reads them (`meshHeightAt` only decodes the position words). */
+ *  both the production-resolution lattice and one built at another `spacing`/`cells`: `flatness.test.ts`'s
+ *  banded-vs-full null control calls this builder directly at `SPACING` and at `SPACING/2`, while {@link
+ *  buildDeviceFreeVertices} — its only non-test caller — always builds at production resolution. Normal/UV words
+ *  are left at zero — nothing downstream of this buffer reads them (`meshHeightAt` only decodes the
+ *  position words). */
 export function buildLatticeVertices(
     spacing: number,
     cells: number,
@@ -222,6 +234,83 @@ export function buildLatticeVertices(
         }
     }
     return raw;
+}
+
+/**
+ * the same lattice as {@link buildLatticeVertices}, filled **only** inside a band of `halfWidth + √2 ·
+ * spacing` metres around `segments`, every other vertex left zeroed.
+ *
+ * Valid only for a reader that samples strictly inside the road footprint — {@link
+ * checkSurfaceFlatness} is the one such reader (it walks the centreline and the two edge lines inset
+ * by {@link EDGE_EPSILON}, never off-road terrain). Anything that compares this buffer against a real
+ * `readVertices()` readback needs every vertex and must keep using the full builder: {@link
+ * buildDeviceFreeVertices} and `gate.ts`'s device arms therefore do not call this.
+ *
+ * Why `halfWidth + √2 · spacing` is the band's derivation and not a tuned number: a sampled point
+ * sits at perpendicular offset `< halfWidth` from its segment, and `capture.ts`'s `meshHeightAt`
+ * interpolates it over the three corners of one lattice triangle, displaced from the sample point by
+ * `(-tx, -tz)`, `(1 - tx, -tz)` and `(-tx, 1 - tz)` cells (the upper triangle is the same by
+ * symmetry). A displacement whose two components can carry opposite signs projects onto the chord
+ * normal as much as `spacing · (|nx| + |nz|) <= √2 · spacing` — the *diagonal* of a cell, reached
+ * when the chord runs at 45° to the lattice, so the band is one cell diagonal wide beyond the
+ * footprint and not one cell. Along the chord the corners stay inside the segment's own station
+ * range, since `sampleWindow` already excises {@link endpointMargin} (`halfWidth + √2·SPACING`) at
+ * each end and `√2 · spacing <= √2 · SPACING`; so a used corner's distance *to the segment* is its
+ * perpendicular offset, `< halfWidth + √2 · spacing`. The bound is attained in the limit, so it is
+ * tight: `halfWidth + spacing` — one cell instead of its diagonal — already drops corners the oracle
+ * interpolates from on a 45° chord, and a zeroed corner decodes to a height nowhere near the
+ * corridor, so an over-narrowed band reads as violations rather than as a silent pass
+ * (`flatness.test.ts`'s "the banded lattice reads what the full lattice reads" carries that red).
+ */
+export function buildBandedLatticeVertices(
+    spacing: number,
+    cells: number,
+    segments: readonly ProfileSegment[],
+    falloff: number,
+    naturalHeightAt: (x: number, z: number) => number,
+): Uint32Array {
+    const verts = cells + 1;
+    const half = cells / 2;
+    const raw = new Uint32Array(verts * verts * 4);
+    for (let iz = 0; iz < verts; iz++) {
+        const z = (iz - half) * spacing;
+        for (let ix = 0; ix < verts; ix++) {
+            const x = (ix - half) * spacing;
+            if (!withinBand(x, z, segments, spacing)) continue;
+            const natural = naturalHeightAt(x, z);
+            const { coreDist, targetHeight } = networkCoreCpu(x, z, segments, falloff);
+            const y = flattenHeight(natural, targetHeight, coreDist, falloff);
+            const idx = (iz * verts + ix) * 4;
+            const m = encodePos(d.vec3f(x, y, z), 0, TERRAIN_QUANT);
+            raw[idx] = m.x;
+            raw[idx + 1] = m.y;
+        }
+    }
+    return raw;
+}
+
+/** whether (px, pz) is within `seg.halfWidth + √2 · spacing` of any segment — the band
+ *  {@link buildBandedLatticeVertices} fills, tested against the capsule (distance to the segment,
+ *  endpoints included), not the infinite line. */
+function withinBand(
+    px: number,
+    pz: number,
+    segments: readonly ProfileSegment[],
+    spacing: number,
+): boolean {
+    for (const seg of segments) {
+        const abx = seg.bx - seg.ax;
+        const abz = seg.bz - seg.az;
+        const apx = px - seg.ax;
+        const apz = pz - seg.az;
+        const dd = abx * abx + abz * abz;
+        const t = dd > 0 ? Math.min(1, Math.max(0, (apx * abx + apz * abz) / dd)) : 0;
+        const dx = apx - t * abx;
+        const dz = apz - t * abz;
+        const reach = seg.halfWidth + Math.SQRT2 * spacing;
+        if (dx * dx + dz * dz <= reach * reach) return true;
+    }
+    return false;
 }
 
 /** the production-shape reconstruction: `doc`'s own network flattened at `seed`, at the
