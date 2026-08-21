@@ -36,8 +36,7 @@ import {
     verticalPx,
 } from "./corridorPose";
 import { generateNetwork, ROAD_HALF_WIDTH } from "./overlay/network";
-import { buildNetworkGeometry } from "./terrain/flatten";
-import { computeFalloff } from "./terrain/flatten-math";
+import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
 
 // The default orbit's pitch in radians (roads.scene: pitch: 0.5) — used to scale the confounder
 // from the default pose to the corridor pose.

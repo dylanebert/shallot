@@ -10,7 +10,7 @@
     ],
     "scripts": {
         "build": "bun run --cwd packages/shallot build",
-        "check": "bun run format && tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts && bun run scripts/check-exports.ts",
+        "check": "bun run format && tsc && biome check && eslint . --max-warnings=0 && bun run scripts/check-versions.ts && bun run scripts/check-imports.ts && bun run scripts/check-boundary.ts && bun run scripts/check-docs.ts && bun run scripts/check-pack.ts && bun run scripts/check-scripts.ts && bun run scripts/check-exports.ts && bun run scripts/check-node-import.ts",
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun test packages/shallot",
         "test:install": "bun run scripts/install-test.ts",

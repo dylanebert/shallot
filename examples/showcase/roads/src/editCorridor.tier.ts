@@ -14,9 +14,9 @@ import { CORPUS_DRAGS, dragCorpus, scanDrag } from "./dragCorpus";
 // from this file's `./`-relative imports, walked mechanically. The tier imports `dragCorpus.ts` alone;
 // `dragCorpus.ts` imports `capture.ts`, `editPure.ts`, `flatness.ts`, `overlay/network.ts` and
 // `terrain/{flatten,grid,noise,profile,terrain}.ts`; `capture.ts` adds `overlay/document.ts`,
-// `overlay/tiles.ts` and `terrain/generate.ts`; `terrain/flatten.ts` adds `terrain/flatten-math.ts`;
-// `terrain/terrain.ts` adds `overlay/{atlas,queue,rasterize,stroke}.ts` and `posts.ts`, and `posts.ts`
-// adds `harness.ts` — 20 files beyond the tier itself. The cone is wider than the set of modules the
+// `overlay/tiles.ts` and `terrain/generate.ts`; `terrain/terrain.ts` adds
+// `overlay/{atlas,queue,rasterize,stroke}.ts` and `posts.ts`, and `posts.ts`
+// adds `harness.ts` — 19 files beyond the tier itself. The cone is wider than the set of modules the
 // scan's readings are a *function* of (`overlay/queue.ts` and `posts.ts` cannot move a flatness
 // reading, they arrive because `terrain/terrain.ts` exports `SEED`): that over-inclusion is what a
 // derived list costs and it is accepted rather than re-narrowed by hand (`checks.md`, by-path tier
