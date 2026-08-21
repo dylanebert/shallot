@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { meshHeightAt } from "./capture";
+import { CORPUS_DRAGS, dragCorpus, mulberry32, SENTINEL_DRAGS, scanDrag } from "./dragCorpus";
 import { createGrabState, stepGrab } from "./edit";
 import {
     applyEdit,
@@ -9,37 +9,21 @@ import {
     projectRayToBound,
     residentTileCount,
 } from "./editPure";
-import { buildLatticeVertices, checkSurfaceFlatness } from "./flatness";
 import type { StrokeDocument } from "./overlay/document";
 import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MIN_LENGTH } from "./overlay/network";
 import { ATLAS_LAYERS, TILE_COUNT } from "./overlay/tiles";
-import { buildNetworkGeometry, computeFalloff } from "./terrain/flatten";
-import { CELLS, SPACING, WORLD_HALF } from "./terrain/grid";
-import { makePermutation } from "./terrain/noise";
-import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
-import { SEED } from "./terrain/terrain";
+import { WORLD_HALF } from "./terrain/grid";
 
 // Stage 4's pure-half tests — `applyEdit`, `clampToBound`, `clampDragTarget`, the worst-case capacity
-// arm, and the flatness scan over 200 random clamped drags. The device-bound halves (the live drag,
-// the handle entity's y) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
+// arm, and the corridor-flatness sentinel over the first few drags of `dragCorpus.ts`'s frozen corpus
+// (the whole 200-drag corpus is `editCorridor.tier.ts`, run by path). The device-bound halves (the live
+// drag, the handle entity's y) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
 //
 // The pure halves live in `./editPure`, which imports nothing from `@dylanebert/shallot` (the Node ≥26
 // gotcha), so this file exercises them under `bun test` without pulling in the engine's device-bound
 // module graph.
 
 const BOUND = WORLD_HALF - ROAD_HALF_WIDTH;
-
-// a simple seeded RNG for the 200-random-drag scan — deterministic so a failure reproduces.
-function mulberry32(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6d2b79f5) | 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 describe("edit — clampToBound", () => {
     test("never yields |x| or |z| past the bound", () => {
@@ -211,81 +195,40 @@ describe("edit — worst-case chord capacity (stage 4d)", () => {
     });
 });
 
-describe("edit — corridor flatness over 200 random clamped drags", () => {
-    // The spec's Validation "Corridor flatness" criterion, extended to edited documents: over a scan of
-    // 200 random clamped drags, `checkSurfaceFlatness` over `buildLatticeVertices` reads exactly
-    // 0 violations / 0.0000 m on both axes at SPACING and SPACING/2. The chord's affine target makes
-    // the in-corridor reconstruction error vanish identically (barycentric interpolation reproduces an
-    // affine field exactly at any cell size and any road angle), so this reads zero on every clamped
-    // drag — not just the boot document.
-    //
-    // Stage 4c: the scan now draws from the *unbounded* band — targets past the world bound and past
-    // the old ROAD_MAX_LENGTH ceiling — and clamps via `clampToBound` + `clampDragTarget` before
-    // `applyEdit`. The old scan filtered by `isAdmissibleDrag` (the deleted refusal); the new scan
-    // filters by grade only (the flatness oracle's longitudinal bound is MAX_GRADE, so a chord steeper
-    // than that produces violations by design, not by reconstruction error).
-    const rng = mulberry32(12345);
-    const perm = makePermutation(SEED);
-    const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
+describe(`edit — corridor flatness sentinel (${SENTINEL_DRAGS} of the ${CORPUS_DRAGS}-drag corpus)`, () => {
+    // The default-suite sentinel for the corridor-flatness criterion (spec Validation "Corridor
+    // flatness", extended to edited documents). The full corpus lives in `editCorridor.tier.ts`, run by
+    // path; this arm scans the *same* frozen fixture's first `SENTINEL_DRAGS` drags, so the coverage
+    // moved tiers rather than shrinking (`coding.md` Suite speed). The reading is the one the tier
+    // asserts: exactly 0 violations / 0.0000 m on both axes at SPACING and SPACING/2, over the banded
+    // lattice — whose equivalence to the full lattice for this oracle is `flatness.test.ts`'s null
+    // control ("the banded lattice reads what the full lattice reads").
+    const drags = dragCorpus(SENTINEL_DRAGS);
 
-    const drags: { end: 0 | 1; x: number; z: number }[] = [];
-    let attempts = 0;
-    while (drags.length < 200 && attempts < 50000) {
-        attempts++;
-        const end = (rng() < 0.5 ? 0 : 1) as 0 | 1;
-        // sample from the unbounded band — wider than the world to include past-bound targets
-        const x = (rng() * 2 - 1) * WORLD_HALF * 3;
-        const z = (rng() * 2 - 1) * WORLD_HALF * 3;
-        const [cx, cz] = clampToBound(x, z);
-        const [fx, fz] = clampDragTarget(generateNetwork(), end, cx, cz);
-        // filter by grade: the flatness oracle's longitudinal bound is MAX_GRADE, so a chord steeper
-        // than that produces violations by design, not by reconstruction error
-        const edited = applyEdit(generateNetwork(), end, fx, fz);
-        const [a, b] = edited.polylines[0].points;
-        const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        const hA = heightAtCpu(a[0], a[1], perm);
-        const hB = heightAtCpu(b[0], b[1], perm);
-        if (Math.abs(hB - hA) / len > MAX_GRADE) continue;
-        drags.push({ end, x: fx, z: fz });
-    }
-    expect(drags.length).toBe(200);
+    test(`the sentinel slice is the corpus's own first ${SENTINEL_DRAGS} drags`, () => {
+        expect(drags.length).toBe(SENTINEL_DRAGS);
+        // prefix stability is what makes this a slice of the tier's population rather than a second
+        // fixture: a corpus whose ordering depended on its own length would hand the two readers
+        // different drags while both read green.
+        expect(dragCorpus(SENTINEL_DRAGS + 3).slice(0, SENTINEL_DRAGS)).toEqual(drags);
+    });
 
     for (let i = 0; i < drags.length; i++) {
-        const { end, x, z } = drags[i];
-        const edited = applyEdit(generateNetwork(), end, x, z);
-        const { segments, cutDepth } = buildNetworkGeometry(edited, SEED);
-        const falloff = computeFalloff(cutDepth);
+        const drag = drags[i];
+        test(`drag ${i + 1}/${SENTINEL_DRAGS}: end ${drag.end} → (${drag.x.toFixed(1)}, ${drag.z.toFixed(1)})`, () => {
+            const { coarse, fine } = scanDrag(drag);
 
-        test(`drag ${i + 1}/200: end ${end} → (${x.toFixed(1)}, ${z.toFixed(1)})`, () => {
-            // SPACING resolution
-            const coarseRaw = buildLatticeVertices(SPACING, CELLS, segments, falloff, natural);
-            const coarse = checkSurfaceFlatness(
-                (sx, sz) => meshHeightAt(coarseRaw, sx, sz, SPACING, CELLS),
-                edited,
-            );
             expect(coarse.crossSection.length).toBe(0);
             expect(coarse.maxCrossSectionExcess).toBe(0);
             expect(coarse.longitudinal.length).toBe(0);
             expect(coarse.maxLongitudinalExcess).toBe(0);
+            expect(coarse.sampleCount).toBeGreaterThan(0);
 
-            // SPACING/2 resolution
-            const fineSpacing = SPACING / 2;
-            const fineCells = CELLS * 2;
-            const fineRaw = buildLatticeVertices(
-                fineSpacing,
-                fineCells,
-                segments,
-                falloff,
-                natural,
-            );
-            const fine = checkSurfaceFlatness(
-                (sx, sz) => meshHeightAt(fineRaw, sx, sz, fineSpacing, fineCells),
-                edited,
-            );
             expect(fine.crossSection.length).toBe(0);
             expect(fine.maxCrossSectionExcess).toBe(0);
             expect(fine.longitudinal.length).toBe(0);
             expect(fine.maxLongitudinalExcess).toBe(0);
+            expect(fine.sampleCount).toBeGreaterThan(0);
         });
     }
 });

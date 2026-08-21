@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { meshHeightAt } from "./capture";
+import { applyEdit } from "./editPure";
 import {
+    buildBandedLatticeVertices,
     buildDeviceFreeVertices,
     buildLatticeVertices,
     CROSS_SECTION_TOL,
@@ -143,7 +145,7 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
 
 describe("surface flatness — stage 18 arm (b): real generator reads exactly zero at both resolutions", () => {
     // The real-generator exactness arm (spec Validation, "Surface flatness in the corridor — exactly zero,
-    // unconditional"): `checkSurfaceFlatness` over `buildLatticeVertices` on the real `generateNetwork()`
+    // unconditional"): `checkSurfaceFlatness` over the banded lattice on the real `generateNetwork()`
     // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. This reading
     // landed at stage 18 and is what licenses the exactness claim on the shipped pipeline — it is not an
     // owed reading. The non-overlapping generator guarantees no two primitives' falloff bands overlap at
@@ -161,7 +163,7 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
     test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
-        const coarseRaw = buildLatticeVertices(SPACING, CELLS, segments, falloff, natural);
+        const coarseRaw = buildBandedLatticeVertices(SPACING, CELLS, segments, falloff, natural);
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
             doc,
@@ -184,7 +186,13 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
     test("exactly 0 violations and 0.0000 m on both axes at SPACING/2", () => {
         const fineSpacing = SPACING / 2;
         const fineCells = CELLS * 2;
-        const fineRaw = buildLatticeVertices(fineSpacing, fineCells, segments, falloff, natural);
+        const fineRaw = buildBandedLatticeVertices(
+            fineSpacing,
+            fineCells,
+            segments,
+            falloff,
+            natural,
+        );
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(fineRaw, x, z, fineSpacing, fineCells),
             doc,
@@ -235,6 +243,88 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
         expect(result.longitudinal.length).toBe(NO_CUT_LONGITUDINAL);
     });
+});
+
+describe("surface flatness — the banded lattice reads what the full lattice reads (stage 12)", () => {
+    // The null control that makes `buildBandedLatticeVertices`'s narrowing safe (spec Validation, "The
+    // banded lattice reads what the full lattice reads"): for one drag at both resolutions,
+    // `checkSurfaceFlatness` over the banded builder returns results *identical* to the full builder.
+    // A zeroed vertex the oracle reaches decodes to a height nowhere near the corridor, so an
+    // over-narrowed band reds loudly rather than passing silently.
+    //
+    // RED-FIRST WITNESS: `buildBandedLatticeVertices`'s band margin shrunk from the derived
+    // `seg.halfWidth + √2 · spacing` (one cell *diagonal* past the footprint) to `seg.halfWidth +
+    // spacing` (one cell) reds both arms in this block. Whole-file reading under that mutation: 11 pass /
+    // 4 fail — these two, plus the two synthetic-network exactness arms below (five 30° chords). The
+    // real-generator exactness pair stays green under it, which is the derivation showing itself: that
+    // chord is axis-aligned, where one cell *is* the cell's reach along the normal. Verbatim, at SPACING:
+    //   error: expect(received).toEqual(expected)
+    //
+    //     {
+    //   -   "crossSection": [],
+    //   -   "longitudinal": [],
+    //   -   "maxCrossSectionExcess": 0,
+    //   -   "maxLongitudinalExcess": 0,
+    //   +   "crossSection": [
+    //   +     {
+    //   +       "bound": 0.0024414435034714275,
+    //   +       "deltaFromCentre": 5.609365561403816,
+    //   +       "line": "edgePos",
+    //   +       "roadIndex": 0,
+    //   +       "t": 0.03130588209152568,
+    // — a 5.6 m cross-section step where the full lattice reads exactly zero, which is a dropped
+    // corner decoding out of a zeroed vertex. That reading is also what corrected the band's
+    // derivation: `halfWidth + spacing` is one cell short of the cell *diagonal* the 45° chord's
+    // normal reaches.
+    //
+    // The drag is a 45°-ish chord on purpose: the band is tightest where the lattice's cell axes are
+    // furthest from the chord's own frame, so an axis-aligned chord would not discriminate a margin
+    // one cell-diagonal short.
+    const dragged = applyEdit(generateNetwork(), 1, 300, 300);
+    const perm = makePermutation(SEED);
+    const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
+    const { segments, cutDepth } = buildNetworkGeometry(dragged, SEED);
+    const falloff = computeFalloff(cutDepth);
+
+    const nonZeroVertices = (raw: Uint32Array): number => {
+        let n = 0;
+        for (let i = 0; i < raw.length; i += 4) if (raw[i] !== 0 || raw[i + 1] !== 0) n++;
+        return n;
+    };
+
+    for (const [label, spacing, cells] of [
+        ["SPACING", SPACING, CELLS],
+        ["SPACING/2", SPACING / 2, CELLS * 2],
+    ] as const) {
+        test(`identical results at ${label}`, () => {
+            const full = buildLatticeVertices(spacing, cells, segments, falloff, natural);
+            const banded = buildBandedLatticeVertices(spacing, cells, segments, falloff, natural);
+
+            // the banded buffer must really be sparse — otherwise this arm passes over a builder that
+            // silently filled everything, and the identity below would be a tautology.
+            const bandedFilled = nonZeroVertices(banded);
+            const fullFilled = nonZeroVertices(full);
+            console.log(
+                `BANDED_FILL ${label} banded=${bandedFilled} full=${fullFilled} ratio=${(bandedFilled / fullFilled).toFixed(4)}`,
+            );
+            expect(bandedFilled).toBeGreaterThan(0);
+            expect(bandedFilled).toBeLessThan(fullFilled / 10);
+
+            const fullResult = checkSurfaceFlatness(
+                (x, z) => meshHeightAt(full, x, z, spacing, cells),
+                dragged,
+            );
+            const bandedResult = checkSurfaceFlatness(
+                (x, z) => meshHeightAt(banded, x, z, spacing, cells),
+                dragged,
+            );
+            expect(bandedResult).toEqual(fullResult);
+            // and the reading the corpus arms depend on: exactly zero on both axes
+            expect(fullResult.crossSection.length).toBe(0);
+            expect(fullResult.longitudinal.length).toBe(0);
+            expect(fullResult.sampleCount).toBeGreaterThan(0);
+        });
+    }
 });
 
 describe("checkSurfaceFlatness — window/threshold derivation, no candidate treatment", () => {
@@ -288,6 +378,11 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     // own falloff demands (`computeFalloff(cutDepth) + halfWidth + FLAT_CORE_MARGIN`), so no two
     // primitives' falloff bands overlap, and the affine-exactness argument holds at every sampled
     // station.
+    //
+    // Stage 12: banded lattice, for the same reason as the real-generator pair above — the oracle samples
+    // only inside the five footprints, and the arms' exact-zero assertion is what makes an over-narrow
+    // band red rather than green. The multi-road geometry also exercises the band's per-segment capsule
+    // union, which a single chord cannot.
     const Heading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
     const RoadSpacing = 200; // metres, perpendicular separation between adjacent roads
     const RoadLen = 200; // metres
@@ -317,7 +412,7 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
     test("exactly 0 violations and 0.0000 m on both axes at SPACING", () => {
-        const coarseRaw = buildLatticeVertices(SPACING, CELLS, segments, falloff, natural);
+        const coarseRaw = buildBandedLatticeVertices(SPACING, CELLS, segments, falloff, natural);
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(coarseRaw, x, z, SPACING, CELLS),
             syntheticDoc,
@@ -335,7 +430,13 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     test("exactly 0 violations and 0.0000 m on both axes at SPACING/2", () => {
         const fineSpacing = SPACING / 2;
         const fineCells = CELLS * 2;
-        const fineRaw = buildLatticeVertices(fineSpacing, fineCells, segments, falloff, natural);
+        const fineRaw = buildBandedLatticeVertices(
+            fineSpacing,
+            fineCells,
+            segments,
+            falloff,
+            natural,
+        );
         const result = checkSurfaceFlatness(
             (x, z) => meshHeightAt(fineRaw, x, z, fineSpacing, fineCells),
             syntheticDoc,
