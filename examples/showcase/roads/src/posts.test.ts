@@ -1,17 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import { flat } from "../../../../packages/shallot/tests/wgsl";
+import { ROAD_MIN_LENGTH } from "./overlay/network";
 import {
     isLiveSlot,
     liveSlotCount,
+    MAX_CHORD_GRADE,
+    POST_BURIAL_DEPTH,
+    POST_COLOR,
     POST_COUNT,
+    POST_HEIGHT,
+    POST_MESH,
     POST_OFFSET,
+    POST_RADIUS,
+    POST_SHAFT_LENGTH,
     POST_SPACING,
     postLateralSign,
     postStation,
+    postsSurfaceWgsl,
     postsWgsl,
+    postVertexOffset,
 } from "./posts";
 import { FLAT_CORE_MARGIN } from "./terrain/flatten-math";
-import { SPACING, WORLD_EXTENT } from "./terrain/grid";
+import { SPACING, WORLD_EXTENT, WORLD_HALF } from "./terrain/grid";
+import { makePermutation, RELIEF } from "./terrain/noise";
+import { heightAtCpu } from "./terrain/profile";
 
 // Stage 5's posts test — the WGSL structural seam plus the plain-TS behavioural witnesses for the
 // station/lateral/slot-count/scale-0 derivations. The structural arm (the resolved WGSL contains
@@ -31,7 +43,7 @@ describe("posts emitted WGSL", () => {
     test("the resolved kernel's station, lateral sign, and slot index are the correct literals", () => {
         // LITERALS, not values re-derived from POST_SPACING/POST_OFFSET — an arm that recomputes its
         // own rule goes green on a wrong constant (this unit's stage-3 precedent). The assertions below
-        // pin the exact emitted WGSL text: the station `(f32(i) + 1f) * 20f` (not `f32(i) * 20f`),
+        // pin the exact emitted WGSL text: the station `(f32(i) + 1f) * 2f` (not `f32(i) * 2f`),
         // the lateral `select(1f, -1f, ((i & 1u) == 1u))` (not a swapped or constant sign), and the slot
         // index `segments[0i]` (not `segments[1i]`). Each would fail under the mutation it names.
         const wgsl = flat(postsWgsl());
@@ -127,24 +139,216 @@ describe("POST_COUNT sizing", () => {
 });
 
 describe("POST_OFFSET flat-core band", () => {
-    test("POST_OFFSET is strictly inside the flat core: 0 < POST_OFFSET < FLAT_CORE_MARGIN", () => {
-        // independently derived from flatten-math.ts:
-        // the flat core extends to halfWidth + FLAT_CORE_MARGIN from the centreline;
-        // a post at halfWidth + POST_OFFSET is inside iff POST_OFFSET < FLAT_CORE_MARGIN;
-        // outside the road iff POST_OFFSET > 0.
-        // red: mutating POST_OFFSET to FLAT_CORE_MARGIN makes this fail (not strictly inside)
-        // red: mutating POST_OFFSET to 0 makes this fail (on the road surface)
-        expect(POST_OFFSET).toBeGreaterThan(0);
-        expect(POST_OFFSET).toBeLessThan(FLAT_CORE_MARGIN);
+    test("the whole footing is strictly inside the flat core: POST_RADIUS < POST_OFFSET < FLAT_CORE_MARGIN − POST_RADIUS", () => {
+        // independently derived from flatten-math.ts: the flat core reaches halfWidth + FLAT_CORE_MARGIN
+        // from the centreline, and the post occupies halfWidth + POST_OFFSET ± POST_RADIUS — so the whole
+        // footing is strictly inside the affine region (where the mesh reproduces the field exactly, the
+        // property the placement oracle reads) and strictly off the pavement iff both bounds below hold.
+        // Stage 11 re-checked the LOWER end on purpose: 0.4 m approaches it, and the older
+        // `0 < POST_OFFSET` form ignored the post's own radius.
+        // red: POST_OFFSET = 0.1 (< POST_RADIUS) fails the lower bound — the footing overhangs the asphalt
+        // red: POST_OFFSET = 5.6 (> FLAT_CORE_MARGIN − POST_RADIUS) fails the upper bound
+        expect(POST_OFFSET).toBeGreaterThan(POST_RADIUS);
+        expect(POST_OFFSET).toBeLessThan(FLAT_CORE_MARGIN - POST_RADIUS);
     });
 
-    test("POST_OFFSET = SPACING (one grid cell from the road edge)", () => {
-        expect(POST_OFFSET).toBe(SPACING);
+    test("the measured margins at the kerb-line offset are the ones written beside the constant", () => {
+        // the measurement the stage reports, asserted rather than printed: 0.28 m of clearance from the
+        // pavement edge to the post's near face, 5.13685 m from its far face to the flat core's edge.
+        expect(POST_OFFSET - POST_RADIUS).toBeCloseTo(0.28, 6);
+        expect(FLAT_CORE_MARGIN - (POST_OFFSET + POST_RADIUS)).toBeCloseTo(5.136854, 5);
+    });
+
+    test("POST_OFFSET is the kerb line (~0.4 m), not stage 5's flat-core convenience (SPACING = 4 m)", () => {
+        // the referent's own value, pinned as a literal: a kerbside bollard stands immediately off the
+        // pavement edge. 4 m (13 ft) is what made the row read as posts standing in a field.
+        expect(POST_OFFSET).toBe(0.4);
+        expect(POST_OFFSET).not.toBe(SPACING);
     });
 
     test("FLAT_CORE_MARGIN = √2 * SPACING (flatten-math.ts's own derivation)", () => {
         // the constant the band is derived against, re-checked here so the band test
         // doesn't silently pass if FLAT_CORE_MARGIN moves
         expect(FLAT_CORE_MARGIN).toBe(Math.SQRT2 * SPACING);
+    });
+});
+
+describe("the referent's own dimensions", () => {
+    test("POST_SPACING is held at the kerb row's 2.0 m upper bound", () => {
+        expect(POST_SPACING).toBe(2);
+    });
+
+    test("POST_HEIGHT is the referent's ~1 m above-grade height and POST_RADIUS its pipe OD/2", () => {
+        expect(POST_HEIGHT).toBe(1);
+        expect(POST_RADIUS).toBe(0.12);
+        // the pipe the referent is made of: 8 in Sch 40 OD 219 mm (r = 0.1095) → 10 in Sch 40 OD 273 mm
+        // (r = 0.1365). The radius sits between the two.
+        expect(POST_RADIUS).toBeGreaterThan(0.1095);
+        expect(POST_RADIUS).toBeLessThan(0.1365);
+    });
+
+    test("POST_COLOR is RAL 1023 traffic yellow, and the emitted FS carries it", () => {
+        // the finish standard, as a literal triple — stage 5's [0.5, 0.4, 0.3] had no referent at all.
+        expect(POST_COLOR).toEqual([0.941, 0.792, 0.0]);
+        // and the FS actually uses it: the resolved surface WGSL carries the f32 rounding of those
+        // components. red: reverting POST_COLOR to [0.5, 0.4, 0.3] emits 0.5/0.4/0.30000001 instead.
+        const wgsl = flat(postsSurfaceWgsl());
+        expect(wgsl).toContain("0.9409999");
+        expect(wgsl).toContain("0.7919999");
+    });
+});
+
+describe("the footing depth's derivation", () => {
+    test("MAX_CHORD_GRADE is the analytic ceiling 2 · RELIEF / ROAD_MIN_LENGTH", () => {
+        // the chord's target height is linear between the endpoints' natural heights, so the along-chord
+        // grade is |Δh| / chordLength; |Δh| <= 2 · RELIEF and chordLength >= ROAD_MIN_LENGTH.
+        expect(MAX_CHORD_GRADE).toBe((2 * RELIEF) / ROAD_MIN_LENGTH);
+        expect(MAX_CHORD_GRADE).toBe(1);
+    });
+
+    test("no admissible chord's grade exceeds the ceiling the footing is sized against", () => {
+        // the measurement the stage reports, asserted: a 5-seed × 400-chord scan of admissible chords
+        // (both endpoints inside the world, length >= ROAD_MIN_LENGTH) against the analytic ceiling. Half
+        // the corpus is drawn as SHORT chords — length in [ROAD_MIN_LENGTH, 2 · ROAD_MIN_LENGTH] — because
+        // grade is |Δh| / length and a uniform endpoint pair is almost always long, so an unbiased scan
+        // reads 0.1092 against this corpus's measured 0.1508. The arm asserts the ceiling holds (a
+        // bound over the domain) and, separately, that the scan really exercises grades worth burying
+        // (or it would pass on a corpus that found nothing).
+        let worst = 0;
+        let state = 0x9e3779b9;
+        const rand = () => {
+            // a plain LCG — the corpus must be deterministic, and this file owns no generator
+            state = (state * 1664525 + 1013904223) >>> 0;
+            return state / 0x100000000;
+        };
+        const bound = WORLD_HALF - SPACING;
+        for (const seed of [1337, 1, 2, 99, 4242]) {
+            const perm = makePermutation(seed);
+            for (let n = 0; n < 400; n++) {
+                const ax = (rand() * 2 - 1) * bound;
+                const az = (rand() * 2 - 1) * bound;
+                let bx: number;
+                let bz: number;
+                if (n % 2 === 0) {
+                    bx = (rand() * 2 - 1) * bound;
+                    bz = (rand() * 2 - 1) * bound;
+                } else {
+                    const theta = rand() * Math.PI * 2;
+                    const L = ROAD_MIN_LENGTH * (1 + rand());
+                    bx = Math.min(Math.max(ax + Math.cos(theta) * L, -bound), bound);
+                    bz = Math.min(Math.max(az + Math.sin(theta) * L, -bound), bound);
+                }
+                const len = Math.hypot(bx - ax, bz - az);
+                if (len < ROAD_MIN_LENGTH) continue;
+                const grade = Math.abs(heightAtCpu(bx, bz, perm) - heightAtCpu(ax, az, perm)) / len;
+                worst = Math.max(worst, grade);
+            }
+        }
+        expect(worst).toBeLessThanOrEqual(MAX_CHORD_GRADE);
+        // the scan is not vacuous: it finds grades steep enough that the footing matters. The floor is a
+        // literal well under the reading rather than the reading itself — a corpus assertion pinned to
+        // its own output cannot survive a seed change.
+        expect(worst).toBeGreaterThan(0.1);
+    });
+
+    test("POST_BURIAL_DEPTH buries the base ring at the worst grade, with the diameter form's 2× margin", () => {
+        // required depth: the base ring's uphill side sits grade · POST_RADIUS above the field height
+        // sampled at the post's centre (the field is exactly flat laterally inside the flat core, so the
+        // along-chord grade is the only rise across the footprint).
+        const required = MAX_CHORD_GRADE * POST_RADIUS;
+        expect(POST_BURIAL_DEPTH).toBe(MAX_CHORD_GRADE * 2 * POST_RADIUS);
+        expect(POST_BURIAL_DEPTH).toBeCloseTo(0.24, 12);
+        expect(POST_BURIAL_DEPTH).toBeCloseTo(2 * required, 12);
+    });
+
+    test("POST_SHAFT_LENGTH is derived so the footing adds below the referent's height, never out of it", () => {
+        expect(POST_SHAFT_LENGTH).toBeCloseTo(POST_HEIGHT + POST_BURIAL_DEPTH - POST_RADIUS, 12);
+        expect(POST_SHAFT_LENGTH).toBeCloseTo(1.12, 12);
+    });
+});
+
+describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () => {
+    test("the above-grade extent is exactly POST_HEIGHT — the footing never eats the referent's height", () => {
+        // the dome's apex is the mesh's highest point (localY = 1).
+        // red: taking the burial out of the height (shaftLength = POST_HEIGHT − POST_RADIUS) reads 0.76.
+        expect(postVertexOffset(0, 1, 0)[1]).toBeCloseTo(POST_HEIGHT, 12);
+    });
+
+    test("the bottom cap's highest point is below the surface for the worst grade the chord allows", () => {
+        // the bottom cap's highest point is the shaft's base ring (localY = −0.5), and the uphill side of
+        // that ring sits MAX_CHORD_GRADE · POST_RADIUS above the sampled centre height — so the ring must
+        // sit at least that far below the surface, and the cap's own lowest point below it again.
+        // red-first against the shipped shape, witnessed 2026-08-22: `POST_BURIAL_DEPTH = 0` (stage 5's
+        // mapping, whose lowest mesh point sat ON the surface) puts the base ring flush at y = 0, so the
+        // uphill side of the ring reads 0.12 m ABOVE the surface — `Expected: <= 0, Received: 0.12` — and
+        // three more arms red with it (the depth, the derived shaft length, and the emitted VS literals).
+        const baseRing = postVertexOffset(0, -0.5, 0)[1];
+        expect(baseRing).toBeCloseTo(-POST_BURIAL_DEPTH, 12);
+        expect(baseRing + MAX_CHORD_GRADE * POST_RADIUS).toBeLessThanOrEqual(0);
+        expect(postVertexOffset(0, -1, 0)[1]).toBeLessThan(baseRing);
+    });
+
+    test("both caps are spheres of exactly POST_RADIUS, independent of the shaft length", () => {
+        // the property an arm over total height alone cannot see — and the defect that shipped: stage 5
+        // scaled y by POST_HEIGHT/2 and x/z by POST_RADIUS · 2, stretching each cap into an ellipsoid
+        // 0.25 m tall and 0.12 m wide (a bullet nose). Here the cap term takes the SAME factor x/z take,
+        // so every cap vertex sits at exactly POST_RADIUS from its cap centre at any radius/length ratio.
+        // red: scaling the cap by shaftLength instead of the radius makes the distance vary with the
+        // shaft length (and differ from POST_RADIUS at every angle but 0).
+        for (const shaftLength of [0.3, POST_SHAFT_LENGTH, 5]) {
+            const params = { ...POST_MESH, shaftLength };
+            const topCentre = shaftLength - POST_MESH.burial;
+            const bottomCentre = -POST_MESH.burial;
+            for (const theta of [0, 0.3, Math.PI / 4, 1.2, Math.PI / 2]) {
+                const lx = 0.5 * Math.cos(theta);
+                const lyTop = 0.5 + 0.5 * Math.sin(theta);
+                const top = postVertexOffset(lx, lyTop, 0, params);
+                expect(Math.hypot(top[0], top[1] - topCentre, top[2])).toBeCloseTo(POST_RADIUS, 12);
+                const bottom = postVertexOffset(lx, -lyTop, 0, params);
+                expect(Math.hypot(bottom[0], bottom[1] - bottomCentre, bottom[2])).toBeCloseTo(
+                    POST_RADIUS,
+                    12,
+                );
+            }
+        }
+    });
+
+    test("the shaft is a cylinder of POST_RADIUS — the core term carries the length, the radial term the width", () => {
+        for (const ly of [-0.5, -0.2, 0, 0.25, 0.5]) {
+            const side = postVertexOffset(0.5, ly, 0);
+            expect(side[0]).toBeCloseTo(POST_RADIUS, 12);
+            // the shaft spans POST_SHAFT_LENGTH from base ring to dome underside
+            expect(side[1]).toBeCloseTo(
+                ly * POST_SHAFT_LENGTH + POST_SHAFT_LENGTH / 2 - POST_BURIAL_DEPTH,
+                12,
+            );
+        }
+    });
+
+    test("a scale-0 slot collapses to the record position (the fixed-instanceCount mechanism)", () => {
+        // component-wise, because a collapsed −z vertex reads as −0 and `toEqual` distinguishes it
+        const collapsed = postVertexOffset(0.5, 1, -0.5, POST_MESH, 0);
+        expect(collapsed[0]).toBeCloseTo(0, 12);
+        expect(collapsed[1]).toBeCloseTo(0, 12);
+        expect(collapsed[2]).toBeCloseTo(0, 12);
+    });
+
+    test("the resolved VS emits the decomposition, with the cap and the radius sharing one factor", () => {
+        // structural, over the emitted text, because the sphericity is a property of WHICH factor the cap
+        // term takes: `cap * radial` and `localPos.x * radial` must be the same `radial`, and only the
+        // core may carry the shaft length. Literals rather than values re-derived from the constants
+        // (stage 3's precedent).
+        const wgsl = flat(postsSurfaceWgsl());
+        expect(wgsl).toContain("clamp(input.localPos.y, -0.5f, 0.5f)");
+        expect(wgsl).toContain("(input.localPos.y - core)");
+        expect(wgsl).toContain("(cap * radial)");
+        expect(wgsl).toContain("(input.localPos.x * radial)");
+        expect(wgsl).toContain("(input.localPos.z * radial)");
+        // the shaft length on the core term, and the burial in the translation — f32 roundings of
+        // 1.12 and 1.12/2 − 0.24 = 0.32.
+        expect(wgsl).toMatch(/core \* 1\.12\d*f/);
+        expect(wgsl).toMatch(/\+ 0\.3199\d*f/);
+        // and the y scale stage 5 shipped (POST_HEIGHT / 2 = 0.5) is gone from the VS
+        expect(wgsl).not.toContain("input.localPos.y * 0.5f");
     });
 });
