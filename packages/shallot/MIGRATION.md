@@ -2,9 +2,9 @@
 
 This port touches GPU code only: the ECS, scene, and ordinary component APIs keep their 0.8 shape. What moves is the GPU substrate. Layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources.
 
-Port to 0.9.3, the newest patch. The 0.9 API is the same across all four apart from the two renames 0.9.3 made — the oklab shader helpers in the chunk table below, and `document`'s parent-tree machinery — and the patches carry the fixes a port hits first: compiled tooling exports, a duplicate-TypeGPU check that catches two copies of the same pinned minor, and the TypeGPU 0.12 toolchain the install block below pins. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
+Port to 0.9.3, the newest patch. The 0.9 API is the same across all four apart from the two breaks 0.9.3 ships — the oklab shader helpers renamed into the chunk table below, and `document`'s parent-tree machinery removed — and the patches carry the fixes a port hits first: compiled tooling exports, a duplicate-TypeGPU check that catches two copies of the same pinned minor, and the TypeGPU 0.12 toolchain the install block below pins. [`CHANGELOG.md`](https://github.com/dylanebert/shallot/blob/main/CHANGELOG.md) has the list.
 
-Already on 0.9.0 or 0.9.1? You need none of the GPU-substrate port: the TypeGPU toolchain bump in that install block, since 0.9.2 moved the peer to the 0.12 minor, plus 0.9.3's two renames above.
+Already on 0.9.0 or 0.9.1? You need none of the GPU-substrate port: the TypeGPU toolchain bump in that install block, since 0.9.2 moved the peer to the 0.12 minor, plus 0.9.3's two breaks above.
 
 ## Install the GPU toolchain
 
