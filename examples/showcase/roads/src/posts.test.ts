@@ -27,6 +27,27 @@ describe("posts emitted WGSL", () => {
         // through the network bind group — never re-deriving height on the CPU for this consumer.
         expect(wgsl).toContain("flattenedHeightAt");
     });
+
+    test("the resolved kernel's station, lateral sign, and slot index are the correct literals", () => {
+        // LITERALS, not values re-derived from POST_SPACING/POST_OFFSET — an arm that recomputes its
+        // own rule goes green on a wrong constant (this unit's stage-3 precedent). The assertions below
+        // pin the exact emitted WGSL text: the station `(f32(i) + 1f) * 20f` (not `f32(i) * 20f`),
+        // the lateral `select(1f, -1f, ((i & 1u) == 1u))` (not a swapped or constant sign), and the slot
+        // index `segments[0i]` (not `segments[1i]`). Each would fail under the mutation it names.
+        const wgsl = flat(postsWgsl());
+
+        // station: (i + 1) * POST_SPACING emits as `(f32(i) + 1f) * 20f` — the `+ 1f` is what
+        // discriminates from `i * POST_SPACING` which emits `(f32(i) * 20f)` with no `+ 1f`.
+        expect(wgsl).toContain("(f32(i) + 1f) * 20f");
+
+        // lateral sign: even → +1, odd → −1, emitted as `select(1f, -1f, ((i & 1u) == 1u))` —
+        // a swapped sign emits `select(-1f, 1f, ...)` and a constant sign emits no `select` at all.
+        expect(wgsl).toContain("select(1f, -1f, ((i & 1u) == 1u))");
+
+        // slot index: the kernel reads segment 0, emitted as `segments[0i]` — a wrong slot index
+        // emits `segments[1i]` or similar.
+        expect(wgsl).toContain("segments[0i]");
+    });
 });
 
 describe("post station derivation", () => {

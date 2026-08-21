@@ -499,6 +499,16 @@ export function getDocument(): StrokeDocument {
     return liveDocument;
 }
 
+/** the seed the height kernel was last dispatched with — the live permutation seed, not the boot
+ *  constant `SEED`. After an F9 reseed (`regenerate`) this differs from `SEED`, and a CPU twin that
+ *  bakes against `SEED` instead of this accessor (e.g. `checkPosts`'s `makePermutation`/
+ *  `buildNetworkGeometry`, which formerly used `SEED`) diverges from the GPU output — the permutation
+ *  and the falloff change with the seed. An accessor rather than exporting `currentSeed` directly so the
+ *  mutable module state stays write-only from outside this module. */
+export function getCurrentSeed(): number {
+    return currentSeed;
+}
+
 /**
  * re-bake {@link liveDocument}'s flatten geometry for `seed` without swapping the document or touching the
  * overlay — `gate.ts`'s own seed-determinism probe dispatches `generate` at seeds other than the live

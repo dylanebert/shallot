@@ -45,7 +45,7 @@ import { FLAT_CORE_MARGIN } from "./terrain/flatten-math";
 import { SPACING, WORLD_EXTENT } from "./terrain/grid";
 import { makePermutation, noiseLayout, PermData } from "./terrain/noise";
 import { heightAtCpu } from "./terrain/profile";
-import { getDocument, SEED } from "./terrain/terrain";
+import { getCurrentSeed, getDocument } from "./terrain/terrain";
 
 // --- constants --------------------------------------------------------------
 
@@ -456,16 +456,40 @@ function perpDist(px: number, pz: number, ax: number, az: number, bx: number, bz
     return Math.abs((dx * (pz - az) - dz * (px - ax)) / len);
 }
 
+/** the signed perpendicular distance from (px, pz) to the line through (ax, az) and (bx, bz): positive on
+ *  one side, negative on the other. The kernel's lateral normal is `(-uz, ux)` (the left normal of the
+ *  chord direction), so a post with `lateral > 0` (even slot, `postLateralSign = +1`) lands on the
+ *  positive side and vice versa — the sign of this value is what `checkPosts` compares against
+ *  `postLateralSign(i)`. */
+function signedPerpDist(
+    px: number,
+    pz: number,
+    ax: number,
+    az: number,
+    bx: number,
+    bz: number,
+): number {
+    const dx = bx - ax;
+    const dz = bz - az;
+    const len = Math.hypot(dx, dz);
+    if (len === 0) return 0;
+    return (dx * (pz - az) - dz * (px - ax)) / len;
+}
+
 /** the device gate's posts check: reads back the posts buffer and verifies every Validation criterion —
- *  every live slot's `y` equals CPU `flattenFieldAt` at its `(x, z)`, the lateral offset is inside the
- *  flat core, the live-slot count is `floor(chordLength / POST_SPACING)`, and every slot past the chord
+ *  every live slot's `y` equals CPU `flattenFieldAt` at its `(x, z)` (baked against the live seed via
+ *  `getCurrentSeed`, not the boot `SEED` — an F9 reseed changes the permutation and the falloff, so a
+ *  stale-seed twin produces a false negative), the lateral offset is inside the flat core, each live
+ *  slot is on the side `postLateralSign(i)` predicts (the alternation the distance band alone never
+ *  checks), the live-slot count is `floor(chordLength / POST_SPACING)`, and every slot past the chord
  *  is at scale 0. Called from `gate.ts` at boot and from `boot.ts`'s `__roadsPostsCheck` bridge after an
  *  edit. */
 export async function checkPosts(): Promise<Check> {
     const posts = await readPosts();
     const doc = getDocument();
-    const perm = makePermutation(SEED);
-    const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
+    const seed = getCurrentSeed();
+    const perm = makePermutation(seed);
+    const { segments, cutDepth } = buildNetworkGeometry(doc, seed);
     const falloff = computeFalloff(cutDepth);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -477,6 +501,7 @@ export async function checkPosts(): Promise<Check> {
     let liveCount = 0;
     let maxDiff = 0;
     let lateralOk = true;
+    let lateralSignOk = true;
     let scale0Ok = true;
 
     for (let i = 0; i < posts.length; i++) {
@@ -488,16 +513,23 @@ export async function checkPosts(): Promise<Check> {
             maxDiff = Math.max(maxDiff, Math.abs(rec.y - expectedY));
             const dist = perpDist(rec.x, rec.z, a[0], a[1], b[0], b[1]);
             if (dist > halfWidth + FLAT_CORE_MARGIN || dist < halfWidth) lateralOk = false;
+            // the alternation check: each live slot must be on the side `postLateralSign(i)` predicts
+            // (even → +1, odd → −1). The kernel's `select(1f, -1f, (i & 1u) == 1u)` and this CPU twin
+            // must agree on which side of the road every post sits — the distance band alone never
+            // catches a swapped or constant sign. This gives `postLateralSign` a production reader.
+            const signed = signedPerpDist(rec.x, rec.z, a[0], a[1], b[0], b[1]);
+            if (Math.sign(signed) !== postLateralSign(i)) lateralSignOk = false;
         } else {
             if (station <= chordLength) scale0Ok = false;
         }
     }
 
     const expectedLive = liveSlotCount(chordLength);
-    const pass = maxDiff < 0.01 && liveCount === expectedLive && lateralOk && scale0Ok;
+    const pass =
+        maxDiff < 0.01 && liveCount === expectedLive && lateralOk && lateralSignOk && scale0Ok;
     return {
         name: "post-placement",
         pass,
-        detail: `live=${liveCount}/${expectedLive} maxDiff=${maxDiff.toFixed(6)} lateralOk=${lateralOk} scale0Ok=${scale0Ok}`,
+        detail: `live=${liveCount}/${expectedLive} maxDiff=${maxDiff.toFixed(6)} lateralOk=${lateralOk} lateralSignOk=${lateralSignOk} scale0Ok=${scale0Ok}`,
     };
 }
