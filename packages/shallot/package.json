@@ -1,6 +1,6 @@
 {
     "name": "@dylanebert/shallot",
-    "version": "0.9.2",
+    "version": "0.9.3",
     "description": "WebGPU game engine. Procedural-first, ECS, declarative scenes. In development.",
     "sideEffects": [
         "./src/standard/index.ts",

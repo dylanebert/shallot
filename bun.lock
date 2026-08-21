@@ -310,12 +310,12 @@
     },
     "packages/create-shallot": {
       "name": "create-shallot",
-      "version": "0.9.2",
+      "version": "0.9.3",
       "bin": "./index.ts",
     },
     "packages/shallot": {
       "name": "@dylanebert/shallot",
-      "version": "0.9.2",
+      "version": "0.9.3",
       "bin": {
         "shallot": "./bin/cli.ts",
       },
