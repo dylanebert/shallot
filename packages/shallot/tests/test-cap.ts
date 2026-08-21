@@ -47,6 +47,15 @@ export const DEFAULT_CAP_MS = 5000;
 /** The by-path tier suffixes — a file naming its own tier, not an exemption list. */
 const TIER_SUFFIXES = [".oracle.ts", ".probes.ts", ".tier.ts", ".lab.ts"];
 
+/**
+ * The suffixes that are valid *promotion destinations* — a subset of the exempt set. All four by-path
+ * suffixes skip the cap (`.probes.ts` is the browser-launching gate tier, `.lab.ts` is temporary),
+ * but the cap's message names only the two a red file may move to. This constant is the source the
+ * message is built from, so the arm can pin destinations against it rather than against the wider
+ * `isCapExempt` (which admits all four and would green a message offering `.probes.ts`).
+ */
+export const PROMOTION_DESTINATIONS = [".oracle.ts", ".tier.ts"];
+
 /** true when `testPath` names a by-path tier and so is outside the default tier's cap. */
 export function isCapExempt(testPath: string): boolean {
     return TIER_SUFFIXES.some((suffix) => testPath.endsWith(suffix));
@@ -78,7 +87,9 @@ export function capMessage(testPath: string, elapsedMs: number, capMs: number): 
         `per-file test cap exceeded: ${testPath} ran ${elapsedMs.toFixed(1)}ms of tests against a ${capMs}ms cap.`,
         "Two responses, and only these two:",
         "(1) derive the scan's size from the property it states — an arm whose own comment claims invariance in N has no reason to run at N;",
-        "(2) promote the slow arms to a by-path tier — a sibling file named *.oracle.ts, *.probes.ts, *.tier.ts, or *.lab.ts, holding the arms and the reason in its header, run by path when the paths that header names change.",
+        "(2) promote the slow arms to a by-path tier — a sibling file named " +
+            PROMOTION_DESTINATIONS.map((s) => "*" + s).join(" or ") +
+            ", holding the arms and the reason in its header, run by path when the paths that header names change.",
     ].join("\n");
 }
 

@@ -2,9 +2,9 @@
 // the full tumble gold-replay population, moved out of the default suite because it costs
 // ~5.2 s of test time there against the 5 s per-file cap. The cost is the population —
 // 38 ported tumble.js samples, each with a committed gold trajectory replayed bit-exact
-// in a fresh child process, plus 2–3 knob probes per entry that assert boundedness at
-// non-default parameters. That is 90 child-process jobs (38 gold replays + 52 knob probes)
-// at ~0.6 s per child through a 4-wide pool, and N is the property: each entry is a real
+// in a fresh child process, plus knob probes on 18 of 38 entries (52 probes total) that assert
+// boundedness at non-default parameters. That is 90 child-process jobs (38 gold replays + 52 knob
+// probes) at ~0.6 s per child on a slow box through a 4-wide pool, and N is the property: each entry is a real
 // ported sample, not a scan step, so the count cannot be derived down. Coverage moved tiers
 // and did not shrink — the default suite keeps `tumble-golds.test.ts` as a sentinel over
 // the first 5 entries (16 jobs) against the same frozen gold fixtures.
@@ -18,8 +18,8 @@
 // 38 `tumble-*.ts` build/update modules and 38 committed gold JSON files under
 // `packages/shallot/tests/tumble/samples/`; `tumble-gold-pool.ts` imports only
 // `tumble-registry.ts` (for the `GoldEntry` type) and resolves `tumble-gold-runner.ts` at
-// runtime; `tumble-gold-runner.ts` imports `@dylanebert/shallot/tumble/core` and
-// `tumble-oracle.ts`. The cone is wider than the set of modules a gold verdict is a function
+// runtime; `tumble-gold-runner.ts` imports `@dylanebert/shallot/tumble/core`,
+// `tumble-oracle.ts`, and `./tumble-registry`. The cone is wider than the set of modules a gold verdict is a function
 // of (a build module's import of an unrelated engine module arrives transitively but
 // cannot move a gold trajectory): that over-inclusion is what a derived list costs and it is
 // accepted rather than re-narrowed by hand (`checks.md`, by-path tier trigger lists). The

@@ -28,7 +28,13 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { capMessage, DEFAULT_CAP_MS, isCapExempt, resolveCapMs } from "./test-cap";
+import {
+    capMessage,
+    DEFAULT_CAP_MS,
+    isCapExempt,
+    PROMOTION_DESTINATIONS,
+    resolveCapMs,
+} from "./test-cap";
 
 const REPO_ROOT = join(import.meta.dir, "../../..");
 const PRELOAD = join(import.meta.dir, "test-cap.ts");
@@ -107,17 +113,20 @@ describe("cap resolution and the derived exemption", () => {
 
     /**
      * The exemption's *extent* over the live tree, not just its mechanism — an exclusion is a
-     * deletion primitive, so measure and pin its extent in the diff that adds it, and an exemption
-     * is a defect until every entry is asserted both ways (a real member, and genuinely uncovered).
-     * This arm enumerates every path the four suffixes admit from `git ls-files` and asserts each
-     * is either a by-path tier run by path (no `bun:test` import — so the cap could not have
-     * measured it) or is collected by `bun test` but the cap exempts it by suffix.
+     * deletion primitive, so measure and pin its extent in the diff that adds it. The claim that has
+     * real content in shallot: bun discovers only `.test.`/`.spec.` files, so no admitted (exempt)
+     * path may also carry a `.test.` or `.spec.` segment in its basename — a file named
+     * `foo.test.oracle.ts` would be both discovered by `bun test` and exempt by suffix, which is the
+     * actual hole this pin exists to exclude. The old form (`!collectedByBunTest || isCapExempt(path)`)
+     * was vacuous: the filter that built `admitted` already guaranteed `isCapExempt(path)` true, so the
+     * second disjunct held by construction.
      *
      * The uncovered direction is derived, never listed: nothing here names a file.
      *
      * Witnessed red (reviewer): `TIER_SUFFIXES` replaced by `[]` reds on the first admitted path.
+     * Witnessed red (counter-example): a hand-made path `foo.test.oracle.ts` reds the basename check.
      */
-    test("the exemption's extent: every path its suffixes admit is never collected by bun test or is exempt by suffix", () => {
+    test("the exemption's extent: no admitted path carries a .test. or .spec. segment in its basename", () => {
         const tracked = Bun.spawnSync(["git", "ls-files"], {
             cwd: REPO_ROOT,
             stdout: "pipe",
@@ -132,13 +141,16 @@ describe("cap resolution and the derived exemption", () => {
             "the suffixes admit no paths — the extent claim below would be vacuous",
         ).toBeGreaterThan(0);
         for (const path of admitted) {
-            const collectedByBunTest = readFileSync(join(REPO_ROOT, path), "utf8").includes(
-                'from "bun:test"',
-            );
-            // every admitted path is either not collected by bun test (no bun:test import) or is exempt by suffix
-            expect({ path, covered: !collectedByBunTest || isCapExempt(path) }).toEqual({
+            const basename = path.split("/").pop()!;
+            // bun discovers only .test. or .spec. files, so no admitted (exempt) path may also
+            // carry a .test. or .spec. segment in its basename — foo.test.oracle.ts would be both
+            // discovered by bun test and exempt by suffix, the hole this pin excludes.
+            expect({
                 path,
-                covered: true,
+                hasTestSegment: /\.test\./.test(basename) || /\.spec\./.test(basename),
+            }).toEqual({
+                path,
+                hasTestSegment: false,
             });
         }
     });
@@ -189,10 +201,12 @@ describe("cap resolution and the derived exemption", () => {
         expect(enumerated[1].text).toContain("by-path tier");
         expect(enumerated[1].text).toContain("reason in its header");
 
-        // and the tier suffixes it offers are the ones production exempts, derived through `isCapExempt`
+        // and the tier suffixes it offers are the promotion destinations, pinned against the
+        // constant the message is built from — NOT `isCapExempt`, which admits all four exempt
+        // suffixes and would green a message offering `.probes.ts` or `.lab.ts` as a destination.
         const offered = [...msg.matchAll(/\*(\.[a-z.]*ts)\b/g)].map((m) => m[1]);
         expect(offered.length).toBeGreaterThan(0);
-        expect(offered.filter((suffix) => !isCapExempt(`some-file${suffix}`))).toEqual([]);
+        expect(offered).toEqual(PROMOTION_DESTINATIONS);
 
         expect(msg.toLowerCase()).not.toContain("raise");
         expect(msg.toLowerCase()).not.toContain("exempt");
@@ -254,6 +268,7 @@ describe("the cap in a real bun test child", () => {
         const greenLab = hermetic("subject.lab.ts");
         expect(readFileSync(red.file, "utf8")).toBe(fixtureBytes);
         expect(readFileSync(greenOracle.file, "utf8")).toBe(fixtureBytes);
+        expect(readFileSync(greenProbes.file, "utf8")).toBe(fixtureBytes);
         expect(readFileSync(greenTier.file, "utf8")).toBe(fixtureBytes);
         expect(readFileSync(greenLab.file, "utf8")).toBe(fixtureBytes);
 
