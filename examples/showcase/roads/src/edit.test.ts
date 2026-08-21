@@ -385,12 +385,16 @@ describe("edit — no no-op frames in the drag's target derivation (stage 9)", (
     // the world bound), and a null ray skipping the frame outright (fixed: the `if (dragging && ray)`
     // guard is gone). The contract: while a drag is held, every frame produces a target.
     //
-    // RED-FIRST WITNESS: against the shipped shape, `marchFlattenField` returned null on a miss and
-    // the caller held `lastValidTarget`. The arm witnesses the red by asserting `projectRayToBound`
-    // returns a target inside the world bound for rays that miss the field entirely (aimed at the
-    // sky, aimed past MARCH_MAX), and that the target differs between ray directions (never the
-    // previous frame's target). The failure text witnessed before the fix:
-    //   "expected null to not be null" (marchFlattenField returned null for a skyward ray)
+    // RED-FIRST WITNESS: the mutation that produces the red is removing `clampToBound` from every
+    // return path of `projectRayToBound`, so a shallow ray (e.g. dir [0.999, -0.001, 0.001] from
+    // origin [0, 200, 0]) yields a target far outside the world bound. The arm then fails its `|x| ≤
+    // Bound` assertion. The failure text witnessed before the fix:
+    //   "shallow past MARCH_MAX (x-axis): |x|=199800 past bound 508" / "Expected: <= 508" / "Received: 199800"
+    //
+    // History (not this arm's output): against the shipped shape, the old `marchFlattenField` returned
+    // null on a miss and the caller held `lastValidTarget` — the handle froze under a moving cursor.
+    // That defect motivated replacing the null return with `projectRayToBound`, but this arm does not
+    // call `marchFlattenField`; it discriminates the clamp on `projectRayToBound`'s return paths.
     //
     // The companion arm asserts `lastValidTarget` has no readers — a hold path that still exists
     // anywhere in `edit.ts` after this stage is the finding.

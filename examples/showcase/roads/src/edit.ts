@@ -279,16 +279,16 @@ const EditSystem: System = {
         // drag: march the cursor ray against the flattened field, clamp to bounds, clamp to the
         // ROAD_MIN_LENGTH floor, and apply. The march never returns null — a miss projects onto the
         // world bound — so every frame of a held drag produces a target. The old `if (dragging && ray)`
-        // frame-skip is gone: the engine seam keeps mouse.x/y updating off-canvas while a pointer is
-        // active, and hover is held true, so cursorRay returns a ray for every drag frame. A drag can
-        // only start after a hover test that needs cursorRay, so ray is non-null whenever dragging is
-        // true; the guard below is for the startup edge case where the camera is not yet found.
+        // frame-skip is gone.
+        //
+        // Invariant: `ray` is non-null whenever `dragging` is true. A drag can only start from a hover
+        // test that needed `cursorRay` (the rising-edge latch in `stepGrab` requires `hovered >= 0`,
+        // which is only set inside the `if (ray)` hover block above). `hover` is held true through a
+        // canvas leave (`pointerLeave` only clears it when `activePointerId === null`), and the engine
+        // seam keeps `mouse.x`/`y` updating off-canvas while a pointer is active (`input/index.ts`), so
+        // `cursorRay` returns a ray for every drag frame. The `!` on `ray` below records that invariant
+        // for the type checker — it is a non-null assertion, not a runtime guard.
         if (dragging) {
-            // ray is non-null whenever dragging is true — the engine seam keeps mouse.x/y updating
-            // off-canvas while a pointer is active, and hover is held true, so cursorRay returns a
-            // ray for every drag frame. A drag can only start after a hover test that needs cursorRay,
-            // so the camera exists. The `!` is for the startup edge case where the camera is not yet
-            // found (dragging would be false then, so this branch is unreachable).
             const { segments, cutDepth } = buildNetworkGeometry(doc, getCurrentSeed());
             const falloff = computeFalloff(cutDepth);
             const natural = (x: number, z: number) => heightAtCpu(x, z, perm);

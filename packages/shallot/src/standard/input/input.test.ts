@@ -409,7 +409,9 @@ describe("InputPlugin", () => {
     // (which early-returns unless e.target is a registered canvas), so a pointermove dispatched at a
     // non-canvas target froze the coordinates while hover stayed true (pointerLeave only clears hover
     // when activePointerId === null). The failure text witnessed before the fix:
-    //   "expected 200 to be 300" (mouse.y did not update from the initial 200 to the moved 300)
+    //   "Expected: 300, Received: 100" (mouse.x stayed at the initial 100 when the window-level
+    //   pointermove fired at a non-canvas target — the canvas-scoped pointerHover early-returned, so
+    //   mouse.x/y were never written for the off-canvas move)
     // The fix: the window-level pointerMove handler writes mouse.x/y using the active canvas's rect.
     test("a held-pointer move at a non-canvas target keeps mouse.x/y tracking", () => {
         // pointer enters the canvas — sets hover true
