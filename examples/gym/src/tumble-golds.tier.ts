@@ -22,7 +22,7 @@
 // `tumble-oracle.ts`, and `./tumble-registry`. The cone is wider than the set of modules a gold verdict is a function
 // of (a build module's import of an unrelated engine module arrives transitively but
 // cannot move a gold trajectory): that over-inclusion is what a derived list costs and it is
-// accepted rather than re-narrowed by hand (`checks.md`, by-path tier trigger lists). The
+// accepted rather than re-narrowed by hand (`testing.md` § .tier.ts, by-path tier trigger lists). The
 // tier reads no non-imported file at runtime beyond the gold JSON files the registry itself
 // imports, so there is no runtime-read input to list beside the cone.
 //

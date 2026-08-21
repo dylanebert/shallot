@@ -2,22 +2,25 @@
  * Arms for the per-file test-duration cap (`packages/shallot/tests/test-cap.ts`) and for the
  * configuration that reaches it (the repo-root `bunfig.toml`).
  *
- * Shallot's own copy of stage 1's four load-bearing arms. Kex's `harness/test-cap.test.ts` reads
- * kex's `bunfig.toml`, and shallot's carries a `root = "packages/shallot"` key kex's deliberately
- * omits — so the load-bearing configuration-reach property is unpinned in shallot until an arm here
- * asserts it. The four arms:
+ * Four load-bearing arms, each pinning a property a single-file arm cannot see:
  *
  *   (a) the per-file window — mutating the `Bun.main` latch to a run-scoped one must red, since
- *       stage 1's original arms all ran a single file where per-file and per-run are
- *       indistinguishable and that left the spec's central property unpinned;
+ *       every other arm in this file runs a single file where per-file and per-run are
+ *       indistinguishable and that leaves the per-file property unpinned;
  *   (b) a fixture slow file reds, with the cap's message asserted **structurally over its own
  *       enumeration** (numbering, count-word agreement, line count, suffixes derived through the
- *       exempt predicate) and never by substring — a crashed child once left a third sanctioned move
- *       in that message and the substring form would have shipped it green;
+ *       exempt predicate) and never by substring — a third sanctioned move in that message would
+ *       ship green under the substring form;
  *   (c) a fast file passes and the exemption is derived for all four suffixes with its extent pinned
  *       (an exclusion is a deletion primitive and owes the tighter proof);
  *   (d) the configuration-reach control — removing the preload line from `bunfig.toml` must red,
  *       because a gate supplied by configuration fails open when the configuration is wrong.
+ *
+ * Shallot's `bunfig.toml` carries a `root = "packages/shallot"` key, which scopes bun's test
+ * discovery to that directory — a property this repo's `bunfig.toml` adds and the reason this
+ * repo owes its own configuration-reach arm: the cap must fire from the tracked preload, not
+ * from a wrapper or ambient config, and the `root` key's discovery scoping is part of what that
+ * arm pins.
  *
  * Every duration arm drives the cap with a tiny `TEST_FILE_CAP_MS` instead of a genuinely slow
  * fixture: a real sleep would make this suite pay the thing the cap exists to stop. The default
@@ -156,6 +159,46 @@ describe("cap resolution and the derived exemption", () => {
     });
 
     /**
+     * `resolveCapMs` can only ever *loosen* the cap — a finite value above 5000 disables it — so
+     * the one thing keeping the env override from being a per-file escape is that nothing in the
+     * tree sets it. `test-cap.ts`'s docblock claims exactly that, and a docblock claim is an
+     * untested claim (`testing.md`), so this is the drift arm for it: no tracked file may
+     * *assign* `TEST_FILE_CAP_MS` except this file, which drives child processes with it.
+     *
+     * The population is derived from `git ls-files` — the tracked-file list, independent of the
+     * predicate under test and of `resolveCapMs` — not from the cap's own resolver.
+     *
+     * Witnessed red: with `"packages/shallot/tests/test-cap.test.ts"` removed from `Allowed`, this
+     * arm reds naming `packages/shallot/tests/test-cap.test.ts` — `childEnv`'s own
+     * `env.TEST_FILE_CAP_MS = capMs;` is a real assignment in a real tracked file, so the
+     * predicate fires on production text, not on a fixture. Witnessed red (temporary assignment):
+     * a `TEST_FILE_CAP_MS=10000` line added to `bunfig.toml` reds this arm naming `bunfig.toml`.
+     */
+    test("nothing in the tree sets TEST_FILE_CAP_MS, so the env override cannot be a standing escape", () => {
+        const Allowed = ["packages/shallot/tests/test-cap.test.ts"];
+        const tracked = Bun.spawnSync(["git", "ls-files"], {
+            cwd: REPO_ROOT,
+            stdout: "pipe",
+            stderr: "pipe",
+        })
+            .stdout.toString()
+            .split("\n")
+            .filter(Boolean);
+        const readable = [".ts", ".toml", ".json", ".sh", ".md"];
+        const candidates = tracked.filter((p) => readable.some((ext) => p.endsWith(ext)));
+        expect(
+            candidates.length,
+            "the tracked-file scan yielded too few candidates — the setter check below would be vacuous",
+        ).toBeGreaterThan(500);
+        const setters = candidates.filter(
+            (p) =>
+                !Allowed.includes(p) &&
+                /TEST_FILE_CAP_MS\s*[=:]/.test(readFileSync(join(REPO_ROOT, p), "utf8")),
+        );
+        expect(setters).toEqual([]);
+    });
+
+    /**
      * "Only the two permitted moves" asserted **structurally over the message's own enumeration**,
      * not as a list of `not.toContain` spellings. What carries it:
      *
@@ -284,8 +327,8 @@ describe("the cap in a real bun test child", () => {
     });
 
     /**
-     * The per-file property itself — the spec's Locked decision, "per file, not per test, not per
-     * suite". Two copies of the same fixture in ONE child under a 0 ms cap: the window must reopen at
+     * The per-file property itself — per file, not per test, not per
+     * suite. Two copies of the same fixture in ONE child under a 0 ms cap: the window must reopen at
      * the second file, so both files red and each message names its own path. Every other child arm in
      * this file runs a single file, where a run-scoped window and a file-scoped one are
      * indistinguishable.
@@ -314,9 +357,10 @@ describe("the cap in a real bun test child", () => {
     });
 
     /**
-     * The configuration-reach arm — the load-bearing one. `checks.md`: a permission gate
-     * supplied by configuration fails open when the configuration is wrong, so its presence is
-     * asserted at the boundary and never inferred from a green run.
+     * The configuration-reach arm — the load-bearing one. `testing.md` § Per-file speed cap:
+     * the cap is a preload in `bunfig.toml` — a gate supplied by configuration, so its presence is
+     * asserted at the boundary and never inferred from a green run, because a configuration gate
+     * fails open when the configuration is wrong.
      *
      * No `--preload` here, and the cwd is the real shallot root, so the ONLY thing that can inject
      * the cap into this child is the tracked `bunfig.toml`'s `[test] preload`. Witnessed by

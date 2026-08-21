@@ -12,7 +12,7 @@
 // ahead of it). A shared in-process run made a verdict depend on registry order and, for shape-soup, even
 // the entry's own oracle + knob probes exceeded the trap. A fresh kernel per world — the gold mint's own
 // recipe (`scripts/gen-tumble-sample-golds.ts`) — removes both: registry order cannot affect any verdict
-// (spec Residue "sequential-world kernel trap").
+// (the "sequential-world kernel trap").
 //
 // Outside bunfig's `bun test` scope (`bunfig.toml` roots it at `packages/shallot`) — run explicitly:
 //   bun test ./examples/gym/src/tumble-golds.test.ts
