@@ -3,14 +3,15 @@
 // `OrbitPick.claim` so a press over a handle suppresses orbit rotation for the whole drag. On a claimed
 // press, each frame marches `flattenFieldAt` along the cursor ray to find the world point, clamps to
 // the world bounds, and clamps to the `ROAD_MIN_LENGTH` floor (never refuses — a constraint on a dragged
-// quantity clamps, never no-ops). When the march returns null (the ray misses the surface), the drag
-// holds its last valid target instead of skipping the frame. The pure, device-free halves (`applyEdit`,
-// `clampToBound`, `clampDragTarget`, `chordLength`, `residentTileCount`, `HANDLE_RADIUS`) live in
-// `editPure.ts`, which imports nothing from `@dylanebert/shallot`; this module imports them from there
-// and re-exports them for consumers like `boot.ts`. `edit.test.ts` imports the pure halves from
-// `./editPure` so it exercises them under `bun test` without pulling in the engine's device-bound module
-// graph; the Playwright Node side stays bridge-only for the same reason (Node ≥26 rejects the package's
-// bare `package.json` import).
+// quantity clamps, never no-ops). When the march misses (the ray doesn't cross the surface within
+// `MARCH_MAX`), the ray's projection onto the world bound is returned instead — never null, so every
+// frame of a held drag produces a target (stage 9, the clamp-never-refuse law on the derivation chain).
+// The pure, device-free halves (`applyEdit`, `clampToBound`, `clampDragTarget`, `chordLength`,
+// `residentTileCount`, `HANDLE_RADIUS`, `projectRayToBound`) live in `editPure.ts`, which imports nothing
+// from `@dylanebert/shallot`; this module imports them from there and re-exports them for consumers like
+// `boot.ts`. `edit.test.ts` imports the pure halves from `./editPure` so it exercises them under `bun test`
+// without pulling in the engine's device-bound module graph; the Playwright Node side stays bridge-only for
+// the same reason (Node ≥26 rejects the package's bare `package.json` import).
 
 // re-export the pure halves for consumers that imported them from ./edit (e.g. boot.ts)
 export {
@@ -19,6 +20,7 @@ export {
     clampDragTarget,
     clampToBound,
     HANDLE_RADIUS,
+    projectRayToBound,
     residentTileCount,
 } from "./editPure";
 
@@ -54,7 +56,13 @@ export function stepGrab(state: GrabState, left: boolean, hovered: number): Grab
     return { dragging, dragEnd, prevLeft: left };
 }
 
-import { applyEdit, clampDragTarget, clampToBound, HANDLE_RADIUS } from "./editPure";
+import {
+    applyEdit,
+    clampDragTarget,
+    clampToBound,
+    HANDLE_RADIUS,
+    projectRayToBound,
+} from "./editPure";
 
 // --- the device-bound plugin (imports from @dylanebert/shallot below this line) ---
 
@@ -94,17 +102,19 @@ let handleEids: [number, number] = [-1, -1];
 let hovered = -1;
 let grab = createGrabState();
 let claimInstalled = false;
-let lastValidTarget: [number, number] | null = null;
 
 /** march `ray` against the continuous flattened field (`flattenFieldAt`) and return the (x, z) where the
- *  ray crosses the surface, or null if it doesn't within `MARCH_MAX`. The field is the oracle's own
- *  mirror — CPU, no GPU readback on the interaction path (the spec's Locked decision). */
+ *  ray crosses the surface. If the ray doesn't cross within `MARCH_MAX` (aimed at the sky, or the crossing
+ *  sits past the max distance), the ray's projection onto the world bound is returned instead — never null,
+ *  so the drag's target derivation never no-ops (the clamp-never-refuse law applied to the derivation, not
+ *  just the constraints). The field is the oracle's own mirror — CPU, no GPU readback on the interaction path
+ *  (the spec's Locked decision). */
 function marchFlattenField(
     ray: Ray,
     segments: readonly ProfileSegment[],
     falloff: number,
     naturalHeightAt: (x: number, z: number) => number,
-): [number, number] | null {
+): [number, number] {
     const [ox, oy, oz] = ray.origin;
     const [dx, dy, dz] = ray.dir;
     let prevDelta = oy - flattenFieldAt(ox, oz, segments, falloff, naturalHeightAt);
@@ -117,7 +127,10 @@ function marchFlattenField(
         if (prevDelta > 0 !== delta > 0) return [x, z];
         prevDelta = delta;
     }
-    return null;
+    // The march missed — project the ray onto the world bound instead of returning null. The drag's
+    // target derivation never no-ops: a missed march yields the ray's projection, not the previous
+    // frame's target (roads-interactive.md stage 9, the clamp-never-refuse law on the derivation chain).
+    return projectRayToBound(ray.origin, ray.dir);
 }
 
 /** create the two Part `sphere` handle entities at the document's endpoints, with `Color` set to idle. */
@@ -264,25 +277,28 @@ const EditSystem: System = {
         const { dragging, dragEnd } = grab;
 
         // drag: march the cursor ray against the flattened field, clamp to bounds, clamp to the
-        // ROAD_MIN_LENGTH floor, and apply. When the march returns null (the ray misses the surface),
-        // the drag holds its last valid target instead of skipping the frame.
-        if (!dragging) {
-            lastValidTarget = null;
-        }
-        if (dragging && ray) {
+        // ROAD_MIN_LENGTH floor, and apply. The march never returns null — a miss projects onto the
+        // world bound — so every frame of a held drag produces a target. The old `if (dragging && ray)`
+        // frame-skip is gone.
+        //
+        // Invariant: `ray` is non-null whenever `dragging` is true. A drag can only start from a hover
+        // test that needed `cursorRay` (the rising-edge latch in `stepGrab` requires `hovered >= 0`,
+        // which is only set inside the `if (ray)` hover block above). `hover` is held true through a
+        // canvas leave (`pointerLeave` only clears it when `activePointerId === null`), and the engine
+        // seam keeps `mouse.x`/`y` updating off-canvas while a pointer is active (`input/index.ts`), so
+        // `cursorRay` returns a ray for every drag frame. The `!` on `ray` below records that invariant
+        // for the type checker — it is a non-null assertion, not a runtime guard.
+        if (dragging) {
             const { segments, cutDepth } = buildNetworkGeometry(doc, getCurrentSeed());
             const falloff = computeFalloff(cutDepth);
             const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
-            const hit = marchFlattenField(ray, segments, falloff, natural);
-            if (hit) lastValidTarget = hit;
-            if (lastValidTarget) {
-                const [cx, cz] = clampToBound(lastValidTarget[0], lastValidTarget[1]);
-                const [fx, fz] = clampDragTarget(doc, dragEnd, cx, cz);
-                const newDoc = applyEdit(doc, dragEnd, fx, fz);
-                void editDocument(newDoc).catch((err) => {
-                    console.error("roads: edit failed", err);
-                });
-            }
+            const hit = marchFlattenField(ray!, segments, falloff, natural);
+            const [cx, cz] = clampToBound(hit[0], hit[1]);
+            const [fx, fz] = clampDragTarget(doc, dragEnd, cx, cz);
+            const newDoc = applyEdit(doc, dragEnd, fx, fz);
+            void editDocument(newDoc).catch((err) => {
+                console.error("roads: edit failed", err);
+            });
         }
 
         // update handle colours based on hover / drag state
@@ -305,7 +321,6 @@ const EditSystem: System = {
         hovered = -1;
         grab = createGrabState();
         claimInstalled = false;
-        lastValidTarget = null;
     },
 };
 

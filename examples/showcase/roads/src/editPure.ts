@@ -107,3 +107,63 @@ export function clampDragTarget(
 export function residentTileCount(doc: StrokeDocument): number {
     return documentDirtyTiles(doc).length;
 }
+
+/** Project a ray onto the world bound — find where the ray's (x, z) trajectory hits the world bound
+ *  box, clamped to the bound. Used when the march misses (the ray doesn't cross the surface within
+ *  `MARCH_MAX`), so the drag still has a target inside the world bound for every frame — the
+ *  clamp-never-refuse law applied to the target's derivation, not just its constraints. Pure,
+ *  device-free.
+ *
+ *  RED-FIRST WITNESS (stage 9, roads-interactive.md): the mutation that produces the red is removing
+ *  `clampToBound` from every return path of this function, so a shallow ray (e.g. dir [0.999, -0.001,
+ *  0.001] from origin [0, 200, 0]) yields a target far outside the world bound. The arm then fails
+ *  its `|x| ≤ Bound` assertion. The failure text witnessed before the fix:
+ *   "shallow past MARCH_MAX (x-axis): |x|=199800 past bound 508" / "Expected: <= 508" / "Received: 199800"
+ *
+ *  History (not this arm's output): against the shipped shape, the *old* `marchFlattenField` returned
+ *  null on a miss and the caller held `lastValidTarget` — the handle froze under a moving cursor. That
+ *  defect is what motivated replacing the null return with `projectRayToBound`, but this arm does not
+ *  call `marchFlattenField`; it discriminates the clamp on `projectRayToBound`'s return paths.
+ */
+export function projectRayToBound(
+    origin: readonly [number, number, number],
+    dir: readonly [number, number, number],
+): [number, number] {
+    const [ox, oy, oz] = origin;
+    const [dx, dy, dz] = dir;
+    const bound = WORLD_HALF - BOUND_MARGIN;
+
+    // If the ray goes downward, find where it crosses the ground plane (y = 0) and clamp to the bound.
+    // This handles a march that misses because the crossing sits past MARCH_MAX — the ray does point at
+    // the ground, just very far away.
+    if (dy < -1e-9) {
+        const t = -oy / dy;
+        if (t > 0) {
+            return clampToBound(ox + t * dx, oz + t * dz);
+        }
+    }
+
+    // The ray goes upward or is horizontal — find where its (x, z) projection exits the world bound
+    // box. Parameterize the ray in (x, z): (ox + t·dx, oz + t·dz). Find the smallest t > 0 where the
+    // point is on the box boundary (|x| = bound or |z| = bound) and the other coordinate is within.
+    let bestT = Infinity;
+    if (Math.abs(dx) > 1e-9) {
+        for (const t of [(bound - ox) / dx, (-bound - ox) / dx]) {
+            if (t > 0) {
+                const z = oz + t * dz;
+                if (Math.abs(z) <= bound + 1e-6 && t < bestT) bestT = t;
+            }
+        }
+    }
+    if (Math.abs(dz) > 1e-9) {
+        for (const t of [(bound - oz) / dz, (-bound - oz) / dz]) {
+            if (t > 0) {
+                const x = ox + t * dx;
+                if (Math.abs(x) <= bound + 1e-6 && t < bestT) bestT = t;
+            }
+        }
+    }
+
+    if (bestT === Infinity) return clampToBound(ox, oz);
+    return clampToBound(ox + bestT * dx, oz + bestT * dz);
+}

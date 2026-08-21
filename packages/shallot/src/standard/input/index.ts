@@ -325,6 +325,21 @@ function createHandlers(s: InputState): void {
         s.mouse.deltaY += e.clientY - s.lastPointerY;
         s.lastPointerX = e.clientX;
         s.lastPointerY = e.clientY;
+        // While a pointer is active, keep mouse.x/y tracking even when the pointer's target is
+        // not the canvas. `pointerLeave` already holds `hover` true while `activePointerId !== null`
+        // (the engine's stated intent: a drag survives leaving the canvas), but `mouse.x`/`y` were
+        // written only by the canvas-scoped `pointerHover` handler, which early-returns unless
+        // `e.target` is a registered canvas. So a fast pointer off the canvas froze the coordinates
+        // while `hover` stayed true — `cursorRay` returned a ray that no longer moved, and the handle
+        // stopped under a live cursor. Using the active canvas's rect here makes the data follow the
+        // intent the leave rule already declared.
+        if (s.activeCanvas) {
+            const rect = s.activeCanvas.getBoundingClientRect();
+            s.mouse.x = e.clientX - rect.left;
+            s.mouse.y = e.clientY - rect.top;
+            s.mouse.canvasWidth = rect.width;
+            s.mouse.canvasHeight = rect.height;
+        }
     };
 
     s.wheel = (e: WheelEvent) => {
