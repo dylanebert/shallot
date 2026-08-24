@@ -358,6 +358,20 @@ describe("serialize identity + refs", () => {
         expect(Mark.v.get(target2)).toBe(77);
     });
 
+    // RED witnessed: serialize(state, [a]) emits "to: 2" (raw eid) instead of "to: @b"
+    // because resolveRef returns undefined for a ref target outside the serialized subset.
+    // Witnessed red: expected to contain "to: @b", received `arrow="to: 2"` — the raw eid
+    // points at the wrong (recycled) entity on reload, breaking the round-trip-by-name contract.
+    test("subset serialize emits @-ref for a target outside the serialized set", () => {
+        clear();
+        const Arrow = { to: sparse(entity) };
+        register("arrow", Arrow, { defaults: () => ({ to: 0 }) });
+        const state = new State();
+        load(parse(`<scene><a id="a" arrow="to: @b" /><a id="b" /></scene>`), state);
+        const a = state.only([Arrow as never]);
+        expect(stringify(serialize(state, [a]))).toContain("to: @b");
+    });
+
     test("captures authored entities, excludes warm-derived ones — a restore never doubles them", async () => {
         clear();
         const Tree = { kind: sparse(u32) };

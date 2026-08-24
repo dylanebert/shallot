@@ -344,6 +344,22 @@ describe("XML", () => {
             expect(parsed.color).toBe(0xff8800);
         });
 
+        // RED witnessed: parseNumber treats #fff as parseInt("fff", 16) = 4095 (a 12-bit int)
+        // instead of expanding to the 24-bit 0xffffff or rejecting as null. Witnessed red:
+        // expected not 4095, received 4095. The spec leaves expand-vs-reject to S2's executor,
+        // so the arm asserts "never 4095" rather than pinning one of the two acceptable answers.
+        test("#rgb shorthand never silently parses as a 12-bit integer", () => {
+            const Part = { color: [] as number[] };
+            register("part", Part, { defaults: () => ({ color: 0 }) });
+            let result: number | undefined;
+            try {
+                result = parseFields("part", "color: #fff").color;
+            } catch {
+                result = undefined;
+            }
+            expect(result).not.toBe(4095);
+        });
+
         test("errors on unknown component", () => {
             expect(() => formatFields("nonexistent", { x: 1 })).toThrow("Unknown component");
         });
@@ -687,15 +703,27 @@ describe("XML", () => {
     });
 
     describe("format idempotence", () => {
+        // RED witnessed: the original fixture (three plain ids) could not construct the escape
+        // asymmetry its name claims. Replaced with a fixture carrying an escaped id ("a&amp;b").
+        // Witnessed red: expected `a&amp;amp;b` (once), received `a&amp;amp;amp;b` (twice) —
+        // escapeAttr has no parse-side inverse, so each round grows an escape layer.
         test("stringify(parse(xml)) is idempotent", () => {
             const xml = `<scene>
-    <a id="first" />
+    <a id="a&amp;b" />
     <a id="second" />
     <a id="third" />
 </scene>`;
             const once = stringify(parse(xml));
             const twice = stringify(parse(once));
             expect(twice).toBe(once);
+        });
+
+        // RED witnessed: escapeAttr escapes & → &amp; but parse never decodes &amp; back to &.
+        // Witnessed red: expected `a&amp;b`, received `a&amp;amp;b` — one round grows an escape
+        // layer, so a formatter write-back (parse → stringify) corrupts well-formed scenes.
+        test("stringify(parse(xml)) preserves escaped attribute text", () => {
+            const src = '<scene>\n    <a id="a&amp;b" />\n</scene>';
+            expect(stringify(parse(src))).toBe(src);
         });
     });
 
