@@ -1,4 +1,4 @@
-# Migrating from 0.8 to 0.9.3
+# Migrating from 0.8 to 0.9.4
 
 This port touches GPU code only: the ECS, scene, and ordinary component APIs keep their 0.8 shape. What moves is the GPU substrate. Layouts now come from TypeGPU schemas, custom shaders use TGSL, and render registries carry typed resources.
 
@@ -11,7 +11,7 @@ Already on 0.9.0 or 0.9.1? You need none of the GPU-substrate port: the TypeGPU 
 Install the engine and its TypeGPU peer at the same time. Keep TypeGPU on the 0.12 minor used by Shallot; two copies in one bundle race over the same metadata map. The TypeGPU plugin versions move with the library, never independently.
 
 ```bash
-bun add @dylanebert/shallot@^0.9.3 typegpu@~0.12.0
+bun add @dylanebert/shallot@^0.9.4 typegpu@~0.12.0
 bun add -d unplugin-typegpu@~0.12.1 eslint@^9 eslint-plugin-typegpu@~0.12.0
 bun add -d @babel/core@^7.28.6 @babel/eslint-parser@^7.28.6 @babel/plugin-syntax-typescript@^7.28.5
 ```
