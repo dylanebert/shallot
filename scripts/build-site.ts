@@ -1,0 +1,279 @@
+import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { Glob } from "bun";
+import { type DemoEntry, ROSTER } from "../site/roster";
+
+// `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
+// then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
+// /tmp with two files rewritten: a standalone `package.json` pinning `@dylanebert/shallot` to the
+// release version (every other dep carried over as authored — those are the consumer's own pins),
+// and a standalone `tsconfig.json` (the in-repo one extends a repo-root path that doesn't exist
+// outside the workspace). The scratch tree installs against npm and builds with `shallot build`,
+// so the artifact is a real published-consumer build — not a workspace build that silently carries
+// gitignored wasm the clean path does not (the Locked decision's measured fact).
+//
+// The page itself is static HTML: system monospace, no web fonts, no JS, one small style block,
+// readable at 360px. Each row carries a play link to the built demo and a code link to the
+// version-pinned tag path on GitHub. The page labels what it was built from (version plus ref).
+
+const root = resolve(import.meta.dir, "..");
+const showcaseDir = resolve(root, "examples/showcase");
+const outDir = resolve(root, "out/site");
+
+async function main(): Promise<void> {
+    const args = process.argv.slice(2);
+    if (args.includes("--help") || args.includes("-h")) {
+        console.log(`Usage: bun run site [--demo <slug>]
+
+Builds every showcase demo as an ejected consumer of the published @dylanebert/shallot,
+assembles out/site/<slug>/ per demo, and emits out/site/index.html.
+
+Options:
+  --demo <slug>   Build a single demo by its roster slug`);
+        process.exit(0);
+    }
+
+    const idx = args.indexOf("--demo");
+    const only = idx !== -1 ? args[idx + 1] : undefined;
+    if (only && !ROSTER.some((d) => d.slug === only)) {
+        console.error(`no demo "${only}" — one of: ${ROSTER.map((d) => d.slug).join(", ")}`);
+        process.exit(2);
+    }
+
+    const pkg = (await Bun.file(resolve(root, "packages/shallot/package.json")).json()) as {
+        version: string;
+    };
+    const version = pkg.version;
+
+    const ref = Bun.spawnSync(["git", "rev-parse", "--short", "HEAD"], { cwd: root });
+    const refShort = ref.stdout.toString().trim() || "unknown";
+
+    const demos = only ? ROSTER.filter((d) => d.slug === only) : ROSTER;
+
+    // clean + recreate the output dir
+    rmSync(outDir, { recursive: true, force: true });
+    mkdirSync(outDir, { recursive: true });
+
+    const sizes: { slug: string; size: string }[] = [];
+
+    for (const demo of demos) {
+        const slug = demo.slug;
+        const srcDir = resolve(showcaseDir, slug);
+        if (!existsSync(srcDir)) {
+            console.error(`✗ showcase dir not found: ${srcDir}`);
+            process.exit(1);
+        }
+
+        // scratch tree under /tmp — the eject/install/build happens outside the workspace
+        const scratch = join(tmpdir(), `shallot-site-${slug}-${Date.now()}`);
+        mkdirSync(scratch, { recursive: true });
+
+        try {
+            console.log(`\n=== ${slug} ===`);
+
+            // copy the showcase dir verbatim (node_modules/dist excluded by the dir's own .gitignore
+            // patterns — but a fresh worktree has none, so just copy everything except those)
+            cpSync(srcDir, scratch, {
+                recursive: true,
+                filter: (s) => !s.includes("node_modules") && !s.includes("/dist"),
+            });
+
+            // rewrite package.json: pin @dylanebert/shallot to the release version, carry every
+            // other dep over as authored
+            const demoPkg = (await Bun.file(resolve(scratch, "package.json")).json()) as {
+                dependencies?: Record<string, string>;
+                devDependencies?: Record<string, string>;
+                [key: string]: unknown;
+            };
+            if (demoPkg.dependencies?.["@dylanebert/shallot"]) {
+                demoPkg.dependencies["@dylanebert/shallot"] = version;
+            }
+            writeFileSync(
+                resolve(scratch, "package.json"),
+                `${JSON.stringify(demoPkg, null, 4)}\n`,
+            );
+
+            // rewrite tsconfig.json: standalone (the in-repo one extends a repo-root path that
+            // doesn't exist outside the workspace). Inline the compilerOptions from the root
+            // tsconfig.json, minus the workspace-only `paths` mapping.
+            writeFileSync(resolve(scratch, "tsconfig.json"), `${standaloneTsconfig()}\n`);
+
+            // install against the published package from npm
+            console.log(`  installing...`);
+            const install = Bun.spawnSync(["bun", "install"], {
+                cwd: scratch,
+                stdout: "inherit",
+                stderr: "inherit",
+            });
+            if (install.exitCode !== 0) {
+                console.error(`✗ install failed for ${slug}`);
+                process.exit(1);
+            }
+
+            // build with the published CLI
+            console.log(`  building...`);
+            const build = Bun.spawnSync(["bunx", "shallot", "build"], {
+                cwd: scratch,
+                stdout: "inherit",
+                stderr: "inherit",
+            });
+            if (build.exitCode !== 0) {
+                console.error(`✗ build failed for ${slug}`);
+                process.exit(1);
+            }
+
+            // assemble out/site/<slug>/ from dist/
+            const dist = resolve(scratch, "dist");
+            if (!existsSync(dist)) {
+                console.error(`✗ no dist/ produced for ${slug}`);
+                process.exit(1);
+            }
+            const demoOut = resolve(outDir, slug);
+            cpSync(dist, demoOut, { recursive: true });
+
+            const sizeBytes = dirSize(demoOut);
+            sizes.push({ slug, size: formatSize(sizeBytes) });
+            console.log(`  done — ${formatSize(sizeBytes)}`);
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
+    }
+
+    // emit the site index
+    writeFileSync(resolve(outDir, "index.html"), siteIndex(demos, version, refShort));
+
+    const total = sizes.reduce((sum, s) => sum + parseSize(s.size), 0);
+    console.log(`\n=== summary ===`);
+    for (const { slug, size } of sizes) {
+        console.log(`  ${slug}: ${size}`);
+    }
+    console.log(`  total: ${formatSize(total)}`);
+    console.log(`\n  index: ${resolve(outDir, "index.html")}`);
+    console.log(`  built from: v${version} (${refShort})`);
+}
+
+// The standalone tsconfig — the root tsconfig.json's compilerOptions inlined, minus the
+// workspace-only `paths` mapping (the published package resolves through node_modules, not
+// a repo-relative alias). `@webgpu/types` is a dependency of the published package, so it
+// resolves in the ejected install.
+function standaloneTsconfig(): string {
+    return JSON.stringify(
+        {
+            compilerOptions: {
+                lib: ["ESNext", "DOM"],
+                target: "ESNext",
+                module: "ESNext",
+                moduleDetection: "force",
+                allowJs: true,
+                moduleResolution: "bundler",
+                verbatimModuleSyntax: true,
+                resolveJsonModule: true,
+                noEmit: true,
+                strict: true,
+                skipLibCheck: true,
+                noFallthroughCasesInSwitch: true,
+                noImplicitOverride: true,
+                noUnusedLocals: false,
+                noUnusedParameters: false,
+                noPropertyAccessFromIndexSignature: false,
+                types: ["@webgpu/types"],
+            },
+        },
+        null,
+        4,
+    );
+}
+
+function dirSize(dir: string): number {
+    let total = 0;
+    const glob = new Glob("**/*");
+    for (const path of glob.scanSync({ cwd: dir, onlyFiles: true })) {
+        total += Bun.file(join(dir, path)).size;
+    }
+    return total;
+}
+
+function formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes}B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}K`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)}M`;
+}
+
+function parseSize(s: string): number {
+    const m = s.match(/^([\d.]+)([KMB]?)$/);
+    if (!m) return 0;
+    const n = Number(m[1]);
+    const unit = m[2];
+    if (unit === "K") return n * 1024;
+    if (unit === "M") return n * 1024 * 1024;
+    return n;
+}
+
+function siteIndex(demos: DemoEntry[], version: string, ref: string): string {
+    const codeUrl = (slug: string) =>
+        `https://github.com/dylanebert/shallot/tree/v${version}/examples/showcase/${slug}`;
+
+    const rows = demos
+        .map((d) => {
+            const play = `./${d.slug}/`;
+            const code = codeUrl(d.slug);
+            return `            <tr>
+                <td><a href="${play}">${d.title}</a></td>
+                <td>${d.blurb}</td>
+                <td><a href="${code}">code</a></td>
+            </tr>`;
+        })
+        .join("\n");
+
+    return `<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>shallot — demos</title>
+        <style>
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
+                background: #0c0a09;
+                color: #e6e0d8;
+                font-family: ui-monospace, "SF Mono", "Cascadia Mono", "Menlo", "Consolas", monospace;
+                padding: 1.25rem 1rem 3rem;
+                line-height: 1.5;
+            }
+            h1 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
+            .meta { color: #8a8078; font-size: 0.8rem; margin-bottom: 1rem; }
+            .warn { color: #c9a227; font-size: 0.8rem; margin-bottom: 1.25rem; }
+            table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+            td { padding: 0.45rem 0.6rem 0.45rem 0; vertical-align: top; }
+            tr { border-bottom: 1px solid #1e1a16; }
+            tr:last-child { border-bottom: none; }
+            a { color: #6cb6ff; text-decoration: none; }
+            a:hover { text-decoration: underline; }
+            td:first-child { white-space: nowrap; }
+            td:last-child { white-space: nowrap; text-align: right; }
+            td:nth-child(2) { color: #b0a8a0; }
+            @media (max-width: 360px) {
+                body { padding: 1rem 0.75rem 2rem; }
+                td { padding: 0.4rem 0.4rem 0.4rem 0; }
+            }
+        </style>
+    </head>
+    <body>
+        <h1>shallot</h1>
+        <p class="meta">v${version} · ${ref}</p>
+        <p class="warn">WebGPU required — Chrome, Edge, or Safari 26+ on desktop.</p>
+        <table>
+            <tbody>
+${rows}
+            </tbody>
+        </table>
+    </body>
+</html>
+`;
+}
+
+main().catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exit(1);
+});
