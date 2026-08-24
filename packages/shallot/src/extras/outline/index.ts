@@ -449,10 +449,9 @@ function prepareOutline(): void {
  * synchronously, so Dawn defers the real compile — and the outline's passes run every frame a
  * highlight exists, which would put that stall on whichever frame the first hover lands. Their real bind
  * groups need per-camera targets that don't exist until a view attaches, so each forcer allocates its own
- * 1×1 stand-ins and binds. The stand-ins are destroyed right after, like glaze's: the drain awaits
- * `initAsync` on the bound pipeline, and a destroyed resource's allocation stays alive until the
- * submission it was recorded into completes. Waiting on `onSubmittedWorkDone` instead would leak
- * all four whenever the device is torn down before the promise settles.
+ * 1×1 stand-ins and binds. Destroying them before the drain is safe because `initAsync` only compiles
+ * the pipeline — it records and submits nothing, so compilation never reads the bind groups the
+ * stand-ins were bound into.
  */
 function forceCompile(): void {
     const stand = (format: GPUTextureFormat, usage: number) =>
