@@ -117,6 +117,19 @@ export function verifyDiagnostic(result: VerifyResult | null): string {
         fields.push("verdict=absent");
     }
     fields.push(result.memory !== undefined ? "memory=present" : "memory=absent");
+    // the render probe — the pixel evidence behind the `rendered` verdict. A blank-render red (the
+    // reading this exists for) carries its measurement here: samples taken, the last centre/corner RGB,
+    // the spread against `structured`'s threshold, elapsed, and how the wait concluded. When no probe
+    // was captured at all (a crash before the settle path ran), the fault stays named under its own
+    // shape — never an empty container a future reader can dismiss.
+    if (result.renderProbe) {
+        const p = result.renderProbe;
+        fields.push(
+            `renderProbe={samples=${p.samples}, center=[${p.center ?? "null"}], corner=[${p.corner ?? "null"}], spread=${p.spread ?? "null"}, threshold=${p.threshold}, elapsed=${p.elapsed}ms, outcome=${p.outcome}}`,
+        );
+    } else {
+        fields.push("renderProbe=absent");
+    }
     return `instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts); failed predicates: ${failed.join(", ")}; ${fields.join(", ")}`;
 }
 
@@ -1375,9 +1388,7 @@ if (import.meta.main) {
                 check(
                     "a real browser boots the installed engine and warms its pipelines",
                     result?.pass === true && result.booted === true && result.rendered === true,
-                    result
-                        ? JSON.stringify(result.errors ?? result.error ?? result)
-                        : "no verify result",
+                    verifyDiagnostic(result),
                 );
             }
             await teardownBridge();

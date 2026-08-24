@@ -44,6 +44,7 @@ import {
     type MemorySample,
     parseVerifyArgs,
     RESOURCE_BUFFER,
+    type RenderProbe,
     type ResourceEntry,
     type Result,
     report,
@@ -1713,7 +1714,7 @@ describe("verifyDiagnostic — the ejected boot arm's diagnostic reporter", () =
         expect(diag).toBe(
             "instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts); " +
                 "failed predicates: pass===true, rendered===true; " +
-                "pass=false, booted=true, rendered=false, hardware=apple / metal / apple m2 / apple m2, verdict=absent, memory=absent",
+                "pass=false, booted=true, rendered=false, hardware=apple / metal / apple m2 / apple m2, verdict=absent, memory=absent, renderProbe=absent",
         );
     });
 
@@ -1824,6 +1825,254 @@ describe("verifyDiagnostic — the ejected boot arm's diagnostic reporter", () =
         // the correct version DOES report it with field state
         expect(correct).toContain("instrument fault");
         expect(correct).toContain("failed predicates");
+        // the arm discriminates: the broken and correct outputs differ
+        expect(broken).not.toBe(correct);
+    });
+});
+
+// S4: the render probe on verify's Result — the pixel evidence behind the `rendered` verdict. The
+// settle path records samples taken, the last centre/corner RGB, the spread against `structured`'s
+// threshold, the elapsed wait, and how the wait concluded; `verifyDiagnostic`'s instrument-fault branch
+// prints it so a blank-render red carries its measurement rather than printing `[]`. These arms feed
+// synthetic `VerifyResult` values carrying a `renderProbe` through the instrument-fault branch, pinning
+// that each settle state names its measurement. The two-sided vacuity reading — a red carrying no probe
+// AND no diagnostic still reports as a named instrument fault under its own name — pins that the
+// probe's absence is named, never an empty container. The red-when-broken witness (revert-the-behavior)
+// is run inline: a mutated copy of `verifyDiagnostic` with the probe-printing branch removed drops the
+// measurement, proving the arms discriminate.
+describe("verifyDiagnostic — the render probe in the instrument-fault branch", () => {
+    /** construct a minimal VerifyResult with the given overrides. */
+    const mk = (overrides: Partial<VerifyResult>): VerifyResult => ({
+        pass: false,
+        ...overrides,
+    });
+
+    /** a probe with spread just under `structured`'s threshold — the blank-render red's own reading. */
+    const underThreshold: RenderProbe = {
+        samples: 42,
+        center: [10, 10, 10],
+        corner: [14, 12, 11],
+        spread: 7, // |10-14| + |10-12| + |10-11| = 4+2+1 = 7, under 12
+        threshold: 12,
+        elapsed: 30000,
+        outcome: "timeout",
+    };
+
+    /** a probe with spread over threshold — the frame showed structure but never settled. */
+    const overThreshold: RenderProbe = {
+        samples: 60,
+        center: [200, 100, 50],
+        corner: [10, 10, 10],
+        spread: 320, // |200-10| + |100-10| + |50-10| = 190+90+40 = 320, over 12
+        threshold: 12,
+        elapsed: 30000,
+        outcome: "timeout",
+    };
+
+    /** a probe with zero samples — no canvas was ever capturable. */
+    const zeroSamples: RenderProbe = {
+        samples: 0,
+        center: null,
+        corner: null,
+        spread: null,
+        threshold: 12,
+        elapsed: 30000,
+        outcome: "timeout",
+    };
+
+    test("a blank-render red (spread under threshold) carries its probe measurement", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "apple / metal / apple m2 / apple m2",
+            errors: [],
+            renderProbe: underThreshold,
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("failed predicates: pass===true, rendered===true");
+        // the probe's measurement is printed
+        expect(diag).toContain("renderProbe={samples=42");
+        expect(diag).toContain("spread=7");
+        expect(diag).toContain("threshold=12");
+        expect(diag).toContain("elapsed=30000ms");
+        expect(diag).toContain("outcome=timeout");
+        // the last centre/corner RGB is printed
+        expect(diag).toContain("center=[10,10,10]");
+        expect(diag).toContain("corner=[14,12,11]");
+    });
+
+    test("a red with spread over threshold carries its probe measurement", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: true, // structure was seen but never settled
+            hardware: "apple / metal / apple m2 / apple m2",
+            errors: [],
+            renderProbe: overThreshold,
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("renderProbe={samples=60");
+        expect(diag).toContain("spread=320");
+        expect(diag).toContain("outcome=timeout");
+    });
+
+    test("a red with zero samples carries the null probe measurement", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "unknown",
+            errors: [],
+            renderProbe: zeroSamples,
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("renderProbe={samples=0");
+        expect(diag).toContain("center=[null]");
+        expect(diag).toContain("corner=[null]");
+        expect(diag).toContain("spread=null");
+        expect(diag).toContain("outcome=timeout");
+    });
+
+    test("a red carrying no probe and no diagnostic still reports as a named instrument fault", () => {
+        // the two-sided vacuity reading: no probe, no diagnostic — the fault is named under its own
+        // shape, never an empty container a future reader can dismiss
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "apple / metal / apple m2 / apple m2",
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("renderProbe=absent");
+        expect(diag).toContain("failed predicates: pass===true, rendered===true");
+        // the probe's absence is named, not silently dropped
+        expect(diag).not.toContain("renderProbe={");
+    });
+
+    test("a red with a harness-path probe (outcome=harness) carries its measurement", () => {
+        const probe: RenderProbe = {
+            samples: 3, // wait-loop + ready + post
+            center: [0, 0, 0],
+            corner: [0, 0, 0],
+            spread: 0,
+            threshold: 12,
+            elapsed: 5000,
+            outcome: "harness",
+        };
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "apple / metal / apple m2 / apple m2",
+            errors: [],
+            renderProbe: probe,
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("renderProbe={samples=3");
+        expect(diag).toContain("spread=0");
+        expect(diag).toContain("outcome=harness");
+    });
+
+    test("a red with a settled probe (outcome=settled) carries its measurement", () => {
+        const probe: RenderProbe = {
+            samples: 5,
+            center: [100, 80, 60],
+            corner: [20, 20, 20],
+            spread: 180,
+            threshold: 12,
+            elapsed: 3000,
+            outcome: "settled",
+        };
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: true, // settled but pass is still false (e.g. page errors)
+            hardware: "test-gpu",
+            errors: [],
+            renderProbe: probe,
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("renderProbe={samples=5");
+        expect(diag).toContain("spread=180");
+        expect(diag).toContain("outcome=settled");
+    });
+
+    // RED-WHEN-BROKEN WITNESS: a mutated copy of verifyDiagnostic with the probe-printing branch
+    // removed (the `renderProbe` field state replaced with a bare `renderProbe=absent` regardless of
+    // whether a probe was carried) must drop the measurement, proving the arms discriminate the
+    // probe-printing branch. If the arms still passed with the branch broken, they would pin nothing
+    // about the probe's content.
+    test("red-when-broken: removing the probe-printing branch drops the measurement", () => {
+        // the production function, with the probe-printing branch replaced — the defect these arms
+        // exist to catch
+        function brokenVerifyDiagnostic(result: VerifyResult | null): string {
+            if (!result) return "no verify result";
+            const errors = result.errors ?? [];
+            if (errors.length > 0) return errors.join(" | ");
+            if (result.error) return result.error;
+            if (result.pass) return "pass";
+            const failedChecks = (result.verdict?.checks ?? []).filter((c) => !c.ok);
+            if (failedChecks.length > 0) return JSON.stringify(failedChecks);
+            const artifacts = result.artifacts ?? [];
+            const diagArtifacts = artifacts.filter(
+                (a: ShaderArtifactSummary) =>
+                    a.compilationError || (a.messages && a.messages.length > 0),
+            );
+            if (diagArtifacts.length > 0)
+                return JSON.stringify(
+                    diagArtifacts.map((a) => ({
+                        label: a.label,
+                        compilationError: a.compilationError,
+                        messages: a.messages,
+                    })),
+                );
+            const failed: string[] = [];
+            failed.push("pass===true");
+            if (result.booted !== true) failed.push("booted===true");
+            if (result.rendered !== true) failed.push("rendered===true");
+            const fields: string[] = [
+                `pass=${result.pass}`,
+                `booted=${result.booted ?? "undefined"}`,
+                `rendered=${result.rendered ?? "undefined"}`,
+                `hardware=${result.hardware ?? "undefined"}`,
+            ];
+            if (result.verdict) {
+                fields.push(`verdict.ok=${result.verdict.ok ?? "undefined"}`);
+                fields.push(`verdict.checks=${result.verdict.checks?.length ?? 0}`);
+            } else {
+                fields.push("verdict=absent");
+            }
+            fields.push(result.memory !== undefined ? "memory=present" : "memory=absent");
+            // THE BROKEN BRANCH: the probe-printing block is replaced with a bare absent — the
+            // measurement is silently dropped regardless of whether a probe was carried.
+            fields.push("renderProbe=absent");
+            return `instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts); failed predicates: ${failed.join(", ")}; ${fields.join(", ")}`;
+        }
+
+        const withProbe = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "test-gpu",
+            errors: [],
+            renderProbe: underThreshold,
+        });
+        const broken = brokenVerifyDiagnostic(withProbe);
+        const correct = verifyDiagnostic(withProbe);
+
+        // the broken version drops the measurement — it reports absent even though a probe was carried
+        expect(broken).toContain("renderProbe=absent");
+        expect(broken).not.toContain("renderProbe={");
+        expect(broken).not.toContain("spread=7");
+        // the correct version carries the measurement
+        expect(correct).toContain("renderProbe={");
+        expect(correct).toContain("spread=7");
         // the arm discriminates: the broken and correct outputs differ
         expect(broken).not.toBe(correct);
     });

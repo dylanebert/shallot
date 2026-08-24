@@ -55,6 +55,33 @@ export interface VerifyResult {
      *  (compilation errors, validation messages) the page captured. The driver surfaces this so a
      *  red with empty `errors` still names its diagnostic rather than printing `[]`. */
     artifacts?: ShaderArtifactSummary[];
+    /** the render probe — samples taken, last centre/corner RGB, spread against `structured`'s
+     *  threshold, elapsed wait, and how the wait concluded — so a blank-render red carries its
+     *  measurement rather than printing `[]`. Absent on a setup failure (a crash before the settle
+     *  path ran emits `{ pass:false, error }` with no probe). */
+    renderProbe?: RenderProbe;
+}
+
+/** the render probe `verify`'s settle path records on its Result — the pixel evidence behind the
+ *  `rendered` verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and
+ *  the spread against `structured`'s threshold, the elapsed wait, and how the wait concluded — so a
+ *  blank-render red names its measurement rather than printing `[]`. */
+export interface RenderProbe {
+    /** frame samples the wait loop captured (non-null `sampleFrame` returns). */
+    samples: number;
+    /** last centre RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
+    center: number[] | null;
+    /** last corner RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
+    corner: number[] | null;
+    /** the centre-vs-corner spread (sum of abs channel diffs) of the last sample, or null. */
+    spread: number | null;
+    /** the threshold `structured` gates on (the `12` in `hasStructure`). */
+    threshold: number;
+    /** elapsed milliseconds from the first poll to the wait outcome. */
+    elapsed: number;
+    /** how the wait concluded: `harness` (window.__harness appeared), `settled` (two consecutive
+     *  structured shots below the diff epsilon), or `timeout` (the deadline expired). */
+    outcome: "harness" | "settled" | "timeout";
 }
 
 /** the minimal slice of `bin/verify.ts`'s `ShaderArtifact` a driver reads for diagnostics. */
