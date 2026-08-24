@@ -606,7 +606,7 @@ interface PostRecord {
 }
 
 /** one-shot GPU→CPU readback of the posts buffer — the device gate's readback arm. Mirrors the
- *  the `gpu-particles` recipe's `readParticles` and `terrain.ts`'s `readVertices`; an assert-only bridge, never a
+ *  `gpu-particles` recipe's `readParticles` and `terrain.ts`'s `readVertices`; an assert-only bridge, never a
  *  per-frame readback. */
 async function readPosts(): Promise<PostRecord[]> {
     if (!postsRaw) throw new Error("posts: readPosts before warmPosts");
