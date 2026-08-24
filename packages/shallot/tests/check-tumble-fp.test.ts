@@ -159,10 +159,70 @@ describe("sweepLiterals — red-first proof on a fixture tree", () => {
         const findings = await sweepLiterals(root);
         expect(findings).toHaveLength(0);
     });
+
+    // Rule 1a's own named example: a non-exact fraction built from individually-exact literals
+    // (`1`, `3`), fused with a further operator in the same wrap. Neither `1` nor `3` alone fails
+    // the old per-operand exactness check, so a predicate that only tests each split operand's own
+    // value misses this shape entirely.
+    test("flags a non-exact fraction of exact literals fused with a further operator", async () => {
+        const root = fixture({
+            "fake/fraction.ts": "export const bad = f32(1 / 3 * mass);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(1);
+        if (findings[0].kind === "literal") {
+            expect(findings[0].literals).toEqual(["1", "3"]);
+        }
+    });
+
+    // Two-sided control: the same shape, but the fraction (1/4 = 0.25) is exactly representable —
+    // must stay silent.
+    test("does not flag an exact fraction fused with a further operator", async () => {
+        const root = fixture({
+            "fake/fraction.ts": "export const ok = f32(1 / 4 * mass);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(0);
+    });
+
+    // A bare fraction of individually-exact literals, with nothing further fused in the same wrap,
+    // is exactly the correct place to round it (the double-rounding theorem covers a two-operand op
+    // whose operands are already f32-valued) — must stay silent, unlike the fused case above.
+    test("does not flag a bare fraction of exact literals with no further fused operator", async () => {
+        const root = fixture({
+            "fake/fraction.ts": "export const ok = f32(1 / 3);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(0);
+    });
+
+    // A literal nested one paren-level deeper than the f32(...) call's own top level — the old
+    // predicate only inspected the top-level split's own operands, so a literal hiding inside a
+    // parenthesized sub-expression at that level was invisible.
+    test("flags a non-exact literal nested one paren-level deeper than the wrap's top level", async () => {
+        const root = fixture({
+            "fake/nested.ts": "export const bad = f32((0.4 * mass) + 1);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(1);
+        if (findings[0].kind === "literal") {
+            expect(findings[0].literals).toEqual(["0.4"]);
+        }
+    });
+
+    // Two-sided control: the same nested shape, but the nested literal (0.5) is exact — must stay
+    // silent.
+    test("does not flag an exact literal nested one paren-level deeper than the wrap's top level", async () => {
+        const root = fixture({
+            "fake/nested.ts": "export const ok = f32((0.5 * mass) + 1);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(0);
+    });
 });
 
 describe("sweepTrig — the allowlist arm", () => {
-    test("a synthetic third Math.sin site outside the allowlist reds", async () => {
+    test("a synthetic Math.sin site outside the allowlist reds", async () => {
         const root = fixture({
             "fake/other.ts": "export const h = f32(Math.sin(x));\n",
         });
