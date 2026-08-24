@@ -272,8 +272,10 @@ describe("eval gate surface — mechanism (green: S1)", () => {
     // only check that stays green with the target deleted is not what this arm
     // is.
     //
-    // Pre-fix reading (this round): 6 gates, each importing from
-    // `harness/lib`; `lib.ts` exports 11 names; every imported name resolves.
+    // Reading at S2 (the count moves with each stage that adds an owner, so
+    // it is a convenience, not a claim this arm makes): 6 gates, each
+    // importing from `harness/lib`; `lib.ts` exports 12 names — 11 at S1 plus
+    // the boot budget S2 added; every imported name resolves.
     test("each gate's harness/lib imports resolve against lib.ts's export set", () => {
         const root = evalRoot();
         const gates = gateFiles(root);
