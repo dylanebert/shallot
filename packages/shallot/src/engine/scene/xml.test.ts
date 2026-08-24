@@ -346,18 +346,25 @@ describe("XML", () => {
 
         // RED witnessed: parseNumber treats #fff as parseInt("fff", 16) = 4095 (a 12-bit int)
         // instead of expanding to the 24-bit 0xffffff or rejecting as null. Witnessed red:
-        // expected not 4095, received 4095. The spec leaves expand-vs-reject to S2's executor,
-        // so the arm asserts "never 4095" rather than pinning one of the two acceptable answers.
-        test("#rgb shorthand never silently parses as a 12-bit integer", () => {
+        // expected 0xffffff or null, received 4095.
+        //
+        // The spec leaves expand-vs-reject to S2's executor, so this asserts the *disjunction*
+        // of the two acceptable answers rather than pinning one. It is deliberately not the
+        // weaker `not.toBe(4095)`: that form is satisfied by `undefined`, a thrown-and-swallowed
+        // parse, or any garbage value, so S2 could green it without expanding or rejecting
+        // anything (`checks.md`: a criterion a shipped commit can satisfy without fixing the
+        // defect is not a criterion). The matcher below can only go green on a real fix, and it
+        // discriminates *which* fix landed without caring which one S2 picks.
+        test("#rgb shorthand expands to 24-bit or is rejected, never a 12-bit integer", () => {
             const Part = { color: [] as number[] };
             register("part", Part, { defaults: () => ({ color: 0 }) });
-            let result: number | undefined;
+            let result: string | number | null | undefined;
             try {
                 result = parseFields("part", "color: #fff").color;
             } catch {
                 result = undefined;
             }
-            expect(result).not.toBe(4095);
+            expect(result === 0xffffff || result === null).toBe(true);
         });
 
         test("errors on unknown component", () => {
