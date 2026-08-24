@@ -213,6 +213,27 @@ describe("RouteSystem", () => {
         expect(LiveSkin.blocks.has(eid)).toBe(false); // the block is freed, not leaked
     });
 
+    test("a live entity swapped to a VAT-skinned handle frees its palette block", () => {
+        routes.set(
+            8,
+            handle({ mesh: 8, surface: liveSurf, live: true, material: 4, jointCount: 3 }),
+        );
+        routes.set(
+            6,
+            handle({ mesh: 6, surface: skinSurf, skinned: true, material: 3, duration: 2.5 }),
+        );
+        const state = new State();
+        const eid = partEntity(state, 8);
+        RouteSystem.update!(state);
+        expect(LiveSkin.blocks.has(eid)).toBe(true);
+
+        Part.mesh.set(eid, 6); // swap to a VAT-skinned handle
+        RouteSystem.update!(state);
+
+        expect(state.has(eid, Skin)).toBe(true);
+        expect(LiveSkin.blocks.has(eid)).toBe(false); // the block is freed, not leaked
+    });
+
     test("a mesh edited off a glTF handle drops the decorations and the routed surface", () => {
         routes.set(5, handle({ textured: true, material: 7 }));
         const state = new State();

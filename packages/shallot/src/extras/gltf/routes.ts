@@ -123,6 +123,9 @@ export const RouteSystem: System = {
                 Part.surface.set(eid, handle.surface);
             }
             if (handle.skinned) {
+                // a live→VAT swap frees the prior live palette block (a no-op for an entity that never
+                // allocated one — `dropSkin`'s own comment certifies `LiveSkin.free` safe on a VAT entity)
+                LiveSkin.free(eid);
                 if (!state.has(eid, Skin)) state.add(eid, Skin);
                 if (Skin.anim.y.get(eid) !== handle.material) Skin.anim.y.set(eid, handle.material);
                 // fround: the slab stores f32, the handle holds the f64 bake — compare in f32 or the
