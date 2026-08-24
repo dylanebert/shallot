@@ -341,7 +341,6 @@ export async function createSceneBounds(
         ["finalize", finalizeBound],
     ] as const) {
         await precompile(`${scope}-${label}`, () => {
-            bound.dispatchWorkgroups(0);
             return bound;
         });
     }

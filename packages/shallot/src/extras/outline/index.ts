@@ -470,10 +470,10 @@ function forceCompile(): void {
             seed: src.createView(),
             step: _gpu.steps[0],
         });
-        _gpu.jfa!.with(group).withColorAttachment({ view: dst.createView() }).draw(0);
+        const bound = _gpu.jfa!.with(group).withColorAttachment({ view: dst.createView() });
         src.destroy();
         dst.destroy();
-        return _gpu.jfa;
+        return bound;
     });
 
     precompile("outline-composite", () => {
@@ -487,12 +487,12 @@ function forceCompile(): void {
             attr: attr.createView(),
             output: out.createView(),
         });
-        _gpu.composite!.with(group).dispatchWorkgroups(0);
+        const bound = _gpu.composite!.with(group);
         scene.destroy();
         seed.destroy();
         attr.destroy();
         out.destroy();
-        return _gpu.composite;
+        return bound;
     });
 
     // the mask buffers (position/indices/transforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
@@ -522,12 +522,10 @@ function forceCompile(): void {
             maskAttrs: attrs,
             meshQuant: quant,
         });
-        _gpu.maskPlain!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            })
-            .draw(0);
+        const bound = _gpu.maskPlain!.with(group).withColorAttachment({
+            seed: { view: seed.createView() },
+            attr: { view: attr.createView() },
+        });
         position.destroy();
         indices.destroy();
         transformsBuf.destroy();
@@ -536,7 +534,7 @@ function forceCompile(): void {
         quant.destroy();
         seed.destroy();
         attr.destroy();
-        return _gpu.maskPlain;
+        return bound;
     });
 
     precompile("outline-mask-occlude", () => {
@@ -559,12 +557,10 @@ function forceCompile(): void {
             meshQuant: quant,
             sceneDepth: depth.createView(),
         });
-        _gpu.maskOcclude!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            })
-            .draw(0);
+        const bound = _gpu.maskOcclude!.with(group).withColorAttachment({
+            seed: { view: seed.createView() },
+            attr: { view: attr.createView() },
+        });
         position.destroy();
         indices.destroy();
         transformsBuf.destroy();
@@ -574,7 +570,7 @@ function forceCompile(): void {
         seed.destroy();
         attr.destroy();
         depth.destroy();
-        return _gpu.maskOcclude;
+        return bound;
     });
 }
 

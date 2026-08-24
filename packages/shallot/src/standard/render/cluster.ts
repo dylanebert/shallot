@@ -376,7 +376,6 @@ export function warmClusters(): void {
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
     precompile("shallot-cluster-aabbs", () => {
         const bound = bindGrid();
-        bound.dispatchWorkgroups(0);
         return bound;
     });
 }
@@ -844,12 +843,10 @@ export function warmLightCull(state: State): void {
     _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
     precompile("shallot-light-compact", () => {
         const bound = bindCompact();
-        bound.dispatchWorkgroups(0);
         return bound;
     });
     precompile("shallot-light-cull", () => {
         const bound = bindCull();
-        bound.dispatchWorkgroups(0);
         return bound;
     });
 }

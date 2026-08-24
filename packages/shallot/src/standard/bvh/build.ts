@@ -691,7 +691,6 @@ export async function createBuild(
         ["sweep", sweepAB],
     ] as const) {
         await precompile(`${scope}-${label}`, () => {
-            bound.dispatchWorkgroups(0);
             return bound;
         });
     }

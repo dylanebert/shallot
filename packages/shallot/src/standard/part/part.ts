@@ -471,17 +471,14 @@ export function warmPart(state: State): void {
     precompile("shallot-part-count", () => {
         syncBuffers();
         const bound = bindCount();
-        bound?.dispatchWorkgroups(0);
         return bound;
     });
     precompile("shallot-part-scan", () => {
         const bound = bindScan();
-        bound?.dispatchWorkgroups(0);
         return bound;
     });
     precompile("shallot-part-scatter", () => {
         const bound = bindScatter();
-        bound?.dispatchWorkgroups(0);
         return bound;
     });
 }

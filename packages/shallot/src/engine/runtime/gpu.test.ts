@@ -940,12 +940,16 @@ describe("precompile", () => {
             events.push("pop");
             return null;
         };
-        device.queue.onSubmittedWorkDone = async () => {
-            events.push("fence");
-        };
         try {
             await requestGPU(device);
-            precompile("forward", () => events.push("force"));
+            precompile("forward", () => {
+                events.push("force");
+                return {
+                    initAsync: async () => {
+                        events.push("fence");
+                    },
+                };
+            });
             await precompileAll();
             expect(events).toEqual(["push:validation", "force", "fence", "pop"]);
         } finally {

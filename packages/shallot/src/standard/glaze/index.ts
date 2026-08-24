@@ -216,8 +216,6 @@ export const GlazePlugin: Plugin = {
                     output: dst.createView(),
                 }),
             );
-            bound.dispatchWorkgroups(0);
-            // the dispatch is already submitted and ran no invocation, so the throwaways are dead here
             src.destroy();
             dst.destroy();
             return bound;

@@ -272,8 +272,6 @@ export const FogPlugin: Plugin = {
                 fog: _fog.buffer!,
             });
             const bound = _fog.pipeline!.with(group0).with(fogLights());
-            bound.dispatchWorkgroups(0);
-            // the dispatch is already submitted and ran no invocation, so the throwaways are dead here
             src.destroy();
             depth.destroy();
             dst.destroy();

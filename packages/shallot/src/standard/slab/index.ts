@@ -384,7 +384,6 @@ export class Slab {
             forced.add(key);
             const bound = s._bound;
             precompile(`slab-scatter-${key}`, () => {
-                bound.dispatchWorkgroups(0);
                 return bound;
             });
         }

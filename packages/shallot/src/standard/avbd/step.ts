@@ -4471,7 +4471,6 @@ export class PhysicsStep {
         // already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates its
         // own buffers must return the *dispatch* for that guard to fire.
         register(`${this._scope}-aabb`, () => {
-            this._aabbPipe.dispatchWorkgroups(0);
             return this._aabbPipe;
         });
         this._broadphasePipe = root
@@ -4487,7 +4486,6 @@ export class PhysicsStep {
             )
             .with(roRo.layout, this._sharedBG.roRo);
         register(`${this._scope}-broadphase`, () => {
-            this._broadphasePipe.dispatchWorkgroups(0);
             return this._broadphasePipe;
         });
         this._broadphaseSmallPipe = root
@@ -4503,14 +4501,12 @@ export class PhysicsStep {
             )
             .with(roRo.layout, this._sharedBG.roRo);
         register(`${this._scope}-broadphase-small`, () => {
-            this._broadphaseSmallPipe.dispatchWorkgroups(0);
             return this._broadphaseSmallPipe;
         });
         this._collidePipes = this._makeCollidePipes();
         for (const [i, label] of ["box", "rounded", "hull", "rounded-poly"].entries()) {
             register(`${this._scope}-collide-${label}`, () => {
                 const pipe = this._collidePipes[i];
-                pipe.dispatchWorkgroups(0);
                 return pipe;
             });
         }
@@ -4520,7 +4516,6 @@ export class PhysicsStep {
             .with(root.createBindGroup(inertialLayout, { eids: this.eids }))
             .with(rwRw.layout, this._sharedBG.rwRw);
         register(`${this._scope}-inertial`, () => {
-            this._inertialPipe.dispatchWorkgroups(0);
             return this._inertialPipe;
         });
         this._velocityPipe = root
@@ -4529,7 +4524,6 @@ export class PhysicsStep {
             .with(root.createBindGroup(velocityLayout, { eids: this.eids }))
             .with(rwRw.layout, this._sharedBG.rwRw);
         register(`${this._scope}-velocity`, () => {
-            this._velocityPipe.dispatchWorkgroups(0);
             return this._velocityPipe;
         });
         this._csrCountPipe = root
@@ -4538,7 +4532,6 @@ export class PhysicsStep {
             .with(root.createBindGroup(csrCountLayout, { csr: this.csr, eids: this.eids }))
             .with(roRo.layout, this._sharedBG.roRo);
         register(`${this._scope}-csr-count`, () => {
-            this._csrCountPipe.dispatchWorkgroups(0);
             return this._csrCountPipe;
         });
         this._csrScatterPipe = root
@@ -4553,7 +4546,6 @@ export class PhysicsStep {
             )
             .with(roRo.layout, this._sharedBG.roRo);
         register(`${this._scope}-csr-scatter`, () => {
-            this._csrScatterPipe.dispatchWorkgroups(0);
             return this._csrScatterPipe;
         });
         this._colorIdxBufs = [];
@@ -4583,7 +4575,6 @@ export class PhysicsStep {
         );
         register(`${this._scope}-commit`, () => {
             const pipe = this._commitColorPipes[0];
-            pipe.dispatchWorkgroups(0);
             return pipe;
         });
         this._dualPipe = root
@@ -4592,7 +4583,6 @@ export class PhysicsStep {
             .with(root.createBindGroup(dualLayout, { eids: this.eids }))
             .with(roRw.layout, this._sharedBG.roRw);
         register(`${this._scope}-dual`, () => {
-            this._dualPipe.dispatchWorkgroups(0);
             return this._dualPipe;
         });
         this._csrScanBG = device.createBindGroup({
@@ -4611,31 +4601,24 @@ export class PhysicsStep {
         // forcer, matching setHulls' growth policy for the collide pipes.
         register(`${this._scope}-primal`, () => {
             const pipe = this._primalColorPipes[0];
-            pipe.dispatchWorkgroups(0);
             return pipe;
         });
         register(`${this._scope}-solve-lds`, () => {
-            this._solveLdsPipe.dispatchWorkgroups(0);
             return this._solveLdsPipe;
         });
         register(`${this._scope}-coloring`, () => {
-            this._coloringPipe.dispatchWorkgroups(0);
             return this._coloringPipe;
         });
         register(`${this._scope}-repair`, () => {
-            this._repairPipe.dispatchWorkgroups(0);
             return this._repairPipe;
         });
         register(`${this._scope}-csr-color-small`, () => {
-            this._csrColorSmallPipe.dispatchWorkgroups(0);
             return this._csrColorSmallPipe;
         });
         register(`${this._scope}-joint-init`, () => {
-            this._jointInitPipe.dispatchWorkgroups(0);
             return this._jointInitPipe;
         });
         register(`${this._scope}-joint-dual`, () => {
-            this._jointDualPipe.dispatchWorkgroups(0);
             return this._jointDualPipe;
         });
     }
@@ -5761,7 +5744,6 @@ export class PhysicsStep {
             .with(roRo.layout, this._sharedBG.roRo);
         if (!this._composeCompiled) {
             const preparation = precompile(`${this._scope}-compose`, () => {
-                pipe.dispatchWorkgroups(0);
                 return pipe;
             }).then(() => {
                 this._composeCompiled = true;

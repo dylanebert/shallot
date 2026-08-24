@@ -179,7 +179,6 @@ export const TransformsPlugin: Plugin = {
         // plugin's warm has resolved, which is the first moment the buffers this reads are all up
         precompile("shallot-transforms-compose", () => {
             const bound = bind();
-            bound?.dispatchWorkgroups(0);
             return bound;
         });
     },
