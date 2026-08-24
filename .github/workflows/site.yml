@@ -88,9 +88,15 @@ jobs:
   # being explicitly true this job is skipped and the run is artifact-only. Do NOT remove or
   # broaden this condition. A dispatch run without that input is structurally incapable of
   # deploying: the job is skipped entirely, not merely a step within it.
+  #
+  # The dispatch arm is additionally pinned to refs/heads/main. workflow_dispatch lets the
+  # caller pick any branch, and this job deploys to the live /shallot/ URL — that is a publish,
+  # not a preview, so a feature branch must not be able to reach it. Branch preview is already
+  # covered: a dispatch run without the input uploads the identical artifact for download.
+  # The tag arm is unrestricted by design (a release tag is the other sanctioned publisher).
   deploy:
     needs: build
-    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy == true) }}
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy == true && github.ref == 'refs/heads/main') }}
     runs-on: ubuntu-latest
     permissions:
       pages: write
