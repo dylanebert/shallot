@@ -844,4 +844,89 @@ describe("release.yml producer/consumer contract", () => {
             expect(cond).toMatch(/Linux/);
         }
     });
+
+    // Arm 8 (S2 fix): any job with no actions/checkout step whose steps invoke `gh` must set
+    // GH_REPO. `gh` with no repo context fails "fatal: not a git repository" (run 32543662094),
+    // and that failure hits both branches of a release step — `gh release view` fails identically,
+    // which is why the run took the else branch at all. GH_REPO lets `gh` resolve the repo from the
+    // env and verify the tag against the remote API rather than a local clone, so no checkout is
+    // needed in a job whose only inputs are downloaded artifacts. The property is stated over every
+    // job in the workflow — a second gh-invoking job added later with no GH_REPO and no checkout
+    // must trip it, not just the one named `checksums`.
+    test("every gh-invoking job without a checkout sets GH_REPO", () => {
+        const wf = loadWorkflowYaml();
+        assertGhRepoOnNoCheckoutJobs(wf);
+    });
+
+    // Arm 8 fixture (criterion 2c): a hypothetical second gh-invoking job that sets neither
+    // GH_REPO nor a checkout must trip the property. Taken against an in-test fixture string —
+    // never by editing the real release.yml into a state to undo.
+    test("a second gh-invoking job without GH_REPO or checkout reds the property", () => {
+        const fixtureYaml = `
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+  checksums:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Attach archives to release
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: \${{ github.repository }}
+        run: gh release upload v1.0.0 archives/*.tar.gz
+  rogue:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rogue gh step
+        env:
+          GH_TOKEN: \${{ secrets.GITHUB_TOKEN }}
+        run: gh release create v1.0.0 --verify-tag
+`;
+        const wf = yaml.load(fixtureYaml) as Record<string, unknown>;
+        expect(() => assertGhRepoOnNoCheckoutJobs(wf)).toThrow();
+    });
 });
+
+/**
+ * Property: every job in the workflow that (a) has no `actions/checkout` step and (b) has at
+ * least one step whose `run` invokes `gh`, must set `GH_REPO` in either the job-level `env` or
+ * the `env` of a `gh`-invoking step. Without `GH_REPO`, `gh` has no repo context and fails
+ * "fatal: not a git repository" — the defect that prevented any shallot version from publishing
+ * by CI (run 32543662094). Stated over all jobs, not one by name, so a second `gh`-invoking job
+ * added later trips it.
+ */
+function assertGhRepoOnNoCheckoutJobs(wf: Record<string, unknown>): void {
+    const jobs = wf.jobs as Record<string, Record<string, unknown>>;
+    expect(jobs).toBeDefined();
+    for (const [jobName, job] of Object.entries(jobs)) {
+        const steps = (job.steps as Record<string, unknown>[] | undefined) ?? [];
+
+        // Does this job have an actions/checkout step?
+        const hasCheckout = steps.some((s) => String(s.uses ?? "").startsWith("actions/checkout"));
+        if (hasCheckout) continue;
+
+        // Does any step invoke `gh`?
+        const ghSteps = steps.filter(
+            (s) => typeof s.run === "string" && /\bgh\b/.test(s.run as string),
+        );
+        if (ghSteps.length === 0) continue;
+
+        // The job must set GH_REPO — either at the job level or in a gh-invoking step's env.
+        const jobEnv = (job.env as Record<string, unknown> | undefined) ?? {};
+        const ghStepsWithRepo = ghSteps.filter((s) => {
+            const stepEnv = (s.env as Record<string, unknown> | undefined) ?? {};
+            return String(stepEnv.GH_REPO ?? "").trim() !== "";
+        });
+        const jobHasRepo = String(jobEnv.GH_REPO ?? "").trim() !== "";
+
+        if (!jobHasRepo && ghStepsWithRepo.length === 0) {
+            throw new Error(
+                `job "${jobName}" invokes gh without a checkout step but sets no GH_REPO env`,
+            );
+        }
+    }
+}

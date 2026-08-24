@@ -296,10 +296,23 @@ jobs:
       # `archives/shallot-window-*.tar.gz` makes a zero-match an error: bash passes the unmatched
       # literal to gh, which fails because the file does not exist — so a partial assembly cannot
       # publish a SHA256SUMS with no archives beside it.
+      #
+      # GH_REPO, not a checkout: the checksums job's only inputs are the downloaded build artifacts
+      # — it has no source tree and needs none. `gh` with no repo context fails "fatal: not a git
+      # repository" (run 32543662094), and that failure hits *both* branches of the step: `gh
+      # release view` fails identically, which is why the run took the else branch at all. One env
+      # line — `GH_REPO: ${{ github.repository }}` — lets `gh` resolve the repo from the env and
+      # then verify the tag against the *remote* API rather than a local clone (gh manual:
+      # `--verify-tag` aborts when the tag doesn't exist in the *remote* repository). So the guard
+      # stays: dropping `--verify-tag` would only address the sub-command the error was reported
+      # against and leave the branch predicate broken. No `actions/checkout` step is added — the
+      # job's only inputs are downloaded artifacts, and a clone would be dead weight that reintroduces
+      # the git dependency the env line removes.
       - name: Attach archives to release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           if gh release view "${{ github.ref_name }}" > /dev/null 2>&1; then
             gh release upload "${{ github.ref_name }}" --clobber \
