@@ -128,18 +128,30 @@ export function structured(png: PNG): boolean {
 // render is bit-static. So after structure appears, keep sampling until two consecutive shots diff
 // below 0.5 (epsilon over the measured 0.00 floor); a gate's first read is then the settled scene,
 // never the pre-settle transient.
+const GOTO_TIMEOUT_MS = 30_000;
+const SELECTOR_TIMEOUT_MS = 20_000;
+const RETRY_DELAY_MS = 1000;
+const DEFAULT_SETTLE_MS = 20_000;
+
+// Worst-case time boot() can take before returning: the open() attempt (goto + selector) tried
+// twice — the retry this file's own comment documents — with the delay between them, then the
+// settle-sampling window. The one owner every task gate's setTimeout derives from, so the budget
+// moves with the constants boot() itself runs on rather than drifting from a hand-written total.
+export const BOOT_BUDGET_MS =
+    2 * (GOTO_TIMEOUT_MS + SELECTOR_TIMEOUT_MS) + RETRY_DELAY_MS + DEFAULT_SETTLE_MS;
+
 export async function boot(
     page: Page,
-    settleMs = 20_000,
+    settleMs = DEFAULT_SETTLE_MS,
 ): Promise<{ booted: boolean; rendered: boolean }> {
     const open = async () => {
-        await page.goto(url(), { timeout: 30_000 });
-        await page.waitForSelector("canvas", { timeout: 20_000 });
+        await page.goto(url(), { timeout: GOTO_TIMEOUT_MS });
+        await page.waitForSelector("canvas", { timeout: SELECTOR_TIMEOUT_MS });
     };
     try {
         await open();
     } catch {
-        await page.waitForTimeout(1000);
+        await page.waitForTimeout(RETRY_DELAY_MS);
         await open();
     }
     const size = await page

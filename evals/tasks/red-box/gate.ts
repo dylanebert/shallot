@@ -1,10 +1,10 @@
 import { test } from "@playwright/test";
-import { type Assertion, boot, diff, emit, region, shot } from "../../harness/lib";
+import { type Assertion, BOOT_BUDGET_MS, boot, diff, emit, region, shot } from "../../harness/lib";
 
 // Positive claim: the centre of the frame is red, distinct from a dark background, and the frame
 // holds still (no spin). Grades pixels, so it's blind to how the scene was authored.
 test("red-box", async ({ page }) => {
-    test.setTimeout(80_000);
+    test.setTimeout(BOOT_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
