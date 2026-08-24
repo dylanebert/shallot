@@ -120,25 +120,30 @@ export function syncSet<D>(
 // this predicate it cannot separate "not a Body" from "a Body whose marshal is pending" — which is why the
 // old warning named the wrong cause. The `failed` map (index.ts) sits beside `bodies` in the same module;
 // pass a predicate over it so the deferred case reads as deferred-and-will-retry, not a permanent skip.
+// EACH missing endpoint is classified on its own cause: a mixed pair (one truly non-`Body`, one deferred)
+// names both, so neither half inherits the other's cause — the misdirection this discriminator exists to end.
+// `quiet` silences the diagnostic for a retry pass (`resyncConstraints`): the authored upload owns the one
+// warning, and a retry that re-warned would fire on every body-set change (index.ts's never-thrash invariant).
 function endpoints(
     bodies: ReadonlyMap<number, TumbleBody>,
     a: number,
     b: number,
     kind: string,
     isDeferred: (eid: number) => boolean,
+    quiet: boolean,
 ): [TumbleBody, TumbleBody] | null {
     const ta = bodies.get(a);
     const tb = bodies.get(b);
     if (!ta || !tb) {
-        const missing = !ta ? a : b;
-        if (isDeferred(missing)) {
-            console.warn(
-                `[tumble] ${kind} references a deferred body (eid: ${missing}, pending marshal) — will retry`,
-            );
-        } else {
-            console.warn(
-                `[tumble] ${kind} references a non-Body entity (a: ${a}, b: ${b}) — skipped`,
-            );
+        if (!quiet) {
+            const cause = (label: string, eid: number): string =>
+                isDeferred(eid)
+                    ? `${label}: ${eid} is a deferred body (marshal pending, will retry)`
+                    : `${label}: ${eid} is not a Body (skipped)`;
+            const parts: string[] = [];
+            if (!ta) parts.push(cause("a", a));
+            if (!tb) parts.push(cause("b", b));
+            console.warn(`[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`);
         }
         return null;
     }
@@ -150,14 +155,16 @@ function createSpring(
     bodies: ReadonlyMap<number, TumbleBody>,
     def: SpringDef,
     isDeferred: (eid: number) => boolean,
+    quiet: boolean,
 ): TumbleJoint | null {
-    const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred);
+    const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred, quiet);
     if (!pair) return null;
     const hertz = stiffnessHertz(def.stiffness, dynMass(pair[0]), dynMass(pair[1]));
     if (hertz === 0) {
-        console.warn(
-            `[tumble] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
-        );
+        if (!quiet)
+            console.warn(
+                `[tumble] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
+            );
         return null;
     }
     return world.createDistanceJoint(pair[0], pair[1], {
@@ -179,16 +186,18 @@ function createJoint(
     bodies: ReadonlyMap<number, TumbleBody>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
+    quiet: boolean,
 ): TumbleJoint | null {
-    const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred);
+    const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred, quiet);
     if (!pair) return null;
     const [ta, tb] = pair;
     const mA = dynMass(ta);
     const mB = dynMass(tb);
     if (mA <= 0 && mB <= 0) {
-        console.warn(
-            `[tumble] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
-        );
+        if (!quiet)
+            console.warn(
+                `[tumble] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
+            );
         return null;
     }
     if (def.stiffnessAng === 0) {
@@ -198,9 +207,10 @@ function createJoint(
         });
     }
     if (def.stiffnessAng < 0) {
-        console.warn(
-            `[tumble] joint (a: ${def.a}, b: ${def.b}) has non-positive angular stiffness — skipped`,
-        );
+        if (!quiet)
+            console.warn(
+                `[tumble] joint (a: ${def.a}, b: ${def.b}) has non-positive angular stiffness — skipped`,
+            );
         return null;
     }
     // angularHertz 0 is box3d's RIGID angular constraint; an intermediate stiffnessAng maps to a soft
@@ -228,7 +238,7 @@ export function syncSprings(
     isDeferred: (eid: number) => boolean,
 ): void {
     retainedSprings = defs;
-    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d, isDeferred));
+    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d, isDeferred, false));
 }
 
 /** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints`. */
@@ -239,14 +249,17 @@ export function syncJoints(
     isDeferred: (eid: number) => boolean,
 ): void {
     retainedJoints = defs;
-    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d, isDeferred));
+    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d, isDeferred, false));
 }
 
 /** re-invoke `syncJoints`/`syncSprings` over the retained def sets — the pump half of the late-marshal fix.
- *  Called by `SyncSystem` when its body set changed this tick (a deferred body marshaled or a body went
- *  stale), so a previously-failed constraint create retries. `syncSet` needs no new diff semantics: an
- *  unchanged def whose live joint `isValid()` is reused (warm-started impulses survive), a dropped def's
- *  `create` retries, leftovers destroy — the semantics `joints.test.ts` already pins. */
+ *  Called by `SyncSystem` on ANY body-set change: normally that is the deferred-marshal transition or a body
+ *  going stale, but a continuously spawning scene changes its body set every tick and so re-syncs every tick —
+ *  a no-op walk over the live joints (each `isValid()` handle is reused, nothing is created or destroyed).
+ *  `syncSet` needs no new diff semantics: an unchanged def whose live joint `isValid()` is reused (warm-started
+ *  impulses survive), a dropped def's `create` retries, leftovers destroy — the semantics `joints.test.ts`
+ *  already pins. The retry passes `quiet`: a still-unsatisfiable def must not re-warn per body-set change, so
+ *  the diagnostic stays the authored upload's one warning (index.ts's never-thrash-the-frame-loop invariant). */
 export function resyncConstraints(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
@@ -254,11 +267,11 @@ export function resyncConstraints(
 ): void {
     if (retainedSprings.length > 0)
         syncSet(liveSprings, retainedSprings, springKey, (d) =>
-            createSpring(world, bodies, d, isDeferred),
+            createSpring(world, bodies, d, isDeferred, true),
         );
     if (retainedJoints.length > 0)
         syncSet(liveJoints, retainedJoints, jointKey, (d) =>
-            createJoint(world, bodies, d, isDeferred),
+            createJoint(world, bodies, d, isDeferred, true),
         );
 }
 

@@ -117,7 +117,9 @@ const SyncSystem: System = {
         // did this tick change the body set? A deferred body finally marshaling (or a body going stale) is
         // the transition a dropped constraint waits on, and `ConstraintSystem` re-uploads on an authored
         // signature change only — none of which moves here — so the constraint re-sync is pumped from this
-        // loop. Set inside the walk that already runs, so the re-sync fires on the transition, never per frame.
+        // loop. Set inside the walk that already runs, on ANY body-set change: normally that IS the marshal
+        // transition, but a continuously spawning scene changes its body set every tick and so re-syncs every
+        // tick — a no-op walk over the live joints (each is reused, nothing created), and silent (joints.ts).
         let bodySetChanged = false;
         for (const eid of state.query([Body])) {
             const stamp = state.stamp(eid);
@@ -175,7 +177,9 @@ const SyncSystem: System = {
         }
         // the pump: re-run the retained authored constraint sets against the new body set, so a create that
         // returned null against a not-yet-marshaled endpoint retries now. Content-keyed, so a live joint is
-        // reused (warm impulses survive) and only the dropped def is created.
+        // reused (warm impulses survive) and only the dropped def is created. The retry is silent — a def
+        // still unsatisfiable would otherwise re-warn on every body-set change, which is the `failed` ledger's
+        // never-thrash-the-frame-loop invariant above; the authored upload keeps the one warning.
         if (bodySetChanged) resyncConstraints(world, bodies, isDeferred);
     },
 };

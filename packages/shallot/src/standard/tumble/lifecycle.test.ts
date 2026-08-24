@@ -110,9 +110,11 @@ const registerLateHull = (): void => {
 };
 
 // the scene: a mass-0 Box anchor at y=5, a mass-1 Hull body at y=4 carrying the reserved (unregistered)
-// hull id in halfExtents.w, and a spherical pin (stiffnessAng 0) between them with rA one unit below the
-// anchor — so a live joint holds the bob at y≈4 and a dropped one free-falls it past y=0.
-function pinnedDeferredScene(state: State): { anchor: number; bob: number } {
+// hull id in halfExtents.w, and a constraint between them — a spherical pin (stiffnessAng 0) with rA one
+// unit below the anchor, or the spring twin (a stiff distance spring, anchor-to-anchor rest 1). Either way a
+// live constraint holds the bob at y≈4 and a dropped one free-falls it past y=0. Returns the bob eid, the
+// only handle an arm reads.
+function pinnedDeferredScene(state: State, kind: "joint" | "spring"): number {
     const anchor = state.create();
     state.add(anchor, Body);
     Body.shape.set(anchor, ShapeKind.Box);
@@ -127,15 +129,26 @@ function pinnedDeferredScene(state: State): { anchor: number; bob: number } {
     Body.pos.set(bob, 0, 4, 0, 0);
     Body.mass.set(bob, 1);
 
-    const j = state.create();
-    state.add(j, Joint);
-    Joint.a.set(j, anchor);
-    Joint.b.set(j, bob);
-    Joint.rA.set(j, 0, -1, 0, 0);
-    Joint.rB.set(j, 0, 0, 0, 0);
-    Joint.stiffnessAng.set(j, 0);
+    const c = state.create();
+    if (kind === "joint") {
+        state.add(c, Joint);
+        Joint.a.set(c, anchor);
+        Joint.b.set(c, bob);
+        Joint.rA.set(c, 0, -1, 0, 0);
+        Joint.rB.set(c, 0, 0, 0, 0);
+        Joint.stiffnessAng.set(c, 0);
+    } else {
+        state.add(c, Spring);
+        Spring.a.set(c, anchor);
+        Spring.b.set(c, bob);
+        Spring.rA.set(c, 0, 0, 0, 0);
+        Spring.rB.set(c, 0, 0, 0, 0);
+        // stiff enough that the static droop (mg/k ≈ 0.01 m) stays far above the free-fall the arm rejects
+        Spring.stiffness.set(c, 1000);
+        Spring.rest.set(c, 1);
+    }
 
-    return { anchor, bob };
+    return bob;
 }
 
 describe("TumblePlugin late-marshal constraints", () => {
@@ -148,7 +161,7 @@ describe("TumblePlugin late-marshal constraints", () => {
 
     test("a joint dropped against a not-yet-marshaled body is retried once it marshals", async () => {
         state = await buildTumble();
-        const { bob } = pinnedDeferredScene(state);
+        const bob = pinnedDeferredScene(state, "joint");
 
         // one tick: bob's marshal fails (its hull id has no hull), so the joint's create finds no endpoint
         state.step(Time.FIXED_DT);
@@ -164,9 +177,26 @@ describe("TumblePlugin late-marshal constraints", () => {
         expect(live?.pos[1]).toBeGreaterThan(3);
     });
 
+    // the spring half of the same pump: `createSpring` has its own early-out and its own warn, so the joint
+    // arm alone would leave `syncSprings`/`resyncConstraints`'s spring branch uncovered.
+    test("a spring dropped against a not-yet-marshaled body is retried once it marshals", async () => {
+        state = await buildTumble();
+        const bob = pinnedDeferredScene(state, "spring");
+
+        state.step(Time.FIXED_DT);
+        registerLateHull();
+        for (let i = 0; i < 60; i++) state.step(Time.FIXED_DT);
+
+        const live = Physics.backend?.readBody(bob);
+        expect(live).not.toBeNull();
+        // a live spring holds the bob one rest-length below the anchor (y≈4, minus the mg/k droop); a dropped
+        // one free-falls it well past y=0.
+        expect(live?.pos[1]).toBeGreaterThan(3);
+    });
+
     test("the skip warning names the deferred marshal, not a non-Body reference", async () => {
         state = await buildTumble();
-        pinnedDeferredScene(state);
+        pinnedDeferredScene(state, "joint");
 
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
@@ -177,6 +207,96 @@ describe("TumblePlugin late-marshal constraints", () => {
             expect(jointWarn).toBeDefined();
             expect(jointWarn).toContain("deferred");
             expect(jointWarn).not.toContain("non-Body entity");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // the mixed pair: `a` is truly not a `Body`, `b` is a deferred marshal. Classifying only the first missing
+    // endpoint would name `a`'s cause and silently apply it to `b` — for the deferred half, exactly the
+    // misdirection the discriminator exists to delete. Both endpoints get their own cause.
+    test("a mixed pair names each endpoint's own cause", async () => {
+        state = await buildTumble();
+
+        const notABody = state.create(); // no Body component: permanently unsatisfiable
+        const bob = state.create();
+        state.add(bob, Body);
+        Body.shape.set(bob, ShapeKind.Hull);
+        Body.halfExtents.set(bob, 1, 1, 1, reserveLateHullId());
+        Body.pos.set(bob, 0, 4, 0, 0);
+        Body.mass.set(bob, 1);
+
+        const j = state.create();
+        state.add(j, Joint);
+        Joint.a.set(j, notABody);
+        Joint.b.set(j, bob);
+        Joint.rA.set(j, 0, 0, 0, 0);
+        Joint.rB.set(j, 0, 0, 0, 0);
+        Joint.stiffnessAng.set(j, 0);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            state.step(Time.FIXED_DT);
+            const jointWarn = warn.mock.calls
+                .map((c) => String(c[0]))
+                .find((m) => m.includes("joint endpoint unavailable"));
+            expect(jointWarn).toBeDefined();
+            expect(jointWarn).toContain(`a: ${notABody} is not a Body`);
+            expect(jointWarn).toContain(`b: ${bob} is a deferred body`);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // The pump fires on ANY body-set change, so a continuously spawning scene re-syncs every tick. A retry
+    // that re-warned would emit one warning per tick forever, breaking the same never-thrash-the-frame-loop
+    // invariant the marshal `failed` ledger holds (index.ts). Counted across ticks, because no per-tick arm
+    // can see a warning that only grows with tick count.
+    test("a permanently unsatisfiable constraint warns once, not once per body-set change", async () => {
+        state = await buildTumble();
+
+        const notABody = state.create(); // no Body: this joint can never be satisfied
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.shape.set(anchor, ShapeKind.Box);
+        Body.halfExtents.set(anchor, 0.5, 0.5, 0.5, 0);
+        Body.pos.set(anchor, 0, 5, 0, 0);
+        Body.mass.set(anchor, 0);
+
+        const j = state.create();
+        state.add(j, Joint);
+        Joint.a.set(j, anchor);
+        Joint.b.set(j, notABody);
+        Joint.rA.set(j, 0, -1, 0, 0);
+        Joint.rB.set(j, 0, 0, 0, 0);
+        Joint.stiffnessAng.set(j, 0);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        const spawn = (i: number): void => {
+            const eid = state.create();
+            state.add(eid, Body);
+            Body.shape.set(eid, ShapeKind.Sphere);
+            Body.halfExtents.set(eid, 0, 0, 0, 0.5);
+            Body.pos.set(eid, i * 2, 10, 0, 0);
+            Body.mass.set(eid, 1);
+        };
+        const jointWarnings = (): number =>
+            warn.mock.calls.filter((c) => String(c[0]).includes("joint")).length;
+
+        try {
+            // one body spawned per tick, so the body set changes (and the pump fires) on every tick
+            for (let i = 0; i < 10; i++) {
+                spawn(i);
+                state.step(Time.FIXED_DT);
+            }
+            const afterTen = jointWarnings();
+            for (let i = 10; i < 30; i++) {
+                spawn(i);
+                state.step(Time.FIXED_DT);
+            }
+            // the authored upload's one warning, and no growth with tick count
+            expect(afterTen).toBe(1);
+            expect(jointWarnings()).toBe(afterTen);
         } finally {
             warn.mockRestore();
         }
