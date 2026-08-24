@@ -1680,11 +1680,85 @@ describe("verifyDiagnostic — the ejected boot arm's diagnostic reporter", () =
         expect(diag).not.toContain("instrument fault");
     });
 
-    test("a red carrying none of those returns the named instrument fault", () => {
+    test("a red carrying none of those returns the named instrument fault with field state", () => {
         const result = mk({ pass: false });
         const diag = verifyDiagnostic(result);
+        // the instrument-fault wording is kept
         expect(diag).toContain("instrument fault");
         expect(diag).toContain("no diagnostic");
+        // the failing predicates are named — all three failed since none are true
+        expect(diag).toContain("failed predicates: pass===true, booted===true, rendered===true");
+        // the field state is reported
+        expect(diag).toContain("pass=false");
+        expect(diag).toContain("booted=undefined");
+        expect(diag).toContain("rendered=undefined");
+        expect(diag).toContain("hardware=undefined");
+        expect(diag).toContain("verdict=absent");
+        expect(diag).toContain("memory=absent");
+    });
+
+    // the exact case the coordinator hit: red, no errors, no error, no verdict, no artifacts —
+    // a boot that loaded (booted) but never rendered (rendered=false), carrying no diagnostic at
+    // all. This is the string a future reader will actually see on a genuine red of this shape, so
+    // its content is pinned, not merely that it is non-empty.
+    test("the coordinator's case: booted=true, rendered=false, no diagnostic — pins the exact string", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "apple / metal / apple m2 / apple m2",
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toBe(
+            "instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts); " +
+                "failed predicates: pass===true, rendered===true; " +
+                "pass=false, booted=true, rendered=false, hardware=apple / metal / apple m2 / apple m2, verdict=absent, memory=absent",
+        );
+    });
+
+    test("a red with booted=false names all three predicates as failed", () => {
+        const result = mk({
+            pass: false,
+            booted: false,
+            rendered: false,
+            hardware: "unknown",
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("failed predicates: pass===true, booted===true, rendered===true");
+        expect(diag).toContain("pass=false, booted=false, rendered=false, hardware=unknown");
+    });
+
+    test("a red carrying a verdict with no failed checks still reports the verdict state", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: true,
+            hardware: "test-gpu",
+            verdict: { ok: true, checks: [{ name: "ready", ok: true }] },
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        // pass is false but verdict.ok is true and no checks failed — still an instrument fault
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("failed predicates: pass===true");
+        expect(diag).toContain("verdict.ok=true");
+        expect(diag).toContain("verdict.checks=1");
+    });
+
+    test("a red carrying memory=present reports memory=present, not memory=absent", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "test-gpu",
+            memory: null,
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("memory=present");
+        expect(diag).not.toContain("memory=absent");
     });
 
     test("a pass never reports an instrument fault", () => {
@@ -1736,7 +1810,7 @@ describe("verifyDiagnostic — the ejected boot arm's diagnostic reporter", () =
                         messages: a.messages,
                     })),
                 );
-            // THE BROKEN BRANCH: the `return "instrument fault: ..."` line is replaced with "".
+            // THE BROKEN BRANCH: the instrument-fault return with field state is replaced with "".
             return "";
         }
 
@@ -1747,8 +1821,9 @@ describe("verifyDiagnostic — the ejected boot arm's diagnostic reporter", () =
         // the broken version does NOT report the instrument fault — it returns an empty string
         expect(broken).toBe("");
         expect(broken).not.toContain("instrument fault");
-        // the correct version DOES report it
+        // the correct version DOES report it with field state
         expect(correct).toContain("instrument fault");
+        expect(correct).toContain("failed predicates");
         // the arm discriminates: the broken and correct outputs differ
         expect(broken).not.toBe(correct);
     });

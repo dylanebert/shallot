@@ -69,8 +69,11 @@ const check = (name: string, cond: boolean, detail = "") => {
  *  instrument fault. The ejected boot arm was once dismissed as a flake because its detail printed `[]`
  *  — an empty `errors` array that a future reader can wave away. This surfaces the diagnostic wherever
  *  it landed (page errors, setup error, verdict checks, shader artifacts) and, when none carried one,
- *  reports a named instrument fault rather than an empty container. On a pass the errors array is the
- *  detail (empty = no errors), never an instrument fault. */
+ *  reports a named instrument fault with the full field state rather than an empty container. The arm
+ *  asserts `pass === true && booted === true && rendered === true`, so the instrument-fault string names
+ *  which of those three predicates failed alongside the result's own field values — a reader is never
+ *  at a dead end. On a pass the errors array is the detail (empty = no errors), never an instrument
+ *  fault. */
 export function verifyDiagnostic(result: VerifyResult | null): string {
     if (!result) return "no verify result";
     const errors = result.errors ?? [];
@@ -91,7 +94,30 @@ export function verifyDiagnostic(result: VerifyResult | null): string {
                 messages: a.messages,
             })),
         );
-    return "instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts)";
+    // Instrument fault: the result is red but carries no diagnostic text — no page errors, no setup
+    // error, no failed verdict checks, no shader artifacts. Name which of the arm's three predicates
+    // (pass===true, booted===true, rendered===true) failed and the full field state, so a reader can
+    // see what the instrument saw rather than staring at an empty container.
+    const failed: string[] = [];
+    // `pass` is always false here — the `if (result.pass) return "pass"` guard above returned
+    // early — so it always names a failed predicate without a comparison TS would flag as tautological.
+    failed.push("pass===true");
+    if (result.booted !== true) failed.push("booted===true");
+    if (result.rendered !== true) failed.push("rendered===true");
+    const fields: string[] = [
+        `pass=${result.pass}`,
+        `booted=${result.booted ?? "undefined"}`,
+        `rendered=${result.rendered ?? "undefined"}`,
+        `hardware=${result.hardware ?? "undefined"}`,
+    ];
+    if (result.verdict) {
+        fields.push(`verdict.ok=${result.verdict.ok ?? "undefined"}`);
+        fields.push(`verdict.checks=${result.verdict.checks?.length ?? 0}`);
+    } else {
+        fields.push("verdict=absent");
+    }
+    fields.push(result.memory !== undefined ? "memory=present" : "memory=absent");
+    return `instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts); failed predicates: ${failed.join(", ")}; ${fields.join(", ")}`;
 }
 
 /** the `identity-check.ts` probe body — brand-checks the engine-built canary against the app's own
