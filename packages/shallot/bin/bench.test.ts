@@ -7,9 +7,11 @@ import { parseArgs } from "../../../scripts/bench";
 // own JSDoc states the policy — "a typo must not silently no-op or flow NaN" — the same repo's stated rule,
 // unapplied one file over.
 //
-// Each matcher below can distinguish a throw from a clean return — it CANNOT distinguish a NaN-rejecting
-// parse from a NaN-substituting default (both would make the arm green); that discrimination is S2's to
-// prove. S2 of this spec (audit-cli-numeric-flags) is the unit that flips these arms green.
+// Each bare `toThrow()` below distinguishes a throw from a clean return, so a NaN-substituting default
+// leaves it red — but it CANNOT distinguish the validation throw from an unrelated one (an unknown-option
+// guard, a precondition firing first), so a message assertion is owed the moment a message exists. S2 of
+// this spec (audit-cli-numeric-flags) is the unit that flips these arms green, and it tightens each
+// `toThrow()` to name the flag in the message rather than leaving the fragment loose.
 
 describe("parseArgs — bench.ts numeric flag validation (RED today)", () => {
     test("--count abc throws instead of flowing NaN into the query string — RED today", () => {
