@@ -1746,11 +1746,17 @@ async function nextFrame(page: Page): Promise<void> {
 }
 
 // write a post-run canvas PNG when --screenshot asked for one. Best-effort — a screenshot failure never fails.
+// Uses the canvas element screenshot (the proven mechanism — drawImage(webgpuCanvas) reads blank on
+// real hardware, probed 2026-07-13) rather than page.screenshot, which captures the full compositor
+// including the browser chrome and is byte-identical across a green and a red boot.
 async function maybeScreenshot(page: Page, path: string | undefined): Promise<void> {
     if (!path) return;
     try {
         await nextFrame(page);
-        await page.screenshot({ path: resolve(path) });
+        await page
+            .locator("canvas")
+            .first()
+            .screenshot({ path: resolve(path), timeout: 5_000 });
     } catch {
         // a screenshot is a convenience, never a gate
     }
