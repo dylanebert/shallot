@@ -183,7 +183,9 @@ function shDeclaration(ast: Node): { body: Node; id: Node | undefined } {
     }
     if (matches.length === 0) throw new Error("no function wrapping Bun.spawnSync");
     if (matches.length !== 1)
-        throw new Error(`expected exactly one function wrapping Bun.spawnSync, found ${matches.length}`);
+        throw new Error(
+            `expected exactly one function wrapping Bun.spawnSync, found ${matches.length}`,
+        );
     return matches[0];
 }
 
@@ -300,7 +302,8 @@ describe("eval gate surface — mechanism (green: S1)", () => {
                     if (spec.type !== "ImportSpecifier") continue;
                     const imported = spec.imported as Node | undefined;
                     if (imported?.type === "Identifier") importNames.push(imported.name as string);
-                    else if (imported?.type === "StringLiteral") importNames.push(imported.value as string);
+                    else if (imported?.type === "StringLiteral")
+                        importNames.push(imported.value as string);
                 }
             }
             // Population control — each gate must import from harness/lib.
