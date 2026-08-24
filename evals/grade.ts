@@ -47,8 +47,10 @@ interface Check {
 // The result kind an infrastructure failure must be distinguishable from: a staging failure (a
 // dependency install `sh` throws on) or a gate that produced no envelope (the audit's own
 // "gate produced no result" branch, a fired spawn backstop included) is the *harness* failing, not
-// the agent's task — INCOMPLETE, never FAIL. A graded call site's nonzero exit (typecheck, build) is
-// the opposite: the subject's own task failing, which stays a legitimate FAIL. The derivation itself
+// the agent's task — a determined typecheck or build failure outranks an unrunnable gate, so
+// INCOMPLETE is reserved for a run where nothing determined the outcome (see ./harness/result's
+// docblock). A graded call site's nonzero exit (typecheck, build) is the opposite: the subject's own
+// task failing, which stays a legitimate FAIL. The derivation itself
 // (and its ResultKind) lives in ./harness/result — a pure, import-safe module a test can call
 // directly, since this script (argv parsing, top-level await) never can be imported by one.
 interface Result {
@@ -155,8 +157,9 @@ if (!detectDisplay()) {
 
     // native (non-WSL) runs Playwright in-place, so install its deps there; WSL stages + installs
     // host-side inside runPlaywright. A failed install here is the harness's own dependency staging
-    // breaking, not the agent's task — caught and mapped to INCOMPLETE, never let fall through into a
-    // gate run that would grade the task on infrastructure that never finished setting up.
+    // breaking, not the agent's task — caught and mapped to INCOMPLETE (unless typecheck or build
+    // already failed, which outranks it — see ./harness/result's docblock), never let fall through
+    // into a gate run that would grade the task on infrastructure that never finished setting up.
     let stagingError: string | null = null;
     if (!isWSL) {
         try {
@@ -208,7 +211,8 @@ if (!detectDisplay()) {
                 result.verification.rendered = env.rendered;
             } else {
                 // No result envelope — the harness itself failed to produce one (a fired spawn
-                // backstop included), never the agent's task. INCOMPLETE, never FAIL.
+                // backstop included), never the agent's task. INCOMPLETE unless typecheck or build
+                // already failed, which outranks it — see ./harness/result's docblock.
                 result.checks.gate = {
                     ok: null,
                     detail: run.timedOut
@@ -240,7 +244,10 @@ if (asJson) {
     console.log(`  ${mark(result.checks.typecheck.ok)} typecheck`);
     console.log(`  ${mark(result.checks.build.ok)} build`);
     if (g.skipped) console.log(`  – gate skipped (no display)`);
-    else if (g.ok === null) console.log(`  – gate incomplete${g.detail ? ` — ${g.detail}` : ""}`);
+    else if (g.ok === null)
+        console.log(
+            `  – gate incomplete${g.detail ? ` — ${g.detail}` : ""}${result.kind === "FAIL" ? " (typecheck or build failed — verdict already FAIL)" : ""}`,
+        );
     else {
         console.log(
             `  ${mark(g.ok)} gate  (booted ${g.ok === null ? "?" : result.verification.booted}, rendered ${result.verification.rendered})`,
