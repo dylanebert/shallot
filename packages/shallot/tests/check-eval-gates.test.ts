@@ -32,18 +32,19 @@
 //
 // ── Pins (green pre-fix, red on fix) ──
 //
-// S2 has landed and replaced its pin (leg A, below) with the post-fix
-// assertion in this same diff — every task gate's setTimeout argument
+// S2 and S3 have both landed and replaced their pins with post-fix
+// assertions in their own diffs — every task gate's setTimeout argument
 // resolves, via its ImportSpecifier binding from harness/lib, to the same
-// single name in lib.ts's export set. The two remaining S3 arms (legs B, D)
-// are still ordinary green tests asserting the PRE-FIX structure. Each names
-// the stage that replaces it and states that the pin expires with that
-// stage: S3 replaces its pin with the post-fix assertion in the same diff. A
-// green arm that cannot read its subject fails, so the green-because-broken
-// class is eliminated by construction. The readers are parameterized by
-// `CHECK_EVAL_GATES_ROOT`; an absent or empty root reads red (every arm
-// throws or fails its population control), which is the discriminating
-// control — a byte-identical copy is not.
+// single name in lib.ts's export set (leg A); `sh`'s body now holds a
+// ThrowStatement (leg B); a try/catch wraps the staging pair together (leg
+// D); grade.ts declares a result-kind union type carrying an INCOMPLETE
+// member (leg C, transferred to S3 per Approach S1's fourth-hole verdict).
+// No pins remain green pre-fix in this file — every leg now asserts the
+// POST-FIX structure. A green arm that cannot read its subject fails, so the
+// green-because-broken class is eliminated by construction. The readers are
+// parameterized by `CHECK_EVAL_GATES_ROOT`; an absent or empty root reads red
+// (every arm throws or fails its population control), which is the
+// discriminating control — a byte-identical copy is not.
 //
 // No spelling pins: the function `sh` is located by its call structure (its
 // body wraps a `Bun.spawnSync` call), never by the literal name; call sites
@@ -400,12 +401,15 @@ describe("S2 — derived boot budget", () => {
     });
 });
 
-// S3 — staging failure maps to INCOMPLETE. Two pre-fix pins, one per leg of
-// the mechanism; S3 replaces each with the post-fix assertion in its own diff.
-describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
-    // Leg B — pin (S3 replaces). `sh`'s body span in `evals/grade.ts` holds no
-    // `ThrowStatement`. This pin expires with S3 — S3 replaces it with the
-    // assertion that a throw exists, in the same diff.
+// S3 — staging failure maps to INCOMPLETE (landed). Legs B and D replace
+// their pre-fix pins with the post-fix assertion in this same diff; leg C
+// (transferred here from S1 per Approach S1's fourth-hole verdict) lands
+// alongside them, since S3 is the diff that creates the code leg C is about.
+describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
+    // Leg B — post-fix (S3 landed; replaces the pre-fix "holds no
+    // ThrowStatement" pin). `sh`'s body span in `evals/grade.ts` now holds a
+    // `ThrowStatement` — `sh` throws on a nonzero exit instead of returning
+    // `{ ok: false }` silently.
     //
     // `sh` is located by call structure — the function whose body wraps a
     // `Bun.spawnSync` call — not by the literal name. The reader collects
@@ -416,27 +420,37 @@ describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
     // so the inline return-type annotation is not reachable from here by
     // construction.
     //
-    // Pre-fix reading (this round): the function wrapping `Bun.spawnSync` is a
-    // `FunctionDeclaration` whose body holds 0 `ThrowStatement` nodes.
-    test("sh's body span in grade.ts holds no ThrowStatement (pin; S3 replaces)", () => {
+    // Post-fix reading (this round): the function wrapping `Bun.spawnSync` is
+    // a `FunctionDeclaration` whose body holds 1 `ThrowStatement` node.
+    test("sh's body span in grade.ts holds a ThrowStatement (post-fix; S3)", () => {
         const decl = shDeclaration(gradeAst(evalRoot()));
         const body = decl.body as Node;
-        expect(collect(body, "ThrowStatement").length).toBe(0);
+        expect(collect(body, "ThrowStatement").length).toBeGreaterThan(0);
     });
 
-    // Leg D — pin (S3 replaces). No `sh()` call site sits inside a `try` with a
-    // `handler`. This pin expires with S3 — S3 replaces it with the assertion
-    // that a try/catch wraps a staging call, in the same diff.
+    // Leg D — post-fix (S3 landed; replaces the pre-fix "no call site sits in
+    // a try with a handler" pin). The two *staging* call sites (`bun
+    // install`, `bunx playwright install chromium`) are now wrapped together
+    // in one `try` with a `handler`, so the fix's structural signature is a
+    // try/catch wrapping MORE THAN ONE `sh()` call site — distinct from each
+    // *graded* call site (`tsc --noEmit`, the CLI build), which `sh` also
+    // throws on but which S3 must keep grading FAIL, so each graded call site
+    // gets its own single-call try/catch rather than sharing the staging
+    // pair's. Asserting "a try wraps 2+ call sites together" therefore pins
+    // the staging block specifically, never merely "some try wraps some call",
+    // which would already have been true the moment any one graded site grew
+    // a catch and would not discriminate the staging fix from that alone.
     //
     // `sh` is located by call structure (the reader above), and call sites are
     // resolved from that declaration's name — not hardcoded. The population
     // control asserts the call-site set is non-empty, so the arm fails if the
     // reader loses its subject.
     //
-    // Pre-fix reading (this round): 4 call sites of the function wrapping
-    // `Bun.spawnSync`, 0 inside a `TryStatement` with a `handler`; 1
-    // `TryStatement` total (handler absent, no `sh()` call in its block).
-    test("no sh() call site sits inside a try with a handler (pin; S3 replaces)", () => {
+    // Post-fix reading (this round): 4 call sites of the function wrapping
+    // `Bun.spawnSync`; 3 `TryStatement`s with a `handler` wrap at least one
+    // call site each, and exactly one of them wraps 2 call sites together
+    // (the staging pair).
+    test("a try with a handler wraps more than one sh() call site together (post-fix; S3)", () => {
         const ast = gradeAst(evalRoot());
         const decl = shDeclaration(ast);
         const calls = callSitesOf(ast, decl);
@@ -444,9 +458,58 @@ describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
         // empty set means the reader lost its subject, not that the property
         // holds.
         expect(calls.length).toBeGreaterThan(0);
-        const wrapped = collect(ast, "TryStatement").some(
-            (t) => t.handler != null && callSitesOf(t.block as Node, decl).length > 0,
-        );
-        expect(wrapped).toBe(false);
+        const wrappedCounts = collect(ast, "TryStatement")
+            .filter((t) => t.handler != null)
+            .map((t) => callSitesOf(t.block as Node, decl).length);
+        // Population control — at least one try/catch actually wraps a real
+        // sh() call site; an all-zero list means the reader lost its subject
+        // rather than the property being false.
+        expect(wrappedCounts.some((n) => n > 0)).toBe(true);
+        expect(wrappedCounts.some((n) => n >= 2)).toBe(true);
+    });
+
+    // Leg C — post-fix (transferred to S3 per Approach S1's fourth-hole
+    // verdict, 2026-08-25). Leg C is an ABSENCE assertion over an open shape
+    // space in its retired form ("no declaration reachable from grade.ts
+    // carries an INCOMPLETE member") — held four rounds, each holed by a
+    // landing shape the prior reader did not enumerate. S3 is the diff that
+    // creates the declaration leg C is about, so this leg asserts PRESENCE of
+    // the shape this diff actually wrote: a closed readable fact, never
+    // re-widened toward the retired absence form.
+    //
+    // `grade.ts` declares `type ResultKind = "PASS" | "FAIL" | "INCOMPLETE"`
+    // — a `TSTypeAliasDeclaration` whose `typeAnnotation` is a `TSUnionType`
+    // whose members are `TSLiteralType`s over `StringLiteral`s. The reader
+    // walks every type-alias union in grade.ts's own AST and collects each
+    // string-literal member's value, so a bare string anywhere else in the
+    // file (a display string, a `console.log("INCOMPLETE")`, a comment) does
+    // not produce this node shape and cannot satisfy the assertion — only a
+    // union-type member can.
+    //
+    // Post-fix reading (this round): 1 `TSTypeAliasDeclaration` with a
+    // `TSUnionType` annotation in grade.ts, 3 `TSLiteralType` members —
+    // `"PASS"`, `"FAIL"`, `"INCOMPLETE"`.
+    test("grade.ts declares a result-kind union type carrying an INCOMPLETE member (post-fix; S3)", () => {
+        const ast = gradeAst(evalRoot());
+        const aliases = collect(ast, "TSTypeAliasDeclaration");
+        // Population control — grade.ts must declare at least one type alias,
+        // or the reader lost its subject rather than the property being false.
+        expect(aliases.length).toBeGreaterThan(0);
+
+        const literalValues: string[] = [];
+        for (const alias of aliases) {
+            const ann = alias.typeAnnotation as Node | undefined;
+            if (ann?.type !== "TSUnionType") continue;
+            for (const member of (ann.types as Node[] | undefined) ?? []) {
+                if (member.type !== "TSLiteralType") continue;
+                const literal = member.literal as Node | undefined;
+                if (literal?.type === "StringLiteral") literalValues.push(literal.value as string);
+            }
+        }
+        // Population control — at least one union-type alias with string-
+        // literal members exists; an empty list means the reader found the
+        // wrong declaration shape, not that the property is false.
+        expect(literalValues.length).toBeGreaterThan(0);
+        expect(literalValues).toContain("INCOMPLETE");
     });
 });
