@@ -36,10 +36,33 @@
 // assertions in their own diffs — every task gate's setTimeout argument
 // resolves, via its ImportSpecifier binding from harness/lib, to the same
 // single name in lib.ts's export set (leg A); `sh`'s body now holds a
-// ThrowStatement (leg B); a try/catch wraps the staging pair together (leg
-// D); grade.ts declares a result-kind union type carrying an INCOMPLETE
-// member (leg C, transferred to S3 per Approach S1's fourth-hole verdict).
-// No pins remain green pre-fix in this file — every leg now asserts the
+// ThrowStatement (leg B).
+//
+// Leg D repaired: a review disproved the landed "a try with a handler wraps
+// ≥2 sh() call sites together" count with two runnable mutants (false
+// positive: group the two graded sites into one try, leave both staging
+// sites unwrapped, still reads ≥2 while an install failure now throws
+// uncaught; false negative: wrap each of the four calls in its own
+// single-call try/catch, a fully correct fix that reads <2 everywhere). The
+// repair is exhaustive, never counted: every `sh()` call site sits inside a
+// try with a handler, full stop, and no argv-literal (`"install"` vs
+// `"tsc"`) discriminates a site.
+//
+// Leg C repaired: the verdict derivation (and `ResultKind`) is extracted to
+// the pure, import-safe `evals/harness/result.ts`; `grade.ts` imports both.
+// Leg C now resolves `grade.ts`'s `harness/result` import binding to a real
+// declaration in `result.ts` — never a spelling, never a filename guess —
+// admissible as a presence check only because this diff creates the file.
+//
+// `result.ts` also gets this unit's first BEHAVIORAL arm (below the S3
+// describe block): `grade.ts` is a top-level script that can never be
+// imported by a test, but its pure sibling can be, so an arm imports
+// `deriveResultKind` and calls it across the exhaustive truth table of its
+// three inputs — replacing a structural proxy with a real call, and pinning
+// Law 3 (a determined typecheck/build failure outranks an unrunnable gate:
+// INCOMPLETE only when NOTHING determined the outcome).
+//
+// No pins remain green pre-fix in this file — every leg asserts the
 // POST-FIX structure. A green arm that cannot read its subject fails, so the
 // green-because-broken class is eliminated by construction. The readers are
 // parameterized by `CHECK_EVAL_GATES_ROOT`; an absent or empty root reads red
@@ -50,7 +73,9 @@
 // body wraps a `Bun.spawnSync` call), never by the literal name; call sites
 // are resolved from that declaration's name, not hardcoded. The harness/lib
 // arm resolves each gate's `ImportSpecifier` bindings from `harness/lib`
-// against `lib.ts`'s export set, never comparing a name as a spelling.
+// against `lib.ts`'s export set, never comparing a name as a spelling — the
+// same resolution, applied to `result.ts`, is what makes leg C's repair a
+// binding check rather than a spelling one.
 //
 // `evals/harness/gate.config.ts`'s own `timeout: 90_000` is out of S1/S2
 // scope and stays hand-written by design: each gate's `test.setTimeout`
@@ -200,14 +225,16 @@ function callSitesOf(ast: Node, decl: { id: Node | undefined }): Node[] {
     });
 }
 
-// Collect `lib.ts`'s export set: every name reachable from an
+// Collect a module's export set: every name reachable from an
 // `ExportNamedDeclaration` — its `specifiers` (for `export { foo }`),
 // declarator ids (for `export const foo = …`), `FunctionDeclaration.id`
 // (for `export function foo() {}`), and type-declaration ids (for
-// `export interface Foo`, `export type Foo = …`). Resolving the gates'
-// `ImportSpecifier` bindings against this set — rather than comparing a
-// name as a spelling — is what makes the harness/lib arm free of name
-// and form pins.
+// `export interface Foo`, `export type Foo = …`). Resolving an
+// `ImportSpecifier` binding against this set — rather than comparing a
+// name as a spelling — is what makes the harness/lib arm (and the
+// harness/result arm below it) free of name and form pins. Generic over
+// its subject module: called on `lib.ts` for the harness/lib arm and on
+// `result.ts` for leg C.
 function libExportedNames(ast: Node): Set<string> {
     const names = new Set<string>();
     for (const e of collect(ast, "ExportNamedDeclaration")) {
@@ -401,10 +428,13 @@ describe("S2 — derived boot budget", () => {
     });
 });
 
-// S3 — staging failure maps to INCOMPLETE (landed). Legs B and D replace
-// their pre-fix pins with the post-fix assertion in this same diff; leg C
-// (transferred here from S1 per Approach S1's fourth-hole verdict) lands
-// alongside them, since S3 is the diff that creates the code leg C is about.
+// S3 — staging failure maps to INCOMPLETE (landed, then repaired). Leg B
+// replaced its pre-fix pin with the post-fix assertion in S3's own diff. Legs
+// D and C are this repair round's: leg D drops the count an adversarial
+// review disproved for an exhaustive assertion over every sh() call site;
+// leg C (transferred here from S1 per Approach S1's fourth-hole verdict) now
+// resolves grade.ts's import binding into the newly-extracted result.ts
+// rather than reading a union type declared in grade.ts itself.
 describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
     // Leg B — post-fix (S3 landed; replaces the pre-fix "holds no
     // ThrowStatement" pin). `sh`'s body span in `evals/grade.ts` now holds a
@@ -428,29 +458,36 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
         expect(collect(body, "ThrowStatement").length).toBeGreaterThan(0);
     });
 
-    // Leg D — post-fix (S3 landed; replaces the pre-fix "no call site sits in
-    // a try with a handler" pin). The two *staging* call sites (`bun
-    // install`, `bunx playwright install chromium`) are now wrapped together
-    // in one `try` with a `handler`, so the fix's structural signature is a
-    // try/catch wrapping MORE THAN ONE `sh()` call site — distinct from each
-    // *graded* call site (`tsc --noEmit`, the CLI build), which `sh` also
-    // throws on but which S3 must keep grading FAIL, so each graded call site
-    // gets its own single-call try/catch rather than sharing the staging
-    // pair's. Asserting "a try wraps 2+ call sites together" therefore pins
-    // the staging block specifically, never merely "some try wraps some call",
-    // which would already have been true the moment any one graded site grew
-    // a catch and would not discriminate the staging fix from that alone.
+    // Leg D — repaired (a review disproved the landed count pin with two
+    // runnable mutants). The landed form asserted "a try with a handler
+    // wraps ≥2 sh() call sites together", which is satisfiable by the wrong
+    // try: grouping the two *graded* sites (`tsc`, the build) into one
+    // shared try/catch while leaving both *staging* sites unwrapped reads
+    // ≥2 and stays green even though an install failure now throws
+    // uncaught — strictly worse than the pre-fix defect. And it is holed
+    // the other way too: wrapping each of the four `sh()` calls in its own
+    // single-call try/catch (each staging catch still routing to
+    // INCOMPLETE) is a fully correct alternative fix that reads <2
+    // everywhere and goes red.
     //
-    // `sh` is located by call structure (the reader above), and call sites are
-    // resolved from that declaration's name — not hardcoded. The population
-    // control asserts the call-site set is non-empty, so the arm fails if the
-    // reader loses its subject.
+    // The repair drops the count and goes exhaustive: EVERY `sh()` call
+    // site — not some subset, not a particular pair — must sit inside a
+    // try with a handler. Safety is exhaustiveness over the file's own
+    // call-site set (a source of truth), not a fixture list, and no argv
+    // literal (`"install"` vs `"tsc"`) discriminates a site — that would be
+    // a spelling pin the next refactor moves, the exact class this repairs.
+    //
+    // `sh` is located by call structure (the reader above), and call sites
+    // are resolved from that declaration's name — not hardcoded. A call
+    // site counts as wrapped if it is contained (by node identity, so
+    // arbitrarily nested inside the try's block still counts) in some
+    // `TryStatement` whose `handler` is non-null.
     //
     // Post-fix reading (this round): 4 call sites of the function wrapping
-    // `Bun.spawnSync`; 3 `TryStatement`s with a `handler` wrap at least one
-    // call site each, and exactly one of them wraps 2 call sites together
-    // (the staging pair).
-    test("a try with a handler wraps more than one sh() call site together (post-fix; S3)", () => {
+    // `Bun.spawnSync`; every one of the 4 sits inside a try/catch, whatever
+    // the grouping (today: 3 try/catches, one wrapping the staging pair,
+    // two wrapping one graded call site each).
+    test("every sh() call site sits inside a try with a handler (post-fix; S3)", () => {
         const ast = gradeAst(evalRoot());
         const decl = shDeclaration(ast);
         const calls = callSitesOf(ast, decl);
@@ -458,44 +495,78 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
         // empty set means the reader lost its subject, not that the property
         // holds.
         expect(calls.length).toBeGreaterThan(0);
-        const wrappedCounts = collect(ast, "TryStatement")
-            .filter((t) => t.handler != null)
-            .map((t) => callSitesOf(t.block as Node, decl).length);
+
+        // Every sh() call site reachable inside some try/catch's block —
+        // collected by node identity, so a call nested arbitrarily deep
+        // inside the block (an if, another call's argument) still counts,
+        // and a call outside every try/catch's block never does.
+        const wrappedCalls = new Set<Node>();
+        for (const t of collect(ast, "TryStatement")) {
+            if (t.handler == null) continue;
+            for (const call of callSitesOf(t.block as Node, decl)) wrappedCalls.add(call);
+        }
         // Population control — at least one try/catch actually wraps a real
-        // sh() call site; an all-zero list means the reader lost its subject
+        // sh() call site; an empty set means the reader lost its subject
         // rather than the property being false.
-        expect(wrappedCounts.some((n) => n > 0)).toBe(true);
-        expect(wrappedCounts.some((n) => n >= 2)).toBe(true);
+        expect(wrappedCalls.size).toBeGreaterThan(0);
+
+        for (const call of calls) {
+            expect(wrappedCalls.has(call)).toBe(true);
+        }
     });
 
-    // Leg C — post-fix (transferred to S3 per Approach S1's fourth-hole
-    // verdict, 2026-08-25). Leg C is an ABSENCE assertion over an open shape
-    // space in its retired form ("no declaration reachable from grade.ts
-    // carries an INCOMPLETE member") — held four rounds, each holed by a
-    // landing shape the prior reader did not enumerate. S3 is the diff that
-    // creates the declaration leg C is about, so this leg asserts PRESENCE of
-    // the shape this diff actually wrote: a closed readable fact, never
-    // re-widened toward the retired absence form.
+    // Leg C — repaired (Law 2). `grade.ts` no longer declares `ResultKind`
+    // itself: the verdict derivation (and its `ResultKind`) is extracted to
+    // the pure, import-safe sibling `evals/harness/result.ts`, and `grade.ts`
+    // imports both the derivation function and the type. Leg C's obligation
+    // — resolve the subject to a real declaration, never a spelling or a
+    // filename guess — now reads as: `grade.ts`'s `ImportDeclaration` from a
+    // source ending `harness/result` resolves (via the same binding-
+    // resolution the harness/lib arm uses, `libExportedNames`, applied here
+    // to `result.ts`) against a real export of that module, and that module
+    // itself declares a union type carrying an INCOMPLETE member — a
+    // presence check admissible only because this diff is the one that
+    // creates `result.ts`.
     //
-    // `grade.ts` declares `type ResultKind = "PASS" | "FAIL" | "INCOMPLETE"`
-    // — a `TSTypeAliasDeclaration` whose `typeAnnotation` is a `TSUnionType`
-    // whose members are `TSLiteralType`s over `StringLiteral`s. The reader
-    // walks every type-alias union in grade.ts's own AST and collects each
-    // string-literal member's value, so a bare string anywhere else in the
-    // file (a display string, a `console.log("INCOMPLETE")`, a comment) does
-    // not produce this node shape and cannot satisfy the assertion — only a
-    // union-type member can.
-    //
-    // Post-fix reading (this round): 1 `TSTypeAliasDeclaration` with a
-    // `TSUnionType` annotation in grade.ts, 3 `TSLiteralType` members —
-    // `"PASS"`, `"FAIL"`, `"INCOMPLETE"`.
-    test("grade.ts declares a result-kind union type carrying an INCOMPLETE member (post-fix; S3)", () => {
-        const ast = gradeAst(evalRoot());
-        const aliases = collect(ast, "TSTypeAliasDeclaration");
-        // Population control — grade.ts must declare at least one type alias,
-        // or the reader lost its subject rather than the property being false.
-        expect(aliases.length).toBeGreaterThan(0);
+    // Post-fix reading (this round): `grade.ts` imports from a source ending
+    // `harness/result`; every imported name resolves against `result.ts`'s
+    // export set; `result.ts` declares 1 `TSTypeAliasDeclaration` with a
+    // `TSUnionType` annotation, 3 `TSLiteralType` members — `"PASS"`,
+    // `"FAIL"`, `"INCOMPLETE"`.
+    test("grade.ts's harness/result import resolves to a union type carrying an INCOMPLETE member (post-fix; S3)", () => {
+        const root = evalRoot();
+        const ast = gradeAst(root);
 
+        const importedNames: string[] = [];
+        for (const imp of collect(ast, "ImportDeclaration")) {
+            const source = (imp.source as Node).value as string;
+            if (!source.endsWith("harness/result")) continue;
+            for (const spec of (imp.specifiers as Node[] | undefined) ?? []) {
+                if (spec.type !== "ImportSpecifier") continue;
+                const imported = spec.imported as Node | undefined;
+                if (imported?.type === "Identifier") importedNames.push(imported.name as string);
+                else if (imported?.type === "StringLiteral") importedNames.push(imported.value as string);
+            }
+        }
+        // Population control — grade.ts must import from harness/result, or
+        // the reader lost its subject rather than the property being false.
+        expect(importedNames.length).toBeGreaterThan(0);
+
+        const resultPath = join(root, "evals", "harness", "result.ts");
+        const resultAst = parseFile(resultPath);
+        const exportedNames = libExportedNames(resultAst);
+        // Population control — result.ts must export something.
+        expect(exportedNames.size).toBeGreaterThan(0);
+        for (const name of importedNames) {
+            expect(exportedNames.has(name)).toBe(true);
+        }
+
+        // Presence: result.ts itself declares a union type carrying the
+        // INCOMPLETE literal — never resolved by a bare string anywhere in
+        // the file (a display string, a comment) since only a
+        // `TSUnionType` member produces this node shape.
+        const aliases = collect(resultAst, "TSTypeAliasDeclaration");
+        expect(aliases.length).toBeGreaterThan(0);
         const literalValues: string[] = [];
         for (const alias of aliases) {
             const ann = alias.typeAnnotation as Node | undefined;
@@ -511,5 +582,64 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
         // wrong declaration shape, not that the property is false.
         expect(literalValues.length).toBeGreaterThan(0);
         expect(literalValues).toContain("INCOMPLETE");
+    });
+});
+
+// S3 repair, Law 2 & 3 — the unit's first behavioral oracle. `grade.ts` is a
+// top-level script (argv parsing, top-level await) that can never be
+// imported by an arm — every leg above reads its AST instead of running it.
+// `evals/harness/result.ts` is a pure sibling with no @playwright/test
+// import, so it CAN be imported and called directly: this arm imports it and
+// drives `deriveResultKind` across the exhaustive truth table of its three
+// determined inputs, replacing a structural proxy with a real call.
+//
+// This is also Law 3's witness: a determined typecheck or build failure
+// outranks an unrunnable gate — INCOMPLETE is reserved for a run where
+// NOTHING determined the outcome, so `deriveResultKind(false, true, null)`
+// is FAIL, never INCOMPLETE, even though the gate never ran.
+//
+// Red at the parent ref: `harness/result.ts` does not exist there, so the
+// dynamic import throws and the test fails outright — never a green arm
+// that cannot read its subject.
+describe("S3 — result kind derivation (behavioral)", () => {
+    test("deriveResultKind covers the exhaustive truth table of its three determined inputs", async () => {
+        const root = evalRoot();
+        const resultPath = join(root, "evals", "harness", "result.ts");
+        const mod = (await import(resultPath)) as {
+            deriveResultKind?: (a: boolean, b: boolean, c: boolean | null) => unknown;
+        };
+        // Population control — the module must actually export the function
+        // under test, or the reader lost its subject rather than the
+        // property being false.
+        expect(typeof mod.deriveResultKind).toBe("function");
+        const deriveResultKind = mod.deriveResultKind as (
+            a: boolean,
+            b: boolean,
+            c: boolean | null,
+        ) => unknown;
+
+        const bools = [true, false];
+        const gateVals: (boolean | null)[] = [true, false, null];
+        let cases = 0;
+        for (const typecheckOk of bools) {
+            for (const buildOk of bools) {
+                for (const gateOk of gateVals) {
+                    cases++;
+                    const expected =
+                        typecheckOk === false || buildOk === false
+                            ? "FAIL"
+                            : gateOk === null
+                              ? "INCOMPLETE"
+                              : gateOk
+                                ? "PASS"
+                                : "FAIL";
+                    expect(deriveResultKind(typecheckOk, buildOk, gateOk)).toBe(expected);
+                }
+            }
+        }
+        // Population control — the truth table actually iterated all 12
+        // combinations (2 × 2 × 3); a broken loop reads as a pass on zero
+        // cases.
+        expect(cases).toBe(12);
     });
 });

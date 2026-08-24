@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runPlaywright } from "./harness/playwright";
+import { deriveResultKind, resultKindToPass, type ResultKind } from "./harness/result";
 import { startServer } from "./harness/server";
 import { detectDisplay, isWSL } from "./harness/wsl";
 
@@ -47,8 +48,9 @@ interface Check {
 // dependency install `sh` throws on) or a gate that produced no envelope (the audit's own
 // "gate produced no result" branch, a fired spawn backstop included) is the *harness* failing, not
 // the agent's task — INCOMPLETE, never FAIL. A graded call site's nonzero exit (typecheck, build) is
-// the opposite: the subject's own task failing, which stays a legitimate FAIL.
-type ResultKind = "PASS" | "FAIL" | "INCOMPLETE";
+// the opposite: the subject's own task failing, which stays a legitimate FAIL. The derivation itself
+// (and its ResultKind) lives in ./harness/result — a pure, import-safe module a test can call
+// directly, since this script (argv parsing, top-level await) never can be imported by one.
 interface Result {
     task: string;
     project: string;
@@ -221,13 +223,14 @@ if (!detectDisplay()) {
 }
 
 const g = result.checks.gate;
-result.kind =
-    g.ok === null
-        ? "INCOMPLETE"
-        : result.checks.typecheck.ok === true && result.checks.build.ok === true && g.ok === true
-          ? "PASS"
-          : "FAIL";
-result.pass = result.kind === "PASS" ? true : result.kind === "FAIL" ? false : null;
+// A determined typecheck or build failure outranks an unrunnable gate — see ./harness/result's
+// docblock. INCOMPLETE is reserved for a run where nothing determined the outcome.
+result.kind = deriveResultKind(
+    result.checks.typecheck.ok === true,
+    result.checks.build.ok === true,
+    g.ok,
+);
+result.pass = resultKindToPass(result.kind);
 
 if (asJson) {
     console.log(JSON.stringify(result, null, 2));
