@@ -151,6 +151,10 @@ export async function gate(indirect: Mirror): Promise<Check[]> {
     // this gates the GPU edit→remesh on the real device.
     const edited = authorGrid("sphere");
     uploadVoxels(edited);
+    // settle here so the initial upload's own emit fires before the edit — otherwise the upload and the
+    // edit collapse into one dirty pass and the edit path (a re-mesh over already-meshed geometry) goes
+    // unexercised (`showcase-frame-floor` S3 side finding).
+    await settle(indirect);
     const touched = brush(edited, DIM.x / 2, DIM.y / 2, DIM.z / 2, 12, -DENSITY);
     commitEdit(touched);
     await settle(indirect);
