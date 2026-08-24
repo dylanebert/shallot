@@ -59,9 +59,15 @@ export interface ZeroDispatchViolation {
  *  argument list — a multi-argument `dispatchWorkgroups` with a literal zero x, or a multi-argument
  *  `.draw` with a literal zero vertex count, warns exactly like the single-arg form because the first
  *  argument is what Dawn checks, so a literal `0` there trips this regardless of what follows. The literal itself may be an integer (`0`) or a float zero (`0.0`, `.0`) —
- *  whitespace around it still matches. Only a literal composed entirely of zero digits counts, so a
- *  real dispatch/draw sized off a runtime count (`dispatchWorkgroups(count)`, `.draw(vertexCount)`,
- *  or a multi-arg call with no zero literal in the first slot) never trips it. @internal */
+ *  whitespace around it still matches. The literal must be exactly `0`, `0.0` or `.0` sitting directly
+ *  before the comma or close paren, so a real dispatch/draw sized off a runtime count
+ *  (`dispatchWorkgroups(count)`, `.draw(vertexCount)`, or a multi-arg call with no zero literal in the
+ *  first slot) never trips it. Known blind spots of a lexical scan, none of them present in-tree and
+ *  each verified against this regex rather than assumed: `00`, `0x0`, `-0`, a comment interposed
+ *  between the literal and its terminator (`dispatchWorkgroups(0 /* c *\/, y)`), and any zero reached
+ *  through a name (`const ZERO = 0`). Only the last needs an AST pass to close, and no live instance
+ *  of any of them justifies one today — so read a green here as "no literal zero-count call", never as
+ *  "no zero-count call reachable". @internal */
 export async function findZeroDispatches(root: string): Promise<ZeroDispatchViolation[]> {
     const violations: ZeroDispatchViolation[] = [];
     const zeroLiteral = String.raw`(?:0(?:\.0+)?|\.0+)`;
