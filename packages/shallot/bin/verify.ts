@@ -113,9 +113,22 @@ export interface VerifyArgs {
  */
 export function parseVerifyArgs(raw: string[]): VerifyArgs {
     const num = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
         const n = Number(v);
         if (!Number.isFinite(n) || n <= 0) {
             throw new Error(`invalid ${flag} value "${v}" — expected a positive number`);
+        }
+        return n;
+    };
+    const numNonNeg = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0) {
+            throw new Error(`invalid ${flag} value "${v}" — expected a non-negative number`);
         }
         return n;
     };
@@ -140,8 +153,9 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         else if (a === "--memory") args.memory = true;
         else if (a === "--alloc") args.alloc = true;
         else if (a === "--timings") args.timings = true;
-        else if (a === "--leak" && raw[i + 1]) args.leak = num("--leak", raw[++i]);
-        else if (a?.startsWith("--leak=")) args.leak = num("--leak", a.slice("--leak=".length));
+        else if (a === "--leak" && raw[i + 1]) args.leak = numNonNeg("--leak", raw[++i]);
+        else if (a?.startsWith("--leak="))
+            args.leak = numNonNeg("--leak", a.slice("--leak=".length));
         else if (a === "--help" || a === "-h") args.help = true;
         else if (a === "--screenshot" && raw[i + 1]) args.screenshot = raw[++i];
         else if (a === "--connect" && raw[i + 1]) args.connect = raw[++i];

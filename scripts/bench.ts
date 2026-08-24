@@ -228,6 +228,16 @@ export function parseArgs(argv: string[]): Args {
         if (i + 1 >= argv.length) throw new Error(`--${name} requires a value`);
         return argv[i + 1];
     };
+    const num = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
+        const n = Number(v);
+        if (!Number.isFinite(n)) {
+            throw new Error(`invalid ${flag} value "${v}" — expected a number`);
+        }
+        return n;
+    };
     for (let i = 0; i < argv.length; i++) {
         const arg = argv[i];
         if (!arg.startsWith("--")) continue; // passthrough was Playwright-runner-specific; verify has none
@@ -237,19 +247,19 @@ export function parseArgs(argv: string[]): Args {
                 out.scenario = take(name, i++);
                 break;
             case "seed":
-                out.seed = parseInt(take(name, i++), 10);
+                out.seed = num(`--${name}`, take(name, i++));
                 break;
             case "count":
-                out.count = parseInt(take(name, i++), 10);
+                out.count = num(`--${name}`, take(name, i++));
                 break;
             case "warmup":
-                out.warmup = parseInt(take(name, i++), 10);
+                out.warmup = num(`--${name}`, take(name, i++));
                 break;
             case "frames":
-                out.frames = parseInt(take(name, i++), 10);
+                out.frames = num(`--${name}`, take(name, i++));
                 break;
             case "timeout":
-                out.timeoutMs = parseInt(take(name, i++), 10);
+                out.timeoutMs = num(`--${name}`, take(name, i++));
                 break;
             case "param":
                 out.params.push(take(name, i++));
@@ -258,7 +268,7 @@ export function parseArgs(argv: string[]): Args {
                 out.screenshot = take(name, i++);
                 break;
             case "leak":
-                out.leak = parseInt(take(name, i++), 10);
+                out.leak = num(`--${name}`, take(name, i++));
                 break;
             case "list":
                 out.list = true;

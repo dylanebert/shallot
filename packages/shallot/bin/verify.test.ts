@@ -138,6 +138,24 @@ describe("parseVerifyArgs", () => {
         expect(() => parseVerifyArgs(["--timeout=-5"])).toThrow('invalid --timeout value "-5"');
     });
 
+    test("an empty --port value is rejected as empty, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--port="])).toThrow(
+            'invalid --port value "" — must not be empty',
+        );
+    });
+
+    test("a whitespace-only --port value is rejected, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--port", " "])).toThrow(
+            'invalid --port value " " — must not be empty',
+        );
+    });
+
+    test("--port 8080abc is rejected as non-numeric, not truncated to 8080", () => {
+        expect(() => parseVerifyArgs(["--port", "8080abc"])).toThrow(
+            'invalid --port value "8080abc"',
+        );
+    });
+
     test("--memory and --alloc are separate flags, default false", () => {
         const a = parseVerifyArgs([]);
         expect(a.memory).toBe(false);
@@ -154,7 +172,6 @@ describe("parseVerifyArgs", () => {
         expect(parseVerifyArgs([]).leak).toBe(0);
         expect(parseVerifyArgs(["--leak", "122880", "--memory"]).leak).toBe(122880);
         expect(parseVerifyArgs(["--leak=122880", "--memory"]).leak).toBe(122880);
-        expect(() => parseVerifyArgs(["--leak", "0"])).toThrow("expected a positive number");
     });
 
     test("--leak without --memory is a parse error (nothing samples the injected allocation)", () => {
@@ -162,16 +179,25 @@ describe("parseVerifyArgs", () => {
         expect(() => parseVerifyArgs(["--leak=122880"])).toThrow("--leak requires --memory");
     });
 
-    // HOLE-RECORD ARM — `--leak 0` should be accepted as "off" (verify.ts:94 JSDoc: "0 = off",
-    // line 130 defaults `leak: 0`, line 172 branches on `args.leak > 0 && !args.memory`), but `num()`
-    // (verify.ts:117) rejects `n <= 0` so `--leak 0` throws. `.not.toThrow()` sees only the absence of a
-    // throw: it CANNOT see the parsed *value*, so an S2 that stops throwing while parsing `0` to anything
-    // else greens it — which is why the sibling arm above pins `parseVerifyArgs([]).leak === 0` and why S2
-    // owes `parseVerifyArgs(["--leak", "0"]).leak === 0` here. S2 of this spec (audit-cli-numeric-flags) is
-    // the unit that flips this arm green, and its first act in this file is deleting the status-quo pin at
-    // the `--leak defaults to 0 (off)` arm above, which asserts the very throw this arm forbids.
-    test("--leak 0 is accepted as off, not rejected by num() — RED today (verify.ts:94 says 0 = off)", () => {
+    // `--leak 0` is accepted as off: `numNonNeg` allows zero (the `--leak` JSDoc: "0 = off"), and the
+    // `--leak requires --memory` guard branches on `args.leak > 0`, so 0 never trips it. The sibling arm
+    // above pins `parseVerifyArgs([]).leak === 0`; this one pins `parseVerifyArgs(["--leak", "0"]).leak
+    // === 0` so a parser that substitutes a nonzero value for 0 can't pass both.
+    test("--leak 0 is accepted as off (leak === 0, not rejected)", () => {
         expect(() => parseVerifyArgs(["--leak", "0"])).not.toThrow();
+        expect(parseVerifyArgs(["--leak", "0"]).leak).toBe(0);
+    });
+
+    test("an empty --leak value is rejected as empty, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--leak="])).toThrow(
+            'invalid --leak value "" — must not be empty',
+        );
+    });
+
+    test("a whitespace-only --leak value is rejected, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--leak", " "])).toThrow(
+            'invalid --leak value " " — must not be empty',
+        );
     });
 
     test("--timings defaults off, flips on", () => {
