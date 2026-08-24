@@ -1,41 +1,32 @@
-// The site roster — the six showcase demos. This is the single source of truth for which demos
-// the site builds and serves. `check-site.ts` asserts this set equals the showcase dirs on disk,
-// so a demo that ships without a roster entry (or vice versa) reds `bun check`.
-//
-// The roster is kept separate from `examples/AGENTS.md` because the two serve different readers:
-// the roster is the build's source of truth and the thing `check-site.ts` set-gates, while
-// `examples/AGENTS.md` lines are written for agent retrieval — different readers, so these are
-// not copies to consolidate (the Locked decision). Rows carry a title, a play link, and a code
-// link — nothing else; the demos speak for themselves.
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
+
+// The site roster — derived from `examples/showcase/` by enumeration, not a hand-maintained list.
+// Each showcase dir joins the site by existing; the title is the slug with each kebab segment
+// capitalized (no override map until a slug needs one — every current slug is single-word, so the
+// rule is exact today). `check-site.ts` gates the dirs' contracts (manifest presence, workspace-form
+// shallot pin, no escaping import, no root-absolute path); set membership is by construction, so no
+// separate roster-equals-disk clause survives. This module is the single import point:
+// `build-site.ts`, `demos.ts`, and `check-site.ts` all import `ROSTER` and none of them learn about
+// the filesystem — the change is the provenance of the array, not the shape consumers see.
 
 export interface DemoEntry {
     slug: string;
     title: string;
 }
 
-export const ROSTER: DemoEntry[] = [
-    {
-        slug: "collapse",
-        title: "Collapse",
-    },
-    {
-        slug: "fountain",
-        title: "Fountain",
-    },
-    {
-        slug: "roads",
-        title: "Roads",
-    },
-    {
-        slug: "sandbox",
-        title: "Sandbox",
-    },
-    {
-        slug: "visualization",
-        title: "Visualization",
-    },
-    {
-        slug: "voxel",
-        title: "Voxel",
-    },
-];
+const repoRoot = resolve(import.meta.dir, "..");
+const showcaseDir = resolve(repoRoot, "examples/showcase");
+
+function deriveTitle(slug: string): string {
+    return slug
+        .split("-")
+        .map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1))
+        .join(" ");
+}
+
+export const ROSTER: DemoEntry[] = readdirSync(showcaseDir, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .map((e) => e.name)
+    .sort()
+    .map((slug) => ({ slug, title: deriveTitle(slug) }));
