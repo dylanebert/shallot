@@ -1107,4 +1107,41 @@ describe("precompile", () => {
             Object.assign(Compute, saved);
         }
     });
+
+    test("an array of typegpu pipelines is awaited element-wise; [] and sear's raw-pipeline array stay skipped", async () => {
+        const saved = { ...Compute };
+        try {
+            // a forcer returning an array of typegpu pipelines (each exposing initAsync) — the natural
+            // generalization of sear's shape a reader of the drain's own JSDoc would write — must warm
+            // every element, not silently skip the whole array the way the sear case legitimately does
+            await requestGPU(fakeDevice());
+            let calls = 0;
+            precompile("multi-pipeline", () => [
+                {
+                    initAsync: async () => {
+                        calls++;
+                    },
+                },
+                {
+                    initAsync: async () => {
+                        calls++;
+                    },
+                },
+            ]);
+            await precompileAll();
+            expect(calls).toBe(2);
+
+            // [] stays legal — nothing to await, nothing throws
+            await requestGPU(fakeDevice());
+            precompile("none-specialized", () => []);
+            await expect(precompileAll()).resolves.toBeUndefined();
+
+            // sear's already-unwrapped raw pipelines expose no initAsync — still skipped, not thrown
+            await requestGPU(fakeDevice());
+            precompile("raw-pipelines", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            await expect(precompileAll()).resolves.toBeUndefined();
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
 });
