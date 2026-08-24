@@ -15,6 +15,8 @@ import {
     resolveFor,
 } from "../../../scripts/bench";
 import { parsePhases, parseResources, parseTransformLine } from "../../../scripts/boot-cost";
+import { verifyDiagnostic } from "../../../scripts/install-test";
+import type { ShaderArtifactSummary, VerifyResult } from "../../../scripts/verify";
 import {
     batchPass,
     bootArm,
@@ -1595,5 +1597,234 @@ describe("report — the unrendered arms (⚠ LEAK, compilationError)", () => {
         } finally {
             console.log = original;
         }
+    });
+});
+
+// S3: the ejected boot arm's diagnostic reporter. `verifyDiagnostic` is the function the ejected boot
+// check calls instead of printing `JSON.stringify(green.errors ?? green.error ?? green)` — the old form
+// that printed `[]` for an empty errors array and was once dismissed as a flake. The arm feeds
+// synthetic `VerifyResult` values through every diagnostic bin the function reads (page errors, setup
+// error, verdict checks, shader artifacts) and the empty-diagnostic fallthrough, pinning that each
+// names its diagnostic and that the empty case reports a named instrument fault rather than an empty
+// container. A pass never reports an instrument fault. The red-when-broken witness (revert-the-behavior)
+// is run inline: a mutated copy of the function with the empty-diagnostic branch removed returns the
+// wrong thing, proving the arm discriminates.
+describe("verifyDiagnostic — the ejected boot arm's diagnostic reporter", () => {
+    /** construct a minimal VerifyResult with the given overrides. */
+    const mk = (overrides: Partial<VerifyResult>): VerifyResult => ({
+        pass: false,
+        ...overrides,
+    });
+
+    test("a red carrying page errors names them (joined with |)", () => {
+        const result = mk({ pass: false, errors: ["shader compile failed", "binding mismatch"] });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toBe("shader compile failed | binding mismatch");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("a red carrying only a setup error names it", () => {
+        const result = mk({ pass: false, error: "port 5191 already in use" });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toBe("port 5191 already in use");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("a red carrying only failed verdict checks names them", () => {
+        const result = mk({
+            pass: false,
+            verdict: {
+                ok: false,
+                checks: [
+                    { name: "ready", ok: true },
+                    { name: "render", ok: false, detail: "blank canvas" },
+                ],
+            },
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("render");
+        expect(diag).toContain("blank canvas");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("a red carrying only a shader artifacts compilation error names it", () => {
+        const artifacts: ShaderArtifactSummary[] = [
+            {
+                label: "forward",
+                stage: "vertex+fragment",
+                compilationError: { errorClass: "validation", message: "bad binding" },
+                messages: [],
+            },
+        ];
+        const result = mk({ pass: false, artifacts });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("forward");
+        expect(diag).toContain("bad binding");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("a red carrying only shader artifact messages (no compilationError) names them", () => {
+        const artifacts: ShaderArtifactSummary[] = [
+            {
+                label: "post",
+                stage: "fragment",
+                messages: [
+                    { type: "error", message: "undeclared variable x", lineNum: 3, linePos: 8 },
+                ],
+            },
+        ];
+        const result = mk({ pass: false, artifacts });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("post");
+        expect(diag).toContain("undeclared variable x");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("a red carrying none of those returns the named instrument fault with field state", () => {
+        const result = mk({ pass: false });
+        const diag = verifyDiagnostic(result);
+        // the instrument-fault wording is kept
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("no diagnostic");
+        // the failing predicates are named — all three failed since none are true
+        expect(diag).toContain("failed predicates: pass===true, booted===true, rendered===true");
+        // the field state is reported
+        expect(diag).toContain("pass=false");
+        expect(diag).toContain("booted=undefined");
+        expect(diag).toContain("rendered=undefined");
+        expect(diag).toContain("hardware=undefined");
+        expect(diag).toContain("verdict=absent");
+        expect(diag).toContain("memory=absent");
+    });
+
+    // the exact case the coordinator hit: red, no errors, no error, no verdict, no artifacts —
+    // a boot that loaded (booted) but never rendered (rendered=false), carrying no diagnostic at
+    // all. This is the string a future reader will actually see on a genuine red of this shape, so
+    // its content is pinned, not merely that it is non-empty.
+    test("the coordinator's case: booted=true, rendered=false, no diagnostic — pins the exact string", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "apple / metal / apple m2 / apple m2",
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toBe(
+            "instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts); " +
+                "failed predicates: pass===true, rendered===true; " +
+                "pass=false, booted=true, rendered=false, hardware=apple / metal / apple m2 / apple m2, verdict=absent, memory=absent",
+        );
+    });
+
+    test("a red with booted=false names all three predicates as failed", () => {
+        const result = mk({
+            pass: false,
+            booted: false,
+            rendered: false,
+            hardware: "unknown",
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("failed predicates: pass===true, booted===true, rendered===true");
+        expect(diag).toContain("pass=false, booted=false, rendered=false, hardware=unknown");
+    });
+
+    test("a red carrying a verdict with no failed checks still reports the verdict state", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: true,
+            hardware: "test-gpu",
+            verdict: { ok: true, checks: [{ name: "ready", ok: true }] },
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        // pass is false but verdict.ok is true and no checks failed — still an instrument fault
+        expect(diag).toContain("instrument fault");
+        expect(diag).toContain("failed predicates: pass===true");
+        expect(diag).toContain("verdict.ok=true");
+        expect(diag).toContain("verdict.checks=1");
+    });
+
+    test("a red carrying memory=present reports memory=present, not memory=absent", () => {
+        const result = mk({
+            pass: false,
+            booted: true,
+            rendered: false,
+            hardware: "test-gpu",
+            memory: null,
+            errors: [],
+        });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toContain("memory=present");
+        expect(diag).not.toContain("memory=absent");
+    });
+
+    test("a pass never reports an instrument fault", () => {
+        const result = mk({ pass: true, errors: [] });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toBe("pass");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("a pass with errors still names the errors, never an instrument fault", () => {
+        // a pass carrying errors is unusual but the function must not hide them behind "pass"
+        const result = mk({ pass: true, errors: ["a warning"] });
+        const diag = verifyDiagnostic(result);
+        expect(diag).toBe("a warning");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    test("null result returns a named absence, not an instrument fault", () => {
+        const diag = verifyDiagnostic(null);
+        expect(diag).toBe("no verify result");
+        expect(diag).not.toContain("instrument fault");
+    });
+
+    // RED-WHEN-BROKEN WITNESS: a mutated copy of verifyDiagnostic with the empty-diagnostic
+    // fallthrough removed (the last `return` line deleted, so the function returns an empty string
+    // instead of the named instrument fault) must produce a value the instrument-fault arm above does
+    // NOT accept — proving the arm discriminates the empty-diagnostic branch. If the arm still passed
+    // with the branch broken, it would pin nothing about the instrument-fault path.
+    test("red-when-broken: removing the empty-diagnostic fallthrough breaks the instrument-fault arm", () => {
+        // the production function, with the final return replaced — the defect this arm exists to catch
+        function brokenVerifyDiagnostic(result: VerifyResult | null): string {
+            if (!result) return "no verify result";
+            const errors = result.errors ?? [];
+            if (errors.length > 0) return errors.join(" | ");
+            if (result.error) return result.error;
+            if (result.pass) return "pass";
+            const failedChecks = (result.verdict?.checks ?? []).filter((c) => !c.ok);
+            if (failedChecks.length > 0) return JSON.stringify(failedChecks);
+            const artifacts = result.artifacts ?? [];
+            const diagArtifacts = artifacts.filter(
+                (a: ShaderArtifactSummary) =>
+                    a.compilationError || (a.messages && a.messages.length > 0),
+            );
+            if (diagArtifacts.length > 0)
+                return JSON.stringify(
+                    diagArtifacts.map((a) => ({
+                        label: a.label,
+                        compilationError: a.compilationError,
+                        messages: a.messages,
+                    })),
+                );
+            // THE BROKEN BRANCH: the instrument-fault return with field state is replaced with "".
+            return "";
+        }
+
+        const emptyResult = mk({ pass: false });
+        const broken = brokenVerifyDiagnostic(emptyResult);
+        const correct = verifyDiagnostic(emptyResult);
+
+        // the broken version does NOT report the instrument fault — it returns an empty string
+        expect(broken).toBe("");
+        expect(broken).not.toContain("instrument fault");
+        // the correct version DOES report it with field state
+        expect(correct).toContain("instrument fault");
+        expect(correct).toContain("failed predicates");
+        // the arm discriminates: the broken and correct outputs differ
+        expect(broken).not.toBe(correct);
     });
 });
