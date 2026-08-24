@@ -64,6 +64,9 @@ Richer exhibits — each a self-contained real project that owns its own test ga
 `bunx shallot dev examples/showcase/<name>/` (except `visualization`, which owns a vite harness: `cd
 examples/showcase/visualization && bun dev`).
 
+The showcase demos are live at https://dylanebert.com/shallot/ — each playable in the browser, with a
+code link to its source pinned to the version it was built from.
+
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.
 - **fountain** — `showcase/fountain/` — a custom GPU render producer: a particle fountain.
 - **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
