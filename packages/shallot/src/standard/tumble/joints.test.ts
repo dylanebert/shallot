@@ -244,4 +244,63 @@ describe("tumble constraint mapping", () => {
         const dot = (arm?.quat[2] ?? 0) * s30 + (arm?.quat[3] ?? 0) * c30;
         expect(Math.abs(dot)).toBeGreaterThan(0.9999);
     });
+
+    test("a negative stiffnessAng must not produce a rigid weld (warn+skip, matching the spring path)", async () => {
+        // stiffnessAng: -1 → stiffnessHertz returns 0 (stiffness <= 0) → angularHertz 0 →
+        // weldJoint maps angularHertz === 0 → sim.constraintSoftness = RIGID. The weakest requested
+        // angular stiffness yields the stiffest joint, silently — while the spring path warns+skips
+        // the identical non-positive input (joints.ts createSpring). The swap-parity rule the file
+        // states ("settle-to-equilibrium is the behavior that matches across the swap") admits
+        // warn+skip: a non-positive stiffness has no equilibrium to settle to, so the matching
+        // behavior is to skip (as the spring path does), not to silently substitute a different
+        // constraint. This arm asserts the warn+skip direction: no joint is created, so the body
+        // falls freely under gravity instead of being held at the authored pose.
+        const s30 = Math.sin(Math.PI / 12);
+        const c30 = Math.cos(Math.PI / 12);
+        const { state, eids } = await build([
+            { pos: [0, 2, 0], mass: 0 },
+            { pos: [1.5, 2.5, 0], mass: 1, half: [0.25, 0.25, 0.25], quat: [0, 0, s30, c30] },
+        ]);
+        addJoint(state, eids[0], eids[1], [1.5, 0.5, 0], [0, 0, 0], -1);
+        stepFor(state, 2);
+        const arm = Physics.backend?.readBody(eids[1]);
+        expect(arm).not.toBeNull();
+        // warn+skip: no joint created, body falls freely — not held at the authored y=2.5
+        expect(arm?.pos[1] ?? 2.5).toBeLessThan(2.0);
+    });
+
+    test("an intermediate stiffnessAng settles rather than oscillates (amplitude decay over 40 fixed ticks)", async () => {
+        // angularDampingRatio: 0 with angularHertz > 0 gives makeSoft(hertz, 0, h) — an undamped
+        // angular spring that rings, contradicting the file's stated swap-parity rule (dampingRatio: 1
+        // because "settle-to-equilibrium is the behavior that matches across the swap"). This arm
+        // asserts the settle: after N fixed ticks the body's angular displacement over a measurement
+        // window is below tolerance — a damped spring has settled, an undamped one is still ringing.
+        //
+        // Setup: a body hangs from a static pivot by a 0.5 m offset pin (rB = [0.5, 0, 0]). Gravity
+        // creates a torque around the pin; the angular spring (stiffnessAng = 1000 → angularHertz ≈
+        // 5.03 Hz, ω ≈ 31.6 rad/s, period T ≈ 12 ticks) resists. Critically damped (the fix), the
+        // body settles to equilibrium within ~30 ticks (observed: < 0.05° per 10-tick window past
+        // tick 30). Undamped (the bug), it oscillates at T ≈ 12 ticks (observed: 6.4° per 10-tick
+        // window at tick 30–40). The arm measures the angular displacement between tick 30 and tick
+        // 40 (a 10-tick ≈ 5T/6 window): a settled body moves < tolerance, a ringing body moves ~6.4°.
+        //
+        // N = 40 ticks (30 settling + 10 measurement), tolerance = 0.02 rad (~1.1°). The minimum N
+        // that witnesses the ring: 30 ticks is the critical-damping settling time (observed from the
+        // damped response), and 10 ticks (≈ 5T/6) is the shortest window in which a ringing body
+        // moves past tolerance while a settled one does not.
+        const { state, eids } = await build([
+            { pos: [0.5, 10, 0], mass: 0, half: [0.1, 0.1, 0.1] },
+            { pos: [0, 10, 0], mass: 1, half: [0.25, 0.25, 0.25] },
+        ]);
+        addJoint(state, eids[0], eids[1], [0, 0, 0], [0.5, 0, 0], 1000);
+        stepFor(state, 0.5); // 30 ticks — settling window
+        const q1 = Physics.backend?.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
+        stepFor(state, 1 / 6); // 10 ticks — measurement window (≈ 5T/6)
+        const q2 = Physics.backend?.readBody(eids[1])?.quat ?? [0, 0, 0, 1];
+        const dot = q1[0] * q2[0] + q1[1] * q2[1] + q1[2] * q2[2] + q1[3] * q2[3];
+        const angle = 2 * Math.acos(Math.min(1, Math.abs(dot)));
+        // N = 40 ticks, tolerance = 0.02 rad (~1.1°): a settled body moves < 0.02, a ringing body
+        // moves ~0.11 rad in the 10-tick window.
+        expect(angle).toBeLessThan(0.02);
+    });
 });
