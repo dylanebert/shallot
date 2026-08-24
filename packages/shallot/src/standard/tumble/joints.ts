@@ -79,6 +79,22 @@ const liveJoints = new Map<string, TumbleJoint[]>();
 // calls back into `joints.ts` between signature changes, so the retained set + the re-invoke are both needed.
 let retainedSprings: readonly SpringDef[] = [];
 let retainedJoints: readonly JointDef[] = [];
+// warned-key dedupe sets — keyed on `${springKey}|${cause}` / `${jointKey}|${cause}` so each diagnostic site
+// (endpoint-unavailable, hertz-zero, both-static, non-positive-stiffness) is deduped independently. Cleared on
+// an authored upload (`syncSprings`/`syncJoints`) and in `resetConstraints`. This mirrors `index.ts`'s `failed`
+// ledger: it gates the *attempt* and re-warns when the key moves — it does not mute. A boolean `quiet` that
+// silenced the retry path (S2's stopgap) hid every cause that only becomes visible after a deferred marshal
+// resolves (the both-static guard sits after `endpoints()` returns a pair, so the retry is the only path
+// that can evaluate it). Dedupe on the composite key lets the both-static warning fire once on the retry even
+// though the endpoint warning already banked the def's base key on the authored upload.
+const warnedSprings = new Set<string>();
+const warnedJoints = new Set<string>();
+
+const warnOnce = (warned: Set<string>, key: string, message: string): void => {
+    if (warned.has(key)) return;
+    console.warn(message);
+    warned.add(key);
+};
 
 // exported as a test seam only (joints.test.ts pins the diff semantics with stub joints); not on any barrel
 export function syncSet<D>(
@@ -122,29 +138,30 @@ export function syncSet<D>(
 // pass a predicate over it so the deferred case reads as deferred-and-will-retry, not a permanent skip.
 // EACH missing endpoint is classified on its own cause: a mixed pair (one truly non-`Body`, one deferred)
 // names both, so neither half inherits the other's cause — the misdirection this discriminator exists to end.
-// `quiet` silences the diagnostic for a retry pass (`resyncConstraints`): the authored upload owns the one
-// warning, and a retry that re-warned would fire on every body-set change (index.ts's never-thrash invariant).
+// The diagnostic is deduped (not silenced): `warned` is the per-cause key set cleared on authored upload, so
+// the authored upload's warning fires once and the retry's re-warn is suppressed only for the SAME cause —
+// a deferred endpoint that resolves into a both-static pair warns the both-static cause on the retry because
+// that composite key was never banked.
 function endpoints(
     bodies: ReadonlyMap<number, TumbleBody>,
     a: number,
     b: number,
     kind: string,
     isDeferred: (eid: number) => boolean,
-    quiet: boolean,
+    warned: Set<string>,
+    key: string,
 ): [TumbleBody, TumbleBody] | null {
     const ta = bodies.get(a);
     const tb = bodies.get(b);
     if (!ta || !tb) {
-        if (!quiet) {
-            const cause = (label: string, eid: number): string =>
-                isDeferred(eid)
-                    ? `${label}: ${eid} is a deferred body (marshal pending, will retry)`
-                    : `${label}: ${eid} is not a Body (skipped)`;
-            const parts: string[] = [];
-            if (!ta) parts.push(cause("a", a));
-            if (!tb) parts.push(cause("b", b));
-            console.warn(`[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`);
-        }
+        const cause = (label: string, eid: number): string =>
+            isDeferred(eid)
+                ? `${label}: ${eid} is a deferred body (marshal pending, will retry)`
+                : `${label}: ${eid} is not a Body (skipped)`;
+        const parts: string[] = [];
+        if (!ta) parts.push(cause("a", a));
+        if (!tb) parts.push(cause("b", b));
+        warnOnce(warned, `${key}|endpoint`, `[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`);
         return null;
     }
     return [ta, tb];
@@ -155,16 +172,18 @@ function createSpring(
     bodies: ReadonlyMap<number, TumbleBody>,
     def: SpringDef,
     isDeferred: (eid: number) => boolean,
-    quiet: boolean,
+    warned: Set<string>,
 ): TumbleJoint | null {
-    const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred, quiet);
+    const key = springKey(def);
+    const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred, warned, key);
     if (!pair) return null;
     const hertz = stiffnessHertz(def.stiffness, dynMass(pair[0]), dynMass(pair[1]));
     if (hertz === 0) {
-        if (!quiet)
-            console.warn(
-                `[tumble] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
-            );
+        warnOnce(
+            warned,
+            `${key}|hertz`,
+            `[tumble] spring (a: ${def.a}, b: ${def.b}) has no dynamic endpoint or non-positive stiffness — skipped`,
+        );
         return null;
     }
     return world.createDistanceJoint(pair[0], pair[1], {
@@ -186,18 +205,20 @@ function createJoint(
     bodies: ReadonlyMap<number, TumbleBody>,
     def: JointDef,
     isDeferred: (eid: number) => boolean,
-    quiet: boolean,
+    warned: Set<string>,
 ): TumbleJoint | null {
-    const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred, quiet);
+    const key = jointKey(def);
+    const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred, warned, key);
     if (!pair) return null;
     const [ta, tb] = pair;
     const mA = dynMass(ta);
     const mB = dynMass(tb);
     if (mA <= 0 && mB <= 0) {
-        if (!quiet)
-            console.warn(
-                `[tumble] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
-            );
+        warnOnce(
+            warned,
+            `${key}|both-static`,
+            `[tumble] joint (a: ${def.a}, b: ${def.b}) has no dynamic endpoint — unsatisfiable, skipped (the both-static guard)`,
+        );
         return null;
     }
     if (def.stiffnessAng === 0) {
@@ -207,10 +228,11 @@ function createJoint(
         });
     }
     if (def.stiffnessAng < 0) {
-        if (!quiet)
-            console.warn(
-                `[tumble] joint (a: ${def.a}, b: ${def.b}) has non-positive angular stiffness — skipped`,
-            );
+        warnOnce(
+            warned,
+            `${key}|stiffness`,
+            `[tumble] joint (a: ${def.a}, b: ${def.b}) has non-positive angular stiffness — skipped`,
+        );
         return null;
     }
     // angularHertz 0 is box3d's RIGID angular constraint; an intermediate stiffnessAng maps to a soft
@@ -230,7 +252,7 @@ function createJoint(
     });
 }
 
-/** reconcile the authored spring set against the live tumble joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints`. */
+/** reconcile the authored spring set against the live tumble joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncSprings(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
@@ -238,10 +260,11 @@ export function syncSprings(
     isDeferred: (eid: number) => boolean,
 ): void {
     retainedSprings = defs;
-    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d, isDeferred, false));
+    warnedSprings.clear();
+    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d, isDeferred, warnedSprings));
 }
 
-/** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints`. */
+/** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
 export function syncJoints(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
@@ -249,7 +272,8 @@ export function syncJoints(
     isDeferred: (eid: number) => boolean,
 ): void {
     retainedJoints = defs;
-    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d, isDeferred, false));
+    warnedJoints.clear();
+    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d, isDeferred, warnedJoints));
 }
 
 /** re-invoke `syncJoints`/`syncSprings` over the retained def sets — the pump half of the late-marshal fix.
@@ -258,8 +282,10 @@ export function syncJoints(
  *  a no-op walk over the live joints (each `isValid()` handle is reused, nothing is created or destroyed).
  *  `syncSet` needs no new diff semantics: an unchanged def whose live joint `isValid()` is reused (warm-started
  *  impulses survive), a dropped def's `create` retries, leftovers destroy — the semantics `joints.test.ts`
- *  already pins. The retry passes `quiet`: a still-unsatisfiable def must not re-warn per body-set change, so
- *  the diagnostic stays the authored upload's one warning (index.ts's never-thrash-the-frame-loop invariant). */
+ *  already pins. The retry's diagnostics are deduped (not silenced): the warned-key set is NOT cleared here, so
+ *  a warning that already fired for a given cause on the authored upload is suppressed on the retry — but a
+ *  cause that only becomes visible after the marshal resolves (the both-static guard) fires once, because its
+ *  composite key was never banked (index.ts's never-thrash-the-frame-loop invariant). */
 export function resyncConstraints(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
@@ -267,11 +293,11 @@ export function resyncConstraints(
 ): void {
     if (retainedSprings.length > 0)
         syncSet(liveSprings, retainedSprings, springKey, (d) =>
-            createSpring(world, bodies, d, isDeferred, true),
+            createSpring(world, bodies, d, isDeferred, warnedSprings),
         );
     if (retainedJoints.length > 0)
         syncSet(liveJoints, retainedJoints, jointKey, (d) =>
-            createJoint(world, bodies, d, isDeferred, true),
+            createJoint(world, bodies, d, isDeferred, warnedJoints),
         );
 }
 
@@ -281,4 +307,6 @@ export function resetConstraints(): void {
     liveJoints.clear();
     retainedSprings = [];
     retainedJoints = [];
+    warnedSprings.clear();
+    warnedJoints.clear();
 }
