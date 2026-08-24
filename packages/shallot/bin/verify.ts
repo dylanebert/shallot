@@ -340,9 +340,14 @@ export interface TimingProbes {
 const spread = (a: number[], b: number[]): number =>
     Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
 
+/** the centre-vs-corner spread a frame must exceed to count as structure. One constant because the
+ *  render probe reports the spread *against* it — a second literal at the populate site would let a
+ *  tuned threshold make the probe lie about the reading it just took. */
+export const STRUCTURE_THRESHOLD = 12;
+
 /** a frame carries visible structure (not a single flat clear color) — center vs corner region contrast. */
 export function structured(center: number[], corner: number[]): boolean {
-    return spread(center, corner) > 12;
+    return spread(center, corner) > STRUCTURE_THRESHOLD;
 }
 
 /** a captured frame shows visible structure — the pixel-honest signal the harness path gates `rendered` on.
@@ -585,8 +590,33 @@ export interface Result {
     memory?: MemoryStats | null;
     /** bounded generated WGSL records, present only on failure. */
     artifacts?: ShaderArtifact[];
+    /** the render probe — samples taken, last centre/corner RGB, spread against `structured`'s
+     *  threshold, elapsed wait, and how the wait concluded — so a blank-render red carries its
+     *  measurement rather than printing `[]`. Absent on a setup failure. */
+    renderProbe?: RenderProbe;
     errors: string[];
     pass: boolean;
+}
+
+/** the render probe the settle path records on its Result — the pixel evidence behind the `rendered`
+ *  verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and the spread
+ *  against `structured`'s threshold, the elapsed wait, and how the wait concluded. */
+export interface RenderProbe {
+    /** frame samples the wait loop captured (non-null `sampleFrame` returns). */
+    samples: number;
+    /** last centre RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
+    center: number[] | null;
+    /** last corner RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
+    corner: number[] | null;
+    /** the centre-vs-corner spread (sum of abs channel diffs) of the last sample, or null. */
+    spread: number | null;
+    /** the threshold `structured` gates on (`STRUCTURE_THRESHOLD`). */
+    threshold: number;
+    /** elapsed milliseconds from the first poll to the wait outcome. */
+    elapsed: number;
+    /** how the wait concluded: `harness` (window.__harness appeared), `settled` (two consecutive
+     *  structured shots below the diff epsilon), or `timeout` (the deadline expired). */
+    outcome: "harness" | "settled" | "timeout";
 }
 
 // the Playwright Page — typed loosely because playwright is an optional dep with no types at build time.
@@ -1420,13 +1450,20 @@ async function drive(
     }
 
     const deadline = Date.now() + args.timeoutMs;
+    const waitStart = Date.now();
     const st: WaitState = { booted: false, prev: null };
     let outcome: "harness" | "settled" | "timeout" = "timeout";
+    let sampleCount = 0;
+    let lastSample: FrameSample | null = null;
     for (;;) {
         const harnessDefined = (await page
             .evaluate(() => typeof window.__harness !== "undefined")
             .catch(() => false)) as boolean;
         const sample = harnessDefined ? null : await sampleFrame(page);
+        if (sample) {
+            sampleCount++;
+            lastSample = sample;
+        }
         const step = stepWait(st, harnessDefined, sample);
         if (step !== "continue") {
             outcome = step;
@@ -1435,6 +1472,21 @@ async function drive(
         if (Date.now() >= deadline) break;
         await page.waitForTimeout(500);
     }
+
+    // the render probe — the pixel evidence behind the `rendered` verdict. Carries the wait loop's
+    // samples, the last centre/corner RGB and spread against `structured`'s threshold, the elapsed
+    // wait, and how the wait concluded. The harness path updates it with the ready/post samples; the
+    // settle path carries it as-is. A blank-render red (no sample ever showed structure) is the
+    // reading this probe exists to make legible.
+    const renderProbe: RenderProbe = {
+        samples: sampleCount,
+        center: lastSample?.center ?? null,
+        corner: lastSample?.corner ?? null,
+        spread: lastSample ? spread(lastSample.center, lastSample.corner) : null,
+        threshold: STRUCTURE_THRESHOLD,
+        elapsed: Date.now() - waitStart,
+        outcome,
+    };
 
     // read the adapter identity once the wait has concluded; a broken page returns "unknown", never a crash.
     base.hardware = await readHardware(page).catch(() => "unknown");
@@ -1460,7 +1512,10 @@ async function drive(
     }
 
     if (outcome === "harness")
-        return withGpuLog(page, await driveHarness(page, base, args, errors, checkpoints));
+        return withGpuLog(
+            page,
+            await driveHarness(page, base, args, errors, checkpoints, renderProbe),
+        );
 
     // no harness to wait for or run — both phases are instant, but the checkpoints stay uniform across
     // the harness and settle-only paths so a --timings reader compares the same phase list either way.
@@ -1479,6 +1534,7 @@ async function drive(
         // --memory needs a harness run() to measure across; a settle-only page has no steady state.
         ...(args.memory ? { memory: null } : {}),
         pass: settlePass(st.booted, rendered, errors.length),
+        renderProbe,
     });
 }
 
@@ -1524,8 +1580,10 @@ export async function driveHarness(
     args: VerifyArgs,
     errors: string[],
     checkpoints: Checkpoint[],
+    renderProbe?: RenderProbe,
 ): Promise<Result> {
     base.harness = true;
+    if (renderProbe) base.renderProbe = renderProbe;
     try {
         await page.waitForFunction(() => window.__harness?.ready === true, null, {
             timeout: args.timeoutMs,
@@ -1560,6 +1618,12 @@ export async function driveHarness(
     // during build then tears the scene down inside run(). A scenario that draws nothing fails on this,
     // not only on its own asserts. Reuses the settle path's compositor screenshot + structure check.
     const readySample = noRender ? null : await sampleFrame(page);
+    if (readySample && renderProbe) {
+        renderProbe.samples++;
+        renderProbe.center = readySample.center;
+        renderProbe.corner = readySample.corner;
+        renderProbe.spread = spread(readySample.center, readySample.corner);
+    }
 
     // --leak red-proof: start a known retained allocation now (harness is ready), so it runs through run()
     // and on into the post-run idle window the --memory slope is fitted over. Off (0) in every normal run.
@@ -1641,6 +1705,12 @@ export async function driveHarness(
     } else {
         await nextFrame(page);
         const postSample = await sampleFrame(page);
+        if (postSample && renderProbe) {
+            renderProbe.samples++;
+            renderProbe.center = postSample.center;
+            renderProbe.corner = postSample.corner;
+            renderProbe.spread = spread(postSample.center, postSample.corner);
+        }
         rendered = hasStructure(readySample) || hasStructure(postSample);
         const probes = (await page
             .evaluate(() => window.__harness?.pixelProbe)
