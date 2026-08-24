@@ -17,7 +17,7 @@ bun install
 bunx shallot dev
 ```
 
-`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. Native builds (`--target windows|mac|linux`) download a prebuilt release shell from GitHub Releases when available (no Rust toolchain needed); on any miss — 404, offline, checksum mismatch, or a source checkout — they silently fall back to compiling the Rust window host from source, which needs the Rust toolchain plus per-target system dependencies (see [from source](#from-source)).
+`bunx shallot dev` runs the project with hot reload, and `bunx shallot build` ships it as a web bundle. `bunx shallot build --target windows|mac|linux --release` downloads a prebuilt shell for that version from GitHub Releases, so no Rust toolchain is needed on a hit. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), silently falls back to compiling the Rust window host from source, which needs the Rust toolchain plus that target's system dependencies (see [from source](#from-source)).
 
 A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, and TypeScript plugins you edit in your IDE.
 
@@ -25,12 +25,12 @@ A project is plain data plus code: a `shallot.json` manifest, a `.scene` file, a
 
 ## the repo is the docs
 
-There's no docs site. The source is the reference — every public export carries a JSDoc contract — and two files carry the rest:
+The source is the reference: every public export carries a JSDoc contract. There's no docs site to drift from it, and two files carry the consumer surface:
 
-- [`packages/shallot/AGENTS.md`](packages/shallot/AGENTS.md) — the consumer contract: commands, the ECS and plugin conventions, the GPU and render rules. Ships with the npm package.
-- [`examples/AGENTS.md`](examples/AGENTS.md) — the examples index: one line per entry, so you grep for the problem you have.
+- [`packages/shallot/AGENTS.md`](packages/shallot/AGENTS.md) — the consumer contract: commands, the ECS and plugin conventions, the GPU, render, physics, and testing rules. Ships in the npm package.
+- [`examples/AGENTS.md`](examples/AGENTS.md) — the examples index: one line per entry, so you grep for the problem you have. The recipes section ships in the npm package as well.
 
-Written for coding agents first — point Claude at the repo and it can build a game — and just as readable by hand.
+Written for coding agents first, readable by hand. Both files move in the same commit as the code they describe, so there's no generated layer to fall behind.
 
 ## examples
 
@@ -95,7 +95,7 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 run from the repo root.
 
 ```bash
-bun test           # unit tests (bun-webgpu)
+bun run test       # unit tests over packages/shallot (bun-webgpu)
 bun bench          # GPU benchmarks
 bun check          # format (writes) + tsc + biome + eslint + repo checks
 bun run format     # biome + scene formatter
@@ -104,7 +104,7 @@ bun run build      # rust artifacts
 
 Engine-internal layout, the full command table, and the rules index are in [`AGENTS.md`](AGENTS.md); the conventions themselves are path-scoped under [`.claude/rules/`](.claude/rules/).
 
-`bun check` and `bun test` are the gate before pushing. The by-path slow suites, the invitation-only PR policy, and where to file an issue are in [CONTRIBUTING.md](CONTRIBUTING.md).
+`bun check` and `bun run test` are the gate before pushing. The by-path slow suites, the invitation-only PR policy, and where to file an issue are in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## license
 

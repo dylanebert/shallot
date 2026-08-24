@@ -15,13 +15,13 @@ bun install
 bunx shallot dev    # run it, with hot reload
 ```
 
-`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). Native builds (`--target windows|mac|linux`) download a prebuilt release shell from GitHub Releases when available (no Rust toolchain needed); on any miss — 404, offline, checksum mismatch, or a source checkout — they fall back to compiling the Rust window host from source, which needs the Rust toolchain plus per-target system dependencies.
+`bunx shallot build` ships it as a web bundle. `bunx shallot verify` boots the project in a headless browser and exits 0 or nonzero; it needs the optional playwright peer (`bun add -d playwright && bunx playwright install chromium`). `bunx shallot build --target windows|mac|linux --release` downloads a prebuilt shell for that version from GitHub Releases, so no Rust toolchain is needed on a hit. A debug build, or any miss (404, offline, checksum mismatch, a source checkout), compiles the Rust window host from source, which needs the Rust toolchain plus that target's system dependencies.
 
 ## add to an existing project
 
 ```bash
 bun add @dylanebert/shallot typegpu@~0.12.0
-bun add -d unplugin-typegpu
+bun add -d unplugin-typegpu@~0.12.1
 ```
 
 TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }` — [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/packages/shallot/MIGRATION.md) has the full setup.
