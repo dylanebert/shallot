@@ -16,10 +16,12 @@
 // three were green at their own gate and each was holed in the surface form
 // that round's fixtures did not vary. `checks.md` names this class: a check
 // that has failed N rounds each green at its own gate is a finding about the
-// gate's *kind*. So every arm below reads a `@babel/parser` AST and asserts a
-// structural property — a call expression's argument node kind, a function's
+// gate's *kind*. So the arms that parse read a `@babel/parser` AST and assert
+// a structural property — a call expression's argument node kind, a function's
 // real `body` node, a `TryStatement`'s block, an `ImportSpecifier` binding
-// resolved against an export set.
+// resolved against an export set. The cardinality arm alone never parses: it
+// reaches the tree through `readdirSync`/`existsSync` in `gateFiles` and
+// asserts the gate population.
 //
 // `@babel/parser` (not `typescript`) is the parser because `typescript@^7` in
 // this tree is the native port, whose npm package ships only `lib/tsc.js` —
@@ -217,7 +219,7 @@ function libExportedNames(ast: Node): Set<string> {
         // export function foo() {}, export interface Foo, export type Foo = …
         const id = decl.id as Node | undefined;
         if (id?.type === "Identifier") names.add(id.name as string);
-        // export const foo = …, export const foo = …, bar = …
+        // export const foo = …, bar = …
         if (decl.type === "VariableDeclaration") {
             const declarations = decl.declarations as Node[] | undefined;
             if (declarations) {
@@ -255,14 +257,16 @@ describe("eval gate surface — mechanism (green: S1)", () => {
     // The shared harness lib is S2's owner file. This arm resolves each gate's
     // `ImportSpecifier` bindings from `harness/lib` against `lib.ts`'s export
     // set — `ExportNamedDeclaration.specifiers`, declarator ids,
-    // `FunctionDeclaration.id` — never comparing a name as a spelling. So
-    // `export const boot = async function bootImpl(…)` and `async function
-    // boot(…)` + `export { boot }` are green when the imported name is in the
-    // set, and deleting `lib.ts` reds here (empty export set, imports
-    // unresolvable). The arm carries the import-source check too: each gate
-    // must import from `harness/lib`, and the imported names must resolve, so
-    // a source-string-only check that stays green with the target deleted is
-    // not what this arm is.
+    // `FunctionDeclaration.id`, and type-declaration ids — never comparing a
+    // name as a spelling. So `export const boot = async function bootImpl(…)`
+    // and `async function boot(…)` + `export { boot }` are green when the
+    // imported name is in the set. Deleting `lib.ts` reds here because
+    // `parseFile(libPath)` throws ENOENT; an empty-but-present `lib.ts` is a
+    // separate scenario that reds on the export-set population control. The
+    // arm carries the import-source check too: each gate must import from
+    // `harness/lib`, and the imported names must resolve, so a source-string-
+    // only check that stays green with the target deleted is not what this arm
+    // is.
     //
     // Pre-fix reading (this round): 6 gates, each importing from
     // `harness/lib`; `lib.ts` exports 11 names; every imported name resolves.
