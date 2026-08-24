@@ -125,8 +125,8 @@ export type Population = Record<string, readonly DisciplineCheck[]>;
  *  a rename/removal orphaned the exemption); an exemption with no reason (`missing-exemption-reason`);
  *  an exemption for a (kernel, check) pair whose check doesn't actually fail — a dead exemption hiding
  *  a check that would otherwise run clean (`exempt-shadows-passing`); and a live kernel violating an
- *  applicable check with no matching exemption (`unexempted-violation`) — the corpus-wide direction stage 3
- *  triages, left as a `test.todo` in `standards.test.ts` until every current violation is fixed or exempted. */
+ *  applicable check with no matching exemption (`unexempted-violation`) — the corpus-wide direction
+ *  `standards.test.ts`'s "every live kernel's discipline violations are fixed or exempted" test asserts is empty. */
 export function checkStandards(population: Population, registry: StandardsRegistry): Finding[] {
     const findings: Finding[] = [];
 
