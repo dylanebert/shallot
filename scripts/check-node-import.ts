@@ -25,12 +25,15 @@
 // devDependency here, and it hands the JSON import to Node untouched. The child is a real `node` process
 // (`node node_modules/@playwright/test/cli.js`), never bun.
 //
-// **Scope, stated rather than implied.** The subject is the published specifier
-// `@dylanebert/shallot/src/standard/loading/index.ts` (`package.json`'s `"./src/*"` export) and its
-// transitive graph, which is where the JSON import lives. It is *not* the package barrel: `src/index.ts`
-// reaches `standard/sear/codegen.ts`, which reads `GPUTextureUsage` at module scope, so a Node-side import
-// of the root entry still dies with `ReferenceError: GPUTextureUsage is not defined` — a separate,
-// pre-existing defect class (module-scope WebGPU globals) this arm does not claim to cover.
+// **Scope, stated rather than implied.** Two subjects, two readers:
+//   · `@dylanebert/shallot/src/standard/loading/index.ts` (`package.json`'s `"./src/*"` export) and its
+//     transitive graph — where the JSON import lives — read under real `node` via Playwright's transform
+//     (the reader the field failure went through, below).
+//   · the package barrel `@dylanebert/shallot` (`src/index.ts`) — read under bun, which (like Node)
+//     defines no WebGPU globals, so a module-scope read of `GPUTextureUsage` in the barrel's graph (the
+//     `COLOR_LANES` entry in `standard/sear/codegen.ts`) reds here without Playwright. This arm is the
+//     standing gate for that class: any future module-scope WebGPU-global read in the barrel's graph reds
+//     it.
 //
 // Run: `bun run scripts/check-node-import.ts` (in `bun check`).
 
@@ -56,13 +59,10 @@ const SUBJECT = "@dylanebert/shallot/src/standard/loading/index.ts";
  *  didn't throw"). They aren't *called*: they build DOM nodes and Node has no `document`. */
 const EXPECTED_EXPORTS = ["shallotDark", "shallotLight", "minimalDark", "minimalLight"];
 
-function fail(message: string, detail = ""): never {
+function fail(message: string, detail = "", hint = ""): never {
     console.error(`✗ check-node-import: ${message}`);
     if (detail) console.error(detail);
-    console.error(
-        "\nNode ≥26 rejects both a bare JSON import and a named import off a JSON module. Import the\n" +
-            'manifest as `import pkg from "…/package.json" with { type: "json" }` and read `pkg.version`.',
-    );
+    if (hint) console.error(`\n${hint}`);
     process.exit(1);
 }
 
@@ -146,11 +146,37 @@ try {
         fail(
             `real node could not import ${SUBJECT} (exit ${proc.exitCode})`,
             out.trim().split("\n").slice(-25).join("\n"),
+            "Node ≥26 rejects both a bare JSON import and a named import off a JSON module. Import the\n" +
+                'manifest as `import pkg from "…/package.json" with { type: "json" }` and read `pkg.version`.',
         );
     }
     console.log(
         `✓ real node (${nodeVersion}) imports ${SUBJECT} with ${EXPECTED_EXPORTS.length} live exports`,
     );
+
+    // Barrel arm: the package barrel (`@dylanebert/shallot` → `src/index.ts`) must import under bun,
+    // which (like Node) defines no WebGPU globals. The barrel's graph reaches
+    // `standard/sear/codegen.ts`, whose `COLOR_LANES` entry reads `GPUTextureUsage` at module scope —
+    // a lazy read on that one field is the whole fix. This arm is the standing gate for module-scope
+    // WebGPU-global reads in the barrel's graph: any future one reds here.
+    const BARREL = "@dylanebert/shallot";
+    // `Tag` is exported from `standard/sear/codegen.ts` — the file with the `GPUTextureUsage` reads —
+    // so a live `Tag` proves that module loaded past its module-scope reads.
+    const BARREL_EXPORT = "Tag";
+    try {
+        const barrel = await import(BARREL);
+        if (typeof (barrel as Record<string, unknown>)[BARREL_EXPORT] !== "object") {
+            fail(`the package barrel exported no real symbol \`${BARREL_EXPORT}\``);
+        }
+    } catch (e) {
+        fail(
+            `bun could not import the package barrel (${BARREL})`,
+            e instanceof Error ? e.message : String(e),
+            "The barrel's graph reads a WebGPU global at module scope. Defer the read to first access\n" +
+                "so the barrel imports under runtimes that define no WebGPU globals (Node, bun).",
+        );
+    }
+    console.log(`✓ bun imports the package barrel with \`${BARREL_EXPORT}\` live`);
 } finally {
     rmSync(work, { recursive: true, force: true });
 }
