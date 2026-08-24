@@ -154,7 +154,6 @@ describe("parseVerifyArgs", () => {
         expect(parseVerifyArgs([]).leak).toBe(0);
         expect(parseVerifyArgs(["--leak", "122880", "--memory"]).leak).toBe(122880);
         expect(parseVerifyArgs(["--leak=122880", "--memory"]).leak).toBe(122880);
-        expect(() => parseVerifyArgs(["--leak", "0"])).toThrow("expected a positive number");
     });
 
     test("--leak without --memory is a parse error (nothing samples the injected allocation)", () => {
@@ -172,6 +171,7 @@ describe("parseVerifyArgs", () => {
     // the `--leak defaults to 0 (off)` arm above, which asserts the very throw this arm forbids.
     test("--leak 0 is accepted as off, not rejected by num() — RED today (verify.ts:94 says 0 = off)", () => {
         expect(() => parseVerifyArgs(["--leak", "0"])).not.toThrow();
+        expect(parseVerifyArgs(["--leak", "0"]).leak).toBe(0);
     });
 
     test("--timings defaults off, flips on", () => {

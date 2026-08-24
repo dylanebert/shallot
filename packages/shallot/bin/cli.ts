@@ -71,6 +71,14 @@ export function parseCliArgs(raw: string[]): CliArgs {
     let strictPort = false;
     let help = false;
 
+    const num = (flag: string, v: string): number => {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+            throw new Error(`invalid ${flag} value "${v}" — expected a positive number`);
+        }
+        return n;
+    };
+
     for (let i = 0; i < raw.length; i++) {
         if (raw[i] === "--target" && raw[i + 1]) {
             target = raw[i + 1];
@@ -80,10 +88,10 @@ export function parseCliArgs(raw: string[]): CliArgs {
         } else if (raw[i] === "--portable") {
             portable = true;
         } else if (raw[i] === "--port" && raw[i + 1]) {
-            port = parseInt(raw[i + 1]);
+            port = num("--port", raw[i + 1]);
             i++;
         } else if (raw[i]?.startsWith("--port=")) {
-            port = parseInt(raw[i].split("=")[1]);
+            port = num("--port", raw[i].split("=")[1]);
         } else if (raw[i] === "--strict-port") {
             strictPort = true;
         } else if (raw[i] === "--help" || raw[i] === "-h") {

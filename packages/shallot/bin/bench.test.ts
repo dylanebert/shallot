@@ -15,26 +15,26 @@ import { parseArgs } from "../../../scripts/bench";
 
 describe("parseArgs — bench.ts numeric flag validation (RED today)", () => {
     test("--count abc throws instead of flowing NaN into the query string — RED today", () => {
-        expect(() => parseArgs(["--count", "abc"])).toThrow();
+        expect(() => parseArgs(["--count", "abc"])).toThrow('invalid --count value "abc"');
     });
 
     test("--seed abc throws instead of flowing NaN — RED today", () => {
-        expect(() => parseArgs(["--seed", "abc"])).toThrow();
+        expect(() => parseArgs(["--seed", "abc"])).toThrow('invalid --seed value "abc"');
     });
 
     test("--warmup abc throws instead of flowing warmup=NaN into the query string — RED today", () => {
-        expect(() => parseArgs(["--warmup", "abc"])).toThrow();
+        expect(() => parseArgs(["--warmup", "abc"])).toThrow('invalid --warmup value "abc"');
     });
 
     test("--frames abc throws instead of flowing NaN — RED today", () => {
-        expect(() => parseArgs(["--frames", "abc"])).toThrow();
+        expect(() => parseArgs(["--frames", "abc"])).toThrow('invalid --frames value "abc"');
     });
 
     test("--timeout abc throws instead of flowing --timeout NaN — RED today", () => {
-        expect(() => parseArgs(["--timeout", "abc"])).toThrow();
+        expect(() => parseArgs(["--timeout", "abc"])).toThrow('invalid --timeout value "abc"');
     });
 
     test("--leak abc throws instead of flowing NaN — RED today", () => {
-        expect(() => parseArgs(["--leak", "abc"])).toThrow();
+        expect(() => parseArgs(["--leak", "abc"])).toThrow('invalid --leak value "abc"');
     });
 });

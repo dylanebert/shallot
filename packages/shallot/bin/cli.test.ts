@@ -66,6 +66,6 @@ describe("parseCliArgs", () => {
     // up throws too), so S2 tightens it to assert the message, as that sibling arm already does. S2 of this
     // spec (audit-cli-numeric-flags) is the unit that flips this arm green.
     test("--port abc throws instead of flowing NaN to vite — RED today (cli.ts:83 parseInt, no validation)", () => {
-        expect(() => parseCliArgs(["dev", "--port", "abc"])).toThrow();
+        expect(() => parseCliArgs(["dev", "--port", "abc"])).toThrow('invalid --port value "abc"');
     });
 });
