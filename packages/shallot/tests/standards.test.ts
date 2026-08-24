@@ -16,6 +16,7 @@ import {
     STANDARDS_REGISTRY,
     violation,
 } from "./standards";
+import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
 // The real-filesystem/real-import/real-resolve seam over the pure `checkStandards` (`./standards.ts`):
 // walk `packages/shallot/src`, dynamic-import every module, duck-detect live TGSL kernels with a
@@ -25,16 +26,21 @@ import {
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
-/** every `.ts` module under `src`, repo-relative path, excluding non-source suffixes (`testing.md`'s tier
- *  convention: `.test.ts` / `.fixture.ts` / `.lab.ts`) and `.d.ts` declaration files — a `.d.ts` has no
- *  runtime module body, so dynamic-importing one throws on whatever ambient global it declares
- *  (`draco_wasm_wrapper.d.ts` -> `DracoDecoderModule is not defined`), which is a false import failure,
- *  not a real one. */
+/** every `.ts` module under `src`, repo-relative path, excluding the test-tier suffixes
+ *  (`testing.md`'s tier convention, via the shared `test-tiers.ts` constant) plus `.fixture.ts`,
+ *  which is not a tier `testing.md` names — it's a test-data file (the tumble step fixture), excluded
+ *  from the kernel walk alongside the tiers, never a second hand-written tier list — and `.d.ts`
+ *  declaration files, which have no runtime module body (dynamic-importing one throws on whatever
+ *  ambient global it declares, e.g. `draco_wasm_wrapper.d.ts` -> `DracoDecoderModule is not defined`),
+ *  which is a false import failure, not a real one. */
 async function sourceModules(): Promise<string[]> {
     const out: string[] = [];
     for await (const p of new Bun.Glob("**/*.ts").scan({ cwd: SRC_DIR })) {
         if (/\.d\.ts$/.test(p)) continue;
-        if (/\.(test|fixture|lab)\.ts$/.test(p)) continue;
+        if (TEST_TIER_SUFFIXES.test(p)) continue;
+        // `.fixture.ts` is not a tier `testing.md` names — it's a test-data file, excluded from the
+        // kernel walk as roster-plus-named-extras, never a second hand-written tier list.
+        if (/\.fixture\.ts$/.test(p)) continue;
         out.push(p);
     }
     return out.sort();

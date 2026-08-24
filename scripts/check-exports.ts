@@ -19,6 +19,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
+import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
 
 const PKG = "@dylanebert/shallot";
 
@@ -41,8 +42,11 @@ export type DeadExport = {
 
 // --- Helpers ----------------------------------------------------------------
 
+// `isTestFile` reads the shared `test-tiers.ts` constant rather than restating the suffix roster —
+// the tier list lives in one place, and `check-docs.ts`'s arm (c) derives any file carrying a literal
+// roster and asserts it reads the same constant.
 export function isTestFile(path: string): boolean {
-    return /\.(test|oracle|lab|probes|tier)\.ts$/.test(path);
+    return TEST_TIER_SUFFIXES.test(path);
 }
 
 export function escapeRegExp(s: string): string {

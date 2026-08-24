@@ -161,7 +161,7 @@ Prefer the smallest applicable observation ladder: (a) CPU-callable TGSL or stru
 
 Three limits worth naming before reading `DEFAULT_CHECKS` as full coverage. `isTgpuFn` excludes compute/vertex/fragment entry points, and `src` exports none today — that arm is unexercised, and the day one is exported it leaves the population silently. `noDivision`, the stronger check for index-only arithmetic, stays inert corpus-wide until a kernel opts in via its registry row's `also` — `DEFAULT_CHECKS` excludes it deliberately, or every legitimate float division would red. And `callsSymbol` alone proves only call-position syntax; `importsSymbol` closes most of that residual (the exemption clause above), leaving the wrong-module import arm open, and together they prove a call happened, not that its result is asserted against a reference.
 
-## `.test.ts` vs `.oracle.ts` vs `.lab.ts` vs `.tier.ts`
+## `.test.ts` vs `.oracle.ts` vs `.probes.ts` vs `.tier.ts` vs `.lab.ts`
 
 The suffix is the tier — bun only auto-discovers `.test.`/`.spec.`, so a different suffix opts a file out of the default `bun test` while staying runnable via a `./`-prefixed path.
 
