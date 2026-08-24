@@ -2,6 +2,16 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
+## 0.9.4 — 2026-08-24
+
+The patch that carries the three untested-path fixes: the bare barrel now imports under Node, the release workflow can talk to its own repo, and the `verify` boot arms carry legible diagnostics and render measurements. It does not claim an ejected-recipe fix — the investigation refuted that defect's existence; the nondeterministic blank-render boot arm is carried as a known red in this release's floor.
+
+- **packaging** — the bare barrel (`@dylanebert/shallot`) no longer touches `GPUTextureUsage` at module scope: the three reads in `COLOR_LANES`'s `usage` field are deferred to first access, so importing the default entry under Node (or bun, which defines no WebGPU globals either) no longer throws `GPUTextureUsage is not defined`. This supersedes 0.9.3's note that the bare barrel is browser-only — it now imports cleanly in any JS runtime, and a `check-node-import` arm guards the barrel alongside its existing subject.
+- **release** — the release workflow's asset-attachment step sets `GH_REPO: ${{ github.repository }}`, so `gh` resolves the repo from the environment rather than a local clone the job never has. Both branches of the step (`gh release create --verify-tag` and `gh release view`) were broken by the same missing context — `gh` verifies the tag against the remote, not a checkout — so one env line restores both while keeping `--verify-tag`. A static arm in `prebuilt.test.ts` gates the shape: any job that invokes `gh` with no `actions/checkout` must set `GH_REPO`.
+- **diagnostics** — `shallot verify`'s `Result` now carries a render probe (samples taken, last centre/corner RGB, spread against its threshold, elapsed, wait outcome), and a red of either boot arm prints it from `verifyDiagnostic`'s instrument-fault branch rather than a bare `[]`. A red carrying no page diagnostic reports a named instrument fault with the failing predicate (`pass`/`booted`/`rendered`) and the result's own field values, so an empty error array can no longer dismiss a genuine red. Five deterministic arms over synthetic settle states in `bin/verify.test.ts` pin the branch content.
+- **diagnostics** — the TGSL metadata assertion that reds on the install gate is repaired at the format version: the stale `externalNames` term (a V1 field no supported version emits) is retired for a metadata-format-version assertion, so a future rename reds under its own name rather than as a mystery. The surviving `TRANSPILED` shape term is untouched.
+- **known red** — the shared `verify` boot arm reds nondeterministically as a blank render (`spread=0`, a uniform frame at a single colour, timeout after 30 s) on real Metal, in both the zero-config and ejected configurations. The render measurement above is the instrument that records it; the cause is not an ejected recipe (refuted: the zero-config boot, which carries no ejected recipe, reds the same way) and remains open.
+
 ## 0.9.3 — 2026-08-21
 
 The packaging patch: prebuilt native shells on release builds, a loading subpath that imports under Node ≥26, and an audit pass over the whole export surface.
