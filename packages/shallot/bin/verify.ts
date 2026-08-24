@@ -1745,18 +1745,17 @@ async function nextFrame(page: Page): Promise<void> {
         .catch(() => {});
 }
 
-// write a post-run canvas PNG when --screenshot asked for one. Best-effort — a screenshot failure never fails.
-// Uses the canvas element screenshot (the proven mechanism — drawImage(webgpuCanvas) reads blank on
-// real hardware, probed 2026-07-13) rather than page.screenshot, which captures the full compositor
-// including the browser chrome and is byte-identical across a green and a red boot.
+// write a post-run PNG when --screenshot asked for one. Best-effort — a screenshot failure never fails.
+// Deliberately full-page rather than the canvas element: `scripts/flows.ts`'s ui-containment oracle samples
+// host chrome in the 64px body padding *outside* the canvas, so a canvas-clipped capture reds that gate and
+// makes the property unobservable from its own artifact (measured 2026-08-24, caught in review). A canvas
+// capture is the better render diagnostic — this one is byte-identical across a green and a red boot — but
+// it is an added mode behind its own flag, gated by `bun run flows`, never a change to this default.
 async function maybeScreenshot(page: Page, path: string | undefined): Promise<void> {
     if (!path) return;
     try {
         await nextFrame(page);
-        await page
-            .locator("canvas")
-            .first()
-            .screenshot({ path: resolve(path), timeout: 5_000 });
+        await page.screenshot({ path: resolve(path) });
     } catch {
         // a screenshot is a convenience, never a gate
     }

@@ -629,6 +629,9 @@ function writeIdentityZeroConfig(dir: string, engineTgz: string) {
             2,
         )}\n`,
     );
+    // deliberately left unframed (camera at the origin, inside the part) unlike the two boot fixtures:
+    // this arm reads `verdict.checks` and never `rendered`, so no pixel is asserted here. Do not copy this
+    // scene shape into an arm that does — an origin camera sees only the cleared background.
     writeFileSync(
         join(dir, "scenes", "main.scene"),
         `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
