@@ -31,9 +31,9 @@
 //     (the reader the field failure went through, below).
 //   · the package barrel `@dylanebert/shallot` (`src/index.ts`) — read under bun, which (like Node)
 //     defines no WebGPU globals, so a module-scope read of `GPUTextureUsage` in the barrel's graph (the
-//     `COLOR_LANES` entry in `standard/sear/codegen.ts`) reds here without Playwright. This arm is the
-//     standing gate for that class: any future module-scope WebGPU-global read in the barrel's graph reds
-//     it.
+//     `COLOR_LANES` entry in `standard/sear/codegen.ts`) red here without Playwright until S1 deferred
+//     it to a `get usage()` getter. This arm is the standing gate for that class: any future
+//     module-scope WebGPU-global read in the barrel's graph reds it.
 //
 // Run: `bun run scripts/check-node-import.ts` (in `bun check`).
 
@@ -156,8 +156,8 @@ try {
 
     // Barrel arm: the package barrel (`@dylanebert/shallot` → `src/index.ts`) must import under bun,
     // which (like Node) defines no WebGPU globals. The barrel's graph reaches
-    // `standard/sear/codegen.ts`, whose `COLOR_LANES` entry reads `GPUTextureUsage` at module scope —
-    // a lazy read on that one field is the whole fix. This arm is the standing gate for module-scope
+    // `standard/sear/codegen.ts`, whose `COLOR_LANES` entry read `GPUTextureUsage` at module scope
+    // until S1 deferred it to a `get usage()` getter. This arm is the standing gate for module-scope
     // WebGPU-global reads in the barrel's graph: any future one reds here.
     const BARREL = "@dylanebert/shallot";
     // `Tag` is exported from `standard/sear/codegen.ts` — the file with the `GPUTextureUsage` reads —
