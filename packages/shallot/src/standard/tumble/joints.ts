@@ -175,6 +175,12 @@ function createJoint(
             localFrameB: frame(def.rB),
         });
     }
+    if (def.stiffnessAng < 0) {
+        console.warn(
+            `[tumble] joint (a: ${def.a}, b: ${def.b}) has non-positive angular stiffness — skipped`,
+        );
+        return null;
+    }
     // angularHertz 0 is box3d's RIGID angular constraint; an intermediate stiffnessAng maps to a soft
     // angular spring via the same reduced-mass conversion (a unit-arm approximation, I_eff ≈ m_eff —
     // the documented backend-approximate seam, tumble.md "Constraint mapping")
@@ -185,7 +191,10 @@ function createJoint(
         localFrameB: { p: { x: def.rB[0], y: def.rB[1], z: def.rB[2] }, q: relRotation(ta, tb) },
         linearHertz: 0, // rigid pin, both mappings
         angularHertz,
-        angularDampingRatio: 0,
+        // critically damped, matching the spring path (joints.ts createSpring) and the swap-parity rule
+        // this file states above (dampingRatio: 1 because settle-to-equilibrium is the behavior that
+        // matches across the swap); an undamped angular spring would ring where the AVBD one settles.
+        angularDampingRatio: 1,
     });
 }
 
