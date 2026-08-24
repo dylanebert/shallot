@@ -32,14 +32,18 @@
 //
 // ── Pins (green pre-fix, red on fix) ──
 //
-// The three S2/S3 arms are ordinary green tests asserting the PRE-FIX
-// structure. Each names the stage that replaces it and states that the pin
-// expires with that stage: S2/S3 replaces its pin with the post-fix
-// assertion in the same diff. A green arm that cannot read its subject
-// fails, so the green-because-broken class is eliminated by construction.
-// The readers are parameterized by `CHECK_EVAL_GATES_ROOT`; an absent or
-// empty root reads red (every arm throws or fails its population control),
-// which is the discriminating control — a byte-identical copy is not.
+// S2 has landed and replaced its pin (leg A, below) with the post-fix
+// assertion in this same diff — every task gate's setTimeout argument
+// resolves, via its ImportSpecifier binding from harness/lib, to the same
+// single name in lib.ts's export set. The two remaining S3 arms (legs B, D)
+// are still ordinary green tests asserting the PRE-FIX structure. Each names
+// the stage that replaces it and states that the pin expires with that
+// stage: S3 replaces its pin with the post-fix assertion in the same diff. A
+// green arm that cannot read its subject fails, so the green-because-broken
+// class is eliminated by construction. The readers are parameterized by
+// `CHECK_EVAL_GATES_ROOT`; an absent or empty root reads red (every arm
+// throws or fails its population control), which is the discriminating
+// control — a byte-identical copy is not.
 //
 // No spelling pins: the function `sh` is located by its call structure (its
 // body wraps a `Bun.spawnSync` call), never by the literal name; call sites
@@ -307,35 +311,88 @@ describe("eval gate surface — mechanism (green: S1)", () => {
     });
 });
 
-// S2 — derived boot budget. Pre-fix pin: every gate's `setTimeout` argument
-// is a `NumericLiteral`. S2 replaces this pin with the assertion that every
-// argument resolves to a single owner exported by `harness/lib.ts`.
-describe("S2 — derived boot budget (pre-fix pin)", () => {
-    // Leg A — pin (S2 replaces). Over ALL gates under `evals/tasks/*/gate.ts`
-    // as a class, not the five sites the audit named: each gate's `setTimeout`
-    // argument must be a `NumericLiteral`. This pin expires with S2 — S2
-    // replaces it with the post-fix assertion in the same diff.
+// S2 — derived boot budget (landed). Leg A's post-fix assertion: every
+// gate's `setTimeout` argument is an `Identifier` whose binding resolves —
+// via that file's own `ImportSpecifier` from `harness/lib` — to the same
+// single name in `lib.ts`'s export set. "Same single name" is the one-owner
+// property: the arithmetic lives once in `lib.ts`, and every gate derives
+// from it rather than restating a number.
+describe("S2 — derived boot budget", () => {
+    // Resolve an `Identifier` used as a `setTimeout` argument to the name it
+    // was imported as, by matching its local name against this file's own
+    // `ImportSpecifier`s from a source ending `harness/lib` — never by
+    // comparing the identifier's name against a hardcoded string. Returns
+    // undefined if the identifier isn't bound to such an import (e.g. it's a
+    // literal, a local const, or imported from elsewhere).
+    function resolveLibImportName(ast: Node, identifierName: string): string | undefined {
+        for (const imp of collect(ast, "ImportDeclaration")) {
+            const source = (imp.source as Node).value as string;
+            if (!source.endsWith("harness/lib")) continue;
+            const specs = imp.specifiers as Node[] | undefined;
+            if (!specs) continue;
+            for (const spec of specs) {
+                if (spec.type !== "ImportSpecifier") continue;
+                const local = spec.local as Node | undefined;
+                if (local?.type !== "Identifier" || local.name !== identifierName) continue;
+                const imported = spec.imported as Node | undefined;
+                if (imported?.type === "Identifier") return imported.name as string;
+                if (imported?.type === "StringLiteral") return imported.value as string;
+            }
+        }
+        return undefined;
+    }
+
+    // Leg A — post-fix (S2 landed; replaces the pre-fix "every argument is a
+    // NumericLiteral" pin). Over ALL gates under `evals/tasks/*/gate.ts` as a
+    // class, not the five sites the audit named: each gate's `setTimeout`
+    // argument must resolve to an import from `harness/lib` whose imported
+    // name is (a) present in `lib.ts`'s real export set and (b) identical
+    // across every gate — one owner, not six hand-written numbers that
+    // happen to agree. No spelling pin: the owner's name is never written
+    // down here, only derived by resolving each usage's own binding and
+    // comparing the six resolved names to each other and to the export set
+    // `libExportedNames` reads off `lib.ts`.
     //
-    // The arm reds the moment S2 makes any argument an `Identifier` or
-    // `CallExpression`. A green arm that cannot read its subject (mis-pathed
-    // gate, empty root) fails — the population control asserts the class has
-    // exactly six gates and each gate has at least one `setTimeout` call.
+    // The arm reds the moment any gate reverts to a `NumericLiteral` or
+    // literal-timeout argument, imports the budget from somewhere other than
+    // `harness/lib`, or two gates derive from different exported names. A
+    // green arm that cannot read its subject (mis-pathed gate, empty root)
+    // fails — the population control asserts the class has exactly six gates,
+    // each with at least one `setTimeout` call, each argument resolving.
     //
-    // Pre-fix reading (this round): 6 gates, every `setTimeout` argument a
-    // `NumericLiteral` (`80_000` ×5, `120_000` persist-color).
-    test("every task gate's setTimeout argument is a NumericLiteral (pin; S2 replaces)", () => {
+    // Post-fix reading (this round): 6 gates, every `setTimeout` argument an
+    // `Identifier` bound to the same `harness/lib` import, resolving to the
+    // same name in `lib.ts`'s export set.
+    test("every task gate's setTimeout argument derives from one harness/lib owner (post-fix; S2)", () => {
         const root = evalRoot();
         const gates = gateFiles(root);
         // The class is six gates — the arm carries the class claim itself
         // rather than leaning on a sibling cardinality arm, so a root with
         // five of six gates removed reds here, not just in the discovery arm.
         expect(gates).toHaveLength(6);
+
+        const libPath = join(root, "evals", "harness", "lib.ts");
+        const exportedNames = libExportedNames(parseFile(libPath));
+        // Population control — lib.ts must export something.
+        expect(exportedNames.size).toBeGreaterThan(0);
+
+        let ownerName: string | undefined;
         for (const gate of gates) {
-            const calls = setTimeoutCalls(parseFile(gate));
+            const ast = parseFile(gate);
+            const calls = setTimeoutCalls(ast);
             expect(calls.length).toBeGreaterThan(0);
             for (const call of calls) {
                 const arg = ((call.arguments as Node[]) ?? [])[0];
-                expect(arg.type).toBe("NumericLiteral");
+                expect(arg.type).toBe("Identifier");
+                const resolved = resolveLibImportName(ast, arg.name as string);
+                // Population control — the argument must actually bind to a
+                // harness/lib import, or the reader lost its subject.
+                expect(resolved).toBeDefined();
+                const name = resolved as string;
+                expect(exportedNames.has(name)).toBe(true);
+                if (ownerName === undefined) ownerName = name;
+                // One owner: every gate resolves to the same exported name.
+                expect(name).toBe(ownerName);
             }
         }
     });

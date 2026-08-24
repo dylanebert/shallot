@@ -1,11 +1,4 @@
-import { basename, resolve } from "path";
-
-const repoRoot = resolve(import.meta.dir, "..", "..");
-
-/** Resolve a shallot example name to its project dir (`examples/<example>`). */
-export function exampleDir(example: string): string {
-    return resolve(repoRoot, "examples", example);
-}
+import { basename } from "path";
 
 // total readiness budget; past it a non-answering server is wedged, not slow (override per machine via
 // SERVER_STARTUP_TIMEOUT_MS).

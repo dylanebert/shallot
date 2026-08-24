@@ -1,5 +1,14 @@
 import { test } from "@playwright/test";
-import { type Assertion, boot, centroidY, emit, type Rgb, region, shot } from "../../harness/lib";
+import {
+    type Assertion,
+    BOOT_BUDGET_MS,
+    boot,
+    centroidY,
+    emit,
+    type Rgb,
+    region,
+    shot,
+} from "../../harness/lib";
 
 // Positive claim: a blue box descends and then settles. The fall completes ~1.05s after scene build
 // (measured 2026-07-13), so a settle-stable boot() returns after the transient is over — boot proves
@@ -9,7 +18,7 @@ import { type Assertion, boot, centroidY, emit, type Rgb, region, shot } from ".
 const isBlue = (c: Rgb): boolean => c.b > 90 && c.b > c.r + 30 && c.b > c.g + 20;
 
 test("falling-box", async ({ page }) => {
-    test.setTimeout(80_000);
+    test.setTimeout(BOOT_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {

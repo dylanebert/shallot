@@ -1,6 +1,6 @@
 import { test } from "@playwright/test";
 import type { PNG } from "pngjs";
-import { type Assertion, boot, diff, emit, region, shot } from "../../harness/lib";
+import { type Assertion, BOOT_BUDGET_MS, boot, diff, emit, region, shot } from "../../harness/lib";
 
 // Positive claim: the cube's surface carries a procedural pattern (bands, not one flat colour) and the
 // pattern animates on its own with the camera untouched. Two discriminators: a single-frame brightness
@@ -71,7 +71,7 @@ function bands(vals: number[]): { pp: number; crossings: number } {
 }
 
 test("striped-material", async ({ page }) => {
-    test.setTimeout(80_000);
+    test.setTimeout(BOOT_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {

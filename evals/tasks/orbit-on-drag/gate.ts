@@ -1,11 +1,11 @@
 import { test } from "@playwright/test";
-import { type Assertion, boot, diff, emit, shot } from "../../harness/lib";
+import { type Assertion, BOOT_BUDGET_MS, boot, diff, emit, shot } from "../../harness/lib";
 
 // Positive claim, isolating causation: with no input the view holds still, and a horizontal drag
 // changes it. Comparing an idle interval against a drag interval separates orbit-on-drag from a scene
 // that just animates on its own.
 test("orbit-on-drag", async ({ page }) => {
-    test.setTimeout(80_000);
+    test.setTimeout(BOOT_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {

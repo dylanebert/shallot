@@ -1,5 +1,13 @@
 import { test } from "@playwright/test";
-import { type Assertion, boot, emit, type Rgb, region, shot } from "../../harness/lib";
+import {
+    type Assertion,
+    BOOT_BUDGET_MS,
+    boot,
+    emit,
+    type Rgb,
+    region,
+    shot,
+} from "../../harness/lib";
 
 // Positive claim: a number key paints the cube, and the choice survives a page reload with no further
 // input. To keep persistence from being faked by a lucky default, the gate picks a target colour that
@@ -9,7 +17,7 @@ const isRed = (c: Rgb): boolean => c.r > 90 && c.r > c.g + 40 && c.r > c.b + 40;
 const isBlue = (c: Rgb): boolean => c.b > 90 && c.b > c.r + 30 && c.b > c.g + 20;
 
 test("persist-color", async ({ page }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(BOOT_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
