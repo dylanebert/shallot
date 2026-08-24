@@ -10,7 +10,7 @@
 // oracle test (corpus.test.ts) runs each through the f64 CPU solver — the reference for what
 // "stable" looks like — and the gym `pile` scenario runs the same scenes on
 // the real GPU and checks the same band. A scene that wobbles on the GPU where the oracle is
-// steady is a GPU bug (physics.md "the oracle is not the suspect"). Test scaffolding; f64.
+// steady is a GPU bug (avbd.md "the oracle is not the suspect"). Test scaffolding; f64.
 
 import { type Box, collide } from "./collide";
 import { dot, length, type Quat, qmul, rotate, sub, transform, type Vec3 } from "./math";
