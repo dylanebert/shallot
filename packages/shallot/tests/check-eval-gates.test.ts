@@ -133,37 +133,58 @@ function setTimeoutCalls(ast: Node): Node[] {
     });
 }
 
-// Locate the function declaration whose body contains a `Bun.spawnSync` call
-// — the structural signature of `sh`, resolved by call structure rather than
-// by a literal name. Returns the declaration so callers can read both its
-// body (leg B) and its declared name (leg D's call-site search).
-function shDeclaration(ast: Node): Node {
+// Does a function body contain a `Bun.spawnSync` call — the structural
+// signature of `sh`, resolved by call structure rather than by a literal name.
+function bodyWrapsBunSpawnSync(body: Node): boolean {
+    return collect(body, "CallExpression").some((call) => {
+        const callee = call.callee as Node | undefined;
+        if (callee?.type !== "MemberExpression") return false;
+        const obj = callee.object as Node | undefined;
+        const prop = callee.property as Node | undefined;
+        return (
+            obj?.type === "Identifier" &&
+            obj.name === "Bun" &&
+            prop?.type === "Identifier" &&
+            prop.name === "spawnSync"
+        );
+    });
+}
+
+// Locate the function whose body contains a `Bun.spawnSync` call — the
+// structural signature of `sh`, resolved by call structure rather than by a
+// literal name. Collects ALL declaration forms (FunctionDeclaration,
+// VariableDeclarator whose init is an ArrowFunctionExpression or
+// FunctionExpression) and asserts exactly one match — a decoy helper wrapping
+// `Bun.spawnSync` above the real subject would otherwise be read instead.
+// Returns a normalized { body, id } so callers read both the body span
+// (leg B) and the declared name (leg D's call-site search) regardless of form.
+function shDeclaration(ast: Node): { body: Node; id: Node | undefined } {
+    const matches: { body: Node; id: Node | undefined }[] = [];
     for (const fn of collect(ast, "FunctionDeclaration")) {
         const body = fn.body as Node;
-        if (
-            collect(body, "CallExpression").some((call) => {
-                const callee = call.callee as Node | undefined;
-                if (callee?.type !== "MemberExpression") return false;
-                const obj = callee.object as Node | undefined;
-                const prop = callee.property as Node | undefined;
-                return (
-                    obj?.type === "Identifier" &&
-                    obj.name === "Bun" &&
-                    prop?.type === "Identifier" &&
-                    prop.name === "spawnSync"
-                );
-            })
-        ) {
-            return fn;
+        if (bodyWrapsBunSpawnSync(body)) {
+            matches.push({ body, id: fn.id as Node | undefined });
         }
     }
-    throw new Error("no function declaration wrapping Bun.spawnSync");
+    for (const decl of collect(ast, "VariableDeclarator")) {
+        const init = decl.init as Node | undefined;
+        if (!init) continue;
+        if (init.type !== "ArrowFunctionExpression" && init.type !== "FunctionExpression") continue;
+        const body = init.body as Node;
+        if (bodyWrapsBunSpawnSync(body)) {
+            matches.push({ body, id: decl.id as Node | undefined });
+        }
+    }
+    if (matches.length === 0) throw new Error("no function wrapping Bun.spawnSync");
+    if (matches.length !== 1)
+        throw new Error(`expected exactly one function wrapping Bun.spawnSync, found ${matches.length}`);
+    return matches[0];
 }
 
 // Call sites of a function, resolved from the declaration's name rather than
 // from a hardcoded string — so renaming `sh` does not break the reader.
-function callSitesOf(ast: Node, decl: Node): Node[] {
-    const id = decl.id as Node | undefined;
+function callSitesOf(ast: Node, decl: { id: Node | undefined }): Node[] {
+    const id = decl.id;
     if (id?.type !== "Identifier") return [];
     const name = id.name as string;
     return collect(ast, "CallExpression").filter((call) => {
@@ -205,6 +226,25 @@ describe("eval gate surface — mechanism (green: S1)", () => {
             expect(sources.some((s) => s.endsWith("harness/lib"))).toBe(true);
         }
     });
+
+    // The shared harness lib is S2's owner file. The import arm above asserts
+    // an import source STRING, which passes with the target absent. This arm
+    // parses `lib.ts` and asserts a structural fact — it exports the `boot`
+    // driver every gate calls — so deleting `lib.ts` reds this file.
+    test("harness/lib.ts exports the shared boot driver", () => {
+        const ast = parseFile(join(evalRoot(), "evals", "harness", "lib.ts"));
+        const exports = collect(ast, "ExportNamedDeclaration");
+        expect(exports.length).toBeGreaterThan(0);
+        const hasBoot = exports.some((e) => {
+            const d = e.declaration as Node | undefined;
+            if (d?.type === "FunctionDeclaration") {
+                const id = d.id as Node | undefined;
+                return id?.type === "Identifier" && id.name === "boot";
+            }
+            return false;
+        });
+        expect(hasBoot).toBe(true);
+    });
 });
 
 // S2 — derived boot budget. Pre-fix pin: every gate's `setTimeout` argument
@@ -226,9 +266,10 @@ describe("S2 — derived boot budget (pre-fix pin)", () => {
     test("every task gate's setTimeout argument is a NumericLiteral (pin; S2 replaces)", () => {
         const root = evalRoot();
         const gates = gateFiles(root);
-        // Population control: the class must be non-empty, or every per-gate
-        // assertion below is vacuous.
-        expect(gates.length).toBeGreaterThan(0);
+        // The class is six gates — the arm carries the class claim itself
+        // rather than leaning on a sibling cardinality arm, so a root with
+        // five of six gates removed reds here, not just in the discovery arm.
+        expect(gates).toHaveLength(6);
         for (const gate of gates) {
             const calls = setTimeoutCalls(parseFile(gate));
             expect(calls.length).toBeGreaterThan(0);
@@ -247,9 +288,12 @@ describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
     // `ThrowStatement`. This pin expires with S3 — S3 replaces it with the
     // assertion that a throw exists, in the same diff.
     //
-    // `sh` is located by call structure — the function declaration whose body
-    // wraps a `Bun.spawnSync` call — not by the literal name. The body node
-    // is a sibling of `returnType` on the AST, so the inline return-type
+    // `sh` is located by call structure — the function whose body wraps a
+    // `Bun.spawnSync` call — not by the literal name. The reader collects
+    // every declaration form (FunctionDeclaration, ArrowFunctionExpression,
+    // FunctionExpression) and asserts exactly one match, so a decoy helper
+    // above the real subject cannot be read instead. The body node is a
+    // sibling of `returnType` on the AST, so the inline return-type
     // annotation is not reachable from here by construction.
     //
     // Pre-fix reading (this round): the function wrapping `Bun.spawnSync` is a
@@ -261,41 +305,42 @@ describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
     });
 
     // Leg C — pin (S3 replaces). No type-level declaration in `evals/grade.ts`
-    // carries an `INCOMPLETE` member — covering `TSUnionType` members (string-
-    // literal `TSLiteralType` members) AND `TSEnumMember` (identifier or
-    // string-literal). This pin expires with S3 — S3 replaces it with the
-    // assertion that INCOMPLETE exists as a declared result kind, in the same
-    // diff.
+    // carries an `INCOMPLETE` member. The reader is exhaustive: every
+    // `TSLiteralType` anywhere in the AST whose literal is the string
+    // `INCOMPLETE`, plus every `TSEnumMember` whose id is `INCOMPLETE`
+    // (identifier or string-literal). Both sets must be empty. This pin
+    // expires with S3 — S3 replaces it with the assertion that INCOMPLETE
+    // exists as a declared result kind, in the same diff.
     //
-    // A `TSUnionType` member cannot be forged by a `console.log("INCOMPLETE")`
-    // statement, because a string in expression position is never a
-    // `TSLiteralType`. Covering `TSEnumMember` retires the enum disclosure: a
-    // fix spelling the kind as a TS enum is caught, not left as residue.
+    // A `console.log("INCOMPLETE")` statement cannot forge a `TSLiteralType`
+    // — a string in expression position is never a type-level literal. The
+    // exhaustive reader catches every S3 landing shape: a string-union alias,
+    // a TS enum, a discriminated union, an interface literal field, and a
+    // bare literal alias, because each produces a `TSLiteralType` or
+    // `TSEnumMember` node carrying the string.
     //
-    // Pre-fix reading (this round): 8 `TSUnionType` nodes in `grade.ts`, none
-    // carrying an `INCOMPLETE` string-literal member; 0 `TSEnumMember` nodes.
+    // Population control: the arm anchors on `grade.ts`'s own subject — the
+    // function wrapping `Bun.spawnSync` must be present, so a decoy root with
+    // a union but no `sh` reds here, not green.
+    //
+    // Pre-fix reading (this round): 0 `TSLiteralType` nodes whose literal is
+    // `INCOMPLETE`; 0 `TSEnumMember` nodes whose id is `INCOMPLETE`.
     test("no type-level declaration in grade.ts carries an INCOMPLETE member (pin; S3 replaces)", () => {
         const ast = gradeAst(evalRoot());
-        const unions = collect(ast, "TSUnionType");
-        // Population control: `grade.ts` must actually contain unions, or the
-        // assertion below is vacuously true for the wrong reason.
-        expect(unions.length).toBeGreaterThan(0);
-        const unionCarriesIncomplete = unions.some((u) =>
-            ((u.types as Node[]) ?? []).some((member) => {
-                if (member.type !== "TSLiteralType") return false;
-                const lit = member.literal as Node | undefined;
-                return lit?.type === "StringLiteral" && lit.value === "INCOMPLETE";
-            }),
-        );
-        expect(unionCarriesIncomplete).toBe(false);
-        const enumMembers = collect(ast, "TSEnumMember");
-        const enumCarriesIncomplete = enumMembers.some((m) => {
+        // Population control — anchor on grade.ts's own subject.
+        shDeclaration(ast);
+        const incompleteLiterals = collect(ast, "TSLiteralType").filter((lit) => {
+            const literal = lit.literal as Node | undefined;
+            return literal?.type === "StringLiteral" && literal.value === "INCOMPLETE";
+        });
+        expect(incompleteLiterals).toHaveLength(0);
+        const incompleteEnumMembers = collect(ast, "TSEnumMember").filter((m) => {
             const id = m.id as Node | undefined;
             if (id?.type === "StringLiteral") return id.value === "INCOMPLETE";
             if (id?.type === "Identifier") return id.name === "INCOMPLETE";
             return false;
         });
-        expect(enumCarriesIncomplete).toBe(false);
+        expect(incompleteEnumMembers).toHaveLength(0);
     });
 
     // Leg D — pin (S3 replaces). No `sh()` call site sits inside a `try` with a
