@@ -251,10 +251,6 @@ describe("per-instance precompile labels", () => {
             limits: {},
             queue: {
                 writeBuffer() {},
-                onSubmittedWorkDone() {
-                    events.push("fence");
-                    return fence;
-                },
             },
             createBuffer: (d: GPUBufferDescriptor) => ({ ...d, destroy() {} }),
             pushErrorScope: () => events.push("push"),

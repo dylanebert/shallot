@@ -175,7 +175,7 @@ export const TransformsPlugin: Plugin = {
 
     warm() {
         if (!_composePipeline) return;
-        // the bind, not just the dispatch, is deferred into the forcer: the drain runs after every
+        // the bind is deferred into the forcer: the drain runs after every
         // plugin's warm has resolved, which is the first moment the buffers this reads are all up
         precompile("shallot-transforms-compose", () => {
             const bound = bind();

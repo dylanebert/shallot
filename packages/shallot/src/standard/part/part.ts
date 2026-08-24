@@ -466,7 +466,7 @@ export function warmPart(state: State): void {
     // both the allocation and the bind are deferred into the forcers, not done here. The drain runs
     // after every plugin's warm has resolved (warm hooks run under `Promise.all`), which is the first
     // moment `Meshes` is flushed and `membership` / `transforms` / `cullVolumes` are published — so
-    // `syncBuffers` can size the pack's buffers there, and the dispatch that forces the compile has
+    // `syncBuffers` can size the pack's buffers there, and the pipeline that forces the compile has
     // something to bind. One forcer per pipeline, so each gets its own row in the compile table
     precompile("shallot-part-count", () => {
         syncBuffers();

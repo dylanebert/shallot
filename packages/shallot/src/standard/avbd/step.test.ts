@@ -488,7 +488,6 @@ describe("per-instance precompile labels", () => {
                 ...stub(),
                 queue: {
                     writeBuffer() {},
-                    onSubmittedWorkDone: () => lateFence ?? Promise.resolve(),
                 },
                 pushErrorScope() {},
                 popErrorScope: async () => null,
@@ -557,11 +556,6 @@ describe("per-instance precompile labels", () => {
                 ...base,
                 queue: {
                     writeBuffer() {},
-                    onSubmittedWorkDone() {
-                        if (!physicsAllocated) return Promise.resolve();
-                        physicsFences++;
-                        return physicsFences === 1 ? firstFence : restFence;
-                    },
                 },
                 pushErrorScope() {},
                 popErrorScope: async () => null,

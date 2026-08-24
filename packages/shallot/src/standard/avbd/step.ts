@@ -4467,9 +4467,9 @@ export class PhysicsStep {
             .with(roRo.layout, this._sharedBG.roRo);
         // a typed pipeline is created synchronously, so Dawn defers its shader compile to the first
         // dispatch — a first-frame hitch where the raw passes' `createComputePipelineAsync` compiled at
-        // build. Force it at warm with a 0-workgroup dispatch, the shipped drain. Both groups are
-        // already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates its
-        // own buffers must return the *dispatch* for that guard to fire.
+        // build. The drain awaits `initAsync` to force the compile under the loading screen. Both groups
+        // are already bound here, so the drain's bound-nothing guard is inert — a forcer that allocates
+        // its own buffers must return the bound pipeline for that guard to fire.
         register(`${this._scope}-aabb`, () => {
             return this._aabbPipe;
         });

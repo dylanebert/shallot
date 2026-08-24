@@ -918,10 +918,18 @@ async function compileValidated(forcer: Forcer): Promise<void> {
     const start = now();
     await validateGpu(Compute.device, forcer.label, async () => {
         const pipeline = compile(forcer);
-        // the sear variant thunk returns an array of already-unwrapped raw pipelines that need
-        // nothing — initAsync is only on typegpu pipelines (compute / render / guarded)
+        // the drain classifies a forcer's return exhaustively:
+        // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
         if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
             await (pipeline as { initAsync(): Promise<void> }).initAsync();
+        } else if (Array.isArray(pipeline)) {
+            // (b) the sear variant (standard/sear/forward.ts) returns an array of already-unwrapped
+            // raw pipelines — skip, deliberately: initAsync is only on typegpu pipelines
+        } else {
+            // (c) anything else truthy is a forcer that returned the wrong shape — name the site
+            throw new Error(
+                `precompile "${forcer.label}" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines`,
+            );
         }
     });
     // validation always fences what precompile claims; only attribution stays profiler-owned

@@ -445,13 +445,13 @@ function prepareOutline(): void {
 }
 
 /**
- * force the two typed pipelines to compile under the loading screen. typegpu has no async pipeline creation,
- * so Dawn defers the real compile to the first dispatch — and the outline's passes run every frame a
+ * force the two typed pipelines to compile under the loading screen. typegpu creates pipelines
+ * synchronously, so Dawn defers the real compile — and the outline's passes run every frame a
  * highlight exists, which would put that stall on whichever frame the first hover lands. Their real bind
  * groups need per-camera targets that don't exist until a view attaches, so each forcer allocates its own
- * 1×1 stand-ins, binds, and does zero work. The stand-ins are destroyed right after, like glaze's: the
- * dispatch/draw is already submitted and ran no invocation, and a destroyed resource's allocation stays alive
- * until the submission it was recorded into completes. Waiting on `onSubmittedWorkDone` instead would leak
+ * 1×1 stand-ins and binds. The stand-ins are destroyed right after, like glaze's: the drain awaits
+ * `initAsync` on the bound pipeline, and a destroyed resource's allocation stays alive until the
+ * submission it was recorded into completes. Waiting on `onSubmittedWorkDone` instead would leak
  * all four whenever the device is torn down before the promise settles.
  */
 function forceCompile(): void {

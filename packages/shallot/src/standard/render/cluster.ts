@@ -372,7 +372,7 @@ export function warmClusters(): void {
     Compute.typed.set("clusterAabbs", _typedAabbs);
 
     _pipe = root.createComputePipeline({ compute: gridKernel }).$name("shallot-cluster-aabbs");
-    // the bind, not just the dispatch, is deferred into the forcer: it runs after every plugin's warm
+    // the bind is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
     precompile("shallot-cluster-aabbs", () => {
         const bound = bindGrid();
