@@ -74,11 +74,12 @@ if (violations.length > 0) {
     process.exit(1);
 }
 
-// The docs are a pin site too. `testing.md`'s atomic-multi-pin rule enumerates the six *manifest*
-// sites, and a bump that hits all six still leaves the install block a reader actually runs pinned to
-// the old minor — which is what shipped: 0.9.2's tree carried a `~0.12.0` peer while README.md and
-// MIGRATION.md both still said `typegpu@~0.11.9`, a documented install that resolves to a peer
-// conflict or a duplicate TypeGPU identity that dies at pipeline warm.
+// The docs are a pin site too. The manifest-pin arm below enumerates every git-tracked
+// `package.json` declaring a tracked package, and a bump that hits all of them still leaves the
+// install block a reader actually runs pinned to the old minor — which is what shipped: 0.9.2's
+// tree carried a `~0.12.0` peer while README.md and MIGRATION.md both still said
+// `typegpu@~0.11.9`, a documented install that resolves to a peer conflict or a duplicate
+// TypeGPU identity that dies at pipeline warm.
 //
 // Scope is a fenced `bun add` line: a command the reader runs, never prose. That distinction is
 // load-bearing — CHANGELOG.md's 0.9.0 entry names `typegpu@~0.11.9` as a historical fact about what
@@ -255,6 +256,66 @@ if (fixtureUnclassified.length > 0) {
     process.exit(1);
 }
 
+// The manifests are a pin site too, and the roster is what git tracks, not what a hand list
+// names — the same law as the doc set above. A `package.json` that declares
+// `typegpu`/`unplugin-typegpu`/`eslint-plugin-typegpu` at a range the canonical manifest
+// doesn't pin is the same drift the doc and fixture arms catch: an example project carrying
+// the old minor nests its own copy and the two copies' branded internals disagree. This arm
+// enumerates every git-tracked `package.json` and reds when a declared range disagrees with
+// the manifest-declared pin. The canonical sources in `PIN_SOURCES` are included and
+// trivially match themselves; the arm's value is the long tail of example/showcase/flows
+// manifests a hand list would miss.
+const DEP_FIELDS = [
+    "dependencies",
+    "devDependencies",
+    "peerDependencies",
+    "optionalDependencies",
+] as const;
+
+const manifestTracked = Bun.spawnSync(
+    ["git", "ls-files", "-z", "package.json", "**/package.json"],
+    { cwd: root },
+);
+if (!manifestTracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — check-docs needs a git checkout to scope its manifest set.",
+    );
+    process.exit(1);
+}
+const manifestFiles = manifestTracked.stdout.toString().split("\0").filter(Boolean);
+if (manifestFiles.length === 0) {
+    console.error(
+        "✗ `git ls-files 'package.json' '**/package.json'` matched nothing — the manifest-pin arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+let manifestPkgCount = 0;
+for (const file of manifestFiles) {
+    const json = await Bun.file(resolve(root, file)).json();
+    let declaredInThis = false;
+    for (const field of DEP_FIELDS) {
+        const deps = json[field];
+        if (!deps || typeof deps !== "object") continue;
+        for (const [name, range] of Object.entries(deps)) {
+            if (!(name in declared)) continue;
+            declaredInThis = true;
+            if (typeof range !== "string") continue;
+            if (range !== declared[name]) {
+                drift.push({ file, line: 0, name, found: range, want: declared[name] });
+            }
+        }
+    }
+    if (declaredInThis) manifestPkgCount++;
+}
+
+if (manifestPkgCount === 0) {
+    console.error(
+        "✗ no tracked `package.json` declares a tracked package — the manifest-pin arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
 if (drift.length > 0) {
     console.error(`✗ ${drift.length} pin(s) disagree with the manifests:\n`);
     for (const d of drift) {
@@ -306,6 +367,6 @@ if (chainOverages.length > 0) {
 
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
-        `install/scaffold/fixture pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s)), ` +
+        `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
         `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s))`,
 );
