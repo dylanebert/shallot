@@ -4,6 +4,8 @@
 // transitions (islands + sleeping). Sleep is left on (the default) where the test exercises it.
 
 import { expect, test } from "bun:test";
+import { readdirSync } from "node:fs";
+import { resolve } from "node:path";
 import { NULL_INDEX } from "./array";
 import { AwakeContact, type Contact, ContactFlags } from "./contact";
 import { SetType } from "./core";
@@ -17,6 +19,7 @@ import {
     makeBoxHull,
     World,
 } from "./index";
+import { SCENES } from "./step.scenes";
 import { ShapeType } from "./types";
 import type { WorldState } from "./world";
 
@@ -553,4 +556,15 @@ test("a capsule child on a compound floor supports a box (non-f32 radius)", () =
     const y = b.getPosition().y;
     expect(y).toBeGreaterThan(1.2);
     expect(y).toBeLessThan(1.4);
+});
+
+// Derives the scene count: SCENES (the fixture roster in step.scenes.ts, imported by step.fixture.ts)
+// must equal the number of committed fixture files under tests/tumble/fixtures/. The directory holds
+// one `*.json` per scene plus a README.md; the scan excludes README.md and any non-fixture file (only
+// `*.json` entries are counted), so the arm is the single source of truth for the count — a prose
+// restatement elsewhere in the corpus is stale the moment a scene is added or removed.
+test("SCENES length equals the committed fixture file count", () => {
+    const fixturesDir = resolve(import.meta.dir, "../../../../tests/tumble/fixtures");
+    const fixtureFiles = readdirSync(fixturesDir).filter((name) => name.endsWith(".json"));
+    expect(SCENES.length).toBe(fixtureFiles.length);
 });
