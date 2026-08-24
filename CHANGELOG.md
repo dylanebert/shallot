@@ -2,6 +2,12 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
+## 0.9.5 — 2026-08-24
+
+The warm idiom is now `initAsync()`, and the docs teach one contract.
+
+- **gpu** — the warm path stops dispatching. `precompile`'s callback returns the bound typegpu pipeline and the drain awaits its `initAsync()`; the zero-workgroup dispatch a consumer's own code used to write no longer happens, so following the documented warm idiom no longer raises Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in their own console. The drain classifies the return exhaustively: a typegpu pipeline (awaited), an array of already-unwrapped raw pipelines (skipped — the sear forcer's shape, `[]` when nothing specializes), anything else truthy (a labelled throw). `MIGRATION.md` and `AGENTS.md` teach the new return contract; the 0.9.0 line that named zero-workgroup dispatches is superseded.
+
 ## 0.9.4 — 2026-08-24
 
 Three paths no gate had ever run are now covered: the bare barrel imports under a runtime with no WebGPU globals, the release workflow can attach its own assets without a hand recovery, and a `verify` red carries the pixel measurement behind it. No consumer action, nothing breaking.

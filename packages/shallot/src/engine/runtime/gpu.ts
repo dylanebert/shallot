@@ -170,9 +170,9 @@ export interface Compute {
      * optional pipeline-compile timing hook installed by `ProfilePlugin`, mirroring {@link span} /
      * {@link indirect}. typegpu pipelines are sync-created (`root.unwrap` calls the synchronous
      * `create*Pipeline`), and Dawn defers the real shader compile to the forced {@link precompile}
-     * dispatch — so timing the creation call would report a number that reads like a compile time and
-     * isn't one. {@link precompileAll} instead measures each forcer's dispatch through its own
-     * completion fence and reports it here. The validation drain always waits for that fence; a `?.`
+     * drain — so timing the creation call would report a number that reads like a compile time and
+     * isn't one. {@link precompileAll} instead measures each forcer's `initAsync()` await through its
+     * own completion fence and reports it here. The validation drain always waits for that fence; a `?.`
      * no-op without the plugin means only timing attribution is conditional.
      */
     precompiled?: (label: string, start: number, end: number) => void;
@@ -785,25 +785,28 @@ function compile({ label, force }: Forcer): unknown {
 }
 
 /**
- * force a pipeline to compile before the first frame. typegpu has no async pipeline creation —
- * unwrapping a pipeline calls the synchronous `create*Pipeline`, and Dawn defers the real compile to
- * the first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers a
- * 0-workgroup dispatch from its `warm`; `build` drains the queue once every plugin has warmed, so the
- * compile is paid under the loading screen. Registered *after* that drain (a lazily-built pipeline, a
- * post-warm producer), the dispatch starts immediately and the returned promise must be awaited — late
- * is better than silently dropped, but it still owes the same validation and completion fence.
+ * force a pipeline to compile before the first frame. A typegpu pipeline is created synchronously
+ * (`root.unwrap` calls the synchronous `create*Pipeline`), and Dawn can defer the real compile to the
+ * first dispatch (measured ~3 s of first-frame drain at engine scale). A pipeline owner registers its
+ * bound pipeline from `warm`; `build` drains the queue once every plugin has warmed, awaiting
+ * `initAsync()` on each returned pipeline, so the compile is paid under the loading screen. Registered
+ * *after* that drain (a lazily-built pipeline, a post-warm producer), the drain runs on arrival and the
+ * returned promise must be awaited — late is better than silently dropped, but it still owes the same
+ * validation and completion fence.
  *
- * `force` **returns what it dispatched**: the drain throws on a nullish return, because a forcer whose
- * buffers aren't up yet no-ops and hands the compile back to frame one without a word. Allocate inside
- * the thunk if the buffers are late — the drain runs after every plugin's warm, which is the point.
- * `label` names the pipeline in either failure and must be unique within the build. `options.after`
- * names other queued labels that must drain first. Unknown labels are ignored because the plugin that
- * owns a predecessor may be absent.
+ * `force` **returns the bound pipeline** — never dispatch from the callback: a zero-workgroup dispatch
+ * trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code. The
+ * drain classifies the return exhaustively: a typegpu pipeline (compute / render / guarded) is awaited
+ * via its `initAsync`; an array of already-unwrapped raw pipelines is skipped (the sear forcer's
+ * legitimate shape, `[]` when nothing specializes); anything else truthy is a labelled throw. A nullish
+ * return also throws, because a forcer whose buffers aren't up yet no-ops and hands the compile back to
+ * frame one without a word. Allocate inside the thunk if the buffers are late — the drain runs after
+ * every plugin's warm, which is the point. `label` names the pipeline in either failure and must be
+ * unique within the build. `options.after` names other queued labels that must drain first. Unknown
+ * labels are ignored because the plugin that owns a predecessor may be absent.
  * @example
  * precompile("narrowphase", () => {
- *     const bound = bind();
- *     bound?.dispatchWorkgroups(0);
- *     return bound;
+ *     return bind();
  * }, {
  *     after: ["publish-inputs"],
  * });
@@ -846,10 +849,7 @@ const _precompileScopes = new Map<string, number>();
  * orders against.
  * @example
  * const scope = precompileScope("radix"); // "radix", then "radix-2", …
- * precompile(`${scope}-init`, () => {
- *     initBound.dispatchWorkgroups(0);
- *     return initBound;
- * });
+ * precompile(`${scope}-init`, () => initBound);
  */
 export function precompileScope(prefix: string): string {
     const n = (_precompileScopes.get(prefix) ?? 0) + 1;
