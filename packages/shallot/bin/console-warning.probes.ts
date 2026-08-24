@@ -17,6 +17,25 @@ import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 // (the filter pushes only `err`, `page-error`, and `ERR_HINT` matches). So this arm listens on the page
 // console directly rather than growing the protocol — the sanctioned approach per the spec.
 //
+// LIVENESS WITNESS: the absence assertion (`warnings` is empty) is vacuous when `consoleMessages` is
+// empty — a page that never booted, a renamed `ready` signal, or a console listener that attached after
+// the messages fired all produce an empty capture that passes having tested nothing. So a non-zero
+// console-message floor is asserted before the Dawn-string check: if the capture saw no traffic at all,
+// the arm fails rather than letting the absence assertion ride on a broken precondition. A real boot of
+// the `render` scenario emits at least Vite's HMR connection messages (`[vite] connecting…`,
+// `[vite] connected.`) in the console, so a zero count is never a legitimate pass state.
+//
+// ADAPTER GATE: Dawn emits the zero-count warning only on a real Metal path; on a software rasterizer
+// (SwiftShader, llvmpipe, lavapipe, warp) the engine boots, sees no warning, and passes having tested
+// nothing. So `adapter.info` is probed after `page.goto` and BEFORE any boot wait — a software adapter
+// throws immediately rather than burning the wait's full timeout. The adapter is logged on both paths
+// (proceed and software-skip), and the match is deliberately narrow (a name list, not a capability
+// probe) so an unlisted software adapter re-crashes loudly while an over-broad pattern would skip on
+// real hardware and report green having tested nothing. This reuses the shape the showcase gates
+// already ship (`examples/showcase/{fountain,voxel,roads}/test/*.spec.ts`); bun:test has no runtime
+// `test.skip()`, so the software-skip path throws — stricter than a skip, but the adapter is logged
+// either way and the test never passes green on a software rasterizer.
+//
 // RED-FIRST WITNESS (at 8e5a092, the parent commit where the dispatch idiom still exists):
 //   Run in a worktree at 8e5a092 after `bun install && bun run build`:
 //     bun test ./packages/shallot/bin/console-warning.probes.ts
@@ -37,6 +56,15 @@ const GYM_DIR = resolve(REPO_ROOT, "examples", "gym");
 /** the Dawn warning string the old zero-workgroup dispatch idiom trips. */
 const DAWN_ZERO_WARNING = "DispatchWorkgroups with a workgroup count of 0 is unusual";
 
+// Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,
+// and D3D's WARP. Deliberately a name list rather than a capability probe — SwiftShader clears shallot's
+// whole base floor (all three `BASE_FEATURES` plus 10 storage buffers per stage, measured under WSL
+// 2026-08-10), so nothing about the floor distinguishes it, and it is only the *execution* that dies.
+// Bias narrow: an unlisted software adapter re-crashes loudly, while an over-broad pattern would skip
+// this gate on real hardware and report green having tested nothing. Reuses the same regex the
+// showcase gates ship (`examples/showcase/{fountain,voxel,roads}/test/*.spec.ts`).
+const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
+
 let hasChromium = false;
 try {
     require.resolve("playwright");
@@ -54,6 +82,16 @@ function pickPort(): Promise<number> {
             const p = (s.address() as { port: number }).port;
             s.close(() => res(p));
         });
+    });
+}
+
+/** the adapter's self-reported identity, or `""` when the browser hands out none. */
+function adapterName(page: import("playwright").Page): Promise<string> {
+    return page.evaluate(async () => {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter) return "";
+        const { vendor, architecture, device, description } = adapter.info;
+        return [vendor, architecture, device, description].filter(Boolean).join(" ");
     });
 }
 
@@ -90,6 +128,20 @@ describe("criterion 2 — Dawn zero-count warning absent from a real boot", () =
                     // registered via precompile) and is the scenario the boot-cost instrument uses
                     await page.goto(`${url}?scenario=render`, { timeout: 30_000 });
 
+                    // ADAPTER GATE — probe before any boot wait, or a software rasterizer burns the
+                    // wait's full timeout before skipping. Dawn emits the zero-count warning only on a
+                    // real Metal path; on SwiftShader the engine boots, sees no warning, and passes
+                    // having tested nothing. Log the adapter on both paths so the skip is never silent.
+                    const adapter = await adapterName(page);
+                    console.log(`console-warning gate adapter: ${adapter || "none offered"}`);
+                    if (adapter === "" || SOFTWARE.test(adapter)) {
+                        throw new Error(
+                            `console-warning gate: no real-GPU adapter (${adapter || "none offered"}) — ` +
+                                "Dawn's zero-count warning is Metal-only, so a software rasterizer " +
+                                "would pass green having tested nothing",
+                        );
+                    }
+
                     // wait for the harness to signal the engine has booted and the scenario's build
                     // completed — the same signal verify.ts waits for (window.__harness with ready: true)
                     await page.waitForFunction(
@@ -104,6 +156,11 @@ describe("criterion 2 — Dawn zero-count warning absent from a real boot", () =
                     // give the engine a few more frames to settle — the warm drain runs during build,
                     // but any late-registered pipelines drain on arrival and may still be compiling
                     await page.waitForTimeout(2000);
+
+                    // LIVENESS WITNESS — a non-zero console-message floor proves the capture saw
+                    // traffic from a real boot. Without it, an empty `consoleMessages` (the page never
+                    // booted, the listener attached late) would make the absence assertion vacuous.
+                    expect(consoleMessages.length).toBeGreaterThan(0);
 
                     // assert the Dawn zero-count warning never appeared in any console message
                     const warnings = consoleMessages.filter((m) =>
