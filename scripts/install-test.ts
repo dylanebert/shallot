@@ -1030,28 +1030,69 @@ function tgslFlow(sandbox: string, dist: string) {
         .map((f) => readFileSync(join(dist, "assets", f), "utf8"))
         .join("");
     const transpiledOk = TRANSPILED.test(bundled);
-    const externalNamesOk = bundled.includes("externalNames");
+    // Metadata format version term: unplugin-typegpu emits the metadata object as
+    // `{v: <METADATA_FORMAT_VERSION>, name: …, ast: …, externals: …}` — the vite build resolves the
+    // ESM variant (factory-BSXzHM_n.js:23, METADATA_FORMAT_VERSION = 2 at common-Dilxou2I.js:430;
+    // the CJS twins factory-CXjNN-uX.cjs:30 / common-hMfUmUk0.cjs:457 carry identical code). The
+    // engine's own runtime never reads this `v` field — typegpu's `normalizeMetadata` does
+    // (typegpu/shared/normalizeMetadata.js:18,23) — and typegpu exports no version constant, so the
+    // expectation is a literal here. It is a literal in exactly ONE place: the extraction below is
+    // version-agnostic and this constant is the only expectation, so a bump cannot leave a name and
+    // an assertion disagreeing (the duplicated-threshold defect this unit already paid for at S4).
+    // Pinning the version rather than a field name means the next V1→V2-style rename reds as a
+    // version change instead of a mystery string absence.
+    //
+    // Red-first witness, taken against THIS `check()` on the live gate rather than a
+    // reimplementation of the predicate: setting the constant below to 3 and running
+    // `bun run test:install` reds this arm by name — `✗ the vite build emitted typegpu metadata in
+    // the expected shape and version — … expected=3; metaVersions=2×118; …` — and the run's own FAIL
+    // line names it. Restored, the arm greens with `expected=2`. Mutating the *expectation* is the
+    // witness that matters; deleting the assertion greens for free and witnesses nothing.
+    //
+    // NB the spelling: `bun check` begins with `bun run format` = `biome check --write`, so biome's
+    // naming convention rewrites a SCREAMING_SNAKE local const to PascalCase here and the gate
+    // silently reformats what you wrote. Renaming this to match the file's module-level constants
+    // is reverted by the next `bun check`.
+    const ExpectedMetaVersion = 2;
     // TRANSPILED term diagnostic: bundle byte length and whether any transpiled-shape marker appears
     // at all. `body:[0,` is the TRANSPILED regex's head; `__TYPEGPU_META__` ships with the typegpu
     // runtime regardless of the transform, so its presence alone is not a transform witness.
     const bodyShapeMarker = /["'`]?body["'`]?\s*:\s*\[0,/.test(bundled);
     const typegpuMetaPresent = bundled.includes("__TYPEGPU_META__");
-    // externalNames term diagnostic: whether the literal appears, and if not, which neighbouring
-    // typegpu-emitted identifiers do. `externals` is the V2 metadata field name; `externalNames` was
-    // the V1 `ast` field — a format-version drift would leave `externals` present and `externalNames`
-    // absent.
+    // Metadata format version diagnostic: which `v:N` values appear in objects shaped like the
+    // typegpu metadata ({v:N,name:…}), tallied rather than listed — the bundle carries one metadata
+    // object per transformed TGSL fn, so the raw list is one number repeated per fn and illegible
+    // at any real bundle size. Read the tally as the mechanism: a single expected version with a
+    // count is a healthy bundle, one differing number is a version bump, a mixed tally a
+    // half-transformed graph, and `(none)` a *shape* miss (a renamed `v` key, quoted keys from a
+    // new minifier) rather than a version change. The arm's name states both legs it asserts —
+    // shape and version — and no number, so a red never tells a version story about a shape event
+    // and no bump can leave the name disagreeing with the assertion. `externals` is the V2 field
+    // name; `externalNames` was the V1 field, retained in the identifier list so a future rename
+    // stays visible beside the version.
     const nearbyIdentifiers = ["externals", "externalNames", "__TYPEGPU_META__"].filter((id) =>
         bundled.includes(id),
     );
+    const metaVersions = [...bundled.matchAll(/\{v:\s*(\d+)\s*,\s*name:/g)].map((m) => m[1]);
+    const metaVersionTally =
+        [...new Set(metaVersions)]
+            .sort()
+            .map((v) => `${v}×${metaVersions.filter((x) => x === v).length}`)
+            .join(",") || "(none)";
+    // Every match must carry the expected version, and there must be at least one: a bare
+    // `.test()` for the expected shape greens on a bundle where one object is V2 and the rest are
+    // not, and an `every` with no non-empty guard greens on a bundle with no metadata at all.
+    const metaVersionOk =
+        metaVersions.length > 0 && metaVersions.every((v) => v === String(ExpectedMetaVersion));
     check(
         "the vite build transformed engine TGSL body inside node_modules (TRANSPILED shape)",
         transpiledOk,
         `bundle=${bundled.length} bytes; body:[0, marker=${bodyShapeMarker}; __TYPEGPU_META__=${typegpuMetaPresent}`,
     );
     check(
-        "the vite build emitted externalNames metadata in the bundle",
-        externalNamesOk,
-        `bundle=${bundled.length} bytes; externalNames=${externalNamesOk}; identifiers: ${nearbyIdentifiers.join(", ") || "(none)"}`,
+        "the vite build emitted typegpu metadata in the expected shape and version",
+        metaVersionOk,
+        `bundle=${bundled.length} bytes; expected=${ExpectedMetaVersion}; metaVersions=${metaVersionTally}; identifiers: ${nearbyIdentifiers.join(", ") || "(none)"}`,
     );
 
     // the recipe a plain bun/node consumer follows, exactly as the repo runs it (packages/shallot/
