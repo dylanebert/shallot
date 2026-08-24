@@ -5,7 +5,8 @@
 //
 // The reference is built with BOX3D_DISABLE_SIMD=ON (default overflow OFF) — the colored solver with
 // graph coloring + the wide (4-lane) convex path + serial mesh/overflow spill, which the port mirrors
-// per-lane. DISABLE_SIMD's scalar FloatW is bit-identical per lane to the SIMD build (proven 52/52), so
+// per-lane. DISABLE_SIMD's scalar FloatW is bit-identical per lane to the SIMD build (proven across
+// every scene), so
 // these fixtures pin the wide-simd wasm path too. Requires cmake and a C toolchain.
 //
 // The committed fixtures are the frozen contract (pin 29bf523 — tests/tumble/fixtures/README.md); only
