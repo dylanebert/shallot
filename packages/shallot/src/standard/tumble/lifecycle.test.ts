@@ -248,6 +248,92 @@ describe("TumblePlugin late-marshal constraints", () => {
         }
     });
 
+    // The narrowing arm: a mixed pair where `a` is genuinely non-`Body` and `b` is a deferred `Body`.
+    // On the authored upload, `endpoints()` warns naming both causes (a: not a Body; b: deferred). When `b`
+    // marshals and the pump re-runs, `endpoints()` still returns null (`a` is still missing) and should warn
+    // with the NARROWED cause naming only `a` — but under the old key (`${key}|endpoint`, ignoring `parts`)
+    // the key was already banked, so the corrected diagnostic was swallowed. Folding `parts` into the key
+    // makes a changed composition a distinct key, so the narrowed warning re-warns once.
+    //
+    // Pre-fix witnessed red: afterTen.length = 1 (Expected 2, Received 1) — the second (narrowed) warning
+    // was swallowed by the stale `${key}|endpoint` key banked on the authored upload. The final count after
+    // 30 churn ticks was also 1, so the narrowing was never observed.
+    // Green: afterTen.length = 2, final count = 2 — the narrowed warning fires once, then stays put.
+    //
+    // If the key were keyed TOO finely (e.g. on something that changes every tick), afterTen.length would
+    // grow past 2 and the final count would exceed afterTen.length — the never-thrash invariant breaks.
+    // This arm catches that direction: the final-count-equals-afterTen assertion reds on per-tick growth.
+    // The existing never-thrash arm ("a permanently unsatisfiable constraint warns once") catches the same
+    // direction for the static (non-narrowing) case; this arm catches it for the narrowing case.
+    test("a mixed pair re-warns with the narrowed cause once the deferred half marshals", async () => {
+        state = await buildTumble();
+
+        const notABody = state.create(); // no Body component: permanently unsatisfiable
+        const bob = state.create();
+        state.add(bob, Body);
+        Body.shape.set(bob, ShapeKind.Hull);
+        Body.halfExtents.set(bob, 1, 1, 1, reserveLateHullId());
+        Body.pos.set(bob, 0, 4, 0, 0);
+        Body.mass.set(bob, 1);
+
+        const j = state.create();
+        state.add(j, Joint);
+        Joint.a.set(j, notABody);
+        Joint.b.set(j, bob);
+        Joint.rA.set(j, 0, 0, 0, 0);
+        Joint.rB.set(j, 0, 0, 0, 0);
+        Joint.stiffnessAng.set(j, 0);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        const endpointWarnings = (): string[] =>
+            warn.mock.calls
+                .map((c) => String(c[0]))
+                .filter((m) => m.includes("joint endpoint unavailable"));
+
+        const spawn = (i: number): void => {
+            const eid = state.create();
+            state.add(eid, Body);
+            Body.shape.set(eid, ShapeKind.Sphere);
+            Body.halfExtents.set(eid, 0, 0, 0, 0.5);
+            Body.pos.set(eid, i * 2, 10, 0, 0);
+            Body.mass.set(eid, 1);
+        };
+
+        try {
+            // tick 0: authored upload — both endpoints missing, mixed causes
+            state.step(Time.FIXED_DT);
+            const firstWarnings = endpointWarnings();
+            expect(firstWarnings.length).toBe(1);
+            expect(firstWarnings[0]).toContain(`a: ${notABody} is not a Body`);
+            expect(firstWarnings[0]).toContain(`b: ${bob} is a deferred body`);
+
+            // hull arrives — bob marshals on the next tick
+            registerLateHull();
+
+            // churn: one spawn per tick fires the pump every tick
+            for (let i = 0; i < 10; i++) {
+                spawn(i);
+                state.step(Time.FIXED_DT);
+            }
+            // the narrowed warning fires once, naming only the surviving cause (a's non-Body),
+            // NOT b's deferred cause — b marshaled, so b is no longer missing
+            const afterTen = endpointWarnings();
+            expect(afterTen.length).toBe(2);
+            expect(afterTen[1]).toContain(`a: ${notABody} is not a Body`);
+            expect(afterTen[1]).not.toContain("deferred");
+            expect(afterTen[1]).not.toContain(`b: ${bob}`);
+
+            // count stays put across remaining churn — no thrash
+            for (let i = 10; i < 30; i++) {
+                spawn(i);
+                state.step(Time.FIXED_DT);
+            }
+            expect(endpointWarnings().length).toBe(afterTen.length);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
     // The pump fires on ANY body-set change, so a continuously spawning scene re-syncs every tick. A retry
     // that re-warned would emit one warning per tick forever, breaking the same never-thrash-the-frame-loop
     // invariant the marshal `failed` ledger holds (index.ts). Counted across ticks, because no per-tick arm

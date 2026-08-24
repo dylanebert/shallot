@@ -80,13 +80,16 @@ const liveJoints = new Map<string, TumbleJoint[]>();
 let retainedSprings: readonly SpringDef[] = [];
 let retainedJoints: readonly JointDef[] = [];
 // warned-key dedupe sets — keyed on `${springKey}|${cause}` / `${jointKey}|${cause}` so each diagnostic site
-// (endpoint-unavailable, hertz-zero, both-static, non-positive-stiffness) is deduped independently. Cleared on
-// an authored upload (`syncSprings`/`syncJoints`) and in `resetConstraints`. This mirrors `index.ts`'s `failed`
-// ledger: it gates the *attempt* and re-warns when the key moves — it does not mute. A boolean `quiet` that
-// silenced the retry path (S2's stopgap) hid every cause that only becomes visible after a deferred marshal
-// resolves (the both-static guard sits after `endpoints()` returns a pair, so the retry is the only path
-// that can evaluate it). Dedupe on the composite key lets the both-static warning fire once on the retry even
-// though the endpoint warning already banked the def's base key on the authored upload.
+// (endpoint-unavailable, hertz-zero, both-static, non-positive-stiffness) is deduped independently. The
+// endpoint-unavailable cause folds in the per-endpoint classification (`parts`), so a narrowed composition
+// (a deferred half marshals, leaving only the genuinely-non-`Body` half) is a DISTINCT key that re-warns
+// once — a mixed pair does not inherit the authored upload's stale key. Cleared on an authored upload
+// (`syncSprings`/`syncJoints`) and in `resetConstraints`. This mirrors `index.ts`'s `failed` ledger: it gates
+// the *attempt* and re-warns when the key moves — it does not mute. A boolean `quiet` that silenced the retry
+// path (S2's stopgap) hid every cause that only becomes visible after a deferred marshal resolves (the
+// both-static guard sits after `endpoints()` returns a pair, so the retry is the only path that can evaluate
+// it). Dedupe on the composite key lets the both-static warning fire once on the retry even though the
+// endpoint warning already banked the def's base key on the authored upload.
 const warnedSprings = new Set<string>();
 const warnedJoints = new Set<string>();
 
@@ -141,7 +144,9 @@ export function syncSet<D>(
 // The diagnostic is deduped (not silenced): `warned` is the per-cause key set cleared on authored upload, so
 // the authored upload's warning fires once and the retry's re-warn is suppressed only for the SAME cause —
 // a deferred endpoint that resolves into a both-static pair warns the both-static cause on the retry because
-// that composite key was never banked.
+// that composite key was never banked. The endpoint key itself folds in `parts`, so a narrowed composition
+// (a deferred half marshals, leaving fewer missing endpoints) is a distinct key that re-warns once — the
+// authored upload's broader warning does not swallow the retry's corrected, narrower diagnostic.
 function endpoints(
     bodies: ReadonlyMap<number, TumbleBody>,
     a: number,
@@ -163,7 +168,7 @@ function endpoints(
         if (!tb) parts.push(cause("b", b));
         warnOnce(
             warned,
-            `${key}|endpoint`,
+            `${key}|endpoint|${parts.join(";")}`,
             `[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`,
         );
         return null;
