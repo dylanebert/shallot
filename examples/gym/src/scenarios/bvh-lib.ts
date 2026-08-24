@@ -157,10 +157,6 @@ function forceTrace(
     pipeline: TracePipeline,
 ): TracePipeline {
     const raws: GPUBuffer[] = [];
-    let submitted = false;
-    const cleanup = () => {
-        for (const raw of raws) raw.destroy();
-    };
     try {
         const storage = (label: string, size: number): GPUBuffer => {
             const raw = device.createBuffer({
@@ -197,17 +193,12 @@ function forceTrace(
             countBuf,
             params,
         });
-        const encoder = device.createCommandEncoder({ label: "gym-trace-force" });
-        const pass = encoder.beginComputePass({ label: "gym-trace-force" });
-        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
-        submitted = true;
-        void cleanupAfterFence;
-        return pipeline;
+        // the drain awaits the returned pipeline's own `initAsync()` — no dispatch needed to force the
+        // compile, so the throwaway buffers above exist only to satisfy the bind group and are freed
+        // the moment binding is done, same as glaze's dummy-texture forcer (standard/glaze/index.ts)
+        return pipeline.with(group);
     } finally {
-        if (!submitted) cleanup();
+        for (const raw of raws) raw.destroy();
     }
 }
 

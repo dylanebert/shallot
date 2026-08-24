@@ -38,6 +38,13 @@ const SCAN_DIRS = [
 // scan root is the real repo (this file lives under `packages/shallot/tests`, one of `SCAN_DIRS`).
 const ZERO_DISPATCH = `dispatchWorkgroups${"("}0${")"}`;
 const ZERO_DRAW = `.draw${"("}0${")"}`;
+// The three widened shapes, same concatenation discipline: a float-literal zero, and the two
+// multi-argument forms whose match text stops at the first comma (the regex's own boundary).
+const ZERO_DISPATCH_FLOAT = `dispatchWorkgroups${"("}0.0${")"}`;
+const ZERO_DISPATCH_MULTI = `dispatchWorkgroups${"("}0${", y, z)"}`;
+const ZERO_DISPATCH_MULTI_MATCH = `dispatchWorkgroups${"("}0${","}`;
+const ZERO_DRAW_MULTI = `.draw${"("}0${", 1)"}`;
+const ZERO_DRAW_MULTI_MATCH = `.draw${"("}0${","}`;
 
 export interface ZeroDispatchViolation {
     file: string;
@@ -48,12 +55,20 @@ export interface ZeroDispatchViolation {
  *  `.draw` call — the two call shapes Dawn's `EmitWarningOnce` families warn on
  *  (`ComputePassEncoder::APIDispatchWorkgroups`, its draw-side siblings). `node_modules` and any
  *  `dist/` build output are skipped — this checks source, not a bundle a build step already baked.
- *  Whitespace inside the parens (a dispatch call with a spaced-out zero argument) still matches; only
- *  the bare argument `0` (no other digits, no expression) counts, so a real dispatch sized off a
- *  runtime count never trips it. @internal */
+ *  The zero it matches is the CALL'S FIRST ARGUMENT (workgroup count / vertex count), not the whole
+ *  argument list — a multi-argument `dispatchWorkgroups` with a literal zero x, or a multi-argument
+ *  `.draw` with a literal zero vertex count, warns exactly like the single-arg form because the first
+ *  argument is what Dawn checks, so a literal `0` there trips this regardless of what follows. The literal itself may be an integer (`0`) or a float zero (`0.0`, `.0`) —
+ *  whitespace around it still matches. Only a literal composed entirely of zero digits counts, so a
+ *  real dispatch/draw sized off a runtime count (`dispatchWorkgroups(count)`, `.draw(vertexCount)`,
+ *  or a multi-arg call with no zero literal in the first slot) never trips it. @internal */
 export async function findZeroDispatches(root: string): Promise<ZeroDispatchViolation[]> {
     const violations: ZeroDispatchViolation[] = [];
-    const pattern = /\bdispatchWorkgroups\(\s*0\s*\)|\.draw\(\s*0\s*\)/g;
+    const zeroLiteral = String.raw`(?:0(?:\.0+)?|\.0+)`;
+    const pattern = new RegExp(
+        String.raw`\bdispatchWorkgroups\(\s*${zeroLiteral}\s*[,)]|\.draw\(\s*${zeroLiteral}\s*[,)]`,
+        "g",
+    );
     for (const dir of SCAN_DIRS) {
         const full = resolve(root, dir);
         if (!existsSync(full)) continue;
@@ -95,9 +110,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
             );
             const violations = await findZeroDispatches(root);
             expect(violations).toHaveLength(1);
-            expect(violations[0].file).toBe(
-                "packages/shallot/src/standard/rogue/rogue.ts",
-            );
+            expect(violations[0].file).toBe("packages/shallot/src/standard/rogue/rogue.ts");
             expect(violations[0].match).toBe(ZERO_DISPATCH);
         } finally {
             rmSync(root, { recursive: true, force: true });
@@ -124,9 +137,77 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
         }
     });
 
+    // Non-vacuous witness (c): a float-literal zero (`0.0`) is the same warning-triggering shape as
+    // the bare integer `0` — Dawn's check reads the workgroup count's value, not its literal syntax —
+    // and the old regex's bare-digit `0` only missed this by accident of not handling a decimal point.
+    test("a fixture float-literal zero dispatch is caught", async () => {
+        const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-float-"));
+        try {
+            const srcDir = join(root, "packages/shallot/src/standard/float-zero");
+            mkdirSync(srcDir, { recursive: true });
+            writeFileSync(
+                join(srcDir, "float-zero.ts"),
+                `export function force() {\n    pipeline.with(group).with(pass).${ZERO_DISPATCH_FLOAT};\n    return pipeline;\n}\n`,
+            );
+            const violations = await findZeroDispatches(root);
+            expect(violations).toHaveLength(1);
+            expect(violations[0].file).toBe(
+                "packages/shallot/src/standard/float-zero/float-zero.ts",
+            );
+            expect(violations[0].match).toBe(ZERO_DISPATCH_FLOAT);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    // Non-vacuous witness (d): a multi-argument dispatch with a literal `0` in the x slot is zero
+    // workgroups regardless of y/z — the bare single-arg regex missed this class entirely.
+    test("a fixture multi-argument dispatch with x=0 is caught", async () => {
+        const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-multiarg-"));
+        try {
+            const srcDir = join(root, "packages/shallot/src/standard/multiarg-zero");
+            mkdirSync(srcDir, { recursive: true });
+            writeFileSync(
+                join(srcDir, "multiarg-zero.ts"),
+                `export function force() {\n    pipeline.with(group).with(pass).${ZERO_DISPATCH_MULTI};\n    return pipeline;\n}\n`,
+            );
+            const violations = await findZeroDispatches(root);
+            expect(violations).toHaveLength(1);
+            expect(violations[0].file).toBe(
+                "packages/shallot/src/standard/multiarg-zero/multiarg-zero.ts",
+            );
+            expect(violations[0].match).toBe(ZERO_DISPATCH_MULTI_MATCH);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    // Non-vacuous witness (e): a multi-argument `.draw` with vertexCount 0 is zero draws regardless
+    // of the instance count that follows, the render-side twin of witness (d).
+    test("a fixture multi-argument draw with vertexCount=0 is caught", async () => {
+        const root = mkdtempSync(join(tmpdir(), "no-zero-draw-multiarg-"));
+        try {
+            const srcDir = join(root, "examples/showcase/rogue-multiarg/src");
+            mkdirSync(srcDir, { recursive: true });
+            writeFileSync(
+                join(srcDir, "rogue-multiarg.ts"),
+                `export function force() {\n    pass${ZERO_DRAW_MULTI};\n    return pipeline;\n}\n`,
+            );
+            const violations = await findZeroDispatches(root);
+            expect(violations).toHaveLength(1);
+            expect(violations[0].file).toBe(
+                "examples/showcase/rogue-multiarg/src/rogue-multiarg.ts",
+            );
+            expect(violations[0].match).toBe(ZERO_DRAW_MULTI_MATCH);
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     // A real, non-zero dispatch/draw (the shape every legitimate per-frame call takes) must never
     // trip the arm — otherwise the check would be satisfiable only by having no dispatches at all,
-    // which is not the property being asserted.
+    // which is not the property being asserted. Includes the multi-arg shape with no zero literal in
+    // the first slot, the negative twin of witnesses (d) and (e).
     test("a non-zero dispatch or draw count never trips the arm", async () => {
         const root = mkdtempSync(join(tmpdir(), "no-zero-dispatch-real-"));
         try {
@@ -137,6 +218,7 @@ describe("no zero-workgroup dispatch or zero-count draw survives in the shipped 
                 "export function frame() {\n" +
                     "    pipeline.with(group).with(pass).dispatchWorkgroups(count);\n" +
                     "    pass.draw(vertexCount);\n" +
+                    "    pipeline.with(group).with(pass).dispatchWorkgroups(x, y, z);\n" +
                     "}\n",
             );
             const violations = await findZeroDispatches(root);

@@ -1144,4 +1144,39 @@ describe("precompile", () => {
             Object.assign(Compute, saved);
         }
     });
+
+    test("a forcer whose array never awaits a real initAsync reports no compile span; one that does is attributed", async () => {
+        const saved = { ...Compute };
+        try {
+            // sear's raw-pipeline array (and `[]`) still legitimately skip — but the skip must not
+            // read like a compile: `Compute.precompiled` is the one map a developer reads to diagnose
+            // a first-frame stall, and calling it unconditionally would report the still-unwarmed path
+            // as warm, exactly the failure this item exists to close.
+            const spans: Array<[string, number, number]> = [];
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+
+            precompile("raw-only", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            precompile("empty", () => []);
+            await precompileAll();
+            expect(spans).toEqual([]);
+
+            // a mixed array with at least one real initAsync IS attributed — the skip is per-forcer,
+            // not per-element, and a forcer that did real work must still show up in the profiler
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+            precompile("mixed", () => [{ label: "raw-a" }, { initAsync: async () => {} }]);
+            await precompileAll();
+            expect(spans.map(([label]) => label)).toEqual(["mixed"]);
+
+            // and a real single pipeline (branch a) is attributed exactly as before
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+            precompile("real", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+            expect(spans.map(([label]) => label)).toEqual(["mixed", "real"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
 });

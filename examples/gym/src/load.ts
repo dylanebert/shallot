@@ -84,8 +84,7 @@ export const LoadPlugin: Plugin = {
         const readyBind = bind;
         const readyPipeline = pipeline;
         await precompile("gym-load", () => {
-            readyPipeline.with(readyBind).dispatchWorkgroups(0, 1, 1);
-            return readyPipeline;
+            return readyPipeline.with(readyBind);
         });
     },
     systems: [
