@@ -1021,16 +1021,37 @@ function tgslFlow(sandbox: string, dist: string) {
     console.log("TGSL distribution (the build transform + an executing resolve)…");
 
     // the vite arm: the sandbox's own sources carry no typegpu, so any metadata in dist came from
-    // engine source inside node_modules — what the CLI's synthesized config has to reach
+    // engine source inside node_modules — what the CLI's synthesized config has to reach.
+    // Split into two named checks so a red names which term failed — the old conjunction reported
+    // only the assets list, leaving the failing half unmeasured after five red runs.
     const assets = existsSync(join(dist, "assets")) ? readdirSync(join(dist, "assets")) : [];
     const bundled = assets
         .filter((f) => f.endsWith(".js"))
         .map((f) => readFileSync(join(dist, "assets", f), "utf8"))
         .join("");
+    const transpiledOk = TRANSPILED.test(bundled);
+    const externalNamesOk = bundled.includes("externalNames");
+    // TRANSPILED term diagnostic: bundle byte length and whether any transpiled-shape marker appears
+    // at all. `body:[0,` is the TRANSPILED regex's head; `__TYPEGPU_META__` ships with the typegpu
+    // runtime regardless of the transform, so its presence alone is not a transform witness.
+    const bodyShapeMarker = /["'`]?body["'`]?\s*:\s*\[0,/.test(bundled);
+    const typegpuMetaPresent = bundled.includes("__TYPEGPU_META__");
+    // externalNames term diagnostic: whether the literal appears, and if not, which neighbouring
+    // typegpu-emitted identifiers do. `externals` is the V2 metadata field name; `externalNames` was
+    // the V1 `ast` field — a format-version drift would leave `externals` present and `externalNames`
+    // absent.
+    const nearbyIdentifiers = ["externals", "externalNames", "__TYPEGPU_META__"].filter((id) =>
+        bundled.includes(id),
+    );
     check(
-        "the vite build transformed engine TGSL inside node_modules",
-        TRANSPILED.test(bundled) && bundled.includes("externalNames"),
-        assets.join(", ") || "(no assets dir)",
+        "the vite build transformed engine TGSL body inside node_modules (TRANSPILED shape)",
+        transpiledOk,
+        `bundle=${bundled.length} bytes; body:[0, marker=${bodyShapeMarker}; __TYPEGPU_META__=${typegpuMetaPresent}`,
+    );
+    check(
+        "the vite build emitted externalNames metadata in the bundle",
+        externalNamesOk,
+        `bundle=${bundled.length} bytes; externalNames=${externalNamesOk}; identifiers: ${nearbyIdentifiers.join(", ") || "(none)"}`,
     );
 
     // the recipe a plain bun/node consumer follows, exactly as the repo runs it (packages/shallot/
