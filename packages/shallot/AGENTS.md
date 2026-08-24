@@ -92,7 +92,7 @@ Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"`
 
 TGSL integer division uses `idiv` from `utils/core`, never `/`; initialize integer locals with `d.u32(...)` or `d.i32(...)`. Apply `eslint-plugin-typegpu` to every `"use gpu"` file.
 
-Force pipeline creation during loading: from `warm`, queue a `precompile(label, force)` whose callback returns the bound typegpu pipeline; the drain awaits `initAsync()` on it — never dispatch.
+Force pipeline creation during loading: from `warm`, queue `precompile(label, force)`; return the bound pipeline or an array of raw ones — the drain awaits `initAsync()`, never dispatch.
 
 ### Typed surfaces
 

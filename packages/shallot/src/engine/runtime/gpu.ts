@@ -172,7 +172,9 @@ export interface Compute {
      * `create*Pipeline`), and Dawn defers the real shader compile to the forced {@link precompile}
      * drain — so timing the creation call would report a number that reads like a compile time and
      * isn't one. {@link precompileAll} instead measures each forcer's `initAsync()` await through its
-     * own completion fence and reports it here. The validation drain always waits for that fence; a `?.`
+     * own completion fence and reports it here — a forcer returning an array of already-unwrapped raw
+     * pipelines awaits nothing, so its reported span is the skip. The validation drain always waits
+     * for that fence; a `?.`
      * no-op without the plugin means only timing attribution is conditional.
      */
     precompiled?: (label: string, start: number, end: number) => void;
