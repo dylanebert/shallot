@@ -28,6 +28,7 @@ One minimal project per problem a game developer actually has.
 - **stylize the look** — `recipes/stylize-the-look/` — the screen-space outline post-effect on selected entities.
 - **author a custom material** — `recipes/custom-material/` — register a custom WGSL surface and use it by name in a scene, plus a custom backdrop via `Backgrounds.register`.
 - **run a compute pass and read it back** — `recipes/compute-and-readback/` — a custom GPU compute pass over per-entity slab data, results read back to the CPU with `Mirror`.
+- **simulate particles on the GPU** — `recipes/gpu-particles/` — a per-frame compute pass writes a typed particle buffer read directly by a custom surface's vertex stage.
 - **annotate the world** — `recipes/annotate-the-world/` — world-space text labels plus debug lines and arrows (retained components and the immediate `box` / `arrow` API).
 - **billboards and sprites** — `recipes/billboards-and-sprites/` — camera-facing sprites, the billboard modes, a radial meter.
 - **play sound** — `recipes/play-sound/` — spatial audio: a listener and positioned sound sources.
@@ -68,7 +69,6 @@ The showcase demos are live at https://dylanebert.com/shallot/ — each playable
 code link to its source pinned to the version it was built from.
 
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.
-- **fountain** — `showcase/fountain/` — a custom GPU render producer: a particle fountain.
 - **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
 - **sandbox** — `showcase/sandbox/` — a playable physics sandbox (character + AVBD + modal-synthesis audio).
 - **visualization** — `showcase/visualization/` — a multi-canvas gallery of the debug-draw primitives (lines, text, tweens, wireframe).

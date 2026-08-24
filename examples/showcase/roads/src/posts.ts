@@ -2,7 +2,7 @@
 // entirely on the GPU: a compute kernel writes one `Post` record per slot (station along the chord,
 // lateral offset alternating sides, `y` from `flatten.ts`'s own `flattenedHeightAt` TGSL fn, scale 0 for
 // slots past the chord), and a custom surface's VS maps the standard `capsule` mesh onto the post's own
-// dimensions and translates by the record. The fountain showcase's shape: a typed record buffer written
+// dimensions and translates by the record. The `gpu-particles` recipe's shape: a typed record buffer written
 // by compute, read by a custom surface's VS at `input.iid`, one shared mesh, `Draws.register` with a
 // fixed `instanceCount`. The records never touch Part or the Transform slabs.
 //
@@ -250,7 +250,7 @@ export function isLiveSlot(i: number, chordLength: number): boolean {
 // --- Post record + layouts ---------------------------------------------------
 
 /** the compute kernel's output / the surface VS's input: world position (x, y, z) + scale in `w`
- *  (0 = hidden, 1 = visible). The fountain's `Particle` shape — a typed record buffer written by
+ *  (0 = hidden, 1 = visible). The `gpu-particles` recipe's `Particle` shape — a typed record buffer written by
  *  compute, read by a custom surface's VS at `input.iid`. */
 const Post = d.struct({ pos: d.vec4f }).$name("Post");
 const PostArray = d.arrayOf(Post, POST_COUNT);
@@ -262,7 +262,7 @@ const postsComputeLayout = tgpu.bindGroupLayout({
 });
 
 /** the surface's bind group layout — the VS reads the same buffer by instance id. The binding name
- *  matches the `Compute.buffers`/`Compute.typed` key the renderer resolves by name (fountain's shape). */
+ *  matches the `Compute.buffers`/`Compute.typed` key the renderer resolves by name (the `gpu-particles` recipe's shape). */
 const postsSurfaceLayout = surfaceLayout({
     posts: { type: "storage", element: Post },
 });
@@ -606,7 +606,7 @@ interface PostRecord {
 }
 
 /** one-shot GPU→CPU readback of the posts buffer — the device gate's readback arm. Mirrors the
- *  fountain's `readParticles` and `terrain.ts`'s `readVertices`; an assert-only bridge, never a
+ *  the `gpu-particles` recipe's `readParticles` and `terrain.ts`'s `readVertices`; an assert-only bridge, never a
  *  per-frame readback. */
 async function readPosts(): Promise<PostRecord[]> {
     if (!postsRaw) throw new Error("posts: readPosts before warmPosts");

@@ -8,12 +8,11 @@ webgpu game engine
 
 ## live demos
 
-Six demos are built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/). Each links to its source at the version it was built from.
+Five demos are built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/). Each links to its source at the version it was built from.
 
 | demo | play | code |
 |---|---|---|
 | Collapse | [play](https://dylanebert.com/shallot/collapse/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.4/examples/showcase/collapse) |
-| Fountain | [play](https://dylanebert.com/shallot/fountain/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.4/examples/showcase/fountain) |
 | Roads | [play](https://dylanebert.com/shallot/roads/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.4/examples/showcase/roads) |
 | Sandbox | [play](https://dylanebert.com/shallot/sandbox/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.4/examples/showcase/sandbox) |
 | Visualization | [play](https://dylanebert.com/shallot/visualization/) | [code](https://github.com/dylanebert/shallot/tree/v0.9.4/examples/showcase/visualization) |
@@ -50,7 +49,7 @@ Written for coding agents first, readable by hand. Both files move in the same c
 Examples live under `examples/`, indexed by [`examples/AGENTS.md`](examples/AGENTS.md):
 
 - `recipes/` — one minimal project per problem: first-person character, physics playground, import a model, day-night sky, and more.
-- `showcase/` — full projects rather than one concept each, several under real-device gates: `collapse`, `fountain`, `roads`, `sandbox`, `visualization`, `voxel`.
+- `showcase/` — full projects rather than one concept each, several under real-device gates: `collapse`, `roads`, `sandbox`, `visualization`, `voxel`.
 - `gym/` — machine-verdict scenarios: the real-device test and benchmark tier.
 - `flows/` — ejected standalone apps for behavior a unit test can't reach (`survive-reload`, `ui-containment`, `no-walls`), driven by `bun run flows`.
 
