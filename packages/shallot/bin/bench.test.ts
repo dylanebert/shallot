@@ -1,40 +1,34 @@
 import { describe, expect, test } from "bun:test";
 import { parseArgs } from "../../../scripts/bench";
 
-// HOLE-RECORD ARMS — `scripts/bench.ts`'s six numeric flags (`--seed`, `--count`, `--warmup`, `--frames`,
-// `--timeout`, `--leak`) are each `parseInt`'d without validation (bench.ts:240-261), so a non-numeric
-// value silently becomes NaN and flows into the query string (`warmup=NaN`) or `--timeout NaN`. verify.ts:112's
-// own JSDoc states the policy — "a typo must not silently no-op or flow NaN" — the same repo's stated rule,
-// unapplied one file over.
-//
-// Each bare `toThrow()` below distinguishes a throw from a clean return, so a NaN-substituting default
-// leaves it red — but it CANNOT distinguish the validation throw from an unrelated one (an unknown-option
-// guard, a precondition firing first), so a message assertion is owed the moment a message exists. S2 of
-// this spec (audit-cli-numeric-flags) is the unit that flips these arms green, and it tightens each
-// `toThrow()` to name the flag in the message rather than leaving the fragment loose.
+// `scripts/bench.ts`'s six numeric flags (`--seed`, `--count`, `--warmup`, `--frames`, `--timeout`,
+// `--leak`) each reject a non-numeric value with a message naming the flag, so a typo doesn't flow NaN
+// into the query string (`warmup=NaN`) or `--timeout NaN` (the policy in verify.ts's `--port` JSDoc:
+// "a typo must not silently no-op or flow NaN"). Each message assertion distinguishes the validation
+// throw from an unrelated one (an unknown-option guard, a precondition firing first).
 
-describe("parseArgs — bench.ts numeric flag validation (RED today)", () => {
-    test("--count abc throws instead of flowing NaN into the query string — RED today", () => {
+describe("parseArgs — bench.ts numeric flag validation", () => {
+    test("--count abc throws with a message naming the flag instead of flowing NaN into the query string", () => {
         expect(() => parseArgs(["--count", "abc"])).toThrow('invalid --count value "abc"');
     });
 
-    test("--seed abc throws instead of flowing NaN — RED today", () => {
+    test("--seed abc throws with a message naming the flag instead of flowing NaN", () => {
         expect(() => parseArgs(["--seed", "abc"])).toThrow('invalid --seed value "abc"');
     });
 
-    test("--warmup abc throws instead of flowing warmup=NaN into the query string — RED today", () => {
+    test("--warmup abc throws with a message naming the flag instead of flowing warmup=NaN into the query string", () => {
         expect(() => parseArgs(["--warmup", "abc"])).toThrow('invalid --warmup value "abc"');
     });
 
-    test("--frames abc throws instead of flowing NaN — RED today", () => {
+    test("--frames abc throws with a message naming the flag instead of flowing NaN", () => {
         expect(() => parseArgs(["--frames", "abc"])).toThrow('invalid --frames value "abc"');
     });
 
-    test("--timeout abc throws instead of flowing --timeout NaN — RED today", () => {
+    test("--timeout abc throws with a message naming the flag instead of flowing --timeout NaN", () => {
         expect(() => parseArgs(["--timeout", "abc"])).toThrow('invalid --timeout value "abc"');
     });
 
-    test("--leak abc throws instead of flowing NaN — RED today", () => {
+    test("--leak abc throws with a message naming the flag instead of flowing NaN", () => {
         expect(() => parseArgs(["--leak", "abc"])).toThrow('invalid --leak value "abc"');
     });
 });

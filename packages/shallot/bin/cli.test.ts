@@ -58,14 +58,10 @@ describe("parseCliArgs", () => {
         expect(() => parseCliArgs(["dev", "--nope"])).toThrow("unknown option: --nope");
     });
 
-    // HOLE-RECORD ARM — `--port abc` should throw (verify.ts:112's own JSDoc states the policy: "a typo
-    // must not silently no-op or flow NaN"), but cli.ts:83 `parseInt`'s `--port` with no validation, so
-    // `--port abc` silently becomes NaN and flows to devConfig's port (dev.ts:65) into vite. The bare
-    // `toThrow()` distinguishes a throw from a clean return, so a NaN-substituting default leaves it red —
-    // but it CANNOT tell the validation throw from an unrelated one (the `unknown option` guard four lines
-    // up throws too), so S2 tightens it to assert the message, as that sibling arm already does. S2 of this
-    // spec (audit-cli-numeric-flags) is the unit that flips this arm green.
-    test("--port abc throws instead of flowing NaN to vite — RED today (cli.ts:83 parseInt, no validation)", () => {
+    // `--port abc` throws with a message naming the flag, so a typo doesn't flow NaN into vite's port
+    // (the policy in verify.ts's `--port` JSDoc: "a typo must not silently no-op or flow NaN"). The
+    // message assertion distinguishes this validation throw from the `unknown option` guard above.
+    test("--port abc throws with a message naming the flag instead of flowing NaN to vite", () => {
         expect(() => parseCliArgs(["dev", "--port", "abc"])).toThrow('invalid --port value "abc"');
     });
 });
