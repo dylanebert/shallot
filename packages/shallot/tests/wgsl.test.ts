@@ -20,7 +20,11 @@ describe("body", () => {
      * `undefined`, matching neither branch), then rescanned from index 0 — finding the `{`
      * *before* the signature and returning `src.slice(start, i + 1)` where `i + 1 < start`,
      * i.e. an **empty string** — instead of throwing. An empty slice satisfies every
-     * `not.toMatch` in `noIntegerDivision`, so a discipline gate passed by extracting nothing.
+     * `not.toMatch` in `noIntegerDivision`, so a discipline gate fed this helper would pass by
+     * extracting nothing. Latent, not historical: `body()` has no caller today (`standards.ts`
+     * imports the four discipline helpers, not this one), which is the spec's "zero current
+     * instances" — the guard exists so the first caller the TypeGPU port adds cannot inherit a
+     * silent green.
      */
     test("a signature present but brace-less must throw", () => {
         const src = "{ x } fn baz() no body here";
