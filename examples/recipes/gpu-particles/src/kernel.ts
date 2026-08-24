@@ -31,8 +31,8 @@ export const particleLayout = tgpu.bindGroupLayout({
     particles: { storage: ParticleArray, access: "mutable" },
 });
 
-// A raw-WGSL body: the hash needs u32 wraparound on multiply, which is the shader's native
-// arithmetic and has no faithful JS spelling.
+// A raw-WGSL body: the hash needs u32 wraparound on multiply, the shader's native arithmetic. JS spells
+// that too (`Math.imul`), so this is GPU-only for want of a CPU caller, not for want of a JS twin.
 const hashU32 = tgpu
     .fn(
         [d.u32],

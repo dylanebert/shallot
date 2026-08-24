@@ -128,27 +128,11 @@ export function particlesStepped(): boolean {
     return particlesRaw !== null && dispatches > 1;
 }
 
-/** Copy the simulation buffer back to the CPU. Nothing in the recipe's render path needs this — it
- *  exists so `src/smoke.ts` can assert what the particles actually do. */
-export async function readParticles(): Promise<Float32Array> {
-    if (!particlesRaw) throw new Error("gpu-particles: no particle buffer to read");
-    const staging = Compute.device.createBuffer({
-        label: "particles-readback",
-        size: PARTICLE_BYTES,
-        usage: GPUBufferUsage.MAP_READ | GPUBufferUsage.COPY_DST,
-    });
-    let mapped = false;
-    try {
-        const enc = Compute.device.createCommandEncoder({ label: "particles-readback" });
-        enc.copyBufferToBuffer(particlesRaw, 0, staging, 0, PARTICLE_BYTES);
-        Compute.device.queue.submit([enc.finish()]);
-        await staging.mapAsync(GPUMapMode.READ);
-        mapped = true;
-        return new Float32Array(staging.getMappedRange().slice(0));
-    } finally {
-        if (mapped) staging.unmap();
-        staging.destroy();
-    }
+/** The live GPU state, for a consumer that needs the buffer itself: the raw buffer (a readback copies
+ *  from it), the typed wrapper the surface's vertex stage resolves by name, and the draw that names
+ *  that surface. */
+export function particleState(): { raw: GPUBuffer; typed: ParticleBuffer; draw: Draw } | null {
+    return particlesRaw && particles && draw ? { raw: particlesRaw, typed: particles, draw } : null;
 }
 
 // One dispatch per frame, into the frame's own encoder and before the prepass reads the buffer, so the
@@ -202,7 +186,6 @@ function build(): void {
         mesh: "particleCube",
         args: { indirect: args },
     };
-    Compute.buffers.set("particles", particlesRaw);
     Compute.typed.set("particles", particles);
     Draws.register(draw);
 }
@@ -211,8 +194,7 @@ function build(): void {
 // another draw on top of the live one.
 function teardown(): void {
     if (draw && Draws.get(draw.name) === draw) Draws.delete(draw.name);
-    if (particlesRaw && Compute.buffers.get("particles") === particlesRaw)
-        Compute.buffers.delete("particles");
+    // only retract this generation's own publication: a reload's build may already have replaced it
     if (particles && Compute.typed.get("particles") === particles)
         Compute.typed.delete("particles");
     particlesRaw?.destroy();
