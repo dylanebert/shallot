@@ -12,7 +12,7 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // chunk's boundary layer can therefore only pull a face-culling read across ONE face-adjacent chunk per
 // axis — never a diagonal (edge/corner) chunk, since the three axis offsets are independent and never
 // combine. Correctly re-meshing a touched chunk needs at most that chunk plus its 6 face-adjacent
-// neighbours dispatched — never the other 19 chunks of a full 3×3×3 halo, and never the grid beyond it.
+// neighbours dispatched — never the other 20 chunks of a full 3×3×3 halo, and never the grid beyond it.
 // `HALO_CHUNKS` below names that count; `CHUNK_WORKGROUPS` is one chunk's own dispatch volume in the
 // kernel's real `WG`-sized workgroups (`(CHUNK / WG) ** 3`, both read from `src/voxel/*` — not restated).
 //
