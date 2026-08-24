@@ -1030,28 +1030,42 @@ function tgslFlow(sandbox: string, dist: string) {
         .map((f) => readFileSync(join(dist, "assets", f), "utf8"))
         .join("");
     const transpiledOk = TRANSPILED.test(bundled);
-    const externalNamesOk = bundled.includes("externalNames");
+    // Metadata format version term: unplugin-typegpu emits the metadata object as
+    // `{v: <METADATA_FORMAT_VERSION>, name: …, ast: …, externals: …}` (factory-CXjNN-uX.cjs:30,
+    // METADATA_FORMAT_VERSION = 2 at common-hMfUmUk0.cjs:457). The engine's own runtime does not
+    // read this `v` field — typegpu's `normalizeMetadata` does (typegpu/shared/normalizeMetadata.js:
+    // 18,23) — so the arm carries a literal, not a constant import. Pinning the version (not a
+    // field name) means the next V1→V2-style rename reds as a version change under this arm's own
+    // name rather than as a mystery string absence. Red-first witness: mutating the expected
+    // version in the regex from 2 to 3 and running the check against a scratch-built V2 bundle
+    // reds this arm — `✗ the vite build emitted typegpu metadata at format version 3 —
+    // bundle=286437 bytes; metaVersions=2; identifiers: externals, __TYPEGPU_META__` (exit 1) —
+    // confirming the assertion discriminates (a deleted assertion greens for free and witnesses
+    // nothing).
     // TRANSPILED term diagnostic: bundle byte length and whether any transpiled-shape marker appears
     // at all. `body:[0,` is the TRANSPILED regex's head; `__TYPEGPU_META__` ships with the typegpu
     // runtime regardless of the transform, so its presence alone is not a transform witness.
     const bodyShapeMarker = /["'`]?body["'`]?\s*:\s*\[0,/.test(bundled);
     const typegpuMetaPresent = bundled.includes("__TYPEGPU_META__");
-    // externalNames term diagnostic: whether the literal appears, and if not, which neighbouring
-    // typegpu-emitted identifiers do. `externals` is the V2 metadata field name; `externalNames` was
-    // the V1 `ast` field — a format-version drift would leave `externals` present and `externalNames`
-    // absent.
+    // Metadata format version diagnostic: which `v:N` values appear in objects shaped like the
+    // typegpu metadata ({v:N,name:…}). A version change shows as a different number, not a missing
+    // string — the next actor reads the mechanism. `externals` is the V2 field name; `externalNames`
+    // was the V1 field, retained in the identifier list so a future rename is visible alongside the
+    // version.
     const nearbyIdentifiers = ["externals", "externalNames", "__TYPEGPU_META__"].filter((id) =>
         bundled.includes(id),
     );
+    const metaVersions = [...bundled.matchAll(/\{v:\s*(\d+)\s*,\s*name:/g)].map((m) => m[1]);
+    const metaVersionOk = /\{v:\s*2\s*,\s*name:/.test(bundled);
     check(
         "the vite build transformed engine TGSL body inside node_modules (TRANSPILED shape)",
         transpiledOk,
         `bundle=${bundled.length} bytes; body:[0, marker=${bodyShapeMarker}; __TYPEGPU_META__=${typegpuMetaPresent}`,
     );
     check(
-        "the vite build emitted externalNames metadata in the bundle",
-        externalNamesOk,
-        `bundle=${bundled.length} bytes; externalNames=${externalNamesOk}; identifiers: ${nearbyIdentifiers.join(", ") || "(none)"}`,
+        "the vite build emitted typegpu metadata at format version 2",
+        metaVersionOk,
+        `bundle=${bundled.length} bytes; metaVersions=${metaVersions.join(",") || "(none)"}; identifiers: ${nearbyIdentifiers.join(", ") || "(none)"}`,
     );
 
     // the recipe a plain bun/node consumer follows, exactly as the repo runs it (packages/shallot/
