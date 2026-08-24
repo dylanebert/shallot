@@ -9,7 +9,7 @@ export function body(src: string, signature: string): string {
     const start = src.indexOf(signature);
     expect(start).toBeGreaterThanOrEqual(0);
     const openBrace = src.indexOf("{", start);
-    if (openBrace < 0) throw new Error(`unterminated body for ${signature}`);
+    if (openBrace < 0) throw new Error(`no opening brace after signature: ${signature}`);
     let depth = 0;
     for (let i = openBrace; i < src.length; i++) {
         if (src[i] === "{") depth++;
