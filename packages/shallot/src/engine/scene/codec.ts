@@ -231,8 +231,15 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
         }
     }
 
-    const resolveRef = (target: number): string | undefined =>
-        target > 0 && set.has(target) ? ids.get(target) : undefined;
+    const resolveRef = (target: number): string | undefined => {
+        if (target <= 0) return undefined;
+        const inSet = ids.get(target);
+        if (inSet !== undefined) return inSet;
+        // a target outside the serialized set resolves to its scene id, so a subset
+        // serialize emits `@name` rather than a raw eid that points at the wrong
+        // (recycled) entity on reload
+        return state.identity.id(target);
+    };
 
     const nodes: Node[] = [];
     for (const eid of list) {
@@ -367,7 +374,26 @@ function parseNumber(value: string): number | null {
     if (value.startsWith("#")) {
         const hex = value.slice(1);
         if (!/^[0-9a-fA-F]+$/.test(hex)) return null;
-        return parseInt(hex, 16);
+        // CSS shorthand: #rgb expands to #rrggbb (each digit doubled), so #fff →
+        // 0xffffff, not the 12-bit parseInt("fff", 16) = 4095
+        if (hex.length === 3) {
+            return parseInt(hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2], 16);
+        }
+        // CSS shorthand: #rgba expands to #rrggbbaa (each digit doubled), so #ffff →
+        // 0xffffffff, not the 16-bit parseInt("ffff", 16) = 65535
+        if (hex.length === 4) {
+            return parseInt(
+                hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3],
+                16,
+            );
+        }
+        if (hex.length === 6 || hex.length === 8) {
+            return parseInt(hex, 16);
+        }
+        // any other length is not a valid CSS hex color — return null (same as the
+        // charset rejection above) rather than a raw short int that yields a silent
+        // wrong color
+        return null;
     }
 
     if (value === "true") return 1;

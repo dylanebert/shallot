@@ -100,8 +100,8 @@ function parseEntity(body: string): Node {
     let m: RegExpExecArray | null;
     while ((m = ATTR_RE.exec(body)) !== null) {
         const [, name, value = ""] = m;
-        if (name === "id") id = value;
-        else attrs.push({ name, value });
+        if (name === "id") id = decodeAttr(value);
+        else attrs.push({ name, value: decodeAttr(value) });
     }
     return { id, attrs, children: [] };
 }
@@ -178,4 +178,12 @@ function escapeAttr(str: string): string {
         .replace(/"/g, "&quot;")
         .replace(/</g, "&lt;")
         .replace(/>/g, "&gt;");
+}
+
+function decodeAttr(str: string): string {
+    return str
+        .replace(/&quot;/g, '"')
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&amp;/g, "&");
 }
