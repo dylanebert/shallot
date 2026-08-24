@@ -17,7 +17,7 @@ import { Hulls } from "../physics/core";
 import { SlabPlugin } from "../slab";
 import { nlerpShortest, renderScale } from "./compose";
 import { init, type Body as TumbleBody, World as TumbleWorld } from "./engine";
-import { resetConstraints, syncJoints, syncSprings } from "./joints";
+import { resetConstraints, resyncConstraints, syncJoints, syncSprings } from "./joints";
 import { marshalBody } from "./marshal";
 
 // tumble physics — the default backend for the physics substrate (`standard/physics`), a CPU rigid-body
@@ -59,6 +59,10 @@ const kinPrev = new Map<number, [number, number, number]>();
 // they failed at, so SyncSystem retries the marshal (and re-warns) only when the eid recycles or a new hull
 // is registered, never every frame. Normally empty; the error path never thrashes the frame loop.
 const failed = new Map<number, { stamp: number; hulls: number }>();
+// the deferred-marshal discriminator handed to the constraint path: an endpoint missing from `bodies` is a
+// pending marshal (it will retry, and so will its constraint) rather than a non-`Body` reference. `endpoints`
+// is otherwise handed only `bodies`, which is why the warning used to name the wrong cause (joints.ts).
+const isDeferred = (eid: number): boolean => failed.has(eid);
 
 // render-interpolation double buffer, capacity-sized flat arrays indexed by eid (3 lanes pos, 4 lanes quat).
 // Rewritten only for a body that actually moved this fixed tick (from `getBodyEvents`), so a sleeping/static
@@ -110,6 +114,11 @@ const SyncSystem: System = {
     before: [ConstraintSystem, StepSystem],
     update(state: State) {
         if (!world) return;
+        // did this tick change the body set? A deferred body finally marshaling (or a body going stale) is
+        // the transition a dropped constraint waits on, and `ConstraintSystem` re-uploads on an authored
+        // signature change only — none of which moves here — so the constraint re-sync is pumped from this
+        // loop. Set inside the walk that already runs, so the re-sync fires on the transition, never per frame.
+        let bodySetChanged = false;
         for (const eid of state.query([Body])) {
             const stamp = state.stamp(eid);
             if (bodies.has(eid)) {
@@ -133,6 +142,7 @@ const SyncSystem: System = {
             failed.delete(eid);
             bodies.set(eid, tb);
             stamps.set(eid, stamp);
+            bodySetChanged = true;
             seedPose(
                 eid,
                 Body.pos.x.get(eid),
@@ -149,18 +159,24 @@ const SyncSystem: System = {
                 if (!state.has(eid, Body)) failed.delete(eid);
             }
         }
-        if (bodies.size === 0) return;
-        const stale: number[] = [];
-        for (const eid of bodies.keys()) {
-            if (!state.has(eid, Body)) stale.push(eid);
+        if (bodies.size > 0) {
+            const stale: number[] = [];
+            for (const eid of bodies.keys()) {
+                if (!state.has(eid, Body)) stale.push(eid);
+            }
+            for (const eid of stale) {
+                bodies.get(eid)?.destroy();
+                bodies.delete(eid);
+                stamps.delete(eid);
+                kinPrev.delete(eid);
+                movedThisTick.delete(eid);
+                bodySetChanged = true;
+            }
         }
-        for (const eid of stale) {
-            bodies.get(eid)?.destroy();
-            bodies.delete(eid);
-            stamps.delete(eid);
-            kinPrev.delete(eid);
-            movedThisTick.delete(eid);
-        }
+        // the pump: re-run the retained authored constraint sets against the new body set, so a create that
+        // returned null against a not-yet-marshaled endpoint retries now. Content-keyed, so a live joint is
+        // reused (warm impulses survive) and only the dropped def is created.
+        if (bodySetChanged) resyncConstraints(world, bodies, isDeferred);
     },
 };
 
@@ -244,10 +260,10 @@ const backendHandle: PhysicsBackend = {
         bodies.get(eid)?.setLinearVelocity({ x: vx, y: vy, z: vz });
     },
     setSprings(springs) {
-        if (world) syncSprings(world, bodies, springs);
+        if (world) syncSprings(world, bodies, springs, isDeferred);
     },
     setJoints(joints) {
-        if (world) syncJoints(world, bodies, joints);
+        if (world) syncJoints(world, bodies, joints, isDeferred);
     },
     get gravity() {
         return world ? world.getGravity().y : 0;

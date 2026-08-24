@@ -73,6 +73,12 @@ const jointKey = (d: JointDef): string => `${d.a}|${d.b}|${d.rA}|${d.rB}|${d.sti
 // re-checked via isValid() before reuse.
 const liveSprings = new Map<string, TumbleJoint[]>();
 const liveJoints = new Map<string, TumbleJoint[]>();
+// the last authored def sets — retained so `SyncSystem` can re-invoke `syncJoints`/`syncSprings` over them
+// when a deferred body marshals (the pump half of the late-marshal fix). AVBD's `setJoints` already retains
+// the authored set (avbd/step.ts); this mirrors that contract. A ledger without a pump is inert: nothing
+// calls back into `joints.ts` between signature changes, so the retained set + the re-invoke are both needed.
+let retainedSprings: readonly SpringDef[] = [];
+let retainedJoints: readonly JointDef[] = [];
 
 // exported as a test seam only (joints.test.ts pins the diff semantics with stub joints); not on any barrel
 export function syncSet<D>(
@@ -110,16 +116,30 @@ export function syncSet<D>(
     for (const [k, v] of next) live.set(k, v);
 }
 
+// the discriminator for the deferred-marshal case: `endpoints()` is handed only the `bodies` map, so without
+// this predicate it cannot separate "not a Body" from "a Body whose marshal is pending" — which is why the
+// old warning named the wrong cause. The `failed` map (index.ts) sits beside `bodies` in the same module;
+// pass a predicate over it so the deferred case reads as deferred-and-will-retry, not a permanent skip.
 function endpoints(
     bodies: ReadonlyMap<number, TumbleBody>,
     a: number,
     b: number,
     kind: string,
+    isDeferred: (eid: number) => boolean,
 ): [TumbleBody, TumbleBody] | null {
     const ta = bodies.get(a);
     const tb = bodies.get(b);
     if (!ta || !tb) {
-        console.warn(`[tumble] ${kind} references a non-Body entity (a: ${a}, b: ${b}) — skipped`);
+        const missing = !ta ? a : b;
+        if (isDeferred(missing)) {
+            console.warn(
+                `[tumble] ${kind} references a deferred body (eid: ${missing}, pending marshal) — will retry`,
+            );
+        } else {
+            console.warn(
+                `[tumble] ${kind} references a non-Body entity (a: ${a}, b: ${b}) — skipped`,
+            );
+        }
         return null;
     }
     return [ta, tb];
@@ -129,8 +149,9 @@ function createSpring(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
     def: SpringDef,
+    isDeferred: (eid: number) => boolean,
 ): TumbleJoint | null {
-    const pair = endpoints(bodies, def.a, def.b, "spring");
+    const pair = endpoints(bodies, def.a, def.b, "spring", isDeferred);
     if (!pair) return null;
     const hertz = stiffnessHertz(def.stiffness, dynMass(pair[0]), dynMass(pair[1]));
     if (hertz === 0) {
@@ -157,8 +178,9 @@ function createJoint(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
     def: JointDef,
+    isDeferred: (eid: number) => boolean,
 ): TumbleJoint | null {
-    const pair = endpoints(bodies, def.a, def.b, "joint");
+    const pair = endpoints(bodies, def.a, def.b, "joint", isDeferred);
     if (!pair) return null;
     const [ta, tb] = pair;
     const mA = dynMass(ta);
@@ -198,26 +220,52 @@ function createJoint(
     });
 }
 
-/** reconcile the authored spring set against the live tumble joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. */
+/** reconcile the authored spring set against the live tumble joints: unchanged defs keep their joint (warm-started impulses survive), changed/new defs create, leftovers destroy. Retains the def set for `resyncConstraints`. */
 export function syncSprings(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
     defs: readonly SpringDef[],
+    isDeferred: (eid: number) => boolean,
 ): void {
-    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d));
+    retainedSprings = defs;
+    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d, isDeferred));
 }
 
-/** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. */
+/** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints`. */
 export function syncJoints(
     world: TumbleWorld,
     bodies: ReadonlyMap<number, TumbleBody>,
     defs: readonly JointDef[],
+    isDeferred: (eid: number) => boolean,
 ): void {
-    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d));
+    retainedJoints = defs;
+    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d, isDeferred));
+}
+
+/** re-invoke `syncJoints`/`syncSprings` over the retained def sets — the pump half of the late-marshal fix.
+ *  Called by `SyncSystem` when its body set changed this tick (a deferred body marshaled or a body went
+ *  stale), so a previously-failed constraint create retries. `syncSet` needs no new diff semantics: an
+ *  unchanged def whose live joint `isValid()` is reused (warm-started impulses survive), a dropped def's
+ *  `create` retries, leftovers destroy — the semantics `joints.test.ts` already pins. */
+export function resyncConstraints(
+    world: TumbleWorld,
+    bodies: ReadonlyMap<number, TumbleBody>,
+    isDeferred: (eid: number) => boolean,
+): void {
+    if (retainedSprings.length > 0)
+        syncSet(liveSprings, retainedSprings, springKey, (d) =>
+            createSpring(world, bodies, d, isDeferred),
+        );
+    if (retainedJoints.length > 0)
+        syncSet(liveJoints, retainedJoints, jointKey, (d) =>
+            createJoint(world, bodies, d, isDeferred),
+        );
 }
 
 /** drop every tracked joint handle without destroying (the world they lived in is gone). Call beside the world teardown in `warm()`/`dispose()`. */
 export function resetConstraints(): void {
     liveSprings.clear();
     liveJoints.clear();
+    retainedSprings = [];
+    retainedJoints = [];
 }
