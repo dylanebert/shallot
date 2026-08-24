@@ -42,7 +42,7 @@ const VERTS_PER_QUAD = 4;
 const INDICES_PER_QUAD = 6;
 const MAIN_STRIDE = 16; // the quantized main stream: vec4<u32> per vertex
 const POS_STRIDE = 8; // the position-only depth stream: vec2<u32> per vertex
-const WG = 4; // workgroup edge → 4³ = 64 threads
+export const WG = 4; // workgroup edge → 4³ = 64 threads
 
 // the grid's analytic MeshQuant (gpu.md rule 6): position spans [-HALF·VOXEL, +HALF·VOXEL] per axis
 // (extent DIM·VOXEL); uv is constant (blockU=1, v=0), so its range is degenerate. The emit shader holds
@@ -62,7 +62,11 @@ const GRID_QUANT = new Float32Array([
     0,
     0,
 ]);
-const DISPATCH = { x: Math.ceil(DIM.x / WG), y: Math.ceil(DIM.y / WG), z: Math.ceil(DIM.z / WG) };
+export const DISPATCH = {
+    x: Math.ceil(DIM.x / WG),
+    y: Math.ceil(DIM.y / WG),
+    z: Math.ceil(DIM.z / WG),
+};
 
 // the 16 B main stream must fit one storage binding (the largest of the three per-face buffers), so cap
 // faces at ¾ of the portable 128 MiB floor. The canonical worst case (the full ground slab, ~134k faces)
@@ -84,6 +88,12 @@ export const Voxels = {
     indirect: null as GPUBuffer | null,
     dirty: false,
 };
+
+/** read-only observability for the perf gate (`showcase-frame-floor` S2): the workgroup count issued by
+ *  the most recent emit dispatch, set only by {@link VoxelEmitSystem} — no production code reads it, so it
+ *  changes no behavior. `test/perf.spec.ts` (via `src/perf.ts`) gates dispatch scope against touched-chunk
+ *  volume; today it's always the full-grid `DISPATCH` product, regardless of what fired the re-mesh. */
+export const EmitTelemetry = { lastWorkgroups: 0 };
 
 const gpu = {
     voxels: null as GPUBuffer | null,
@@ -541,6 +551,7 @@ export const VoxelEmitSystem: System = {
             .with(gpu.bindGroup)
             .with(pass)
             .dispatchWorkgroups(DISPATCH.x, DISPATCH.y, DISPATCH.z);
+        EmitTelemetry.lastWorkgroups = DISPATCH.x * DISPATCH.y * DISPATCH.z;
         pass.end();
         Voxels.dirty = false;
     },

@@ -2,6 +2,7 @@ import { type Mirror, mirror, type Plugin, type State, type System } from "@dyla
 import { initCarve, mountToolbar, setSeed } from "./carve";
 import { gate } from "./gate";
 import type { Check } from "./harness";
+import { type EmitDispatchSample, emitDispatchSample } from "./perf";
 import { generate } from "./voxel/generate";
 import { syncGrid, Voxels } from "./voxel/mesher";
 
@@ -16,6 +17,8 @@ declare global {
     interface Window {
         // the device gate, driven by the project's own Playwright on a real GPU (test/voxel.spec.ts).
         __voxelGate?: () => Promise<Check[]>;
+        // the structural perf probe (`showcase-frame-floor` S2), driven by test/perf.spec.ts.
+        __voxelPerf?: () => Promise<EmitDispatchSample>;
     }
 }
 
@@ -44,6 +47,7 @@ const BootSystem: System = {
         indirect?.dispose();
         indirect = null;
         delete window.__voxelGate;
+        delete window.__voxelPerf;
     },
 };
 
@@ -54,6 +58,7 @@ async function boot(state: State, m: Mirror): Promise<void> {
     initCarve(state, document.querySelector("canvas"), SEED);
     mountUi(state);
     window.__voxelGate = () => gate(m);
+    window.__voxelPerf = () => emitDispatchSample(m);
 }
 
 function mountUi(state: State): void {
