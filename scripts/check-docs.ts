@@ -319,12 +319,16 @@ if (manifestPkgCount === 0) {
 if (drift.length > 0) {
     console.error(`✗ ${drift.length} pin(s) disagree with the manifests:\n`);
     for (const d of drift) {
-        console.error(`  ${d.file}:${d.line || "(emitted)"}`);
+        // A drift row names the site it was read from and nothing else — three of the four arms
+        // have no line to cite (a scaffold-emitted manifest, a workspace manifest), and labelling
+        // those `(emitted)` reported a provenance the row didn't have.
+        console.error(`  ${d.line ? `${d.file}:${d.line}` : d.file}`);
         console.error(`    ${d.name}@${d.found} — the manifest declares ${d.want}`);
     }
     console.error(
-        "\nA documented install, a scaffold-emitted manifest, or an install-test fixture must " +
-            "resolve against the shipped manifests. Bump the pin with the manifest, in the same commit.",
+        "\nA documented install, a scaffold-emitted manifest, an install-test fixture, or a " +
+            "workspace manifest must resolve against the shipped manifests. Bump the pin with the " +
+            "manifest, in the same commit.",
     );
     process.exit(1);
 }
