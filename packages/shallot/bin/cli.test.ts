@@ -57,4 +57,14 @@ describe("parseCliArgs", () => {
     test("an unrecognized -flag throws rather than silently falling through to usage", () => {
         expect(() => parseCliArgs(["dev", "--nope"])).toThrow("unknown option: --nope");
     });
+
+    // HOLE-RECORD ARM — `--port abc` should throw (verify.ts:112's own JSDoc states the policy: "a typo
+    // must not silently no-op or flow NaN"), but cli.ts:83 `parseInt`'s `--port` with no validation, so
+    // `--port abc` silently becomes NaN and flows to devConfig's port (dev.ts:65) into vite. This matcher
+    // can distinguish a throw from a clean return — it CANNOT distinguish a NaN-rejecting parse from a
+    // NaN-substituting default (both would make this green); that discrimination is S2's to prove. S2 of
+    // this spec (audit-cli-numeric-flags) is the unit that flips this arm green.
+    test("--port abc throws instead of flowing NaN to vite — RED today (cli.ts:83 parseInt, no validation)", () => {
+        expect(() => parseCliArgs(["dev", "--port", "abc"])).toThrow();
+    });
 });

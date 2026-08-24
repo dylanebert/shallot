@@ -162,6 +162,16 @@ describe("parseVerifyArgs", () => {
         expect(() => parseVerifyArgs(["--leak=122880"])).toThrow("--leak requires --memory");
     });
 
+    // HOLE-RECORD ARM — `--leak 0` should be accepted as "off" (verify.ts:94 JSDoc: "0 = off",
+    // line 130 defaults `leak: 0`, line 172 branches on `args.leak > 0 && !args.memory`), but `num()`
+    // (verify.ts:117) rejects `n <= 0` so `--leak 0` throws. This matcher can distinguish a throw from
+    // a clean return — it CANNOT distinguish a zero-allowing `num()` variant from `--leak` moving off
+    // `num()` entirely (both make this green); that discrimination is S2's to prove. S2 of this spec
+    // (audit-cli-numeric-flags) is the unit that flips this arm green.
+    test("--leak 0 is accepted as off, not rejected by num() — RED today (verify.ts:94 says 0 = off)", () => {
+        expect(() => parseVerifyArgs(["--leak", "0"])).not.toThrow();
+    });
+
     test("--timings defaults off, flips on", () => {
         expect(parseVerifyArgs([]).timings).toBe(false);
         expect(parseVerifyArgs(["--timings"]).timings).toBe(true);
