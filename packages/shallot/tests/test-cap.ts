@@ -40,12 +40,18 @@
  * regardless of what paths are passed.
  */
 import { afterEach, beforeEach } from "bun:test";
+import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
 
 /** Milliseconds a single default-tier test file's tests may run. User-locked, 2026-08-21. */
 export const DEFAULT_CAP_MS = 5000;
 
-/** The by-path tier suffixes — a file naming its own tier, not an exemption list. */
-const TIER_SUFFIXES = [".oracle.ts", ".probes.ts", ".tier.ts", ".lab.ts"];
+/** The by-path tier suffixes — a file naming its own tier, not an exemption list. Derived from the
+ *  shared roster (`test-tiers.ts`) by dropping `.test`, the default tier the cap applies to: the
+ *  by-path set is every tier suffix except the default one, so it is expressed as that filter
+ *  rather than a fifth hand-written restatement of the roster. */
+const TIER_SUFFIXES = TEST_TIER_SUFFIX_NAMES.filter((name) => name !== "test").map(
+    (name) => `.${name}.ts`,
+);
 
 /**
  * The suffixes that are valid *promotion destinations* — a subset of the exempt set. All four by-path
