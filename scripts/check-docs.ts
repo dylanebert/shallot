@@ -533,10 +533,10 @@ if (missingIndex.length > 0 || staleIndex.length > 0) {
 // This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
 // enumeration `testing.md` itself makes — (2) the section heading agrees with its own body, and
 // (3) no file in the repo carries a literal tier-suffix roster of its own — a line enumerating 3+
-// of the 5 suffix names as bare words with regex alternation (`|`). The consumer set is DERIVED,
-// not enumerated: the arm scans every tracked file itself, so a new file restating the roster
-// is caught without updating a hand-list. A fix that leaves two hand-written lists in agreement
-// fails this criterion.
+// of the 5 suffix names either as bare words with regex alternation (`|`) or as an array literal of
+// quoted `.suffix.ts` strings. The consumer set is DERIVED, not enumerated: the arm scans every
+// tracked file itself, so a new file restating the roster — in either shape — is caught without
+// updating a hand-list. A fix that leaves two hand-written lists in agreement fails this criterion.
 
 const testingMd = await Bun.file(resolve(root, ".claude/rules/testing.md")).text();
 const testingLines = testingMd.split("\n");
@@ -598,9 +598,11 @@ if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
 }
 
 // Derive the consumer set: scan every tracked file in the repo for a literal tier-suffix roster —
-// a line enumerating 3+ of the 5 suffix names as bare words with regex alternation (`|`). Any file
-// that carries such a roster is restating it rather than reading the shared constant; the arm finds
-// such files itself, so a new file restating the roster is caught without updating a hand-list.
+// a line enumerating 3+ of the 5 suffix names either as bare words with regex alternation (`|`) or
+// as an array literal of quoted `.suffix.ts` strings (e.g. `[".oracle.ts", ".probes.ts", ...]`).
+// Any file that carries such a roster is restating it rather than reading the shared constant; the
+// arm finds such files itself, so a new file restating the roster — in either shape — is caught
+// without updating a hand-list.
 //
 // Two exclusions, stated explicitly:
 // 1. `packages/shallot/tests/test-tiers.ts` — the roster's own definition module; it MUST contain the
@@ -619,14 +621,22 @@ if (!allTrackedFiles.success) {
     process.exit(1);
 }
 const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
+// An array-literal restatement (`[".oracle.ts", ".probes.ts", ".tier.ts", ".lab.ts"]`) is the other
+// shape a hand-written roster takes, alongside regex alternation — both are caught below.
+const arrayLiteralRe = /\[\s*(?:["'`]\.\w+\.ts["'`]\s*,\s*){2,}["'`]\.\w+\.ts["'`]\s*\]/;
 for (const file of allTrackedFiles.stdout.toString().split("\0").filter(Boolean)) {
     if (ROSTER_EXCLUSIONS.has(file)) continue;
     const source = await Bun.file(resolve(root, file)).text();
     for (const [i, line] of source.split("\n").entries()) {
         const hits = suffixWords.filter((n) => new RegExp(`\\b${n}\\b`).test(line)).length;
-        if (hits >= 3 && line.includes("|")) {
+        const shape = line.includes("|")
+            ? "regex alternation"
+            : arrayLiteralRe.test(line)
+              ? "an array literal"
+              : null;
+        if (hits >= 3 && shape !== null) {
             rosterFindings.push(
-                `${file}:${i + 1} carries a literal tier-suffix roster (a line enumerating ${hits} of the 5 suffix names with regex alternation) — the roster must be derived from the shared test-tiers.ts constant, not restated.`,
+                `${file}:${i + 1} carries a literal tier-suffix roster (a line enumerating ${hits} of the 5 suffix names as ${shape}) — the roster must be derived from the shared test-tiers.ts constant, not restated.`,
             );
             break; // one finding per file is enough
         }
