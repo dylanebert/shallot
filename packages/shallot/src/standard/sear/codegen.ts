@@ -80,10 +80,15 @@ export const COLOR_LANES: ColorLane[] = [
         name: "tag",
         marker: Tag,
         format: TAG_FORMAT,
-        usage:
-            GPUTextureUsage.RENDER_ATTACHMENT |
-            GPUTextureUsage.TEXTURE_BINDING |
-            GPUTextureUsage.COPY_SRC,
+        // GPUTextureUsage is a WebGPU global absent under Node and bun — defer the read to first
+        // access so the barrel imports under runtimes that define no WebGPU globals.
+        get usage(): number {
+            return (
+                GPUTextureUsage.RENDER_ATTACHMENT |
+                GPUTextureUsage.TEXTURE_BINDING |
+                GPUTextureUsage.COPY_SRC
+            );
+        },
         clear: { r: TAG_NONE, g: 0, b: 0, a: 0 },
         local: "tag",
         type: "u32",
