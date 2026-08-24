@@ -20,40 +20,41 @@
 //      structural over ALL task gates (the class), not the five sites the
 //      audit named.
 //
-//      Surface forms of a hand-written timeout (the defect):
-//        test.setTimeout(80_000)      — numeric literal with underscore
-//        test.setTimeout(120_000)      — numeric literal with underscore
-//        test.setTimeout(80000)        — numeric literal without underscore
-//        test.setTimeout(80 * 1000)    — arithmetic of literals
-//
-//      Surface form of a derived timeout (the fix):
-//        test.setTimeout(BOOT_BUDGET_MS) — reference to an exported constant
-//
-//      The check: for each gate, every `setTimeout` call's argument must NOT
-//      start with a digit (a numeric literal or arithmetic of literals), and
-//      `lib.ts` must export a named boot-budget constant.
+//      The check resolves the identifier each gate's `setTimeout` references
+//      and asserts that same identifier is exported by `lib.ts` — one claim
+//      about one owner, rather than two spellings (a name regex on the export
+//      and a numeric-literal ban on the gates) that must agree. The old
+//      name-regex arm is dropped: it pinned a spelling S2 had not chosen, so
+//      a correct fix naming the export `BOOT_CEILING_MS` would red it, and an
+//      arm fitted to a name the later stage has not chosen yet is "fixed" by
+//      renaming the export to suit the test. Resolving the identifier the
+//      gates reference and asserting that same identifier is exported makes
+//      the "no hand-written number" leg and the "references the exported
+//      budget" leg one claim about one owner.
 //
 // S3 — a staging failure (failed `bun install` / `bunx playwright install`)
 //      in `evals/grade.ts` grades as a distinct INCOMPLETE result kind, never
-//      as the agent's task FAIL. The spec's fix: make `sh` throw on failure.
+//      as the agent's task FAIL. The spec's fix: make `sh` throw on failure,
+//      catch it at the staging call sites, and map to INCOMPLETE.
 //
-//      Surface form of the defect (current state):
-//        sh(["bun","install"], runDir);  — return value discarded, sh does not throw
+//      Three arms pin three legs of this property, all `test.failing`:
+//        1. `sh`'s body contains a `throw` (the mechanism).
+//        2. `grade.ts` declares an INCOMPLETE result kind as a type member
+//           (not merely a display string).
+//        3. The staging call sites are inside try/catch (the throw is caught
+//           at the call site, not left to propagate).
 //
-//      Surface form of the fix (after S3):
-//        sh throws on non-zero exit code, caught and mapped to INCOMPLETE
+// ── Hole records (test.failing) ──
 //
-//      The check: the `sh` function body must contain a `throw` on non-zero
-//      exit code. Today it does not — it returns `{ ok: false }` silently.
-//
-// ── Owned red ──
-//
-// The S2 and S3 arms below are RED today because S2/S3 have not landed. The red
-// is real (not a skip): each arm asserts the property, not the current defect,
-// and fails because the property does not hold. S2 discharges the timeout
-// arms; S3 discharges the staging arm. The green arms (cardinality, file
-// existence, harness imports) verify the mechanism itself, which S1
-// legitimately makes true.
+// The S2 and S3 arms below are `test.failing`: they pass (green) while their
+// assertions fail (the defect stands), and fail (red) when their assertions
+// pass (the fix lands). checks.md's hole-record arm requires each to name the
+// unit that will flip it: S2 discharges the timeout arm; S3 discharges the
+// three staging arms. The label is what makes each a hole record rather than
+// a defence of the defect — a permanently-red suite is not shippable, and
+// `.failing` is what carries the current state without weakening any assertion.
+// The green arms (cardinality, harness import, setTimeout presence) verify
+// the mechanism itself, which S1 legitimately makes true.
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -95,6 +96,22 @@ function extractFunction(src: string, name: string): string {
     throw new Error(`function ${name}: unterminated`);
 }
 
+// Strip string literals (double-quoted, single-quoted, template) so a bare
+// identifier search does not match display strings. Used to distinguish a
+// declared type member from a string literal in the output logic.
+function stripStringLiterals(src: string): string {
+    return src
+        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
+        .replace(/'(?:[^'\\]|\\.)*'/g, "''")
+        .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+}
+
+// Escape a string for use in a RegExp — prevents identifier characters that
+// are also regex metacharacters from being interpreted.
+function escapeRegex(s: string): string {
+    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 describe("eval gate surface — mechanism (green: S1)", () => {
     test("discovers all task gates (cardinality)", () => {
         const gates = gateFiles();
@@ -115,7 +132,10 @@ describe("eval gate surface — mechanism (green: S1)", () => {
 
     test("each gate imports from the shared harness lib", () => {
         const gates = gateFiles();
-        expect(gates.length).toBeGreaterThan(0); // cardinality guard
+        // Cardinality guard — same count as the cardinality arm, not merely
+        // > 0: a silent zero-match re-point (wrong dir) reads 0 here, not 6,
+        // and a sweep that silently drops one gate reads 5, not 6.
+        expect(gates).toHaveLength(6);
         for (const gate of gates) {
             const src = readFileSync(gate, "utf8");
             // Every gate builds on `harness/lib` — the boot driver, the pixel
@@ -127,7 +147,8 @@ describe("eval gate surface — mechanism (green: S1)", () => {
 
     test("each gate has at least one setTimeout call", () => {
         const gates = gateFiles();
-        expect(gates.length).toBeGreaterThan(0); // cardinality guard
+        // Cardinality guard — same count as the cardinality arm.
+        expect(gates).toHaveLength(6);
         for (const gate of gates) {
             const src = readFileSync(gate, "utf8");
             expect(src).toMatch(/setTimeout\s*\(/);
@@ -135,47 +156,106 @@ describe("eval gate surface — mechanism (green: S1)", () => {
     });
 });
 
-// S2 — derived boot budget. RED today: all six gates carry hand-written
-// `setTimeout` literals (80_000 or 120_000), and `lib.ts` exports no budget
-// constant. S2 discharges both arms.
-describe("S2 — derived boot budget (red: owed to S2)", () => {
-    test("lib.ts exports a worst-case boot budget constant", () => {
-        const lib = readFileSync(join(HARNESS, "lib.ts"), "utf8");
-        // After S2, `lib.ts` exports a named constant for the worst-case boot
-        // budget (e.g. `export const BOOT_BUDGET_MS = …`). Today it does not.
-        // The property named in words: a single exported budget that every
-        // gate derives from. The surface form: `export const <…Budget…>`.
-        expect(lib).toMatch(/export\s+(?:const|let)\s+\w*[Bb]udget\w*/);
-    });
-
-    test("no gate carries a hand-written setTimeout number", () => {
+// S2 — derived boot budget. `test.failing`: green while all six gates carry
+// hand-written `setTimeout` literals and `lib.ts` exports no budget constant;
+// red the moment S2 makes every gate derive from a single exported budget, so
+// S2 must flip this arm inside its own diff.
+describe("S2 — derived boot budget (failing: owed to S2)", () => {
+    // Resolves the identifier each gate's `setTimeout` references and asserts
+    // that same identifier is exported by `lib.ts`. This subsumes the old
+    // name-regex arm (which pinned a spelling S2 had not chosen) and the old
+    // no-numeric-literal arm (which could not see whether the identifier was
+    // the exported budget or a local constant): one claim about one owner.
+    //
+    // Matcher CAN: detect that each gate's setTimeout argument is an
+    // identifier (not a numeric literal) and that identifier is exported by
+    // lib.ts.
+    // Matcher CANNOT: see whether the identifier is the *worst-case* budget
+    // (it could be any exported constant); cannot verify the full expression
+    // if the argument is arithmetic (e.g. `BUDGET * 2` — the regex captures
+    // only the first token); cannot see whether all six gates reference the
+    // *same* identifier (each gate is checked independently).
+    test.failing("each gate's setTimeout argument is an identifier exported by lib.ts (discharged by S2)", () => {
         const gates = gateFiles();
-        expect(gates.length).toBeGreaterThan(0); // cardinality guard
-        // A `setTimeout` call whose argument starts with a digit is a
-        // hand-written numeric literal (80_000, 120_000, 80000, 80 * 1000).
-        // After S2 every gate passes a reference to the exported budget, which
-        // starts with an identifier, not a digit.
-        const numericLiteral = /setTimeout\s*\(\s*\d/;
+        expect(gates).toHaveLength(6);
+        const lib = readFileSync(join(HARNESS, "lib.ts"), "utf8");
         for (const gate of gates) {
             const src = readFileSync(gate, "utf8");
-            expect(src).not.toMatch(numericLiteral);
+            // Extract the first setTimeout call's argument.
+            const m = src.match(/setTimeout\s*\(\s*([^)\s,]+)/);
+            expect(m).not.toBeNull();
+            const arg = m![1];
+            // The argument must be an identifier, not a numeric literal.
+            // Today all six gates pass numeric literals (80_000 or 120_000).
+            expect(arg).toMatch(/^[A-Za-z_$]/);
+            // That identifier must be exported by lib.ts — one owner for all
+            // six gates, not a local constant or an unrelated reference.
+            const exportRe = new RegExp(`export\\s+(?:const|let)\\s+${escapeRegex(arg)}\\b`);
+            expect(lib).toMatch(exportRe);
         }
     });
 });
 
-// S3 — staging failure maps to INCOMPLETE. RED today: `sh` returns
-// `{ ok: false }` silently — no throw — and the callers discard the return
-// value, so a failed `bun install` / `bunx playwright install` surfaces as
-// "gate produced no result" and grades the agent's task FAIL. S3 discharges
-// this arm by making `sh` throw on non-zero exit code.
-describe("S3 — staging failure maps to INCOMPLETE (red: owed to S3)", () => {
-    test("sh throws on non-zero exit code", () => {
+// S3 — staging failure maps to INCOMPLETE. All three arms are `test.failing`:
+// green while the defect stands, red the moment S3 makes the property true, so
+// S3 must flip each arm inside its own diff.
+describe("S3 — staging failure maps to INCOMPLETE (failing: owed to S3)", () => {
+    // Leg 1: `sh`'s body contains a `throw` — the mechanism that makes a
+    // staging failure propagate instead of being silently swallowed.
+    //
+    // Matcher CAN: detect that the keyword `throw` appears somewhere in
+    // `sh`'s function body.
+    // Matcher CANNOT: distinguish a throw on non-zero exit from a throw for
+    // any other reason; cannot confirm the throw is reachable from the
+    // staging call sites; cannot see whether the throw is caught and mapped
+    // to INCOMPLETE. Legs 2 and 3 cover those properties.
+    test.failing("sh throws on non-zero exit code (discharged by S3)", () => {
         const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
         const shBody = extractFunction(grade, "sh");
-        // Today `sh` returns `{ ok: p.exitCode === 0, out: … }` without
-        // throwing — a staging failure is silently swallowed. After S3 the
-        // function throws on non-zero exit code, so a staging failure
-        // propagates and is caught to map INCOMPLETE (not FAIL).
         expect(shBody).toContain("throw");
+    });
+
+    // Leg 2: `grade.ts` declares an INCOMPLETE result kind as a type member
+    // (type alias, enum, or const), not merely as a display string in the
+    // verdict line. Today "INCOMPLETE" appears only inside a string literal
+    // (`"INCOMPLETE (gate did not run)"`); after S3 it should be a declared
+    // member of the result union, distinct from FAIL.
+    //
+    // Matcher CAN: detect that "INCOMPLETE" appears as a bare identifier
+    // outside any string literal — i.e., in a type declaration, const, or
+    // enum, not just in a display string.
+    // Matcher CANNOT: confirm the identifier is a member of the result
+    // union specifically (it could be an unrelated constant); cannot
+    // distinguish a type union member from a runtime constant.
+    test.failing("grade.ts declares an INCOMPLETE result kind distinct from FAIL (discharged by S3)", () => {
+        const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
+        const stripped = stripStringLiterals(grade);
+        expect(stripped).toMatch(/\bincomplete\b/i);
+    });
+
+    // Leg 3: the staging call sites (bun install, playwright install) are
+    // inside try/catch — a throw from `sh` is caught at the call site, not
+    // left to propagate. Today the staging calls are bare `sh(...)` statements
+    // with discarded return values and no error handling.
+    //
+    // Matcher CAN: detect that a `try` keyword appears before the staging
+    // call sites and a `catch` keyword appears after them — i.e., S3 added
+    // error handling somewhere around the staging calls.
+    // Matcher CANNOT: confirm the try/catch wraps the staging calls
+    // specifically (text matching cannot determine brace nesting); cannot
+    // confirm the catch maps to INCOMPLETE rather than rethrowing.
+    test.failing("staging call sites are inside try/catch (discharged by S3)", () => {
+        const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
+        const stagingIdx = grade.indexOf('sh(["bun", "install"]');
+        expect(stagingIdx).not.toBe(-1);
+        // There must be a 'try' before the staging calls — today there is
+        // none (the only try in grade.ts is the playwright run's try/finally,
+        // which is AFTER the staging calls).
+        const before = grade.slice(0, stagingIdx);
+        expect(before).toMatch(/\btry\s*\{/);
+        // There must be a 'catch' after the staging calls — today there is
+        // none (the playwright run uses try/finally, not try/catch).
+        const after = grade.slice(stagingIdx);
+        expect(after).toMatch(/\bcatch\b/);
     });
 });
