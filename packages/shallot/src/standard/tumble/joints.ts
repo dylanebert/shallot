@@ -16,7 +16,10 @@ import {
 // "Constraint mapping"): Spring → DistanceJoint-with-spring (stiffness N/m → hertz via the pair's
 // reduced mass), Joint → Spherical (stiffnessAng 0) / Weld (rigid past the ∞ sentinel; intermediate
 // is the documented hertz-based approximation). Both backends reject a constraint no dynamic body
-// can satisfy — AVBD deactivates + counts (its GPU can't throw), this path warns + skips.
+// can satisfy — AVBD deactivates + counts (its GPU can't throw), this path warns + skips. This module
+// also retains the last authored def sets and lets `SyncSystem` re-invoke `syncJoints`/`syncSprings` over
+// them on any body-set change, so a constraint whose endpoint was merely deferred at authored time retries
+// instead of being dropped permanently.
 
 /** AVBD's ∞-stiffness sentinel (physics.md): past this, `stiffnessAng` reads rigid. */
 const RIGID_THRESHOLD = 1e29;
@@ -240,7 +243,7 @@ function createJoint(
         warnOnce(
             warned,
             `${key}|stiffness`,
-            `[tumble] joint (a: ${def.a}, b: ${def.b}) has non-positive angular stiffness — skipped`,
+            `[tumble] joint (a: ${def.a}, b: ${def.b}) has negative angular stiffness — skipped`,
         );
         return null;
     }
