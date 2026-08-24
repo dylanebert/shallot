@@ -6,7 +6,7 @@ import { Transform } from "../transforms";
 import { AudioPlugin, play, Sound, sfx } from "./";
 import { Audio, alloc, byId, free, getParamPairs, instrument, polar, slotOf, valid } from "./core";
 import { markCooldown, withinCooldown } from "./policy";
-import { flushSamples, keepChannels, resetSampleUploads, Samples } from "./sample";
+import { flushSamples, keepChannels, resetSampleUploads, Samples, sample } from "./sample";
 
 // the identity listener basis: right +x, up +y, forward +z
 const RIGHT = [1, 0, 0] as const;
@@ -659,5 +659,24 @@ describe("stereo sampler", () => {
         }
         expect(driven.has(inst.volumeOffsets[0])).toBe(true);
         expect(driven.has(inst.volumeOffsets[1])).toBe(true);
+    });
+});
+
+describe("sample cap", () => {
+    beforeEach(() => {
+        Samples.clear();
+    });
+
+    test("registering past MAX_SAMPLES warns and drops the sample", () => {
+        const warns: string[] = [];
+        const orig = console.warn;
+        console.warn = (...a: unknown[]) => warns.push(a.join(" "));
+        try {
+            for (let i = 0; i < 257; i++) sample(new Float32Array([0]), `cap-${i}`);
+        } finally {
+            console.warn = orig;
+        }
+        expect(warns.length).toBe(1);
+        expect(Samples.size).toBe(256);
     });
 });

@@ -88,6 +88,10 @@ async function loadInto(entry: SampleEntry, source: string | Blob): Promise<void
  */
 export function sample(source: Float32Array | string | Blob, name?: string): number {
     const n = name ?? `sample-${_anon++}`;
+    if (!Samples.has(n) && Samples.size >= MAX_SAMPLES) {
+        console.warn(`audio: sample cap reached (${MAX_SAMPLES})`);
+        return -1;
+    }
     if (source instanceof Float32Array) {
         return Samples.register({
             name: n,
