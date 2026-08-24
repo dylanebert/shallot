@@ -32,7 +32,7 @@ import { CROSS_ORIGIN_ISOLATION } from "../src/project/vite";
 // (proceed and software-skip), and the match is deliberately narrow (a name list, not a capability
 // probe) so an unlisted software adapter re-crashes loudly while an over-broad pattern would skip on
 // real hardware and report green having tested nothing. This reuses the shape the showcase gates
-// already ship (`examples/showcase/{fountain,voxel,roads}/test/*.spec.ts`); bun:test has no runtime
+// already ship (`examples/showcase/{voxel,roads}/test/*.spec.ts`); bun:test has no runtime
 // `test.skip()`, so the software-skip path throws — stricter than a skip, but the adapter is logged
 // either way and the test never passes green on a software rasterizer.
 //
@@ -62,7 +62,7 @@ const DAWN_ZERO_WARNING = "DispatchWorkgroups with a workgroup count of 0 is unu
 // 2026-08-10), so nothing about the floor distinguishes it, and it is only the *execution* that dies.
 // Bias narrow: an unlisted software adapter re-crashes loudly, while an over-broad pattern would skip
 // this gate on real hardware and report green having tested nothing. Reuses the same regex the
-// showcase gates ship (`examples/showcase/{fountain,voxel,roads}/test/*.spec.ts`).
+// showcase gates ship (`examples/showcase/{voxel,roads}/test/*.spec.ts`).
 const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
 
 let hasChromium = false;
