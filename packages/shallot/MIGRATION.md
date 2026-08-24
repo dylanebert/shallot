@@ -276,17 +276,16 @@ Relocatable shader text is now usually resolved lazily from the same TGSL functi
 
 ## Warm typed pipelines
 
-TypeGPU creates pipelines synchronously, and Dawn can defer the real compile to the first dispatch. Register a zero-workgroup force during `warm`:
+TypeGPU creates pipelines synchronously, and Dawn can defer the real compile to the first dispatch. Register a force during `warm` whose callback returns the bound typegpu pipeline:
 
 ```ts
 precompile("particles", () => {
     const bound = bindForWarm();
-    bound.dispatchWorkgroups(0);
     return bound;
 });
 ```
 
-The label must be unique in a build. Allocate and bind throwaway inputs inside the callback, which runs after plugin warms. Return the non-null bound pipeline after dispatching; a missing return fails instead of moving the stall to frame one. Use `options.after` when a producer publishes a resource during another warm.
+The label must be unique in a build. Allocate and bind throwaway inputs inside the callback, which runs after plugin warms. The callback returns the bound pipeline and the drain awaits its `initAsync()` — never dispatch from the callback: a zero-workgroup dispatch trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code. A missing (nullish) return fails instead of moving the stall to frame one. The drain classifies the return exhaustively: a typegpu pipeline (awaited), an array of already-unwrapped raw pipelines (skipped — the sear forcer's shape, `[]` when nothing specializes), anything else truthy (a labelled throw). Use `options.after` when a producer publishes a resource during another warm.
 
 ## Keep raw WebGPU where it owns the boundary
 
