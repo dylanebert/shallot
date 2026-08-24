@@ -372,11 +372,10 @@ export function warmClusters(): void {
     Compute.typed.set("clusterAabbs", _typedAabbs);
 
     _pipe = root.createComputePipeline({ compute: gridKernel }).$name("shallot-cluster-aabbs");
-    // the bind, not just the dispatch, is deferred into the forcer: it runs after every plugin's warm
+    // the bind is deferred into the forcer: it runs after every plugin's warm
     // has resolved (warm hooks run under `Promise.all`), the first moment every input buffer is up
     precompile("shallot-cluster-aabbs", () => {
         const bound = bindGrid();
-        bound.dispatchWorkgroups(0);
         return bound;
     });
 }
@@ -844,12 +843,10 @@ export function warmLightCull(state: State): void {
     _cullPipe = root.createComputePipeline({ compute: cullKernel }).$name("shallot-light-cull");
     precompile("shallot-light-compact", () => {
         const bound = bindCompact();
-        bound.dispatchWorkgroups(0);
         return bound;
     });
     precompile("shallot-light-cull", () => {
         const bound = bindCull();
-        bound.dispatchWorkgroups(0);
         return bound;
     });
 }

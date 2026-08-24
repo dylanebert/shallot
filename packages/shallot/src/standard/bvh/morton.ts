@@ -219,7 +219,6 @@ export async function createMorton(
         );
     // per-instance label — an app can build more than one BVH, and the queue rejects a duplicate label
     await precompile(precompileScope("morton"), () => {
-        bound.dispatchWorkgroups(0);
         return bound;
     });
 

@@ -743,7 +743,7 @@ test("Sear warms Part-published specializing variants; post-build variants stay 
         precompile("shallot-part-count", () => {
             events.push("part");
             publishPartDraws(buffer, surfaces.size, surfaces.size * meshes.size, registries);
-            return true;
+            return [];
         });
         await precompileAll();
 

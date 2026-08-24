@@ -374,7 +374,7 @@ export class Slab {
 
     /** allocate the canonical buffer + scatter bind group for every live slab, then queue one forced
      *  compile per element type — typegpu creates pipelines synchronously and Dawn defers the real
-     *  compile to the first dispatch, so without this the first frame pays it */
+     *  compile, so without this the first frame pays it */
     static prepareAll(): void {
         for (const s of Slab._all) if (s.gpuSupported) s.prepare();
         const forced = new Set<string>();
@@ -384,7 +384,6 @@ export class Slab {
             forced.add(key);
             const bound = s._bound;
             precompile(`slab-scatter-${key}`, () => {
-                bound.dispatchWorkgroups(0);
                 return bound;
             });
         }

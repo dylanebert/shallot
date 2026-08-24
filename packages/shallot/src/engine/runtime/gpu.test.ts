@@ -940,12 +940,16 @@ describe("precompile", () => {
             events.push("pop");
             return null;
         };
-        device.queue.onSubmittedWorkDone = async () => {
-            events.push("fence");
-        };
         try {
             await requestGPU(device);
-            precompile("forward", () => events.push("force"));
+            precompile("forward", () => {
+                events.push("force");
+                return {
+                    initAsync: async () => {
+                        events.push("fence");
+                    },
+                };
+            });
             await precompileAll();
             expect(events).toEqual(["push:validation", "force", "fence", "pop"]);
         } finally {
@@ -958,12 +962,42 @@ describe("precompile", () => {
         try {
             await requestGPU(fakeDevice());
             const order: string[] = [];
-            precompile("first", () => order.push("first"));
-            precompile("dependent-a", () => order.push("dependent-a"), { after: ["publish"] });
-            precompile("independent", () => order.push("independent"));
-            precompile("dependent-b", () => order.push("dependent-b"), { after: ["publish"] });
-            precompile("publish", () => order.push("publish"));
-            precompile("optional", () => order.push("optional"), { after: ["missing"] });
+            precompile("first", () => {
+                order.push("first");
+                return [];
+            });
+            precompile(
+                "dependent-a",
+                () => {
+                    order.push("dependent-a");
+                    return [];
+                },
+                { after: ["publish"] },
+            );
+            precompile("independent", () => {
+                order.push("independent");
+                return [];
+            });
+            precompile(
+                "dependent-b",
+                () => {
+                    order.push("dependent-b");
+                    return [];
+                },
+                { after: ["publish"] },
+            );
+            precompile("publish", () => {
+                order.push("publish");
+                return [];
+            });
+            precompile(
+                "optional",
+                () => {
+                    order.push("optional");
+                    return [];
+                },
+                { after: ["missing"] },
+            );
 
             await precompileAll();
             expect(order).toEqual([
@@ -1011,16 +1045,25 @@ describe("precompile", () => {
         // a build began: that, and only that, re-opens the queue
         await requestGPU(fakeDevice());
         const order: string[] = [];
-        precompile("a", () => order.push("a"));
-        precompile("b", () => order.push("b"));
-        // nothing runs during warm — a dispatch here could hit a bind group whose dependency another
+        precompile("a", () => {
+            order.push("a");
+            return [];
+        });
+        precompile("b", () => {
+            order.push("b");
+            return [];
+        });
+        // nothing runs during warm — a forcer here could bind against a group whose dependency another
         // plugin's warm hasn't published yet
         expect(order).toEqual([]);
 
         precompile("broken", () => {
             throw new Error("createComputePipeline failed");
         });
-        precompile("c", () => order.push("c"));
+        precompile("c", () => {
+            order.push("c");
+            return [];
+        });
 
         // the throw names the pipeline, so a build failure points at the kernel, not at `build`
         await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
@@ -1033,7 +1076,10 @@ describe("precompile", () => {
 
         // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
         // which would surface as a multi-second first-frame stall with nothing pointing at it
-        await precompile("late", () => order.push("late"));
+        await precompile("late", () => {
+            order.push("late");
+            return [];
+        });
         expect(order).toEqual(["a", "b", "c", "late"]);
         await expect(
             precompile("late-broken", () => {
@@ -1041,11 +1087,24 @@ describe("precompile", () => {
             }),
         ).rejects.toThrow(/precompile "late-broken" failed/);
 
-        // a forcer that binds nothing dispatches nothing, so its pipeline silently falls through to the
-        // first frame — the multi-second stall the queue exists to prevent. The drain refuses it
+        // a forcer that binds nothing has no pipeline to init, so its compile silently falls through to
+        // the first frame — the multi-second stall the queue exists to prevent. The drain refuses it
         await expect(precompile("unbound", () => null)).rejects.toThrow(
             /precompile "unbound" bound nothing/,
         );
         Object.assign(Compute, saved);
+    });
+
+    test("a forcer returning a truthy non-pipeline, non-array value throws with its label", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            precompile("wrong-shape", () => 42);
+            await expect(precompileAll()).rejects.toThrow(
+                /precompile "wrong-shape" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines/,
+            );
+        } finally {
+            Object.assign(Compute, saved);
+        }
     });
 });

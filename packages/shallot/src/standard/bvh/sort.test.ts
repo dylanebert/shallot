@@ -251,10 +251,6 @@ describe("per-instance precompile labels", () => {
             limits: {},
             queue: {
                 writeBuffer() {},
-                onSubmittedWorkDone() {
-                    events.push("fence");
-                    return fence;
-                },
             },
             createBuffer: (d: GPUBufferDescriptor) => ({ ...d, destroy() {} }),
             pushErrorScope: () => events.push("push"),
@@ -270,9 +266,9 @@ describe("per-instance precompile labels", () => {
             with() {
                 return this;
             },
-            dispatchWorkgroups() {
+            initAsync() {
                 events.push("force");
-                return this;
+                return fence;
             },
         };
         try {
@@ -293,10 +289,10 @@ describe("per-instance precompile labels", () => {
             await Promise.resolve();
             await Promise.resolve();
             expect(resolved).toBe(false);
-            expect(events).toEqual(["push", "force", "fence"]);
+            expect(events).toEqual(["push", "force"]);
             release();
             await creating;
-            expect(events).toEqual(["push", "force", "fence", "pop"]);
+            expect(events).toEqual(["push", "force", "pop"]);
         } finally {
             Object.assign(Compute, saved);
         }

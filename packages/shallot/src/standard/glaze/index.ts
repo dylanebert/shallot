@@ -192,8 +192,8 @@ export const GlazePlugin: Plugin = {
         _composite = composite(format);
         const { layout, pipeline } = _composite;
 
-        // typegpu pipelines are created synchronously and Dawn defers the real shader compile to the first
-        // dispatch, so without this the composite compiles inside frame 1 — glaze runs every frame, so that
+        // typegpu pipelines are created synchronously and Dawn defers the real shader compile, so without
+        // this the composite compiles inside frame 1 — glaze runs every frame, so that
         // is the whole first-frame stall. The real bind needs the per-frame swapchain view, which does not
         // exist at warm, so the forcer binds 1×1 throwaways of the same formats
         precompile("glaze", () => {
@@ -216,8 +216,6 @@ export const GlazePlugin: Plugin = {
                     output: dst.createView(),
                 }),
             );
-            bound.dispatchWorkgroups(0);
-            // the dispatch is already submitted and ran no invocation, so the throwaways are dead here
             src.destroy();
             dst.destroy();
             return bound;

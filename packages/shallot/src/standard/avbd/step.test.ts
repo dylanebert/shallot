@@ -488,7 +488,6 @@ describe("per-instance precompile labels", () => {
                 ...stub(),
                 queue: {
                     writeBuffer() {},
-                    onSubmittedWorkDone: () => lateFence ?? Promise.resolve(),
                 },
                 pushErrorScope() {},
                 popErrorScope: async () => null,
@@ -501,12 +500,7 @@ describe("per-instance precompile labels", () => {
                 with() {
                     return this;
                 },
-                dispatchWorkgroups() {
-                    return this;
-                },
-                dispatchWorkgroupsIndirect() {
-                    return this;
-                },
+                initAsync: () => lateFence ?? Promise.resolve(),
             };
             Object.assign(Compute, {
                 root: {
@@ -562,11 +556,6 @@ describe("per-instance precompile labels", () => {
                 ...base,
                 queue: {
                     writeBuffer() {},
-                    onSubmittedWorkDone() {
-                        if (!physicsAllocated) return Promise.resolve();
-                        physicsFences++;
-                        return physicsFences === 1 ? firstFence : restFence;
-                    },
                 },
                 pushErrorScope() {},
                 popErrorScope: async () => null,
@@ -584,8 +573,10 @@ describe("per-instance precompile labels", () => {
                 with() {
                     return this;
                 },
-                dispatchWorkgroups() {
-                    return this;
+                initAsync() {
+                    if (!physicsAllocated) return Promise.resolve();
+                    physicsFences++;
+                    return physicsFences === 1 ? firstFence : restFence;
                 },
             };
             Object.assign(Compute, {

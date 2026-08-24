@@ -240,7 +240,7 @@ export const FogPlugin: Plugin = {
         _lights = null;
         _views.clear();
 
-        // typegpu has no async pipeline creation, so Dawn defers the real compile to first dispatch — and
+        // typegpu creates pipelines synchronously, so Dawn defers the real compile — and
         // the march runs every frame `Fog` + `Depth` are both present, so an unfired compile would land the
         // stall on whichever frame that is. Group 1's real resources (the light/shadow service) exist by the
         // time this runs (deferred past every plugin's `warm`); group 0 is genuinely per-camera,
@@ -272,8 +272,6 @@ export const FogPlugin: Plugin = {
                 fog: _fog.buffer!,
             });
             const bound = _fog.pipeline!.with(group0).with(fogLights());
-            bound.dispatchWorkgroups(0);
-            // the dispatch is already submitted and ran no invocation, so the throwaways are dead here
             src.destroy();
             depth.destroy();
             dst.destroy();

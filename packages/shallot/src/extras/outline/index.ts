@@ -445,14 +445,13 @@ function prepareOutline(): void {
 }
 
 /**
- * force the two typed pipelines to compile under the loading screen. typegpu has no async pipeline creation,
- * so Dawn defers the real compile to the first dispatch — and the outline's passes run every frame a
+ * force the two typed pipelines to compile under the loading screen. typegpu creates pipelines
+ * synchronously, so Dawn defers the real compile — and the outline's passes run every frame a
  * highlight exists, which would put that stall on whichever frame the first hover lands. Their real bind
  * groups need per-camera targets that don't exist until a view attaches, so each forcer allocates its own
- * 1×1 stand-ins, binds, and does zero work. The stand-ins are destroyed right after, like glaze's: the
- * dispatch/draw is already submitted and ran no invocation, and a destroyed resource's allocation stays alive
- * until the submission it was recorded into completes. Waiting on `onSubmittedWorkDone` instead would leak
- * all four whenever the device is torn down before the promise settles.
+ * 1×1 stand-ins and binds. Destroying them before the drain is safe because `initAsync` only compiles
+ * the pipeline — it records and submits nothing, so compilation never reads the bind groups the
+ * stand-ins were bound into.
  */
 function forceCompile(): void {
     const stand = (format: GPUTextureFormat, usage: number) =>
@@ -470,10 +469,10 @@ function forceCompile(): void {
             seed: src.createView(),
             step: _gpu.steps[0],
         });
-        _gpu.jfa!.with(group).withColorAttachment({ view: dst.createView() }).draw(0);
+        const bound = _gpu.jfa!.with(group).withColorAttachment({ view: dst.createView() });
         src.destroy();
         dst.destroy();
-        return _gpu.jfa;
+        return bound;
     });
 
     precompile("outline-composite", () => {
@@ -487,12 +486,12 @@ function forceCompile(): void {
             attr: attr.createView(),
             output: out.createView(),
         });
-        _gpu.composite!.with(group).dispatchWorkgroups(0);
+        const bound = _gpu.composite!.with(group);
         scene.destroy();
         seed.destroy();
         attr.destroy();
         out.destroy();
-        return _gpu.composite;
+        return bound;
     });
 
     // the mask buffers (position/indices/transforms/maskEids/maskAttrs/meshQuant) are storage bindings, not
@@ -522,12 +521,10 @@ function forceCompile(): void {
             maskAttrs: attrs,
             meshQuant: quant,
         });
-        _gpu.maskPlain!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            })
-            .draw(0);
+        const bound = _gpu.maskPlain!.with(group).withColorAttachment({
+            seed: { view: seed.createView() },
+            attr: { view: attr.createView() },
+        });
         position.destroy();
         indices.destroy();
         transformsBuf.destroy();
@@ -536,7 +533,7 @@ function forceCompile(): void {
         quant.destroy();
         seed.destroy();
         attr.destroy();
-        return _gpu.maskPlain;
+        return bound;
     });
 
     precompile("outline-mask-occlude", () => {
@@ -559,12 +556,10 @@ function forceCompile(): void {
             meshQuant: quant,
             sceneDepth: depth.createView(),
         });
-        _gpu.maskOcclude!.with(group)
-            .withColorAttachment({
-                seed: { view: seed.createView() },
-                attr: { view: attr.createView() },
-            })
-            .draw(0);
+        const bound = _gpu.maskOcclude!.with(group).withColorAttachment({
+            seed: { view: seed.createView() },
+            attr: { view: attr.createView() },
+        });
         position.destroy();
         indices.destroy();
         transformsBuf.destroy();
@@ -574,7 +569,7 @@ function forceCompile(): void {
         seed.destroy();
         attr.destroy();
         depth.destroy();
-        return _gpu.maskOcclude;
+        return bound;
     });
 }
 

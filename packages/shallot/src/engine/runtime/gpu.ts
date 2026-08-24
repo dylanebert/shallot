@@ -768,19 +768,20 @@ let _draining = false;
 let _drained = false;
 let _latePrecompile = Promise.resolve();
 
-function compile({ label, force }: Forcer): void {
+function compile({ label, force }: Forcer): unknown {
     let forced: unknown;
     try {
         forced = force();
     } catch (cause) {
         throw new Error(`precompile "${label}" failed — its pipeline did not compile`, { cause });
     }
-    // a forcer that binds nothing dispatches nothing, so the compile silently falls through to the
-    // first frame — the exact stall the queue exists to prevent, and invisible without this
+    // a forcer that binds nothing has no pipeline to init, so the compile silently falls through to
+    // the first frame — the exact stall the queue exists to prevent, and invisible without this
     if (!forced)
         throw new Error(
             `precompile "${label}" bound nothing — its pipeline would compile on the first frame instead`,
         );
+    return forced;
 }
 
 /**
@@ -916,8 +917,20 @@ export async function precompileAll(): Promise<void> {
 async function compileValidated(forcer: Forcer): Promise<void> {
     const start = now();
     await validateGpu(Compute.device, forcer.label, async () => {
-        compile(forcer);
-        await Compute.device.queue.onSubmittedWorkDone();
+        const pipeline = compile(forcer);
+        // the drain classifies a forcer's return exhaustively:
+        // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
+        if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
+            await (pipeline as { initAsync(): Promise<void> }).initAsync();
+        } else if (Array.isArray(pipeline)) {
+            // (b) the sear variant (standard/sear/forward.ts) returns an array of already-unwrapped
+            // raw pipelines — skip, deliberately: initAsync is only on typegpu pipelines
+        } else {
+            // (c) anything else truthy is a forcer that returned the wrong shape — name the site
+            throw new Error(
+                `precompile "${forcer.label}" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines`,
+            );
+        }
     });
     // validation always fences what precompile claims; only attribution stays profiler-owned
     Compute.precompiled?.(forcer.label, start, now());
