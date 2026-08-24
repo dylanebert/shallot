@@ -1,6 +1,8 @@
+import { readdir } from "node:fs/promises";
 import { Glob } from "bun";
 import { resolve } from "path";
 import { template } from "../packages/create-shallot/index";
+import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
 
 // Command docs standardize on `bunx shallot <cmd>`: bare `shallot` only resolves when the CLI is
 // globally linked, while `bunx` resolves the local install everywhere — repo and consumer project
@@ -304,8 +306,226 @@ if (chainOverages.length > 0) {
     process.exit(1);
 }
 
+// ── Arm (a): cross-citation resolution (case-insensitive) ──────────────────────────────────────
+//
+// A cross-citation is `<rule>.md "phrase"` — a rule filename followed by a double-quoted phrase —
+// naming a passage in another rule file. Each must resolve in the named file, compared
+// CASE-INSENSITIVELY: a case-sensitive first pass false-positived on avbd.md:44 citing
+// gpu.md "reuse over add", which resolves against gpu.md:40's "**Reuse over add.**". The case rule is
+// a recorded finding, not an implementation detail. The known true positive is testing.md citing
+// physics.md "the oracle is not the suspect" — that phrase lives only at avbd.md:13. Leave it RED;
+// fixing it is S3's.
+
+const RULE_NAMES: string[] = [];
+for await (const match of new Glob("*.md").scan({ cwd: resolve(root, ".claude/rules") })) {
+    RULE_NAMES.push(match.replace(/\.md$/, ""));
+}
+
+// cache rule file contents (lowercased for case-insensitive search)
+const ruleFileCache = new Map<string, string>();
+async function ruleFileText(name: string): Promise<string> {
+    const path = `.claude/rules/${name}.md`;
+    if (!ruleFileCache.has(path)) {
+        ruleFileCache.set(path, (await Bun.file(resolve(root, path)).text()).toLowerCase());
+    }
+    return ruleFileCache.get(path)!;
+}
+
+const CITATION_RE = new RegExp(
+    `\\b(${RULE_NAMES.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\.md "([^"]+)"`,
+    "g",
+);
+
+type CitationViolation = { file: string; line: number; rule: string; phrase: string };
+const citationViolations: CitationViolation[] = [];
+let citationCount = 0;
+
+for (const match of docs) {
+    const lines = (await Bun.file(resolve(root, match)).text()).split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        for (const [, rule, phrase] of lines[i].matchAll(CITATION_RE)) {
+            citationCount++;
+            const text = await ruleFileText(rule);
+            if (!text.includes(phrase.toLowerCase())) {
+                citationViolations.push({
+                    file: match,
+                    line: i + 1,
+                    rule,
+                    phrase,
+                });
+            }
+        }
+    }
+}
+
+if (citationCount === 0) {
+    console.error(
+        '✗ cross-citation arm matched no `<rule>.md "phrase"` citation — the arm would be vacuously green.',
+    );
+    process.exit(1);
+}
+
+if (citationViolations.length > 0) {
+    console.error(
+        `✗ ${citationViolations.length} cross-citation(s) that don't resolve in the named file (case-insensitive):\n`,
+    );
+    for (const v of citationViolations) {
+        console.error(`  ${v.file}:${v.line}: ${v.rule}.md "${v.phrase}"`);
+    }
+    console.error(
+        '\nA `<rule>.md "phrase"` cross-citation must resolve as a case-insensitive substring in the ' +
+            "named rule file. A case-sensitive comparison false-positives on phrases whose casing differs " +
+            '(e.g. gpu.md "reuse over add" resolves against "**Reuse over add.**"), so the comparison ' +
+            "is case-insensitive by design.",
+    );
+    process.exit(1);
+}
+
+// ── Arm (b): showcase index completeness (both directions) ──────────────────────────────────────
+//
+// Every `examples/showcase/*/` dir must have an index line in `examples/AGENTS.md`, and every index
+// line must name a real dir. Both directions are reported — a stale index line is as much a defect
+// as a missing one.
+
+const SHOWCASE_DIR = "examples/showcase";
+const showcaseDirs = new Set<string>();
+for (const entry of await readdir(resolve(root, SHOWCASE_DIR), { withFileTypes: true })) {
+    if (entry.isDirectory()) showcaseDirs.add(entry.name);
+}
+
+const agentsMd = await Bun.file(resolve(root, "examples/AGENTS.md")).text();
+const showcaseIndexRe = /`showcase\/([^`/]+)\//g;
+const indexedShowcases = new Set<string>();
+for (const [, name] of agentsMd.matchAll(showcaseIndexRe)) {
+    indexedShowcases.add(name);
+}
+
+const missingIndex = [...showcaseDirs].filter((d) => !indexedShowcases.has(d)).sort();
+const staleIndex = [...indexedShowcases].filter((d) => !showcaseDirs.has(d)).sort();
+
+if (missingIndex.length > 0 || staleIndex.length > 0) {
+    const parts: string[] = [];
+    if (missingIndex.length > 0) {
+        parts.push(
+            `showcase dir(s) without an index line in examples/AGENTS.md: ${missingIndex.join(", ")}`,
+        );
+    }
+    if (staleIndex.length > 0) {
+        parts.push(
+            `index line(s) in examples/AGENTS.md naming no showcase dir: ${staleIndex.join(", ")}`,
+        );
+    }
+    console.error(
+        `✗ showcase index mismatch (${parts.length} direction(s)):\n` +
+            parts.map((p) => `  ${p}`).join("\n"),
+    );
+    console.error(
+        "\nEvery `examples/showcase/*/` dir must have an index line in `examples/AGENTS.md`, and " +
+            "every index line must name a real dir. Both directions are checked.",
+    );
+    process.exit(1);
+}
+
+// ── Arm (c): tier-suffix roster — one constant, two consumers, asserted against testing.md ─────────
+//
+// The test-tier suffix roster is ONE exported constant (`packages/shallot/tests/test-tiers.ts`) with
+// TWO consumers: `cli-coverage.ts`'s `TEST_TIER_SUFFIXES` and `standards.test.ts`'s `sourceModules()`
+// exclusion. This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
+// enumeration `testing.md` itself makes — (2) the section heading agrees with its own body, and
+// (3) both consumers import the constant rather than restating the list. A fix that leaves two
+// hand-written lists in agreement fails this criterion.
+
+const testingMd = await Bun.file(resolve(root, ".claude/rules/testing.md")).text();
+const testingLines = testingMd.split("\n");
+
+// find the tier section heading (## `.test.ts` vs ...)
+let tierHeadingIdx = -1;
+for (let i = 0; i < testingLines.length; i++) {
+    if (/^## `\.test\.ts` vs /.test(testingLines[i])) {
+        tierHeadingIdx = i;
+        break;
+    }
+}
+if (tierHeadingIdx === -1) {
+    console.error(
+        "✗ tier-suffix roster arm: could not find the `## `.test.ts` vs ...` heading in testing.md.",
+    );
+    process.exit(1);
+}
+
+// collect the section's lines until the next `## ` heading
+const tierSectionLines: string[] = [];
+for (let i = tierHeadingIdx + 1; i < testingLines.length; i++) {
+    if (/^## /.test(testingLines[i])) break;
+    tierSectionLines.push(testingLines[i]);
+}
+
+// extract suffix names from bullet ledes: `- **`.suffix.ts`**`
+const bulletSuffixRe = /^- \*\*`\.(\w+)\.ts`\*\*/;
+const bulletLedeSuffixes: string[] = [];
+for (const line of tierSectionLines) {
+    const m = bulletSuffixRe.exec(line);
+    if (m) bulletLedeSuffixes.push(m[1]);
+}
+
+// extract suffix names from the heading: `` `.suffix.ts` ``
+const headingSuffixRe = /`\.(\w+)\.ts`/g;
+const headingSuffixes: string[] = [];
+for (const m of testingLines[tierHeadingIdx].matchAll(headingSuffixRe)) {
+    headingSuffixes.push(m[1]);
+}
+
+const rosterSuffixes = [...TEST_TIER_SUFFIX_NAMES];
+
+const rosterFindings: string[] = [];
+if (bulletLedeSuffixes.length === 0) {
+    rosterFindings.push(
+        "testing.md's tier section has no `- **`.suffix.ts`**` bullet ledes — the arm would be vacuously green.",
+    );
+}
+if (rosterSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
+    rosterFindings.push(
+        `the shared roster [${rosterSuffixes.join(", ")}] does not match testing.md's bullet ledes [${bulletLedeSuffixes.join(", ")}].`,
+    );
+}
+if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
+    rosterFindings.push(
+        `testing.md's tier-section heading [${headingSuffixes.join(", ")}] does not agree with its own bullet ledes [${bulletLedeSuffixes.join(", ")}].`,
+    );
+}
+
+// assert both consumers import the constant
+const CONSUMERS = [
+    { file: "packages/shallot/tests/cli-coverage.ts", label: "cli-coverage.ts" },
+    { file: "packages/shallot/tests/standards.test.ts", label: "standards.test.ts" },
+];
+for (const { file, label } of CONSUMERS) {
+    const source = await Bun.file(resolve(root, file)).text();
+    if (!/from\s+["']\.\/test-tiers["']/.test(source)) {
+        rosterFindings.push(
+            `${label} does not import from the shared test-tiers.ts constant — the roster is restated rather than read from one source.`,
+        );
+    }
+}
+
+if (rosterFindings.length > 0) {
+    console.error(`✗ tier-suffix roster arm: ${rosterFindings.length} finding(s):\n`);
+    for (const f of rosterFindings) {
+        console.error(`  ${f}`);
+    }
+    console.error(
+        "\nThe test-tier suffix roster must be one exported constant with two consumers, asserted " +
+            "against testing.md's own enumeration. A fix that leaves two hand-written lists in " +
+            "agreement fails this criterion.",
+    );
+    process.exit(1);
+}
+
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s)), ` +
-        `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s))`,
+        `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s)), ` +
+        `cross-citations resolve (${citationCount} citation(s)), ` +
+        `showcase index complete (${showcaseDirs.size} dir(s)), ` +
+        `tier roster asserted (${rosterSuffixes.length} suffix(es))`,
 );
