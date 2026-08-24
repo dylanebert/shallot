@@ -24,8 +24,9 @@ import { skipReason, type VerifyResult, verify } from "./verify";
 // regression gates, a skip here exits nonzero — this is a release gate, and a skipped release gate
 // is not green. The green run is native hardware with every demo verified.
 //
-// The roster is the single source of truth — imported from `site/roster.ts`, never duplicated. A
-// second copy is the exact defect `check-site.ts`'s set-equality gate exists to catch. Ejection and
+// The roster is the single source of truth — imported from `site/roster.ts`, never duplicated. It is
+// derived from `examples/showcase/` by enumeration, so a second copy is impossible by construction
+// rather than caught by a gate (the set-equality clause it used to need is gone). Ejection and
 // building are not re-implemented: `bun run site` already ejects, installs, and builds every roster
 // demo into `out/site/<slug>/`. This script drives that and then verifies the built dirs.
 
