@@ -3,12 +3,13 @@
  *  `.tier.ts`, `.lab.ts`), which is the enumeration `testing.md` itself makes — not the section
  *  heading (which once under-named `.probes.ts`; the heading now agrees with its own body).
  *
- *  Two consumers read this constant: `cli-coverage.ts`'s `TEST_TIER_SUFFIXES` (excludes test-tier
+ *  Consumers of this constant include `cli-coverage.ts`'s `TEST_TIER_SUFFIXES` (excludes test-tier
  *  files from the CLI coverage population so a `*.tier.ts` isn't demanded a coverage row as
- *  production code) and `standards.test.ts`'s `sourceModules()` (excludes them from the TGSL kernel
- *  walk). `scripts/check-docs.ts` asserts the roster against `testing.md`'s own enumeration and that
- *  both consumers import this constant — so the roster stops being restated. A fix that leaves two
- *  hand-written lists in agreement fails that criterion. */
+ *  production code), `standards.test.ts`'s `sourceModules()` (excludes them from the TGSL kernel
+ *  walk), and `check-exports.ts`'s `isTestFile()` (excludes them from the dead-export walk).
+ *  `scripts/check-docs.ts`'s arm (c) scans every tracked file for a literal tier-suffix roster and
+ *  asserts none exists outside this constant — so the roster stops being restated. A fix that
+ *  leaves two hand-written lists in agreement fails that criterion. */
 
 /** the five test-tier suffix names `testing.md`'s tier-section bullet ledes name, in the order the
  *  bullets list them. The source of truth is the bullet ledes, not the section heading. */

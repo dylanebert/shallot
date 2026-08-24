@@ -1,4 +1,3 @@
-import { readdir } from "node:fs/promises";
 import { Glob } from "bun";
 import { resolve } from "path";
 import { template } from "../packages/create-shallot/index";
@@ -395,14 +394,38 @@ if (citationViolations.length > 0) {
 
 // ── Arm (b): showcase index completeness (both directions) ──────────────────────────────────────
 //
-// Every `examples/showcase/*/` dir must have an index line in `examples/AGENTS.md`, and every index
-// line must name a real dir. Both directions are reported — a stale index line is as much a defect
-// as a missing one.
+// Every `examples/showcase/*/` dir with at least one tracked file must have an index line in
+// `examples/AGENTS.md`, and every index line must name a dir with tracked content. Both directions
+// are reported — a stale index line is as much a defect as a missing one.
+//
+// The population is derived from the TRACKED set (git ls-files), not the filesystem: a dir whose
+// tracked content was deleted by a sibling lane but whose untracked dist/node_modules/test-results/
+// remain would be a false positive under a filesystem walk — the arm would flag a dir without an
+// index line that has no tracked content to index. Asking git makes the scope identical in every
+// checkout, which is the property that matters (same law as the doc scan above).
 
 const SHOWCASE_DIR = "examples/showcase";
+const showcaseTracked = Bun.spawnSync(["git", "ls-files", "-z", SHOWCASE_DIR], {
+    cwd: root,
+});
+if (!showcaseTracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — the showcase arm needs a git checkout to scope its dir set.",
+    );
+    process.exit(1);
+}
 const showcaseDirs = new Set<string>();
-for (const entry of await readdir(resolve(root, SHOWCASE_DIR), { withFileTypes: true })) {
-    if (entry.isDirectory()) showcaseDirs.add(entry.name);
+for (const path of showcaseTracked.stdout.toString().split("\0").filter(Boolean)) {
+    const rel = path.slice(SHOWCASE_DIR.length + 1);
+    const parts = rel.split("/");
+    if (parts.length < 2) continue; // directly under showcase/, not a subdir (e.g. .gitkeep)
+    showcaseDirs.add(parts[0]);
+}
+if (showcaseDirs.size === 0) {
+    console.error(
+        "✗ `git ls-files examples/showcase/` matched no subdir — the showcase arm would be vacuously green.",
+    );
+    process.exit(1);
 }
 
 const agentsMd = await Bun.file(resolve(root, "examples/AGENTS.md")).text();
@@ -438,15 +461,16 @@ if (missingIndex.length > 0 || staleIndex.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (c): tier-suffix roster — one constant, two consumers, asserted against testing.md ─────────
+// ── Arm (c): tier-suffix roster — one constant, derived consumers, asserted against testing.md ──────
 //
-// The test-tier suffix roster is ONE exported constant (`packages/shallot/tests/test-tiers.ts`) with
-// TWO consumers: `cli-coverage.ts`'s `TEST_TIER_SUFFIXES` and `standards.test.ts`'s `sourceModules()`
-// exclusion. This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
+// The test-tier suffix roster is ONE exported constant (`packages/shallot/tests/test-tiers.ts`).
+// This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
 // enumeration `testing.md` itself makes — (2) the section heading agrees with its own body, and
-// (3) both consumers import AND use the constant (not just a dead import beside a re-inlined
-// local regex), and no consumer still contains a literal tier-suffix regex of its own. A fix
-// that leaves two hand-written lists in agreement fails this criterion.
+// (3) no file in the repo carries a literal tier-suffix roster of its own — a line enumerating 3+
+// of the 5 suffix names as bare words with regex alternation (`|`). The consumer set is DERIVED,
+// not enumerated: the arm scans every tracked file itself, so a new file restating the roster
+// is caught without updating a hand-list. A fix that leaves two hand-written lists in agreement
+// fails this criterion.
 
 const testingMd = await Bun.file(resolve(root, ".claude/rules/testing.md")).text();
 const testingLines = testingMd.split("\n");
@@ -507,49 +531,38 @@ if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
     );
 }
 
-// assert both consumers import AND use the constant (a dead import beside a re-inlined local
-// regex would satisfy the import check alone), and that no consumer still contains a literal
-// tier-suffix regex of its own — a regex that enumerates the suffix names directly rather than
-// deriving them from the shared constant
-const ROSTER_IDENTIFIERS = ["TEST_TIER_SUFFIX_NAMES", "TEST_TIER_SUFFIXES"];
-const IMPORT_FROM_TIERS = /from\s+["']\.\/test-tiers["']/;
-// matches the full import statement (single- or multi-line) from ./test-tiers, for stripping
-const IMPORT_STATEMENT_RE = /import\s+\{[^}]*\}\s+from\s+["']\.\/test-tiers["'];?/g;
-const CONSUMERS = [
-    { file: "packages/shallot/tests/cli-coverage.ts", label: "cli-coverage.ts" },
-    { file: "packages/shallot/tests/standards.test.ts", label: "standards.test.ts" },
-];
-for (const { file, label } of CONSUMERS) {
-    const source = await Bun.file(resolve(root, file)).text();
-    if (!IMPORT_FROM_TIERS.test(source)) {
-        rosterFindings.push(
-            `${label} does not import from the shared test-tiers.ts constant — the roster is restated rather than read from one source.`,
-        );
-        continue;
-    }
-    // the imported identifier must be referenced outside its own import statement — a dead import
-    // beside a re-inlined local regex would satisfy the import check alone
-    const withoutImport = source.replace(IMPORT_STATEMENT_RE, "");
-    const usedOutsideImport = ROSTER_IDENTIFIERS.some((id) =>
-        new RegExp(`\\b${id}\\b`).test(withoutImport),
+// Derive the consumer set: scan every tracked file in the repo for a literal tier-suffix roster —
+// a line enumerating 3+ of the 5 suffix names as bare words with regex alternation (`|`). Any file
+// that carries such a roster is restating it rather than reading the shared constant; the arm finds
+// such files itself, so a new file restating the roster is caught without updating a hand-list.
+//
+// Two exclusions, stated explicitly:
+// 1. `packages/shallot/tests/test-tiers.ts` — the roster's own definition module; it MUST contain the
+//    suffix names (it is where the constant lives).
+// 2. `scripts/check-docs.ts` — this arm's own text; a self-referential gate matches its own
+//    description of what it checks (per `.claude/rules/specs.md`'s self-reference principle).
+const ROSTER_EXCLUSIONS = new Set([
+    "packages/shallot/tests/test-tiers.ts",
+    "scripts/check-docs.ts",
+]);
+const allTrackedFiles = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
+if (!allTrackedFiles.success) {
+    console.error(
+        "✗ `git ls-files` failed — the roster arm needs a git checkout to scope its file set.",
     );
-    if (!usedOutsideImport) {
-        rosterFindings.push(
-            `${label} imports the shared test-tiers.ts constant but never references it outside the import — a dead import beside a re-inlined local regex would stay green.`,
-        );
-    }
-    // no consumer may still contain a literal tier-suffix regex of its own — a line that enumerates
-    // 3+ of the 5 suffix names as bare words with regex alternation (`|`), rather than deriving them
-    // from the shared constant (which would only mention the identifier, not the suffix names)
-    const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
-    for (const line of source.split("\n")) {
-        if (IMPORT_FROM_TIERS.test(line)) continue;
+    process.exit(1);
+}
+const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
+for (const file of allTrackedFiles.stdout.toString().split("\0").filter(Boolean)) {
+    if (ROSTER_EXCLUSIONS.has(file)) continue;
+    const source = await Bun.file(resolve(root, file)).text();
+    for (const [i, line] of source.split("\n").entries()) {
         const hits = suffixWords.filter((n) => new RegExp(`\\b${n}\\b`).test(line)).length;
         if (hits >= 3 && line.includes("|")) {
             rosterFindings.push(
-                `${label} contains a literal tier-suffix regex (a line enumerating ${hits} of the 5 suffix names with regex alternation) — the roster must be derived from the shared constant, not restated.`,
+                `${file}:${i + 1} carries a literal tier-suffix roster (a line enumerating ${hits} of the 5 suffix names with regex alternation) — the roster must be derived from the shared test-tiers.ts constant, not restated.`,
             );
-            break;
+            break; // one finding per file is enough
         }
     }
 }
