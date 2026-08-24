@@ -1,6 +1,6 @@
 import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { type DemoEntry, ROSTER } from "../site/roster";
 
@@ -74,9 +74,15 @@ Options:
 
             // copy the showcase dir verbatim (node_modules/dist excluded by the dir's own .gitignore
             // patterns — but a fresh worktree has none, so just copy everything except those)
+            const nodeModulesDir = resolve(srcDir, "node_modules");
+            const distDir = resolve(srcDir, "dist");
             cpSync(srcDir, scratch, {
                 recursive: true,
-                filter: (s) => !s.includes("node_modules") && !s.includes("/dist"),
+                filter: (s) =>
+                    s !== nodeModulesDir &&
+                    !s.startsWith(nodeModulesDir + sep) &&
+                    s !== distDir &&
+                    !s.startsWith(distDir + sep),
             });
 
             // rewrite package.json: pin @dylanebert/shallot to the release version, carry every

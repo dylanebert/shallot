@@ -116,12 +116,12 @@ if (badVersion.length > 0) {
 
 // --- clause 4: no import escapes a demo's own directory ----------------------------------
 
-const importRe = /(?:from|import)\s+["']([^"']+)["']/g;
+const importRe = /(?:from\s+["']|import\s+["']|import\s*\(\s*["'])([^"']+)["']/g;
 const escaped: { slug: string; file: string; line: number; spec: string }[] = [];
 
 for (const { slug } of ROSTER) {
     const dir = resolve(showcaseDir, slug);
-    const glob = new Glob("**/*.{ts,svelte}");
+    const glob = new Glob("**/*.{ts,svelte,js,mjs}");
     for await (const path of glob.scan({ cwd: dir })) {
         if (path.includes("node_modules") || path.includes("dist")) continue;
         if (path.endsWith(".test.ts")) continue; // tests aren't part of the build
@@ -155,6 +155,10 @@ if (escaped.length > 0) {
 // --- clause 5: no generated path is root-absolute -----------------------------------------
 
 if (!existsSync(outDir)) {
+    if (process.env.SITE_OUT_REQUIRED === "1") {
+        console.error(`✗ out/site/ is absent — run \`bun run site\` first, then re-run this check`);
+        process.exit(1);
+    }
     console.log(
         `✓ site roster clean (${ROSTER.length} demos, set-equal to showcase dirs, ` +
             `all manifested, all workspace-pinned, no escaping imports) — ` +
@@ -163,9 +167,14 @@ if (!existsSync(outDir)) {
     process.exit(0);
 }
 
-// scan every generated HTML/JS/CSS file for root-absolute paths: `href="/..."`, `src="/..."`,
-// or a JS string literal starting with `/` that looks like a path. A root-absolute path would
-// break at a non-root base path (GitHub Pages serves at /shallot/).
+if (process.env.SITE_OUT_REQUIRED === "1" && readdirSync(outDir).length === 0) {
+    console.error(`✗ out/site/ is empty — run \`bun run site\` first, then re-run this check`);
+    process.exit(1);
+}
+
+// scan every generated HTML/JS/CSS file for root-absolute paths: `href="/..."` or `src="/..."`
+// HTML attributes. A root-absolute path would break at a non-root base path (GitHub Pages
+// serves at /shallot/).
 const rootAbsRe = /(?:href|src)\s*=\s*["']\/(?!\/)/g;
 const rootAbsFiles: { file: string; line: number; text: string }[] = [];
 
