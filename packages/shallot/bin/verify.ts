@@ -340,9 +340,14 @@ export interface TimingProbes {
 const spread = (a: number[], b: number[]): number =>
     Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
 
+/** the centre-vs-corner spread a frame must exceed to count as structure. One constant because the
+ *  render probe reports the spread *against* it — a second literal at the populate site would let a
+ *  tuned threshold make the probe lie about the reading it just took. */
+export const STRUCTURE_THRESHOLD = 12;
+
 /** a frame carries visible structure (not a single flat clear color) — center vs corner region contrast. */
 export function structured(center: number[], corner: number[]): boolean {
-    return spread(center, corner) > 12;
+    return spread(center, corner) > STRUCTURE_THRESHOLD;
 }
 
 /** a captured frame shows visible structure — the pixel-honest signal the harness path gates `rendered` on.
@@ -605,7 +610,7 @@ export interface RenderProbe {
     corner: number[] | null;
     /** the centre-vs-corner spread (sum of abs channel diffs) of the last sample, or null. */
     spread: number | null;
-    /** the threshold `structured` gates on (the `12` in `hasStructure`). */
+    /** the threshold `structured` gates on (`STRUCTURE_THRESHOLD`). */
     threshold: number;
     /** elapsed milliseconds from the first poll to the wait outcome. */
     elapsed: number;
@@ -1478,7 +1483,7 @@ async function drive(
         center: lastSample?.center ?? null,
         corner: lastSample?.corner ?? null,
         spread: lastSample ? spread(lastSample.center, lastSample.corner) : null,
-        threshold: 12,
+        threshold: STRUCTURE_THRESHOLD,
         elapsed: Date.now() - waitStart,
         outcome,
     };
