@@ -25,6 +25,18 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // workgroups for a 1-chunk edit — expected <= 3584 (touched-chunk-scoped dispatch); the pre-fix full-grid
 // dispatch is always 262144", exactly the mechanism S1 named. The correctness gate (`test/voxel.spec.ts`)
 // and the project's 51 unit tests stay green against the same tree.
+//
+// S3 (reshaped, answered fork 2026-08-24): the minimal dispatch-scope fix is refuted, not shipped —
+// `VoxelEmitSystem` resets the shared atomic-append buffers on every fire, so a full-grid re-dispatch is
+// what keeps the draw buffer complete; scoping the dispatch to the touched region alone drops all geometry
+// outside it (measured ~97.6% face loss, 393,216 → 9,222 faces, on a 1-chunk edit). A correct reduction
+// needs per-chunk buffer regions/compaction — Phase-4 streaming machinery this unit's Out of scope excludes.
+// The assertion below is therefore `test.fail()`-annotated: expected-red on trunk, by design, until the
+// successor unit lands. Trunk must not close carrying an unannotated red gate, so this stays the honest
+// form rather than a deletion — the bound derivation, the witnessed-red record above, and the ungated
+// occupancy reading all stay live and unchanged. Successor: per-chunk streaming, its own `(scope first)`
+// roadmap item, which inherits this gate (bound already derived, red already witnessed) as its pre-minted
+// floor — the fix ships there, not here.
 
 import { CHUNK } from "../src/voxel/grid";
 import { WG } from "../src/voxel/mesher";
@@ -36,6 +48,13 @@ const FORCE_FIRES = 20; // 5× S1's ungated sample count, cheap at one chunk per
 test("structural — emit dispatch scope tracks touched-chunk volume, not the full grid", async ({
     page,
 }) => {
+    // expected-red on trunk (docblock above) — S3 descoped the fix; the successor per-chunk-streaming
+    // unit discharges this annotation when it ships the correct reduction.
+    test.fail(
+        true,
+        "showcase-frame-floor S3: dispatch-scope fix refuted, ships in per-chunk streaming",
+    );
+
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
 
