@@ -66,6 +66,7 @@ examples/showcase/visualization && bun dev`).
 
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.
 - **fountain** — `showcase/fountain/` — a custom GPU render producer: a particle fountain.
+- **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
 - **sandbox** — `showcase/sandbox/` — a playable physics sandbox (character + AVBD + modal-synthesis audio).
 - **visualization** — `showcase/visualization/` — a multi-canvas gallery of the debug-draw primitives (lines, text, tweens, wireframe).
 - **voxel** — `showcase/voxel/` — a voxel editor (carve tools + a greedy mesher) that owns its own Playwright gate.
