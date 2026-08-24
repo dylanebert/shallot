@@ -309,12 +309,15 @@ if (chainOverages.length > 0) {
 // ── Arm (a): cross-citation resolution (case-insensitive) ──────────────────────────────────────
 //
 // A cross-citation is `<rule>.md "phrase"` — a rule filename followed by a double-quoted phrase —
-// naming a passage in another rule file. Each must resolve in the named file, compared
-// CASE-INSENSITIVELY: a case-sensitive first pass false-positived on avbd.md:44 citing
-// gpu.md "reuse over add", which resolves against gpu.md:40's "**Reuse over add.**". The case rule is
-// a recorded finding, not an implementation detail. The known true positive is testing.md citing
-// physics.md "the oracle is not the suspect" — that phrase lives only at avbd.md:13. Leave it RED;
-// fixing it is S3's.
+// naming a passage in another rule file, optionally continued with ` / "phrase"` for additional
+// phrases from the same rule (e.g. `render.md "Point-light shadows" / "Sun shadows"`). Each phrase
+// must resolve in the named file, compared CASE-INSENSITIVELY: a case-sensitive first pass
+// false-positived on avbd.md:44 citing gpu.md "reuse over add", which resolves against gpu.md:40's
+// "**Reuse over add.**". The case rule is a recorded finding, not an implementation detail. The known
+// true positive is testing.md citing physics.md "the oracle is not the suspect" — that phrase lives
+// only at avbd.md:13. Leave it RED; fixing it is S3's. A continuation phrase (` / "phrase"`) belongs
+// to the same rule citation, so each must be checked — not just the first: if the second phrase
+// vanished from the named rule the arm would stay green if only the first were checked.
 
 const RULE_NAMES: string[] = [];
 for await (const match of new Glob("*.md").scan({ cwd: resolve(root, ".claude/rules") })) {
@@ -331,10 +334,15 @@ async function ruleFileText(name: string): Promise<string> {
     return ruleFileCache.get(path)!;
 }
 
+// Match the full citation span: `rule.md "phrase"` plus any trailing ` / "phrase"` continuations
+// that belong to the same rule citation. The continuation group is non-capturing (a repeated
+// capture group would only keep the last match), so all phrases are extracted from the full match
+// text via PHRASE_RE.
 const CITATION_RE = new RegExp(
-    `\\b(${RULE_NAMES.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\.md "([^"]+)"`,
+    `\\b(${RULE_NAMES.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\.md "([^"]+)"(?:\\s*/\\s*"([^"]+)")*`,
     "g",
 );
+const PHRASE_RE = /"([^"]+)"/g;
 
 type CitationViolation = { file: string; line: number; rule: string; phrase: string };
 const citationViolations: CitationViolation[] = [];
@@ -343,16 +351,20 @@ let citationCount = 0;
 for (const match of docs) {
     const lines = (await Bun.file(resolve(root, match)).text()).split("\n");
     for (let i = 0; i < lines.length; i++) {
-        for (const [, rule, phrase] of lines[i].matchAll(CITATION_RE)) {
-            citationCount++;
+        for (const m of lines[i].matchAll(CITATION_RE)) {
+            const rule = m[1];
             const text = await ruleFileText(rule);
-            if (!text.includes(phrase.toLowerCase())) {
-                citationViolations.push({
-                    file: match,
-                    line: i + 1,
-                    rule,
-                    phrase,
-                });
+            // extract every quoted phrase from the full citation span (head + continuations)
+            for (const [, phrase] of m[0].matchAll(PHRASE_RE)) {
+                citationCount++;
+                if (!text.includes(phrase.toLowerCase())) {
+                    citationViolations.push({
+                        file: match,
+                        line: i + 1,
+                        rule,
+                        phrase,
+                    });
+                }
             }
         }
     }
@@ -432,8 +444,9 @@ if (missingIndex.length > 0 || staleIndex.length > 0) {
 // TWO consumers: `cli-coverage.ts`'s `TEST_TIER_SUFFIXES` and `standards.test.ts`'s `sourceModules()`
 // exclusion. This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
 // enumeration `testing.md` itself makes — (2) the section heading agrees with its own body, and
-// (3) both consumers import the constant rather than restating the list. A fix that leaves two
-// hand-written lists in agreement fails this criterion.
+// (3) both consumers import AND use the constant (not just a dead import beside a re-inlined
+// local regex), and no consumer still contains a literal tier-suffix regex of its own. A fix
+// that leaves two hand-written lists in agreement fails this criterion.
 
 const testingMd = await Bun.file(resolve(root, ".claude/rules/testing.md")).text();
 const testingLines = testingMd.split("\n");
@@ -494,17 +507,50 @@ if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
     );
 }
 
-// assert both consumers import the constant
+// assert both consumers import AND use the constant (a dead import beside a re-inlined local
+// regex would satisfy the import check alone), and that no consumer still contains a literal
+// tier-suffix regex of its own — a regex that enumerates the suffix names directly rather than
+// deriving them from the shared constant
+const ROSTER_IDENTIFIERS = ["TEST_TIER_SUFFIX_NAMES", "TEST_TIER_SUFFIXES"];
+const IMPORT_FROM_TIERS = /from\s+["']\.\/test-tiers["']/;
+// matches the full import statement (single- or multi-line) from ./test-tiers, for stripping
+const IMPORT_STATEMENT_RE = /import\s+\{[^}]*\}\s+from\s+["']\.\/test-tiers["'];?/g;
 const CONSUMERS = [
     { file: "packages/shallot/tests/cli-coverage.ts", label: "cli-coverage.ts" },
     { file: "packages/shallot/tests/standards.test.ts", label: "standards.test.ts" },
 ];
 for (const { file, label } of CONSUMERS) {
     const source = await Bun.file(resolve(root, file)).text();
-    if (!/from\s+["']\.\/test-tiers["']/.test(source)) {
+    if (!IMPORT_FROM_TIERS.test(source)) {
         rosterFindings.push(
             `${label} does not import from the shared test-tiers.ts constant — the roster is restated rather than read from one source.`,
         );
+        continue;
+    }
+    // the imported identifier must be referenced outside its own import statement — a dead import
+    // beside a re-inlined local regex would satisfy the import check alone
+    const withoutImport = source.replace(IMPORT_STATEMENT_RE, "");
+    const usedOutsideImport = ROSTER_IDENTIFIERS.some((id) =>
+        new RegExp(`\\b${id}\\b`).test(withoutImport),
+    );
+    if (!usedOutsideImport) {
+        rosterFindings.push(
+            `${label} imports the shared test-tiers.ts constant but never references it outside the import — a dead import beside a re-inlined local regex would stay green.`,
+        );
+    }
+    // no consumer may still contain a literal tier-suffix regex of its own — a line that enumerates
+    // 3+ of the 5 suffix names as bare words with regex alternation (`|`), rather than deriving them
+    // from the shared constant (which would only mention the identifier, not the suffix names)
+    const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
+    for (const line of source.split("\n")) {
+        if (IMPORT_FROM_TIERS.test(line)) continue;
+        const hits = suffixWords.filter((n) => new RegExp(`\\b${n}\\b`).test(line)).length;
+        if (hits >= 3 && line.includes("|")) {
+            rosterFindings.push(
+                `${label} contains a literal tier-suffix regex (a line enumerating ${hits} of the 5 suffix names with regex alternation) — the roster must be derived from the shared constant, not restated.`,
+            );
+            break;
+        }
     }
 }
 

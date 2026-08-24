@@ -69,7 +69,7 @@ export function globToRegExp(glob: string): RegExp {
  *  row; it's the instrument, not the thing measured. Excluding only `.test.ts` would leave
  *  `verify.probes.ts` in the population as if it were untested production code, when it is itself the
  *  by-path browser gate for two constants `verify.test.ts` already sentinels — and omitting `.tier`
- *  would demand a `*.tier.ts` a coverage row as production code. `scripts/check-docs.ts` asserts this
+ *  would demand a `*.tier.ts` coverage row as production code. `scripts/check-docs.ts` asserts this
  *  constant against `testing.md`'s own enumeration. */
 export { TEST_TIER_SUFFIX_NAMES, TEST_TIER_SUFFIXES };
 
