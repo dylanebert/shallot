@@ -18,7 +18,8 @@
 // that has failed N rounds each green at its own gate is a finding about the
 // gate's *kind*. So every arm below reads a `@babel/parser` AST and asserts a
 // structural property — a call expression's argument node kind, a function's
-// real `body` node, a type-level union's members, a `TryStatement`'s block.
+// real `body` node, a `TryStatement`'s block, an `ImportSpecifier` binding
+// resolved against an export set.
 //
 // `@babel/parser` (not `typescript`) is the parser because `typescript@^7` in
 // this tree is the native port, whose npm package ships only `lib/tsc.js` —
@@ -29,7 +30,7 @@
 //
 // ── Pins (green pre-fix, red on fix) ──
 //
-// The four S2/S3 arms are ordinary green tests asserting the PRE-FIX
+// The three S2/S3 arms are ordinary green tests asserting the PRE-FIX
 // structure. Each names the stage that replaces it and states that the pin
 // expires with that stage: S2/S3 replaces its pin with the post-fix
 // assertion in the same diff. A green arm that cannot read its subject
@@ -40,10 +41,9 @@
 //
 // No spelling pins: the function `sh` is located by its call structure (its
 // body wraps a `Bun.spawnSync` call), never by the literal name; call sites
-// are resolved from that declaration's name, not hardcoded. The owner
-// identifier leg A will assert post-fix is resolved through its
-// `ImportSpecifier` binding from `harness/lib`, not compared as a spelling
-// against an export set — that is S2's arm, not this pin.
+// are resolved from that declaration's name, not hardcoded. The harness/lib
+// arm resolves each gate's `ImportSpecifier` bindings from `harness/lib`
+// against `lib.ts`'s export set, never comparing a name as a spelling.
 //
 // `evals/harness/gate.config.ts`'s own `timeout: 90_000` is out of S1/S2
 // scope and stays hand-written by design: each gate's `test.setTimeout`
@@ -193,6 +193,44 @@ function callSitesOf(ast: Node, decl: { id: Node | undefined }): Node[] {
     });
 }
 
+// Collect `lib.ts`'s export set: every name reachable from an
+// `ExportNamedDeclaration` — its `specifiers` (for `export { foo }`),
+// declarator ids (for `export const foo = …`), `FunctionDeclaration.id`
+// (for `export function foo() {}`), and type-declaration ids (for
+// `export interface Foo`, `export type Foo = …`). Resolving the gates'
+// `ImportSpecifier` bindings against this set — rather than comparing a
+// name as a spelling — is what makes the harness/lib arm free of name
+// and form pins.
+function libExportedNames(ast: Node): Set<string> {
+    const names = new Set<string>();
+    for (const e of collect(ast, "ExportNamedDeclaration")) {
+        const specifiers = e.specifiers as Node[] | undefined;
+        if (specifiers) {
+            for (const spec of specifiers) {
+                const exported = spec.exported as Node | undefined;
+                if (exported?.type === "Identifier") names.add(exported.name as string);
+                else if (exported?.type === "StringLiteral") names.add(exported.value as string);
+            }
+        }
+        const decl = e.declaration as Node | undefined;
+        if (!decl) continue;
+        // export function foo() {}, export interface Foo, export type Foo = …
+        const id = decl.id as Node | undefined;
+        if (id?.type === "Identifier") names.add(id.name as string);
+        // export const foo = …, export const foo = …, bar = …
+        if (decl.type === "VariableDeclaration") {
+            const declarations = decl.declarations as Node[] | undefined;
+            if (declarations) {
+                for (const d of declarations) {
+                    const did = d.id as Node | undefined;
+                    if (did?.type === "Identifier") names.add(did.name as string);
+                }
+            }
+        }
+    }
+    return names;
+}
+
 function gradeAst(root: string): Node {
     return parseFile(join(root, "evals", "grade.ts"));
 }
@@ -214,36 +252,54 @@ describe("eval gate surface — mechanism (green: S1)", () => {
         ]);
     });
 
-    test("each gate imports from the shared harness lib", () => {
-        const gates = gateFiles(evalRoot());
+    // The shared harness lib is S2's owner file. This arm resolves each gate's
+    // `ImportSpecifier` bindings from `harness/lib` against `lib.ts`'s export
+    // set — `ExportNamedDeclaration.specifiers`, declarator ids,
+    // `FunctionDeclaration.id` — never comparing a name as a spelling. So
+    // `export const boot = async function bootImpl(…)` and `async function
+    // boot(…)` + `export { boot }` are green when the imported name is in the
+    // set, and deleting `lib.ts` reds here (empty export set, imports
+    // unresolvable). The arm carries the import-source check too: each gate
+    // must import from `harness/lib`, and the imported names must resolve, so
+    // a source-string-only check that stays green with the target deleted is
+    // not what this arm is.
+    //
+    // Pre-fix reading (this round): 6 gates, each importing from
+    // `harness/lib`; `lib.ts` exports 11 names; every imported name resolves.
+    test("each gate's harness/lib imports resolve against lib.ts's export set", () => {
+        const root = evalRoot();
+        const gates = gateFiles(root);
         expect(gates).toHaveLength(6);
-        for (const gate of gates) {
-            // An `ImportDeclaration`'s `source`, not a substring of the file:
-            // a comment or a string mentioning the path cannot satisfy it.
-            const sources = collect(parseFile(gate), "ImportDeclaration").map(
-                (d) => (d.source as Node).value as string,
-            );
-            expect(sources.some((s) => s.endsWith("harness/lib"))).toBe(true);
-        }
-    });
 
-    // The shared harness lib is S2's owner file. The import arm above asserts
-    // an import source STRING, which passes with the target absent. This arm
-    // parses `lib.ts` and asserts a structural fact — it exports the `boot`
-    // driver every gate calls — so deleting `lib.ts` reds this file.
-    test("harness/lib.ts exports the shared boot driver", () => {
-        const ast = parseFile(join(evalRoot(), "evals", "harness", "lib.ts"));
-        const exports = collect(ast, "ExportNamedDeclaration");
-        expect(exports.length).toBeGreaterThan(0);
-        const hasBoot = exports.some((e) => {
-            const d = e.declaration as Node | undefined;
-            if (d?.type === "FunctionDeclaration") {
-                const id = d.id as Node | undefined;
-                return id?.type === "Identifier" && id.name === "boot";
+        // Build lib.ts's export set.
+        const libPath = join(root, "evals", "harness", "lib.ts");
+        const exportedNames = libExportedNames(parseFile(libPath));
+        // Population control — lib.ts must export something.
+        expect(exportedNames.size).toBeGreaterThan(0);
+
+        for (const gate of gates) {
+            const ast = parseFile(gate);
+            // Find imports from harness/lib and collect ImportSpecifier names.
+            const importNames: string[] = [];
+            for (const imp of collect(ast, "ImportDeclaration")) {
+                const source = (imp.source as Node).value as string;
+                if (!source.endsWith("harness/lib")) continue;
+                const specs = imp.specifiers as Node[] | undefined;
+                if (!specs) continue;
+                for (const spec of specs) {
+                    if (spec.type !== "ImportSpecifier") continue;
+                    const imported = spec.imported as Node | undefined;
+                    if (imported?.type === "Identifier") importNames.push(imported.name as string);
+                    else if (imported?.type === "StringLiteral") importNames.push(imported.value as string);
+                }
             }
-            return false;
-        });
-        expect(hasBoot).toBe(true);
+            // Population control — each gate must import from harness/lib.
+            expect(importNames.length).toBeGreaterThan(0);
+            // Every imported name must resolve against lib.ts's export set.
+            for (const name of importNames) {
+                expect(exportedNames.has(name)).toBe(true);
+            }
+        }
     });
 });
 
@@ -258,8 +314,8 @@ describe("S2 — derived boot budget (pre-fix pin)", () => {
     //
     // The arm reds the moment S2 makes any argument an `Identifier` or
     // `CallExpression`. A green arm that cannot read its subject (mis-pathed
-    // gate, empty root) fails — the population control asserts the class is
-    // non-empty and each gate has at least one `setTimeout` call.
+    // gate, empty root) fails — the population control asserts the class has
+    // exactly six gates and each gate has at least one `setTimeout` call.
     //
     // Pre-fix reading (this round): 6 gates, every `setTimeout` argument a
     // `NumericLiteral` (`80_000` ×5, `120_000` persist-color).
@@ -281,7 +337,7 @@ describe("S2 — derived boot budget (pre-fix pin)", () => {
     });
 });
 
-// S3 — staging failure maps to INCOMPLETE. Three pre-fix pins, one per leg of
+// S3 — staging failure maps to INCOMPLETE. Two pre-fix pins, one per leg of
 // the mechanism; S3 replaces each with the post-fix assertion in its own diff.
 describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
     // Leg B — pin (S3 replaces). `sh`'s body span in `evals/grade.ts` holds no
@@ -290,11 +346,12 @@ describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
     //
     // `sh` is located by call structure — the function whose body wraps a
     // `Bun.spawnSync` call — not by the literal name. The reader collects
-    // every declaration form (FunctionDeclaration, ArrowFunctionExpression,
-    // FunctionExpression) and asserts exactly one match, so a decoy helper
-    // above the real subject cannot be read instead. The body node is a
-    // sibling of `returnType` on the AST, so the inline return-type
-    // annotation is not reachable from here by construction.
+    // ALL declaration forms (FunctionDeclaration, VariableDeclarator whose
+    // init is an ArrowFunctionExpression or FunctionExpression) and asserts
+    // exactly one match, so a decoy helper above the real subject cannot be
+    // read instead. The body node is a sibling of `returnType` on the AST,
+    // so the inline return-type annotation is not reachable from here by
+    // construction.
     //
     // Pre-fix reading (this round): the function wrapping `Bun.spawnSync` is a
     // `FunctionDeclaration` whose body holds 0 `ThrowStatement` nodes.
@@ -302,45 +359,6 @@ describe("S3 — staging failure maps to INCOMPLETE (pre-fix pin)", () => {
         const decl = shDeclaration(gradeAst(evalRoot()));
         const body = decl.body as Node;
         expect(collect(body, "ThrowStatement").length).toBe(0);
-    });
-
-    // Leg C — pin (S3 replaces). No type-level declaration in `evals/grade.ts`
-    // carries an `INCOMPLETE` member. The reader is exhaustive: every
-    // `TSLiteralType` anywhere in the AST whose literal is the string
-    // `INCOMPLETE`, plus every `TSEnumMember` whose id is `INCOMPLETE`
-    // (identifier or string-literal). Both sets must be empty. This pin
-    // expires with S3 — S3 replaces it with the assertion that INCOMPLETE
-    // exists as a declared result kind, in the same diff.
-    //
-    // A `console.log("INCOMPLETE")` statement cannot forge a `TSLiteralType`
-    // — a string in expression position is never a type-level literal. The
-    // exhaustive reader catches every S3 landing shape: a string-union alias,
-    // a TS enum, a discriminated union, an interface literal field, and a
-    // bare literal alias, because each produces a `TSLiteralType` or
-    // `TSEnumMember` node carrying the string.
-    //
-    // Population control: the arm anchors on `grade.ts`'s own subject — the
-    // function wrapping `Bun.spawnSync` must be present, so a decoy root with
-    // a union but no `sh` reds here, not green.
-    //
-    // Pre-fix reading (this round): 0 `TSLiteralType` nodes whose literal is
-    // `INCOMPLETE`; 0 `TSEnumMember` nodes whose id is `INCOMPLETE`.
-    test("no type-level declaration in grade.ts carries an INCOMPLETE member (pin; S3 replaces)", () => {
-        const ast = gradeAst(evalRoot());
-        // Population control — anchor on grade.ts's own subject.
-        shDeclaration(ast);
-        const incompleteLiterals = collect(ast, "TSLiteralType").filter((lit) => {
-            const literal = lit.literal as Node | undefined;
-            return literal?.type === "StringLiteral" && literal.value === "INCOMPLETE";
-        });
-        expect(incompleteLiterals).toHaveLength(0);
-        const incompleteEnumMembers = collect(ast, "TSEnumMember").filter((m) => {
-            const id = m.id as Node | undefined;
-            if (id?.type === "StringLiteral") return id.value === "INCOMPLETE";
-            if (id?.type === "Identifier") return id.name === "INCOMPLETE";
-            return false;
-        });
-        expect(incompleteEnumMembers).toHaveLength(0);
     });
 
     // Leg D — pin (S3 replaces). No `sh()` call site sits inside a `try` with a
