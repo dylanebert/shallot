@@ -354,11 +354,11 @@ async function ejectedFlow(work: string, engineTgz: string) {
     writeFileSync(join(proj, "vite.config.ts"), `${config}\n`);
     writeFileSync(
         join(proj, "shallot.json"),
-        `${JSON.stringify({ scene: "scenes/main.scene", plugins: {} }, null, 2)}\n`,
+        `${JSON.stringify({ scene: "scenes/main.scene", plugins: { Orbit: true } }, null, 2)}\n`,
     );
     writeFileSync(
         join(proj, "scenes", "main.scene"),
-        `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
+        `<scene>\n    <a ambient-light="color: 0xd0dcec; intensity: 0.5" />\n    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" />\n    <a camera sear orbit="distance: 5; yaw: 0.6; pitch: 0.25" transform />\n    <a part transform="pos: 0 0 0" color="rgba: 0.85 0.55 0.35 1" />\n</scene>\n`,
     );
     writeFileSync(
         join(proj, "index.html"),
@@ -629,6 +629,9 @@ function writeIdentityZeroConfig(dir: string, engineTgz: string) {
             2,
         )}\n`,
     );
+    // deliberately left unframed (camera at the origin, inside the part) unlike the two boot fixtures:
+    // this arm reads `verdict.checks` and never `rendered`, so no pixel is asserted here. Do not copy this
+    // scene shape into an arm that does — an origin camera sees only the cleared background.
     writeFileSync(
         join(dir, "scenes", "main.scene"),
         `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
@@ -1175,6 +1178,7 @@ if (import.meta.main) {
                 {
                     scene: "scenes/main.scene",
                     plugins: {
+                        Orbit: true, // the orbit camera the scene's `orbit` attribute drives
                         Audio: true, // an engine extra whose wasm must ship
                         Widget: "shallot-widget-fixture/widget", // an installed plugin by subpath
                         Spin: "./src/spin", // a local plugin
@@ -1186,7 +1190,7 @@ if (import.meta.main) {
         );
         writeFileSync(
             join(sandbox, "scenes", "main.scene"),
-            `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
+            `<scene>\n    <a ambient-light="color: 0xd0dcec; intensity: 0.5" />\n    <a directional-light="direction: -0.4 -1 -0.55; color: 0xfff4e0; intensity: 1.1" />\n    <a camera sear orbit="distance: 5; yaw: 0.6; pitch: 0.25" transform />\n    <a part transform="pos: 0 0 0" color="rgba: 0.85 0.55 0.35 1" />\n</scene>\n`,
         );
         writeFileSync(
             join(sandbox, "src", "spin.ts"),
