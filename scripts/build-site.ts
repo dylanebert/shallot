@@ -226,7 +226,6 @@ function siteIndex(demos: DemoEntry[], version: string, ref: string): string {
             const code = codeUrl(d.slug);
             return `            <tr>
                 <td><a href="${play}">${d.title}</a></td>
-                <td>${d.blurb}</td>
                 <td><a href="${code}">code</a></td>
             </tr>`;
         })
@@ -258,7 +257,6 @@ function siteIndex(demos: DemoEntry[], version: string, ref: string): string {
             a:hover { text-decoration: underline; }
             td:first-child { white-space: nowrap; }
             td:last-child { white-space: nowrap; text-align: right; }
-            td:nth-child(2) { color: #b0a8a0; }
             @media (max-width: 360px) {
                 body { padding: 1rem 0.75rem 2rem; }
                 td { padding: 0.4rem 0.4rem 0.4rem 0; }
