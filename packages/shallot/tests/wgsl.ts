@@ -8,8 +8,10 @@ import { expect } from "bun:test";
 export function body(src: string, signature: string): string {
     const start = src.indexOf(signature);
     expect(start).toBeGreaterThanOrEqual(0);
+    const openBrace = src.indexOf("{", start);
+    if (openBrace < 0) throw new Error(`unterminated body for ${signature}`);
     let depth = 0;
-    for (let i = src.indexOf("{", start); i < src.length; i++) {
+    for (let i = openBrace; i < src.length; i++) {
         if (src[i] === "{") depth++;
         else if (src[i] === "}" && --depth === 0) return src.slice(start, i + 1);
     }
