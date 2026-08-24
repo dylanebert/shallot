@@ -32,17 +32,25 @@
 //      the "no hand-written number" leg and the "references the exported
 //      budget" leg one claim about one owner.
 //
+//      `evals/harness/gate.config.ts`'s own `timeout: 90_000` /
+//      `globalTimeout: 180_000` is out of S1/S2's scope and stays hand-written
+//      by design: each gate's `test.setTimeout` override wins over the config
+//      default, so the config number is inert while the per-gate override
+//      stands. S2's invariant is over the per-gate override, not the config
+//      default; a future stage that makes the config default derive from the
+//      same exported budget would carry its own arm.
+//
 // S3 — a staging failure (failed `bun install` / `bunx playwright install`)
 //      in `evals/grade.ts` grades as a distinct INCOMPLETE result kind, never
 //      as the agent's task FAIL. The spec's fix: make `sh` throw on failure,
 //      catch it at the staging call sites, and map to INCOMPLETE.
 //
 //      Three arms pin three legs of this property, all `test.failing`:
-//        1. `sh`'s body contains a `throw` (the mechanism).
-//        2. `grade.ts` declares an INCOMPLETE result kind as a type member
-//           (not merely a display string).
-//        3. The staging call sites are inside try/catch (the throw is caught
-//           at the call site, not left to propagate).
+//        1. `sh`'s body contains a `throw` keyword (the mechanism).
+//        2. `grade.ts` contains an INCOMPLETE identifier or exact `"INCOMPLETE"`
+//           quoted token outside comments (the declared result kind).
+//        3. A `try` block precedes and a `catch` follows the staging call
+//           sites textually (the throw is caught at the call site).
 //
 // ── Hole records (test.failing) ──
 //
@@ -75,18 +83,58 @@ function gateFiles(): string[] {
         .filter((p) => existsSync(p));
 }
 
-// Extract a function body by brace counting from `function <name>(` to its
-// matching closing brace. Used to read `sh`'s definition without importing
-// `grade.ts` (which would pull playwright into the test graph).
+// Extract a function body by brace counting from the body's opening `{` to its
+// matching closing `}`. The body brace is the first `{` after the *parameter
+// list's* matching close-paren — not the first `{` anywhere after the needle,
+// which would mistake a return-type annotation like `{ ok: boolean; out: string }`
+// for the body (that balanced brace pair closes before the body brace, so the
+// helper would return the return-type fragment instead of the body).
 function extractFunction(src: string, name: string): string {
     const needle = `function ${name}(`;
     const start = src.indexOf(needle);
     if (start === -1) throw new Error(`function ${name} not found`);
-    let i = src.indexOf("{", start);
-    if (i === -1) throw new Error(`function ${name}: no opening brace`);
-    let depth = 0;
-    const begin = i;
+    // Skip the parameter list to its matching close-paren, so a return-type
+    // annotation with balanced braces (e.g. `{ ok: boolean; out: string }`)
+    // is not mistaken for the body.
+    let i = start + needle.length;
+    let parenDepth = 1;
     for (; i < src.length; i++) {
+        if (src[i] === "(") parenDepth++;
+        else if (src[i] === ")") {
+            parenDepth--;
+            if (parenDepth === 0) break;
+        }
+    }
+    if (parenDepth !== 0) throw new Error(`function ${name}: unterminated parameter list`);
+    // After the close-paren there may be a return-type annotation with
+    // balanced braces (e.g. `{ ok: boolean; out: string }`) that closes
+    // before the body brace. If a `:` precedes the first `{` and that
+    // `{...}` is followed by another `{`, the first block is the return
+    // type — the body brace is the second `{`.
+    let bodyBrace = src.indexOf("{", i);
+    if (bodyBrace === -1) throw new Error(`function ${name}: no opening brace`);
+    const colonIdx = src.indexOf(":", i);
+    if (colonIdx !== -1 && colonIdx < bodyBrace) {
+        let depth = 0;
+        let k = bodyBrace;
+        for (; k < src.length; k++) {
+            if (src[k] === "{") depth++;
+            else if (src[k] === "}") {
+                depth--;
+                if (depth === 0) break;
+            }
+        }
+        if (depth !== 0) throw new Error(`function ${name}: unterminated`);
+        let next = k + 1;
+        while (next < src.length && /\s/.test(src[next])) next++;
+        if (next < src.length && src[next] === "{") {
+            bodyBrace = next;
+        }
+    }
+    // Extract the body from bodyBrace to its matching close brace.
+    let depth = 0;
+    const begin = bodyBrace;
+    for (i = bodyBrace; i < src.length; i++) {
         if (src[i] === "{") depth++;
         else if (src[i] === "}") {
             depth--;
@@ -104,6 +152,14 @@ function stripStringLiterals(src: string): string {
         .replace(/"(?:[^"\\]|\\.)*"/g, '""')
         .replace(/'(?:[^'\\]|\\.)*'/g, "''")
         .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+}
+
+// Strip `//` line comments and `/* */` block comments so a bare word in a
+// comment does not match an identifier search. Cheapest form: a regex strip,
+// not a full lexer — adequate for the INCOMPLETE arm's purpose, which only
+// needs to prevent a zero-behavior-change comment from flipping the arm.
+function stripComments(src: string): string {
+    return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
 }
 
 // Escape a string for use in a RegExp — prevents identifier characters that
@@ -169,12 +225,20 @@ describe("S2 — derived boot budget (failing: owed to S2)", () => {
     //
     // Matcher CAN: detect that each gate's setTimeout argument is an
     // identifier (not a numeric literal) and that identifier is exported by
-    // lib.ts.
+    // lib.ts (as const, let, function, or enum).
     // Matcher CANNOT: see whether the identifier is the *worst-case* budget
     // (it could be any exported constant); cannot verify the full expression
     // if the argument is arithmetic (e.g. `BUDGET * 2` — the regex captures
     // only the first token); cannot see whether all six gates reference the
     // *same* identifier (each gate is checked independently).
+    //
+    // Witnessed flip: adding `export const BOOT_CEILING_MS = 120_000;` to
+    // lib.ts and changing every gate's `test.setTimeout(80_000)` /
+    // `test.setTimeout(120_000)` to `test.setTimeout(BOOT_CEILING_MS)` reds
+    // this arm (`^ this test is marked as failing but it passed`). Also
+    // witnessed red with `export function bootCeilingMs(): number { return
+    // 120_000; }` and `test.setTimeout(bootCeilingMs())` — the function-form
+    // export, which the widened exportRe now admits.
     test.failing("each gate's setTimeout argument is an identifier exported by lib.ts (discharged by S2)", () => {
         const gates = gateFiles();
         expect(gates).toHaveLength(6);
@@ -182,7 +246,7 @@ describe("S2 — derived boot budget (failing: owed to S2)", () => {
         for (const gate of gates) {
             const src = readFileSync(gate, "utf8");
             // Extract the first setTimeout call's argument.
-            const m = src.match(/setTimeout\s*\(\s*([^)\s,]+)/);
+            const m = src.match(/setTimeout\s*\(\s*([^)\s,(]+)/);
             expect(m).not.toBeNull();
             const arg = m![1];
             // The argument must be an identifier, not a numeric literal.
@@ -190,7 +254,12 @@ describe("S2 — derived boot budget (failing: owed to S2)", () => {
             expect(arg).toMatch(/^[A-Za-z_$]/);
             // That identifier must be exported by lib.ts — one owner for all
             // six gates, not a local constant or an unrelated reference.
-            const exportRe = new RegExp(`export\\s+(?:const|let)\\s+${escapeRegex(arg)}\\b`);
+            // Widened to admit `export function NAME` and `export enum NAME`
+            // alongside `export const|let NAME`, so a derived budget spelled
+            // as a function (e.g. `bootCeilingMs()`) is not invisible.
+            const exportRe = new RegExp(
+                `export\\s+(?:const|let|function|enum)\\s+${escapeRegex(arg)}\\b`,
+            );
             expect(lib).toMatch(exportRe);
         }
     });
@@ -200,41 +269,73 @@ describe("S2 — derived boot budget (failing: owed to S2)", () => {
 // green while the defect stands, red the moment S3 makes the property true, so
 // S3 must flip each arm inside its own diff.
 describe("S3 — staging failure maps to INCOMPLETE (failing: owed to S3)", () => {
-    // Leg 1: `sh`'s body contains a `throw` — the mechanism that makes a
-    // staging failure propagate instead of being silently swallowed.
+    // Leg 1: `sh`'s body contains a `throw` keyword — the mechanism that makes
+    // a staging failure propagate instead of being silently swallowed.
     //
     // Matcher CAN: detect that the keyword `throw` appears somewhere in
-    // `sh`'s function body.
+    // `sh`'s function body (after fixing extractFunction to skip the return-
+    // type annotation's balanced braces and read the real body).
     // Matcher CANNOT: distinguish a throw on non-zero exit from a throw for
     // any other reason; cannot confirm the throw is reachable from the
     // staging call sites; cannot see whether the throw is caught and mapped
     // to INCOMPLETE. Legs 2 and 3 cover those properties.
-    test.failing("sh throws on non-zero exit code (discharged by S3)", () => {
+    //
+    // Witnessed flip: adding `if (p.exitCode !== 0) { throw new Error(...) }`
+    // to the real `sh` body reds this arm (`^ this test is marked as failing
+    // but it passed`). Before the extractFunction fix the arm read the return-
+    // type fragment `{ ok: boolean; out: string }` and stayed green even with
+    // the throw present — the blocker.
+    test.failing("sh's body contains a throw keyword (discharged by S3)", () => {
         const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
         const shBody = extractFunction(grade, "sh");
         expect(shBody).toContain("throw");
     });
 
-    // Leg 2: `grade.ts` declares an INCOMPLETE result kind as a type member
-    // (type alias, enum, or const), not merely as a display string in the
-    // verdict line. Today "INCOMPLETE" appears only inside a string literal
-    // (`"INCOMPLETE (gate did not run)"`); after S3 it should be a declared
-    // member of the result union, distinct from FAIL.
+    // Leg 2: `grade.ts` contains an INCOMPLETE identifier or exact `"INCOMPLETE"`
+    // quoted token outside comments — the declared result kind, not merely a
+    // display string. Today "INCOMPLETE" appears only inside the display string
+    // `"INCOMPLETE (gate did not run)"`; after S3 it should be a declared
+    // member of the result union (bare identifier in an enum/const/type alias,
+    // or a string-literal union member `"INCOMPLETE"`).
     //
-    // Matcher CAN: detect that "INCOMPLETE" appears as a bare identifier
-    // outside any string literal — i.e., in a type declaration, const, or
-    // enum, not just in a display string.
+    // Two admissible forms:
+    //   1. Bare `\bincomplete\b` identifier in the comment-stripped, string-
+    //      stripped source (catches `enum ResultKind { … INCOMPLETE … }` or
+    //      `const INCOMPLETE = …`).
+    //   2. Exact `"INCOMPLETE"` quoted token in the comment-stripped source
+    //      (catches `type ResultKind = "PASS" | "FAIL" | "INCOMPLETE"`).
+    //      The display string `"INCOMPLETE (gate did not run)"` does NOT match
+    //      because there is no closing `"` immediately after `INCOMPLETE`.
+    //
+    // Matcher CAN: detect that "INCOMPLETE" appears as a bare identifier or
+    // exact quoted token outside comments — i.e., in a type declaration,
+    // const, or enum, or as a string-literal union member, not just in a
+    // display string.
     // Matcher CANNOT: confirm the identifier is a member of the result
     // union specifically (it could be an unrelated constant); cannot
-    // distinguish a type union member from a runtime constant.
-    test.failing("grade.ts declares an INCOMPLETE result kind distinct from FAIL (discharged by S3)", () => {
+    // distinguish a type union member from a runtime constant; cannot tell
+    // union membership from an unrelated constant of the same name.
+    //
+    // Witnessed flip: adding `type ResultKind = "PASS" | "FAIL" | "INCOMPLETE";`
+    // to grade.ts reds this arm (`^ this test is marked as failing but it
+    // passed`) — the string-literal-union form that was invisible before the
+    // quoted-token admissible form was added. Also reds on a bare `enum` or
+    // `const INCOMPLETE` declaration. A bare comment
+    // `// TODO: … incomplete …` does NOT red (comments are stripped first).
+    test.failing("grade.ts contains an INCOMPLETE identifier or exact quoted token outside comments (discharged by S3)", () => {
         const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
-        const stripped = stripStringLiterals(grade);
-        expect(stripped).toMatch(/\bincomplete\b/i);
+        const noComments = stripComments(grade);
+        // Form 1: bare identifier outside string literals.
+        const noStrings = stripStringLiterals(noComments);
+        const bareIdent = /\bincomplete\b/i.test(noStrings);
+        // Form 2: exact "INCOMPLETE" quoted token (string-literal union member).
+        // Does not match "INCOMPLETE (gate did not run)" — no closing `"` after.
+        const quotedToken = /"INCOMPLETE"/.test(noComments);
+        expect(bareIdent || quotedToken).toBe(true);
     });
 
-    // Leg 3: the staging call sites (bun install, playwright install) are
-    // inside try/catch — a throw from `sh` is caught at the call site, not
+    // Leg 3: a `try` block precedes and a `catch` follows the staging call
+    // sites textually — a throw from `sh` is caught at the call site, not
     // left to propagate. Today the staging calls are bare `sh(...)` statements
     // with discarded return values and no error handling.
     //
@@ -244,7 +345,11 @@ describe("S3 — staging failure maps to INCOMPLETE (failing: owed to S3)", () =
     // Matcher CANNOT: confirm the try/catch wraps the staging calls
     // specifically (text matching cannot determine brace nesting); cannot
     // confirm the catch maps to INCOMPLETE rather than rethrowing.
-    test.failing("staging call sites are inside try/catch (discharged by S3)", () => {
+    //
+    // Witnessed flip: wrapping the `sh(["bun", "install"], runDir)` and
+    // `sh(["bunx", "playwright", …], runDir)` calls in a `try { … } catch { … }`
+    // reds this arm (`^ this test is marked as failing but it passed`).
+    test.failing("a try block precedes and a catch follows the staging call sites textually (discharged by S3)", () => {
         const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
         const stagingIdx = grade.indexOf('sh(["bun", "install"]');
         expect(stagingIdx).not.toBe(-1);
