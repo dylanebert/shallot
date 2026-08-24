@@ -162,6 +162,18 @@ describe("parseVerifyArgs", () => {
         expect(() => parseVerifyArgs(["--leak=122880"])).toThrow("--leak requires --memory");
     });
 
+    // HOLE-RECORD ARM — `--leak 0` should be accepted as "off" (verify.ts:94 JSDoc: "0 = off",
+    // line 130 defaults `leak: 0`, line 172 branches on `args.leak > 0 && !args.memory`), but `num()`
+    // (verify.ts:117) rejects `n <= 0` so `--leak 0` throws. `.not.toThrow()` sees only the absence of a
+    // throw: it CANNOT see the parsed *value*, so an S2 that stops throwing while parsing `0` to anything
+    // else greens it — which is why the sibling arm above pins `parseVerifyArgs([]).leak === 0` and why S2
+    // owes `parseVerifyArgs(["--leak", "0"]).leak === 0` here. S2 of this spec (audit-cli-numeric-flags) is
+    // the unit that flips this arm green, and its first act in this file is deleting the status-quo pin at
+    // the `--leak defaults to 0 (off)` arm above, which asserts the very throw this arm forbids.
+    test("--leak 0 is accepted as off, not rejected by num() — RED today (verify.ts:94 says 0 = off)", () => {
+        expect(() => parseVerifyArgs(["--leak", "0"])).not.toThrow();
+    });
+
     test("--timings defaults off, flips on", () => {
         expect(parseVerifyArgs([]).timings).toBe(false);
         expect(parseVerifyArgs(["--timings"]).timings).toBe(true);

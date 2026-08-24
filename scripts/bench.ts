@@ -209,7 +209,7 @@ export function partitionSweep(
     return { batch, isolate };
 }
 
-function parseArgs(argv: string[]): Args {
+export function parseArgs(argv: string[]): Args {
     if (argv.includes("--help") || argv.includes("-h")) {
         help();
         process.exit(0);
