@@ -161,7 +161,11 @@ function endpoints(
         const parts: string[] = [];
         if (!ta) parts.push(cause("a", a));
         if (!tb) parts.push(cause("b", b));
-        warnOnce(warned, `${key}|endpoint`, `[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`);
+        warnOnce(
+            warned,
+            `${key}|endpoint`,
+            `[tumble] ${kind} endpoint unavailable — ${parts.join("; ")}`,
+        );
         return null;
     }
     return [ta, tb];
@@ -261,7 +265,9 @@ export function syncSprings(
 ): void {
     retainedSprings = defs;
     warnedSprings.clear();
-    syncSet(liveSprings, defs, springKey, (d) => createSpring(world, bodies, d, isDeferred, warnedSprings));
+    syncSet(liveSprings, defs, springKey, (d) =>
+        createSpring(world, bodies, d, isDeferred, warnedSprings),
+    );
 }
 
 /** reconcile the authored joint set against the live tumble joints — the `syncSprings` twin over the Spherical/Weld mapping. Retains the def set for `resyncConstraints` and clears the warned-key set so the authored upload's diagnostics fire fresh. */
@@ -273,7 +279,9 @@ export function syncJoints(
 ): void {
     retainedJoints = defs;
     warnedJoints.clear();
-    syncSet(liveJoints, defs, jointKey, (d) => createJoint(world, bodies, d, isDeferred, warnedJoints));
+    syncSet(liveJoints, defs, jointKey, (d) =>
+        createJoint(world, bodies, d, isDeferred, warnedJoints),
+    );
 }
 
 /** re-invoke `syncJoints`/`syncSprings` over the retained def sets — the pump half of the late-marshal fix.
