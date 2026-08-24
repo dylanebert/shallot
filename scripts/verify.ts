@@ -75,7 +75,7 @@ export interface RenderProbe {
     corner: number[] | null;
     /** the centre-vs-corner spread (sum of abs channel diffs) of the last sample, or null. */
     spread: number | null;
-    /** the threshold `structured` gates on (the `12` in `hasStructure`). */
+    /** the threshold `structured` gates on (`STRUCTURE_THRESHOLD`). */
     threshold: number;
     /** elapsed milliseconds from the first poll to the wait outcome. */
     elapsed: number;
