@@ -10,7 +10,7 @@ Pull requests are by invitation only. Shallot is a single-author engine at this 
 
 ## developing
 
-The gate before pushing is `bun check` and `bun test`. The slow suites are separate: run the one covering what you changed, by path.
+The gate before pushing is `bun check` and `bun run test`. The slow suites are separate: run the one covering what you changed, by path.
 
 - `bun test ./packages/shallot/tests/avbd/*.oracle.ts` — AVBD/physics
 - `bun test ./examples/gym/src` — the engine or host layer
