@@ -51,6 +51,18 @@ export interface VerifyResult {
     /** `true` rendered structure, `false` blank, `"opt-out"` when the harness declared `noRender`
      *  (renders nothing by design — the pixel gate was skipped). */
     rendered?: boolean | "opt-out";
+    /** shader compilation artifacts, present only on failure — carries the GPU diagnostic text
+     *  (compilation errors, validation messages) the page captured. The driver surfaces this so a
+     *  red with empty `errors` still names its diagnostic rather than printing `[]`. */
+    artifacts?: ShaderArtifactSummary[];
+}
+
+/** the minimal slice of `bin/verify.ts`'s `ShaderArtifact` a driver reads for diagnostics. */
+export interface ShaderArtifactSummary {
+    label: string;
+    stage: string;
+    compilationError?: { errorClass: string; message: string };
+    messages?: Array<{ type: string; message: string; lineNum: number; linePos: number }>;
 }
 
 const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");

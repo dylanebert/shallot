@@ -20,7 +20,13 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { skipReason, teardownBridge, type VerifyResult, verify } from "./verify";
+import {
+    type ShaderArtifactSummary,
+    skipReason,
+    teardownBridge,
+    type VerifyResult,
+    verify,
+} from "./verify";
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
@@ -58,6 +64,35 @@ const check = (name: string, cond: boolean, detail = "") => {
     console.log(`  ${cond ? "✓" : "✗"} ${name}${detail ? ` — ${detail}` : ""}`);
     if (!cond) fails.push(name);
 };
+
+/** extract the page's diagnostic from a verify result so a red is legible, or name the absence as an
+ *  instrument fault. The ejected boot arm was once dismissed as a flake because its detail printed `[]`
+ *  — an empty `errors` array that a future reader can wave away. This surfaces the diagnostic wherever
+ *  it landed (page errors, setup error, verdict checks, shader artifacts) and, when none carried one,
+ *  reports a named instrument fault rather than an empty container. On a pass the errors array is the
+ *  detail (empty = no errors), never an instrument fault. */
+function verifyDiagnostic(result: VerifyResult | null): string {
+    if (!result) return "no verify result";
+    const errors = result.errors ?? [];
+    if (errors.length > 0) return errors.join(" | ");
+    if (result.error) return result.error;
+    if (result.pass) return "pass";
+    const failedChecks = (result.verdict?.checks ?? []).filter((c) => !c.ok);
+    if (failedChecks.length > 0) return JSON.stringify(failedChecks);
+    const artifacts = result.artifacts ?? [];
+    const diagArtifacts = artifacts.filter(
+        (a: ShaderArtifactSummary) => a.compilationError || (a.messages && a.messages.length > 0),
+    );
+    if (diagArtifacts.length > 0)
+        return JSON.stringify(
+            diagArtifacts.map((a) => ({
+                label: a.label,
+                compilationError: a.compilationError,
+                messages: a.messages,
+            })),
+        );
+    return "instrument fault: verify red with no diagnostic (no page errors, no verdict checks, no shader artifacts)";
+}
 
 /** the `identity-check.ts` probe body — brand-checks the engine-built canary against the app's own
  * `typegpu` resolution (`GREEN`) and a second physical copy (`RED`); `ejectedFlow`, `identityFlow`, and
@@ -351,7 +386,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
     check(
         "the documented ejected recipe boots and warms its pipelines as written",
         green?.pass === true && green.booted === true && green.rendered === true,
-        green ? JSON.stringify(green.errors ?? green.error ?? green) : "no verify result",
+        verifyDiagnostic(green),
     );
 
     // No red-proof mutant here (found investigating 5b-2f-6, after the check above went green for the
