@@ -229,6 +229,9 @@ export function parseArgs(argv: string[]): Args {
         return argv[i + 1];
     };
     const num = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
         const n = Number(v);
         if (!Number.isFinite(n)) {
             throw new Error(`invalid ${flag} value "${v}" — expected a number`);

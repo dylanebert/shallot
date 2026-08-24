@@ -72,9 +72,15 @@ export function parseCliArgs(raw: string[]): CliArgs {
     let help = false;
 
     const num = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
         const n = Number(v);
         if (!Number.isFinite(n) || n <= 0) {
             throw new Error(`invalid ${flag} value "${v}" — expected a positive number`);
+        }
+        if (!Number.isInteger(n)) {
+            throw new Error(`invalid ${flag} value "${v}" — expected an integer`);
         }
         return n;
     };

@@ -113,6 +113,9 @@ export interface VerifyArgs {
  */
 export function parseVerifyArgs(raw: string[]): VerifyArgs {
     const num = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
         const n = Number(v);
         if (!Number.isFinite(n) || n <= 0) {
             throw new Error(`invalid ${flag} value "${v}" — expected a positive number`);
@@ -120,6 +123,9 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         return n;
     };
     const numNonNeg = (flag: string, v: string): number => {
+        if (v.trim() === "") {
+            throw new Error(`invalid ${flag} value "${v}" — must not be empty`);
+        }
         const n = Number(v);
         if (!Number.isFinite(n) || n < 0) {
             throw new Error(`invalid ${flag} value "${v}" — expected a non-negative number`);

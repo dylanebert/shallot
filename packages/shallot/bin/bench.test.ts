@@ -31,4 +31,16 @@ describe("parseArgs — bench.ts numeric flag validation", () => {
     test("--leak abc throws with a message naming the flag instead of flowing NaN", () => {
         expect(() => parseArgs(["--leak", "abc"])).toThrow('invalid --leak value "abc"');
     });
+
+    test("an empty --seed value is rejected as empty, not silently coerced to 0", () => {
+        expect(() => parseArgs(["--seed", ""])).toThrow(
+            'invalid --seed value "" — must not be empty',
+        );
+    });
+
+    test("a whitespace-only --seed value is rejected, not silently coerced to 0", () => {
+        expect(() => parseArgs(["--seed", " "])).toThrow(
+            'invalid --seed value " " — must not be empty',
+        );
+    });
 });

@@ -138,6 +138,24 @@ describe("parseVerifyArgs", () => {
         expect(() => parseVerifyArgs(["--timeout=-5"])).toThrow('invalid --timeout value "-5"');
     });
 
+    test("an empty --port value is rejected as empty, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--port="])).toThrow(
+            'invalid --port value "" — must not be empty',
+        );
+    });
+
+    test("a whitespace-only --port value is rejected, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--port", " "])).toThrow(
+            'invalid --port value " " — must not be empty',
+        );
+    });
+
+    test("--port 8080abc is rejected as non-numeric, not truncated to 8080", () => {
+        expect(() => parseVerifyArgs(["--port", "8080abc"])).toThrow(
+            'invalid --port value "8080abc"',
+        );
+    });
+
     test("--memory and --alloc are separate flags, default false", () => {
         const a = parseVerifyArgs([]);
         expect(a.memory).toBe(false);
@@ -168,6 +186,18 @@ describe("parseVerifyArgs", () => {
     test("--leak 0 is accepted as off (leak === 0, not rejected)", () => {
         expect(() => parseVerifyArgs(["--leak", "0"])).not.toThrow();
         expect(parseVerifyArgs(["--leak", "0"]).leak).toBe(0);
+    });
+
+    test("an empty --leak value is rejected as empty, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--leak="])).toThrow(
+            'invalid --leak value "" — must not be empty',
+        );
+    });
+
+    test("a whitespace-only --leak value is rejected, not silently coerced to 0", () => {
+        expect(() => parseVerifyArgs(["--leak", " "])).toThrow(
+            'invalid --leak value " " — must not be empty',
+        );
     });
 
     test("--timings defaults off, flips on", () => {

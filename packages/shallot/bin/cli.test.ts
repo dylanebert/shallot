@@ -64,4 +64,28 @@ describe("parseCliArgs", () => {
     test("--port abc throws with a message naming the flag instead of flowing NaN to vite", () => {
         expect(() => parseCliArgs(["dev", "--port", "abc"])).toThrow('invalid --port value "abc"');
     });
+
+    test("an empty --port value is rejected as empty, not silently coerced to 0", () => {
+        expect(() => parseCliArgs(["dev", "--port="])).toThrow(
+            'invalid --port value "" — must not be empty',
+        );
+    });
+
+    test("a whitespace-only --port value is rejected, not silently coerced to 0", () => {
+        expect(() => parseCliArgs(["dev", "--port", " "])).toThrow(
+            'invalid --port value " " — must not be empty',
+        );
+    });
+
+    test("--port 8080abc is rejected as non-numeric, not truncated to 8080", () => {
+        expect(() => parseCliArgs(["dev", "--port", "8080abc"])).toThrow(
+            'invalid --port value "8080abc"',
+        );
+    });
+
+    test("--port 8080.5 is rejected as a non-integer, not passed to vite as a float", () => {
+        expect(() => parseCliArgs(["dev", "--port", "8080.5"])).toThrow(
+            'invalid --port value "8080.5" — expected an integer',
+        );
+    });
 });
