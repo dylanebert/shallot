@@ -9,6 +9,7 @@ import {
     cliTestFiles,
     globToRegExp,
 } from "./cli-coverage";
+import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
 // fixture-only red-proofs (a check is evidence only if you've seen it fail): each of these
 // was run against a broken registry first — see the spec's Live log / commit for the real-file mutations
@@ -164,12 +165,12 @@ describe("globToRegExp", () => {
 });
 
 describe("cliPopulation suffix exclusion", () => {
-    test("excludes all four test-tier suffixes testing.md names, not just .test.ts", async () => {
+    test("excludes all five test-tier suffixes the shared roster names, not just .test.ts", async () => {
         const root = resolve(import.meta.dir, "../../.."); // packages/shallot/tests -> repo root
         const population = await cliPopulation(root);
         expect(population).not.toContain("packages/shallot/bin/verify.probes.ts");
         for (const path of population) {
-            expect(path).not.toMatch(/\.(test|oracle|probes|lab)\.ts$/);
+            expect(path).not.toMatch(TEST_TIER_SUFFIXES);
         }
     });
 });

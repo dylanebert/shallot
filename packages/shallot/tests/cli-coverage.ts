@@ -12,6 +12,7 @@
 // otherwise have held: what's covered and by what, plus what isn't and who closes it.
 
 import { posix, resolve } from "node:path";
+import { TEST_TIER_SUFFIX_NAMES, TEST_TIER_SUFFIXES } from "./test-tiers";
 
 /** the four tiers of truth a row may claim, per the spec's Locked decision. */
 export type Arm = "unit" | "tier" | "extract" | "gap";
@@ -63,12 +64,14 @@ export function globToRegExp(glob: string): RegExp {
     return new RegExp(`^${pattern}$`);
 }
 
-/** the four test-tier suffixes `testing.md` names (`.test.ts`, `.oracle.ts`, `.probes.ts`, `.lab.ts`) —
- *  a test file, at whatever tier, is not itself a population member needing a row; it's the instrument,
- *  not the thing measured. Excluding only `.test.ts` would leave `verify.probes.ts` in the population as
- *  if it were untested production code, when it is itself the by-path browser gate for two constants
- *  `verify.test.ts` already sentinels. */
-export const TEST_TIER_SUFFIXES = /\.(test|oracle|probes|lab)\.ts$/;
+/** the test-tier suffix roster — re-exported from the shared `test-tiers.ts` constant so the tier
+ *  list lives in one place. A test file, at whatever tier, is not itself a population member needing a
+ *  row; it's the instrument, not the thing measured. Excluding only `.test.ts` would leave
+ *  `verify.probes.ts` in the population as if it were untested production code, when it is itself the
+ *  by-path browser gate for two constants `verify.test.ts` already sentinels — and omitting `.tier`
+ *  would demand a `*.tier.ts` coverage row as production code. `scripts/check-docs.ts` asserts this
+ *  constant against `testing.md`'s own enumeration. */
+export { TEST_TIER_SUFFIX_NAMES, TEST_TIER_SUFFIXES };
 
 /** walks the real filesystem under `root` (the shallot repo root) and returns every path (relative to
  *  `root`, forward-slashed) matching {@link CLI_POPULATION_GLOBS}, excluding every test-tier suffix. */
