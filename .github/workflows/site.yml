@@ -1,0 +1,104 @@
+# Demo site build + deploy — builds every showcase demo as an ejected consumer of the
+# published package, assembles the site index, and deploys to GitHub Pages.
+#
+# FILENAME — this file is `site.yml`, never `pages.yml`. GitHub keys workflow records by
+# path: the deleted docs site's workflow lived at `.github/workflows/pages.yml`, its record
+# still exists in `disabled_manually` state (`gh workflow list --all` shows
+# `pages  disabled_manually  307734379`), and a new file at that path would inherit that
+# disabled state and never run — with no error, a silent no-run that reads as a green stage.
+# The managed `pages-build-deployment` dynamic workflow at `dynamic/pages/` is inert while
+# `build_type: workflow`, so no action there either.
+
+name: site
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: "Deploy the built site to GitHub Pages (default: artifact only)"
+        type: boolean
+        default: false
+
+# TRIGGER ASYMMETRY — mirrors release.yml:
+#   • push to tag v*  → builds AND deploys to GitHub Pages.
+#   • workflow_dispatch → builds the SAME artifact and uploads it as a run artifact only.
+#     A dispatch run MUST NOT deploy unless the `deploy` input is explicitly set to true.
+#     The deploy job's `if:` gate (below) is the only thing keeping a dispatch run from
+#     publishing. Do NOT remove or broaden that condition — it is the dispatch safety
+#     property, the same way release.yml's tag-gated upload step is the dry-run safety
+#     property there.
+
+# Least-privilege: the build job needs only contents: read. The deploy job (which calls
+# actions/deploy-pages) needs pages: write + id-token: write and the github-pages
+# environment — those are job-level declarations, so the deploy path is a separate job
+# rather than a step-level condition on a single job. One Pages artifact is uploaded by
+# the build job; the deploy job consumes the same artifact.
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # check-site.ts's root-absolute clause reads out/site/ — without SITE_OUT_REQUIRED=1
+      # it skips green over nothing (the clause owes a *_REQUIRED=1 arm that reds on the
+      # absent artifact rather than skipping). Set at the job level so it applies to the
+      # check step. The ordering (bun run site before the check) is load-bearing: the
+      # check reads out/site/, which `bun run site` just created.
+      SITE_OUT_REQUIRED: "1"
+    steps:
+      # First-party actions on major tags, deliberately (see release.yml for the rationale).
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Plain `bun install`, deliberately NOT `--frozen-lockfile`. Measured on a pristine
+      # clone: the frozen install fails because @types/bun / bun-types float with the
+      # installing bun's version (1.3.14 committed, 1.4.0 resolving). The site job's
+      # question is whether the demos build; lockfile canonicality is check-versions.ts's
+      # job, which already reads bun.lock's workspace entries. The plausible "hardening" of
+      # this line is exactly the relaxation that would red every future run.
+      - run: bun install
+
+      - run: bun run site
+
+      # Runs check-site.ts (the site membership + root-absolute gate) with
+      # SITE_OUT_REQUIRED=1. The full `bun check` suite's first step (format.ts) imports
+      # the engine barrel, which transitively imports the gitignored audio wasm
+      # (packages/shallot/rust/audio/pkg/shallot_audio.js) — so the full suite is red in a
+      # fresh CI checkout without a Rust build step, and this workflow adds none (the
+      # ejected demo build path installs the published package, whose tarball ships
+      # rust/audio/pkg). check-site.ts imports only site/roster (no engine, no wasm), so it
+      # runs green without Rust. The ordering (site before check) is load-bearing:
+      # check-site.ts's root-absolute clause reads out/site/, which `bun run site` created.
+      - run: bun run scripts/check-site.ts
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/site
+
+  # TAG-ONLY (or explicit dispatch-deploy): deploy the Pages artifact to GitHub Pages.
+  #
+  # The if: gate is the dispatch safety property — a workflow_dispatch run's github.ref is
+  # a branch ref (refs/heads/<branch>), never refs/tags/v*, so without the `deploy` input
+  # being explicitly true this job is skipped and the run is artifact-only. Do NOT remove or
+  # broaden this condition. A dispatch run without that input is structurally incapable of
+  # deploying: the job is skipped entirely, not merely a step within it.
+  deploy:
+    needs: build
+    if: ${{ startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy == true) }}
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
