@@ -20,8 +20,11 @@ export interface RunArgs {
     env?: (staged: WindowsPaths | null) => Record<string, string>;
     /** true: stream the child's stdout (the live list reporter); false (default): capture + return it */
     inherit?: boolean;
-    /** hard ceiling on the whole spawn — a backstop above Playwright's own `globalTimeout`, never the
-     *  primary guard. Per-test / action timeouts in the config catch a hung flow long before this. */
+    /** hard ceiling on the whole spawn — a backstop above `gate.config.ts`'s own `globalTimeout`
+     *  (itself above every gate's own `test.setTimeout`), each level derived from `harness/lib`'s one
+     *  owner rather than a separately hand-picked number, so the three stay ordered as the owner
+     *  moves. Not a guard sized with comfortable slack by assumption: the worst gate's own per-test
+     *  budget is the largest term the ceilings above it are built from. */
     timeoutMs: number;
 }
 

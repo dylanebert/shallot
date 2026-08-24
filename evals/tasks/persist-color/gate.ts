@@ -1,9 +1,9 @@
 import { test } from "@playwright/test";
 import {
     type Assertion,
-    BOOT_BUDGET_MS,
     boot,
     emit,
+    MAX_GATE_BUDGET_MS,
     type Rgb,
     region,
     shot,
@@ -17,7 +17,7 @@ const isRed = (c: Rgb): boolean => c.r > 90 && c.r > c.g + 40 && c.r > c.b + 40;
 const isBlue = (c: Rgb): boolean => c.b > 90 && c.b > c.r + 30 && c.b > c.g + 20;
 
 test("persist-color", async ({ page }) => {
-    test.setTimeout(BOOT_BUDGET_MS);
+    test.setTimeout(MAX_GATE_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {

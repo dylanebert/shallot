@@ -19,8 +19,9 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { SPAWN_BACKSTOP_MS } from "./harness/lib";
 import { runPlaywright } from "./harness/playwright";
-import { deriveResultKind, resultKindToPass, type ResultKind } from "./harness/result";
+import { deriveResultKind, type ResultKind, resultKindToPass } from "./harness/result";
 import { startServer } from "./harness/server";
 import { detectDisplay, isWSL } from "./harness/wsl";
 
@@ -196,7 +197,7 @@ if (!detectDisplay()) {
                     files: ["package.json", "gate.config.ts", "lib.ts", "gate.ts"],
                 },
                 env: () => ({ EVAL_URL: url }),
-                timeoutMs: 240_000,
+                timeoutMs: SPAWN_BACKSTOP_MS,
             });
             const m = run.stdout.match(RESULT_RE);
             if (m) {

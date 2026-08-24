@@ -140,6 +140,26 @@ const DEFAULT_SETTLE_MS = 20_000;
 export const BOOT_BUDGET_MS =
     2 * (GOTO_TIMEOUT_MS + SELECTOR_TIMEOUT_MS) + RETRY_DELAY_MS + DEFAULT_SETTLE_MS;
 
+// The worst-case gate, not the worst-case boot: persist-color calls boot() twice — once at the top,
+// once after the page reload its own positive claim requires — so its real worst path is two boot
+// budgets, not one. falling-box's un-retried post-reload wait (a fresh 20s selector timeout) plus its
+// unconditional 6s sampling loop is the same shape at a smaller magnitude, and 2 * BOOT_BUDGET_MS
+// already covers it (121_000 + 20_000 + 6_000 = 147_000 < 242_000). Every task gate's setTimeout
+// derives from this one name — a per-gate budget would still have to clear the same two ceilings
+// above it, so one owner sized to the worst gate costs nothing a per-gate expression wouldn't also
+// pay, and it keeps the arithmetic in this one file rather than restated per gate.
+export const MAX_GATE_BUDGET_MS = 2 * BOOT_BUDGET_MS;
+
+// The whole-run wall clock (`gate.config.ts`'s `globalTimeout`) sits above the per-test ceiling by one
+// full boot budget's headroom — enough that a run tripping it is evidence of something beyond the
+// worst gate's own documented worst case, not a ceiling flush against the number it must exceed.
+export const GLOBAL_TIMEOUT_MS = MAX_GATE_BUDGET_MS + BOOT_BUDGET_MS;
+
+// The spawn backstop (`grade.ts`'s `runPlaywright({ timeoutMs })`) sits above the whole-run wall clock
+// by the same one-boot margin, so the ladder's three levels — per-test, config, spawn — each clear the
+// one below by a fixed, derived amount instead of a hand-picked total.
+export const SPAWN_BACKSTOP_MS = GLOBAL_TIMEOUT_MS + BOOT_BUDGET_MS;
+
 export async function boot(
     page: Page,
     settleMs = DEFAULT_SETTLE_MS,
