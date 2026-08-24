@@ -20,6 +20,7 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { runPlaywright } from "./harness/playwright";
+import { deriveResultKind, resultKindToPass, type ResultKind } from "./harness/result";
 import { startServer } from "./harness/server";
 import { detectDisplay, isWSL } from "./harness/wsl";
 
@@ -43,6 +44,15 @@ interface Check {
     ok: boolean | null;
     detail?: string;
 }
+// The result kind an infrastructure failure must be distinguishable from: a staging failure (a
+// dependency install `sh` throws on) or a gate that produced no envelope (the audit's own
+// "gate produced no result" branch, a fired spawn backstop included) is the *harness* failing, not
+// the agent's task — a determined typecheck or build failure outranks an unrunnable gate, so
+// INCOMPLETE is reserved for a run where nothing determined the outcome (see ./harness/result's
+// docblock). A graded call site's nonzero exit (typecheck, build) is the opposite: the subject's own
+// task failing, which stays a legitimate FAIL. The derivation itself
+// (and its ResultKind) lives in ./harness/result — a pure, import-safe module a test can call
+// directly, since this script (argv parsing, top-level await) never can be imported by one.
 interface Result {
     task: string;
     project: string;
@@ -62,12 +72,18 @@ interface Result {
         verifiedHonestly: boolean | null;
         notes: string | null;
     };
+    kind: ResultKind;
     pass: boolean | null;
 }
 
+// Throws on a nonzero exit rather than discarding it — a staging failure (an install `sh` runs for
+// the browser gate) must be visible to its caller as a fault, never silently continue into a run that
+// grades the agent's task on infrastructure that never finished setting up.
 function sh(cmd: string[], cwd: string): { ok: boolean; out: string } {
     const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
-    return { ok: p.exitCode === 0, out: `${p.stdout.toString()}\n${p.stderr.toString()}` };
+    const out = `${p.stdout.toString()}\n${p.stderr.toString()}`;
+    if (p.exitCode !== 0) throw new Error(`${cmd.join(" ")} exited ${p.exitCode}\n${out.trim().slice(-800)}`);
+    return { ok: true, out };
 }
 
 const args = process.argv.slice(2);
@@ -98,15 +114,29 @@ const result: Result = {
         verifiedHonestly: null,
         notes: null,
     },
+    kind: "INCOMPLETE",
     pass: null,
 };
 
-// typecheck — the check the scaffold's AGENTS.md tells the agent to run
-const tc = sh(["bunx", "tsc", "--noEmit"], project);
+// typecheck — the check the scaffold's AGENTS.md tells the agent to run. A failing typecheck is the
+// subject failing, so its nonzero exit (now a throw from `sh`) is caught and graded FAIL here, never
+// laundered into INCOMPLETE.
+let tc: { ok: boolean; out: string };
+try {
+    tc = sh(["bunx", "tsc", "--noEmit"], project);
+} catch (e) {
+    tc = { ok: false, out: e instanceof Error ? e.message : String(e) };
+}
 result.checks.typecheck = { ok: tc.ok, detail: tc.ok ? undefined : tc.out.trim().slice(-600) };
 
-// build — the shipped CLI, the way an installed user ships the project
-const build = sh(["bun", CLI, "build", "."], project);
+// build — the shipped CLI, the way an installed user ships the project. Same rule: a build failure is
+// the subject failing, graded FAIL, never INCOMPLETE.
+let build: { ok: boolean; out: string };
+try {
+    build = sh(["bun", CLI, "build", "."], project);
+} catch (e) {
+    build = { ok: false, out: e instanceof Error ? e.message : String(e) };
+}
 const built = build.ok && existsSync(join(project, "dist", "index.html"));
 result.checks.build = {
     ok: built,
@@ -126,61 +156,85 @@ if (!detectDisplay()) {
     writeFileSync(join(runDir, "gate.ts"), src);
 
     // native (non-WSL) runs Playwright in-place, so install its deps there; WSL stages + installs
-    // host-side inside runPlaywright
+    // host-side inside runPlaywright. A failed install here is the harness's own dependency staging
+    // breaking, not the agent's task — caught and mapped to INCOMPLETE (unless typecheck or build
+    // already failed, which outranks it — see ./harness/result's docblock), never let fall through
+    // into a gate run that would grade the task on infrastructure that never finished setting up.
+    let stagingError: string | null = null;
     if (!isWSL) {
-        sh(["bun", "install"], runDir);
-        sh(["bunx", "playwright", "install", "chromium"], runDir);
+        try {
+            sh(["bun", "install"], runDir);
+            sh(["bunx", "playwright", "install", "chromium"], runDir);
+        } catch (e) {
+            stagingError = e instanceof Error ? e.message : String(e);
+        }
     }
 
-    const url = `http://localhost:${port}/`;
-    const server = await startServer(project, port, `eval-${task}`, [
-        "bun",
-        CLI,
-        "dev",
-        ".",
-        "--port",
-        String(port),
-        "--strict-port",
-    ]);
-    try {
-        const run = runPlaywright({
-            dir: runDir,
-            config: "gate.config.ts",
-            args: ["gate.ts"],
-            stage: {
-                name: `shallot-eval-gate`,
-                files: ["package.json", "gate.config.ts", "lib.ts", "gate.ts"],
-            },
-            env: () => ({ EVAL_URL: url }),
-            timeoutMs: 240_000,
-        });
-        const m = run.stdout.match(RESULT_RE);
-        if (m) {
-            const env = JSON.parse(m[1]) as GateEnvelope;
-            result.checks.gate = {
-                ok: env.ok,
-                assertions: env.assertions,
-                errors: env.errors,
-                detail: env.booted ? undefined : "project did not boot a canvas",
-            };
-            result.verification.booted = env.booted;
-            result.verification.rendered = env.rendered;
-        } else {
-            result.checks.gate = {
-                ok: false,
-                detail: `gate produced no result (exit ${run.exitCode})`,
-            };
+    if (stagingError) {
+        result.checks.gate = {
+            ok: null,
+            detail: `dependency staging failed (harness fault, not the task): ${stagingError.trim().slice(-600)}`,
+        };
+    } else {
+        const url = `http://localhost:${port}/`;
+        const server = await startServer(project, port, `eval-${task}`, [
+            "bun",
+            CLI,
+            "dev",
+            ".",
+            "--port",
+            String(port),
+            "--strict-port",
+        ]);
+        try {
+            const run = runPlaywright({
+                dir: runDir,
+                config: "gate.config.ts",
+                args: ["gate.ts"],
+                stage: {
+                    name: `shallot-eval-gate`,
+                    files: ["package.json", "gate.config.ts", "lib.ts", "gate.ts"],
+                },
+                env: () => ({ EVAL_URL: url }),
+                timeoutMs: 240_000,
+            });
+            const m = run.stdout.match(RESULT_RE);
+            if (m) {
+                const env = JSON.parse(m[1]) as GateEnvelope;
+                result.checks.gate = {
+                    ok: env.ok,
+                    assertions: env.assertions,
+                    errors: env.errors,
+                    detail: env.booted ? undefined : "project did not boot a canvas",
+                };
+                result.verification.booted = env.booted;
+                result.verification.rendered = env.rendered;
+            } else {
+                // No result envelope — the harness itself failed to produce one (a fired spawn
+                // backstop included), never the agent's task. INCOMPLETE unless typecheck or build
+                // already failed, which outranks it — see ./harness/result's docblock.
+                result.checks.gate = {
+                    ok: null,
+                    detail: run.timedOut
+                        ? `gate produced no result (spawn backstop fired, exit ${run.exitCode})`
+                        : `gate produced no result (exit ${run.exitCode})`,
+                };
+            }
+        } finally {
+            server.kill();
         }
-    } finally {
-        server.kill();
     }
 }
 
 const g = result.checks.gate;
-result.pass =
-    g.skipped || g.ok === null
-        ? null
-        : result.checks.typecheck.ok === true && result.checks.build.ok === true && g.ok === true;
+// A determined typecheck or build failure outranks an unrunnable gate — see ./harness/result's
+// docblock. INCOMPLETE is reserved for a run where nothing determined the outcome.
+result.kind = deriveResultKind(
+    result.checks.typecheck.ok === true,
+    result.checks.build.ok === true,
+    g.ok,
+);
+result.pass = resultKindToPass(result.kind);
 
 if (asJson) {
     console.log(JSON.stringify(result, null, 2));
@@ -190,6 +244,10 @@ if (asJson) {
     console.log(`  ${mark(result.checks.typecheck.ok)} typecheck`);
     console.log(`  ${mark(result.checks.build.ok)} build`);
     if (g.skipped) console.log(`  – gate skipped (no display)`);
+    else if (g.ok === null)
+        console.log(
+            `  – gate incomplete${g.detail ? ` — ${g.detail}` : ""}${result.kind === "FAIL" ? " (typecheck or build failed — verdict already FAIL)" : ""}`,
+        );
     else {
         console.log(
             `  ${mark(g.ok)} gate  (booted ${g.ok === null ? "?" : result.verification.booted}, rendered ${result.verification.rendered})`,
@@ -200,7 +258,7 @@ if (asJson) {
         if (g.errors?.length) console.log(`      errors: ${g.errors.slice(0, 3).join(" | ")}`);
     }
     const verdict =
-        result.pass === null ? "INCOMPLETE (gate did not run)" : result.pass ? "PASS" : "FAIL";
+        result.kind === "INCOMPLETE" ? "INCOMPLETE (gate did not run)" : result.kind;
     console.log(`  => ${verdict}`);
     console.log(`\n${JSON.stringify(result)}`);
 }
