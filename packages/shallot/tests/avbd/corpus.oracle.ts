@@ -19,7 +19,7 @@ import { makeSolver, step } from "./solver";
 // f64 oracle — the reference for what "stable" looks like: every scene settles, energy never
 // exceeds the drop supremum, penetration converges to the margin rest, nothing tunnels. The gym
 // `pile` scenario runs the identical scenes + band; a scene steady here but wobbling there is a
-// GPU bug, not a band that's wrong (physics.md "the oracle is not the suspect").
+// GPU bug, not a band that's wrong (avbd.md "the oracle is not the suspect").
 //
 // The band is the gate-ladder's statistical band (scratch.md "Gate ladder"), never a long-horizon
 // trajectory match — chaotic settling can't bit-match. Bounds are derived (corpus.ts BAND_*) and

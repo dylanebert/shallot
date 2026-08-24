@@ -377,9 +377,10 @@ if (chainOverages.length > 0) {
 // phrases from the same rule (e.g. `render.md "Point-light shadows" / "Sun shadows"`). Each phrase
 // must resolve in the named file, compared CASE-INSENSITIVELY: a case-sensitive first pass
 // false-positived on avbd.md:44 citing gpu.md "reuse over add", which resolves against gpu.md:40's
-// "**Reuse over add.**". The case rule is a recorded finding, not an implementation detail. The known
-// true positive is testing.md citing physics.md "the oracle is not the suspect" — that phrase lives
-// only at avbd.md:13. Leave it RED; fixing it is S3's. A continuation phrase (` / "phrase"`) belongs
+// "**Reuse over add.**". The case rule is a recorded finding, not an implementation detail. The arm
+// is green on this tree: the one true positive it once flagged — testing.md citing physics.md
+// "the oracle is not the suspect", a phrase that lives only at avbd.md:13 — was corrected in S3.
+// A continuation phrase (` / "phrase"`) belongs
 // to the same rule citation, so each must be checked — not just the first: if the second phrase
 // vanished from the named rule the arm would stay green if only the first were checked.
 
