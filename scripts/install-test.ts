@@ -71,7 +71,7 @@ const check = (name: string, cond: boolean, detail = "") => {
  *  it landed (page errors, setup error, verdict checks, shader artifacts) and, when none carried one,
  *  reports a named instrument fault rather than an empty container. On a pass the errors array is the
  *  detail (empty = no errors), never an instrument fault. */
-function verifyDiagnostic(result: VerifyResult | null): string {
+export function verifyDiagnostic(result: VerifyResult | null): string {
     if (!result) return "no verify result";
     const errors = result.errors ?? [];
     if (errors.length > 0) return errors.join(" | ");
@@ -203,7 +203,7 @@ function createShallotFlow(work: string, engineTgz: string) {
 // the copy's engine dep is version-pinned by the CLI, so here we point it back at the packed tarball
 // (as a real user's registry install would resolve) and build it headlessly. Guards the whole copy-out
 // path: recipe present in the pack, CLI copies it, the pinned dep installs, the project builds.
-function recipeFlow(work: string, engineTgz: string) {
+function recipeFlow(work: string, engineTgz: string, sandbox: string) {
     console.log("shallot recipe (copy a recipe out → install → build)…");
     const dest = join(work, "recipe-out", "joints");
     const copied = run(["bun", CLI, "recipe", "joints", dest], sandbox);
@@ -1031,338 +1031,346 @@ function tgslFlow(sandbox: string, dist: string) {
 
 // realpath: macOS tmpdir is a symlink (/var → /private/var); vite realpaths files before the
 // fs.allow prefix check, so the sandbox paths must be the resolved form or /@fs requests 403
-const work = realpathSync(mkdtempSync(join(tmpdir(), "shallot-install-")));
-const sandbox = join(work, "app");
-try {
-    console.log("packing engine + widget…");
-    const engineTgz = pack(ENGINE_DIR, join(work, "engine-pack"));
-    const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
+if (import.meta.main) {
+    const work = realpathSync(mkdtempSync(join(tmpdir(), "shallot-install-")));
+    const sandbox = join(work, "app");
+    try {
+        console.log("packing engine + widget…");
+        const engineTgz = pack(ENGINE_DIR, join(work, "engine-pack"));
+        const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
 
-    // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
-    identityFlow(work, engineTgz);
-    pmIdentityFlow(work, engineTgz, "npm");
-    pmIdentityFlow(work, engineTgz, "pnpm");
+        // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
+        identityFlow(work, engineTgz);
+        pmIdentityFlow(work, engineTgz, "npm");
+        pmIdentityFlow(work, engineTgz, "pnpm");
 
-    // a real manifest project: installed engine + an installed plugin library + a local plugin, the
-    // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.
-    for (const d of ["scenes", "src", "public"]) mkdirSync(join(sandbox, d), { recursive: true });
-    writeFileSync(
-        join(sandbox, "package.json"),
-        `${JSON.stringify(
-            {
-                name: "install-sandbox",
-                private: true,
-                type: "module",
-                dependencies: {
-                    "@dylanebert/shallot": `file:${engineTgz}`,
-                    "shallot-widget-fixture": `file:${widgetTgz}`,
-                    // the shape a real consumer actually ships: a consumer's own source imports
-                    // `typegpu/data` directly (not just transitively through the engine peer dep) —
-                    // src/spin.ts below exercises it, so the prebundle-exclusion rung covers it too.
-                    typegpu: "~0.12.0",
+        // a real manifest project: installed engine + an installed plugin library + a local plugin, the
+        // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.
+        for (const d of ["scenes", "src", "public"])
+            mkdirSync(join(sandbox, d), { recursive: true });
+        writeFileSync(
+            join(sandbox, "package.json"),
+            `${JSON.stringify(
+                {
+                    name: "install-sandbox",
+                    private: true,
+                    type: "module",
+                    dependencies: {
+                        "@dylanebert/shallot": `file:${engineTgz}`,
+                        "shallot-widget-fixture": `file:${widgetTgz}`,
+                        // the shape a real consumer actually ships: a consumer's own source imports
+                        // `typegpu/data` directly (not just transitively through the engine peer dep) —
+                        // src/spin.ts below exercises it, so the prebundle-exclusion rung covers it too.
+                        typegpu: "~0.12.0",
+                    },
                 },
-            },
-            null,
-            2,
-        )}\n`,
-    );
-    writeFileSync(
-        join(sandbox, "shallot.json"),
-        `${JSON.stringify(
-            {
-                scene: "scenes/main.scene",
-                plugins: {
-                    Audio: true, // an engine extra whose wasm must ship
-                    Widget: "shallot-widget-fixture/widget", // an installed plugin by subpath
-                    Spin: "./src/spin", // a local plugin
+                null,
+                2,
+            )}\n`,
+        );
+        writeFileSync(
+            join(sandbox, "shallot.json"),
+            `${JSON.stringify(
+                {
+                    scene: "scenes/main.scene",
+                    plugins: {
+                        Audio: true, // an engine extra whose wasm must ship
+                        Widget: "shallot-widget-fixture/widget", // an installed plugin by subpath
+                        Spin: "./src/spin", // a local plugin
+                    },
                 },
-            },
-            null,
-            2,
-        )}\n`,
-    );
-    writeFileSync(
-        join(sandbox, "scenes", "main.scene"),
-        `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
-    );
-    writeFileSync(
-        join(sandbox, "src", "spin.ts"),
-        // the `typegpu/data` import is load-bearing, not decoration: a consumer whose own source
-        // imports typegpu directly (a real consumer's shape) is a second entry into Vite's dep
-        // scanner distinct from the engine's own bare specifier — the browser-boot rung below only
-        // covers this shape because this file reaches it.
-        `import type { Plugin, State, System } from "@dylanebert/shallot";\nimport * as d from "typegpu/data";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nconsole.log(d.f32);\nexport default SpinPlugin;\n`,
-    );
-    writeFileSync(
-        join(sandbox, "public", "icon.svg"),
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>\n`,
-    );
+                null,
+                2,
+            )}\n`,
+        );
+        writeFileSync(
+            join(sandbox, "scenes", "main.scene"),
+            `<scene>\n    <a ambient-light="intensity: 0.6" />\n    <a camera sear transform />\n    <a part transform color="rgba: 0.8 0.5 0.3" />\n</scene>\n`,
+        );
+        writeFileSync(
+            join(sandbox, "src", "spin.ts"),
+            // the `typegpu/data` import is load-bearing, not decoration: a consumer whose own source
+            // imports typegpu directly (a real consumer's shape) is a second entry into Vite's dep
+            // scanner distinct from the engine's own bare specifier — the browser-boot rung below only
+            // covers this shape because this file reaches it.
+            `import type { Plugin, State, System } from "@dylanebert/shallot";\nimport * as d from "typegpu/data";\nconst SpinSystem: System = { group: "simulation", update(_s: State) {} };\nconst SpinPlugin: Plugin = { name: "Spin", systems: [SpinSystem] };\nconsole.log(d.f32);\nexport default SpinPlugin;\n`,
+        );
+        writeFileSync(
+            join(sandbox, "public", "icon.svg"),
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/></svg>\n`,
+        );
 
-    console.log("bun install (the engine + widget tarballs + their deps)…");
-    const install = run(["bun", "install"], sandbox);
-    check(
-        "bun install succeeds from the packed tarballs",
-        install.ok,
-        install.ok ? "" : install.out.slice(-600),
-    );
-    check(
-        "the engine's audio wasm shipped in the tarball (files surface)",
-        existsSync(
-            join(sandbox, "node_modules/@dylanebert/shallot/rust/audio/pkg/shallot_audio.wasm"),
-        ),
-    );
-    check(
-        "the schema shipped in the tarball",
-        existsSync(join(sandbox, "node_modules/@dylanebert/shallot/shallot.schema.json")),
-    );
-    // the version-matched agent context: the prepack projection must ship (engine AGENTS.md + the
-    // examples index + the recipes corpus), and the shipped index must not dangle at tiers the tarball
-    // omits (gym/showcase live in the repo only).
-    const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
-    check("the engine AGENTS.md shipped in the tarball", existsSync(join(shipped, "AGENTS.md")));
-    check(
-        "the 0.9 migration guide shipped in the tarball",
-        existsSync(join(shipped, "MIGRATION.md")),
-    );
-    check(
-        "the recipes corpus shipped in the tarball (prepack projection)",
-        existsSync(join(shipped, "examples/AGENTS.md")) &&
-            existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&
-            existsSync(join(shipped, "examples/recipes/save-and-restore/shallot.json")),
-    );
-    check(
-        "a shipped recipe carries its package.json (the copy-out project surface)",
-        existsSync(join(shipped, "examples/recipes/build-a-scene/package.json")),
-    );
-    check(
-        "no monorepo-only plumbing leaked into a shipped recipe (tsconfig / node_modules)",
-        !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")) &&
-            !existsSync(join(shipped, "examples/recipes/build-a-scene/node_modules")),
-    );
-    // repo test files import across the monorepo root (scripts/, examples/gym), paths that dangle
-    // in a consumer install — the `files` surface must exclude every *.test.ts, bin included.
-    const leakedTests = [...new Bun.Glob("**/*.test.ts").scanSync({ cwd: shipped })];
-    check(
-        "no test files shipped in the tarball (files surface excludes *.test.ts)",
-        leakedTests.length === 0,
-        leakedTests.slice(0, 5).join(", "),
-    );
-    // the dynamics-smoke plugins are CI scaffolding — stripped from the shipped corpus (file + manifest
-    // entry) so a copied-out physics recipe carries no `./src/smoke` reference that would fail to build.
-    check(
-        "the shipped physics recipe dropped its smoke plugin (file + manifest entry)",
-        !existsSync(join(shipped, "examples/recipes/joints/src/smoke.ts")) &&
-            !/smoke/.test(
-                readFileSync(join(shipped, "examples/recipes/joints/shallot.json"), "utf8"),
+        console.log("bun install (the engine + widget tarballs + their deps)…");
+        const install = run(["bun", "install"], sandbox);
+        check(
+            "bun install succeeds from the packed tarballs",
+            install.ok,
+            install.ok ? "" : install.out.slice(-600),
+        );
+        check(
+            "the engine's audio wasm shipped in the tarball (files surface)",
+            existsSync(
+                join(sandbox, "node_modules/@dylanebert/shallot/rust/audio/pkg/shallot_audio.wasm"),
             ),
-    );
-    const idx = existsSync(join(shipped, "examples/AGENTS.md"))
-        ? readFileSync(join(shipped, "examples/AGENTS.md"), "utf8")
-        : "";
-    check(
-        "the shipped index carries recipes with no dangling gym/showcase tier",
-        /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
-    );
-    check(
-        "the shipped index names `shallot recipe` as the copy-out command",
-        /shallot recipe/.test(idx),
-    );
-
-    if (install.ok) {
-        console.log("shallot build (the installed CLI, manifest project)…");
-        const build = run(["bun", CLI, "build", "."], sandbox);
-        check("shallot build exits clean", build.ok, build.ok ? "" : build.out.slice(-900));
+        );
         check(
-            "no unresolved imports in the build",
-            !/Failed to resolve|does not provide an export/i.test(build.out),
+            "the schema shipped in the tarball",
+            existsSync(join(sandbox, "node_modules/@dylanebert/shallot/shallot.schema.json")),
+        );
+        // the version-matched agent context: the prepack projection must ship (engine AGENTS.md + the
+        // examples index + the recipes corpus), and the shipped index must not dangle at tiers the tarball
+        // omits (gym/showcase live in the repo only).
+        const shipped = join(sandbox, "node_modules/@dylanebert/shallot");
+        check(
+            "the engine AGENTS.md shipped in the tarball",
+            existsSync(join(shipped, "AGENTS.md")),
+        );
+        check(
+            "the 0.9 migration guide shipped in the tarball",
+            existsSync(join(shipped, "MIGRATION.md")),
+        );
+        check(
+            "the recipes corpus shipped in the tarball (prepack projection)",
+            existsSync(join(shipped, "examples/AGENTS.md")) &&
+                existsSync(join(shipped, "examples/recipes/build-a-scene/src/build.ts")) &&
+                existsSync(join(shipped, "examples/recipes/save-and-restore/shallot.json")),
+        );
+        check(
+            "a shipped recipe carries its package.json (the copy-out project surface)",
+            existsSync(join(shipped, "examples/recipes/build-a-scene/package.json")),
+        );
+        check(
+            "no monorepo-only plumbing leaked into a shipped recipe (tsconfig / node_modules)",
+            !existsSync(join(shipped, "examples/recipes/build-a-scene/tsconfig.json")) &&
+                !existsSync(join(shipped, "examples/recipes/build-a-scene/node_modules")),
+        );
+        // repo test files import across the monorepo root (scripts/, examples/gym), paths that dangle
+        // in a consumer install — the `files` surface must exclude every *.test.ts, bin included.
+        const leakedTests = [...new Bun.Glob("**/*.test.ts").scanSync({ cwd: shipped })];
+        check(
+            "no test files shipped in the tarball (files surface excludes *.test.ts)",
+            leakedTests.length === 0,
+            leakedTests.slice(0, 5).join(", "),
+        );
+        // the dynamics-smoke plugins are CI scaffolding — stripped from the shipped corpus (file + manifest
+        // entry) so a copied-out physics recipe carries no `./src/smoke` reference that would fail to build.
+        check(
+            "the shipped physics recipe dropped its smoke plugin (file + manifest entry)",
+            !existsSync(join(shipped, "examples/recipes/joints/src/smoke.ts")) &&
+                !/smoke/.test(
+                    readFileSync(join(shipped, "examples/recipes/joints/shallot.json"), "utf8"),
+                ),
+        );
+        const idx = existsSync(join(shipped, "examples/AGENTS.md"))
+            ? readFileSync(join(shipped, "examples/AGENTS.md"), "utf8")
+            : "";
+        check(
+            "the shipped index carries recipes with no dangling gym/showcase tier",
+            /## Recipes/.test(idx) && !/## Gym/.test(idx) && !/## Showcase/.test(idx),
+        );
+        check(
+            "the shipped index names `shallot recipe` as the copy-out command",
+            /shallot recipe/.test(idx),
         );
 
-        const dist = join(sandbox, "dist");
-        check("dist/index.html produced", existsSync(join(dist, "index.html")));
-        const assets = existsSync(join(dist, "assets")) ? readdirSync(join(dist, "assets")) : [];
-        check(
-            "the audio wasm bundled into dist",
-            assets.some((f) => f.endsWith(".wasm")),
-            assets.join(", ") || "(no assets dir)",
-        );
-
-        // rust/window ships in the tarball (package.json `files` includes `rust/window` minus
-        // `target/`), so `shallot build --target <os>` from an installed package compiles the crate
-        // lazily via cargo. A real native build is a multi-minute cargo/CEF arm — gated out of the
-        // default suite (suite-speed budgets). Here we assert the crate is present and
-        // resolvable in the installed layout; the premise builds (spec gates 4+5) run it for real.
-        check(
-            "the rust/window crate ships in the installed package (lazy native-build source)",
-            existsSync(join(shipped, "rust/window/Cargo.toml")) &&
-                existsSync(join(shipped, "rust/window/Cargo.lock")),
-        );
-
-        // the crate-present check above says the file crossed the pack/install boundary; it says nothing
-        // about the CLI's behavior when it hasn't. `requireRustCrate` runs before cargo is spawned, so
-        // hiding the crate exercises the whole diagnostic path — resolution, message, non-zero exit —
-        // for the price of a rename, with no toolchain involved.
-        console.log("shallot build --target linux with the crate hidden (ENOENT guard fires)…");
-        const crate = join(shipped, "rust/window");
-        const hidden = `${crate}.hidden`;
-        renameSync(crate, hidden);
-        const guarded = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
-        renameSync(hidden, crate);
-        check(
-            "a missing crate fails with the corrupt-install diagnostic, not a raw ENOENT from cargo",
-            !guarded.ok &&
-                /corrupt install/.test(guarded.out) &&
-                !/ENOENT|No such file or directory/.test(guarded.out),
-            guarded.out.slice(-900),
-        );
-        check("the hidden crate is restored", existsSync(join(crate, "Cargo.toml")));
-
-        tgslFlow(sandbox, dist);
-
-        // the dev server: live resolution + asset serving over vite (a different path than the build
-        // bundle — it's where the cross-repo fs.allow / wasm-serving lives).
-        console.log("shallot dev (boot + resolve + serve the wasm)…");
-        const port = 5191;
-        const dev = Bun.spawn(["bun", CLI, "dev", ".", "--port", String(port)], {
-            cwd: sandbox,
-            stdout: "pipe",
-            stderr: "pipe",
-        });
-        const dec = new TextDecoder();
-        let devLog = "";
-        const pump = (stream: ReadableStream<Uint8Array>) =>
-            (async () => {
-                const reader = stream.getReader();
-                for (;;) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-                    if (value) devLog += dec.decode(value);
-                }
-            })();
-        const drain = pump(dev.stdout);
-        const drainErr = pump(dev.stderr);
-        try {
-            // Wait on the server's own ready signal, not a wall clock: `dev.ts` calls
-            // `server.printUrls()` immediately after `server.listen()` resolves, so the banner is the
-            // moment the socket is up. A fixed HTTP-poll deadline conflated "still starting" with
-            // "never coming" and flaked 2 runs in 5. The child exiting ends the wait too — a crashed
-            // dev server has nothing to wait out. `printUrls` colors its output, so strip SGR first.
-            const banner = new RegExp(`Local:\\s+\\S*http://localhost:${port}/`);
-            const listening = await waitFor(
-                async () => banner.test(strip(devLog)) || dev.exitCode !== null,
-                90000,
-            );
-            // Once listening, a request that can't be served in a second is a real failure, not slow boot.
-            const up =
-                listening &&
-                dev.exitCode === null &&
-                (await waitFor(async () => {
-                    try {
-                        // localhost, not 127.0.0.1 — vite binds the family localhost resolves to
-                        // (IPv6-only on macOS), and it's the host the banner advertises
-                        return (await fetch(`http://localhost:${port}/`)).ok;
-                    } catch {
-                        return false;
-                    }
-                }, 5000));
+        if (install.ok) {
+            console.log("shallot build (the installed CLI, manifest project)…");
+            const build = run(["bun", CLI, "build", "."], sandbox);
+            check("shallot build exits clean", build.ok, build.ok ? "" : build.out.slice(-900));
             check(
-                "shallot dev boots a server",
-                up,
-                up
-                    ? ""
-                    : `${dev.exitCode !== null ? `dev exited ${dev.exitCode}; ` : listening ? "banner printed, no response; " : "no ready banner; "}${devLog.slice(-400)}`,
+                "no unresolved imports in the build",
+                !/Failed to resolve|does not provide an export/i.test(build.out),
             );
-            if (up) {
-                const mod = await fetch(`http://localhost:${port}/@id/__x00__virtual:project`).then(
-                    (r) => r.text(),
+
+            const dist = join(sandbox, "dist");
+            check("dist/index.html produced", existsSync(join(dist, "index.html")));
+            const assets = existsSync(join(dist, "assets"))
+                ? readdirSync(join(dist, "assets"))
+                : [];
+            check(
+                "the audio wasm bundled into dist",
+                assets.some((f) => f.endsWith(".wasm")),
+                assets.join(", ") || "(no assets dir)",
+            );
+
+            // rust/window ships in the tarball (package.json `files` includes `rust/window` minus
+            // `target/`), so `shallot build --target <os>` from an installed package compiles the crate
+            // lazily via cargo. A real native build is a multi-minute cargo/CEF arm — gated out of the
+            // default suite (suite-speed budgets). Here we assert the crate is present and
+            // resolvable in the installed layout; the premise builds (spec gates 4+5) run it for real.
+            check(
+                "the rust/window crate ships in the installed package (lazy native-build source)",
+                existsSync(join(shipped, "rust/window/Cargo.toml")) &&
+                    existsSync(join(shipped, "rust/window/Cargo.lock")),
+            );
+
+            // the crate-present check above says the file crossed the pack/install boundary; it says nothing
+            // about the CLI's behavior when it hasn't. `requireRustCrate` runs before cargo is spawned, so
+            // hiding the crate exercises the whole diagnostic path — resolution, message, non-zero exit —
+            // for the price of a rename, with no toolchain involved.
+            console.log("shallot build --target linux with the crate hidden (ENOENT guard fires)…");
+            const crate = join(shipped, "rust/window");
+            const hidden = `${crate}.hidden`;
+            renameSync(crate, hidden);
+            const guarded = run(["bun", CLI, "build", ".", "--target", "linux"], sandbox);
+            renameSync(hidden, crate);
+            check(
+                "a missing crate fails with the corrupt-install diagnostic, not a raw ENOENT from cargo",
+                !guarded.ok &&
+                    /corrupt install/.test(guarded.out) &&
+                    !/ENOENT|No such file or directory/.test(guarded.out),
+                guarded.out.slice(-900),
+            );
+            check("the hidden crate is restored", existsSync(join(crate, "Cargo.toml")));
+
+            tgslFlow(sandbox, dist);
+
+            // the dev server: live resolution + asset serving over vite (a different path than the build
+            // bundle — it's where the cross-repo fs.allow / wasm-serving lives).
+            console.log("shallot dev (boot + resolve + serve the wasm)…");
+            const port = 5191;
+            const dev = Bun.spawn(["bun", CLI, "dev", ".", "--port", String(port)], {
+                cwd: sandbox,
+                stdout: "pipe",
+                stderr: "pipe",
+            });
+            const dec = new TextDecoder();
+            let devLog = "";
+            const pump = (stream: ReadableStream<Uint8Array>) =>
+                (async () => {
+                    const reader = stream.getReader();
+                    for (;;) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        if (value) devLog += dec.decode(value);
+                    }
+                })();
+            const drain = pump(dev.stdout);
+            const drainErr = pump(dev.stderr);
+            try {
+                // Wait on the server's own ready signal, not a wall clock: `dev.ts` calls
+                // `server.printUrls()` immediately after `server.listen()` resolves, so the banner is the
+                // moment the socket is up. A fixed HTTP-poll deadline conflated "still starting" with
+                // "never coming" and flaked 2 runs in 5. The child exiting ends the wait too — a crashed
+                // dev server has nothing to wait out. `printUrls` colors its output, so strip SGR first.
+                const banner = new RegExp(`Local:\\s+\\S*http://localhost:${port}/`);
+                const listening = await waitFor(
+                    async () => banner.test(strip(devLog)) || dev.exitCode !== null,
+                    90000,
                 );
+                // Once listening, a request that can't be served in a second is a real failure, not slow boot.
+                const up =
+                    listening &&
+                    dev.exitCode === null &&
+                    (await waitFor(async () => {
+                        try {
+                            // localhost, not 127.0.0.1 — vite binds the family localhost resolves to
+                            // (IPv6-only on macOS), and it's the host the banner advertises
+                            return (await fetch(`http://localhost:${port}/`)).ok;
+                        } catch {
+                            return false;
+                        }
+                    }, 5000));
                 check(
-                    "dev resolves the manifest (installed subpath + local + engine)",
-                    /shallot-widget-fixture/.test(mod) &&
-                        /src\/spin/.test(mod) &&
-                        !/Failed to resolve/i.test(mod),
+                    "shallot dev boots a server",
+                    up,
+                    up
+                        ? ""
+                        : `${dev.exitCode !== null ? `dev exited ${dev.exitCode}; ` : listening ? "banner printed, no response; " : "no ready banner; "}${devLog.slice(-400)}`,
                 );
-                const wasmFs = resolve(
-                    sandbox,
-                    "node_modules/@dylanebert/shallot/rust/audio/pkg/shallot_audio.wasm",
-                );
-                const res = await fetch(`http://localhost:${port}/@fs${wasmFs}`);
-                const magic = new Uint8Array(
-                    (res.ok ? await res.arrayBuffer() : new ArrayBuffer(0)).slice(0, 4),
-                );
-                // the dev arm of the TGSL contract: `shallot dev` synthesizes its own vite config, a
-                // different path than the build above, and it must transform engine source in
-                // node_modules too. Ask the server for the module the page imports and read what it
-                // serves. (It does not cover a prebundled `.vite/deps` copy — dep optimization runs on
-                // page load, which this headless boot never performs. The real-browser rung below does.)
-                const engineMod = await fetch(
-                    `http://localhost:${port}/node_modules/@dylanebert/shallot/src/engine/runtime/gpu.ts`,
-                );
-                const served = engineMod.ok ? await engineMod.text() : "";
+                if (up) {
+                    const mod = await fetch(
+                        `http://localhost:${port}/@id/__x00__virtual:project`,
+                    ).then((r) => r.text());
+                    check(
+                        "dev resolves the manifest (installed subpath + local + engine)",
+                        /shallot-widget-fixture/.test(mod) &&
+                            /src\/spin/.test(mod) &&
+                            !/Failed to resolve/i.test(mod),
+                    );
+                    const wasmFs = resolve(
+                        sandbox,
+                        "node_modules/@dylanebert/shallot/rust/audio/pkg/shallot_audio.wasm",
+                    );
+                    const res = await fetch(`http://localhost:${port}/@fs${wasmFs}`);
+                    const magic = new Uint8Array(
+                        (res.ok ? await res.arrayBuffer() : new ArrayBuffer(0)).slice(0, 4),
+                    );
+                    // the dev arm of the TGSL contract: `shallot dev` synthesizes its own vite config, a
+                    // different path than the build above, and it must transform engine source in
+                    // node_modules too. Ask the server for the module the page imports and read what it
+                    // serves. (It does not cover a prebundled `.vite/deps` copy — dep optimization runs on
+                    // page load, which this headless boot never performs. The real-browser rung below does.)
+                    const engineMod = await fetch(
+                        `http://localhost:${port}/node_modules/@dylanebert/shallot/src/engine/runtime/gpu.ts`,
+                    );
+                    const served = engineMod.ok ? await engineMod.text() : "";
+                    check(
+                        "dev serves engine TGSL through the transform",
+                        TRANSPILED.test(served),
+                        engineMod.ok ? "" : `HTTP ${engineMod.status}`,
+                    );
+                    check(
+                        "dev serves the audio wasm (fs.allow ok, valid magic 0061736d)",
+                        res.ok &&
+                            magic[0] === 0x00 &&
+                            magic[1] === 0x61 &&
+                            magic[2] === 0x73 &&
+                            magic[3] === 0x6d,
+                        res.ok ? "" : `HTTP ${res.status}`,
+                    );
+                }
                 check(
-                    "dev serves engine TGSL through the transform",
-                    TRANSPILED.test(served),
-                    engineMod.ok ? "" : `HTTP ${engineMod.status}`,
+                    "no dev-server errors (resolve / fs allow-list)",
+                    !/Failed to resolve|outside of Vite serving allow list/i.test(strip(devLog)),
                 );
+            } finally {
+                dev.kill();
+                await Promise.race([Promise.all([drain, drainErr]), Bun.sleep(1500)]);
+            }
+
+            // the real-device boot rung the fetch-only checks above can't be: Vite's dependency optimizer
+            // prebundles a bare `@dylanebert/shallot` import only on an actual browser page load (esbuild
+            // scans the entry HTML's script graph), never on a raw HTTP fetch of a known module path — so
+            // this sandbox (a genuine `node_modules` install off a packed tarball, same resolution shape a
+            // registry install produces — not a symlink) is booted through a real browser and its rendered
+            // pipelines are asserted, catching the 5b-2f-5 prebundle-before-transform defect the checks
+            // above structurally could not (`scripts/verify.ts`'s `verify()` is the same shipped gate
+            // `bun bench` / `bun run flows` / `bun run recipes` drive; display-gated identically, native
+            // hardware only — WSL runs it for real against the Windows host's GPU via the bridge).
+            console.log(
+                "shallot verify (a real browser boot — warms the installed engine's pipelines)…",
+            );
+            const skip = skipReason();
+            if (skip) {
+                console.log(`  · skipped (needs native hardware: ${skip})`);
+            } else {
+                const result = await verify(sandbox, ["--timeout", "30000"], true);
                 check(
-                    "dev serves the audio wasm (fs.allow ok, valid magic 0061736d)",
-                    res.ok &&
-                        magic[0] === 0x00 &&
-                        magic[1] === 0x61 &&
-                        magic[2] === 0x73 &&
-                        magic[3] === 0x6d,
-                    res.ok ? "" : `HTTP ${res.status}`,
+                    "a real browser boots the installed engine and warms its pipelines",
+                    result?.pass === true && result.booted === true && result.rendered === true,
+                    result
+                        ? JSON.stringify(result.errors ?? result.error ?? result)
+                        : "no verify result",
                 );
             }
-            check(
-                "no dev-server errors (resolve / fs allow-list)",
-                !/Failed to resolve|outside of Vite serving allow list/i.test(strip(devLog)),
-            );
-        } finally {
-            dev.kill();
-            await Promise.race([Promise.all([drain, drainErr]), Bun.sleep(1500)]);
+            await teardownBridge();
         }
 
-        // the real-device boot rung the fetch-only checks above can't be: Vite's dependency optimizer
-        // prebundles a bare `@dylanebert/shallot` import only on an actual browser page load (esbuild
-        // scans the entry HTML's script graph), never on a raw HTTP fetch of a known module path — so
-        // this sandbox (a genuine `node_modules` install off a packed tarball, same resolution shape a
-        // registry install produces — not a symlink) is booted through a real browser and its rendered
-        // pipelines are asserted, catching the 5b-2f-5 prebundle-before-transform defect the checks
-        // above structurally could not (`scripts/verify.ts`'s `verify()` is the same shipped gate
-        // `bun bench` / `bun run flows` / `bun run recipes` drive; display-gated identically, native
-        // hardware only — WSL runs it for real against the Windows host's GPU via the bridge).
-        console.log(
-            "shallot verify (a real browser boot — warms the installed engine's pipelines)…",
-        );
-        const skip = skipReason();
-        if (skip) {
-            console.log(`  · skipped (needs native hardware: ${skip})`);
-        } else {
-            const result = await verify(sandbox, ["--timeout", "30000"], true);
-            check(
-                "a real browser boots the installed engine and warms its pipelines",
-                result?.pass === true && result.booted === true && result.rendered === true,
-                result
-                    ? JSON.stringify(result.errors ?? result.error ?? result)
-                    : "no verify result",
-            );
-        }
-        await teardownBridge();
+        if (install.ok) recipeFlow(work, engineTgz, sandbox);
+
+        await ejectedFlow(work, engineTgz);
+
+        await identityBrowserFlow(work, engineTgz);
+
+        createShallotFlow(work, engineTgz);
+    } finally {
+        rmSync(work, { recursive: true, force: true });
     }
 
-    if (install.ok) recipeFlow(work, engineTgz);
-
-    await ejectedFlow(work, engineTgz);
-
-    await identityBrowserFlow(work, engineTgz);
-
-    createShallotFlow(work, engineTgz);
-} finally {
-    rmSync(work, { recursive: true, force: true });
-}
-
-if (fails.length) {
-    console.error(`\nFAIL: ${fails.length} check(s) failed: ${fails.join("; ")}`);
-    process.exit(1);
-}
-console.log("\nPASS: real-install flow clean");
+    if (fails.length) {
+        console.error(`\nFAIL: ${fails.length} check(s) failed: ${fails.join("; ")}`);
+        process.exit(1);
+    }
+    console.log("\nPASS: real-install flow clean");
+} // import.meta.main
