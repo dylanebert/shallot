@@ -793,44 +793,31 @@ interface SatPipelines {
 
 function forceSatMain(
     root: typeof Compute.root,
-    device: GPUDevice,
+    _device: GPUDevice,
     pipeline: TgpuComputePipeline,
 ): TgpuComputePipeline {
     const owned: { destroy(): void }[] = [];
-    let submitted = false;
-    const cleanup = () => {
-        for (const resource of owned) resource.destroy();
-    };
     try {
         const cfgs = root.createBuffer(SatConfigs(1)).$usage("storage");
         const out = root.createBuffer(SatOutput(SAT_READBACK_FLOATS)).$usage("storage");
         const params = root.createBuffer(SatParams).$usage("uniform");
         owned.push(cfgs, out, params);
         const group: SatGroup = root.createBindGroup(satLayout, { cfgs, out, params });
-        const encoder = device.createCommandEncoder({ label: "sat-main-force" });
-        const pass = encoder.beginComputePass({ label: "sat-main-force" });
-        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
-        submitted = true;
-        void cleanupAfterFence;
-        return pipeline;
+        // the drain awaits the returned pipeline's own `initAsync()` — no dispatch needed to force the
+        // compile, so the throwaway buffers above exist only to satisfy the bind group and are freed
+        // the moment binding is done, same as glaze's dummy-texture forcer (standard/glaze/index.ts)
+        return pipeline.with(group);
     } finally {
-        if (!submitted) cleanup();
+        for (const resource of owned) resource.destroy();
     }
 }
 
 function forceSatHull(
     root: typeof Compute.root,
-    device: GPUDevice,
+    _device: GPUDevice,
     pipeline: TgpuComputePipeline,
 ): TgpuComputePipeline {
     const owned: { destroy(): void }[] = [];
-    let submitted = false;
-    const cleanup = () => {
-        for (const resource of owned) resource.destroy();
-    };
     try {
         const cfgs = root.createBuffer(HullConfigs(1)).$usage("storage");
         const out = root.createBuffer(SatOutput(HULL_READBACK_FLOATS)).$usage("storage");
@@ -843,17 +830,12 @@ function forceSatHull(
             params,
             hullData,
         });
-        const encoder = device.createCommandEncoder({ label: "sat-hull-force" });
-        const pass = encoder.beginComputePass({ label: "sat-hull-force" });
-        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
-        submitted = true;
-        void cleanupAfterFence;
-        return pipeline;
+        // the drain awaits the returned pipeline's own `initAsync()` — no dispatch needed to force the
+        // compile, so the throwaway buffers above exist only to satisfy the bind group and are freed
+        // the moment binding is done, same as glaze's dummy-texture forcer (standard/glaze/index.ts)
+        return pipeline.with(group);
     } finally {
-        if (!submitted) cleanup();
+        for (const resource of owned) resource.destroy();
     }
 }
 

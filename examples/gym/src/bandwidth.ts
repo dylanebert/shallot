@@ -111,8 +111,7 @@ export const BandwidthPlugin: Plugin = {
         const readyBind = bind;
         const readyPipeline = pipeline;
         await precompile("gym-bandwidth", () => {
-            readyPipeline.with(readyBind).dispatchWorkgroups(0, 1, 1);
-            return readyPipeline;
+            return readyPipeline.with(readyBind);
         });
     },
     systems: [

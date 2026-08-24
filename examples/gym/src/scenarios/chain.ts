@@ -134,8 +134,6 @@ function cleanupChain(resources: ChainResources): void {
 function forceChain(pipeline: TgpuComputePipeline, label: string): TgpuComputePipeline {
     const { device, root } = Compute;
     const owned: { dataRaw?: GPUBuffer; params?: ChainParamsBuf } = {};
-    let submitted = false;
-    const cleanup = () => cleanupChain(owned);
     try {
         owned.dataRaw = device.createBuffer({
             label: `${label}-data`,
@@ -145,17 +143,12 @@ function forceChain(pipeline: TgpuComputePipeline, label: string): TgpuComputePi
         const data = root.createBuffer(ChainData, owned.dataRaw).$usage("storage");
         owned.params = root.createBuffer(ChainParams).$usage("uniform");
         const group = root.createBindGroup(chainLayout, { data, cp: owned.params });
-        const encoder = device.createCommandEncoder({ label });
-        const pass = encoder.beginComputePass({ label });
-        pipeline.with(group).with(pass).dispatchWorkgroups(0, 1, 1);
-        pass.end();
-        device.queue.submit([encoder.finish()]);
-        const cleanupAfterFence = device.queue.onSubmittedWorkDone().then(cleanup, cleanup);
-        submitted = true;
-        void cleanupAfterFence;
-        return pipeline;
+        // the drain awaits the returned pipeline's own `initAsync()` — no dispatch needed to force the
+        // compile, so the throwaway buffers above exist only to satisfy the bind group and are freed
+        // the moment binding is done, same as glaze's dummy-texture forcer (standard/glaze/index.ts)
+        return pipeline.with(group);
     } finally {
-        if (!submitted) cleanup();
+        cleanupChain(owned);
     }
 }
 

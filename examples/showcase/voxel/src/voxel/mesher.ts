@@ -739,13 +739,9 @@ const voxelWarmLifecycle = createWarmLifecycle<
     precompile: (_owner, prepared, force) => precompile(prepared.scope, force),
     createWarmBinding: (own) =>
         wrapVoxelBuffers(allocateVoxelBuffers(Compute.device, own)).bindGroup,
-    force(prepared, warmBindGroup) {
-        const { device } = Compute;
-        const enc = device.createCommandEncoder({ label: prepared.scope });
-        const pass = enc.beginComputePass({ label: prepared.scope });
-        prepared.pipeline.with(warmBindGroup).with(pass).dispatchWorkgroups(0);
-        pass.end();
-        device.queue.submit([enc.finish()]);
+    // `initAsync()` on the returned pipeline (the precompile drain) pays Dawn's deferred compile
+    // under the loading screen — no encoder/pass/submit needed to get there
+    force(prepared) {
         return prepared.pipeline;
     },
     destroyWarm: (buffer) => buffer.destroy(),

@@ -122,32 +122,10 @@ async function run(seed: number): Promise<void> {
     const { device, root } = Compute;
 
     if (!warmed) {
+        // `initAsync()` on the returned pipeline pays Dawn's deferred compile under the loading screen
+        // — no throwaway perm buffer/bind group/dispatch needed to get there
         const warmLabel = precompileScope("terrain-generate");
-        const owned: { raw: GPUBuffer | null } = { raw: null };
-        try {
-            await precompile(warmLabel, () => {
-                owned.raw = device.createBuffer({
-                    label: `${warmLabel}-perm`,
-                    size: d.sizeOf(PermData),
-                    usage: GPUBufferUsage.STORAGE,
-                });
-                const warmPerm = root.createBuffer(PermData, owned.raw).$usage("storage");
-                const noiseGroup = root.createBindGroup(noiseLayout, { perm: warmPerm });
-                const enc = device.createCommandEncoder({ label: warmLabel });
-                const pass = enc.beginComputePass({ label: warmLabel });
-                activePipeline
-                    .with(noiseGroup)
-                    .with(activeBindGroup)
-                    .with(networkBindGroup())
-                    .with(pass)
-                    .dispatchWorkgroups(0);
-                pass.end();
-                device.queue.submit([enc.finish()]);
-                return activePipeline;
-            });
-        } finally {
-            owned.raw?.destroy();
-        }
+        await precompile(warmLabel, () => activePipeline);
         warmed = true;
     }
 

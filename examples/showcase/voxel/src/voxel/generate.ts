@@ -124,29 +124,12 @@ const runDensity = createDensityRunner<
     pipeline: ({ root }) =>
         root.createComputePipeline({ compute: densityKernel }).$name("voxel-generate"),
     wrapGrid: ({ root, grid }): GridBuffer => root.createBuffer(GridData, grid).$usage("storage"),
-    async precompile({ root, device }, pipeline, grid) {
+    async precompile(_target, pipeline) {
+        // `initAsync()` on the returned pipeline pays Dawn's deferred compile under the loading screen
+        // — no throwaway perm buffer/bind group/dispatch needed to get there (that warmed by tripping
+        // the same zero-workgroup path this unit's warm idiom replaces)
         const warmLabel = precompileScope("voxel-generate");
-        const owned: { raw: GPUBuffer | null } = { raw: null };
-        try {
-            await precompile(warmLabel, () => {
-                owned.raw = device.createBuffer({
-                    label: `${warmLabel}-perm`,
-                    size: d.sizeOf(PermData),
-                    usage: GPUBufferUsage.STORAGE,
-                });
-                const warmPerm = root.createBuffer(PermData, owned.raw).$usage("storage");
-                const noiseGroup = root.createBindGroup(noiseLayout, { perm: warmPerm });
-                const group = root.createBindGroup(densityLayout, { grid });
-                const enc = device.createCommandEncoder({ label: warmLabel });
-                const pass = enc.beginComputePass({ label: warmLabel });
-                pipeline.with(noiseGroup).with(group).with(pass).dispatchWorkgroups(0);
-                pass.end();
-                device.queue.submit([enc.finish()]);
-                return pipeline;
-            });
-        } finally {
-            owned.raw?.destroy();
-        }
+        await precompile(warmLabel, () => pipeline);
     },
     dispatch({ root, device }, pipeline, grid, seed) {
         const perm = makePermutation(seed);

@@ -171,11 +171,11 @@ export interface Compute {
      * {@link indirect}. typegpu pipelines are sync-created (`root.unwrap` calls the synchronous
      * `create*Pipeline`), and Dawn defers the real shader compile to the forced {@link precompile}
      * drain — so timing the creation call would report a number that reads like a compile time and
-     * isn't one. {@link precompileAll} instead measures each forcer's `initAsync()` await through its
-     * own completion fence and reports it here — a forcer returning an array of already-unwrapped raw
-     * pipelines awaits nothing, so its reported span is the skip. The validation drain always waits
-     * for that fence; a `?.`
-     * no-op without the plugin means only timing attribution is conditional.
+     * isn't one. {@link precompileAll} instead measures each forcer's own `initAsync()` await and
+     * reports the resolved span here, called only when at least one element actually awaited an
+     * `initAsync` — an array with none (the sear forcer's already-unwrapped raw pipelines, or `[]`)
+     * never calls this, since reporting a span for a skip would read like a compile that never ran; a
+     * `?.` no-op without the plugin means only timing attribution is conditional.
      */
     precompiled?: (label: string, start: number, end: number) => void;
 }
@@ -794,13 +794,14 @@ function compile({ label, force }: Forcer): unknown {
  * `initAsync()` on each returned pipeline, so the compile is paid under the loading screen. Registered
  * *after* that drain (a lazily-built pipeline, a post-warm producer), the drain runs on arrival and the
  * returned promise must be awaited — late is better than silently dropped, but it still owes the same
- * validation and completion fence.
+ * validation.
  *
  * `force` **returns the bound pipeline** — never dispatch from the callback: a zero-workgroup dispatch
  * trips Dawn's `DispatchWorkgroups with a workgroup count of 0 is unusual` warning in your own code. The
  * drain classifies the return exhaustively: a typegpu pipeline (compute / render / guarded) is awaited
- * via its `initAsync`; an array of already-unwrapped raw pipelines is skipped (the sear forcer's
- * legitimate shape, `[]` when nothing specializes); anything else truthy is a labelled throw. A nullish
+ * via its `initAsync`; an **array** is awaited element-wise — each entry exposing `initAsync` is
+ * awaited, each that doesn't (the sear forcer's already-unwrapped raw pipelines) is skipped, and `[]`
+ * (nothing specializes) awaits nothing; anything else truthy is a labelled throw. A nullish
  * return also throws, because a forcer whose buffers aren't up yet no-ops and hands the compile back to
  * frame one without a word. Allocate inside the thunk if the buffers are late — the drain runs after
  * every plugin's warm, which is the point. `label` names the pipeline in either failure and must be
@@ -918,15 +919,30 @@ export async function precompileAll(): Promise<void> {
 
 async function compileValidated(forcer: Forcer): Promise<void> {
     const start = now();
+    let warmed = false;
     await validateGpu(Compute.device, forcer.label, async () => {
         const pipeline = compile(forcer);
         // the drain classifies a forcer's return exhaustively:
         // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
         if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
             await (pipeline as { initAsync(): Promise<void> }).initAsync();
+            warmed = true;
         } else if (Array.isArray(pipeline)) {
-            // (b) the sear variant (standard/sear/forward.ts) returns an array of already-unwrapped
-            // raw pipelines — skip, deliberately: initAsync is only on typegpu pipelines
+            // (b) an array is awaited element-wise — the natural generalization of the sear forcer's
+            // shape is an array of typegpu pipelines, and skipping the whole array unconditionally
+            // would silently warm nothing for that caller. Each entry exposing initAsync is awaited;
+            // the sear variant's (standard/sear/forward.ts) own already-unwrapped raw pipelines expose
+            // none, so they're skipped element-wise too, same as `[]` when nothing specializes. `warmed`
+            // tracks whether any entry actually did — an all-skip array must not report a compile span
+            // below, since that's the one still-unwarmed path and the profiler must not call it warm
+            const awaited = await Promise.all(
+                pipeline.map((entry) =>
+                    typeof (entry as { initAsync?: unknown })?.initAsync === "function"
+                        ? (entry as { initAsync(): Promise<void> }).initAsync().then(() => true)
+                        : false,
+                ),
+            );
+            warmed = awaited.some(Boolean);
         } else {
             // (c) anything else truthy is a forcer that returned the wrong shape — name the site
             throw new Error(
@@ -934,8 +950,11 @@ async function compileValidated(forcer: Forcer): Promise<void> {
             );
         }
     });
-    // validation always fences what precompile claims; only attribution stays profiler-owned
-    Compute.precompiled?.(forcer.label, start, now());
+    // validation wraps what precompile claims through an error-scope pop, not a completion fence —
+    // S1 deleted the fence this comment used to promise; only attribution stays profiler-owned. A
+    // forcer that never awaited a real initAsync (sear's raw-pipeline array, or `[]`) skips the
+    // report entirely — attributing that skip as a compile is the still-unwarmed path reporting warm
+    if (warmed) Compute.precompiled?.(forcer.label, start, now());
 }
 
 // the root is device-scoped, not build-scoped. A device outlives any one build (a host sharing one
