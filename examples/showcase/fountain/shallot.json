@@ -1,8 +1,0 @@
-{
-    "scene": "scenes/fountain.scene",
-    "plugins": {
-        "Profile": true,
-        "Orbit": true,
-        "Fountain": "./src/fountain"
-    }
-}

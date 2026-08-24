@@ -155,6 +155,14 @@
         "@dylanebert/shallot": "workspace:*",
       },
     },
+    "examples/recipes/gpu-particles": {
+      "name": "gpu-particles",
+      "version": "0.0.0",
+      "dependencies": {
+        "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.12.0",
+      },
+    },
     "examples/recipes/import-a-model": {
       "name": "import-a-model",
       "version": "0.0.0",
@@ -251,17 +259,6 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-      },
-    },
-    "examples/showcase/fountain": {
-      "name": "fountain",
-      "version": "0.0.0",
-      "dependencies": {
-        "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
-      },
-      "devDependencies": {
-        "@playwright/test": "^1.58.2",
       },
     },
     "examples/showcase/roads": {
@@ -689,8 +686,6 @@
 
     "fog-and-light-shafts": ["fog-and-light-shafts@workspace:examples/recipes/fog-and-light-shafts"],
 
-    "fountain": ["fountain@workspace:examples/showcase/fountain"],
-
     "fsevents": ["fsevents@2.3.2", "", { "os": "darwin" }, "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA=="],
 
     "game-loop": ["game-loop@workspace:examples/recipes/game-loop"],
@@ -700,6 +695,8 @@
     "glob-parent": ["glob-parent@6.0.2", "", { "dependencies": { "is-glob": "^4.0.3" } }, "sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A=="],
 
     "globals": ["globals@14.0.0", "", {}, "sha512-oahGvuMGQlPw/ivIYBjVSrWAfWLBeku5tpPE2fOPLi+WHffIWbuh2tCjhyQhTBPMf5E9jDEH4FOmTYgYwbKwtQ=="],
+
+    "gpu-particles": ["gpu-particles@workspace:examples/recipes/gpu-particles"],
 
     "gym": ["gym@workspace:examples/gym"],
 

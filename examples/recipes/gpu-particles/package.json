@@ -1,0 +1,10 @@
+{
+    "name": "gpu-particles",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@dylanebert/shallot": "workspace:*",
+        "typegpu": "~0.12.0"
+    }
+}

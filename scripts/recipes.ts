@@ -26,6 +26,7 @@ const RECIPES: Recipe[] = [
     { dir: "drive-a-vehicle", checks: ["car advances under throttle"] },
     { dir: "measure-performance", checks: ["profiler reports gpu time"] },
     { dir: "compute-and-readback", checks: ["three charges reduce to 6.00"] },
+    { dir: "gpu-particles", checks: ["particles rise off the spawn plane and fall back"] },
 ];
 
 async function runRecipe(r: Recipe): Promise<boolean> {
