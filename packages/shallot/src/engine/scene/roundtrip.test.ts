@@ -34,7 +34,7 @@ import { formatFields, normalizeAttr, parseFields } from "./core";
 
 const SCENE_FILES = [
     "recipes/custom-material/public/scenes/custom-material.scene",
-    "showcase/fountain/public/scenes/fountain.scene",
+    "recipes/gpu-particles/public/scenes/gpu-particles.scene",
     "showcase/visualization/public/scenes/tween.scene",
 ];
 
