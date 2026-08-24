@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { ROSTER } from "../site/roster";
@@ -10,6 +10,14 @@ import { skipReason, type VerifyResult, verify } from "./verify";
 // to build or render reds the gate; a demo that skips (the display gate refuses a software adapter,
 // exit 4) reports as skipped and must not be reportable as green — a release gate that skipped is not
 // a release gate that passed.
+//
+// The gate's unit is a built HTML entry point, not a demo directory. Per demo, the built `*.html` files
+// under its output dir are enumerated structurally, and each one that presents a `<canvas>` directly is
+// verified through `shallot verify --dist`. A page that hosts a canvas only inside an `<iframe>` (the
+// visualization gallery index) is a link surface, not a verifiable unit — the iframe's target page is
+// verified directly, so counting the container too would double-count. A demo contributing zero verified
+// entry points is a red, not a skip. The per-demo entry-point count is printed so a gate that silently
+// stops finding pages is visible in its own output.
 //
 // Display-gated exactly like flows and recipes: verify needs a real display + a conformant WebGPU
 // adapter, so on WSL / headless it skips honestly (native hardware only). Unlike those routine
@@ -31,11 +39,64 @@ const DISPLAY_GATE_PREFIX = "shallot verify needs a real GPU adapter";
 interface DemoOutcome {
     slug: string;
     result: "pass" | "fail" | "skip";
+    entryPoints: number;
     detail?: string;
 }
 
 function isSkip(result: VerifyResult | null): boolean {
     return result?.pass === false && !!result.error?.startsWith(DISPLAY_GATE_PREFIX);
+}
+
+// A page presents a canvas directly when its own markup contains a `<canvas>` tag. An iframe-hosted
+// canvas is verified by verifying the iframe's target page directly; a page whose only canvases live
+// behind `<iframe src=...>` (the visualization gallery index) has no `<canvas>` in its own markup and
+// is not an entry point. The check is structural — read the built HTML, look for the tag — so it does
+// not hardcode any demo's page names and adapts when a multi-page demo adds or renames a page.
+function hasDirectCanvas(htmlPath: string): boolean {
+    const content = readFileSync(htmlPath, "utf-8");
+    return /<canvas[\s>]/i.test(content);
+}
+
+// Enumerate every built `*.html` file under a demo's output dir (recursive) and return those that
+// present a canvas directly — the verifiable entry points. Structural enumeration from the build
+// output, not a hardcoded list: a named list is right today and blind to the next multi-page demo.
+function enumerateEntryPoints(demoOut: string): string[] {
+    const htmlFiles: string[] = [];
+    function walk(dir: string): void {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+            const full = join(dir, entry.name);
+            if (entry.isDirectory()) {
+                walk(full);
+            } else if (entry.name.endsWith(".html")) {
+                htmlFiles.push(full);
+            }
+        }
+    }
+    walk(demoOut);
+    return htmlFiles.filter(hasDirectCanvas);
+}
+
+// Create a scratch dir whose `dist/` mirrors the demo's build output but with `dist/index.html`
+// replaced by a symlink to the target entry-point HTML file. `shallot verify --dist` serves
+// `<dir>/dist/index.html`, so this makes verify serve the specific entry point while keeping the
+// sibling assets the page references (via `../assets/...`) reachable through symlinks.
+function makeScratch(demoOut: string, entryHtml: string): string {
+    const scratch = join(
+        tmpdir(),
+        `shallot-demos-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    const dist = join(scratch, "dist");
+    mkdirSync(dist, { recursive: true });
+
+    // Symlink every top-level entry from the demo output into dist/, except index.html (replaced below).
+    for (const entry of readdirSync(demoOut, { withFileTypes: true })) {
+        if (entry.name === "index.html") continue;
+        symlinkSync(resolve(demoOut, entry.name), join(dist, entry.name));
+    }
+    // Replace index.html with a symlink to the target entry point.
+    symlinkSync(entryHtml, join(dist, "index.html"));
+
+    return scratch;
 }
 
 async function runDemo(slug: string): Promise<DemoOutcome> {
@@ -44,35 +105,61 @@ async function runDemo(slug: string): Promise<DemoOutcome> {
     const demoOut = resolve(outDir, slug);
     if (!existsSync(demoOut)) {
         console.log(`FAIL: ${slug} — no build at out/site/${slug}/ (run \`bun run site\` first)`);
-        return { slug, result: "fail", detail: "no build output" };
+        return { slug, result: "fail", entryPoints: 0, detail: "no build output" };
     }
 
-    // `shallot verify --dist` expects `<dir>/dist/index.html`; build-site.ts puts the built demo at
-    // `out/site/<slug>/` (the dist contents, not a dist subdirectory). Create a scratch dir with a
-    // `dist/` symlink so verify's --dist path finds the build without re-implementing ejection.
-    const scratch = join(tmpdir(), `shallot-demos-${slug}-${Date.now()}`);
-    mkdirSync(scratch, { recursive: true });
-    symlinkSync(demoOut, join(scratch, "dist"));
+    // Enumerate built HTML entry points that present a canvas directly. The gallery index
+    // (iframe-only, no direct canvas) is a link surface, not a verifiable unit — an iframe-hosted
+    // canvas is verified by verifying the iframe's target page directly.
+    const entryPoints = enumerateEntryPoints(demoOut);
+    console.log(`  entry points: ${entryPoints.length}`);
 
-    try {
-        const result = await verify(scratch, ["--dist", "--timeout", "60000"]);
-        if (result === null) {
-            console.log(`FAIL: ${slug} — verify crashed before reporting`);
-            return { slug, result: "fail", detail: "no verdict" };
-        }
-        if (isSkip(result)) {
-            console.log(`SKIP: ${slug} — display gate refused software adapter`);
-            return { slug, result: "skip", detail: result.error };
-        }
-        const ok = result.pass === true;
-        console.log(ok ? `PASS: ${slug}` : `FAIL: ${slug}`);
-        if (!ok && result.errors?.length) {
-            for (const e of result.errors.slice(0, 3)) console.log(`  ${e.split("\n")[0]}`);
-        }
-        return { slug, result: ok ? "pass" : "fail" };
-    } finally {
-        rmSync(scratch, { recursive: true, force: true });
+    // A demo contributing zero verified entry points is a red, not a skip — the cheapest "fix" for a
+    // false red is a false green, so this arm makes a gate that silently stops finding pages visible.
+    if (entryPoints.length === 0) {
+        console.log(
+            `FAIL: ${slug} — zero verifiable entry points (no built HTML page presents a canvas directly)`,
+        );
+        return { slug, result: "fail", entryPoints: 0, detail: "zero entry points" };
     }
+
+    let allPass = true;
+    let skipDetail: string | undefined;
+    for (const entryHtml of entryPoints) {
+        const label = entryHtml.slice(demoOut.length + 1);
+        const scratch = makeScratch(demoOut, entryHtml);
+        try {
+            const result = await verify(scratch, ["--dist", "--timeout", "60000"]);
+            if (result === null) {
+                console.log(`  FAIL: ${label} — verify crashed before reporting`);
+                allPass = false;
+                continue;
+            }
+            if (isSkip(result)) {
+                console.log(`  SKIP: ${label} — display gate refused software adapter`);
+                skipDetail = result.error;
+                continue;
+            }
+            const ok = result.pass === true;
+            console.log(ok ? `  PASS: ${label}` : `  FAIL: ${label}`);
+            if (!ok) {
+                allPass = false;
+                if (result.errors?.length) {
+                    for (const e of result.errors.slice(0, 3))
+                        console.log(`    ${e.split("\n")[0]}`);
+                }
+            }
+        } finally {
+            rmSync(scratch, { recursive: true, force: true });
+        }
+    }
+
+    // A skip on any entry point means the display gate refused — the whole demo skips, since the
+    // hardware can't verify any page. A fail on any (with no skips) means the demo reds.
+    if (skipDetail) {
+        return { slug, result: "skip", entryPoints: entryPoints.length, detail: skipDetail };
+    }
+    return { slug, result: allPass ? "pass" : "fail", entryPoints: entryPoints.length };
 }
 
 async function main(): Promise<void> {
@@ -80,8 +167,9 @@ async function main(): Promise<void> {
     if (args.includes("--help") || args.includes("-h")) {
         console.log(`Usage: bun run demos [--demo <slug>]
 
-Builds every showcase demo (via \`bun run site\`) and runs \`shallot verify --dist\` over each —
-display-gated, on real hardware. A release gate: a skip (exit 4) is not green.
+Builds every showcase demo (via \`bun run site\`) and runs \`shallot verify --dist\` over each
+built HTML entry point that presents a canvas directly — display-gated, on real hardware. A
+release gate: a skip (exit 4) is not green.
 
 Options:
   --demo <slug>   Build and verify a single demo by its roster slug`);
@@ -132,6 +220,11 @@ Options:
 
     console.log(`\n=== summary ===`);
     console.log(`  ${passed}/${total} verified, ${failed} failed, ${skipped} skipped`);
+    for (const o of outcomes) {
+        console.log(
+            `  ${o.slug}: ${o.result} (${o.entryPoints} entry point${o.entryPoints === 1 ? "" : "s"})`,
+        );
+    }
 
     if (failed > 0) {
         console.error("\nFAIL: demos gate failed");
