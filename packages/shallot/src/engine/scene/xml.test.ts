@@ -358,13 +358,29 @@ describe("XML", () => {
         test("#rgb shorthand expands to 24-bit or is rejected, never a 12-bit integer", () => {
             const Part = { color: [] as number[] };
             register("part", Part, { defaults: () => ({ color: 0 }) });
-            let result: string | number | null | undefined;
-            try {
-                result = parseFields("part", "color: #fff").color;
-            } catch {
-                result = undefined;
-            }
-            expect(result === 0xffffff || result === null).toBe(true);
+
+            const tryColor = (attr: string): string | number | null | undefined => {
+                try {
+                    return parseFields("part", attr).color;
+                } catch {
+                    return undefined;
+                }
+            };
+
+            // length 3: #rgb → #rrggbb (expand) or rejected, never 4095
+            const r3 = tryColor("color: #fff");
+            expect(r3 === 0xffffff || r3 === null).toBe(true);
+
+            // length 4: #rgba → #rrggbbaa (expand) or rejected, never 65535
+            const r4 = tryColor("color: #ffff");
+            expect(r4 === 0xffffffff || r4 === null).toBe(true);
+
+            // lengths outside {3, 4, 6, 8} are rejected, never a raw short int
+            const r2 = tryColor("color: #ff");
+            expect(r2 === null || r2 === undefined).toBe(true);
+
+            const r5 = tryColor("color: #fffff");
+            expect(r5 === null || r5 === undefined).toBe(true);
         });
 
         test("errors on unknown component", () => {

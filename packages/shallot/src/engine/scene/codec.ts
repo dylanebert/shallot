@@ -379,7 +379,21 @@ function parseNumber(value: string): number | null {
         if (hex.length === 3) {
             return parseInt(hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2], 16);
         }
-        return parseInt(hex, 16);
+        // CSS shorthand: #rgba expands to #rrggbbaa (each digit doubled), so #ffff →
+        // 0xffffffff, not the 16-bit parseInt("ffff", 16) = 65535
+        if (hex.length === 4) {
+            return parseInt(
+                hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3],
+                16,
+            );
+        }
+        if (hex.length === 6 || hex.length === 8) {
+            return parseInt(hex, 16);
+        }
+        // any other length is not a valid CSS hex color — return null (same as the
+        // charset rejection above) rather than a raw short int that yields a silent
+        // wrong color
+        return null;
     }
 
     if (value === "true") return 1;
