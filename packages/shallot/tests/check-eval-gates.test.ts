@@ -5,178 +5,263 @@
 // Route decision (S1): the eval tree `evals/` sits outside `bunfig.toml`'s
 // `root = "packages/shallot"`, so a `bun test` arm cannot live inside `evals/`
 // and be discovered. But an arm under `packages/shallot/tests/` IS discovered,
-// and it can reach `evals/` by reading source files as text — no imports from
-// `evals/`, so no playwright/chromium dependency is pulled into the test suite.
-// The rejected alternative was a `scripts/check-eval-gates.ts` script in the
-// `check` chain: that would red the primary structural-check gate (`bun run
-// check`) on S2/S3 properties, which is more disruptive than a red in the
-// `bun test` population (which the kex-root fast suite does not reach at all).
+// and it can reach `evals/` by *parsing* its sources — no imports from
+// `evals/`, so no playwright/chromium dependency is pulled into the suite.
+// The rejected alternative was a `scripts/check-eval-gates.ts` in the `check`
+// chain: same reach, but it reds the gate every other shallot lane runs first.
+//
+// ── Instrument: a parser, not a pattern ──
+//
+// Rounds 1–3 of this file hand-rolled regex and brace-counting over `evals/`
+// source. All three were green at their own gate and each was holed in the
+// surface form that round's fixtures did not vary:
+//   * an `extractFunction` that returned the inline return-type annotation
+//     `{ ok: boolean; out: string }` instead of `sh`'s body, so a correct S3
+//     fix could never flip the arm — and whose `function NAME(` needle threw
+//     outright on a generic or arrow form;
+//   * a `stripComments` running before `stripStringLiterals`, where the `//`
+//     inside `` `http://localhost:${port}/` `` shifted backtick parity for the
+//     rest of `grade.ts`;
+//   * an `"INCOMPLETE"` token test that a bare `console.log("INCOMPLETE")`
+//     discharges.
+// `checks.md` names this class: a check that has failed N rounds each green at
+// its own gate is a finding about the gate's *kind*, and a third widening
+// round is the signal the shape is wrong rather than the constant. So every
+// arm below reads a `@babel/parser` AST and asserts a structural property —
+// a call expression's argument node kind, a function's real `body` node, a
+// `TSUnionType`'s members, a `TryStatement`'s block. The strip-order
+// machinery is retired outright rather than fixed: a parser tokenizes
+// `` `http://localhost:${port}/` `` correctly by construction.
+//
+// `@babel/parser` (not `typescript`) is the parser because `typescript@^7` in
+// this tree is the native port, whose npm package ships only `lib/tsc.js` —
+// there is no compiler API and `ts.ScriptTarget` is `undefined` under bun.
+// `@babel/parser` is a devDependency of the private workspace root, beside
+// the existing `@babel/core`; the published package is `packages/shallot`,
+// which ships no `tests/` entry.
 //
 // ── Properties ──
 //
 // S2 — no task gate under `evals/tasks/*/gate.ts` carries a hand-written
-//      `setTimeout` number; every one derives from a single exported
-//      worst-case boot budget in `evals/harness/lib.ts`. The check is
-//      structural over ALL task gates (the class), not the five sites the
-//      audit named.
+//      `setTimeout` number; every one derives from a single owner exported by
+//      `evals/harness/lib.ts`. Structural over ALL task gates (the class),
+//      not the five sites the audit named. The export's *spelling* is not
+//      pinned: the arm resolves the identifier the gates reference and
+//      asserts that same identifier is exported.
 //
-//      The check resolves the identifier each gate's `setTimeout` references
-//      and asserts that same identifier is exported by `lib.ts` — one claim
-//      about one owner, rather than two spellings (a name regex on the export
-//      and a numeric-literal ban on the gates) that must agree. The old
-//      name-regex arm is dropped: it pinned a spelling S2 had not chosen, so
-//      a correct fix naming the export `BOOT_CEILING_MS` would red it, and an
-//      arm fitted to a name the later stage has not chosen yet is "fixed" by
-//      renaming the export to suit the test. Resolving the identifier the
-//      gates reference and asserting that same identifier is exported makes
-//      the "no hand-written number" leg and the "references the exported
-//      budget" leg one claim about one owner.
-//
-//      `evals/harness/gate.config.ts`'s own `timeout: 90_000` /
-//      `globalTimeout: 180_000` is out of S1/S2's scope and stays hand-written
-//      by design: each gate's `test.setTimeout` override wins over the config
-//      default, so the config number is inert while the per-gate override
-//      stands. S2's invariant is over the per-gate override, not the config
-//      default; a future stage that makes the config default derive from the
-//      same exported budget would carry its own arm.
+//      `evals/harness/gate.config.ts`'s own `timeout: 90_000` is out of
+//      S1/S2's scope and stays hand-written by design: each gate's
+//      `test.setTimeout` override wins over the config default, so the config
+//      number is inert while the per-gate override stands.
 //
 // S3 — a staging failure (failed `bun install` / `bunx playwright install`)
 //      in `evals/grade.ts` grades as a distinct INCOMPLETE result kind, never
-//      as the agent's task FAIL. The spec's fix: make `sh` throw on failure,
-//      catch it at the staging call sites, and map to INCOMPLETE.
-//
-//      Three arms pin three legs of this property, all `test.failing`:
-//        1. `sh`'s body contains a `throw` keyword (the mechanism).
-//        2. `grade.ts` contains an INCOMPLETE identifier or exact `"INCOMPLETE"`
-//           quoted token outside comments (the declared result kind).
-//        3. A `try` block precedes and a `catch` follows the staging call
-//           sites textually (the throw is caught at the call site).
+//      as the agent's task FAIL: `sh` throws, the throw is caught at the
+//      staging call sites, and the result maps to INCOMPLETE.
 //
 // ── Hole records (test.failing) ──
 //
-// The S2 and S3 arms below are `test.failing`: they pass (green) while their
-// assertions fail (the defect stands), and fail (red) when their assertions
-// pass (the fix lands). checks.md's hole-record arm requires each to name the
-// unit that will flip it: S2 discharges the timeout arm; S3 discharges the
-// three staging arms. The label is what makes each a hole record rather than
-// a defence of the defect — a permanently-red suite is not shippable, and
-// `.failing` is what carries the current state without weakening any assertion.
-// The green arms (cardinality, harness import, setTimeout presence) verify
-// the mechanism itself, which S1 legitimately makes true.
+// The four S2/S3 arms are `test.failing`: green while their assertions fail
+// (the defect stands), red the moment their assertions pass (the fix lands),
+// printing `^ this test is marked as failing but it passed`. Each names the
+// stage that discharges it, which is what makes it a hole record rather than
+// a defence of the defect.
+//
+// A `test.failing` arm is *also* green when the arm itself is broken —
+// mis-pathed, malformed, reading a corrupted span — so each arm carries a
+// witnessed flip differential in its own docblock: a realistic correct fix
+// applied to a scratch reconstruction of the eval tree, and the observed red.
+// The readers are parameterized by a root directory (`CHECK_EVAL_GATES_ROOT`)
+// precisely so those differentials are runnable rather than described.
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { parse } from "@babel/parser";
 
-const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
-const EVALS = join(REPO_ROOT, "evals");
-const TASKS = join(EVALS, "tasks");
-const HARNESS = join(EVALS, "harness");
+type Node = { type: string } & Record<string, unknown>;
 
-// Enumerate the class — every task gate under `evals/tasks/*/gate.ts`. This is
-// a selection (the check picks its subject out of a corpus), so the caller
-// asserts cardinality to guard against a silent zero-match re-point.
-function gateFiles(): string[] {
-    return readdirSync(TASKS, { withFileTypes: true })
-        .filter((d) => d.isDirectory())
-        .map((d) => join(TASKS, d.name, "gate.ts"))
-        .filter((p) => existsSync(p));
+// The repo root this arm reads. Overridable so the flip differentials in the
+// docblocks below can be re-run against a scratch reconstruction under /tmp
+// without editing this file: the readers take a root, they do not hard-code
+// the worktree path.
+function evalRoot(): string {
+    return process.env.CHECK_EVAL_GATES_ROOT ?? resolve(import.meta.dir, "..", "..", "..");
 }
 
-// Extract a function body by brace counting from the body's opening `{` to its
-// matching closing `}`. The body brace is the first `{` after the *parameter
-// list's* matching close-paren — not the first `{` anywhere after the needle,
-// which would mistake a return-type annotation like `{ ok: boolean; out: string }`
-// for the body (that balanced brace pair closes before the body brace, so the
-// helper would return the return-type fragment instead of the body).
-function extractFunction(src: string, name: string): string {
-    const needle = `function ${name}(`;
-    const start = src.indexOf(needle);
-    if (start === -1) throw new Error(`function ${name} not found`);
-    // Skip the parameter list to its matching close-paren, so a return-type
-    // annotation with balanced braces (e.g. `{ ok: boolean; out: string }`)
-    // is not mistaken for the body.
-    let i = start + needle.length;
-    let parenDepth = 1;
-    for (; i < src.length; i++) {
-        if (src[i] === "(") parenDepth++;
-        else if (src[i] === ")") {
-            parenDepth--;
-            if (parenDepth === 0) break;
-        }
+function parseTs(src: string): Node {
+    return parse(src, { sourceType: "module", plugins: ["typescript"] }) as unknown as Node;
+}
+
+function parseFile(path: string): Node {
+    return parseTs(readFileSync(path, "utf8"));
+}
+
+// Generic AST walk. Comment arrays are skipped: a comment is not a node the
+// structural properties below are ever about, and skipping them is what makes
+// "a comment-only change flips nothing" true by construction rather than by a
+// strip pass whose ordering was round 2's hole.
+function walk(node: unknown, visit: (n: Node) => void): void {
+    if (Array.isArray(node)) {
+        for (const child of node) walk(child, visit);
+        return;
     }
-    if (parenDepth !== 0) throw new Error(`function ${name}: unterminated parameter list`);
-    // After the close-paren there may be a return-type annotation with
-    // balanced braces (e.g. `{ ok: boolean; out: string }`) that closes
-    // before the body brace. If a `:` precedes the first `{` and that
-    // `{...}` is followed by another `{`, the first block is the return
-    // type — the body brace is the second `{`.
-    let bodyBrace = src.indexOf("{", i);
-    if (bodyBrace === -1) throw new Error(`function ${name}: no opening brace`);
-    const colonIdx = src.indexOf(":", i);
-    if (colonIdx !== -1 && colonIdx < bodyBrace) {
-        let depth = 0;
-        let k = bodyBrace;
-        for (; k < src.length; k++) {
-            if (src[k] === "{") depth++;
-            else if (src[k] === "}") {
-                depth--;
-                if (depth === 0) break;
+    if (!node || typeof node !== "object") return;
+    const n = node as Node;
+    if (typeof n.type === "string") visit(n);
+    for (const key of Object.keys(n)) {
+        if (
+            key === "loc" ||
+            key === "leadingComments" ||
+            key === "trailingComments" ||
+            key === "innerComments" ||
+            key === "comments"
+        ) {
+            continue;
+        }
+        walk((n as Record<string, unknown>)[key], visit);
+    }
+}
+
+function collect(node: unknown, type: string): Node[] {
+    const out: Node[] = [];
+    walk(node, (n) => {
+        if (n.type === type) out.push(n);
+    });
+    return out;
+}
+
+// Enumerate the class — every task gate under `<root>/evals/tasks/*/gate.ts`.
+// This is a selection (the check picks its subject out of a corpus), so every
+// caller asserts cardinality: a silent zero-match re-point reads 0, not 6.
+function gateFiles(root: string): string[] {
+    const tasks = join(root, "evals", "tasks");
+    return readdirSync(tasks, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .map((d) => join(tasks, d.name, "gate.ts"))
+        .filter((p) => existsSync(p))
+        .sort();
+}
+
+// Every `setTimeout(...)` call in a gate, whatever its callee shape
+// (`test.setTimeout(x)`, a bare `setTimeout(x)`, `page.setTimeout(x)`).
+function setTimeoutCalls(ast: Node): Node[] {
+    return collect(ast, "CallExpression").filter((call) => {
+        const callee = call.callee as Node | undefined;
+        if (!callee) return false;
+        if (callee.type === "Identifier") return callee.name === "setTimeout";
+        if (callee.type === "MemberExpression") {
+            const prop = callee.property as Node | undefined;
+            return prop?.type === "Identifier" && prop.name === "setTimeout";
+        }
+        return false;
+    });
+}
+
+// The identifier a timeout argument ultimately names, or `null` when the
+// argument names nothing (a literal). Unwraps the forms a derived budget can
+// legitimately take: a bare identifier, a call of one, a namespaced member, an
+// arithmetic expression over one, and TS-only wrappers.
+function ownerIdentifier(node: Node | undefined): string | null {
+    if (!node) return null;
+    switch (node.type) {
+        case "Identifier":
+            return node.name as string;
+        case "CallExpression":
+            return ownerIdentifier(node.callee as Node);
+        case "MemberExpression": {
+            const prop = node.property as Node;
+            return prop?.type === "Identifier" ? (prop.name as string) : null;
+        }
+        case "BinaryExpression":
+            return ownerIdentifier(node.left as Node) ?? ownerIdentifier(node.right as Node);
+        case "TSAsExpression":
+        case "TSNonNullExpression":
+        case "TSSatisfiesExpression":
+        case "TSTypeAssertion":
+            return ownerIdentifier(node.expression as Node);
+        default:
+            return null;
+    }
+}
+
+// Every name `<root>/evals/harness/lib.ts` exports — value or type, in every
+// declaration form (`export const|let|var`, `export function`, `export class`,
+// `export enum`, `export type|interface`, and re-export specifiers). Read off
+// the AST, so no spelling of the export is pinned.
+function libExportedNames(root: string): Set<string> {
+    const ast = parseFile(join(root, "evals", "harness", "lib.ts"));
+    const names = new Set<string>();
+    for (const decl of collect(ast, "ExportNamedDeclaration")) {
+        const inner = decl.declaration as Node | null | undefined;
+        if (inner) {
+            if (inner.type === "VariableDeclaration") {
+                for (const d of (inner.declarations as Node[]) ?? []) {
+                    const id = d.id as Node;
+                    if (id?.type === "Identifier") names.add(id.name as string);
+                }
+            } else {
+                const id = inner.id as Node | undefined;
+                if (id?.type === "Identifier") names.add(id.name as string);
             }
         }
-        if (depth !== 0) throw new Error(`function ${name}: unterminated`);
-        let next = k + 1;
-        while (next < src.length && /\s/.test(src[next])) next++;
-        if (next < src.length && src[next] === "{") {
-            bodyBrace = next;
+        for (const spec of (decl.specifiers as Node[]) ?? []) {
+            const exported = spec.exported as Node | undefined;
+            if (exported?.type === "Identifier") names.add(exported.name as string);
+            else if (exported?.type === "StringLiteral") names.add(exported.value as string);
         }
     }
-    // Extract the body from bodyBrace to its matching close brace.
-    let depth = 0;
-    const begin = bodyBrace;
-    for (i = bodyBrace; i < src.length; i++) {
-        if (src[i] === "{") depth++;
-        else if (src[i] === "}") {
-            depth--;
-            if (depth === 0) return src.slice(begin, i + 1);
+    return names;
+}
+
+// The function body node of a top-level `NAME` in `src`, in every declaration
+// form: `function NAME(...)`, `function NAME<T>(...)`, `const NAME = (...) =>`,
+// `const NAME = function (...)`, and any of those behind `export`. Returns the
+// *body* node — never a return-type annotation, which is a sibling of `body`
+// on the AST and so cannot be confused with it.
+function functionBody(ast: Node, name: string): Node {
+    for (const kind of ["FunctionDeclaration", "TSDeclareFunction"]) {
+        for (const fn of collect(ast, kind)) {
+            const id = fn.id as Node | undefined;
+            if (id?.type === "Identifier" && id.name === name && fn.body) return fn.body as Node;
         }
     }
-    throw new Error(`function ${name}: unterminated`);
+    for (const d of collect(ast, "VariableDeclarator")) {
+        const id = d.id as Node | undefined;
+        if (id?.type !== "Identifier" || id.name !== name) continue;
+        const init = d.init as Node | undefined;
+        if (
+            init &&
+            (init.type === "ArrowFunctionExpression" || init.type === "FunctionExpression") &&
+            init.body
+        ) {
+            return init.body as Node;
+        }
+    }
+    throw new Error(`no function declaration for ${name}`);
 }
 
-// Strip string literals (double-quoted, single-quoted, template) so a bare
-// identifier search does not match display strings. Used to distinguish a
-// declared type member from a string literal in the output logic.
-function stripStringLiterals(src: string): string {
-    return src
-        .replace(/"(?:[^"\\]|\\.)*"/g, '""')
-        .replace(/'(?:[^'\\]|\\.)*'/g, "''")
-        .replace(/`(?:[^`\\]|\\.)*`/g, "``");
+// Every call site of `sh(...)` in `grade.ts` — the population leg D controls
+// against, so a try/catch arm cannot go vacuously green on an empty set.
+function shCallSites(ast: Node): Node[] {
+    return collect(ast, "CallExpression").filter((call) => {
+        const callee = call.callee as Node | undefined;
+        return callee?.type === "Identifier" && callee.name === "sh";
+    });
 }
 
-// Strip `//` line comments and `/* */` block comments so a bare word in a
-// comment does not match an identifier search. Cheapest form: a regex strip,
-// not a full lexer — adequate for the INCOMPLETE arm's purpose, which only
-// needs to prevent a zero-behavior-change comment from flipping the arm.
-function stripComments(src: string): string {
-    return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
-}
-
-// Escape a string for use in a RegExp — prevents identifier characters that
-// are also regex metacharacters from being interpreted.
-function escapeRegex(s: string): string {
-    return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function gradeAst(root: string): Node {
+    return parseFile(join(root, "evals", "grade.ts"));
 }
 
 describe("eval gate surface — mechanism (green: S1)", () => {
     test("discovers all task gates (cardinality)", () => {
-        const gates = gateFiles();
+        const gates = gateFiles(evalRoot());
         // The class is six gates today. A gate added or removed reds this arm
         // — the sweep must see the whole population, and a silent zero-match
         // re-point (wrong dir) reads 0 here, not 6.
         expect(gates).toHaveLength(6);
-        const names = gates.map((p) => p.split("/").slice(-2, -1)[0]).sort();
-        expect(names).toEqual([
+        expect(gates.map((p) => p.split("/").slice(-2, -1)[0])).toEqual([
             "color-on-key",
             "falling-box",
             "orbit-on-drag",
@@ -187,180 +272,233 @@ describe("eval gate surface — mechanism (green: S1)", () => {
     });
 
     test("each gate imports from the shared harness lib", () => {
-        const gates = gateFiles();
-        // Cardinality guard — same count as the cardinality arm, not merely
-        // > 0: a silent zero-match re-point (wrong dir) reads 0 here, not 6,
-        // and a sweep that silently drops one gate reads 5, not 6.
+        const gates = gateFiles(evalRoot());
         expect(gates).toHaveLength(6);
         for (const gate of gates) {
-            const src = readFileSync(gate, "utf8");
-            // Every gate builds on `harness/lib` — the boot driver, the pixel
-            // utilities, the envelope emitter. A gate that stops importing it
-            // is a gate that stopped using the shared harness.
-            expect(src).toContain("harness/lib");
-        }
-    });
-
-    test("each gate has at least one setTimeout call", () => {
-        const gates = gateFiles();
-        // Cardinality guard — same count as the cardinality arm.
-        expect(gates).toHaveLength(6);
-        for (const gate of gates) {
-            const src = readFileSync(gate, "utf8");
-            expect(src).toMatch(/setTimeout\s*\(/);
-        }
-    });
-});
-
-// S2 — derived boot budget. `test.failing`: green while all six gates carry
-// hand-written `setTimeout` literals and `lib.ts` exports no budget constant;
-// red the moment S2 makes every gate derive from a single exported budget, so
-// S2 must flip this arm inside its own diff.
-describe("S2 — derived boot budget (failing: owed to S2)", () => {
-    // Resolves the identifier each gate's `setTimeout` references and asserts
-    // that same identifier is exported by `lib.ts`. This subsumes the old
-    // name-regex arm (which pinned a spelling S2 had not chosen) and the old
-    // no-numeric-literal arm (which could not see whether the identifier was
-    // the exported budget or a local constant): one claim about one owner.
-    //
-    // Matcher CAN: detect that each gate's setTimeout argument is an
-    // identifier (not a numeric literal) and that identifier is exported by
-    // lib.ts (as const, let, function, or enum).
-    // Matcher CANNOT: see whether the identifier is the *worst-case* budget
-    // (it could be any exported constant); cannot verify the full expression
-    // if the argument is arithmetic (e.g. `BUDGET * 2` — the regex captures
-    // only the first token); cannot see whether all six gates reference the
-    // *same* identifier (each gate is checked independently).
-    //
-    // Witnessed flip: adding `export const BOOT_CEILING_MS = 120_000;` to
-    // lib.ts and changing every gate's `test.setTimeout(80_000)` /
-    // `test.setTimeout(120_000)` to `test.setTimeout(BOOT_CEILING_MS)` reds
-    // this arm (`^ this test is marked as failing but it passed`). Also
-    // witnessed red with `export function bootCeilingMs(): number { return
-    // 120_000; }` and `test.setTimeout(bootCeilingMs())` — the function-form
-    // export, which the widened exportRe now admits.
-    test.failing("each gate's setTimeout argument is an identifier exported by lib.ts (discharged by S2)", () => {
-        const gates = gateFiles();
-        expect(gates).toHaveLength(6);
-        const lib = readFileSync(join(HARNESS, "lib.ts"), "utf8");
-        for (const gate of gates) {
-            const src = readFileSync(gate, "utf8");
-            // Extract the first setTimeout call's argument.
-            const m = src.match(/setTimeout\s*\(\s*([^)\s,(]+)/);
-            expect(m).not.toBeNull();
-            const arg = m![1];
-            // The argument must be an identifier, not a numeric literal.
-            // Today all six gates pass numeric literals (80_000 or 120_000).
-            expect(arg).toMatch(/^[A-Za-z_$]/);
-            // That identifier must be exported by lib.ts — one owner for all
-            // six gates, not a local constant or an unrelated reference.
-            // Widened to admit `export function NAME` and `export enum NAME`
-            // alongside `export const|let NAME`, so a derived budget spelled
-            // as a function (e.g. `bootCeilingMs()`) is not invisible.
-            const exportRe = new RegExp(
-                `export\\s+(?:const|let|function|enum)\\s+${escapeRegex(arg)}\\b`,
+            // An `ImportDeclaration`'s `source`, not a substring of the file:
+            // a comment or a string mentioning the path cannot satisfy it.
+            const sources = collect(parseFile(gate), "ImportDeclaration").map(
+                (d) => (d.source as Node).value as string,
             );
-            expect(lib).toMatch(exportRe);
+            expect(sources.some((s) => s.endsWith("harness/lib"))).toBe(true);
+        }
+    });
+
+    test("each gate carries exactly one setTimeout call", () => {
+        const gates = gateFiles(evalRoot());
+        expect(gates).toHaveLength(6);
+        for (const gate of gates) {
+            // Cardinality of the subject leg A selects: exactly one call per
+            // gate, so leg A's "the first one" is the whole population and not
+            // a `.find` that silently re-points once a second call appears.
+            expect(setTimeoutCalls(parseFile(gate))).toHaveLength(1);
         }
     });
 });
 
-// S3 — staging failure maps to INCOMPLETE. All three arms are `test.failing`:
-// green while the defect stands, red the moment S3 makes the property true, so
-// S3 must flip each arm inside its own diff.
+// S2 — derived boot budget. `test.failing`: green while the gates carry
+// hand-written `setTimeout` literals; red the moment S2 makes every gate
+// derive from a single owner exported by `lib.ts`, so S2 flips this arm
+// inside its own diff.
+describe("S2 — derived boot budget (failing: owed to S2)", () => {
+    // Leg A. Over ALL gates under `evals/tasks/*/gate.ts` as a class, not the
+    // five sites the audit named: each gate's `setTimeout` argument must be an
+    // `Identifier`/`CallExpression` (never a `NumericLiteral`) whose resolved
+    // name is exported by `evals/harness/lib.ts`, and all gates must name the
+    // *same* owner. Pre-fix reading, structural: every argument node is a
+    // `NumericLiteral` (`80_000` ×5, `120_000` for persist-color).
+    //
+    // The export's spelling is not pinned — the arm resolves the identifier
+    // the gates reference and asserts that identifier is in `lib.ts`'s export
+    // set, so a fix naming it `BOOT_CEILING_MS` or `bootCeilingMs()` passes
+    // equally. Nothing here is fitted to a name S2 has not chosen.
+    //
+    // Matcher CAN: distinguish a literal argument from an identifier one by
+    // AST node kind; resolve the identifier through call, member, arithmetic
+    // and TS-wrapper forms; assert that name is in `lib.ts`'s exported set;
+    // assert the owner is single across the whole class.
+    // Matcher CANNOT: see whether the exported owner is the *worst-case* boot
+    // budget rather than some other exported number, nor whether its value
+    // covers the ≈101 s retry path — a value claim needs a runtime reading,
+    // not a parse. It also cannot see a second timeout expressed some way
+    // other than a `setTimeout` call (the green arm above pins the count at
+    // one per gate, which is what bounds this).
+    //
+    // Witnessed flip differential (2026-08-25). Method for every arm below:
+    // `evals/` copied verbatim into a scratch dir under /tmp, one realistic
+    // fix applied there, then
+    // `CHECK_EVAL_GATES_ROOT=<scratch> bun test packages/shallot/tests/check-eval-gates.test.ts`.
+    // Control first: the *unmodified* copy reads 7 pass / 0 fail at the
+    // scratch root, so the readers are not silently reading the worktree.
+    //
+    // Leg A input — `export function bootCeilingMs(): number { return
+    // 130_000; }` appended to `evals/harness/lib.ts`; each of the six gates'
+    // `test.setTimeout(80_000)` / `test.setTimeout(120_000)` rewritten to
+    // `test.setTimeout(bootCeilingMs())` with `bootCeilingMs` added to that
+    // gate's `../../harness/lib` import list. Observed: 6 pass / 1 fail, this
+    // arm the fail, `^ this test is marked as failing but it passed`; legs
+    // B/C/D unmoved.
+    // Negative, witnessed in the same shape: a comment-only edit (`//
+    // derived budget: owed to S2` inserted above each gate's `setTimeout`
+    // line, plus one comment line atop `lib.ts` and one atop `grade.ts`)
+    // reads 7 pass / 0 fail — nothing flips.
+    //
+    // Placement note, not overstated: the reader finds the owner wherever the
+    // `setTimeout` call sits inside the gate, but it does require the argument
+    // to be *that call's* argument and the name to be exported from
+    // `evals/harness/lib.ts` specifically — a budget owned by another harness
+    // file would leave this arm green.
+    test.failing("every task gate's setTimeout argument resolves to one owner exported by harness/lib.ts (discharged by S2)", () => {
+        const root = evalRoot();
+        const gates = gateFiles(root);
+        // Population control: the class must be non-empty, or every
+        // per-gate assertion below is vacuous.
+        expect(gates.length).toBeGreaterThan(0);
+        const exported = libExportedNames(root);
+        const owners = new Set<string>();
+        for (const gate of gates) {
+            const calls = setTimeoutCalls(parseFile(gate));
+            expect(calls.length).toBeGreaterThan(0);
+            for (const call of calls) {
+                const arg = ((call.arguments as Node[]) ?? [])[0];
+                // Today a `NumericLiteral`, so `ownerIdentifier` is null.
+                const owner = ownerIdentifier(arg);
+                expect(owner).not.toBeNull();
+                expect([...exported]).toContain(owner as string);
+                owners.add(owner as string);
+            }
+        }
+        // One owner for the whole class — the locked structural fix is a
+        // single derived budget, not six identifiers that happen to be
+        // exported.
+        expect(owners.size).toBe(1);
+    });
+});
+
+// S3 — staging failure maps to INCOMPLETE. Three `test.failing` arms, one per
+// leg of the mechanism; S3 flips each inside its own diff.
 describe("S3 — staging failure maps to INCOMPLETE (failing: owed to S3)", () => {
-    // Leg 1: `sh`'s body contains a `throw` keyword — the mechanism that makes
-    // a staging failure propagate instead of being silently swallowed.
+    // Leg B. `sh`'s *body span* in `evals/grade.ts` contains a
+    // `ThrowStatement`. Read off the `body` node of `sh`'s declaration, which
+    // on the AST is a sibling of `returnType` — so the inline return-type
+    // annotation `{ ok: boolean; out: string }` that round 1 matched instead of
+    // the body is not reachable from here by construction. `functionBody`
+    // accepts the declaration, generic-declaration, arrow and function-
+    // expression forms, so a fix that changes `sh`'s shape does not throw the
+    // reader (round 3's latent `function NAME(` needle).
     //
-    // Matcher CAN: detect that the keyword `throw` appears somewhere in
-    // `sh`'s function body (after fixing extractFunction to skip the return-
-    // type annotation's balanced braces and read the real body).
+    // Pre-fix reading, structural: `sh` is a `FunctionDeclaration` whose body
+    // holds 0 `ThrowStatement` nodes.
+    //
+    // Matcher CAN: assert a `throw` exists inside `sh`'s real body span, in
+    // any nesting.
     // Matcher CANNOT: distinguish a throw on non-zero exit from a throw for
-    // any other reason; cannot confirm the throw is reachable from the
-    // staging call sites; cannot see whether the throw is caught and mapped
-    // to INCOMPLETE. Legs 2 and 3 cover those properties.
+    // some other reason; confirm the throw is reachable from the staging call
+    // sites; see whether it is caught and mapped to INCOMPLETE (legs C and D
+    // cover those). A throw inside a callback nested in `sh` also satisfies it.
     //
-    // Witnessed flip: adding `if (p.exitCode !== 0) { throw new Error(...) }`
-    // to the real `sh` body reds this arm (`^ this test is marked as failing
-    // but it passed`). Before the extractFunction fix the arm read the return-
-    // type fragment `{ ok: boolean; out: string }` and stayed green even with
-    // the throw present — the blocker.
-    test.failing("sh's body contains a throw keyword (discharged by S3)", () => {
-        const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
-        const shBody = extractFunction(grade, "sh");
-        expect(shBody).toContain("throw");
+    // Witnessed flip differential (2026-08-25, same scratch method and
+    // command as leg A): input — `if (p.exitCode !== 0) throw new
+    // Error(`command failed: ...`);` inserted into `sh`'s real body,
+    // immediately before its `return { ok: p.exitCode === 0, ... }`.
+    // Observed: 6 pass / 1 fail, this arm the fail, `^ this test is marked as
+    // failing but it passed`; legs A/C/D unmoved. The comment-only negative
+    // above leaves it green.
+    test.failing("sh's body span in grade.ts contains a ThrowStatement (discharged by S3)", () => {
+        const body = functionBody(gradeAst(evalRoot()), "sh");
+        expect(collect(body, "ThrowStatement").length).toBeGreaterThan(0);
     });
 
-    // Leg 2: `grade.ts` contains an INCOMPLETE identifier or exact `"INCOMPLETE"`
-    // quoted token outside comments — the declared result kind, not merely a
-    // display string. Today "INCOMPLETE" appears only inside the display string
-    // `"INCOMPLETE (gate did not run)"`; after S3 it should be a declared
-    // member of the result union (bare identifier in an enum/const/type alias,
-    // or a string-literal union member `"INCOMPLETE"`).
+    // Leg C. A type-level union in `evals/grade.ts` carries an `INCOMPLETE`
+    // string-literal member — i.e. INCOMPLETE is a declared *result kind*, not
+    // a display string. Round 3 holed here because a token test over stripped
+    // source is discharged by a bare `console.log("INCOMPLETE")`; a
+    // `TSUnionType` member cannot be forged that way, because a string in
+    // expression position is never a `TSLiteralType`.
     //
-    // Two admissible forms:
-    //   1. Bare `\bincomplete\b` identifier in the comment-stripped, string-
-    //      stripped source (catches `enum ResultKind { … INCOMPLETE … }` or
-    //      `const INCOMPLETE = …`).
-    //   2. Exact `"INCOMPLETE"` quoted token in the comment-stripped source
-    //      (catches `type ResultKind = "PASS" | "FAIL" | "INCOMPLETE"`).
-    //      The display string `"INCOMPLETE (gate did not run)"` does NOT match
-    //      because there is no closing `"` immediately after `INCOMPLETE`.
+    // Pre-fix reading, structural: 8 `TSUnionType` nodes in `grade.ts`, none
+    // carrying any string-literal member; `INCOMPLETE` appears only inside the
+    // display string `"INCOMPLETE (gate did not run)"`, which is a
+    // `StringLiteral` in expression position and so invisible here.
     //
-    // Matcher CAN: detect that "INCOMPLETE" appears as a bare identifier or
-    // exact quoted token outside comments — i.e., in a type declaration,
-    // const, or enum, or as a string-literal union member, not just in a
-    // display string.
-    // Matcher CANNOT: confirm the identifier is a member of the result
-    // union specifically (it could be an unrelated constant); cannot
-    // distinguish a type union member from a runtime constant; cannot tell
-    // union membership from an unrelated constant of the same name.
+    // Matcher CAN: assert a type-level union carries the exact string-literal
+    // member `INCOMPLETE`, and ignore every expression-position occurrence of
+    // the same text (comment, log line, template).
+    // Matcher CANNOT: confirm the union is the *result* kind rather than some
+    // other union, nor that any code path assigns INCOMPLETE on a staging
+    // failure. It also does not admit an `enum`/`const` spelling of the kind:
+    // this arm is deliberately narrower than "INCOMPLETE exists somewhere",
+    // and a fix spelling the kind as a TS enum would leave it green — see the
+    // residue note in this unit's fold rather than widening it to a token
+    // test, which is exactly the hole this round retires.
     //
-    // Witnessed flip: adding `type ResultKind = "PASS" | "FAIL" | "INCOMPLETE";`
-    // to grade.ts reds this arm (`^ this test is marked as failing but it
-    // passed`) — the string-literal-union form that was invisible before the
-    // quoted-token admissible form was added. Also reds on a bare `enum` or
-    // `const INCOMPLETE` declaration. A bare comment
-    // `// TODO: … incomplete …` does NOT red (comments are stripped first).
-    test.failing("grade.ts contains an INCOMPLETE identifier or exact quoted token outside comments (discharged by S3)", () => {
-        const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
-        const noComments = stripComments(grade);
-        // Form 1: bare identifier outside string literals.
-        const noStrings = stripStringLiterals(noComments);
-        const bareIdent = /\bincomplete\b/i.test(noStrings);
-        // Form 2: exact "INCOMPLETE" quoted token (string-literal union member).
-        // Does not match "INCOMPLETE (gate did not run)" — no closing `"` after.
-        const quotedToken = /"INCOMPLETE"/.test(noComments);
-        expect(bareIdent || quotedToken).toBe(true);
+    // Witnessed flip differential (2026-08-25, same scratch method and
+    // command as leg A): input — the single line `type ResultKind = "PASS" |
+    // "FAIL" | "INCOMPLETE";` added to `grade.ts` above `interface
+    // Assertion` (the type alias alone; no other edit). Observed: 6 pass /
+    // 1 fail, this arm the fail, `^ this test is marked as failing but it
+    // passed`; legs A/B/D unmoved.
+    // Negative witnessed directly, and it is round 3's own hole: a
+    // `console.log("INCOMPLETE");` statement added to `grade.ts` reads 7 pass
+    // / 0 fail — this arm stays green, where round 3's token test flipped.
+    // The comment-only negative also leaves it green.
+    test.failing("a type-level union in grade.ts carries an INCOMPLETE string-literal member (discharged by S3)", () => {
+        const unions = collect(gradeAst(evalRoot()), "TSUnionType");
+        // Population control: `grade.ts` must actually contain unions, or
+        // the `some` below is vacuously false for the wrong reason and the
+        // arm's green would be about a mis-parse rather than the defect.
+        expect(unions.length).toBeGreaterThan(0);
+        const carriesIncomplete = unions.some((u) =>
+            ((u.types as Node[]) ?? []).some((member) => {
+                if (member.type !== "TSLiteralType") return false;
+                const lit = member.literal as Node | undefined;
+                return lit?.type === "StringLiteral" && lit.value === "INCOMPLETE";
+            }),
+        );
+        expect(carriesIncomplete).toBe(true);
     });
 
-    // Leg 3: a `try` block precedes and a `catch` follows the staging call
-    // sites textually — a throw from `sh` is caught at the call site, not
-    // left to propagate. Today the staging calls are bare `sh(...)` statements
-    // with discarded return values and no error handling.
+    // Leg D. A `try` block with a `catch` handler wraps at least one `sh()`
+    // call site in `evals/grade.ts` — the throw leg B pins is caught where the
+    // staging calls are made, rather than crashing the run. Asserted against
+    // the `sh()` call-site count as a population control, so the arm cannot go
+    // vacuously green if `sh` is renamed or the reader is mis-pathed.
     //
-    // Matcher CAN: detect that a `try` keyword appears before the staging
-    // call sites and a `catch` keyword appears after them — i.e., S3 added
-    // error handling somewhere around the staging calls.
-    // Matcher CANNOT: confirm the try/catch wraps the staging calls
-    // specifically (text matching cannot determine brace nesting); cannot
-    // confirm the catch maps to INCOMPLETE rather than rethrowing.
+    // Pre-fix reading, structural: 4 `sh()` call sites, 0 of them inside any
+    // `TryStatement` block. `grade.ts` does contain one `TryStatement` today —
+    // the playwright run — but it has a `finalizer` and no `handler`, and it
+    // contains no `sh()` call, so both legs of this property are false for
+    // independent reasons.
     //
-    // Witnessed flip: wrapping the `sh(["bun", "install"], runDir)` and
-    // `sh(["bunx", "playwright", …], runDir)` calls in a `try { … } catch { … }`
-    // reds this arm (`^ this test is marked as failing but it passed`).
-    test.failing("a try block precedes and a catch follows the staging call sites textually (discharged by S3)", () => {
-        const grade = readFileSync(join(EVALS, "grade.ts"), "utf8");
-        const stagingIdx = grade.indexOf('sh(["bun", "install"]');
-        expect(stagingIdx).not.toBe(-1);
-        // There must be a 'try' before the staging calls — today there is
-        // none (the only try in grade.ts is the playwright run's try/finally,
-        // which is AFTER the staging calls).
-        const before = grade.slice(0, stagingIdx);
-        expect(before).toMatch(/\btry\s*\{/);
-        // There must be a 'catch' after the staging calls — today there is
-        // none (the playwright run uses try/finally, not try/catch).
-        const after = grade.slice(stagingIdx);
-        expect(after).toMatch(/\bcatch\b/);
+    // Matcher CAN: assert some `sh()` call site is lexically inside a
+    // `TryStatement`'s `block` whose `handler` (catch clause) is present, and
+    // that the `sh()` population is non-empty.
+    // Matcher CANNOT: tell *which* `sh()` call is wrapped — a fix wrapping
+    // only the typecheck call would satisfy it — nor that the catch maps to
+    // INCOMPLETE rather than rethrowing or swallowing. Leg C pins the kind's
+    // existence; nothing here pins the assignment, which is the residue this
+    // arm set carries into S3's own review.
+    //
+    // Witnessed flip differential (2026-08-25, same scratch method and
+    // command as leg A): input — the two staging calls `sh(["bun",
+    // "install"], runDir)` and `sh(["bunx", "playwright", "install",
+    // "chromium"], runDir)` wrapped in `try { … } catch (e) { result.pass =
+    // null; throw e; }`. Observed: 6 pass / 1 fail, this arm the fail, `^
+    // this test is marked as failing but it passed`; legs A/B/C unmoved. The
+    // pre-existing `try`/`finally` around the playwright run is present in
+    // that same file and does not satisfy the arm (no `handler`, no `sh()`
+    // inside its block), which is what the pre-fix green reads. The
+    // comment-only negative leaves it green.
+    test.failing("a try/catch wraps an sh() staging call site in grade.ts (discharged by S3)", () => {
+        const ast = gradeAst(evalRoot());
+        const calls = shCallSites(ast);
+        // Population control — the arm is about wrapping these calls, so
+        // an empty set means the reader lost its subject, not that the
+        // property holds.
+        expect(calls.length).toBeGreaterThan(0);
+        const wrapped = collect(ast, "TryStatement").some(
+            (t) => t.handler != null && shCallSites(t.block as Node).length > 0,
+        );
+        expect(wrapped).toBe(true);
     });
 });
