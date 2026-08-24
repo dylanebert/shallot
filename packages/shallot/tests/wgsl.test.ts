@@ -14,17 +14,26 @@ describe("body", () => {
      * A signature present in the source but with no `{` after it: `body()` must throw from
      * the no-brace guard, not return a slice. The `toThrow("no opening brace after signature")`
      * matcher pins the guard's site specifically — the loop-end throw emits a different message
-     * (`unterminated body for …`), so a regression that drops the guard and lets the loop
-     * rescan reds this arm on the message, not just on "threw something." Before the guard,
+     * (`unterminated body for …`), so the two causes are distinguishable in a failure. Note what
+     * each regression reds on: dropping the guard entirely reds this arm on *no throw at all*
+     * (the loop returns a slice, below), while a guard that threw the loop-end message instead
+     * is the one the message match catches. Before the guard,
      * `src.indexOf("{", start)` was `-1`, so the loop started at `i = -1` (where `src[-1]` is
      * `undefined`, matching neither branch), then rescanned from index 0 — finding the `{`
      * *before* the signature and returning `src.slice(start, i + 1)` where `i + 1 < start`,
      * i.e. an **empty string** — instead of throwing. An empty slice satisfies every
-     * `not.toMatch` in `noIntegerDivision`, so a discipline gate fed this helper would pass by
-     * extracting nothing. Latent, not historical: `body()` has no caller today (`standards.ts`
-     * imports the four discipline helpers, not this one), which is the spec's "zero current
-     * instances" — the guard exists so the first caller the TypeGPU port adds cannot inherit a
-     * silent green.
+     * `not.toMatch` in `noIntegerDivision`, so a discipline gate fed that slice passes by
+     * extracting nothing — and that composition is live, not hypothetical:
+     * `noIntegerDivision(body(…))` and its siblings are 23 invocations in 6 files, of the 20 that
+     * import this helper (`sear/pipelines.test.ts`, `extras/outline`, `extras/sky`,
+     * `showcase/roads`) — counts are invocations and files, re-derive with
+     * `grep -rn 'Division(body(\|Discipline(body(' --include=*.ts --exclude=wgsl.test.ts`. The
+     * exclusion is load-bearing: without it this docblock is in the population it counts — the
+     * pattern appears twice above (the prose example and the command itself), so the unexcluded
+     * reading comes back two too high, and both wrong numbers were written here before the
+     * exclusion caught them. The spec's "zero current instances" is about the *defect*, not the
+     * callers: every signature passed today has a brace after it, so no caller reaches the bad
+     * path — the guard is what keeps that a property of the inputs rather than a coincidence.
      */
     test("a signature present but brace-less must throw", () => {
         const src = "{ x } fn baz() no body here";
@@ -35,8 +44,10 @@ describe("body", () => {
      * A normal signature with a balanced body in a realistic multi-function module: `body()`
      * must return the full slice from the targeted signature through its matching close brace.
      * Every production caller passes a whole emitted WGSL module and slices one function out of
-     * the middle, so the signature sits after a struct and a preceding function (`start > 0`
-     * always), with a trailing function after — the equality on the returned slice can
+     * the middle, so `start > 0` always, the preceding content typically binding declarations
+     * rather than a struct. This fixture reproduces the *position* with a struct and a
+     * preceding function before the target and a
+     * trailing one after — the equality on the returned slice can
      * distinguish that the slice is the body of the *targeted* function (a guard that found
      * the wrong `{` — from preceding content — and returned a different function's body would
      * red), but it cannot see *why* `body()` found the right brace, only that the slice
