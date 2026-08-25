@@ -3,7 +3,15 @@ import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Rollup } from "vite";
-import { assetSrc, discoverScenes, findPublicDirs, orphanedAssets, projectPlugin } from "./vite";
+import {
+    assetSrc,
+    classifyProjectFile,
+    discoverScenes,
+    findPublicDirs,
+    manifestPath,
+    orphanedAssets,
+    projectPlugin,
+} from "./vite";
 
 // a fresh project dir per test, cleaned up after — the shape every fs-reader / hook test needs
 function projectDir(): string {
@@ -153,6 +161,41 @@ describe("findPublicDirs", () => {
     });
 });
 
+// the extracted classifier both onProjectFile and handleHotUpdate call — contract pins (not red-first:
+// the classifier is a pure extraction, so these pin its contract directly rather than guarding a bug).
+describe("classifyProjectFile", () => {
+    const absDir = "/proj";
+    const publicDirs = ["/proj/public", "/shared/public"];
+
+    test("a .glb under a public dir is an asset change", () => {
+        expect(classifyProjectFile("/proj/public/box.glb", absDir, publicDirs)).toBe("asset");
+    });
+
+    test("a .scene under the project dir is a project change", () => {
+        expect(classifyProjectFile("/proj/scenes/main.scene", absDir, publicDirs)).toBe("project");
+    });
+
+    test("the manifest path under the project dir is a project change", () => {
+        expect(classifyProjectFile(manifestPath(absDir), absDir, publicDirs)).toBe("project");
+    });
+
+    test("a .scene outside the project dir is null — not a project change", () => {
+        expect(classifyProjectFile("/other/main.scene", absDir, publicDirs)).toBeNull();
+    });
+
+    test("a .ts source file is null — rides default HMR", () => {
+        expect(classifyProjectFile("/proj/src/Local.ts", absDir, publicDirs)).toBeNull();
+    });
+
+    test("a model outside every public dir is null", () => {
+        expect(classifyProjectFile("/proj/src/box.glb", absDir, publicDirs)).toBeNull();
+    });
+
+    test("a model under a shared parent public dir is an asset change (checked before the absDir guard)", () => {
+        expect(classifyProjectFile("/shared/public/tree.glb", absDir, publicDirs)).toBe("asset");
+    });
+});
+
 // projectPlugin's hooks — a plain object, each callable against a stub `this` / server (Locked decision:
 // "every seam this unit needs already exists as a parameter"). The stubs below are duck-typed to the
 // members each hook actually touches, never the full Vite/Rollup types, and every hook property is cast
@@ -166,9 +209,15 @@ describe("projectPlugin", () => {
         const sent: unknown[] = [];
         const invalidated: unknown[] = [];
         let moduleById: unknown;
+        const watcherCallbacks: Record<string, Array<(file: string) => void>> = {};
         const server = {
             middlewares: { use: (fn: unknown) => middlewareFns.push(fn as never) },
-            watcher: { add: () => {}, on: () => {} },
+            watcher: {
+                add: () => {},
+                on: (event: string, cb: (file: string) => void) => {
+                    (watcherCallbacks[event] ??= []).push(cb);
+                },
+            },
             ws: { send: (msg: unknown) => sent.push(msg) },
             moduleGraph: {
                 getModuleById: () => moduleById,
@@ -180,6 +229,7 @@ describe("projectPlugin", () => {
             middlewareFns,
             sent,
             invalidated,
+            watcherCallbacks,
             setModuleById: (m: unknown) => {
                 moduleById = m;
             },
@@ -356,7 +406,7 @@ describe("projectPlugin", () => {
             return plugin.configureServer as unknown as (server: unknown) => void;
         }
 
-        test("invalidates the virtual module and signals a reload on a .scene change, swallowing default HMR", () => {
+        test("invalidates the virtual module and swallows default HMR on a .scene change (the reload comes from the watcher path)", () => {
             const dir = projectDir();
             const plugin = projectPlugin(dir);
             const stub = stubServer();
@@ -368,10 +418,12 @@ describe("projectPlugin", () => {
 
             expect(result).toEqual([]);
             expect(stub.invalidated).toEqual([mod]);
-            expect(stub.sent).toEqual([{ type: "full-reload" }]);
+            // no full-reload from this path — the watcher's onProjectFile signals the reload, so a
+            // single .scene change fires one reload, not two
+            expect(stub.sent).toEqual([]);
         });
 
-        test("invalidates on a shallot.json change too", () => {
+        test("invalidates on a shallot.json change too (swallows default HMR, no reload signal)", () => {
             const dir = projectDir();
             const plugin = projectPlugin(dir);
             const stub = stubServer();
@@ -379,7 +431,7 @@ describe("projectPlugin", () => {
 
             const result = handleHotUpdateHook(plugin)({ file: join(dir, "shallot.json") });
             expect(result).toEqual([]);
-            expect(stub.sent).toEqual([{ type: "full-reload" }]);
+            expect(stub.sent).toEqual([]);
         });
 
         test("falls through to default HMR for an unrelated file", () => {
@@ -408,6 +460,77 @@ describe("projectPlugin", () => {
             expect(
                 handleHotUpdateHook(noProjectDir)({ file: "/whatever/main.scene" }),
             ).toBeUndefined();
+        });
+    });
+
+    // the double-fire defect: before the consolidation, onProjectFile and handleHotUpdate independently
+    // classified the same .scene change and each sent a full-reload — two reloads for one file. Vite's
+    // watcher fires both paths (the plugin's raw server.watcher listener and Vite's internal HMR handler
+    // that calls handleHotUpdate) for every change event, so a .scene change reached both. The fix: the
+    // HMR path only invalidates + swallows default HMR (returns []); the watcher path signals the reload.
+    // (handleHotUpdate runs only for update/change events in Vite 8 — add/unlink were always single-fire
+    // via the watcher path alone, so the double-fire existed on change events only.)
+    describe("double-fire prevention", () => {
+        function configureServerHook(plugin: ReturnType<typeof projectPlugin>) {
+            return plugin.configureServer as unknown as (server: unknown) => void;
+        }
+        function handleHotUpdateHook(plugin: ReturnType<typeof projectPlugin>) {
+            return plugin.handleHotUpdate as unknown as (ctx: {
+                file: string;
+            }) => unknown[] | undefined;
+        }
+
+        // red-first: fails before the fix because both paths independently signal a reload.
+        test("a single .scene change fires one full-reload, not one per path", () => {
+            const dir = projectDir();
+            const plugin = projectPlugin(dir);
+            const stub = stubServer();
+            configureServerHook(plugin)(stub.server);
+
+            const mod = { id: "\0virtual:project" };
+            stub.setModuleById(mod);
+
+            const file = join(dir, "main.scene");
+            // simulate the watcher path (onProjectFile — registered via server.watcher.on)
+            for (const cb of stub.watcherCallbacks.change ?? []) cb(file);
+            // simulate the HMR path (handleHotUpdate — called by Vite's internal handler)
+            handleHotUpdateHook(plugin)({ file });
+
+            const reloads = stub.sent.filter((m) => (m as { type: string }).type === "full-reload");
+            expect(reloads).toHaveLength(1);
+        });
+
+        // red-first: fails before the fix because both paths independently signal a reload.
+        test("a single shallot.json change fires one full-reload, not one per path", () => {
+            const dir = projectDir();
+            const plugin = projectPlugin(dir);
+            const stub = stubServer();
+            configureServerHook(plugin)(stub.server);
+
+            const file = join(dir, "shallot.json");
+            for (const cb of stub.watcherCallbacks.change ?? []) cb(file);
+            handleHotUpdateHook(plugin)({ file });
+
+            const reloads = stub.sent.filter((m) => (m as { type: string }).type === "full-reload");
+            expect(reloads).toHaveLength(1);
+        });
+
+        // contract pin: not red-first — handleHotUpdate never handled assets, so only the watcher path
+        // signaled before and after. Confirms the asymmetry survived the fix.
+        test("an asset change fires one full-reload from the watcher path only (handleHotUpdate does not handle assets)", () => {
+            const dir = projectDir();
+            mkdirSync(join(dir, "public"), { recursive: true });
+            writeFileSync(join(dir, "public", "box.glb"), "");
+            const plugin = projectPlugin(dir);
+            const stub = stubServer();
+            configureServerHook(plugin)(stub.server);
+
+            const file = join(dir, "public", "box.glb");
+            for (const cb of stub.watcherCallbacks.change ?? []) cb(file);
+            handleHotUpdateHook(plugin)({ file });
+
+            const reloads = stub.sent.filter((m) => (m as { type: string }).type === "full-reload");
+            expect(reloads).toHaveLength(1);
         });
     });
 

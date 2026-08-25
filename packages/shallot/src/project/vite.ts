@@ -171,10 +171,30 @@ export function orphanedAssets(bundle: Rollup.OutputBundle): string[] {
     return assets.filter((a) => !kept.has(a)).map((a) => a.fileName);
 }
 
+/**
+ * classify a changed project file: a model asset under a public dir (`"asset"`), a `.scene` or
+ * manifest under the project dir (`"project"`), or neither (`null`). Both the watcher listener
+ * (`onProjectFile`) and the HMR hook (`handleHotUpdate`) call this so the two paths cannot drift in
+ * how they classify an event — the watcher path signals a reload for both arms; the HMR path only
+ * invalidates + swallows default HMR for `"project"` (the reload comes from the watcher, so a single
+ * `.scene` change fires one reload, not two).
+ */
+export function classifyProjectFile(
+    file: string,
+    absDir: string,
+    publicDirs: string[],
+): "asset" | "project" | null {
+    if (assetSrc(file, publicDirs)) return "asset";
+    if (file.startsWith(absDir) && (file.endsWith(".scene") || file === manifestPath(absDir)))
+        return "project";
+    return null;
+}
+
 export function projectPlugin(projectDir?: string): Plugin {
     const virtualId = "virtual:project";
     const resolvedId = "\0" + virtualId;
     let viteServer: ViteDevServer | undefined;
+    let publicDirs: string[] = [];
 
     return {
         name: "shallot-project",
@@ -206,28 +226,29 @@ export function projectPlugin(projectDir?: string): Plugin {
             configureServer(server, projectDir);
             if (projectDir) {
                 const absDir = resolve(projectDir);
-                const publicDirs = findPublicDirs(absDir);
+                publicDirs = findPublicDirs(absDir);
                 server.watcher.add(absDir);
                 // a shared parent public/ sits outside the project dir, so add it explicitly (the project's
                 // own public/ is already covered by absDir) — a model there must still trigger the swap
                 for (const pub of publicDirs) if (!pub.startsWith(absDir)) server.watcher.add(pub);
                 // a `.scene` add/remove changes the scene list; a `shallot.json` edit changes the plugin
                 // set — both re-generate `virtual:project`, so invalidate + reload. Local plugin `.ts`
-                // edits ride HMR instead.
+                // edits ride HMR instead. The watcher path is the sole signaler — handleHotUpdate only
+                // invalidates + swallows default HMR, so a single `.scene` change fires one reload, not
+                // two (the two paths fire independently on the same change event — handleHotUpdate
+                // runs only for update/change events in Vite 8, so add/unlink were always single-fire
+                // via the watcher path alone).
                 const onProjectFile = (file: string) => {
-                    // a model asset (.glb/.gltf) under a public dir → full-reload so the page re-fetches
-                    // the model (no virtual:project change — the model isn't part of the generated
-                    // module). Checked first, before the absDir guard, so a shared parent public/ is
-                    // covered.
-                    if (assetSrc(file, publicDirs)) {
+                    const kind = classifyProjectFile(file, absDir, publicDirs);
+                    if (kind === "asset") {
                         signalChange(server);
                         return;
                     }
-                    if (!file.startsWith(absDir)) return;
-                    if (!file.endsWith(".scene") && file !== manifestPath(absDir)) return;
-                    const mod = server.moduleGraph.getModuleById(resolvedId);
-                    if (mod) server.moduleGraph.invalidateModule(mod);
-                    signalChange(server);
+                    if (kind === "project") {
+                        const mod = server.moduleGraph.getModuleById(resolvedId);
+                        if (mod) server.moduleGraph.invalidateModule(mod);
+                        signalChange(server);
+                    }
                 };
                 server.watcher.on("change", onProjectFile);
                 server.watcher.on("add", onProjectFile);
@@ -237,13 +258,12 @@ export function projectPlugin(projectDir?: string): Plugin {
         handleHotUpdate({ file }) {
             if (!projectDir || !viteServer) return;
             const absDir = resolve(projectDir);
-            if (
-                (file.endsWith(".scene") || file === manifestPath(absDir)) &&
-                file.startsWith(absDir)
-            ) {
+            if (classifyProjectFile(file, absDir, publicDirs) === "project") {
                 const mod = viteServer.moduleGraph.getModuleById(resolvedId);
                 if (mod) viteServer.moduleGraph.invalidateModule(mod);
-                signalChange(viteServer);
+                // no signalChange here — the watcher's onProjectFile already sent the full-reload, so
+                // signaling from both paths double-fires. Returning [] swallows vite's default HMR
+                // (a .scene is not a module, so default HMR would error on it).
                 return [];
             }
             // a project src/*.ts edit falls through to vite's default HMR: `virtual:project` imports the
