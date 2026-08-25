@@ -1052,10 +1052,7 @@ function tgslFlow(sandbox: string, dist: string) {
     // line names it. Restored, the arm greens with `expected=2`. Mutating the *expectation* is the
     // witness that matters; deleting the assertion greens for free and witnesses nothing.
     //
-    // NB the spelling: `bun check` begins with `bun run format` = `biome check --write`, so biome's
-    // naming convention rewrites a SCREAMING_SNAKE local const to PascalCase here and the gate
-    // silently reformats what you wrote. Renaming this to match the file's module-level constants
-    // is reverted by the next `bun check`.
+    // NB the spelling: `bun run format` runs `biome check --write`, whose naming convention rewrites a SCREAMING_SNAKE local const to PascalCase here.
     const ExpectedMetaVersion = 2;
     // TRANSPILED term diagnostic: bundle byte length and whether any transpiled-shape marker appears
     // at all. `body:[0,` is the TRANSPILED regex's head; `__TYPEGPU_META__` ships with the typegpu

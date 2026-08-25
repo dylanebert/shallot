@@ -12,7 +12,7 @@ paths:
 
 Shallot-specific testing patterns.
 
-**`bun check` is not read-only — it opens with `bun run format` (`biome check --write`).** A grep taken before it is not the state you commit: it silently renamed an authored function-local `SCREAMING_SNAKE` const to PascalCase between one stage's read and its commit, and a review round then filed biome's own autofix as a convention defect. Read the tree you intend to commit *after* `bun check`, and compare a spelling against its own scope's siblings before calling it a violation.
+**A gate verifies and never writes; `bun run format` is the only writer.** `bun check` reports and exits without touching the tree, so the state you read before it is the state you commit.
 
 ## GPU testing
 
