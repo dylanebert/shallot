@@ -29,12 +29,22 @@ const outDir = resolve(root, "out/site");
 const DATADOG_RUM_CDN_MAJOR = 6;
 const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATADOG_RUM_CDN_MAJOR}/datadog-rum.js`;
 
+// `crossOrigin='anonymous'` on the injected script element: `shallot verify`'s dist/dev preview sends
+// `Cross-Origin-Embedder-Policy: require-corp` (`packages/shallot/src/project/vite.ts`, unconditional on
+// every serve surface — for the multithreaded WASM kernel, unrelated to RUM) and the CDN never sends a
+// `Cross-Origin-Resource-Policy` header, so a plain no-cors `<script src>` load is blocked
+// (`net::ERR_BLOCKED_BY_RESPONSE.NotSameOriginAfterDefaultedToSameOriginByCoep`, reproduced 2026-08-25 —
+// every `bun run demos` entry point failed on it). The CDN does answer a CORS request with
+// `Access-Control-Allow-Origin: *` (verified against a request carrying an `Origin` header), and a
+// CORS-mode load is exempt from the CORP check entirely — so `crossOrigin` fixes the verify-only failure
+// without needing a header change in `packages/shallot` (out of scope) or the deployed site, which never
+// sets COEP (a static host can't set headers, the doc comment above `CROSS_ORIGIN_ISOLATION` already notes).
 function datadogInitSnippet(): string {
     return `${RUM_INJECTION_MARKER}
 <script>
 (function(h,o,u,n,d) {
     h=h[d]=h[d]||{q:[],onReady:function(c){h.q.push(c)}}
-    d=o.createElement(u);d.async=1;d.src=n
+    d=o.createElement(u);d.async=1;d.src=n;d.crossOrigin='anonymous'
     n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
 })(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
 window.DD_RUM.onReady(function() {

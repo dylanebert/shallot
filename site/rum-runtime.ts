@@ -59,8 +59,21 @@ function tick(timestamp: number): void {
         state = result.state;
         if (result.report) {
             const { startTime, duration, context } = result.report;
+            // `addDurationVital`'s `startTime` is a Unix epoch timestamp (ms since 1970), not a
+            // performance.now()/rAF-relative one (@datadog/browser-rum-core's own
+            // `AddDurationVitalOptions.startTime` doc: "expects a UNIX timestamp in milliseconds")
+            // — `performance.timeOrigin` is the epoch time of navigation start, so adding it
+            // converts the sampler's rAF-relative timestamp to what the SDK expects. Passing the
+            // raw relative value silently drops the vital: it never reaches the intake batch, no
+            // console error, no exception (found 2026-08-26, S2's wire proof — a raw relative
+            // startTime reads as ~1970 to the SDK's own event-time bookkeeping).
+            const epochStartTime = performance.timeOrigin + startTime;
             window.DD_RUM?.onReady(() => {
-                window.DD_RUM?.addDurationVital("slow_frame", { startTime, duration, context });
+                window.DD_RUM?.addDurationVital("slow_frame", {
+                    startTime: epochStartTime,
+                    duration,
+                    context,
+                });
             });
         }
     }
