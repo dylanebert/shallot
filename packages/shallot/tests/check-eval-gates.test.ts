@@ -576,7 +576,8 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
                 if (spec.type !== "ImportSpecifier") continue;
                 const imported = spec.imported as Node | undefined;
                 if (imported?.type === "Identifier") importedNames.push(imported.name as string);
-                else if (imported?.type === "StringLiteral") importedNames.push(imported.value as string);
+                else if (imported?.type === "StringLiteral")
+                    importedNames.push(imported.value as string);
             }
         }
         // Population control — grade.ts must import from harness/result, or
