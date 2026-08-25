@@ -92,3 +92,20 @@ export function sampleFrame(state: FrameSamplerState, timestamp: number): FrameS
 
     return { state: { lastTimestamp: timestamp, intervals, frameCount }, report };
 }
+
+/**
+ * Clears `lastTimestamp` so the next `sampleFrame` call is treated as a first frame (never
+ * reports — the existing first-frame rule). Call this on foreground return after a backgrounded
+ * tab: browsers throttle or suspend `requestAnimationFrame` while a tab is hidden, so the next
+ * delta after resume would otherwise span the whole backgrounded interval and read as a fake
+ * multi-second slow frame. Intervals and frame count carry over unaffected — they describe
+ * genuine steady-state pacing, not the gap.
+ *
+ * @example
+ * document.addEventListener("visibilitychange", () => {
+ *     if (!document.hidden) state = resetFrameSampler(state);
+ * });
+ */
+export function resetFrameSampler(state: FrameSamplerState): FrameSamplerState {
+    return { ...state, lastTimestamp: null };
+}

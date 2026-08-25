@@ -217,6 +217,45 @@ if (existsSync(indexPath) && readFileSync(indexPath, "utf8").includes(RUM_INJECT
     process.exit(1);
 }
 
+// --- clause 6: no built page carries a placeholder RUM credential -------------------------
+//
+// `site/rum-config.ts` ships `PLACEHOLDER_*` values until the Dogfood-org RUM application
+// exists (S1 credentials ask); nothing refused them at build or deploy. Gated behind
+// RUM_CONFIG_REQUIRED, same shape as SITE_OUT_REQUIRED for clause 4/5, so today's placeholder
+// state doesn't red the default suite but the deploy path can refuse it.
+//
+// Mutation-proven both directions over the same `out/site/` build (witnessed 2026-08-25):
+//   - RUM_CONFIG_REQUIRED=1 over the current placeholder build: reds —
+//     "✗ … built page(s) carry a PLACEHOLDER_ RUM credential" listing every demo HTML.
+//   - RUM_CONFIG_REQUIRED=1 with `site/rum-config.ts`'s three PLACEHOLDER_ strings swapped for
+//     dummy-real values (`pub00000000000000000000000000000000`, an app-id UUID, `datadoghq.com`)
+//     and the site rebuilt: passes clean.
+if (process.env.RUM_CONFIG_REQUIRED === "1" && existsSync(outDir)) {
+    const placeholderHits: { file: string; line: number }[] = [];
+    const allHtmlGlob = new Glob("**/*.html");
+    for await (const path of allHtmlGlob.scan({ cwd: outDir })) {
+        const full = resolve(outDir, path);
+        const lines = (await Bun.file(full).text()).split("\n");
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes("PLACEHOLDER_")) {
+                placeholderHits.push({ file: path, line: i + 1 });
+            }
+        }
+    }
+
+    if (placeholderHits.length > 0) {
+        console.error(
+            `✗ ${placeholderHits.length} built page(s) carry a PLACEHOLDER_ RUM credential:\n`,
+        );
+        for (const h of placeholderHits) console.error(`  ${h.file}:${h.line}`);
+        console.error(
+            "\nCreate the Dogfood-org RUM browser application and set real applicationId/" +
+                "clientToken/site in site/rum-config.ts before deploying.",
+        );
+        process.exit(1);
+    }
+}
+
 console.log(
     `✓ site roster clean (${ROSTER.length} demos, ` +
         `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths, ` +

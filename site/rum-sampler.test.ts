@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
     type FrameSamplerState,
     initialFrameSamplerState,
+    resetFrameSampler,
     type SlowFrameReport,
     sampleFrame,
 } from "./rum-sampler";
@@ -75,5 +76,39 @@ describe("sampleFrame", () => {
     test("context: rollingMedianIntervalMs is 0 when no prior interval exists", () => {
         const { reports } = run([0, 80]);
         expect(reports[0].context.rollingMedianIntervalMs).toBe(0);
+    });
+
+    // Red-first (background-tab guard): before `resetFrameSampler` existed, a gap spanning a
+    // backgrounded tab (rAF throttled/suspended, then resumed) had no way to avoid being read as
+    // one huge raw delta. Witnessed red: `error: Export named 'resetFrameSampler' not found in
+    // module '/site/rum-sampler.ts'` (TS2305) — the module didn't export it yet. After adding a
+    // no-op stub `resetFrameSampler = (state) => state` (not clearing `lastTimestamp`), the import
+    // resolved but this test failed for the right reason: `expected: null, received: {startTime:
+    // 16, duration: 4984, ...}` — the gap still reported as a slow frame. Only clearing
+    // `lastTimestamp` in `resetFrameSampler` makes it pass.
+    test("reset breaks the delta across a backgrounded-tab gap — the gap does not report", () => {
+        let state = initialFrameSamplerState;
+        state = sampleFrame(state, 0).state;
+        state = sampleFrame(state, 16).state;
+        // tab backgrounds here — rAF suspends for ~5s, then resumes on foreground return
+        state = resetFrameSampler(state);
+        const { report } = sampleFrame(state, 16 + 5000);
+        expect(report).toBeNull();
+    });
+
+    test("without reset, the same backgrounded-tab gap would report — documents the defect the reset fixes", () => {
+        const { reports } = run([0, 16, 16 + 5000]);
+        expect(reports).toHaveLength(1);
+        expect(reports[0].duration).toBe(5000);
+    });
+
+    test("reset only clears lastTimestamp — the frame after reset is treated as a first frame and never reports, per the existing rule", () => {
+        let state = initialFrameSamplerState;
+        state = sampleFrame(state, 0).state;
+        state = sampleFrame(state, 16).state;
+        state = resetFrameSampler(state);
+        const { state: next, report } = sampleFrame(state, 5016);
+        expect(report).toBeNull();
+        expect(next.frameCount).toBe(3);
     });
 });

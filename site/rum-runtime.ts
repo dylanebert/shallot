@@ -4,7 +4,7 @@
 // page; never imported by anything else, so it has no test of its own — the logic it drives is
 // tested in `rum-sampler.test.ts`.
 
-import { initialFrameSamplerState, sampleFrame } from "./rum-sampler";
+import { initialFrameSamplerState, resetFrameSampler, sampleFrame } from "./rum-sampler";
 
 declare global {
     interface Window {
@@ -21,15 +21,24 @@ declare global {
 let state = initialFrameSamplerState;
 
 function tick(timestamp: number): void {
-    const result = sampleFrame(state, timestamp);
-    state = result.state;
-    if (result.report) {
-        const { startTime, duration, context } = result.report;
-        window.DD_RUM?.onReady(() => {
-            window.DD_RUM?.addDurationVital("slow_frame", { startTime, duration, context });
-        });
+    // Browsers throttle or suspend rAF while a tab is hidden — skip sampling so a backgrounded
+    // interval is never read as one raw delta; `visibilitychange` below resets on foreground
+    // return so the next real frame after resume is treated as a first frame instead.
+    if (!document.hidden) {
+        const result = sampleFrame(state, timestamp);
+        state = result.state;
+        if (result.report) {
+            const { startTime, duration, context } = result.report;
+            window.DD_RUM?.onReady(() => {
+                window.DD_RUM?.addDurationVital("slow_frame", { startTime, duration, context });
+            });
+        }
     }
     requestAnimationFrame(tick);
 }
+
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) state = resetFrameSampler(state);
+});
 
 requestAnimationFrame(tick);
