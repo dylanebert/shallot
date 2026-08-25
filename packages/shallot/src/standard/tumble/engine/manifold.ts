@@ -1046,7 +1046,7 @@ export function collideCapsules(
     const offset = vec3.sub(result.point2, result.point1);
     const distanceSquared = vec3.lengthSq(offset);
     const linearSlop = LINEAR_SLOP;
-    const minDistance = f32(0.01 * linearSlop);
+    const minDistance = f32(f32(0.01) * linearSlop);
 
     if (
         distanceSquared > f32(maxDistance * maxDistance) ||

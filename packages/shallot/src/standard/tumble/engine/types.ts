@@ -241,7 +241,7 @@ export function defaultBodyDef(): BodyDef {
         linearDamping: 0,
         angularDamping: 0,
         gravityScale: f32(1.0),
-        sleepThreshold: f32(0.05 * LENGTH_UNITS_PER_METER),
+        sleepThreshold: f32(f32(0.05) * LENGTH_UNITS_PER_METER),
         motionLocks: {
             linearX: false,
             linearY: false,

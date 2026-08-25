@@ -331,7 +331,7 @@ export function rayCastCapsule(shape: Capsule, input: RayCastInput): CastOutput 
     const d = vec3.sub(c2, c1);
 
     // Fall back to sphere if the capsule is short
-    const tol = f32(0.01 * LINEAR_SLOP);
+    const tol = f32(f32(0.01) * LINEAR_SLOP);
     const lengthSquared = vec3.lengthSq(d);
     if (lengthSquared < f32(tol * tol)) {
         const sphereCenter = vec3.scale(0.5, vec3.add(shape.center1, shape.center2));

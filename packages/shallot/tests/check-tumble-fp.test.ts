@@ -21,13 +21,13 @@ import {
     TRIG_ALLOWLIST,
 } from "../../../scripts/check-tumble-fp";
 
-// The real tumble engine source — S1 (audit-tumble-engine-bitexact-literals) pins the check's
-// red count against this tree, so the check itself can't drift silently. The pinned floor is a
-// measurement re-read at claim (spec Validation), not a target: 11, matching the spec's recorded
-// sweep, and including the three live findings named in the spec's Locked decision
-// (core.ts:23 OVERLAP_SLOP, hull.ts:1410 minH, distance.ts:1154 kToleranceSquared) plus eight
-// sites that are equal to the C reference only by coincidence (the ratio the spec cites as the
-// reason this is a standing check, not three edits).
+// The real tumble engine source — S2 (audit-tumble-engine-bitexact-literals) wrapped all 11
+// sites the sweep flagged into rule 1a's fround-correct form, so the pinned floor is now 0.
+// The floor is a measurement re-read at claim (spec Validation), not a target: S1 recorded 11
+// (three live findings named in the spec's Locked decision — core.ts:23 OVERLAP_SLOP,
+// hull.ts:1410 minH, distance.ts:1154 kToleranceSquared — plus eight sites equal to the C
+// reference only by coincidence); S2 moved the three and wrapped the eight, and the check now
+// pins 0 so a regression (a new bare non-exact literal) reds rather than drifting silently.
 const REAL_ROOT = resolve(import.meta.dir, "../src/standard/tumble");
 
 // Fixture trees live under the OS tmpdir, never the repo — same `--root`-style isolation as
@@ -461,11 +461,12 @@ describe("sweepLiterals — B1: identifier ending in e/E before +/- is not an ex
 
 // F1 — the structural legs (template awareness, comment awareness, quote awareness, nested
 // call-argument traversal) are armed only at the leaf (direct calls to `maskLiterals` /
-// `splitTopLevel`). The real-corpus floor arm runs `sweep(REAL_ROOT)` and asserts 11 findings,
-// but none of the 11 depends on those legs — so deleting any leg reds only the leaf arms, never
-// the composition. This arm gives the composition its own synthetic fixture root carrying a shape
-// per leg, driven through the same `sweep`/`sweepLiterals`/`sweepUnparsed` entry the real run
-// uses, asserting content and cardinality — not just a count.
+// `splitTopLevel`). The real-corpus floor arm runs `sweep(REAL_ROOT)` and asserts 0 findings
+// (after S2 wrapped all 11 sites), but none of the former 11 depended on those legs — so
+// deleting any leg reds only the leaf arms, never the composition. This arm gives the
+// composition its own synthetic fixture root carrying a shape per leg, driven through the same
+// `sweep`/`sweepLiterals`/`sweepUnparsed` entry the real run uses, asserting content and
+// cardinality — not just a count.
 describe("sweep — F1: composition fixture exercising every structural leg", () => {
     // One small tree carrying a shape per leg:
     //   - a literal inside a template interpolation (template awareness)
@@ -636,35 +637,12 @@ describe("sweep — template literal with unbalanced brace is not zero findings 
 });
 
 describe("sweep — the real engine tree, pinned floor", () => {
-    test("measures exactly 11 live findings against the current tumble engine source", async () => {
+    test("measures exactly 0 live findings against the current tumble engine source", async () => {
         const findings = await sweep(REAL_ROOT);
-        // Full site list pinned (not just the count) so a predicate drift shows exactly which
-        // site moved, not just that the number did.
-        const sites = findings.map((f) => `${f.file}:${f.line}`).sort();
-        expect(sites).toEqual(
-            [
-                "engine/api.ts:1716",
-                "engine/api.ts:2178",
-                "engine/core.ts:16",
-                "engine/core.ts:23",
-                "engine/core.ts:29",
-                "engine/distance.ts:1154",
-                "engine/distance.ts:1249",
-                "engine/geometry.ts:334",
-                "engine/hull.ts:1410",
-                "engine/manifold.ts:1049",
-                "engine/types.ts:244",
-            ].sort(),
-        );
-        expect(findings).toHaveLength(11);
-    });
-
-    test("the three spec-named live findings are among them", async () => {
-        const findings = await sweep(REAL_ROOT);
-        const sites = new Set(findings.map((f) => `${f.file}:${f.line}`));
-        expect(sites.has("engine/core.ts:23")).toBe(true); // OVERLAP_SLOP
-        expect(sites.has("engine/hull.ts:1410")).toBe(true); // minH
-        expect(sites.has("engine/distance.ts:1154")).toBe(true); // kToleranceSquared
+        // S2 wrapped all 11 sites S1 flagged into rule 1a's fround-correct form, so the floor
+        // is 0. The site list is empty — a regression (a new bare non-exact literal) reds rather
+        // than drifting silently.
+        expect(findings).toHaveLength(0);
     });
 
     test("the trig arm is clean against the real tree — only the two allowlisted deviations exist", async () => {
@@ -681,19 +659,20 @@ describe("sweep — the real engine tree, pinned floor", () => {
 // F2 — the "exits non-zero" claim is prose nothing gates. The script's docblock and help text
 // claim a loud inconclusive exits non-zero; every arm calls `sweep*` directly and none reads the
 // CLI's exit status. This arm spawns the CLI (`Bun.spawnSync`, same pattern as `format-gate.test.ts`)
-// and reads the exit code — both directions: non-zero when there are findings (the real tree),
-// and zero on a synthetic clean root pointed at via `--root`. The clean-root direction also reads
-// the CLI's stdout as a launch witness: an empty root exits 0 too, so `exitCode === 0` alone cannot
-// tell "swept the fixture and found nothing" from "swept no files at all" — the stdout assertion
-// discriminates a launch that never happened (a glob scanning nothing) from a real clean sweep.
+// and reads the exit code — both directions: zero when the sweep is clean (the real tree, post-S2),
+// and non-zero on a synthetic root carrying a planted violation pointed at via `--root`. The
+// clean-root direction also reads the CLI's stdout as a launch witness: an empty root exits 0 too,
+// so `exitCode === 0` alone cannot tell "swept the fixture and found nothing" from "swept no files
+// at all" — the stdout assertion discriminates a launch that never happened (a glob scanning
+// nothing) from a real clean sweep.
 describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
-    test("exits non-zero when the sweep finds violations (the real engine tree)", () => {
+    test("exits zero when the sweep is clean (the real engine tree, post-S2)", () => {
         const proc = Bun.spawnSync(["bun", SCRIPT, "--root", REAL_ROOT], {
             stdout: "pipe",
             stderr: "pipe",
         });
-        expect(proc.exitCode).not.toBe(0);
-        expect(proc.exitCode).toBe(1);
+        expect(proc.exitCode).toBe(0);
+        expect(proc.stdout.toString()).toContain("0 findings");
     });
 
     test("exits zero on a synthetic clean root pointed at via --root", () => {
@@ -709,5 +688,16 @@ describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
         // real clean sweep from a launch that never happened. The clean-sweep report on stdout is
         // what proves the CLI actually swept the fixture and found nothing.
         expect(proc.stdout.toString()).toContain("0 findings");
+    });
+
+    test("exits non-zero on a synthetic root carrying a planted violation", () => {
+        const root = fixture({
+            "engine/bad.ts": "export const bad = f32(0.1 * mass);\n",
+        });
+        const proc = Bun.spawnSync(["bun", SCRIPT, "--root", root], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).toBe(1);
     });
 });
