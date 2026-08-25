@@ -63,8 +63,9 @@ const GAMMA = 0.999;
 // value. Raise per-scene via `Avbd.step.configure` for a known-harder pile. physics.md "f32 precision"
 // / "iters is a free knob".
 const ITERATIONS = 6;
-// the live-body bound (BVH prims, the eid map, dispatch cap) — the scene runs up to this many bodies at
-// once. The full scene `capacity` (Phase 4.7): a body can live at any eid, up to `capacity` at once. The
+// the eid-space + dispatch bound (BVH prims, the eid map, dispatch cap) — the scene runs up to `capacity`−1
+// bodies at once (slot 0 is the never-minted sentinel). The full scene `capacity` (Phase 4.7): a body can
+// live at any eid, up to `capacity`−1 at once. The
 // per-eid manifold store sizes straight off it (Phase 4.9 robustness): each body owns a fixed pair block,
 // so memory scales with `capacity` (~4.6 MB at 1024, ~265 MB at the default 65536 — lower `capacity` to
 // shrink it), and a body can't overflow a global pool (no silent fall-through; `checkContactStore` guards
