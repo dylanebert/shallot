@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
-// The structural perf gate: a wall-clock frame-time gate is refuted for this mechanism (Locked decision —
+// The structural perf gate: a wall-clock frame-time gate is refuted for this mechanism (
 // the display clock dominates both the idle-orbit and carve-drag windows on this seat's 240 Hz monitor, so
 // any ratio over frame time or `fenceMs` gates the monitor, not the code). The admissible form is a
 // structural gate on the named mechanism — emit dispatch scope (workgroup count per emit fire) as a
@@ -16,7 +16,7 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // `HALO_CHUNKS` below names that count; `CHUNK_WORKGROUPS` is one chunk's own dispatch volume in the
 // kernel's real `WG`-sized workgroups (`(CHUNK / WG) ** 3`, both read from `src/voxel/*` — not restated).
 //
-// Per-fire wall-clock occupancy is printed for context, never gated: the same Locked decision that refutes
+// Per-fire wall-clock occupancy is printed for context, never gated: the same reasoning that refutes
 // a frame-time gate refutes a GPU-occupancy-in-ms gate too (no arbitrary numerical band). Forced over
 // FORCE_FIRES real fires — a small handful of samples gates nothing, so a quoted percentile here needs
 // enough of them to mean something.
@@ -65,7 +65,7 @@ test("structural — emit dispatch scope tracks touched-chunk volume, not the fu
     expect(sample.touchedChunks, "fixture drift — the probe must flip exactly one chunk").toBe(1);
 
     // ungated: per-fire GPU occupancy over FORCE_FIRES real fires, printed for context only — never a
-    // gated quantity (Locked decision: no arbitrary wall-clock band). Read and printed *before* the
+    // gated quantity (no arbitrary wall-clock band). Read and printed *before* the
     // structural assertion below so a red gate still leaves the diagnostic on the record.
     const occ = await page.evaluate(async (fires: number) => {
         const bench = window.__benchmark!;
