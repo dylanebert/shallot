@@ -1,8 +1,6 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
 import { classifyRendered } from "./rendered";
 
-const DEMOS = ["immediate", "retained", "wireframe", "text", "tween"];
-
 const sampleGrid = async (page: Page, canvas: Locator): Promise<number[]> => {
     const screenshot = await canvas.screenshot();
     return page.evaluate(async (base64) => {
@@ -22,6 +20,22 @@ const sampleGrid = async (page: Page, canvas: Locator): Promise<number[]> => {
 };
 
 test("visualization showcase — every demo renders a positive canvas", async ({ page }) => {
+    // Derive the demo list from the built index.html iframes so a partially-added
+    // demo can't ship unverified — a hand list drifts from the tree.
+    await page.goto("/");
+    const demos = await page.locator("iframe").evaluateAll((iframes) =>
+        iframes
+            .map((f) => (f as HTMLIFrameElement).src)
+            .map((s) => {
+                const m = s.match(/\/demos\/([^/]+)\.html$/);
+                return m ? m[1] : null;
+            })
+            .filter((s): s is string => s !== null),
+    );
+    // An empty derived population reads red, never vacuous-green — a missing index or a
+    // broken parse must fail the gate, not pass it by skipping every demo.
+    expect(demos.length, "index.html must list at least one demo iframe").toBeGreaterThan(0);
+
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(String(error)));
     page.on("console", (message) => {
@@ -34,7 +48,7 @@ test("visualization showcase — every demo renders a positive canvas", async ({
         }
     });
 
-    for (const demo of DEMOS) {
+    for (const demo of demos) {
         await page.goto(`/demos/${demo}.html`);
         const canvas = page.locator("canvas");
         await expect(canvas).toBeVisible();

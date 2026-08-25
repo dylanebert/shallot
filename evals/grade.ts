@@ -222,6 +222,15 @@ if (!detectDisplay()) {
                         : `gate produced no result (exit ${run.exitCode})`,
                 };
             }
+        } catch (e) {
+            // On the WSL path runPlaywright → stageOnWindows throws on a failed PowerShell install;
+            // the native path maps the same failure to INCOMPLETE via its stagingError catch. Mirror
+            // that here — a crashed grader cannot be told apart from any other crash, which is
+            // strictly worse than a stated INCOMPLETE.
+            result.checks.gate = {
+                ok: null,
+                detail: `dependency staging failed (harness fault, not the task): ${(e instanceof Error ? e.message : String(e)).trim().slice(-600)}`,
+            };
         } finally {
             server.kill();
         }
