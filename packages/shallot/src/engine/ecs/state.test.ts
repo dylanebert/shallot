@@ -15,7 +15,7 @@ import {
 } from "./core";
 import { schemas } from "./reflection";
 import { sparse } from "./sparse";
-import { capacity as sharedCapacity } from "./state";
+import { capacity as sharedCapacity, pixelRatio as sharedPixelRatio } from "./state";
 
 const formatHex = Object.assign((n: number) => "0x" + (n >>> 0).toString(16).padStart(6, "0"), {
     kind: "color" as const,
@@ -294,7 +294,7 @@ describe("State", () => {
         // the constructor writes module-global capacity/pixelRatio, so a second State with a differing
         // value silently retunes the first — contradicting "fixed at app construction". The guard
         // warns on a differing retune while a State is live.
-        test("a second State with a differing capacity warns instead of silently retuning the first", () => {
+        test("a State with a differing capacity warns when another State is already live", () => {
             const restore = sharedCapacity;
             const warns: string[] = [];
             const origWarn = console.warn;
@@ -302,15 +302,35 @@ describe("State", () => {
                 warns.push(args.join(" "));
             };
             try {
+                // the beforeEach state is already live, so the first State constructed here (a) is the one
+                // that warns — it is not "a second State" retuning the first; it retunes the beforeEach
+                // state's module-global while that state is live.
                 const a = new State({ capacity: 100 });
-                const b = new State({ capacity: 200 });
-                expect(warns.length).toBeGreaterThan(0); // fails: no warning (silent retune)
+                expect(warns.length).toBeGreaterThan(0);
                 expect(warns[0]).toContain("capacity");
                 a.dispose();
-                b.dispose();
             } finally {
                 console.warn = origWarn;
                 const r = new State({ capacity: restore });
+                r.dispose();
+            }
+        });
+
+        test("a State with a differing pixelRatio warns when another State is already live", () => {
+            const restore = sharedPixelRatio;
+            const warns: string[] = [];
+            const origWarn = console.warn;
+            console.warn = (...args: unknown[]) => {
+                warns.push(args.join(" "));
+            };
+            try {
+                const a = new State({ pixelRatio: 1 });
+                expect(warns.length).toBeGreaterThan(0);
+                expect(warns[0]).toContain("pixelRatio");
+                a.dispose();
+            } finally {
+                console.warn = origWarn;
+                const r = new State({ pixelRatio: restore });
                 r.dispose();
             }
         });

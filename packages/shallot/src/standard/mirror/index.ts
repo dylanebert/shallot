@@ -156,10 +156,12 @@ export class Mirror<T extends MirrorSource = MirrorSource> {
                     }
                 },
                 () => {
-                    if (!m._disposed) m._free.push(slot);
-                    console.error(
-                        `Mirror readback (source ${m._raw.label ?? "<unlabeled>"}) mapAsync rejected; this map failed and the slot was recycled — the snapshot may recover on the next flush`,
-                    );
+                    if (!m._disposed) {
+                        m._free.push(slot);
+                        console.error(
+                            `Mirror readback (source ${m._raw.label ?? "<unlabeled>"}) mapAsync rejected; this map failed and the slot was recycled — the snapshot may recover on the next flush`,
+                        );
+                    }
                 },
             );
         }
