@@ -35,7 +35,8 @@ export function createChunkPool(capacity: number): ChunkPool {
 export interface RemeshPlan {
     /** regions released during this plan (freed outright, or replaced by a differently-sized region) —
      *  the caller zero-fills their index range so a stale face doesn't render as a hole reopens elsewhere
-     *  in the pool. Empty when {@link exhausted}. */
+     *  in the pool. May carry regions freed before the failing alloc when {@link exhausted} — the caller
+     *  discards the pool wholesale and never reads them. */
     readonly freed: readonly Region[];
     /** no free region fit a resized chunk — `pool` reflects a partial, discardable attempt; the caller
      *  falls back to {@link fullRemesh} over the whole grid rather than repairing this one. */

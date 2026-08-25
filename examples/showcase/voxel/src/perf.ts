@@ -7,7 +7,7 @@ import { single } from "./voxel/patterns";
 
 // The structural perf probe: drives one deterministic, single-chunk carve and
 // reports the emit dispatch scope it triggers — `test/perf.spec.ts` gates the reported workgroup count
-// against touched-chunk volume, never against wall-clock (Locked decision: gate form (b), not (a)). This
+// against touched-chunk volume, never against wall-clock. This
 // module only produces the sample; `window.__voxelPerf` (boot.ts) is the only thing Playwright drives.
 
 // deep inside chunk (0,0,0) — CHUNK=32, so a radius-2 brush stays 14+ cells from every chunk seam and

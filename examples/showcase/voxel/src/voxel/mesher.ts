@@ -90,9 +90,11 @@ const LOG2_CHUNK = Math.log2(CHUNK);
 const FULL_SLOTS: readonly number[] = Array.from({ length: SLOT_COUNT }, (_, i) => i);
 
 // the 16 B main stream must fit one storage binding (the largest of the three per-face buffers), so cap
-// faces at ¾ of the portable 128 MiB floor. The canonical worst case (the full ground slab, ~134k faces)
-// sits far under this; a grid that would exceed it overflows the guard in `emitQuad` and the count gate
-// (atomic vs `faces()` oracle) catches the cap.
+// faces at ¾ of the portable 128 MiB floor. Overflow past the cap is silently clipped by the kernel's
+// capacity guard (plus `fullRemesh`'s own skip) and is invisible to the count gate — the cursors
+// atomicAdd unconditionally, only the write is guarded, so summed cursors still equal `faces()` even past
+// the cap. The real safety is margin: the canonical worst case (the full ground slab, ~134k faces) sits
+// far under the ~1.57M cap.
 export const MAX_FACES = Math.floor((BINDING_FLOOR * 3) / 4 / (VERTS_PER_QUAD * MAIN_STRIDE));
 
 /**

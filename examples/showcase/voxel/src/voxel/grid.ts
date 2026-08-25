@@ -17,7 +17,8 @@ import * as d from "typegpu/data";
 //
 // Chunk-major: each chunk's cells occupy one contiguous range, so a chunk uploads / evicts / remeshes as
 // a single slice — the mesher's per-chunk allocation and scoped emit dispatch (mesher.ts) both key off
-// this layout, and a carve re-uploads and re-meshes only the chunks it touched. CHUNK and SLOTS are
+// this layout, and a carve re-uploads and re-meshes only the chunks it touched, plus their face-adjacent
+// halo. CHUNK and SLOTS are
 // powers of two so the WGSL mirror bakes the same arithmetic as shift/mask from these constants.
 
 export const CHUNK = 32;

@@ -8,7 +8,7 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // since a figure whose tooling isn't recorded isn't reproducible. Reports frame-interval percentiles, the
 // CPU/fence/gap decomposition, and the `voxel:emit` / `sear:*` GPU pass spans.
 //
-// Gates nothing (Locked decision: no arbitrary wall-clock band — on this seat's 240 Hz monitor the display
+// Gates nothing (no arbitrary wall-clock band — on this seat's 240 Hz monitor the display
 // clock dominates both windows identically: p50/p95/p99 ≈ 4.2/4.3/4.3 ms, idle vs carve indistinguishable).
 // The only assertions here are instrument-health ones (the page raised no error, the profiler actually
 // reported passes) — never a threshold on the numbers this file prints.
