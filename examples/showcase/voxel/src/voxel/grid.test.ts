@@ -412,7 +412,7 @@ describe("facesInChunk — the CPU twin of the emit kernel's per-chunk emission"
         expect(total).toBe(faces(data));
         // print-only (no wall-clock gate) — the reading a loading-screen budget decision would use
         console.log(
-            `[voxel-chunk-streaming] boot facesInChunk over ${SLOT_COUNT} chunks: ${elapsed.toFixed(3)}ms`,
+            `[voxel:boot-count] boot facesInChunk over ${SLOT_COUNT} chunks: ${elapsed.toFixed(3)}ms`,
         );
     });
 });
