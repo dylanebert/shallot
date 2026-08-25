@@ -1,10 +1,10 @@
 import { test } from "@playwright/test";
-import { type Assertion, BOOT_BUDGET_MS, boot, emit, region, shot } from "../../harness/lib";
+import { type Assertion, boot, emit, MAX_GATE_BUDGET_MS, region, shot } from "../../harness/lib";
 
 // Positive claim: the cube starts white and a spacebar press turns it green. Reads the centre color
 // before and after synthesizing the keystroke — the change must follow the input.
 test("color-on-key", async ({ page }) => {
-    test.setTimeout(BOOT_BUDGET_MS);
+    test.setTimeout(MAX_GATE_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
