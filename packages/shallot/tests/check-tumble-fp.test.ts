@@ -12,6 +12,7 @@ const SCRIPT = resolve(import.meta.dir, "../../../scripts/check-tumble-fp.ts");
 // only the test moves, so it rides the default `bun test` sweep instead of running by hand.
 import {
     maskLiterals,
+    populationStats,
     splitTopLevel,
     stripComments,
     sweep,
@@ -188,10 +189,11 @@ describe("stripComments", () => {
 });
 
 describe("TRIG_ALLOWLIST — exactly two entries", () => {
-    test("granularity is (file, documented deviation), not call line — 4 call lines, 2 entries", () => {
+    test("granularity is (file, documented deviation), keyed on enclosing function — 2 entries", () => {
         expect(TRIG_ALLOWLIST).toHaveLength(2);
-        const totalLines = TRIG_ALLOWLIST.reduce((n, e) => n + e.lines.length, 0);
-        expect(totalLines).toBe(4);
+        // P1: the allowlist is keyed on (file, enclosing function), not (file, line).
+        // 4 call lines collapse to 2 deviations; the arm asserts 2, not 4.
+        expect(TRIG_ALLOWLIST.every((e) => !("lines" in e))).toBe(true);
     });
 
     // F3: the allowlist's deviation labels are ungated — renaming `deviation: "createWaveMesh"`
@@ -554,11 +556,13 @@ describe("sweepTrig — the allowlist arm", () => {
         expect(findings).toHaveLength(2);
     });
 
-    test("an allowlisted (file, line) pair on a matching relative path is not flagged", async () => {
-        // Mirrors the real allowlist shape at a synthetic path so the allowlist match itself is
-        // exercised without touching real engine source.
+    test("an allowlisted (file, enclosing function) pair on a matching relative path is not flagged", async () => {
+        // P1: the allowlist is keyed on (file, enclosing function), not (file, line).
+        // A Math.sin call inside `createWaveMesh` in `engine/mesh.ts` is allowlisted by function
+        // name, regardless of line number.
         const root = fixture({
-            "engine/mesh.ts": `${"\n".repeat(863)}const rowHeight = f32(Math.sin(x));\n${"\n".repeat(2)}const columnHeight = f32(Math.sin(x));\n`,
+            "engine/mesh.ts":
+                "export function createWaveMesh() { const h = f32(Math.sin(x)); const h2 = f32(Math.sin(y)); }\n",
         });
         const findings = await sweepTrig(root);
         expect(findings).toHaveLength(0);
@@ -660,11 +664,16 @@ describe("sweep — the real engine tree, pinned floor", () => {
 // claim a loud inconclusive exits non-zero; every arm calls `sweep*` directly and none reads the
 // CLI's exit status. This arm spawns the CLI (`Bun.spawnSync`, same pattern as `format-gate.test.ts`)
 // and reads the exit code — both directions: zero when the sweep is clean (the real tree, post-S2),
-// and non-zero on a synthetic root carrying a planted violation pointed at via `--root`. The
-// clean-root direction also reads the CLI's stdout as a launch witness: an empty root exits 0 too,
-// so `exitCode === 0` alone cannot tell "swept the fixture and found nothing" from "swept no files
-// at all" — the stdout assertion discriminates a launch that never happened (a glob scanning
-// nothing) from a real clean sweep.
+// and non-zero on a synthetic root carrying a planted violation pointed at via `--root`.
+//
+// B4 — the empty-population guard: the CLI now reports `clean (0 findings, N files, M f32 sites)`
+// and exits non-zero when N=0 or M=0, so all four floor readings can no longer read identically over
+// nothing. The F2 arm's docblock previously claimed the clean-root direction could distinguish a
+// launch that never happened from a real clean sweep via stdout — but an empty root also printed
+// "0 findings" and exited 0, so the stdout assertion could not discriminate. The population counts
+// in the summary line are what now discriminates: a real sweep prints `N files, M f32 sites` with
+// N>0 and M>0, while an empty root prints `0 files, 0 f32 sites` and exits 1. The witnessed red
+// (empty root, exit code 1) is recorded below.
 describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
     test("exits zero when the sweep is clean (the real engine tree, post-S2)", () => {
         const proc = Bun.spawnSync(["bun", SCRIPT, "--root", REAL_ROOT], {
@@ -673,6 +682,8 @@ describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
         });
         expect(proc.exitCode).toBe(0);
         expect(proc.stdout.toString()).toContain("0 findings");
+        // B4: the summary line now includes population counts.
+        expect(proc.stdout.toString()).toMatch(/\d+ files, \d+ f32 sites/);
     });
 
     test("exits zero on a synthetic clean root pointed at via --root", () => {
@@ -684,10 +695,9 @@ describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
             stderr: "pipe",
         });
         expect(proc.exitCode).toBe(0);
-        // Launch witness: an empty root also exits 0, so the exit code alone can't distinguish a
-        // real clean sweep from a launch that never happened. The clean-sweep report on stdout is
-        // what proves the CLI actually swept the fixture and found nothing.
+        // Launch witness: the clean-sweep report on stdout includes population counts.
         expect(proc.stdout.toString()).toContain("0 findings");
+        expect(proc.stdout.toString()).toMatch(/\d+ files, \d+ f32 sites/);
     });
 
     test("exits non-zero on a synthetic root carrying a planted violation", () => {
@@ -699,5 +709,36 @@ describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
             stderr: "pipe",
         });
         expect(proc.exitCode).toBe(1);
+    });
+
+    // B4: an empty population reds rather than reading clean over nothing. The witnessed red's
+    // exit code is 1 (recorded in the docblock above). This arm is a regression guard until it is
+    // mutation-tested.
+    test("exits non-zero on an empty root (0 files, 0 f32 sites) — B4 witnessed red, exit code 1", () => {
+        const root = fixture({});
+        const proc = Bun.spawnSync(["bun", SCRIPT, "--root", root], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).toBe(1);
+        expect(proc.stderr.toString()).toContain("empty population");
+    });
+});
+
+// B4 — the population counts N (files) and M (f32 sites) are asserted against the real tree so an
+// empty population reds rather than reading clean. The arm asserts N > 0 and M > 0, pinning that
+// the sweep actually swept something.
+describe("populationStats — B4: the empty-population guard", () => {
+    test("the real engine tree has N > 0 files and M > 0 f32 sites", async () => {
+        const stats = await populationStats(REAL_ROOT);
+        expect(stats.files).toBeGreaterThan(0);
+        expect(stats.f32Sites).toBeGreaterThan(0);
+    });
+
+    test("an empty root has N = 0 files and M = 0 f32 sites", async () => {
+        const root = fixture({});
+        const stats = await populationStats(root);
+        expect(stats.files).toBe(0);
+        expect(stats.f32Sites).toBe(0);
     });
 });

@@ -1034,6 +1034,9 @@ pub fn is_within_segments(result: &SegmentDistanceResult) -> bool {
 
 #[cfg(test)]
 mod c_parity {
+    // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this
+    // module up-file silently obligates an out-of-scope wasm rebuild. New assertions go at the
+    // bottom of this module, never above existing ones.
     // ATAN_P0–ATAN_P3 are private `const`s in this file; read via `super::`.
     // C reference: math_functions.c:188–189 (atan coefficients).
 

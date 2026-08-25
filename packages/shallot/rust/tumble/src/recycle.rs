@@ -138,6 +138,9 @@ fn recycle_separations(
 
 #[cfg(test)]
 mod c_parity {
+    // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this
+    // module up-file silently obligates an out-of-scope wasm rebuild. New assertions go at the
+    // bottom of this module, never above existing ones.
     // RECYCLE_ANGULAR_DISTANCE is a private `const` in this file; read via `super::`.
 
     #[test]
