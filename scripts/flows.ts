@@ -30,6 +30,18 @@ const NO_WALLS_CHECKS = [
     "Draws retained the typed indirect handle",
 ];
 
+// The canonical flow names, in display order — the one source of truth for what selectors the --help text,
+// the unknown-selector error, and the dispatch in main() all agree on. Aliases are a small stable map (short
+// forms users may type); KNOWN_FLOWS is the union, so a new flow or alias added here can't drift from a
+// second hand-maintained copy of the list.
+const FLOWS = ["no-walls", "survive-reload", "ui-containment", "blank"] as const;
+const ALIASES: Record<string, string> = {
+    survive: "survive-reload",
+    ui: "ui-containment",
+};
+const KNOWN_FLOWS = new Set<string>([...FLOWS, ...Object.keys(ALIASES)]);
+const FLOW_LIST = FLOWS.join(" | ");
+
 async function noWalls(): Promise<boolean> {
     console.log("\n--- no-walls ---");
     const result = await verify("examples/flows/no-walls", ["--timeout", "60000"]);
@@ -137,30 +149,21 @@ async function blankRedProof(): Promise<boolean> {
 
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
+
     if (args.includes("--help") || args.includes("-h")) {
         console.log(`Usage: bun run flows [--flow <name>]
 
 Runs the standalone-app engine flows through \`shallot verify\`. Display-gated (native hardware only).
 
 Options:
-  --flow <name>   Run a single flow: no-walls | survive-reload | ui-containment | blank`);
+  --flow <name>   Run a single flow: ${FLOW_LIST}`);
         process.exit(0);
     }
     const flowIdx = args.indexOf("--flow");
     const only = flowIdx !== -1 ? args[flowIdx + 1] : undefined;
 
-    const knownFlows = new Set([
-        "no-walls",
-        "survive-reload",
-        "survive",
-        "ui-containment",
-        "ui",
-        "blank",
-    ]);
-    if (only && !knownFlows.has(only)) {
-        console.error(
-            `no flow "${only}" — one of: no-walls | survive-reload | ui-containment | blank`,
-        );
+    if (only && !KNOWN_FLOWS.has(only)) {
+        console.error(`no flow "${only}" — one of: ${FLOW_LIST}`);
         process.exit(2);
     }
 

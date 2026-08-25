@@ -173,7 +173,7 @@ export async function teardownBridge(): Promise<void> {
 // shared spawn: `shallot verify <dir> --json <extra>` from the repo root, stdout captured and (unless
 // `quiet`) echoed. `verify`/`verifyBatch` differ only in how they parse the resulting stdout — a single
 // object vs a JSON array — so the spawn itself has one source of truth. Returns the stdout and the
-// process exit code; a nonzero exit must reddens the verdict regardless of parsed stdout.
+// process exit code; a nonzero exit must redden the verdict regardless of parsed stdout.
 async function spawnVerify(
     dir: string,
     extra: string[],
@@ -201,6 +201,12 @@ export async function verify(
         return {
             ...result,
             pass: false,
+            error: result.error ?? `verify process exited ${exitCode}`,
+        };
+    }
+    if (exitCode !== 0 && result?.pass === false) {
+        return {
+            ...result,
             error: result.error ?? `verify process exited ${exitCode}`,
         };
     }

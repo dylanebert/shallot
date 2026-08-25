@@ -83,6 +83,12 @@ Options:
         console.error(`no recipe "${only}" — one of: ${RECIPES.map((r) => r.dir).join(", ")}`);
         process.exit(2);
     }
+    if (!only && RECIPES.length === 0) {
+        console.error(
+            `no recipes derived from examples/recipes/*/src/smoke.ts — the glob matched nothing`,
+        );
+        process.exit(1);
+    }
 
     const skip = skipReason();
     if (skip) {

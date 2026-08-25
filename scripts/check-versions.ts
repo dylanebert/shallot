@@ -93,7 +93,8 @@ if (process.argv.includes("--release")) {
     const tag = `v${shallot.version}`;
     const found = Bun.spawnSync(["git", "tag", "--list", tag], { cwd: root });
     if (found.exitCode !== 0) {
-        fail(`git tag --list failed (exit ${found.exitCode}) — cannot verify ${tag} is untagged.`);
+        const why = found.exitCode === null ? "spawn failed" : `exit ${found.exitCode}`;
+        fail(`git tag --list failed (${why}) — cannot verify ${tag} is untagged.`);
     }
     if (found.stdout.toString().trim() !== "") {
         fail(`${tag} is already tagged — ${shallot.version} shipped; bump before packing.`);
