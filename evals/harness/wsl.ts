@@ -4,15 +4,27 @@ import { dirname, join } from "path";
 export const isWSL =
     process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 
-export function detectDisplay(): boolean {
-    if (isWSL) {
+/** Pure branch-decision seam — takes platform and WSL status, delegates the WSL branch to a
+ *  probe function. Exported so the S3 arm can exercise every branch decision without needing the
+ *  actual platform (the WSL and win32 branches are unwitnessable at runtime on a darwin seat).
+ *  `detectDisplay()` delegates to this with the real `process.platform`, `isWSL`, and
+ *  `wslHostReachable`.
+ *
+ *  Invariant: an unsupported/undetectable platform returns false (skip is honest), and the WSL
+ *  branch delegates to the probe (not an unconditional true). */
+export function detectDisplayForPlatform(
+    platform: string,
+    wsl: boolean,
+    wslProbe: () => boolean = wslHostReachable,
+): boolean {
+    if (wsl) {
         // The WSL eval path stages onto the Windows host and runs Playwright there via PowerShell —
         // it never touches the WSL display, so DISPLAY/WAYLAND_DISPLAY are irrelevant here. Probe
         // host reachability instead: powershell.exe resolvable AND a bun or node on the Windows host,
         // which is the condition kex's own contract for these wrappers turns on (host node/bun).
-        return wslHostReachable();
+        return wslProbe();
     }
-    if (process.platform === "darwin") {
+    if (platform === "darwin") {
         // WindowServer runs in a GUI session; absent on a headless mac (CI, SSH).
         const r = Bun.spawnSync(["pgrep", "-x", "WindowServer"], {
             stdout: "ignore",
@@ -20,13 +32,17 @@ export function detectDisplay(): boolean {
         });
         return r.exitCode === 0;
     }
-    if (process.platform === "linux") {
+    if (platform === "linux") {
         return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
     }
     // An undetectable or unsupported platform returns false, not true — a skip is an honest outcome
     // (grade.ts reports skipped: true), a false run is not, and a browser gate launched with no
     // display reds for the wrong reason.
     return false;
+}
+
+export function detectDisplay(): boolean {
+    return detectDisplayForPlatform(process.platform, isWSL);
 }
 
 // Bounded, non-hanging probe for the Windows host from WSL — a spawnSync with a timeout, no

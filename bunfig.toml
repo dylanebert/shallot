@@ -1,5 +1,5 @@
 [test]
-root = "packages/shallot"
+root = "."
 # The per-file test-duration cap (`packages/shallot/tests/test-cap.ts`), appended after the TypeGPU
 # transform (`tgsl.ts`, exactly one instance) and the WebGPU global setup (`setup.ts`, three lines).
 # Sibling preload, never inlined into either.
