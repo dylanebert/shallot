@@ -1,4 +1,4 @@
-// `bun run scripts/probe-edge-ccd.ts` — the distance.ts:1154 differential reading.
+// `bun run scripts/probe-edge-ccd.ts` — the distance.ts:1154 reachability reading.
 //
 // Stage S2 of audit-tumble-engine-bitexact-literals moved `kToleranceSquared` at
 // `distance.ts:1154` from `f32(0.05 * 0.05)` (= 0.0024999999441206455) to
@@ -9,13 +9,19 @@
 // reading: a continuous scene whose `SeparationType` branch is exercised, before and after.
 //
 // This script constructs that scene — two boxes at non-parallel orientations under CCD —
-// steps it through the world, and prints the per-step FNV-1a world-state hash. The scene
-// reaches the edge/edge branch (cache.count=2, uniqueCountA=2, uniqueCountB=2) on the first
-// CCD step, selecting `SeparationType.Edges` because the cross-product length squared
-// (≈0.992) far exceeds the tolerance (≈0.0025). The differential is taken by running this
-// script with the old and new `kToleranceSquared` values (see the reproduction commands
-// in the report); the branch does not flip because the length squared is orders of
-// magnitude above the tolerance either way.
+// steps it through the world, and prints the per-step FNV-1a world-state hash. What it
+// establishes: the scene reaches the line-1154 edge/edge comparison (1 call to
+// `makeSeparationFunction`, `cache.count === 2`, `uniqueCountA === 2 && uniqueCountB === 2`),
+// where `lengthSquared` = 0.992161214351654 against `kToleranceSquared` =
+// 0.002500000176951289 selects `SeparationType.Edges`; the operands differ by ~400× and the
+// constants by 1 ULP, so the branch outcome is invariant to the 1-ULP move (the old
+// `f32(0.05 * 0.05)` = 0.0024999999441206455 still selects `Edges`).
+//
+// What it does not establish: the printed hash series does not discriminate the
+// `SeparationType` branch at this site — forcing the opposite (`Vertices`) branch leaves the
+// series byte-identical (measured), so hash identity here is not evidence about that branch.
+// Re-establishing the reachability reading requires temporary instrumentation of
+// `makeSeparationFunction`; the committed probe reprints hashes only.
 //
 // Scene: "ccd-edge-edge" — a static box at the origin rotated 90° around Z, and a dynamic
 // bullet box at [0, 2, 0] rotated 5° around Y falling at -20 m/s. The non-parallel edge
