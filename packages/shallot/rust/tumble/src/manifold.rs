@@ -1967,9 +1967,13 @@ pub fn collide_hulls(
 // choice and design boundary, not by construction: `math.rs`'s `rint_even`/`remainderf` is a
 // live f64 path (reproducing libm), and a non-exact literal there reproduces rule 1a — it does
 // not today only because every literal in that path is 0.5/1.0/2.0/0.0. Reopen if either
-// trigger moves: `grep -n f64 rust/tumble/src/*.rs` (6 in the remainder emulation);
-// `grep -rn 'SeparationFunction|overlap' rust/tumble/src` (38, all comments/unrelated —
-// memory/AABB overlap, this table's own prose; 0 code hits).
+// trigger moves (run from packages/shallot/; `grep -v ':[0-9]*:\s*//'` strips comment-only
+// lines so the trigger cannot match its own documentation or this table's prose):
+//   (a) grep -rn 'f64' rust/tumble/src/*.rs | grep -v ':[0-9]*:\s*//' | grep -v 'math.rs'
+//   (b) grep -rnE 'SeparationFunction|separation_function|make_separation|overlap_capsule|overlap_hull|overlap_sphere|shape_overlap|test_overlap|OVERLAP_SLOP|kToleranceSquared|k_tolerance_squared' rust/tumble/src/*.rs | grep -v ':[0-9]*:\s*//'
+// Both read 0 today. Probe before trusting a zero: drop `grep -v 'math.rs'` from (a) — the
+// f64 hits in math.rs's rint_even/remainderf confirm the pipeline finds code symbols; add
+// `fat_overlap` to (b)'s alternation — the AABB hits in arena.rs confirm the same.
 //
 // Assertions for module-level consts in other files live in that file's own `c_parity` module
 // (appended at end-of-file), reading `super::THE_CONST` directly. This module holds only the
