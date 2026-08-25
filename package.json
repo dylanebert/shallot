@@ -19,6 +19,7 @@
         "recipes": "bun run scripts/recipes.ts",
         "site": "bun run scripts/build-site.ts",
         "demos": "bun run scripts/demos.ts",
+        "rum-intake": "bun run scripts/rum-intake-check.ts",
         "local": "bun run scripts/local-test.ts"
     },
     "devDependencies": {
