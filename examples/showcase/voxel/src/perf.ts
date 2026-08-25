@@ -5,7 +5,7 @@ import { TOTAL_CELLS } from "./voxel/grid";
 import { commitEdit, EmitTelemetry, uploadVoxels } from "./voxel/mesher";
 import { single } from "./voxel/patterns";
 
-// The structural perf probe (`showcase-frame-floor` S2): drives one deterministic, single-chunk carve and
+// The structural perf probe: drives one deterministic, single-chunk carve and
 // reports the emit dispatch scope it triggers — `test/perf.spec.ts` gates the reported workgroup count
 // against touched-chunk volume, never against wall-clock (Locked decision: gate form (b), not (a)). This
 // module only produces the sample; `window.__voxelPerf` (boot.ts) is the only thing Playwright drives.

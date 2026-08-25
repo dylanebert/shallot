@@ -1,11 +1,11 @@
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
-// The structural perf gate (`showcase-frame-floor` S2): a wall-clock frame-time gate is refuted for this
-// mechanism (Locked decision — the display clock dominates both the idle-orbit and carve-drag windows on
-// this seat's 240 Hz monitor, so any ratio over frame time or `fenceMs` gates the monitor, not the code).
-// The admissible form is (b): a structural gate on the named mechanism — emit dispatch scope (workgroup
-// count per emit fire) as a function of touched-chunk volume, derived below rather than fitted.
+// The structural perf gate: a wall-clock frame-time gate is refuted for this mechanism (Locked decision —
+// the display clock dominates both the idle-orbit and carve-drag windows on this seat's 240 Hz monitor, so
+// any ratio over frame time or `fenceMs` gates the monitor, not the code). The admissible form is a
+// structural gate on the named mechanism — emit dispatch scope (workgroup count per emit fire) as a
+// function of touched-chunk volume, derived below rather than fitted.
 //
 // Derivation of the bound: the emit kernel (`mesher.ts`'s `emitKernel`) decides each of a cell's six faces
 // by reading exactly one neighbour cell, one axis at a time (`ix±1`, `iy±1`, `iz±1`). A cell sitting on a
@@ -18,27 +18,26 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 //
 // Per-fire wall-clock occupancy is printed for context, never gated: the same Locked decision that refutes
 // a frame-time gate refutes a GPU-occupancy-in-ms gate too (no arbitrary numerical band). Forced over
-// FORCE_FIRES real fires — S1's 4-sample reading gated nothing, so a quoted percentile here needs enough
-// samples to mean something.
+// FORCE_FIRES real fires — a small handful of samples gates nothing, so a quoted percentile here needs
+// enough of them to mean something.
 //
 // Witnessed red at the pre-fix ref (2026-08-24, RTX 4090 via the host bridge): exit 1 — "dispatched 262144
 // workgroups for a 1-chunk edit — expected <= 3584 (touched-chunk-scoped dispatch); the pre-fix full-grid
-// dispatch is always 262144", exactly the mechanism S1 named. The correctness gate (`test/voxel.spec.ts`)
-// and the project's 51 unit tests stay green against the same tree.
+// dispatch is always 262144", exactly the full-grid dispatch this bound replaces. The correctness gate
+// (`test/voxel.spec.ts`) and the project's 51 unit tests stay green against the same tree.
 //
-// Discharged by `voxel-chunk-streaming` S2: the earlier `showcase-frame-floor` S3 fork found the minimal
-// dispatch-scope fix refuted (a full-grid re-dispatch was load-bearing for the shared atomic-append
-// buffers' completeness) and left this assertion `test.fail()`-annotated — expected-red on trunk until a
-// per-chunk buffer-region/compaction rewrite landed. That rewrite is `voxel-chunk-streaming` S2 (chunk
-// table + per-chunk cursors + a CPU-exact allocator), so the annotation comes off here: the bound
-// derivation and the witnessed-red record above stay live as the fixture this diff discharges.
+// A naive fix that narrows the dispatch alone is refuted: the shared atomic-append buffers only stay
+// complete if every chunk in a dispatch re-emits together, so a scoped dispatch needs a per-chunk
+// buffer-region/compaction rewrite underneath it — chunk table, per-chunk cursors, a CPU-exact allocator
+// (`mesher.ts`, `chunkpool.ts`). The bound derivation and the witnessed-red record above are the fixture
+// that mechanism satisfies.
 
 import { CHUNK } from "../src/voxel/grid";
 import { WG } from "../src/voxel/mesher";
 
 const CHUNK_WORKGROUPS = (CHUNK / WG) ** 3; // one chunk's own emit-kernel dispatch volume (512)
 const HALO_CHUNKS = 7; // the touched chunk + its 6 face-adjacent neighbours (derivation above)
-const FORCE_FIRES = 20; // 5× S1's ungated sample count, cheap at one chunk per fire
+const FORCE_FIRES = 20; // enough repeated fires for a stable percentile reading, cheap at one chunk per fire
 
 test("structural — emit dispatch scope tracks touched-chunk volume, not the full grid", async ({
     page,

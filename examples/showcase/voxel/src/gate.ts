@@ -19,8 +19,8 @@ import { checker, recenter, single, slab, solidChunk, sphere, tunnel } from "./v
 // plane), the mesher stays watertight over it, and a carve → grid-write → remesh stays watertight too.
 //
 // The GPU face count is the per-chunk atomic cursor buffer (`Voxels.cursor`), summed over all 512 slots —
-// never the CPU-authored indirect record (`voxel-chunk-streaming` S2: `indexCount = pool tail × 6` is the
-// same CPU count the allocator already computed, so comparing it back to `faces()` would be circular). The
+// never the CPU-authored indirect record (`indexCount = pool tail × 6` is the same CPU count the
+// allocator already computed, so comparing it back to `faces()` would be circular). The
 // cursor sum is the one signal this gate reads that the emit kernel itself produced.
 
 // the six canonical patterns — each a distinct mesher code path (isolated voxel, occluded interior,
@@ -162,7 +162,7 @@ export async function gate(cursor: Mirror): Promise<Check[]> {
     uploadVoxels(edited);
     // settle here so the initial upload's own emit fires before the edit — otherwise the upload and the
     // edit collapse into one dirty pass and the edit path (a re-mesh over already-meshed geometry) goes
-    // unexercised (`showcase-frame-floor` S3 side finding).
+    // unexercised.
     await settle(cursor);
     const touched = brush(edited, DIM.x / 2, DIM.y / 2, DIM.z / 2, 12, -DENSITY);
     commitEdit(touched);

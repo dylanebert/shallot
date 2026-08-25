@@ -113,11 +113,10 @@ export const Voxels = {
     dirty: false,
 };
 
-/** read-only observability for the perf gate (`showcase-frame-floor` S2, discharged by
- *  `voxel-chunk-streaming` S2): the workgroup count issued by the most recent emit dispatch, set only by
- *  {@link VoxelEmitSystem} — no production code reads it, so it changes no behavior. `test/perf.spec.ts`
- *  (via `src/perf.ts`) gates dispatch scope against touched-chunk volume: `WG_PER_CHUNK³ × N` for the `N`
- *  chunks in that fire's dispatch list, never the full grid. */
+/** read-only observability for the perf gate: the workgroup count issued by the most recent emit
+ *  dispatch, set only by {@link VoxelEmitSystem} — no production code reads it, so it changes no
+ *  behavior. `test/perf.spec.ts` (via `src/perf.ts`) gates dispatch scope against touched-chunk volume:
+ *  `WG_PER_CHUNK³ × N` for the `N` chunks in that fire's dispatch list, never the full grid. */
 export const EmitTelemetry = { lastWorkgroups: 0 };
 
 const gpu = {
@@ -771,7 +770,7 @@ function allocateVoxelBuffers(
     });
     const indirect = allocate({
         label: "voxel-indirect",
-        // the CPU-authored draw record only — never a GPU atomic target (S2), so no STORAGE binding is
+        // the CPU-authored draw record only — never a GPU atomic target, so no STORAGE binding is
         // read/written by the kernel; COPY_DST is what `writeIndirect` targets.
         size: 20,
         usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
@@ -789,7 +788,7 @@ function allocateVoxelBuffers(
     const chunkCursor = allocate({
         label: "voxel-chunk-cursor",
         // COPY_SRC: the correctness gate mirrors this buffer (`Voxels.cursor`) for its GPU-side face-count
-        // readback — never `.indirect`, which would be circular (`voxel-chunk-streaming` S2).
+        // readback — never `.indirect`, which would be circular.
         size: SLOT_COUNT * 4, // atomic<u32> per slot
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });

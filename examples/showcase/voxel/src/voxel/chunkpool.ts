@@ -1,6 +1,6 @@
-// The chunk-aware allocation glue over `RegionAllocator` (`voxel-chunk-streaming` S2): pure, device-free,
-// CPU-exact per-chunk sizing against `facesInChunk`. `RegionAllocator` itself stays generic (S1) — this
-// module is the one place that knows a "region" means one chunk's exact face-pool slice.
+// The chunk-aware allocation glue over `RegionAllocator`: pure, device-free, CPU-exact per-chunk sizing
+// against `facesInChunk`. `RegionAllocator` itself stays generic — this module is the one place that
+// knows a "region" means one chunk's exact face-pool slice.
 //
 // Two entry points. `fullRemesh` builds a fresh pool from scratch, allocating every non-empty chunk in
 // ascending slot order into an empty allocator — first-fit against one contiguous free block packs them
