@@ -1,8 +1,9 @@
-import { cpSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { type DemoEntry, ROSTER } from "../site/roster";
+import { RUM_CONFIG, RUM_INJECTION_MARKER } from "../site/rum-config";
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -20,6 +21,64 @@ import { type DemoEntry, ROSTER } from "../site/roster";
 const root = resolve(import.meta.dir, "..");
 const showcaseDir = resolve(root, "examples/showcase");
 const outDir = resolve(root, "out/site");
+
+// Datadog RUM browser-agent CDN major, pinned — checked 2026-08-25 against the served
+// `/us1/v6/datadog-rum.js` bundle: `addDurationVital(name, {startTime, duration, context})` is
+// present as the one-shot form the Locked decision calls for (`startDurationVital`/
+// `stopDurationVital` also exist, unused here). Bump this only after re-checking that shape.
+const DATADOG_RUM_CDN_MAJOR = 6;
+const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATADOG_RUM_CDN_MAJOR}/datadog-rum.js`;
+
+function datadogInitSnippet(): string {
+    return `${RUM_INJECTION_MARKER}
+<script>
+(function(h,o,u,n,d) {
+    h=h[d]=h[d]||{q:[],onReady:function(c){h.q.push(c)}}
+    d=o.createElement(u);d.async=1;d.src=n
+    n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
+})(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
+window.DD_RUM.onReady(function() {
+    window.DD_RUM.init(${JSON.stringify(RUM_CONFIG)});
+});
+</script>
+`;
+}
+
+/** Bundles `site/rum-runtime.ts` (which imports the pure sampler) to a single browser-target ESM
+ * script — inlined so every demo page, at any output depth (`visualization/demos/*.html`
+ * included), carries it with no relative-path plumbing. */
+async function buildRumRuntimeBundle(): Promise<string> {
+    const result = await Bun.build({
+        entrypoints: [resolve(root, "site/rum-runtime.ts")],
+        target: "browser",
+        minify: false,
+    });
+    if (!result.success) {
+        for (const log of result.logs) console.error(log);
+        throw new Error("failed to bundle site/rum-runtime.ts");
+    }
+    const output = result.outputs[0];
+    if (!output) throw new Error("site/rum-runtime.ts bundle produced no output");
+    return await output.text();
+}
+
+/** Injects the Datadog init snippet plus the bundled sampler into every `*.html` file under
+ * `dir` (recursive — a demo like `visualization` emits nested pages under `demos/`), right
+ * before `</body>`. */
+function injectRum(dir: string, runtimeBundle: string): void {
+    const snippet = `${datadogInitSnippet()}<script type="module">\n${runtimeBundle}</script>\n`;
+    const glob = new Glob("**/*.html");
+    for (const path of glob.scanSync({ cwd: dir })) {
+        const full = resolve(dir, path);
+        const html = readFileSync(full, "utf8");
+        const closeBodyRe = /<\/body>/i;
+        if (!closeBodyRe.test(html)) {
+            console.error(`✗ ${path} has no </body> — cannot inject RUM snippet`);
+            process.exit(1);
+        }
+        writeFileSync(full, html.replace(closeBodyRe, `${snippet}</body>`));
+    }
+}
 
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
@@ -54,6 +113,8 @@ Options:
     // clean + recreate the output dir
     rmSync(outDir, { recursive: true, force: true });
     mkdirSync(outDir, { recursive: true });
+
+    const rumRuntimeBundle = await buildRumRuntimeBundle();
 
     const sizes: { slug: string; size: string }[] = [];
 
@@ -137,6 +198,7 @@ Options:
             }
             const demoOut = resolve(outDir, slug);
             cpSync(dist, demoOut, { recursive: true });
+            injectRum(demoOut, rumRuntimeBundle);
 
             const sizeBytes = dirSize(demoOut);
             sizes.push({ slug, size: formatSize(sizeBytes) });

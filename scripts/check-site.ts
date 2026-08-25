@@ -1,9 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
+import { RUM_INJECTION_MARKER } from "../site/rum-config";
 
-// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Four clauses:
+// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Five clauses:
 //
 //   1. every entry's dir has a manifest — a showcase dir without `shallot.json` (or, for an
 //      ejected project, `index.html`) is not a buildable demo.
@@ -19,6 +20,10 @@ import { ROSTER } from "../site/roster";
 //   4. no generated path is root-absolute — the site must work at any base path (GitHub Pages
 //      serves at `/shallot/`, a dry-run artifact at root, a local out dir at `file://`). Scans
 //      `out/site/` if it exists; skips with a note if not (the build hasn't run yet).
+//   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
+//      `*.html` under each `out/site/<slug>/` (including a nested page like
+//      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`; `out/site/index.html` does
+//      not, since it has no frame loop to observe. Same `SITE_OUT_REQUIRED` gate as clause 4.
 //
 // The roster is derived from `examples/showcase/` by enumeration (site/roster.ts), so set membership
 // is by construction — a roster-equals-disk clause would compare code against itself, the
@@ -177,7 +182,43 @@ if (rootAbsFiles.length > 0) {
     process.exit(1);
 }
 
+// --- clause 5: the RUM slow-frame injection reaches every demo page, and skips the index --
+
+const noInjection: string[] = [];
+for (const { slug } of ROSTER) {
+    const demoDir = resolve(outDir, slug);
+    if (!existsSync(demoDir)) continue; // a `--demo` filtered build only writes some dirs
+    const demoGlob = new Glob("**/*.html");
+    for (const path of demoGlob.scanSync({ cwd: demoDir })) {
+        const full = resolve(demoDir, path);
+        const html = readFileSync(full, "utf8");
+        if (!html.includes(RUM_INJECTION_MARKER)) {
+            noInjection.push(`${slug}/${path}`);
+        }
+    }
+}
+
+if (noInjection.length > 0) {
+    console.error(`✗ ${noInjection.length} demo page(s) missing the RUM slow-frame injection:\n`);
+    for (const f of noInjection) console.error(`  ${f}`);
+    console.error(
+        "\nEvery built demo page must carry the Datadog RUM init + sampler snippet" +
+            " (`scripts/build-site.ts`'s post-copy rewrite).",
+    );
+    process.exit(1);
+}
+
+const indexPath = resolve(outDir, "index.html");
+if (existsSync(indexPath) && readFileSync(indexPath, "utf8").includes(RUM_INJECTION_MARKER)) {
+    console.error(
+        "✗ out/site/index.html carries the RUM injection marker — the index has no frame loop" +
+            " to observe and must stay JS-free.",
+    );
+    process.exit(1);
+}
+
 console.log(
     `✓ site roster clean (${ROSTER.length} demos, ` +
-        `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths)`,
+        `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths, ` +
+        `RUM injection present on every demo page and absent from the index)`,
 );
