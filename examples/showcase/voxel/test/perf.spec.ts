@@ -1,8 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
-// The structural perf gate: a wall-clock frame-time gate is refuted for this mechanism (
-// the display clock dominates both the idle-orbit and carve-drag windows on this seat's 240 Hz monitor, so
+// The structural perf gate: a wall-clock frame-time gate is refuted for this mechanism
+// (the display clock dominates both the idle-orbit and carve-drag windows on this seat's 240 Hz monitor, so
 // any ratio over frame time or `fenceMs` gates the monitor, not the code). The admissible form is a
 // structural gate on the named mechanism — emit dispatch scope (workgroup count per emit fire) as a
 // function of touched-chunk volume, derived below rather than fitted.
