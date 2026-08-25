@@ -15,7 +15,6 @@ paths:
     - "scripts/tumble-interaction.ts"
     - "scripts/tumble-repro.ts"
     - "scripts/tumble-repro-driver.mjs"
-    - "scripts/probe-edge-ccd.ts"
     - "scripts/check-tumble-fp.ts"
 ---
 

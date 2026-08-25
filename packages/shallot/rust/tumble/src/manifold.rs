@@ -1963,8 +1963,13 @@ pub fn collide_hulls(
 // exclusion criterion — exact literals like POSITION_SLEEP_FACTOR (0.5) and FLT_EPSILON (2^-23)
 // are asserted when they are readable source items. No Rust literal diverges from its C
 // reference — Rust f32 literals are already f32 (no double-rounding, unlike JS where `0.01` is
-// f64 until `Math.fround`), so the entire class of bugs S2 fixed in TypeScript does not exist in
-// Rust.
+// f64 until `Math.fround`). The class of bugs S2 fixed in TypeScript is absent here by literal
+// choice and design boundary, not by construction: `math.rs`'s `rint_even`/`remainderf` is a
+// live f64 path (reproducing libm), and a non-exact literal there reproduces rule 1a — it does
+// not today only because every literal in that path is 0.5/1.0/2.0/0.0. Reopen if either
+// trigger moves: `grep -n f64 rust/tumble/src/*.rs` (6 in the remainder emulation);
+// `grep -rn 'SeparationFunction|overlap' rust/tumble/src` (38, all comments/unrelated —
+// memory/AABB overlap, this table's own prose; 0 code hits).
 //
 // Assertions for module-level consts in other files live in that file's own `c_parity` module
 // (appended at end-of-file), reading `super::THE_CONST` directly. This module holds only the
