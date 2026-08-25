@@ -329,7 +329,15 @@ function splitTopLevelTokens(expr: string): Token[] {
             let j = i - 1;
             while (j >= start && /\s/.test(expr[j])) j--;
             const prevChar = j >= start ? expr[j] : "";
-            const isExponent = (c === "+" || c === "-") && (prevChar === "e" || prevChar === "E");
+            // Discriminate a real exponent suffix (`1e+5`, `1.5E-3`) from an identifier ending
+            // in `e`/`E` (`distance + 0.1`) by what precedes the `e`/`E` — a digit or `.` —
+            // rather than by the `e`/`E` alone. Without this, `f32(distance + 0.1)` collapses
+            // into one non-literal token and the bare `0.1` is silently missed.
+            const isExponent =
+                (c === "+" || c === "-") &&
+                (prevChar === "e" || prevChar === "E") &&
+                j > start &&
+                /[0-9.]/.test(expr[j - 1]);
             const isUnary = prevChar === "" || "+-*/(,".includes(prevChar);
             if (isExponent || isUnary) continue;
             tokens.push({ text: expr.slice(start, i).trim(), opBefore: pendingOp });

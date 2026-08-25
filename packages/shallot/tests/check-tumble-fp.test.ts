@@ -2,6 +2,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+
+// The CLI script path — used by the F2 arm that spawns the script and reads its exit code,
+// the same pattern as `format-gate.test.ts` / `test-cap.test.ts`.
+const SCRIPT = resolve(import.meta.dir, "../../../scripts/check-tumble-fp.ts");
+
 // A meta-test over repo-root tooling, same placement pattern as check-scripts.test.ts /
 // check-exports.test.ts — `scripts/check-tumble-fp.ts` stays at `scripts/`, beside its siblings;
 // only the test moves, so it rides the default `bun test` sweep instead of running by hand.
@@ -71,6 +76,26 @@ describe("splitTopLevel", () => {
             "Math.PI",
             "rowFrequency",
         ]);
+    });
+
+    // B1 fix: an identifier ending in `e`/`E` before a `+`/`-` is NOT an exponent suffix.
+    // The discriminator is what precedes the `e`/`E` — a digit or `.` — not the `e`/`E` alone.
+    // Without this fix, `distance + 0.1` collapses into one token and `0.1` is silently missed.
+    test("does not treat an identifier ending in 'e' before '+' as an exponent suffix", () => {
+        expect(splitTopLevel("distance + 0.1")).toEqual(["distance", "0.1"]);
+    });
+
+    test("does not treat an identifier ending in 'E' before '-' as an exponent suffix", () => {
+        expect(splitTopLevel("value - 0.3")).toEqual(["value", "0.3"]);
+    });
+
+    // The leg the B1 fix could break: real exponent-literal shapes must still parse as one token.
+    test("still treats a real exponent suffix with '+' as a single token", () => {
+        expect(splitTopLevel("1e+5 * a")).toEqual(["1e+5", "a"]);
+    });
+
+    test("still treats a real exponent suffix with '-' as a single token", () => {
+        expect(splitTopLevel("1.5E-3 * a")).toEqual(["1.5E-3", "a"]);
     });
 });
 
@@ -167,6 +192,20 @@ describe("TRIG_ALLOWLIST — exactly two entries", () => {
         expect(TRIG_ALLOWLIST).toHaveLength(2);
         const totalLines = TRIG_ALLOWLIST.reduce((n, e) => n + e.lines.length, 0);
         expect(totalLines).toBe(4);
+    });
+
+    // F3: the allowlist's deviation labels are ungated — renaming `deviation: "createWaveMesh"`
+    // to `"wrong"` stayed green. Assert each entry's `file` and `deviation` content so a rename
+    // or mislabel reds. Entry granularity is (file, documented deviation), so the asserted
+    // entry count stays 2.
+    test("entry 0 is (engine/mesh.ts, createWaveMesh)", () => {
+        expect(TRIG_ALLOWLIST[0].file).toBe("engine/mesh.ts");
+        expect(TRIG_ALLOWLIST[0].deviation).toBe("createWaveMesh");
+    });
+
+    test("entry 1 is (engine/heightfield.ts, createWave)", () => {
+        expect(TRIG_ALLOWLIST[1].file).toBe("engine/heightfield.ts");
+        expect(TRIG_ALLOWLIST[1].deviation).toBe("createWave");
     });
 });
 
@@ -353,6 +392,147 @@ describe("sweepLiterals — red-first proof on a fixture tree (S1 carried forwar
     });
 });
 
+// B1 — the exponent-suffix discriminator, armed at the sweep level. The old predicate treated
+// any `e`/`E` before a `+`/`-` as a numeric exponent suffix, including when that `e`/`E` was the
+// last character of an identifier (`distance`, `value`). The `+`/`-` was then not a split point,
+// the whole expression collapsed into one non-literal token, and a bare non-exact literal at
+// the top level was silently missed — no finding, and no unparsed report either. The fix
+// discriminates by what precedes the `e`/`E` (a digit or `.`), and these arms prove it at the
+// composition-adjacent entry (`sweepLiterals` over a fixture root), not merely at the leaf.
+describe("sweepLiterals — B1: identifier ending in e/E before +/- is not an exponent suffix", () => {
+    // Red: `distance` ends in `e`, `+` must be a split point, `0.1` is a bare non-exact literal.
+    // Mutation: revert the B1 fix in `splitTopLevelTokens` (drop the `j > start && /[0-9.]/.test`
+    // guard) → `distance + 0.1` collapses into one token, `0.1` is invisible, this reds.
+    test("flags f32(distance + 0.1) — identifier ends in 'e' before '+'", async () => {
+        const root = fixture({
+            "fake/distance.ts": "export const bad = f32(distance + 0.1);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].kind).toBe("literal");
+        if (findings[0].kind === "literal") {
+            expect(findings[0].literals).toEqual(["0.1"]);
+        }
+    });
+
+    // Red: `value` ends in `e`, `-` must be a split point, `0.3` is a bare non-exact literal.
+    // Mutation: same revert → `value - 0.3` collapses, `0.3` invisible, this reds.
+    test("flags f32(value - 0.3) — identifier ends in 'e' before '-'", async () => {
+        const root = fixture({
+            "fake/value.ts": "export const bad = f32(value - 0.3);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].kind).toBe("literal");
+        if (findings[0].kind === "literal") {
+            expect(findings[0].literals).toEqual(["0.3"]);
+        }
+    });
+
+    // The leg the B1 fix could break: a real exponent literal with `+` must still parse as one
+    // token. `1e+5` is exactly representable in f32, so `f32(1e+5 * a)` stays silent.
+    // Mutation: over-broaden the fix (treat all `e`/`E` as non-exponent) → `1e+5` splits into
+    // `1e` and `5`, `1e` is not a numeric literal, the split is wrong, this reds.
+    test("does not flag f32(1e+5 * a) — real exponent suffix with '+' stays one token", async () => {
+        const root = fixture({
+            "fake/exponent-plus.ts": "export const ok = f32(1e+5 * a);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(0);
+    });
+
+    // The leg the B1 fix could break: a real exponent literal with `-` must still parse as one
+    // token. `1.5E-3` is non-exact in f32, so `f32(1.5E-3 * a)` IS a finding — but the literal
+    // must be a single token `1.5E-3`, not split into `1.5E` and `3` by the fix.
+    // Mutation: over-broaden the fix (treat all `e`/`E` as non-exponent) → `1.5E-3` splits into
+    // `1.5E` and `3`, the literal list changes, this reds.
+    test("flags f32(1.5E-3 * a) as a single exponent literal, not a split", async () => {
+        const root = fixture({
+            "fake/exponent-minus.ts": "export const ok = f32(1.5E-3 * a);\n",
+        });
+        const findings = await sweepLiterals(root);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].kind).toBe("literal");
+        if (findings[0].kind === "literal") {
+            expect(findings[0].literals).toEqual(["1.5E-3"]);
+        }
+    });
+});
+
+// F1 — the structural legs (template awareness, comment awareness, quote awareness, nested
+// call-argument traversal) are armed only at the leaf (direct calls to `maskLiterals` /
+// `splitTopLevel`). The real-corpus floor arm runs `sweep(REAL_ROOT)` and asserts 11 findings,
+// but none of the 11 depends on those legs — so deleting any leg reds only the leaf arms, never
+// the composition. This arm gives the composition its own synthetic fixture root carrying a shape
+// per leg, driven through the same `sweep`/`sweepLiterals`/`sweepUnparsed` entry the real run
+// uses, asserting content and cardinality — not just a count.
+describe("sweep — F1: composition fixture exercising every structural leg", () => {
+    // One small tree carrying a shape per leg:
+    //   - a literal inside a template interpolation (template awareness)
+    //   - a literal inside a string that must stay silent (quote awareness)
+    //   - a literal inside a comment that must stay silent (comment awareness)
+    //   - a literal nested in a call argument (call-argument traversal)
+    //   - an undecomposable region that must be reported (fail-loud)
+    const compositionFixture: Record<string, string> = {
+        // Template interpolation: `f32(0.1 * mass)` inside `${...}` is real code, must be found.
+        // Mutation: delete template-literal handling in `maskLiterals` (mask the interpolation
+        // expression too) → this finding disappears, the assertion reds.
+        // biome-ignore lint/suspicious/noTemplateCurlyInString: test fixture intentionally contains template syntax
+        "engine/template.ts": "const msg = `result ${f32(0.1 * mass)}`;\n",
+        // String content: `f32(0.1 * mass)` inside a string literal is NOT code, must stay silent.
+        // Mutation: stop masking string content in `maskLiterals` (preserve it as code) → this
+        // becomes a spurious finding, the assertion reds.
+        "engine/string.ts": 'const s = "f32(0.1 * mass)";\n',
+        // Comment content: `f32(0.1 * mass)` inside a comment is NOT code, must stay silent.
+        // Mutation: stop masking line comments in `maskLiterals` → this becomes a spurious
+        // finding, the assertion reds.
+        "engine/comment.ts": "// f32(0.1 * mass) is bad\nexport const ok = f32(f32(0.1) * mass);\n",
+        // Nested call argument: `0.1` inside `Math.sqrt(...)`'s argument list, not at the top
+        // level of the outer split. Must be found by recursive traversal.
+        // Mutation: delete the recursion into parenthesized groups in `collectOffendingLiterals`
+        // → `0.1` is invisible, this finding disappears, the assertion reds.
+        "engine/nested-call.ts": "export const bad = f32(Math.sqrt(0.1 * a));\n",
+        // Undecomposable region: an unterminated string. Must be reported as unparsed, not
+        // silently swallowed.
+        // Mutation: delete the unterminated-string report in `maskLiterals` → the unparsed
+        // finding disappears, the assertion reds.
+        "engine/undecomposable.ts":
+            'const s = "unterminated string\nconst bad = f32(0.1 * mass);\n',
+    };
+
+    test("sweepLiterals finds the template-interpolation literal and the nested-call literal", async () => {
+        const root = fixture(compositionFixture);
+        const findings = await sweepLiterals(root);
+        // Two literal findings: one from the template interpolation, one from the nested call.
+        expect(findings).toHaveLength(2);
+        const files = findings.map((f) => f.file).sort();
+        expect(files).toEqual(["engine/nested-call.ts", "engine/template.ts"]);
+        // The string and comment fixtures must NOT appear — they are masked.
+        const allFiles = findings.map((f) => f.file);
+        expect(allFiles).not.toContain("engine/string.ts");
+        expect(allFiles).not.toContain("engine/comment.ts");
+    });
+
+    test("sweepUnparsed reports the undecomposable region", async () => {
+        const root = fixture(compositionFixture);
+        const findings = await sweepUnparsed(root);
+        expect(findings).toHaveLength(1);
+        expect(findings[0].kind).toBe("unparsed");
+        expect(findings[0].file).toBe("engine/undecomposable.ts");
+    });
+
+    test("sweep over the composition fixture exercises every leg through the real entry point", async () => {
+        const root = fixture(compositionFixture);
+        const findings = await sweep(root);
+        // 2 literal findings + 1 unparsed = 3 total. No trig findings.
+        expect(findings).toHaveLength(3);
+        const literalCount = findings.filter((f) => f.kind === "literal").length;
+        const unparsedCount = findings.filter((f) => f.kind === "unparsed").length;
+        expect(literalCount).toBe(2);
+        expect(unparsedCount).toBe(1);
+    });
+});
+
 describe("sweepTrig — the allowlist arm", () => {
     test("a synthetic Math.sin site outside the allowlist reds", async () => {
         const root = fixture({
@@ -495,5 +675,32 @@ describe("sweep — the real engine tree, pinned floor", () => {
     test("the unparsed arm is clean against the real tree — no undecomposable regions", async () => {
         const findings = await sweepUnparsed(REAL_ROOT);
         expect(findings).toHaveLength(0);
+    });
+});
+
+// F2 — the "exits non-zero" claim is prose nothing gates. The script's docblock and help text
+// claim a loud inconclusive exits non-zero; every arm calls `sweep*` directly and none reads the
+// CLI's exit status. This arm spawns the CLI (`Bun.spawnSync`, same pattern as `format-gate.test.ts`)
+// and reads the exit code — both directions: non-zero when there are findings (the real tree),
+// and zero on a synthetic clean root pointed at via `--root`.
+describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
+    test("exits non-zero when the sweep finds violations (the real engine tree)", () => {
+        const proc = Bun.spawnSync(["bun", SCRIPT, "--root", REAL_ROOT], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).not.toBe(0);
+        expect(proc.exitCode).toBe(1);
+    });
+
+    test("exits zero on a synthetic clean root pointed at via --root", () => {
+        const root = fixture({
+            "engine/clean.ts": "export const ok = f32(f32(0.1) * mass);\n",
+        });
+        const proc = Bun.spawnSync(["bun", SCRIPT, "--root", root], {
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).toBe(0);
     });
 });
