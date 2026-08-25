@@ -52,7 +52,7 @@ export type Binding =
 /** the typed-layout entry a {@link Binding} converts to, discriminated the same way `Binding` itself is —
  *  so `SurfaceLayout<B>['$'][K]` recovers the precise per-binding value type (`layout.$.items` reads as
  *  an array of the declared element, not the widened `TgpuLayoutEntry` union every case would collapse
- *  to). Mirrors {@link layoutEntry}'s runtime shape exactly; keep the two in sync. */
+ *  to). Mirrors {@link layoutEntry}'s runtime shape exactly. */
 // biome-ignore format: one row per Binding variant reads clearer un-wrapped
 type EntryFor<B extends Binding> = B extends { type: "uniform" }
     ? { uniform: B["struct"]; visibility: ShaderStage[] }
@@ -130,16 +130,6 @@ export type SurfaceLayout<B extends Record<string, Binding>> = TgpuBindGroupLayo
     >;
 };
 
-/**
- * step one of the two-step typed registration: synthesize a surface's group-2 layout
- * from its own bindings, so a typed `vs`/`fs` can close over `layout.$.name` while it's being authored —
- * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
- * bindings (sprite ×6, gltf trios — register the same layout object on each).
- *
- * @example
- * const layout = surfaceLayout({ eids: { type: "storage", element: d.u32 }, transforms: { type: "storage", element: Xform } });
- * const fs = tgpu.fn([fsCtxSchema()], d.vec4f)((ctx) => layout.$.eids[ctx.eid] ? d.vec4f(1) : d.vec4f(0));
- */
 /** the shared binding-map synthesis {@link surfaceLayout} and {@link backgroundLayout} both build on — a surface's own
  *  bindings mapped through {@link layoutEntry}, before either the `vertices` slot (surfaces) or nothing
  *  (backgrounds, which pull no mesh) is added. */
@@ -151,6 +141,16 @@ function ownEntries<B extends Record<string, Binding>>(
     ) as { [K in keyof B]: EntryFor<B[K]> };
 }
 
+/**
+ * step one of the two-step typed registration: synthesize a surface's group-2 layout
+ * from its own bindings, so a typed `vs`/`fs` can close over `layout.$.name` while it's being authored —
+ * before {@link registerSurface} exists to call. Layouts are shareable across surfaces declaring the same
+ * bindings (sprite ×6, gltf trios — register the same layout object on each).
+ *
+ * @example
+ * const layout = surfaceLayout({ eids: { type: "storage", element: d.u32 }, transforms: { type: "storage", element: Xform } });
+ * const fs = tgpu.fn([fsCtxSchema()], d.vec4f)((ctx) => layout.$.eids[ctx.eid] ? d.vec4f(1) : d.vec4f(0));
+ */
 export function surfaceLayout<B extends Record<string, Binding>>(bindings: B): SurfaceLayout<B> {
     const own = ownEntries(bindings);
     const color = tgpu.bindGroupLayout({ ...own, vertices: verticesColor }).$idx(SURFACE_GROUP);
@@ -209,8 +209,8 @@ export function vsPatchSchema<V extends Record<string, AnyWgslData> = Record<str
 }
 
 /** an `fs` chunk's input schema: the built-in fields sear rebinds as locals today (`eid`/`world`/
- *  `worldNormal`/`uv`/`localPos`) plus the surface's own `varyings` — the typed twin of
- *  `codegen.ts`'s `builtinFields`/`fragmentBody` rebind, built per surface for the same reason as
+ *  `worldNormal`/`uv`/`localPos`) plus the surface's own `varyings` — the sear-rebuilt
+ *  fragment context, built per surface for the same reason as
  *  {@link vsPatchSchema}. */
 export function fsCtxSchema<V extends Record<string, AnyWgslData> = Record<string, never>>(
     varyings: V = {} as V,
@@ -295,7 +295,7 @@ export const Surfaces: Registry<Surface> = new Registry<Surface>();
  * consumer-built object first meets the engine ({@link registerSurface}/{@link registerBackground}).
  * typegpu's brand markers are a per-copy `Symbol(...)` (never `Symbol.for`, `typegpu/shared/symbols.js`),
  * so `isTgpuFn`, imported from *this* engine's own resolution, reads `false` for a foreign copy's fn
- * even when its shape matches exactly (de-risked 2026-08-10: same
+ * even when its shape matches exactly (same
  * copy `true`, cross-copy `false`). This closes the ordering gap the module-load write-counter
  * (`checkTgsl`, `engine/runtime/gpu.ts`) can't: that counter can fold a duplicate's write into its own
  * baseline depending on which module evaluates first, but a foreign fn arriving here fails the brand

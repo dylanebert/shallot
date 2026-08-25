@@ -140,9 +140,8 @@ export function checkGateEntries(
 
 /** the two completeness directions: every registered scenario has a table entry, and covered ∪ exempt
  *  equals the whole module population. Implemented and fixture-tested from 3a (per the spec's Live log
- *  resolution), but not yet asserted against the real table — a partial table would red these on every
- *  run until 3b finishes transcribing the barrel header's ~50 remaining scenarios. `COMPLETENESS_ENFORCED`
- *  is the real-data on-switch. */
+ *  resolution), now asserted against the real table via `COMPLETENESS_ENFORCED` — the gate table covers
+ *  every registered scenario and every GPU-side module. */
 export function checkCompleteness(
     table: Record<string, ScenarioGate>,
     exemptions: Record<string, string>,

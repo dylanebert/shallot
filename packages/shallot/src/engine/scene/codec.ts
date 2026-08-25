@@ -98,8 +98,9 @@ function findClosestMatch(input: string, candidates: string[]): string | null {
 /**
  * builds ECS state from a parsed scene: one entity per node, one component per registered attribute, each
  * entity's scene `id` recorded on `state.identity` (so `serialize` round-trips refs by name). `@name`
- * field refs resolve to their target eid in a second pass. Throws on any unknown component or unresolved
- * ref, joined into one message. `run()` calls this; a custom loader calls `parse` then `load`.
+ * field refs resolve to their target eid in a second pass. Throws on unresolved refs and malformed
+ * values, joined into one message; unregistered component attrs are silently dropped. `run()` calls
+ * this; a custom loader calls `parse` then `load`.
  *
  * @example
  * const map = load(parse(xml), state);
@@ -825,8 +826,8 @@ export function formatFields(
  * `serialize` path does (`stripDefaults` on, so a field sitting at its trait default elides). The scene
  * formatter (`scripts/format.ts`) runs every `.scene` through this, so a formatted file is the same
  * minimal bytes a live host's save path and `serialize(state)` emit: one canonical form, no divergence
- * between hand-authored and programmatically-written scenes. Returns null for an empty value or unregistered
- * component (left untouched).
+ * between hand-authored and programmatically-written scenes. Returns null for an empty value, unregistered
+ * component, or a value that fails to parse (left untouched).
  */
 export function normalizeAttr(name: string, value: string): string | null {
     if (!value) return null;
@@ -849,7 +850,7 @@ function isCSSAttrSyntax(value: string): boolean {
     return value.includes(":") && (value.includes(";") || /^[\w-]+(\.[a-z])?\s*:/.test(value));
 }
 
-/** one scene validation issue: the offending `node` and `attr`, a `kind` tag (`"unregistered"` / `"missing-requires"` / `"excluded-with"`), and a human-readable `message`. */
+/** one scene validation issue: the offending `node` and `attr`, a `kind` tag (`"unregistered"` / `"missing-requires"` / `"excluded-with"` / `"derived"`), and a human-readable `message`. */
 export interface Diagnostic {
     readonly node: Node;
     readonly attr: string;
@@ -859,8 +860,9 @@ export interface Diagnostic {
 
 /**
  * validates a parsed scene against the registered components: an unknown component (with a did-you-mean
- * suggestion), an unmet `requires` trait, or a violated `excludes`. Returns every issue found; `run()`
- * warns each to the console; a live host surfaces them. Empty means the scene is clean.
+ * suggestion), a runtime-derived component, an unmet `requires` trait, or a violated `excludes`. Returns
+ * every issue found; `run()` warns each to the console; a live host surfaces them. Empty means the scene
+ * is clean.
  *
  * @example
  * for (const d of diagnose(parse(xml))) console.warn(d.message);

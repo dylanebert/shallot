@@ -951,9 +951,9 @@ async function compileValidated(forcer: Forcer): Promise<void> {
         }
     });
     // validation wraps what precompile claims through an error-scope pop, not a completion fence —
-    // S1 deleted the fence this comment used to promise; only attribution stays profiler-owned. A
-    // forcer that never awaited a real initAsync (sear's raw-pipeline array, or `[]`) skips the
-    // report entirely — attributing that skip as a compile is the still-unwarmed path reporting warm
+    // only compile-timing attribution is reported here. A forcer that never awaited a real
+    // initAsync (sear's raw-pipeline array, or `[]`) skips the report entirely — attributing that
+    // skip as a compile is the still-unwarmed path reporting warm
     if (warmed) Compute.precompiled?.(forcer.label, start, now());
 }
 
@@ -1048,11 +1048,12 @@ async function acquireDevice(
 }
 
 /**
- * the limits requested at device acquisition, read from the adapter. Requesting ≤ the adapter's
- * reported value is always granted, so this never rejects `requestDevice`; the storage-binding /
+ * the limits requested at device acquisition, read from the adapter. The storage-binding /
  * buffer sizes pass the adapter's full values through (physics' compacted contact store needs the
  * full size past the 128 MB / 256 MB spec defaults at high capacity, and a consumer overreaching
- * the true limit still fails loud at bind-group validation).
+ * the true limit still fails loud at bind-group validation). `maxStorageBuffersPerShaderStage`
+ * forwards the hardcoded floor of 10 (gpu.md's deliberate ceiling), not the adapter's value;
+ * `acquireDevice` pre-gates the adapter against that floor, so this never rejects `requestDevice`.
  *
  * The split-stage storage limits are a 2024 spec addition absent on older mobile WebGPU, where the
  * adapter reports `undefined`. Forwarding `undefined` makes WebIDL's `GPUSize64` conversion throw

@@ -97,8 +97,9 @@ declare global {
 
 /**
  * install the default `window.__harness` for `shallot verify` and return the handle. `ready` flips true
- * once a frame has drawn, `read` returns live entity poses, and `run` reports a booted pass (verify's
- * pixel gate derives the real `rendered` verdict; the default run only attests the scene booted).
+ * once `state.time.elapsed` advances past zero (the first step), `read` returns live entity poses, and
+ * `run` reports a booted pass (verify's pixel gate derives the real `rendered` verdict; the default run
+ * only attests the scene booted).
  * A project layers its own assertions by replacing `run` on the returned handle:
  *
  * @example

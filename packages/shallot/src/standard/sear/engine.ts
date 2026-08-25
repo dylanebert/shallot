@@ -53,8 +53,8 @@ export const engineLayout = tgpu
     .$idx(0);
 
 /** the sun-shadow seam: the sun's visibility at this fragment (1.0 = unshadowed), multiplied into the
- *  sun term only. Filled by a real-reference color-pass caller via `sampleSunShadow`, matching the raw
- *  scaffold's `fragmentBody` fill; the default (vertex stage, shadowless frames) is fully lit. */
+ *  sun term only. Filled by a real-reference color-pass caller via `sampleSunShadow`; the default
+ *  (vertex stage, shadowless frames) is fully lit. */
 export const sunVisibility = tgpu.privateVar(d.f32, 1);
 /** the point-light seam: the fragment's world position, read by {@link pointFactor} / {@link litPbr}'s
  *  clustered loop. Zero in the vs / prepass entries, where the point term is never enabled. */
@@ -72,8 +72,8 @@ export const pointScale = tgpu.privateVar(d.f32, 0);
 const pointShadowOf = pointShadowRef();
 
 /**
- * the depth-pipeline stub for the point/spot shadow receiver — `SHADOW_STUB_WGSL`'s typed twin
- * (codegen.ts): same signature, fully lit. A surface's own `vs` chunk can reach {@link litPbr} /
+ * the depth-pipeline stub for the point/spot shadow receiver — bound via {@link pointShadowSlot}
+ * in depth/prepass pipelines: same signature, fully lit. A surface's own `vs` chunk can reach {@link litPbr} /
  * {@link lightFactor} (per-vertex shading), which statically pull the real receiver — in a prepass /
  * shadow-atlas pipeline that would sample the very atlas being written (a usage hazard) and read
  * bindings those passes never bind. Named `pointShadowOf` so the emitted call site is identical either

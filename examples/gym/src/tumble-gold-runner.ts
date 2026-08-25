@@ -13,7 +13,7 @@
 // (a gold that matches in isolation diverges given a different set of worlds ahead of it) — the
 // "sequential-world kernel trap". Even a single entry's oracle + its 2-3 knob probes exceeded the trap for
 // shape-soup (4 rich worlds), so each is its own child; a fresh kernel per world is exactly what the gold
-// mint used (`scripts/gen-tumble-sample-golds.ts`), making registry order irrelevant to every verdict.
+// mint used (`packages/shallot/scripts/gen-tumble-sample-golds.ts`), making registry order irrelevant to every verdict.
 //
 // On any failure — including an engine trap — this prints one diagnostic line naming the entry, the check,
 // and (for a gold divergence) the first divergent step + got/expected, then exits nonzero; that line is all
