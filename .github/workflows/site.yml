@@ -75,7 +75,14 @@ jobs:
       # rust/audio/pkg). check-site.ts imports only site/roster (no engine, no wasm), so it
       # runs green without Rust. The ordering (site before check) is load-bearing:
       # check-site.ts's root-absolute clause reads out/site/, which `bun run site` created.
+      # RUM_CONFIG_REQUIRED=1 only on a run that will actually deploy — mirrors the deploy
+      # job's own `if:` gate below verbatim, so a placeholder credential reds the deploy path
+      # and stays silent on an ordinary artifact-only build (which still ships placeholders
+      # until the credentials ask lands). Site-owned check-site.ts is what interprets this env.
       - run: bun run scripts/check-site.ts
+        env:
+          RUM_CONFIG_REQUIRED: >-
+            ${{ (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.deploy == true && github.ref == 'refs/heads/main')) && '1' || '' }}
 
       - uses: actions/upload-pages-artifact@v3
         with:

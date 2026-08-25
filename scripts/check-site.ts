@@ -1,9 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
+import { RUM_INJECTION_MARKER } from "../site/rum-config";
 
-// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Four clauses:
+// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Five clauses:
 //
 //   1. every entry's dir has a manifest — a showcase dir without `shallot.json` (or, for an
 //      ejected project, `index.html`) is not a buildable demo.
@@ -19,6 +20,10 @@ import { ROSTER } from "../site/roster";
 //   4. no generated path is root-absolute — the site must work at any base path (GitHub Pages
 //      serves at `/shallot/`, a dry-run artifact at root, a local out dir at `file://`). Scans
 //      `out/site/` if it exists; skips with a note if not (the build hasn't run yet).
+//   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
+//      `*.html` under each `out/site/<slug>/` (including a nested page like
+//      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`; `out/site/index.html` does
+//      not, since it has no frame loop to observe. Same `SITE_OUT_REQUIRED` gate as clause 4.
 //
 // The roster is derived from `examples/showcase/` by enumeration (site/roster.ts), so set membership
 // is by construction — a roster-equals-disk clause would compare code against itself, the
@@ -177,7 +182,86 @@ if (rootAbsFiles.length > 0) {
     process.exit(1);
 }
 
+// --- clause 5: the RUM slow-frame injection reaches every demo page, and skips the index --
+
+const noInjection: string[] = [];
+for (const { slug } of ROSTER) {
+    const demoDir = resolve(outDir, slug);
+    if (!existsSync(demoDir)) continue; // a `--demo` filtered build only writes some dirs
+    const demoGlob = new Glob("**/*.html");
+    for (const path of demoGlob.scanSync({ cwd: demoDir })) {
+        const full = resolve(demoDir, path);
+        const html = readFileSync(full, "utf8");
+        if (!html.includes(RUM_INJECTION_MARKER)) {
+            noInjection.push(`${slug}/${path}`);
+        }
+    }
+}
+
+if (noInjection.length > 0) {
+    console.error(`✗ ${noInjection.length} demo page(s) missing the RUM slow-frame injection:\n`);
+    for (const f of noInjection) console.error(`  ${f}`);
+    console.error(
+        "\nEvery built demo page must carry the Datadog RUM init + sampler snippet" +
+            " (`scripts/build-site.ts`'s post-copy rewrite).",
+    );
+    process.exit(1);
+}
+
+const indexPath = resolve(outDir, "index.html");
+if (existsSync(indexPath) && readFileSync(indexPath, "utf8").includes(RUM_INJECTION_MARKER)) {
+    console.error(
+        "✗ out/site/index.html carries the RUM injection marker — the index has no frame loop" +
+            " to observe and must stay JS-free.",
+    );
+    process.exit(1);
+}
+
+// --- clause 6: no built page carries a placeholder RUM credential -------------------------
+//
+// `site/rum-config.ts` ships `PLACEHOLDER_*` values until the Dogfood-org RUM application
+// exists (S1 credentials ask); nothing refused them at build or deploy. Gated behind
+// RUM_CONFIG_REQUIRED, same shape as SITE_OUT_REQUIRED for clause 4/5, so today's placeholder
+// state doesn't red the default suite. Armed on the real deploy path: `.github/workflows/
+// site.yml`'s build job sets `RUM_CONFIG_REQUIRED` on this script's step to an expression that
+// mirrors the deploy job's own `if:` gate verbatim (tag push, or workflow_dispatch with
+// `deploy: true` on `main`) — so a deploying run reds on a placeholder credential and an
+// ordinary artifact-only build stays green while credentials are still pending.
+//
+// Mutation-proven both directions over the same `out/site/` build (witnessed 2026-08-25):
+//   - RUM_CONFIG_REQUIRED=1 over the current placeholder build: reds —
+//     "✗ … built page(s) carry a PLACEHOLDER_ RUM credential" listing every demo HTML.
+//   - RUM_CONFIG_REQUIRED=1 with `site/rum-config.ts`'s three PLACEHOLDER_ strings swapped for
+//     dummy-real values (`pub00000000000000000000000000000000`, an app-id UUID, `datadoghq.com`)
+//     and the site rebuilt: passes clean.
+if (process.env.RUM_CONFIG_REQUIRED === "1" && existsSync(outDir)) {
+    const placeholderHits: { file: string; line: number }[] = [];
+    const allHtmlGlob = new Glob("**/*.html");
+    for await (const path of allHtmlGlob.scan({ cwd: outDir })) {
+        const full = resolve(outDir, path);
+        const lines = (await Bun.file(full).text()).split("\n");
+        for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes("PLACEHOLDER_")) {
+                placeholderHits.push({ file: path, line: i + 1 });
+            }
+        }
+    }
+
+    if (placeholderHits.length > 0) {
+        console.error(
+            `✗ ${placeholderHits.length} built page(s) carry a PLACEHOLDER_ RUM credential:\n`,
+        );
+        for (const h of placeholderHits) console.error(`  ${h.file}:${h.line}`);
+        console.error(
+            "\nCreate the Dogfood-org RUM browser application and set real applicationId/" +
+                "clientToken/site in site/rum-config.ts before deploying.",
+        );
+        process.exit(1);
+    }
+}
+
 console.log(
     `✓ site roster clean (${ROSTER.length} demos, ` +
-        `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths)`,
+        `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths, ` +
+        `RUM injection present on every demo page and absent from the index)`,
 );

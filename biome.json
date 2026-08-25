@@ -6,6 +6,7 @@
             "examples/**/*.ts",
             "evals/**/*.ts",
             "scripts/**/*.ts",
+            "site/**/*.ts",
             "!examples/*/public"
         ]
     },
@@ -88,6 +89,10 @@
     "overrides": [
         {
             "includes": ["**/rust/**/pkg/**"],
+            "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
+        },
+        {
+            "includes": ["site/rum-runtime.ts"],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }
     ]
