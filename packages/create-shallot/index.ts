@@ -1,7 +1,13 @@
 #!/usr/bin/env bun
 
-import { existsSync, mkdirSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { dirname, join, resolve } from "path";
+
+// the scaffold pins @dylanebert/shallot to the scaffold's own version — lockstep-gated by
+// check-versions.ts — so a stale scaffold can't install a newer engine whose peer ranges the
+// typegpu/unplugin-typegpu pins no longer satisfy. tilde matches the sibling pins' intent (patch-only
+// for 0.x) and shallot's 0.x cadence where each minor may break peers.
+const shallotRange = `~${(JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as { version: string }).version}`;
 
 /**
  * the project files keyed by relative path, with the project name interpolated. the single source of
@@ -23,7 +29,7 @@ export function template(name: string): Record<string, string> {
                     version: "0.0.0",
                     private: true,
                     type: "module",
-                    dependencies: { "@dylanebert/shallot": "latest", typegpu: "~0.12.0" },
+                    dependencies: { "@dylanebert/shallot": shallotRange, typegpu: "~0.12.0" },
                     devDependencies: { "unplugin-typegpu": "~0.12.1", typescript: "^7.0.2" },
                 },
                 null,

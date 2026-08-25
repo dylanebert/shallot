@@ -5,5 +5,12 @@
     "bin": "./index.ts",
     "files": ["index.ts"],
     "description": "Scaffold a Shallot project",
-    "license": "MIT"
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/dylanebert/shallot.git",
+        "directory": "packages/create-shallot"
+    },
+    "homepage": "https://github.com/dylanebert/shallot",
+    "bugs": "https://github.com/dylanebert/shallot/issues"
 }
