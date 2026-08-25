@@ -1,11 +1,21 @@
-// The GPU face-cull mesher (Phase 2): a compute pass walks the voxel grid and emits an exposed-face quad
-// for every solid voxel whose neighbour across that face is air, atomically appending vertices / indices
-// into producer-owned buffers and the index count into an indirect draw record. Sear rasterizes the
-// result through one `drawIndirect` — the mesh never crosses back to the CPU. The 3D promotion of
-// a 2D terrain emit: swap "cliff per non-ground
-// neighbour" for "cube face per air neighbour", in all six directions including interior (the bored
-// tunnel) and across chunk seams (the cross-chunk sphere). Single pass over a static grid — the two-pass
-// count-then-`dispatchWorkgroupsIndirect` and per-chunk draws arrive with streaming (Phase 4).
+// The GPU face-cull mesher: one compute dispatch emits an exposed-face quad for every solid voxel whose
+// neighbour across that face is air — the 3D promotion of a 2D terrain emit, "cube face per air
+// neighbour" in all six directions, including interior (the bored tunnel) and across chunk seams (the
+// cross-chunk sphere). Sear rasterizes the result through one `drawIndexedIndirect` — the mesh never
+// crosses back to the CPU.
+//
+// Chunk allocation is CPU-exact: `facesInChunk` (grid.ts) counts each chunk's exposed faces against the
+// same `>= ISO` predicate and f32 data the kernel emits from, so a first-fit free-list (`chunkpool.ts`)
+// hands every chunk an exactly-sized contiguous region in the shared face pool — no worst-case
+// reservation, no per-chunk fixed cap. A per-chunk table (region start, capacity) and a per-chunk atomic
+// cursor let the kernel write `table[slot] + atomicAdd(cursor[slot], 1)`, one dispatch over a CPU-built
+// chunk list. A freed or resized chunk's stale index range is zero-filled into a degenerate, zero-area
+// triangle (culled at primitive assembly), so the single `drawIndexedIndirect` over `[0, pool tail)`
+// survives holes without a second draw per chunk.
+//
+// Boot, reseed, and a pattern swap dispatch every chunk (`fullRemesh`); a carve dispatches only the
+// touched chunks plus their face-adjacent halo (`planRemesh`), falling back to a full remesh on allocator
+// exhaustion — always correct, rare.
 
 import { Compute, type Plugin, RenderPlugin, type State, type System } from "@dylanebert/shallot";
 import {
@@ -93,7 +103,7 @@ export const MAX_FACES = Math.floor((BINDING_FLOOR * 3) / 4 / (VERTS_PER_QUAD * 
  * draw record (`indexCount = pool tail × 6`, `mesher.ts`'s `writeIndirect`) — and `cursor`, the per-chunk
  * atomic face count the correctness gate reads back (never `indirect`, which would be circular: it's the
  * same CPU count restated). {@link uploadVoxels} rewrites the grid and re-meshes; {@link commitEdit} does
- * the same over a touched chunk subset (Phase 5's carve).
+ * the same over a touched chunk subset (the carve path).
  */
 export const Voxels = {
     data: null as Float32Array | null,
@@ -123,12 +133,13 @@ const gpu = {
     bindGroup: null as TgpuBindGroup<typeof mesherLayout.entries> | null,
 };
 
-// the CPU-side allocation state (S2): the region allocator + per-chunk regions over the face pool
+// the CPU-side allocation state: the region allocator + per-chunk regions over the face pool
 // (`chunkpool.ts`), and the chunk-slot list the next `VoxelEmitSystem` fire owes — `null` means "a full
 // remesh is owed once `Voxels.data` exists" (covers `generate()`'s GPU-only dirty, deferred until
-// `syncGrid` populates the CPU mirror — `voxel-chunk-streaming` S3 firms up that ordering); a populated
-// array is the scoped touched+halo list `commitEdit` (or a full remesh) already resolved — count, alloc,
-// and the chunk-table upload are already done by the time `VoxelEmitSystem` reads it.
+// `syncGrid` populates the CPU mirror — `generate()` runs both in sequence, so boot and reseed always
+// reach the emit system with `Voxels.data` already synced); a populated array is the scoped touched+halo
+// list `commitEdit` (or a full remesh) already resolved — count, alloc, and the chunk-table upload are
+// already done by the time `VoxelEmitSystem` reads it.
 let pool: ChunkPool | null = null;
 let pendingSlots: readonly number[] | null = null;
 

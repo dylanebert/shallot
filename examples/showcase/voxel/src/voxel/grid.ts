@@ -16,7 +16,8 @@ import * as d from "typegpu/data";
 // distance beyond this region comes from a baked/LOD tier, decoupled from the voxel buffer.
 //
 // Chunk-major: each chunk's cells occupy one contiguous range, so a chunk uploads / evicts / remeshes as
-// a single slice — what makes per-chunk streaming + dispatch a localized write. CHUNK and SLOTS are
+// a single slice — the mesher's per-chunk allocation and scoped emit dispatch (mesher.ts) both key off
+// this layout, and a carve re-uploads and re-meshes only the chunks it touched. CHUNK and SLOTS are
 // powers of two so the WGSL mirror bakes the same arithmetic as shift/mask from these constants.
 
 export const CHUNK = 32;
@@ -153,14 +154,6 @@ export function faces(data: Float32Array): number {
 }
 
 /**
- * the exact exposed-face count for one chunk (`slot`) — the CPU twin of the emit kernel's per-chunk
- * emission (`mesher.ts`'s `emitKernel`): same `>= ISO` predicate, same f32 grid data, walked over the
- * chunk's local cells but reading neighbours through {@link solidAt} so a face straddling a chunk seam
- * (the sphere/checker fixtures, any real edit) reads the *other* chunk's data, not an assumed-air edge —
- * a chunk boundary is not a data boundary. `Σ facesInChunk(data, slot)` over every slot equals
- * {@link faces}; this is what lets S2 allocate each touched chunk's region exactly, no worst-case pad.
- */
-/**
  * the up-to-6 face-adjacent chunk slots of `slot`, bounds-clipped to the 8³ chunk grid — the halo a
  * touched chunk's edit can also affect: a face straddling the shared boundary can flip on either side
  * even when the neighbour's own occupancy is untouched (`facesInChunk`'s cross-chunk read), so a scoped
@@ -184,6 +177,15 @@ export function chunkNeighbors(slot: number): number[] {
     return out;
 }
 
+/**
+ * the exact exposed-face count for one chunk (`slot`) — the CPU twin of the emit kernel's per-chunk
+ * emission (`mesher.ts`'s `emitKernel`): same `>= ISO` predicate, same f32 grid data, walked over the
+ * chunk's local cells but reading neighbours through {@link solidAt} so a face straddling a chunk seam
+ * (the sphere/checker fixtures, any real edit) reads the *other* chunk's data, not an assumed-air edge —
+ * a chunk boundary is not a data boundary. `Σ facesInChunk(data, slot)` over every slot equals
+ * {@link faces}; this is what lets the chunk-pool allocator size each touched chunk's region exactly,
+ * with no worst-case pad.
+ */
 export function facesInChunk(data: Float32Array, slot: number): number {
     const [ox, oy, oz] = coord(slot * CHUNK_CELLS);
     let n = 0;

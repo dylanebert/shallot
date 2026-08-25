@@ -168,7 +168,8 @@ const runDensity = createDensityRunner<
  *  — the mesher's chunk allocation is CPU-exact (`facesInChunk`), so a remesh dispatched against a
  *  GPU-only grid has nothing to size chunks from and defers indefinitely (`mesher.ts`'s
  *  `VoxelEmitSystem`). Every caller (boot, reseed, the correctness gate) gets a remeshable grid for free;
- *  `voxel-chunk-streaming` S3 measures whether this cost needs a GPU-count fallback. */
+ *  the full 512-chunk count this readback enables runs single-threaded on the CPU (`grid.test.ts`'s
+ *  print-only boot measurement), a cost the loading-screen budget question stays open on. */
 export async function generate(seed: number): Promise<void> {
     if (!Voxels.grid) throw new Error("voxel: generate before the grid buffer exists");
     const { device, root } = Compute;
