@@ -861,8 +861,8 @@ export interface Diagnostic {
 /**
  * validates a parsed scene against the registered components: an unknown component (with a did-you-mean
  * suggestion), a runtime-derived component, an unmet `requires` trait, or a violated `excludes`. Returns
- * every issue found; `run()`
- * warns each to the console; a live host surfaces them. Empty means the scene is clean.
+ * every issue found; `run()` warns each to the console; a live host surfaces them. Empty means the scene
+ * is clean.
  *
  * @example
  * for (const d of diagnose(parse(xml))) console.warn(d.message);
