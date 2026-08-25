@@ -310,7 +310,8 @@ type Token = { text: string; opBefore: "+" | "-" | "*" | "/" | null };
 // Split `expr` into its top-level (paren/bracket/brace depth 0) operands, each paired with the
 // operator that split it off the previous one. A leading `+`/`-`, or one immediately after another
 // operator/open-paren/comma, is a unary sign (part of the operand, not a split point); an `e`/`E`-
-// adjacent `+`/`-` is an exponent suffix, never a split point either. Box3D's own
+// adjacent `+`/`-` is an exponent suffix, never a split point either, but only when the `e`/`E`
+// is preceded by a digit or `.` (see the inline comment at the discriminator below). Box3D's own
 // `-ffp-contract=off` + this port's "one op per f32 wrap" convention means most calls carry
 // exactly one top-level operator, but a chain (`2.0 * Math.PI * f`) splits into every operand so
 // each is checked independently.
@@ -338,6 +339,9 @@ function splitTopLevelTokens(expr: string): Token[] {
                 (prevChar === "e" || prevChar === "E") &&
                 j > start &&
                 /[0-9.]/.test(expr[j - 1]);
+            // Boundary: only the single char before the `e`/`E` is inspected, so an identifier ending
+            // in digit-then-`e` (e.g. `base2e + 0.1`) would still collapse — currently unreachable in
+            // this corpus (no such identifier precedes a `+`/`-` inside an f32 wrap). Not widened here.
             const isUnary = prevChar === "" || "+-*/(,".includes(prevChar);
             if (isExponent || isUnary) continue;
             tokens.push({ text: expr.slice(start, i).trim(), opBefore: pendingOp });

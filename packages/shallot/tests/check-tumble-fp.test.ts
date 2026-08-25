@@ -682,7 +682,10 @@ describe("sweep — the real engine tree, pinned floor", () => {
 // claim a loud inconclusive exits non-zero; every arm calls `sweep*` directly and none reads the
 // CLI's exit status. This arm spawns the CLI (`Bun.spawnSync`, same pattern as `format-gate.test.ts`)
 // and reads the exit code — both directions: non-zero when there are findings (the real tree),
-// and zero on a synthetic clean root pointed at via `--root`.
+// and zero on a synthetic clean root pointed at via `--root`. The clean-root direction also reads
+// the CLI's stdout as a launch witness: an empty root exits 0 too, so `exitCode === 0` alone cannot
+// tell "swept the fixture and found nothing" from "swept no files at all" — the stdout assertion
+// discriminates a launch that never happened (a glob scanning nothing) from a real clean sweep.
 describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
     test("exits non-zero when the sweep finds violations (the real engine tree)", () => {
         const proc = Bun.spawnSync(["bun", SCRIPT, "--root", REAL_ROOT], {
@@ -702,5 +705,9 @@ describe("CLI exit code — F2: the loud inconclusive exits non-zero", () => {
             stderr: "pipe",
         });
         expect(proc.exitCode).toBe(0);
+        // Launch witness: an empty root also exits 0, so the exit code alone can't distinguish a
+        // real clean sweep from a launch that never happened. The clean-sweep report on stdout is
+        // what proves the CLI actually swept the fixture and found nothing.
+        expect(proc.stdout.toString()).toContain("0 findings");
     });
 });
