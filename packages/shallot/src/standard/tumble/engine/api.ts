@@ -1713,7 +1713,7 @@ export class RevoluteJoint extends Joint {
         const hi = f32(upper);
         const lowerAngle = lo < hi ? lo : hi;
         const upperAngle = lo > hi ? lo : hi;
-        const bound = f32(0.99 * PI);
+        const bound = f32(f32(0.99) * PI);
         const j = this.data();
         j.lowerAngle = clampf(lowerAngle, -bound, bound);
         j.upperAngle = clampf(upperAngle, -bound, bound);
@@ -2175,7 +2175,7 @@ export class SphericalJoint extends Joint {
         const hi = f32(upper);
         const lowerAngle = lo < hi ? lo : hi;
         const upperAngle = lo > hi ? lo : hi;
-        const bound = f32(0.99 * PI);
+        const bound = f32(f32(0.99) * PI);
         const j = this.data();
         j.lowerTwistAngle = clampf(lowerAngle, -bound, bound);
         j.upperTwistAngle = clampf(upperAngle, -bound, bound);

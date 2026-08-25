@@ -1407,7 +1407,7 @@ export function makeTransformedBoxHull(
     hz: number,
     transform: Transform,
 ): HullData {
-    const minH = f32(0.2 * LINEAR_SLOP);
+    const minH = f32(f32(0.2) * LINEAR_SLOP);
     // The C API takes f32 half-extents; fround the inputs so an f64 arg (e.g. 0.2) matches b3MakeBoxHull.
     const h = vec3.max({ x: minH, y: minH, z: minH }, { x: f32(hx), y: f32(hy), z: f32(hz) });
 

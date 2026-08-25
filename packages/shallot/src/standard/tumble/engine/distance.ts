@@ -1151,7 +1151,7 @@ function makeSeparationFunction(
                 let axis = vec3.cross(edgeA, edgeB);
                 const lengthSquared = vec3.lengthSq(axis);
 
-                const kToleranceSquared = f32(0.05 * 0.05);
+                const kToleranceSquared = f32(f32(0.05) * f32(0.05));
                 if (lengthSquared < kToleranceSquared) {
                     fcn.type = SeparationType.Vertices;
                     fcn.witness1 = worldNormal;
@@ -1246,7 +1246,7 @@ function makeSeparationFunction(
                 let axis = vec3.cross(edgeA, edgeB);
                 const lengthSquared = vec3.lengthSq(axis);
 
-                const kToleranceSquared = f32(0.005 * 0.005);
+                const kToleranceSquared = f32(f32(0.005) * f32(0.005));
                 if (lengthSquared < kToleranceSquared) {
                     fcn.type = SeparationType.Vertices;
                     fcn.witness1 = worldNormal;

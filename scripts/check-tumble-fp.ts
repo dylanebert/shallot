@@ -21,10 +21,10 @@ import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
 // not return to zero, is *reported as an unparsed site* and exits non-zero. Safety rests on
 // exhaustiveness over the region set plus a loud inconclusive — never on a sample.
 //
-// `bun run scripts/check-tumble-fp.ts` is EXPECTED to exit 1 at S1 (audit-tumble-engine-
-// bitexact-literals) — the check is built and pinned red before the three live divergences
-// move (S2). Wiring it into `bun run check` is S2's job, not this one's: wiring a red check in
-// would ship a red default gate.
+// `bun run scripts/check-tumble-fp.ts` is wired into `bun run check` (S2,
+// audit-tumble-engine-bitexact-literals). S1 built and pinned it red at 11 before the three live
+// divergences moved; S2 wrapped all 11 sites into rule 1a's fround-correct form, so the sweep is
+// now green (0 findings) and the default gate stays green.
 //
 // `--root <dir>` points the sweep at an alternate tree (fixture-driven proof — same shape as
 // `check-boundary.ts` / `check-scripts.ts`'s own `--root`), so the arm can drive real assertions

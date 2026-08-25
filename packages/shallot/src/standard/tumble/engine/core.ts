@@ -13,20 +13,20 @@ import { f32 } from "./math";
 export const LENGTH_UNITS_PER_METER = f32(1.0);
 
 /// A small length used as a collision and constraint tolerance (B3_LINEAR_SLOP).
-export const LINEAR_SLOP = f32(0.005 * LENGTH_UNITS_PER_METER);
+export const LINEAR_SLOP = f32(f32(0.005) * LENGTH_UNITS_PER_METER);
 
 /// Shapes are extended by this amount so speculative contacts can be created before touching
 /// (B3_SPECULATIVE_DISTANCE).
 export const SPECULATIVE_DISTANCE = f32(4.0 * LINEAR_SLOP);
 
 /// Overlap queries report a hit within this slop of touching (B3_OVERLAP_SLOP).
-export const OVERLAP_SLOP = f32(0.1 * LINEAR_SLOP);
+export const OVERLAP_SLOP = f32(f32(0.1) * LINEAR_SLOP);
 
 /// Maximum points in a shape-cast proxy point cloud (B3_MAX_SHAPE_CAST_POINTS).
 export const MAX_SHAPE_CAST_POINTS = 64;
 
 /// Upper bound on the per-shape fat-AABB margin (B3_MAX_AABB_MARGIN).
-export const MAX_AABB_MARGIN = f32(0.05 * LENGTH_UNITS_PER_METER);
+export const MAX_AABB_MARGIN = f32(f32(0.05) * LENGTH_UNITS_PER_METER);
 
 /// The per-shape fat-AABB margin is this fraction of the shape extent, capped by MAX_AABB_MARGIN
 /// (B3_AABB_MARGIN_FRACTION).
