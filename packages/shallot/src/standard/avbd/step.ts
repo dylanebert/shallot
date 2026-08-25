@@ -4002,15 +4002,15 @@ const buf = (binding: number, type: GPUBufferBindingType): GPUBindGroupLayoutEnt
  * the GPU AVBD step pipeline. Solver state is eid-indexed over `eidCap` (the scene capacity), persistent
  * across frames; the live bodies are compacted into the dense `eids` map (`eids[0]` = count, `eids[1+d]`
  * = the d-th live eid) by the GPU `pack` (plugin) or `gateSetCount` (the standalone gates). `maxBodies`
- * is the live-body bound (BVH prims, the eid map, dispatch cap); the per-eid manifold store sizes by
- * `eidCap` (each body owns a fixed block at `eid · PAIRS_PER_BODY`, Phase 4.9 robustness).
+ * is the eid-space + dispatch bound (BVH prims, the eid map, dispatch cap); the per-eid manifold store
+ * sizes by `eidCap` (each body owns a fixed block at `eid · PAIRS_PER_BODY`, Phase 4.9 robustness).
  * Records one full step onto a command encoder; the plugin and the standalone oracle cross-check drive it.
  */
 export class PhysicsStep {
     readonly device: GPUDevice;
     /** eid space + bodies/colors/pair-block stride (= the scene ECS capacity) */
     readonly eidCap: number;
-    /** the live-body bound — BVH prims, the eid map, the body-pass dispatch cap; = `eidCap` (Phase 4.7). */
+    /** the eid-space + dispatch bound — BVH prims, the eid map, the body-pass dispatch cap; = `eidCap` (Phase 4.7). */
     readonly maxBodies: number;
     /** the per-eid pair-block pool size = `eidCap * PAIRS_PER_BODY` — `pairList` + the manifold store both
      * size by the eid space (body eid owns the fixed block `[eid·PAIRS_PER_BODY, …)`, Phase 4.9 robustness) */
@@ -4822,7 +4822,7 @@ export class PhysicsStep {
 
     /**
      * compile the step pipelines + allocate the buffers. `eidCap` = the eid space (bodies/colors/pair-block
-     * stride, = the scene ECS capacity); `maxBodies` = the live-body bound (the eid map + dispatch cap).
+     * stride, = the scene ECS capacity); `maxBodies` = the eid-space + dispatch bound (the eid map + dispatch cap).
      * Pass a `packGate` (the Body membership coordinates) to build the GPU pack + seed passes — the plugin
      * does; the standalone gates omit it (so pack/seed are null) and drive the dense map via `gateSetCount`
      * + seed `bodies` directly.
