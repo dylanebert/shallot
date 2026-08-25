@@ -193,3 +193,21 @@ pub fn integrate_positions(
         flags_col.set(i, flags);
     }
 }
+
+// S3 — c_parity: MAX_ROTATION parity assertion.
+// Canonical table: see `manifold.rs` `c_parity` header comment.
+
+#[cfg(test)]
+mod c_parity {
+    // MAX_ROTATION is a private `const` in this file; read via `super::`.
+
+    #[test]
+    fn max_rotation() {
+        // C: B3_MAX_ROTATION = 0.25f * B3_PI (constants.h:70)
+        // B3_PI = 3.14159265359f (math_functions.h:21)
+        assert_eq!(
+            super::MAX_ROTATION.to_bits(),
+            (0.25f32 * 3.14159265359f32).to_bits()
+        );
+    }
+}

@@ -1028,3 +1028,36 @@ pub fn is_within_segments(result: &SegmentDistanceResult) -> bool {
         && 0.0 <= result.fraction2
         && result.fraction2 <= 1.0
 }
+
+// S3 — c_parity: ATAN_P0–ATAN_P3 constant parity assertions.
+// Canonical table: see `manifold.rs` `c_parity` header comment.
+
+#[cfg(test)]
+mod c_parity {
+    // ATAN_P0–ATAN_P3 are private `const`s in this file; read via `super::`.
+    // C reference: math_functions.c:188–189 (atan coefficients).
+
+    #[test]
+    fn atan_p0() {
+        // C: 0.024840285f (math_functions.c:188)
+        assert_eq!(super::ATAN_P0.to_bits(), 0.024840285f32.to_bits());
+    }
+
+    #[test]
+    fn atan_p1() {
+        // C: 0.18681418f (math_functions.c:188)
+        assert_eq!(super::ATAN_P1.to_bits(), 0.18681418f32.to_bits());
+    }
+
+    #[test]
+    fn atan_p2() {
+        // C: -0.094097948f (math_functions.c:189)
+        assert_eq!(super::ATAN_P2.to_bits(), (-0.094097948f32).to_bits());
+    }
+
+    #[test]
+    fn atan_p3() {
+        // C: -0.33213072f (math_functions.c:189)
+        assert_eq!(super::ATAN_P3.to_bits(), (-0.33213072f32).to_bits());
+    }
+}

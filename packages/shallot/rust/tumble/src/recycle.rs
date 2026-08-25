@@ -132,3 +132,20 @@ fn recycle_separations(
         }
     }
 }
+
+// S3 — c_parity: RECYCLE_ANGULAR_DISTANCE parity assertion.
+// Canonical table: see `manifold.rs` `c_parity` header comment.
+
+#[cfg(test)]
+mod c_parity {
+    // RECYCLE_ANGULAR_DISTANCE is a private `const` in this file; read via `super::`.
+
+    #[test]
+    fn recycle_angular_distance() {
+        // C: B3_CONTACT_RECYCLE_ANGULAR_DISTANCE = 0.99240388f (constants.h:86)
+        assert_eq!(
+            super::RECYCLE_ANGULAR_DISTANCE.to_bits(),
+            0.99240388f32.to_bits()
+        );
+    }
+}
