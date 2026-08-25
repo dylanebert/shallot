@@ -804,7 +804,7 @@ describe("S4 — the timeout ladder derives from the one owner", () => {
     });
 });
 
-// S4 repair — ladder ordering, VALUE-resolved, not membership. The review
+// Leg G — S4 repair — ladder ordering, VALUE-resolved, not membership. The review
 // demonstrated the prior form of this block (and legs E/F standing alone)
 // was satisfiable by a real defect: `gate.config.ts` binding `globalTimeout`
 // to `BOOT_BUDGET_MS` (121_000, a real, valid `harness/lib` export, still an
@@ -875,6 +875,10 @@ describe("S4 — ladder ordering, resolved by binding (behavioral)", () => {
             const ast = parseFile(gate);
             const calls = setTimeoutCalls(ast);
             expect(calls.length).toBeGreaterThan(0);
+            // Cardinality — the locator below reads `[0]`; assert exactly one
+            // setTimeout call in this gate file so the subject cannot silently
+            // re-point at whichever member sorts first.
+            expect(calls.length, `gate ${gate} must have exactly one setTimeout call`).toBe(1);
             const arg = ((calls[0].arguments as Node[]) ?? [])[0];
             expect(arg.type).toBe("Identifier");
             return resolvedValue(ast, arg.name as string);
@@ -991,6 +995,10 @@ describe("S4 — blocker 2's floor: per-test value covers the gate's OWN boot() 
 
             const calls = setTimeoutCalls(ast);
             expect(calls.length).toBeGreaterThan(0);
+            // Cardinality — the locator below reads `[0]`; assert exactly one
+            // setTimeout call in this gate file so the subject cannot silently
+            // re-point at whichever member sorts first.
+            expect(calls.length, `gate ${gate} must have exactly one setTimeout call`).toBe(1);
             const arg = ((calls[0].arguments as Node[]) ?? [])[0];
             expect(arg.type).toBe("Identifier");
             const name = resolveLibImportName(ast, arg.name as string);

@@ -152,11 +152,12 @@ export const BOOT_BUDGET_MS =
 // this one file rather than restated per gate.
 //
 // Zero margin, disclosed rather than hidden: this is an EXACT 2 * BOOT_BUDGET_MS against
-// persist-color's own two-boot path, with no headroom for the click(), the two region(shot()) pairs,
+// persist-color's own two-boot path, with no headroom for the click(), the three region(shot()) pairs,
 // the keyboard.press(), and the explicit waitForTimeout(500) that gate also spends around its two
 // boot() calls. Those are Playwright actions bounded above by `gate.config.ts`'s own actionTimeout
-// (20_000) only in a hang; on the measured happy path each completes in low milliseconds, so the only
-// deterministic addition is the explicit 500ms wait — a fraction of a percent against a 242s budget.
+// (20_000) only in a hang; on the happy path each is expected to complete in low milliseconds — an
+// unmeasured assumption about Playwright action cost, not a measured figure — so the only deterministic
+// addition is the explicit 500ms wait — a fraction of a percent against a 242s budget.
 // If the pathological case (both boot() calls simultaneously at their own absolute ceiling, plus that
 // overhead) ever does overrun, the failure mode is Playwright's own per-test timeout — a visible
 // harness signal distinguishable from a task verdict, never the silent under-measurement this spec
