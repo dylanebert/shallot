@@ -5,7 +5,18 @@ export const isWSL =
     process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
 
 export function detectDisplay(): boolean {
-    if (isWSL) return true;
+    if (isWSL) {
+        // WSLg sets DISPLAY when a GUI is available; a headless WSL has none.
+        return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+    }
+    if (process.platform === "darwin") {
+        // WindowServer runs in a GUI session; absent on a headless mac (CI, SSH).
+        const r = Bun.spawnSync(["pgrep", "-x", "WindowServer"], {
+            stdout: "ignore",
+            stderr: "ignore",
+        });
+        return r.exitCode === 0;
+    }
     if (process.platform !== "linux") return true;
     return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
 }
@@ -46,7 +57,7 @@ export function stageOnWindows(srcDir: string, name: string, files: string[]): W
     }
 
     console.log("Installing Playwright dependencies...");
-    Bun.spawnSync(
+    const staging = Bun.spawnSync(
         [
             "powershell.exe",
             "-Command",
@@ -54,6 +65,8 @@ export function stageOnWindows(srcDir: string, name: string, files: string[]): W
         ],
         { stdout: "inherit", stderr: "inherit" },
     );
+    if (staging.exitCode !== 0)
+        throw new Error(`Playwright dependency staging failed (exit ${staging.exitCode})`);
 
     return paths;
 }

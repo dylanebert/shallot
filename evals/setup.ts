@@ -51,6 +51,11 @@ function stripTarball(tgz: string): void {
     const out = run(["tar", "-xzf", tgz, "-C", ex], ex);
     if (!out.ok) throw new Error(`untar ${tgz} failed:\n${out.out}`);
     rmSync(join(ex, "package/examples"), { recursive: true, force: true });
+    // The --bare arm withholds all shipped context, not just examples/ — AGENTS.md and
+    // MIGRATION.md are agent/migration docs, not code/JSDoc/product-workflow, so they ride
+    // into the bare arm and weaken the context-withheld claim if not stripped here.
+    rmSync(join(ex, "package/AGENTS.md"), { force: true });
+    rmSync(join(ex, "package/MIGRATION.md"), { force: true });
     const re = run(["tar", "-czf", tgz, "-C", ex, "package"], ex);
     if (!re.ok) throw new Error(`re-tar ${tgz} failed:\n${re.out}`);
     rmSync(ex, { recursive: true, force: true });
