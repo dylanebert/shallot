@@ -418,7 +418,7 @@ function typedColorVs(surface: AnySurface, clip = false, suffix = clip ? "Clip" 
 
 /**
  * the typed color-pass fragment entry: fills the four `sear/engine.ts` shading-seam privateVars exactly
- * as the raw scaffold's `fragmentBody` does (`sunVisibility` via a real {@link sampleSunShadow} call —
+ * as the raw scaffold does (`sunVisibility` via a real {@link sampleSunShadow} call —
  * matching the raw path's inline sample — `fragWorld`, `fragCoord`, `pointScale`), builds the surface's
  * `fsCtxSchema` context (`uv`/`localPos` cross for real from the vs), and returns the surface's own
  * `fs` chunk's result verbatim (sear's `col` return,
@@ -498,7 +498,7 @@ function typedColorFs(surface: AnySurface) {
  * the position-only typed prepass vertex entry (empty lane set — the shadow map's own shape too): pulls
  * the 8 B position-only vertex from the surface's `layout.depthVariant` (a DISTINCT `TgpuBindGroupLayout`
  * instance from `layout`), decodes position alone (normal defaults `+Z`, uv `0`
- * — the raw prepass's own shape, `pass === "prepass"` in codegen.ts's the former string pipeline), applies the
+ * — the raw prepass's own shape), applies the
  * standard instance transform, then splices the surface's own `vs` chunk when present. Inlined rather than
  * factored through a shared helper (probed live: a plain function marked `"use gpu"` can't take a host
  * object like `surface` as an argument — "Shellless functions can only accept arguments representing WGSL
@@ -521,7 +521,7 @@ function typedPrepassVs(surface: AnySurface) {
             const v = layout.$.vertices[input.vidx];
             const mq = engineLayout.$.meshQuant[meshIdOf(v.y)];
             const localPos = decodePos(v.x, v.y, mq);
-            // the raw prepass's own default (`codegen.ts`'s the former string pipeline, `pass === "prepass"`) — pinned
+            // the raw prepass's own default — pinned
             // for the life of the vs, never touched by the instance transform below; a `vs` chunk reading `vsIn.localNormal` must see this default,
             // not the transformed `worldNormal` (a real bug caught in review — passing `worldNormal` here
             // silently fed world-space data into a field the raw path documents as local-space)
@@ -1439,7 +1439,7 @@ function compileTypedPrepass(
         depthWriteEnabled: true,
         depthCompare: "greater",
     };
-    // the receiver stub bound per pipeline (`SHADOW_STUB_WGSL`'s typed twin): a vs-chunk surface's
+    // the receiver stub bound per pipeline (`pointShadowStub`): a vs-chunk surface's
     // `litPbr` statically reaches `pointShadowOf`, whose free names the depth passes never declare or
     // bind — the stub keeps these modules group-0/2-only, exactly like the raw prepass module
     const root = Compute.root.with(pointShadowSlot, pointShadowStub);
@@ -2136,7 +2136,7 @@ type AnyBackground = Background<Record<string, Binding>>;
 /**
  * the engine-owned fullscreen-triangle vertex entry every typed background shares — no per-background
  * variance (no mesh, no varyings, per the Backgrounds bindings lock), so ONE instance serves every typed
- * background's pipeline. Statement-for-statement the former string background pipeline's raw vs (codegen.ts):
+ * background's pipeline. Statement-for-statement the former string background pipeline's raw vs:
  * the three corners come from `@builtin(vertex_index)` alone, emitted at the reverse-Z far plane (clip z = 0)
  * so {@link compileBackground}'s `depthCompare: "greater-equal"` + no-depth-write test admits only
  * un-rendered pixels.
@@ -2154,7 +2154,7 @@ const typedBgVs = tgpu
 /**
  * a typed background's fragment entry: reconstructs the normalized world-space view ray `dir` from
  * `@builtin(position)` + `engineLayout`'s `view.invViewProj` — operand-for-operand the former string
- * background pipeline's raw reconstruct (codegen.ts), not an interstage varying (gpu.md rule 9) — forces
+ * background pipeline's raw reconstruct, not an interstage varying (gpu.md rule 9) — forces
  * `shadowLayout`'s group-1 bindings into scope via the `forcedZero` fold (`typedColorFs`'s precedent, same
  * reason: `sampleSunShadow`/`pointShadowOf`'s free names are invisible to `tgpu.resolve`'s call-graph walk
  * otherwise), then calls the background's own `fs` chunk and wraps its `vec3f` result opaque (`vec4f(col, 1)`).

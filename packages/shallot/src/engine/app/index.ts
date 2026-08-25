@@ -27,7 +27,8 @@ export interface Plugin {
     readonly components?: Record<string, Component>;
     /** per-component traits (requires/excludes/singleton/defaults), keyed like `components` */
     readonly traits?: Record<string, Traits>;
-    /** other plugins that must load first; a missing one skips this plugin with a warning */
+    /** other plugins that must load first; a missing one skips this plugin with a warning. The skip does
+     * not cascade: a plugin depending on a skipped-but-present one still initializes */
     readonly dependencies?: readonly Plugin[];
     /**
      * GPU features this plugin's shaders require beyond the engine's base floor. The active

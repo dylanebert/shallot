@@ -41,43 +41,47 @@
 // the default + WGSL compile gate) where the forced-velocity drive STALLS (`drive=forced`, the contrast).
 // `chain` is the phase-boundary microbench the physics waste audit reads
 // (scripts/physics-bench.ts --audit), and `stress` the bottleneck-saturation atom (induce one resource
-// axis, attribute the load via the per-pass profiler metric). `joints-paddle` is the tumble sample-host
+// axis, attribute the load via the per-pass profiler metric). `gpu-diagnostic` directly drives
+// `validateGpu` (gpu.ts), `drainLog` (log.ts), and `probeBuffer`/`probeTexture` (probe.ts) — verified by
+// import, not guessed. `mesh-fixture` is the release-prerequisite final-compositor hardening fixture: a
+// custom-registered surface + a Part entity on the built-in `unlit` surface, both drawn through the real
+// part/render/sear pipeline. `joints-paddle` is the tumble sample-host
 // pilot: a tumble.js sample (`Paddle`) authored through the escape hatch
 // (`tumble-sample.ts` + `tumble-paddle.ts`), verified bit-exact against its committed gold and rendered via
 // the source-faithful debug-draw + mouse-grab layer every stage-4 sample twin reuses (the red-first oracle
 // proof is `tumble-pilot.test.ts`). The stage-4 burn-down adds one gym twin per tumble.js sample the same
 // way: `bodies-body-type` (the kinematic-platform sweep — the `update()` seam the pilot test proves),
-// `arch` (a friction-only masonry showpiece, no knobs), `box-pyramid` (the canonical settling-pyramid
-// resting-contact test), `dominoes` (a concentric-ring toppling chain reaction), `inclined-plane` (a
-// friction ladder on a tilted plane, no knobs), `restitution` (a bounce-ladder row, sphere or box),
-// `shape-soup` (a mixed sphere/capsule/box drop grid), `motion-locks` (hovering cubes under constant torque,
-// angular locks per axis), `spinning-book` (three books in free fall — the Dzhanibekov intermediate-axis
-// flip), `bullet-vs-stack` (a swept bullet punching a box stack), `thin-wall` (three fast projectiles
-// CCD-swept against a thin static wall), `overlap-box` (a circling query box outlining every shape it
-// overlaps), `ray-curtain` (a sweeping ray curtain over four spinning obstacles), `shape-cast` (a swept-sphere cast
+// `stacking-arch` (a friction-only masonry showpiece, no knobs), `stacking-box-pyramid` (the canonical settling-pyramid
+// resting-contact test), `stacking-dominoes` (a concentric-ring toppling chain reaction), `shapes-inclined-plane` (a
+// friction ladder on a tilted plane, no knobs), `shapes-restitution` (a bounce-ladder row, sphere or box),
+// `shapes-shape-soup` (a mixed sphere/capsule/box drop grid), `bodies-motion-locks` (hovering cubes under constant torque,
+// angular locks per axis), `bodies-spinning-book` (three books in free fall — the Dzhanibekov intermediate-axis
+// flip), `continuous-bullet-vs-stack` (a swept bullet punching a box stack), `continuous-thin-wall` (three fast projectiles
+// CCD-swept against a thin static wall), `collision-overlap-box` (a circling query box outlining every shape it
+// overlaps), `collision-ray-curtain` (a sweeping ray curtain over four spinning obstacles), `collision-shape-cast` (a swept-sphere cast
 // resolved to its first contact over three rows of spinning obstacles), `compound-simple` (four tilted
 // slabs baked into one static compound, a staircase spheres cascade down), `compound-spheres` (a boulder of
 // eighteen spheres in one static compound, pelted by a rain of boxes), `compound-tile-floor` (a 10x10
-// grid of tiles at random heights baked into one body — an uneven floor from a single compound), `hit`
-// (fast contacts producing hit events, drawn as impact markers), `joint-break` (a row of hung boxes under a
-// rising load, joints cut past a force threshold in `update()`), `sensor-sweep` (a kinematic sensor box
-// sweeping vertically through a resting stack in `update()`), `convex-hull` (random point clouds reduced to
-// convex polytopes via `createHull`), `convex-primitives` (a grid of the built-in cylinder/cone/rock hull
-// generators), `hull-reduction` (sphere point clouds capped to N hull vertices), `bridge` (a suspension
-// bridge of paired-spherical-hinged planks sagging under dropped boxes), `cantilever` (welded boxes
-// jutting from a wall — the weld's angular spring), `elevator` (a motor-driven prismatic platform
-// reversing direction at its translation limits in `update()`), `filter` (a filter joint muting one
-// box-platform contact so it falls through, its twin resting on top), `pendulum` (a chain of
-// revolute-hinged boxes swinging out and settling), `driving` (a wheel-jointed car — throttle bakes into
+// grid of tiles at random heights baked into one body — an uneven floor from a single compound), `events-hit`
+// (fast contacts producing hit events, drawn as impact markers), `events-joint-break` (a row of hung boxes under a
+// rising load, joints cut past a force threshold in `update()`), `events-sensor-sweep` (a kinematic sensor box
+// sweeping vertically through a resting stack in `update()`), `geometry-convex-hull` (random point clouds reduced to
+// convex polytopes via `createHull`), `geometry-convex-primitives` (a grid of the built-in cylinder/cone/rock hull
+// generators), `geometry-hull-reduction` (sphere point clouds capped to N hull vertices), `joints-bridge` (a suspension
+// bridge of paired-spherical-hinged planks sagging under dropped boxes), `joints-cantilever` (welded boxes
+// jutting from a wall — the weld's angular spring), `joints-elevator` (a motor-driven prismatic platform
+// reversing direction at its translation limits in `update()`), `joints-filter` (a filter joint muting one
+// box-platform contact so it falls through, its twin resting on top), `joints-pendulum` (a chain of
+// revolute-hinged boxes swinging out and settling), `joints-driving` (a wheel-jointed car — throttle bakes into
 // the rear spin motors at build time, since the sample's live throttle/steer knobs only apply through
-// `act()`, never called by the mint), `parallel` (two hovering panels
-// under constant torque — a parallel joint locks one level while the free panel tumbles, no knobs), `rope` (a
-// capsule chain on spherical joints, released from horizontal — it swings and coils in 3D), `suspension` (a
-// platform hung from four distance-joint springs — drop crates and it bobs), `terrain` (a sine-wave
+// `act()`, never called by the mint), `joints-parallel` (two hovering panels
+// under constant torque — a parallel joint locks one level while the free panel tumbles, no knobs), `joints-rope` (a
+// capsule chain on spherical joints, released from horizontal — it swings and coils in 3D), `joints-suspension` (a
+// platform hung from four distance-joint springs — drop crates and it bobs), `mesh-terrain` (a sine-wave
 // triangle-mesh ground — a grid of the `shape` knob's shape rolls down the hills and settles in the
-// troughs), `torus` (a flat torus mesh floating hole-up — balls balance on its ring or drop straight
-// through the hole, non-convex triangle-mesh collision), `ragdoll` (a capsule humanoid dropped from a
-// height, folding at its cone/twist-limited joints as it settles), `falling-ragdolls` (a grid of ragdolls
+// troughs), `mesh-torus` (a flat torus mesh floating hole-up — balls balance on its ring or drop straight
+// through the hole, non-convex triangle-mesh collision), `ragdoll-ragdoll` (a capsule humanoid dropped from a
+// height, folding at its cone/twist-limited joints as it settles), `determinism-falling-ragdolls` (a grid of ragdolls
 // — the `grid` knob — piling up together, bit-exact deterministic by construction), `character-mover` (a
 // self-driven kinematic capsule mover patrolling a walled arena on the plane solver — pogo ground-follow up
 // a ramp and steps, shoving crates; the drive lives in `update()`), with more

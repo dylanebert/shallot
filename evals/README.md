@@ -57,6 +57,7 @@ without-context arm — running the same task with and without `--bare` measures
 - `harness/lib.ts` — the shared gate driver: boot, screenshot, pixel/region/diff/centroid helpers.
 - `harness/{server,playwright,wsl}.ts` — the self-contained browser path: server boot, `playwright test` runner, WSL→Windows staging.
 - `harness/gate.config.ts`, `harness/package.json` — the Playwright config + deps staged to run a gate.
+- `harness/result.ts` — pure derivation of a graded task's result kind (PASS/FAIL/INCOMPLETE) from its typecheck, build, and gate inputs.
 - `tasks/<task>/` — `PROMPT.md` (shown), `gate.ts` + `NOTES.md` (withheld).
 
 ## Notes

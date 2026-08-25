@@ -49,7 +49,7 @@ export interface Profile {
      *  near-zero and not trustworthy on its own, only its presence is (the pipeline-count golden this
      *  table backs). Where a `precompile` forcer also wraps that same
      *  pipeline, its later `Compute.precompiled` completion measurement (an error-scope wrap, not a
-     *  fence — S1 deleted the warm path's `onSubmittedWorkDone`) overwrites
+     *  fence — only compile-timing attribution is reported here) overwrites
      *  the sync stub under the pipeline's own label; a typed pipeline with no forcer (or one forcer
      *  covering several pipelines, `precompileVariants`) keeps only the near-zero sync entry — real
      *  per-pipeline compile time has no honest post-port instrument there. */
@@ -435,8 +435,8 @@ class ProfileImpl implements Profile {
     recordCompile(label: string, start: number, end: number, isPipeline = false): void {
         // A named label overwrites — this is what lets a typed pipeline's own sync-constructor patch
         // (fires first, inside the precompile forcer's dispatch, near-zero) and that same forcer's later
-        // `Compute.precompiled` completion measurement (an error-scope wrap, not a fence — S1 deleted
-        // the warm path's `onSubmittedWorkDone`) converge on ONE entry under
+        // `Compute.precompiled` completion measurement (an error-scope wrap, not a fence — only
+        // compile-timing attribution is reported here) converge on ONE entry under
         // the pipeline's own name, rather than the forcer's more-accurate span landing as a spurious
         // second row beside its own near-zero stub. Two genuinely different pipelines colliding on the
         // same explicit label lose one entry the same way — accepted, since a label is meant to be a

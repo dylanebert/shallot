@@ -228,7 +228,7 @@ describe("register — foreign-copy brand check", () => {
     // a real second copy of typegpu stamps its own per-copy `Symbol()` internal marker
     // (`typegpu/shared/symbols.js`, never `Symbol.for`) — this reproduces exactly that shape without
     // installing a second copy: right `resourceType`, a foreign `$internal` symbol the engine's own
-    // `isTgpuFn` can't recognize (de-risked 2026-08-10).
+    // `isTgpuFn` can't recognize.
     const foreignInternal = Symbol("typegpu:0.11.9:$internal");
     const foreignFs = { resourceType: "function", [foreignInternal]: true } as unknown as typeof fs;
 

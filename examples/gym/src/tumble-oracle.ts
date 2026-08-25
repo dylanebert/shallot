@@ -27,7 +27,7 @@ export type SampleUpdate = (
 ) => void;
 
 /** the committed gold trajectory — one sample run headless at knob defaults (see the mint,
- *  `scripts/gen-tumble-sample-golds.ts`). The host consumes the imported JSON as this shape. */
+ *  `packages/shallot/scripts/gen-tumble-sample-golds.ts`). The host consumes the imported JSON as this shape. */
 export interface SampleGold {
     slug: string;
     name: string;

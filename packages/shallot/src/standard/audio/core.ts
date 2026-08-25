@@ -12,7 +12,7 @@ const GEN_MASK = 0xffffff;
  * host, the 64-slot voice allocator (a free-list + per-slot generation), and
  * the per-frame message batch. Read through the helper functions, not the
  * fields. The kernel owns all DSP; this owns allocation and the wire. there is
- * no CPU mirror of voice gate/instrument state (the deleted `backend.ts` rot)
+ * no CPU mirror of voice gate/instrument state
  */
 export interface Audio {
     ctx: AudioContext | null;

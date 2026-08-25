@@ -41,7 +41,7 @@ bun run scripts/gen-tumble-sample-golds.ts     # from packages/shallot
 **The source project is retired** (tumble.js was deorbited when its engine folded into shallot, 2026-07),
 so regeneration is no longer possible: these golds are **frozen truth**, the same status as the C fixtures —
 never hand-edit or re-mint; a mismatch is an engine or authoring bug, never a gold to adjust. The source
-commit above is historical provenance. `scripts/gen-tumble-sample-golds.ts` is kept as the mint's recipe
+commit above is historical provenance. `packages/shallot/scripts/gen-tumble-sample-golds.ts` is kept as the mint's recipe
 record; run without the retired checkout it errors honestly. The committed golds carry the whole contract —
 no checkout ever needs the source corpus to run the ported scenarios' oracle.
 

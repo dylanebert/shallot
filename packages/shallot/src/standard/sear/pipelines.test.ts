@@ -1438,7 +1438,7 @@ test("typed background pipeline and bind-group caches invalidate on exact spec/l
 
 describe("draw wiring — the depth-pipeline receiver stub + the color pipeline's real receiver", () => {
     // a vs-chunk surface whose chunk reaches litPbr → pointShadowOf, the shape that forces the stub:
-    // the raw path's prepass/shadow modules splice SHADOW_STUB_WGSL for exactly this reach
+    // the raw path's prepass/shadow modules bind `pointShadowStub` for exactly this reach
     const varyings = { litColor: d.vec3f };
     const lay = layout({
         eids: { type: "storage", element: d.u32 },

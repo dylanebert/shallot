@@ -2,7 +2,7 @@
 // booting a page (the same committed-data shape bench-tumble.ts reads its twin list from
 // tests/tumble/samples/index.json). `bun bench --for src/standard/sear/pipelines.ts` has to resolve a
 // path to scenario names before any browser exists, which a `covers:` field inside a scenario's own
-// registration cannot do — so this stays a side table, not a field on 54 scenario objects, and it
+// registration cannot do — so this stays a side table, not a field on the registered scenario objects, and it
 // deliberately touches none of the scenario files it describes.
 //
 // Fields, all optional:

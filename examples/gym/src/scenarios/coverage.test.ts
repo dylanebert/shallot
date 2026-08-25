@@ -140,7 +140,7 @@ describe("gate coverage (real data)", () => {
             const population = await gpuModulePopulation(root);
             // both completeness directions pass vacuously over an empty population or an empty roster, so
             // a glob typo or a moved directory would read as full coverage. The floors are smoke guards at
-            // roughly half the real counts (~104 modules, 56 scenarios) — they catch structural breakage
+            // roughly half the real counts (the `gpuModulePopulation` size and the `scenarioNames()` length) — they catch structural breakage
             // without churning on every added file.
             expect(population.length).toBeGreaterThan(50);
             expect(scenarioNames().length).toBeGreaterThan(25);
