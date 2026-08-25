@@ -32,6 +32,7 @@ import {
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
 const CREATE_SHALLOT = resolve(import.meta.dir, "../packages/create-shallot/index.ts");
+const CREATE_SHALLOT_PKG = resolve(import.meta.dir, "../packages/create-shallot/package.json");
 const CLI = "node_modules/@dylanebert/shallot/bin/cli.ts"; // the installed CLI, run as a real user would
 
 const freePort = (): Promise<number> =>
@@ -178,6 +179,16 @@ function createShallotFlow(work: string, engineTgz: string) {
     if (!existsSync(join(proj, "package.json"))) return;
     // a real user installs the published engine; here, the packed tarball stands in
     const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
+    // the scaffold must pin @dylanebert/shallot to the scaffold's own version (lockstep-gated by
+    // check-versions.ts), not "latest" — a "latest" pin beside exact-tilde typegpu/unplugin-typegpu
+    // pins installs a newer engine whose peer ranges the pins no longer satisfy.
+    const createPkg = JSON.parse(readFileSync(CREATE_SHALLOT_PKG, "utf8")) as { version: string };
+    const expectedShallotRange = `~${createPkg.version}`;
+    check(
+        "the scaffold pins @dylanebert/shallot to the scaffold's own version (not latest)",
+        pkg.dependencies?.["@dylanebert/shallot"] === expectedShallotRange,
+        `got ${pkg.dependencies?.["@dylanebert/shallot"]}, expected ${expectedShallotRange}`,
+    );
     pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
     writeFileSync(join(proj, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     const inst = run(["bun", "install"], proj);
