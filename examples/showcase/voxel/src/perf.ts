@@ -27,17 +27,17 @@ export interface EmitDispatchSample {
 
 /** author a lone solid voxel, carve it away, and read the dispatch scope the resulting re-mesh fires — a
  *  one-chunk edit, structurally the smallest non-trivial touch. Two dirty fires land (the author upload,
- *  then the carve); `indirect` settles after each so the read trails the fire it measures, never a stale
- *  one. */
-export async function emitDispatchSample(indirect: Mirror): Promise<EmitDispatchSample> {
+ *  then the carve); `cursor` (a {@link Mirror} of `Voxels.cursor`) settles after each so the read trails
+ *  the fire it measures, never a stale one. */
+export async function emitDispatchSample(cursor: Mirror): Promise<EmitDispatchSample> {
     const grid = new Float32Array(TOTAL_CELLS);
     single(grid, PROBE_X, PROBE_Y, PROBE_Z);
     uploadVoxels(grid);
-    await settle(indirect);
+    await settle(cursor);
 
     const touched = brush(grid, PROBE_X, PROBE_Y, PROBE_Z, PROBE_RADIUS, -1);
     commitEdit(touched);
-    await settle(indirect);
+    await settle(cursor);
 
     return { touchedChunks: touched.size, workgroups: EmitTelemetry.lastWorkgroups };
 }

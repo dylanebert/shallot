@@ -171,7 +171,7 @@ describe("voxel mesher emit kernel", () => {
         integerDiscipline(kernel);
         noDivision(kernel);
         const hash = createHash("sha256").update(flat(kernel)).digest("hex");
-        expect(hash).toBe("8fafc6a71ad0f3207505d88378368364ff636adaa20f21c5936c29fcfc417fe8");
+        expect(hash).toBe("c963b82275d9ad70ff459fc465d3025a533cbec995c1641a7f8e667b7938e368");
         const mutated = flat(kernel).replace(
             "indices[(base + 0u)] = (v0 + 0u);",
             "indices[(base + 0u)] = (v0 + 1u);",

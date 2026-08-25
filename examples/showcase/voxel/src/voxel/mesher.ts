@@ -25,18 +25,27 @@ import {
     registerSurface,
     surfaceLayout,
 } from "@dylanebert/shallot/sear/core";
-import {
-    encodePos,
-    encodeUv,
-    idiv,
-    MeshQuant,
-    octEncodeNormal,
-} from "@dylanebert/shallot/utils/core";
+import { encodePos, encodeUv, MeshQuant, octEncodeNormal } from "@dylanebert/shallot/utils/core";
 import type { TgpuBindGroup } from "typegpu";
 import tgpu, { writeToArrayBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { BINDING_FLOOR, BYTES, CHUNK_CELLS, DIM, GridData, ISO, VOXEL, voxelIndex } from "./grid";
+import { buildTable, type ChunkPool, createChunkPool, fullRemesh, planRemesh } from "./chunkpool";
+import {
+    BINDING_FLOOR,
+    BYTES,
+    CHUNK,
+    CHUNK_CELLS,
+    chunkNeighbors,
+    coord,
+    DIM,
+    GridData,
+    ISO,
+    SLOT_COUNT,
+    VOXEL,
+    voxelIndex,
+} from "./grid";
+import type { Region } from "./pool";
 
 const VERTS_PER_QUAD = 4;
 const INDICES_PER_QUAD = 6;
@@ -62,11 +71,13 @@ const GRID_QUANT = new Float32Array([
     0,
     0,
 ]);
-export const DISPATCH = {
-    x: Math.ceil(DIM.x / WG),
-    y: Math.ceil(DIM.y / WG),
-    z: Math.ceil(DIM.z / WG),
-};
+// one chunk's own emit-kernel dispatch volume in workgroups per axis (CHUNK=32, WG=4 → 8); the dispatch
+// grid for N chunks is (WG_PER_CHUNK, WG_PER_CHUNK, WG_PER_CHUNK·N) — each chunk gets its own CHUNK-deep
+// slab of the z axis, and `global_invocation_id.z` decomposes into (chunk index, local z) via shift/mask
+// (LOG2_CHUNK below), never division (`noDivision`, `mesher.test.ts`).
+const WG_PER_CHUNK = CHUNK / WG;
+const LOG2_CHUNK = Math.log2(CHUNK);
+const FULL_SLOTS: readonly number[] = Array.from({ length: SLOT_COUNT }, (_, i) => i);
 
 // the 16 B main stream must fit one storage binding (the largest of the three per-face buffers), so cap
 // faces at ¾ of the portable 128 MiB floor. The canonical worst case (the full ground slab, ~134k faces)
@@ -78,21 +89,25 @@ export const MAX_FACES = Math.floor((BINDING_FLOOR * 3) / 4 / (VERTS_PER_QUAD * 
  * the one voxel world: the CPU grid (`data`, null when generated GPU-side), the GPU grid buffer (`grid` —
  * what the mesher reads and the generator writes), and the mesher's outputs. A scenario either authors
  * `data` before the first frame (the way a scene declares entities) and the mesher uploads + meshes it, or
- * leaves it null and fills `grid` directly on the GPU; either way it exposes `indirect` — the draw record
- * whose first word is the index count, mirrored to read the atomic face count back. {@link uploadVoxels}
- * rewrites the grid and re-meshes (the assert's per-pattern swap; Phase 5's carve will write through it too).
+ * leaves it null and fills `grid` directly on the GPU; either way it exposes `indirect` — the CPU-authored
+ * draw record (`indexCount = pool tail × 6`, `mesher.ts`'s `writeIndirect`) — and `cursor`, the per-chunk
+ * atomic face count the correctness gate reads back (never `indirect`, which would be circular: it's the
+ * same CPU count restated). {@link uploadVoxels} rewrites the grid and re-meshes; {@link commitEdit} does
+ * the same over a touched chunk subset (Phase 5's carve).
  */
 export const Voxels = {
     data: null as Float32Array | null,
     grid: null as GPUBuffer | null,
     indirect: null as GPUBuffer | null,
+    cursor: null as GPUBuffer | null,
     dirty: false,
 };
 
-/** read-only observability for the perf gate (`showcase-frame-floor` S2): the workgroup count issued by
- *  the most recent emit dispatch, set only by {@link VoxelEmitSystem} — no production code reads it, so it
- *  changes no behavior. `test/perf.spec.ts` (via `src/perf.ts`) gates dispatch scope against touched-chunk
- *  volume; today it's always the full-grid `DISPATCH` product, regardless of what fired the re-mesh. */
+/** read-only observability for the perf gate (`showcase-frame-floor` S2, discharged by
+ *  `voxel-chunk-streaming` S2): the workgroup count issued by the most recent emit dispatch, set only by
+ *  {@link VoxelEmitSystem} — no production code reads it, so it changes no behavior. `test/perf.spec.ts`
+ *  (via `src/perf.ts`) gates dispatch scope against touched-chunk volume: `WG_PER_CHUNK³ × N` for the `N`
+ *  chunks in that fire's dispatch list, never the full grid. */
 export const EmitTelemetry = { lastWorkgroups: 0 };
 
 const gpu = {
@@ -101,16 +116,30 @@ const gpu = {
     position: null as GPUBuffer | null,
     quant: null as GPUBuffer | null,
     indices: null as GPUBuffer | null,
+    chunkList: null as GPUBuffer | null,
+    chunkTable: null as GPUBuffer | null,
+    chunkCursor: null as GPUBuffer | null,
     pipeline: null as ReturnType<typeof Compute.root.createComputePipeline> | null,
     bindGroup: null as TgpuBindGroup<typeof mesherLayout.entries> | null,
 };
+
+// the CPU-side allocation state (S2): the region allocator + per-chunk regions over the face pool
+// (`chunkpool.ts`), and the chunk-slot list the next `VoxelEmitSystem` fire owes — `null` means "a full
+// remesh is owed once `Voxels.data` exists" (covers `generate()`'s GPU-only dirty, deferred until
+// `syncGrid` populates the CPU mirror — `voxel-chunk-streaming` S3 firms up that ordering); a populated
+// array is the scoped touched+halo list `commitEdit` (or a full remesh) already resolved — count, alloc,
+// and the chunk-table upload are already done by the time `VoxelEmitSystem` reads it.
+let pool: ChunkPool | null = null;
+let pendingSlots: readonly number[] | null = null;
 
 let warmEpoch = 0;
 
 const VoxelVertices = d.arrayOf(d.vec4u, MAX_FACES * VERTS_PER_QUAD);
 const VoxelPosition = d.arrayOf(d.vec2u, MAX_FACES * VERTS_PER_QUAD);
 const VoxelIndices = d.arrayOf(d.u32, MAX_FACES * INDICES_PER_QUAD);
-const VoxelAtomicIndirect = d.arrayOf(d.atomic(d.u32), 1);
+const ChunkList = d.arrayOf(d.vec4u, SLOT_COUNT);
+const ChunkTable = d.arrayOf(d.vec2u, SLOT_COUNT);
+const ChunkCursor = d.arrayOf(d.atomic(d.u32), SLOT_COUNT);
 
 type WarmOwner<Buffer, MeshEntry extends { name: string }, DrawEntry extends { name: string }> = {
     readonly buffers: Buffer[];
@@ -225,12 +254,54 @@ type VoxelWarmOwner = WarmOwner<GPUBuffer, Mesh, Draw> & { readonly state: State
 let activeOwner: VoxelWarmOwner | null = null;
 const stateOwners = new WeakMap<State, VoxelWarmOwner>();
 
-/** rewrite the grid and mark it dirty so the next frame re-meshes. No-op before the mesher's buffers
- *  exist (first-frame setup uploads `Voxels.data` itself). */
+/** the GPU chunk-table + indirect-record side of a full remesh: rebuild `pool` from scratch against
+ *  `data` ({@link fullRemesh}) and push the table + CPU-authored draw record. Doesn't touch `pendingSlots`
+ *  or `Voxels.dirty` — callers own when the next {@link VoxelEmitSystem} fire should pick it up. */
+function remeshFull(data: Float32Array): void {
+    pool = fullRemesh(MAX_FACES, data);
+    uploadChunkTable();
+    writeIndirect();
+}
+
+function uploadChunkTable(): void {
+    if (!gpu.chunkTable || !pool) return;
+    Compute.device.queue.writeBuffer(gpu.chunkTable, 0, buildTable(pool));
+}
+
+/** the CPU-authored draw record (`indexCount = pool.tail × 6`) — never a GPU atomic, so the correctness
+ *  gate's per-chunk cursor readback stays an independent signal against it, not a restatement. */
+function writeIndirect(): void {
+    if (!Voxels.indirect || !pool) return;
+    const buf = new ArrayBuffer(d.sizeOf(DrawIndexedIndirect));
+    writeToArrayBuffer(buf, DrawIndexedIndirect, {
+        indexCount: pool.tail * INDICES_PER_QUAD,
+        instanceCount: 1,
+        firstIndex: 0,
+        baseVertex: 0,
+        firstInstance: 0,
+    });
+    Compute.device.queue.writeBuffer(Voxels.indirect, 0, buf);
+}
+
+/** degenerate-fill a freed region's indices (all zero → a zero-area triangle, culled at primitive
+ *  assembly) so a later chunk's un-shrunk draw range doesn't render a stale face over the hole. */
+function zeroIndices(region: Region): void {
+    if (!gpu.indices) return;
+    Compute.device.queue.writeBuffer(
+        gpu.indices,
+        region.start * INDICES_PER_QUAD * 4,
+        new Uint32Array(region.size * INDICES_PER_QUAD),
+    );
+}
+
+/** rewrite the grid and mark it dirty so the next frame re-meshes every chunk. No-op before the mesher's
+ *  buffers exist (first-frame setup uploads `Voxels.data` itself). */
 export function uploadVoxels(data: Float32Array): void {
     Voxels.data = data;
-    if (!gpu.voxels) return;
+    if (!gpu.voxels || !pool) return;
     Compute.device.queue.writeBuffer(gpu.voxels, 0, data as Float32Array<ArrayBuffer>);
+    remeshFull(data);
+    pendingSlots = FULL_SLOTS;
     Voxels.dirty = true;
 }
 
@@ -263,19 +334,46 @@ export async function syncGrid(): Promise<void> {
     Voxels.data = await readGrid();
 }
 
-/** push the edited chunk slices from the CPU mirror to the GPU grid and dirty so the next frame re-meshes.
- *  Chunk-major makes each chunk one contiguous range, so a carve uploads only the slots it touched — not the
- *  whole 64 MiB. {@link Voxels.data} is authoritative; this commits a {@link brush}'s changes. */
+/** the touched set plus its face-adjacent halo (deduplicated) — a face straddling a chunk seam can flip on
+ *  the untouched side too (`chunkNeighbors`'s doc), so the halo re-emits even where its own region is
+ *  unchanged. */
+function touchedAndHalo(touched: Iterable<number>): number[] {
+    const affected = new Set<number>();
+    for (const slot of touched) {
+        affected.add(slot);
+        for (const neighbor of chunkNeighbors(slot)) affected.add(neighbor);
+    }
+    return [...affected];
+}
+
+/** push the edited chunk slices from the CPU mirror to the GPU grid, drive count → alloc → free-list
+ *  zero-fill → table upload over the touched+halo set, and mark the next frame's dispatch to that scoped
+ *  list. Chunk-major makes each voxel slice one contiguous range, so a carve uploads only the slots it
+ *  touched — not the whole 64 MiB. {@link Voxels.data} is authoritative; this commits a {@link brush}'s
+ *  changes. Allocator exhaustion falls back to a full remesh over the whole grid (always correct, rare). */
 export function commitEdit(chunks: Iterable<number>): void {
-    if (!gpu.voxels || !Voxels.data) return;
+    if (!gpu.voxels || !Voxels.data || !pool) return;
     const data = Voxels.data as Float32Array<ArrayBuffer>;
-    let any = false;
+    const touched = new Set<number>();
     for (const slot of chunks) {
         const start = slot * CHUNK_CELLS;
         Compute.device.queue.writeBuffer(gpu.voxels, start * 4, data, start, CHUNK_CELLS);
-        any = true;
+        touched.add(slot);
     }
-    if (any) Voxels.dirty = true;
+    if (touched.size === 0) return;
+
+    const affected = touchedAndHalo(touched);
+    const plan = planRemesh(pool, data, affected);
+    if (plan.exhausted) {
+        remeshFull(data);
+        pendingSlots = FULL_SLOTS;
+    } else {
+        for (const region of plan.freed) zeroIndices(region);
+        uploadChunkTable();
+        writeIndirect();
+        pendingSlots = affected;
+    }
+    Voxels.dirty = true;
 }
 
 // posU.w carries a per-vertex material slot (read as `uv.x` in the fs) for the Phase-3 palette — one block
@@ -305,8 +403,10 @@ const mesherLayout = tgpu.bindGroupLayout({
     voxels: { storage: GridData, access: "readonly" },
     vertices: { storage: VoxelVertices, access: "mutable" },
     indices: { storage: VoxelIndices, access: "mutable" },
-    indirect: { storage: VoxelAtomicIndirect, access: "mutable" },
     position: { storage: VoxelPosition, access: "mutable" },
+    chunkList: { storage: ChunkList, access: "readonly" },
+    chunkTable: { storage: ChunkTable, access: "readonly" },
+    chunkCursor: { storage: ChunkCursor, access: "mutable" },
 });
 
 const gridQuant: d.Infer<typeof MeshQuant> = {
@@ -322,29 +422,40 @@ const emitKernel = tgpu
     })((input) => {
         "use gpu";
         const gid = input.gid;
-        if (gid.x >= d.u32(DIM.x) || gid.y >= d.u32(DIM.y) || gid.z >= d.u32(DIM.z)) return;
-        if (mesherLayout.$.voxels[voxelIndex(gid.x, gid.y, gid.z)] < d.f32(ISO)) return;
+        // the dispatch grid is (WG_PER_CHUNK, WG_PER_CHUNK, WG_PER_CHUNK·N): `gid.x`/`gid.y` are already
+        // chunk-local (dispatched only over one chunk's extent), and `gid.z` decomposes into (chunk index
+        // into the dispatch's chunk list, local z within the chunk) by shift/mask — CHUNK is a power of
+        // two, so this is exact and division-free (`noDivision`, `mesher.test.ts`).
+        const chunkIdx = gid.z >> d.u32(LOG2_CHUNK);
+        const lz = gid.z & d.u32(CHUNK - 1);
+        const entry = mesherLayout.$.chunkList[chunkIdx];
+        const slot = entry.w;
+        const ix = entry.x + gid.x;
+        const iy = entry.y + gid.y;
+        const iz = entry.z + lz;
 
-        const ix = gid.x;
-        const iy = gid.y;
-        const iz = gid.z;
-        const x0 = (d.f32(gid.x) - d.f32(HALF_X)) * d.f32(VOXEL);
-        const y0 = (d.f32(gid.y) - d.f32(HALF_Y)) * d.f32(VOXEL);
-        const z0 = (d.f32(gid.z) - d.f32(HALF_Z)) * d.f32(VOXEL);
+        if (mesherLayout.$.voxels[voxelIndex(ix, iy, iz)] < d.f32(ISO)) return;
+
+        const x0 = (d.f32(ix) - d.f32(HALF_X)) * d.f32(VOXEL);
+        const y0 = (d.f32(iy) - d.f32(HALF_Y)) * d.f32(VOXEL);
+        const z0 = (d.f32(iz) - d.f32(HALF_Z)) * d.f32(VOXEL);
         const x1 = x0 + d.f32(VOXEL);
         const y1 = y0 + d.f32(VOXEL);
         const z1 = z0 + d.f32(VOXEL);
         const blockU = d.f32(1);
         const uvw = encodeUv(d.vec2f(blockU, d.f32(0)), gridQuant);
+        const table = mesherLayout.$.chunkTable[slot];
+        const capacity = table.y;
 
         if (
             ix + d.u32(1) >= d.u32(DIM.x) ||
             mesherLayout.$.voxels[voxelIndex(ix + d.u32(1), iy, iz)] < d.f32(ISO)
         ) {
-            const base = std.atomicAdd(mesherLayout.$.indirect[0], d.u32(INDICES_PER_QUAD));
-            const fi = idiv(base, d.u32(INDICES_PER_QUAD));
-            if (fi < d.u32(MAX_FACES)) {
-                const v0 = fi * d.u32(VERTS_PER_QUAD);
+            const local = std.atomicAdd(mesherLayout.$.chunkCursor[slot], d.u32(1));
+            if (local < capacity) {
+                const faceIdx = table.x + local;
+                const v0 = faceIdx * d.u32(VERTS_PER_QUAD);
+                const base = faceIdx * d.u32(INDICES_PER_QUAD);
                 const octN = octEncodeNormal(d.vec3f(1, 0, 0));
                 const m0 = encodePos(d.vec3f(x1, y0, z0), d.u32(0), gridQuant);
                 const m1 = encodePos(d.vec3f(x1, y1, z0), d.u32(0), gridQuant);
@@ -370,10 +481,11 @@ const emitKernel = tgpu
             ix === d.u32(0) ||
             mesherLayout.$.voxels[voxelIndex(ix - d.u32(1), iy, iz)] < d.f32(ISO)
         ) {
-            const base = std.atomicAdd(mesherLayout.$.indirect[0], d.u32(INDICES_PER_QUAD));
-            const fi = idiv(base, d.u32(INDICES_PER_QUAD));
-            if (fi < d.u32(MAX_FACES)) {
-                const v0 = fi * d.u32(VERTS_PER_QUAD);
+            const local = std.atomicAdd(mesherLayout.$.chunkCursor[slot], d.u32(1));
+            if (local < capacity) {
+                const faceIdx = table.x + local;
+                const v0 = faceIdx * d.u32(VERTS_PER_QUAD);
+                const base = faceIdx * d.u32(INDICES_PER_QUAD);
                 const octN = octEncodeNormal(d.vec3f(-1, 0, 0));
                 const m0 = encodePos(d.vec3f(x0, y0, z0), d.u32(0), gridQuant);
                 const m1 = encodePos(d.vec3f(x0, y0, z1), d.u32(0), gridQuant);
@@ -399,10 +511,11 @@ const emitKernel = tgpu
             iy + d.u32(1) >= d.u32(DIM.y) ||
             mesherLayout.$.voxels[voxelIndex(ix, iy + d.u32(1), iz)] < d.f32(ISO)
         ) {
-            const base = std.atomicAdd(mesherLayout.$.indirect[0], d.u32(INDICES_PER_QUAD));
-            const fi = idiv(base, d.u32(INDICES_PER_QUAD));
-            if (fi < d.u32(MAX_FACES)) {
-                const v0 = fi * d.u32(VERTS_PER_QUAD);
+            const local = std.atomicAdd(mesherLayout.$.chunkCursor[slot], d.u32(1));
+            if (local < capacity) {
+                const faceIdx = table.x + local;
+                const v0 = faceIdx * d.u32(VERTS_PER_QUAD);
+                const base = faceIdx * d.u32(INDICES_PER_QUAD);
                 const octN = octEncodeNormal(d.vec3f(0, 1, 0));
                 const m0 = encodePos(d.vec3f(x0, y1, z0), d.u32(0), gridQuant);
                 const m1 = encodePos(d.vec3f(x0, y1, z1), d.u32(0), gridQuant);
@@ -428,10 +541,11 @@ const emitKernel = tgpu
             iy === d.u32(0) ||
             mesherLayout.$.voxels[voxelIndex(ix, iy - d.u32(1), iz)] < d.f32(ISO)
         ) {
-            const base = std.atomicAdd(mesherLayout.$.indirect[0], d.u32(INDICES_PER_QUAD));
-            const fi = idiv(base, d.u32(INDICES_PER_QUAD));
-            if (fi < d.u32(MAX_FACES)) {
-                const v0 = fi * d.u32(VERTS_PER_QUAD);
+            const local = std.atomicAdd(mesherLayout.$.chunkCursor[slot], d.u32(1));
+            if (local < capacity) {
+                const faceIdx = table.x + local;
+                const v0 = faceIdx * d.u32(VERTS_PER_QUAD);
+                const base = faceIdx * d.u32(INDICES_PER_QUAD);
                 const octN = octEncodeNormal(d.vec3f(0, -1, 0));
                 const m0 = encodePos(d.vec3f(x0, y0, z0), d.u32(0), gridQuant);
                 const m1 = encodePos(d.vec3f(x1, y0, z0), d.u32(0), gridQuant);
@@ -457,10 +571,11 @@ const emitKernel = tgpu
             iz + d.u32(1) >= d.u32(DIM.z) ||
             mesherLayout.$.voxels[voxelIndex(ix, iy, iz + d.u32(1))] < d.f32(ISO)
         ) {
-            const base = std.atomicAdd(mesherLayout.$.indirect[0], d.u32(INDICES_PER_QUAD));
-            const fi = idiv(base, d.u32(INDICES_PER_QUAD));
-            if (fi < d.u32(MAX_FACES)) {
-                const v0 = fi * d.u32(VERTS_PER_QUAD);
+            const local = std.atomicAdd(mesherLayout.$.chunkCursor[slot], d.u32(1));
+            if (local < capacity) {
+                const faceIdx = table.x + local;
+                const v0 = faceIdx * d.u32(VERTS_PER_QUAD);
+                const base = faceIdx * d.u32(INDICES_PER_QUAD);
                 const octN = octEncodeNormal(d.vec3f(0, 0, 1));
                 const m0 = encodePos(d.vec3f(x0, y0, z1), d.u32(0), gridQuant);
                 const m1 = encodePos(d.vec3f(x1, y0, z1), d.u32(0), gridQuant);
@@ -486,10 +601,11 @@ const emitKernel = tgpu
             iz === d.u32(0) ||
             mesherLayout.$.voxels[voxelIndex(ix, iy, iz - d.u32(1))] < d.f32(ISO)
         ) {
-            const base = std.atomicAdd(mesherLayout.$.indirect[0], d.u32(INDICES_PER_QUAD));
-            const fi = idiv(base, d.u32(INDICES_PER_QUAD));
-            if (fi < d.u32(MAX_FACES)) {
-                const v0 = fi * d.u32(VERTS_PER_QUAD);
+            const local = std.atomicAdd(mesherLayout.$.chunkCursor[slot], d.u32(1));
+            if (local < capacity) {
+                const faceIdx = table.x + local;
+                const v0 = faceIdx * d.u32(VERTS_PER_QUAD);
+                const base = faceIdx * d.u32(INDICES_PER_QUAD);
                 const octN = octEncodeNormal(d.vec3f(0, 0, -1));
                 const m0 = encodePos(d.vec3f(x0, y0, z0), d.u32(0), gridQuant);
                 const m1 = encodePos(d.vec3f(x0, y1, z0), d.u32(0), gridQuant);
@@ -520,14 +636,35 @@ export function emitWgsl(): string {
     });
 }
 
-const INDIRECT_INIT = new ArrayBuffer(d.sizeOf(DrawIndexedIndirect));
-writeToArrayBuffer(INDIRECT_INIT, DrawIndexedIndirect, {
-    indexCount: 0,
-    instanceCount: 1,
-    firstIndex: 0,
-    baseVertex: 0,
-    firstInstance: 0,
-});
+const ZERO_CURSOR = new Uint32Array(1);
+
+/** zero the atomic cursor for every slot in `slots` — never the whole buffer, so a scoped dispatch leaves
+ *  an untouched chunk's last-known face count intact for the correctness gate's summed readback. A full
+ *  remesh's slot list is exactly `[0, SLOT_COUNT)`, contiguous, so that case is one write instead of 512. */
+function resetCursors(slots: readonly number[]): void {
+    if (!gpu.chunkCursor) return;
+    if (slots.length === SLOT_COUNT) {
+        Compute.device.queue.writeBuffer(gpu.chunkCursor, 0, new Uint32Array(SLOT_COUNT));
+        return;
+    }
+    for (const slot of slots)
+        Compute.device.queue.writeBuffer(gpu.chunkCursor, slot * 4, ZERO_CURSOR);
+}
+
+/** the chunk-list payload for one dispatch: `vec4<u32>(originX, originY, originZ, slot)` per entry, in
+ *  dispatch order — the emit kernel reads chunk origin from this list (never recomputes it from `slot`). */
+function buildChunkList(slots: readonly number[]): Uint32Array {
+    const out = new Uint32Array(slots.length * 4);
+    for (let i = 0; i < slots.length; i++) {
+        const slot = slots[i];
+        const [ox, oy, oz] = coord(slot * CHUNK_CELLS);
+        out[i * 4] = ox;
+        out[i * 4 + 1] = oy;
+        out[i * 4 + 2] = oz;
+        out[i * 4 + 3] = slot;
+    }
+    return out;
+}
 
 export const VoxelEmitSystem: System = {
     name: "voxel-emit",
@@ -541,8 +678,20 @@ export const VoxelEmitSystem: System = {
     before: [PrepassSystem],
     setup() {},
     update() {
-        if (!Voxels.dirty || !gpu.pipeline || !gpu.bindGroup || !Render.encoder) return;
-        Compute.device.queue.writeBuffer(Voxels.indirect!, 0, INDIRECT_INIT);
+        if (!Voxels.dirty || !gpu.pipeline || !gpu.bindGroup || !Render.encoder || !pool) return;
+        let slots = pendingSlots;
+        if (!slots) {
+            // an implicit full remesh (generate()'s GPU-only dirty, or the first-frame publish before any
+            // scenario authored data): needs the CPU mirror to size chunks, so it waits — `Voxels.dirty`
+            // stays true — until `syncGrid` (or an authored `uploadVoxels`) populates `Voxels.data`.
+            if (!Voxels.data) return;
+            remeshFull(Voxels.data);
+            slots = FULL_SLOTS;
+        }
+        pendingSlots = null;
+
+        resetCursors(slots);
+        Compute.device.queue.writeBuffer(gpu.chunkList!, 0, buildChunkList(slots));
         const pass = Render.encoder.beginComputePass({
             label: "voxel-emit",
             timestampWrites: Compute.span?.("voxel:emit"),
@@ -550,8 +699,8 @@ export const VoxelEmitSystem: System = {
         gpu.pipeline
             .with(gpu.bindGroup)
             .with(pass)
-            .dispatchWorkgroups(DISPATCH.x, DISPATCH.y, DISPATCH.z);
-        EmitTelemetry.lastWorkgroups = DISPATCH.x * DISPATCH.y * DISPATCH.z;
+            .dispatchWorkgroups(WG_PER_CHUNK, WG_PER_CHUNK, WG_PER_CHUNK * slots.length);
+        EmitTelemetry.lastWorkgroups = WG_PER_CHUNK * WG_PER_CHUNK * WG_PER_CHUNK * slots.length;
         pass.end();
         Voxels.dirty = false;
     },
@@ -564,6 +713,9 @@ type VoxelRawBuffers = {
     readonly quant: GPUBuffer;
     readonly indices: GPUBuffer;
     readonly indirect: GPUBuffer;
+    readonly chunkList: GPUBuffer;
+    readonly chunkTable: GPUBuffer;
+    readonly chunkCursor: GPUBuffer;
 };
 
 function allocateVoxelBuffers(
@@ -600,19 +752,47 @@ function allocateVoxelBuffers(
     device.queue.writeBuffer(quant, 0, GRID_QUANT as Float32Array<ArrayBuffer>);
     const indices = allocate({
         label: "voxel-indices",
+        // COPY_DST: `zeroIndices` degenerate-fills a freed region directly (the emit kernel only ever
+        // writes the live regions it's dispatched for), so a shrunk/freed chunk's stale indices need a
+        // CPU-side write path too.
         size: maxIndices * 4,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
     });
     const indirect = allocate({
         label: "voxel-indirect",
+        // the CPU-authored draw record only — never a GPU atomic target (S2), so no STORAGE binding is
+        // read/written by the kernel; COPY_DST is what `writeIndirect` targets.
         size: 20,
-        usage:
-            GPUBufferUsage.STORAGE |
-            GPUBufferUsage.INDIRECT |
-            GPUBufferUsage.COPY_DST |
-            GPUBufferUsage.COPY_SRC,
+        usage: GPUBufferUsage.INDIRECT | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
-    return { voxels, vertices, position, quant, indices, indirect };
+    const chunkList = allocate({
+        label: "voxel-chunk-list",
+        size: SLOT_COUNT * 16, // vec4<u32> per slot (origin.xyz, slot)
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const chunkTable = allocate({
+        label: "voxel-chunk-table",
+        size: SLOT_COUNT * 8, // vec2<u32> per slot (region start, capacity)
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    const chunkCursor = allocate({
+        label: "voxel-chunk-cursor",
+        // COPY_SRC: the correctness gate mirrors this buffer (`Voxels.cursor`) for its GPU-side face-count
+        // readback — never `.indirect`, which would be circular (`voxel-chunk-streaming` S2).
+        size: SLOT_COUNT * 4, // atomic<u32> per slot
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+    });
+    return {
+        voxels,
+        vertices,
+        position,
+        quant,
+        indices,
+        indirect,
+        chunkList,
+        chunkTable,
+        chunkCursor,
+    };
 }
 
 function wrapVoxelBuffers(raw: VoxelRawBuffers) {
@@ -625,18 +805,22 @@ function wrapVoxelBuffers(raw: VoxelRawBuffers) {
         .createBuffer(VoxelIndices, raw.indices)
         .$usage("storage", "index");
     const typedVoxels = Compute.root.createBuffer(GridData, raw.voxels).$usage("storage");
-    const typedAtomicIndirect = Compute.root
-        .createBuffer(VoxelAtomicIndirect, raw.indirect)
-        .$usage("storage");
     const typedIndirect = Compute.root
         .createBuffer(DrawIndexedIndirect, raw.indirect)
-        .$usage("storage", "indirect");
+        .$usage("indirect");
+    const typedChunkList = Compute.root.createBuffer(ChunkList, raw.chunkList).$usage("storage");
+    const typedChunkTable = Compute.root.createBuffer(ChunkTable, raw.chunkTable).$usage("storage");
+    const typedChunkCursor = Compute.root
+        .createBuffer(ChunkCursor, raw.chunkCursor)
+        .$usage("storage");
     const bindGroup = Compute.root.createBindGroup(mesherLayout, {
         voxels: typedVoxels,
         vertices: typedVertices,
         indices: typedIndices,
-        indirect: typedAtomicIndirect,
         position: typedPosition,
+        chunkList: typedChunkList,
+        chunkTable: typedChunkTable,
+        chunkCursor: typedChunkCursor,
     });
     return { typedVertices, typedPosition, typedQuant, typedIndices, typedIndirect, bindGroup };
 }
@@ -656,11 +840,17 @@ function clearVoxelWarmOwner(owner: VoxelWarmOwner): void {
             gpu.position = null;
             gpu.quant = null;
             gpu.indices = null;
+            gpu.chunkList = null;
+            gpu.chunkTable = null;
+            gpu.chunkCursor = null;
             gpu.pipeline = null;
             gpu.bindGroup = null;
             Voxels.grid = null;
             Voxels.indirect = null;
+            Voxels.cursor = null;
             Voxels.dirty = false;
+            pool = null;
+            pendingSlots = null;
         },
     });
     if (stateOwners.get(owner.state) === owner) stateOwners.delete(owner.state);
@@ -751,10 +941,23 @@ const voxelWarmLifecycle = createWarmLifecycle<
         gpu.position = prepared.raw.position;
         gpu.quant = prepared.raw.quant;
         gpu.indices = prepared.raw.indices;
+        gpu.chunkList = prepared.raw.chunkList;
+        gpu.chunkTable = prepared.raw.chunkTable;
+        gpu.chunkCursor = prepared.raw.chunkCursor;
         gpu.pipeline = prepared.pipeline;
         gpu.bindGroup = prepared.wrapped.bindGroup;
         Voxels.grid = prepared.raw.voxels;
         Voxels.indirect = prepared.raw.indirect;
+        Voxels.cursor = prepared.raw.chunkCursor;
+        pool = createChunkPool(MAX_FACES);
+        // a scenario that authored `Voxels.data` before setup (the pattern-swap / assert path) already has
+        // what a full remesh needs — alloc it now instead of waiting a frame; the GPU-generated path (no
+        // authored data yet) leaves `pendingSlots` at its default (`null` = full, pending `Voxels.data`),
+        // which `VoxelEmitSystem` resolves once `generate()` + `syncGrid` populate it.
+        if (Voxels.data) {
+            remeshFull(Voxels.data);
+            pendingSlots = FULL_SLOTS;
+        }
         Voxels.dirty = true;
     },
 });

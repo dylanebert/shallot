@@ -4,13 +4,15 @@ import { gate } from "./gate";
 import type { Check } from "./harness";
 import { type EmitDispatchSample, emitDispatchSample } from "./perf";
 import { generate } from "./voxel/generate";
-import { syncGrid, Voxels } from "./voxel/mesher";
+import { Voxels } from "./voxel/mesher";
 
 // The voxel showcase's boot orchestration, as a plugin (a manifest project has no `main.ts` entry).
-// The mesher allocates `Voxels.grid` + `.indirect` in its first-frame setup, so the boot can only run once
+// The mesher allocates `Voxels.grid` + `.cursor` in its first-frame setup, so the boot can only run once
 // they exist: it fills the grid on the GPU (FBM terrain — the live visual), syncs the CPU mirror so the carve
-// path can march it, mounts the toolbar + keys, and installs the device gate. `mode: always` so the terrain
-// meshes in edit mode too, not just play. Idempotent per State — `setup` re-arms it each build (ecs.md
+// path can march it, mounts the toolbar + keys, and installs the device gate. The gate + perf probe both
+// mirror `Voxels.cursor` (the per-chunk atomic face count) rather than `.indirect` — the CPU-authored draw
+// record would make the gate circular (`voxel-chunk-streaming` S2). `mode: always` so the terrain meshes
+// in edit mode too, not just play. Idempotent per State — `setup` re-arms it each build (ecs.md
 // "Reload-safety"); `dispose` tears the UI down so a rebuild doesn't stack overlays.
 
 declare global {
@@ -25,7 +27,7 @@ declare global {
 const SEED = 1337;
 
 let armed = true;
-let indirect: Mirror | null = null;
+let cursorMirror: Mirror | null = null;
 let toolbar: { setTool: (t: "pointer" | "terrain") => void; dispose: () => void } | null = null;
 
 const BootSystem: System = {
@@ -36,24 +38,25 @@ const BootSystem: System = {
         armed = true; // setup runs once per State build — re-arm so a rebuild re-boots
     },
     update(state) {
-        if (!armed || !Voxels.grid || !Voxels.indirect) return;
+        if (!armed || !Voxels.grid || !Voxels.cursor) return;
         armed = false;
-        indirect = mirror(Voxels.indirect);
-        const m = indirect;
+        cursorMirror = mirror(Voxels.cursor);
+        const m = cursorMirror;
         void boot(state, m);
     },
     dispose() {
         teardownUi();
-        indirect?.dispose();
-        indirect = null;
+        cursorMirror?.dispose();
+        cursorMirror = null;
         delete window.__voxelGate;
         delete window.__voxelPerf;
     },
 };
 
 async function boot(state: State, m: Mirror): Promise<void> {
+    // generate() syncs the CPU mirror itself (`voxel-chunk-streaming` S2: the mesher's chunk allocation is
+    // CPU-exact), so there's no separate syncGrid() step to sequence here anymore.
     await generate(SEED);
-    await syncGrid();
     if (state.signal.aborted) return;
     initCarve(state, document.querySelector("canvas"), SEED);
     mountUi(state);
