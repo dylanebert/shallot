@@ -8,8 +8,8 @@ export function detectDisplay(): boolean {
     if (isWSL) {
         // The WSL eval path stages onto the Windows host and runs Playwright there via PowerShell —
         // it never touches the WSL display, so DISPLAY/WAYLAND_DISPLAY are irrelevant here. Probe
-        // host reachability instead: powershell.exe resolvable AND a bun or node on the Windows host
-        // (AGENTS.md: these wrappers "skip only when the host lacks the node/bun it needs").
+        // host reachability instead: powershell.exe resolvable AND a bun or node on the Windows host,
+        // which is the condition kex's own contract for these wrappers turns on (host node/bun).
         return wslHostReachable();
     }
     if (process.platform === "darwin") {
