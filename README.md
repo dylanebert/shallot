@@ -109,7 +109,7 @@ run from the repo root.
 ```bash
 bun run test       # unit tests over packages/shallot (bun-webgpu)
 bun bench          # GPU benchmarks
-bun check          # format (writes) + tsc + biome + eslint + repo checks
+bun check          # read-only: tsc + biome + eslint + repo checks + scene-format report
 bun run format     # biome + scene formatter
 bun run build      # rust artifacts
 ```

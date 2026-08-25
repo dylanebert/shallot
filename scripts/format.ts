@@ -48,10 +48,15 @@ function normalizeNodes(nodes: Node[]) {
     }
 }
 
+// --check: report-only mode — print the would-change set and exit nonzero without writing.
+// Default (no flag) writes, so `bun run format` is unchanged.
+const checkOnly = process.argv.includes("--check");
+
 const glob = new Glob("**/*.scene");
 const ignore = ["node_modules", "dist", "_legacy"];
 
 let formatted = 0;
+let wouldChange = 0;
 let unchanged = 0;
 let errors = 0;
 
@@ -65,9 +70,14 @@ for await (const path of glob.scan({ cwd: process.cwd() })) {
         const output = stringify(nodes) + "\n";
 
         if (content !== output) {
-            await Bun.write(path, output);
-            console.log(`formatted: ${path}`);
-            formatted++;
+            if (checkOnly) {
+                console.log(`would format: ${path}`);
+                wouldChange++;
+            } else {
+                await Bun.write(path, output);
+                console.log(`formatted: ${path}`);
+                formatted++;
+            }
         } else {
             unchanged++;
         }
@@ -77,5 +87,10 @@ for await (const path of glob.scan({ cwd: process.cwd() })) {
     }
 }
 
-console.log(`\n${formatted} formatted, ${unchanged} unchanged, ${errors} errors`);
-process.exit(errors > 0 ? 1 : 0);
+if (checkOnly) {
+    console.log(`\n${wouldChange} would change, ${unchanged} unchanged, ${errors} errors`);
+    process.exit(errors > 0 || wouldChange > 0 ? 1 : 0);
+} else {
+    console.log(`\n${formatted} formatted, ${unchanged} unchanged, ${errors} errors`);
+    process.exit(errors > 0 ? 1 : 0);
+}
