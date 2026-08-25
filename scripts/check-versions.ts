@@ -85,8 +85,8 @@ for (const [where, version] of Object.entries(targets)) {
 }
 
 // `README.md`'s demo table links each showcase's source at `tree/v<version>` — a hand-written tag
-// per row, correct today and drift-by-construction on every bump: a stale tag survived a release
-// untouched, because nothing read it. The arm asserts every version-bearing README link agrees
+// per row, correct today and drift-by-construction on every bump: derived from nothing, so no
+// gate read them before this arm. The arm asserts every version-bearing README link agrees
 // with the package version.
 const readme = await Bun.file(resolve(root, "README.md")).text();
 const tagLinkRe = /dylanebert\/shallot\/tree\/v(\d+\.\d+\.\d+)\b/g;
@@ -101,7 +101,7 @@ for (const m of readme.matchAll(tagLinkRe)) {
 }
 if (readmeLinkCount === 0) {
     fail(
-        "✗ README.md carries no `tree/v<version>` links — the README-link arm would be vacuously green.",
+        "README.md carries no `tree/v<version>` links — the README-link arm would be vacuously green.",
     );
 }
 
