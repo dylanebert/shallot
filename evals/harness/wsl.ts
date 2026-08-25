@@ -6,8 +6,11 @@ export const isWSL =
 
 export function detectDisplay(): boolean {
     if (isWSL) {
-        // WSLg sets DISPLAY when a GUI is available; a headless WSL has none.
-        return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+        // The WSL eval path stages onto the Windows host and runs Playwright there via PowerShell —
+        // it never touches the WSL display, so DISPLAY/WAYLAND_DISPLAY are irrelevant here. Probe
+        // host reachability instead: powershell.exe resolvable AND a bun or node on the Windows host
+        // (AGENTS.md: these wrappers "skip only when the host lacks the node/bun it needs").
+        return wslHostReachable();
     }
     if (process.platform === "darwin") {
         // WindowServer runs in a GUI session; absent on a headless mac (CI, SSH).
@@ -17,8 +20,33 @@ export function detectDisplay(): boolean {
         });
         return r.exitCode === 0;
     }
-    if (process.platform !== "linux") return true;
-    return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+    if (process.platform === "linux") {
+        return !!(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+    }
+    // An undetectable or unsupported platform returns false, not true — a skip is an honest outcome
+    // (grade.ts reports skipped: true), a false run is not, and a browser gate launched with no
+    // display reds for the wrong reason.
+    return false;
+}
+
+// Bounded, non-hanging probe for the Windows host from WSL — a spawnSync with a timeout, no
+// interactive shell. Never runs on a non-WSL platform (the caller gates on isWSL).
+function wslHostReachable(): boolean {
+    const Timeout = 5000;
+    // powershell.exe resolvable AND a bun or node reachable on the host — one bounded call.
+    // If powershell.exe is not on PATH the spawn fails (exitCode !== 0); if it is but neither bun
+    // nor node is on the host, the command exits 1. Either way the gate skips honestly.
+    const probe = Bun.spawnSync(
+        [
+            "powershell.exe",
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "if ((Get-Command bun -ErrorAction SilentlyContinue) -or (Get-Command node -ErrorAction SilentlyContinue)) { exit 0 } else { exit 1 }",
+        ],
+        { stdout: "ignore", stderr: "ignore", timeout: Timeout },
+    );
+    return probe.exitCode === 0;
 }
 
 export interface WindowsPaths {
@@ -65,8 +93,12 @@ export function stageOnWindows(srcDir: string, name: string, files: string[]): W
         ],
         { stdout: "inherit", stderr: "inherit" },
     );
-    if (staging.exitCode !== 0)
+    if (staging.exitCode !== 0) {
+        // Remove the populated-but-incomplete staging dir before throwing — a leftover dir with a
+        // half-installed node_modules is a debugging trap on the next run.
+        rmSync(paths.wsl, { recursive: true, force: true });
         throw new Error(`Playwright dependency staging failed (exit ${staging.exitCode})`);
+    }
 
     return paths;
 }
