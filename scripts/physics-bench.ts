@@ -713,9 +713,9 @@ async function main(): Promise<void> {
     const guardPass = scaleRows.length > 0 && scaleRows.every((r) => !r.error && !fellThrough(r));
     // the probe cell is the latency gate, not a solver scene — it has no GPU solver step, so its verdict is
     // its checks (an `error` on a failed gate), exempt from the solver-cells' step>0 ran-sanity.
-    const scenariosGreen = scenarioRows.every(
-        (r) => !r.error && (r.step > 0 || r.name.includes("probe")),
-    );
+    const scenariosGreen =
+        scenarioRows.length > 0 &&
+        scenarioRows.every((r) => !r.error && (r.step > 0 || r.name.includes("probe")));
 
     console.log(
         `\nmatrix: ${matrixGreen ? "green (all cells ran + spans resolved)" : "has failures (see ✗)"}`,

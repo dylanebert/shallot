@@ -18,6 +18,7 @@ import {
     rmSync,
     writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -32,6 +33,16 @@ const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
 const CREATE_SHALLOT = resolve(import.meta.dir, "../packages/create-shallot/index.ts");
 const CLI = "node_modules/@dylanebert/shallot/bin/cli.ts"; // the installed CLI, run as a real user would
+
+const freePort = (): Promise<number> =>
+    new Promise((res, rej) => {
+        const s = createServer();
+        s.on("error", rej);
+        s.listen(0, "127.0.0.1", () => {
+            const p = (s.address() as { port: number }).port;
+            s.close(() => res(p));
+        });
+    });
 
 function run(cmd: string[], cwd: string): { ok: boolean; out: string } {
     const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
@@ -1330,7 +1341,7 @@ if (import.meta.main) {
             // the dev server: live resolution + asset serving over vite (a different path than the build
             // bundle — it's where the cross-repo fs.allow / wasm-serving lives).
             console.log("shallot dev (boot + resolve + serve the wasm)…");
-            const port = 5191;
+            const port = await freePort();
             const dev = Bun.spawn(["bun", CLI, "dev", ".", "--port", String(port)], {
                 cwd: sandbox,
                 stdout: "pipe",

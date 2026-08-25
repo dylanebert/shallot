@@ -149,6 +149,21 @@ Options:
     const flowIdx = args.indexOf("--flow");
     const only = flowIdx !== -1 ? args[flowIdx + 1] : undefined;
 
+    const knownFlows = new Set([
+        "no-walls",
+        "survive-reload",
+        "survive",
+        "ui-containment",
+        "ui",
+        "blank",
+    ]);
+    if (only && !knownFlows.has(only)) {
+        console.error(
+            `no flow "${only}" — one of: no-walls | survive-reload | ui-containment | blank`,
+        );
+        process.exit(2);
+    }
+
     const skip = skipReason();
     if (skip) {
         console.log(`bun run flows needs native hardware (${skip}). Skipping.`);

@@ -13,7 +13,14 @@ if (existsSync(dir)) {
 }
 
 const createShallot = resolve(projectDir, "packages/create-shallot/index.ts");
-Bun.spawnSync(["bun", createShallot, name], { stdout: "inherit", stderr: "inherit" });
+const scaffold = Bun.spawnSync(["bun", createShallot, name], {
+    stdout: "inherit",
+    stderr: "inherit",
+});
+if (scaffold.exitCode !== 0) {
+    console.error(`scaffold failed (exit ${scaffold.exitCode})`);
+    process.exit(1);
+}
 
 const pkgDir = resolve(projectDir, "packages/shallot");
 Bun.spawnSync(["bun", "pm", "pack", "--destination", dir, "--quiet"], {
