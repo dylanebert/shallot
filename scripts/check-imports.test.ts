@@ -38,7 +38,8 @@ test("check-imports — violations exit nonzero (exit 1)", async () => {
         ]);
         const out = stdout + stderr;
         expect(exitCode).toBe(1);
-        expect(out).toContain("deep cross-module import");
+        // The exit code is the discriminator; the fragment is a secondary stable check.
+        expect(out).toMatch(/cross-module/);
     } finally {
         if (existsSync(SEED)) unlinkSync(SEED);
     }

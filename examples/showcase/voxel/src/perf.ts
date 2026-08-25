@@ -6,7 +6,7 @@ import { commitEdit, EmitTelemetry, uploadVoxels } from "./voxel/mesher";
 import { single } from "./voxel/patterns";
 
 // The structural perf probe: drives one deterministic, single-chunk carve and
-// reports the emit dispatch scope it triggers — `test/perf.spec.ts` gates the reported workgroup count
+// reports the emit dispatch scope it triggers — `test/perf.playwright.ts` gates the reported workgroup count
 // against touched-chunk volume, never against wall-clock. This
 // module only produces the sample; `window.__voxelPerf` (boot.ts) is the only thing Playwright drives.
 

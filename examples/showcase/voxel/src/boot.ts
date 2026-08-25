@@ -17,9 +17,9 @@ import { Voxels } from "./voxel/mesher";
 
 declare global {
     interface Window {
-        // the device gate, driven by the project's own Playwright on a real GPU (test/voxel.spec.ts).
+        // the device gate, driven by the project's own Playwright on a real GPU (test/voxel.playwright.ts).
         __voxelGate?: () => Promise<Check[]>;
-        // the structural perf probe, driven by test/perf.spec.ts.
+        // the structural perf probe, driven by test/perf.playwright.ts.
         __voxelPerf?: () => Promise<EmitDispatchSample>;
     }
 }

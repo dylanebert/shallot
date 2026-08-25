@@ -187,16 +187,14 @@ async function spawnVerify(
     return { stdout, exitCode };
 }
 
-/** spawn `shallot verify <dir> --json <extra>` from the repo root and return the parsed Result (null if
- *  none was emitted — a crash before verify could report). Echoes verify's stdout so a single run shows
- *  its full envelope; `quiet` suppresses the echo for a many-cell sweep where the blobs drown the table. */
-export async function verify(
-    dir: string,
-    extra: string[] = [],
-    quiet = false,
-): Promise<VerifyResult | null> {
-    const { stdout, exitCode } = await spawnVerify(dir, extra, quiet);
-    const result = extractResult(stdout);
+/** Apply the exit-code gate to a parsed verify Result: a nonzero child exit reddens the verdict
+ *  regardless of what stdout says — the guard the S1 fix added (the discarded-code fail-open).
+ *  Exported so the S3 arm can exercise the decision with a real subprocess that prints a passing
+ *  envelope and exits nonzero, without needing the full CLI + browser stack. */
+export function applyExitCodeGate(
+    result: VerifyResult | null,
+    exitCode: number,
+): VerifyResult | null {
     if (exitCode !== 0 && result?.pass === true) {
         return {
             ...result,
@@ -214,6 +212,18 @@ export async function verify(
         return { pass: false, error: `verify process exited ${exitCode}` };
     }
     return result;
+}
+
+/** spawn `shallot verify <dir> --json <extra>` from the repo root and return the parsed Result (null if
+ *  none was emitted — a crash before verify could report). Echoes verify's stdout so a single run shows
+ *  its full envelope; `quiet` suppresses the echo for a many-cell sweep where the blobs drown the table. */
+export async function verify(
+    dir: string,
+    extra: string[] = [],
+    quiet = false,
+): Promise<VerifyResult | null> {
+    const { stdout, exitCode } = await spawnVerify(dir, extra, quiet);
+    return applyExitCodeGate(extractResult(stdout), exitCode);
 }
 
 /** what `verifyBatch` actually observed on stdout: `results` is null when no line parsed to an array —

@@ -64,6 +64,20 @@ async function runRecipe(r: Recipe): Promise<boolean> {
     return ok;
 }
 
+/** Pure seam for the population guards — exported so the S3 arm can exercise the empty-glob
+ *  guard behaviorally (the real glob matches real recipes, so the empty case can't be triggered
+ *  hermetically without removing recipe dirs). Returns an error message if the population is
+ *  empty or the selector is unknown, or null if the run should proceed. */
+export function populationError(recipeDirs: string[], only?: string): string | null {
+    if (only && !recipeDirs.includes(only)) {
+        return `no recipe "${only}" — one of: ${recipeDirs.join(", ")}`;
+    }
+    if (!only && recipeDirs.length === 0) {
+        return `no recipes derived from examples/recipes/*/src/smoke.ts — the glob matched nothing`;
+    }
+    return null;
+}
+
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
     if (args.includes("--help") || args.includes("-h")) {
@@ -79,15 +93,13 @@ Options:
     const only = idx !== -1 ? args[idx + 1] : undefined;
 
     const list = only ? RECIPES.filter((r) => r.dir === only) : RECIPES;
-    if (only && list.length === 0) {
-        console.error(`no recipe "${only}" — one of: ${RECIPES.map((r) => r.dir).join(", ")}`);
-        process.exit(2);
-    }
-    if (!only && RECIPES.length === 0) {
-        console.error(
-            `no recipes derived from examples/recipes/*/src/smoke.ts — the glob matched nothing`,
-        );
-        process.exit(1);
+    const popErr = populationError(
+        RECIPES.map((r) => r.dir),
+        only,
+    );
+    if (popErr) {
+        console.error(popErr);
+        process.exit(only ? 2 : 1);
     }
 
     const skip = skipReason();

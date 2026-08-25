@@ -15,7 +15,7 @@ import { readVertices } from "./terrain/terrain";
 // driver never re-implements camera math it doesn't own.
 
 /** a world point's screen position as a fraction of the canvas (0,0 = top-left, 1,1 = bottom-right) — the
- *  unit `test/roads.spec.ts` multiplies by the captured screenshot's own pixel dimensions, so the mapping
+ *  unit `test/roads.playwright.ts` multiplies by the captured screenshot's own pixel dimensions, so the mapping
  *  is DPR-independent. `depth` is the point's view-space depth (the clip w component, equal to view-space
  *  depth for this engine's perspective matrix, `engine/utils/math.ts`), carried for diagnostics — it plays
  *  no role in {@link TRANSITION_TOLERANCE_PX}, which is depth-independent by construction (see its doc). */

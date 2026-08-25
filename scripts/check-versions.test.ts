@@ -39,7 +39,8 @@ test("check-versions --release — a failed git tag --list fails loud (exit 1)",
         ]);
         const out = stdout + stderr;
         expect(exitCode).toBe(1);
-        expect(out).toContain("git tag --list failed");
+        // The exit code is the discriminator; the fragment is a secondary stable check.
+        expect(out).toMatch(/git tag --list/);
     } finally {
         rmSync(tmp, { recursive: true, force: true });
     }

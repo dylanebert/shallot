@@ -7,16 +7,16 @@
 //       the arm exercises the injectable pure seam (detectDisplayForPlatform) that detectDisplay()
 //       delegates to, reaching every branch decision without needing that platform.
 //   (2) stageOnWindows() — a failed staging throws (does not fall through into the gate run).
-//       On this darwin seat powershell.exe is absent, so the staging spawn fails and the throw fires.
-//
-// The seam (detectDisplayForPlatform) is the minimal production-code change this stage makes;
-// detectDisplay() now delegates to it. Named in the stage report.
+//       On this darwin seat powershell.exe is absent, so windowsTempPaths() throws before the
+//       staging spawn is reached, and the throw the original arm observed was not the guard's.
+//       The staging exit-code guard is extracted into checkStagingResult(), a pure seam the arm
+//       exercises directly: a nonzero exit removes the staging dir and throws.
 
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
-import { detectDisplayForPlatform, stageOnWindows } from "./wsl";
+import { join } from "node:path";
+import { checkStagingResult, detectDisplayForPlatform, stageOnWindows } from "./wsl";
 
 // ── detectDisplay: branch decisions ──────────────────────────────────────────
 
@@ -45,17 +45,46 @@ test("detectDisplay — WSL probe is the decision, not the platform check", () =
     expect(detectDisplayForPlatform("win32", true, () => false)).toBe(false);
 });
 
-// ── stageOnWindows: failed staging throws ─────────────────────────────────────
+// ── stageOnWindows: failed staging throws (behavioral via the pure seam) ──────
 
-test("stageOnWindows — a failed staging throws, does not fall through", () => {
-    // On this darwin seat powershell.exe is absent. stageOnWindows calls windowsTempPaths (which
-    // spawns powershell.exe) and then the staging spawn (also powershell.exe). Either call fails
-    // because powershell.exe is not on PATH, and the function throws rather than returning
-    // successfully — it does NOT fall through into the gate run.
-    //
-    // The throw may come from windowsTempPaths (before the staging check) or from the staging
-    // check itself. Either way, the function does not return a WindowsPaths object, which is the
-    // invariant: a failed staging does not fall through.
+test("checkStagingResult — a nonzero exit removes the staging dir and throws", () => {
+    // The guard: a nonzero staging exit removes the populated-but-incomplete staging dir and
+    // throws — it does NOT fall through into the gate run. This exercises the actual guard
+    // behaviorally: a real temp dir is created, the guard fires, the dir is removed, and it throws.
+    const tmp = mkdtempSync(join(tmpdir(), "shallot-wsl-staging-arm-"));
+    writeFileSync(join(tmp, "marker"), "staged");
+    expect(existsSync(tmp)).toBe(true);
+
+    expect(() => checkStagingResult(1, tmp)).toThrow(/staging failed/);
+
+    // The staging dir must be removed — a leftover with a half-installed node_modules is a trap.
+    expect(existsSync(tmp)).toBe(false);
+});
+
+test("checkStagingResult — a zero exit does not throw and preserves the staging dir", () => {
+    // The green direction: a successful staging does not throw and the staging dir survives.
+    const tmp = mkdtempSync(join(tmpdir(), "shallot-wsl-staging-green-"));
+    writeFileSync(join(tmp, "marker"), "staged");
+
+    expect(() => checkStagingResult(0, tmp)).not.toThrow();
+    expect(existsSync(tmp)).toBe(true);
+
+    rmSync(tmp, { recursive: true, force: true });
+});
+
+test("checkStagingResult — a null exit code also throws (spawn failed entirely)", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "shallot-wsl-staging-null-"));
+    expect(() => checkStagingResult(null, tmp)).toThrow(/staging failed/);
+    expect(existsSync(tmp)).toBe(false);
+});
+
+// ── stageOnWindows: the full function still throws on a darwin seat ────────────
+
+test("stageOnWindows — throws on a darwin seat (powershell.exe absent)", () => {
+    // On this darwin seat powershell.exe is absent, so windowsTempPaths() throws before the
+    // staging spawn is reached. The function does not return a WindowsPaths object — it does
+    // NOT fall through into the gate run. This is kept as a second check, but the behavioral
+    // arm above (checkStagingResult) is the one that exercises the actual guard.
     const tmp = mkdtempSync(join(tmpdir(), "shallot-wsl-arm-"));
     const srcDir = join(tmp, "src");
     const stageName = join(tmp, "stage");
@@ -64,16 +93,5 @@ test("stageOnWindows — a failed staging throws, does not fall through", () => 
 
     expect(() => stageOnWindows(srcDir, stageName, ["file.txt"])).toThrow();
 
-    // cleanup — stageOnWindows throws, but be defensive
     rmSync(tmp, { recursive: true, force: true });
-});
-
-test("stageOnWindows — the staging exit-code check is present (structural pin)", () => {
-    // The S1 fix added `if (staging.exitCode !== 0) { rmSync(...); throw ... }` in stageOnWindows.
-    // On a darwin seat the throw fires from windowsTempPaths (powershell.exe absent) before
-    // reaching the staging spawn, so the behavioral test above can't isolate the staging check.
-    // This structural pin ensures the check is present — it reds if the fix is reverted.
-    const wslSrc = readFileSync(resolve(import.meta.dir, "wsl.ts"), "utf8");
-    expect(wslSrc).toMatch(/staging\.exitCode\s*!==\s*0/);
-    expect(wslSrc).toMatch(/Playwright dependency staging failed/);
 });

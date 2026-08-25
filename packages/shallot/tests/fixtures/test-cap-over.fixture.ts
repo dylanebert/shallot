@@ -1,8 +1,10 @@
 // Fixture for `packages/shallot/tests/test-cap.test.ts`: a file the cap must red when the cap is
 // driven to 0 ms. Named `.fixture.ts` so bun's default test-file pattern does not collect it under
-// `bun test` — and `bunfig.toml`'s `root = "packages/shallot"` scopes discovery to that directory,
-// so a fixture outside it is never collected either way. An explicitly passed path still runs even
-// when it does not match the pattern, which is how the arms invoke it.
+// `bun test` — and `bunfig.toml`'s `root = "."` (widened from `"packages/shallot"` in S3) scopes
+// discovery to the repo root, so a fixture outside `packages/shallot` is collected by a bare
+// `bun test` — but named `.fixture.ts` so the default test-file pattern does not pick it up.
+// An explicitly passed path still runs even when it does not match the pattern, which is how
+// the arms invoke it.
 //
 // Two tests, so the once-per-file latch in the preload is exercised: exactly one red.
 import { expect, test } from "bun:test";

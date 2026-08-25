@@ -3,18 +3,18 @@
 // Two invariants pinned:
 //   (1) An unknown --recipe selector exits nonzero (exit 2), ahead of the skipReason() display
 //       skip. Before the S1 fix, the unknown selector was behind the skip, so a headless seat
-//       could never observe it.
+//       could never observe it. This is behavioral: the arm runs the real script as a subprocess.
 //   (2) An empty derived population (the glob matches nothing) reads red (exit 1), not vacuous
-//       green. The S1 fix derived RECIPES from a glob and added the empty-guard. The empty-glob
-//       guard is a structural check (the real glob matches real recipes, so it can't be triggered
-//       hermetically), but the unknown-selector guard is behavioral (run as subprocess).
+//       green. The S1 fix derived RECIPES from a glob and added the empty-guard. The real glob
+//       matches real recipes, so the empty case can't be triggered hermetically — the guard is
+//       extracted into populationError(), a pure seam the arm exercises directly with an empty
+//       recipe list.
 
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { populationError } from "./recipes";
 
 const SCRIPT = resolve(import.meta.dir, "recipes.ts");
-const src = readFileSync(SCRIPT, "utf8");
 
 test("recipes — unknown --recipe exits 2 (ahead of the display skip)", async () => {
     const proc = Bun.spawn({
@@ -32,18 +32,30 @@ test("recipes — unknown --recipe exits 2 (ahead of the display skip)", async (
     expect(out).toContain("no recipe");
 });
 
-test("recipes — empty derived population reads red (the empty-glob guard is present)", () => {
-    // The glob `examples/recipes/*/src/smoke.ts` derives the recipe list. If it matches nothing,
-    // the script must exit 1, not 0 "PASS: recipe smoke green". The guard is:
-    //   if (!only && RECIPES.length === 0) { ... process.exit(1); }
-    // This is a structural check because the real glob matches real recipes — the empty case
-    // can't be triggered hermetically without removing recipe dirs (not hermetic).
-    expect(src).toMatch(/RECIPES\.length\s*===\s*0/);
-    expect(src).toMatch(/process\.exit\(1\)/);
+test("recipes — empty derived population reads red (behavioral via the pure seam)", () => {
+    // The empty-glob guard: if the glob matches nothing, the script must exit 1, not 0
+    // "PASS: recipe smoke green". populationError returns a non-null message for an empty
+    // population — the condition that triggers process.exit(1) in main().
+    const err = populationError([], undefined);
+    expect(err).not.toBeNull();
+    expect(err).toContain("no recipes");
 });
 
-test("recipes — the recipe list is derived from a glob, not a hand list", () => {
-    // The fix replaced a hand-maintained list with a glob derivation so a new smoke is gated
-    // by construction — no hand list to drift.
-    expect(src).toMatch(/Glob.*smoke\.ts/);
+test("recipes — unknown selector reads red (behavioral via the pure seam)", () => {
+    // The unknown-selector guard: populationError returns a non-null message for an unknown
+    // selector — the condition that triggers process.exit(2) in main().
+    const err = populationError(["moving-platform", "joints"], "bogus");
+    expect(err).not.toBeNull();
+    expect(err).toContain("no recipe");
+});
+
+test("recipes — a known selector with a populated list proceeds (green direction)", () => {
+    // The green direction: a known selector with a populated list returns null (no error).
+    const err = populationError(["moving-platform", "joints"], "joints");
+    expect(err).toBeNull();
+});
+
+test("recipes — a populated list with no selector proceeds (green direction)", () => {
+    const err = populationError(["moving-platform", "joints"], undefined);
+    expect(err).toBeNull();
 });

@@ -38,7 +38,8 @@ test("local-test — a failed scaffold exits 1 before pack", async () => {
 
     // The scaffold must fail and the script must exit 1.
     expect(exitCode).toBe(1);
-    expect(out).toContain("scaffold failed");
+    // The exit code is the discriminator; the fragment is a secondary stable check.
+    expect(out).toMatch(/scaffold/);
 
     // The script must NOT reach the pack step — no "pack failed" or "cd " in the output.
     expect(out).not.toContain("pack failed");

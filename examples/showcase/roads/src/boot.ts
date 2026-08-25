@@ -33,7 +33,7 @@ import {
 
 declare global {
     interface Window {
-        // the device gate, driven by the project's own Playwright on a real GPU (test/roads.spec.ts).
+        // the device gate, driven by the project's own Playwright on a real GPU (test/roads.playwright.ts).
         __roadsGate?: () => Promise<Check[]>;
         // the pixel-probe capture's world→screen bridge (capture.ts), its on-road/off-road world points
         // (real generated terrain height), and an overlay-drained poll — all real ECS/GPU state Playwright
@@ -45,13 +45,13 @@ declare global {
         // driver (this project's src/ runs in the browser via the dev server; a direct Node-side import of
         // it pulls in the published `@dylanebert/shallot` package graph under Playwright's own loader,
         // which reaches `standard/sear/codegen.ts` reading `GPUTextureUsage` at module scope — a
-        // `ReferenceError` under Node; `test/roads.spec.ts` stays bridge-only).
+        // `ReferenceError` under Node; `test/roads.playwright.ts` stays bridge-only).
         __roadsTransitionTolerancePx?: number;
         // stage 24a's corridor-pose capture (`corridorCapture.ts`) — repositions the orbit to the
         // derived corridor pose for 24b's release-look screenshot. The Playwright driver calls this,
         // waits, and saves the screenshot to a second file alongside the gate's own.
         __roadsCorridorCapture?: () => Promise<void>;
-        // stage 14's reseed-integrity device arm (`test/roads.spec.ts`) — a deterministic bridge onto the
+        // stage 14's reseed-integrity device arm (`test/roads.playwright.ts`) — a deterministic bridge onto the
         // real F9 handler's own `regenerate` call, so the check can drive two reseeds by fixed seed
         // instead of `Math.random()`'s live keypress (which could coincidentally re-touch the probed
         // tile and make a still-stale read look correct by accident). `__roadsHeightAt` re-derives a

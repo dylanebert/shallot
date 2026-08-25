@@ -10,7 +10,7 @@ import { checker, recenter, single, slab, solidChunk, sphere, tunnel } from "./v
 // The voxel mesher's correctness gate — the watertight-seam invariant, generation properties, and the carve
 // round-trip, run on the real device. It's the showcase dogfooding its own testing: published-`@dylanebert/
 // shallot` surface + this project's own lib + driver, no reach into any repo harness. `main.ts` exposes it on
-// `window.__voxelGate`; the project's own Playwright (`test/voxel.spec.ts`) drives it on a GPU.
+// `window.__voxelGate`; the project's own Playwright (`test/voxel.playwright.ts`) drives it on a GPU.
 //
 // The gate has two halves. (1) Mesher correctness: for each canonical pattern the GPU's atomic face count
 // must equal the analytic `faces()` oracle (exact equality = watertight, a doubled seam over-counts, a gap

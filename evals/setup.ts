@@ -46,7 +46,7 @@ function pack(dir: string, dest: string): string {
 // the installed `node_modules` copy doesn't hold — `bun add` re-resolves the `file:` dep and re-extracts
 // the tarball, so `examples/` comes back. Removing it at the tarball is the durable withholding. Untar →
 // delete → re-tar, in place at the same path (package.json points a `file:` dep at it).
-function stripTarball(tgz: string): void {
+export function stripTarball(tgz: string): void {
     const ex = mkdtempSync(join(tmpdir(), "shallot-eval-untar-"));
     const out = run(["tar", "-xzf", tgz, "-C", ex], ex);
     if (!out.ok) throw new Error(`untar ${tgz} failed:\n${out.out}`);
@@ -65,10 +65,6 @@ const args = process.argv.slice(2);
 const asJson = args.includes("--json");
 const bare = args.includes("--bare");
 const task = args.find((a) => !a.startsWith("--"));
-if (!task) {
-    console.error("Usage: bun run evals/setup.ts <task> [--json] [--bare]");
-    process.exit(1);
-}
 
 // Strip the "## Engine reference" section from the scaffold's agent docs — its only content is the
 // pointers at the shipped `node_modules/.../AGENTS.md` + `examples/` docs, the context the bare arm
@@ -79,51 +75,62 @@ function stripShippedContext(md: string): string {
     // reference" is ever the last section — a bare `(?=\n## )` would silently no-op and leak the context.
     return md.replace(/\n## Engine reference\n[\s\S]*?(?=\n## |$)/, "");
 }
-const taskDir = resolve(EVALS, "tasks", task);
-const promptPath = join(taskDir, "PROMPT.md");
-try {
-    readFileSync(promptPath);
-} catch {
-    console.error(`no such task: ${task} (missing ${promptPath})`);
-    process.exit(1);
+
+function main(): void {
+    if (!task) {
+        console.error("Usage: bun run evals/setup.ts <task> [--json] [--bare]");
+        process.exit(1);
+    }
+
+    const taskDir = resolve(EVALS, "tasks", task);
+    const promptPath = join(taskDir, "PROMPT.md");
+    try {
+        readFileSync(promptPath);
+    } catch {
+        console.error(`no such task: ${task} (missing ${promptPath})`);
+        process.exit(1);
+    }
+
+    // realpath: macOS tmpdir is a symlink; vite's fs.allow prefix check needs the resolved form
+    const work = realpathSync(mkdtempSync(join(tmpdir(), `shallot-eval-${task}-`)));
+    const proj = join(work, "app");
+
+    const engineTgz = pack(ENGINE, join(work, "engine-pack"));
+    // bare arm: strip the shipped context at the tarball so a later `bun add` can't re-extract it back
+    if (bare) stripTarball(engineTgz);
+
+    const scaffold = run(["bun", CREATE_SHALLOT, "app"], work);
+    if (!scaffold.ok) throw new Error(`create-shallot failed:\n${scaffold.out}`);
+
+    // a real user installs the published engine; the packed tarball stands in for it
+    const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
+    pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
+    writeFileSync(join(proj, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
+
+    const install = run(["bun", "install"], proj);
+    if (!install.ok) throw new Error(`bun install failed:\n${install.out.slice(-800)}`);
+
+    if (bare) {
+        // examples/ is already gone from the tarball (stripTarball above); the scaffold AGENTS.md still
+        // carries the pointer section at it, so strip that here — reinstall-proof, unlike a node_modules
+        // deletion. CLAUDE.md only imports AGENTS.md, so stripping the one covers both.
+        const doc = join(proj, "AGENTS.md");
+        writeFileSync(doc, stripShippedContext(readFileSync(doc, "utf8")));
+    }
+
+    writeFileSync(join(proj, "PROMPT.md"), readFileSync(promptPath));
+    writeFileSync(
+        join(proj, ".eval.json"),
+        `${JSON.stringify({ task, bare, created: new Date().toISOString() }, null, 2)}\n`,
+    );
+
+    if (asJson) {
+        console.log(JSON.stringify({ task, project: proj, work }));
+    } else {
+        console.error(`task ${task}: project ready. Agent works with cwd = the path below.`);
+        console.log(proj);
+    }
 }
 
-// realpath: macOS tmpdir is a symlink; vite's fs.allow prefix check needs the resolved form
-const work = realpathSync(mkdtempSync(join(tmpdir(), `shallot-eval-${task}-`)));
-const proj = join(work, "app");
-
-const engineTgz = pack(ENGINE, join(work, "engine-pack"));
-// bare arm: strip the shipped context at the tarball so a later `bun add` can't re-extract it back
-if (bare) stripTarball(engineTgz);
-
-const scaffold = run(["bun", CREATE_SHALLOT, "app"], work);
-if (!scaffold.ok) throw new Error(`create-shallot failed:\n${scaffold.out}`);
-
-// a real user installs the published engine; the packed tarball stands in for it
-const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
-pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
-writeFileSync(join(proj, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
-
-const install = run(["bun", "install"], proj);
-if (!install.ok) throw new Error(`bun install failed:\n${install.out.slice(-800)}`);
-
-if (bare) {
-    // examples/ is already gone from the tarball (stripTarball above); the scaffold AGENTS.md still
-    // carries the pointer section at it, so strip that here — reinstall-proof, unlike a node_modules
-    // deletion. CLAUDE.md only imports AGENTS.md, so stripping the one covers both.
-    const doc = join(proj, "AGENTS.md");
-    writeFileSync(doc, stripShippedContext(readFileSync(doc, "utf8")));
-}
-
-writeFileSync(join(proj, "PROMPT.md"), readFileSync(promptPath));
-writeFileSync(
-    join(proj, ".eval.json"),
-    `${JSON.stringify({ task, bare, created: new Date().toISOString() }, null, 2)}\n`,
-);
-
-if (asJson) {
-    console.log(JSON.stringify({ task, project: proj, work }));
-} else {
-    console.error(`task ${task}: project ready. Agent works with cwd = the path below.`);
-    console.log(proj);
-}
+// Run only when executed directly, not when imported (the S3 arm imports stripTarball).
+if (import.meta.path === Bun.main) main();

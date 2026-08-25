@@ -117,7 +117,7 @@ export const Voxels = {
 
 /** read-only observability for the perf gate: the workgroup count issued by the most recent emit
  *  dispatch, set only by {@link VoxelEmitSystem} — no production code reads it, so it changes no
- *  behavior. `test/perf.spec.ts` (via `src/perf.ts`) gates dispatch scope against touched-chunk volume:
+ *  behavior. `test/perf.playwright.ts` (via `src/perf.ts`) gates dispatch scope against touched-chunk volume:
  *  `WG_PER_CHUNK³ × N` for the `N` chunks in that fire's dispatch list, never the full grid. */
 export const EmitTelemetry = { lastWorkgroups: 0 };
 

@@ -16,8 +16,9 @@
  *   (d) the configuration-reach control — removing the preload line from `bunfig.toml` must red,
  *       because a gate supplied by configuration fails open when the configuration is wrong.
  *
- * Shallot's `bunfig.toml` carries a `root = "packages/shallot"` key, which scopes bun's test
- * discovery to that directory — a property this repo's `bunfig.toml` adds and the reason this
+ * Shallot's `bunfig.toml` carries a `root = "."` key (widened from `"packages/shallot"` in S3
+ * so `bun run test` discovers the `scripts/` and `evals/` arms), which scopes bun's test
+ * discovery to the repo root — a property this repo's `bunfig.toml` adds and the reason this
  * repo owes its own configuration-reach arm: the cap must fire from the tracked preload, not
  * from a wrapper or ambient config, and the `root` key's discovery scoping is part of what that
  * arm pins.
@@ -372,7 +373,7 @@ describe("the cap in a real bun test child", () => {
      * The fixture is passed as an explicit path; bun runs an explicitly named file even when it
      * does not match the default test-file pattern (measured), which is why `.fixture.ts` keeps
      * it out of `bun test` and still reachable here. Shallot's `bunfig.toml` carries
-     * `root = "packages/shallot"`, which scopes discovery but does not block an explicit path.
+     * `root = "."` (widened in S3), which scopes discovery but does not block an explicit path.
      */
     test("the root bunfig.toml's preload reaches a bun test run from the shallot root", () => {
         const { exitCode, output } = run(REPO_ROOT, [`./${OVER_FIXTURE_REL}`], "0");

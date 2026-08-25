@@ -109,12 +109,19 @@ export function stageOnWindows(srcDir: string, name: string, files: string[]): W
         ],
         { stdout: "inherit", stderr: "inherit" },
     );
-    if (staging.exitCode !== 0) {
-        // Remove the populated-but-incomplete staging dir before throwing — a leftover dir with a
-        // half-installed node_modules is a debugging trap on the next run.
-        rmSync(paths.wsl, { recursive: true, force: true });
-        throw new Error(`Playwright dependency staging failed (exit ${staging.exitCode})`);
-    }
+    checkStagingResult(staging.exitCode, paths.wsl);
 
     return paths;
+}
+
+/** Pure seam for the staging exit-code guard — exported so the S3 arm can exercise the
+ *  staging-exit-code branch directly without needing powershell.exe (absent on a darwin seat,
+ *  where windowsTempPaths throws before the staging spawn is reached). A nonzero staging exit
+ *  removes the populated-but-incomplete staging dir (a leftover with a half-installed
+ *  node_modules is a debugging trap) and throws — it does NOT fall through into the gate run. */
+export function checkStagingResult(exitCode: number | null, stagePath: string): void {
+    if (exitCode !== 0) {
+        rmSync(stagePath, { recursive: true, force: true });
+        throw new Error(`Playwright dependency staging failed (exit ${exitCode})`);
+    }
 }

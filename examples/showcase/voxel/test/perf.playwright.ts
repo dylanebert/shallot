@@ -24,7 +24,7 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // Witnessed red at the pre-fix ref (2026-08-24, RTX 4090 via the host bridge): exit 1 — "dispatched 262144
 // workgroups for a 1-chunk edit — expected <= 3584 (touched-chunk-scoped dispatch); the pre-fix full-grid
 // dispatch is always 262144", exactly the full-grid dispatch this bound replaces. The correctness gate
-// (`test/voxel.spec.ts`) and the project's 51 unit tests stay green against the same tree.
+// (`test/voxel.playwright.ts`) and the project's 51 unit tests stay green against the same tree.
 //
 // A naive fix that narrows the dispatch alone is refuted: the shared atomic-append buffers only stay
 // complete if every chunk in a dispatch re-emits together, so a scoped dispatch needs a per-chunk

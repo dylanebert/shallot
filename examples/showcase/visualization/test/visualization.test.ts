@@ -4,24 +4,45 @@
 // built index.html iframes (instead of a hand list) and added an empty-guard:
 //   expect(demos.length, "...").toBeGreaterThan(0)
 // Without the guard, an empty iframe list (missing index, broken parse) would vacuously pass
-// by skipping every demo. The spec is a Playwright test (needs a browser + built site), so this
-// arm reads the source and asserts the empty-guard is present, pinning the invariant structurally.
+// by skipping every demo.
+//
+// The DEMOS derivation is extracted into demos.ts (deriveDemosFromIframeSrcs) so this arm can
+// exercise it behaviorally without a browser. The arm asserts:
+//   - an empty iframe list produces an empty demo array (the condition the guard reds on)
+//   - the guard itself reds on that empty array (expect(0).toBeGreaterThan(0) throws)
+//   - a populated iframe list produces the expected demo names (the derivation is correct)
 
 import { expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { deriveDemosFromIframeSrcs } from "./demos";
 
-const src = readFileSync(resolve(import.meta.dir, "visualization.spec.ts"), "utf8");
-
-test("visualization spec — derives the demo list from index.html iframes, not a hand list", () => {
-    // The fix replaced a hand-maintained DEMOS array with a derivation from the built index.html
-    // iframes, so a partially-added demo can't ship unverified.
-    expect(src).toMatch(/iframe.*evaluateAll/);
-    expect(src).toMatch(/demos\/([^/]+)\.html/);
+test("deriveDemosFromIframeSrcs — an empty iframe list produces no demos (the empty-guard reds)", () => {
+    // An index.html with no iframes → empty srcs → empty demos. This is the condition the
+    // spec's empty-guard `expect(demos.length).toBeGreaterThan(0)` reds on.
+    const demos = deriveDemosFromIframeSrcs([]);
+    expect(demos).toEqual([]);
+    expect(demos.length).toBe(0);
+    // The guard itself reds: expect(0).toBeGreaterThan(0) throws.
+    expect(() => expect(demos.length).toBeGreaterThan(0)).toThrow();
 });
 
-test("visualization spec — an empty derived population reads red (the empty-guard)", () => {
-    // The empty-guard: if the iframe derivation produces zero demos, the gate fails — never
-    // vacuous-green by skipping every demo. This is the invariant the S2 fix added.
-    expect(src).toMatch(/demos\.length.*toBeGreaterThan\(0\)/);
+test("deriveDemosFromIframeSrcs — non-matching srcs produce no demos", () => {
+    // Iframes that don't point at /demos/<name>.html (e.g. ads, analytics) are filtered out.
+    // If every iframe is non-matching, the result is empty — the guard reds.
+    const demos = deriveDemosFromIframeSrcs([
+        "https://example.com/ad.html",
+        "https://example.com/analytics.html",
+    ]);
+    expect(demos).toEqual([]);
+    expect(() => expect(demos.length).toBeGreaterThan(0)).toThrow();
+});
+
+test("deriveDemosFromIframeSrcs — matching srcs produce the demo names", () => {
+    // The derivation correctly extracts demo names from iframe srcs.
+    const demos = deriveDemosFromIframeSrcs([
+        "http://localhost:3118/demos/voxel.html",
+        "http://localhost:3118/demos/particles.html",
+        "http://localhost:3118/not-a-demo.html",
+    ]);
+    expect(demos).toEqual(["voxel", "particles"]);
+    expect(demos.length).toBeGreaterThan(0);
 });
