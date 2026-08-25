@@ -16,12 +16,17 @@ import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
 // literals (`0.1`, `0.05`, `1.5E-3`); a non-exact *named* f64 operand in the same `f32(...)` wrap
 // evades it — e.g. `f32(2.0 * Math.PI * rowFrequency)` at `engine/heightfield.ts:1055` (authoring-
 // only, off the bit-exact sim path) carries `Math.PI` (a named f64 constant) where the correct
-// nested form is `f32(f32(f32(2 * PI) * rowFrequency) * cellWidth)` at `engine/mesh.ts:855`.
+// nested form is `omegaZ`'s `f32(f32(f32(2 * PI) * rowFrequency) * cellWidth)` at `engine/mesh.ts:856`.
 // Wrap by hand where a named operand appears.
 //
 // **Trig class is `sin|cos|atan2`, not "transcendentals" broadly.** Rule 1 says "transcendentals"
 // (which includes `tan`, `exp`, `log`, etc.), but the swept population has 0 sites outside
-// `sin|cos|atan2` — a widened grep over `Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|sqrt\|pow\|cbrt\|sinh\|cosh\|tanh\)` in `engine/` found 6 hits: 2 in comments, 4 `Math.sin` call sites (the allowlisted ones), 0 extra.
+// `sin|cos|atan2` — a widened grep over the transcendental class
+// `Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)` in `engine/`
+// (excluding test/fixture files) found 6 hits: 2 in comments, 4 `Math.sin` call sites (the
+// allowlisted ones), 0 extra. `Math.sqrt` is algebraic, not transcendental — rule 1 sanctions
+// it — so it never belonged in a trig sweep's evidence pattern. Re-derive with:
+// `grep -rn 'Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|pow\|cbrt\|sinh\|cosh\|tanh\)' packages/shallot/src/standard/tumble/engine/ | grep -v '\.test\.\|\.fixture\.'`
 //
 // **S1b — structural safety.** The predicate's soundness no longer rests on per-sample
 // demonstration. The sweep lexes once with quote / template-literal / comment awareness
