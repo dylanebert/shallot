@@ -9,6 +9,12 @@
 // the scenariosGreen expression from the source and evaluates it with an empty array — a
 // behavioral test of the actual expression in the script, not a copy. If the guard is removed,
 // the expression evaluates to true (vacuous green) and the arm reds.
+//
+// THIS SITE COUNTS AS UNARMED. The extraction is a regex over production source, so it matches a
+// commented-out guard as readily as a live one — measured: commenting the guard out leaves this arm
+// GREEN. A source-text match cannot tell a guard from a comment, which is this spec's own defect
+// class, so this file is a note and not coverage. Arming it behaviorally needs a pure seam out of a
+// GPU-gated script; that cost was not paid here.
 
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

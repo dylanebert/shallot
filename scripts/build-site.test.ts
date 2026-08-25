@@ -8,6 +8,11 @@
 //
 // build-site.ts needs `bun install` + `npm` to build (not hermetic), so this arm reads the source
 // and asserts the two structural properties that pin the invariant.
+//
+// THIS SITE COUNTS AS UNARMED. A structural pin matches a commented-out guard as readily as a live
+// one — measured: commenting the guard out leaves this arm GREEN. A source-text match cannot tell a
+// guard from a comment, which is this spec's own defect class, so this file is a note and not
+// coverage. Arming it behaviorally needs a hermetic build fixture; that cost was not paid here.
 
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

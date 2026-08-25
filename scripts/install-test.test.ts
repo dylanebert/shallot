@@ -7,6 +7,12 @@
 //
 // install-test.ts needs a real `bun pm pack` + `bun install` (not hermetic), so this arm reads
 // the source and asserts the free-port probe is present (structural pin).
+//
+// THIS SITE COUNTS AS UNARMED. A structural pin matches a commented-out guard as readily as a live
+// one — measured: commenting the guard out leaves this arm GREEN. A source-text match cannot tell a
+// guard from a comment, which is this spec's own defect class, so this file is a note and not
+// coverage. Arming it behaviorally needs a hermetic pack-and-install fixture; that cost was not paid
+// here.
 
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
