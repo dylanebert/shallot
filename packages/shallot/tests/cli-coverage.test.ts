@@ -165,7 +165,7 @@ describe("globToRegExp", () => {
 });
 
 describe("cliPopulation suffix exclusion", () => {
-    test("excludes all five test-tier suffixes the shared roster names, not just .test.ts", async () => {
+    test("excludes every test-tier suffix the shared roster names, not just .test.ts", async () => {
         const root = resolve(import.meta.dir, "../../.."); // packages/shallot/tests -> repo root
         const population = await cliPopulation(root);
         expect(population).not.toContain("packages/shallot/bin/verify.probes.ts");

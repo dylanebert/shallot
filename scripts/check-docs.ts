@@ -533,7 +533,7 @@ if (missingIndex.length > 0 || staleIndex.length > 0) {
 // This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
 // enumeration `testing.md` itself makes — (2) the section heading agrees with its own body, and
 // (3) no file in the repo carries a literal tier-suffix roster of its own — a line enumerating 3+
-// of the 5 suffix names either as bare words with regex alternation (`|`) or as an array literal of
+// of the roster's suffix names either as bare words with regex alternation (`|`) or as an array literal of
 // quoted `.suffix.ts` strings. The consumer set is DERIVED, not enumerated: the arm scans every
 // tracked file itself, so a new file restating the roster — in either shape — is caught without
 // updating a hand-list. A fix that leaves two hand-written lists in agreement fails this criterion.
@@ -598,7 +598,7 @@ if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
 }
 
 // Derive the consumer set: scan every tracked file in the repo for a literal tier-suffix roster —
-// a line enumerating 3+ of the 5 suffix names either as bare words with regex alternation (`|`) or
+// a line enumerating 3+ of the roster's suffix names either as bare words with regex alternation (`|`) or
 // as an array literal of quoted `.suffix.ts` strings (e.g. `[".oracle.ts", ".probes.ts", ...]`).
 // Any file that carries such a roster is restating it rather than reading the shared constant; the
 // arm finds such files itself, so a new file restating the roster — in either shape — is caught
@@ -636,7 +636,7 @@ for (const file of allTrackedFiles.stdout.toString().split("\0").filter(Boolean)
               : null;
         if (hits >= 3 && shape !== null) {
             rosterFindings.push(
-                `${file}:${i + 1} carries a literal tier-suffix roster (a line enumerating ${hits} of the 5 suffix names as ${shape}) — the roster must be derived from the shared test-tiers.ts constant, not restated.`,
+                `${file}:${i + 1} carries a literal tier-suffix roster (a line enumerating ${hits} of the roster's suffix names as ${shape}) — the roster must be derived from the shared test-tiers.ts constant, not restated.`,
             );
             break; // one finding per file is enough
         }

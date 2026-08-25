@@ -17,7 +17,7 @@ import { WORLD_HALF } from "./terrain/grid";
 // Stage 4's pure-half tests — `applyEdit`, `clampToBound`, `clampDragTarget`, the worst-case capacity
 // arm, and the corridor-flatness sentinel over the first few drags of `dragCorpus.ts`'s frozen corpus
 // (the whole 200-drag corpus is `editCorridor.tier.ts`, run by path). The device-bound halves (the live
-// drag, the handle entity's y) live in `test/roads.spec.ts` via the `__roadsEdit` bridge.
+// drag, the handle entity's y) live in `test/roads.playwright.ts` via the `__roadsEdit` bridge.
 //
 // The pure halves live in `./editPure`, which imports nothing from `@dylanebert/shallot` (the barrel
 // reaches `standard/sear/codegen.ts`, which reads `GPUTextureUsage` at module scope — a `ReferenceError`
@@ -74,7 +74,7 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
     // The real red-first evidence for the ceiling deletion lives in two other arms: (1) the worst-case
     // chord capacity arm below (`edit.test.ts`, "the worst-case corner-to-corner chord stays at or under
     // ATLAS_LAYERS"), which fails at the pre-image because a corner-to-corner chord touches >64 tiles
-    // against ATLAS_LAYERS=64; and (2) the device corner arm (`test/roads.spec.ts`, `cornerApplied ===
+    // against ATLAS_LAYERS=64; and (2) the device corner arm (`test/roads.playwright.ts`, `cornerApplied ===
     // false` at the pre-image), where the old `__roadsEdit` bridge refused a target past ROAD_MAX_LENGTH
     // and returned false instead of applying the clamped edit.
     //

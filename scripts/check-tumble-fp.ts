@@ -80,9 +80,9 @@ export const TRIG_ALLOWLIST: { file: string; deviation: string }[] = [
 ];
 
 // The shared roster (`test-tiers.ts`) plus this sweep's own tumble-local `.fixture.ts` exclusion —
-// `fixture` isn't one of the five roster suffix names (test-tiers.ts's own module list excludes it),
+// `fixture` isn't one of the roster suffix names (test-tiers.ts's own module list excludes it),
 // so it rides beside the derived roster as its own single-suffix check rather than folding into a
-// second hand-written list (`check-docs.ts`'s tier-suffix roster arm forbids restating 3+ of the 5
+// second hand-written list (`check-docs.ts`'s tier-suffix roster arm forbids restating 3+ of the
 // names in any shape — regex alternation or array literal).
 const FIXTURE_SUFFIX = /\.fixture\.ts$/;
 
