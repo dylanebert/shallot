@@ -11,6 +11,9 @@ import { applyDefaults, getExclusions, getName } from "./traits";
  * in the process. multi-state scenarios (networking server+client, rollback)
  * all share one capacity by construction.
  *
+ * slot 0 is a deliberate reserve: eids start at 1 (see {@link Entities}), and a stamp of 0
+ * means "never created", so capacity admits capacity−1 entities (eids 1..capacity−1).
+ *
  * footgun: don't bind at module top level (`const SIZE = capacity * 4`) — captures
  * the default before `build` runs. read inside functions or factories instead.
  */
@@ -26,6 +29,11 @@ export let capacity = 65536;
  * monitors re-sizes the backing. Set via `build({ pixelRatio })`.
  */
 export let pixelRatio: number | "auto" = "auto";
+
+// live States that have not been disposed. A second State constructed with a differing capacity or
+// pixelRatio while one is live silently retunes the module-global, contradicting "fixed at app
+// construction" — the guard below warns on that retune so the silent desync surfaces.
+const _liveStates = new Set<State>();
 
 /**
  * ecs state passed to every system
@@ -60,9 +68,26 @@ export class State {
         pixelRatio?: number | "auto";
         mode?: "edit" | "play";
     }) {
-        if (opts?.capacity !== undefined) capacity = opts.capacity;
-        if (opts?.pixelRatio !== undefined) pixelRatio = opts.pixelRatio;
+        if (opts?.capacity !== undefined && opts.capacity !== capacity) {
+            if (_liveStates.size > 0) {
+                console.warn(
+                    `State: capacity retune from ${capacity} to ${opts.capacity} while ${_liveStates.size} State(s) are live — ` +
+                        `the module-global is shared across States; set capacity via build({ capacity }) before any State construction`,
+                );
+            }
+            capacity = opts.capacity;
+        }
+        if (opts?.pixelRatio !== undefined && opts.pixelRatio !== pixelRatio) {
+            if (_liveStates.size > 0) {
+                console.warn(
+                    `State: pixelRatio retune from ${pixelRatio} to ${opts.pixelRatio} while ${_liveStates.size} State(s) are live — ` +
+                        `the module-global is shared across States; set pixelRatio via build({ pixelRatio }) before any State construction`,
+                );
+            }
+            pixelRatio = opts.pixelRatio;
+        }
         this.mode = opts?.mode;
+        _liveStates.add(this);
     }
 
     /** current frame time and delta */
@@ -98,7 +123,8 @@ export class State {
         if (eid + 1 > capacity) {
             this._entities.remove(eid);
             throw new Error(
-                `Entity count ${eid + 1} exceeds configured capacity ${capacity}. ` +
+                `Entity eid ${eid} exceeds configured capacity ${capacity} (slot 0 reserved, so capacity ` +
+                    `admits ${capacity - 1} entities). ` +
                     `Increase via app build config: { capacity: ${Math.max(eid + 1, capacity * 2)} }.`,
             );
         }
@@ -328,6 +354,7 @@ export class State {
     dispose(): void {
         if (this._disposed) return;
         this._disposed = true;
+        _liveStates.delete(this);
         this._controller?.abort();
         // the list now carries user cleanups (a Svelte unmount, an app rAF stop) that throw more readily
         // than engine hooks, and LIFO runs them first — a throw must not skip the remaining callbacks or

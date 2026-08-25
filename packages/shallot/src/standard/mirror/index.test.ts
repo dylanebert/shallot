@@ -59,3 +59,39 @@ test("Mirror's ring growth marks its staging slot lazy", () => {
     expect(created[0].label).toBe("mirror-staging");
     expect(created[0].lazy).toBe(true);
 });
+
+// a mapAsync rejection recycles the slot with no diagnostic, so the snapshot silently stops advancing.
+// The rejection handler must signal — not swallow — so a host can see the readback died.
+test("a rejected mapAsync signals a diagnostic, not silent slot recycling", async () => {
+    const raw = { size: 16 } as GPUBuffer;
+    const stagingSlot = {
+        mapAsync: () => Promise.reject(new Error("map failed")),
+        destroy: () => {},
+    } as unknown as GPUBuffer;
+    const device = {
+        createCommandEncoder: () => ({ copyBufferToBuffer: () => {}, finish: () => ({}) }),
+        createBuffer: () => stagingSlot,
+        queue: { submit: () => {} },
+    } as unknown as GPUDevice;
+    const prevDevice = Compute.device;
+    Object.assign(Compute, { device, frame: 0 });
+
+    const errors: unknown[][] = [];
+    const origError = console.error;
+    console.error = (...args: unknown[]) => {
+        errors.push(args);
+    };
+
+    const m = mirror(raw);
+    try {
+        Mirror.flush({ time: { fixedTick: 0 } } as unknown as State);
+        // wait for the rejection callback to fire
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        expect(errors.length).toBeGreaterThan(0); // fails: rejection is silent
+    } finally {
+        console.error = origError;
+        m.dispose();
+        Object.assign(Compute, { device: prevDevice });
+    }
+});

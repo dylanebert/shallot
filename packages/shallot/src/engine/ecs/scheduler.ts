@@ -127,6 +127,7 @@ export class Scheduler {
         if (this._systems.delete(system)) {
             this._errored.delete(system);
             this._names.delete(system);
+            this._initialized.delete(system);
             this._systemsVersion++;
         }
     }

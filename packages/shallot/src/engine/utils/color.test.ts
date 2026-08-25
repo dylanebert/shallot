@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { packColor, unpackColor } from "./color";
+import { linearToSrgb, packColor, srgbToLinear, unpackColor } from "./color";
+import { linearToSrgb1, srgbToLinear1 } from "./encode";
 
 describe("unpackColor", () => {
     test("unpacks black (0x000000)", () => {
@@ -71,5 +72,36 @@ describe("packColor", () => {
     test("scales opacity into the alpha byte", () => {
         expect((packColor(0xffffff, 0.5) >>> 24) & 0xff).toBe(128);
         expect((packColor(0xffffff, 0) >>> 24) & 0xff).toBe(0);
+    });
+});
+
+// Regression pin: linearToSrgb must not produce NaN for negative inputs. The CPU ternary's
+// condition (c <= 0.0031308) routes every negative value to the linear branch, so no negative
+// ever reaches the power branch — that is what makes the function correct as written, with no
+// max(c,0) guard needed. (The TGSL twin in encode.ts:345 does need max because WGSL `select`
+// evaluates both arms.) This test pins that already-correct behavior against future regressions.
+describe("linearToSrgb", () => {
+    test("does not produce NaN for a negative channel", () => {
+        expect(Number.isNaN(linearToSrgb(-0.1))).toBe(false);
+    });
+});
+
+// Differential: pin CPU srgbToLinear/linearToSrgb against their TGSL twins in encode.ts over a sampled domain
+// that includes negatives. The TGSL twins run at f32 precision (via the typegpu schema); the CPU functions
+// run at f64, so toBeCloseTo(5) (~1e-5 tolerance) accounts for the f32/f64 gap. This covers the :5
+// no-gate finding (srgbToLinear also lacks max in its power branch) — the condition guards it the same way.
+describe("differential: CPU transfer functions vs TGSL twins", () => {
+    const domain = [-0.1, -0.01, -0.001, 0, 0.001, 0.003, 0.0031308, 0.004, 0.01, 0.1, 0.5, 1.0];
+
+    test("srgbToLinear matches srgbToLinear1 over a domain including negatives", () => {
+        for (const c of domain) {
+            expect(srgbToLinear(c)).toBeCloseTo(srgbToLinear1(c), 5);
+        }
+    });
+
+    test("linearToSrgb matches linearToSrgb1 over a domain including negatives", () => {
+        for (const c of domain) {
+            expect(linearToSrgb(c)).toBeCloseTo(linearToSrgb1(c), 5);
+        }
     });
 });

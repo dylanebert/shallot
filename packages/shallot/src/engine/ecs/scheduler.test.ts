@@ -416,6 +416,25 @@ describe("Scheduler", () => {
         });
     });
 
+    // unregister clears _errored/_names but not the _initialized WeakSet, so an unregistered-then-
+    // re-added system never re-runs setup — the scheduler thinks it already initialized.
+    test("unregister then re-register re-runs setup", () => {
+        let setupCount = 0;
+        const sys: System = {
+            group: "simulation",
+            setup: () => setupCount++,
+            update: () => {},
+        };
+        state.addSystem(sys);
+        state.step();
+        expect(setupCount).toBe(1);
+
+        state.removeSystem(sys);
+        state.addSystem(sys);
+        state.step();
+        expect(setupCount).toBe(2); // fails: _initialized still has the system
+    });
+
     describe("Cache Invalidation", () => {
         test("should invalidate cache when systems change", () => {
             const system1 = {

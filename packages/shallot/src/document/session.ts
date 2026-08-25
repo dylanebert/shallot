@@ -189,7 +189,14 @@ export class Session {
                 return true;
             case "compound": {
                 const subs = isUndo ? [...cmd.commands].reverse() : cmd.commands;
-                return subs.every((sub) => this.syncCommand(sub, isUndo));
+                // apply ALL subs (matching document `apply`, which loops every sub) and AND the results —
+                // `subs.every` short-circuits on the first false sub, so the ECS half partially applies and
+                // the published Session surface silently desyncs from the document.
+                let allOk = true;
+                for (const sub of subs) {
+                    if (!this.syncCommand(sub, isUndo)) allOk = false;
+                }
+                return allOk;
             }
         }
     }

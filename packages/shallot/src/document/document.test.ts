@@ -922,6 +922,24 @@ describe("Session", () => {
         session.syncCommand(cmd, true);
         expect(state.has(eid, Haze as never)).toBe(false);
     });
+
+    // the compound sync must apply ALL subs (matching document `apply`, which loops every sub) and AND
+    // the results — `subs.every` short-circuits on the first false sub, so the ECS half partially applies
+    // and the published Session surface silently desyncs from the document.
+    test("syncCommand compound applies all subs even when an earlier sub fails", () => {
+        const missing = createNode("missing");
+        doc.compound([
+            { type: "addAttr", node: missing, name: "haze", value: "density: 0.01" },
+            { type: "addAttr", node, name: "haze", value: "density: 0.02" },
+        ]);
+        const cmd = doc.history.undo[doc.history.undo.length - 1].cmd;
+        const result = session.syncCommand(cmd as Command, false);
+        // the first sub fails (missing node not in nodeMap), but the second sub must still be applied
+        expect(state.has(eid, Haze as never)).toBe(true);
+        expect(Haze.density.get(eid)).toBeCloseTo(0.02);
+        // the compound returns false because not all subs succeeded
+        expect(result).toBe(false);
+    });
 });
 
 describe("Compound", () => {
