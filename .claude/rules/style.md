@@ -1,6 +1,6 @@
 # Style
 
-How shallot code is shaped: naming, the shape of a function, and when to comment, across `src/engine/`, `src/standard/`, and `src/extras/`. The data-over-methods philosophy lives in `packages/shallot/AGENTS.md`; choosing a component, system, or singleton primitive lives in `ecs.md`. This file covers the rest: what to call things, how a function reads, and what's worth a comment.
+How shallot code is shaped: naming, the shape of a function, and when to comment — across all code in this repo: engine source (`src/engine/`, `src/standard/`, `src/extras/`), tests, `bin/`, `scripts/`, `evals/`, and examples alike. The data-over-methods philosophy lives in `packages/shallot/AGENTS.md`; choosing a component, system, or singleton primitive lives in `ecs.md`. This file covers the rest: what to call things, how a function reads, and what's worth a comment.
 
 ## Imitate the existing code
 
@@ -39,6 +39,8 @@ Guards are early returns, not nested branches. The work it hands off (`renderCol
 ## Comments earn their place
 
 The comment rule is universal: default to none, earn one only with a public export's JSDoc contract or the *why* behind a non-obvious line. One thing is shallot-specific: shallot code is minimal enough that the bar sits higher than elsewhere — `sear/` and `slab/` are the reference for how much to say, and when in doubt, say less.
+
+**A comment states what is true now; how the code got that way is the commit message's job.** Never restate the line, and never narrate the edit — "now we…", "changed to…", "no longer…", "previously…", "used to…" are the greppable surface forms. A `History:` section, a refuted-alternative record, or a workflow-stage chronology in a module header is the same defect at essay length: rewrite it as the invariant that holds today, or delete it. (Algorithm step labels like `// Stage 1:` in a ported kernel are fine — they name the algorithm's own stages, not this repo's workflow.)
 
 **A comment anchored to something outside this repo rots invisibly.** Never cite a workflow stage ID, a private planning path, or a symbol you are deleting; write the invariant instead, so the comment stays checkable by a reader who has only this repo. A stale anchor reads as authoritative for years — one sweep found ~90 such sites, and the last of them had to be caught by name because no regex spelled its surface form.
 
