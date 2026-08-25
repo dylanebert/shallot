@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 // Shared real-GPU adapter probe: every voxel Playwright spec (the correctness gate, the structural perf
 // gate, the measurement instrument) needs the same "skip on a software adapter" check before waiting on
-// the app's boot hook — duplicated across three specs, this is the one source. Not itself a `*.spec.ts`,
+// the app's boot hook — duplicated across three specs, this is the one source. Not itself a `*.playwright.ts`,
 // so Playwright's own testMatch never picks it up as a test file.
 
 // Software rasterizers by the name they report in `GPUAdapterInfo`: Chromium's SwiftShader, Mesa's two,

@@ -2,7 +2,7 @@
 // pose (corridorPose.ts) so a screenshot can be taken for 24b's release look.
 //
 // Exposed as `window.__roadsCorridorCapture` (`boot.ts`); the Playwright driver
-// (`test/roads.spec.ts`) calls it, waits, and saves the screenshot to a second file alongside the
+// (`test/roads.playwright.ts`) calls it, waits, and saves the screenshot to a second file alongside the
 // gate's own `test-results/roads-capture.png` (which stays unchanged in pose — it feeds the
 // fs-composite pixel probes and must not move).
 
@@ -31,7 +31,7 @@ function cameraEid(): number {
 /**
  * repositions the scene's orbit camera to the derived corridor pose (looking along the boot
  * document's first road at the derived pitch and distance), waits for the pose to settle, and
- * returns. The caller (`test/roads.spec.ts` via `window.__roadsCorridorCapture`) takes the
+ * returns. The caller (`test/roads.playwright.ts` via `window.__roadsCorridorCapture`) takes the
  * screenshot after this resolves.
  */
 export async function corridorCapture(): Promise<void> {

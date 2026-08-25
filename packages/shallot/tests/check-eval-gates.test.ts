@@ -3,11 +3,12 @@
 // it rides the default `bun test` sweep), not a unit test of engine behaviour.
 //
 // Route (S1): the eval tree `evals/` sits outside `bunfig.toml`'s
-// `root = "packages/shallot"`, so a `bun test` arm cannot live inside `evals/`
-// and be discovered. An arm under `packages/shallot/tests/` IS discovered and
-// reaches `evals/` by parsing its sources — no imports from `evals/`, so no
-// playwright/chromium dependency enters the suite. The rejected alternative
-// was a `scripts/check-eval-gates.ts` in the `check` chain: same reach, but
+// `root = "."` (widened from `"packages/shallot"` in S3), so a `bun test` arm CAN now live
+// inside `evals/` and be discovered — the S3 arms under `evals/` are reached this way.
+// This file was written before the widening, when `evals/` sat outside the `root` scope; it
+// remains a parser-based arm (no imports from `evals/`, so no playwright/chromium dependency
+// enters the suite) and is now joined by the behavioral arms the widening enabled. The rejected
+// alternative was a `scripts/check-eval-gates.ts` in the `check` chain: same reach, but
 // it reds the gate every other shallot lane runs first.
 //
 // ── Instrument: a parser, not a pattern ──

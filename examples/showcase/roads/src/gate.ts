@@ -18,7 +18,7 @@ import { generate, readVertices, SEED, syncNetworkForSeed } from "./terrain/terr
 // kernel's seed determinism, run on the real device). It's the showcase dogfooding its own testing:
 // published-`@dylanebert/shallot` surface + this project's own lib + driver, no reach into any repo
 // harness. `boot.ts` exposes it on `window.__roadsGate`; the project's own Playwright
-// (`test/roads.spec.ts`) drives it on a GPU.
+// (`test/roads.playwright.ts`) drives it on a GPU.
 //
 // `bun test ./src` (noise.test.ts, grid.test.ts, generate.test.ts) covers the device-free half: the
 // permutation table's seed determinism, the WGSL structural resolve, and the grid-topology oracle —

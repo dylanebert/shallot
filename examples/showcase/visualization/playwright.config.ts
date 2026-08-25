@@ -5,7 +5,7 @@ const URL = `http://localhost:${PORT}`;
 
 export default defineConfig({
     testDir: "./test",
-    testMatch: "visualization.spec.ts",
+    testMatch: "*.playwright.ts",
     fullyParallel: false,
     workers: 1,
     reporter: [["list"]],

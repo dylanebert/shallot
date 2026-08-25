@@ -22,7 +22,7 @@ import {
 // gradient contribution at every octave, so `GROUND_LEVEL + fbm2(0,0)*RELIEF === GROUND_LEVEL` regardless
 // of seed — useful for a fixed-camera capture that needs a real world height with no device readback).
 // HALF_WIDTH is one grid cell (grid.ts's SPACING) so an on-road/off-road probe pair can sit on exact grid
-// vertices too (test/roads.spec.ts's capture arm reads their heights via `readVertices`).
+// vertices too (test/roads.playwright.ts's capture arm reads their heights via `readVertices`).
 export const STROKE_HALF_LENGTH = 150; // metres either side of the origin
 export const STROKE_HALF_WIDTH = 4; // metres — matches terrain/grid.ts's SPACING
 export const STROKE_Z = 0;
