@@ -110,8 +110,13 @@ Options:
 
     const demos = only ? ROSTER.filter((d) => d.slug === only) : ROSTER;
 
-    // clean + recreate the output dir
-    rmSync(outDir, { recursive: true, force: true });
+    // clean + recreate the output dir — a single-demo build only clears that demo's slot,
+    // so a prior full build's other demos survive
+    if (only) {
+        rmSync(resolve(outDir, only), { recursive: true, force: true });
+    } else {
+        rmSync(outDir, { recursive: true, force: true });
+    }
     mkdirSync(outDir, { recursive: true });
 
     const rumRuntimeBundle = await buildRumRuntimeBundle();
@@ -208,8 +213,9 @@ Options:
         }
     }
 
-    // emit the site index
-    writeFileSync(resolve(outDir, "index.html"), siteIndex(demos, version, refShort));
+    // emit the site index — always lists the full roster so a single-demo build's index
+    // still references the other demos from a prior full build
+    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, refShort));
 
     const total = sizes.reduce((sum, s) => sum + parseSize(s.size), 0);
     console.log(`\n=== summary ===`);

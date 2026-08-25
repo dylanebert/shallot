@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+import { Glob } from "bun";
 import { skipReason, verify } from "./verify";
 
 // `bun run recipes` — the recipes' dynamics smoke. Each listed recipe installs a `window.__harness` (its
@@ -18,22 +20,32 @@ interface Recipe {
     timeoutMs?: number;
 }
 
-const RECIPES: Recipe[] = [
-    { dir: "moving-platform", checks: ["platform slides"] },
-    { dir: "joints", checks: ["joints hold their load"] },
-    { dir: "breakable-joints", checks: ["a joint breaks under load"] },
-    { dir: "surface-friction", checks: ["friction rates differ"] },
-    { dir: "drive-a-vehicle", checks: ["car advances under throttle"] },
-    { dir: "measure-performance", checks: ["profiler reports gpu time"] },
-    { dir: "compute-and-readback", checks: ["three charges reduce to 6.00"] },
-    {
-        dir: "gpu-particles",
-        checks: [
-            "particles rise off the spawn plane and fall back",
-            "the compute buffer is what the vertex stage binds",
-        ],
-    },
-];
+// The recipe dirs are derived from the glob `examples/recipes/*/src/smoke.ts` so a new smoke is gated by
+// construction — no hand list to drift. The per-recipe check names are a lookup; a recipe not in the map
+// runs with empty checks (still gated on verify pass + verdict.ok, just without named-check assertions).
+const CHECKS: Record<string, string[]> = {
+    "moving-platform": ["platform slides"],
+    joints: ["joints hold their load"],
+    "breakable-joints": ["a joint breaks under load"],
+    "surface-friction": ["friction rates differ"],
+    "drive-a-vehicle": ["car advances under throttle"],
+    "measure-performance": ["profiler reports gpu time"],
+    "compute-and-readback": ["three charges reduce to 6.00"],
+    "gpu-particles": [
+        "particles rise off the spawn plane and fall back",
+        "the compute buffer is what the vertex stage binds",
+    ],
+};
+
+const recipeGlob = new Glob("*/src/smoke.ts");
+const recipeDirs: string[] = [];
+for await (const path of recipeGlob.scan({
+    cwd: resolve(import.meta.dir, "../examples/recipes"),
+})) {
+    recipeDirs.push(path.split("/")[0]);
+}
+recipeDirs.sort();
+const RECIPES: Recipe[] = recipeDirs.map((dir) => ({ dir, checks: CHECKS[dir] ?? [] }));
 
 async function runRecipe(r: Recipe): Promise<boolean> {
     console.log(`\n--- ${r.dir} ---`);
@@ -66,16 +78,22 @@ Options:
     const idx = args.indexOf("--recipe");
     const only = idx !== -1 ? args[idx + 1] : undefined;
 
-    const skip = skipReason();
-    if (skip) {
-        console.log(`bun run recipes needs native hardware (${skip}). Skipping.`);
-        process.exit(0);
-    }
-
     const list = only ? RECIPES.filter((r) => r.dir === only) : RECIPES;
     if (only && list.length === 0) {
         console.error(`no recipe "${only}" — one of: ${RECIPES.map((r) => r.dir).join(", ")}`);
         process.exit(2);
+    }
+    if (!only && RECIPES.length === 0) {
+        console.error(
+            `no recipes derived from examples/recipes/*/src/smoke.ts — the glob matched nothing`,
+        );
+        process.exit(1);
+    }
+
+    const skip = skipReason();
+    if (skip) {
+        console.log(`bun run recipes needs native hardware (${skip}). Skipping.`);
+        process.exit(0);
     }
 
     console.log("Running recipe dynamics smoke...");

@@ -87,4 +87,5 @@ if (violations.length > 0) {
     console.warn(
         "\nCross-module imports must use barrel exports (index.ts) or named subpaths from package.json exports.",
     );
+    process.exit(1);
 }

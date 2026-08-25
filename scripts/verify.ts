@@ -172,14 +172,19 @@ export async function teardownBridge(): Promise<void> {
 
 // shared spawn: `shallot verify <dir> --json <extra>` from the repo root, stdout captured and (unless
 // `quiet`) echoed. `verify`/`verifyBatch` differ only in how they parse the resulting stdout — a single
-// object vs a JSON array — so the spawn itself has one source of truth.
-async function spawnVerify(dir: string, extra: string[], quiet: boolean): Promise<string> {
+// object vs a JSON array — so the spawn itself has one source of truth. Returns the stdout and the
+// process exit code; a nonzero exit must redden the verdict regardless of parsed stdout.
+async function spawnVerify(
+    dir: string,
+    extra: string[],
+    quiet: boolean,
+): Promise<{ stdout: string; exitCode: number }> {
     const cmd = isWSL ? await wslCmd(dir, extra) : ["bun", CLI, "verify", dir, "--json", ...extra];
     const proc = Bun.spawn(cmd, { cwd: repoRoot, stdout: "pipe", stderr: "inherit" });
     const stdout = await new Response(proc.stdout).text();
     if (!quiet) process.stdout.write(stdout);
-    await proc.exited;
-    return stdout;
+    const exitCode = await proc.exited;
+    return { stdout, exitCode };
 }
 
 /** spawn `shallot verify <dir> --json <extra>` from the repo root and return the parsed Result (null if
@@ -190,7 +195,25 @@ export async function verify(
     extra: string[] = [],
     quiet = false,
 ): Promise<VerifyResult | null> {
-    return extractResult(await spawnVerify(dir, extra, quiet));
+    const { stdout, exitCode } = await spawnVerify(dir, extra, quiet);
+    const result = extractResult(stdout);
+    if (exitCode !== 0 && result?.pass === true) {
+        return {
+            ...result,
+            pass: false,
+            error: result.error ?? `verify process exited ${exitCode}`,
+        };
+    }
+    if (exitCode !== 0 && result?.pass === false) {
+        return {
+            ...result,
+            error: result.error ?? `verify process exited ${exitCode}`,
+        };
+    }
+    if (exitCode !== 0 && !result) {
+        return { pass: false, error: `verify process exited ${exitCode}` };
+    }
+    return result;
 }
 
 /** what `verifyBatch` actually observed on stdout: `results` is null when no line parsed to an array —
@@ -212,8 +235,19 @@ export async function verifyBatch(
     quiet = false,
 ): Promise<BatchOutcome> {
     const runFlags = runs.flatMap((r) => ["--run", r]);
-    const stdout = await spawnVerify(dir, [...extra, ...runFlags], quiet);
-    return { results: extractBatchResult(stdout), bytes: Buffer.byteLength(stdout, "utf8") };
+    const { stdout, exitCode } = await spawnVerify(dir, [...extra, ...runFlags], quiet);
+    const results = extractBatchResult(stdout);
+    if (exitCode !== 0 && results) {
+        return {
+            results: results.map((r) =>
+                r.pass === true
+                    ? { ...r, pass: false, error: r.error ?? `verify process exited ${exitCode}` }
+                    : r,
+            ),
+            bytes: Buffer.byteLength(stdout, "utf8"),
+        };
+    }
+    return { results, bytes: Buffer.byteLength(stdout, "utf8") };
 }
 
 // the WSL spawn: the node-bundled verify, driving the bridge's remote browser. A fixed `--port` skips the
