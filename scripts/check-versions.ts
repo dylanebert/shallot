@@ -85,17 +85,24 @@ for (const [where, version] of Object.entries(targets)) {
 }
 
 // `README.md`'s demo table links each showcase's source at `tree/v<version>` — a hand-written tag
-// per row, correct today and drift-by-construction on every bump: nothing else reads it, so a
-// stale tag survives a release untouched. The arm asserts every version-bearing README link
-// agrees with the package version.
+// per row, correct today and drift-by-construction on every bump: a stale tag survived a release
+// untouched, because nothing read it. The arm asserts every version-bearing README link agrees
+// with the package version.
 const readme = await Bun.file(resolve(root, "README.md")).text();
-const tagLinkRe = /\/tree\/v(\d+\.\d+\.\d+)\b/g;
+const tagLinkRe = /dylanebert\/shallot\/tree\/v(\d+\.\d+\.\d+)\b/g;
+let readmeLinkCount = 0;
 for (const m of readme.matchAll(tagLinkRe)) {
+    readmeLinkCount++;
     if (m[1] !== shallot.version) {
         fail(
             `README.md carries a \`tree/v${m[1]}\` link, not \`tree/v${shallot.version}\` — retag the demo-table source links at the current release.`,
         );
     }
+}
+if (readmeLinkCount === 0) {
+    fail(
+        "✗ README.md carries no `tree/v<version>` links — the README-link arm would be vacuously green.",
+    );
 }
 
 // Release-time only: nothing else catches a bump that never happened. Every other arm compares
