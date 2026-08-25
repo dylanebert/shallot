@@ -1,4 +1,4 @@
-// S3 arm — examples/showcase/visualization/test/visualization.spec.ts derived-DEMOS empty-guard
+// S3 arm — examples/showcase/visualization/test/visualization.playwright.ts derived-DEMOS empty-guard
 //
 // Invariant: an empty derived population reads red. The S2 fix derived the demo list from the
 // built index.html iframes (instead of a hand list) and added an empty-guard:
