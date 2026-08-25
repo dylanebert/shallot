@@ -20,13 +20,28 @@ declare global {
 
 let state = initialFrameSamplerState;
 
-// Tracked inline rather than via a `visibilitychange` listener: a listener callback and the
-// first post-resume rAF are two separately-queued tasks with no ordering guarantee between
-// them, so a resume rAF firing before the listener's task would still see a stale
-// `lastTimestamp` and report a fake giant slow frame. Reading and clearing `wasHidden` inside
-// `tick` itself keeps the hide/resume transition and the reset in the same synchronous
-// callback — there is no second task to race.
+// `wasHidden` has two setters, for two different failure modes, and one consumer:
+//
+//   - `tick`'s own `if (document.hidden) wasHidden = true` covers a browser that still fires
+//     throttled rAF callbacks in a background tab — the flag is set from inside the loop with
+//     no listener involved.
+//   - the `visibilitychange` listener below covers the opposite and more common case (Chrome
+//     and most browsers): rAF is fully PAUSED while hidden, so no tick ever runs to set the
+//     flag itself, and without this listener `wasHidden` would stay false straight through a
+//     background interval. The listener's hide callback (`document.hidden` true) fires while
+//     the tab is still backgrounded, strictly before any resume rAF can fire — so it always
+//     wins the race, and it stays safe to run from a separate task because it *only* sets a
+//     flag; it never touches `state` and never resets.
+//
+// The reset itself — `resetFrameSampler` — runs nowhere but inside `tick`, synchronously with
+// the first visible-frame sample, regardless of which setter got there first. That is what
+// keeps the ordering race (a listener resetting `state` racing a resume rAF) from coming back:
+// the only writer of `state` is `tick`, on its own thread of control.
 let wasHidden = false;
+
+document.addEventListener("visibilitychange", () => {
+    if (document.hidden) wasHidden = true;
+});
 
 function tick(timestamp: number): void {
     // Browsers throttle or suspend rAF while a tab is hidden — skip sampling so a backgrounded
