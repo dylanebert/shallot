@@ -1955,7 +1955,7 @@ pub fn collide_hulls(
 
 // S3 — cross-language constant parity table (reference mechanism).
 //
-// Every float literal in `rust/tumble/src/**` that reaches f32 arithmetic, checked against its
+// Every non-exact float literal in `rust/tumble/src/**` that reaches f32 arithmetic, checked against its
 // C reference twin in `reference/box3d/`. A row carries an assertion exactly when its subject is
 // a readable source item (a module-level `const`/`static`); function-local `let`s and inline
 // literals cannot be read from a test module and are marked "not assertable" in the table with
@@ -1993,8 +1993,8 @@ pub fn collide_hulls(
 // │ MIN_CAPSULE_LENGTH         │ 0.005, 0x3BA3D70A             │ 0.005, 0x3BA3D70A             │ B3_LINEAR_SLOP                               │
 // │ manifold.rs:20             │ manifold.ts:41                │ manifold.rs:20               │ constants.h:55 (B3_MIN_CAPSULE_LENGTH)       │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ min_distance (0.01*slop)   │ 5e-5, 0x3851B717             │ 5e-5, 0x3851B717              │ 0.01f * B3_LINEAR_SLOP                       │
-// │ manifold.rs:982            │ manifold.ts:1049              │ manifold.rs:982              │ capsule.c:113 (tol)                           │
+// │ min_distance (0.01*slop) † │ 5e-5, 0x3851B717              │ not assertable (fn-local)     │ 0.01f * B3_LINEAR_SLOP                        │
+// │ manifold.rs:982            │ manifold.ts:1049              │ manifold.rs:982               │ convex_manifold.c:691 (minDistance)           │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ k_tolerance (manifold)  †  │ 0.005, 0x3BA3D70A             │ not assertable (fn-local)     │ 0.005f                                        │
 // │ manifold.rs:212            │ manifold.ts:~26               │ manifold.rs:212              │ manifold.c:26 (kTolerance)                    │
@@ -2066,6 +2066,8 @@ pub fn collide_hulls(
 // │ (TS distance.ts:1249)      │ (S2-wrapped)                 │ (see below)                  │ distance.c:1436 (kToleranceSquared)           │
 // └────────────────────────────┴───────────────────────────────┴───────────────────────────────┴──────────────────────────────────────────────┘
 //
+// Reconciliation: 15 assertions + 13 not assertable = 28 rows.
+
 // Absent constants — reachability readings:
 //
 // OVERLAP_SLOP (C B3_OVERLAP_SLOP = 0.1f * B3_LINEAR_SLOP, constants.h:60, bits 0x3A03126F):
@@ -2112,16 +2114,6 @@ mod c_parity {
     fn min_capsule_length() {
         // C: B3_MIN_CAPSULE_LENGTH = B3_LINEAR_SLOP (constants.h:55)
         assert_eq!(super::MIN_CAPSULE_LENGTH.to_bits(), (0.005f32 * 1.0f32).to_bits());
-    }
-
-    #[test]
-    fn min_distance_capsule() {
-        // C: tol = 0.01f * B3_LINEAR_SLOP (capsule.c:113)
-        // Rust: 0.01 * linear_slop (manifold.rs:982) — 0.01 is f32 in Rust, no double-rounding
-        assert_eq!(
-            (0.01f32 * super::LINEAR_SLOP).to_bits(),
-            (0.01f32 * (0.005f32 * 1.0f32)).to_bits()
-        );
     }
 
     // ── math.rs pub consts (readable from this module via `math::`) ──
