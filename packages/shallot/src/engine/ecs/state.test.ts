@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { angle, degrees, radians, State } from "../..";
 import { entity } from "./component";
 import {
@@ -26,6 +26,10 @@ describe("State", () => {
 
     beforeEach(() => {
         state = new State();
+    });
+
+    afterEach(() => {
+        state.dispose();
     });
 
     describe("System Registration", () => {
@@ -280,8 +284,34 @@ describe("State", () => {
                 expect(thrown).toBeInstanceOf(Error);
                 expect(capped.exists(2)).toBe(false);
                 expect(capped.entities()).toHaveLength(1);
+                capped.dispose();
             } finally {
-                new State({ capacity: restore });
+                const r = new State({ capacity: restore });
+                r.dispose();
+            }
+        });
+
+        // the constructor writes module-global capacity/pixelRatio, so a second State with a differing
+        // value silently retunes the first — contradicting "fixed at app construction". The guard
+        // warns on a differing retune while a State is live.
+        test("a second State with a differing capacity warns instead of silently retuning the first", () => {
+            const restore = sharedCapacity;
+            const warns: string[] = [];
+            const origWarn = console.warn;
+            console.warn = (...args: unknown[]) => {
+                warns.push(args.join(" "));
+            };
+            try {
+                const a = new State({ capacity: 100 });
+                const b = new State({ capacity: 200 });
+                expect(warns.length).toBeGreaterThan(0); // fails: no warning (silent retune)
+                expect(warns[0]).toContain("capacity");
+                a.dispose();
+                b.dispose();
+            } finally {
+                console.warn = origWarn;
+                const r = new State({ capacity: restore });
+                r.dispose();
             }
         });
     });
