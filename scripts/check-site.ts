@@ -222,7 +222,11 @@ if (existsSync(indexPath) && readFileSync(indexPath, "utf8").includes(RUM_INJECT
 // `site/rum-config.ts` ships `PLACEHOLDER_*` values until the Dogfood-org RUM application
 // exists (S1 credentials ask); nothing refused them at build or deploy. Gated behind
 // RUM_CONFIG_REQUIRED, same shape as SITE_OUT_REQUIRED for clause 4/5, so today's placeholder
-// state doesn't red the default suite but the deploy path can refuse it.
+// state doesn't red the default suite. Armed on the real deploy path: `.github/workflows/
+// site.yml`'s build job sets `RUM_CONFIG_REQUIRED` on this script's step to an expression that
+// mirrors the deploy job's own `if:` gate verbatim (tag push, or workflow_dispatch with
+// `deploy: true` on `main`) — so a deploying run reds on a placeholder credential and an
+// ordinary artifact-only build stays green while credentials are still pending.
 //
 // Mutation-proven both directions over the same `out/site/` build (witnessed 2026-08-25):
 //   - RUM_CONFIG_REQUIRED=1 over the current placeholder build: reds —

@@ -20,11 +20,26 @@ declare global {
 
 let state = initialFrameSamplerState;
 
+// Tracked inline rather than via a `visibilitychange` listener: a listener callback and the
+// first post-resume rAF are two separately-queued tasks with no ordering guarantee between
+// them, so a resume rAF firing before the listener's task would still see a stale
+// `lastTimestamp` and report a fake giant slow frame. Reading and clearing `wasHidden` inside
+// `tick` itself keeps the hide/resume transition and the reset in the same synchronous
+// callback — there is no second task to race.
+let wasHidden = false;
+
 function tick(timestamp: number): void {
     // Browsers throttle or suspend rAF while a tab is hidden — skip sampling so a backgrounded
-    // interval is never read as one raw delta; `visibilitychange` below resets on foreground
-    // return so the next real frame after resume is treated as a first frame instead.
-    if (!document.hidden) {
+    // interval is never read as one raw delta.
+    if (document.hidden) {
+        wasHidden = true;
+    } else {
+        if (wasHidden) {
+            // First visible frame after a backgrounded interval — reset so this frame is
+            // treated as a first frame (never reports) instead of reporting the gap.
+            state = resetFrameSampler(state);
+            wasHidden = false;
+        }
         const result = sampleFrame(state, timestamp);
         state = result.state;
         if (result.report) {
@@ -36,9 +51,5 @@ function tick(timestamp: number): void {
     }
     requestAnimationFrame(tick);
 }
-
-document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) state = resetFrameSampler(state);
-});
 
 requestAnimationFrame(tick);

@@ -102,9 +102,10 @@ export function sampleFrame(state: FrameSamplerState, timestamp: number): FrameS
  * genuine steady-state pacing, not the gap.
  *
  * @example
- * document.addEventListener("visibilitychange", () => {
- *     if (!document.hidden) state = resetFrameSampler(state);
- * });
+ * // Called inline from the rAF callback on the first visible frame after a hidden interval —
+ * // not from a `visibilitychange` listener, whose callback has no ordering guarantee relative
+ * // to the next rAF (`rum-runtime.ts`'s `tick`).
+ * if (wasHidden && !document.hidden) state = resetFrameSampler(state);
  */
 export function resetFrameSampler(state: FrameSamplerState): FrameSamplerState {
     return { ...state, lastTimestamp: null };
