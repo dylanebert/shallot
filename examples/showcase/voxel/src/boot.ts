@@ -11,7 +11,7 @@ import { Voxels } from "./voxel/mesher";
 // they exist: it fills the grid on the GPU (FBM terrain — the live visual), syncs the CPU mirror so the carve
 // path can march it, mounts the toolbar + keys, and installs the device gate. The gate + perf probe both
 // mirror `Voxels.cursor` (the per-chunk atomic face count) rather than `.indirect` — the CPU-authored draw
-// record would make the gate circular (`voxel-chunk-streaming` S2). `mode: always` so the terrain meshes
+// record would make the gate circular. `mode: always` so the terrain meshes
 // in edit mode too, not just play. Idempotent per State — `setup` re-arms it each build (ecs.md
 // "Reload-safety"); `dispose` tears the UI down so a rebuild doesn't stack overlays.
 
@@ -19,7 +19,7 @@ declare global {
     interface Window {
         // the device gate, driven by the project's own Playwright on a real GPU (test/voxel.spec.ts).
         __voxelGate?: () => Promise<Check[]>;
-        // the structural perf probe (`showcase-frame-floor` S2), driven by test/perf.spec.ts.
+        // the structural perf probe, driven by test/perf.spec.ts.
         __voxelPerf?: () => Promise<EmitDispatchSample>;
     }
 }
@@ -54,8 +54,8 @@ const BootSystem: System = {
 };
 
 async function boot(state: State, m: Mirror): Promise<void> {
-    // generate() syncs the CPU mirror itself (`voxel-chunk-streaming` S2: the mesher's chunk allocation is
-    // CPU-exact), so there's no separate syncGrid() step to sequence here anymore.
+    // generate() syncs the CPU mirror itself (the mesher's chunk allocation is CPU-exact), so there's no
+    // separate syncGrid() step to sequence here.
     await generate(SEED);
     if (state.signal.aborted) return;
     initCarve(state, document.querySelector("canvas"), SEED);

@@ -1,18 +1,17 @@
 import { expect, type Page, test } from "@playwright/test";
 import { adapterName, SOFTWARE } from "./gpu-adapter";
 
-// The showcase-frame-floor measurement instrument (S1's reproduction driver, rewritten and committed here
-// so S3's adversarial pass can re-run the same before/after measurement — a figure whose tooling wasn't
-// recorded is a figure, not a reproduction target, `checks.md`). Two windows, both read through
-// `window.__benchmark.measure(warmup, frames)` (ProfilePlugin's published surface): idle orbit (no input)
-// and a scripted carve drag driven by real pointer events (`page.mouse`, never `locator.fill()` — a gate
-// issuing no pointer event can't see an interaction cost, `checks.md`). Reports frame-interval
-// percentiles, the CPU/fence/gap decomposition, and the `voxel:emit` / `sear:*` GPU pass spans.
+// The showcase measurement instrument: two windows, both read through
+// `window.__benchmark.measure(warmup, frames)` (ProfilePlugin's published surface) — idle orbit (no input)
+// and a scripted carve drag driven by real pointer events (`page.mouse`, never `locator.fill()`, which
+// issues no pointer event and so can't see an interaction cost). Committed here rather than run ad hoc,
+// since a figure whose tooling isn't recorded isn't reproducible. Reports frame-interval percentiles, the
+// CPU/fence/gap decomposition, and the `voxel:emit` / `sear:*` GPU pass spans.
 //
 // Gates nothing (Locked decision: no arbitrary wall-clock band — on this seat's 240 Hz monitor the display
-// clock dominates both windows identically, S1 2026-08-24: p50/p95/p99 ≈ 4.2/4.3/4.3 ms, idle vs carve
-// indistinguishable). The only assertions here are instrument-health ones (the page raised no error, the
-// profiler actually reported passes) — never a threshold on the numbers this file prints.
+// clock dominates both windows identically: p50/p95/p99 ≈ 4.2/4.3/4.3 ms, idle vs carve indistinguishable).
+// The only assertions here are instrument-health ones (the page raised no error, the profiler actually
+// reported passes) — never a threshold on the numbers this file prints.
 
 const WARMUP = 30;
 const FRAMES = 180;

@@ -1,10 +1,10 @@
 // A pure, device-free first-fit free-list allocator over the face-pool number line (the CPU-side half of
-// scoped remesh, `voxel-chunk-streaming` S1): each touched chunk gets an exactly-sized contiguous region of
-// `[0, capacity)`, sized by the caller's own exact face count (`facesInChunk` in `grid.ts`) — no worst-case
-// reservation. `alloc` returns null on exhaustion (no first-fit region large enough) rather than throwing;
-// S2's caller falls back to full realloc + full re-emit through the same machinery on that signal — always
-// correct, rare. Regions merge back into the free list on `free`, so churn from repeated carves doesn't
-// fragment into unusable slivers faster than it has to.
+// scoped remesh): each touched chunk gets an exactly-sized contiguous region of `[0, capacity)`, sized by
+// the caller's own exact face count (`facesInChunk` in `grid.ts`) — no worst-case reservation. `alloc`
+// returns null on exhaustion (no first-fit region large enough) rather than throwing; the caller falls
+// back to full realloc + full re-emit through the same machinery on that signal — always correct, rare.
+// Regions merge back into the free list on `free`, so churn from repeated carves doesn't fragment into
+// unusable slivers faster than it has to.
 
 export interface Region {
     readonly start: number;
