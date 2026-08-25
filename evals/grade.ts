@@ -83,7 +83,8 @@ interface Result {
 function sh(cmd: string[], cwd: string): { ok: boolean; out: string } {
     const p = Bun.spawnSync(cmd, { cwd, stdout: "pipe", stderr: "pipe" });
     const out = `${p.stdout.toString()}\n${p.stderr.toString()}`;
-    if (p.exitCode !== 0) throw new Error(`${cmd.join(" ")} exited ${p.exitCode}\n${out.trim().slice(-800)}`);
+    if (p.exitCode !== 0)
+        throw new Error(`${cmd.join(" ")} exited ${p.exitCode}\n${out.trim().slice(-800)}`);
     return { ok: true, out };
 }
 
@@ -258,8 +259,7 @@ if (asJson) {
         }
         if (g.errors?.length) console.log(`      errors: ${g.errors.slice(0, 3).join(" | ")}`);
     }
-    const verdict =
-        result.kind === "INCOMPLETE" ? "INCOMPLETE (gate did not run)" : result.kind;
+    const verdict = result.kind === "INCOMPLETE" ? "INCOMPLETE (gate did not run)" : result.kind;
     console.log(`  => ${verdict}`);
     console.log(`\n${JSON.stringify(result)}`);
 }

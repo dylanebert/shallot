@@ -13,6 +13,13 @@ import { resolve } from "node:path";
 // and a worker process re-imports the config fresh rather than sharing this process's memory. The endpoint
 // file is the handoff Playwright's own docs name for this shape: globalSetup runs once in the root process
 // before any worker spawns, writes what it found, and each worker's later re-import reads it back.
+//
+// Roads' known, accepted gaps apply here unchanged: this is another caller into `wsl-bridge.ts`'s
+// single-session bridge, so running this gate concurrently with `bun bench`/`bun run flows` races the same
+// host staging dir; and the bridge-launched browser ignores `playwright.config.ts`'s
+// `--enable-dawn-features=allow_unsafe_apis` (`connectOptions` makes `launchOptions` inert) — unused by
+// voxel's gates today, so no live failure, but a future Dawn-unsafe-API use would only hit it over the
+// bridge path.
 const REPO_ROOT = resolve(import.meta.dirname, "../../..");
 const BRIDGE_CONNECT = resolve(REPO_ROOT, "scripts/wsl-bridge-connect.ts");
 export const ENDPOINT_FILE = resolve(
