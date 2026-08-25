@@ -324,6 +324,9 @@ mod refit_tests {
 
 #[cfg(test)]
 mod c_parity {
+    // Append-only at EOF: Rust bakes panic `file:line` into the data section, so moving this
+    // module up-file silently obligates an out-of-scope wasm rebuild. New assertions go at the
+    // bottom of this module, never above existing ones.
     // These are private `const`s in this file; read via `super::`.
 
     #[test]

@@ -9,8 +9,19 @@ import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
 // This sweeps every `f32(...)` call under the tumble engine source for that exact shape: a
 // bare (unwrapped) literal, anywhere in the call's argument tree, whose `Math.fround` differs
 // from itself. It carries a second, independent arm: every `Math.sin`/`Math.cos`/`Math.atan2`
-// call site outside the two documented trig deviations (below) is also a finding — rule 1's
+// call site outside the documented trig deviations (below) is also a finding — rule 1's
 // "port Box3D's own portable trig, never JS transcendentals" clause.
+//
+// **Scope limitation — bare numeric literals only.** The literal arm clusters *bare numeric*
+// literals (`0.1`, `0.05`, `1.5E-3`); a non-exact *named* f64 operand in the same `f32(...)` wrap
+// evades it — e.g. `f32(2.0 * Math.PI * rowFrequency)` at `engine/heightfield.ts:1055` (authoring-
+// only, off the bit-exact sim path) carries `Math.PI` (a named f64 constant) where the correct
+// nested form is `f32(f32(f32(2 * PI) * rowFrequency) * cellWidth)` at `engine/mesh.ts:855`.
+// Wrap by hand where a named operand appears.
+//
+// **Trig class is `sin|cos|atan2`, not "transcendentals" broadly.** Rule 1 says "transcendentals"
+// (which includes `tan`, `exp`, `log`, etc.), but the swept population has 0 sites outside
+// `sin|cos|atan2` — a widened grep over `Math.\(sin\|cos\|tan\|atan2\|asin\|acos\|exp\|log\|sqrt\|pow\|cbrt\|sinh\|cosh\|tanh\)` in `engine/` found 6 hits: 2 in comments, 4 `Math.sin` call sites (the allowlisted ones), 0 extra.
 //
 // **S1b — structural safety.** The predicate's soundness no longer rests on per-sample
 // demonstration. The sweep lexes once with quote / template-literal / comment awareness
@@ -53,14 +64,14 @@ export type Finding =
           snippet: string;
       };
 
-// The two documented trig deviations (tumble.md "One documented trig deviation" +
+// The documented trig deviations (tumble.md "Documented trig deviations" +
 // heightfield.ts's own self-documented second site — see spec Validation, "entry granularity
 // is (file, documented deviation), not call line"): `createWaveMesh`'s two `Math.sin` calls are
 // one entry, `createWave`'s two calls are the other. A third `Math.sin`/`cos`/`atan2` site,
 // anywhere, is a finding rather than silently joining this list.
-export const TRIG_ALLOWLIST: { file: string; deviation: string; lines: number[] }[] = [
-    { file: "engine/mesh.ts", deviation: "createWaveMesh", lines: [864, 867] },
-    { file: "engine/heightfield.ts", deviation: "createWave", lines: [1059, 1062] },
+export const TRIG_ALLOWLIST: { file: string; deviation: string }[] = [
+    { file: "engine/mesh.ts", deviation: "createWaveMesh" },
+    { file: "engine/heightfield.ts", deviation: "createWave" },
 ];
 
 // The shared roster (`test-tiers.ts`) plus this sweep's own tumble-local `.fixture.ts` exclusion —
@@ -588,6 +599,20 @@ export async function sweepLiterals(root: string): Promise<Finding[]> {
     return findings;
 }
 
+// Find the enclosing function name for a call site at `pos` in `text` (the masked source).
+// Scans backward for the nearest `function <name>` declaration. Returns "" if none found
+// (top-level call), which is never allowlisted.
+function enclosingFunction(text: string, pos: number): string {
+    // Search backward for `function NAME` — the masked text has no comments/strings to confuse.
+    const before = text.slice(0, pos);
+    const match = before.match(/\bfunction\s+(\w+)\s*\(/g);
+    if (!match) return "";
+    // The last match is the innermost enclosing function.
+    const last = match[match.length - 1];
+    const nameMatch = last.match(/\bfunction\s+(\w+)/);
+    return nameMatch ? nameMatch[1] : "";
+}
+
 // The trig arm: any `Math.sin`/`Math.cos`/`Math.atan2` call outside the allowlist above.
 export async function sweepTrig(root: string): Promise<Finding[]> {
     const findings: Finding[] = [];
@@ -596,8 +621,9 @@ export async function sweepTrig(root: string): Promise<Finding[]> {
             for (const call of findCalls(text, fn)) {
                 if (!call.balanced) continue;
                 const line = lineOf(text, call.start);
+                const enclosing = enclosingFunction(text, call.start);
                 const allowed = TRIG_ALLOWLIST.some(
-                    (a) => a.file === rel && a.lines.includes(line),
+                    (a) => a.file === rel && a.deviation === enclosing,
                 );
                 if (allowed) continue;
                 const arg = text.slice(call.argStart, call.argEnd);
@@ -645,6 +671,18 @@ export async function sweepUnparsed(root: string): Promise<Finding[]> {
     return findings;
 }
 
+// Population statistics: count of files swept and f32(...) call sites found.
+// Used by the CLI summary and the arm's empty-population guard (B4).
+export async function populationStats(root: string): Promise<{ files: number; f32Sites: number }> {
+    let files = 0;
+    let f32Sites = 0;
+    for await (const { text } of sourceFiles(root)) {
+        files++;
+        f32Sites += findCalls(text, "f32").filter((c) => c.balanced).length;
+    }
+    return { files, f32Sites };
+}
+
 export async function sweep(root: string): Promise<Finding[]> {
     const [literals, trig, unparsed] = await Promise.all([
         sweepLiterals(root),
@@ -664,7 +702,7 @@ if (import.meta.main) {
             : resolve(import.meta.dir, "../packages/shallot/src/standard/tumble"),
     );
 
-    const findings = await sweep(root);
+    const [findings, stats] = await Promise.all([sweep(root), populationStats(root)]);
 
     if (findings.length > 0) {
         console.error(`✗ ${findings.length} finding(s):\n`);
@@ -682,7 +720,7 @@ if (import.meta.main) {
         console.error(
             "\nRule 1a: fround a non-exact literal before it enters f32 arithmetic —\n" +
                 "f32(f32(0.4) * mass), never f32(0.4 * mass). A Math.sin/cos/atan2 call outside the\n" +
-                "two documented trig deviations must port Box3D's own portable trig instead.\n" +
+                "documented trig deviations must port Box3D's own portable trig instead.\n" +
                 "An unparsed site is a region the lexer could not fully decompose — safety rests\n" +
                 "on exhaustiveness over the region set plus a loud inconclusive, never a sample.\n" +
                 '(.claude/rules/tumble.md § "The contract: bit-exact f32 parity")',
@@ -690,5 +728,15 @@ if (import.meta.main) {
         process.exit(1);
     }
 
-    console.log("✓ tumble bit-exact literal sweep clean (0 findings)");
+    // B4: an empty population (0 files, 0 f32 sites) reds rather than reading clean over nothing.
+    if (stats.files === 0 || stats.f32Sites === 0) {
+        console.error(
+            `✗ empty population: ${stats.files} files, ${stats.f32Sites} f32 sites — the sweep found nothing to check`,
+        );
+        process.exit(1);
+    }
+
+    console.log(
+        `✓ tumble bit-exact literal sweep clean (0 findings, ${stats.files} files, ${stats.f32Sites} f32 sites)`,
+    );
 }
