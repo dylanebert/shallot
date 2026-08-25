@@ -6,6 +6,7 @@ import {
     BYTES,
     CHUNK,
     CHUNK_CELLS,
+    chunkNeighbors,
     coord,
     DIM,
     faces,
@@ -369,6 +370,37 @@ describe("facesInChunk — the CPU twin of the emit kernel's per-chunk emission"
             }
         }
         expect(sumChunks(data)).toBe(faces(data));
+    });
+
+    test("chunkNeighbors — an interior slot has all 6 face-adjacent neighbours, none itself", () => {
+        const slot = (4 * SLOTS.y + 4) * SLOTS.x + 4; // (4,4,4) — interior of the 8³ chunk grid
+        const neighbors = chunkNeighbors(slot);
+        expect(neighbors.length).toBe(6);
+        expect(new Set(neighbors).size).toBe(6);
+        expect(neighbors).not.toContain(slot);
+        const expected = [
+            (4 * SLOTS.y + 4) * SLOTS.x + 5,
+            (4 * SLOTS.y + 4) * SLOTS.x + 3,
+            (4 * SLOTS.y + 5) * SLOTS.x + 4,
+            (4 * SLOTS.y + 3) * SLOTS.x + 4,
+            (5 * SLOTS.y + 4) * SLOTS.x + 4,
+            (3 * SLOTS.y + 4) * SLOTS.x + 4,
+        ];
+        expect(new Set(neighbors)).toEqual(new Set(expected));
+    });
+
+    test("chunkNeighbors — a corner slot is bounds-clipped to exactly 3 neighbours", () => {
+        expect(chunkNeighbors(0).length).toBe(3); // (0,0,0)
+        const last = SLOT_COUNT - 1; // (SLOTS.x-1, SLOTS.y-1, SLOTS.z-1)
+        expect(chunkNeighbors(last).length).toBe(3);
+    });
+
+    test("chunkNeighbors is symmetric: a neighbour of A always lists A back", () => {
+        for (const slot of [0, 1, SLOT_COUNT - 1, (4 * SLOTS.y + 4) * SLOTS.x + 4]) {
+            for (const neighbor of chunkNeighbors(slot)) {
+                expect(chunkNeighbors(neighbor)).toContain(slot);
+            }
+        }
     });
 
     test("print-only — full-grid Σ facesInChunk (512 chunks) cost at boot", () => {

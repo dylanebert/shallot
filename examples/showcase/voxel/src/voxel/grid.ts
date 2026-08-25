@@ -160,6 +160,30 @@ export function faces(data: Float32Array): number {
  * a chunk boundary is not a data boundary. `Σ facesInChunk(data, slot)` over every slot equals
  * {@link faces}; this is what lets S2 allocate each touched chunk's region exactly, no worst-case pad.
  */
+/**
+ * the up-to-6 face-adjacent chunk slots of `slot`, bounds-clipped to the 8³ chunk grid — the halo a
+ * touched chunk's edit can also affect: a face straddling the shared boundary can flip on either side
+ * even when the neighbour's own occupancy is untouched (`facesInChunk`'s cross-chunk read), so a scoped
+ * remesh re-emits the halo too, not just the chunk that changed. `slot` itself is never included.
+ */
+export function chunkNeighbors(slot: number): number[] {
+    const sx = slot % SLOTS.x;
+    const sy = Math.floor(slot / SLOTS.x) % SLOTS.y;
+    const sz = Math.floor(slot / (SLOTS.x * SLOTS.y));
+    const out: number[] = [];
+    const push = (nx: number, ny: number, nz: number): void => {
+        if (nx < 0 || ny < 0 || nz < 0 || nx >= SLOTS.x || ny >= SLOTS.y || nz >= SLOTS.z) return;
+        out.push((nz * SLOTS.y + ny) * SLOTS.x + nx);
+    };
+    push(sx + 1, sy, sz);
+    push(sx - 1, sy, sz);
+    push(sx, sy + 1, sz);
+    push(sx, sy - 1, sz);
+    push(sx, sy, sz + 1);
+    push(sx, sy, sz - 1);
+    return out;
+}
+
 export function facesInChunk(data: Float32Array, slot: number): number {
     const [ox, oy, oz] = coord(slot * CHUNK_CELLS);
     let n = 0;
