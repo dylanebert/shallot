@@ -48,11 +48,41 @@
 // try with a handler, full stop, and no argv-literal (`"install"` vs
 // `"tsc"`) discriminates a site.
 //
-// Leg C repaired: the verdict derivation (and `ResultKind`) is extracted to
-// the pure, import-safe `evals/harness/result.ts`; `grade.ts` imports both.
-// Leg C now resolves `grade.ts`'s `harness/result` import binding to a real
-// declaration in `result.ts` — never a spelling, never a filename guess —
-// admissible as a presence check only because this diff creates the file.
+// Leg C RETIRED (round 2 of this repair): the type-literal scan — resolve
+// `grade.ts`'s `harness/result` import binding to the specific declaration
+// it names in `result.ts`, then read only that declaration's own type
+// members for the INCOMPLETE literal — was itself disproved by a runnable
+// mutant (a decoy alias `grade.ts` ALSO imports discharges it while the real
+// `ResultKind` carries something else: 1 pass / 0 fail with the property
+// false), plus two further demonstrated false-negative shapes (`export {
+// ResultKind }` by specifier; a template-literal union member) — the signal
+// that this is the wrong KIND of arm, not the wrong reader, per this file's
+// N-rounds clause. Dominance measurement, reproduced as this round's
+// acceptance evidence rather than re-derived: `bunx tsc` typechecks
+// `evals/` (`tsconfig.json`'s `include` covers it). Mutating ONLY the type
+// (`ResultKind = "PASS" | "FAIL" | "STOPPED"`, implementation untouched)
+// took `bunx tsc` from its 1-error floor to 4 errors, 2 inside `grade.ts`
+// (`grade.ts(118,5)` TS2322, `grade.ts(262,9)` TS2367). Mutating type AND
+// implementation consistently still reds `bunx tsc` (grade.ts's own
+// literals) AND reds this arm file 10 pass / 2 fail (this leg plus the
+// behavioral truth-table arm below, `S3 — result kind derivation
+// (behavioral)`, whose `toBe(expected)` carries "INCOMPLETE" as an external
+// expectation). So the INCOMPLETE-membership property is already carried by
+// the TYPECHECKER (`bunx tsc`) UNION the BEHAVIORAL TRUTH-TABLE ARM — leg
+// C's type scan was a strictly dominated proxy, and a fifth widening of its
+// reader is not authorized. A later stage deleting either of those two
+// enforcers voids the INCOMPLETE-membership property this file no longer
+// polices itself.
+//
+// What survives as leg C: the one fact neither enforcer above sees —
+// that `grade.ts` CONSUMES the derivation from the pure sibling module
+// rather than re-declaring it inline (`result.ts` could survive untouched
+// while `grade.ts` grew its own copy; the behavioral arm would stay green
+// regardless, since it imports `result.ts` directly). So leg C keeps only
+// the import-binding half: `grade.ts` imports from a source ending
+// `harness/result`, and every name it imports resolves to a real export of
+// that module. Renamed for what it now asserts, not for the property this
+// round retired.
 //
 // `result.ts` also gets this unit's first BEHAVIORAL arm (below the S3
 // describe block): `grade.ts` is a top-level script that can never be
@@ -74,8 +104,8 @@
 // are resolved from that declaration's name, not hardcoded. The harness/lib
 // arm resolves each gate's `ImportSpecifier` bindings from `harness/lib`
 // against `lib.ts`'s export set, never comparing a name as a spelling — the
-// same resolution, applied to `result.ts`, is what makes leg C's repair a
-// binding check rather than a spelling one.
+// same resolution, applied to `result.ts`, is what makes leg C's retained
+// import-binding half a binding check rather than a spelling one.
 //
 // `evals/harness/gate.config.ts`'s own `timeout` default was out of S1/S2
 // scope (each gate's `test.setTimeout` override wins over it, so it stays
@@ -356,8 +386,11 @@ describe("eval gate surface — mechanism (green: S1)", () => {
     //
     // Reading at S2 (the count moves with each stage that adds an owner, so
     // it is a convenience, not a claim this arm makes): 6 gates, each
-    // importing from `harness/lib`; `lib.ts` exports 12 names — 11 at S1 plus
-    // the boot budget S2 added; every imported name resolves.
+    // importing from `harness/lib`; every imported name resolves against
+    // whatever `lib.ts` currently exports — a count is not written here
+    // because `libExportedNames` re-derives the set from the file on every
+    // run, and a hand-written number beside it would rot the moment a later
+    // stage adds or removes an owner.
     test("each gate's harness/lib imports resolve against lib.ts's export set", () => {
         const root = evalRoot();
         const gates = gateFiles(root);
@@ -460,12 +493,13 @@ describe("S2 — derived boot budget", () => {
 });
 
 // S3 — staging failure maps to INCOMPLETE (landed, then repaired). Leg B
-// replaced its pre-fix pin with the post-fix assertion in S3's own diff. Legs
-// D and C are this repair round's: leg D drops the count an adversarial
-// review disproved for an exhaustive assertion over every sh() call site;
-// leg C (transferred here from S1 per Approach S1's fourth-hole verdict) now
-// resolves grade.ts's import binding into the newly-extracted result.ts
-// rather than reading a union type declared in grade.ts itself.
+// replaced its pre-fix pin with the post-fix assertion in S3's own diff. Leg
+// D drops the count an adversarial review disproved for an exhaustive
+// assertion over every sh() call site. Leg C (transferred here from S1 per
+// Approach S1's fourth-hole verdict, then RETIRED down to an import-binding
+// check in this round's repair — see the docblock above) no longer scans
+// result.ts's type-level members at all; the INCOMPLETE-membership property
+// is carried by bunx tsc union the behavioral truth-table arm below.
 describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
     // Leg B — post-fix (S3 landed; replaces the pre-fix "holds no
     // ThrowStatement" pin). `sh`'s body span in `evals/grade.ts` now holds a
@@ -546,25 +580,57 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
         }
     });
 
-    // Leg C — repaired (Law 2). `grade.ts` no longer declares `ResultKind`
-    // itself: the verdict derivation (and its `ResultKind`) is extracted to
-    // the pure, import-safe sibling `evals/harness/result.ts`, and `grade.ts`
-    // imports both the derivation function and the type. Leg C's obligation
-    // — resolve the subject to a real declaration, never a spelling or a
-    // filename guess — now reads as: `grade.ts`'s `ImportDeclaration` from a
-    // source ending `harness/result` resolves (via the same binding-
-    // resolution the harness/lib arm uses, `libExportedNames`, applied here
-    // to `result.ts`) against a real export of that module, and that module
-    // itself declares a union type carrying an INCOMPLETE member — a
-    // presence check admissible only because this diff is the one that
-    // creates `result.ts`.
+    // Leg C — RETIRED down to an import-binding check (round 2 of this
+    // repair; see the file's top docblock for the full record). The prior
+    // shape resolved `grade.ts`'s `harness/result` import binding to the
+    // specific `TSTypeAliasDeclaration` it names in `result.ts` and read
+    // that declaration's own union members for the INCOMPLETE literal —
+    // never a file-wide scan. An adversarial pass holed even THAT with a
+    // runnable mutant: `importedAliases` is computed as the UNION over
+    // every imported name that resolves to a type alias, then the literal
+    // scan runs over the union of their members — so a decoy alias
+    // `grade.ts` ALSO imports (e.g. a second type import from the same
+    // `harness/result` specifier list) discharges the check while the real
+    // `ResultKind` carries something else entirely: 1 pass / 0 fail with
+    // the property false. Two further false-negative shapes were
+    // demonstrated on top of that (`export { ResultKind }` reached by
+    // specifier rather than declaration, and a template-literal union
+    // member `TSLiteralType` never matches) — the signal that an absence-
+    // over-an-open-shape-space arm cannot be made exhaustive by widening
+    // its reader (`checks.md`'s N-rounds clause), so this leg retires the
+    // scan rather than authoring a fifth reader.
     //
-    // Post-fix reading (this round): `grade.ts` imports from a source ending
-    // `harness/result`; every imported name resolves against `result.ts`'s
-    // export set; `result.ts` declares 1 `TSTypeAliasDeclaration` with a
-    // `TSUnionType` annotation, 3 `TSLiteralType` members — `"PASS"`,
-    // `"FAIL"`, `"INCOMPLETE"`.
-    test("grade.ts's harness/result import resolves to a union type carrying an INCOMPLETE member (post-fix; S3)", () => {
+    // Dominance measurement (this round's acceptance evidence, reproduced
+    // rather than re-derived — see the report for the actual run):
+    // `shallot/tsconfig.json`'s `include` covers `evals`, so `bunx tsc`
+    // typechecks it. Mutating ONLY the type (`ResultKind = "PASS" | "FAIL"
+    // | "STOPPED"`, implementation untouched) took `bunx tsc` from its
+    // 1-error floor to 4 errors, 2 inside `grade.ts` (`grade.ts(118,5)`
+    // TS2322, `grade.ts(262,9)` TS2367). Mutating type AND implementation
+    // consistently still reds `bunx tsc` (grade.ts's own literals) AND
+    // reds this arm file 10 pass / 2 fail — this leg plus the behavioral
+    // truth-table arm below (`S3 — result kind derivation (behavioral)`),
+    // whose `toBe(expected)` carries the string "INCOMPLETE" as an external
+    // expectation. So the INCOMPLETE-membership property is carried by the
+    // TYPECHECKER (`bunx tsc`) UNION the BEHAVIORAL TRUTH-TABLE ARM, and
+    // the type-literal scan was a strictly dominated proxy over both. A
+    // later stage that deletes either of those two enforcers is what voids
+    // the property this leg used to police directly.
+    //
+    // What this leg still uniquely covers: neither enforcer above sees
+    // whether `grade.ts` CONSUMES the derivation from the pure sibling
+    // module rather than re-declaring it inline — `result.ts` could survive
+    // byte-for-byte untouched while `grade.ts` grew its own copy of the
+    // union and the derivation, and the behavioral arm would stay green
+    // regardless, since it imports `result.ts` directly rather than through
+    // `grade.ts`. So the retained assertion is import-binding only: every
+    // name `grade.ts` imports from a source ending `harness/result` must
+    // resolve to a real export of that module (never a spelling, never a
+    // filename guess — the same binding-resolution shape as the
+    // harness/lib arm above). Renamed for exactly that assertion, per
+    // `checks.md`'s "name the arm for what it asserts, not for the
+    // property you wish it had".
+    test("grade.ts's harness/result import resolves to a real export of that module", () => {
         const root = evalRoot();
         const ast = gradeAst(root);
 
@@ -586,34 +652,19 @@ describe("S3 — staging failure maps to INCOMPLETE (post-fix)", () => {
 
         const resultPath = join(root, "evals", "harness", "result.ts");
         const resultAst = parseFile(resultPath);
+
+        // Every imported name must resolve to a real export in result.ts —
+        // binding resolution against the module's real export set, never a
+        // spelling. This is the whole assertion: it says nothing about what
+        // any resolved declaration's own members are (that property is
+        // carried by bunx tsc union the behavioral truth-table arm, per the
+        // docblock above).
         const exportedNames = libExportedNames(resultAst);
         // Population control — result.ts must export something.
         expect(exportedNames.size).toBeGreaterThan(0);
         for (const name of importedNames) {
             expect(exportedNames.has(name)).toBe(true);
         }
-
-        // Presence: result.ts itself declares a union type carrying the
-        // INCOMPLETE literal — never resolved by a bare string anywhere in
-        // the file (a display string, a comment) since only a
-        // `TSUnionType` member produces this node shape.
-        const aliases = collect(resultAst, "TSTypeAliasDeclaration");
-        expect(aliases.length).toBeGreaterThan(0);
-        const literalValues: string[] = [];
-        for (const alias of aliases) {
-            const ann = alias.typeAnnotation as Node | undefined;
-            if (ann?.type !== "TSUnionType") continue;
-            for (const member of (ann.types as Node[] | undefined) ?? []) {
-                if (member.type !== "TSLiteralType") continue;
-                const literal = member.literal as Node | undefined;
-                if (literal?.type === "StringLiteral") literalValues.push(literal.value as string);
-            }
-        }
-        // Population control — at least one union-type alias with string-
-        // literal members exists; an empty list means the reader found the
-        // wrong declaration shape, not that the property is false.
-        expect(literalValues.length).toBeGreaterThan(0);
-        expect(literalValues).toContain("INCOMPLETE");
     });
 });
 
@@ -1011,5 +1062,270 @@ describe("S4 — blocker 2's floor: per-test value covers the gate's OWN boot() 
 
             expect(gateValue as number).toBeGreaterThanOrEqual(requirement);
         }
+    });
+});
+
+// Leg H, round 2 — FAIL-CLOSED, and scoped to what it can actually see. The
+// round-1 shape scanned every `ObjectProperty` node in a gate file's own AST
+// for a `timeout` key and required a bare `Identifier` value — blind to an
+// options object built in ANOTHER file and passed by identifier (demonstrated
+// live: `export const SNEAKY_OPTS = { timeout: 999_999 }` in `harness/lib.ts`,
+// imported into `red-box/gate.ts` and passed as
+// `page.waitForSelector("canvas", SNEAKY_OPTS)`, left round 1's leg at 4 pass /
+// 0 fail with a 999_999 ms hand-written timeout live) and, in the safe
+// direction, over-narrow: `timeout: 2 * FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS`
+// reds identically to a hand literal, because round 1 required the whole value
+// to be a bare `Identifier`.
+//
+// New shape. For every gate file, take each Playwright CALL rooted at the
+// test's own `page` fixture (`page.foo(...)`, `page.foo.bar(...)`,
+// `page.foo(...).bar(...)` — any callee chain that bottoms out at the
+// `page` identifier, walked structurally rather than by a method-name
+// spelling), and read its LAST argument — the options slot in every
+// Playwright method that accepts one:
+//   (a) an `ObjectExpression` carrying a `timeout:` property: the value
+//       expression must carry at least one `Identifier` leaf, and EVERY
+//       `Identifier` leaf in it must resolve — via this gate's own
+//       `ImportSpecifier` binding from `harness/lib`, `resolveLibImportName`,
+//       the exact shape leg A/E/F/G already use, reused rather than
+//       reinvented — to a name whose runtime value in the root under test is
+//       a number. A value with zero `Identifier` leaves (a bare
+//       `NumericLiteral`, or an expression built entirely from literals, e.g.
+//       `2 * 20_000`) has nothing tying it to an owner and is inadmissible; a
+//       literal coefficient beside a resolved leaf (`2 *
+//       FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS`) is admissible, because the
+//       quantity is still traceable to a real owner, only scaled. An
+//       `ObjectExpression` carrying no `timeout:` key at all (`{ steps: 12 }`)
+//       is not applicable and is left alone.
+//   (b) NOT an `ObjectExpression` — a bare `Identifier`, a `SpreadElement`, or
+//       a `CallExpression` — resolved to its declaration: an `Identifier`
+//       bound to a `harness/lib` import is read as that module's own export
+//       (rule (a) applied to ITS `timeout:`, if it carries one); an
+//       `Identifier` bound to a declaration in the SAME gate file is read the
+//       same way if that declaration is itself an `ObjectExpression`, and
+//       left alone (not applicable) if it resolves to anything else — a
+//       coordinate, a computed member read — since that is structurally not
+//       an options object. An `Identifier` with NO findable declaration, or a
+//       `SpreadElement`/`CallExpression` argument (this leg does not evaluate
+//       spreads or call results), is UNREADABLE and reds the leg — fail
+//       closed, so an indirection this leg cannot see through is a red rather
+//       than a silent pass.
+// Any other last-argument shape (a `StringLiteral` selector, a
+// `TemplateLiteral`, an event-handler `ArrowFunctionExpression`, a
+// `MemberExpression` like `target.key`, a plain coordinate expression) is
+// none of the forms above and is not itself carrying a `timeout:` — left
+// alone, not applicable.
+//
+// Boundary, stated rather than claimed away: this leg reads exactly the
+// shapes above — a direct options object, or ONE hop through an identifier
+// bound to a `harness/lib` export or a same-file declaration. A `timeout:`
+// reachable only through a DEEPER indirection (an identifier bound to a
+// function call's return value, a value assembled two modules away and
+// re-exported, an options object spread together at the call site) evades
+// it; that shape reds this leg instead of passing silently, but it is not
+// something this leg positively verifies as safe. This is a match-shape
+// limit, not a promise that every restatement is caught — `checks.md`'s own
+// clause on why a docblock claiming "any restatement" would be a false
+// statement in a permanent file.
+//
+// Population control across the whole class: at least one `timeout:` is
+// actually evaluated (checked, pass or fail) somewhere in the six gates
+// today (falling-box's) — a root where every gate's last-argument scan finds
+// nothing to evaluate would otherwise pass vacuously.
+//
+// Two-sided witness (reproduced this round, see the report for the actual
+// readings): reverting falling-box's `waitForSelector` back to the bare
+// literal `{ timeout: 20_000 }` reds this leg (zero Identifier leaves); the
+// SNEAKY_OPTS mutant above reds it (the resolved harness/lib export's own
+// `timeout:` is a bare `999_999`, zero Identifier leaves); the real tree is
+// green; `2 * FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS` is green (one Identifier
+// leaf, owner-resolved); `2 * 20_000` reds (zero Identifier leaves).
+//
+// `while (Date.now() - t0 < 6_000)` on falling-box:37 is a sampling window
+// (how long to keep drawing centroid samples), never an argument passed to a
+// `page.*` call at all — this leg's `playwrightPageCalls` walk never reaches
+// it, and it is left alone.
+
+// Does this call's callee chain bottom out at the test's own `page` fixture?
+// Walked structurally (MemberExpression.object, CallExpression.callee)
+// rather than by a method-name spelling, so `page.foo(...)`,
+// `page.foo.bar(...)` and `page.foo(...).bar(...)` (chained locator calls)
+// are all reached the same way.
+function calleeRootsAtPage(node: Node): boolean {
+    if (node.type === "Identifier") return node.name === "page";
+    if (node.type === "MemberExpression") return calleeRootsAtPage(node.object as Node);
+    if (node.type === "CallExpression") return calleeRootsAtPage(node.callee as Node);
+    return false;
+}
+
+function playwrightPageCalls(ast: Node): Node[] {
+    return collect(ast, "CallExpression").filter((call) => calleeRootsAtPage(call.callee as Node));
+}
+
+// `export const NAME = <init>` in a module — generic over the module, used
+// both for `harness/lib`'s exports (rule (b)'s harness/lib branch) and
+// reusable for any sibling module of the same export shape.
+function exportedDeclarationInit(ast: Node, name: string): Node | undefined {
+    for (const e of collect(ast, "ExportNamedDeclaration")) {
+        const decl = e.declaration as Node | undefined;
+        if (decl?.type !== "VariableDeclaration") continue;
+        for (const d of (decl.declarations as Node[] | undefined) ?? []) {
+            const id = d.id as Node | undefined;
+            if (id?.type === "Identifier" && id.name === name) return d.init as Node | undefined;
+        }
+    }
+    return undefined;
+}
+
+// A same-file `const NAME = <init>` (or `let`/`var`) — file-wide match, the
+// same simplification `resolveLibImportName` and friends already make
+// throughout this file (no real scope analysis), used for rule (b)'s
+// non-import branch (e.g. `cy` in orbit-on-drag, a plain coordinate).
+function localDeclarationInit(ast: Node, name: string): Node | undefined {
+    for (const d of collect(ast, "VariableDeclarator")) {
+        const id = d.id as Node | undefined;
+        if (id?.type === "Identifier" && id.name === name) return d.init as Node | undefined;
+    }
+    return undefined;
+}
+
+// Does `name`, as used at a site in `ast`, resolve through `ast`'s own
+// `harness/lib` `ImportSpecifier` binding to an export whose runtime value in
+// the root under test is a number? Reuses `resolveLibImportName` rather than
+// re-deriving the binding resolution S4's lock already demands elsewhere in
+// this file.
+function resolvesToNumericOwner(
+    ast: Node,
+    name: string,
+    libModule: Record<string, unknown>,
+): boolean {
+    const resolved = resolveLibImportName(ast, name);
+    return resolved !== undefined && typeof libModule[resolved] === "number";
+}
+
+// Rule (a)'s admissibility test for a `timeout:` value expression: at least
+// one `Identifier` leaf, and every `Identifier` leaf anywhere in the
+// expression resolves to a numeric harness/lib owner. A value built entirely
+// from literals (zero Identifier leaves) has nothing tying it to an owner.
+// `collect` also walks a non-computed MemberExpression's own `.property`
+// Identifier as a "leaf" — none of today's six gates' timeout values contain
+// a MemberExpression, so this is a disclosed gap rather than a witnessed one.
+function timeoutValueAdmissible(
+    ast: Node,
+    valueExpr: Node,
+    libModule: Record<string, unknown>,
+): boolean {
+    const leaves = collect(valueExpr, "Identifier");
+    if (leaves.length === 0) return false;
+    return leaves.every((leaf) => resolvesToNumericOwner(ast, leaf.name as string, libModule));
+}
+
+type OptionsOutcome = "timeout-checked" | "unresolved" | "not-applicable";
+
+// Rules (a) and (b) for one options argument (a Playwright call's last
+// argument). Pushes a message to `violations` for every inadmissible or
+// unresolvable shape; returns which of the three outcomes applied, so the
+// caller's population control can tell "nothing to check here" apart from
+// "checked and it held".
+function evaluateOptionsArgument(
+    ast: Node,
+    arg: Node,
+    libAst: Node,
+    libModule: Record<string, unknown>,
+    violations: string[],
+    label: string,
+): OptionsOutcome {
+    if (arg.type === "ObjectExpression") {
+        const tval = objectProperty(arg, "timeout");
+        if (!tval) return "not-applicable";
+        if (!timeoutValueAdmissible(ast, tval, libModule)) {
+            violations.push(
+                `${label}: a timeout: value must have >=1 Identifier leaf, every leaf resolving to a harness/lib numeric owner (got ${tval.type})`,
+            );
+        }
+        return "timeout-checked";
+    }
+    if (arg.type === "Identifier") {
+        const libName = resolveLibImportName(ast, arg.name as string);
+        if (libName !== undefined) {
+            const init = exportedDeclarationInit(libAst, libName);
+            if (init === undefined) {
+                violations.push(
+                    `${label}: options identifier ${arg.name as string} resolves to harness/lib export ${libName}, whose own declaration this leg could not find — fail closed`,
+                );
+                return "unresolved";
+            }
+            if (init.type !== "ObjectExpression") return "not-applicable";
+            const tval = objectProperty(init, "timeout");
+            if (!tval) return "not-applicable";
+            if (!timeoutValueAdmissible(libAst, tval, libModule)) {
+                violations.push(
+                    `${label}: options identifier ${arg.name as string} (harness/lib export ${libName}) carries a timeout: that does not resolve to a numeric owner (got ${tval.type})`,
+                );
+            }
+            return "timeout-checked";
+        }
+        const localInit = localDeclarationInit(ast, arg.name as string);
+        if (localInit === undefined) {
+            violations.push(
+                `${label}: options identifier ${arg.name as string} has no declaration this leg can find — fail closed`,
+            );
+            return "unresolved";
+        }
+        if (localInit.type !== "ObjectExpression") return "not-applicable";
+        const tval = objectProperty(localInit, "timeout");
+        if (!tval) return "not-applicable";
+        if (!timeoutValueAdmissible(ast, tval, libModule)) {
+            violations.push(
+                `${label}: options identifier ${arg.name as string} (local declaration) carries a timeout: that does not resolve to a numeric owner (got ${tval.type})`,
+            );
+        }
+        return "timeout-checked";
+    }
+    if (arg.type === "SpreadElement" || arg.type === "CallExpression") {
+        violations.push(
+            `${label}: options argument is a ${arg.type}, which this leg does not resolve — fail closed`,
+        );
+        return "unresolved";
+    }
+    return "not-applicable";
+}
+
+describe("timeout options — every options argument a gate passes to a page call, hand-written or one hop away", () => {
+    test("every reachable timeout: resolves to a harness/lib numeric owner; an unresolvable indirection fails closed", async () => {
+        const root = evalRoot();
+        const gates = gateFiles(root);
+        expect(gates).toHaveLength(6);
+
+        const libPath = join(root, "evals", "harness", "lib.ts");
+        const libAst = parseFile(libPath);
+        const libModule = (await import(libPath)) as Record<string, unknown>;
+        const exportedNames = libExportedNames(libAst);
+        // Population control — lib.ts must export something.
+        expect(exportedNames.size).toBeGreaterThan(0);
+
+        const violations: string[] = [];
+        let timeoutHits = 0;
+        for (const gate of gates) {
+            const ast = parseFile(gate);
+            for (const call of playwrightPageCalls(ast)) {
+                const args = (call.arguments as Node[] | undefined) ?? [];
+                if (args.length === 0) continue;
+                const outcome = evaluateOptionsArgument(
+                    ast,
+                    args[args.length - 1],
+                    libAst,
+                    libModule,
+                    violations,
+                    gate,
+                );
+                if (outcome === "timeout-checked") timeoutHits++;
+            }
+        }
+        // Population control — at least one timeout: is actually evaluated
+        // somewhere in the class today (falling-box's), or the reader lost its
+        // subject rather than the property being universally absent.
+        expect(timeoutHits).toBeGreaterThan(0);
+        expect(violations).toEqual([]);
     });
 });
