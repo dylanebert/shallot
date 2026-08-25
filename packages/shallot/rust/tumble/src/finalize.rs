@@ -318,3 +318,33 @@ mod refit_tests {
         assert!(escaped);
     }
 }
+
+// S3 — c_parity: SPECULATIVE_DISTANCE, POSITION_SLEEP_FACTOR, SAFETY_FACTOR parity assertions.
+// Canonical table: see `manifold.rs` `c_parity` header comment.
+
+#[cfg(test)]
+mod c_parity {
+    // These are private `const`s in this file; read via `super::`.
+
+    #[test]
+    fn speculative_distance_finalize() {
+        // C: B3_SPECULATIVE_DISTANCE = 4.0f * B3_LINEAR_SLOP (constants.h:73)
+        // B3_LINEAR_SLOP = 0.005f * 1.0f, so 4.0f * (0.005f * 1.0f)
+        assert_eq!(
+            super::SPECULATIVE_DISTANCE.to_bits(),
+            (4.0f32 * (0.005f32 * 1.0f32)).to_bits()
+        );
+    }
+
+    #[test]
+    fn position_sleep_factor() {
+        // C: positionSleepFactor = 0.5f (solver.c:715, exact k/2^n)
+        assert_eq!(super::POSITION_SLEEP_FACTOR.to_bits(), 0.5f32.to_bits());
+    }
+
+    #[test]
+    fn safety_factor() {
+        // C: safetyFactor = 0.5f (solver.c:747, exact k/2^n)
+        assert_eq!(super::SAFETY_FACTOR.to_bits(), 0.5f32.to_bits());
+    }
+}

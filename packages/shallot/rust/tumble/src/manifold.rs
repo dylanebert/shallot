@@ -1955,113 +1955,122 @@ pub fn collide_hulls(
 
 // S3 — cross-language constant parity table (reference mechanism).
 //
-// Every non-exact float literal in `rust/tumble/src/**` that reaches f32 arithmetic, checked
-// against its C reference twin in `reference/box3d/`. Exact literals (k/2^n: 0.0, 0.25, 0.5,
-// 1.0, 2.0, 4.0, 5.0, 6.0, 16.0, 100.0, 1000.0) are trivially bit-identical and excluded from
-// assertions. No Rust literal diverges from its C reference — Rust f32 literals are already f32
-// (no double-rounding, unlike JS where `0.01` is f64 until `Math.fround`), so the entire class
-// of bugs S2 fixed in TypeScript does not exist in Rust.
+// Every float literal in `rust/tumble/src/**` that reaches f32 arithmetic, checked against its
+// C reference twin in `reference/box3d/`. A row carries an assertion exactly when its subject is
+// a readable source item (a module-level `const`/`static`); function-local `let`s and inline
+// literals cannot be read from a test module and are marked "not assertable" in the table with
+// the value verified by hand against C. Exactness (k/2^n) is an annotation on the row, never an
+// exclusion criterion — exact literals like POSITION_SLEEP_FACTOR (0.5) and FLT_EPSILON (2^-23)
+// are asserted when they are readable source items. No Rust literal diverges from its C
+// reference — Rust f32 literals are already f32 (no double-rounding, unlike JS where `0.01` is
+// f64 until `Math.fround`), so the entire class of bugs S2 fixed in TypeScript does not exist in
+// Rust.
+//
+// Assertions for module-level consts in other files live in that file's own `c_parity` module
+// (appended at end-of-file), reading `super::THE_CONST` directly. This module holds only the
+// constants defined in `manifold.rs` itself plus the `pub const`s in `math.rs`.
 //
 // Enumeration command (run from `rust/tumble/src/`):
-//   for f in *.rs; do test_start=$(grep -n '#\[cfg(test)\]' "$f" | head -1 | cut -d: -f1); \
-//     head -n "$((test_start - 1))" "$f" | grep -v '^\s*//' | grep -oE '[0-9]+\.?[0-9]*' | sort -u; \
-//   done | sort -u
+//   for f in *.rs; do sed '/#\[cfg(test)\]/,$d' "$f" | grep -v '^\s*//' | grep -oE '[0-9]+\.?[0-9]*' | sort -u; done | sort -u
 // Excluded as noise: comment-only lines, test-module code, integer literals in array sizes /
-// struct field indices, and exact k/2^n literals (listed above).
+// struct field indices. Exact k/2^n literals are annotated in the table, not excluded from it.
+//
+// Legend: † = not assertable (function-local `let` or inline literal; no test can read it).
 //
 // ┌────────────────────────────┬───────────────────────────────┬───────────────────────────────┬──────────────────────────────────────────────┐
-// │ Constant                   │ TS (value, f32 bits)           │ Rust (value, f32 bits)        │ C reference (value, file:line)               │
+// │ Constant                   │ TS (value, f32 bits)           │ Rust (value, f32 bits)        │ C reference (value, file:line symbol)         │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ LINEAR_SLOP                │ 0.005, 0x3BA3D70A             │ 0.005, 0x3BA3D70A             │ 0.005f * b3GetLengthUnitsPerMeter()          │
-// │ manifold.rs:18             │ core.ts:16, manifold.ts:39     │ manifold.rs:18               │ constants.h:53 (default units → 0.005f)      │
+// │ manifold.rs:18             │ core.ts:16, manifold.ts:39     │ manifold.rs:18               │ constants.h:53 (B3_LINEAR_SLOP)              │
+// │                            │                               │                              │ core.c:39 (b3_lengthUnitsPerMeter = 1.0f)    │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ SPECULATIVE_DISTANCE       │ 0.02, 0x3CA3D70A              │ 0.02, 0x3CA3D70A              │ 4.0f * B3_LINEAR_SLOP                        │
-// │ manifold.rs:19             │ core.ts:20, manifold.ts:40    │ manifold.rs:19               │ constants.h:73                               │
+// │ manifold.rs:19             │ core.ts:20, manifold.ts:40    │ manifold.rs:19               │ constants.h:73 (B3_SPECULATIVE_DISTANCE)      │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ SPECULATIVE_DISTANCE       │ 0.02, 0x3CA3D70A              │ 0.02, 0x3CA3D70A              │ 4.0f * B3_LINEAR_SLOP                        │
-// │ finalize.rs:47             │ (same as above)               │ finalize.rs:47               │ constants.h:73                               │
+// │ finalize.rs:47             │ (same as above)               │ finalize.rs:47               │ constants.h:73 (B3_SPECULATIVE_DISTANCE)      │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ MIN_CAPSULE_LENGTH         │ 0.005, 0x3BA3D70A             │ 0.005, 0x3BA3D70A             │ B3_LINEAR_SLOP                               │
-// │ manifold.rs:20             │ manifold.ts:41                │ manifold.rs:20               │ constants.h:55                               │
+// │ manifold.rs:20             │ manifold.ts:41                │ manifold.rs:20               │ constants.h:55 (B3_MIN_CAPSULE_LENGTH)       │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
 // │ min_distance (0.01*slop)   │ 5e-5, 0x3851B717             │ 5e-5, 0x3851B717              │ 0.01f * B3_LINEAR_SLOP                       │
-// │ manifold.rs:982            │ manifold.ts:1049              │ manifold.rs:982              │ capsule.c:113                                │
+// │ manifold.rs:982            │ manifold.ts:1049              │ manifold.rs:982              │ capsule.c:113 (tol)                           │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ k_tolerance (manifold)     │ 0.005, 0x3BA3D70A             │ 0.005, 0x3BA3D70A             │ 0.005f                                       │
-// │ manifold.rs:212            │ manifold.ts:~26               │ manifold.rs:212              │ manifold.c:26                                │
+// │ k_tolerance (manifold)  †  │ 0.005, 0x3BA3D70A             │ not assertable (fn-local)     │ 0.005f                                        │
+// │ manifold.rs:212            │ manifold.ts:~26               │ manifold.rs:212              │ manifold.c:26 (kTolerance)                    │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ bias (clip)                │ 0.95, 0x3F733333              │ 0.95, 0x3F733333              │ 0.95f                                        │
-// │ manifold.rs:648            │ manifold.ts:~660              │ manifold.rs:648              │ convex_manifold.c:338                        │
+// │ bias (clip)             †  │ 0.95, 0x3F733333              │ not assertable (fn-local)     │ 0.95f                                         │
+// │ manifold.rs:648            │ manifold.ts:~660              │ manifold.rs:648              │ convex_manifold.c:338 (bias)                  │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ alpha_tol                  │ 0.05, 0x3D4CCCCCD            │ 0.05, 0x3D4CCCCCD             │ 0.05f                                        │
-// │ manifold.rs:1003           │ manifold.ts:~1020             │ manifold.rs:1003             │ convex_manifold.c:716                        │
+// │ alpha_tol                †  │ 0.05, 0x3D4CCCCCD            │ not assertable (fn-local)     │ 0.05f                                         │
+// │ manifold.rs:1003           │ manifold.ts:~1020             │ manifold.rs:1003             │ convex_manifold.c:716 (alphaTol)              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ k_tolerance (hull-capsule) │ 0.998, 0x3F7F7CEE            │ 0.998, 0x3F7F7CEE             │ 0.998f                                       │
-// │ manifold.rs:1309           │ manifold.ts:~1320             │ manifold.rs:1309             │ convex_manifold.c:974                        │
+// │ k_tolerance (hull-caps) †  │ 0.998, 0x3F7F7CEE            │ not assertable (fn-local)     │ 0.998f                                        │
+// │ manifold.rs:1309           │ manifold.ts:~1320             │ manifold.rs:1309             │ convex_manifold.c:974 (kTolerance)            │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ k_rel_edge_tolerance (×2)  │ 0.9, 0x3F666666              │ 0.9, 0x3F666666               │ 0.90f                                        │
-// │ manifold.rs:1402,1929      │ manifold.ts:~1410,~1940      │ manifold.rs:1402,1929        │ convex_manifold.c:1062,1572                  │
+// │ k_rel_edge_tol (×2)     †  │ 0.9, 0x3F666666              │ not assertable (fn-local)     │ 0.90f                                         │
+// │ manifold.rs:1402,1929      │ manifold.ts:~1410,~1940      │ manifold.rs:1402,1929        │ convex_manifold.c:1062,1572 (kRelEdgeTol)     │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ PI                         │ 3.1415927, 0x40490FDB        │ 3.1415927, 0x40490FDB         │ 3.14159265359f                               │
-// │ math.rs:19                 │ math.ts:~20                   │ math.rs:19                   │ math_functions.h:21                          │
+// │ PI                         │ 3.1415927, 0x40490FDB        │ 3.1415927, 0x40490FDB         │ 3.14159265359f                                │
+// │ math.rs:19                 │ math.ts:~20                   │ math.rs:19                   │ math_functions.h:21 (B3_PI)                   │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ FLT_EPSILON                │ 1.1920929e-7, 0x34000000     │ 1.1920929e-7, 0x34000000      │ FLT_EPSILON (<float.h>)                      │
-// │ math.rs:21                 │ math.ts:~22                   │ math.rs:21                   │ (C standard library)                         │
+// │ FLT_EPSILON                │ 1.1920929e-7, 0x34000000     │ 1.1920929e-7, 0x34000000      │ FLT_EPSILON (<float.h>, exact 2^-23)          │
+// │ math.rs:21                 │ math.ts:~22                   │ math.rs:21                   │ (C standard library)                          │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ FLT_MIN                    │ 1.1754944e-38, 0x00800000   │ 1.1754944e-38, 0x00800000     │ FLT_MIN (<float.h>)                          │
-// │ math.rs:22                 │ math.ts:~23                   │ math.rs:22                   │ (C standard library)                         │
+// │ FLT_MIN                    │ 1.1754944e-38, 0x00800000   │ 1.1754944e-38, 0x00800000     │ FLT_MIN (<float.h>, exact 2^-126)             │
+// │ math.rs:22                 │ math.ts:~23                   │ math.rs:22                   │ (C standard library)                          │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ ATAN_P0                    │ 0.024840284, 0x3CCB7DDA     │ 0.024840284, 0x3CCB7DDA       │ 0.024840285f                                 │
-// │ math.rs:112                │ math.ts:~113                  │ math.rs:112                  │ math_functions.c:188                         │
+// │ ATAN_P0                    │ 0.024840284, 0x3CCB7DDA     │ 0.024840284, 0x3CCB7DDA       │ 0.024840285f                                  │
+// │ math.rs:112                │ math.ts:~113                  │ math.rs:112                  │ math_functions.c:188 (atan coeff)             │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ ATAN_P1                    │ 0.18681417, 0x3E3F4C37      │ 0.18681417, 0x3E3F4C37        │ 0.18681418f                                  │
-// │ math.rs:113                │ math.ts:~114                  │ math.rs:113                  │ math_functions.c:188                         │
+// │ ATAN_P1                    │ 0.18681417, 0x3E3F4C37      │ 0.18681417, 0x3E3F4C37        │ 0.18681418f                                   │
+// │ math.rs:113                │ math.ts:~114                  │ math.rs:113                  │ math_functions.c:188 (atan coeff)             │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ ATAN_P2                    │ -0.09409795, 0xBDC0B66D     │ -0.09409795, 0xBDC0B66D       │ -0.094097948f                                │
-// │ math.rs:114                │ math.ts:~115                  │ math.rs:114                  │ math_functions.c:189                         │
+// │ ATAN_P2                    │ -0.09409795, 0xBDC0B66D     │ -0.09409795, 0xBDC0B66D       │ -0.094097948f                                 │
+// │ math.rs:114                │ math.ts:~115                  │ math.rs:114                  │ math_functions.c:189 (atan coeff)             │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ ATAN_P3                    │ -0.33213073, 0xBEAA0D0A     │ -0.33213073, 0xBEAA0D0A       │ -0.33213072f                                 │
-// │ math.rs:115                │ math.ts:~116                  │ math.rs:115                  │ math_functions.c:189                         │
+// │ ATAN_P3                    │ -0.33213073, 0xBEAA0D0A     │ -0.33213073, 0xBEAA0D0A       │ -0.33213072f                                  │
+// │ math.rs:115                │ math.ts:~116                  │ math.rs:115                  │ math_functions.c:189 (atan coeff)             │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ atan2 half-pi const        │ 1.5707964, 0x3FC90FDB       │ 1.5707964, 0x3FC90FDB         │ 1.57079637f                                  │
-// │ math.rs:138                │ math.ts:~139                  │ math.rs:138                  │ math_functions.c:196                         │
+// │ atan2 half-pi const     †  │ 1.5707964, 0x3FC90FDB       │ not assertable (fn-local)     │ 1.57079637f                                   │
+// │ math.rs:138                │ math.ts:~139                  │ math.rs:138                  │ math_functions.c:196 (half-pi const)          │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ atan2 pi const             │ 3.1415927, 0x40490FDB       │ 3.1415927, 0x40490FDB         │ 3.14159274f                                  │
-// │ math.rs:141                │ math.ts:~142                  │ math.rs:141                  │ math_functions.c:201                         │
+// │ atan2 pi const          †  │ 3.1415927, 0x40490FDB       │ not assertable (fn-local)     │ 3.14159274f                                   │
+// │ math.rs:141                │ math.ts:~142                  │ math.rs:141                  │ math_functions.c:201 (pi const)               │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ arbitrary_perp a           │ 0.67, 0x3F2B851F            │ 0.67, 0x3F2B851F              │ 0.67f                                        │
-// │ math.rs:350                │ math.ts:~360                  │ math.rs:350                  │ math_internal.h:147                          │
+// │ arbitrary_perp a        †  │ 0.67, 0x3F2B851F            │ not assertable (fn-local)     │ 0.67f                                         │
+// │ math.rs:350                │ math.ts:~360                  │ math.rs:350                  │ math_internal.h:147 (a)                       │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ arbitrary_perp b           │ -0.42, 0xBED70A3D           │ -0.42, 0xBED70A3D             │ -0.42f                                       │
-// │ math.rs:351                │ math.ts:~361                  │ math.rs:351                  │ math_internal.h:148                          │
+// │ arbitrary_perp b        †  │ -0.42, 0xBED70A3D           │ not assertable (fn-local)     │ -0.42f                                        │
+// │ math.rs:351                │ math.ts:~361                  │ math.rs:351                  │ math_internal.h:148 (b)                       │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ MAX_ROTATION               │ 0.7853982, 0x3F490FDB       │ 0.7853982, 0x3F490FDB         │ 0.25f * B3_PI                                │
-// │ integrate.rs:19            │ core.ts:~28                   │ integrate.rs:19              │ constants.h:75                              │
+// │ MAX_ROTATION               │ 0.7853982, 0x3F490FDB       │ 0.7853982, 0x3F490FDB         │ 0.25f * B3_PI                                 │
+// │ integrate.rs:19            │ core.ts:~28                   │ integrate.rs:19              │ constants.h:70 (B3_MAX_ROTATION)              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ RECYCLE_ANGULAR_DISTANCE   │ 0.99240386, 0x3F7E0E2E      │ 0.99240386, 0x3F7E0E2E        │ 0.99240388f                                  │
-// │ recycle.rs:24              │ core.ts:~44                   │ recycle.rs:24                │ constants.h:86                               │
+// │ RECYCLE_ANGULAR_DISTANCE   │ 0.99240386, 0x3F7E0E2E      │ 0.99240386, 0x3F7E0E2E        │ 0.99240388f                                   │
+// │ recycle.rs:24              │ core.ts:~44                   │ recycle.rs:24                │ constants.h:86 (B3_CONTACT_RECYCLE_ANG_DIST)  │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ POSITION_SLEEP_FACTOR      │ 0.5, 0x3F000000             │ 0.5, 0x3F000000              │ 0.5f                                         │
-// │ finalize.rs:25             │ solver.ts:~720               │ finalize.rs:25               │ solver.c:715 (exact k/2^n)                   │
+// │ POSITION_SLEEP_FACTOR      │ 0.5, 0x3F000000             │ 0.5, 0x3F000000              │ 0.5f (exact k/2^n)                            │
+// │ finalize.rs:25             │ solver.ts:~720               │ finalize.rs:25               │ solver.c:715 (positionSleepFactor)            │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ SAFETY_FACTOR              │ 0.5, 0x3F000000             │ 0.5, 0x3F000000              │ 0.5f                                         │
-// │ finalize.rs:30             │ solver.ts:~750               │ finalize.rs:30               │ solver.c:747 (exact k/2^n)                   │
+// │ SAFETY_FACTOR              │ 0.5, 0x3F000000             │ 0.5, 0x3F000000              │ 0.5f (exact k/2^n)                            │
+// │ finalize.rs:30             │ solver.ts:~750               │ finalize.rs:30               │ solver.c:747 (safetyFactor)                   │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ OVERLAP_SLOP               │ 0.00050000002, 0x3A03126F   │ *absent*                      │ 0.1f * B3_LINEAR_SLOP                        │
-// │ (TS core.ts:23)            │ (S2-wrapped)                 │ (see below)                  │ constants.h:60                               │
+// │ OVERLAP_SLOP               │ 0.00050000002, 0x3A03126F   │ *absent*                      │ 0.1f * B3_LINEAR_SLOP                         │
+// │ (TS core.ts:23)            │ (S2-wrapped)                 │ (see below)                  │ constants.h:60 (B3_OVERLAP_SLOP)              │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ kToleranceSquared (0.05²)  │ 0.0025000002, 0x3B23D70B    │ *absent*                      │ 0.05f * 0.05f                                │
-// │ (TS distance.ts:1154)      │ (S2-wrapped)                 │ (see below)                  │ distance.c:1307                              │
+// │ kToleranceSquared (0.05²)  │ 0.0025000002, 0x3B23D70B    │ *absent*                      │ 0.05f * 0.05f                                 │
+// │ (TS distance.ts:1154)      │ (S2-wrapped)                 │ (see below)                  │ distance.c:1307 (kToleranceSquared)           │
 // ├────────────────────────────┼───────────────────────────────┼───────────────────────────────┼──────────────────────────────────────────────┤
-// │ kToleranceSquared (0.005²) │ 2.5e-5, 0x37D1B717          │ *absent*                      │ 0.005f * 0.005f                              │
-// │ (TS distance.ts:1249)      │ (S2-wrapped)                 │ (see below)                  │ distance.c:1436                              │
+// │ kToleranceSquared (0.005²) │ 2.5e-5, 0x37D1B717          │ *absent*                      │ 0.005f * 0.005f                               │
+// │ (TS distance.ts:1249)      │ (S2-wrapped)                 │ (see below)                  │ distance.c:1436 (kToleranceSquared)           │
 // └────────────────────────────┴───────────────────────────────┴───────────────────────────────┴──────────────────────────────────────────────┘
 //
 // Absent constants — reachability readings:
 //
 // OVERLAP_SLOP (C B3_OVERLAP_SLOP = 0.1f * B3_LINEAR_SLOP, constants.h:60, bits 0x3A03126F):
-//   Used in C overlap-query predicates: b3OverlapCapsule (capsule.c:94), b3OverlapHull
-//   (hull.c:2451), b3OverlapSphere (sphere.c:57). Each calls b3ShapeDistance and compares the
+//   Used in C overlap-query predicates: b3OverlapCapsule (capsule.c:84), b3OverlapHull
+//   (hull.c:2439), b3OverlapSphere (sphere.c:47). Each calls b3ShapeDistance and compares the
 //   result to B3_OVERLAP_SLOP. The Rust kernel does not port these overlap-query predicates —
 //   grep for 'shape_overlap|test_overlap|fn overlap' in rust/tumble/src/** returns nothing. The
 //   kernel boundary rule (tumble.md) puts graph/world mutation, contact events, and the public
@@ -2115,47 +2124,7 @@ mod c_parity {
         );
     }
 
-    #[test]
-    fn k_tolerance_manifold() {
-        // C: kTolerance = 0.005f (manifold.c:26)
-        // Rust: k_tolerance = 0.005 (manifold.rs:212)
-        let k_tolerance: f32 = 0.005;
-        assert_eq!(k_tolerance.to_bits(), 0.005f32.to_bits());
-    }
-
-    #[test]
-    fn bias_clip() {
-        // C: bias = 0.95f (convex_manifold.c:338)
-        // Rust: bias = 0.95 (manifold.rs:648)
-        let bias: f32 = 0.95;
-        assert_eq!(bias.to_bits(), 0.95f32.to_bits());
-    }
-
-    #[test]
-    fn alpha_tol() {
-        // C: alphaTol = 0.05f (convex_manifold.c:716)
-        // Rust: alpha_tol = 0.05 (manifold.rs:1003)
-        let alpha_tol: f32 = 0.05;
-        assert_eq!(alpha_tol.to_bits(), 0.05f32.to_bits());
-    }
-
-    #[test]
-    fn k_tolerance_hull_capsule() {
-        // C: kTolerance = 0.998f (convex_manifold.c:974)
-        // Rust: k_tolerance = 0.998 (manifold.rs:1309)
-        let k_tolerance: f32 = 0.998;
-        assert_eq!(k_tolerance.to_bits(), 0.998f32.to_bits());
-    }
-
-    #[test]
-    fn k_rel_edge_tolerance() {
-        // C: kRelEdgeTolerance = 0.90f (convex_manifold.c:1062, :1572)
-        // Rust: k_rel_edge_tolerance = 0.9 (manifold.rs:1402, :1929)
-        let k_rel_edge_tolerance: f32 = 0.9;
-        assert_eq!(k_rel_edge_tolerance.to_bits(), 0.90f32.to_bits());
-    }
-
-    // ── math.rs constants ──
+    // ── math.rs pub consts (readable from this module via `math::`) ──
 
     #[test]
     fn pi() {
@@ -2176,115 +2145,5 @@ mod c_parity {
         // C: FLT_MIN from <float.h> = 1.1754943508222875e-38 (2^-126)
         // Rust: FLT_MIN = 1.175_494_350_822_287_5e-38 (math.rs:22)
         assert_eq!(math::FLT_MIN.to_bits(), 1.1754943508222875e-38f32.to_bits());
-    }
-
-    #[test]
-    fn atan_p0() {
-        // C: 0.024840285f (math_functions.c:188)
-        // Rust: ATAN_P0 = 0.024_840_285 (math.rs:112, private)
-        let atan_p0: f32 = 0.024_840_285;
-        assert_eq!(atan_p0.to_bits(), 0.024840285f32.to_bits());
-    }
-
-    #[test]
-    fn atan_p1() {
-        // C: 0.18681418f (math_functions.c:188)
-        // Rust: ATAN_P1 = 0.186_814_18 (math.rs:113, private)
-        let atan_p1: f32 = 0.186_814_18;
-        assert_eq!(atan_p1.to_bits(), 0.18681418f32.to_bits());
-    }
-
-    #[test]
-    fn atan_p2() {
-        // C: -0.094097948f (math_functions.c:189)
-        // Rust: ATAN_P2 = -0.094_097_948 (math.rs:114, private)
-        let atan_p2: f32 = -0.094_097_948;
-        assert_eq!(atan_p2.to_bits(), (-0.094097948f32).to_bits());
-    }
-
-    #[test]
-    fn atan_p3() {
-        // C: -0.33213072f (math_functions.c:189)
-        // Rust: ATAN_P3 = -0.332_130_72 (math.rs:115, private)
-        let atan_p3: f32 = -0.332_130_72;
-        assert_eq!(atan_p3.to_bits(), (-0.33213072f32).to_bits());
-    }
-
-    #[test]
-    fn atan2_half_pi() {
-        // C: 1.57079637f (math_functions.c:196)
-        // Rust: 1.570_796_37 (math.rs:138, inline literal)
-        let half_pi: f32 = 1.570_796_37;
-        assert_eq!(half_pi.to_bits(), 1.57079637f32.to_bits());
-    }
-
-    #[test]
-    fn atan2_pi() {
-        // C: 3.14159274f (math_functions.c:201)
-        // Rust: 3.141_592_74 (math.rs:141, inline literal)
-        let pi_const: f32 = 3.141_592_74;
-        assert_eq!(pi_const.to_bits(), 3.14159274f32.to_bits());
-    }
-
-    #[test]
-    fn arbitrary_perp_a() {
-        // C: a = 0.67f (math_internal.h:147)
-        // Rust: a = 0.67 (math.rs:350, inline literal)
-        let a: f32 = 0.67;
-        assert_eq!(a.to_bits(), 0.67f32.to_bits());
-    }
-
-    #[test]
-    fn arbitrary_perp_b() {
-        // C: b = -0.42f (math_internal.h:148)
-        // Rust: b = -0.42 (math.rs:351, inline literal)
-        let b: f32 = -0.42;
-        assert_eq!(b.to_bits(), (-0.42f32).to_bits());
-    }
-
-    // ── finalize.rs constants ──
-
-    #[test]
-    fn speculative_distance_finalize() {
-        // C: B3_SPECULATIVE_DISTANCE = 4.0f * B3_LINEAR_SLOP (constants.h:73)
-        // Rust: SPECULATIVE_DISTANCE = 4.0 * 0.005 (finalize.rs:47, private)
-        let spec_dist: f32 = 4.0 * 0.005;
-        assert_eq!(spec_dist.to_bits(), (4.0f32 * (0.005f32 * 1.0f32)).to_bits());
-    }
-
-    #[test]
-    fn position_sleep_factor() {
-        // C: positionSleepFactor = 0.5f (solver.c:715, exact k/2^n)
-        // Rust: POSITION_SLEEP_FACTOR = 0.5 (finalize.rs:25, private)
-        let position_sleep_factor: f32 = 0.5;
-        assert_eq!(position_sleep_factor.to_bits(), 0.5f32.to_bits());
-    }
-
-    #[test]
-    fn safety_factor() {
-        // C: safetyFactor = 0.5f (solver.c:747, exact k/2^n)
-        // Rust: SAFETY_FACTOR = 0.5 (finalize.rs:30, private)
-        let safety_factor: f32 = 0.5;
-        assert_eq!(safety_factor.to_bits(), 0.5f32.to_bits());
-    }
-
-    // ── integrate.rs constants ──
-
-    #[test]
-    fn max_rotation() {
-        // C: B3_MAX_ROTATION = 0.25f * B3_PI (constants.h:75)
-        // Rust: MAX_ROTATION = 0.25 * PI (integrate.rs:19, private)
-        let max_rotation: f32 = 0.25 * math::PI;
-        assert_eq!(max_rotation.to_bits(), (0.25f32 * 3.14159265359f32).to_bits());
-    }
-
-    // ── recycle.rs constants ──
-
-    #[test]
-    fn recycle_angular_distance() {
-        // C: B3_CONTACT_RECYCLE_ANGULAR_DISTANCE = 0.99240388f (constants.h:86)
-        // Rust: RECYCLE_ANGULAR_DISTANCE = 0.99240388 (recycle.rs:24, private)
-        let recycle_angular_distance: f32 = 0.99240388;
-        assert_eq!(recycle_angular_distance.to_bits(), 0.99240388f32.to_bits());
     }
 }
