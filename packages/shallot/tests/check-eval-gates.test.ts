@@ -804,19 +804,30 @@ describe("S4 — the timeout ladder derives from the one owner", () => {
     });
 });
 
-// S4 — ladder ordering (behavioral). The two structural legs above (and leg
-// A, S2's) each show a rung resolves to SOME name in `lib.ts`'s export set;
-// none of them can see whether the resulting NUMBERS are actually ordered
-// per-test <= config ceiling <= spawn backstop — the ordering invariant the
-// whole stage exists to hold. That is a numeric property over three plain
-// exported constants, cheaply expressible as a pure read rather than an AST
-// walk, so per Validation's preference for the behavioral route over a
-// structural proxy wherever the property is a pure function, this arm
-// imports `harness/lib` directly and reads its three numbers — priced over
-// a structural alternative (parsing three `BinaryExpression` trees and
-// evaluating them by hand, which would just re-derive `lib.ts`'s own
-// arithmetic a second time, the exact re-derivation class this spec exists
-// to close) and chosen because it is both cheaper and immune to that class.
+// S4 repair — ladder ordering, VALUE-resolved, not membership. The review
+// demonstrated the prior form of this block (and legs E/F standing alone)
+// was satisfiable by a real defect: `gate.config.ts` binding `globalTimeout`
+// to `BOOT_BUDGET_MS` (121_000, a real, valid `harness/lib` export, still an
+// `Identifier`) — smaller than the per-test ceiling it must sit above —
+// passed leg A's identity check, leg E's `exportedNames.has(resolved)`
+// membership check, AND the prior form of this test, because that prior
+// form imported `lib.ts`'s three canonical names DIRECTLY BY SPELLING
+// (`mod.MAX_GATE_BUDGET_MS`, `mod.GLOBAL_TIMEOUT_MS`, `mod.SPAWN_BACKSTOP_MS`)
+// rather than reading what each SITE is actually bound to — so it verified
+// `lib.ts`'s own internal arithmetic, which the mutant never touches, and
+// said nothing about the wiring. Recorded reading under that mutant: 10
+// pass / 0 fail, both for `gate.config.ts`'s `globalTimeout` and for
+// `grade.ts`'s `timeoutMs` bound the same way.
+//
+// The repair: resolve every rung's bound identifier through its OWN
+// `harness/lib` `ImportSpecifier` — leg A/E/F's exact binding-resolution
+// shape, no name ever written down here as a literal — then dynamically
+// import `lib.ts` FROM THE ROOT UNDER TEST and read THAT RESOLVED NAME's
+// own value via computed property access (`libModule[name]`, never
+// `libModule.GLOBAL_TIMEOUT_MS`). A membership check only asks "is this
+// name somewhere in the export set"; this asks "what is the actual runtime
+// number this site is wired to", which is what the ordering invariant is
+// actually about.
 //
 // No `@playwright/test` import: `lib.ts`'s own `@playwright/test` import is
 // `import type { Page }`, erased before this module ever executes (verified
@@ -826,32 +837,170 @@ describe("S4 — the timeout ladder derives from the one owner", () => {
 // declared dependency already, same as `harness/result.ts`'s import-safety
 // note above).
 //
-// Red at the parent ref: `lib.ts` there exports none of these three names,
-// so each is `undefined` and the `typeof … === "number"` population control
-// fails outright — never a green arm that cannot read its subject.
-describe("S4 — ladder ordering (behavioral)", () => {
-    test("MAX_GATE_BUDGET_MS <= GLOBAL_TIMEOUT_MS <= SPAWN_BACKSTOP_MS, all derived from harness/lib", async () => {
+// Docblock's own limit: this leg can distinguish "the value bound at this
+// site is smaller than the value bound at the rung above it" — nothing
+// more. It cannot tell WHICH constant a site SHOULD reference (any two
+// exports landing in the right relative order still pass), only that
+// whatever each site is actually wired to keeps the documented ceilings
+// intact end to end.
+//
+// Red at the parent ref (`be9a52e`): `gate.config.ts`'s `timeout` /
+// `globalTimeout` and `grade.ts`'s `timeoutMs` are `NumericLiteral`s there,
+// so `resolveLibImportName` returns `undefined` for all of them and the
+// population controls below fail before any value is read.
+describe("S4 — ladder ordering, resolved by binding (behavioral)", () => {
+    test("gate <= config.timeout <= config.globalTimeout <= spawn backstop, every value read off its OWN resolved binding", async () => {
         const root = evalRoot();
         const libPath = join(root, "evals", "harness", "lib.ts");
-        const mod = (await import(libPath)) as {
-            // biome-ignore lint/style/useNamingConvention: lib.ts's own real export names.
-            MAX_GATE_BUDGET_MS?: number;
-            // biome-ignore lint/style/useNamingConvention: lib.ts's own real export names.
-            GLOBAL_TIMEOUT_MS?: number;
-            // biome-ignore lint/style/useNamingConvention: lib.ts's own real export names.
-            SPAWN_BACKSTOP_MS?: number;
-        };
-        // Population control — the module must actually export all three
-        // names as numbers, or the reader lost its subject rather than the
-        // property being false.
-        expect(typeof mod.MAX_GATE_BUDGET_MS).toBe("number");
-        expect(typeof mod.GLOBAL_TIMEOUT_MS).toBe("number");
-        expect(typeof mod.SPAWN_BACKSTOP_MS).toBe("number");
+        const libModule = (await import(libPath)) as Record<string, unknown>;
 
-        const perTest = mod.MAX_GATE_BUDGET_MS as number;
-        const configCeiling = mod.GLOBAL_TIMEOUT_MS as number;
-        const spawnBackstop = mod.SPAWN_BACKSTOP_MS as number;
-        expect(perTest).toBeLessThanOrEqual(configCeiling);
-        expect(configCeiling).toBeLessThanOrEqual(spawnBackstop);
+        // Resolve `identifierName` (as used at `ast`'s own site) to its
+        // harness/lib binding, then read THAT NAME's own value off the
+        // dynamically-imported module — never a name chosen by this file.
+        function resolvedValue(ast: Node, identifierName: string): number {
+            const name = resolveLibImportName(ast, identifierName);
+            // Population control — the identifier must actually bind to a
+            // harness/lib import, or the reader lost its subject rather
+            // than the property being false.
+            expect(name).toBeDefined();
+            const value = libModule[name as string];
+            expect(typeof value).toBe("number");
+            return value as number;
+        }
+
+        // Six gates' own per-test values.
+        const gates = gateFiles(root);
+        expect(gates).toHaveLength(6);
+        const gateValues = gates.map((gate) => {
+            const ast = parseFile(gate);
+            const calls = setTimeoutCalls(ast);
+            expect(calls.length).toBeGreaterThan(0);
+            const arg = ((calls[0].arguments as Node[]) ?? [])[0];
+            expect(arg.type).toBe("Identifier");
+            return resolvedValue(ast, arg.name as string);
+        });
+
+        // gate.config.ts's own `timeout` and `globalTimeout`.
+        const configAst = parseFile(join(root, "evals", "harness", "gate.config.ts"));
+        const defaults = collect(configAst, "ExportDefaultDeclaration");
+        expect(defaults.length).toBe(1);
+        const configArg = ((defaults[0].declaration as Node).arguments as Node[])[0] as Node;
+        const timeoutIdent = objectProperty(configArg, "timeout") as Node | undefined;
+        const globalTimeoutIdent = objectProperty(configArg, "globalTimeout") as Node | undefined;
+        expect(timeoutIdent).toBeDefined();
+        expect(globalTimeoutIdent).toBeDefined();
+        expect((timeoutIdent as Node).type).toBe("Identifier");
+        expect((globalTimeoutIdent as Node).type).toBe("Identifier");
+        const configTimeoutValue = resolvedValue(configAst, (timeoutIdent as Node).name as string);
+        const configGlobalValue = resolvedValue(
+            configAst,
+            (globalTimeoutIdent as Node).name as string,
+        );
+
+        // grade.ts's spawn backstop.
+        const gAst = gradeAst(root);
+        const candidates = collect(gAst, "CallExpression").filter((call) => {
+            const arg = ((call.arguments as Node[]) ?? [])[0];
+            return (
+                arg?.type === "ObjectExpression" && objectProperty(arg, "timeoutMs") !== undefined
+            );
+        });
+        expect(candidates.length).toBe(1);
+        const spawnArg = ((candidates[0].arguments as Node[]) ?? [])[0] as Node;
+        const spawnIdent = objectProperty(spawnArg, "timeoutMs") as Node;
+        expect(spawnIdent.type).toBe("Identifier");
+        const spawnValue = resolvedValue(gAst, spawnIdent.name as string);
+
+        // The ordering the whole ladder exists to hold — over the values each
+        // site is ACTUALLY wired to, not over names known to be somewhere in
+        // lib.ts's export set.
+        for (const gateValue of gateValues) {
+            expect(gateValue).toBeLessThanOrEqual(configTimeoutValue);
+        }
+        expect(configTimeoutValue).toBeLessThanOrEqual(configGlobalValue);
+        expect(configGlobalValue).toBeLessThanOrEqual(spawnValue);
+    });
+});
+
+// S4 repair — blocker 2's floor. The ordering leg above shows every gate's
+// resolved value sits below the ceilings above it, but that alone is silent
+// on whether the value is BIG ENOUGH for what the gate itself does:
+// reverting all six gates' `test.setTimeout` to `BOOT_BUDGET_MS` uniformly
+// (one boot's worth) still clears every ceiling above it unchanged — the
+// ordering leg stays green — while `persist-color`'s own two-`boot()` worst
+// path (S2's review finding) is fully unreachable again under a nominally
+// green suite. Recorded reading under that mutant: 10 pass / 0 fail.
+//
+// So each gate's requirement is derived from a fact only that gate's own
+// source can state: how many times IT calls `boot()` — exhaustive over the
+// file's own `CallExpression` population (never a fixture list; the same
+// escape S3's leg D lock names, where the count is the property of the
+// subject rather than a coincidental correlate), resolved through the same
+// `harness/lib` binding leg A/E/F/G use (an aliased `import { boot as b }`
+// still counts) rather than a bare spelling of the LOCAL identifier at each
+// call site. Requirement = that count * `BOOT_BUDGET_MS`'s own resolved
+// value — the harness's one owner for a single boot's worst case.
+//
+// Docblock's own limit: this leg can distinguish a gate whose per-test value
+// has fallen below its OWN boot-count-derived floor, whatever that count is.
+// It cannot distinguish where a shortfall comes from (a wrong per-test value
+// vs. a wrong `BOOT_BUDGET_MS`), and it cannot tell whether a gate's boot()
+// call count is itself the right number for what the gate does — only that
+// the two numbers, multiplied, are covered.
+//
+// Reds under blocker 2's mutant: `persist-color`'s own file still calls
+// `boot()` twice, so its requirement is unchanged at 2 * 121_000 = 242_000,
+// but its resolved per-test value is now 121_000 (`BOOT_BUDGET_MS`) —
+// 121_000 >= 242_000 is false, and the arm reds. Reads on the real tree:
+// `persist-color` requires 2 * 121_000 = 242_000 and resolves to 242_000
+// (`MAX_GATE_BUDGET_MS`); the other five require 1 * 121_000 = 121_000 and
+// resolve to the same 242_000 — over-provisioned by the one-owner design
+// (Approach S4), never under.
+describe("S4 — blocker 2's floor: per-test value covers the gate's OWN boot() call count", () => {
+    test("each gate's resolved per-test value is >= its own boot() call-site count * BOOT_BUDGET_MS", async () => {
+        const root = evalRoot();
+        const libPath = join(root, "evals", "harness", "lib.ts");
+        const libModule = (await import(libPath)) as Record<string, unknown>;
+        const bootBudget = libModule.BOOT_BUDGET_MS;
+        // Population control — the owner's per-boot budget must resolve to a
+        // real number, or the reader lost its subject rather than the
+        // property being false.
+        expect(typeof bootBudget).toBe("number");
+
+        const gates = gateFiles(root);
+        expect(gates).toHaveLength(6);
+
+        for (const gate of gates) {
+            const ast = parseFile(gate);
+
+            // Exhaustive over this file's own CallExpression population:
+            // every call whose callee resolves — via ImportSpecifier binding
+            // from harness/lib, never a spelling of the local name — to the
+            // exported name `boot`.
+            const bootCalls = collect(ast, "CallExpression").filter((call) => {
+                const callee = call.callee as Node | undefined;
+                if (callee?.type !== "Identifier") return false;
+                return resolveLibImportName(ast, callee.name as string) === "boot";
+            });
+            // Population control — every gate calls boot() at least once, or
+            // the reader lost its subject rather than the property being
+            // false.
+            expect(bootCalls.length).toBeGreaterThan(0);
+
+            const requirement = bootCalls.length * (bootBudget as number);
+
+            const calls = setTimeoutCalls(ast);
+            expect(calls.length).toBeGreaterThan(0);
+            const arg = ((calls[0].arguments as Node[]) ?? [])[0];
+            expect(arg.type).toBe("Identifier");
+            const name = resolveLibImportName(ast, arg.name as string);
+            // Population control — the setTimeout argument must actually bind
+            // to a harness/lib import, or the reader lost its subject.
+            expect(name).toBeDefined();
+            const gateValue = libModule[name as string];
+            expect(typeof gateValue).toBe("number");
+
+            expect(gateValue as number).toBeGreaterThanOrEqual(requirement);
+        }
     });
 });
