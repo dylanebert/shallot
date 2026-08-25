@@ -49,7 +49,7 @@ bun test ./examples/gym/src                        # Gym host-layer + tumble gol
 bun bench [--scenario <name> --seed --count --warmup --frames --param k=v --screenshot <path>]  # Gym scenario via `shallot verify` on a real device. --screenshot writes a post-run canvas PNG (visual check, not a gate)
 bun bench --list | --for <paths...> | --sweep [--for <paths...>]  # Scenario roster (registration slugs, not filenames); which scenarios gate changed paths; that selection through verify's batch mode (testing.md)
 bun run scripts/physics-bench.ts                    # AVBD physics perf + scaling sweep (drives the gym pile scenario + constraints/character rows)
-bun check                                          # Format + type check (Biome + tsc)
+bun check                                          # Read-only: tsc + Biome + checks
 bun run format                                     # Biome (.ts/.js/.json) + scene formatter
 bun run build                                      # All Rust artifacts (WASM + native window)
 bunx shallot dev [dir]                             # Run the project standalone (vite HMR over its shallot.json; native --target = debug build + run)

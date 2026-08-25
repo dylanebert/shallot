@@ -6,11 +6,15 @@ import {
     BYTES,
     CHUNK,
     CHUNK_CELLS,
+    chunkNeighbors,
     coord,
     DIM,
     faces,
+    facesInChunk,
     index,
+    SLOT_COUNT,
     SLOTS,
+    set,
     solid,
     TOTAL_CELLS,
     voxelIndex,
@@ -284,5 +288,131 @@ describe("recenter", () => {
         const centred = recenter(data);
         expect(count(centred)).toBe(1);
         expect(solid(centred, 128, 128, 128)).toBe(true);
+    });
+});
+
+describe("facesInChunk — the CPU twin of the emit kernel's per-chunk emission", () => {
+    function sumChunks(data: Float32Array): number {
+        let n = 0;
+        for (let slot = 0; slot < SLOT_COUNT; slot++) n += facesInChunk(data, slot);
+        return n;
+    }
+
+    test("SLOT_COUNT is the 8³ chunk grid (512 chunks)", () => {
+        expect(SLOT_COUNT).toBe(512);
+    });
+
+    test("single isolated voxel — all six faces attributed to its own chunk", () => {
+        const data = new Float32Array(TOTAL_CELLS);
+        single(data, 40, 50, 60);
+        const slot = Math.floor(index(40, 50, 60) / CHUNK_CELLS);
+        expect(facesInChunk(data, slot)).toBe(6);
+        expect(sumChunks(data)).toBe(faces(data));
+    });
+
+    test("solid chunk — the CPU twin matches faces() for that one chunk", () => {
+        const data = new Float32Array(TOTAL_CELLS);
+        solidChunk(data, 1, 1, 1);
+        const slot = (1 * SLOTS.y + 1) * SLOTS.x + 1;
+        expect(facesInChunk(data, slot)).toBe(6 * CHUNK * CHUNK);
+        expect(sumChunks(data)).toBe(faces(data));
+    });
+
+    test("differential — Σ facesInChunk over every slot equals faces() on the canonical patterns", () => {
+        const patterns: Float32Array[] = [];
+
+        const single1 = new Float32Array(TOTAL_CELLS);
+        single(single1, 0, 0, 0); // grid corner — all-OOB neighbours
+        patterns.push(single1);
+
+        const solidChunkGrid = new Float32Array(TOTAL_CELLS);
+        solidChunk(solidChunkGrid, 3, 4, 5);
+        patterns.push(solidChunkGrid);
+
+        const checkerGrid = new Float32Array(TOTAL_CELLS);
+        checker(checkerGrid, 0, 0, 0, 16, 16, 16);
+        patterns.push(checkerGrid);
+
+        const slabGrid = new Float32Array(TOTAL_CELLS);
+        slab(slabGrid, 3);
+        patterns.push(slabGrid);
+
+        const tunnelGrid = new Float32Array(TOTAL_CELLS);
+        tunnel(tunnelGrid, 10, 10, 10, 16);
+        patterns.push(tunnelGrid);
+
+        // spans multiple chunks (r=40 > CHUNK=32) — the case a chunk-local-only neighbour read gets wrong,
+        // since the seam faces straddle two chunks' data.
+        const sphereGrid = new Float32Array(TOTAL_CELLS);
+        sphere(sphereGrid, 128, 128, 128, 40);
+        patterns.push(sphereGrid);
+
+        for (const data of patterns) expect(sumChunks(data)).toBe(faces(data));
+    });
+
+    test("differential — mutating a grid across a chunk seam keeps the two counts in lockstep", () => {
+        const data = new Float32Array(TOTAL_CELLS);
+        sphere(data, 128, 128, 128, 40);
+        expect(sumChunks(data)).toBe(faces(data));
+
+        // carve a hole straddling a chunk boundary (128 sits on a CHUNK=32 seam)
+        for (let z = 125; z <= 131; z++) {
+            for (let y = 125; y <= 131; y++) {
+                for (let x = 125; x <= 131; x++) set(data, x, y, z, 0);
+            }
+        }
+        expect(sumChunks(data)).toBe(faces(data));
+
+        // re-solidify part of the carved hole, back across the same seam
+        for (let z = 126; z <= 129; z++) {
+            for (let y = 126; y <= 129; y++) {
+                for (let x = 126; x <= 129; x++) set(data, x, y, z, 1.0);
+            }
+        }
+        expect(sumChunks(data)).toBe(faces(data));
+    });
+
+    test("chunkNeighbors — an interior slot has all 6 face-adjacent neighbours, none itself", () => {
+        const slot = (4 * SLOTS.y + 4) * SLOTS.x + 4; // (4,4,4) — interior of the 8³ chunk grid
+        const neighbors = chunkNeighbors(slot);
+        expect(neighbors.length).toBe(6);
+        expect(new Set(neighbors).size).toBe(6);
+        expect(neighbors).not.toContain(slot);
+        const expected = [
+            (4 * SLOTS.y + 4) * SLOTS.x + 5,
+            (4 * SLOTS.y + 4) * SLOTS.x + 3,
+            (4 * SLOTS.y + 5) * SLOTS.x + 4,
+            (4 * SLOTS.y + 3) * SLOTS.x + 4,
+            (5 * SLOTS.y + 4) * SLOTS.x + 4,
+            (3 * SLOTS.y + 4) * SLOTS.x + 4,
+        ];
+        expect(new Set(neighbors)).toEqual(new Set(expected));
+    });
+
+    test("chunkNeighbors — a corner slot is bounds-clipped to exactly 3 neighbours", () => {
+        expect(chunkNeighbors(0).length).toBe(3); // (0,0,0)
+        const last = SLOT_COUNT - 1; // (SLOTS.x-1, SLOTS.y-1, SLOTS.z-1)
+        expect(chunkNeighbors(last).length).toBe(3);
+    });
+
+    test("chunkNeighbors is symmetric: a neighbour of A always lists A back", () => {
+        for (const slot of [0, 1, SLOT_COUNT - 1, (4 * SLOTS.y + 4) * SLOTS.x + 4]) {
+            for (const neighbor of chunkNeighbors(slot)) {
+                expect(chunkNeighbors(neighbor)).toContain(slot);
+            }
+        }
+    });
+
+    test("print-only — full-grid Σ facesInChunk (512 chunks) cost at boot", () => {
+        const data = new Float32Array(TOTAL_CELLS);
+        slab(data, 3); // the boot-generated ground slab — the canonical non-trivial boot fixture
+        const start = performance.now();
+        const total = sumChunks(data);
+        const elapsed = performance.now() - start;
+        expect(total).toBe(faces(data));
+        // print-only (no wall-clock gate) — the reading a loading-screen budget decision would use
+        console.log(
+            `[voxel:boot-count] boot facesInChunk over ${SLOT_COUNT} chunks: ${elapsed.toFixed(3)}ms`,
+        );
     });
 });

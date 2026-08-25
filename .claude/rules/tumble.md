@@ -73,7 +73,7 @@ This only holds if the port's f32 arithmetic is bit-identical to the C build. Th
 
 **3. fround the API boundary.** User-facing defs/configs arrive as f64; round every float field once where it crosses into the engine (`froundConfig` at create, the same rounding in runtime setters) so internal arithmetic always starts from f32 values. Several bit-exact divergences traced to an unrounded def field reaching the solver.
 
-**One documented trig deviation:** `createWaveMesh` mirrors the one upstream geometry helper that calls libm `sinf` (not the portable trig), so the port uses `f32(Math.sin(x))`. The observed `Math.fround(Math.sin(x)) === sinf(x)` equality is a platform coincidence, never a contract — wave geometry is tested structurally, never bit-exact, and a fixture that needs libm-derived geometry gets it emitted from the C generator instead (the trees `emitAux` ground-vertices pattern).
+**Documented trig deviations:** `createWaveMesh` mirrors the one upstream geometry helper that calls libm `sinf` (not the portable trig), and the wave-heightfield helper (`heightfield.ts`) calls `Math.sin` on its authoring/visual-only path — both are off the bit-exact sim path, so the port uses `f32(Math.sin(x))` for them. The observed `Math.fround(Math.sin(x)) === sinf(x)` equality is a platform coincidence, never a contract — wave geometry is tested structurally, never bit-exact, and a fixture that needs libm-derived geometry gets it emitted from the C generator instead (the trees `emitAux` ground-vertices pattern).
 
 ## The wasm kernel
 

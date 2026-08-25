@@ -1107,4 +1107,76 @@ describe("precompile", () => {
             Object.assign(Compute, saved);
         }
     });
+
+    test("an array of typegpu pipelines is awaited element-wise; [] and sear's raw-pipeline array stay skipped", async () => {
+        const saved = { ...Compute };
+        try {
+            // a forcer returning an array of typegpu pipelines (each exposing initAsync) — the natural
+            // generalization of sear's shape a reader of the drain's own JSDoc would write — must warm
+            // every element, not silently skip the whole array the way the sear case legitimately does
+            await requestGPU(fakeDevice());
+            let calls = 0;
+            precompile("multi-pipeline", () => [
+                {
+                    initAsync: async () => {
+                        calls++;
+                    },
+                },
+                {
+                    initAsync: async () => {
+                        calls++;
+                    },
+                },
+            ]);
+            await precompileAll();
+            expect(calls).toBe(2);
+
+            // [] stays legal — nothing to await, nothing throws
+            await requestGPU(fakeDevice());
+            precompile("none-specialized", () => []);
+            await expect(precompileAll()).resolves.toBeUndefined();
+
+            // sear's already-unwrapped raw pipelines expose no initAsync — still skipped, not thrown
+            await requestGPU(fakeDevice());
+            precompile("raw-pipelines", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            await expect(precompileAll()).resolves.toBeUndefined();
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a forcer whose array never awaits a real initAsync reports no compile span; one that does is attributed", async () => {
+        const saved = { ...Compute };
+        try {
+            // sear's raw-pipeline array (and `[]`) still legitimately skip — but the skip must not
+            // read like a compile: `Compute.precompiled` is the one map a developer reads to diagnose
+            // a first-frame stall, and calling it unconditionally would report the still-unwarmed path
+            // as warm, exactly the failure this item exists to close.
+            const spans: Array<[string, number, number]> = [];
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+
+            precompile("raw-only", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            precompile("empty", () => []);
+            await precompileAll();
+            expect(spans).toEqual([]);
+
+            // a mixed array with at least one real initAsync IS attributed — the skip is per-forcer,
+            // not per-element, and a forcer that did real work must still show up in the profiler
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+            precompile("mixed", () => [{ label: "raw-a" }, { initAsync: async () => {} }]);
+            await precompileAll();
+            expect(spans.map(([label]) => label)).toEqual(["mixed"]);
+
+            // and a real single pipeline (branch a) is attributed exactly as before
+            await requestGPU(fakeDevice());
+            Compute.precompiled = (label, start, end) => spans.push([label, start, end]);
+            precompile("real", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+            expect(spans.map(([label]) => label)).toEqual(["mixed", "real"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
 });

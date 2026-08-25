@@ -1,10 +1,11 @@
 import { test } from "@playwright/test";
 import {
     type Assertion,
-    BOOT_BUDGET_MS,
     boot,
     centroidY,
     emit,
+    FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS,
+    MAX_GATE_BUDGET_MS,
     type Rgb,
     region,
     shot,
@@ -18,7 +19,7 @@ import {
 const isBlue = (c: Rgb): boolean => c.b > 90 && c.b > c.r + 30 && c.b > c.g + 20;
 
 test("falling-box", async ({ page }) => {
-    test.setTimeout(BOOT_BUDGET_MS);
+    test.setTimeout(MAX_GATE_BUDGET_MS);
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(e.message));
     page.on("console", (m) => {
@@ -30,7 +31,7 @@ test("falling-box", async ({ page }) => {
 
     if (rendered) {
         await page.reload();
-        await page.waitForSelector("canvas", { timeout: 20_000 });
+        await page.waitForSelector("canvas", { timeout: FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS });
         const t0 = Date.now();
         const ys: number[] = [];
         let lastShot = await shot(page);

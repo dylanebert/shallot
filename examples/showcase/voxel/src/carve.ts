@@ -12,7 +12,7 @@ import { segment } from "@dylanebert/shallot/extras";
 import { cursorRay, qRotate } from "@dylanebert/shallot/physics/core";
 import { brush, march } from "./voxel/edit";
 import { generate } from "./voxel/generate";
-import { commitEdit, syncGrid, Voxels } from "./voxel/mesher";
+import { commitEdit, Voxels } from "./voxel/mesher";
 
 // Realtime carving (the voxel showcase's interactive layer). A top toolbar picks the pointer (orbit) or
 // terrain (sculpt) tool (keys V / B). In the terrain tool left-drag adds, shift+drag carves, scroll resizes
@@ -83,8 +83,8 @@ const VoxelControlSystem: System = {
     update() {
         if (!Voxels.grid || seed === appliedSeed) return;
         appliedSeed = seed;
-        // re-sync the CPU mirror after the GPU regen so a carve marches/edits the new terrain, not the old.
-        void generate(seed).then(syncGrid);
+        // generate() syncs the CPU mirror itself, so the new terrain is immediately carveable.
+        void generate(seed);
     },
 };
 

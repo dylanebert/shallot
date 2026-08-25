@@ -20,7 +20,7 @@ import tgpu, { type StorageFlag, type TgpuBuffer } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { DENSITY, DIM, GridData, voxelIndex } from "./grid";
-import { Voxels } from "./mesher";
+import { syncGrid, Voxels } from "./mesher";
 import { fbm2, GROUND_LEVEL, HFREQ, makePermutation, noiseLayout, PermData, RELIEF } from "./noise";
 
 export { solidFractionBand } from "./noise";
@@ -124,29 +124,12 @@ const runDensity = createDensityRunner<
     pipeline: ({ root }) =>
         root.createComputePipeline({ compute: densityKernel }).$name("voxel-generate"),
     wrapGrid: ({ root, grid }): GridBuffer => root.createBuffer(GridData, grid).$usage("storage"),
-    async precompile({ root, device }, pipeline, grid) {
+    async precompile(_target, pipeline) {
+        // `initAsync()` on the returned pipeline pays Dawn's deferred compile under the loading screen
+        // — no throwaway perm buffer/bind group/dispatch needed to get there (that warmed by tripping
+        // the same zero-workgroup path this unit's warm idiom replaces)
         const warmLabel = precompileScope("voxel-generate");
-        const owned: { raw: GPUBuffer | null } = { raw: null };
-        try {
-            await precompile(warmLabel, () => {
-                owned.raw = device.createBuffer({
-                    label: `${warmLabel}-perm`,
-                    size: d.sizeOf(PermData),
-                    usage: GPUBufferUsage.STORAGE,
-                });
-                const warmPerm = root.createBuffer(PermData, owned.raw).$usage("storage");
-                const noiseGroup = root.createBindGroup(noiseLayout, { perm: warmPerm });
-                const group = root.createBindGroup(densityLayout, { grid });
-                const enc = device.createCommandEncoder({ label: warmLabel });
-                const pass = enc.beginComputePass({ label: warmLabel });
-                pipeline.with(noiseGroup).with(group).with(pass).dispatchWorkgroups(0);
-                pass.end();
-                device.queue.submit([enc.finish()]);
-                return pipeline;
-            });
-        } finally {
-            owned.raw?.destroy();
-        }
+        await precompile(warmLabel, () => pipeline);
     },
     dispatch({ root, device }, pipeline, grid, seed) {
         const perm = makePermutation(seed);
@@ -178,13 +161,20 @@ const runDensity = createDensityRunner<
     },
 });
 
-/** fill `Voxels.grid` from the heightmap density for `seed`, then dirty it so the mesher re-meshes. The
- *  pipeline compiles once (baked constants); each call rebuilds the per-seed permutation table. Runs on
- *  its own encoder + submit (decoupled from the frame loop). */
+/** fill `Voxels.grid` from the heightmap density for `seed`, sync the CPU mirror, then dirty it so the
+ *  mesher re-meshes. The pipeline compiles once (baked constants); each call rebuilds the per-seed
+ *  permutation table. Runs on its own encoder + submit (decoupled from the frame loop). The sync
+ *  (`syncGrid`, a 64 MiB GPU→CPU readback) is part of this call's own contract, not an optional follow-up
+ *  — the mesher's chunk allocation is CPU-exact (`facesInChunk`), so a remesh dispatched against a
+ *  GPU-only grid has nothing to size chunks from and defers indefinitely (`mesher.ts`'s
+ *  `VoxelEmitSystem`). Every caller (boot, reseed, the correctness gate) gets a remeshable grid for free;
+ *  the full 512-chunk count this readback enables runs single-threaded on the CPU (`grid.test.ts`'s
+ *  print-only boot measurement), a cost the loading-screen budget question stays open on. */
 export async function generate(seed: number): Promise<void> {
     if (!Voxels.grid) throw new Error("voxel: generate before the grid buffer exists");
     const { device, root } = Compute;
     await runDensity({ root, device, grid: Voxels.grid }, seed);
+    await syncGrid();
     Voxels.dirty = true;
 }
 

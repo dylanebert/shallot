@@ -17,6 +17,11 @@ import { checker, recenter, single, slab, solidChunk, sphere, tunnel } from "./v
 // under-counts). (2) Generation: the generated grid is deterministic in its seed (two runs read back
 // bit-identical), its solid fraction lands in the derived band, its surface relief is real (not a flat
 // plane), the mesher stays watertight over it, and a carve → grid-write → remesh stays watertight too.
+//
+// The GPU face count is the per-chunk atomic cursor buffer (`Voxels.cursor`), summed over all 512 slots —
+// never the CPU-authored indirect record (`indexCount = pool tail × 6` is the same CPU count the
+// allocator already computed, so comparing it back to `faces()` would be circular). The
+// cursor sum is the one signal this gate reads that the emit kernel itself produced.
 
 // the six canonical patterns — each a distinct mesher code path (isolated voxel, occluded interior,
 // every-face-exposed, flat plane, inward faces, cross-chunk curve). `faces()` is the analytic expected count.
@@ -78,15 +83,19 @@ function equalGrid(a: Float32Array, b: Float32Array): boolean {
     return true;
 }
 
-// the meshed face count, read back from the indirect record's first word (the index count = faces × 6).
-function liveFaces(indirect: Mirror): number | null {
-    if (!indirect.snapshot) return null;
-    return new Uint32Array(indirect.snapshot.bytes)[0] / 6;
+// the meshed face count: every chunk's atomic cursor, summed — the GPU kernel's own claim of how many
+// faces it wrote, independent of the CPU-authored indirect record (see the module doc above).
+function liveFaces(cursor: Mirror): number | null {
+    if (!cursor.snapshot) return null;
+    const view = new Uint32Array(cursor.snapshot.bytes);
+    let sum = 0;
+    for (let i = 0; i < view.length; i++) sum += view[i];
+    return sum;
 }
 
-/** run the full mesher gate against the live device, restoring the generated terrain when done. `indirect`
- *  is a {@link Mirror} of the voxel draw record (its first word = the index count). */
-export async function gate(indirect: Mirror): Promise<Check[]> {
+/** run the full mesher gate against the live device, restoring the generated terrain when done. `cursor`
+ *  is a {@link Mirror} of the per-chunk atomic cursor buffer (`Voxels.cursor`). */
+export async function gate(cursor: Mirror): Promise<Check[]> {
     const checks: Check[] = [];
 
     // (1) mesher correctness: swap in each canonical grid, re-mesh, assert the GPU's atomic face count
@@ -95,8 +104,8 @@ export async function gate(indirect: Mirror): Promise<Check[]> {
     for (const pat of PATTERNS) {
         const grid = authorGrid(pat.name);
         uploadVoxels(grid);
-        await settle(indirect);
-        const got = liveFaces(indirect);
+        await settle(cursor);
+        const got = liveFaces(cursor);
         const want = faces(grid);
         const seam = pat.name === "sphere" ? " — watertight across chunk seams" : "";
         checks.push({
@@ -109,11 +118,11 @@ export async function gate(indirect: Mirror): Promise<Check[]> {
     // (2) generation: generate twice at one seed and read both grids back. The first drives the
     // density/relief/watertight checks; the pair drives determinism.
     await generate(GATE_SEED);
-    await settle(indirect);
+    await settle(cursor);
     const grid = await readGrid();
-    const gpuFaces = liveFaces(indirect);
+    const gpuFaces = liveFaces(cursor);
     await generate(GATE_SEED);
-    await settle(indirect);
+    await settle(cursor);
     const grid2 = await readGrid();
 
     checks.push({
@@ -151,17 +160,21 @@ export async function gate(indirect: Mirror): Promise<Check[]> {
     // this gates the GPU edit→remesh on the real device.
     const edited = authorGrid("sphere");
     uploadVoxels(edited);
+    // settle here so the initial upload's own emit fires before the edit — otherwise the upload and the
+    // edit collapse into one dirty pass and the edit path (a re-mesh over already-meshed geometry) goes
+    // unexercised.
+    await settle(cursor);
     const touched = brush(edited, DIM.x / 2, DIM.y / 2, DIM.z / 2, 12, -DENSITY);
     commitEdit(touched);
-    await settle(indirect);
+    await settle(cursor);
     checks.push({
         name: "carve-watertight",
-        pass: liveFaces(indirect) === faces(edited),
-        detail: `${liveFaces(indirect)} faces (expected ${faces(edited)}) after carving the core`,
+        pass: liveFaces(cursor) === faces(edited),
+        detail: `${liveFaces(cursor)} faces (expected ${faces(edited)}) after carving the core`,
     });
 
     // restore the generated terrain for the live view.
     await generate(GATE_SEED);
-    await settle(indirect);
+    await settle(cursor);
     return checks;
 }

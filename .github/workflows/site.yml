@@ -67,7 +67,7 @@ jobs:
       - run: bun run site
 
       # Runs check-site.ts (the site membership + root-absolute gate) with
-      # SITE_OUT_REQUIRED=1. The full `bun check` suite's first step (format.ts) imports
+      # SITE_OUT_REQUIRED=1. The full `bun check` suite includes scripts/format.ts, which imports
       # the engine barrel, which transitively imports the gitignored audio wasm
       # (packages/shallot/rust/audio/pkg/shallot_audio.js) — so the full suite is red in a
       # fresh CI checkout without a Rust build step, and this workflow adds none (the

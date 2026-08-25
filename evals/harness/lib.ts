@@ -140,6 +140,49 @@ const DEFAULT_SETTLE_MS = 20_000;
 export const BOOT_BUDGET_MS =
     2 * (GOTO_TIMEOUT_MS + SELECTOR_TIMEOUT_MS) + RETRY_DELAY_MS + DEFAULT_SETTLE_MS;
 
+// falling-box's own post-reload canvas-selector wait: it re-navigates via `page.reload()`, not
+// boot()'s goto+selector, so this is a distinct call site rather than a reuse of SELECTOR_TIMEOUT_MS
+// above — but it is a term MAX_GATE_BUDGET_MS's own arithmetic below prices in, so it is owned here
+// rather than hand-written at the gate: a hand edit at the gate now has nothing to move without also
+// moving the name this file (and the class-check arm) both read.
+export const FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS = 20_000;
+
+// The worst-case gate, not the worst-case boot: persist-color calls boot() twice — once at the top,
+// once after the page reload its own positive claim requires — so its real worst path is two boot
+// budgets, not one. falling-box's un-retried post-reload wait carries an implicit `navigationTimeout`
+// (30_000, `gate.config.ts`'s own default — its `page.reload()` passes no explicit `timeout:`) ahead
+// of its own `FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS` selector wait and its unconditional 6s sampling
+// loop, and 2 * BOOT_BUDGET_MS already covers the whole shape at a smaller magnitude than
+// persist-color's (121_000 + 30_000 + FALLING_BOX_RELOAD_SELECTOR_TIMEOUT_MS (20_000) + 6_000 =
+// 177_000 < 242_000). Every task gate's setTimeout derives from this one name — a
+// per-gate budget would still have to clear the same two ceilings above it, so one owner sized to the
+// worst gate costs nothing a per-gate expression wouldn't also pay, and it keeps the arithmetic in
+// this one file rather than restated per gate.
+//
+// Zero margin, disclosed rather than hidden: this is an EXACT 2 * BOOT_BUDGET_MS against
+// persist-color's own two-boot path, with no headroom for the click(), the three region(shot()) pairs,
+// the keyboard.press(), and the explicit waitForTimeout(500) that gate also spends around its two
+// boot() calls. Those are Playwright actions bounded above by `gate.config.ts`'s own actionTimeout
+// (20_000) only in a hang; on the happy path each is expected to complete in low milliseconds — an
+// unmeasured assumption about Playwright action cost, not a measured figure — so the only deterministic
+// addition is the explicit 500ms wait — a fraction of a percent against a 242s budget.
+// If the pathological case (both boot() calls simultaneously at their own absolute ceiling, plus that
+// overhead) ever does overrun, the failure mode is Playwright's own per-test timeout — a visible
+// harness signal distinguishable from a task verdict, never the silent under-measurement this spec
+// exists to remove — so the exact equality is accepted here rather than padded with an undated,
+// hand-picked margin.
+export const MAX_GATE_BUDGET_MS = 2 * BOOT_BUDGET_MS;
+
+// The whole-run wall clock (`gate.config.ts`'s `globalTimeout`) sits above the per-test ceiling by one
+// full boot budget's headroom — enough that a run tripping it is evidence of something beyond the
+// worst gate's own documented worst case, not a ceiling flush against the number it must exceed.
+export const GLOBAL_TIMEOUT_MS = MAX_GATE_BUDGET_MS + BOOT_BUDGET_MS;
+
+// The spawn backstop (`grade.ts`'s `runPlaywright({ timeoutMs })`) sits above the whole-run wall clock
+// by the same one-boot margin, so the ladder's three levels — per-test, config, spawn — each clear the
+// one below by a fixed, derived amount instead of a hand-picked total.
+export const SPAWN_BACKSTOP_MS = GLOBAL_TIMEOUT_MS + BOOT_BUDGET_MS;
+
 export async function boot(
     page: Page,
     settleMs = DEFAULT_SETTLE_MS,

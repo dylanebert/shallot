@@ -522,9 +522,9 @@ let postsWarmed = false;
 /** dispatch the posts compute kernel — one thread per slot, writing every `Post` record. Call after
  *  every `setNetwork` (the network bind group must be up-to-date so the kernel reads the current chord
  *  and `flattenedHeightAt` uses the current falloff). Never per frame. Precompiles the pipeline on the
- *  first call (the same `precompile` pattern `generate.ts`'s `run` uses), binding all three layouts the
- *  kernel closes over — `postsComputeLayout`, `networkLayout`, and `noiseLayout` (through
- *  `flattenedHeightAt` → `heightAt`) — with temporary warm buffers that are destroyed after. */
+ *  first call (the same `precompile` pattern `generate.ts`'s `run` uses) by awaiting `initAsync()` on
+ *  the returned pipeline — no throwaway bind group or dispatch needed to pay Dawn's deferred compile
+ *  early. */
 export async function dispatchPosts(seed: number): Promise<void> {
     if (!pipeline || !bindGroup) throw new Error("posts: dispatch before warmPosts");
     const activePipeline = pipeline;
@@ -532,32 +532,10 @@ export async function dispatchPosts(seed: number): Promise<void> {
     const { device, root } = Compute;
 
     if (!postsWarmed) {
+        // `initAsync()` on the returned pipeline pays Dawn's deferred compile under the loading screen
+        // — no throwaway perm buffer/bind group/dispatch needed to get there
         const warmLabel = precompileScope("posts-dispatch");
-        const owned: { raw: GPUBuffer | null } = { raw: null };
-        try {
-            await precompile(warmLabel, () => {
-                owned.raw = device.createBuffer({
-                    label: `${warmLabel}-perm`,
-                    size: d.sizeOf(PermData),
-                    usage: GPUBufferUsage.STORAGE,
-                });
-                const warmPerm = root.createBuffer(PermData, owned.raw).$usage("storage");
-                const noiseGroup = root.createBindGroup(noiseLayout, { perm: warmPerm });
-                const enc = device.createCommandEncoder({ label: warmLabel });
-                const pass = enc.beginComputePass({ label: warmLabel });
-                activePipeline
-                    .with(noiseGroup)
-                    .with(activeBindGroup)
-                    .with(networkBindGroup())
-                    .with(pass)
-                    .dispatchWorkgroups(0);
-                pass.end();
-                device.queue.submit([enc.finish()]);
-                return activePipeline;
-            });
-        } finally {
-            owned.raw?.destroy();
-        }
+        await precompile(warmLabel, () => activePipeline);
         postsWarmed = true;
     }
 

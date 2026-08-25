@@ -16,7 +16,8 @@ import * as d from "typegpu/data";
 // distance beyond this region comes from a baked/LOD tier, decoupled from the voxel buffer.
 //
 // Chunk-major: each chunk's cells occupy one contiguous range, so a chunk uploads / evicts / remeshes as
-// a single slice — what makes per-chunk streaming + dispatch a localized write. CHUNK and SLOTS are
+// a single slice — the mesher's per-chunk allocation and scoped emit dispatch (mesher.ts) both key off
+// this layout, and a carve re-uploads and re-meshes only the chunks it touched. CHUNK and SLOTS are
 // powers of two so the WGSL mirror bakes the same arithmetic as shift/mask from these constants.
 
 export const CHUNK = 32;
@@ -27,7 +28,8 @@ export const CHUNK_CELLS = CHUNK * CHUNK * CHUNK;
 export const SLOTS = { x: 8, y: 8, z: 8 } as const;
 export const DIM = { x: SLOTS.x * CHUNK, y: SLOTS.y * CHUNK, z: SLOTS.z * CHUNK } as const;
 
-export const TOTAL_CELLS = SLOTS.x * SLOTS.y * SLOTS.z * CHUNK_CELLS;
+export const SLOT_COUNT = SLOTS.x * SLOTS.y * SLOTS.z;
+export const TOTAL_CELLS = SLOT_COUNT * CHUNK_CELLS;
 export const BYTES = TOTAL_CELLS * 4;
 export const GridData = d.arrayOf(d.f32, TOTAL_CELLS);
 
@@ -138,6 +140,61 @@ export function faces(data: Float32Array): number {
     for (let z = 0; z < DIM.z; z++) {
         for (let y = 0; y < DIM.y; y++) {
             for (let x = 0; x < DIM.x; x++) {
+                if (!solidAt(data, x, y, z)) continue;
+                if (!solidAt(data, x + 1, y, z)) n++;
+                if (!solidAt(data, x - 1, y, z)) n++;
+                if (!solidAt(data, x, y + 1, z)) n++;
+                if (!solidAt(data, x, y - 1, z)) n++;
+                if (!solidAt(data, x, y, z + 1)) n++;
+                if (!solidAt(data, x, y, z - 1)) n++;
+            }
+        }
+    }
+    return n;
+}
+
+/**
+ * the up-to-6 face-adjacent chunk slots of `slot`, bounds-clipped to the 8³ chunk grid — the halo a
+ * touched chunk's edit can also affect: a face straddling the shared boundary can flip on either side
+ * even when the neighbour's own occupancy is untouched (`facesInChunk`'s cross-chunk read), so a scoped
+ * remesh re-emits the halo too, not just the chunk that changed. `slot` itself is never included.
+ */
+export function chunkNeighbors(slot: number): number[] {
+    const sx = slot % SLOTS.x;
+    const sy = Math.floor(slot / SLOTS.x) % SLOTS.y;
+    const sz = Math.floor(slot / (SLOTS.x * SLOTS.y));
+    const out: number[] = [];
+    const push = (nx: number, ny: number, nz: number): void => {
+        if (nx < 0 || ny < 0 || nz < 0 || nx >= SLOTS.x || ny >= SLOTS.y || nz >= SLOTS.z) return;
+        out.push((nz * SLOTS.y + ny) * SLOTS.x + nx);
+    };
+    push(sx + 1, sy, sz);
+    push(sx - 1, sy, sz);
+    push(sx, sy + 1, sz);
+    push(sx, sy - 1, sz);
+    push(sx, sy, sz + 1);
+    push(sx, sy, sz - 1);
+    return out;
+}
+
+/**
+ * the exact exposed-face count for one chunk (`slot`) — the CPU twin of the emit kernel's per-chunk
+ * emission (`mesher.ts`'s `emitKernel`): same `>= ISO` predicate, same f32 grid data, walked over the
+ * chunk's local cells but reading neighbours through {@link solidAt} so a face straddling a chunk seam
+ * (the sphere/checker fixtures, any real edit) reads the *other* chunk's data, not an assumed-air edge —
+ * a chunk boundary is not a data boundary. `Σ facesInChunk(data, slot)` over every slot equals
+ * {@link faces}; this is what lets the chunk-pool allocator size each touched chunk's region exactly,
+ * with no worst-case pad.
+ */
+export function facesInChunk(data: Float32Array, slot: number): number {
+    const [ox, oy, oz] = coord(slot * CHUNK_CELLS);
+    let n = 0;
+    for (let lz = 0; lz < CHUNK; lz++) {
+        const z = oz + lz;
+        for (let ly = 0; ly < CHUNK; ly++) {
+            const y = oy + ly;
+            for (let lx = 0; lx < CHUNK; lx++) {
+                const x = ox + lx;
                 if (!solidAt(data, x, y, z)) continue;
                 if (!solidAt(data, x + 1, y, z)) n++;
                 if (!solidAt(data, x - 1, y, z)) n++;
