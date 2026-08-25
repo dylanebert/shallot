@@ -16,8 +16,8 @@
  * list and why `TEST_FILE_CAP_MS` exists only so `test-cap.test.ts` can drive the cap from a child
  * process.
  *
- * Exemption is derived from the path, never listed: `*.oracle.ts`, `*.probes.ts`, `*.tier.ts`, and
- * `*.lab.ts` are shallot's four by-path tiers, so they skip the cap by matching their own suffix.
+ * Exemption is derived from the path, never listed: every suffix in `TEST_TIER_SUFFIX_NAMES` except
+ * `.test` is a by-path tier that skips the cap by matching its own suffix.
  *
  * Mechanism, measured against bun 1.3.14 — and it is NOT the `beforeAll`/`afterAll` pair:
  *
@@ -54,11 +54,11 @@ const TIER_SUFFIXES = TEST_TIER_SUFFIX_NAMES.filter((name) => name !== "test").m
 );
 
 /**
- * The suffixes that are valid *promotion destinations* — a subset of the exempt set. All four by-path
- * suffixes skip the cap (`.probes.ts` is the browser-launching gate tier, `.lab.ts` is temporary),
+ * The suffixes that are valid *promotion destinations* — a subset of the exempt set. Every by-path
+ * suffix skips the cap (`.probes.ts` is the browser-launching gate tier, `.lab.ts` is temporary),
  * but the cap's message names only the two a red file may move to. This constant is the source the
  * message is built from, so the arm can pin destinations against it rather than against the wider
- * `isCapExempt` (which admits all four and would green a message offering `.probes.ts`).
+ * `isCapExempt` (which admits every by-path suffix and would green a message offering `.probes.ts`).
  */
 export const PROMOTION_DESTINATIONS = [".oracle.ts", ".tier.ts"];
 

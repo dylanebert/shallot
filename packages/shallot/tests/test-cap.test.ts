@@ -11,7 +11,7 @@
  *       enumeration** (numbering, count-word agreement, line count, suffixes derived through the
  *       exempt predicate) and never by substring — a third sanctioned move in that message would
  *       ship green under the substring form;
- *   (c) a fast file passes and the exemption is derived for all four suffixes with its extent pinned
+ *   (c) a fast file passes and the exemption is derived for every by-path suffix with its extent pinned
  *       (an exclusion is a deletion primitive and owes the tighter proof);
  *   (d) the configuration-reach control — removing the preload line from `bunfig.toml` must red,
  *       because a gate supplied by configuration fails open when the configuration is wrong.
@@ -39,6 +39,7 @@ import {
     PROMOTION_DESTINATIONS,
     resolveCapMs,
 } from "./test-cap";
+import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
 
 const REPO_ROOT = join(import.meta.dir, "../../..");
 const PRELOAD = join(import.meta.dir, "test-cap.ts");
@@ -246,8 +247,8 @@ describe("cap resolution and the derived exemption", () => {
         expect(enumerated[1].text).toContain("reason in its header");
 
         // and the tier suffixes it offers are the promotion destinations, pinned against the
-        // constant the message is built from — NOT `isCapExempt`, which admits all four exempt
-        // suffixes and would green a message offering `.probes.ts` or `.lab.ts` as a destination.
+        // constant the message is built from — NOT `isCapExempt`, which admits every exempt
+        // suffix and would green a message offering `.probes.ts` or `.lab.ts` as a destination.
         const offered = [...msg.matchAll(/\*(\.[a-z.]*ts)\b/g)].map((m) => m[1]);
         expect(offered.length).toBeGreaterThan(0);
         expect(offered).toEqual(PROMOTION_DESTINATIONS);
@@ -288,7 +289,7 @@ describe("the cap in a real bun test child", () => {
 
     /**
      * The exemption proven both ways off ONE body of bytes: the same fixture content reds as
-     * `.test.ts` and passes as `.oracle.ts` / `.probes.ts` / `.tier.ts` / `.lab.ts`, so the only
+     * `.test.ts` and passes as every by-path tier suffix in `TEST_TIER_SUFFIX_NAMES`, so the only
      * difference between the red and the green is the extension. Witnessed red: `TIER_SUFFIXES = []`
      * (which is `isCapExempt` false for every path) read `Expected: 0 / Received: 1` on the tier
      * child's exit code.
@@ -299,28 +300,28 @@ describe("the cap in a real bun test child", () => {
      * the wrong bytes or no bytes at all. `OVER_FIXTURE` is that outside side — the same committed
      * file the configuration-reach arm below runs in place.
      */
-    test("the same bytes red as .test.ts and pass as all four by-path tier suffixes", () => {
+    test("the same bytes red as .test.ts and pass as every by-path tier suffix", () => {
         const fixtureBytes = readFileSync(OVER_FIXTURE, "utf8");
         expect(
             fixtureBytes.length,
             "the tracked over-cap fixture is empty — the byte-identity claim below would be vacuous",
         ).toBeGreaterThan(0);
         const red = hermetic("subject.test.ts");
-        const greenOracle = hermetic("subject.oracle.ts");
-        const greenProbes = hermetic("subject.probes.ts");
-        const greenTier = hermetic("subject.tier.ts");
-        const greenLab = hermetic("subject.lab.ts");
+        // Derive the by-path tiers from the shared roster the same way `test-cap.ts` does — by
+        // dropping `.test`, the default tier the cap applies to — so the arm covers the roster by
+        // construction and a seventh tier is covered the day it is added.
+        const byPathSuffixes = TEST_TIER_SUFFIX_NAMES.filter((name) => name !== "test");
+        const greenTiers = byPathSuffixes.map((name) => hermetic(`subject.${name}.ts`));
         expect(readFileSync(red.file, "utf8")).toBe(fixtureBytes);
-        expect(readFileSync(greenOracle.file, "utf8")).toBe(fixtureBytes);
-        expect(readFileSync(greenProbes.file, "utf8")).toBe(fixtureBytes);
-        expect(readFileSync(greenTier.file, "utf8")).toBe(fixtureBytes);
-        expect(readFileSync(greenLab.file, "utf8")).toBe(fixtureBytes);
+        for (const tier of greenTiers) {
+            expect(readFileSync(tier.file, "utf8")).toBe(fixtureBytes);
+        }
 
         const redRun = run(red.dir, ["--preload", PRELOAD, "./subject.test.ts"], "0");
         expect(redRun.exitCode).toBe(1);
         expect(redRun.output).toContain("per-file test cap exceeded");
 
-        for (const tier of [greenOracle, greenProbes, greenTier, greenLab]) {
+        for (const tier of greenTiers) {
             const tierRun = run(tier.dir, ["--preload", PRELOAD, `./${tier.name}`], "0");
             expect(tierRun.exitCode).toBe(0);
             expect(tierRun.output).not.toContain("per-file test cap exceeded");
