@@ -18,7 +18,9 @@ export interface Mouse {
     right: boolean;
     /** middle button held */
     middle: boolean;
-    /** pointer is over a bound canvas, or a drag is active (hover holds true for the whole drag) */
+    /** pointer is over a bound canvas, or a drag is active (hover holds true for the whole drag).
+     *  A drag released off-canvas leaves `hover` true: `releaseCapture` clears `activePointerId` without
+     *  re-evaluating hover, and no further `pointerleave` fires once the pointer has already left the canvas */
     hover: boolean;
     /** pointer x within the focused canvas, CSS pixels from the left edge */
     x: number;
