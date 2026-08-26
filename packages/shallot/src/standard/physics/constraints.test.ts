@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { load, parse, State } from "../..";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { load, parse, State } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
 import { Slab } from "../slab";
 import {
@@ -12,6 +12,7 @@ import {
     jointTraits,
     type PhysicsBackend,
     Spring,
+    type SpringDef,
     springTraits,
     uninstallBackend,
 } from "./index";
@@ -151,5 +152,198 @@ describe("constraint re-upload on an endpoint realias", () => {
 
         ConstraintSystem.update?.(state);
         expect(joints.length).toBe(2); // re-uploaded so the backend joint rebinds to the new occupant
+    });
+});
+
+// The stiffness guard at the backend-neutral authoring layer (jointDefs/springDefs in index.ts): a
+// negative or NaN stiffnessAng/stiffness is dropped with a warnOnce before reaching either backend, so
+// both backends inherit one behavior. The recording backend is a proxy for any backend (tumble or AVBD)
+// since the guard sits in the shared ConstraintSystem path. Valid authored values (0, finite-positive, ∞)
+// pass through unchanged — the grant arm pins that the guard does not over-refuse.
+describe("stiffness guard (authoring layer)", () => {
+    let state: State;
+    let joints: JointDef[][];
+    let springs: SpringDef[][];
+
+    function recordingBackend(): PhysicsBackend {
+        return {
+            step() {},
+            readBody: () => null,
+            setKinematic() {},
+            setVelocity() {},
+            setSprings(s) {
+                springs.push([...s]);
+            },
+            setJoints(j) {
+                joints.push([...j]);
+            },
+            get gravity() {
+                return -10;
+            },
+            get dt() {
+                return 1 / 60;
+            },
+            compose() {},
+        };
+    }
+
+    beforeEach(() => {
+        clear();
+        state = new State();
+        register("body", Body, bodyTraits);
+        register("spring", Spring, springTraits);
+        register("joint", Joint, jointTraits);
+        Slab.collect();
+        joints = [];
+        springs = [];
+        uninstallBackend();
+        installBackend(recordingBackend());
+    });
+
+    afterEach(() => {
+        uninstallBackend();
+    });
+
+    // witnessed red: exit code 1 — without the guard branch in jointDefs, the -1 def passes through and
+    // setJoints receives a 1-element array; the assertion `expect(joints[0]).toHaveLength(0)` fails.
+    test("a negative stiffnessAng joint is dropped — no joint reaches the backend", () => {
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.mass.set(anchor, 0);
+        const bob = state.create();
+        state.add(bob, Body);
+        Body.pos.set(bob, 0, -2, 0, 0);
+
+        const joint = state.create();
+        state.add(joint, Joint);
+        Joint.a.set(joint, anchor);
+        Joint.b.set(joint, bob);
+        Joint.stiffnessAng.set(joint, -1);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            ConstraintSystem.update?.(state);
+            expect(joints.length).toBe(1);
+            expect(joints[0]).toHaveLength(0); // the invalid def was dropped — no joint for the backend
+            expect(warn).toHaveBeenCalled();
+            const msg = warn.mock.calls.find((c) => String(c[0]).includes("joint"))?.[0];
+            expect(msg).toBeDefined();
+            expect(String(msg)).toContain("skipped");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // witnessed red: exit code 1 — without the guard, NaN passes the comparison-only checks (NaN < 0 is
+    // false) and setJoints receives a 1-element array with NaN stiffnessAng; the length assertion fails.
+    test("a NaN stiffnessAng joint is dropped — no joint reaches the backend", () => {
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.mass.set(anchor, 0);
+        const bob = state.create();
+        state.add(bob, Body);
+        Body.pos.set(bob, 0, -2, 0, 0);
+
+        const joint = state.create();
+        state.add(joint, Joint);
+        Joint.a.set(joint, anchor);
+        Joint.b.set(joint, bob);
+        Joint.stiffnessAng.set(joint, Number.NaN);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            ConstraintSystem.update?.(state);
+            expect(joints.length).toBe(1);
+            expect(joints[0]).toHaveLength(0); // NaN was dropped — comparison-only guards can't catch it
+            expect(warn).toHaveBeenCalled();
+            const msg = warn.mock.calls.find((c) => String(c[0]).includes("joint"))?.[0];
+            expect(msg).toBeDefined();
+            expect(String(msg)).toContain("skipped");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // witnessed red: exit code 1 — without the guard, the -1 stiffness passes through and setSprings
+    // receives a 1-element array; the length assertion fails.
+    test("a negative stiffness spring is dropped — no spring reaches the backend", () => {
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.mass.set(anchor, 0);
+        const bob = state.create();
+        state.add(bob, Body);
+
+        const spring = state.create();
+        state.add(spring, Spring);
+        Spring.a.set(spring, anchor);
+        Spring.b.set(spring, bob);
+        Spring.stiffness.set(spring, -1);
+        Spring.rest.set(spring, 4);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            ConstraintSystem.update?.(state);
+            expect(springs.length).toBe(1);
+            expect(springs[0]).toHaveLength(0);
+            expect(warn).toHaveBeenCalled();
+            const msg = warn.mock.calls.find((c) => String(c[0]).includes("spring"))?.[0];
+            expect(msg).toBeDefined();
+            expect(String(msg)).toContain("skipped");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // witnessed red: exit code 1 — without the guard, NaN passes the comparison-only checks and
+    // setSprings receives a 1-element array with NaN stiffness; the length assertion fails.
+    test("a NaN stiffness spring is dropped — no spring reaches the backend", () => {
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.mass.set(anchor, 0);
+        const bob = state.create();
+        state.add(bob, Body);
+
+        const spring = state.create();
+        state.add(spring, Spring);
+        Spring.a.set(spring, anchor);
+        Spring.b.set(spring, bob);
+        Spring.stiffness.set(spring, Number.NaN);
+        Spring.rest.set(spring, 4);
+
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            ConstraintSystem.update?.(state);
+            expect(springs.length).toBe(1);
+            expect(springs[0]).toHaveLength(0);
+            expect(warn).toHaveBeenCalled();
+            const msg = warn.mock.calls.find((c) => String(c[0]).includes("spring"))?.[0];
+            expect(msg).toBeDefined();
+            expect(String(msg)).toContain("skipped");
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // grant arm: a finite-positive stiffnessAng passes the guard and builds a joint — the over-refusal
+    // check no refusal arm can show. Always green (the guard admits finite-positive); the red-first
+    // discipline applies to the skip arms, not the grant.
+    test("a finite-positive stiffnessAng joint passes the guard (grant arm)", () => {
+        const anchor = state.create();
+        state.add(anchor, Body);
+        Body.mass.set(anchor, 0);
+        const bob = state.create();
+        state.add(bob, Body);
+        Body.pos.set(bob, 0, -2, 0, 0);
+
+        const joint = state.create();
+        state.add(joint, Joint);
+        Joint.a.set(joint, anchor);
+        Joint.b.set(joint, bob);
+        Joint.stiffnessAng.set(joint, 1000);
+
+        ConstraintSystem.update?.(state);
+        expect(joints.length).toBe(1);
+        expect(joints[0]).toHaveLength(1);
+        expect(joints[0][0]?.stiffnessAng).toBe(1000);
     });
 });

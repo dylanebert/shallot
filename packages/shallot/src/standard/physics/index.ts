@@ -281,6 +281,8 @@ let jointSig = FNV_BASIS;
 function resetSignatures(): void {
     springSig = FNV_BASIS;
     jointSig = FNV_BASIS;
+    warnedJointEids.clear();
+    warnedSpringEids.clear();
 }
 
 function springSignature(state: State): number {
@@ -331,15 +333,36 @@ function jointSignature(state: State): number {
     return h;
 }
 
+// warned-eid dedupe for the stiffness guard — keyed on entity id so a re-upload triggered by an
+// unrelated constraint change does not re-warn the same invalid def. Cleared on backend reinstall
+// (resetSignatures) so a fresh backend re-warns. A def whose stiffness is fixed (invalid → valid) is
+// removed from the set so a later regression to invalid re-warns.
+const warnedJointEids = new Set<number>();
+const warnedSpringEids = new Set<number>();
+
 function springDefs(state: State): SpringDef[] {
     const out: SpringDef[] = [];
     for (const eid of state.query([Spring])) {
+        const stiffness = Spring.stiffness.get(eid);
+        // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
+        // 0 and ∞ are valid authored values (0 = non-positive → downstream skip; ∞ = rigid) — only negative
+        // and NaN are rejected, at the backend-neutral authoring layer so both backends inherit one behavior.
+        if (Number.isNaN(stiffness) || stiffness < 0) {
+            if (!warnedSpringEids.has(eid)) {
+                console.warn(
+                    `[physics] spring (a: ${Spring.a.get(eid)}, b: ${Spring.b.get(eid)}) has negative or NaN stiffness — skipped`,
+                );
+                warnedSpringEids.add(eid);
+            }
+            continue;
+        }
+        warnedSpringEids.delete(eid);
         out.push({
             a: Spring.a.get(eid),
             b: Spring.b.get(eid),
             rA: [Spring.rA.x.get(eid), Spring.rA.y.get(eid), Spring.rA.z.get(eid)],
             rB: [Spring.rB.x.get(eid), Spring.rB.y.get(eid), Spring.rB.z.get(eid)],
-            stiffness: Spring.stiffness.get(eid),
+            stiffness,
             rest: Spring.rest.get(eid),
         });
     }
@@ -349,12 +372,28 @@ function springDefs(state: State): SpringDef[] {
 function jointDefs(state: State): JointDef[] {
     const out: JointDef[] = [];
     for (const eid of state.query([Joint])) {
+        const stiffnessAng = Joint.stiffnessAng.get(eid);
+        // NaN is transparent to comparison-only guards (NaN < 0 is false), so state finiteness explicitly.
+        // 0 (spherical) and ∞ (fixed) are valid authored values — only negative and NaN are rejected, at the
+        // backend-neutral authoring layer so both backends inherit one behavior. JointDef carries only
+        // stiffnessAng today (no stiffnessLin-class field to guard); the AVBD-extended JointDef's optional
+        // stiffnessLin/motor ride the escape hatch, not this path.
+        if (Number.isNaN(stiffnessAng) || stiffnessAng < 0) {
+            if (!warnedJointEids.has(eid)) {
+                console.warn(
+                    `[physics] joint (a: ${Joint.a.get(eid)}, b: ${Joint.b.get(eid)}) has negative or NaN angular stiffness — skipped`,
+                );
+                warnedJointEids.add(eid);
+            }
+            continue;
+        }
+        warnedJointEids.delete(eid);
         out.push({
             a: Joint.a.get(eid),
             b: Joint.b.get(eid),
             rA: [Joint.rA.x.get(eid), Joint.rA.y.get(eid), Joint.rA.z.get(eid)],
             rB: [Joint.rB.x.get(eid), Joint.rB.y.get(eid), Joint.rB.z.get(eid)],
-            stiffnessAng: Joint.stiffnessAng.get(eid),
+            stiffnessAng,
         });
     }
     return out;
