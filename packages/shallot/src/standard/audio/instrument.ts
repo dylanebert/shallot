@@ -21,7 +21,7 @@ export type NodeType =
     | "phaser"
     | "tremolo";
 
-const NODE_TYPE_ID: Record<NodeType, number> = {
+export const NODE_TYPE_ID: Record<NodeType, number> = {
     oscillator: 1,
     filter: 2,
     envelope: 3,
@@ -224,7 +224,7 @@ const NO_BUF = 0xff;
  * plays silent. Mirrors `rust/audio/src/graph.rs`'s `[InstrumentDef; MAX_INSTRUMENTS]`.
  */
 export const MAX_INSTRUMENTS = 32;
-const MAX_BUFFERS = 8;
+export const MAX_BUFFERS = 8;
 
 /** every compiled instrument, keyed by name with a stable numeric ID */
 export const Instruments: Registry<Instrument> = new Registry<Instrument>();

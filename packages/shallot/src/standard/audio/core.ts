@@ -3,7 +3,7 @@ import { byId, getParamPairs, type Instrument } from "./instrument";
 import { flushSamples, resetSampleUploads } from "./sample";
 import { createWorkletURL } from "./worklet";
 
-const MAX_VOICES = 64;
+export const MAX_VOICES = 64;
 const SLOT_MASK = 0x7f;
 const GEN_MASK = 0xffffff;
 

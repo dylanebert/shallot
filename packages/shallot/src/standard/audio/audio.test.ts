@@ -4,7 +4,18 @@ import { State } from "../..";
 import { clear, register } from "../../engine/ecs/core";
 import { Transform } from "../transforms";
 import { AudioPlugin, play, Sound, sfx } from "./";
-import { Audio, alloc, byId, free, getParamPairs, instrument, polar, slotOf, valid } from "./core";
+import {
+    Audio,
+    alloc,
+    byId,
+    free,
+    getParamPairs,
+    instrument,
+    MAX_VOICES,
+    polar,
+    slotOf,
+    valid,
+} from "./core";
 import { markCooldown, withinCooldown } from "./policy";
 import { flushSamples, keepChannels, resetSampleUploads, Samples, sample } from "./sample";
 
@@ -416,8 +427,6 @@ describe("sample decode channels", () => {
 });
 
 type Cmd = { type: string; voiceId?: number; value?: number };
-
-const MAX_VOICES = 64;
 
 const TONE = {
     nodes: { osc: { type: "oscillator" }, out: { type: "gain", input: "osc" } },
