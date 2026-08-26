@@ -66,6 +66,11 @@
 // fixed params and carries no `LazyAlloc` mark. Stage 4d's attribution corroborates this independently:
 // every one of the 34 disagreeing rows, including the AVBD-heavy ones, traced to the single label
 // `slab-staging`, never `phys-hulls`.
+//
+// `orbit-touch` (`shallot-mobile-controls` spec, S5) first landed from a software-adapter reading
+// (SwiftShader, the WSL→Windows real-GPU bridge unreachable that session) flagged as unconfirmed;
+// 2026-08-26 real-hardware run (nvidia/lovelace, via the fixed bridge dial) agreed exactly (29/29/
+// 31_828_368) — the row carries no further caveat.
 export interface AxisBudget {
     pipelines?: number;
     pipelineCalls?: number;
@@ -137,19 +142,6 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "mesh-terrain": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_616_308 },
     "mesh-torus": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_895_924 },
     motor: { pipelines: 66, pipelineCalls: 66, gpuBytes: 88_873_964 },
-    // orbit-touch (`shallot-mobile-controls` spec, S5) — measured off a source EVERY other row here
-    // isn't: `window.__benchmark.measure()` driven directly against gym's dev server (`bun run dev`) under
-    // a headless Chromium **software** adapter (SwiftShader), not the WSL→Windows real-GPU bridge every
-    // other row's history note credits — the bridge was unreachable in this session (network topology
-    // check: this seat's WSL `eth0` carries a link-local address with no routable peer on the Windows
-    // side, so the host can never dial the reverse tunnel `wsl-bridge.ts` needs; `shallot verify`'s CLI
-    // refuses a software adapter outright for exactly this reason, so this bypassed the CLI and drove the
-    // published `window.__benchmark` harness directly). Three back-to-back same-session runs agreed
-    // exactly (29 / 29 / 31_828_368), and both structural axes match `render`'s own golden (29/29) — the
-    // same base plugin set (Slab/Transforms/Input/Orbit/Render/Part/Sear/Glaze), no BVH/AVBD/subgroups
-    // branch either scenario could diverge on — consistent with this axis's own device-independence claim
-    // above. Still a single-adapter reading where every sibling row rests on a real-GPU sweep: worth a
-    // real-hardware confirmation the next time this seat (or a WSL session with a live bridge) touches gym.
     "orbit-touch": { pipelines: 29, pipelineCalls: 29, gpuBytes: 31_828_368 },
     outline: { pipelines: 33, pipelineCalls: 33, gpuBytes: 38_517_664 },
     pile: { pipelines: 66, pipelineCalls: 133, gpuBytes: 26_173_716 },
