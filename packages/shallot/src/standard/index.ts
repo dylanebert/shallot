@@ -10,6 +10,7 @@ export {
     type Mouse,
     requirePointerLock,
     setInputEnabled,
+    type Touch,
 } from "./input";
 export { minimalDark, minimalLight, shallotDark, shallotLight } from "./loading";
 export { Mirror, MirrorPlugin, MirrorSystem, mirror } from "./mirror";

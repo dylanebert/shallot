@@ -413,6 +413,248 @@ describe("InputPlugin", () => {
     //   pointermove fired at a non-canvas target — the canvas-scoped pointerHover early-returned, so
     //   mouse.x/y were never written for the off-canvas move)
     // The fix: the window-level pointerMove handler writes mouse.x/y using the active canvas's rect.
+    // multi-touch: a second finger no longer just gets ignored (the old
+    // `activePointerId` early-return) — it's tracked in a per-pointerId cache
+    // (MDN multi-touch pattern) that feeds `Inputs.touch`, independent of the
+    // single-pointer `Mouse` capture path above.
+    test("a second touch pointer registers in Inputs.touch.count without disturbing Mouse", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(1);
+
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(2);
+        // the second finger must not masquerade as the captured pointer's button/delta
+        expect(Inputs.mouse.deltaX).toBe(0);
+    });
+
+    test("pinch: two-finger spread produces a positive pinchDelta, matching the hand-computed distance change", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        }); // initial distance: 100
+
+        onWindow("pointermove")({
+            pointerId: 1,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 80,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onWindow("pointermove")({
+            pointerId: 2,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 220,
+            clientY: 100,
+            preventDefault() {},
+        }); // new distance: 140, delta +40
+
+        expect(Inputs.touch.pinchDelta).toBe(40);
+    });
+
+    test("two-finger drag produces a centroid delta", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        }); // initial centroid: (150, 100)
+
+        onWindow("pointermove")({
+            pointerId: 1,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 110,
+            clientY: 130,
+            preventDefault() {},
+        });
+        onWindow("pointermove")({
+            pointerId: 2,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 210,
+            clientY: 130,
+            preventDefault() {},
+        }); // new centroid: (160, 130), delta (+10, +30)
+
+        expect(Inputs.touch.deltaX).toBe(10);
+        expect(Inputs.touch.deltaY).toBe(30);
+        // pinch stays flat — the two fingers moved together, distance unchanged
+        expect(Inputs.touch.pinchDelta).toBe(0);
+    });
+
+    test("touch deltas reset each frame, count survives", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onWindow("pointermove")({
+            pointerId: 1,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 90,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.pinchDelta).toBe(10);
+
+        state.step();
+        expect(Inputs.touch.pinchDelta).toBe(0);
+        expect(Inputs.touch.deltaX).toBe(0);
+        expect(Inputs.touch.count).toBe(2); // still two fingers down
+    });
+
+    test("lifting one finger drops the pinch baseline — a third pointerdown does not resume a stale delta", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onWindow("pointerup")({
+            pointerId: 2,
+            pointerType: "touch",
+            buttons: 0,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(1);
+
+        // a fresh second finger — no baseline exists yet, so its first move must not
+        // report a delta computed against the old (now-stale) pair
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 3,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 300,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(2);
+        onWindow("pointermove")({
+            pointerId: 3,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 305,
+            clientY: 100,
+            preventDefault() {},
+        });
+        // distance was rebaselined at (1,3)'s pointerdown, so this move's delta is
+        // just the +5 shift of pointer 3, not a jump from the stale (1,2) baseline
+        expect(Inputs.touch.pinchDelta).toBe(5);
+    });
+
+    test("setInputEnabled(false) neutralizes touch reads and clears the cache", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(2);
+
+        setInputEnabled(false);
+        expect(Inputs.touch.count).toBe(0);
+        expect(Inputs.touch.pinchDelta).toBe(0);
+
+        setInputEnabled(true);
+        expect(Inputs.touch.count).toBe(0); // cache was cleared, not just gated
+    });
+
     test("a held-pointer move at a non-canvas target keeps mouse.x/y tracking", () => {
         // pointer enters the canvas — sets hover true
         onCanvas("pointerenter")({ target: canvas });

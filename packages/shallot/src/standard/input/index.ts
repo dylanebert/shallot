@@ -31,7 +31,25 @@ export interface Mouse {
 }
 
 /**
- * the input singleton: query keyboard and mouse state from any system. Key codes are
+ * live multi-touch state, read through {@link Inputs}.touch. Independent of {@link Mouse} — a touch
+ * gesture never synthesizes mouse buttons or scroll, so a tool reading `mouse.scroll`/`mouse.middle`
+ * can't misfire on a pinch or two-finger drag. Deltas accumulate over the frame and reset at frame end.
+ * @expand
+ */
+export interface Touch {
+    /** number of touch pointers currently held on a bound canvas */
+    count: number;
+    /** two-finger distance change since the last frame, in CSS pixels — positive spreads (zoom in),
+     *  negative pinches together (zoom out) */
+    pinchDelta: number;
+    /** two-finger centroid horizontal movement since the last frame, in CSS pixels */
+    deltaX: number;
+    /** two-finger centroid vertical movement since the last frame, in CSS pixels */
+    deltaY: number;
+}
+
+/**
+ * the input singleton: query keyboard, mouse, and touch state from any system. Key codes are
  * `KeyboardEvent.code` values (`"KeyW"`, `"Space"`, `"ShiftLeft"`). While input is suspended
  * ({@link setInputEnabled}) every read reports neutral.
  * @expand
@@ -39,10 +57,13 @@ export interface Mouse {
  * if (Inputs.isKeyDown("KeyW")) moveForward();
  * if (Inputs.isKeyPressed("Space")) jump();
  * if (Inputs.mouse.left) fire();
+ * if (Inputs.touch.count === 2) zoom(Inputs.touch.pinchDelta);
  */
 export interface Inputs {
     /** current mouse state: buttons, canvas-relative position, per-frame deltas */
     readonly mouse: Readonly<Mouse>;
+    /** current multi-touch state: pointer count, pinch delta, two-finger centroid deltas */
+    readonly touch: Readonly<Touch>;
     /** document-order index of the canvas holding input focus (the Nth `<canvas>` `InputSystem` bound),
      *  or -1 when none is focused — not an ECS entity id */
     readonly focused: number;
@@ -70,6 +91,13 @@ const DEFAULT_MOUSE: Mouse = {
     canvasHeight: 0,
 };
 
+const DEFAULT_TOUCH: Touch = {
+    count: 0,
+    pinchDelta: 0,
+    deltaX: 0,
+    deltaY: 0,
+};
+
 // the global input gate. While off, every read reports neutral (no keys, no buttons, no deltas) and the
 // keydown handler stops accumulating, so a menu or cutscene suspends every input consumer with one flag. A
 // pointer-lock controller (the Player) watches it to release the lock too. Reset to true on each (re)bind.
@@ -78,6 +106,9 @@ let enabled = true;
 export const Inputs: Inputs = {
     get mouse(): Readonly<Mouse> {
         return enabled ? (inputState?.mouse ?? DEFAULT_MOUSE) : DEFAULT_MOUSE;
+    },
+    get touch(): Readonly<Touch> {
+        return enabled ? (inputState?.touch ?? DEFAULT_TOUCH) : DEFAULT_TOUCH;
     },
     get focused(): number {
         return inputState?.focused ?? -1;
@@ -119,6 +150,12 @@ export function setInputEnabled(on: boolean): void {
         inputState.mouse.deltaX = 0;
         inputState.mouse.deltaY = 0;
         inputState.mouse.scroll = 0;
+        inputState.touchPoints.clear();
+        updatePinchBaseline(inputState);
+        inputState.touch.count = 0;
+        inputState.touch.pinchDelta = 0;
+        inputState.touch.deltaX = 0;
+        inputState.touch.deltaY = 0;
     }
 }
 
@@ -133,6 +170,16 @@ interface InputState {
     keysReleased: Set<string>;
     keyPressedAt: Map<string, number>;
     mouse: Mouse;
+    touch: Touch;
+    // per-`pointerId` cache of the last known position of every touch pointer currently held on a
+    // bound canvas (MDN multi-touch pattern) — independent of `activePointerId`'s single-pointer
+    // mouse capture, so a second finger is tracked rather than discarded.
+    touchPoints: Map<number, { x: number; y: number }>;
+    // the two-finger distance/centroid baseline `pointerMove` diffs against; null whenever fewer
+    // than two touch pointers are held, so a delta is never computed against a stale pair.
+    pinchDistance: number | null;
+    centroidX: number | null;
+    centroidY: number | null;
     canvases: Map<HTMLCanvasElement, number>;
     activeCanvas: HTMLCanvasElement | null;
     focused: number;
@@ -203,6 +250,26 @@ function clearAllButtons(mouse: Mouse): void {
     mouse.right = false;
 }
 
+function distance(a: { x: number; y: number }, b: { x: number; y: number }): number {
+    return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+// re-derives the two-finger pinch/centroid baseline from `touchPoints` whenever the held set
+// changes size (a finger goes down or up) — recomputing rather than patching means a third finger
+// joining or a pair reforming after a lift never diffs against a stale prior pair.
+function updatePinchBaseline(s: InputState): void {
+    if (s.touchPoints.size === 2) {
+        const [a, b] = [...s.touchPoints.values()];
+        s.pinchDistance = distance(a, b);
+        s.centroidX = (a.x + b.x) / 2;
+        s.centroidY = (a.y + b.y) / 2;
+    } else {
+        s.pinchDistance = null;
+        s.centroidX = null;
+        s.centroidY = null;
+    }
+}
+
 // pointer capture tracks the FIRST button on a pointer for movement / focus;
 // button state is derived from `e.buttons` and updates independently of
 // capture, so a right-click during a left-drag is observable.
@@ -255,6 +322,13 @@ function createHandlers(s: InputState): void {
         const canvasEid = s.canvases.get(target);
         if (canvasEid === undefined) return;
         window.focus();
+        // a touch pointer joins the per-pointerId cache regardless of `activePointerId` — a second
+        // (or further) finger is tracked for pinch/centroid, never discarded.
+        if (e.pointerType === "touch") {
+            s.touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            s.touch.count = s.touchPoints.size;
+            updatePinchBaseline(s);
+        }
         // ignore multi-touch (different pointerId on the same canvas) so a
         // second pointer's buttons can't masquerade as the captured one's.
         if (s.activePointerId === null || s.activePointerId === e.pointerId) {
@@ -289,6 +363,10 @@ function createHandlers(s: InputState): void {
     };
 
     s.pointerUp = (e: PointerEvent) => {
+        if (s.touchPoints.delete(e.pointerId)) {
+            s.touch.count = s.touchPoints.size;
+            updatePinchBaseline(s);
+        }
         if (e.pointerId !== s.activePointerId) return;
         syncButtons(s.mouse, gateButtons(s, e.buttons));
         // releasing the capturing button releases the pointer; secondary
@@ -305,12 +383,36 @@ function createHandlers(s: InputState): void {
     };
 
     s.pointerCancel = (e: PointerEvent) => {
+        if (s.touchPoints.delete(e.pointerId)) {
+            s.touch.count = s.touchPoints.size;
+            updatePinchBaseline(s);
+        }
         if (e.pointerId !== s.activePointerId) return;
         clearAllButtons(s.mouse);
         releaseCapture(s);
     };
 
     s.pointerMove = (e: PointerEvent) => {
+        // hand-computed distance/center from the per-pointerId cache (MDN multi-touch pattern) —
+        // diffed against the baseline from the last time the held set changed size, so this only
+        // ever measures the *frame's* movement, never a jump from a stale prior pair.
+        if (s.touchPoints.has(e.pointerId)) {
+            s.touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (s.touchPoints.size === 2) {
+                const [a, b] = [...s.touchPoints.values()];
+                const dist = distance(a, b);
+                const cx = (a.x + b.x) / 2;
+                const cy = (a.y + b.y) / 2;
+                if (s.pinchDistance !== null) s.touch.pinchDelta += dist - s.pinchDistance;
+                if (s.centroidX !== null && s.centroidY !== null) {
+                    s.touch.deltaX += cx - s.centroidX;
+                    s.touch.deltaY += cy - s.centroidY;
+                }
+                s.pinchDistance = dist;
+                s.centroidX = cx;
+                s.centroidY = cy;
+            }
+        }
         if (e.pointerId !== s.activePointerId) return;
         // sync buttons during drag too — e.g. catches a right-press that
         // happened mid-drag if the per-button pointerdown was suppressed
@@ -394,6 +496,13 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         canvasHeight: 0,
     };
 
+    const touch: Touch = {
+        count: 0,
+        pinchDelta: 0,
+        deltaX: 0,
+        deltaY: 0,
+    };
+
     const canvases = new Map<HTMLCanvasElement, number>();
     for (let i = 0; i < canvasElements.length; i++) {
         const element = canvasElements[i];
@@ -409,6 +518,11 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         keysReleased: new Set(),
         keyPressedAt: new Map(),
         mouse,
+        touch,
+        touchPoints: new Map(),
+        pinchDistance: null,
+        centroidX: null,
+        centroidY: null,
         canvases,
         activeCanvas: null,
         focused: 0,
@@ -477,6 +591,9 @@ const InputResetSystem: System = {
         s.mouse.deltaX = 0;
         s.mouse.deltaY = 0;
         s.mouse.scroll = 0;
+        s.touch.pinchDelta = 0;
+        s.touch.deltaX = 0;
+        s.touch.deltaY = 0;
     },
 };
 
