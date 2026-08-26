@@ -18,10 +18,14 @@ interface Overlay {
     destroy(): void;
 }
 
-function createOverlay(canvas: HTMLElement | null): Overlay {
+function createOverlay(canvas: HTMLElement | null, state: State): Overlay {
     // the readout lives in the engine's sandboxed overlay (canvas-bounded, can't spill into an
-    // embedding host page), the same surface `config.ui` hands an app
-    const parent = mountOverlay(canvas);
+    // embedding host page), the same surface `config.ui` hands an app. Passing `state` ties the
+    // overlay's removal to `state.onDispose` (auto-registers `overlay.remove()`), so a direct
+    // `state.dispose()` — which never fires the plugin `dispose` hook — still cleans up the DOM node.
+    // The module-scope cleanup cleared at top-of-warm (below) is the fallback for a host that re-warms
+    // without disposing (`swap()`), which `onDispose` doesn't fire for (collapse exemplar's shape).
+    const parent = mountOverlay(canvas, state);
     const root = document.createElement("div");
     Object.assign(root.style, {
         position: "absolute",
@@ -53,10 +57,13 @@ function createOverlay(canvas: HTMLElement | null): Overlay {
 
     return {
         set(speed, boost, shift, visible) {
-            // keep the text current even while fading, so the last value reads as it dims out
-            speedEl.textContent = `fly ${speed.toFixed(1)} u/s`;
-            speedEl.style.color = shift ? ACCENT : FG;
-            boostEl.textContent = shift ? `×${boost}` : "";
+            // only update the text while visible, so the last value reads as it dims out — the
+            // not-flying path fades the overlay without rewriting to "fly 0.0 u/s"
+            if (visible) {
+                speedEl.textContent = `fly ${speed.toFixed(1)} u/s`;
+                speedEl.style.color = shift ? ACCENT : FG;
+                boostEl.textContent = shift ? `×${boost}` : "";
+            }
             root.style.opacity = visible ? "1" : "0";
         },
         destroy() {
@@ -65,10 +72,12 @@ function createOverlay(canvas: HTMLElement | null): Overlay {
     };
 }
 
-// module-scoped so it survives a rebuild (the State is reused; the DOM node should be too). _lastSpeed
-// tracks the previous frame's speed to detect a scroll change; -1 means "not flying / uninitialized", so
-// entering fly doesn't flash the readout. _shownUntil is the elapsed time the fade-out begins.
+// module-scoped runtime state, keyed to the canvas/State it was built against. _lastSpeed tracks the
+// previous frame's speed to detect a scroll change; -1 means "not flying / uninitialized", so entering
+// fly doesn't flash the readout. _shownUntil is the elapsed time the fade-out begins. Both reset on a
+// rebuild (warm), so a fresh State can't inherit a stale visible window or a stale speed sentinel.
 let _overlay: Overlay | null = null;
+let _overlayCanvas: HTMLElement | null = null;
 let _lastSpeed = -1;
 let _shownUntil = 0;
 
@@ -89,7 +98,7 @@ const OrbitOverlaySystem: System = {
         }
         if (!flying) {
             _lastSpeed = -1;
-            _overlay?.set(0, 0, false, false);
+            _overlay?.set(0, 0, false, false); // fade out, keeping the last text
             return;
         }
 
@@ -105,7 +114,20 @@ const OrbitOverlaySystem: System = {
         // visible while a scroll change is fresh, or while shift is actively boosting
         const visible = shift || elapsed < _shownUntil;
 
-        if (!_overlay) _overlay = createOverlay(document.querySelector("canvas"));
+        const canvas = document.querySelector("canvas");
+        // a rebuild against a new canvas leaves the old overlay parented to the old canvas's host —
+        // detect the canvas change and tear down the stale overlay so update re-creates it on the new one
+        if (_overlay && _overlayCanvas !== canvas) {
+            _overlay.destroy();
+            _overlay = null;
+            _overlayCanvas = null;
+            _lastSpeed = -1;
+            _shownUntil = 0;
+        }
+        if (!_overlay) {
+            _overlay = createOverlay(canvas, state);
+            _overlayCanvas = canvas;
+        }
         _overlay.set(speed, Orbit.flyBoost.get(flying), shift, visible);
     },
 };
@@ -114,9 +136,19 @@ const OrbitOverlaySystem: System = {
 export const OrbitOverlayPlugin: Plugin = {
     name: "OrbitOverlay",
     systems: [OrbitOverlaySystem],
+    // swap fallback: a host that re-warms without disposing never fires onDispose, so clear the
+    // module-scope overlay here before update re-creates it (collapse's panelCleanup-at-top-of-warm)
+    warm() {
+        _overlay?.destroy();
+        _overlay = null;
+        _overlayCanvas = null;
+        _lastSpeed = -1;
+        _shownUntil = 0;
+    },
     dispose() {
         _overlay?.destroy();
         _overlay = null;
+        _overlayCanvas = null;
         _lastSpeed = -1;
         _shownUntil = 0;
     },
