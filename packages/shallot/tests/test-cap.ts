@@ -37,10 +37,9 @@
  * import cost or its fixture prologue. A file slow only in module evaluation or in
  * `beforeAll`/`afterAll` is invisible to it.
  *
- * Shallot's `bunfig.toml` carries `root = "."` (widened from `"packages/shallot"` in S3), which
- * scopes bun's test discovery to the repo root — a `.test.ts` file outside `packages/shallot`
- * is now collected by a bare `bun test` (the S3 widening), but the cap still fires on any
- * `bun test` whose cwd is the shallot root, regardless of what paths are passed.
+ * Shallot's `bunfig.toml` carries `root = "."`, which scopes bun's test discovery to the repo
+ * root, so a `.test.ts` file outside `packages/shallot` is collected by a bare `bun test`. The
+ * cap fires on any `bun test` whose cwd is the shallot root, regardless of what paths are passed.
  */
 import { afterEach, beforeEach } from "bun:test";
 import { TEST_TIER_SUFFIX_NAMES } from "./test-tiers";
