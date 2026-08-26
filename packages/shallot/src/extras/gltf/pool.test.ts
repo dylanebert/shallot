@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { poolDecode } from "./pool";
+import { _resetPool, poolDecode } from "./pool";
 import type { DecodeReply } from "./worker";
 
 // pool.ts's transport wiring (spawn/settle/fail) — the seam scheduler.test.ts leaves to the real Chrome gym
@@ -48,9 +48,10 @@ describe("decode pool", () => {
             configurable: true,
             writable: true,
         });
+        _resetPool();
     });
 
-    test("a worker that errors outside a pending request does not leave its slot hung", async () => {
+    function installFakes(): void {
         workers = [];
         globalThis.Worker = function (this: unknown, _url: URL, _opts?: unknown) {
             const w = new FakeWorker();
@@ -63,6 +64,10 @@ describe("decode pool", () => {
             configurable: true,
             writable: true,
         });
+    }
+
+    test("a worker that errors outside a pending request does not leave its slot hung", async () => {
+        installFakes();
 
         // first dispatch creates the pool (1 slot) and goes to worker 0; it replies (rejects) — catch and move on
         await poolDecode("http://localhost/box.glb").catch(() => {});
@@ -90,5 +95,83 @@ describe("decode pool", () => {
         );
         await flush();
         expect(settled).toBe(true);
+    });
+
+    test("a worker that fires onmessageerror outside a pending request does not leave its slot hung", async () => {
+        installFakes();
+
+        // first dispatch creates the pool and settles (worker replies with failure)
+        await poolDecode("http://localhost/box.glb").catch(() => {});
+        await flush();
+
+        expect(workers).toHaveLength(1);
+
+        // the worker dies — postMessage will go nowhere
+        workers[0].alive = false;
+        // onmessageerror with no pending request — pre-fix `fail`→`settle` drops it silently (same defect as
+        // onerror); post-fix routes through `workerError` and respawns the slot.
+        workers[0].onmessageerror?.();
+
+        // second dispatch must settle — the respawned worker handles it
+        let settled = false;
+        poolDecode("http://localhost/box.glb").then(
+            () => {
+                settled = true;
+            },
+            () => {
+                settled = true;
+            },
+        );
+        await flush();
+        expect(settled).toBe(true);
+    });
+
+    test("a worker that fails on every spawn has bounded respawns and rejects after budget", async () => {
+        workers = [];
+        let spawnCount = 0;
+        globalThis.Worker = function (this: unknown, _url: URL, _opts?: unknown) {
+            const w = new FakeWorker();
+            w.alive = false; // dies at load — postMessage goes nowhere
+            workers.push(w);
+            spawnCount++;
+            // fire onerror on the next microtask (dies at load)
+            queueMicrotask(() => {
+                if (!w.terminated)
+                    w.onerror?.(new ErrorEvent("error", { message: "died at load" }));
+            });
+            return w;
+        } as unknown as typeof Worker;
+        globalThis.location = { href: "http://localhost/" } as unknown as Location;
+        Object.defineProperty(navigator, "hardwareConcurrency", {
+            value: 2,
+            configurable: true,
+            writable: true,
+        });
+
+        // first dispatch: creates pool, dispatches to worker 0. Worker 0 fires onerror (microtask); at that
+        // point _pending[0] exists → fail + respawn. Subsequent respawned workers fire onerror with no pending
+        // → respawn until budget exhausted → mark dead.
+        await poolDecode("http://localhost/box.glb").catch(() => {});
+        await flush();
+
+        // 1 initial spawn + 3 respawns (MAX_RESPAWN) = 4 total — the respawn is bounded
+        expect(spawnCount).toBe(4);
+
+        // dispatch after budget exhausted: rejects (does not hang)
+        let settled = false;
+        let rejection: unknown = null;
+        poolDecode("http://localhost/box.glb").then(
+            () => {
+                settled = true;
+            },
+            (e) => {
+                settled = true;
+                rejection = e;
+            },
+        );
+        await flush();
+        expect(settled).toBe(true);
+        expect(rejection).toBeInstanceOf(Error);
+        expect((rejection as Error).message).toContain("dead");
     });
 });
