@@ -4051,7 +4051,6 @@ mod tests {
         setup_kick_instrument(&mut e, 0);
 
         // Bathroom: RT60 ~1.5s, wet_gain 2.0 (cap), refl_gain 1.0 (reflective room)
-        // These match what processHistogram computes for absorption=0.05
         e.set_reverb(1.5, 1.5, 1.5, 2.0);
 
         let bpm = 180.0;

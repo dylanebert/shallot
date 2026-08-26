@@ -72,8 +72,8 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
  * world-matrix compose dispatch, acquires each view's swapchain backbuffer
  * (`view.present`) + offscreen scene-color target (`view.framebuffer`), and
  * packs the View UBO. Producer and renderer systems both run
- * `after: [BeginFrameSystem]`; `EndFrameSystem` (the sole `last: true` system)
- * submits the encoder.
+ * `after: [BeginFrameSystem]`; `EndFrameSystem` (a `last: true` system that
+ * submits the encoder) closes the frame.
  */
 export const BeginFrameSystem: System = {
     group: "draw",

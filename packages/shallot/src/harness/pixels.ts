@@ -8,7 +8,8 @@
 
 /**
  * a masked color-tagged region to look for in a captured frame. Channel ranges are inclusive 0..255;
- * `minPixels` and `minSpan` (px, the tagged region's bounding-box footprint) both have to hold — a handful
+ * `minPixels` and `minSpan` (px, the tagged region's bounding-box span — its largest dimension,
+ * which `pixelProbePass` checks via `Math.max(width, height)`) both have to hold — a handful
  * of stray matching pixels isn't a rendered tag.
  *
  * @example

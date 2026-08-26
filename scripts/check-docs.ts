@@ -682,6 +682,7 @@ if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
 const ROSTER_EXCLUSIONS = new Set([
     "packages/shallot/tests/test-tiers.ts",
     "scripts/check-docs.ts",
+    "scripts/stale-claim-predicates.ts",
 ]);
 const allTrackedFiles = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
 if (!allTrackedFiles.success) {
@@ -696,7 +697,12 @@ const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
 const arrayLiteralRe = /\[\s*(?:["'`]\.\w+\.ts["'`]\s*,\s*){2,}["'`]\.\w+\.ts["'`]\s*\]/;
 for (const file of allTrackedFiles.stdout.toString().split("\0").filter(Boolean)) {
     if (ROSTER_EXCLUSIONS.has(file)) continue;
-    const source = await Bun.file(resolve(root, file)).text();
+    let source: string;
+    try {
+        source = await Bun.file(resolve(root, file)).text();
+    } catch {
+        continue; // file deleted but not yet committed — skip
+    }
     for (const [i, line] of source.split("\n").entries()) {
         const hits = suffixWords.filter((n) => new RegExp(`\\b${n}\\b`).test(line)).length;
         const shape = line.includes("|")
@@ -726,6 +732,422 @@ if (rosterFindings.length > 0) {
     process.exit(1);
 }
 
+// ── Arm (e): citation resolution — formatting-invariant identifier population ──────────────
+//
+// Every token in `.claude/rules/**` outside a fenced code block matching an identifier *shape*
+// — camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a backticked `*.ts`
+// path — **backticked or bare** — must resolve against the tree or a committed roster. The
+// population predicate is formatting-invariant: a token is caught whether it's in backticks or
+// bare in prose, so removing backticks (round 3's escape) no longer removes a citation from the
+// arm's population. Round 3 removed backticks from 10 tokens to escape the arm; round 4 reverts
+// those markup edits and widens the predicate to catch bare tokens too.
+//
+// Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
+// `scripts/check-docs.ts`, `scripts/rosters.ts`, `scripts/stale-claim-predicates.ts`), NOT
+// `git grep --fixed-strings`:
+// substring matching reads 8 sites green off longer tokens (e.g. `spotInner` matches
+// `spotInnerF`, `hullSat` matches `hullSatWgsl`, `InFragmentStage` matches
+// `maxStorageBuffersInFragmentStage`). The token index tokenizes source files into individual
+// identifier words and does exact set-membership — `spotInner` only resolves if `spotInner`
+// appears as a standalone token, not as a substring of `spotInnerF`.
+//
+// The allowlist is roster classes (WGSL-builtin, WebGPU-IDL, foreign-namespace vendored symbol
+// lists, SteamAudio, WasmFeatures, Tools — each a committed file under `scripts/`). The
+// per-entry allowlist is retired — the arm carries no per-site residue. Each roster entry
+// is asserted THREE WAYS: (1) the entry is genuinely cited by at least one rule file,
+// (2) the symbol/path is genuinely absent from the tree (disjointness law, round 7),
+// (3) the total entry count is pinned as a literal and asserted equal. The attribution
+// leg is gone — round 3's attribution token was a proxy that laundered exemptions passed
+// and real exemptions failed (10 entries failed the attribution leg and were de-backtickked
+// rather than adjudicated). The roster replaces attribution: a foreign-namespace symbol
+// resolves against a committed roster, not against an attribution token on the citing line.
+//
+// Population: the arm scans `.claude/rules/**/*.md` only — `AGENTS.md` and `CLAUDE.md`
+// are excluded because they sit outside `.claude/rules/` (at the repo root and
+// `packages/shallot/`), so the glob does not reach them; a reader can verify with
+// `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
+
+import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS } from "./rosters";
+import {
+    buildTokenIndex,
+    extractCandidates,
+    lineHasMarker,
+    matchesShape,
+    resolvesAnywhere,
+} from "./stale-claim-predicates";
+
+// ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
+//
+// The population is the set of tracked .md files under .claude/rules/, derived from `git ls-files`
+// (same law as the doc scan above — the scope is what git tracks, not what the filesystem holds).
+
+const trackedFiles = allTrackedFiles.stdout.toString().split("\0").filter(Boolean);
+const trackedSet = new Set(trackedFiles);
+
+const rulesTracked = Bun.spawnSync(["git", "-C", root, "ls-files", "-z", "*.md"], { cwd: root });
+if (!rulesTracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — the citation-resolution arm needs a git checkout to scope its rule set.",
+    );
+    process.exit(1);
+}
+const ruleFiles = rulesTracked.stdout
+    .toString()
+    .split("\0")
+    .filter(Boolean)
+    .filter((f) => f.startsWith(".claude/rules/"));
+if (ruleFiles.length === 0) {
+    console.error(
+        "✗ `git ls-files '*.md'` matched nothing under .claude/rules/ — the citation-resolution arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+// ── One-pass token index over *.ts / *.rs / *.wgsl ────────────────────────────────────────
+//
+// Build a Set<string> of every identifier token in every tracked source file. Resolution is
+// exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
+// `node_modules`, `scripts/check-docs.ts`, `scripts/rosters.ts`, and
+// `scripts/stale-claim-predicates.ts` (their comments mention the symbols they check, which
+// would false-resolve dead citations).
+
+const tokenIndex = await buildTokenIndex(trackedFiles, root);
+if (tokenIndex.size === 0) {
+    console.error(
+        "✓ token index is empty — no tracked *.ts/*.rs/*.wgsl files found (excluding node_modules and scripts).",
+    );
+    process.exit(1);
+}
+
+// ── Combined roster set ────────────────────────────────────────────────────────────────────
+//
+// Merge all rosters into a single set for O(1) lookup. Each roster is asserted non-empty below.
+
+const allRosters: { name: string; roster: ReadonlySet<string> }[] = [
+    { name: "WGSL_BUILTINS", roster: WGSL_BUILTINS },
+    { name: "WEBGPU_IDL", roster: WEBGPU_IDL },
+    ...Object.entries(FOREIGN_NAMESPACES).map(([name, roster]) => ({
+        name: `FOREIGN_NAMESPACES.${name}`,
+        roster,
+    })),
+];
+
+// Assert each roster non-empty — a roster that loses its last entry would make the arm vacuously
+// green for that class.
+for (const { name, roster } of allRosters) {
+    if (roster.size === 0) {
+        console.error(
+            `✗ roster ${name} is empty — a citation-resolution arm with an empty roster is vacuously green for that class.`,
+        );
+        process.exit(1);
+    }
+}
+
+const combinedRoster = new Set<string>();
+for (const { roster } of allRosters) {
+    for (const sym of roster) combinedRoster.add(sym);
+}
+
+// ── Identifier shape predicates ────────────────────────────────────────────────────────────
+//
+// Shape predicates and candidate extraction are in the shared module
+// `stale-claim-predicates.ts`.
+// The predicate is formatting-invariant: all identifier shapes (camelCase,
+// PascalCase, SCREAMING_SNAKE, snake_case, lowercase-with-digits) are caught
+// bare or backticked. A bare `*`-prefix drop is inadmissible — only `*`-prefixed
+// tokens starting with `_` (glob suffixes) are skipped. `.ts` path interiors
+// are not re-tokenized. In-span tokens are split by predicate: a token followed
+// by `(` is a call citation; one in arithmetic context is a formula variable.
+
+// ── Candidate extraction ───────────────────────────────────────────────────────────────────
+
+const { candidates: citationCandidates, markerExempted } = await extractCandidates(ruleFiles, root);
+
+if (citationCandidates.length === 0) {
+    console.error(
+        "✗ citation-resolution arm matched no identifier-shaped token or *.ts path — the arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+// ── Resolution ──────────────────────────────────────────────────────────────────────────────
+//
+// For .ts paths: try as-is, with `packages/shallot/src/`, with `packages/shallot/`, then suffix
+// match against the tracked set.
+// For identifiers: exact set-membership in the token index (NOT substring matching).
+// For both: if unresolved against the tree, check against the combined roster.
+// Resolution functions are in the shared module.
+
+// ── Pinned cardinalities ───────────────────────────────────────────────────────────────
+//
+// The arm's green condition is an exhaustive four-way disjunction: a candidate passes
+// iff it never enters citationCandidates (the population predicate), or it resolves in
+// the tree token index, or it resolves in a committed roster, or it is marker-exempt.
+// Each disjunct gets a cardinality pinned as a literal and asserted equal, so an escape
+// that moves a number in the diff that narrows it reds — there is no fifth place for
+// the escape to move.
+
+// Disjunct 2: the citation population count. Any predicate narrowing that shrinks the
+// population moves this number in the diff that narrows it.
+const PINNED_CITATION_COUNT = 1734;
+if (citationCandidates.length !== PINNED_CITATION_COUNT) {
+    console.error(
+        `✗ citation count mismatch: pinned ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
+` +
+            `  A predicate narrowing that shrinks the population moves this number. ` +
+            `  Update PINNED_CITATION_COUNT in scripts/check-docs.ts to match, ` +
+            `or restore the narrowed predicate.`,
+    );
+    process.exit(1);
+}
+
+// Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
+// one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
+// cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
+const PINNED_ROSTER_ENTRY_COUNT = 43;
+const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
+if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
+    console.error(
+        `✗ roster entry count mismatch: pinned ${PINNED_ROSTER_ENTRY_COUNT}, actual ${totalRosterEntries}.
+` +
+            `  Update PINNED_ROSTER_ENTRY_COUNT in scripts/check-docs.ts to match, ` +
+            `or prune the uncited entries from scripts/rosters.ts.`,
+    );
+    process.exit(1);
+}
+
+// Assert every roster entry is cited by at least one rule file (both ways: a real member,
+// genuinely needed). A roster entry is "cited" if it appears as a ref in the citation
+// candidates extracted from the rule files. Uncited entries are slack a launder could
+// occupy without moving the pinned count.
+const candidateRefs = new Set(citationCandidates.map((c) => c.ref));
+const uncitedRosterEntries: string[] = [];
+for (const { name, roster } of allRosters) {
+    for (const entry of roster) {
+        if (!candidateRefs.has(entry)) {
+            uncitedRosterEntries.push(`${name}: ${entry}`);
+        }
+    }
+}
+if (uncitedRosterEntries.length > 0) {
+    console.error(
+        `✗ ${uncitedRosterEntries.length} roster entr(y/ies) not cited by any rule file:
+` +
+            uncitedRosterEntries.map((e) => `    ${e}`).join("\n") +
+            `
+  Every roster entry must be cited by at least one rule file (both ways: a real ` +
+            `member, genuinely needed). Prune uncited entries from scripts/rosters.ts.`,
+    );
+    process.exit(1);
+}
+
+// Assert every roster entry is ABSENT from the tree token index (the disjointness law:
+// every disjunct's member set is disjoint from every other's, so each surviving member
+// is load-bearing and removing one reds). A roster entry that also resolves in the tree
+// is redundant with disjunct 1 — it costs nothing to remove, which means the pinned
+// total buys nothing against a swap-in (measured at f6b302e: 34 of 75 roster entries
+// also resolved in the tree, so a swap-in was free).
+const rosterInTree: string[] = [];
+for (const { name, roster } of allRosters) {
+    for (const entry of roster) {
+        if (tokenIndex.has(entry)) {
+            rosterInTree.push(`${name}: ${entry}`);
+        }
+    }
+}
+if (rosterInTree.length > 0) {
+    console.error(
+        `✗ ${rosterInTree.length} roster entr(y/ies) also present in the tree token index:
+` +
+            rosterInTree.map((e) => `    ${e}`).join("\n") +
+            `
+  Every roster entry must be absent from the tree token index (disjointness law: ` +
+            `each disjunct's member set is disjoint from every other's, so each surviving ` +
+            `member is load-bearing). Prune the redundant entries from scripts/rosters.ts.`,
+    );
+    process.exit(1);
+}
+
+// ── Marker exemption system ──────────────────────────────────────────────────────────────
+//
+// The per-entry allowlist is retired — the arm carries no per-site residue. An exemption is
+// admitted only through a closed-vocabulary marker in the rule file's own prose, tiered by
+// citation shape at the citing site. A solo-backtick span or `.ts` path is exempt only when
+// its own line carries a marker from the closed vocabulary the arm owns
+// (`(retired)` / `(gone)` / `(anti-pattern)`), asserted both ways — marker present, target
+// genuinely absent from tree and rosters. A bare token, or a token inside a multi-token
+// backtick span, gets no exemption at all. The marker-exempted count is pinned as a literal
+// and asserted equal, so growth reds and a swap-in moves prose a reviewer reads.
+//
+// Laundering now costs writing a false sentence into a permanent file, which is an instance
+// of the defect class this spec exists to sweep, visible to the rule's readers rather than
+// buried in a script comment.
+//
+// Witnessed red (mutation proofs, each exit code captured to a committed in-repo path —
+// see scripts/asc-mutations.md, never /tmp):
+//   (i)  Seed: `advanceColor` → `zombieUploadPass` in avbd.md:114 (in place, count-neutral)
+//         → exit 1, stale citation
+//   (ii) Bare: `advanceColor` → bare zombieUploadPass in avbd.md:114 (in place) → exit 1,
+//         stale citation (bare token caught by the formatting-invariant predicate,
+//         round 3's escape shut)
+//   (iii) Roster swap-in: in scripts/rosters.ts replace "PowerVR" with
+//         "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace
+//         the solo-backticked `advanceColor` with `zombieUploadPass` (citation
+//         count stays 1734) → exit 1, stale citation — PowerVR's citation
+//         sites in gpu.md no longer resolve. Count-neutral in every pinned
+//         quantity, so the red comes from the resolution leg, not a count pin.
+//         Witnesses: every surviving roster entry is load-bearing, so a
+//         swap-in cannot occupy a free slot (round 7 disjointness law).
+//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token
+//         index does not — `advanceColor` → `spotInner` (substring of `spotInnerF`)
+//         reds with the token index but greens with `git grep --fixed-strings`
+//   (v)  Launder-via-marker: `advanceColor` → `zombieUploadPass` (retired) in avbd.md:114
+//         → exit 1, marker-exempted count mismatch (21 vs 20) (round 4's escape)
+//   (vi) Weak-shape bare: `advanceColor` → bare `zombie_upload_pass` (snake) in avbd.md:114
+//         → exit 1, stale citation (all shapes caught bare, round 6b's escape shut;
+//         round 7 also admits weak shapes in-span)
+//   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` moves the
+//         pinned citation count (1507 vs 1734) → exit 1, citation count mismatch
+//   (viii) Retired: the round-6 SHAPE_FALSE_POSITIVES set was deleted in round 6b.
+//         Re-introducing it as an unread variable is a tautology about dead code, not a
+//         gate witness — the real channel was closed by deletion, not by the gate catching
+//         a re-introduction. No mutation to witness.
+//
+// All captures are in scripts/asc-mutations.md, a committed in-repo path.
+
+// The pinned marker-exempted count. This literal is the law the arm already applies to its
+// tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
+// When a marker is added or removed from a rule file, this count must be updated to match.
+const PINNED_MARKER_EXEMPTED_COUNT = 20;
+
+type StaleCitation = {
+    file: string;
+    line: number;
+    ref: string;
+    kind: string;
+    reason: string;
+};
+
+const staleCitations: StaleCitation[] = [];
+
+// Collect the actual marker-exempted refs: solo-backtick spans or .ts paths on marker lines
+// that don't resolve against tree or rosters.
+const actualMarkerExempted: { file: string; line: number; ref: string }[] = [];
+
+for (const c of citationCandidates) {
+    const live = resolvesAnywhere(c.ref, c.kind, tokenIndex, trackedSet, combinedRoster);
+    if (live) continue; // live — no violation
+
+    // Check marker exemption: only solo-backtick spans or .ts paths can be exempt
+    const canBeMarkerExempt = c.soloBacktick || c.kind === "ts-path";
+    if (canBeMarkerExempt) {
+        const exemptedRefs = markerExempted.get(c.file);
+        if (exemptedRefs?.has(c.ref)) {
+            actualMarkerExempted.push({ file: c.file, line: c.line, ref: c.ref });
+            continue; // marker-exempt — no violation
+        }
+    }
+
+    // Stale citation
+    staleCitations.push({
+        file: c.file,
+        line: c.line,
+        ref: c.ref,
+        kind: c.kind,
+        reason: `stale ${c.kind} \`${c.ref}\` does not resolve against the tree or any roster`,
+    });
+}
+
+// Assert the pinned marker-exempted count equals the actual count.
+if (actualMarkerExempted.length !== PINNED_MARKER_EXEMPTED_COUNT) {
+    console.error(
+        `✗ marker-exempted count mismatch: pinned ${PINNED_MARKER_EXEMPTED_COUNT}, actual ${actualMarkerExempted.length}.\n` +
+            `  Expected ${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), found ${actualMarkerExempted.length}:\n` +
+            actualMarkerExempted.map((e) => `    ${e.file}:${e.line}: \`${e.ref}\``).join("\n") +
+            `\n  Update PINNED_MARKER_EXEMPTED_COUNT in scripts/check-docs.ts to match, ` +
+            `or remove the marker from the rule file.`,
+    );
+    process.exit(1);
+}
+
+// Assert markers are not orphaned: every marker line must have at least one solo-backtick
+// span or .ts path that doesn't resolve (otherwise the marker is on a line with no exemptable
+// citation, which is a stale marker).
+const markerLines = new Map<string, Set<string>>();
+for (const file of ruleFiles) {
+    const fullPath = resolve(root, file);
+    const text = await Bun.file(fullPath).text();
+    const lines = text.split("\n");
+    let inFence = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.trim().startsWith("```")) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) continue;
+        if (lineHasMarker(line)) {
+            const key = `${file}:${i + 1}`;
+            if (!markerLines.has(key)) markerLines.set(key, new Set());
+            // Collect all solo-backtick identifiers and .ts paths on this line
+            for (const m of line.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g)) {
+                const ref = m[1].replace(/\(\)$/, "");
+                if (ref.endsWith(".ts")) continue;
+                if (matchesShape(ref)) markerLines.get(key)!.add(ref);
+            }
+            for (const m of line.matchAll(/`([^`]*\.ts)`/g)) {
+                const ref = m[1];
+                if (
+                    ref.startsWith(".") ||
+                    ref.includes("*") ||
+                    ref.includes(" ") ||
+                    ref.includes("{")
+                )
+                    continue;
+                markerLines.get(key)!.add(ref);
+            }
+        }
+    }
+}
+
+for (const [lineKey, refs] of markerLines) {
+    // At least one ref on this marker line must be in actualMarkerExempted
+    const [file, lineStr] = lineKey.split(":");
+    const line = parseInt(lineStr);
+    const found = Array.from(refs).some((ref) =>
+        actualMarkerExempted.some((e) => e.file === file && e.line === line && e.ref === ref),
+    );
+    if (!found) {
+        staleCitations.push({
+            file,
+            line,
+            ref: "(orphaned marker)",
+            kind: "marker",
+            reason: `marker on ${lineKey} has no exemptable citation — the marker is orphaned (no solo-backtick span or .ts path on this line is genuinely absent from tree and rosters)`,
+        });
+    }
+}
+
+if (staleCitations.length > 0) {
+    console.error(
+        `✗ citation resolution: ${staleCitations.length} stale citation(s) or marker failure(s):\n`,
+    );
+    for (const v of staleCitations) {
+        console.error(`  ${v.file}${v.line ? `:${v.line}` : ""}: ${v.reason}`);
+    }
+    console.error(
+        "\nEvery identifier-shaped token in `.claude/rules/**` (backticked or bare, outside " +
+            "fenced code blocks) must resolve against the tree or a committed roster. A token " +
+            "that no source file or roster contains is a stale claim. A solo-backtick span or " +
+            ".ts path is exempt only when its own line carries a marker from the closed " +
+            "vocabulary (`(retired)` / `(gone)` / `(anti-pattern)`), asserted both ways: marker " +
+            "present, target genuinely absent. A bare token or a token inside a multi-token " +
+            "backtick span gets no exemption at all. The marker-exempted count is pinned as a " +
+            "literal and asserted equal.",
+    );
+    process.exit(1);
+}
+
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
@@ -733,5 +1155,9 @@ console.log(
         `cross-citations resolve (${citationCount} citation(s)), ` +
         `showcase index complete (${showcaseDirs.size} dir(s)), ` +
         `evals task-index complete (${evalsTaskDirs.size} task(s)), ` +
-        `tier roster asserted (${rosterSuffixes.length} suffix(es))`,
+        `tier roster asserted (${rosterSuffixes.length} suffix(es)), ` +
+        `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
+        `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
+        `${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), ` +
+        `token index ${tokenIndex.size} token(s))`,
 );
