@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { Glob } from "bun";
 import { setupGlobals } from "bun-webgpu";
 import type { Node } from "../packages/shallot/src";
@@ -60,11 +61,18 @@ let wouldChange = 0;
 let unchanged = 0;
 let errors = 0;
 
-for await (const path of glob.scan({ cwd: process.cwd() })) {
-    if (ignore.some((dir) => path.includes(dir))) continue;
+// anchor on the script location, not process.cwd(), so --check is not vacuously green
+// when run from a subdirectory (siblings use import.meta.dir for the same reason)
+const root = resolve(import.meta.dir, "..");
+
+for await (const path of glob.scan({ cwd: root })) {
+    // segment match so an ignore entry "dist" does not also match "distortion/"
+    const segments = path.split("/");
+    if (ignore.some((dir) => segments.includes(dir))) continue;
 
     try {
-        const content = await Bun.file(path).text();
+        const fullPath = resolve(root, path);
+        const content = await Bun.file(fullPath).text();
         const nodes = parse(content);
         normalizeNodes(nodes);
         const output = stringify(nodes) + "\n";
@@ -74,7 +82,7 @@ for await (const path of glob.scan({ cwd: process.cwd() })) {
                 console.log(`would format: ${path}`);
                 wouldChange++;
             } else {
-                await Bun.write(path, output);
+                await Bun.write(fullPath, output);
                 console.log(`formatted: ${path}`);
                 formatted++;
             }
