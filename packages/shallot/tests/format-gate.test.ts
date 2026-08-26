@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 // Arm for `scripts/format.ts`'s report-only mode — the mechanism that lets `check`
@@ -10,13 +10,20 @@ import { join, resolve } from "node:path";
 
 const SCRIPT = join(import.meta.dir, "../../../scripts/format.ts");
 const REPO_ROOT = resolve(import.meta.dir, "../../..");
+// Fixtures live under the gitignored `_format-gate-fixtures/` dir (see .gitignore) so a
+// process-level kill (SIGTERM from the per-file test cap) that bypasses `finally` cleanup
+// cannot leave untracked dirs in the tracked tree. The dir is non-dot and directly under
+// the repo root, so the glob scanner finds the fixtures and the import.meta.dir anchor
+// proof stays real.
+const FIXTURE_ROOT = join(REPO_ROOT, "_format-gate-fixtures");
+mkdirSync(FIXTURE_ROOT, { recursive: true });
 
 // A .scene that normalization would change: no trailing newline. The script does
 // `stringify(nodes) + "\n"`, so any scene missing the final newline is in the would-change set.
 const UNFORMATTED_SCENE = "<scene>\n    <a part />\n</scene>";
 
 function fixtureScene(): { dir: string; scenePath: string } {
-    const dir = mkdtempSync(join(REPO_ROOT, "_format-gate-tmp-"));
+    const dir = mkdtempSync(join(FIXTURE_ROOT, "_format-gate-tmp-"));
     const scenePath = join(dir, "test.scene");
     writeFileSync(scenePath, UNFORMATTED_SCENE);
     return { dir, scenePath };
@@ -91,11 +98,11 @@ describe("format.ts report-only mode — Validation 2: gates and still writes", 
 
 describe("format.ts ignore matching — segment, not substring", () => {
     // Mutation witness: reverting segment matching to path.includes(dir) makes this test fail —
-    // "distortion-xxx/test.scene".includes("dist") is true, so the file is silently skipped and
+    // "_format-gate-fixtures/distortion-xxx/test.scene".includes("dist") is true, so the file is silently skipped and
     // --check exits 0 (green) despite unformatted content. The segment match (split on "/")
     // correctly distinguishes "distortion-xxx" from "dist".
     test("a dist-substring directory (distortion/) is not skipped by the dist ignore entry", () => {
-        const dir = mkdtempSync(join(REPO_ROOT, "distortion-"));
+        const dir = mkdtempSync(join(FIXTURE_ROOT, "distortion-"));
         const scenePath = join(dir, "test.scene");
         writeFileSync(scenePath, UNFORMATTED_SCENE);
         try {
