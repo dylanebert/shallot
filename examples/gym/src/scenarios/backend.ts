@@ -63,7 +63,9 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 //   • constraints — the authored `Spring`/`Joint` component path (`ConstraintSystem` → the backend's
 //     `setSprings`/`setJoints`): a hanging spring block settles at the mg/k equilibrium (the stiffness law is
 //     backend-neutral — tumble derives its hertz from it), a spherical pendulum holds its pin length, a fixed
-//     joint holds its authored pose. Cross-backend behavioral bands, never trajectories.
+//     joint holds its authored pose, and the stiffness-guard station exercises the authoring-layer guard
+//     (S1): a finite-positive stiffnessAng (1000) pins its body (grant arm), while negative and NaN defs are
+//     dropped so those bodies free-fall (skip arms) — under either backend. Cross-backend behavioral bands.
 //   • character — the SHARED CPU sweep (`standard/character`, backend-neutral since stage 5 decoupled it from
 //     AVBD) drives a capsule to a waypoint and grounds it, under either backend, through the same
 //     `readBody`/`setKinematic` seams the drive gate exercises directly.
@@ -97,6 +99,19 @@ const SPRING_MASS = 2;
 const PENDULUM_ARM = 2;
 const WELD_OFFSET: [number, number, number] = [0, -1, 0];
 
+// the stiffness-guard station: three bodies hanging off the same anchor at distinct z offsets, each
+// jointed with a different authored stiffnessAng — a finite-intermediate (1000, the grant arm), a
+// negative (-1, the skip arm), and a NaN (the skip arm). The authoring-layer guard (S1, physics/index.ts
+// jointDefs) drops the negative and NaN defs with a warn+skip, so those bodies free-fall; the
+// finite-positive 1000 passes through and pins its body. Cross-backend: the same def set reaches both
+// tumble (via stiffnessHertz) and avbd (via setJoints), so the guard's one behavior is asserted under
+// either backend — the substrate contract this scenario exists to gate.
+const GUARD_ARM = 2;
+const GUARD_Z_INTERMEDIATE = -2;
+const GUARD_Z_NEGATIVE = -3;
+const GUARD_Z_NAN = -4;
+const GUARD_STIFFNESS_INTERMEDIATE = 1000;
+
 // the character station: a capsule on the +z lane driven to a waypoint by the shared CPU sweep
 const CHAR_SPAWN: [number, number, number] = [0, 1.3, 4]; // floor top 0.5 + half 0.5 + radius 0.3
 const CHAR_TARGET_X = 4;
@@ -120,6 +135,9 @@ let platformEid = -1;
 let springBlockEid = -1;
 let bobEid = -1;
 let armEid = -1;
+let guardIntermediateEid = -1;
+let guardNegativeEid = -1;
+let guardNanEid = -1;
 let charEid = -1;
 let recycleEid = -1;
 // which backend the current build installed — the isolation gate runs only under tumble (avbd never boots
@@ -234,6 +252,36 @@ function constraintRig(state: State): void {
     Joint.b.set(weld, armEid);
     Joint.rA.set(weld, WELD_OFFSET[0], WELD_OFFSET[1], WELD_OFFSET[2], 0);
     Joint.stiffnessAng.set(weld, Number.POSITIVE_INFINITY);
+
+    // the stiffness-guard station: three bodies at distinct z offsets off the same anchor, each jointed
+    // with a different stiffnessAng. The finite-positive 1000 (grant arm) passes the guard and pins its
+    // body; the negative -1 and NaN are dropped by jointDefs (S1's warn+skip) so those bodies free-fall.
+    // Authored as Joint COMPONENT entities — the ConstraintSystem → jointDefs → backend setJoints path the
+    // guard lives on. rB points back toward the anchor (the body center is GUARD_ARM in +x from it).
+    guardIntermediateEid = rigBody(state, [ax + GUARD_ARM, ay, GUARD_Z_INTERMEDIATE], 0.25, 1);
+    guardNegativeEid = rigBody(state, [ax + GUARD_ARM, ay, GUARD_Z_NEGATIVE], 0.25, 1);
+    guardNanEid = rigBody(state, [ax + GUARD_ARM, ay, GUARD_Z_NAN], 0.25, 1);
+
+    const guardIntermediate = state.create();
+    state.add(guardIntermediate, Joint);
+    Joint.a.set(guardIntermediate, anchor);
+    Joint.b.set(guardIntermediate, guardIntermediateEid);
+    Joint.rB.set(guardIntermediate, -GUARD_ARM, 0, 0, 0);
+    Joint.stiffnessAng.set(guardIntermediate, GUARD_STIFFNESS_INTERMEDIATE);
+
+    const guardNegative = state.create();
+    state.add(guardNegative, Joint);
+    Joint.a.set(guardNegative, anchor);
+    Joint.b.set(guardNegative, guardNegativeEid);
+    Joint.rB.set(guardNegative, -GUARD_ARM, 0, 0, 0);
+    Joint.stiffnessAng.set(guardNegative, -1);
+
+    const guardNan = state.create();
+    state.add(guardNan, Joint);
+    Joint.a.set(guardNan, anchor);
+    Joint.b.set(guardNan, guardNanEid);
+    Joint.rB.set(guardNan, -GUARD_ARM, 0, 0, 0);
+    Joint.stiffnessAng.set(guardNan, Number.NaN);
 }
 
 function character(state: State): number {
@@ -379,6 +427,9 @@ const scenario: Scenario = {
                 springBlockEid = -1;
                 bobEid = -1;
                 armEid = -1;
+                guardIntermediateEid = -1;
+                guardNegativeEid = -1;
+                guardNanEid = -1;
                 charEid = -1;
                 recycleEid = -1;
                 dispose();
@@ -557,6 +608,56 @@ function constraintGates(): Check[] {
         pass: armHeld,
         detail: arm
             ? `arm (${arm.pos[0].toFixed(2)}, ${arm.pos[1].toFixed(2)}, ${arm.pos[2].toFixed(2)}) vs authored (${ax + WELD_OFFSET[0]}, ${ay + WELD_OFFSET[1]}, ${az + WELD_OFFSET[2]})`
+            : "no live pose",
+    });
+
+    // ── stiffness-guard arms (S2): the authoring-layer guard's behavior under either backend ──
+    //
+    // Three bodies jointed to the same anchor with distinct stiffnessAng values, authored as Joint
+    // components through the ConstraintSystem → jointDefs path the guard lives on. The guard (S1,
+    // physics/index.ts jointDefs) drops negative and NaN defs with a warn+skip; a finite-positive value
+    // passes through. The assertions pin the EFFECT (free-fall vs pinned), never the warn string:
+    //   • grant arm (stiffnessAng 1000): the body is pinned near its spawn pose — the joint was created
+    //     through the guarded path. The over-refusal check no refusal arm can show.
+    //   • negative skip arm (stiffnessAng -1): the body free-falls — no joint was created.
+    //   • NaN skip arm (stiffnessAng NaN): the body free-falls — no joint was created.
+    // Free-fall is derived from the tick count (240 settle frames + 12 recycle frames ≈ 4.2 s at 60 Hz):
+    // y = ay + ½·g·t² = 10 + ½·(−10)·4.2² ≈ −78 m. A pinned body stays near ay = 10. The threshold
+    // (ay − 5 = 5) cleanly separates: a free-falling body is far below 5, a pinned body is near 10.
+    //
+    // witnessed red by mutation (gym harness, both backends): deleting the guard branch from jointDefs
+    // (the `if (Number.isNaN(stiffnessAng) || stiffnessAng < 0)` check) lets -1 and NaN pass through —
+    // tumble maps both to hertz 0 → rigid weld (body pinned at y ≈ 10), avbd maps NaN to RIGID_STIFFNESS
+    // (body pinned) and -1 to an inverted restoring force (body not in free-fall). Either way the skip
+    // arms' free-fall assertion fails (expected y < 5, got y ≈ 10). The grant arm's red witness: inverting
+    // the guard to reject finite-positive values (stiffnessAng < 0 → stiffnessAng >= 0, dropping NaN)
+    // skips the 1000 def → body free-falls → the pinned assertion fails (expected y ≈ 10, got y < 5).
+
+    const guardIntermediate = backend.readBody(guardIntermediateEid);
+    const guardNegative = backend.readBody(guardNegativeEid);
+    const guardNan = backend.readBody(guardNanEid);
+    const guardSpawnY = ay; // all three spawn at y = ay = 10
+    const freeFallThreshold = guardSpawnY - 5; // a free-falling body is well below 5
+
+    checks.push({
+        name: "grant: finite-positive stiffnessAng (1000) builds a joint through the guarded path (body pinned)",
+        pass: guardIntermediate !== null && guardIntermediate.pos[1] > freeFallThreshold,
+        detail: guardIntermediate
+            ? `intermediate body y ${guardIntermediate.pos[1].toFixed(3)} (pinned near ${guardSpawnY}, free-fall < ${freeFallThreshold})`
+            : "no live pose",
+    });
+    checks.push({
+        name: "skip: negative stiffnessAng (-1) is dropped — body free-falls (no joint created)",
+        pass: guardNegative !== null && guardNegative.pos[1] < freeFallThreshold,
+        detail: guardNegative
+            ? `negative-stiff body y ${guardNegative.pos[1].toFixed(3)} (free-fall < ${freeFallThreshold}, pinned near ${guardSpawnY})`
+            : "no live pose",
+    });
+    checks.push({
+        name: "skip: NaN stiffnessAng is dropped — body free-falls (no joint created)",
+        pass: guardNan !== null && guardNan.pos[1] < freeFallThreshold,
+        detail: guardNan
+            ? `nan-stiff body y ${guardNan.pos[1].toFixed(3)} (free-fall < ${freeFallThreshold}, pinned near ${guardSpawnY})`
             : "no live pose",
     });
     return checks;
