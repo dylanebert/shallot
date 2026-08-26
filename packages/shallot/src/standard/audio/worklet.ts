@@ -1,4 +1,4 @@
-const MAX_TRANSPORTS = 8;
+export const MAX_TRANSPORTS = 8;
 
 const WORKLET_CODE = `
 const MAX_TRANSPORTS = ${MAX_TRANSPORTS};
