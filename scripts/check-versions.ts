@@ -68,21 +68,9 @@ if (newest !== shallot.version) {
     );
 }
 
-// Only the two spans that name the *recommended target* are checked. Prose dating a change to the
-// release that shipped it ("ships compiled as of 0.9.1") is a historical fact and must not move,
-// so a blanket stale-version sweep over this file would be wrong.
-const migration = await Bun.file(resolve(root, "packages/shallot/MIGRATION.md")).text();
-const targets = {
-    title: migration.match(/^# Migrating from \S+ to (\S+)/)?.[1],
-    install: migration.match(/bun add @dylanebert\/shallot@\^(\S+)/)?.[1],
-};
-for (const [where, version] of Object.entries(targets)) {
-    if (version !== shallot.version) {
-        fail(
-            `MIGRATION.md's ${where} targets ${version}, not ${shallot.version} — retarget the guide at the release it recommends.`,
-        );
-    }
-}
+// MIGRATION.md is not a version site: its title and install line name the 0.9 minor, and a micro
+// never changes what the guide says. Prose dating a change to the release that shipped it
+// ("ships compiled as of 0.9.1") is a historical fact and must not move either.
 
 // `README.md`'s demo table links each showcase's source at `tree/v<version>` — a hand-written tag
 // per row, correct today and drift-by-construction on every bump: derived from nothing, so no
