@@ -808,7 +808,8 @@ const indexSourceFiles = trackedFiles.filter(
         (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
         !f.includes("node_modules") &&
         f !== "scripts/check-docs.ts" &&
-        f !== "scripts/detect-stale-claims.ts",
+        f !== "scripts/detect-stale-claims.ts" &&
+        f !== "scripts/rosters.ts",
 );
 
 const tokenIndex = new Set<string>();
