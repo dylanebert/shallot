@@ -87,15 +87,20 @@ function tsPathExists(path: string): boolean {
 function symbolExists(symbol: string): boolean {
     // Strip trailing () for function-call forms
     const name = symbol.replace(/\(\)$/, "");
-    // Grep for the symbol in .ts files (not node_modules)
+    // Grep for the symbol in .ts and .rs files (not node_modules)
     const git = Bun.spawnSync(
-        ["git", "-C", root, "grep", "-l", "--fixed-strings", name, "--", "*.ts"],
+        ["git", "-C", root, "grep", "-l", "--fixed-strings", name, "--", "*.ts", "*.rs"],
         { stdout: "pipe", stderr: "pipe" },
     );
     if (!git.success) return false;
     const files = git.stdout.toString().trim().split("\n").filter(Boolean);
-    // Exclude node_modules
-    return files.some((f) => !f.includes("node_modules"));
+    // Exclude node_modules and the arm/detector's own source (their comments mention the symbols they check)
+    return files.some(
+        (f) =>
+            !f.includes("node_modules") &&
+            f !== "scripts/check-docs.ts" &&
+            f !== "scripts/detect-stale-claims.ts",
+    );
 }
 
 // ── 4. Report ──────────────────────────────────────────────────────────────

@@ -10,14 +10,15 @@ import { decodeMeshopt, loadMeshopt } from "../src/extras/gltf/meshopt";
 // — run over the Khronos glTF-Sample-Assets corpus. `parse` is deviceless (no GPU, no State; KTX2 transcode
 // is GPU-side, so a KTX variant parses on the CPU like any other), so the walk rides `bun test` and the
 // matrix generator alike — both import THIS, so the test and the report can't drift. The corpus is a git
-// submodule outside the distributed package, so everything here is presence-gated; nothing reaches into
-// `src/extras/gltf` beyond its public parse surface.
+// submodule in the author's workspace layout (kex's `.gitmodules`), outside the distributed package, so
+// everything here is presence-gated; nothing reaches into `src/extras/gltf` beyond its public parse surface.
 
-/** the corpus, symlinked nowhere — read straight from the `reference/gltf-sample-assets` submodule. Absent
- *  on a fresh clone that didn't init submodules; {@link corpusPresent} gates every consumer. */
+/** the corpus, symlinked nowhere — read straight from the `reference/gltf-sample-assets` submodule (the
+ *  author's workspace layout, not the consumer's). Absent on a fresh clone that didn't clone the corpus;
+ *  {@link corpusPresent} gates every consumer. */
 export const CORPUS = join(import.meta.dir, "../../../../reference/gltf-sample-assets/Models");
 
-/** true when the corpus submodule is checked out — the loud-skip gate for the test + the generator. */
+/** true when the corpus is checked out — the loud-skip gate for the test + the generator. */
 export function corpusPresent(): boolean {
     return existsSync(join(CORPUS, "model-index.json"));
 }

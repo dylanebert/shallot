@@ -86,7 +86,7 @@ A flat component is a real data shape, not a bundle of named scalars. Splitting 
 
 ## Single-writer rule
 
-ReadbackSystem is the sole writer of `attr.value`. A live host's gestures communicate via `onsync` (live ECS) + the Document edit API (`doc.setAttr`, or a `doc.begin`/`commit` gesture that coalesces a drag's writes into one undoable entry, prev auto-captured) — never write `attr.value` directly. Never add serialization concerns to ECS.
+ReadbackSystem is the sole writer of `attr.value`. A live host's gestures communicate via the Document edit API (`doc.setAttr`, or a `doc.begin`/`commit` gesture that coalesces a drag's writes into one undoable entry, prev auto-captured) — never write `attr.value` directly. Never add serialization concerns to ECS.
 
 ## Entity reference fields
 

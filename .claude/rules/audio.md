@@ -39,8 +39,6 @@ When adding new per-instrument values: if the kernel needs it, add to a node typ
 
 ## Gain staging
 
-- Histogram readback normalized by `NUM_RAYS` only (GPU shader includes 1/(4π) in distance attenuation). Per-frame clear, no accumulation. EMA smoothing (alpha=0.3) in `processHistogram` handles noise reduction across ~10Hz dispatches
-- Convolver IRs energy-normalized in `reconstructIR`, extracted energy drives `refl_gain` per voice (capped at 1.0)
 - `refl_gain` initializes to 0.0 on voice activation — reflections fade in as acoustics data arrives
 - All block-rate parameters (`gain`, `refl_gain`, FDN `wet_gain`/`eq`, FOA encode coefficients) interpolated per-sample across each block to prevent zipper noise (ref: Steam Audio `gain_effect.cpp`)
 - Occlusion affects direct path only — convolver and FDN process the unoccluded signal (ref: Steam Audio `direct_effect.cpp`)

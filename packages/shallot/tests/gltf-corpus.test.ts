@@ -16,10 +16,11 @@ import matrixJson from "./gltf-matrix.json";
 // deviceless importer over the Khronos corpus and pins each (model, variant) to `gltf-matrix.json`: the
 // skipped-feature set, the decoded geometry count, and the derived status. A regression (a feature we silently
 // stop decoding) or a new capability (a feature we start handling) reads as a red row here, then as a
-// reviewable diff through `scripts/gltf-conformance.ts`. The corpus is a submodule outside the package, so the
-// walk is presence-gated with a loud, announced skip — never a hidden green.
+// reviewable diff through `scripts/gltf-conformance.ts`. The corpus is a submodule in the author's workspace
+// layout (kex's `.gitmodules`), outside the package, so the walk is presence-gated with a loud, announced
+// skip — never a hidden green.
 
-// the pure derivation, pinned corpus-independently so it's covered when the submodule is absent and its
+// the pure derivation, pinned corpus-independently so it's covered when the corpus is absent and its
 // unsupported (zero-mesh) branch — which no real corpus model hits — is still exercised.
 describe("gltf conformance derivation", () => {
     const scene = (meshes: number, feats: string[]): GltfScene => ({
