@@ -337,7 +337,9 @@ async function main() {
     }
 }
 
-main().catch((e) => {
-    console.error(`e2e-prebuilt: FAIL — ${e instanceof Error ? e.message : String(e)}`);
-    process.exit(1);
-});
+if (import.meta.main) {
+    main().catch((e) => {
+        console.error(`e2e-prebuilt: FAIL — ${e instanceof Error ? e.message : String(e)}`);
+        process.exit(1);
+    });
+}

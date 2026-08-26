@@ -163,7 +163,9 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ below, above }));
 }
 
-main().catch((err) => {
-    console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
-    process.exit(1);
-});
+if (import.meta.main) {
+    main().catch((err) => {
+        console.error(err instanceof Error ? (err.stack ?? err.message) : String(err));
+        process.exit(1);
+    });
+}

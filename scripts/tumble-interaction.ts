@@ -161,7 +161,9 @@ Options:
     process.exit(0);
 }
 
-main().catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-});
+if (import.meta.main) {
+    main().catch((err) => {
+        console.error(err instanceof Error ? err.message : err);
+        process.exit(1);
+    });
+}

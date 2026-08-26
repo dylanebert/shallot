@@ -178,4 +178,6 @@ async function main(): Promise<void> {
     console.log("\n[gltf-conformance] clean — matrix pins the corpus");
 }
 
-main();
+if (import.meta.main) {
+    main();
+}

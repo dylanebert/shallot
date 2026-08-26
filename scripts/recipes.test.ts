@@ -59,3 +59,23 @@ test("recipes — a populated list with no selector proceeds (green direction)",
     const err = populationError(["moving-platform", "joints"], undefined);
     expect(err).toBeNull();
 });
+
+test("recipes — importing the module runs no gate side effect (import.meta.main guard)", async () => {
+    // Before the S2a fix, `main()` ran unguarded at module scope, so any importer —
+    // this very test file included — fired the real GPU dynamics smoke as a side effect.
+    // A subprocess that only imports the module (never calls it as a script) must exit
+    // clean and print none of the smoke's own output.
+    const proc = Bun.spawn({
+        cmd: ["bun", "-e", `import(${JSON.stringify(SCRIPT)})`],
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+    ]);
+    const out = stdout + stderr;
+    expect(exitCode).toBe(0);
+    expect(out).not.toContain("Running recipe dynamics smoke");
+});
