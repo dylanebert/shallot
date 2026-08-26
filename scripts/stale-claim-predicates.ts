@@ -1,26 +1,35 @@
 // Shared predicate module for the check-docs citation-resolution arm.
-// One copy of the shape functions — two copies is two detectors that disagree
-// the moment either moves.
-//
-// The population predicate is formatting-invariant: every token in
+// Shape predicates and candidate extraction for the check-docs citation-resolution
+// arm. The population predicate is formatting-invariant: every token in
 // `.claude/rules/**` outside a fenced code block matching an identifier *shape*
 // — camelCase, PascalCase, SCREAMING_SNAKE, snake_case, lowercase-with-digits,
 // or a backticked `*.ts` path — **backticked or bare** — must resolve against
 // the tree or a committed roster.
 //
-// Predicate fixes (round 6):
-//  - SCREAMING_SNAKE is re-admitted bare (caught with or without backticks).
-//    This is the shape of this spec's first verified member `ENTITY_COLS_WGSL`,
-//    which was invisible to the arm when written bare. False-positive population
-//    when bare: 0 (measured at 5b48a22 — no bare SCREAMING_SNAKE token in the
-//    rules fails to resolve against the tree or rosters).
-//  - snake_case and lowercase-with-digits remain backticked-only — excluded
-//    from bare extraction by the backtick context predicate. False-positive
-//    population when bare: 11 distinct tokens (5 snake_case: `bytes_moved`,
-//    `peak_BW`, `theoretical_min`, `warp_size`, `webgpu_inspector`; 6
-//    lowercase-with-digits: `f16x2`, `l12`, `l4`, `memory64`, `snorm8`,
-//    `wg32`) — prose terms (bench metrics, formula variables, GPU hardware
-//    terms, tool names, benchmark labels), not code citations.
+// Predicate design (round 6b):
+//  - All identifier shapes (camelCase, PascalCase, SCREAMING_SNAKE, snake_case,
+//    lowercase-with-digits) are caught bare or backticked. The population is
+//    formatting-invariant: a token is caught whether it's in backticks or bare
+//    in prose, so removing backticks no longer removes a citation from the
+//    arm's population.
+//  - Shape false positives (prose terms that match an identifier shape but are
+//    not code citations) are excluded by predicate or fixed in the prose, never
+//    by a per-entry allowlist. The round-6 `SHAPE_FALSE_POSITIVES` set is
+//    deleted — it was an unpinned per-entry allowlist that could green a dead
+//    symbol in one line (measured: adding a string to the set took a seeded
+//    dead symbol from exit 1 to exit 0). The three former entries are handled
+//    per site: `AoSoA` and `iGPUs` are prose terms fixed in the rule prose
+//    (gpu.md:110, gpu.md:242); `EndFrame` is a shorthand for the live symbol
+//    `EndFrameSystem` and is re-spelled onto the live member (render.md:68,
+//    render.md:161).
+//  - Bare weak shapes (snake_case, lowercase-with-digits) are re-admitted into
+//    the population. The 11 distinct bare weak-shape tokens that did not resolve
+//    at 6ee6ed6 are adjudicated per site: 2 genuine foreign tool names
+//    (`webgpu_inspector`, `memory64`) are added to the Tools roster; 9 prose
+//    terms (bench metrics, formula variables, hardware terms, data formats,
+//    benchmark labels) are fixed in the rule prose so the sentence no longer
+//    carries a bare identifier-shaped token for a thing that is not a code
+//    symbol.
 //  - A bare `*`-prefix drop is inadmissible (`*foo` also spells a mis-bulleted
 //    dead symbol). Only `*`-prefixed tokens starting with `_` are skipped —
 //    these are glob suffixes (e.g. `*_WGSL`, `*_REQUIRED`). A `*`-prefixed
@@ -71,41 +80,39 @@ export function isHex(w: string): boolean {
     return /^[0-9a-f]+$/.test(w) && /[0-9]/.test(w) && /[a-f]/.test(w);
 }
 
-export const SHAPE_FALSE_POSITIVES = new Set(["AoSoA", "iGPUs", "EndFrame"]);
-
 /** Strong shapes (camelCase, PascalCase) — caught bare or backticked. */
 export function matchesStrongShape(w: string): boolean {
     if (w.length < 2) return false;
-    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
     if (isHex(w)) return false;
     return isCamelCase(w) || isPascalCase(w);
 }
 
-/** Weak shapes (snake_case, lowercase-with-digits) — caught only when backticked. */
+/** Weak shapes (snake_case, lowercase-with-digits) — caught bare or backticked. */
 export function matchesWeakShape(w: string): boolean {
     if (w.length < 2) return false;
-    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
     if (isHex(w)) return false;
     return isSnakeCase(w) || isLowercaseWithDigits(w);
 }
 
-/** SCREAMING_SNAKE — caught bare or backticked (re-admitted bare, round 6). */
+/** SCREAMING_SNAKE — caught bare or backticked. */
 export function matchesScreamingSnake(w: string): boolean {
     if (w.length < 2) return false;
-    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
     if (isHex(w)) return false;
     return isScreamingSnake(w);
 }
 
 /**
- * Full shape match — strong shapes (camelCase, PascalCase) and SCREAMING_SNAKE
- * always caught (bare or backticked); snake_case and lowercase-with-digits only
- * when backticked (excluded from bare by the backtick context predicate).
+ * Full shape match — all identifier shapes (camelCase, PascalCase, SCREAMING_SNAKE,
+ * snake_case, lowercase-with-digits) are caught bare or backticked. The population
+ * is formatting-invariant: a token is caught whether it's in backticks or bare in
+ * prose. Shape false positives (prose terms that match an identifier shape but
+ * are not code citations) are excluded by predicate or fixed in the prose, never by
+ * a per-entry allowlist.
  */
-export function matchesShape(w: string, backticked: boolean): boolean {
+export function matchesShape(w: string, _backticked: boolean): boolean {
     if (matchesStrongShape(w)) return true;
     if (matchesScreamingSnake(w)) return true;
-    if (backticked && matchesWeakShape(w)) return true;
+    if (matchesWeakShape(w)) return true;
     return false;
 }
 
@@ -238,8 +245,8 @@ export async function extractCandidates(
                 // `*foo` also spells a mis-bulleted dead symbol — so `*`-prefixed tokens
                 // starting with a letter are caught.
                 if (index > 0 && stripped[index - 1] === "*" && ref.startsWith("_")) continue;
-                // SCREAMING_SNAKE is caught bare (re-admitted, round 6); snake_case and
-                // lowercase-with-digits are backticked-only (excluded by the backtick context predicate).
+                // All identifier shapes are caught bare (re-admitted, round 6b): camelCase,
+                // PascalCase, SCREAMING_SNAKE, snake_case, and lowercase-with-digits.
                 if (matchesShape(ref, false)) {
                     addCandidate(file, i + 1, ref, "identifier", false);
                 }
@@ -281,8 +288,10 @@ export async function extractCandidates(
                     if (ARITH_RE.test(beforeChar) || ARITH_RE.test(afterChar)) {
                         continue;
                     }
-                    // Otherwise: a token inside a multi-token span — strong shapes only
-                    if (matchesShape(ref, false)) {
+                    // Otherwise: a token inside a multi-token span — strong shapes and
+                    // SCREAMING_SNAKE only (weak shapes in multi-token spans are prose,
+                    // not code citations — filenames, formula variables)
+                    if (matchesStrongShape(ref) || matchesScreamingSnake(ref)) {
                         addCandidate(file, i + 1, ref, "identifier", true);
                         if (lineHasMarkerFlag) {
                             markerExempted.get(file)!.add(ref);

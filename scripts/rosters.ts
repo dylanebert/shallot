@@ -126,5 +126,5 @@ export const FOREIGN_NAMESPACES: Record<string, ReadonlySet<string>> = {
     Vulkan: new Set(["vkCmdDrawIndirectCount"]),
     CUDA: new Set(["__threadfence"]),
     TypeGPU: new Set(["__TYPEGPU_AUTONAME__", "sideEffects"]),
-    Tools: new Set(["PowerVR", "RenderDoc"]),
+    Tools: new Set(["PowerVR", "RenderDoc", "webgpu_inspector", "memory64"]),
 };

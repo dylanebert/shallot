@@ -734,8 +734,8 @@ if (rosterFindings.length > 0) {
 
 // ── Arm (e): citation resolution — formatting-invariant identifier population ──────────────
 //
-// Every token in `.claude/rules/**` outside a fenced code block matching an identifier *shape* —
-// camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a backticked `*.ts`
+// Every token in `.claude/rules/**` outside a fenced code block matching an identifier *shape*
+// — camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a backticked `*.ts`
 // path — **backticked or bare** — must resolve against the tree or a committed roster. The
 // population predicate is formatting-invariant: a token is caught whether it's in backticks or
 // bare in prose, so removing backticks (round 3's escape) no longer removes a citation from the
@@ -752,13 +752,14 @@ if (rosterFindings.length > 0) {
 // appears as a standalone token, not as a substring of `spotInnerF`.
 //
 // The allowlist is roster classes (WGSL-builtin, WebGPU-IDL, foreign-namespace vendored symbol
-// lists, x86/ISA mnemonic — each a committed file under `scripts/`) plus a per-site residue.
-// Each entry is asserted TWO WAYS: (1) the mention is really present in that file, (2) the
-// symbol/path is genuinely absent from the tree AND all rosters. The attribution leg is gone —
-// round 3's attribution token was a proxy that laundered exemptions passed and real exemptions
-// failed (10 entries failed the attribution leg and were de-backtickked rather than adjudicated).
-// The roster replaces attribution: a foreign-namespace symbol resolves against a committed
-// roster, not against an attribution token on the citing line.
+// lists, x86/ISA mnemonic — each a committed file under `scripts/`). The per-entry allowlist is
+// retired — the arm carries no per-site residue. Each roster entry is asserted TWO WAYS: (1) the
+// entry is genuinely cited by at least one rule file, (2) the symbol/path is genuinely absent
+// from the tree. The attribution leg is gone — round 3's attribution token was a proxy that
+// laundered exemptions passed and real exemptions failed (10 entries failed the attribution leg
+// and were de-backtickked rather than adjudicated). The roster replaces attribution: a
+// foreign-namespace symbol resolves against a committed roster, not against an attribution token
+// on the citing line.
 
 import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS } from "./rosters";
 import {
@@ -800,8 +801,8 @@ if (ruleFiles.length === 0) {
 //
 // Build a Set<string> of every identifier token in every tracked source file. Resolution is
 // exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
-// `node_modules`, `scripts/check-docs.ts`, `scripts/detect-stale-claims.ts`, `scripts/rosters.ts`,
-// and `scripts/stale-claim-predicates.ts` (their comments mention the symbols they check, which
+// `node_modules`, `scripts/check-docs.ts`, `scripts/rosters.ts`, and
+// `scripts/stale-claim-predicates.ts` (their comments mention the symbols they check, which
 // would false-resolve dead citations).
 
 const tokenIndex = await buildTokenIndex(trackedFiles, root);
@@ -845,13 +846,12 @@ for (const { roster } of allRosters) {
 //
 // Shape predicates and candidate extraction are in the shared module
 // `stale-claim-predicates.ts`.
-// The predicate is formatting-invariant: strong shapes (camelCase, PascalCase) and
-// SCREAMING_SNAKE are caught bare or backticked; snake_case and lowercase-with-digits
-// are caught only when backticked (excluded from bare by the backtick context predicate).
-// A bare `*`-prefix drop is inadmissible — only `*`-prefixed tokens starting with `_`
-// (glob suffixes) are skipped. `.ts` path interiors are not re-tokenized. In-span tokens
-// are split by predicate: a token followed by `(` is a call citation; one in arithmetic
-// context is a formula variable.
+// The predicate is formatting-invariant: all identifier shapes (camelCase,
+// PascalCase, SCREAMING_SNAKE, snake_case, lowercase-with-digits) are caught
+// bare or backticked. A bare `*`-prefix drop is inadmissible — only `*`-prefixed
+// tokens starting with `_` (glob suffixes) are skipped. `.ts` path interiors
+// are not re-tokenized. In-span tokens are split by predicate: a token followed
+// by `(` is a call citation; one in arithmetic context is a formula variable.
 
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
 
@@ -883,7 +883,7 @@ if (citationCandidates.length === 0) {
 
 // Disjunct 2: the citation population count. Any predicate narrowing that shrinks the
 // population moves this number in the diff that narrows it.
-const PINNED_CITATION_COUNT = 1599;
+const PINNED_CITATION_COUNT = 1664;
 if (citationCandidates.length !== PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count mismatch: pinned ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -898,7 +898,7 @@ if (citationCandidates.length !== PINNED_CITATION_COUNT) {
 // Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
 // one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
 // cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
-const PINNED_ROSTER_ENTRY_COUNT = 73;
+const PINNED_ROSTER_ENTRY_COUNT = 75;
 const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
 if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
     console.error(
