@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { body, flat, integerDiscipline } from "../../../tests/wgsl";
 import { capacity } from "../../engine";
+import { Meshes, Surfaces } from "../render/core";
 import { packWgsl } from "./pack";
+import { PartTraits } from "./part";
 
 // The pack kernels' device-free structural seam. Real-GPU truth — survivor counts, survivor identity,
 // per-view slot offsets — is the gym `render` scenario (`bun bench --scenario render`); what's assertable
@@ -71,5 +73,73 @@ describe("folded constants", () => {
         expect(main).not.toContain("drawArgs[idx].firstIndex");
         expect(main).not.toContain("drawArgs[idx].baseVertex");
         expect(main).toContain(`slot * ${capacity}u`); // the slot's packedEids region base
+    });
+});
+
+// PartTraits.defaults resolves Surfaces.id("default") and Meshes.id("cube") at entity-creation time.
+// A miss (no SearPlugin → "default" unregistered, or PartPlugin not initialized → "cube" unregistered)
+// must be loud — warn, matching the sear module's warn+skip idiom (the batch-drop warn in atlas.ts).
+// The pre-fix `?? 0` silently bound whatever surface/mesh held registry id 0 — a plausible-wrong resource
+// invisible to every green gate. The fix warns at the call site, naming the wiring bug, while still
+// returning 0 (the same fallback value) so a valid Part-without-SearPlugin build (the conformance roster)
+// doesn't abort.
+describe("PartTraits defaults — miss is loud", () => {
+    test("defaults() warns when the default surface is unregistered (no SearPlugin)", () => {
+        const savedSurfaces = [...Surfaces.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // "cube" must be registered (PartPlugin.initialize → initMeshes) so only the surface miss fires
+            if (Meshes.id("cube") === undefined) Meshes.register({ name: "cube" } as any);
+            Surfaces.clear();
+            const result = PartTraits.defaults();
+            // the miss is loud: a warning names the wiring bug
+            expect(warn).toHaveBeenCalled();
+            expect(warn.mock.calls.some((c) => /default/.test(c[0] as string))).toBe(true);
+            // the fallback is still 0 (same value as pre-fix, but now warned)
+            expect(result.surface).toBe(0);
+        } finally {
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            warn.mockRestore();
+        }
+    });
+
+    test("defaults() warns when the cube mesh is unregistered (PartPlugin not initialized)", () => {
+        const savedMeshes = [...Meshes.values()];
+        const savedSurfaces = [...Surfaces.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // "default" must be registered so only the mesh miss fires
+            if (Surfaces.id("default") === undefined) Surfaces.register({ name: "default" } as any);
+            Meshes.clear();
+            const result = PartTraits.defaults();
+            expect(warn).toHaveBeenCalled();
+            expect(warn.mock.calls.some((c) => /cube/.test(c[0] as string))).toBe(true);
+            expect(result.mesh).toBe(0);
+        } finally {
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            warn.mockRestore();
+        }
+    });
+
+    test("defaults() does not warn when both are registered", () => {
+        const savedSurfaces = [...Surfaces.values()];
+        const savedMeshes = [...Meshes.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            if (Surfaces.id("default") === undefined) Surfaces.register({ name: "default" } as any);
+            if (Meshes.id("cube") === undefined) Meshes.register({ name: "cube" } as any);
+            PartTraits.defaults();
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            warn.mockRestore();
+        }
     });
 });

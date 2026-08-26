@@ -6,6 +6,7 @@ import { Camera, CameraMode, DirectionalLight, PointLight } from "../render";
 import { computeViewProj, FRUSTUM_FLOATS, frustumPlanes, Views } from "../render/core";
 import { Slab } from "../slab";
 import { Transform, TransformsPlugin } from "../transforms";
+import { comboViewSlots } from "./atlas";
 import { pointFaceOf, pointReceiver } from "./shade";
 import {
     cascadeAtlasSize,
@@ -1120,5 +1121,56 @@ describe("updatePointShadows caster selection", () => {
         expect(pointComboEids().length).toBe(0);
         for (const e of eids) expect(Views.has(e)).toBe(false);
         warn.mockRestore();
+    });
+});
+
+// comboViewSlots filters combo camera eids to their view slots, skipping any whose View is missing
+// (a wiring bug — the combo camera pool attaches a view per combo). The pre-fix `?? 0` marshaled slot 0
+// for a missing view, binding another camera's culled set into the shadow pass. The fix skips the combo
+// entirely and returns the original indices so the caller can compact faceVP/comboMeta to the new dense
+// index space — simply not pushing would shift every later combo's index, misaligning the atlas VS's
+// faceVP.m[combo] / comboMeta.m[combo] lookups.
+describe("comboViewSlots — miss skips the combo, not marshals slot 0", () => {
+    test("a missing combo view is skipped, not marshaled as slot 0", () => {
+        const saved = new Map(Views);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            Views.clear();
+            // three combo cameras: slots 5, 6, 7
+            Views.set(100, { slot: 5 } as any);
+            Views.set(101, { slot: 6 } as any);
+            Views.set(102, { slot: 7 } as any);
+            // eid 101's view is missing (detached/recycled)
+            Views.delete(101);
+            const combos = [100, 101, 102];
+            const { slots, indices } = comboViewSlots(combos);
+            // the missing combo (101) is skipped — not marshaled as slot 0
+            expect(slots).not.toContain(0);
+            expect(slots).toEqual([5, 7]);
+            expect(indices).toEqual([0, 2]);
+            expect(warn).toHaveBeenCalledTimes(1);
+        } finally {
+            Views.clear();
+            for (const [k, v] of saved) Views.set(k, v);
+            warn.mockRestore();
+        }
+    });
+
+    test("all-valid combos pass through unchanged", () => {
+        const saved = new Map(Views);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            Views.clear();
+            Views.set(200, { slot: 3 } as any);
+            Views.set(201, { slot: 4 } as any);
+            const { slots, indices } = comboViewSlots([200, 201]);
+            expect(slots).toEqual([3, 4]);
+            expect(indices).toEqual([0, 1]);
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            Views.clear();
+            for (const [k, v] of saved) Views.set(k, v);
+            warn.mockRestore();
+        }
     });
 });

@@ -485,7 +485,25 @@ export function warmPart(state: State): void {
 
 export const PartTraits = {
     requires: [Transform],
-    defaults: () => ({ surface: Surfaces.id("default") ?? 0, mesh: Meshes.id("cube") ?? 0 }),
+    defaults: () => {
+        // a missing "default" surface (no SearPlugin) or "cube" mesh (PartPlugin not initialized) is a
+        // wiring bug. The module's miss idiom is throw (cullGroup, above), but `defaults()` runs at scene
+        // parse time (codec.ts) where a throw would abort a valid Part-without-SearPlugin build (the
+        // conformance roster exercises exactly that). So: warn loudly (the miss is visible, not silent)
+        // and fall back to 0 — the same value the pre-fix `?? 0` produced, but now named at the call site
+        // as a wiring bug instead of silently binding whatever surface/mesh holds registry id 0.
+        const surface = Surfaces.id("default");
+        const mesh = Meshes.id("cube");
+        if (surface === undefined)
+            console.warn(
+                '[part] default surface "default" is not registered — a SearPlugin or surface owner must register it; Part entities will bind whatever surface holds registry id 0',
+            );
+        if (mesh === undefined)
+            console.warn(
+                '[part] default mesh "cube" is not registered — PartPlugin.initialize() registers it via initMeshes(); Part entities will bind whatever mesh holds registry id 0',
+            );
+        return { surface: surface ?? 0, mesh: mesh ?? 0 };
+    },
     parse: {
         surface: (value: string) => Surfaces.id(value),
         mesh: (value: string) => Meshes.id(value),
