@@ -34,7 +34,16 @@ const RIGID_THRESHOLD = 1e29;
 export function stiffnessHertz(stiffness: number, massA: number, massB: number): number {
     const meff =
         massA > 0 && massB > 0 ? (massA * massB) / (massA + massB) : Math.max(massA, massB);
-    if (meff <= 0 || stiffness <= 0) return 0;
+    // NaN is transparent to the comparison-only guard (NaN <= 0 is false), so state finiteness explicitly —
+    // defense in depth even after the authoring-layer guard, because the tumble singleton escape hatch
+    // (Tumble.world / imperative spawn scripts) bypasses ConstraintSystem. ∞ is a valid stiffness (rigid),
+    // so the finite check exempts it; -∞ is already caught by `stiffness <= 0`.
+    if (
+        meff <= 0 ||
+        stiffness <= 0 ||
+        (!Number.isFinite(stiffness) && stiffness !== Number.POSITIVE_INFINITY)
+    )
+        return 0;
     return Math.sqrt(stiffness / meff) / (2 * Math.PI);
 }
 

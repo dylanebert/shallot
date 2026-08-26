@@ -29,6 +29,17 @@ describe("stiffnessHertz", () => {
         expect(stiffnessHertz(100, 0, 0)).toBe(0);
         expect(stiffnessHertz(0, 1, 1)).toBe(0);
     });
+
+    // witnessed red: exit code 1 — without the Number.isFinite guard, NaN passes the comparison-only
+    // check (NaN <= 0 is false) and Math.sqrt(NaN / meff) / (2π) yields NaN; expect(NaN).toBe(0) fails.
+    // ∞ is exempted (rigid stiffness is valid), so the finite check must not reject it.
+    test("NaN stiffness returns 0 (the finite guard — comparison-only checks are NaN-transparent)", () => {
+        expect(stiffnessHertz(Number.NaN, 1, 1)).toBe(0);
+    });
+
+    test("∞ stiffness still computes a finite-or-infinite hertz (the finite guard exempts ∞)", () => {
+        expect(stiffnessHertz(Number.POSITIVE_INFINITY, 1, 1)).toBe(Number.POSITIVE_INFINITY);
+    });
 });
 
 describe("syncSet", () => {
@@ -288,6 +299,87 @@ describe("tumble constraint mapping", () => {
             // y = 2.5 + ½·(−10)·2² = −17.5 (±1.0 for solver slop). A clamp-to-spherical would hold
             // the body at y ≈ 2.5 — far outside this band — so the arm separates the directions.
             expect(Math.abs((arm?.pos[1] ?? 0) - -17.5)).toBeLessThan(1.0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // witnessed red: exit code 1 — without the authoring-layer guard, NaN passes tumble's comparison-only
+    // `< 0` guard (NaN < 0 is false) and the stiffnessHertz Number.isFinite guard returns 0 → angularHertz
+    // 0 → rigid weld → body pinned at y ≈ 2.5, far outside the free-fall band. With the authoring-layer
+    // guard, NaN is dropped at jointDefs → no joint → free fall.
+    test("a NaN stiffnessAng joint is dropped at the authoring layer (warn+skip, free-fall under tumble)", async () => {
+        const { state, eids } = await build([
+            { pos: [0, 2, 0], mass: 0 },
+            { pos: [1.5, 2.5, 0], mass: 1, half: [0.25, 0.25, 0.25] },
+        ]);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            addJoint(state, eids[0], eids[1], [1.5, 0.5, 0], [0, 0, 0], Number.NaN);
+            stepFor(state, 2);
+            const arm = Physics.backend?.readBody(eids[1]);
+            expect(arm).not.toBeNull();
+            expect(warn).toHaveBeenCalled();
+            const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
+            expect(jointWarn).toBeDefined();
+            expect(String(jointWarn?.[0])).toContain("skipped");
+            // skip half: no joint created, body falls freely — y = 2.5 + ½·(−10)·2² = −17.5 (±1.0).
+            // A rigid weld (the NaN→0→rigid path without the guard) would hold the body at y ≈ 2.5.
+            expect(Math.abs((arm?.pos[1] ?? 0) - -17.5)).toBeLessThan(1.0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // reference floor (green either way): the tumble layer already catches negative stiffness via
+    // stiffnessHertz(-1, ...) → 0 (stiffness <= 0) → hertz 0 → warn+skip at createSpring. The
+    // authoring-layer guard is redundant for this case but the arm pins the end-to-end effect (free-fall)
+    // under the tumble backend so the behavior is witnessed, not just at the recording backend.
+    test("a negative stiffness spring is skipped — free-fall under tumble", async () => {
+        const { state, eids } = await build([
+            { pos: [0, 10, 0], mass: 0, half: [0.1, 0.1, 0.1] },
+            { pos: [0, 6, 0], mass: 8 },
+        ]);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            addSpring(state, eids[0], eids[1], -1, 4);
+            stepFor(state, 2);
+            const body = Physics.backend?.readBody(eids[1]);
+            expect(body).not.toBeNull();
+            expect(warn).toHaveBeenCalled();
+            const springWarn = warn.mock.calls.find((c) => String(c[0]).includes("spring"));
+            expect(springWarn).toBeDefined();
+            expect(String(springWarn?.[0])).toContain("skipped");
+            // free-fall: y = 6 + ½·(−10)·2² = −14 (±1.0). A spring holding the body would be near 6.
+            expect(Math.abs((body?.pos[1] ?? 0) - -14)).toBeLessThan(1.0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // witnessed red: exit code 1 — removing both the authoring-layer spring guard AND the
+    // stiffnessHertz Number.isFinite guard: NaN passes tumble's comparison-only `stiffness <= 0`
+    // (NaN <= 0 is false) and stiffnessHertz returns NaN → hertz NaN → createDistanceJoint with NaN
+    // hertz → no warn, body not at free-fall. With either guard in place, NaN is caught: the
+    // authoring-layer guard drops it at springDefs (no spring, [physics] warn); the stiffnessHertz
+    // guard returns 0 → hertz 0 → warn+skip at createSpring ([tumble] warn). Both paths → free fall.
+    test("a NaN stiffness spring is skipped — free-fall under tumble", async () => {
+        const { state, eids } = await build([
+            { pos: [0, 10, 0], mass: 0, half: [0.1, 0.1, 0.1] },
+            { pos: [0, 6, 0], mass: 8 },
+        ]);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            addSpring(state, eids[0], eids[1], Number.NaN, 4);
+            stepFor(state, 2);
+            const body = Physics.backend?.readBody(eids[1]);
+            expect(body).not.toBeNull();
+            expect(warn).toHaveBeenCalled();
+            const springWarn = warn.mock.calls.find((c) => String(c[0]).includes("spring"));
+            expect(springWarn).toBeDefined();
+            expect(String(springWarn?.[0])).toContain("skipped");
+            // free-fall: y = 6 + ½·(−10)·2² = −14 (±1.0).
+            expect(Math.abs((body?.pos[1] ?? 0) - -14)).toBeLessThan(1.0);
         } finally {
             warn.mockRestore();
         }
