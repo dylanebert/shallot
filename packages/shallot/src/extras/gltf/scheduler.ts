@@ -14,13 +14,21 @@ interface Waiter<T, R> {
 
 export class Scheduler<T, R> {
     private readonly _run: (slot: number, task: T) => Promise<R>;
+    private readonly _healthy?: (slot: number) => boolean;
+    private readonly _slots: number;
     // free slot indices (0..slots-1); a slot is one concurrent `run`. The transport maps a slot to a worker.
     private readonly _free: number[];
     private readonly _queue: Waiter<T, R>[] = [];
     private _seq = 0;
 
-    constructor(opts: { slots: number; run: (slot: number, task: T) => Promise<R> }) {
+    constructor(opts: {
+        slots: number;
+        run: (slot: number, task: T) => Promise<R>;
+        healthy?: (slot: number) => boolean;
+    }) {
         this._run = opts.run;
+        this._healthy = opts.healthy;
+        this._slots = opts.slots;
         this._free = Array.from({ length: opts.slots }, (_, i) => i);
     }
 
@@ -48,10 +56,27 @@ export class Scheduler<T, R> {
 
     // dispatch waiters to free slots, highest-priority first, until one runs out. Each settle returns its slot
     // and re-drains, so a queued task starts the moment a slot frees — a reject frees the slot too (no deadlock).
+    // A slot reported unhealthy by `healthy` is skipped at selection — a dead slot leaves rotation, never lost
+    // from `_free`. When no healthy slot exists at all (every slot, busy or free, is dead), queued waiters
+    // reject with a named error rather than stalling (no silent hang); a healthy busy slot is normal
+    // backpressure — queued tasks wait for it to free.
     private drain(): void {
-        while (this._free.length > 0 && this._queue.length > 0) {
+        while (this._queue.length > 0) {
+            let idx = -1;
+            for (let i = this._free.length - 1; i >= 0; i--) {
+                if (!this._healthy || this._healthy(this._free[i])) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx === -1) {
+                // no healthy free slot — reject only if no slot is healthy at all (all dead)
+                if (this._healthy && !this.anyHealthy())
+                    this.rejectAll("[gltf] no healthy decode slot available (all slots dead)");
+                return;
+            }
+            const slot = this._free.splice(idx, 1)[0];
             const w = this.take();
-            const slot = this._free.pop() as number;
             this._run(slot, w.task)
                 .then(w.resolve, w.reject)
                 .finally(() => {
@@ -59,6 +84,16 @@ export class Scheduler<T, R> {
                     this.drain();
                 });
         }
+    }
+
+    private anyHealthy(): boolean {
+        for (let i = 0; i < this._slots; i++) if (this._healthy!(i)) return true;
+        return false;
+    }
+
+    private rejectAll(reason: string): void {
+        const dropped = this._queue.splice(0, this._queue.length);
+        for (const w of dropped) w.reject(new Error(reason));
     }
 
     // remove + return the highest-priority waiter (FIFO within a priority). A linear scan — the queue is at

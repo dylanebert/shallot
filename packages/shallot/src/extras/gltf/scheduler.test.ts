@@ -116,4 +116,47 @@ describe("Scheduler", () => {
         expect(await s.submit("good")).toBe("good");
         expect(runs).toBe(2);
     });
+
+    test("skips unhealthy slots at selection — tasks land on healthy slots only", async () => {
+        const { calls, run } = runner();
+        const s = new Scheduler<string, string>({
+            slots: 2,
+            run,
+            healthy: (slot) => slot !== 1, // slot 1 is unhealthy
+        });
+
+        s.submit("a", 0);
+        s.submit("b", 0);
+        s.submit("c", 0);
+        await settle();
+        // only slot 0 is used; slot 1 is skipped. one at a time (slot 0 busy after first dispatch)
+        expect(calls.map((c) => c.task)).toEqual(["a"]);
+        expect(calls.every((c) => c.slot === 0)).toBe(true);
+
+        calls[0].resolve();
+        await settle();
+        expect(calls.map((c) => c.task)).toEqual(["a", "b"]);
+        expect(calls.every((c) => c.slot === 0)).toBe(true);
+
+        calls[1].resolve();
+        await settle();
+        expect(calls.map((c) => c.task)).toEqual(["a", "b", "c"]);
+        expect(calls.every((c) => c.slot === 0)).toBe(true);
+    });
+
+    test("rejects all queued waiters when no healthy slot remains", async () => {
+        const { calls, run } = runner();
+        const s = new Scheduler<string, string>({
+            slots: 2,
+            run,
+            healthy: () => false, // all slots unhealthy
+        });
+
+        const pa = s.submit("a", 0);
+        const pb = s.submit("b", 0);
+        await expect(pa).rejects.toThrow("no healthy decode slot available");
+        await expect(pb).rejects.toThrow("no healthy decode slot available");
+        // nothing was dispatched — the named error fires at selection, not after a run
+        expect(calls).toHaveLength(0);
+    });
 });

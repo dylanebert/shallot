@@ -47,7 +47,7 @@ function ensurePool(): Scheduler<DecodeRequest, DecodedGltf> {
     _dead = new Array(n).fill(false);
     _respawnCount = new Array(n).fill(0);
     _workers = Array.from({ length: n }, (_, slot) => spawn(slot));
-    _scheduler = new Scheduler<DecodeRequest, DecodedGltf>({ slots: n, run: dispatch });
+    _scheduler = new Scheduler<DecodeRequest, DecodedGltf>({ slots: n, run: dispatch, healthy: (slot) => !_dead[slot] });
     return _scheduler;
 }
 
@@ -55,8 +55,10 @@ function spawn(slot: number): Worker {
     const w = new Worker(new URL("./decode.worker.ts", import.meta.url), { type: "module" });
     w.onmessage = (e: MessageEvent<DecodeReply>) => {
         const reply = e.data;
-        if (reply.ok) settle(slot, (p) => p.resolve(reply.decoded));
-        else fail(slot, reply.error);
+        if (reply.ok) {
+            _respawnCount[slot] = 0;
+            settle(slot, (p) => p.resolve(reply.decoded));
+        } else fail(slot, reply.error);
     };
     w.onerror = (e) => workerError(slot, `[gltf] decode worker error: ${e.message}`);
     w.onmessageerror = () =>
