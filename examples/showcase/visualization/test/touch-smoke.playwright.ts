@@ -10,13 +10,27 @@ import { classifyRendered } from "./rendered";
 // `OrbitPlugin` boot, `src/boot.ts`); the rest are covered by the clean-load loop, matching
 // `visualization.playwright.ts`'s own "every demo renders a positive canvas" shape. Runs by path —
 // `cd examples/showcase/visualization && bunx playwright test test/touch-smoke.playwright.ts` —
-// display-gated the same way the desktop gate is, never part of `bun run test`.
+// display-gated by `playwright.global-setup.ts` routing through the WSL bridge for real GPU access, plus
+// this file's own adapter-name skip below for a seat where neither the bridge nor a native real GPU is
+// available (mirrors `roads/test/touch-smoke.playwright.ts`); never part of `bun run test`.
 
 test.use({
     hasTouch: true,
     isMobile: true,
     viewport: { width: 390, height: 844 },
 });
+
+// Software rasterizers by the name they report in `GPUAdapterInfo` — the same display-gate pattern
+// `roads/test/touch-smoke.playwright.ts` uses (that file's header has the full rationale).
+const SOFTWARE = /swiftshader|llvmpipe|lavapipe|warp|basic render/i;
+
+const adapterName = (page: Page): Promise<string> =>
+    page.evaluate(async () => {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (!adapter) return "";
+        const { vendor, architecture, device, description } = adapter.info;
+        return [vendor, architecture, device, description].filter(Boolean).join(" ");
+    });
 
 const sampleGrid = async (page: Page): Promise<number[]> => {
     const canvas = page.locator("canvas");
@@ -44,6 +58,14 @@ function meanAbsDiff(a: number[], b: number[]): number {
 
 test("visualization showcase — every demo loads clean, one orbits by touch", async ({ page }) => {
     await page.goto("/");
+
+    const adapter = await adapterName(page);
+    console.log(`visualization touch smoke adapter: ${adapter || "none offered"}`);
+    test.skip(
+        adapter === "" || SOFTWARE.test(adapter),
+        `no real-GPU adapter (${adapter || "none offered"})`,
+    );
+
     const demos = deriveDemosFromIframeSrcs(
         await page
             .locator("iframe")
