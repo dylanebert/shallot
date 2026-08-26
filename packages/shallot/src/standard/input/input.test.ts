@@ -267,6 +267,14 @@ describe("InputPlugin", () => {
         expect(Inputs.isKeyReleased("KeyQ")).toBe(false); // a never-held key does not pulse release
     });
 
+    test("windowPointerDown records release edges for held keys — isKeyReleased pulses on click-off", () => {
+        onWindow("keydown")({ code: "KeyW" });
+        expect(Inputs.isKeyDown("KeyW")).toBe(true);
+        onWindow("pointerdown")({ target: {} as HTMLCanvasElement });
+        expect(Inputs.isKeyReleased("KeyW")).toBe(true); // held key pulses release on click-off
+        expect(Inputs.isKeyReleased("KeyQ")).toBe(false); // a never-held key does not pulse release
+    });
+
     test("windowPointerDown clears keysPressed on click-off — no stale press edge for a force-released key", () => {
         onWindow("keydown")({ code: "KeyW" });
         expect(Inputs.isKeyPressed("KeyW")).toBe(true);
