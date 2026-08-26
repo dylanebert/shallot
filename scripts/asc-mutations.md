@@ -14,7 +14,7 @@ live citation for the dead one IN PLACE, and the record carries the leg name
 (`stale citation`, `roster entry count mismatch`, …) beside the exit code,
 never the exit code alone.
 
-Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`.
+Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`, re-witnessed at the origin/main merge (all seven exit 1, legs unchanged, coordinator-run).
 
 ## Mutations
 
@@ -22,12 +22,12 @@ Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`.
 |---|----------|------|-------------|
 | (i) | Seeded backticked dead symbol: `` `advanceColor` `` → `` `zombieUploadPass` `` in avbd.md:114 (in place) | 1 | stale citation |
 | (ii) | Bare dead symbol: `` `advanceColor` `` → bare `zombieUploadPass` in avbd.md:114 (in place) | 1 | stale citation |
-| (iii) | Roster swap-in (count-neutral): in scripts/rosters.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays 1735) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
+| (iii) | Roster swap-in (count-neutral): in scripts/rosters.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays 1734) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
 | (iv) | Substring: `` `advanceColor` `` → `` `spotInner` `` in avbd.md:114 (substring of live `spotInnerF`) | 1 | stale citation |
 | (v) | Launder-via-marker: `` `advanceColor` `` → `` `zombieUploadPass` (retired) `` in avbd.md:114 | 1 | marker-exempted count mismatch (21 vs 20) |
 | (vi) | Weak-shape bare: `` `advanceColor` `` → bare `zombie_upload_pass` (snake) in avbd.md:114 | 1 | stale citation |
-| (vii) | Predicate narrowing: `matchesWeakShape` call removed from `matchesShape` | 1 | citation count mismatch (1508 vs 1735) |
-| baseline | Clean tree (1735 citations, 43 roster entries, 20 marker-exempted) | 0 | — |
+| (vii) | Predicate narrowing: `matchesWeakShape` call removed from `matchesShape` | 1 | citation count mismatch (1507 vs 1734) |
+| baseline | Clean tree (1734 citations, 43 roster entries, 20 marker-exempted) | 0 | — |
 
 ## (viii) — SHAPE_FALSE_POSITIVES, retired honestly
 
@@ -66,7 +66,7 @@ EndFrameSystem sentence fix in render.md (item c: `MirrorSystem`,
 `InputResetSystem`, `OrbitOverlaySystem`, `ProfileRenderSystem`,
 `sortSystems`, `scheduler.ts`), and 2 are excluded by widening `ARITH_RE`
 with comparison operators (`≤`, `≥`) to exclude formula variables
-(`working_set`, `L2_size` at gpu.md:219). Net: 1664 → 1735.
+(`working_set`, `L2_size` at gpu.md:219). Net: 1664 → 1735. Re-pinned 1734 at the trunk merge: trunk's 0.9.5 gate edit removed the `MIGRATION.md` version-site span from testing.md's enumeration (one citation, honestly gone). All seven mutations re-witnessed red at the merged state.
 
 The `ARITH_RE` widening (`≤`/`≥` added at `stale-claim-predicates.ts:147`)
 has a measured extent of 4 identifier-shaped tokens now adjacent to `≤`/`≥`
@@ -138,7 +138,7 @@ submit.
 Swapping one marker-exempted dead symbol for a DIFFERENT dead symbol on the
 same marker line — in gpu.md:153, solo-backticked `tangentBasis` (carrying a
 `(gone)` marker) replaced by `zombieUploadPass` — reads exit 0, count-neutral
-in all three pins (1735 citations, 43 roster entries, 20 marker-exempted).
+in all three pins (1734 citations, 43 roster entries, 20 marker-exempted).
 This is NOT a hole: it is the marker leg's stated and accepted cost, because
 the swap leaves a false sentence in a permanent file that the rule's own
 readers see. The docblock in check-docs.ts already states this honestly

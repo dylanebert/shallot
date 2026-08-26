@@ -889,7 +889,7 @@ if (citationCandidates.length === 0) {
 
 // Disjunct 2: the citation population count. Any predicate narrowing that shrinks the
 // population moves this number in the diff that narrows it.
-const PINNED_CITATION_COUNT = 1735;
+const PINNED_CITATION_COUNT = 1734;
 if (citationCandidates.length !== PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count mismatch: pinned ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -993,7 +993,7 @@ if (rosterInTree.length > 0) {
 //   (iii) Roster swap-in: in scripts/rosters.ts replace "PowerVR" with
 //         "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace
 //         the solo-backticked `advanceColor` with `zombieUploadPass` (citation
-//         count stays 1735) → exit 1, stale citation — PowerVR's citation
+//         count stays 1734) → exit 1, stale citation — PowerVR's citation
 //         sites in gpu.md no longer resolve. Count-neutral in every pinned
 //         quantity, so the red comes from the resolution leg, not a count pin.
 //         Witnesses: every surviving roster entry is load-bearing, so a
@@ -1007,7 +1007,7 @@ if (rosterInTree.length > 0) {
 //         → exit 1, stale citation (all shapes caught bare, round 6b's escape shut;
 //         round 7 also admits weak shapes in-span)
 //   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` moves the
-//         pinned citation count (1508 vs 1735) → exit 1, citation count mismatch
+//         pinned citation count (1507 vs 1734) → exit 1, citation count mismatch
 //   (viii) Retired: the round-6 SHAPE_FALSE_POSITIVES set was deleted in round 6b.
 //         Re-introducing it as an unread variable is a tautology about dead code, not a
 //         gate witness — the real channel was closed by deletion, not by the gate catching
