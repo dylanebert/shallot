@@ -3,14 +3,17 @@
 // Two invariants pinned:
 //   (1) detectDisplay() — an unsupported/undetectable platform returns false (skip is honest),
 //       and the WSL branch delegates to a host probe (not an unconditional true). The WSL and win32
-//       branches were shipped logic-level and are unwitnessable at runtime on this darwin seat, so
-//       the arm exercises the injectable pure seam (detectDisplayForPlatform) that detectDisplay()
-//       delegates to, reaching every branch decision without needing that platform.
+//       branches were shipped logic-level and are unwitnessable at runtime on a non-WSL/non-win32
+//       seat, so the arm exercises the injectable pure seam (detectDisplayForPlatform) that
+//       detectDisplay() delegates to, reaching every branch decision without needing that platform.
 //   (2) stageOnWindows() — a failed staging throws (does not fall through into the gate run).
-//       On this darwin seat powershell.exe is absent, so windowsTempPaths() throws before the
-//       staging spawn is reached, and the throw the original arm observed was not the guard's.
-//       The staging exit-code guard is extracted into checkStagingResult(), a pure seam the arm
-//       exercises directly: a nonzero exit removes the staging dir and throws.
+//       On a seat without powershell.exe on PATH, windowsTempPaths() throws before the staging
+//       spawn is reached, and the throw the original arm observed was not the guard's. The
+//       staging exit-code guard is extracted into checkStagingResult(), a pure seam the arm
+//       exercises directly: a nonzero exit removes the staging dir and throws. The full-function
+//       arm below only holds on a seat where powershell.exe is actually unresolvable — an
+//       interop-capable WSL seat resolves it and would fall through into a real staging spawn,
+//       so it's gated on that premise (the repo's display-gated `test.skipIf` convention).
 
 import { expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -78,20 +81,26 @@ test("checkStagingResult — a null exit code also throws (spawn failed entirely
     expect(existsSync(tmp)).toBe(false);
 });
 
-// ── stageOnWindows: the full function still throws on a darwin seat ────────────
+// ── stageOnWindows: the full function still throws when powershell.exe is unresolvable ────────
 
-test("stageOnWindows — throws on a darwin seat (powershell.exe absent)", () => {
-    // On this darwin seat powershell.exe is absent, so windowsTempPaths() throws before the
-    // staging spawn is reached. The function does not return a WindowsPaths object — it does
-    // NOT fall through into the gate run. This is kept as a second check, but the behavioral
-    // arm above (checkStagingResult) is the one that exercises the actual guard.
-    const tmp = mkdtempSync(join(tmpdir(), "shallot-wsl-arm-"));
-    const srcDir = join(tmp, "src");
-    const stageName = join(tmp, "stage");
-    mkdirSync(srcDir, { recursive: true });
-    writeFileSync(join(srcDir, "file.txt"), "test");
+const hasPowershell = Bun.which("powershell.exe") != null;
 
-    expect(() => stageOnWindows(srcDir, stageName, ["file.txt"])).toThrow();
+test.skipIf(hasPowershell)(
+    "stageOnWindows — throws when powershell.exe is absent from PATH",
+    () => {
+        // On a seat without powershell.exe on PATH, windowsTempPaths() throws before the staging
+        // spawn is reached. The function does not return a WindowsPaths object — it does NOT fall
+        // through into the gate run. This is kept as a second check, but the behavioral arm above
+        // (checkStagingResult) is the one that exercises the actual guard. Skipped on an
+        // interop-capable WSL seat, where powershell.exe resolves and this premise doesn't hold.
+        const tmp = mkdtempSync(join(tmpdir(), "shallot-wsl-arm-"));
+        const srcDir = join(tmp, "src");
+        const stageName = join(tmp, "stage");
+        mkdirSync(srcDir, { recursive: true });
+        writeFileSync(join(srcDir, "file.txt"), "test");
 
-    rmSync(tmp, { recursive: true, force: true });
-});
+        expect(() => stageOnWindows(srcDir, stageName, ["file.txt"])).toThrow();
+
+        rmSync(tmp, { recursive: true, force: true });
+    },
+);
