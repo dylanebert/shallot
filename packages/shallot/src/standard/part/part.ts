@@ -485,7 +485,30 @@ export function warmPart(state: State): void {
 
 export const PartTraits = {
     requires: [Transform],
-    defaults: () => ({ surface: Surfaces.id("default") ?? 0, mesh: Meshes.id("cube") ?? 0 }),
+    defaults: () => {
+        // a missing "default" surface or "cube" mesh is a wiring bug — but only when the registry is
+        // populated. With no SearPlugin the surface registry is empty (`Surfaces.size === 0`), so id 0 is
+        // inert: there is no sear pass to marshal it to. That build is sanctioned (the conformance roster
+        // exercises exactly that — `tests/conformance.test.ts:269`, plugins `Slab/Transforms/Render/Part`,
+        // no Sear), and a warn there is a false alarm that trains the reader to ignore it. The genuine
+        // wiring bug is the ordering case: surfaces *are* registered but "default" is absent (a SearPlugin
+        // or surface owner forgot to register the default). So: warn only when the registry is populated
+        // and the named default is missing (`Surfaces.size > 0 && Surfaces.id("default") === undefined`),
+        // and likewise for `Meshes`/"cube". The fallback return is still 0 — the same value the pre-fix
+        // `?? 0` produced, but now named at the call site as a wiring bug instead of silently binding
+        // whatever surface/mesh holds registry id 0.
+        const surface = Surfaces.id("default");
+        const mesh = Meshes.id("cube");
+        if (Surfaces.size > 0 && surface === undefined)
+            console.warn(
+                '[part] default surface "default" is not registered — a SearPlugin or surface owner must register it; Part entities will bind whatever surface holds registry id 0',
+            );
+        if (Meshes.size > 0 && mesh === undefined)
+            console.warn(
+                '[part] default mesh "cube" is not registered — PartPlugin.initialize() registers it via initMeshes(); Part entities will bind whatever mesh holds registry id 0',
+            );
+        return { surface: surface ?? 0, mesh: mesh ?? 0 };
+    },
     parse: {
         surface: (value: string) => Surfaces.id(value),
         mesh: (value: string) => Meshes.id(value),

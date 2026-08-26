@@ -39,7 +39,6 @@ import {
     type PointShadowFrame,
     pointAtlasSize,
     pointCasters,
-    pointComboCount,
     pointComboEids,
     pointComboMeta,
     pointFaceVP,
@@ -249,6 +248,48 @@ let _batchDropWarned = false;
 // renders (each fills then consumes them in turn within ShadowMapSystem)
 const _comboSlots: number[] = [];
 const _drawPairs: number[] = [];
+
+// warn-once (per episode — resets once a frame has zero missing combo views) for a combo view missing
+// from the pool. The combo camera pool (`createComboCamera`) attaches a view per combo, so a missing
+// view is a wiring bug — the camera was detached or recycled. The combo is skipped (not marshaled as
+// slot 0) so the shadow pass never binds another camera's culled set into the missing combo's tile.
+// Latched while misses persist, reset on the first clean frame — the `_batchDropWarned` idiom (above),
+// so a persistent wiring bug warns once per episode, not once per frame (a render-loop log flood).
+let _comboMissWarned = false;
+
+/**
+ * filter combo camera eids to their view slots, skipping any whose View is missing (a wiring bug —
+ * `createComboCamera` attaches a view per combo, so a miss means the camera was detached or recycled).
+ * Returns the dense combo slots and the original combo indices of the survivors, so the caller can
+ * compact the `faceVP`/`comboMeta` arrays to match the new dense index space. Simply not pushing would
+ * shift every later combo's dense index, misaligning the atlas VS's `faceVP.m[combo]` / `comboMeta.m[combo]`
+ * lookups — the `indices` return lets the caller compact those arrays in lockstep.
+ */
+export function comboViewSlots(combos: number[]): { slots: number[]; indices: number[] } {
+    const slots: number[] = [];
+    const indices: number[] = [];
+    let missed = 0;
+    for (let c = 0; c < combos.length; c++) {
+        const view = Views.get(combos[c]);
+        if (view) {
+            slots.push(view.slot);
+            indices.push(c);
+        } else {
+            missed++;
+        }
+    }
+    if (missed > 0) {
+        if (!_comboMissWarned) {
+            _comboMissWarned = true;
+            console.warn(
+                `sear: ${missed} combo view(s) missing — skipping combo(s) (wiring bug: the combo camera pool should have attached a view per combo)`,
+            );
+        }
+    } else {
+        _comboMissWarned = false;
+    }
+    return { slots, indices };
+}
 
 // ---- CSM cascade atlas: the GPU half (the cascade combo cameras + fit are in ./shadows) ----
 //
@@ -612,23 +653,54 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
         0,
         tileRects.length,
     );
-    // the combo viewProjs the VS projects by + their (caster, face) meta (dense, CPU-side in updatePointShadows)
+    // the combo viewProjs the VS projects by + their (caster, face) meta (dense, CPU-side in updatePointShadows).
+    // A missing combo view (wiring bug) is skipped — comboViewSlots returns the survivors' slots + original
+    // indices so we compact faceVP/comboMeta to the new dense index space the re-gather's combo index uses
+    const combos = pointComboEids();
+    const { slots: comboSlots, indices: comboIndices } = comboViewSlots(combos);
     const faceVP = pointFaceVP();
-    Compute.device.queue.writeBuffer(
-        _faceVP!,
-        0,
-        faceVP as Float32Array<ArrayBuffer>,
-        0,
-        faceVP.length,
-    );
     const comboMeta = pointComboMeta();
-    Compute.device.queue.writeBuffer(
-        _comboMeta!,
-        0,
-        comboMeta as Uint32Array<ArrayBuffer>,
-        0,
-        comboMeta.length,
-    );
+    if (comboIndices.length === combos.length) {
+        // no misses — upload the full arrays as before
+        Compute.device.queue.writeBuffer(
+            _faceVP!,
+            0,
+            faceVP as Float32Array<ArrayBuffer>,
+            0,
+            faceVP.length,
+        );
+        Compute.device.queue.writeBuffer(
+            _comboMeta!,
+            0,
+            comboMeta as Uint32Array<ArrayBuffer>,
+            0,
+            comboMeta.length,
+        );
+    } else {
+        // compact to the survivors' dense index space
+        const n = comboIndices.length;
+        const compactedVP = new Float32Array(n * 16);
+        const compactedMeta = new Uint32Array(n * 4);
+        for (let i = 0; i < n; i++) {
+            const src = comboIndices[i];
+            compactedVP.set(faceVP.subarray(src * 16, src * 16 + 16), i * 16);
+            compactedMeta.set(comboMeta.subarray(src * 4, src * 4 + 4), i * 4);
+        }
+        Compute.device.queue.writeBuffer(
+            _faceVP!,
+            0,
+            compactedVP as Float32Array<ArrayBuffer>,
+            0,
+            n * 16,
+        );
+        Compute.device.queue.writeBuffer(
+            _comboMeta!,
+            0,
+            compactedMeta as Uint32Array<ArrayBuffer>,
+            0,
+            n * 4,
+        );
+    }
 
     // the casting draws (a compiled point pipeline + its point bind group) sharing the Part pack's one
     // indirect buffer — read from the Draws, not Part (sear stays part-agnostic). A producer owning its own
@@ -661,7 +733,7 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
         _batchDropWarned = false;
     }
     const D = _castDraws.length;
-    const C = pointComboCount();
+    const C = comboSlots.length;
     const packed = Compute.buffers.get("eids");
     if (D === 0 || C === 0 || !drawArgs || !packed || pairCount === 0) return;
     pointRegather.reserve(D);
@@ -669,9 +741,8 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
     // the re-gather inputs: the view slot each dense combo culled into, and the (surface,mesh) pair each
     // casting draw owns. `Regather.run` concatenates each mesh's per-combo culled members into one run +
     // a per-instance combo index (Pass A per-mesh args → Pass B scatter), in one compute pass
-    const combos = pointComboEids();
     _comboSlots.length = 0;
-    for (let c = 0; c < C; c++) _comboSlots.push(Views.get(combos[c])?.slot ?? 0);
+    for (const s of comboSlots) _comboSlots.push(s);
     _drawPairs.length = 0;
     for (let i = 0; i < D; i++)
         _drawPairs.push(Math.floor((_castDraws[i].draw.args.offset ?? 0) / SHADOW_ARG_STRIDE));
@@ -725,32 +796,76 @@ export function renderPointShadows(frameDraws: { draw: Draw; r: Recorded }[]): v
 export function renderCascades(frameDraws: { draw: Draw; r: Recorded }[]): void {
     const encoder = Render.encoder;
     if (!encoder || !_shadowReady) return;
-    const C = cascadeCount();
-    if (C === 0) {
+    const COriginal = cascadeCount();
+    if (COriginal === 0) {
         _sun = null;
         return;
     }
     ensureCascadeAtlas();
     cascadeRegather.ensure(MAX_CASCADES);
 
-    // upload the per-cascade folded tile viewProjs + meta + rects (CPU-computed in updateCascades)
+    // filter combo (cascade) cameras to those with an attached View — a missing view is a wiring bug
+    // (the cascade pool attaches a view per cascade). The survivors' original indices compact the
+    // faceVP/comboMeta arrays to the new dense index space the re-gather's combo index uses; the rects
+    // stay at the original cascade indices (the VS reads `tileRects.rects[meta.x]` where meta.x is the
+    // original cascade index, not the dense combo index)
+    const combos = cascadeComboEids();
+    const { slots: comboSlots, indices: comboIndices } = comboViewSlots(combos);
+    const C = comboSlots.length;
+    if (C === 0) {
+        _sun = null;
+        return;
+    }
+
+    // upload the per-cascade folded tile viewProjs + meta (compacted to the survivors' dense index space)
     const vp = cascadeFaceVP();
-    Compute.device.queue.writeBuffer(_cascadeVPBuf!, 0, vp as Float32Array<ArrayBuffer>, 0, C * 16);
     const meta = cascadeMeta();
-    Compute.device.queue.writeBuffer(
-        _cascadeMetaBuf!,
-        0,
-        meta as Uint32Array<ArrayBuffer>,
-        0,
-        C * 4,
-    );
+    if (C === COriginal) {
+        Compute.device.queue.writeBuffer(
+            _cascadeVPBuf!,
+            0,
+            vp as Float32Array<ArrayBuffer>,
+            0,
+            C * 16,
+        );
+        Compute.device.queue.writeBuffer(
+            _cascadeMetaBuf!,
+            0,
+            meta as Uint32Array<ArrayBuffer>,
+            0,
+            C * 4,
+        );
+    } else {
+        const compactedVP = new Float32Array(C * 16);
+        const compactedMeta = new Uint32Array(C * 4);
+        for (let i = 0; i < C; i++) {
+            const src = comboIndices[i];
+            compactedVP.set(vp.subarray(src * 16, src * 16 + 16), i * 16);
+            compactedMeta.set(meta.subarray(src * 4, src * 4 + 4), i * 4);
+        }
+        Compute.device.queue.writeBuffer(
+            _cascadeVPBuf!,
+            0,
+            compactedVP as Float32Array<ArrayBuffer>,
+            0,
+            C * 16,
+        );
+        Compute.device.queue.writeBuffer(
+            _cascadeMetaBuf!,
+            0,
+            compactedMeta as Uint32Array<ArrayBuffer>,
+            0,
+            C * 4,
+        );
+    }
+    // the rects are indexed by the original cascade index (meta.x), not the dense combo index
     const rects = cascadeTileRects();
     Compute.device.queue.writeBuffer(
         _cascadeRectsBuf!,
         0,
         rects as Float32Array<ArrayBuffer>,
         0,
-        C * 4,
+        COriginal * 4,
     );
 
     // Group culled draws by the Part pack's slot-major source, and view-independent producer draws by
@@ -798,9 +913,8 @@ export function renderCascades(frameDraws: { draw: Draw; r: Recorded }[]): void 
     }
 
     // the re-gather inputs: the view slot each cascade culled into, the (surface,mesh) pair each casting draw owns
-    const combos = cascadeComboEids();
     _comboSlots.length = 0;
-    for (let c = 0; c < C; c++) _comboSlots.push(Views.get(combos[c])?.slot ?? 0);
+    for (const s of comboSlots) _comboSlots.push(s);
     let maxBatchDraws = 0;
     for (let b = 0; b < batchCount; b++) {
         maxBatchDraws = Math.max(maxBatchDraws, _cascadeBatches[b].draws.length);
@@ -857,7 +971,9 @@ export function renderCascades(frameDraws: { draw: Draw; r: Recorded }[]): void 
 
     // write the per-cascade SunShadow params + publish the seam: the receiver selects a cascade by view-z and
     // samples the cascade atlas (`sampleSunShadow`). One atlas pixel in uv (`texel`) is the PCF tap step; each
-    // cascade carries its own world texel size (2·cover/resolution) for the normal-offset bias
+    // cascade carries its own world texel size (2·cover/resolution) for the normal-offset bias. The params
+    // are compacted to the survivors' dense index space (the receiver's cascade index matches the compacted
+    // faceVP/comboMeta), reading the original arrays via `comboIndices`
     const recv = cascadeRecvVP();
     const tileRects = cascadeTileRects();
     const fars = cascadeFars();
@@ -865,11 +981,12 @@ export function renderCascades(frameDraws: { draw: Draw; r: Recorded }[]): void 
     const res = sunResolution();
     _paramsF32.fill(0);
     for (let i = 0; i < C; i++) {
+        const src = comboIndices[i];
         const base = i * CASCADE_FLOATS;
-        _paramsF32.set(recv.subarray(i * 16, i * 16 + 16), base + SUN_PARAMS.cascade.viewProj);
-        _paramsF32.set(tileRects.subarray(i * 4, i * 4 + 4), base + SUN_PARAMS.cascade.rect);
-        _paramsF32[base + SUN_PARAMS.cascade.far] = fars[i];
-        _paramsF32[base + SUN_PARAMS.cascade.texelWorld] = (2 * covers[i]) / res;
+        _paramsF32.set(recv.subarray(src * 16, src * 16 + 16), base + SUN_PARAMS.cascade.viewProj);
+        _paramsF32.set(tileRects.subarray(src * 4, src * 4 + 4), base + SUN_PARAMS.cascade.rect);
+        _paramsF32[base + SUN_PARAMS.cascade.far] = fars[src];
+        _paramsF32[base + SUN_PARAMS.cascade.texelWorld] = (2 * covers[src]) / res;
     }
     const bias = sunBias();
     _paramsF32[SUN_PARAMS.globals.count] = C;

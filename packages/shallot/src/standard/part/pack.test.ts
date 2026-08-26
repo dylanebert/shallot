@@ -1,7 +1,9 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { body, flat, integerDiscipline } from "../../../tests/wgsl";
 import { capacity } from "../../engine";
+import { Meshes, Surfaces } from "../render/core";
 import { packWgsl } from "./pack";
+import { PartTraits } from "./part";
 
 // The pack kernels' device-free structural seam. Real-GPU truth — survivor counts, survivor identity,
 // per-view slot offsets — is the gym `render` scenario (`bun bench --scenario render`); what's assertable
@@ -71,5 +73,104 @@ describe("folded constants", () => {
         expect(main).not.toContain("drawArgs[idx].firstIndex");
         expect(main).not.toContain("drawArgs[idx].baseVertex");
         expect(main).toContain(`slot * ${capacity}u`); // the slot's packedEids region base
+    });
+});
+
+// PartTraits.defaults resolves Surfaces.id("default") and Meshes.id("cube") at entity-creation time.
+// The miss condition is narrowed: a warn fires only when the registry is *populated* and the named
+// default is missing (`Surfaces.size > 0 && Surfaces.id("default") === undefined`). With no SearPlugin
+// the surface registry is empty, so id 0 is inert (no sear pass marshals it) — that build is sanctioned
+// (the conformance roster), and a warn there is a false alarm. The genuine wiring bug is the ordering
+// case: surfaces are registered but "default" is absent. The fallback return is still 0 — the same value
+// the pre-fix `?? 0` produced, but now named at the call site as a wiring bug on the populated-registry
+// path instead of silently binding whatever surface/mesh holds registry id 0.
+describe("PartTraits defaults — miss is loud", () => {
+    test("defaults() does not warn on the sanctioned empty-registry path (no SearPlugin)", () => {
+        const savedSurfaces = [...Surfaces.values()];
+        const savedMeshes = [...Meshes.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // the sanctioned build: no SearPlugin → surface registry empty, PartPlugin not initialized →
+            // mesh registry empty. Both `size === 0`, so id 0 is inert and the warn must not fire.
+            Surfaces.clear();
+            Meshes.clear();
+            const result = PartTraits.defaults();
+            expect(warn).not.toHaveBeenCalled();
+            // the fallback is still 0 (the same value the pre-fix `?? 0` produced)
+            expect(result.surface).toBe(0);
+            expect(result.mesh).toBe(0);
+        } finally {
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            warn.mockRestore();
+        }
+    });
+
+    test("defaults() warns when the registry is populated but the default surface is missing", () => {
+        const savedSurfaces = [...Surfaces.values()];
+        const savedMeshes = [...Meshes.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // the wiring bug: surfaces are registered (so `Surfaces.size > 0`) but "default" is absent.
+            // "cube" is registered so only the surface miss can fire.
+            if (Meshes.id("cube") === undefined) Meshes.register({ name: "cube" } as any);
+            Surfaces.clear();
+            Surfaces.register({ name: "other" } as any); // populated, but no "default"
+            const result = PartTraits.defaults();
+            // the miss is loud: a warning names the wiring bug
+            expect(warn).toHaveBeenCalled();
+            expect(warn.mock.calls.some((c) => /default/.test(c[0] as string))).toBe(true);
+            // the fallback is still 0 (same value as pre-fix, but now warned)
+            expect(result.surface).toBe(0);
+        } finally {
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            warn.mockRestore();
+        }
+    });
+
+    test("defaults() warns when the registry is populated but the cube mesh is missing", () => {
+        const savedMeshes = [...Meshes.values()];
+        const savedSurfaces = [...Surfaces.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // the wiring bug: meshes are registered (so `Meshes.size > 0`) but "cube" is absent.
+            // "default" is registered so only the mesh miss can fire.
+            if (Surfaces.id("default") === undefined) Surfaces.register({ name: "default" } as any);
+            Meshes.clear();
+            Meshes.register({ name: "other" } as any); // populated, but no "cube"
+            const result = PartTraits.defaults();
+            expect(warn).toHaveBeenCalled();
+            expect(warn.mock.calls.some((c) => /cube/.test(c[0] as string))).toBe(true);
+            expect(result.mesh).toBe(0);
+        } finally {
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            warn.mockRestore();
+        }
+    });
+
+    test("defaults() does not warn when both are registered", () => {
+        const savedSurfaces = [...Surfaces.values()];
+        const savedMeshes = [...Meshes.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            if (Surfaces.id("default") === undefined) Surfaces.register({ name: "default" } as any);
+            if (Meshes.id("cube") === undefined) Meshes.register({ name: "cube" } as any);
+            PartTraits.defaults();
+            expect(warn).not.toHaveBeenCalled();
+        } finally {
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            warn.mockRestore();
+        }
     });
 });
