@@ -238,8 +238,9 @@ describe("cap resolution and the derived exemption", () => {
         ).toBeDefined();
         expect(claimed).toBe(enumerated.length);
 
-        // the reading, the header, and one line per move — nothing else, so a third move as prose reds
-        expect(lines.length).toBe(2 + enumerated.length);
+        // the reading, the isolation pre-read, the header, and one line per move — nothing else,
+        // so a third move as prose reds
+        expect(lines.length).toBe(3 + enumerated.length);
 
         // each move names its own destination
         expect(enumerated[0].text).toContain("derive the scan's size");
@@ -256,6 +257,27 @@ describe("cap resolution and the derived exemption", () => {
         expect(msg.toLowerCase()).not.toContain("raise");
         expect(msg.toLowerCase()).not.toContain("exempt");
         expect(msg).not.toContain("TEST_FILE_CAP_MS");
+    });
+
+    /**
+     * The isolation pre-read must precede the two responses, never read as a third move or an
+     * exemption route (`testing.md` § Per-file speed cap; verdict 2026-08-26): a red that
+     * reproduces in isolation is the file's, a red that does not discriminated host load, not the
+     * artifact. Structural, not substring — the isolation line's own index must sit strictly
+     * before the "Two responses" line's index, and it must not itself be numbered.
+     *
+     * Witnessed red: before the fix, `capMessage` carried no isolation line at all, so
+     * `isolationLine` was `-1` and this arm failed at `toBeGreaterThanOrEqual(0)`.
+     */
+    test("the isolation pre-read precedes the two responses, never reading as a third move", () => {
+        const msg = capMessage("packages/shallot/tests/conformance.test.ts", 5321.4, 5000);
+        const lines = msg.split("\n");
+        const isolationLine = lines.findIndex((line) => /alone by path/.test(line));
+        const responsesLine = lines.findIndex((line) => /^Two responses/.test(line));
+        expect(isolationLine).toBeGreaterThanOrEqual(0);
+        expect(responsesLine).toBeGreaterThan(isolationLine);
+        expect(lines[isolationLine]).toMatch(/reproduc/);
+        expect(lines[isolationLine]).not.toMatch(/^\(\d+\)/);
     });
 });
 
