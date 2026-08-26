@@ -524,3 +524,204 @@ describe("OrbitSystem contextual claim (left-click partition)", () => {
         expect(Orbit.yaw.get(cam)).not.toBeCloseTo(yaw0, 6);
     });
 });
+
+// Touch gestures (three.js OrbitControls' / Babylon ArcRotateCameraPointersInput's touch map): one
+// finger rotates, a two-finger drag pans, a two-finger pinch zooms. Touch overrides the mouse-button
+// read while any finger is down rather than adding to it — the first finger's continued capture
+// synthesizes `mouse.left` true for the whole gesture (`standard/input`'s pointer-capture path), so
+// reading that bit during a two-finger pinch/pan would incidentally orbit alongside the intended
+// gesture. `OrbitPick.claim` suppression must survive on the one-finger (rotate) path too, since a
+// road's handle-drag claim doesn't know whether the press came from a mouse or a finger. Driven
+// through the real InputPlugin handlers with synthetic touch PointerEvents (`input.test.ts`'s pattern).
+describe("OrbitSystem touch gestures", () => {
+    let state: State;
+    let canvas: HTMLCanvasElement;
+    let windowTracker: ListenerTracker;
+    let savedWindow: typeof globalThis.window;
+    let savedDocument: typeof globalThis.document;
+
+    // a real (non-zero) rect: unlike the rotate-only suites above, pan and pinch project a screen-space
+    // delta into world units via `canvasHeight` (`worldPerPixel`), so a zero-rect stub would divide by
+    // zero here.
+    function mockSizedCanvas(width: number, height: number): HTMLCanvasElement {
+        const tracker = new ListenerTracker();
+        return {
+            addEventListener: tracker.addEventListener,
+            removeEventListener: tracker.removeEventListener,
+            setPointerCapture() {},
+            releasePointerCapture() {},
+            hasPointerCapture: () => false,
+            getBoundingClientRect: () => ({ left: 0, top: 0, width, height }) as DOMRect,
+            style: {} as CSSStyleDeclaration,
+            tracker,
+        } as unknown as HTMLCanvasElement;
+    }
+
+    beforeEach(() => {
+        clear();
+        windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        savedWindow = globalThis.window;
+        savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+        canvas = mockSizedCanvas(800, 600);
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelectorAll: (sel: string) => (sel === "canvas" ? [canvas] : []),
+        } as unknown as typeof document;
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        for (const [n, c] of Object.entries(InputPlugin.components ?? {}))
+            register(n, c, InputPlugin.traits?.[n]);
+        Slab.collect();
+        attach(state, InputPlugin);
+        attach(state, OrbitPlugin);
+        state.step(1 / 60); // InputSystem.setup binds the DOM handlers on its first run
+    });
+
+    afterEach(() => {
+        OrbitPick.claim = undefined;
+        state.dispose();
+        globalThis.window = savedWindow;
+        globalThis.document = savedDocument;
+    });
+
+    const onWindow = (type: string): Fn => windowTracker.added.find(([t]) => t === type)![1];
+    const onCanvas = (type: string): Fn =>
+        (canvas as unknown as { tracker: ListenerTracker }).tracker.added.find(
+            ([t]) => t === type,
+        )![1];
+
+    const touchDown = (pointerId: number, clientX: number, clientY: number): void => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX,
+            clientY,
+            preventDefault() {},
+        });
+    };
+
+    const touchMove = (pointerId: number, clientX: number, clientY: number): void => {
+        onWindow("pointermove")({
+            pointerId,
+            pointerType: "touch",
+            buttons: 1,
+            clientX,
+            clientY,
+            preventDefault() {},
+        });
+    };
+
+    const touchUp = (pointerId: number): void => {
+        onWindow("pointerup")({
+            pointerId,
+            pointerType: "touch",
+            button: 0,
+            buttons: 0,
+            preventDefault() {},
+        });
+    };
+
+    const makeCam = (): number => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit); // default distance 10, yaw Math.PI/6
+        state.step(1 / 60); // pose once
+        return cam;
+    };
+
+    test("a one-finger drag rotates — yaw changes", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+
+        touchDown(1, 0, 0);
+        touchMove(1, 40, 0);
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).not.toBeCloseTo(yaw0, 6);
+    });
+
+    test("a two-finger drag pans — yaw stays put, pan changes", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+        const pan0X = Orbit.pan.x.get(cam);
+
+        touchDown(1, 100, 100);
+        touchDown(2, 200, 100); // initial centroid (150, 100), distance 100
+
+        touchMove(1, 130, 100);
+        touchMove(2, 230, 100); // centroid → (180, 100), distance unchanged: a pure pan, no pinch
+
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6); // two fingers never orbit
+        // direction, not just magnitude: at the default yaw (30°) a rightward centroid drag projects
+        // onto -rightX, so panX goes negative — the same sign a mouse pan produces for a rightward drag
+        // at this pose (worldPerPixel * dragX * -cos(yawS)).
+        expect(Orbit.pan.x.get(cam)).toBeLessThan(pan0X);
+    });
+
+    test("a two-finger pinch zooms — spreading fingers decreases distance", () => {
+        const cam = makeCam();
+        const dist0 = Orbit.distance.get(cam);
+
+        touchDown(1, 100, 100);
+        touchDown(2, 200, 100); // initial distance 100
+
+        touchMove(1, 80, 100);
+        touchMove(2, 220, 100); // distance → 140: a spread pinch, zoom in
+
+        state.step(1 / 60);
+
+        expect(Orbit.distance.get(cam)).toBeLessThan(dist0);
+    });
+
+    test("a claimed one-finger drag never orbits — the pick claim latches on touch too", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+        OrbitPick.claim = () => true;
+
+        touchDown(1, 0, 0);
+        touchMove(1, 40, 0);
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6);
+    });
+
+    // RED-FIRST WITNESS: `standard/input`'s `activePointerId` capture is never reassigned to an
+    // already-down second finger, so lifting the FIRST (capturing) finger of a two-finger gesture left
+    // the survivor's moves hitting `pointerMove`'s `e.pointerId !== activePointerId` early return —
+    // rotation froze for the rest of the touch sequence even though `Inputs.touch.count` (1) reads as a
+    // live single-finger drag. Fixed by `standard/input`'s `recaptureTouch`.
+    test("ending a two-finger gesture by lifting the first finger keeps rotating from the survivor", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+
+        touchDown(1, 100, 100); // captures first
+        touchDown(2, 200, 100); // joins the touch cache, never captures
+
+        touchUp(1); // the capturing finger lifts; pointer 2 is still down
+        state.step(1 / 60); // touchCount is now 1 — orbitHeld reads true, but nothing has moved yet
+
+        const yawAfterLift = Orbit.yaw.get(cam);
+        expect(yawAfterLift).toBeCloseTo(yaw0, 6); // the hand-off itself produces no rotation
+
+        touchMove(2, 230, 100); // survivor's own +30px move from its cached (200, 100)
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).not.toBeCloseTo(yawAfterLift, 6); // rotation did not freeze
+
+        // magnitude, not just direction: Δyaw must be the survivor's own +30px move at the default
+        // sensitivity (0.005), never a jump across the two fingers' initial 100px gap (which would
+        // read Δyaw ≈ -0.5 instead of -0.15) — proves `lastPointerX/Y` was seeded from the survivor's
+        // own cached position, not the departed pointer's.
+        const dYaw = Orbit.yaw.get(cam) - yawAfterLift;
+        expect(dYaw).toBeCloseTo(-30 * 0.005, 4);
+    });
+});
