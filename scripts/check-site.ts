@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
-import { RUM_INJECTION_MARKER } from "../site/rum-config";
+import { RUM_ENV_SNIPPET, RUM_INJECTION_MARKER } from "../site/rum-config";
 
 // `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Five clauses:
 //
@@ -22,8 +22,10 @@ import { RUM_INJECTION_MARKER } from "../site/rum-config";
 //      `out/site/` if it exists; skips with a note if not (the build hasn't run yet).
 //   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
 //      `*.html` under each `out/site/<slug>/` (including a nested page like
-//      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`; `out/site/index.html` does
-//      not, since it has no frame loop to observe. Same `SITE_OUT_REQUIRED` gate as clause 4.
+//      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER` and `RUM_ENV_SNIPPET` (the
+//      hostname-derived `env: "prod" | "local"` facet, `shallot-demo-slow-frame-attribution.md`
+//      Locked decision); `out/site/index.html` does not, since it has no frame loop to observe.
+//      Same `SITE_OUT_REQUIRED` gate as clause 4.
 //
 // The roster is derived from `examples/showcase/` by enumeration (site/roster.ts), so set membership
 // is by construction — a roster-equals-disk clause would compare code against itself, the
@@ -185,6 +187,7 @@ if (rootAbsFiles.length > 0) {
 // --- clause 5: the RUM slow-frame injection reaches every demo page, and skips the index --
 
 const noInjection: string[] = [];
+const noEnv: string[] = [];
 for (const { slug } of ROSTER) {
     const demoDir = resolve(outDir, slug);
     if (!existsSync(demoDir)) continue; // a `--demo` filtered build only writes some dirs
@@ -195,6 +198,9 @@ for (const { slug } of ROSTER) {
         if (!html.includes(RUM_INJECTION_MARKER)) {
             noInjection.push(`${slug}/${path}`);
         }
+        if (!html.includes(RUM_ENV_SNIPPET)) {
+            noEnv.push(`${slug}/${path}`);
+        }
     }
 }
 
@@ -204,6 +210,17 @@ if (noInjection.length > 0) {
     console.error(
         "\nEvery built demo page must carry the Datadog RUM init + sampler snippet" +
             " (`scripts/build-site.ts`'s post-copy rewrite).",
+    );
+    process.exit(1);
+}
+
+if (noEnv.length > 0) {
+    console.error(`✗ ${noEnv.length} demo page(s) missing the RUM env-derivation snippet:\n`);
+    for (const f of noEnv) console.error(`  ${f}`);
+    console.error(
+        '\nEvery built demo page must carry the hostname-derived `env: "prod" | "local"`' +
+            " snippet (`site/rum-config.ts`'s `RUM_ENV_SNIPPET`, injected by" +
+            " `scripts/build-site.ts`).",
     );
     process.exit(1);
 }
@@ -263,5 +280,5 @@ if (process.env.RUM_CONFIG_REQUIRED === "1" && existsSync(outDir)) {
 console.log(
     `✓ site roster clean (${ROSTER.length} demos, ` +
         `all manifested, all workspace-pinned, no escaping imports, no root-absolute paths, ` +
-        `RUM injection present on every demo page and absent from the index)`,
+        `RUM injection + env snippet present on every demo page and absent from the index)`,
 );
