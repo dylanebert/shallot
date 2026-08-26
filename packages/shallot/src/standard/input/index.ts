@@ -18,7 +18,7 @@ export interface Mouse {
     right: boolean;
     /** middle button held */
     middle: boolean;
-    /** pointer is over a bound canvas */
+    /** pointer is over a bound canvas, or a drag is active (hover holds true for the whole drag) */
     hover: boolean;
     /** pointer x within the focused canvas, CSS pixels from the left edge */
     x: number;
@@ -111,7 +111,7 @@ export const Inputs: Inputs = {
         return enabled ? (inputState?.touch ?? DEFAULT_TOUCH) : DEFAULT_TOUCH;
     },
     get focused(): number {
-        return inputState?.focused ?? -1;
+        return enabled ? (inputState?.focused ?? -1) : -1;
     },
     isKeyDown(code: string): boolean {
         return enabled ? (inputState?.keys.has(code) ?? false) : false;
@@ -146,6 +146,7 @@ export function setInputEnabled(on: boolean): void {
         inputState.keys.clear();
         inputState.keysPressed.clear();
         inputState.keysReleased.clear();
+        inputState.keyPressedAt.clear();
         clearAllButtons(inputState.mouse);
         inputState.mouse.deltaX = 0;
         inputState.mouse.deltaY = 0;
@@ -333,6 +334,9 @@ function createHandlers(s: InputState): void {
     };
 
     s.keyUp = (e: KeyboardEvent) => {
+        if (!enabled) return;
+        const locked = document.pointerLockElement as HTMLCanvasElement | null;
+        if (!s.canvasFocused && !(locked && s.canvases.has(locked))) return;
         s.keys.delete(e.code);
         s.keysReleased.add(e.code);
     };
@@ -373,11 +377,13 @@ function createHandlers(s: InputState): void {
         if (!s.canvases.has(e.target as HTMLCanvasElement)) {
             s.canvasFocused = false;
             s.keys.clear();
+            s.keysPressed.clear();
         }
     };
 
     s.windowBlur = () => {
         s.canvasFocused = false;
+        for (const code of s.keys) s.keysReleased.add(code);
         s.keys.clear();
         s.keysPressed.clear();
     };
@@ -544,6 +550,8 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         element.style.touchAction = "none";
     }
 
+    enabled = true; // a fresh bind starts live — never inherit a prior State's suspended gate
+
     if (canvases.size === 0) return;
 
     const s: InputState = {
@@ -587,7 +595,6 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         attachCanvas(s, canvas, state.signal);
     }
 
-    enabled = true; // a fresh bind starts live — never inherit a prior State's suspended gate
     inputState = s;
     // drop the module ref when this State tears down, so a disposed app reads neutral; guarded so a
     // newer build's inputState isn't clobbered. Listener detach is the signal's job (attach* above).

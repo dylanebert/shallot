@@ -179,6 +179,20 @@ describe("InputPlugin", () => {
         expect(Inputs.isKeyDown("KeyA")).toBe(true);
     });
 
+    test("isKeyReleased pulses for one frame on key release", () => {
+        onWindow("keydown")({ code: "KeyA" });
+        onWindow("keyup")({ code: "KeyA" });
+        expect(Inputs.isKeyReleased("KeyA")).toBe(true);
+        state.step();
+        expect(Inputs.isKeyReleased("KeyA")).toBe(false); // pulse cleared next frame
+    });
+
+    test("isKeyPressedWithin reports whether a key's last press was within the window", () => {
+        onWindow("keydown")({ code: "Space" });
+        expect(Inputs.isKeyPressedWithin("Space", 10)).toBe(true); // just pressed, within 10s
+        expect(Inputs.isKeyPressedWithin("KeyD", 10)).toBe(false); // never pressed
+    });
+
     test("a blur clears held keys and gates further keys until refocus", () => {
         onWindow("keydown")({ code: "KeyW" });
         expect(Inputs.isKeyDown("KeyW")).toBe(true);
@@ -205,6 +219,59 @@ describe("InputPlugin", () => {
         expect(inputEnabled()).toBe(true);
         onWindow("keydown")({ code: "KeyD" });
         expect(Inputs.isKeyDown("KeyD")).toBe(true); // control resumes
+    });
+
+    test("Inputs.focused reports neutral while input is suspended", () => {
+        expect(Inputs.focused).toBe(0); // canvas is focused
+        setInputEnabled(false);
+        expect(Inputs.focused).toBe(-1); // neutral while suspended
+        setInputEnabled(true);
+        expect(Inputs.focused).toBe(0); // restored
+    });
+
+    test("setInputEnabled(false) clears keyPressedAt — no buffered press survives resume", () => {
+        onWindow("keydown")({ code: "Space" });
+        expect(Inputs.isKeyPressedWithin("Space", 10)).toBe(true); // within 10s window
+        setInputEnabled(false);
+        setInputEnabled(true);
+        expect(Inputs.isKeyPressedWithin("Space", 10)).toBe(false); // keyPressedAt was cleared
+    });
+
+    test("keyUp is gated on enabled and canvas focus — an unaccepted key never writes keysReleased", () => {
+        // canvas-focus gate: blur unfocuses, keyUp for a key the engine never accepted
+        onWindow("blur")();
+        onWindow("keyup")({ code: "KeyW" });
+        expect(Inputs.isKeyReleased("KeyW")).toBe(false);
+
+        // enabled gate: re-focus, suspend, keyUp
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        setInputEnabled(false);
+        onWindow("keyup")({ code: "KeyA" });
+        setInputEnabled(true);
+        expect(Inputs.isKeyReleased("KeyA")).toBe(false);
+    });
+
+    test("windowBlur records release edges for held keys — isKeyReleased pulses on focus loss", () => {
+        onWindow("keydown")({ code: "KeyW" });
+        expect(Inputs.isKeyDown("KeyW")).toBe(true);
+        onWindow("blur")();
+        expect(Inputs.isKeyReleased("KeyW")).toBe(true); // held key pulses release on focus loss
+    });
+
+    test("windowPointerDown clears keysPressed on click-off — no stale press edge for a force-released key", () => {
+        onWindow("keydown")({ code: "KeyW" });
+        expect(Inputs.isKeyPressed("KeyW")).toBe(true);
+        onWindow("pointerdown")({ target: {} as HTMLCanvasElement });
+        expect(Inputs.isKeyPressed("KeyW")).toBe(false); // press edge cleared on click-off
+        expect(Inputs.isKeyDown("KeyW")).toBe(false); // held key cleared too
     });
 
     test("a fresh input bind starts enabled — never inherits a suspended gate", () => {
@@ -254,6 +321,34 @@ describe("InputPlugin", () => {
             preventDefault() {},
         });
         expect(Inputs.mouse.left).toBe(true);
+    });
+
+    test("requirePointerLock(false) restores immediate button reading", () => {
+        requirePointerLock(true);
+        setLock(false);
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        expect(Inputs.mouse.left).toBe(false); // requireLock on, not locked → no button
+        onWindow("pointerup")({ pointerId: 1, button: 0, buttons: 0, preventDefault() {} });
+
+        requirePointerLock(false);
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        expect(Inputs.mouse.left).toBe(true); // requireLock off → button reads immediately
     });
 
     test("pointer down captures the pointer and tracks the pressed button", () => {
@@ -375,6 +470,17 @@ describe("InputPlugin", () => {
         expect(Inputs.mouse.scroll).toBe(120);
     });
 
+    test("contextmenu on a bound canvas is prevented", () => {
+        let prevented = false;
+        onCanvas("contextmenu")({
+            target: canvas,
+            preventDefault() {
+                prevented = true;
+            },
+        });
+        expect(prevented).toBe(true);
+    });
+
     test("InputResetSystem clears per-frame state but keeps held keys", () => {
         onWindow("keydown")({ code: "KeyA" });
         onCanvas("wheel")({ target: canvas, deltaY: 40, preventDefault() {} });
@@ -403,20 +509,6 @@ describe("InputPlugin", () => {
         expect(canvas.tracker.added.length).toBe(beforeAttach);
     });
 
-    // RED-FIRST WITNESS (stage 9, roads-interactive.md): while a pointer is active, the window-level
-    // pointermove handler must keep mouse.x/y tracking even when the pointer's target is not the canvas.
-    // Against the shipped shape, mouse.x/y were written only by the canvas-scoped pointerHover handler
-    // (which early-returns unless e.target is a registered canvas), so a pointermove dispatched at a
-    // non-canvas target froze the coordinates while hover stayed true (pointerLeave only clears hover
-    // when activePointerId === null). The failure text witnessed before the fix:
-    //   "Expected: 300, Received: 100" (mouse.x stayed at the initial 100 when the window-level
-    //   pointermove fired at a non-canvas target — the canvas-scoped pointerHover early-returned, so
-    //   mouse.x/y were never written for the off-canvas move)
-    // The fix: the window-level pointerMove handler writes mouse.x/y using the active canvas's rect.
-    // multi-touch: a second finger no longer just gets ignored (the old
-    // `activePointerId` early-return) — it's tracked in a per-pointerId cache
-    // (MDN multi-touch pattern) that feeds `Inputs.touch`, independent of the
-    // single-pointer `Mouse` capture path above.
     test("a second touch pointer registers in Inputs.touch.count without disturbing Mouse", () => {
         onCanvas("pointerdown")({
             target: canvas,
@@ -752,6 +844,13 @@ describe("InputPlugin", () => {
         expect(Inputs.mouse.y).toBe(400);
         // hover stays true — the drag survives leaving the canvas
         expect(Inputs.mouse.hover).toBe(true);
+    });
+
+    test("pointerLeave clears hover when no pointer is active", () => {
+        onCanvas("pointerenter")({ target: canvas });
+        expect(Inputs.mouse.hover).toBe(true);
+        onCanvas("pointerleave")({ target: canvas });
+        expect(Inputs.mouse.hover).toBe(false); // no active pointer → hover clears
     });
 });
 
