@@ -54,16 +54,14 @@ describe("audio ABI parity (Rust source ↔ TS mirrors)", () => {
         const rustMaxInstruments = parseRustConst(graphRs, "MAX_INSTRUMENTS");
         const rustMaxBuffers = parseRustConst(graphRs, "MAX_BUFFERS");
 
+        // Scalar equality is symmetric — one direction per constant is the whole
+        // check; the load-bearing half is that each left side is the *imported*
+        // mirror, so a module move or rename reds here rather than at a re-spelling.
         expect(MAX_VOICES).toBe(rustMaxVoices);
-        expect(rustMaxVoices).toBe(MAX_VOICES);
         expect(MAX_SAMPLES).toBe(rustMaxSamples);
-        expect(rustMaxSamples).toBe(MAX_SAMPLES);
         expect(MAX_TRANSPORTS).toBe(rustMaxTransports);
-        expect(rustMaxTransports).toBe(MAX_TRANSPORTS);
         expect(MAX_INSTRUMENTS).toBe(rustMaxInstruments);
-        expect(rustMaxInstruments).toBe(MAX_INSTRUMENTS);
         expect(MAX_BUFFERS).toBe(rustMaxBuffers);
-        expect(rustMaxBuffers).toBe(MAX_BUFFERS);
     });
 
     test("NODE_TYPE_ID map mirrors the Rust NodeType discriminant order", () => {
