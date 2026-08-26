@@ -2,7 +2,7 @@ import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { attach, stepFor } from "../../../tests/helpers";
 import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
-import { Body, bodyTraits, type JointDef, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
+import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
 import { Slab } from "../slab";
 import { shutdown, type Joint as TumbleJoint } from "./engine";
 import { Tumble, TumblePlugin } from "./index";
