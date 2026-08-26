@@ -11,15 +11,40 @@ import { TEST_TIER_SUFFIX_NAMES } from "../packages/shallot/tests/test-tiers";
 
 const root = resolve(import.meta.dir, "..");
 
-const TARGETS = [
-    "README.md",
-    "AGENTS.md",
-    "examples/AGENTS.md",
-    "packages/shallot/AGENTS.md",
-    "packages/shallot/README.md",
-    "CONTRIBUTING.md",
-    "evals/README.md",
-];
+// The doc set is what git tracks, not what the filesystem holds. A `**/*.md` scan reads whatever a
+// particular checkout happens to have on disk: `examples/gym/dist/` after any build (448 files),
+// and the glTF sample corpus through the `gym/public/gltf-samples` symlink wherever that corpus is
+// checked out (451 more) — third-party and generated files we neither own nor should gate on, and present or
+// absent depending on what the last command did. Asking git makes the scope identical in every
+// checkout, which is the property that matters here: a check whose coverage depends on local state
+// is how a stale tree reads green, and this release already paid for that lesson once.
+//
+// This set is the shared roster for every arm below — bare-command, pin, and citation — derived
+// once from `git ls-files` rather than hand-listed per arm. The hand list this replaced omitted
+// tracked docs (MIGRATION.md, CHANGELOG.md, evals NOTES) that sibling arms already scanned, so a
+// bare `shallot <cmd>` creeping into one of those would have read green silently.
+const tracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], { cwd: root });
+if (!tracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — check-docs needs a git checkout to scope its doc set.",
+    );
+    process.exit(1);
+}
+const docs = tracked.stdout.toString().split("\0").filter(Boolean);
+if (docs.length === 0) {
+    console.error(
+        "✗ `git ls-files '*.md'` matched nothing — the doc scan would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+// The bare-command scan's exclusion list — each entry states its reason. The scan matches only
+// inside fenced code blocks at a line/chain start, so a doc with no fenced commands simply
+// produces no violations. No tracked .md is excluded: every tracked doc is a potential command-doc
+// site, and one that carries no fenced block is harmless to scan. Mutation proof: adding a tracked
+// .md with a fenced `shallot dev` line reds this arm (witnessed 2026-08-25, exit 1 — the
+// `git ls-files` derivation catches a new doc the hand list would have missed).
+const BARE_COMMAND_EXCLUSIONS: string[] = [];
 
 const SUBCOMMAND = "(dev|build|run|verify|recipe)";
 // A bare command-line-shaped `shallot <cmd>`: anchored at the start of a fenced code line, or
@@ -46,19 +71,7 @@ async function scan(file: string): Promise<Violation[]> {
     return violations;
 }
 
-const rulesGlob = new Glob("*.md");
-const ruleFiles: string[] = [];
-for await (const match of rulesGlob.scan({ cwd: resolve(root, ".claude/rules") })) {
-    ruleFiles.push(`.claude/rules/${match}`);
-}
-
-const promptGlob = new Glob("evals/tasks/*/PROMPT.md");
-const promptFiles: string[] = [];
-for await (const match of promptGlob.scan({ cwd: root })) {
-    promptFiles.push(match);
-}
-
-const scanTargets = [...TARGETS, ...ruleFiles, ...promptFiles];
+const scanTargets = docs.filter((f) => !BARE_COMMAND_EXCLUSIONS.includes(f));
 const violations = (await Promise.all(scanTargets.map(scan))).flat();
 
 if (violations.length > 0) {
@@ -90,6 +103,7 @@ const PIN_SOURCES: Record<string, { manifest: string; field: string }> = {
     typegpu: { manifest: "packages/shallot/package.json", field: "peerDependencies" },
     "unplugin-typegpu": { manifest: "packages/shallot/package.json", field: "dependencies" },
     "eslint-plugin-typegpu": { manifest: "package.json", field: "devDependencies" },
+    typescript: { manifest: "package.json", field: "devDependencies" },
 };
 
 const declared: Record<string, string> = {};
@@ -106,34 +120,14 @@ for (const [name, { manifest, field }] of Object.entries(PIN_SOURCES)) {
 }
 
 // `name@range`, where name is one of the tracked packages. A bare `unplugin-typegpu` with no `@` is
-// unpinned prose-in-a-command and has nothing to disagree with, so it doesn't match.
-const PIN_RE = new RegExp(`\\b(${Object.keys(declared).join("|")})@(\\S+)`, "g");
+// unpinned prose-in-a-command and has nothing to disagree with, so it doesn't match. The
+// `(?<![-\w])` lookbehind prevents a pin name from matching as a substring of a longer package
+// name — `typescript` inside `@babel/plugin-syntax-typescript@^7.28.5` is not the `typescript` pin.
+const PIN_RE = new RegExp(`(?<![-\\w])(${Object.keys(declared).join("|")})@(\\S+)`, "g");
 
 type PinDrift = { file: string; line: number; name: string; found: string; want: string };
 const drift: PinDrift[] = [];
 let scanned = 0;
-
-// The doc set is what git tracks, not what the filesystem holds. A `**/*.md` scan reads whatever a
-// particular checkout happens to have on disk: `examples/gym/dist/` after any build (448 files),
-// and the glTF sample corpus through the `gym/public/gltf-samples` symlink wherever that corpus is
-// checked out (451 more) — third-party and generated files we neither own nor should gate on, and present or
-// absent depending on what the last command did. Asking git makes the scope identical in every
-// checkout, which is the property that matters here: a check whose coverage depends on local state
-// is how a stale tree reads green, and this release already paid for that lesson once.
-const tracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], { cwd: root });
-if (!tracked.success) {
-    console.error(
-        "✗ `git ls-files` failed — check-docs needs a git checkout to scope its doc set.",
-    );
-    process.exit(1);
-}
-const docs = tracked.stdout.toString().split("\0").filter(Boolean);
-if (docs.length === 0) {
-    console.error(
-        "✗ `git ls-files '*.md'` matched nothing — the doc scan would be vacuously green.",
-    );
-    process.exit(1);
-}
 
 for (const match of docs) {
     scanned++;
@@ -156,7 +150,9 @@ for (const match of docs) {
 
 // The scaffold is a pin site too, and the source text isn't the artifact a `bun create shallot`
 // user gets — `template()` is. Reading its *emitted* `package.json` (not grepping the source
-// literal) pins the same object an installer actually resolves against.
+// literal) pins the same object an installer actually resolves against. Mutation proof: bumping
+// the `typescript` literal in `packages/create-shallot/index.ts` from `^7.0.2` to `^7.0.3` reds
+// this arm (witnessed 2026-08-25, exit 1 — `typescript@^7.0.3 — the manifest declares ^7.0.2`).
 const scaffoldPkg = JSON.parse(template("check-docs-probe")["package.json"]) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
@@ -164,6 +160,7 @@ const scaffoldPkg = JSON.parse(template("check-docs-probe")["package.json"]) as 
 const SCAFFOLD_PINS: { name: string; field: "dependencies" | "devDependencies" }[] = [
     { name: "typegpu", field: "dependencies" },
     { name: "unplugin-typegpu", field: "devDependencies" },
+    { name: "typescript", field: "devDependencies" },
 ];
 for (const { name, field } of SCAFFOLD_PINS) {
     const found = scaffoldPkg[field]?.[name];
@@ -185,7 +182,9 @@ for (const { name, field } of SCAFFOLD_PINS) {
 // one, so a fixture bump landing outside today's known sites can't go unnoticed. `typegpu2` is a
 // deliberate second physical copy (`identityFlow`'s duplicate-identity proof) whose version must
 // still track the engine peer; `PM_RED_COPY_VERSION` is the one deliberate exclusion — that
-// fixture needs a differing version on purpose.
+// fixture needs a differing version on purpose. Mutation proof: bumping the first `typegpu` pin
+// in `scripts/install-test.ts` from `~0.12.0` to `~0.12.1` reds this arm (witnessed 2026-08-25,
+// exit 1 — `scripts/install-test.ts:365: typegpu@~0.12.1 — the manifest declares ~0.12.0`).
 const FIXTURE_FILE = "scripts/install-test.ts";
 const FIXTURE_EXCLUSION = "PM_RED_COPY_VERSION";
 // A version token: an optional range prefix (`~`, `^`, or bare) followed by semver, or the
