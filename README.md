@@ -108,7 +108,7 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 run from the repo root.
 
 ```bash
-bun run test       # unit tests over packages/shallot (bun-webgpu)
+bun run test       # unit tests over packages/shallot, scripts, evals, showcase/visualization/test (bun-webgpu)
 bun bench          # GPU benchmarks
 bun check          # read-only: tsc + biome + eslint + repo checks + scene-format report
 bun run format     # biome + scene formatter

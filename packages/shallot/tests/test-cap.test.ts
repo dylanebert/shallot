@@ -403,4 +403,96 @@ describe("the cap in a real bun test child", () => {
         expect(exitCode).toBe(0);
         expect(output).toMatch(/\n 2 pass\n/);
     });
+
+    /**
+     * The bare-discovery safety arm. `bunfig.toml`'s `root = "."` scopes `bun test` discovery to
+     * the repo root, so a bare `bun test` collects every `.test.ts`/`.spec.ts` file under the repo
+     * — including `examples/gym/src` and `examples/showcase/{roads,voxel}/src`, which the default
+     * gate (`bun run test`) excludes by passing explicit paths. The safety property: every
+     * `.test.ts`/`.spec.ts` file bare `bun test` would discover — tracked **and** untracked — is
+     * run by some declared gate (the default gate or a documented by-path tier). A file in neither
+     * is an orphan — discovered by bare `bun test` but run by no gate, so it can rot silently.
+     *
+     * The cone comes from sources **independent of the population being checked**:
+     *
+     *   - Default-gate paths: derived from the root `package.json`'s `test` script — the entry
+     *     point, never hand-listed.
+     *   - By-path tier paths: listed literally from the documented tier split, each with a comment
+     *     naming where it is declared. They are NOT derived from the test files on disk — deriving
+     *     the cone from the population it checks would make the arm green by construction: any
+     *     tracked test file added anywhere silently extends the cone, and an untracked test file
+     *     added to a directory that already holds one is also green.
+     *
+     * One known orphan is excluded with a stated comment: `site/rum-sampler.test.ts` — no gate runs
+     * it (not in the default gate, not in any documented by-path tier, not in any `package.json`
+     * script). Reported as a finding for the coordinator to book.
+     *
+     * Witnessed red (three-armed mutation proof, each run + reverted by deleting only the created
+     * path):
+     *   (a) an untracked `.test.ts` in an undeclared directory → red;
+     *   (b) a tracked (`git add`ed, uncommitted) `.test.ts` in an undeclared directory → red — the
+     *       case the old arm could not see, since it derived the cone from tracked test files;
+     *   (c) an untracked `.test.ts` inside a declared by-path tier directory → green, proving the
+     *       arm is not merely counting files.
+     */
+    test("bare-discovery population matches the documented tier split: no test file outside the declared cone", () => {
+        // Default-gate cone: derived from the root package.json's `test` script — the entry point.
+        // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('package.json','utf8')).scripts.test)"`
+        const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+        const testScript: string = rootPkg.scripts.test;
+        const defaultGatePaths = testScript
+            .replace(/^bun\s+test\s*/, "")
+            .split(/\s+/)
+            .filter(Boolean);
+
+        // By-path tier paths: listed literally from the documented tier split, NOT derived from
+        // test files on disk. Each entry names where it is declared and how a reader re-derives it.
+        const byPathTierPaths = [
+            // Declared in `.claude/rules/testing.md` line 37: "run `bun test ./examples/gym/src`".
+            // Re-derive: `grep -n 'bun test ./examples/gym/src' .claude/rules/testing.md`
+            "examples/gym/src",
+            // Declared in `examples/showcase/roads/package.json` `test` script:
+            //   "bun test --cwd ../../.. ./examples/showcase/roads/src"
+            // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('examples/showcase/roads/package.json','utf8')).scripts.test)"`
+            "examples/showcase/roads/src",
+            // Declared in `examples/showcase/voxel/package.json` `test` script:
+            //   "bun test --cwd ../../.. ./examples/showcase/voxel/src"
+            // Re-derive: `node -e "console.log(JSON.parse(require('fs').readFileSync('examples/showcase/voxel/package.json','utf8')).scripts.test)"`
+            "examples/showcase/voxel/src",
+        ];
+
+        const declaredCone = [...defaultGatePaths, ...byPathTierPaths];
+
+        function isInCone(path: string, cone: string[]): boolean {
+            return cone.some((c) => path === c || path.startsWith(c + "/"));
+        }
+
+        // Known orphan: `site/rum-sampler.test.ts` — discovered by bare `bun test` (root = ".")
+        // but run by no gate. Not in the default gate's explicit paths, not in any documented
+        // by-path tier, not in any `package.json` script. Reported as a finding for the
+        // coordinator to book; not moved, deleted, or given a tier here (out of scope).
+        const orphanExclusions = ["site/rum-sampler.test.ts"];
+
+        // All .test.ts/.spec.ts files — tracked + untracked (git ls-files --cached --others).
+        const allFiles = Bun.spawnSync(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+        )
+            .stdout.toString()
+            .split("\n")
+            .filter(Boolean);
+        const allTestFiles = allFiles.filter((p) => /\.test\.ts$/.test(p) || /\.spec\.ts$/.test(p));
+
+        expect(
+            allTestFiles.length,
+            "the scan yielded no .test.ts/.spec.ts files — the population check below would be vacuous",
+        ).toBeGreaterThan(0);
+
+        const outside = allTestFiles.filter(
+            (p) => !isInCone(p, declaredCone) && !orphanExclusions.includes(p),
+        );
+        expect(outside, "test files outside the declared cone (excluding known orphans)").toEqual(
+            [],
+        );
+    });
 });

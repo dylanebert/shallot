@@ -43,7 +43,7 @@ Single modern WebGPU feature floor. No conditional fallback paths — a plugin h
 ## Commands
 
 ```bash
-bun test                                           # Fast unit tests (bun-webgpu) — the default gate
+bun run test                                       # Fast unit tests (bun-webgpu) — the default gate
 bun test ./packages/shallot/tests/avbd/*.oracle.ts # The f64 AVBD physics oracle — slow, run when you touch AVBD/physics
 bun test ./examples/gym/src                        # Gym host-layer + tumble gold oracle — run when you touch the engine, host layer, or a twin
 bun bench [--scenario <name> --seed --count --warmup --frames --param k=v --screenshot <path>]  # Gym scenario via `shallot verify` on a real device. --screenshot writes a post-run canvas PNG (visual check, not a gate)
@@ -68,7 +68,7 @@ Gym is the single real-device surface: `bun bench` drives `examples/gym` (defaul
 
 ### Verification
 
-Run `bun run format`, `bun check`, `bun test` before completing work. The slow gates are separate files run by path, when you touch what they gate, never as a routine sweep: `bun test ./packages/shallot/tests/avbd/*.oracle.ts` for AVBD/physics, `bun test ./examples/gym/src` for engine / host-layer / twin changes, and the tumble fixture gates from `packages/shallot` (`tumble.md`). `cargo test` after Rust audio changes (from `packages/shallot/rust/audio`). `bun bench` after GPU code changes (`testing.md`). `bun run flows` after serialize/restore, `config.ui`/`mountOverlay`, or `shallot dev` server changes — standalone-app Playwright flows (display-gated, self-terminating, run alone). `bun run recipes` after a physics-recipe or substrate/tumble change — dynamics smoke (display-gated, same shape as flows). On WSL these three run for real against the Windows host's GPU via `scripts/wsl-bridge.ts` (browser server + reverse tunnel, verify CLI `--connect`), skipping only when the host lacks the node/bun it needs. `bun run test:install` after packaging / CLI / manifest-resolution / asset-shipping changes and after `packages/create-shallot` changes — the dev symlink hides real-install bugs (`testing.md` "Install gate").
+Run `bun run format`, `bun check`, `bun run test` before completing work. The slow gates are separate files run by path, when you touch what they gate, never as a routine sweep: `bun test ./packages/shallot/tests/avbd/*.oracle.ts` for AVBD/physics, `bun test ./examples/gym/src` for engine / host-layer / twin changes, and the tumble fixture gates from `packages/shallot` (`tumble.md`). `cargo test` after Rust audio changes (from `packages/shallot/rust/audio`). `bun bench` after GPU code changes (`testing.md`). `bun run flows` after serialize/restore, `config.ui`/`mountOverlay`, or `shallot dev` server changes — standalone-app Playwright flows (display-gated, self-terminating, run alone). `bun run recipes` after a physics-recipe or substrate/tumble change — dynamics smoke (display-gated, same shape as flows). On WSL these three run for real against the Windows host's GPU via `scripts/wsl-bridge.ts` (browser server + reverse tunnel, verify CLI `--connect`), skipping only when the host lacks the node/bun it needs. `bun run test:install` after packaging / CLI / manifest-resolution / asset-shipping changes and after `packages/create-shallot` changes — the dev symlink hides real-install bugs (`testing.md` "Install gate").
 
 ---
 
