@@ -883,9 +883,10 @@ if (citationCandidates.length === 0) {
 // The arm's green condition is an exhaustive four-way disjunction: a candidate passes
 // iff it never enters citationCandidates (the population predicate), or it resolves in
 // the tree token index, or it resolves in a committed roster, or it is marker-exempt.
-// Each disjunct gets a cardinality pinned as a literal and asserted equal, so an escape
-// that moves a number in the diff that narrows it reds — there is no fifth place for
-// the escape to move.
+// Each disjunct gets a cardinality pinned as a literal — disjunct 2 as an anti-narrowing
+// floor (its population grows with ordinary prose), the rest asserted equal — so an escape
+// that moves a number in the diff that narrows it reds; there is no fifth place for the
+// escape to move.
 
 // Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
 // below the floor and reds; legitimate prose growth passes and re-pins the floor
