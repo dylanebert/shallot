@@ -4,7 +4,7 @@ import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
 import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/rum-config";
 
-// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Five clauses:
+// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Seven clauses:
 //
 //   1. every entry's dir has a manifest — a showcase dir without `shallot.json` (or, for an
 //      ejected project, `index.html`) is not a buildable demo.
@@ -31,6 +31,11 @@ import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/ru
 //      two present fragments passes every substring check while still being broken syntax.
 //      `out/site/index.html` does not carry any of this, since it has no frame loop to observe.
 //      Same `SITE_OUT_REQUIRED` gate as clause 4.
+//   6. every built demo root page has a human-readable <title> — a manifest demo's is the bare
+//      slug (`synthIndex` titles from the ejected dir's basename); an own-index demo's just must
+//      not be scratch-shaped.
+//   7. no built page carries a placeholder RUM credential — gated behind RUM_CONFIG_REQUIRED
+//      (armed on the deploy path only; see the clause body).
 //
 // The roster is derived from `examples/showcase/` by enumeration (site/roster.ts), so set membership
 // is by construction — a roster-equals-disk clause would compare code against itself, the
@@ -297,7 +302,39 @@ if (existsSync(indexPath) && readFileSync(indexPath, "utf8").includes(RUM_INJECT
     process.exit(1);
 }
 
-// --- clause 6: no built page carries a placeholder RUM credential -------------------------
+// --- clause 6: every built demo root page has a human-readable <title> --------------------
+//
+// `shallot build` synthesizes a manifest project's <title> from the project dir's basename
+// (bin/build.ts `synthIndex`), and the site build ejects each demo into a scratch tree — so the
+// scratch leaf must be named the bare slug, or every tab reads like a temp path (measured
+// 2026-08-25: `shallot-site-collapse-1756…` live on dylanebert.com). Manifest demos (no own
+// index.html) must title exactly the slug; a demo shipping its own index.html owns its title,
+// which just must not be scratch-shaped. Red-first witnessed 2026-08-25 against a synthetic
+// out/site fixture clearing clauses 4/5 (exit 1 listing every scratch-shaped title; exit 0 with
+// slug titles) — the real-build leg is CI's SITE_OUT_REQUIRED deploy run.
+const badTitle: { file: string; title: string }[] = [];
+for (const { slug } of ROSTER) {
+    const builtIndex = resolve(outDir, slug, "index.html");
+    if (!existsSync(builtIndex)) continue; // a `--demo` filtered build only writes some dirs
+    const html = readFileSync(builtIndex, "utf8");
+    const title = html.match(/<title>([^<]*)<\/title>/)?.[1] ?? "";
+    const ownsIndex = existsSync(resolve(showcaseDir, slug, "index.html"));
+    if (ownsIndex ? title.includes("shallot-site-") : title !== slug) {
+        badTitle.push({ file: `${slug}/index.html`, title });
+    }
+}
+if (badTitle.length > 0) {
+    console.error(`✗ ${badTitle.length} built demo page(s) carry a non-human-readable <title>:\n`);
+    for (const t of badTitle) console.error(`  ${t.file}: <title>${t.title}</title>`);
+    console.error(
+        "\nA manifest demo's <title> is the ejected dir's basename (bin/build.ts `synthIndex`)," +
+            " so `scripts/build-site.ts` must eject into `<unique-parent>/<slug>` — the parent" +
+            " carries the uniqueness, the leaf carries the name.",
+    );
+    process.exit(1);
+}
+
+// --- clause 7: no built page carries a placeholder RUM credential -------------------------
 //
 // `site/rum-config.ts` ships `PLACEHOLDER_*` values until the Dogfood-org RUM application
 // exists (S1 credentials ask); nothing refused them at build or deploy. Gated behind
