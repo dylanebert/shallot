@@ -10,11 +10,14 @@
  * The cap is a tripwire, not a budget, and the no-gradient claim is about the **verdict**, not the
  * message: a 9 s file and a 5.1 s file are equally red, so the cap cannot compress a suite toward a
  * number. The message deliberately does carry a gradient — it prints the elapsed reading to 0.1 ms,
- * because that reading is the localization value. The verdict forces one of two moves, both named in
- * the throw's own message: derive the scan's size, or promote the file to a by-path tier. Raising the
- * cap and exempting a file in place are not responses, which is why nothing here reads a per-file
- * list and why `TEST_FILE_CAP_MS` exists only so `test-cap.test.ts` can drive the cap from a child
- * process.
+ * because that reading is the localization value. A wall-clock duration measures the host as much
+ * as the file, so the message opens the diagnosis by sending the reader to re-run the flagged file
+ * alone by path first: a red that reproduces in isolation is the file's, a red that does not
+ * reproduce discriminates host load rather than the artifact. That pre-read precedes, and is
+ * never one of, the verdict's two moves, both named in the throw's own message: derive the scan's size, or promote
+ * the file to a by-path tier. Raising the cap and exempting a file in place are not responses,
+ * which is why nothing here reads a per-file list and why `TEST_FILE_CAP_MS` exists only so
+ * `test-cap.test.ts` can drive the cap from a child process.
  *
  * Exemption is derived from the path, never listed: every suffix in `TEST_TIER_SUFFIX_NAMES` except
  * `.test` is a by-path tier that skips the cap by matching its own suffix.
@@ -82,15 +85,22 @@ export function resolveCapMs(env: Record<string, string | undefined>): number {
 }
 
 /**
- * The red's text: the file, its reading, the cap, and the only two responses to it.
+ * The red's text: the file, its reading, the cap, an isolation pre-read for the host-load false
+ * red, and the only two responses to a red that survives isolation.
  *
- * The actionable half prescribes acts a fenced seat can run: writing the tier file and taking the
- * arms out of this one. A by-path tier file's own header is its registry — read that header rather
- * than a registry.
+ * The isolation line comes first and is neither response nor an exemption route — it tells the
+ * reader to re-run the named file alone by path before diagnosing, since a red that does not
+ * reproduce in isolation discriminates host load, not the file. Only a red that reproduces is the
+ * file's, and only then do the two responses below apply.
+ *
+ * The actionable half of the responses prescribes acts a fenced seat can run: writing the tier
+ * file and taking the arms out of this one. A by-path tier file's own header is its registry —
+ * read that header rather than a registry.
  */
 export function capMessage(testPath: string, elapsedMs: number, capMs: number): string {
     return [
         `per-file test cap exceeded: ${testPath} ran ${elapsedMs.toFixed(1)}ms of tests against a ${capMs}ms cap.`,
+        "Re-run this file alone by path first: a red that reproduces in isolation is the file's; a red that does not reproduce discriminates host load, not the artifact.",
         "Two responses, and only these two:",
         "(1) derive the scan's size from the property it states — an arm whose own comment claims invariance in N has no reason to run at N;",
         "(2) promote the slow arms to a by-path tier — a sibling file named " +
