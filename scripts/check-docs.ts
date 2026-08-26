@@ -743,7 +743,8 @@ if (rosterFindings.length > 0) {
 // those markup edits and widens the predicate to catch bare tokens too.
 //
 // Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
-// `scripts/check-docs.ts`, `scripts/detect-stale-claims.ts`), NOT `git grep --fixed-strings`:
+// `scripts/check-docs.ts`, `scripts/rosters.ts`, `scripts/stale-claim-predicates.ts`), NOT
+// `git grep --fixed-strings`:
 // substring matching reads 8 sites green off longer tokens (e.g. `spotInner` matches
 // `spotInnerF`, `hullSat` matches `hullSatWgsl`, `InFragmentStage` matches
 // `maxStorageBuffersInFragmentStage`). The token index tokenizes source files into individual
@@ -758,22 +759,8 @@ if (rosterFindings.length > 0) {
 // failed (10 entries failed the attribution leg and were de-backtickked rather than adjudicated).
 // The roster replaces attribution: a foreign-namespace symbol resolves against a committed
 // roster, not against an attribution token on the citing line.
-//
-// Witnessed red (mutation proofs, each exit code captured to a file):
-//   (i)  Seed: `deadIdentifierCitation` seeded into `.claude/rules/gpu.md` → exit 1
-//         (captured to /tmp/asc-mutation-seed.txt)
-//   (ii) De-backtick: backticks removed from a live citation → still red (bare token caught)
-//         (captured to /tmp/asc-mutation-debacktick.txt)
-//   (iii) Launder: a dead shallot symbol added to a foreign-namespace roster → exit 1
-//         (the two-way assertion catches it: present in file, absent from tree, but resolves
-//         against the roster — the exemption is over because the symbol IS in the roster)
-//         (captured to /tmp/asc-mutation-launder.txt)
-//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token index
-//         does not — seeding `spotInner` (substring of `spotInnerF`) reds with the token index
-//         but greens with `git grep --fixed-strings`
-//         (captured to /tmp/asc-mutation-substring.txt)
 
-import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS, X86_ISA } from "./rosters";
+import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS } from "./rosters";
 import {
     buildTokenIndex,
     extractCandidates,
@@ -832,7 +819,6 @@ if (tokenIndex.size === 0) {
 const allRosters: { name: string; roster: ReadonlySet<string> }[] = [
     { name: "WGSL_BUILTINS", roster: WGSL_BUILTINS },
     { name: "WEBGPU_IDL", roster: WEBGPU_IDL },
-    { name: "X86_ISA", roster: X86_ISA },
     ...Object.entries(FOREIGN_NAMESPACES).map(([name, roster]) => ({
         name: `FOREIGN_NAMESPACES.${name}`,
         roster,
@@ -858,12 +844,14 @@ for (const { roster } of allRosters) {
 // ── Identifier shape predicates ────────────────────────────────────────────────────────────
 //
 // Shape predicates and candidate extraction are in the shared module
-// `stale-claim-predicates.ts`, imported by both this arm and `detect-stale-claims.ts`.
-// The predicate is formatting-invariant: strong shapes (camelCase, PascalCase) are caught
-// bare or backticked; weak shapes (snake/SCREAMING_SNAKE, lowercase-with-digits) are caught
-// only when backticked. A bare token preceded by `*` is a glob fragment. `.ts` path
-// interiors are not re-tokenized. In-span tokens are split by predicate: a token followed
-// by `(` is a call citation; one in arithmetic context is a formula variable.
+// `stale-claim-predicates.ts`.
+// The predicate is formatting-invariant: strong shapes (camelCase, PascalCase) and
+// SCREAMING_SNAKE are caught bare or backticked; snake_case and lowercase-with-digits
+// are caught only when backticked (excluded from bare by the backtick context predicate).
+// A bare `*`-prefix drop is inadmissible — only `*`-prefixed tokens starting with `_`
+// (glob suffixes) are skipped. `.ts` path interiors are not re-tokenized. In-span tokens
+// are split by predicate: a token followed by `(` is a call citation; one in arithmetic
+// context is a formula variable.
 
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
 
@@ -884,6 +872,69 @@ if (citationCandidates.length === 0) {
 // For both: if unresolved against the tree, check against the combined roster.
 // Resolution functions are in the shared module.
 
+// ── Pinned cardinalities ───────────────────────────────────────────────────────────────
+//
+// The arm's green condition is an exhaustive four-way disjunction: a candidate passes
+// iff it never enters citationCandidates (the population predicate), or it resolves in
+// the tree token index, or it resolves in a committed roster, or it is marker-exempt.
+// Each disjunct gets a cardinality pinned as a literal and asserted equal, so an escape
+// that moves a number in the diff that narrows it reds — there is no fifth place for
+// the escape to move.
+
+// Disjunct 2: the citation population count. Any predicate narrowing that shrinks the
+// population moves this number in the diff that narrows it.
+const PINNED_CITATION_COUNT = 1599;
+if (citationCandidates.length !== PINNED_CITATION_COUNT) {
+    console.error(
+        `✗ citation count mismatch: pinned ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
+` +
+            `  A predicate narrowing that shrinks the population moves this number. ` +
+            `  Update PINNED_CITATION_COUNT in scripts/check-docs.ts to match, ` +
+            `or restore the narrowed predicate.`,
+    );
+    process.exit(1);
+}
+
+// Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
+// one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
+// cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
+const PINNED_ROSTER_ENTRY_COUNT = 73;
+const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
+if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
+    console.error(
+        `✗ roster entry count mismatch: pinned ${PINNED_ROSTER_ENTRY_COUNT}, actual ${totalRosterEntries}.
+` +
+            `  Update PINNED_ROSTER_ENTRY_COUNT in scripts/check-docs.ts to match, ` +
+            `or prune the uncited entries from scripts/rosters.ts.`,
+    );
+    process.exit(1);
+}
+
+// Assert every roster entry is cited by at least one rule file (both ways: a real member,
+// genuinely needed). A roster entry is "cited" if it appears as a ref in the citation
+// candidates extracted from the rule files. Uncited entries are slack a launder could
+// occupy without moving the pinned count.
+const candidateRefs = new Set(citationCandidates.map((c) => c.ref));
+const uncitedRosterEntries: string[] = [];
+for (const { name, roster } of allRosters) {
+    for (const entry of roster) {
+        if (!candidateRefs.has(entry)) {
+            uncitedRosterEntries.push(`${name}: ${entry}`);
+        }
+    }
+}
+if (uncitedRosterEntries.length > 0) {
+    console.error(
+        `✗ ${uncitedRosterEntries.length} roster entr(y/ies) not cited by any rule file:
+` +
+            uncitedRosterEntries.map((e) => `    ${e}`).join("\n") +
+            `
+  Every roster entry must be cited by at least one rule file (both ways: a real ` +
+            `member, genuinely needed). Prune uncited entries from scripts/rosters.ts.`,
+    );
+    process.exit(1);
+}
+
 // ── Marker exemption system ──────────────────────────────────────────────────────────────
 //
 // The per-entry allowlist is retired — the arm carries no per-site residue. An exemption is
@@ -899,23 +950,26 @@ if (citationCandidates.length === 0) {
 // of the defect class this spec exists to sweep, visible to the rule's readers rather than
 // buried in a script comment.
 //
-// Witnessed red (mutation proofs, each exit code captured to a file and witnessed below):
+// Witnessed red (mutation proofs, each exit code captured to a committed in-repo path —
+// see scripts/asc-mutations.md, never /tmp):
 //   (i)  Seed: `deadIdentifierCitation` seeded into `.claude/rules/gpu.md` → exit 1
-//         (captured to /tmp/asc-r5-mut-i.log)
 //   (ii) De-backtick: backticks removed from a dead citation → still red (bare token caught
 //         by the formatting-invariant predicate, round 3's escape shut)
-//         (captured to /tmp/asc-r5-mut-ii.log)
-//   (iii) Roster launder: a dead shallot symbol added to a foreign-namespace roster → exit 1
-//         (the two-way assertion catches it: present in file, absent from tree, but resolves
-//         against the roster — the exemption is over because the symbol IS in the roster)
-//         (captured to /tmp/asc-r5-mut-iii.log)
+//   (iii) Roster launder: a dead shallot symbol added to a roster → red on the pinned roster
+//         cardinality (round 2's escape, closed by pinning the entry count and asserting
+//         every entry is cited)
 //   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token index
 //         does not — seeding `spotInner` (substring of `spotInnerF`) reds with the token index
 //         but greens with `git grep --fixed-strings`
-//         (captured to /tmp/asc-r5-mut-iv.log)
 //   (v)  Launder-via-marker: a dead symbol appended with its exemption marker → red on the
-//         pinned count (round 4's escape, and the round-5 arm's defining property)
-//         (captured to /tmp/asc-r5-mut-v.log)
+//         pinned marker count (round 4's escape)
+//   (vi) Weak-shape bare: bare `ENTITY_COLS_WGSL` (SCREAMING_SNAKE), a bare snake token, and
+//         a `*`-prefixed token each → red (SCREAMING_SNAKE re-admitted bare, `*`-prefix drop
+//         inadmissible)
+//   (vii) Predicate narrowing: any edit shrinking the population moves the pinned citation
+//         count → red
+//
+// All seven captures are in scripts/asc-mutations.md, a committed in-repo path.
 
 // The pinned marker-exempted count. This literal is the law the arm already applies to its
 // tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
@@ -1050,7 +1104,6 @@ if (staleCitations.length > 0) {
     process.exit(1);
 }
 
-const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +

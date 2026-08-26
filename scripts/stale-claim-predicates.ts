@@ -1,22 +1,32 @@
-// Shared predicate module for the check-docs citation-resolution arm and the
-// detect-stale-claims detector. One copy of the shape functions, imported by both
-// — two copies of the shape functions is two detectors that disagree the moment
-// either moves.
+// Shared predicate module for the check-docs citation-resolution arm.
+// One copy of the shape functions — two copies is two detectors that disagree
+// the moment either moves.
 //
 // The population predicate is formatting-invariant: every token in
 // `.claude/rules/**` outside a fenced code block matching an identifier *shape*
-// — camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a
-// backticked `*.ts` path — **backticked or bare** — must resolve against the
-// tree or a committed roster.
+// — camelCase, PascalCase, SCREAMING_SNAKE, snake_case, lowercase-with-digits,
+// or a backticked `*.ts` path — **backticked or bare** — must resolve against
+// the tree or a committed roster.
 //
-// Predicate fixes (round 5):
-//  - A bare token preceded by `*` is a glob fragment, not a citation (kills
-//    `_WGSL`×3, `_REQUIRED`).
+// Predicate fixes (round 6):
+//  - SCREAMING_SNAKE is re-admitted bare (caught with or without backticks).
+//    This is the shape of this spec's first verified member `ENTITY_COLS_WGSL`,
+//    which was invisible to the arm when written bare. False-positive population
+//    when bare: 0 (measured at 5b48a22 — no bare SCREAMING_SNAKE token in the
+//    rules fails to resolve against the tree or rosters).
+//  - snake_case and lowercase-with-digits remain backticked-only — excluded
+//    from bare extraction by the backtick context predicate. False-positive
+//    population when bare: 11 distinct tokens (5 snake_case: `bytes_moved`,
+//    `peak_BW`, `theoretical_min`, `warp_size`, `webgpu_inspector`; 6
+//    lowercase-with-digits: `f16x2`, `l12`, `l4`, `memory64`, `snorm8`,
+//    `wg32`) — prose terms (bench metrics, formula variables, GPU hardware
+//    terms, tool names, benchmark labels), not code citations.
+//  - A bare `*`-prefix drop is inadmissible (`*foo` also spells a mis-bulleted
+//    dead symbol). Only `*`-prefixed tokens starting with `_` are skipped —
+//    these are glob suffixes (e.g. `*_WGSL`, `*_REQUIRED`). A `*`-prefixed
+//    token starting with a letter is caught.
 //  - Do not re-tokenize the interior of a span already extracted as a `.ts`
 //    path (kills `_measure`).
-//  - Restrict the weak lowercase-with-digits and snake shapes to backticked
-//    extraction only — bare snake/lowercase-with-digits tokens are prose
-//    (bench metrics, formula variables, GPU hardware terms), not citations.
 //  - Split in-span tokens by predicate: a token followed by `(` is a call
 //    citation and must resolve; one in arithmetic context is a formula variable
 //    and is excluded.
@@ -39,6 +49,21 @@ export function isSnakeOrScreaming(w: string): boolean {
         w.length >= 2
     );
 }
+
+/** SCREAMING_SNAKE — all uppercase letters, digits, and underscores. */
+export function isScreamingSnake(w: string): boolean {
+    return (
+        w.includes("_") &&
+        /^[A-Z0-9_]+$/.test(w) &&
+        /[A-Z]/.test(w) &&
+        w.length >= 2
+    );
+}
+
+/** snake_case — underscored but not all-uppercase (excludes SCREAMING_SNAKE). */
+export function isSnakeCase(w: string): boolean {
+    return isSnakeOrScreaming(w) && !isScreamingSnake(w);
+}
 export function isLowercaseWithDigits(w: string): boolean {
     return /^[a-z][a-z0-9]*$/.test(w) && /[0-9]/.test(w) && !w.includes("_");
 }
@@ -56,17 +81,30 @@ export function matchesStrongShape(w: string): boolean {
     return isCamelCase(w) || isPascalCase(w);
 }
 
-/** Weak shapes (snake/SCREAMING_SNAKE, lowercase-with-digits) — caught only when backticked. */
+/** Weak shapes (snake_case, lowercase-with-digits) — caught only when backticked. */
 export function matchesWeakShape(w: string): boolean {
     if (w.length < 2) return false;
     if (SHAPE_FALSE_POSITIVES.has(w)) return false;
     if (isHex(w)) return false;
-    return isSnakeOrScreaming(w) || isLowercaseWithDigits(w);
+    return isSnakeCase(w) || isLowercaseWithDigits(w);
 }
 
-/** Full shape match — strong shapes always; weak shapes only when backticked. */
+/** SCREAMING_SNAKE — caught bare or backticked (re-admitted bare, round 6). */
+export function matchesScreamingSnake(w: string): boolean {
+    if (w.length < 2) return false;
+    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
+    if (isHex(w)) return false;
+    return isScreamingSnake(w);
+}
+
+/**
+ * Full shape match — strong shapes (camelCase, PascalCase) and SCREAMING_SNAKE
+ * always caught (bare or backticked); snake_case and lowercase-with-digits only
+ * when backticked (excluded from bare by the backtick context predicate).
+ */
 export function matchesShape(w: string, backticked: boolean): boolean {
     if (matchesStrongShape(w)) return true;
+    if (matchesScreamingSnake(w)) return true;
     if (backticked && matchesWeakShape(w)) return true;
     return false;
 }
@@ -195,9 +233,13 @@ export async function extractCandidates(
             for (const m of stripped.matchAll(BARE_TOKEN_RE)) {
                 const ref = m[0];
                 const index = m.index ?? 0;
-                // Fix 1: a bare token preceded by `*` is a glob fragment
-                if (index > 0 && stripped[index - 1] === "*") continue;
-                // Fix 3: weak shapes only match when backticked — bare tokens use strong shapes only
+                // A bare token preceded by `*` and starting with `_` is a glob suffix
+                // (e.g. `*_WGSL`, `*_REQUIRED`). A bare `*`-prefix drop is inadmissible —
+                // `*foo` also spells a mis-bulleted dead symbol — so `*`-prefixed tokens
+                // starting with a letter are caught.
+                if (index > 0 && stripped[index - 1] === "*" && ref.startsWith("_")) continue;
+                // SCREAMING_SNAKE is caught bare (re-admitted, round 6); snake_case and
+                // lowercase-with-digits are backticked-only (excluded by the backtick context predicate).
                 if (matchesShape(ref, false)) {
                     addCandidate(file, i + 1, ref, "identifier", false);
                 }
@@ -260,9 +302,9 @@ const INDEX_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
 
 /**
  * Build a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` files.
- * Excludes `node_modules`, `scripts/check-docs.ts`, `scripts/detect-stale-claims.ts`,
- * and `scripts/rosters.ts` (their comments mention the symbols they check, which
- * would false-resolve dead citations).
+ * Excludes `node_modules`, `scripts/check-docs.ts`, `scripts/rosters.ts`,
+ * and `scripts/stale-claim-predicates.ts` (their comments mention the symbols
+ * they check, which would false-resolve dead citations).
  */
 export async function buildTokenIndex(trackedFiles: string[], root: string): Promise<Set<string>> {
     const index = new Set<string>();
@@ -271,7 +313,6 @@ export async function buildTokenIndex(trackedFiles: string[], root: string): Pro
             (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
             !f.includes("node_modules") &&
             f !== "scripts/check-docs.ts" &&
-            f !== "scripts/detect-stale-claims.ts" &&
             f !== "scripts/rosters.ts" &&
             f !== "scripts/stale-claim-predicates.ts",
     );
