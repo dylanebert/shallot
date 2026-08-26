@@ -100,7 +100,8 @@ const DEFAULT_TOUCH: Touch = {
 
 // the global input gate. While off, every read reports neutral (no keys, no buttons, no deltas) and the
 // keydown handler stops accumulating, so a menu or cutscene suspends every input consumer with one flag. A
-// pointer-lock controller (the Player) watches it to release the lock too. Reset to true on each (re)bind.
+// pointer-lock controller (the Player) watches it to release the lock too. Reset to true on a bind that
+// attaches at least one canvas — a canvas-less rebind inherits the prior State's gate.
 let enabled = true;
 
 export const Inputs: Inputs = {
@@ -376,6 +377,7 @@ function createHandlers(s: InputState): void {
     s.windowPointerDown = (e: PointerEvent) => {
         if (!s.canvases.has(e.target as HTMLCanvasElement)) {
             s.canvasFocused = false;
+            for (const code of s.keys) s.keysReleased.add(code);
             s.keys.clear();
             s.keysPressed.clear();
         }
