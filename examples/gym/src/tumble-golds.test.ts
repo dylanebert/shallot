@@ -14,7 +14,7 @@
 // recipe (`packages/shallot/scripts/gen-tumble-sample-golds.ts`) — removes both: registry order cannot affect any verdict
 // (the "sequential-world kernel trap").
 //
-// Outside bunfig's `bun test` scope (`bunfig.toml` roots it at `packages/shallot`) — run explicitly:
+// Outside the default `bun run test` (the `test` script's explicit paths don't include `examples/gym/src`) — run explicitly:
 //   bun test ./examples/gym/src/tumble-golds.test.ts
 
 import { expect, test } from "bun:test";

@@ -12,7 +12,7 @@
 // the "adapter disconnected" shape) the count is 0 and every assertion below fails; wired, it is 6. Proven
 // red by stubbing renderJointBreak to a no-op before implementing it.
 //
-// Outside bunfig's `bun test` scope (rooted at packages/shallot) — run via `bun test ./examples/gym/src`, or a single file:
+// Outside the default `bun run test` (the `test` script's explicit paths don't include `examples/gym/src`) — run via `bun test ./examples/gym/src`, or a single file:
 //   bun test ./examples/gym/src/tumble-overlay.test.ts
 
 import { expect, test } from "bun:test";

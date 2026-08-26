@@ -6,7 +6,7 @@ root = "."
 #
 # Reach: cwd-only. bun reads `bunfig.toml` from the process's working directory and does not walk
 # ancestors (measured, bun 1.3.14), so this preload — and therefore the cap — is in force only for a
-# `bun test` run from this directory. The `root` key scopes discovery to `packages/shallot`, but the
+# `bun test` run from this directory. The `root` key (`.`) scopes discovery to the repo root, but the
 # cap fires on any `bun test` from here regardless of what paths are passed. Pinned in both
 # directions by the configuration-reach arm pair in `packages/shallot/tests/test-cap.test.ts`.
 preload = ["./packages/shallot/tests/tgsl.ts", "./packages/shallot/tests/setup.ts", "./packages/shallot/tests/test-cap.ts"]

@@ -403,4 +403,69 @@ describe("the cap in a real bun test child", () => {
         expect(exitCode).toBe(0);
         expect(output).toMatch(/\n 2 pass\n/);
     });
+
+    /**
+     * The bare-discovery population arm. `bunfig.toml`'s `root = "."` scopes `bun test` discovery to
+     * the repo root, so a bare `bun test` collects every `.test.ts`/`.spec.ts` file under the repo —
+     * including `examples/gym/src` and `examples/showcase/{roads,voxel}/src`, which the default gate
+     * (`bun run test`) excludes by passing explicit paths. This arm asserts that every `.test.ts`/
+     * `.spec.ts` file `bun test` would discover falls within the declared cone: the default gate's
+     * explicit paths (derived from the root `package.json`'s `test` script — the entry point, never
+     * hand-listed) plus the by-path tier paths (derived from tracked test files outside the default
+     * gate's cone). A file in neither is an orphan — discovered by bare `bun test` but run by no gate.
+     *
+     * Witnessed red (mutation): an untracked `.test.ts` file placed in a directory outside the
+     * declared cone (e.g. `examples/flows/`) reds this arm — `git ls-files --cached --others` finds
+     * it, but the cone (derived from tracked files only) doesn't include its directory. Deleting
+     * the file restores green.
+     */
+    test("bare-discovery population matches the documented tier split: no test file outside the declared cone", () => {
+        // Derive the default-gate cone from the root package.json's `test` script — the entry point.
+        const rootPkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+        const testScript: string = rootPkg.scripts.test;
+        const defaultGatePaths = testScript
+            .replace(/^bun\s+test\s*/, "")
+            .split(/\s+/)
+            .filter(Boolean);
+
+        function isInCone(path: string, cone: string[]): boolean {
+            return cone.some((c) => path === c || path.startsWith(c + "/"));
+        }
+
+        // By-path tier paths: directories of tracked test files outside the default-gate cone.
+        const tracked = Bun.spawnSync(["git", "ls-files"], {
+            cwd: REPO_ROOT,
+            stdout: "pipe",
+            stderr: "pipe",
+        })
+            .stdout.toString()
+            .split("\n")
+            .filter(Boolean);
+        const trackedTestFiles = tracked.filter(
+            (p) => /\.test\.ts$/.test(p) || /\.spec\.ts$/.test(p),
+        );
+        const outsideDefault = trackedTestFiles.filter((p) => !isInCone(p, defaultGatePaths));
+        const byPathTierPaths = [
+            ...new Set(outsideDefault.map((p) => p.split("/").slice(0, -1).join("/"))),
+        ];
+        const declaredCone = [...defaultGatePaths, ...byPathTierPaths];
+
+        // All .test.ts/.spec.ts files — tracked + untracked (git ls-files --cached --others).
+        const allFiles = Bun.spawnSync(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+        )
+            .stdout.toString()
+            .split("\n")
+            .filter(Boolean);
+        const allTestFiles = allFiles.filter((p) => /\.test\.ts$/.test(p) || /\.spec\.ts$/.test(p));
+
+        expect(
+            allTestFiles.length,
+            "the scan yielded no .test.ts/.spec.ts files — the population check below would be vacuous",
+        ).toBeGreaterThan(0);
+
+        const outside = allTestFiles.filter((p) => !isInCone(p, declaredCone));
+        expect(outside, "test files outside the declared default-gate cone").toEqual([]);
+    });
 });
