@@ -423,9 +423,11 @@ describe("the cap in a real bun test child", () => {
      *     tracked test file added anywhere silently extends the cone, and an untracked test file
      *     added to a directory that already holds one is also green.
      *
-     * One known orphan is excluded with a stated comment: `site/rum-sampler.test.ts` — no gate runs
-     * it (not in the default gate, not in any documented by-path tier, not in any `package.json`
-     * script). Reported as a finding for the coordinator to book.
+     * `site/rum-sampler.test.ts` was the standing orphan — discovered by bare `bun test` but run
+     * by no gate. It is now in the default gate's cone (`site` added to the root `test` script's
+     * paths), so the population arm covers it with no exclusion. Witnessed red before the fix:
+     * deleting the `orphanExclusions` entry reded the arm (`site/rum-sampler.test.ts` outside the
+     * declared cone); adding `site` to the root `test` script read green.
      *
      * Witnessed red (three-armed mutation proof, each run + reverted by deleting only the created
      * path):
@@ -467,12 +469,6 @@ describe("the cap in a real bun test child", () => {
             return cone.some((c) => path === c || path.startsWith(c + "/"));
         }
 
-        // Known orphan: `site/rum-sampler.test.ts` — discovered by bare `bun test` (root = ".")
-        // but run by no gate. Not in the default gate's explicit paths, not in any documented
-        // by-path tier, not in any `package.json` script. Reported as a finding for the
-        // coordinator to book; not moved, deleted, or given a tier here (out of scope).
-        const orphanExclusions = ["site/rum-sampler.test.ts"];
-
         // All .test.ts/.spec.ts files — tracked + untracked (git ls-files --cached --others).
         const allFiles = Bun.spawnSync(
             ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
@@ -488,11 +484,7 @@ describe("the cap in a real bun test child", () => {
             "the scan yielded no .test.ts/.spec.ts files — the population check below would be vacuous",
         ).toBeGreaterThan(0);
 
-        const outside = allTestFiles.filter(
-            (p) => !isInCone(p, declaredCone) && !orphanExclusions.includes(p),
-        );
-        expect(outside, "test files outside the declared cone (excluding known orphans)").toEqual(
-            [],
-        );
+        const outside = allTestFiles.filter((p) => !isInCone(p, declaredCone));
+        expect(outside, "test files outside the declared cone").toEqual([]);
     });
 });
