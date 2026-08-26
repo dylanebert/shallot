@@ -44,7 +44,7 @@ The comment rule is universal: default to none, earn one only with a public expo
 
 **A comment anchored to something outside this repo rots invisibly.** Never cite a workflow stage ID, a private planning path, or a symbol you are deleting; write the invariant instead, so the comment stays checkable by a reader who has only this repo. A stale anchor reads as authoritative for years — one sweep found ~90 such sites, and the last of them had to be caught by name because no regex spelled its surface form.
 
-- **The entry-doc chain from repo root down to the working directory stays under the Codex 32768 B budget** — `wc -c` the AGENTS.md chain (root + `packages/shallot` + `examples`) before committing any entry-doc addition, and fold detail down into this path-scoped rule rather than paying for it in the entry doc; past the budget Codex silently drops the deepest file and its whole contract vanishes.
+- **The entry-doc chain from repo root down to the working directory stays under the Codex 32768 B budget** — `scripts/check-docs.ts`'s `ENTRY_DOC_BUDGET = 32768` arm enforces this per chain in `bun run check` (root + `packages/shallot`, root + `examples`), so a manual `wc -c` before an entry-doc addition is work the gate already does; the chain sits at ~32752 B — 16 B of headroom — so the next addition must fold detail down into a path-scoped rule rather than pay for it in the entry doc; past the budget Codex silently drops the deepest file and its whole contract vanishes.
 
 ```ts
 // good — says why; survives the next edit
