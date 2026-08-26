@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { attach } from "../../../tests/helpers";
 import {
+    Camera,
+    CameraMode,
     InputPlugin,
     Orbit,
+    OrbitMode,
     OrbitOverlayPlugin,
     OrbitPick,
     OrbitPlugin,
@@ -15,9 +18,10 @@ import { Slab } from "../../standard/slab";
 import { OrbitSmooth } from "./smooth";
 
 // Orbit's reload-safety (the lazy OrbitSmooth add/remove not doubling across a rebuild) is covered by
-// the conformance roster. This spec covers the pose contract and the lazy-init path: with no input,
+// the conformance roster. This spec covers the pose contract, the lazy-init path (with no input,
 // OrbitSystem drives the camera Transform from the yaw/pitch/distance pose, so the camera always sits
-// `distance` from its target. Fly/orbit/pan are input-driven and exercised live (`bun bench`), not here.
+// `distance` from its target), and — further down this file — fly mode, the contextual claim, and touch
+// gestures, driven through the real InputPlugin handlers with synthetic DOM/pointer events.
 //
 // The spherical pose is a unit vector scaled by distance, so |pos − target| == distance regardless of
 // yaw/pitch — a behavior invariant, not a re-derivation of the pose formula. Tolerance is f32 storage of
@@ -220,6 +224,43 @@ describe("OrbitSystem fly mode is the held fly button", () => {
 
         release();
         expect(OrbitSmooth.flyActive.get(cam)).toBe(0); // back to orbit, center reprojected
+    });
+
+    // the exit reprojection subtracts the orbit target entity's position before storing pan, then the
+    // pose formula on the same frame adds it back — so a camera orbiting a non-origin target entity must
+    // land exactly where it was when fly stopped. Without the entityTargetX/Y/Z subtraction (the target-
+    // entity branch), that add-back is unbalanced and the camera jumps by the target's own position on
+    // the very exit frame.
+    test("fly-exit reprojection accounts for the orbit target entity, not just world origin", () => {
+        const target = state.create();
+        state.add(target, Transform);
+        Transform.pos.set(target, 5, 0, -3, 0);
+
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.target.set(cam, target);
+        Orbit.distance.set(cam, 8);
+        state.step(1 / 60); // pose once, orbiting the target
+
+        holdFly();
+        state.step(1 / 60); // enters fly
+        expect(OrbitSmooth.flyActive.get(cam)).toBe(1);
+        onWindow("keydown")({ code: "KeyW" });
+        state.step(1 / 60); // moves forward while flying, away from the orbit sphere
+
+        const beforeExit = [
+            Transform.pos.x.get(cam),
+            Transform.pos.y.get(cam),
+            Transform.pos.z.get(cam),
+        ];
+        release(); // the exit frame: flyActive 1→0, reprojection runs on this same step
+        expect(OrbitSmooth.flyActive.get(cam)).toBe(0);
+
+        // continuity: exiting fly must not itself move the camera, even orbiting a non-origin target
+        expect(Transform.pos.x.get(cam)).toBeCloseTo(beforeExit[0], 4);
+        expect(Transform.pos.y.get(cam)).toBeCloseTo(beforeExit[1], 4);
+        expect(Transform.pos.z.get(cam)).toBeCloseTo(beforeExit[2], 4);
     });
 
     test("a fresh press of the fly button flies again — never an orbit snap", () => {
@@ -724,6 +765,257 @@ describe("OrbitSystem touch gestures", () => {
         // own cached position, not the departed pointer's.
         const dYaw = Orbit.yaw.get(cam) - yawAfterLift;
         expect(dYaw).toBeCloseTo(-30 * 0.005, 4);
+    });
+});
+
+// Locked disables *all* look — orbit rotation and fly look both — leaving pan and zoom (the enum's own
+// JSDoc). The `!locked` gate wraps `looking`, which covers both orbit's drag and fly's held-button look,
+// so a locked camera flying still translates via WASD/QE (it "flies blind") but never rotates.
+describe("OrbitSystem Locked mode disables all look, not just orbit", () => {
+    let state: State;
+    let canvas: HTMLCanvasElement;
+    let windowTracker: ListenerTracker;
+    let savedWindow: typeof globalThis.window;
+    let savedDocument: typeof globalThis.document;
+
+    beforeEach(() => {
+        clear();
+        windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        savedWindow = globalThis.window;
+        savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+        canvas = mockCanvas();
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelectorAll: (sel: string) => (sel === "canvas" ? [canvas] : []),
+        } as unknown as typeof document;
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        for (const [n, c] of Object.entries(InputPlugin.components ?? {}))
+            register(n, c, InputPlugin.traits?.[n]);
+        Slab.collect();
+        attach(state, InputPlugin);
+        attach(state, OrbitPlugin);
+        state.step(1 / 60); // InputSystem.setup binds the DOM handlers on its first run
+    });
+
+    afterEach(() => {
+        state.dispose();
+        globalThis.window = savedWindow;
+        globalThis.document = savedDocument;
+    });
+
+    const onWindow = (type: string): Fn => windowTracker.added.find(([t]) => t === type)![1];
+    const onCanvas = (type: string): Fn =>
+        (canvas as unknown as { tracker: ListenerTracker }).tracker.added.find(
+            ([t]) => t === type,
+        )![1];
+
+    const Right = 2; // flyButton default
+
+    test("an orbit drag never rotates while locked", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.mode.set(cam, OrbitMode.Locked);
+        state.step(1 / 60);
+        const yaw0 = Orbit.yaw.get(cam);
+
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 0,
+            buttons: 1,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        onWindow("pointermove")({
+            pointerId: 1,
+            buttons: 1,
+            clientX: 40,
+            clientY: 0,
+            preventDefault() {},
+        });
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6);
+    });
+
+    test("locked flies blind: a fly drag never looks, but WASD translation still moves the camera", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        Orbit.mode.set(cam, OrbitMode.Locked);
+        state.step(1 / 60);
+
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: Right,
+            buttons: 2,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        state.step(1 / 60);
+        expect(OrbitSmooth.flyActive.get(cam)).toBe(1); // fly still engages while locked
+
+        const yawBefore = OrbitSmooth.yaw.get(cam);
+        onWindow("pointermove")({
+            pointerId: 1,
+            buttons: 2,
+            clientX: 40,
+            clientY: 0,
+            preventDefault() {},
+        });
+        state.step(1 / 60);
+        expect(OrbitSmooth.yaw.get(cam)).toBeCloseTo(yawBefore, 4); // look frozen — locked blocks it
+
+        const before = [
+            Transform.pos.x.get(cam),
+            Transform.pos.y.get(cam),
+            Transform.pos.z.get(cam),
+        ];
+        onWindow("keydown")({ code: "KeyW" });
+        state.step(1 / 60);
+        const moved = Math.hypot(
+            Transform.pos.x.get(cam) - before[0],
+            Transform.pos.y.get(cam) - before[1],
+            Transform.pos.z.get(cam) - before[2],
+        );
+        expect(moved).toBeGreaterThan(0); // translation unaffected — locked disables look, not movement
+    });
+});
+
+// Orthographic zoom and middle-button pan are live branches with no prior arm: the ortho scroll path
+// clamps Orbit.size to min/maxSize and writes the smoothed value back to Camera.size (mirroring the
+// perspective distance path), and panButton defaults to the middle mouse button (1), distinct from the
+// left-orbit / right-fly buttons already covered above.
+describe("OrbitSystem orthographic zoom and middle-button pan", () => {
+    let state: State;
+    let canvas: HTMLCanvasElement;
+    let windowTracker: ListenerTracker;
+    let savedWindow: typeof globalThis.window;
+    let savedDocument: typeof globalThis.document;
+
+    beforeEach(() => {
+        clear();
+        windowTracker = new ListenerTracker();
+        (windowTracker as unknown as { focus: () => void }).focus = () => {};
+        savedWindow = globalThis.window;
+        savedDocument = globalThis.document;
+        globalThis.window = windowTracker as unknown as typeof window;
+        // a real (non-zero) rect: pan projects a screen-space delta into world units via canvasHeight
+        // (worldPerPixel), so a zero-rect stub would divide by zero.
+        const tracker = new ListenerTracker();
+        canvas = {
+            addEventListener: tracker.addEventListener,
+            removeEventListener: tracker.removeEventListener,
+            setPointerCapture() {},
+            releasePointerCapture() {},
+            hasPointerCapture: () => false,
+            getBoundingClientRect: () => ({ left: 0, top: 0, width: 800, height: 600 }) as DOMRect,
+            style: {} as CSSStyleDeclaration,
+            tracker,
+        } as unknown as HTMLCanvasElement;
+        globalThis.document = {
+            pointerLockElement: null,
+            querySelectorAll: (sel: string) => (sel === "canvas" ? [canvas] : []),
+        } as unknown as typeof document;
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        register("Camera", Camera);
+        for (const [n, c] of Object.entries(InputPlugin.components ?? {}))
+            register(n, c, InputPlugin.traits?.[n]);
+        Slab.collect();
+        attach(state, InputPlugin);
+        attach(state, OrbitPlugin);
+        state.step(1 / 60); // InputSystem.setup binds the DOM handlers on its first run
+    });
+
+    afterEach(() => {
+        state.dispose();
+        globalThis.window = savedWindow;
+        globalThis.document = savedDocument;
+    });
+
+    const onWindow = (type: string): Fn => windowTracker.added.find(([t]) => t === type)![1];
+    const onCanvas = (type: string): Fn =>
+        (canvas as unknown as { tracker: ListenerTracker }).tracker.added.find(
+            ([t]) => t === type,
+        )![1];
+
+    const wheel = (deltaY: number): void => {
+        onCanvas("wheel")({ target: canvas, deltaY, preventDefault() {} });
+    };
+
+    test("orthographic zoom scales Orbit.size and writes the smoothed value back to Camera.size", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit); // default size 5
+        state.add(cam, Camera);
+        Camera.mode.set(cam, CameraMode.Orthographic);
+        state.step(1 / 60); // pose once — the ortho branch writes Camera.size from smoothed Orbit.size
+
+        const size0 = Orbit.size.get(cam);
+        expect(Camera.size.get(cam)).toBeCloseTo(size0, 4);
+
+        wheel(100); // scroll away — grows ortho size, same sign as the perspective distance path
+        for (let i = 0; i < 30; i++) state.step(1 / 60); // let the smoothed size converge
+
+        expect(Orbit.size.get(cam)).toBeGreaterThan(size0);
+        expect(Camera.size.get(cam)).toBeCloseTo(Orbit.size.get(cam), 2);
+    });
+
+    test("orthographic zoom clamps to minSize/maxSize", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        state.add(cam, Camera);
+        Camera.mode.set(cam, CameraMode.Orthographic);
+        Orbit.maxSize.set(cam, 6);
+        state.step(1 / 60);
+
+        wheel(100000); // far past maxSize in one event
+        state.step(1 / 60);
+
+        expect(Orbit.size.get(cam)).toBeCloseTo(6, 4);
+    });
+
+    test("a middle-button drag pans — yaw stays put, pan changes", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit); // default panButton 1 (middle)
+        state.step(1 / 60);
+        const yaw0 = Orbit.yaw.get(cam);
+        const pan0X = Orbit.pan.x.get(cam);
+
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            button: 1,
+            buttons: 4,
+            clientX: 0,
+            clientY: 0,
+            preventDefault() {},
+        });
+        onWindow("pointermove")({
+            pointerId: 1,
+            buttons: 4,
+            clientX: 40,
+            clientY: 0,
+            preventDefault() {},
+        });
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6); // a pan drag never orbits
+        expect(Orbit.pan.x.get(cam)).not.toBeCloseTo(pan0X, 6);
     });
 });
 
