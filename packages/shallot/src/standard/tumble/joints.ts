@@ -248,11 +248,16 @@ function createJoint(
             localFrameB: frame(def.rB),
         });
     }
-    if (def.stiffnessAng < 0) {
+    // NaN is transparent to the comparison-only `< 0` guard (NaN < 0 is false), so state it explicitly —
+    // without this, NaN reaches stiffnessHertz, whose Number.isFinite guard returns 0 → angularHertz 0 →
+    // box3d's RIGID angular constraint → a rigid weld with no diagnostic (the exact defect the spec's Goal
+    // names). This is the escape-hatch defense: Tumble.world / imperative spawn bypasses ConstraintSystem and
+    // therefore the authoring-layer guard, so createJoint must be NaN-symmetric with its own negative case.
+    if (def.stiffnessAng < 0 || Number.isNaN(def.stiffnessAng)) {
         warnOnce(
             warned,
             `${key}|stiffness`,
-            `[tumble] joint (a: ${def.a}, b: ${def.b}) has negative angular stiffness — skipped`,
+            `[tumble] joint (a: ${def.a}, b: ${def.b}) has negative or NaN angular stiffness — skipped`,
         );
         return null;
     }

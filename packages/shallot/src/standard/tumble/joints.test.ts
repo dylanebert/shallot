@@ -1,11 +1,11 @@
 import { afterAll, afterEach, describe, expect, spyOn, test } from "bun:test";
 import { attach, stepFor } from "../../../tests/helpers";
-import { State } from "../../engine";
+import { State, Time } from "../../engine";
 import { clear, register } from "../../engine/ecs/core";
-import { Body, bodyTraits, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
+import { Body, bodyTraits, type JointDef, Joint, jointTraits, Physics, Spring, springTraits } from "../physics";
 import { Slab } from "../slab";
 import { shutdown, type Joint as TumbleJoint } from "./engine";
-import { TumblePlugin } from "./index";
+import { Tumble, TumblePlugin } from "./index";
 import { stiffnessHertz, syncSet } from "./joints";
 
 // The Spring/Joint → tumble mapping (joints.ts): the stiffness→hertz conversion law, the content-keyed
@@ -196,6 +196,15 @@ function addJoint(
     Joint.stiffnessAng.set(e, stiffnessAng);
 }
 
+// Step the tumble world directly (bypassing ConstraintSystem) for `duration` seconds — the escape-hatch
+// path: Tumble.world / imperative spawn calls setJoints directly, not through jointDefs. stepFor would run
+// ConstraintSystem, which re-uploads jointDefs(state) (empty when no Joint entities exist) and wipe any
+// joint set directly. The SUBSTEPS count matches the production backend step (tumble/index.ts).
+function stepWorldDirect(duration: number): void {
+    const ticks = Math.round(duration / Time.FIXED_DT);
+    for (let i = 0; i < ticks; i++) Tumble.world?.step(Time.FIXED_DT, 4);
+}
+
 describe("tumble constraint mapping", () => {
     test("a spring settles at the mg/k equilibrium — the stiffness→hertz law holds", async () => {
         // anchor at y=10, block (mass 8) hung on a rest-4 stiffness-100 spring: equilibrium extension
@@ -325,6 +334,76 @@ describe("tumble constraint mapping", () => {
             expect(String(jointWarn?.[0])).toContain("skipped");
             // skip half: no joint created, body falls freely — y = 2.5 + ½·(−10)·2² = −17.5 (±1.0).
             // A rigid weld (the NaN→0→rigid path without the guard) would hold the body at y ≈ 2.5.
+            expect(Math.abs((arm?.pos[1] ?? 0) - -17.5)).toBeLessThan(1.0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // ── escape-hatch arms: createJoint called directly via Physics.backend.setJoints, bypassing ──
+    // ── ConstraintSystem and the authoring-layer guard (the Tumble.world / imperative spawn path) ──
+
+    // witnessed red by mutation: exit code 1 — deleting the `|| Number.isNaN(def.stiffnessAng)` branch
+    // from createJoint's guard lets NaN pass (NaN < 0 is false) → stiffnessHertz(NaN) returns 0 (the
+    // finite guard) → angularHertz 0 → createWeldJoint → rigid weld → body pinned at y ≈ 2.5, far
+    // outside the free-fall band. With the NaN branch, createJoint warns+skips → no joint → free fall.
+    // The `< 0` branch mutation witness (exit code 1) is recorded in the negative arm below.
+    test("a NaN stiffnessAng reaching createJoint via the escape hatch is warned+skipped (free-fall)", async () => {
+        const { state, eids } = await build([
+            { pos: [0, 2, 0], mass: 0 },
+            { pos: [1.5, 2.5, 0], mass: 1, half: [0.25, 0.25, 0.25] },
+        ]);
+        // one tick to marshal the bodies into the tumble bodies map (SyncSystem runs on fixed tick)
+        stepFor(state, Time.FIXED_DT);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // bypass ConstraintSystem/jointDefs — call setJoints directly with a raw JointDef
+            Physics.backend?.setJoints([
+                { a: eids[0], b: eids[1], rA: [1.5, 0.5, 0], rB: [0, 0, 0], stiffnessAng: Number.NaN },
+            ]);
+            // step the world directly (not stepFor) so ConstraintSystem doesn't wipe the joint
+            stepWorldDirect(2);
+            const arm = Physics.backend?.readBody(eids[1]);
+            expect(arm).not.toBeNull();
+            // warn: createJoint's guard emitted a [tumble] joint ... skipped diagnostic
+            expect(warn).toHaveBeenCalled();
+            const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
+            expect(jointWarn).toBeDefined();
+            expect(String(jointWarn?.[0])).toContain("skipped");
+            // effect: no joint created → free fall — y = 2.5 + ½·(−10)·2² = −17.5 (±1.0).
+            // Without the NaN branch: angularHertz 0 → rigid weld → body at y ≈ 2.5.
+            expect(Math.abs((arm?.pos[1] ?? 0) - -17.5)).toBeLessThan(1.0);
+        } finally {
+            warn.mockRestore();
+        }
+    });
+
+    // witnessed red by mutation: exit code 1 — deleting the `def.stiffnessAng < 0` branch from
+    // createJoint's guard (leaving only the NaN check) lets -1 pass → stiffnessHertz(-1) returns 0
+    // (stiffness <= 0) → angularHertz 0 → createWeldJoint → rigid weld → body pinned at y ≈ 2.5,
+    // far outside the free-fall band. With the `< 0` branch, createJoint warns+skips → free fall.
+    // This arm exercises the escape-hatch path (setJoints direct), so the `< 0` branch's load-bearingness
+    // on the bypass path is measured, not assumed behind the authoring-layer guard.
+    test("a negative stiffnessAng reaching createJoint via the escape hatch is warned+skipped (free-fall)", async () => {
+        const { state, eids } = await build([
+            { pos: [0, 2, 0], mass: 0 },
+            { pos: [1.5, 2.5, 0], mass: 1, half: [0.25, 0.25, 0.25] },
+        ]);
+        stepFor(state, Time.FIXED_DT);
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            Physics.backend?.setJoints([
+                { a: eids[0], b: eids[1], rA: [1.5, 0.5, 0], rB: [0, 0, 0], stiffnessAng: -1 },
+            ]);
+            stepWorldDirect(2);
+            const arm = Physics.backend?.readBody(eids[1]);
+            expect(arm).not.toBeNull();
+            expect(warn).toHaveBeenCalled();
+            const jointWarn = warn.mock.calls.find((c) => String(c[0]).includes("joint"));
+            expect(jointWarn).toBeDefined();
+            expect(String(jointWarn?.[0])).toContain("skipped");
+            // effect: no joint → free fall — y = 2.5 + ½·(−10)·2² = −17.5 (±1.0).
+            // Without the `< 0` branch: angularHertz 0 → rigid weld → body at y ≈ 2.5.
             expect(Math.abs((arm?.pos[1] ?? 0) - -17.5)).toBeLessThan(1.0);
         } finally {
             warn.mockRestore();
