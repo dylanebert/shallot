@@ -264,6 +264,7 @@ describe("InputPlugin", () => {
         expect(Inputs.isKeyDown("KeyW")).toBe(true);
         onWindow("blur")();
         expect(Inputs.isKeyReleased("KeyW")).toBe(true); // held key pulses release on focus loss
+        expect(Inputs.isKeyReleased("KeyQ")).toBe(false); // a never-held key does not pulse release
     });
 
     test("windowPointerDown clears keysPressed on click-off — no stale press edge for a force-released key", () => {

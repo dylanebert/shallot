@@ -132,7 +132,7 @@ export const Inputs: Inputs = {
 /**
  * suspend or resume all input. While suspended, every {@link Inputs} read reports neutral: no keys held, no
  * mouse buttons, zero deltas, so a menu or cutscene freezes every consumer (movement, look, grab) with one
- * call, and a pointer-lock controller releases its lock. Resets to enabled on each State (re)bind.
+ * call, and a pointer-lock controller releases its lock. Resets to enabled on a bind that attaches at least one canvas.
  *
  * @example
  * ```
@@ -550,8 +550,6 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         element.style.touchAction = "none";
     }
 
-    enabled = true; // a fresh bind starts live — never inherit a prior State's suspended gate
-
     if (canvases.size === 0) return;
 
     const s: InputState = {
@@ -595,6 +593,7 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
         attachCanvas(s, canvas, state.signal);
     }
 
+    enabled = true; // a fresh bind starts live — never inherit a prior State's suspended gate
     inputState = s;
     // drop the module ref when this State tears down, so a disposed app reads neutral; guarded so a
     // newer build's inputState isn't clobbered. Listener detach is the signal's job (attach* above).
