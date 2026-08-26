@@ -65,7 +65,7 @@ A flat component is a real data shape, not a bundle of named scalars. Splitting 
 
 ### Scope
 
-- **All live code is clean** — `engine/`, `standard/`, and `extras/` declare Single/Pair/Quad directly, no `column()` backing, no raw `number[]`. The engine has no split-suffix support: no detectVecN detectors, no `${name}X/Y/Z` parse/format branches, no `key.endsWith("X")` schema collapse.
+- **All live code is clean** — `engine/`, `standard/`, and `extras/` declare Single/Pair/Quad directly, no `column()` backing, no raw `number[]`. The engine has no split-suffix support: no `detectVecN` detectors, no `${name}X/Y/Z` parse/format branches, no `key.endsWith("X")` schema collapse.
 
 ### Migration guidelines
 

@@ -1,165 +1,203 @@
 #!/usr/bin/env bun
 
-// Stale-claim detector: scans `.claude/rules/**` for backtick-cited `*.ts` paths
-// and `*_WGSL`/`*Wgsl`-shaped symbols, then resolves each against the tree.
-// Also scans for prose-name references to removed concepts.
+// Stale-claim detector: scans `.claude/rules/**` for identifier-shaped tokens
+// (backticked or bare, outside fenced code blocks) and backtick-cited `*.ts`
+// paths, then resolves each against a one-pass token index over `*.ts`/`*.rs`/`*.wgsl`
+// and committed rosters. This is a one-off audit tool, NOT a gate — the gate
+// is the check-docs citation-resolution arm.
 //
 // Run: `bun run scripts/detect-stale-claims.ts` from shallot root.
-// This is a one-off audit tool, NOT a gate — the gate is the check-docs arm.
 
-import { existsSync } from "node:fs";
-import { Glob } from "bun";
 import { resolve } from "path";
+import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS, X86_ISA } from "./rosters";
 
 const root = resolve(import.meta.dir, "..");
 
-// ── 1. Collect all rule files ──────────────────────────────────────────────
-const ruleFiles: string[] = [];
-for await (const match of new Glob("**/*.md").scan({ cwd: resolve(root, ".claude/rules") })) {
-    ruleFiles.push(`.claude/rules/${match}`);
+// ── 1. Collect all rule files (git-tracked) ─────────────────────────────────
+const rulesTracked = Bun.spawnSync(["git", "-C", root, "ls-files", "-z", "*.md"], {
+    cwd: root,
+});
+const ruleFiles = rulesTracked.stdout
+    .toString()
+    .split("\0")
+    .filter(Boolean)
+    .filter((f) => f.startsWith(".claude/rules/"));
+
+// ── 2. Build one-pass token index over *.ts / *.rs / *.wgsl ──────────────────
+const allFiles = Bun.spawnSync(["git", "-C", root, "ls-files", "-z"], { cwd: root });
+const trackedFiles = allFiles.stdout.toString().split("\0").filter(Boolean);
+const trackedSet = new Set(trackedFiles);
+
+const sourceFiles = trackedFiles.filter(
+    (f) =>
+        (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
+        !f.includes("node_modules") &&
+        f !== "scripts/check-docs.ts" &&
+        f !== "scripts/detect-stale-claims.ts",
+);
+
+const tokenIndex = new Set<string>();
+const TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+for (const f of sourceFiles) {
+    const text = await Bun.file(resolve(root, f)).text();
+    for (const m of text.matchAll(TOKEN_RE)) {
+        tokenIndex.add(m[0]);
+    }
 }
 
-// ── 2. Extract backtick-cited candidates ───────────────────────────────────
-// A backtick-cited `*.ts` path: `something/foo.ts` or `foo.ts`
-// A `*_WGSL` or `*Wgsl`-shaped symbol: `ENTITY_COLS_WGSL`, `xformWgsl`, etc.
+// ── 3. Combined roster set ───────────────────────────────────────────────────
+const combinedRoster = new Set<string>();
+for (const s of WGSL_BUILTINS) combinedRoster.add(s);
+for (const s of WEBGPU_IDL) combinedRoster.add(s);
+for (const s of X86_ISA) combinedRoster.add(s);
+for (const [, roster] of Object.entries(FOREIGN_NAMESPACES)) {
+    for (const s of roster) combinedRoster.add(s);
+}
 
+// ── 4. Identifier shape predicates (same as check-docs arm) ─────────────────
+function isCamelCase(w: string): boolean {
+    return /^[a-z]/.test(w) && /[A-Z]/.test(w) && !w.includes("_");
+}
+function isPascalCase(w: string): boolean {
+    return /^[A-Z]/.test(w) && /[a-z][A-Z]/.test(w) && !w.includes("_");
+}
+function isSnakeOrScreaming(w: string): boolean {
+    return (
+        w.includes("_") &&
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(w) &&
+        /[A-Za-z0-9]/.test(w) &&
+        w.length >= 2
+    );
+}
+function isLowercaseWithDigits(w: string): boolean {
+    return /^[a-z][a-z0-9]*$/.test(w) && /[0-9]/.test(w) && !w.includes("_");
+}
+function isHex(w: string): boolean {
+    return /^[0-9a-f]+$/.test(w) && /[0-9]/.test(w) && /[a-f]/.test(w);
+}
+
+const SHAPE_FALSE_POSITIVES = new Set(["AoSoA", "iGPUs", "EndFrame"]);
+
+function matchesShape(w: string): boolean {
+    if (w.length < 2) return false;
+    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
+    if (isHex(w)) return false;
+    return isCamelCase(w) || isPascalCase(w) || isSnakeOrScreaming(w) || isLowercaseWithDigits(w);
+}
+
+// ── 5. Extract candidates ───────────────────────────────────────────────────
 type Candidate = {
     file: string;
     line: number;
     text: string;
-    kind: "ts-path" | "wgsl-symbol";
+    kind: "ts-path" | "identifier";
     ref: string;
+    backticked: boolean;
 };
 
 const candidates: Candidate[] = [];
+const seen = new Set<string>();
 
-// Regex for backtick-cited .ts paths
-const tsPathRe = /`([^`]*\.ts)`/g;
-// Regex for *_WGSL or *Wgsl symbols (inside backticks or bare)
-const wgslSymbolRe = /`([A-Za-z_][A-Za-z0-9_]*_WGSL)`|`([A-Za-z_][A-Za-z0-9_]*Wgsl(?:\(\))?)`/g;
+const TS_PATH_RE = /`([^`]*\.ts)`/g;
+const IDENTIFIER_RE = /`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g;
+
+function addCandidate(
+    file: string,
+    line: number,
+    ref: string,
+    kind: "ts-path" | "identifier",
+    backticked: boolean,
+) {
+    const key = `${file}:${line}:${ref}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    candidates.push({ file, line, kind, ref, backticked, text: "" });
+}
 
 for (const file of ruleFiles) {
     const text = await Bun.file(resolve(root, file)).text();
     const lines = text.split("\n");
+    let inFence = false;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        // .ts paths
-        for (const m of line.matchAll(tsPathRe)) {
-            candidates.push({ file, line: i + 1, text: line.trim(), kind: "ts-path", ref: m[1] });
+        if (line.trim().startsWith("```")) {
+            inFence = !inFence;
+            continue;
         }
-        // WGSL symbols
-        for (const m of line.matchAll(wgslSymbolRe)) {
-            const ref = m[1] || m[2];
-            candidates.push({ file, line: i + 1, text: line.trim(), kind: "wgsl-symbol", ref });
+        if (inFence) continue;
+
+        // Backtick-cited .ts paths
+        for (const m of line.matchAll(TS_PATH_RE)) {
+            const ref = m[1];
+            if (ref.startsWith(".") || ref.includes("*") || ref.includes(" ") || ref.includes("{"))
+                continue;
+            addCandidate(file, i + 1, ref, "ts-path", true);
+        }
+
+        // Backtick-cited identifiers
+        for (const m of line.matchAll(IDENTIFIER_RE)) {
+            const ref = m[1].replace(/\(\)$/, "");
+            if (ref.endsWith(".ts")) continue;
+            if (matchesShape(ref)) addCandidate(file, i + 1, ref, "identifier", true);
+        }
+
+        // Bare identifier-shaped tokens (strip URLs, not backtick spans)
+        const stripped = line.replace(/https?:\/\/[^\s)]*/g, " ");
+        for (const m of stripped.matchAll(TOKEN_RE)) {
+            const ref = m[0];
+            if (matchesShape(ref)) addCandidate(file, i + 1, ref, "identifier", false);
         }
     }
 }
 
-// ── 3. Resolve each candidate against the tree ──────────────────────────────
-
-function tsPathExists(path: string): boolean {
-    // The path could be relative to src/ or packages/shallot/src/ etc.
-    // Try various resolutions
-    const tries = [
-        resolve(root, path),
-        resolve(root, "packages/shallot/src", path),
-        resolve(root, "packages/shallot", path),
-        resolve(root, "packages/shallot/src", path.replace(/^packages\/shallot\/src\//, "")),
-    ];
+// ── 6. Resolve each candidate ──────────────────────────────────────────────
+function tsPathResolves(path: string): boolean {
+    const tries = [path, `packages/shallot/src/${path}`, `packages/shallot/${path}`];
     for (const t of tries) {
-        if (existsSync(t)) return true;
+        if (trackedSet.has(t)) return true;
     }
-    // Also check via git ls-files for tracked paths
-    const git = Bun.spawnSync(["git", "-C", root, "ls-files", "--error-unmatch", path], {
-        stdout: "pipe",
-        stderr: "pipe",
-    });
-    if (git.success) return true;
-    // Try with packages/shallot/src prefix
-    const git2 = Bun.spawnSync(
-        ["git", "-C", root, "ls-files", "--error-unmatch", `packages/shallot/src/${path}`],
-        { stdout: "pipe", stderr: "pipe" },
-    );
-    if (git2.success) return true;
+    const suffix = `/${path}`;
+    for (const f of trackedSet) {
+        if (f.endsWith(suffix)) return true;
+    }
     return false;
 }
 
-function symbolExists(symbol: string): boolean {
-    // Strip trailing () for function-call forms
-    const name = symbol.replace(/\(\)$/, "");
-    // Grep for the symbol in .ts and .rs files (not node_modules)
-    const git = Bun.spawnSync(
-        ["git", "-C", root, "grep", "-l", "--fixed-strings", name, "--", "*.ts", "*.rs"],
-        { stdout: "pipe", stderr: "pipe" },
-    );
-    if (!git.success) return false;
-    const files = git.stdout.toString().trim().split("\n").filter(Boolean);
-    // Exclude node_modules and the arm/detector's own source (their comments mention the symbols they check)
-    return files.some(
-        (f) =>
-            !f.includes("node_modules") &&
-            f !== "scripts/check-docs.ts" &&
-            f !== "scripts/detect-stale-claims.ts",
-    );
+function resolvesAnywhere(ref: string, kind: string): boolean {
+    if (kind === "ts-path") {
+        if (tsPathResolves(ref)) return true;
+        return combinedRoster.has(ref);
+    }
+    if (tokenIndex.has(ref)) return true;
+    return combinedRoster.has(ref);
 }
 
-// ── 4. Report ──────────────────────────────────────────────────────────────
-
+// ── 7. Report ──────────────────────────────────────────────────────────────
 console.log("=== Stale-claim detector ===\n");
-console.log(`Scanned ${ruleFiles.length} rule files, found ${candidates.length} candidates.\n`);
+console.log(
+    `Scanned ${ruleFiles.length} rule files, found ${candidates.length} candidates (${new Set(candidates.map((c) => c.ref)).size} distinct).`,
+);
+console.log(
+    `Token index: ${tokenIndex.size} unique tokens from ${sourceFiles.length} source files.`,
+);
 
 const stale: Candidate[] = [];
 const live: Candidate[] = [];
 
 for (const c of candidates) {
-    const exists = c.kind === "ts-path" ? tsPathExists(c.ref) : symbolExists(c.ref);
-    if (exists) {
+    if (resolvesAnywhere(c.ref, c.kind)) {
         live.push(c);
     } else {
         stale.push(c);
     }
 }
 
-console.log(`--- LIVE (${live.length}) ---`);
+console.log(`\n--- LIVE (${live.length}) ---`);
 for (const c of live) {
-    console.log(`  [${c.kind}] ${c.file}:${c.line} → ${c.ref}`);
+    console.log(`  [${c.kind}] ${c.file}:${c.line} → ${c.ref} ${c.backticked ? "(bt)" : "(bare)"}`);
 }
 
 console.log(`\n--- STALE (${stale.length}) ---`);
 for (const c of stale) {
-    console.log(`  [${c.kind}] ${c.file}:${c.line} → ${c.ref}`);
-    console.log(`    ${c.text.substring(0, 200)}`);
-}
-
-// ── 5. Prose-name queries ──────────────────────────────────────────────────
-// Key on prose names, not just identifiers — a removed field's paraphrase
-// survives an identifier grep and leaves the doc contradicting itself.
-
-console.log("\n=== Prose-name queries ===\n");
-
-const proseQueries: { query: string; pattern: RegExp; desc: string }[] = [
-    {
-        query: "submodule",
-        pattern: /submodule/gi,
-        desc: "references to git submodules (repo has no .gitmodules)",
-    },
-    {
-        query: "git submodule update",
-        pattern: /git submodule update/gi,
-        desc: "git submodule update commands (unrunnable without .gitmodules)",
-    },
-];
-
-for (const { query, pattern, desc } of proseQueries) {
-    console.log(`--- Query: "${query}" (${desc}) ---`);
-    for (const file of ruleFiles) {
-        const text = await Bun.file(resolve(root, file)).text();
-        const lines = text.split("\n");
-        for (let i = 0; i < lines.length; i++) {
-            if (pattern.test(lines[i])) {
-                console.log(`  ${file}:${i + 1}: ${lines[i].trim().substring(0, 200)}`);
-            }
-        }
-    }
-    console.log();
+    console.log(`  [${c.kind}] ${c.file}:${c.line} → ${c.ref} ${c.backticked ? "(bt)" : "(bare)"}`);
 }

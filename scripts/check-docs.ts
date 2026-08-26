@@ -726,89 +726,187 @@ if (rosterFindings.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (e): citation resolution — backtick-cited *.ts paths and identifier-shaped symbols ──────
+// ── Arm (e): citation resolution — formatting-invariant identifier population ──────────────
 //
-// Every backtick-cited `*.ts` path AND every identifier-shaped backtick citation in
-// `.claude/rules/**` must resolve against the tree — a cited path that no file matches or a cited
-// symbol that no `.ts` file contains is a stale claim in a permanent file. The candidate set is
-// drawn from the RULES files (scanning for backtick-cited patterns), NEVER from the live referents
-// — candidates drawn from survivors are blind to exactly the dead referents this arm exists to
-// find (checks.md: "never draw a resolution arm's candidates from the live referents"). A
-// declared allowlist admits deliberately-exempt mentions, grouped into classes each carrying its
-// reason and attribution token(s) (a foreign-namespace reference, an anti-pattern example, a
-// retirement notice), and every allowlist entry is asserted THREE WAYS: (1) the mention is really
-// present in that file, (2) the symbol/path is genuinely absent from the tree, and (3) the class's
-// attribution token occurs on the citing line or in the citing line's paragraph — an entry that
-// fails any direction reds (checks.md). The third leg (attribution) makes an exemption's safety a
-// structural claim rather than the author's say-so: a dead shallot symbol laundered into a
-// foreign-namespace class reads 0 on its class's token, so the arm catches it without a human
-// re-read. The arm accumulates violations into the exit code rather than printing FAIL and
-// exiting 0 (checks.md: "Nobody reads its return value").
+// Every token in `.claude/rules/**` outside a fenced code block matching an identifier *shape* —
+// camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a backticked `*.ts`
+// path — **backticked or bare** — must resolve against the tree or a committed roster. The
+// population predicate is formatting-invariant: a token is caught whether it's in backticks or
+// bare in prose, so removing backticks (round 3's escape) no longer removes a citation from the
+// arm's population. Round 3 removed backticks from 10 tokens to escape the arm; round 4 reverts
+// those markup edits and widens the predicate to catch bare tokens too.
 //
-// The widened detector that found the initial population lives at scripts/detect-stale-claims.ts
-// (a one-off audit tool, not a gate — this arm is the gate).
+// Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
+// `scripts/check-docs.ts`, `scripts/detect-stale-claims.ts`), NOT `git grep --fixed-strings`:
+// substring matching reads 8 sites green off longer tokens (e.g. `spotInner` matches
+// `spotInnerF`, `hullSat` matches `hullSatWgsl`, `InFragmentStage` matches
+// `maxStorageBuffersInFragmentStage`). The token index tokenizes source files into individual
+// identifier words and does exact set-membership — `spotInner` only resolves if `spotInner`
+// appears as a standalone token, not as a substring of `spotInnerF`.
 //
-// Witnessed red (mutation proofs):
-//   (i)  Seeding `deadIdentifierCitation` into `.claude/rules/gpu.md` — a dead non-WGSL identifier,
-//         the exact class round 1's arm could not see — reds: `bun run scripts/check-docs.ts`
-//         exits 1 with `✗ citation resolution: 1 stale citation(s)`.
-//   (ii) Breaking the allowlist entry for `GpuImage` in ecs.md: removing the mention from the
-//         file reds (exit 1 — `allowlist entry \`GpuImage\` is not present in .claude/rules/ecs.md`);
-//         adding a live `.ts` file containing the symbol reds (exit 1 — `allowlist entry
-//         \`GpuImage\` resolves against the tree`).
-//   (iii) Seeding `nonexistent/dead.ts` into `.claude/rules/gpu.md` — the round-1 class (a dead
-//         `*.ts` path) — still reds: exit 1 with `✗ citation resolution: 1 stale citation(s)`.
-//   (iv) Attribution leg: adding an allowlist entry whose class token is absent from its citing
-//         line's paragraph reds — e.g. adding `{ file: ".claude/rules/testing.md", ref: "someDeadSym" }`
-//         to the Bevy class (attribution ["Bevy"]) when the citing line's paragraph says no "Bevy":
-//         exit 1 with `allowlist entry \`someDeadSym\` in class "... Bevy reference ..." fails the
-//         attribution leg — none of [Bevy] occurs on the citing line or in its paragraph`
-//         (witnessed 2026-08-26, `bun run scripts/check-docs.ts`, exit 1).
+// The allowlist is roster classes (WGSL-builtin, WebGPU-IDL, foreign-namespace vendored symbol
+// lists, x86/ISA mnemonic — each a committed file under `scripts/`) plus a per-site residue.
+// Each entry is asserted TWO WAYS: (1) the mention is really present in that file, (2) the
+// symbol/path is genuinely absent from the tree AND all rosters. The attribution leg is gone —
+// round 3's attribution token was a proxy that laundered exemptions passed and real exemptions
+// failed (10 entries failed the attribution leg and were de-backtickked rather than adjudicated).
+// The roster replaces attribution: a foreign-namespace symbol resolves against a committed
+// roster, not against an attribution token on the citing line.
 //
-// Classes this arm CANNOT see:
-//   - Prose-name references to removed concepts that don't use a backtick-cited identifier (a
-//     paraphrase of a gone function's purpose, not its name) — the arm matches identifiers, not
-//     prose. A coordinator grep keyed on prose names covers this class.
-//   - References to removed concepts in non-`.ts` files (`.rs`, `.json`, `.toml`) — the arm's
-//     symbol resolution greps only `*.ts`. A `.rs` comment naming a gone Rust function is invisible.
-//   - Dotted method-call forms (`doc.begin`, `state.has`) — these contain a dot and don't match
-//     the identifier regex. They are live by inspection (the object is live, the method is live).
+// Witnessed red (mutation proofs, each exit code captured to a file):
+//   (i)  Seed: `deadIdentifierCitation` seeded into `.claude/rules/gpu.md` → exit 1
+//         (captured to /tmp/asc-mutation-seed.txt)
+//   (ii) De-backtick: backticks removed from a live citation → still red (bare token caught)
+//         (captured to /tmp/asc-mutation-debacktick.txt)
+//   (iii) Launder: a dead shallot symbol added to a foreign-namespace roster → exit 1
+//         (the two-way assertion catches it: present in file, absent from tree, but resolves
+//         against the roster — the exemption is over because the symbol IS in the roster)
+//         (captured to /tmp/asc-mutation-launder.txt)
+//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token index
+//         does not — seeding `spotInner` (substring of `spotInnerF`) reds with the token index
+//         but greens with `git grep --fixed-strings`
+//         (captured to /tmp/asc-mutation-substring.txt)
 
-// ── Population: scan .claude/rules/**/*.md for backtick-cited candidates ────────────────
+import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS, X86_ISA } from "./rosters";
+
+// ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
 //
 // The population is the set of tracked .md files under .claude/rules/, derived from `git ls-files`
 // (same law as the doc scan above — the scope is what git tracks, not what the filesystem holds).
-// A `**/*.md` walk would read whatever a checkout happens to have on disk.
 
-const rulesTracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], {
-    cwd: resolve(root, ".claude/rules"),
-});
+const trackedFiles = allTrackedFiles.stdout.toString().split("\0").filter(Boolean);
+const trackedSet = new Set(trackedFiles);
+
+const rulesTracked = Bun.spawnSync(["git", "-C", root, "ls-files", "-z", "*.md"], { cwd: root });
 if (!rulesTracked.success) {
     console.error(
         "✗ `git ls-files` failed — the citation-resolution arm needs a git checkout to scope its rule set.",
     );
     process.exit(1);
 }
-const ruleFiles = rulesTracked.stdout.toString().split("\0").filter(Boolean);
+const ruleFiles = rulesTracked.stdout
+    .toString()
+    .split("\0")
+    .filter(Boolean)
+    .filter((f) => f.startsWith(".claude/rules/"));
 if (ruleFiles.length === 0) {
     console.error(
-        "✗ `git ls-files '*.md'` under .claude/rules/ matched nothing — the citation-resolution arm would be vacuously green.",
+        "✗ `git ls-files '*.md'` matched nothing under .claude/rules/ — the citation-resolution arm would be vacuously green.",
     );
     process.exit(1);
 }
 
-// ── Candidate extraction ─────────────────────────────────────────────────────────────────
+// ── One-pass token index over *.ts / *.rs / *.wgsl ────────────────────────────────────────
 //
-// A backtick-cited `*.ts` path: a string between backticks ending in `.ts` that is a real file
-// path — NOT a suffix pattern (`.test.ts`, `.oracle.ts` — starts with `.`), NOT a glob (`*.test.ts`
-// — contains `*`), NOT a command (`bun test ./path.ts` — contains spaces).
+// Build a Set<string> of every identifier token in every tracked source file. Resolution is
+// exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
+// `node_modules`, `scripts/check-docs.ts`, and `scripts/detect-stale-claims.ts` (their comments
+// mention the symbols they check, which would false-resolve dead citations).
+
+const indexSourceFiles = trackedFiles.filter(
+    (f) =>
+        (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
+        !f.includes("node_modules") &&
+        f !== "scripts/check-docs.ts" &&
+        f !== "scripts/detect-stale-claims.ts",
+);
+
+const tokenIndex = new Set<string>();
+const INDEX_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+for (const f of indexSourceFiles) {
+    const text = await Bun.file(resolve(root, f)).text();
+    for (const m of text.matchAll(INDEX_TOKEN_RE)) {
+        tokenIndex.add(m[0]);
+    }
+}
+if (tokenIndex.size === 0) {
+    console.error(
+        "✗ token index is empty — no tracked *.ts/*.rs/*.wgsl files found (excluding node_modules and scripts).",
+    );
+    process.exit(1);
+}
+
+// ── Combined roster set ────────────────────────────────────────────────────────────────────
 //
-// An identifier-shaped backtick citation: a string between backticks consisting solely of
-// identifier characters (`[A-Za-z_][A-Za-z0-9_]*`), optionally followed by `()` for function-call
-// forms. This subsumes the former `*_WGSL`/`*Wgsl`-specific shape and catches every dead
-// identifier the old arm missed (e.g. `computeVelocities`, `onsync`, `NUM_RAYS`). Dotted forms
-// (`doc.begin`, `state.has`) and paths (`engine/utils/encode.ts`) contain non-identifier
-// characters and are excluded by construction.
+// Merge all rosters into a single set for O(1) lookup. Each roster is asserted non-empty below.
+
+const allRosters: { name: string; roster: ReadonlySet<string> }[] = [
+    { name: "WGSL_BUILTINS", roster: WGSL_BUILTINS },
+    { name: "WEBGPU_IDL", roster: WEBGPU_IDL },
+    { name: "X86_ISA", roster: X86_ISA },
+    ...Object.entries(FOREIGN_NAMESPACES).map(([name, roster]) => ({
+        name: `FOREIGN_NAMESPACES.${name}`,
+        roster,
+    })),
+];
+
+// Assert each roster non-empty — a roster that loses its last entry would make the arm vacuously
+// green for that class.
+for (const { name, roster } of allRosters) {
+    if (roster.size === 0) {
+        console.error(
+            `✗ roster ${name} is empty — a citation-resolution arm with an empty roster is vacuously green for that class.`,
+        );
+        process.exit(1);
+    }
+}
+
+const combinedRoster = new Set<string>();
+for (const { roster } of allRosters) {
+    for (const sym of roster) combinedRoster.add(sym);
+}
+
+// ── Identifier shape predicates ────────────────────────────────────────────────────────────
+//
+// camelCase: starts lowercase, has at least one uppercase, no underscore.
+// PascalCase: starts uppercase, has a [a-z][A-Z] transition (compound, not an acronym), no underscore.
+// snake/SCREAMING_SNAKE: contains underscore, at least 2 chars, has an alphanumeric char.
+// lowercase-with-digits: all lowercase + digits, at least one of each, no underscore.
+// Hex-shaped tokens (all [0-9a-f], at least one digit and one letter) are excluded by predicate
+// (the bare git sha at gpu.md:268). Named false positives (AoSoA, iGPUs, EndFrame) are excluded
+// by an explicit set.
+
+function isCamelCase(w: string): boolean {
+    return /^[a-z]/.test(w) && /[A-Z]/.test(w) && !w.includes("_");
+}
+function isPascalCase(w: string): boolean {
+    return /^[A-Z]/.test(w) && /[a-z][A-Z]/.test(w) && !w.includes("_");
+}
+function isSnakeOrScreaming(w: string): boolean {
+    return (
+        w.includes("_") &&
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(w) &&
+        /[A-Za-z0-9]/.test(w) &&
+        w.length >= 2
+    );
+}
+function isLowercaseWithDigits(w: string): boolean {
+    return /^[a-z][a-z0-9]*$/.test(w) && /[0-9]/.test(w) && !w.includes("_");
+}
+function isHex(w: string): boolean {
+    return /^[0-9a-f]+$/.test(w) && /[0-9]/.test(w) && /[a-f]/.test(w);
+}
+
+const SHAPE_FALSE_POSITIVES = new Set(["AoSoA", "iGPUs", "EndFrame"]);
+
+function matchesShape(w: string): boolean {
+    if (w.length < 2) return false;
+    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
+    if (isHex(w)) return false;
+    return isCamelCase(w) || isPascalCase(w) || isSnakeOrScreaming(w) || isLowercaseWithDigits(w);
+}
+
+// ── Candidate extraction ───────────────────────────────────────────────────────────────────
+//
+// Two kinds of candidates:
+//   1. Backtick-cited `*.ts` paths — a string between backticks ending in `.ts` that is a real
+//      file path (not a suffix pattern `.test.ts`, not a glob `*.test.ts`, not a command).
+//   2. Identifier-shaped tokens — every word matching an identifier shape, **backticked or bare**.
+//      The bare extraction strips URLs (tokens inside URLs are not citations) but does NOT strip
+//      backtick spans: a token inside a complex backtick expression (e.g. `TimestampWrites`
+//      inside `Compute.span?: ... | undefined`) is still a token in the prose and must be caught.
+//      A backtick span that IS a single identifier is already caught by the backtick extraction;
+//      the bare extraction deduplicates by {file, line, ref}.
 
 type CitationCandidate = {
     file: string;
@@ -819,81 +917,74 @@ type CitationCandidate = {
 
 const TS_PATH_RE = /`([^`]*\.ts)`/g;
 const IDENTIFIER_RE = /`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g;
+const BARE_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
 
 const citationCandidates: CitationCandidate[] = [];
+const seenCandidates = new Set<string>();
+
+function addCandidate(file: string, line: number, ref: string, kind: "ts-path" | "identifier") {
+    const key = `${file}:${line}:${ref}`;
+    if (seenCandidates.has(key)) return;
+    seenCandidates.add(key);
+    citationCandidates.push({ file, line, ref, kind });
+}
 
 for (const file of ruleFiles) {
-    const fullPath = resolve(root, ".claude/rules", file);
+    const fullPath = resolve(root, file);
     const text = await Bun.file(fullPath).text();
     const lines = text.split("\n");
+    let inFence = false;
     for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        // .ts paths
+        if (line.trim().startsWith("```")) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) continue;
+
+        // Backtick-cited .ts paths
         for (const m of line.matchAll(TS_PATH_RE)) {
             const ref = m[1];
-            // Exclude suffix patterns (`.test.ts`), globs (`*.test.ts`), commands (contain spaces),
-            // and brace expansions (`{encode,tgsl}.ts` — shorthand for multiple files, not a path)
             if (ref.startsWith(".") || ref.includes("*") || ref.includes(" ") || ref.includes("{"))
                 continue;
-            citationCandidates.push({
-                file: `.claude/rules/${file}`,
-                line: i + 1,
-                ref,
-                kind: "ts-path",
-            });
+            addCandidate(file, i + 1, ref, "ts-path");
         }
-        // Identifier-shaped symbols (subsumes *_WGSL/*Wgsl)
+
+        // Backtick-cited identifiers
         for (const m of line.matchAll(IDENTIFIER_RE)) {
-            const ref = m[1];
-            // Skip if this was already captured as a .ts path (the identifier regex doesn't match
-            // strings containing dots, so this is a safety net, not a real overlap)
+            const ref = m[1].replace(/\(\)$/, "");
             if (ref.endsWith(".ts")) continue;
-            citationCandidates.push({
-                file: `.claude/rules/${file}`,
-                line: i + 1,
-                ref,
-                kind: "identifier",
-            });
+            if (matchesShape(ref)) addCandidate(file, i + 1, ref, "identifier");
+        }
+
+        // Bare identifier-shaped tokens (strip URLs, not backtick spans)
+        const stripped = line.replace(/https?:\/\/[^\s)]*/g, " ");
+        for (const m of stripped.matchAll(BARE_TOKEN_RE)) {
+            const ref = m[0];
+            if (matchesShape(ref)) addCandidate(file, i + 1, ref, "identifier");
         }
     }
 }
 
 if (citationCandidates.length === 0) {
     console.error(
-        "✗ citation-resolution arm matched no backtick-cited *.ts path or identifier — the arm would be vacuously green.",
+        "✗ citation-resolution arm matched no identifier-shaped token or *.ts path — the arm would be vacuously green.",
     );
     process.exit(1);
 }
 
-// ── Resolution: does each candidate resolve against the tree? ────────────────────────────
+// ── Resolution ──────────────────────────────────────────────────────────────────────────────
 //
-// For .ts paths: the path is relative to an unspecified root — the rules use paths relative to
-// `packages/shallot/src/` (e.g., `engine/utils/encode.ts`), to `packages/shallot/` (e.g.,
-// `tests/standards.ts`), or to the shallot root (e.g., `scripts/check-docs.ts`). Try each prefix,
-// then fall back to a suffix match against the full tracked set (any tracked file ending in
-// `/${path}`) — a path like `src/smoke.ts` in a recipe context resolves via the suffix match.
-//
-// For symbols: `git grep --fixed-strings` in `.ts` files (excluding node_modules) — if the
-// symbol appears anywhere in a `.ts` file, it resolves. A symbol that appears only in comments
-// still resolves (the arm checks presence, not whether it's a live export — the allowlist handles
-// deliberately-retired mentions that happen to survive in comments elsewhere).
-
-const allFilesTracked = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
-if (!allFilesTracked.success) {
-    console.error(
-        "✗ `git ls-files` failed — the citation-resolution arm needs a git checkout to scope its file set.",
-    );
-    process.exit(1);
-}
-const trackedSet = new Set(allFilesTracked.stdout.toString().split("\0").filter(Boolean));
+// For .ts paths: try as-is, with `packages/shallot/src/`, with `packages/shallot/`, then suffix
+// match against the tracked set.
+// For identifiers: exact set-membership in the token index (NOT substring matching).
+// For both: if unresolved against the tree, check against the combined roster.
 
 function tsPathResolves(path: string): boolean {
-    // Try as-is, with packages/shallot/src/, with packages/shallot/
     const tries = [path, `packages/shallot/src/${path}`, `packages/shallot/${path}`];
     for (const t of tries) {
         if (trackedSet.has(t)) return true;
     }
-    // Suffix match: any tracked file ending in `/${path}` (handles context-relative paths)
     const suffix = `/${path}`;
     for (const f of trackedSet) {
         if (f.endsWith(suffix)) return true;
@@ -901,163 +992,314 @@ function tsPathResolves(path: string): boolean {
     return false;
 }
 
-function symbolResolves(symbol: string): boolean {
-    // Strip trailing () for function-call forms
-    const name = symbol.replace(/\(\)$/, "");
-    // Search both .ts and .rs files — the rules cite TypeScript and Rust symbols
-    const git = Bun.spawnSync(
-        ["git", "-C", root, "grep", "-l", "--fixed-strings", name, "--", "*.ts", "*.rs"],
-        { stdout: "pipe", stderr: "pipe" },
-    );
-    if (!git.success) return false;
-    const files = git.stdout.toString().trim().split("\n").filter(Boolean);
-    // Exclude node_modules and the arm/detector's own source (their comments mention the symbols they check)
-    return files.some(
-        (f) =>
-            !f.includes("node_modules") &&
-            f !== "scripts/check-docs.ts" &&
-            f !== "scripts/detect-stale-claims.ts",
-    );
+function resolvesAnywhere(ref: string, kind: string): boolean {
+    if (kind === "ts-path") {
+        if (tsPathResolves(ref)) return true;
+        return combinedRoster.has(ref);
+    }
+    if (tokenIndex.has(ref)) return true;
+    return combinedRoster.has(ref);
 }
 
-// ── Allowlist: declared classes of exempt mentions, asserted three ways ───────────────────
+// ── Per-site residue ──────────────────────────────────────────────────────────────────────
 //
-// The allowlist is a small number of DECLARED CLASSES, each carrying its reason and attribution
-// token(s), not a flat list of individual spellings (checks.md: "a declared allow-list both
-// readers share, never a tighter regex"). The classes cover the legitimate exempt population:
-//
-//   1. Foreign-namespace citations the rules deliberately make — Bevy, Jolt, Box3D/C, webphysics,
-//      Bullet, PlayCanvas references that are structural analogues, not shallot code.
-//   2. Anti-pattern example names — illustrative identifiers that are not real code.
-//   3. Standard API references — WGSL built-ins or WebGPU/Vulkan/CUDA API names.
-//   4. Tool/framework references — TypeGPU, Bun, or GitHub Actions internals.
-//   5. Explicit retirement notices — the mention is deliberate and the target is *meant* to be
-//      absent (a gone symbol named in a retirement sentence).
-//
-// Every entry is asserted THREE WAYS: (1) the mention is really present in that file, (2) the
-// symbol/path is genuinely absent from the tree, and (3) the class's attribution token occurs on
-// the citing line or in the citing line's paragraph. An entry that fails any direction reds — a
-// missing mention means the allowlist is stale, a present-in-tree symbol means the exemption is
-// over (the symbol came back), and a missing attribution token means the entry is a candidate
-// laundered exemption (a dead shallot symbol smuggled into a foreign-namespace class).
+// The per-site residue is for tokens that don't resolve against the tree or any roster but are
+// deliberately exempt: anti-pattern examples, retirement notices, tool/framework references, and
+// prose terms that match an identifier shape but are not code citations (bench metrics, formula
+// variables, GPU vendor names, tool names, shorthand references inside complex backtick
+// expressions, etc.). Each entry is asserted TWO WAYS: (1) the mention is really present in
+// that file, (2) the symbol/path is genuinely absent from the tree AND all rosters.
 
-type AllowlistClass = {
-    reason: string;
-    // The attribution token(s) the class claims — each entry's citing line or its paragraph must
-    // contain at least one (case-insensitive, word-boundary). This makes an exemption's safety a
-    // structural claim rather than the author's say-so: a dead shallot symbol laundered into a
-    // foreign-namespace class reads 0 on its class's token (e.g. compileSurfaceBlock read 0 on
-    // "typegpu"/"bun"/"github"), so the arm catches it without a human re-read (checks.md).
-    attribution: string[];
-    entries: { file: string; ref: string }[];
-};
+type ResidueEntry = { file: string; ref: string; reason: string };
 
-const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
+const PER_SITE_RESIDUE: ResidueEntry[] = [
+    // Anti-pattern examples (illustrative names, not real code)
     {
-        reason: "foreign-namespace: Bevy reference (structural reference, not shallot code)",
-        attribution: ["Bevy"],
-        entries: [
-            { file: ".claude/rules/ecs.md", ref: "GpuImage" },
-            { file: ".claude/rules/ecs.md", ref: "RenderApp" },
-            { file: ".claude/rules/ecs.md", ref: "add_slot_edge" },
-            { file: ".claude/rules/ecs.md", ref: "ChangeDetection" },
-            { file: ".claude/rules/ecs.md", ref: "apply_deferred" },
-            { file: ".claude/rules/ecs.md", ref: "SystemParam" },
-        ],
+        file: ".claude/rules/style.md",
+        ref: "createMeshGeometryFromVertices",
+        reason: "anti-pattern example",
+    },
+    { file: ".claude/rules/style.md", ref: "prepareX", reason: "anti-pattern example" },
+    { file: ".claude/rules/style.md", ref: "buildY", reason: "anti-pattern example" },
+    { file: ".claude/rules/style.md", ref: "applyZ", reason: "anti-pattern example" },
+    { file: ".claude/rules/ecs.md", ref: "lastState", reason: "anti-pattern example" },
+    { file: ".claude/rules/ecs.md", ref: "resetIfNewState", reason: "anti-pattern example" },
+    { file: ".claude/rules/ecs.md", ref: "lastCamera", reason: "anti-pattern example" },
+    { file: ".claude/rules/exports.md", ref: "readBuffer", reason: "anti-pattern example" },
+    // Retirement notices (deliberately names a gone symbol)
+    { file: ".claude/rules/audio.md", ref: "AudioCommand", reason: "retirement notice" },
+    { file: ".claude/rules/ecs.md", ref: "detectVecN", reason: "retirement notice" },
+    { file: ".claude/rules/exports.md", ref: "FogLight", reason: "retirement notice" },
+    { file: ".claude/rules/exports.md", ref: "BVH_TRAVERSE_WGSL", reason: "retirement notice" },
+    { file: ".claude/rules/tumble.md", ref: "ColumnState", reason: "retirement notice" },
+    { file: ".claude/rules/gpu.md", ref: "VertexOutput", reason: "retirement notice" },
+    // Tool/framework references (TypeGPU, Bun, GitHub Actions internals)
+    {
+        file: ".claude/rules/testing.md",
+        ref: "InFragmentStage",
+        reason: "tool/framework reference (prose shorthand for maxStorageBuffersInFragmentStage)",
+    },
+    { file: ".claude/rules/testing.md", ref: "shaderModules", reason: "tool/framework reference" },
+    {
+        file: ".claude/rules/testing.md",
+        ref: "__TYPEGPU_AUTONAME__",
+        reason: "tool/framework reference",
+    },
+    { file: ".claude/rules/testing.md", ref: "DependencyLoop", reason: "tool/framework reference" },
+    {
+        file: ".claude/rules/testing.md",
+        ref: "disabled_manually",
+        reason: "tool/framework reference",
     },
     {
-        reason: "foreign-namespace: Jolt reference (structural reference, not shallot code)",
-        attribution: ["Jolt"],
-        entries: [
-            { file: ".claude/rules/physics.md", ref: "SolveConstraints" },
-            { file: ".claude/rules/physics.md", ref: "WalkStairs" },
-        ],
+        file: ".claude/rules/gpu.md",
+        ref: "list_typegpu_exports",
+        reason: "tool/framework reference",
+    },
+    { file: ".claude/rules/exports.md", ref: "sideEffects", reason: "tool/framework reference" },
+    // Prose terms: bench metrics, formula variables, GPU terms, tool names, shorthand refs
+    {
+        file: ".claude/rules/audio.md",
+        ref: "gain_effect",
+        reason: "prose term (audio parameter name), not a code citation",
     },
     {
-        reason: "foreign-namespace: Box3D/C reference (structural reference, not shallot code)",
-        attribution: ["box3d"],
-        entries: [
-            { file: ".claude/rules/tumble.md", ref: "b3Shape_SetSphere" },
-            { file: ".claude/rules/tumble.md", ref: "SetCapsule" },
-            { file: ".claude/rules/tumble.md", ref: "b3Shape_SetFilter" },
-        ],
+        file: ".claude/rules/audio.md",
+        ref: "direct_effect",
+        reason: "prose term (audio parameter name), not a code citation",
     },
     {
-        reason: "foreign-namespace: webphysics reference (author's workspace layout, not shallot code)",
-        attribution: ["webphysics"],
-        entries: [
-            { file: ".claude/rules/avbd.md", ref: "broadPhase.ts" },
-            { file: ".claude/rules/avbd.md", ref: "reference/webphysics/.../avbdState.ts" },
-            { file: ".claude/rules/avbd.md", ref: "contactSlop" },
-            { file: ".claude/rules/avbd.md", ref: "dispatchBodyCount" },
-        ],
+        file: ".claude/rules/avbd.md",
+        ref: "vAng",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
     },
     {
-        reason: "foreign-namespace: Bullet 3 reference (structural reference, not shallot code)",
-        attribution: ["Bullet"],
-        entries: [{ file: ".claude/rules/avbd.md", ref: "BatchSolveKernelContact" }],
+        file: ".claude/rules/avbd.md",
+        ref: "collidePass",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
     },
     {
-        reason: "anti-pattern example: illustrative name, not real code",
-        attribution: ["not"],
-        entries: [
-            { file: ".claude/rules/style.md", ref: "createMeshGeometryFromVertices" },
-            { file: ".claude/rules/style.md", ref: "prepareX" },
-            { file: ".claude/rules/style.md", ref: "buildY" },
-            { file: ".claude/rules/style.md", ref: "applyZ" },
-            { file: ".claude/rules/ecs.md", ref: "lastState" },
-            { file: ".claude/rules/ecs.md", ref: "resetIfNewState" },
-            { file: ".claude/rules/ecs.md", ref: "lastCamera" },
-            { file: ".claude/rules/exports.md", ref: "readBuffer" },
-        ],
+        file: ".claude/rules/avbd.md",
+        ref: "ownerEid",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
     },
     {
-        reason: "standard API reference: WGSL built-in or WebGPU/Vulkan/CUDA API name, not shallot code",
-        attribution: ["WGSL", "WebGPU", "Vulkan", "CUDA"],
-        entries: [
-            { file: ".claude/rules/gpu.md", ref: "pack4x8snorm" },
-            { file: ".claude/rules/gpu.md", ref: "subgroupAdd" },
-            { file: ".claude/rules/gpu.md", ref: "__threadfence()" },
-            { file: ".claude/rules/gpu.md", ref: "GPURenderBundle" },
-            { file: ".claude/rules/gpu.md", ref: "executeBundles" },
-            { file: ".claude/rules/render.md", ref: "ExecuteIndirect" },
-            { file: ".claude/rules/render.md", ref: "vkCmdDrawIndirectCount" },
-        ],
+        file: ".claude/rules/avbd.md",
+        ref: "l12",
+        reason: "prose term (BVH level shorthand), not a code citation",
     },
     {
-        reason: "tool/framework reference: TypeGPU, Bun, or GitHub Actions internal, not shallot code",
-        attribution: ["TypeGPU", "Bun", "GitHub"],
-        entries: [
-            { file: ".claude/rules/testing.md", ref: "disabled_manually" },
-            { file: ".claude/rules/testing.md", ref: "__TYPEGPU_AUTONAME__" },
-            { file: ".claude/rules/testing.md", ref: "shaderModules" },
-            { file: ".claude/rules/testing.md", ref: "DependencyLoop" },
-            { file: ".claude/rules/gpu.md", ref: "list_typegpu_exports" },
-            { file: ".claude/rules/exports.md", ref: "sideEffects" },
-        ],
+        file: ".claude/rules/avbd.md",
+        ref: "l4",
+        reason: "prose term (BVH level shorthand), not a code citation",
     },
     {
-        reason: "retirement notice: deliberately names a gone symbol",
-        attribution: ["gone"],
-        entries: [
-            { file: ".claude/rules/exports.md", ref: "BVH_TRAVERSE_WGSL" },
-            { file: ".claude/rules/exports.md", ref: "FogLight" },
-        ],
+        file: ".claude/rules/avbd.md",
+        ref: "COMPACT_PAIRS_PER_BODY",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
     },
     {
-        reason: "foreign-namespace: PlayCanvas reference (structural reference, not shallot code)",
-        attribution: ["PlayCanvas"],
-        entries: [{ file: ".claude/rules/render.md", ref: "LightTextureAtlas" }],
+        file: ".claude/rules/examples.md",
+        ref: "_measure",
+        reason: "prose term (part of a .ts path citation, not a standalone symbol)",
+    },
+    {
+        file: ".claude/rules/exports.md",
+        ref: "_WGSL",
+        reason: "prose term (part of a *_WGSL glob pattern, not a standalone symbol)",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "_WGSL",
+        reason: "prose term (part of a *_WGSL glob pattern, not a standalone symbol)",
+    },
+    {
+        file: ".claude/rules/render.md",
+        ref: "_WGSL",
+        reason: "prose term (part of a *_WGSL glob pattern, not a standalone symbol)",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "csrOffset",
+        reason: "prose term (storage layout field shorthand), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "inputCols",
+        reason: "prose term (storage layout field shorthand), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "entityCount",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "sortedIds",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "leafAABBs",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "entityIds",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "bytes_moved",
+        reason: "prose term (bench metric name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "peak_BW",
+        reason: "prose term (bench metric name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "schema_stride",
+        reason: "prose term (bench metric name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "snorm8",
+        reason: "prose term (type concept name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "NdotL",
+        reason: "prose term (lighting term), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "C_init_",
+        reason: "prose term (formula variable), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "C_init_n",
+        reason: "prose term (formula variable), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "tangentBasis",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "f16x2",
+        reason: "prose term (type shorthand), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "localId",
+        reason: "prose term (compute variable name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "warp_size",
+        reason: "prose term (GPU hardware term), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "theoretical_min",
+        reason: "prose term (bench metric name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "working_set",
+        reason: "prose term (bench metric name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "L2_size",
+        reason: "prose term (GPU hardware term), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "PowerVR",
+        reason: "prose term (GPU vendor name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "RenderDoc",
+        reason: "prose term (tool name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "webgpu_inspector",
+        reason: "prose term (tool name), not a code citation",
+    },
+    {
+        file: ".claude/rules/gpu.md",
+        ref: "wg32",
+        reason: "prose term (workgroup size shorthand), not a code citation",
+    },
+    {
+        file: ".claude/rules/physics.md",
+        ref: "sweptPos",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
+    },
+    {
+        file: ".claude/rules/render.md",
+        ref: "syncMeshes",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/render.md",
+        ref: "colorPipelines",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/render.md",
+        ref: "fsPrepass",
+        reason: "prose term (variable name in prose), not a code citation",
+    },
+    {
+        file: ".claude/rules/testing.md",
+        ref: "_REQUIRED",
+        reason: "prose term inside a backtick env-var expression, not a standalone citation",
+    },
+    {
+        file: ".claude/rules/tumble.md",
+        ref: "boneObjNow_",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
+    },
+    {
+        file: ".claude/rules/tumble.md",
+        ref: "boneObjBind_",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
+    },
+    {
+        file: ".claude/rules/tumble.md",
+        ref: "relNowPos",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
+    },
+    {
+        file: ".claude/rules/tumble.md",
+        ref: "relNowQuat",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
+    },
+    {
+        file: ".claude/rules/tumble.md",
+        ref: "memory64",
+        reason: "prose term (WASM feature name), not a code citation",
+    },
+    {
+        file: ".claude/rules/tumble.md",
+        ref: "tlsPtr",
+        reason: "prose term inside a backtick code expression, not a standalone citation",
     },
 ];
 
-// Build a flat lookup map from the classes for the candidate check
-const citationAllowlist = new Map<string, Set<string>>();
-for (const cls of CITATION_ALLOWLIST_CLASSES) {
-    for (const { file, ref } of cls.entries) {
-        if (!citationAllowlist.has(file)) citationAllowlist.set(file, new Set());
-        citationAllowlist.get(file)!.add(ref);
-    }
+// Build a flat lookup map from the per-site residue
+const residueAllowlist = new Map<string, Set<string>>();
+for (const { file, ref } of PER_SITE_RESIDUE) {
+    if (!residueAllowlist.has(file)) residueAllowlist.set(file, new Set());
+    residueAllowlist.get(file)!.add(ref);
 }
 
 type StaleCitation = {
@@ -1070,106 +1312,51 @@ type StaleCitation = {
 
 const staleCitations: StaleCitation[] = [];
 
-// Helper: get the paragraph text (contiguous non-blank lines) containing a 1-indexed line number,
-// plus the immediately preceding non-blank line(s) if separated by exactly one blank line and
-// the preceding block is a short heading/intro (< 200 chars). This catches section headings like
-// "**Take from Bevy:**" that introduce a list — the heading carries the attribution token even
-// when the individual bullet does not.
-function getParagraphText(lines: string[], lineno: number): string {
-    const idx = lineno - 1;
-    let start = idx;
-    while (start > 0 && lines[start - 1].trim()) start--;
-    let end = idx;
-    while (end < lines.length - 1 && lines[end + 1].trim()) end++;
-    // Check for a preceding heading/intro block separated by one blank line
-    if (start > 1 && !lines[start - 1].trim()) {
-        let prev = start - 2;
-        if (prev >= 0 && lines[prev].trim()) {
-            let prevStart = prev;
-            while (prevStart > 0 && lines[prevStart - 1].trim()) prevStart--;
-            const headingText = lines.slice(prevStart, prev + 1).join("");
-            if (headingText.length < 200) {
-                return lines.slice(prevStart, end + 1).join("\n");
-            }
-        }
-    }
-    return lines.slice(start, end + 1).join("\n");
-}
-
-// First, assert every allowlist entry three ways: mention present, target absent, attribution
-// token present on the citing line or in its paragraph.
-for (const cls of CITATION_ALLOWLIST_CLASSES) {
-    for (const { file, ref } of cls.entries) {
-        const filePath = resolve(root, file);
-        let fileText: string;
-        try {
-            fileText = await Bun.file(filePath).text();
-        } catch {
-            staleCitations.push({
-                file,
-                line: 0,
-                ref: "(allowlist)",
-                kind: "allowlist",
-                reason: `allowlist names ${file} but the file does not exist`,
-            });
-            continue;
-        }
-        // Direction 1: the mention is really present in the file
-        if (!fileText.includes(ref)) {
-            staleCitations.push({
-                file,
-                line: 0,
-                ref,
-                kind: "allowlist",
-                reason: `allowlist entry \`${ref}\` is not present in ${file} — the mention was removed`,
-            });
-        }
-        // Direction 2: the symbol/path is genuinely absent from the tree
-        const resolves = ref.endsWith(".ts") ? tsPathResolves(ref) : symbolResolves(ref);
-        if (resolves) {
-            staleCitations.push({
-                file,
-                line: 0,
-                ref,
-                kind: "allowlist",
-                reason: `allowlist entry \`${ref}\` resolves against the tree — the exemption is over (the symbol/path came back)`,
-            });
-        }
-        // Direction 3 (attribution leg): the class's attribution token occurs on the citing line
-        // or in the citing line's paragraph. A dead shallot symbol laundered into a foreign-
-        // namespace class reads 0 here — the citing line carries no foreign-namespace attribution.
-        const fileLines = fileText.split("\n");
-        let citingLine = -1;
-        for (let i = 0; i < fileLines.length; i++) {
-            if (fileLines[i].includes(`\`${ref}\``)) {
-                citingLine = i + 1;
-                break;
-            }
-        }
-        if (citingLine === -1) continue; // already flagged by direction 1
-        const paraText = getParagraphText(fileLines, citingLine).toLowerCase();
-        const hasAttribution = cls.attribution.some((tok) => {
-            const re = new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
-            return re.test(paraText);
+// Assert each per-site residue entry two ways: mention present, target absent from tree + rosters.
+for (const entry of PER_SITE_RESIDUE) {
+    const file = entry.file;
+    const ref = entry.ref;
+    const filePath = resolve(root, file);
+    let fileText: string;
+    try {
+        fileText = await Bun.file(filePath).text();
+    } catch {
+        staleCitations.push({
+            file,
+            line: 0,
+            ref: "(residue)",
+            kind: "residue",
+            reason: `residue names ${file} but the file does not exist`,
         });
-        if (!hasAttribution) {
-            staleCitations.push({
-                file,
-                line: citingLine,
-                ref,
-                kind: "allowlist",
-                reason: `allowlist entry \`${ref}\` in class "${cls.reason}" fails the attribution leg — none of [${cls.attribution.join(", ")}] occurs on the citing line or in its paragraph`,
-            });
-        }
+        continue;
+    }
+    // Direction 1: the mention is really present in the file
+    if (!fileText.includes(ref)) {
+        staleCitations.push({
+            file,
+            line: 0,
+            ref,
+            kind: "residue",
+            reason: `residue entry \`${ref}\` is not present in ${file} — the mention was removed`,
+        });
+    }
+    // Direction 2: the symbol/path is genuinely absent from the tree AND all rosters
+    if (resolvesAnywhere(ref, ref.endsWith(".ts") ? "ts-path" : "identifier")) {
+        staleCitations.push({
+            file,
+            line: 0,
+            ref,
+            kind: "residue",
+            reason: `residue entry \`${ref}\` resolves against the tree or a roster — the exemption is over`,
+        });
     }
 }
 
-// Then, check each candidate
+// Check each candidate
 for (const c of citationCandidates) {
-    const resolves = c.kind === "ts-path" ? tsPathResolves(c.ref) : symbolResolves(c.ref);
-    if (resolves) continue; // live — no violation
-    // Check if it's allowlisted for this file
-    const allowlist = citationAllowlist.get(c.file);
+    if (resolvesAnywhere(c.ref, c.kind)) continue; // live — no violation
+    // Check if it's in the per-site residue for this file
+    const allowlist = residueAllowlist.get(c.file);
     if (allowlist?.has(c.ref)) continue; // deliberately exempt — no violation
     // Stale citation
     staleCitations.push({
@@ -1177,29 +1364,29 @@ for (const c of citationCandidates) {
         line: c.line,
         ref: c.ref,
         kind: c.kind,
-        reason: `stale ${c.kind} \`${c.ref}\` does not resolve against the tree`,
+        reason: `stale ${c.kind} \`${c.ref}\` does not resolve against the tree or any roster`,
     });
 }
 
 if (staleCitations.length > 0) {
     console.error(
-        `✗ citation resolution: ${staleCitations.length} stale citation(s) or allowlist failure(s):\n`,
+        `✗ citation resolution: ${staleCitations.length} stale citation(s) or residue failure(s):\n`,
     );
     for (const v of staleCitations) {
         console.error(`  ${v.file}${v.line ? `:${v.line}` : ""}: ${v.reason}`);
     }
     console.error(
-        "\nEvery backtick-cited `*.ts` path and identifier-shaped backtick citation in " +
-            "`.claude/rules/**` must resolve against the tree. A cited path that no file matches " +
-            "or a cited symbol that no `.ts` file contains is a stale claim. Deliberately-exempt " +
-            "mentions (foreign-namespace references, anti-pattern examples, retirement notices) " +
-            "are admitted via the declared allowlist, asserted three ways: the mention is really " +
-            "present, the symbol/path is genuinely absent, and the class's attribution token " +
-            "occurs on the citing line or in its paragraph.",
+        "\nEvery identifier-shaped token in `.claude/rules/**` (backticked or bare, outside " +
+            "fenced code blocks) must resolve against the tree or a committed roster. A token " +
+            "that no source file or roster contains is a stale claim. Deliberately-exempt " +
+            "mentions (anti-pattern examples, retirement notices, tool/framework references, prose " +
+            "terms) are admitted via the per-site residue, asserted two ways: the mention is " +
+            "really present, and the symbol is genuinely absent from the tree and all rosters.",
     );
     process.exit(1);
 }
 
+const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
@@ -1208,7 +1395,8 @@ console.log(
         `showcase index complete (${showcaseDirs.size} dir(s)), ` +
         `evals task-index complete (${evalsTaskDirs.size} task(s)), ` +
         `tier roster asserted (${rosterSuffixes.length} suffix(es)), ` +
-        `citation resolution clean (${citationCandidates.length} citation(s), ` +
-        `${CITATION_ALLOWLIST_CLASSES.length} allowlist class(es), ` +
-        `${CITATION_ALLOWLIST_CLASSES.reduce((n, c) => n + c.entries.length, 0)} allowlist entr(y/ies))`,
+        `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
+        `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
+        `${PER_SITE_RESIDUE.length} per-site residue entr(y/ies), ` +
+        `token index ${tokenIndex.size} token(s) from ${indexSourceFiles.length} source file(s))`,
 );
