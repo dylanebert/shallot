@@ -60,6 +60,17 @@
         "unplugin-typegpu": "~0.12.1",
       },
     },
+    "examples/gates/orbit-touch": {
+      "name": "gate-orbit-touch",
+      "version": "0.0.0",
+      "dependencies": {
+        "@dylanebert/shallot": "workspace:*",
+      },
+      "devDependencies": {
+        "@playwright/test": "^1.62.1",
+        "unplugin-typegpu": "~0.12.1",
+      },
+    },
     "examples/gym": {
       "name": "gym",
       "version": "0.0.0",
@@ -690,6 +701,8 @@
     "fsevents": ["fsevents@2.3.2", "", { "os": "darwin" }, "sha512-xiqMQR4xAeHTuB9uWm+fFRcIOgKBMiOBP+eXiyT7jsgVCq1bkVygt00oASowB7EdtpOHaaPgKt812P9ab+DDKA=="],
 
     "game-loop": ["game-loop@workspace:examples/recipes/game-loop"],
+
+    "gate-orbit-touch": ["gate-orbit-touch@workspace:examples/gates/orbit-touch"],
 
     "gensync": ["gensync@1.0.0-beta.2", "", {}, "sha512-3hN7NaskYvMDLQY55gnW3NQ+mesEAepTqlg+VEbj7zzqEMBVNhzcGYYeqFo/TlYz6eQiFcp1HcsCZO+nGgS8zg=="],
 
