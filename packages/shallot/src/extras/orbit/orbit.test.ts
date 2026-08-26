@@ -92,6 +92,10 @@ function mockCanvas(): HTMLCanvasElement {
         setPointerCapture() {},
         releasePointerCapture() {},
         hasPointerCapture: () => false,
+        // orbit math is the subject here, not DOM geometry — a zero-rect stub keeps
+        // `input/index.ts`'s pointermove handler's `getBoundingClientRect()` read satisfied
+        // without asserting any layout the arms don't test.
+        getBoundingClientRect: () => ({ left: 0, top: 0, width: 0, height: 0 }) as DOMRect,
         style: {} as CSSStyleDeclaration,
         tracker,
     } as unknown as HTMLCanvasElement;
