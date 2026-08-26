@@ -185,6 +185,8 @@ export const FOREIGN_NAMESPACES: Record<string, ReadonlySet<string>> = {
     D3D12: new Set(["ExecuteIndirect"]),
     Vulkan: new Set(["vkCmdDrawIndirectCount"]),
     CUDA: new Set(["__threadfence"]),
+    TypeGPU: new Set(["__TYPEGPU_AUTONAME__", "sideEffects"]),
+    Tools: new Set(["PowerVR", "RenderDoc"]),
 };
 
 // ── x86/ISA mnemonic roster ────────────────────────────────────────────────

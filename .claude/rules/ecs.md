@@ -65,7 +65,7 @@ A flat component is a real data shape, not a bundle of named scalars. Splitting 
 
 ### Scope
 
-- **All live code is clean** — `engine/`, `standard/`, and `extras/` declare Single/Pair/Quad directly, no `column()` backing, no raw `number[]`. The engine has no split-suffix support: no `detectVecN` detectors, no `${name}X/Y/Z` parse/format branches, no `key.endsWith("X")` schema collapse.
+- **All live code is clean** — `engine/`, `standard/`, and `extras/` declare Single/Pair/Quad directly, no `column()` backing, no raw `number[]`. The engine has no split-suffix support: no `detectVecN` detectors, no `${name}X/Y/Z` parse/format branches, no `key.endsWith("X")` schema collapse. (retired)
 
 ### Migration guidelines
 
@@ -102,8 +102,8 @@ Scenes are flat: no XML nesting, no engine-level parent component. Consumers tha
 
 ## Anti-patterns
 
-- `lastState` / `resetIfNewState` guards — scope the state instead
-- `lastCamera` skip-checks — premature dirty tracking
+- `lastState` / `resetIfNewState` guards — scope the state instead (anti-pattern)
+- `lastCamera` skip-checks — premature dirty tracking (anti-pattern)
 - `state.exists` guards — defensive code for cross-State leaking
 - Module-level `Map<number, ...>` for entity ownership — use a consumer-shaped relation (eid field on a component) with marker components
 - Per-frame gather-and-`return null` on GPU buffers that are stable post-warm — a draw-group consumer runs after `warm()` (slab `.gpu`) and the `first` `MembershipSystem` (`membership`), so they're always up at the call site. Read them directly, build the bind group once (rebuilt only on an identity change), let a missing one throw — a null = wiring bug, not a frame to skip. `standard/transforms` is the exemplar

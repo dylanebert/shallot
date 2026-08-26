@@ -10,7 +10,7 @@ How shallot code is shaped: naming, the shape of a function, and when to comment
 
 The shortest word that's clear in context, a single verb where one fits: `mesh`, `pack`, `warm`, `sparse`, `slab`, `attachCanvas`. Module scope is the context: a function doesn't repeat the name of the file or type it lives in.
 
-- Add a qualifier only to distinguish two real things: `composeTransform` (one entity) vs `composeTransforms` (the batch). Never to describe what the body already shows. A function that builds a mesh from vertices is `mesh`, not `createMeshGeometryFromVertices`.
+- Add a qualifier only to distinguish two real things: `composeTransform` (one entity) vs `composeTransforms` (the batch). Never to describe what the body already shows. A function that builds a mesh from vertices is `mesh`, not `createMeshGeometryFromVertices`. (anti-pattern)
 - A multi-word name is usually a function doing several things. Split it, or the name is covering for a call chain.
 - PascalCase for components, plugins, and singletons (`Transform`, `RenderPlugin`, `Compute`); camelCase for functions and locals.
 
@@ -34,7 +34,7 @@ const ColorSystem: System = {
 };
 ```
 
-Guards are early returns, not nested branches. The work it hands off (`renderColor`) is one named transform, not a `prepareX` then `buildY` then `applyZ` chain of helpers calling each other. Extract a step into its own function when it's pure and a test can call it in isolation; inline a step that only runs from one place. A plugin is the same idea, as data: a plain object of `name`, `components`, `systems`, `dependencies`, and lifecycle hooks (`initialize` / `warm`), not a class. See `SearPlugin` and `PartPlugin` in `standard/`.
+Guards are early returns, not nested branches. The work it hands off (`renderColor`) is one named transform, not a `prepareX` then `buildY` then `applyZ` chain of helpers calling each other. Extract a step into its own function when it's pure and a test can call it in isolation; inline a step that only runs from one place. A plugin is the same idea, as data: a plain object of `name`, `components`, `systems`, `dependencies`, and lifecycle hooks (`initialize` / `warm`), not a class. See `SearPlugin` and `PartPlugin` in `standard/`. (anti-pattern)
 
 ## Comments earn their place
 

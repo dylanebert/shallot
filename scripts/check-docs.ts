@@ -682,6 +682,7 @@ if (headingSuffixes.join(",") !== bulletLedeSuffixes.join(",")) {
 const ROSTER_EXCLUSIONS = new Set([
     "packages/shallot/tests/test-tiers.ts",
     "scripts/check-docs.ts",
+    "scripts/stale-claim-predicates.ts",
 ]);
 const allTrackedFiles = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
 if (!allTrackedFiles.success) {
@@ -696,7 +697,12 @@ const suffixWords = [...TEST_TIER_SUFFIX_NAMES];
 const arrayLiteralRe = /\[\s*(?:["'`]\.\w+\.ts["'`]\s*,\s*){2,}["'`]\.\w+\.ts["'`]\s*\]/;
 for (const file of allTrackedFiles.stdout.toString().split("\0").filter(Boolean)) {
     if (ROSTER_EXCLUSIONS.has(file)) continue;
-    const source = await Bun.file(resolve(root, file)).text();
+    let source: string;
+    try {
+        source = await Bun.file(resolve(root, file)).text();
+    } catch {
+        continue; // file deleted but not yet committed — skip
+    }
     for (const [i, line] of source.split("\n").entries()) {
         const hits = suffixWords.filter((n) => new RegExp(`\\b${n}\\b`).test(line)).length;
         const shape = line.includes("|")
@@ -768,6 +774,13 @@ if (rosterFindings.length > 0) {
 //         (captured to /tmp/asc-mutation-substring.txt)
 
 import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS, X86_ISA } from "./rosters";
+import {
+    buildTokenIndex,
+    extractCandidates,
+    lineHasMarker,
+    matchesShape,
+    resolvesAnywhere,
+} from "./stale-claim-predicates";
 
 // ── Population: scan .claude/rules/**/*.md for identifier-shaped tokens ────────────────────
 //
@@ -800,29 +813,14 @@ if (ruleFiles.length === 0) {
 //
 // Build a Set<string> of every identifier token in every tracked source file. Resolution is
 // exact set-membership, not `git grep --fixed-strings` (substring matching). Excludes
-// `node_modules`, `scripts/check-docs.ts`, and `scripts/detect-stale-claims.ts` (their comments
-// mention the symbols they check, which would false-resolve dead citations).
+// `node_modules`, `scripts/check-docs.ts`, `scripts/detect-stale-claims.ts`, `scripts/rosters.ts`,
+// and `scripts/stale-claim-predicates.ts` (their comments mention the symbols they check, which
+// would false-resolve dead citations).
 
-const indexSourceFiles = trackedFiles.filter(
-    (f) =>
-        (f.endsWith(".ts") || f.endsWith(".rs") || f.endsWith(".wgsl")) &&
-        !f.includes("node_modules") &&
-        f !== "scripts/check-docs.ts" &&
-        f !== "scripts/detect-stale-claims.ts" &&
-        f !== "scripts/rosters.ts",
-);
-
-const tokenIndex = new Set<string>();
-const INDEX_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
-for (const f of indexSourceFiles) {
-    const text = await Bun.file(resolve(root, f)).text();
-    for (const m of text.matchAll(INDEX_TOKEN_RE)) {
-        tokenIndex.add(m[0]);
-    }
-}
+const tokenIndex = await buildTokenIndex(trackedFiles, root);
 if (tokenIndex.size === 0) {
     console.error(
-        "✗ token index is empty — no tracked *.ts/*.rs/*.wgsl files found (excluding node_modules and scripts).",
+        "✓ token index is empty — no tracked *.ts/*.rs/*.wgsl files found (excluding node_modules and scripts).",
     );
     process.exit(1);
 }
@@ -859,113 +857,17 @@ for (const { roster } of allRosters) {
 
 // ── Identifier shape predicates ────────────────────────────────────────────────────────────
 //
-// camelCase: starts lowercase, has at least one uppercase, no underscore.
-// PascalCase: starts uppercase, has a [a-z][A-Z] transition (compound, not an acronym), no underscore.
-// snake/SCREAMING_SNAKE: contains underscore, at least 2 chars, has an alphanumeric char.
-// lowercase-with-digits: all lowercase + digits, at least one of each, no underscore.
-// Hex-shaped tokens (all [0-9a-f], at least one digit and one letter) are excluded by predicate
-// (the bare git sha at gpu.md:268). Named false positives (AoSoA, iGPUs, EndFrame) are excluded
-// by an explicit set.
-
-function isCamelCase(w: string): boolean {
-    return /^[a-z]/.test(w) && /[A-Z]/.test(w) && !w.includes("_");
-}
-function isPascalCase(w: string): boolean {
-    return /^[A-Z]/.test(w) && /[a-z][A-Z]/.test(w) && !w.includes("_");
-}
-function isSnakeOrScreaming(w: string): boolean {
-    return (
-        w.includes("_") &&
-        /^[A-Za-z_][A-Za-z0-9_]*$/.test(w) &&
-        /[A-Za-z0-9]/.test(w) &&
-        w.length >= 2
-    );
-}
-function isLowercaseWithDigits(w: string): boolean {
-    return /^[a-z][a-z0-9]*$/.test(w) && /[0-9]/.test(w) && !w.includes("_");
-}
-function isHex(w: string): boolean {
-    return /^[0-9a-f]+$/.test(w) && /[0-9]/.test(w) && /[a-f]/.test(w);
-}
-
-const SHAPE_FALSE_POSITIVES = new Set(["AoSoA", "iGPUs", "EndFrame"]);
-
-function matchesShape(w: string): boolean {
-    if (w.length < 2) return false;
-    if (SHAPE_FALSE_POSITIVES.has(w)) return false;
-    if (isHex(w)) return false;
-    return isCamelCase(w) || isPascalCase(w) || isSnakeOrScreaming(w) || isLowercaseWithDigits(w);
-}
+// Shape predicates and candidate extraction are in the shared module
+// `stale-claim-predicates.ts`, imported by both this arm and `detect-stale-claims.ts`.
+// The predicate is formatting-invariant: strong shapes (camelCase, PascalCase) are caught
+// bare or backticked; weak shapes (snake/SCREAMING_SNAKE, lowercase-with-digits) are caught
+// only when backticked. A bare token preceded by `*` is a glob fragment. `.ts` path
+// interiors are not re-tokenized. In-span tokens are split by predicate: a token followed
+// by `(` is a call citation; one in arithmetic context is a formula variable.
 
 // ── Candidate extraction ───────────────────────────────────────────────────────────────────
-//
-// Two kinds of candidates:
-//   1. Backtick-cited `*.ts` paths — a string between backticks ending in `.ts` that is a real
-//      file path (not a suffix pattern `.test.ts`, not a glob `*.test.ts`, not a command).
-//   2. Identifier-shaped tokens — every word matching an identifier shape, **backticked or bare**.
-//      The bare extraction strips URLs (tokens inside URLs are not citations) but does NOT strip
-//      backtick spans: a token inside a complex backtick expression (e.g. `TimestampWrites`
-//      inside `Compute.span?: ... | undefined`) is still a token in the prose and must be caught.
-//      A backtick span that IS a single identifier is already caught by the backtick extraction;
-//      the bare extraction deduplicates by {file, line, ref}.
 
-type CitationCandidate = {
-    file: string;
-    line: number;
-    ref: string;
-    kind: "ts-path" | "identifier";
-};
-
-const TS_PATH_RE = /`([^`]*\.ts)`/g;
-const IDENTIFIER_RE = /`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g;
-const BARE_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
-
-const citationCandidates: CitationCandidate[] = [];
-const seenCandidates = new Set<string>();
-
-function addCandidate(file: string, line: number, ref: string, kind: "ts-path" | "identifier") {
-    const key = `${file}:${line}:${ref}`;
-    if (seenCandidates.has(key)) return;
-    seenCandidates.add(key);
-    citationCandidates.push({ file, line, ref, kind });
-}
-
-for (const file of ruleFiles) {
-    const fullPath = resolve(root, file);
-    const text = await Bun.file(fullPath).text();
-    const lines = text.split("\n");
-    let inFence = false;
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.trim().startsWith("```")) {
-            inFence = !inFence;
-            continue;
-        }
-        if (inFence) continue;
-
-        // Backtick-cited .ts paths
-        for (const m of line.matchAll(TS_PATH_RE)) {
-            const ref = m[1];
-            if (ref.startsWith(".") || ref.includes("*") || ref.includes(" ") || ref.includes("{"))
-                continue;
-            addCandidate(file, i + 1, ref, "ts-path");
-        }
-
-        // Backtick-cited identifiers
-        for (const m of line.matchAll(IDENTIFIER_RE)) {
-            const ref = m[1].replace(/\(\)$/, "");
-            if (ref.endsWith(".ts")) continue;
-            if (matchesShape(ref)) addCandidate(file, i + 1, ref, "identifier");
-        }
-
-        // Bare identifier-shaped tokens (strip URLs, not backtick spans)
-        const stripped = line.replace(/https?:\/\/[^\s)]*/g, " ");
-        for (const m of stripped.matchAll(BARE_TOKEN_RE)) {
-            const ref = m[0];
-            if (matchesShape(ref)) addCandidate(file, i + 1, ref, "identifier");
-        }
-    }
-}
+const { candidates: citationCandidates, markerExempted } = await extractCandidates(ruleFiles, root);
 
 if (citationCandidates.length === 0) {
     console.error(
@@ -980,328 +882,45 @@ if (citationCandidates.length === 0) {
 // match against the tracked set.
 // For identifiers: exact set-membership in the token index (NOT substring matching).
 // For both: if unresolved against the tree, check against the combined roster.
+// Resolution functions are in the shared module.
 
-function tsPathResolves(path: string): boolean {
-    const tries = [path, `packages/shallot/src/${path}`, `packages/shallot/${path}`];
-    for (const t of tries) {
-        if (trackedSet.has(t)) return true;
-    }
-    const suffix = `/${path}`;
-    for (const f of trackedSet) {
-        if (f.endsWith(suffix)) return true;
-    }
-    return false;
-}
-
-function resolvesAnywhere(ref: string, kind: string): boolean {
-    if (kind === "ts-path") {
-        if (tsPathResolves(ref)) return true;
-        return combinedRoster.has(ref);
-    }
-    if (tokenIndex.has(ref)) return true;
-    return combinedRoster.has(ref);
-}
-
-// ── Per-site residue ──────────────────────────────────────────────────────────────────────
+// ── Marker exemption system ──────────────────────────────────────────────────────────────
 //
-// The per-site residue is for tokens that don't resolve against the tree or any roster but are
-// deliberately exempt: anti-pattern examples, retirement notices, tool/framework references, and
-// prose terms that match an identifier shape but are not code citations (bench metrics, formula
-// variables, GPU vendor names, tool names, shorthand references inside complex backtick
-// expressions, etc.). Each entry is asserted TWO WAYS: (1) the mention is really present in
-// that file, (2) the symbol/path is genuinely absent from the tree AND all rosters.
+// The per-entry allowlist is retired — the arm carries no per-site residue. An exemption is
+// admitted only through a closed-vocabulary marker in the rule file's own prose, tiered by
+// citation shape at the citing site. A solo-backtick span or `.ts` path is exempt only when
+// its own line carries a marker from the closed vocabulary the arm owns
+// (`(retired)` / `(gone)` / `(anti-pattern)`), asserted both ways — marker present, target
+// genuinely absent from tree and rosters. A bare token, or a token inside a multi-token
+// backtick span, gets no exemption at all. The marker-exempted count is pinned as a literal
+// and asserted equal, so growth reds and a swap-in moves prose a reviewer reads.
+//
+// Laundering now costs writing a false sentence into a permanent file, which is an instance
+// of the defect class this spec exists to sweep, visible to the rule's readers rather than
+// buried in a script comment.
+//
+// Witnessed red (mutation proofs, each exit code captured to a file and witnessed below):
+//   (i)  Seed: `deadIdentifierCitation` seeded into `.claude/rules/gpu.md` → exit 1
+//         (captured to /tmp/asc-r5-mut-i.log)
+//   (ii) De-backtick: backticks removed from a dead citation → still red (bare token caught
+//         by the formatting-invariant predicate, round 3's escape shut)
+//         (captured to /tmp/asc-r5-mut-ii.log)
+//   (iii) Roster launder: a dead shallot symbol added to a foreign-namespace roster → exit 1
+//         (the two-way assertion catches it: present in file, absent from tree, but resolves
+//         against the roster — the exemption is over because the symbol IS in the roster)
+//         (captured to /tmp/asc-r5-mut-iii.log)
+//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token index
+//         does not — seeding `spotInner` (substring of `spotInnerF`) reds with the token index
+//         but greens with `git grep --fixed-strings`
+//         (captured to /tmp/asc-r5-mut-iv.log)
+//   (v)  Launder-via-marker: a dead symbol appended with its exemption marker → red on the
+//         pinned count (round 4's escape, and the round-5 arm's defining property)
+//         (captured to /tmp/asc-r5-mut-v.log)
 
-type ResidueEntry = { file: string; ref: string; reason: string };
-
-const PER_SITE_RESIDUE: ResidueEntry[] = [
-    // Anti-pattern examples (illustrative names, not real code)
-    {
-        file: ".claude/rules/style.md",
-        ref: "createMeshGeometryFromVertices",
-        reason: "anti-pattern example",
-    },
-    { file: ".claude/rules/style.md", ref: "prepareX", reason: "anti-pattern example" },
-    { file: ".claude/rules/style.md", ref: "buildY", reason: "anti-pattern example" },
-    { file: ".claude/rules/style.md", ref: "applyZ", reason: "anti-pattern example" },
-    { file: ".claude/rules/ecs.md", ref: "lastState", reason: "anti-pattern example" },
-    { file: ".claude/rules/ecs.md", ref: "resetIfNewState", reason: "anti-pattern example" },
-    { file: ".claude/rules/ecs.md", ref: "lastCamera", reason: "anti-pattern example" },
-    { file: ".claude/rules/exports.md", ref: "readBuffer", reason: "anti-pattern example" },
-    // Retirement notices (deliberately names a gone symbol)
-    { file: ".claude/rules/audio.md", ref: "AudioCommand", reason: "retirement notice" },
-    { file: ".claude/rules/ecs.md", ref: "detectVecN", reason: "retirement notice" },
-    { file: ".claude/rules/exports.md", ref: "FogLight", reason: "retirement notice" },
-    { file: ".claude/rules/exports.md", ref: "BVH_TRAVERSE_WGSL", reason: "retirement notice" },
-    { file: ".claude/rules/tumble.md", ref: "ColumnState", reason: "retirement notice" },
-    { file: ".claude/rules/gpu.md", ref: "VertexOutput", reason: "retirement notice" },
-    // Tool/framework references (TypeGPU, Bun, GitHub Actions internals)
-    {
-        file: ".claude/rules/testing.md",
-        ref: "InFragmentStage",
-        reason: "tool/framework reference (prose shorthand for maxStorageBuffersInFragmentStage)",
-    },
-    { file: ".claude/rules/testing.md", ref: "shaderModules", reason: "tool/framework reference" },
-    {
-        file: ".claude/rules/testing.md",
-        ref: "__TYPEGPU_AUTONAME__",
-        reason: "tool/framework reference",
-    },
-    { file: ".claude/rules/testing.md", ref: "DependencyLoop", reason: "tool/framework reference" },
-    {
-        file: ".claude/rules/testing.md",
-        ref: "disabled_manually",
-        reason: "tool/framework reference",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "list_typegpu_exports",
-        reason: "tool/framework reference",
-    },
-    { file: ".claude/rules/exports.md", ref: "sideEffects", reason: "tool/framework reference" },
-    // Prose terms: bench metrics, formula variables, GPU terms, tool names, shorthand refs
-    {
-        file: ".claude/rules/audio.md",
-        ref: "gain_effect",
-        reason: "prose term (audio parameter name), not a code citation",
-    },
-    {
-        file: ".claude/rules/audio.md",
-        ref: "direct_effect",
-        reason: "prose term (audio parameter name), not a code citation",
-    },
-    {
-        file: ".claude/rules/avbd.md",
-        ref: "vAng",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/avbd.md",
-        ref: "collidePass",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/avbd.md",
-        ref: "ownerEid",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/avbd.md",
-        ref: "l12",
-        reason: "prose term (BVH level shorthand), not a code citation",
-    },
-    {
-        file: ".claude/rules/avbd.md",
-        ref: "l4",
-        reason: "prose term (BVH level shorthand), not a code citation",
-    },
-    {
-        file: ".claude/rules/avbd.md",
-        ref: "COMPACT_PAIRS_PER_BODY",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/examples.md",
-        ref: "_measure",
-        reason: "prose term (part of a .ts path citation, not a standalone symbol)",
-    },
-    {
-        file: ".claude/rules/exports.md",
-        ref: "_WGSL",
-        reason: "prose term (part of a *_WGSL glob pattern, not a standalone symbol)",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "_WGSL",
-        reason: "prose term (part of a *_WGSL glob pattern, not a standalone symbol)",
-    },
-    {
-        file: ".claude/rules/render.md",
-        ref: "_WGSL",
-        reason: "prose term (part of a *_WGSL glob pattern, not a standalone symbol)",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "csrOffset",
-        reason: "prose term (storage layout field shorthand), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "inputCols",
-        reason: "prose term (storage layout field shorthand), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "entityCount",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "sortedIds",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "leafAABBs",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "entityIds",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "bytes_moved",
-        reason: "prose term (bench metric name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "peak_BW",
-        reason: "prose term (bench metric name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "schema_stride",
-        reason: "prose term (bench metric name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "snorm8",
-        reason: "prose term (type concept name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "NdotL",
-        reason: "prose term (lighting term), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "C_init_",
-        reason: "prose term (formula variable), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "C_init_n",
-        reason: "prose term (formula variable), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "tangentBasis",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "f16x2",
-        reason: "prose term (type shorthand), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "localId",
-        reason: "prose term (compute variable name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "warp_size",
-        reason: "prose term (GPU hardware term), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "theoretical_min",
-        reason: "prose term (bench metric name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "working_set",
-        reason: "prose term (bench metric name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "L2_size",
-        reason: "prose term (GPU hardware term), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "PowerVR",
-        reason: "prose term (GPU vendor name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "RenderDoc",
-        reason: "prose term (tool name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "webgpu_inspector",
-        reason: "prose term (tool name), not a code citation",
-    },
-    {
-        file: ".claude/rules/gpu.md",
-        ref: "wg32",
-        reason: "prose term (workgroup size shorthand), not a code citation",
-    },
-    {
-        file: ".claude/rules/physics.md",
-        ref: "sweptPos",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/render.md",
-        ref: "syncMeshes",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/render.md",
-        ref: "colorPipelines",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/render.md",
-        ref: "fsPrepass",
-        reason: "prose term (variable name in prose), not a code citation",
-    },
-    {
-        file: ".claude/rules/testing.md",
-        ref: "_REQUIRED",
-        reason: "prose term inside a backtick env-var expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/tumble.md",
-        ref: "boneObjNow_",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/tumble.md",
-        ref: "boneObjBind_",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/tumble.md",
-        ref: "relNowPos",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/tumble.md",
-        ref: "relNowQuat",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-    {
-        file: ".claude/rules/tumble.md",
-        ref: "memory64",
-        reason: "prose term (WASM feature name), not a code citation",
-    },
-    {
-        file: ".claude/rules/tumble.md",
-        ref: "tlsPtr",
-        reason: "prose term inside a backtick code expression, not a standalone citation",
-    },
-];
-
-// Build a flat lookup map from the per-site residue
-const residueAllowlist = new Map<string, Set<string>>();
-for (const { file, ref } of PER_SITE_RESIDUE) {
-    if (!residueAllowlist.has(file)) residueAllowlist.set(file, new Set());
-    residueAllowlist.get(file)!.add(ref);
-}
+// The pinned marker-exempted count. This literal is the law the arm already applies to its
+// tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
+// When a marker is added or removed from a rule file, this count must be updated to match.
+const PINNED_MARKER_EXEMPTED_COUNT = 20;
 
 type StaleCitation = {
     file: string;
@@ -1313,52 +932,24 @@ type StaleCitation = {
 
 const staleCitations: StaleCitation[] = [];
 
-// Assert each per-site residue entry two ways: mention present, target absent from tree + rosters.
-for (const entry of PER_SITE_RESIDUE) {
-    const file = entry.file;
-    const ref = entry.ref;
-    const filePath = resolve(root, file);
-    let fileText: string;
-    try {
-        fileText = await Bun.file(filePath).text();
-    } catch {
-        staleCitations.push({
-            file,
-            line: 0,
-            ref: "(residue)",
-            kind: "residue",
-            reason: `residue names ${file} but the file does not exist`,
-        });
-        continue;
-    }
-    // Direction 1: the mention is really present in the file
-    if (!fileText.includes(ref)) {
-        staleCitations.push({
-            file,
-            line: 0,
-            ref,
-            kind: "residue",
-            reason: `residue entry \`${ref}\` is not present in ${file} — the mention was removed`,
-        });
-    }
-    // Direction 2: the symbol/path is genuinely absent from the tree AND all rosters
-    if (resolvesAnywhere(ref, ref.endsWith(".ts") ? "ts-path" : "identifier")) {
-        staleCitations.push({
-            file,
-            line: 0,
-            ref,
-            kind: "residue",
-            reason: `residue entry \`${ref}\` resolves against the tree or a roster — the exemption is over`,
-        });
-    }
-}
+// Collect the actual marker-exempted refs: solo-backtick spans or .ts paths on marker lines
+// that don't resolve against tree or rosters.
+const actualMarkerExempted: { file: string; line: number; ref: string }[] = [];
 
-// Check each candidate
 for (const c of citationCandidates) {
-    if (resolvesAnywhere(c.ref, c.kind)) continue; // live — no violation
-    // Check if it's in the per-site residue for this file
-    const allowlist = residueAllowlist.get(c.file);
-    if (allowlist?.has(c.ref)) continue; // deliberately exempt — no violation
+    const live = resolvesAnywhere(c.ref, c.kind, tokenIndex, trackedSet, combinedRoster);
+    if (live) continue; // live — no violation
+
+    // Check marker exemption: only solo-backtick spans or .ts paths can be exempt
+    const canBeMarkerExempt = c.backticked || c.kind === "ts-path";
+    if (canBeMarkerExempt) {
+        const exemptedRefs = markerExempted.get(c.file);
+        if (exemptedRefs?.has(c.ref)) {
+            actualMarkerExempted.push({ file: c.file, line: c.line, ref: c.ref });
+            continue; // marker-exempt — no violation
+        }
+    }
+
     // Stale citation
     staleCitations.push({
         file: c.file,
@@ -1369,9 +960,79 @@ for (const c of citationCandidates) {
     });
 }
 
+// Assert the pinned marker-exempted count equals the actual count.
+if (actualMarkerExempted.length !== PINNED_MARKER_EXEMPTED_COUNT) {
+    console.error(
+        `✗ marker-exempted count mismatch: pinned ${PINNED_MARKER_EXEMPTED_COUNT}, actual ${actualMarkerExempted.length}.\n` +
+            `  Expected ${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), found ${actualMarkerExempted.length}:\n` +
+            actualMarkerExempted.map((e) => `    ${e.file}:${e.line}: \`${e.ref}\``).join("\n") +
+            `\n  Update PINNED_MARKER_EXEMPTED_COUNT in scripts/check-docs.ts to match, ` +
+            `or remove the marker from the rule file.`,
+    );
+    process.exit(1);
+}
+
+// Assert markers are not orphaned: every marker line must have at least one solo-backtick
+// span or .ts path that doesn't resolve (otherwise the marker is on a line with no exemptable
+// citation, which is a stale marker).
+const markerLines = new Map<string, Set<string>>();
+for (const file of ruleFiles) {
+    const fullPath = resolve(root, file);
+    const text = await Bun.file(fullPath).text();
+    const lines = text.split("\n");
+    let inFence = false;
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.trim().startsWith("```")) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) continue;
+        if (lineHasMarker(line)) {
+            const key = `${file}:${i + 1}`;
+            if (!markerLines.has(key)) markerLines.set(key, new Set());
+            // Collect all solo-backtick identifiers and .ts paths on this line
+            for (const m of line.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g)) {
+                const ref = m[1].replace(/\(\)$/, "");
+                if (ref.endsWith(".ts")) continue;
+                if (matchesShape(ref, true)) markerLines.get(key)!.add(ref);
+            }
+            for (const m of line.matchAll(/`([^`]*\.ts)`/g)) {
+                const ref = m[1];
+                if (
+                    ref.startsWith(".") ||
+                    ref.includes("*") ||
+                    ref.includes(" ") ||
+                    ref.includes("{")
+                )
+                    continue;
+                markerLines.get(key)!.add(ref);
+            }
+        }
+    }
+}
+
+for (const [lineKey, refs] of markerLines) {
+    // At least one ref on this marker line must be in actualMarkerExempted
+    const [file, lineStr] = lineKey.split(":");
+    const line = parseInt(lineStr);
+    const found = Array.from(refs).some((ref) =>
+        actualMarkerExempted.some((e) => e.file === file && e.line === line && e.ref === ref),
+    );
+    if (!found) {
+        staleCitations.push({
+            file,
+            line,
+            ref: "(orphaned marker)",
+            kind: "marker",
+            reason: `marker on ${lineKey} has no exemptable citation — the marker is orphaned (no solo-backtick span or .ts path on this line is genuinely absent from tree and rosters)`,
+        });
+    }
+}
+
 if (staleCitations.length > 0) {
     console.error(
-        `✗ citation resolution: ${staleCitations.length} stale citation(s) or residue failure(s):\n`,
+        `✗ citation resolution: ${staleCitations.length} stale citation(s) or marker failure(s):\n`,
     );
     for (const v of staleCitations) {
         console.error(`  ${v.file}${v.line ? `:${v.line}` : ""}: ${v.reason}`);
@@ -1379,10 +1040,12 @@ if (staleCitations.length > 0) {
     console.error(
         "\nEvery identifier-shaped token in `.claude/rules/**` (backticked or bare, outside " +
             "fenced code blocks) must resolve against the tree or a committed roster. A token " +
-            "that no source file or roster contains is a stale claim. Deliberately-exempt " +
-            "mentions (anti-pattern examples, retirement notices, tool/framework references, prose " +
-            "terms) are admitted via the per-site residue, asserted two ways: the mention is " +
-            "really present, and the symbol is genuinely absent from the tree and all rosters.",
+            "that no source file or roster contains is a stale claim. A solo-backtick span or " +
+            ".ts path is exempt only when its own line carries a marker from the closed " +
+            "vocabulary (`(retired)` / `(gone)` / `(anti-pattern)`), asserted both ways: marker " +
+            "present, target genuinely absent. A bare token or a token inside a multi-token " +
+            "backtick span gets no exemption at all. The marker-exempted count is pinned as a " +
+            "literal and asserted equal.",
     );
     process.exit(1);
 }
@@ -1398,6 +1061,6 @@ console.log(
         `tier roster asserted (${rosterSuffixes.length} suffix(es)), ` +
         `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
         `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
-        `${PER_SITE_RESIDUE.length} per-site residue entr(y/ies), ` +
-        `token index ${tokenIndex.size} token(s) from ${indexSourceFiles.length} source file(s))`,
+        `${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), ` +
+        `token index ${tokenIndex.size} token(s))`,
 );
