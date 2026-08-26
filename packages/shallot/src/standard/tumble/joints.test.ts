@@ -359,7 +359,13 @@ describe("tumble constraint mapping", () => {
         try {
             // bypass ConstraintSystem/jointDefs — call setJoints directly with a raw JointDef
             Physics.backend?.setJoints([
-                { a: eids[0], b: eids[1], rA: [1.5, 0.5, 0], rB: [0, 0, 0], stiffnessAng: Number.NaN },
+                {
+                    a: eids[0],
+                    b: eids[1],
+                    rA: [1.5, 0.5, 0],
+                    rB: [0, 0, 0],
+                    stiffnessAng: Number.NaN,
+                },
             ]);
             // step the world directly (not stepFor) so ConstraintSystem doesn't wipe the joint
             stepWorldDirect(2);
