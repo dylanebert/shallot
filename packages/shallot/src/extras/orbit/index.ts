@@ -23,7 +23,7 @@ const Deg2Rad = Math.PI / 180;
 // the negation at the call site makes up = faster, like Unity's / Blender's scene-view accelerator.
 const FlyScrollRate = Math.log(1.15) / 100; // ≈ 0.0014
 
-/** `Free` orbits, pans, and zooms; `Locked` disables orbit rotation, leaving pan and zoom. */
+/** `Free` orbits, pans, and zooms; `Locked` disables all look (orbit rotation and fly look), leaving pan and zoom. */
 export const OrbitMode = { Free: 0, Locked: 1 } as const;
 
 /**
@@ -88,7 +88,7 @@ export const Orbit = {
     flyMin: sparse(f32),
     /** upper clamp for scroll-adjusted flySpeed, world units per second */
     flyMax: sparse(f32),
-    /** Free orbits, pans, and zooms; Locked disables orbit rotation, leaving pan and zoom */
+    /** Free orbits, pans, and zooms; Locked disables all look (orbit rotation and fly look), leaving pan and zoom */
     mode: sparse(u8),
     /** entity to orbit; pan is relative to its position (0 = world origin) */
     target: sparse(entity),
@@ -243,9 +243,10 @@ const OrbitSystem: System = {
 
             // pinch shares the wheel's geometric zoom step (same distanceScale/sizeScale/zoomSpeed), just
             // negated: `mouse.scroll`'s own JSDoc states positive = zoom out/away, while `touch.pinchDelta`
-            // spreading positive means zoom in — so a spread pinch subtracts. The two never fire together
-            // (pinch needs two fingers down, which zeroes orbitHeld/panHeld's fly gate but not this read),
-            // so combining them into one input is just addition, not a priority choice.
+            // spreading positive means zoom in — so a spread pinch subtracts. Summing them is safe because
+            // a two-finger pinch zeroes `flyHeld` (touch overrides the mouse-button read while any finger is
+            // down), not because the two inputs can't coexist in the same frame — so combining them into one
+            // input is just addition, not a priority choice.
             const pinch = touchCount > 0 ? input.touch.pinchDelta : 0;
             const zoomInput = input.mouse.scroll - pinch;
             if (zoomInput !== 0) {
