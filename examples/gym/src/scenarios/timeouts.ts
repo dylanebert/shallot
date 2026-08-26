@@ -248,6 +248,14 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
             "packages/shallot/src/engine/runtime/probe.ts",
         ],
     },
+    // orbit-touch (`shallot-mobile-controls` spec, S4): an Orbit camera targeting a box, driven by the
+    // driver-level touch gate (`../../test/touch.playwright.ts`), not by `assert` — the scenario's own
+    // header states the verdict lives entirely in the external driver. RenderPlugin/PartPlugin/SearPlugin/
+    // GlazePlugin render the box so there's a live scene to aim at, the same incidental-render role
+    // `chain`'s comment above claims for its own RenderPlugin use, not a verified GPU-src exerciser — no
+    // `covers` claim. `extras/orbit` is CPU camera math (`NON_GPU_EXTRAS`, coverage.ts), so this scenario's
+    // real subject sits entirely outside the GPU-src population this table covers.
+    "orbit-touch": {},
 };
 
 /** every module path this scenario's checks are explicitly exempted from covering, and why. Stage 3b
