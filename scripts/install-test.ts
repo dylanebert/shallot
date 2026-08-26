@@ -249,6 +249,16 @@ function createShallotFlow(work: string, engineTgz: string) {
         `exit ${noPw.exitCode}`,
     );
 
+    // the intact scaffold typechecks: spin.ts is present, so the program reaches the engine's shipped
+    // source in node_modules — the shipped types (@types/node dep + ImportMeta.env augmentation) must
+    // resolve every error a consumer's tsc would see.
+    const tscIntact = run(["bunx", "tsc", "--noEmit"], proj);
+    check(
+        "tsc --noEmit on the intact scaffold typechecks clean (program reaches the engine)",
+        tscIntact.ok,
+        tscIntact.ok ? "" : tscIntact.out.slice(-400),
+    );
+
     // the TS18003 trap: deleting the demo plugin (its comment invites it) empties src/ but must not break
     // the scaffold's documented `bunx tsc --noEmit` — the env.d.ts anchor keeps `include: ["src"]` matched.
     rmSync(join(proj, "src", "spin.ts"));

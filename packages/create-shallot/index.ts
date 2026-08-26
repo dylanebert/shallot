@@ -43,7 +43,7 @@ export function template(name: string): Record<string, string> {
                         module: "ESNext",
                         moduleResolution: "bundler",
                         lib: ["ESNext", "DOM", "DOM.Iterable"],
-                        types: ["@webgpu/types"],
+                        types: ["@webgpu/types", "node"],
                         strict: true,
                         noEmit: true,
                         skipLibCheck: true,
