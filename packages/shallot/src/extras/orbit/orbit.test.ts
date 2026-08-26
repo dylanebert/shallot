@@ -3,6 +3,7 @@ import { attach } from "../../../tests/helpers";
 import {
     InputPlugin,
     Orbit,
+    OrbitOverlayPlugin,
     OrbitPick,
     OrbitPlugin,
     State,
@@ -723,5 +724,265 @@ describe("OrbitSystem touch gestures", () => {
         // own cached position, not the departed pointer's.
         const dYaw = Orbit.yaw.get(cam) - yawAfterLift;
         expect(dYaw).toBeCloseTo(-30 * 0.005, 4);
+    });
+});
+
+// The fly-speed overlay's module-scope runtime state (`_overlay`, `_lastSpeed`, `_shownUntil`) must be
+// keyed to State/canvas lifetime per the ecs reload-safety rule. The collapse exemplar's shape is the
+// contract: `mountOverlay(canvas, state)` for the disposing path, a module-scope cleanup cleared at
+// top-of-warm for the re-warm/swap path, and State-derived time (no module-level accumulator). These arms
+// cover the gate roster: rebuild-against-new-canvas, visibility window, fade-hold text, flying-camera
+// selection, the negative-last-speed sentinel, and destroy(). DOM-mocked with the same `globalThis.document`
+// stub shape the fly-mode block above uses, extended with `createElement` / `querySelector` for the overlay's
+// DOM construction.
+type MockEl = {
+    style: Record<string, string>;
+    children: MockEl[];
+    removed: boolean;
+    textContent: string;
+    attributes: Record<string, string>;
+    parentElement: MockEl | null;
+    appendChild(child: MockEl): MockEl;
+    append(...children: MockEl[]): void;
+    setAttribute(name: string, value: string): void;
+    remove(): void;
+};
+
+function mockEl(): MockEl {
+    const el: MockEl = {
+        style: {},
+        children: [],
+        removed: false,
+        textContent: "",
+        attributes: {},
+        parentElement: null,
+        appendChild(child: MockEl) {
+            this.children.push(child);
+            child.parentElement = this;
+            return child;
+        },
+        append(...kids: MockEl[]) {
+            for (const kid of kids) {
+                this.children.push(kid);
+                kid.parentElement = this;
+            }
+        },
+        setAttribute(name: string, value: string) {
+            this.attributes[name] = value;
+        },
+        remove() {
+            this.removed = true;
+            if (this.parentElement) {
+                const idx = this.parentElement.children.indexOf(this);
+                if (idx >= 0) this.parentElement.children.splice(idx, 1);
+            }
+            this.parentElement = null;
+        },
+    };
+    return el;
+}
+
+describe("OrbitOverlayPlugin lifecycle", () => {
+    let state: State;
+    let canvas: MockEl;
+    let canvasParent: MockEl;
+    let savedDocument: typeof globalThis.document;
+
+    beforeEach(() => {
+        clear();
+        canvasParent = mockEl();
+        canvas = mockEl();
+        canvas.parentElement = canvasParent;
+        savedDocument = globalThis.document;
+        globalThis.document = {
+            querySelector: (sel: string) => (sel === "canvas" ? canvas : null),
+            createElement: () => mockEl(),
+        } as unknown as typeof document;
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        register("OrbitSmooth", OrbitSmooth);
+        Slab.collect();
+        attach(state, OrbitOverlayPlugin);
+    });
+
+    afterEach(() => {
+        OrbitOverlayPlugin.dispose?.(state);
+        state.dispose();
+        globalThis.document = savedDocument;
+    });
+
+    // traverse: canvasParent → overlay (mountOverlay) → root (data-orbit-overlay) → [speedEl, boostEl]
+    function overlayRoot(): MockEl | null {
+        for (const overlay of canvasParent.children) {
+            for (const root of overlay.children) {
+                if (root.attributes["data-orbit-overlay"] !== undefined) return root;
+            }
+        }
+        return null;
+    }
+
+    function speedEl(): MockEl | null {
+        const root = overlayRoot();
+        return root ? ((root.children[0] as MockEl) ?? null) : null;
+    }
+
+    // the overlay div returned by mountOverlay (direct child of canvasParent)
+    function overlayDiv(): MockEl | null {
+        return canvasParent.children.length > 0 ? (canvasParent.children[0] as MockEl) : null;
+    }
+
+    function makeFlyingCam(speed = 5): number {
+        const cam = state.create();
+        state.add(cam, Orbit);
+        state.add(cam, OrbitSmooth);
+        OrbitSmooth.flyActive.set(cam, 1);
+        Orbit.flySpeed.set(cam, speed);
+        return cam;
+    }
+
+    // a non-flying camera (flyActive = 0)
+    function makeOrbitingCam(): number {
+        const cam = state.create();
+        state.add(cam, Orbit);
+        state.add(cam, OrbitSmooth);
+        OrbitSmooth.flyActive.set(cam, 0);
+        return cam;
+    }
+
+    // ── destroy() / state-owned teardown ──────────────────────────────────────
+
+    // binds finding :108 — mountOverlay must receive `state` so state.onDispose registers the overlay's
+    // removal. A direct state.dispose() (not App.dispose) fires onDispose but never the plugin dispose hook,
+    // so without the state argument the overlay node leaks.
+    test("a state-bound overlay auto-removes on state dispose", () => {
+        makeFlyingCam();
+        state.step(1 / 60); // update creates the overlay lazily
+        expect(overlayRoot()).not.toBeNull();
+        const div = overlayDiv()!;
+        expect(div.removed).toBe(false);
+
+        state.dispose();
+        expect(div.removed).toBe(true); // onDispose fired → overlay.remove()
+    });
+
+    // ── rebuild against a new canvas ───────────────────────────────────────────
+
+    // binds finding :71 — _overlay is module-cached forever; after a rebuild against a new canvas the
+    // readout stays parented to the old canvas's overlay host. Keying the overlay to its canvas (clearing
+    // on canvas change) makes update re-create it against the new canvas's parent.
+    test("rebuild against a new canvas re-parents the overlay to the new canvas", () => {
+        makeFlyingCam();
+        state.step(1 / 60);
+        const oldOverlayDiv = overlayDiv();
+        expect(oldOverlayDiv).not.toBeNull();
+        // the overlay is parented to canvas A's parent
+        expect(canvasParent.children).toContain(oldOverlayDiv as MockEl);
+
+        // simulate a rebuild: dispose the old State, swap in a new canvas + State
+        state.dispose();
+        const newCanvasParent = mockEl();
+        const newCanvas = mockEl();
+        newCanvas.parentElement = newCanvasParent;
+        (
+            globalThis.document as unknown as { querySelector: (s: string) => MockEl | null }
+        ).querySelector = (sel: string) => (sel === "canvas" ? newCanvas : null);
+
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        register("OrbitSmooth", OrbitSmooth);
+        Slab.collect();
+        attach(state, OrbitOverlayPlugin);
+        OrbitOverlayPlugin.warm?.(state); // top-of-warm clears module-scope state (swap fallback)
+
+        makeFlyingCam();
+        state.step(1 / 60);
+
+        // the new overlay is parented to the NEW canvas's parent, not the old one
+        const newOverlayDiv = newCanvasParent.children[0] as MockEl | undefined;
+        expect(newOverlayDiv).toBeDefined();
+        expect(canvasParent.children).not.toContain(newOverlayDiv as MockEl);
+        expect(newCanvasParent.children).toContain(newOverlayDiv as MockEl);
+    });
+
+    // ── visibility window + negative-last-speed sentinel ──────────────────────
+
+    // binds finding :99 — _shownUntil survives a rebuild while state.time.elapsed resets to 0, so a fresh
+    // State can inherit a stale visible window. Also covers the _lastSpeed < 0 (negative sentinel) branch:
+    // entering fly arms the readout without showing it. After a rebuild with _shownUntil reset, the first
+    // flying frame must NOT show the overlay (armed, not visible).
+    test("a fresh State does not inherit a stale visibility window — entering fly arms without showing", () => {
+        // State A: fly and change speed to set _shownUntil well into the future
+        const cam = makeFlyingCam(5);
+        state.step(1 / 60); // first flying frame: _lastSpeed goes from -1 to 5 (armed, not shown)
+        expect(overlayRoot()?.style.opacity).toBe("0"); // armed, not visible
+
+        // change speed to set _shownUntil = elapsed + HoldSeconds
+        Orbit.flySpeed.set(cam, 8);
+        state.step(1 / 60); // speed changed → _shownUntil set, visible
+        expect(overlayRoot()?.style.opacity).toBe("1");
+
+        // simulate a rebuild: dispose, new State, warm
+        state.dispose();
+        state = new State();
+        register("Transform", Transform, TransformsPlugin.traits?.Transform);
+        register("Orbit", Orbit, OrbitPlugin.traits?.Orbit);
+        register("OrbitSmooth", OrbitSmooth);
+        Slab.collect();
+        attach(state, OrbitOverlayPlugin);
+        OrbitOverlayPlugin.warm?.(state);
+
+        // fresh State: elapsed is 0, _shownUntil must be 0 (not stale from State A)
+        makeFlyingCam(5);
+        state.step(1 / 60); // first flying frame: _lastSpeed < 0 → arm without showing
+        expect(overlayRoot()?.style.opacity).toBe("0"); // NOT visible — no stale window
+    });
+
+    // ── fade-hold text ─────────────────────────────────────────────────────────
+
+    // binds finding :92 — the not-flying path called set(0, 0, false, false), rewriting the text to
+    // "fly 0.0 u/s" mid-fade, contradicting set's own comment that the last value reads as it dims out.
+    // After the fix, set only updates text while visible, so the last flying speed holds during the fade.
+    test("the readout holds its last text while fading out", () => {
+        const cam = makeFlyingCam(5);
+        state.step(1 / 60); // armed
+        Orbit.flySpeed.set(cam, 7);
+        state.step(1 / 60); // speed changed → visible, text = "fly 7.0 u/s"
+        expect(speedEl()?.textContent).toBe("fly 7.0 u/s");
+        expect(overlayRoot()?.style.opacity).toBe("1");
+
+        // stop flying — the overlay fades out but must keep showing "fly 7.0 u/s", not "fly 0.0 u/s"
+        OrbitSmooth.flyActive.set(cam, 0);
+        state.step(1 / 60);
+        expect(overlayRoot()?.style.opacity).toBe("0"); // fading
+        expect(speedEl()?.textContent).toBe("fly 7.0 u/s"); // last value holds, not rewritten to 0
+    });
+
+    // ── flying-camera selection ───────────────────────────────────────────────
+
+    // covers the flying-camera selection gate: the first flying camera in query order owns the readout.
+    // Also binds the state-owned teardown (finding :108): state.dispose() must remove the overlay.
+    test("the first flying camera in query order owns the readout", () => {
+        const idle = makeOrbitingCam(); // not flying — should NOT own the readout
+        Orbit.flySpeed.set(idle, 3);
+        const flying = makeFlyingCam(7); // flying — should own the readout
+        state.step(1 / 60); // first flying frame: arm without showing
+        Orbit.flySpeed.set(flying, 9); // change speed → visible on next frame
+        state.step(1 / 60);
+
+        expect(speedEl()?.textContent).toBe("fly 9.0 u/s"); // flying cam's speed, not the idle cam's
+
+        // the idle cam starts flying instead — now it's first in query order, so it takes over
+        OrbitSmooth.flyActive.set(idle, 1);
+        OrbitSmooth.flyActive.set(flying, 0);
+        state.step(1 / 60);
+        expect(speedEl()?.textContent).toBe("fly 3.0 u/s"); // idle cam's speed now
+
+        // state-owned teardown: dispose removes the overlay node
+        const div = overlayDiv()!;
+        state.dispose();
+        expect(div.removed).toBe(true);
     });
 });
