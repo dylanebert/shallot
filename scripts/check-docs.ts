@@ -762,12 +762,10 @@ if (rosterFindings.length > 0) {
 // rather than adjudicated). The roster replaces attribution: a foreign-namespace symbol
 // resolves against a committed roster, not against an attribution token on the citing line.
 //
-// Population exclusion: the arm walks `.claude/rules/**/*.md` only. `AGENTS.md` and
-// `CLAUDE.md` are context-loader entry points, not rules — they are read by every session
-// and change for operational reasons (path mappings, workflow notes) that are not the
-// stale-citation defect class this spec exists to sweep. The rules corpus is the set of
-// files that teach durable contracts, which is where a stale symbol citation is a defect
-// at any age. A stale claim in `AGENTS.md` or `CLAUDE.md` is out of scope for this arm.
+// Population: the arm scans `.claude/rules/**/*.md` only — `AGENTS.md` and `CLAUDE.md`
+// are excluded because they sit outside `.claude/rules/` (at the repo root and
+// `packages/shallot/`), so the glob does not reach them; a reader can verify with
+// `git ls-files '**/AGENTS.md' '**/CLAUDE.md'` that no hit starts with `.claude/rules/`.
 
 import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS } from "./rosters";
 import {

@@ -9,14 +9,15 @@ import { View } from "../../standard/render/core";
 // draw, and the mask shader codegen). Split off the barrel (orbit's smooth.ts shape) — index.ts keeps the
 // component / system / plugin / per-camera resource management, this file the shader half.
 
-// px cap on the band width — bounds the JFA pass count (`ceil(log2(width))`) and the attr texture's
+// px cap on the band width — bounds the JFA pass count (`ceil(log2(width)) + 1`) and the attr texture's
 // width channel. 64px is a generous outline; wider would want a coarser/clamped field anyway
 export const MAX_WIDTH = 64;
 
 /**
  * the jump-flood step ladder for a band of `maxWidth` pixels: the largest power of two ≥ the width,
  * halving to 1. Bounding the first jump by the width (not the screen) is what makes the pass count
- * `ceil(log2(width))`: a pixel only needs to find seeds within `width`, so seeds nearer than the start
+ * `ceil(log2(width)) + 1` (the ladder runs from the first power of two ≥ the width down through 1,
+ * inclusive): a pixel only needs to find seeds within `width`, so seeds nearer than the start
  * step resolve correctly. Pure.
  */
 export function jfaSteps(maxWidth: number): number[] {
