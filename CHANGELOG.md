@@ -2,6 +2,10 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
+## Unreleased — next minor
+
+- **audio** — `DYNAMICS_MODE`, `WAVESHAPER_MODE`, and `EQ_MODE` are no longer exported: no consumer referenced them, and the mode values they named stay documented on the node-parameter docblocks. The tables survive internally as the defaults' source. Removal is semver-visible, so it ships in a minor.
+
 ## 0.9.5 — 2026-08-25
 
 A robustness patch: a console-noise fix at pipeline warm, the first shipped increment of touch input, and a run of small correctness fixes an audit pass over the package turned up (a shadow-render fallback, a scene round-trip bug, a physics joint bug, a glTF memory leak, two fail-open CLI/scaffold defects). No consumer action, nothing breaking.

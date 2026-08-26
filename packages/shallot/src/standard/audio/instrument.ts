@@ -42,7 +42,7 @@ export const NODE_TYPE_ID: Record<NodeType, number> = {
 /** `dynamics.mode` values — mirrors `rust/audio/src/dynamics.rs`'s `DynamicsMode`.
  *  `limiter`/`gate` share the `compressor`/`expander` curve; only the default
  *  parameter preset differs. */
-export const DYNAMICS_MODE = {
+const DYNAMICS_MODE = {
     compressor: 0,
     limiter: 1,
     expander: 2,
@@ -51,7 +51,7 @@ export const DYNAMICS_MODE = {
 
 /** `waveshaper.mode` values — mirrors `rust/audio/src/waveshaper.rs`'s `ShaperMode`.
  *  `soft` is DaisySP's overdrive (rational-tanh), `hard` a clip, `fold` a wavefolder. */
-export const WAVESHAPER_MODE = {
+const WAVESHAPER_MODE = {
     soft: 0,
     hard: 1,
     fold: 2,
@@ -60,7 +60,7 @@ export const WAVESHAPER_MODE = {
 /** `eq.mode` values — the biquad shape. `gain` is a linear ratio (1.0 = flat), so an
  *  EQ node at unit gain is transparent; `q` applies to `peaking` only (shelves are
  *  fixed-slope). */
-export const EQ_MODE = {
+const EQ_MODE = {
     lowShelf: 0,
     peaking: 1,
     highShelf: 2,
