@@ -390,6 +390,15 @@ function createHandlers(s: InputState): void {
         for (const code of s.keys) s.keysReleased.add(code);
         s.keys.clear();
         s.keysPressed.clear();
+        // a still-down touch pointer can vanish with no pointercancel (OS app-switch, permission
+        // dialog, PiP takeover) — clear the per-pointer cache and baseline the same way
+        // `setInputEnabled(false)` does, or a ghost finger survives in `touch.count` until reload.
+        s.touchPoints.clear();
+        updatePinchBaseline(s);
+        s.touch.count = 0;
+        s.touch.pinchDelta = 0;
+        s.touch.deltaX = 0;
+        s.touch.deltaY = 0;
     };
 
     s.pointerUp = (e: PointerEvent) => {

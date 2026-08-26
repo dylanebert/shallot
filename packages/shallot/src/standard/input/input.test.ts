@@ -812,6 +812,46 @@ describe("InputPlugin", () => {
         expect(Inputs.touch.count).toBe(0); // cache was cleared, not just gated
     });
 
+    test("windowBlur clears touch state — a still-down finger on OS focus loss does not survive as a ghost", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        });
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(2);
+
+        onWindow("blur")();
+        expect(Inputs.touch.count).toBe(0); // no pointerup/pointercancel fired — blur alone must clear it
+
+        // a fresh pointer after the blur must not compute a delta against the stale pre-blur pair
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 3,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 300,
+            clientY: 100,
+            preventDefault() {},
+        });
+        expect(Inputs.touch.count).toBe(1);
+    });
+
     test("a held-pointer move at a non-canvas target keeps mouse.x/y tracking", () => {
         // pointer enters the canvas — sets hover true
         onCanvas("pointerenter")({ target: canvas });
