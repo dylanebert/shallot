@@ -2,6 +2,7 @@ import type { LazyAlloc, Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
+import { reorderRows } from "./reorder";
 
 export type {
     BenchmarkAPI,
@@ -640,21 +641,6 @@ function tickPool(pool: RowPool, entries: Iterable<[string, number]>): void {
         pool.accum.set(name, (pool.accum.get(name) ?? 0) + raw);
     }
     pool.frames++;
-}
-
-/** hysteresis row reorder: nudge each row toward its ranked position only when
- *  it's displaced by ≥2 slots (avoids 1-slot jitter). Pure — takes the current
- *  display order and a map of name→ranked-index, returns the new order. */
-export function reorderRows(order: string[], rank: Map<string, number>): string[] {
-    const next = order.slice();
-    for (let i = 0; i < next.length; i++) {
-        const desired = rank.get(next[i])!;
-        if (Math.abs(desired - i) >= 2) {
-            const [moved] = next.splice(i, 1);
-            next.splice(desired, 0, moved);
-        }
-    }
-    return next;
 }
 
 // fold the current window's accumulator into the cross-window EMA, evict

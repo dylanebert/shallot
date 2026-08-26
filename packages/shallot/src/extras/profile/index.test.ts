@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { Compute, State } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
-import { Profile, ProfilePlugin, reorderRows } from "./index";
+import { Profile, ProfilePlugin } from "./index";
+import { reorderRows } from "./reorder";
 
 // `ProfilePlugin.features` declares `timestamp-query`, and `acquireDevice` throws on a device that can't
 // grant it — but `requestGPU(externalDevice)` / `run({ device })` adopts a device as-is, so a declared
