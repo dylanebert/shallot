@@ -12,8 +12,11 @@ const REPO_ROOT = resolve(import.meta.dir, "..");
 // Three facts about this WSL+Windows setup force the shape below (each validated empirically, not assumed):
 //
 //  1. WSL → host TCP is blocked (Hyper-V firewall, DefaultInboundAction=Block, non-admin can't open it);
-//     host → WSL works (localhost forwarding + the WSL eth0 IP). So the browser server on the host can't be
-//     dialed from WSL directly. A host-initiated reverse tunnel carries the one Playwright ws connection:
+//     host → WSL works, but which address dials depends on the seat: localhost forwarding always works,
+//     while the WSL eth0 IP only works when it isn't link-local (measured: one seat had eth0 at 169.254.x.x,
+//     unreachable, with localhost forwarding still live) — so `resolveRvHost` probes both with a real dial
+//     rather than hard-picking one. So the browser server on the host can't be dialed from WSL directly. A
+//     host-initiated reverse tunnel carries the one Playwright ws connection:
 //     the host dials a WSL rendezvous (allowed direction), and each accepted stream is spliced to the
 //     host-local browser ws. verify then connects to a WSL-local port that the rendezvous fronts.
 //
@@ -59,12 +62,43 @@ function playwrightVersion(): string {
     ).version;
 }
 
-/** the WSL eth0 address the host dials back on (host → WSL is the reachable direction). */
-function wslHostIp(): string {
+/** the WSL eth0 address, one of the candidates the host might dial back on. */
+function wslEth0Ip(): string {
     const p = Bun.spawnSync(["ip", "-4", "-o", "addr", "show", "eth0"], { stdout: "pipe" });
     const m = new TextDecoder().decode(p.stdout).match(/inet (\d+\.\d+\.\d+\.\d+)/);
     if (!m) throw new Error("could not read the WSL eth0 IP (ip addr show eth0)");
     return m[1];
+}
+
+/** pick the `RV_HOST` the host launcher dials back on by an actual dial probe, not a hard-coded choice —
+ *  which of localhost forwarding or the WSL eth0 IP is reachable varies by seat (fact 1 above). Stands up a
+ *  temporary WSL listener and asks the host (powershell `TcpClient`, short timeout) to connect to each
+ *  candidate in turn, returning the first that dials. Throws loud naming both candidates and their results
+ *  when neither does, per the bridge's own contract: works or fails loud, never a hang. */
+async function resolveRvHost(): Promise<string> {
+    const candidates = ["localhost", wslEth0Ip()];
+    const probe = createServer((s) => s.destroy());
+    const port = await new Promise<number>((res, rej) => {
+        probe.on("error", rej);
+        probe.listen(0, "0.0.0.0", () => res((probe.address() as { port: number }).port));
+    });
+    try {
+        const results: string[] = [];
+        for (const host of candidates) {
+            const r = sh(
+                `$c=New-Object System.Net.Sockets.TcpClient;$iar=$c.BeginConnect('${host}',${port},$null,$null);` +
+                    `$ok=$iar.AsyncWaitHandle.WaitOne(1000,$false) -and $c.Connected;$c.Close();Write-Host -NoNewline $ok`,
+            );
+            const ok = r.ok && r.out.trim() === "True";
+            if (ok) return host;
+            results.push(`${host}=${ok}`);
+        }
+        throw new Error(
+            `no RV_HOST candidate dialed from the Windows host (${results.join(", ")})`,
+        );
+    } finally {
+        probe.close();
+    }
 }
 
 /** an OS-picked free TCP port on the WSL side (bind :0, read it, release). */
@@ -236,7 +270,7 @@ export function bridgePrereq(): string | null {
  *  Resolves a handle, or throws with a reason naming what failed (the caller surfaces it and fails loud). */
 export async function start(): Promise<Bridge> {
     const version = playwrightVersion();
-    const rvHost = wslHostIp();
+    const rvHost = await resolveRvHost();
     const staged = provisionHost(version);
     buildBundle();
 

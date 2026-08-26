@@ -65,10 +65,22 @@ test("visualization showcase — every demo loads clean, one orbits by touch", a
             const c = document.querySelector("canvas");
             return c instanceof HTMLCanvasElement && c.width > 0 && c.height > 0;
         });
-        const classification = classifyRendered(await sampleGrid(page));
-        expect(classification, `${demo}: expected a rendered frame under touch context`).toBe(
-            "rendered",
-        );
+        let classification = classifyRendered(await sampleGrid(page));
+        if (!classification.rendered) {
+            await expect
+                .poll(
+                    async () => {
+                        classification = classifyRendered(await sampleGrid(page));
+                        return classification.rendered;
+                    },
+                    {
+                        message: `${demo}: canonical center-vs-corner rendered law`,
+                        timeout: 10_000,
+                    },
+                )
+                .toBe(true);
+        }
+        expect(classification.rendered, `${demo}: ${JSON.stringify(classification)}`).toBe(true);
     }
 
     // one representative demo carries the interaction assertion — the first in the derived list.
