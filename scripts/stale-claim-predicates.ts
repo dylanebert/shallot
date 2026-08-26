@@ -6,12 +6,12 @@
 // or a backticked `*.ts` path — **backticked or bare** — must resolve against
 // the tree or a committed roster.
 //
-// Predicate design (round 6b):
+// Predicate design (round 7):
 //  - All identifier shapes (camelCase, PascalCase, SCREAMING_SNAKE, snake_case,
-//    lowercase-with-digits) are caught bare or backticked. The population is
-//    formatting-invariant: a token is caught whether it's in backticks or bare
-//    in prose, so removing backticks no longer removes a citation from the
-//    arm's population.
+//    lowercase-with-digits) are caught bare or backticked, both in solo spans
+//    and in multi-token spans. The population is formatting-invariant: a token
+//    is caught whether it's in backticks or bare in prose, so removing
+//    backticks no longer removes a citation from the arm's population.
 //  - Shape false positives (prose terms that match an identifier shape but are
 //    not code citations) are excluded by predicate or fixed in the prose, never
 //    by a per-entry allowlist. The round-6 `SHAPE_FALSE_POSITIVES` set is
@@ -21,15 +21,20 @@
 //    per site: `AoSoA` and `iGPUs` are prose terms fixed in the rule prose
 //    (gpu.md:110, gpu.md:242); `EndFrame` is a shorthand for the live symbol
 //    `EndFrameSystem` and is re-spelled onto the live member (render.md:68,
-//    render.md:161).
+//    render.md:161), with its sentence fixed in round 7 (the claim "sole
+//    `last: true` system" was false — the scheduler kahn-sorts a bucket of
+//    several `last: true` systems).
 //  - Bare weak shapes (snake_case, lowercase-with-digits) are re-admitted into
-//    the population. The 11 distinct bare weak-shape tokens that did not resolve
-//    at 6ee6ed6 are adjudicated per site: 2 genuine foreign tool names
-//    (`webgpu_inspector`, `memory64`) are added to the Tools roster; 9 prose
-//    terms (bench metrics, formula variables, hardware terms, data formats,
-//    benchmark labels) are fixed in the rule prose so the sentence no longer
-//    carries a bare identifier-shaped token for a thing that is not a code
-//    symbol.
+//    the population, including in-span (round 7). The 11 distinct bare
+//    weak-shape tokens that did not resolve at 6ee6ed6 are adjudicated per
+//    site: `webgpu_inspector` is a genuine foreign tool name added to the Tools
+//    roster; `memory64` is a Wasm feature (not a tool) filed under
+//    WasmFeatures; 9 prose terms (bench metrics, formula variables, hardware
+//    terms, data formats, benchmark labels) are fixed in the rule prose so
+//    the sentence no longer carries a bare identifier-shaped token for a thing
+//    that is not a code symbol. Round 7 admits weak shapes in-span too,//    yielding 5 new sites: `gain_effect`/`direct_effect` (Steam Audio upstream
+//    filenames → SteamAudio roster) and `working_set`/`L2_size` (formula
+//    variables → ARITH_RE widened by comparison operators).
 //  - A bare `*`-prefix drop is inadmissible (`*foo` also spells a mis-bulleted
 //    dead symbol). Only `*`-prefixed tokens starting with `_` are skipped —
 //    these are glob suffixes (e.g. `*_WGSL`, `*_REQUIRED`). A `*`-prefixed
@@ -37,8 +42,8 @@
 //  - Do not re-tokenize the interior of a span already extracted as a `.ts`
 //    path (kills `_measure`).
 //  - Split in-span tokens by predicate: a token followed by `(` is a call
-//    citation and must resolve; one in arithmetic context is a formula variable
-//    and is excluded.
+//    citation and must resolve; one in arithmetic context (including
+//    comparison operators) is a formula variable and is excluded.
 
 import { resolve } from "path";
 
@@ -104,7 +109,7 @@ export function matchesScreamingSnake(w: string): boolean {
  * are not code citations) are excluded by predicate or fixed in the prose, never by
  * a per-entry allowlist.
  */
-export function matchesShape(w: string, _backticked: boolean): boolean {
+export function matchesShape(w: string): boolean {
     if (matchesStrongShape(w)) return true;
     if (matchesScreamingSnake(w)) return true;
     if (matchesWeakShape(w)) return true;
@@ -137,8 +142,9 @@ const IDENTIFIER_RE = /`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g;
 const BARE_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
 // A multi-token backtick span: backtick content that is not a single identifier or .ts path
 const MULTI_TOKEN_SPAN_RE = /`([^`]+)`/g;
-// Arithmetic context: preceded or followed by +, -, *, /, =, ^, ·, ×, ÷
-const ARITH_RE = /[-+*/=^·×÷−]/;
+// Arithmetic context: preceded or followed by +, -, *, /, =, ^, ·, ×, ÷, ≤, ≥
+// (comparison operators ≤/≥ only — not </> which are TypeScript angle brackets in spans)
+const ARITH_RE = /[-+*/=^·×÷−≤≥]/;
 
 /**
  * Extract citation candidates from rule files.
@@ -148,7 +154,7 @@ const ARITH_RE = /[-+*/=^·×÷−]/;
  * Predicate fixes applied:
  *  1. Bare tokens preceded by `*` are glob fragments → skipped.
  *  2. `.ts` path interiors are not re-tokenized → stripped before bare extraction.
- *  3. Weak shapes (snake, lowercase-with-digits) only match when backticked.
+ *  3. All identifier shapes (including weak shapes) are caught bare or backticked.
  *  4. In-span tokens: a token followed by `(` is a call citation (must resolve);
  *     one in arithmetic context is a formula variable (excluded).
  */
@@ -216,7 +222,7 @@ export async function extractCandidates(
             for (const m of line.matchAll(IDENTIFIER_RE)) {
                 const ref = m[1].replace(/\(\)$/, "");
                 if (ref.endsWith(".ts")) continue;
-                if (matchesShape(ref, true)) {
+                if (matchesShape(ref)) {
                     addCandidate(file, i + 1, ref, "identifier", true);
                     if (lineHasMarkerFlag) {
                         markerExempted.get(file)!.add(ref);
@@ -242,7 +248,7 @@ export async function extractCandidates(
                 if (index > 0 && stripped[index - 1] === "*" && ref.startsWith("_")) continue;
                 // All identifier shapes are caught bare (re-admitted, round 6b): camelCase,
                 // PascalCase, SCREAMING_SNAKE, snake_case, and lowercase-with-digits.
-                if (matchesShape(ref, false)) {
+                if (matchesShape(ref)) {
                     addCandidate(file, i + 1, ref, "identifier", false);
                 }
             }
@@ -271,7 +277,7 @@ export async function extractCandidates(
 
                     // Fix 4a: a token followed by `(` is a call citation — must resolve
                     if (afterChar === "(") {
-                        if (matchesShape(ref, true)) {
+                        if (matchesShape(ref)) {
                             addCandidate(file, i + 1, ref, "identifier", true);
                             if (lineHasMarkerFlag) {
                                 markerExempted.get(file)!.add(ref);
@@ -283,10 +289,11 @@ export async function extractCandidates(
                     if (ARITH_RE.test(beforeChar) || ARITH_RE.test(afterChar)) {
                         continue;
                     }
-                    // Otherwise: a token inside a multi-token span — strong shapes and
-                    // SCREAMING_SNAKE only (weak shapes in multi-token spans are prose,
-                    // not code citations — filenames, formula variables)
-                    if (matchesStrongShape(ref) || matchesScreamingSnake(ref)) {
+                    // Otherwise: a token inside a multi-token span — all identifier
+                    // shapes (weak shapes admitted in-span, round 7). Formula variables
+                    // in arithmetic context (including comparison operators) are excluded
+                    // above.
+                    if (matchesShape(ref)) {
                         addCandidate(file, i + 1, ref, "identifier", true);
                         if (lineHasMarkerFlag) {
                             markerExempted.get(file)!.add(ref);

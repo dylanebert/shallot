@@ -1,181 +1,115 @@
-# audit-stale-claim-sweep — round 6b mutation captures and verdicts
+# audit-stale-claim-sweep — round 7 mutation captures and verdicts
 
 Committed in-repo capture path for the check-docs citation-resolution arm's
-mutation proofs. Each mutation was applied in place, one `check-docs.ts`
-run, exit code captured separately, then the file was restored from a
-pristine copy. All mutations red (exit 1); the clean baseline is green
-(exit 0); the (viii) control (set re-introduced without seeding) is green
-(exit 0).
+mutation proofs. Each mutation was applied in place (count-neutral: a
+single-occurrence LIVE citation swapped for the dead one, never appended),
+one `check-docs.ts` run, exit code and failing leg read separately, then the
+file was restored from a pristine copy. All seven mutations red (exit 1);
+the clean baseline is green (exit 0).
 
-Witnessed at commit `20ea760` on branch `audit-stale-claim-sweep/S1`.
+The citation-count pin runs before the resolution loop, so ANY appended line
+moves the count and reds — including one citing a live symbol (measured 1665
+vs 1664 at `f6b302e`). A seed mutation therefore swaps a single-occurrence
+live citation for the dead one IN PLACE, and the record carries the leg name
+(`stale citation`, `roster entry count mismatch`, …) beside the exit code,
+never the exit code alone.
+
+Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`.
 
 ## Mutations
 
-| # | Mutation | Exit | Description |
+| # | Mutation | Exit | Failing leg |
 |---|----------|------|-------------|
-| (i) | Seeded backticked dead symbol | 1 | `` `zombieUploadPass` `` appended to `gpu.md` → stale citation |
-| (ii) | Bare dead symbol | 1 | Bare `zombieUploadPass` appended to `gpu.md` → caught by formatting-invariant predicate |
-| (iii) | Roster launder | 1 | `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` → pinned roster entry count mismatch (76 vs 75) |
-| (iv) | Substring | 1 | `` `spotInner` `` appended to `gpu.md` → does not resolve (token index is exact, not substring; `spotInnerF` is live but `spotInner` is not) |
-| (v) | Launder-via-marker | 1 | `` `zombieUploadPass` (retired) `` appended to `gpu.md` → pinned marker count mismatch (21 vs 20) |
-| (vi-a) | Bare SCREAMING_SNAKE | 1 | Bare `ENTITY_COLS_WGSL` appended to `gpu.md` → caught bare by SCREAMING_SNAKE predicate |
-| (vi-b) | Bare snake_case | 1 | Bare `zombie_upload_pass` appended to `gpu.md` → caught bare by re-admitted snake_case predicate |
-| (vi-c) | Bare lowercase-with-digits | 1 | Bare `zombiepass2` appended to `gpu.md` → caught bare by re-admitted lowercase-with-digits predicate |
-| (vi-d) | `*`-prefixed | 1 | `*zombieUploadPass` appended to `gpu.md` → `*`-prefix drop inadmissible for letter-starting tokens |
-| (vii) | Predicate narrowing | 1 | `matchesWeakShape` call removed from `matchesShape` in `stale-claim-predicates.ts` → pinned citation count mismatch (lower than 1664) |
-| (viii) | SHAPE_FALSE_POSITIVES launder + seed | 1 | `SHAPE_FALSE_POSITIVES` set re-introduced (variable only, no checks in shape functions) + bare `zombieUploadPass` seeded into `gpu.md` → still reds (set is not checked by any function; dead symbol caught by population predicate) |
-| (viii-ctrl) | SHAPE_FALSE_POSITIVES control | 0 | `SHAPE_FALSE_POSITIVES` set re-introduced (variable only, no checks) without seeding a dead symbol → green (set has no effect; not checked by any function) |
-| baseline | Clean tree | 0 | No mutation applied → green (1664 citations, 75 roster entries, 20 marker-exempted) |
+| (i) | Seeded backticked dead symbol: `` `advanceColor` `` → `` `zombieUploadPass` `` in avbd.md:114 (in place) | 1 | stale citation |
+| (ii) | Bare dead symbol: `` `advanceColor` `` → bare `zombieUploadPass` in avbd.md:114 (in place) | 1 | stale citation |
+| (iii) | Roster launder: `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` (no rule file edit) | 1 | roster entry count mismatch (44 vs 43) |
+| (iv) | Substring: `` `advanceColor` `` → `` `spotInner` `` in avbd.md:114 (substring of live `spotInnerF`) | 1 | stale citation |
+| (v) | Launder-via-marker: `` `advanceColor` `` → `` `zombieUploadPass` (retired) `` in avbd.md:114 | 1 | marker-exempted count mismatch (21 vs 20) |
+| (vi) | Weak-shape bare: `` `advanceColor` `` → bare `zombie_upload_pass` (snake) in avbd.md:114 | 1 | stale citation |
+| (vii) | Predicate narrowing: `matchesWeakShape` call removed from `matchesShape` | 1 | citation count mismatch (1508 vs 1735) |
+| baseline | Clean tree | 0 | — |
 
-## A — SHAPE_FALSE_POSITIVES deletion (three former entries)
+## (viii) — SHAPE_FALSE_POSITIVES, retired honestly
 
-The round-6 `SHAPE_FALSE_POSITIVES` set was an unpinned per-entry allowlist:
-adding one string took a seeded dead symbol from exit 1 to exit 0 (measured
-at `6ee6ed6`). It is deleted this round. The three former entries are
-handled per site:
+The round-6 `SHAPE_FALSE_POSITIVES` set was an unpinned per-entry allowlist
+that could green a dead symbol in one line (measured at `6ee6ed6`: adding a
+string to the set took a seeded dead symbol from exit 1 to exit 0). Round 6b
+deleted the set. The round-6b capture row (viii) claimed re-introducing the
+set as an unread variable + seeding a dead symbol "still reds" — but that is
+a tautology about dead code, not a witness about the gate: a variable no
+function reads has no effect, so the dead symbol is caught by the population
+predicate regardless of the set's presence. The real channel
+(`SHAPE_FALSE_POSITIVES` greening a dead symbol) was closed by **deletion** of
+the set, not by the gate catching a re-introduction. There is no mutation to
+witness — the escape no longer exists in the code, and a re-introduction as
+an unread variable is inert by construction. Row (viii) is retired.
 
-### `AoSoA` → prose fix (gpu.md:110)
-**Move (3): edit the rule prose.** `AoSoA` (Array of Structures of Arrays)
-is a GPU data-layout pattern name, not a code symbol. It was bare and
-PascalCase-shaped, so it would match `matchesStrongShape` without the
-exclusion. The prose is fixed: "**AoSoA tile = 32 elements.**" → "**Array
-of Structures of Arrays tile = 32 elements.**" — the identifier-shaped
-token is removed.
+## A — Roster disjointness (round 7, item a)
 
-### `iGPUs` → prose fix (gpu.md:242)
-**Move (3): edit the rule prose.** `iGPUs` (integrated GPUs) is a prose
-term, not a code symbol. It was bare and camelCase-shaped. The prose is
-fixed: "Intel iGPUs" → "Intel integrated GPUs" — the identifier-shaped
-token is removed.
+34 of 75 roster entries also resolved in the tree token index (measured at
+`f6b302e`), making them redundant with disjunct 1 (tree resolution). A
+swap-in — dropping one redundant entry and adding a dead symbol in its place
+— read exit 0 with every pinned cardinality unchanged, because the pinned
+total 75 bought nothing against a swap-in. Round 7 prunes the 34 redundant
+entries (75 → 41 clean) and adds the disjointness assertion: every roster
+entry is asserted ABSENT from the tree token index, so each surviving entry
+is load-bearing and removing one reds. Two new roster entries are added for
+round 7 item (b) — `gain_effect` and `direct_effect` (Steam Audio upstream
+filenames, SteamAudio roster) — bringing the final roster count to 43.
 
-### `EndFrame` → re-spell onto live member (render.md:68, :161)
-**Move (3): edit the rule prose.** `EndFrame` is a shorthand for the live
-symbol `EndFrameSystem` (`packages/shallot/src/standard/render/index.ts:243`).
-It was bare and PascalCase-shaped. The prose is re-spelled onto the live
-member: bare `EndFrame` → `EndFrameSystem` (which resolves in the tree token
-index). `EndFrameSystem` is already backticked earlier on the same lines,
-so the bare re-spelling deduplicates against the existing backticked
-candidate (no count change).
+## B — Weak shapes in-span (round 7, item b)
 
-## B — bare weak shapes re-admitted
+Admitting weak shapes (snake_case, lowercase-with-digits) in multi-token
+backtick spans (`matchesShape(ref)` at the in-span branch) adds 67 new
+candidates (1664 → 1731). Six additional candidates come from the
+EndFrameSystem sentence fix in render.md (item c: `MirrorSystem`,
+`InputResetSystem`, `OrbitOverlaySystem`, `ProfileRenderSystem`,
+`sortSystems`, `scheduler.ts`), and 2 are excluded by widening `ARITH_RE`
+with comparison operators (`≤`, `≥`) to exclude formula variables
+(`working_set`, `L2_size` at gpu.md:219). Net: 1664 → 1735.
 
-**Move (1): re-admit bare snake_case and bare lowercase-with-digits into
-the population.** Measured at `6ee6ed6` before the fix: 11 distinct bare
-weak-shape tokens that did not resolve — 5 snake_case (`warp_size`,
-`theoretical_min`, `bytes_moved`, `peak_BW`, `webgpu_inspector`) and 6
-lowercase-with-digits (`l12`, `l4`, `snorm8`, `f16x2`, `wg32`, `memory64`).
-77 resolving bare weak-shape occurrences also become new candidates (e.g.
-`u32` 15×, `box3d` 14×, `vec4` 5×, `base64` 4×, `unorm16` 8×).
+The 5 new unresolved sites from the in-span admission are adjudicated:
+- `gain_effect` (audio.md:43) and `direct_effect` (audio.md:44–45) — Steam
+  Audio upstream C++ filenames, added to the `SteamAudio` roster class.
+- `working_set` and `L2_size` (gpu.md:219) — formula variables in
+  `working_set ≤ L2_size`, excluded by widening `ARITH_RE` with `≤`/`≥`
+  (not `<`/`>`, which are TypeScript angle brackets in spans).
 
-Each of the 11 non-resolving sites is adjudicated:
+## C — Bare weak shapes re-admitted (round 6b, carried forward)
 
-### `webgpu_inspector` → roster (gpu.md:321)
-**Genuine foreign tool name.** Added to `FOREIGN_NAMESPACES.Tools` in
-`scripts/rosters.ts` (alongside `PowerVR` and `RenderDoc`).
+74 resolving bare weak-shape occurrences become new candidates (e.g. `u32`
+15×, `box3d` 14×, `vec4` 5×, `base64` 4×, `unorm16` 8×). The 11 distinct
+bare weak-shape tokens that did not resolve at `6ee6ed6` are adjudicated per
+site: `webgpu_inspector` is a genuine foreign tool name in the Tools roster;
+`memory64` is a Wasm feature (not a tool) filed under `WasmFeatures`; 9 prose
+terms (bench metrics, formula variables, hardware terms, data formats,
+benchmark labels) are fixed in the rule prose.
 
-### `memory64` → roster (tumble.md:105)
-**Genuine foreign tool name.** Added to `FOREIGN_NAMESPACES.Tools` in
-`scripts/rosters.ts`.
+## D — EndFrameSystem sentence fix (round 7, item c)
 
-### `warp_size` → prose fix (gpu.md:169)
-**Prose term** (GPU hardware: warp/wavefront size). Fixed: "(warp_size + 1)"
-→ "(warp size + 1)".
+The re-spelling of `EndFrame` → `EndFrameSystem` (round 6b) was correct, but
+its sentence — "the sole `last: true` system" / "owns that slot" — was false.
+The scheduler (`scheduler.ts:259-265`) splits systems into `first` / `normal`
+/ `last` buckets and kahn-sorts each bucket, so multiple `last: true` systems
+coexist (in the draw group: `EndFrameSystem`, `MirrorSystem`,
+`InputResetSystem`, `OrbitOverlaySystem`, `ProfileRenderSystem`; in the
+simulation group: `ReadbackSystem`). The sentence is fixed in render.md:68,
+render.md:161, and standard/render/index.ts:75 to state that EndFrameSystem
+submits the encoder and a renderer declaring `last: true` without a
+`before: [EndFrameSystem]` edge risks the kahn-sort placing it after the
+submit.
 
-### `theoretical_min` → prose fix (gpu.md:215)
-**Prose term** (formula variable). Fixed: "5× theoretical_min," → "5× the
-theoretical minimum,".
+## E — Instrument residue (round 7, item e)
 
-### `bytes_moved` → prose fix (gpu.md:219)
-**Prose term** (benchmark metric). Fixed: "bytes_moved/peak_BW floor" →
-"bytes-moved / peak-BW floor". (Also inside a fenced code block at
-gpu.md:211, which the arm skips.)
-
-### `peak_BW` → prose fix (gpu.md:219)
-**Prose term** (benchmark metric: peak bandwidth). Fixed in the same edit
-as `bytes_moved`.
-
-### `snorm8` → prose fix (gpu.md:134)
-**Prose term** (data format: signed-normalized 8-bit). Fixed: "→ snorm8
-via" → "→ snorm-8 via".
-
-### `f16x2` → prose fix (gpu.md:153)
-**Prose term** (data format: half-precision float × 2). Fixed: "plain f16x2."
-→ "plain F16 × 2.".
-
-### `wg32` → prose fix (gpu.md:338)
-**Prose term** (GPU hardware: workgroup 32). Fixed: "or wg32 multi-lane)"
-→ "or WG32 multi-lane)".
-
-### `l12` → prose fix (avbd.md:76)
-**Prose term** (benchmark label: 12-layer pile). Fixed: "16384 l12" →
-"16384 L12".
-
-### `l4` → prose fix (avbd.md:76)
-**Prose term** (benchmark label: 4-layer pile). Fixed: "32768 l4 churn" →
-"32768 L4 churn".
-
-## Punch item 5 — detect-stale-claims.ts deletion residue
-
-The file `scripts/detect-stale-claims.ts` was deleted in round 5, but its
-name survived in `scripts/check-docs.ts:803` (the token-index exclusion
-comment). Fixed: the dead name is removed from the comment. The actual
-exclusion in `buildTokenIndex` (`stale-claim-predicates.ts`) never listed
-`detect-stale-claims.ts` — only `check-docs.ts`, `rosters.ts`, and
-`stale-claim-predicates.ts` are excluded. The `stale-claim-predicates.ts:2`
-comment ("One copy of the shape functions — two copies is two detectors
-that disagree") is updated to not imply a second copy exists. The arm (e)
-section comment's stale "per-site residue" mention is updated.
-
-## Punch item 7 — sweep candidate verdicts
-
-### `AGENTS.md:22` — index-order claim
-**Live.** The line maps file path patterns to `.claude/rules/tumble.md`.
-All listed paths exist (`packages/shallot/src/standard/tumble/`,
-`packages/shallot/rust/tumble/`, `packages/shallot/tests/tumble/`,
-`scripts/bench-tumble.ts`, `scripts/tumble-interaction.ts`,
-`scripts/check-tumble-fp.ts`, and the `packages/shallot/scripts/tumble-*`
-scripts). No stale claim.
-
-### `extras/outline/passes.ts:12` — JFA pass-count comment
-**Live.** The comment says `MAX_WIDTH = 64` bounds the JFA pass count
-(`ceil(log2(width))`). The code at line 14 confirms `export const MAX_WIDTH
-= 64;` and line 19 confirms the `ceil(log2(width))` formula.
-`ceil(log2(64)) = 6` passes. No stale claim.
-
-### `scripts/check-site.ts:220` — clause-6 stale reason
-**Live.** The comment describes a limitation of substring checks: they pin
-individual fragments but not the composition. The example (a paren dropped
-between `RUM_ENV_USAGE` and `JSON.stringify(RUM_CONFIG)`) is a valid
-description of the code's own limitation. No stale claim.
-
-### `harness/pixels.ts:93` — doc-vs-predicate
-**Live.** The docblock says "whether a `probePixels` measurement clears
-`probe`'s thresholds." The function checks `result.pixels >=
-probe.minPixels && Math.max(result.width, result.height) >=
-probe.minSpan` — the two thresholds in `PixelProbe` (`minPixels`,
-`minSpan`). `probePixels` is a live function at `pixels.ts:49`.
-`PixelProbe` is a live interface at `pixels.ts:26`. The docblock accurately
-describes what the function checks. No stale claim.
-
-### `harness/index.ts:117` — ready comment
-**Live.** The comment says "elapsed advances only after the first frame
-steps — so a truthy read means build finished (this ran) and the RAF loop
-has driven at least one draw." The `ready` getter returns
-`state.time.elapsed > 0`. `elapsed` is advanced by the frame loop
-(confirmed by `index.test.ts:15`: "ready follows the elapsed clock (built
-+ drawn once a frame has stepped)"). No stale claim.
-
-### `AGENTS.md`/`CLAUDE.md` doc tier — population exclusion
-**Stated exclusion.** The arm's citation resolution scans only
-`.claude/rules/**/*.md` (the population is derived from `git ls-files
-'*.md'` filtered to `.claude/rules/`). `AGENTS.md` and `CLAUDE.md` are
-not under `.claude/rules/`, so they are excluded from the citation
-population. This is a stated, intentional exclusion — the arm's scope is
-the rules corpus, not all markdown files. A stale claim in `AGENTS.md` or
-`CLAUDE.md` is not caught by this arm; it is out of scope for this spec's
-sweep. The reason the doc tier is out: `AGENTS.md` and `CLAUDE.md` are
-context-loader entry points, not rules — they are read by every session
-and change for operational reasons (path mappings, workflow notes) that
-are not the stale-citation defect class this spec exists to sweep. The
-rules corpus is the set of files that teach durable contracts, which is
-where a stale symbol citation is a defect at any age.
+- `stale-claim-predicates.ts:151` (extractCandidates docblock) said weak
+  shapes "only match when backticked" — false at HEAD, written by round 6b.
+  Fixed: "All identifier shapes (including weak shapes) are caught bare or
+  backticked."
+- `matchesShape`'s ignored `_backticked` parameter was passed by four call
+  sites as if it mattered. Removed: the parameter is gone, all call sites
+  updated.
+- `asc-mutations.md`'s "77 … become new candidates" was a raw-occurrence
+  count where the candidate delta is 74. Fixed: "74 resolving bare
+  weak-shape occurrences become new candidates."
+- `memory64` was misfiled under `FOREIGN_NAMESPACES.Tools` though it is a
+  Wasm feature. Moved to `FOREIGN_NAMESPACES.WasmFeatures`.

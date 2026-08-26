@@ -752,14 +752,15 @@ if (rosterFindings.length > 0) {
 // appears as a standalone token, not as a substring of `spotInnerF`.
 //
 // The allowlist is roster classes (WGSL-builtin, WebGPU-IDL, foreign-namespace vendored symbol
-// lists, x86/ISA mnemonic — each a committed file under `scripts/`). The per-entry allowlist is
-// retired — the arm carries no per-site residue. Each roster entry is asserted TWO WAYS: (1) the
-// entry is genuinely cited by at least one rule file, (2) the symbol/path is genuinely absent
-// from the tree. The attribution leg is gone — round 3's attribution token was a proxy that
-// laundered exemptions passed and real exemptions failed (10 entries failed the attribution leg
-// and were de-backtickked rather than adjudicated). The roster replaces attribution: a
-// foreign-namespace symbol resolves against a committed roster, not against an attribution token
-// on the citing line.
+// lists, SteamAudio, WasmFeatures, Tools — each a committed file under `scripts/`). The
+// per-entry allowlist is retired — the arm carries no per-site residue. Each roster entry
+// is asserted THREE WAYS: (1) the entry is genuinely cited by at least one rule file,
+// (2) the symbol/path is genuinely absent from the tree (disjointness law, round 7),
+// (3) the total entry count is pinned as a literal and asserted equal. The attribution
+// leg is gone — round 3's attribution token was a proxy that laundered exemptions passed
+// and real exemptions failed (10 entries failed the attribution leg and were de-backtickked
+// rather than adjudicated). The roster replaces attribution: a foreign-namespace symbol
+// resolves against a committed roster, not against an attribution token on the citing line.
 //
 // Population exclusion: the arm walks `.claude/rules/**/*.md` only. `AGENTS.md` and
 // `CLAUDE.md` are context-loader entry points, not rules — they are read by every session
@@ -890,7 +891,7 @@ if (citationCandidates.length === 0) {
 
 // Disjunct 2: the citation population count. Any predicate narrowing that shrinks the
 // population moves this number in the diff that narrows it.
-const PINNED_CITATION_COUNT = 1664;
+const PINNED_CITATION_COUNT = 1735;
 if (citationCandidates.length !== PINNED_CITATION_COUNT) {
     console.error(
         `✗ citation count mismatch: pinned ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
@@ -905,7 +906,7 @@ if (citationCandidates.length !== PINNED_CITATION_COUNT) {
 // Disjunct 3: the roster total entry count. Every entry is asserted cited by at least
 // one rule file (both ways: a real member, genuinely needed). Zero slack means a launder
 // cannot occupy an existing slot, and adding one moves this number in the diff that adds it.
-const PINNED_ROSTER_ENTRY_COUNT = 75;
+const PINNED_ROSTER_ENTRY_COUNT = 43;
 const totalRosterEntries = allRosters.reduce((n, { roster }) => n + roster.size, 0);
 if (totalRosterEntries !== PINNED_ROSTER_ENTRY_COUNT) {
     console.error(
@@ -942,6 +943,33 @@ if (uncitedRosterEntries.length > 0) {
     process.exit(1);
 }
 
+// Assert every roster entry is ABSENT from the tree token index (the disjointness law:
+// every disjunct's member set is disjoint from every other's, so each surviving member
+// is load-bearing and removing one reds). A roster entry that also resolves in the tree
+// is redundant with disjunct 1 — it costs nothing to remove, which means the pinned
+// total buys nothing against a swap-in (measured at f6b302e: 34 of 75 roster entries
+// also resolved in the tree, so a swap-in was free).
+const rosterInTree: string[] = [];
+for (const { name, roster } of allRosters) {
+    for (const entry of roster) {
+        if (tokenIndex.has(entry)) {
+            rosterInTree.push(`${name}: ${entry}`);
+        }
+    }
+}
+if (rosterInTree.length > 0) {
+    console.error(
+        `✗ ${rosterInTree.length} roster entr(y/ies) also present in the tree token index:
+` +
+            rosterInTree.map((e) => `    ${e}`).join("\n") +
+            `
+  Every roster entry must be absent from the tree token index (disjointness law: ` +
+            `each disjunct's member set is disjoint from every other's, so each surviving ` +
+            `member is load-bearing). Prune the redundant entries from scripts/rosters.ts.`,
+    );
+    process.exit(1);
+}
+
 // ── Marker exemption system ──────────────────────────────────────────────────────────────
 //
 // The per-entry allowlist is retired — the arm carries no per-site residue. An exemption is
@@ -959,27 +987,29 @@ if (uncitedRosterEntries.length > 0) {
 //
 // Witnessed red (mutation proofs, each exit code captured to a committed in-repo path —
 // see scripts/asc-mutations.md, never /tmp):
-//   (i)  Seed: `zombieUploadPass` seeded into `.claude/rules/gpu.md` → exit 1
-//   (ii) De-backtick: bare `zombieUploadPass` appended to `gpu.md` → still red (bare token
-//         caught by the formatting-invariant predicate, round 3's escape shut)
-//   (iii) Roster launder: `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` → red on
-//         the pinned roster cardinality (round 2's escape, closed by pinning the entry
-//         count and asserting every entry is cited)
+//   (i)  Seed: `advanceColor` → `zombieUploadPass` in avbd.md:114 (in place, count-neutral)
+//         → exit 1, stale citation
+//   (ii) Bare: `advanceColor` → bare zombieUploadPass in avbd.md:114 (in place) → exit 1,
+//         stale citation (bare token caught by the formatting-invariant predicate,
+//         round 3's escape shut)
+//   (iii) Roster launder: `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` → exit 1,
+//         roster entry count mismatch (44 vs 43) — round 2's escape, closed by pinning
+//         the entry count AND asserting every entry is cited AND asserting every entry
+//         absent from the tree token index (disjointness law, round 7)
 //   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token
-//         index does not — seeding `spotInner` (substring of `spotInnerF`) reds with the
-//         token index but greens with `git grep --fixed-strings`
-//   (v)  Launder-via-marker: `zombieUploadPass` appended with `(retired)` marker → red on
-//         the pinned marker count (round 4's escape)
-//   (vi) Weak-shape bare: bare `ENTITY_COLS_WGSL` (SCREAMING_SNAKE), bare
-//         `zombie_upload_pass` (snake), bare `zombiepass2` (lowercase-with-digits), and
-//         `*zombieUploadPass` (*-prefixed) each → red (all shapes re-admitted bare,
-//         `*`-prefix drop inadmissible)
+//         index does not — `advanceColor` → `spotInner` (substring of `spotInnerF`)
+//         reds with the token index but greens with `git grep --fixed-strings`
+//   (v)  Launder-via-marker: `advanceColor` → `zombieUploadPass` (retired) in avbd.md:114
+//         → exit 1, marker-exempted count mismatch (21 vs 20) (round 4's escape)
+//   (vi) Weak-shape bare: `advanceColor` → bare `zombie_upload_pass` (snake) in avbd.md:114
+//         → exit 1, stale citation (all shapes caught bare, round 6b's escape shut;
+//         round 7 also admits weak shapes in-span)
 //   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` moves the
-//         pinned citation count → red
-//   (viii) SHAPE_FALSE_POSITIVES launder: the deleted set re-introduced (variable only,
-//         no checks in shape functions) + bare `zombieUploadPass` seeded → still reds
-//         (set is not checked by any function; dead symbol caught by population predicate).
-//         Control: set re-introduced without seeding → green (set has no effect).
+//         pinned citation count (1508 vs 1735) → exit 1, citation count mismatch
+//   (viii) Retired: the round-6 SHAPE_FALSE_POSITIVES set was deleted in round 6b.
+//         Re-introducing it as an unread variable is a tautology about dead code, not a
+//         gate witness — the real channel was closed by deletion, not by the gate catching
+//         a re-introduction. No mutation to witness.
 //
 // All captures are in scripts/asc-mutations.md, a committed in-repo path.
 
@@ -1061,7 +1091,7 @@ for (const file of ruleFiles) {
             for (const m of line.matchAll(/`([A-Za-z_][A-Za-z0-9_]*(?:\(\))?)`/g)) {
                 const ref = m[1].replace(/\(\)$/, "");
                 if (ref.endsWith(".ts")) continue;
-                if (matchesShape(ref, true)) markerLines.get(key)!.add(ref);
+                if (matchesShape(ref)) markerLines.get(key)!.add(ref);
             }
             for (const m of line.matchAll(/`([^`]*\.ts)`/g)) {
                 const ref = m[1];
