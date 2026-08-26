@@ -992,10 +992,14 @@ if (rosterInTree.length > 0) {
 //   (ii) Bare: `advanceColor` → bare zombieUploadPass in avbd.md:114 (in place) → exit 1,
 //         stale citation (bare token caught by the formatting-invariant predicate,
 //         round 3's escape shut)
-//   (iii) Roster launder: `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` → exit 1,
-//         roster entry count mismatch (44 vs 43) — round 2's escape, closed by pinning
-//         the entry count AND asserting every entry is cited AND asserting every entry
-//         absent from the tree token index (disjointness law, round 7)
+//   (iii) Roster swap-in: in scripts/rosters.ts replace "PowerVR" with
+//         "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace
+//         the solo-backticked `advanceColor` with `zombieUploadPass` (citation
+//         count stays 1735) → exit 1, stale citation — PowerVR's citation
+//         sites in gpu.md no longer resolve. Count-neutral in every pinned
+//         quantity, so the red comes from the resolution leg, not a count pin.
+//         Witnesses: every surviving roster entry is load-bearing, so a
+//         swap-in cannot occupy a free slot (round 7 disjointness law).
 //   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token
 //         index does not — `advanceColor` → `spotInner` (substring of `spotInnerF`)
 //         reds with the token index but greens with `git grep --fixed-strings`
@@ -1037,7 +1041,7 @@ for (const c of citationCandidates) {
     if (live) continue; // live — no violation
 
     // Check marker exemption: only solo-backtick spans or .ts paths can be exempt
-    const canBeMarkerExempt = c.backticked || c.kind === "ts-path";
+    const canBeMarkerExempt = c.soloBacktick || c.kind === "ts-path";
     if (canBeMarkerExempt) {
         const exemptedRefs = markerExempted.get(c.file);
         if (exemptedRefs?.has(c.ref)) {

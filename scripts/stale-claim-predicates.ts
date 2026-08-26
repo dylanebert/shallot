@@ -32,7 +32,8 @@
 //    WasmFeatures; 9 prose terms (bench metrics, formula variables, hardware
 //    terms, data formats, benchmark labels) are fixed in the rule prose so
 //    the sentence no longer carries a bare identifier-shaped token for a thing
-//    that is not a code symbol. Round 7 admits weak shapes in-span too,//    yielding 5 new sites: `gain_effect`/`direct_effect` (Steam Audio upstream
+//    that is not a code symbol. Round 7 admits weak shapes in-span too,
+//    yielding 5 new sites: `gain_effect`/`direct_effect` (Steam Audio upstream
 //    filenames → SteamAudio roster) and `working_set`/`L2_size` (formula
 //    variables → ARITH_RE widened by comparison operators).
 //  - A bare `*`-prefix drop is inadmissible (`*foo` also spells a mis-bulleted
@@ -123,7 +124,7 @@ export type CitationCandidate = {
     line: number;
     ref: string;
     kind: "ts-path" | "identifier";
-    backticked: boolean;
+    soloBacktick: boolean;
 };
 
 // ── Marker vocabulary ──────────────────────────────────────────────────────────────────────
@@ -172,12 +173,12 @@ export async function extractCandidates(
         line: number,
         ref: string,
         kind: "ts-path" | "identifier",
-        backticked: boolean,
+        soloBacktick: boolean,
     ) {
         const key = `${file}:${line}:${ref}`;
         if (seen.has(key)) return;
         seen.add(key);
-        candidates.push({ file, line, ref, kind, backticked });
+        candidates.push({ file, line, ref, kind, soloBacktick });
     }
 
     for (const file of ruleFiles) {
@@ -278,7 +279,7 @@ export async function extractCandidates(
                     // Fix 4a: a token followed by `(` is a call citation — must resolve
                     if (afterChar === "(") {
                         if (matchesShape(ref)) {
-                            addCandidate(file, i + 1, ref, "identifier", true);
+                            addCandidate(file, i + 1, ref, "identifier", false);
                             if (lineHasMarkerFlag) {
                                 markerExempted.get(file)!.add(ref);
                             }
@@ -294,7 +295,7 @@ export async function extractCandidates(
                     // in arithmetic context (including comparison operators) are excluded
                     // above.
                     if (matchesShape(ref)) {
-                        addCandidate(file, i + 1, ref, "identifier", true);
+                        addCandidate(file, i + 1, ref, "identifier", false);
                         if (lineHasMarkerFlag) {
                             markerExempted.get(file)!.add(ref);
                         }

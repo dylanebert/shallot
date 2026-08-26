@@ -22,12 +22,12 @@ Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`.
 |---|----------|------|-------------|
 | (i) | Seeded backticked dead symbol: `` `advanceColor` `` → `` `zombieUploadPass` `` in avbd.md:114 (in place) | 1 | stale citation |
 | (ii) | Bare dead symbol: `` `advanceColor` `` → bare `zombieUploadPass` in avbd.md:114 (in place) | 1 | stale citation |
-| (iii) | Roster launder: `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` (no rule file edit) | 1 | roster entry count mismatch (44 vs 43) |
+| (iii) | Roster swap-in (count-neutral): in scripts/rosters.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays 1735) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
 | (iv) | Substring: `` `advanceColor` `` → `` `spotInner` `` in avbd.md:114 (substring of live `spotInnerF`) | 1 | stale citation |
 | (v) | Launder-via-marker: `` `advanceColor` `` → `` `zombieUploadPass` (retired) `` in avbd.md:114 | 1 | marker-exempted count mismatch (21 vs 20) |
 | (vi) | Weak-shape bare: `` `advanceColor` `` → bare `zombie_upload_pass` (snake) in avbd.md:114 | 1 | stale citation |
 | (vii) | Predicate narrowing: `matchesWeakShape` call removed from `matchesShape` | 1 | citation count mismatch (1508 vs 1735) |
-| baseline | Clean tree | 0 | — |
+| baseline | Clean tree (1735 citations, 43 roster entries, 20 marker-exempted) | 0 | — |
 
 ## (viii) — SHAPE_FALSE_POSITIVES, retired honestly
 
@@ -67,6 +67,25 @@ EndFrameSystem sentence fix in render.md (item c: `MirrorSystem`,
 `sortSystems`, `scheduler.ts`), and 2 are excluded by widening `ARITH_RE`
 with comparison operators (`≤`, `≥`) to exclude formula variables
 (`working_set`, `L2_size` at gpu.md:219). Net: 1664 → 1735.
+
+The `ARITH_RE` widening (`≤`/`≥` added at `stale-claim-predicates.ts:147`)
+has a measured extent of 4 identifier-shaped tokens now adjacent to `≤`/`≥`
+in multi-token spans:
+- `frictionScale` (avbd.md:35) — real code symbol in `frictionScale ≤ bounds`.
+  Retained in the population via a solo-backtick occurrence on the same line;
+  deduplicated by {file, line, ref}, so no blindness introduced.
+- `usedColors` (avbd.md:116) — real code symbol in `usedColors ≤ 0`.
+  Retained in the population via a solo-backtick occurrence on the same line;
+  deduplicated by {file, line, ref}, so no blindness introduced.
+- `working_set` (gpu.md:219) — formula variable in `working_set ≤ L2_size`.
+  No solo-backtick occurrence on the same line; excluded (the widening's
+  purpose).
+- `L2_size` (gpu.md:219) — formula variable in `working_set ≤ L2_size`.
+  No solo-backtick occurrence on the same line; excluded (the widening's
+  purpose).
+
+Two of the four are real code symbols retained by dedup; the other two are
+the formula variables the widening exists to exclude.
 
 The 5 new unresolved sites from the in-span admission are adjudicated:
 - `gain_effect` (audio.md:43) and `direct_effect` (audio.md:44–45) — Steam
@@ -113,3 +132,15 @@ submit.
   weak-shape occurrences become new candidates."
 - `memory64` was misfiled under `FOREIGN_NAMESPACES.Tools` though it is a
   Wasm feature. Moved to `FOREIGN_NAMESPACES.WasmFeatures`.
+
+## F — Accepted residual: marker-line swap-in (coordinator-probed at HEAD)
+
+Swapping one marker-exempted dead symbol for a DIFFERENT dead symbol on the
+same marker line — in gpu.md:153, solo-backticked `tangentBasis` (carrying a
+`(gone)` marker) replaced by `zombieUploadPass` — reads exit 0, count-neutral
+in all three pins (1735 citations, 43 roster entries, 20 marker-exempted).
+This is NOT a hole: it is the marker leg's stated and accepted cost, because
+the swap leaves a false sentence in a permanent file that the rule's own
+readers see. The docblock in check-docs.ts already states this honestly
+("a swap-in moves prose a reviewer reads") and must keep saying exactly
+that — this row does not upgrade the claim to say the gate reds.
