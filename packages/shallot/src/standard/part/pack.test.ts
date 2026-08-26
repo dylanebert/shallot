@@ -77,20 +77,47 @@ describe("folded constants", () => {
 });
 
 // PartTraits.defaults resolves Surfaces.id("default") and Meshes.id("cube") at entity-creation time.
-// A miss (no SearPlugin → "default" unregistered, or PartPlugin not initialized → "cube" unregistered)
-// must be loud — warn, matching the sear module's warn+skip idiom (the batch-drop warn in atlas.ts).
-// The pre-fix `?? 0` silently bound whatever surface/mesh held registry id 0 — a plausible-wrong resource
-// invisible to every green gate. The fix warns at the call site, naming the wiring bug, while still
-// returning 0 (the same fallback value) so a valid Part-without-SearPlugin build (the conformance roster)
-// doesn't abort.
+// The miss condition is narrowed: a warn fires only when the registry is *populated* and the named
+// default is missing (`Surfaces.size > 0 && Surfaces.id("default") === undefined`). With no SearPlugin
+// the surface registry is empty, so id 0 is inert (no sear pass marshals it) — that build is sanctioned
+// (the conformance roster), and a warn there is a false alarm. The genuine wiring bug is the ordering
+// case: surfaces are registered but "default" is absent. The fallback return is still 0 — the same value
+// the pre-fix `?? 0` produced, but now named at the call site as a wiring bug on the populated-registry
+// path instead of silently binding whatever surface/mesh holds registry id 0.
 describe("PartTraits defaults — miss is loud", () => {
-    test("defaults() warns when the default surface is unregistered (no SearPlugin)", () => {
+    test("defaults() does not warn on the sanctioned empty-registry path (no SearPlugin)", () => {
         const savedSurfaces = [...Surfaces.values()];
+        const savedMeshes = [...Meshes.values()];
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            // "cube" must be registered (PartPlugin.initialize → initMeshes) so only the surface miss fires
+            // the sanctioned build: no SearPlugin → surface registry empty, PartPlugin not initialized →
+            // mesh registry empty. Both `size === 0`, so id 0 is inert and the warn must not fire.
+            Surfaces.clear();
+            Meshes.clear();
+            const result = PartTraits.defaults();
+            expect(warn).not.toHaveBeenCalled();
+            // the fallback is still 0 (the same value the pre-fix `?? 0` produced)
+            expect(result.surface).toBe(0);
+            expect(result.mesh).toBe(0);
+        } finally {
+            Surfaces.clear();
+            for (const s of savedSurfaces) Surfaces.register(s);
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
+            warn.mockRestore();
+        }
+    });
+
+    test("defaults() warns when the registry is populated but the default surface is missing", () => {
+        const savedSurfaces = [...Surfaces.values()];
+        const savedMeshes = [...Meshes.values()];
+        const warn = spyOn(console, "warn").mockImplementation(() => {});
+        try {
+            // the wiring bug: surfaces are registered (so `Surfaces.size > 0`) but "default" is absent.
+            // "cube" is registered so only the surface miss can fire.
             if (Meshes.id("cube") === undefined) Meshes.register({ name: "cube" } as any);
             Surfaces.clear();
+            Surfaces.register({ name: "other" } as any); // populated, but no "default"
             const result = PartTraits.defaults();
             // the miss is loud: a warning names the wiring bug
             expect(warn).toHaveBeenCalled();
@@ -100,18 +127,22 @@ describe("PartTraits defaults — miss is loud", () => {
         } finally {
             Surfaces.clear();
             for (const s of savedSurfaces) Surfaces.register(s);
+            Meshes.clear();
+            for (const m of savedMeshes) Meshes.register(m);
             warn.mockRestore();
         }
     });
 
-    test("defaults() warns when the cube mesh is unregistered (PartPlugin not initialized)", () => {
+    test("defaults() warns when the registry is populated but the cube mesh is missing", () => {
         const savedMeshes = [...Meshes.values()];
         const savedSurfaces = [...Surfaces.values()];
         const warn = spyOn(console, "warn").mockImplementation(() => {});
         try {
-            // "default" must be registered so only the mesh miss fires
+            // the wiring bug: meshes are registered (so `Meshes.size > 0`) but "cube" is absent.
+            // "default" is registered so only the mesh miss can fire.
             if (Surfaces.id("default") === undefined) Surfaces.register({ name: "default" } as any);
             Meshes.clear();
+            Meshes.register({ name: "other" } as any); // populated, but no "cube"
             const result = PartTraits.defaults();
             expect(warn).toHaveBeenCalled();
             expect(warn.mock.calls.some((c) => /cube/.test(c[0] as string))).toBe(true);

@@ -253,6 +253,8 @@ const _drawPairs: number[] = [];
 // from the pool. The combo camera pool (`createComboCamera`) attaches a view per combo, so a missing
 // view is a wiring bug — the camera was detached or recycled. The combo is skipped (not marshaled as
 // slot 0) so the shadow pass never binds another camera's culled set into the missing combo's tile.
+// Latched while misses persist, reset on the first clean frame — the `_batchDropWarned` idiom (above),
+// so a persistent wiring bug warns once per episode, not once per frame (a render-loop log flood).
 let _comboMissWarned = false;
 
 /**
@@ -277,9 +279,14 @@ export function comboViewSlots(combos: number[]): { slots: number[]; indices: nu
         }
     }
     if (missed > 0) {
-        console.warn(
-            `sear: ${missed} combo view(s) missing — skipping combo(s) (wiring bug: the combo camera pool should have attached a view per combo)`,
-        );
+        if (!_comboMissWarned) {
+            _comboMissWarned = true;
+            console.warn(
+                `sear: ${missed} combo view(s) missing — skipping combo(s) (wiring bug: the combo camera pool should have attached a view per combo)`,
+            );
+        }
+    } else {
+        _comboMissWarned = false;
     }
     return { slots, indices };
 }
