@@ -18,8 +18,10 @@
 // rebuild-wiped Compute maps with no re-decode, no re-upload), `sprite` (the 2D/billboard path — procedural canvas
 // icons over the three billboard modes × clip/alpha, holed shadows, the ortho top-down camera; gated on
 // the per-bucket indirect instance counts), `outline` (the screen-space JFA highlight — per-entity
-// color/width, the reverse-Z occlusion gate, the fog post-color seam), `sat` (the validation-only GPU-SAT
-// codegen gate the f64 oracle can't reach — the 14 C++ gold configs + the hull/rounded narrowphase matrix
+// color/width, the reverse-Z occlusion gate, the fog post-color seam), `orbit-touch` (an Orbit camera
+// targeting a box, headless-deterministic with no `assert` — the verdict lives in the driver-level touch
+// gate `test/touch.playwright.ts`, which drives real CDP multi-touch and reads `window.__orbitPose()`),
+// `sat` (the validation-only GPU-SAT codegen gate the f64 oracle can't reach — the 14 C++ gold configs + the hull/rounded narrowphase matrix
 // vs byte-exact readback), `accel` (the acceleration-structure pipeline: sort → build → traverse, gated on
 // both the subgroup and LDS-fallback builder arms each run), `text` (the typed SDF text producer's
 // real-GPU draw — a local-fixture-font label, gated by the same chroma-against-clear framebuffer probe
@@ -119,6 +121,7 @@ import "./joint-break";
 import "./mesh-fixture";
 import "./motion-locks";
 import "./motor";
+import "./orbit-touch";
 import "./outline";
 import "./overlap-box";
 import "./paddle";
