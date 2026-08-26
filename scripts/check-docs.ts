@@ -760,6 +760,13 @@ if (rosterFindings.length > 0) {
 // and were de-backtickked rather than adjudicated). The roster replaces attribution: a
 // foreign-namespace symbol resolves against a committed roster, not against an attribution token
 // on the citing line.
+//
+// Population exclusion: the arm walks `.claude/rules/**/*.md` only. `AGENTS.md` and
+// `CLAUDE.md` are context-loader entry points, not rules — they are read by every session
+// and change for operational reasons (path mappings, workflow notes) that are not the
+// stale-citation defect class this spec exists to sweep. The rules corpus is the set of
+// files that teach durable contracts, which is where a stale symbol citation is a defect
+// at any age. A stale claim in `AGENTS.md` or `CLAUDE.md` is out of scope for this arm.
 
 import { FOREIGN_NAMESPACES, WEBGPU_IDL, WGSL_BUILTINS } from "./rosters";
 import {
@@ -952,24 +959,29 @@ if (uncitedRosterEntries.length > 0) {
 //
 // Witnessed red (mutation proofs, each exit code captured to a committed in-repo path —
 // see scripts/asc-mutations.md, never /tmp):
-//   (i)  Seed: `deadIdentifierCitation` seeded into `.claude/rules/gpu.md` → exit 1
-//   (ii) De-backtick: backticks removed from a dead citation → still red (bare token caught
-//         by the formatting-invariant predicate, round 3's escape shut)
-//   (iii) Roster launder: a dead shallot symbol added to a roster → red on the pinned roster
-//         cardinality (round 2's escape, closed by pinning the entry count and asserting
-//         every entry is cited)
-//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token index
-//         does not — seeding `spotInner` (substring of `spotInnerF`) reds with the token index
-//         but greens with `git grep --fixed-strings`
-//   (v)  Launder-via-marker: a dead symbol appended with its exemption marker → red on the
-//         pinned marker count (round 4's escape)
-//   (vi) Weak-shape bare: bare `ENTITY_COLS_WGSL` (SCREAMING_SNAKE), a bare snake token, and
-//         a `*`-prefixed token each → red (SCREAMING_SNAKE re-admitted bare, `*`-prefix drop
-//         inadmissible)
-//   (vii) Predicate narrowing: any edit shrinking the population moves the pinned citation
-//         count → red
+//   (i)  Seed: `zombieUploadPass` seeded into `.claude/rules/gpu.md` → exit 1
+//   (ii) De-backtick: bare `zombieUploadPass` appended to `gpu.md` → still red (bare token
+//         caught by the formatting-invariant predicate, round 3's escape shut)
+//   (iii) Roster launder: `zombieUploadPass` added to `FOREIGN_NAMESPACES.Tools` → red on
+//         the pinned roster cardinality (round 2's escape, closed by pinning the entry
+//         count and asserting every entry is cited)
+//   (iv) Substring: `git grep --fixed-strings` reads a substring match green; the token
+//         index does not — seeding `spotInner` (substring of `spotInnerF`) reds with the
+//         token index but greens with `git grep --fixed-strings`
+//   (v)  Launder-via-marker: `zombieUploadPass` appended with `(retired)` marker → red on
+//         the pinned marker count (round 4's escape)
+//   (vi) Weak-shape bare: bare `ENTITY_COLS_WGSL` (SCREAMING_SNAKE), bare
+//         `zombie_upload_pass` (snake), bare `zombiepass2` (lowercase-with-digits), and
+//         `*zombieUploadPass` (*-prefixed) each → red (all shapes re-admitted bare,
+//         `*`-prefix drop inadmissible)
+//   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` moves the
+//         pinned citation count → red
+//   (viii) SHAPE_FALSE_POSITIVES launder: the deleted set re-introduced (variable only,
+//         no checks in shape functions) + bare `zombieUploadPass` seeded → still reds
+//         (set is not checked by any function; dead symbol caught by population predicate).
+//         Control: set re-introduced without seeding → green (set has no effect).
 //
-// All seven captures are in scripts/asc-mutations.md, a committed in-repo path.
+// All captures are in scripts/asc-mutations.md, a committed in-repo path.
 
 // The pinned marker-exempted count. This literal is the law the arm already applies to its
 // tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.

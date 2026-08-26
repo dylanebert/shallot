@@ -61,12 +61,7 @@ export function isSnakeOrScreaming(w: string): boolean {
 
 /** SCREAMING_SNAKE — all uppercase letters, digits, and underscores. */
 export function isScreamingSnake(w: string): boolean {
-    return (
-        w.includes("_") &&
-        /^[A-Z0-9_]+$/.test(w) &&
-        /[A-Z]/.test(w) &&
-        w.length >= 2
-    );
+    return w.includes("_") && /^[A-Z0-9_]+$/.test(w) && /[A-Z]/.test(w) && w.length >= 2;
 }
 
 /** snake_case — underscored but not all-uppercase (excludes SCREAMING_SNAKE). */
