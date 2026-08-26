@@ -56,10 +56,10 @@ for (const dir of ["packages/shallot", "packages/create-shallot"]) {
 }
 
 // The docs half of the release checklist, which is the half that slipped in 0.9.1: it published
-// and tagged with no changelog entry and a migration guide still targeting 0.9. Neither file is
-// read by any other gate, and both are only ever wrong right after a bump — so tying them to the
-// current version is what makes the bump-then-document order self-enforcing rather than
-// remembered. A missing bump is `--release` below; a *partial* one is the arms above.
+// and tagged with no changelog entry. The changelog is read by no other gate and is only ever
+// wrong right after a bump — tying it to the current version is what makes the bump-then-document
+// order self-enforcing rather than remembered. A missing bump is `--release` below; a *partial*
+// one is the arms above.
 const changelog = await Bun.file(resolve(root, "CHANGELOG.md")).text();
 const newest = changelog.match(/^## (\d+\.\d+\.\d+)/m)?.[1];
 if (newest !== shallot.version) {
@@ -68,7 +68,7 @@ if (newest !== shallot.version) {
     );
 }
 
-// MIGRATION.md is not a version site: its title and install line name the 0.9 minor, and a micro
+// MIGRATION.md is not a version site: its title and install line name the minor the guide targets, and a micro
 // never changes what the guide says. Prose dating a change to the release that shipped it
 // ("ships compiled as of 0.9.1") is a historical fact and must not move either.
 
