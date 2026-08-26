@@ -2,6 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const REPO_ROOT = join(import.meta.dir, "../../..");
+const CHECK_SCRIPTS = join(REPO_ROOT, "scripts", "check-scripts.ts");
+
 // A meta-test over repo-root tooling, not the engine — same shape as cli-coverage.test.ts's
 // registry walk, placed here so it rides the default `bun test` sweep instead of running under
 // nobody's hand. `scripts/check-scripts.ts` stays at `scripts/`, beside its five siblings; only
@@ -212,6 +216,46 @@ describe("run — end to end", () => {
             }),
             "scripts/good.ts": "1;",
             "AGENTS.md": "bun run good\n",
+        });
+        const { existsViolations, docViolations, reachViolations } = await run(root);
+        expect(existsViolations).toHaveLength(0);
+        expect(docViolations).toHaveLength(0);
+        expect(reachViolations).toHaveLength(0);
+    });
+});
+
+describe("derivePathEntryPoints — empty-population guard", () => {
+    // The guard fires inside `derivePathEntryPoints` via `process.exit(1)`, which would kill the
+    // test runner if called in-process. The refusal arm drives the gate CLI as a subprocess so
+    // the exit code is observable; the grant arm calls `run()` directly because the absent-dir
+    // early return never reaches `process.exit`.
+
+    test("refuses when `evals/` exists but `git ls-files` yields no direct entry point", () => {
+        // `evals/` exists with a file in a subdir — `git ls-files evals/*.ts` matches it (git's
+        // default pathspec is recursive), but the `!rel.includes("/")` filter strips it, leaving
+        // zero direct entry points. The guard must refuse (exit 1), not pass vacuously.
+        const root = fixture({
+            "package.json": JSON.stringify({ workspaces: [], scripts: {} }),
+            "evals/harness/lib.ts": "export function lib() {}",
+        });
+        Bun.spawnSync(["git", "init", "-q"], { cwd: root });
+        Bun.spawnSync(["git", "add", "evals/harness/lib.ts"], { cwd: root });
+
+        const proc = Bun.spawnSync(["bun", CHECK_SCRIPTS, "--root", root], {
+            cwd: REPO_ROOT,
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(proc.exitCode).toBe(1);
+        expect(proc.stderr.toString()).toContain("vacuously green");
+    });
+
+    test("grants a fixture root with no `evals/` dir — the absent-dir early return is valid, not a vacuous green", async () => {
+        // A fixture root with no `evals/` dir hits the early return (`!existsSync` → `return []`),
+        // which is valid: the gate's other arms still run, and there are no entry points to cite.
+        // The post-filter guard must NOT fire here — the absent-dir case is a grant, not a refusal.
+        const root = fixture({
+            "package.json": JSON.stringify({ workspaces: [], scripts: {} }),
         });
         const { existsViolations, docViolations, reachViolations } = await run(root);
         expect(existsViolations).toHaveLength(0);

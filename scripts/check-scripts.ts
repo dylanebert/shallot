@@ -42,7 +42,10 @@ export type Violation = { file: string; script: string; detail: string };
 //
 // Empty-population guard: a tree with no `evals/` dir (a fixture root) yields no entry points,
 // which is valid — the gate's other arms still run. A tree with `evals/` where `git ls-files`
-// fails is an error (the derivation needs a git checkout to scope its entry-point set).
+// fails is an error (the derivation needs a git checkout to scope its entry-point set). A tree
+// with `evals/` where the filter yields no direct entry point (all matches in subdirs or
+// .test.ts) is also an error — the citation arm would be vacuously green, which is the exact
+// fail-open the derivation was introduced to remove. Same law as check-docs' sibling arms:// each derivation carries its empty-population guard in the same diff.
 async function derivePathEntryPoints(rootDir: string): Promise<string[]> {
     const evalsDir = resolve(rootDir, "evals");
     if (!existsSync(evalsDir)) return [];
@@ -53,7 +56,7 @@ async function derivePathEntryPoints(rootDir: string): Promise<string[]> {
         );
         process.exit(1);
     }
-    return tracked.stdout
+    const entryPoints = tracked.stdout
         .toString()
         .split("\0")
         .filter(Boolean)
@@ -61,6 +64,13 @@ async function derivePathEntryPoints(rootDir: string): Promise<string[]> {
             const rel = f.slice("evals/".length);
             return !rel.includes("/") && !rel.endsWith(".test.ts");
         });
+    if (entryPoints.length === 0) {
+        console.error(
+            "✗ `evals/` exists but `git ls-files` yielded no direct entry point — the evals citation arm would be vacuously green.",
+        );
+        process.exit(1);
+    }
+    return entryPoints;
 }
 
 export function escapeRegExp(s: string): string {
