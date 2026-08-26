@@ -618,6 +618,16 @@ describe("OrbitSystem touch gestures", () => {
         });
     };
 
+    const touchUp = (pointerId: number): void => {
+        onWindow("pointerup")({
+            pointerId,
+            pointerType: "touch",
+            button: 0,
+            buttons: 0,
+            preventDefault() {},
+        });
+    };
+
     const makeCam = (): number => {
         const cam = state.create();
         state.add(cam, Transform);
@@ -651,7 +661,10 @@ describe("OrbitSystem touch gestures", () => {
         state.step(1 / 60);
 
         expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6); // two fingers never orbit
-        expect(Orbit.pan.x.get(cam)).not.toBeCloseTo(pan0X, 6);
+        // direction, not just magnitude: at the default yaw (30°) a rightward centroid drag projects
+        // onto -rightX, so panX goes negative — the same sign a mouse pan produces for a rightward drag
+        // at this pose (worldPerPixel * dragX * -cos(yawS)).
+        expect(Orbit.pan.x.get(cam)).toBeLessThan(pan0X);
     });
 
     test("a two-finger pinch zooms — spreading fingers decreases distance", () => {
@@ -679,5 +692,36 @@ describe("OrbitSystem touch gestures", () => {
         state.step(1 / 60);
 
         expect(Orbit.yaw.get(cam)).toBeCloseTo(yaw0, 6);
+    });
+
+    // RED-FIRST WITNESS: `standard/input`'s `activePointerId` capture is never reassigned to an
+    // already-down second finger, so lifting the FIRST (capturing) finger of a two-finger gesture left
+    // the survivor's moves hitting `pointerMove`'s `e.pointerId !== activePointerId` early return —
+    // rotation froze for the rest of the touch sequence even though `Inputs.touch.count` (1) reads as a
+    // live single-finger drag. Fixed by `standard/input`'s `recaptureTouch`.
+    test("ending a two-finger gesture by lifting the first finger keeps rotating from the survivor", () => {
+        const cam = makeCam();
+        const yaw0 = Orbit.yaw.get(cam);
+
+        touchDown(1, 100, 100); // captures first
+        touchDown(2, 200, 100); // joins the touch cache, never captures
+
+        touchUp(1); // the capturing finger lifts; pointer 2 is still down
+        state.step(1 / 60); // touchCount is now 1 — orbitHeld reads true, but nothing has moved yet
+
+        const yawAfterLift = Orbit.yaw.get(cam);
+        expect(yawAfterLift).toBeCloseTo(yaw0, 6); // the hand-off itself produces no rotation
+
+        touchMove(2, 230, 100); // survivor's own +30px move from its cached (200, 100)
+        state.step(1 / 60);
+
+        expect(Orbit.yaw.get(cam)).not.toBeCloseTo(yawAfterLift, 6); // rotation did not freeze
+
+        // magnitude, not just direction: Δyaw must be the survivor's own +30px move at the default
+        // sensitivity (0.005), never a jump across the two fingers' initial 100px gap (which would
+        // read Δyaw ≈ -0.5 instead of -0.15) — proves `lastPointerX/Y` was seeded from the survivor's
+        // own cached position, not the departed pointer's.
+        const dYaw = Orbit.yaw.get(cam) - yawAfterLift;
+        expect(dYaw).toBeCloseTo(-30 * 0.005, 4);
     });
 });

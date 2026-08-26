@@ -624,6 +624,62 @@ describe("InputPlugin", () => {
         expect(Inputs.touch.pinchDelta).toBe(5);
     });
 
+    // RED-FIRST WITNESS: `pointerDown` never reassigns `activePointerId` to an already-down second
+    // finger, and it was only ever cleared (never re-seeded) on the captured pointer's up/cancel. So
+    // lifting the FIRST finger of a two-finger gesture left `activePointerId` null (or the departed
+    // id) for the rest of the sequence — the survivor's moves hit `pointerMove`'s
+    // `e.pointerId !== s.activePointerId` early return and `Mouse.deltaX/Y`/`x`/`y` froze until the
+    // whole gesture ended, silently, since `Inputs.touch.count` (1) still read as a live single-finger
+    // drag. The fix re-captures to a remaining touch pointer on up/cancel.
+    test("lifting the capturing finger re-captures to the surviving finger — Mouse tracking doesn't freeze", () => {
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 100,
+            clientY: 100,
+            preventDefault() {},
+        }); // pointer 1 captures (first down)
+        onCanvas("pointerdown")({
+            target: canvas,
+            pointerId: 2,
+            pointerType: "touch",
+            button: 0,
+            buttons: 1,
+            clientX: 200,
+            clientY: 100,
+            preventDefault() {},
+        }); // pointer 2 joins the touch cache but never captures
+
+        onWindow("pointerup")({
+            pointerId: 1,
+            pointerType: "touch",
+            button: 0,
+            buttons: 0,
+            preventDefault() {},
+        }); // the capturing finger lifts — pointer 2 is still down
+        expect(Inputs.touch.count).toBe(1);
+
+        onWindow("pointermove")({
+            pointerId: 2,
+            pointerType: "touch",
+            buttons: 1,
+            clientX: 230,
+            clientY: 100,
+            preventDefault() {},
+        }); // survivor moves +30 from its own (200, 100) — not from pointer 1's old (100, 100)
+
+        // without the fix this reads 0 (frozen): pointer 2 was never the captured pointer, so its
+        // move hit the early return
+        expect(Inputs.mouse.deltaX).toBe(30);
+        // seeded from pointer 2's own cached position, not the departed pointer 1's — so the first
+        // post-transition move reports its own +30 shift, never the 100px gap between the two fingers
+        expect(Inputs.mouse.deltaX).not.toBe(130);
+        expect(Inputs.mouse.x).toBe(230);
+    });
+
     test("setInputEnabled(false) neutralizes touch reads and clears the cache", () => {
         onCanvas("pointerdown")({
             target: canvas,

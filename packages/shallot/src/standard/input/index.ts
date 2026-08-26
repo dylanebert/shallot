@@ -281,6 +281,26 @@ function releaseCapture(s: InputState): void {
     s.lastPointerY = 0;
 }
 
+// re-captures the active pointer to a remaining touch finger when the one currently captured lifts
+// (or cancels) but others are still held — `pointerMove` only writes `mouse.deltaX/Y` and `mouse.x/y`
+// while `e.pointerId === activePointerId` (below), and `pointerDown` never reassigns capture to an
+// already-down second finger, so without this a still-held survivor's moves would early-return and
+// every Mouse-reading consumer (drag rotate, a claimed cursor) would freeze for the rest of the touch
+// sequence. Seeds `lastPointerX/Y` from the survivor's own cached position (not the departing
+// pointer's) so its first post-transition move reports its own delta, not a jump across the two
+// fingers' gap.
+function recaptureTouch(s: InputState, canvas: HTMLCanvasElement): void {
+    const [nextId, pos] = [...s.touchPoints.entries()][0];
+    s.activePointerId = nextId;
+    s.activeButton = 0;
+    s.activeCanvas = canvas;
+    s.lastPointerX = pos.x;
+    s.lastPointerY = pos.y;
+    try {
+        canvas.setPointerCapture(nextId);
+    } catch {}
+}
+
 function createHandlers(s: InputState): void {
     s.pointerHover = (e: PointerEvent) => {
         const target = e.target as HTMLCanvasElement;
@@ -363,7 +383,8 @@ function createHandlers(s: InputState): void {
     };
 
     s.pointerUp = (e: PointerEvent) => {
-        if (s.touchPoints.delete(e.pointerId)) {
+        const wasTouch = s.touchPoints.delete(e.pointerId);
+        if (wasTouch) {
             s.touch.count = s.touchPoints.size;
             updatePinchBaseline(s);
         }
@@ -375,21 +396,34 @@ function createHandlers(s: InputState): void {
             // release only a capture actually held — pointerDown's capture is
             // best-effort (a synthetic pointer can't be captured), and releasing
             // an unheld pointer throws NotFoundError.
-            if (s.activeCanvas?.hasPointerCapture(e.pointerId)) {
-                s.activeCanvas.releasePointerCapture(e.pointerId);
+            const canvas = s.activeCanvas;
+            if (canvas?.hasPointerCapture(e.pointerId)) {
+                canvas.releasePointerCapture(e.pointerId);
             }
-            releaseCapture(s);
+            // a still-held second finger keeps the gesture alive — hand capture to it rather than
+            // dropping to no active pointer, or its moves would freeze Mouse for the rest of the touch.
+            if (wasTouch && canvas && s.touchPoints.size > 0) {
+                recaptureTouch(s, canvas);
+            } else {
+                releaseCapture(s);
+            }
         }
     };
 
     s.pointerCancel = (e: PointerEvent) => {
-        if (s.touchPoints.delete(e.pointerId)) {
+        const wasTouch = s.touchPoints.delete(e.pointerId);
+        if (wasTouch) {
             s.touch.count = s.touchPoints.size;
             updatePinchBaseline(s);
         }
         if (e.pointerId !== s.activePointerId) return;
         clearAllButtons(s.mouse);
-        releaseCapture(s);
+        const canvas = s.activeCanvas;
+        if (wasTouch && canvas && s.touchPoints.size > 0) {
+            recaptureTouch(s, canvas);
+        } else {
+            releaseCapture(s);
+        }
     };
 
     s.pointerMove = (e: PointerEvent) => {
