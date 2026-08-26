@@ -32,7 +32,7 @@ import * as std from "typegpu/std";
 import { armImpacts, ImpactSystem, registerInstruments } from "./audio";
 import { type Gun, gun } from "./gun";
 import { Brick, box, brickStack, bridge, hex, lamp, pyramid, rope } from "./spawn";
-import { hud, setCrosshair } from "./ui";
+import { hud, isTouchOnly, setCrosshair, touchNotice } from "./ui";
 
 // The sandbox — the first-person gravity-gun showcase (physics + player + synthetic audio together).
 // A manifest project: shallot.json enables physics + player + audio + this plugin and sets the
@@ -240,6 +240,9 @@ const BootSystem: System = {
         if (state.mode !== "edit") {
             const overlay = mountOverlay(document.querySelector("canvas"), state);
             state.onDispose(hud(overlay));
+            // Pointer Lock has no touch equivalent (this unit ships sandbox desktop-only, `ui.ts`'s
+            // header) — a touch-only visitor gets a reason instead of a silently unplayable gun.
+            if (isTouchOnly()) state.onDispose(touchNotice(overlay));
         }
     },
 };

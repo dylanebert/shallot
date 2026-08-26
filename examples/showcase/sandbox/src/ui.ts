@@ -1,6 +1,12 @@
 // The HUD — a center crosshair that morphs with the gun mode (cross / ring on hover / dot while
 // holding) and bottom-right mouse prompts that surface contextually. Ported from the legacy sandbox,
 // desktop-only (F3 stats is engine-standard via ProfilePlugin, no custom debug plumbing).
+//
+// Desktop-only for a structural reason, not a missed feature: the gun aims through Pointer Lock
+// (`requestPointerLock`), which iOS/Android don't implement — a touch FPS control scheme (virtual
+// joystick + look) is its own future unit (`shallot-mobile-controls` spec, Out of scope). `touchNotice`
+// is the one touch-aware piece here: a static label over the crosshair on a touch-capable device, so a
+// phone visitor gets a reason instead of a silently unplayable gun.
 
 import type { GunMode } from "./gun";
 
@@ -59,6 +65,21 @@ const HUD_CSS = `
     color: rgba(255, 255, 255, 0.86);
     font-weight: 500;
     line-height: 1;
+}
+.sandbox-touch-notice {
+    position: absolute;
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 8px 14px;
+    background: rgba(10, 12, 14, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.86);
+    font-family: 'JetBrains Mono', ui-monospace, 'Cascadia Code', monospace;
+    font-size: 11px;
+    letter-spacing: 0.02em;
+    pointer-events: none;
 }
 `;
 
@@ -141,4 +162,21 @@ export function hud(container: HTMLElement): () => void {
         dropPrompt = null;
         lastMode = null;
     };
+}
+
+/** true on a device that can only ever send touch input — the Pointer Lock check `sandbox.ts` gates the
+ *  notice on. `maxTouchPoints` alone (rather than a live gesture) is what a boot-time notice needs: it
+ *  reads instantly, before any input has happened. */
+export function isTouchOnly(): boolean {
+    return navigator.maxTouchPoints > 0 && !window.matchMedia("(pointer: fine)").matches;
+}
+
+/** the gun's Pointer-Lock aim has no touch equivalent (out of scope, spec header above) — a static label
+ *  telling a touch visitor why the crosshair never engages, instead of a silently unplayable gun. */
+export function touchNotice(container: HTMLElement): () => void {
+    const el = document.createElement("div");
+    el.className = "sandbox-touch-notice";
+    el.textContent = "Desktop only — needs a mouse to aim";
+    container.appendChild(el);
+    return () => el.remove();
 }

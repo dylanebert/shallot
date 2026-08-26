@@ -129,18 +129,28 @@ function drawBrushRing(c: readonly [number, number, number], r: number, sub: boo
 // weight with a radial falloff, centred AT the surface, so the isosurface grows continuously across ISO
 // outward along its normal — center-first, no hard stamp, no plane. The re-mesh fires only on the frames a
 // cell actually crosses ISO. Runs after OrbitPlugin so the ray reads the freshly-posed camera.
+//
+// The button remap is mouse-only by construction (`extras/orbit`'s own touch path ignores
+// `orbitButton`/`panButton` entirely — one finger always rotates, two always pan, ungated by either field,
+// so touch orbit is already reachable in terrain mode with no remap needed). `zoomSpeed`, though, is a
+// single field both the mouse-scroll zoom step AND the touch-pinch zoom step read — silencing it for the
+// mouse's scroll-resizes-brush idiom would silence pinch too, stranding a touch user with no way to zoom OR
+// resize the brush. Gate the silence on touch presence each frame so pinch stays the live zoom gesture on
+// touch while a wheel still resizes the brush on desktop (`Inputs.mouse.scroll` below, read independent of
+// `zoomSpeed`).
 const CarveSystem: System = {
     name: "voxel-carve",
     group: "simulation",
     update(state) {
         if (camEid < 0) return;
         const terrain = tool === "terrain";
+        const touching = Inputs.touch.count > 0;
 
         // remap the orbit controls to the active tool (idempotent; a 1-frame lag on switch is invisible).
         if (state.has(camEid, Orbit)) {
             Orbit.orbitButton.set(camEid, terrain ? 1 : baseOrbitButton);
             Orbit.panButton.set(camEid, terrain ? 2 : basePanButton);
-            Orbit.zoomSpeed.set(camEid, terrain ? 0 : baseZoomSpeed);
+            Orbit.zoomSpeed.set(camEid, terrain && !touching ? 0 : baseZoomSpeed);
         }
 
         if (!terrain || !Voxels.data) {
