@@ -19,19 +19,23 @@
 //
 // Trigger cone (derived per `checks.md`'s by-path rule, `coding.md` Suite speed): this file's own
 // transitive import cone — the plugin source modules whose reload conformance the promoted arms pin,
-// walked from this file's import statements. The cone is the `RenderPlugin`/`PartPlugin`/`SearPlugin`/
-// `GlazePlugin`/`LinesPlugin`/`SpritePlugin`/`SkinPlugin`/`GltfPlugin` source trees under
-// `src/standard/render/`, `src/standard/part/`, `src/standard/sear/`, `src/standard/glaze/`,
-// `src/extras/lines/`, `src/extras/sprite/`, `src/extras/skin/`, `src/extras/gltf/`, and their
-// transitive dependencies. A by-path tier file's own header is its registry (`test-cap.ts:96`).
+// walked from this file's import statements. The cone is the source tree of every plugin this file
+// (and the shared roster it imports) pulls in for a promoted arm: `src/standard/render/`,
+// `src/standard/part/`, `src/standard/sear/`, `src/standard/glaze/`, `src/extras/lines/`,
+// `src/extras/sprite/`, `src/extras/skin/`, `src/extras/gltf/`, `src/extras/tween/`, plus the
+// `src/standard/slab/` and `src/standard/transforms/` trees every promoted arm builds on
+// (`SlabPlugin`/`TransformsPlugin` ride in as `RenderPlugin`'s declared `dependencies`). Re-derive
+// this list from the imports above if it drifts — the derivation is the operative rule, not the
+// enumeration. A by-path tier file's own header is its registry (`test-cap.ts:96`).
 //
 // Run by path from the shallot root: `bun test ./packages/shallot/tests/conformance.tier.ts`.
 //
 // GPUDevice observation: `conform()` threads one `GPUDevice` forward across its two passes via
 // `Compute.device` (the module-level singleton). The second pass reuses the first's device by design
-// (the rebuild contract). Not confirmed: later roster arms are NOT progressively slower — timing
-// across isolated runs shows no monotonic increase (e.g. Sear 376–821 ms, Skin 154–320 ms, with
-// later arms sometimes faster), so the singleton does not accumulate measurable cost across arms.
+// (the rebuild contract). The spec's speculation — a forward-threaded device makes later roster arms
+// progressively slower — is refuted: timing across isolated runs shows no monotonic increase (e.g.
+// Sear 376–821 ms, Skin 154–320 ms, with later arms sometimes faster), so the singleton does not
+// accumulate measurable cost across arms.
 // Each `conform()` call starts with `device = undefined` and acquires a fresh device via `requestGPU`,
 // so cross-arm accumulation is not the mechanism. A device-lifecycle fix is out of scope for this
 // stage.

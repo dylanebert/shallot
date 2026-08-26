@@ -1,7 +1,9 @@
 // the shared roster and rebuild-conformance harness, read by both the default-tier
 // `conformance.test.ts` and the by-path `conformance.tier.ts`. One roster, split by a declared
 // predicate (`isPipelineCompiling`), never two hand-copied lists — the one-source-of-truth law
-// (`coding.md` "One source of truth"); a restated roster trips `check-docs.ts`'s tier-suffix arm.
+// (`coding.md` "One source of truth") holds here by construction: the single `roster` export plus the
+// `isPipelineCompiling` predicate, not by a mechanical check (no gate scans for a restated
+// conformance roster).
 //
 // See `conformance.test.ts`'s header for the reload-conformance contract this harness pins.
 
