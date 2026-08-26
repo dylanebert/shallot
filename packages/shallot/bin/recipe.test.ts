@@ -128,6 +128,7 @@ describe("runRecipe", () => {
         expect(readFileSync(join(dest, "CLAUDE.md"), "utf8")).toBe(CLAUDE_IMPORT);
         const tsconfig = JSON.parse(readFileSync(join(dest, "tsconfig.json"), "utf8"));
         expect(tsconfig.compilerOptions.types).toContain("@webgpu/types");
+        expect(tsconfig.compilerOptions.types).toContain("node");
     });
 
     test("refuses to copy into a non-empty dir", async () => {
