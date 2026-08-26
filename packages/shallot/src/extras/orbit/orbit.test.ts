@@ -20,8 +20,9 @@ import { OrbitSmooth } from "./smooth";
 // Orbit's reload-safety (the lazy OrbitSmooth add/remove not doubling across a rebuild) is covered by
 // the conformance roster. This spec covers the pose contract, the lazy-init path (with no input,
 // OrbitSystem drives the camera Transform from the yaw/pitch/distance pose, so the camera always sits
-// `distance` from its target), and — further down this file — fly mode, the contextual claim, and touch
-// gestures, driven through the real InputPlugin handlers with synthetic DOM/pointer events.
+// `distance` from its target), and — further down this file — fly mode, the contextual claim, touch
+// gestures, Locked mode, and orthographic zoom / middle-button pan, driven through the real InputPlugin
+// handlers with synthetic DOM/pointer events.
 //
 // The spherical pose is a unit vector scaled by distance, so |pos − target| == distance regardless of
 // yaw/pitch — a behavior invariant, not a re-derivation of the pose formula. Tolerance is f32 storage of
@@ -986,6 +987,21 @@ describe("OrbitSystem orthographic zoom and middle-button pan", () => {
         state.step(1 / 60);
 
         expect(Orbit.size.get(cam)).toBeCloseTo(6, 4);
+    });
+
+    test("orthographic zoom clamps to minSize on the low end", () => {
+        const cam = state.create();
+        state.add(cam, Transform);
+        state.add(cam, Orbit);
+        state.add(cam, Camera);
+        Camera.mode.set(cam, CameraMode.Orthographic);
+        Orbit.minSize.set(cam, 2); // off the plugin default (0.05) so the clamp is observable
+        state.step(1 / 60);
+
+        wheel(-100000); // negative deltaY: opposite sign of the "scroll away" grow case above, shrinks size
+        state.step(1 / 60);
+
+        expect(Orbit.size.get(cam)).toBeCloseTo(2, 4);
     });
 
     test("a middle-button drag pans — yaw stays put, pan changes", () => {

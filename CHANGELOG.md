@@ -5,6 +5,7 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`package
 ## Unreleased — next minor
 
 - **audio** — `DYNAMICS_MODE`, `WAVESHAPER_MODE`, and `EQ_MODE` are no longer exported: no consumer referenced them, and the mode values they named stay documented on the node-parameter docblocks. The tables survive internally as the defaults' source. Removal is semver-visible, so it ships in a minor.
+- **input (doc)** — `OrbitMode.Locked`'s JSDoc claimed it disables orbit rotation while leaving pan and zoom; the shipped gate also freezes fly look, so a Locked camera flies blind. The doc now says so. Runtime behavior is unchanged, and there's nothing for a consumer to do beyond re-reading the reference.
 
 ## 0.9.5 — 2026-08-25
 
