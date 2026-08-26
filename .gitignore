@@ -50,6 +50,10 @@ Thumbs.db
 # Debug/testing artifacts
 .debug/
 
+# format-gate test fixtures — must live under repo root because format.ts anchors its
+# scan on import.meta.dir/..; relocating to tmpdir() would break the anchor proof.
+/_format-gate-fixtures/
+
 # AVBD fixtures (regenerable via packages/shallot/tests/avbd/gen-fixtures.ts)
 packages/shallot/tests/fixtures/avbd/
 
