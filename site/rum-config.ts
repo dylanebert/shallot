@@ -26,3 +26,11 @@ export const RUM_INJECTION_MARKER = "<!-- shallot: datadog rum slow-frame vitals
 // the two never drift apart (mirrors `RUM_INJECTION_MARKER` above).
 export const RUM_ENV_SNIPPET =
     "var ddEnv=/(^|\\.)dylanebert\\.com$/.test(location.hostname)?'prod':'local';";
+
+// The `env` wiring into `DD_RUM.init` — the derivation line above (`RUM_ENV_SNIPPET`) computes
+// `ddEnv` but does nothing until it's spread into the init call. `scripts/build-site.ts` opens
+// its `Object.assign(...)` call with this exact literal; `scripts/check-site.ts`'s clause 5
+// matches on it separately from `RUM_ENV_SNIPPET`, so a mutation that drops the derivation line
+// and one that drops the wiring (leaving `ddEnv` computed but never read) each red on their own
+// clause instead of one silently covering for the other.
+export const RUM_ENV_USAGE = "Object.assign({env:ddEnv},";

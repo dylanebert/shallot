@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
-import { RUM_ENV_SNIPPET, RUM_INJECTION_MARKER } from "../site/rum-config";
+import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/rum-config";
 
 // `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Five clauses:
 //
@@ -22,10 +22,12 @@ import { RUM_ENV_SNIPPET, RUM_INJECTION_MARKER } from "../site/rum-config";
 //      `out/site/` if it exists; skips with a note if not (the build hasn't run yet).
 //   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
 //      `*.html` under each `out/site/<slug>/` (including a nested page like
-//      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER` and `RUM_ENV_SNIPPET` (the
-//      hostname-derived `env: "prod" | "local"` facet, `shallot-demo-slow-frame-attribution.md`
-//      Locked decision); `out/site/index.html` does not, since it has no frame loop to observe.
-//      Same `SITE_OUT_REQUIRED` gate as clause 4.
+//      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`, `RUM_ENV_SNIPPET` (the
+//      hostname-derived `env: "prod" | "local"` derivation, `shallot-demo-slow-frame-attribution.md`
+//      Locked decision) and `RUM_ENV_USAGE` (the wiring that actually reads the derived `env`
+//      into `DD_RUM.init` — the derivation alone is a silent no-op if the wiring drops it);
+//      `out/site/index.html` does not, since it has no frame loop to observe. Same
+//      `SITE_OUT_REQUIRED` gate as clause 4.
 //
 // The roster is derived from `examples/showcase/` by enumeration (site/roster.ts), so set membership
 // is by construction — a roster-equals-disk clause would compare code against itself, the
@@ -188,6 +190,7 @@ if (rootAbsFiles.length > 0) {
 
 const noInjection: string[] = [];
 const noEnv: string[] = [];
+const noEnvUsage: string[] = [];
 for (const { slug } of ROSTER) {
     const demoDir = resolve(outDir, slug);
     if (!existsSync(demoDir)) continue; // a `--demo` filtered build only writes some dirs
@@ -200,6 +203,9 @@ for (const { slug } of ROSTER) {
         }
         if (!html.includes(RUM_ENV_SNIPPET)) {
             noEnv.push(`${slug}/${path}`);
+        }
+        if (!html.includes(RUM_ENV_USAGE)) {
+            noEnvUsage.push(`${slug}/${path}`);
         }
     }
 }
@@ -221,6 +227,17 @@ if (noEnv.length > 0) {
         '\nEvery built demo page must carry the hostname-derived `env: "prod" | "local"`' +
             " snippet (`site/rum-config.ts`'s `RUM_ENV_SNIPPET`, injected by" +
             " `scripts/build-site.ts`).",
+    );
+    process.exit(1);
+}
+
+if (noEnvUsage.length > 0) {
+    console.error(`✗ ${noEnvUsage.length} demo page(s) missing the RUM env wiring:\n`);
+    for (const f of noEnvUsage) console.error(`  ${f}`);
+    console.error(
+        "\nThe derived `env` must actually reach `DD_RUM.init` — every built demo page must" +
+            " carry `site/rum-config.ts`'s `RUM_ENV_USAGE` literal (`RUM_ENV_SNIPPET` computing" +
+            " `ddEnv` with nothing reading it is a silent no-op).",
     );
     process.exit(1);
 }
