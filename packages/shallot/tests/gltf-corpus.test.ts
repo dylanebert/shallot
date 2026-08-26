@@ -66,11 +66,11 @@ if (!corpusPresent()) {
         test(
             required
                 ? "corpus REQUIRED (GLTF_CORPUS_REQUIRED=1) but absent"
-                : "corpus absent — suite skipped (init the gltf-sample-assets submodule to run it)",
+                : "corpus absent — suite skipped (clone the glTF-Sample-Assets repo to run it)",
             () => {
                 const bar = "=".repeat(78);
                 console.warn(
-                    `\n${bar}\n[gltf-corpus] glTF-Sample-Assets submodule not checked out — conformance walk SKIPPED.\n  run: git submodule update --init reference/gltf-sample-assets\n${bar}\n`,
+                    `\n${bar}\n[gltf-corpus] glTF-Sample-Assets not checked out — conformance walk SKIPPED.\n  run: git clone https://github.com/KhronosGroup/glTF-Sample-Assets reference/gltf-sample-assets\n${bar}\n`,
                 );
                 if (required) throw new Error("[gltf-corpus] corpus required but absent");
             },

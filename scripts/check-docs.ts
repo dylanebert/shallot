@@ -726,6 +726,273 @@ if (rosterFindings.length > 0) {
     process.exit(1);
 }
 
+// ── Arm (e): citation resolution — backtick-cited *.ts paths and *_WGSL/*Wgsl symbols ──────────
+//
+// Every backtick-cited `*.ts` path and every `*_WGSL`/`*Wgsl`-shaped symbol in `.claude/rules/**`
+// must resolve against the tree — a cited path that no file matches or a cited symbol that no `.ts`
+// file contains is a stale claim in a permanent file. The candidate set is drawn from the RULES
+// files (scanning for backtick-cited patterns), NEVER from the live referents — candidates drawn
+// from survivors are blind to exactly the dead referents this arm exists to find (checks.md: "never
+// draw a resolution arm's candidates from the live referents"). A per-file allowlist admits
+// deliberately-retired mentions (a retirement notice naming a gone symbol), and every allowlist
+// entry is asserted BOTH WAYS: the mention is really present in that file, AND the symbol/path is
+// genuinely absent from the tree — an entry that fails either direction reds (checks.md). The arm
+// accumulates violations into the exit code rather than printing FAIL and exiting 0 (checks.md:
+// "Nobody reads its return value").
+//
+// The widened detector that found the initial population lives at scripts/detect-stale-claims.ts
+// (a one-off audit tool, not a gate — this arm is the gate).
+//
+// Mutation proof: seeding `\`DEAD_PATH_WGSL\`` into `.claude/rules/gpu.md` reds this arm (witnessed
+// 2026-08-25, exit 1 — `✗ citation resolution: 1 stale citation(s)` naming the seeded symbol at
+// its file:line). Seeding `\`nonexistent/dead.ts\`` into the same file also reds (exit 1, same
+// shape). Breaking the allowlist entry for `BVH_TRAVERSE_WGSL` in exports.md — either removing
+// the mention from the file or adding a live `.ts` file containing the symbol — reds in the
+// respective direction (both witnessed, exit 1).
+
+// ── Population: scan .claude/rules/**/*.md for backtick-cited candidates ────────────────
+//
+// The population is the set of tracked .md files under .claude/rules/, derived from `git ls-files`
+// (same law as the doc scan above — the scope is what git tracks, not what the filesystem holds).
+// A `**/*.md` walk would read whatever a checkout happens to have on disk.
+
+const rulesTracked = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], {
+    cwd: resolve(root, ".claude/rules"),
+});
+if (!rulesTracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — the citation-resolution arm needs a git checkout to scope its rule set.",
+    );
+    process.exit(1);
+}
+const ruleFiles = rulesTracked.stdout.toString().split("\0").filter(Boolean);
+if (ruleFiles.length === 0) {
+    console.error(
+        "✗ `git ls-files '*.md'` under .claude/rules/ matched nothing — the citation-resolution arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+// ── Candidate extraction ─────────────────────────────────────────────────────────────────
+//
+// A backtick-cited `*.ts` path: a string between backticks ending in `.ts` that is a real file
+// path — NOT a suffix pattern (`.test.ts`, `.oracle.ts` — starts with `.`), NOT a glob (`*.test.ts`
+// — contains `*`), NOT a command (`bun test ./path.ts` — contains spaces).
+//
+// A `*_WGSL`/`*Wgsl`-shaped symbol: a backtick-cited token matching `[A-Z_][A-Z0-9_]*_WGSL`
+// (all-caps _WGSL suffix) or `[a-zA-Z_][a-zA-Z0-9_]*Wgsl(\(\))?` (camelCase Wgsl suffix). The
+// generic `*_WGSL` / `*Wgsl()` pattern (`` `*_WGSL` `` — `*` is not a letter) does NOT match.
+
+type CitationCandidate = {
+    file: string;
+    line: number;
+    ref: string;
+    kind: "ts-path" | "wgsl-symbol";
+};
+
+const TS_PATH_RE = /`([^`]*\.ts)`/g;
+const WGSL_ALLCAPS_RE = /`([A-Z_][A-Z0-9_]*_WGSL)`/g;
+const WGSL_CAMEL_RE = /`([a-zA-Z_][a-zA-Z0-9_]*Wgsl(?:\(\))?)`/g;
+
+const citationCandidates: CitationCandidate[] = [];
+
+for (const file of ruleFiles) {
+    const fullPath = resolve(root, ".claude/rules", file);
+    const text = await Bun.file(fullPath).text();
+    const lines = text.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        // .ts paths
+        for (const m of line.matchAll(TS_PATH_RE)) {
+            const ref = m[1];
+            // Exclude suffix patterns (`.test.ts`), globs (`*.test.ts`), commands (contain spaces),
+            // and brace expansions (`{encode,tgsl}.ts` — shorthand for multiple files, not a path)
+            if (ref.startsWith(".") || ref.includes("*") || ref.includes(" ") || ref.includes("{"))
+                continue;
+            citationCandidates.push({
+                file: `.claude/rules/${file}`,
+                line: i + 1,
+                ref,
+                kind: "ts-path",
+            });
+        }
+        // *_WGSL all-caps symbols
+        for (const m of line.matchAll(WGSL_ALLCAPS_RE)) {
+            citationCandidates.push({
+                file: `.claude/rules/${file}`,
+                line: i + 1,
+                ref: m[1],
+                kind: "wgsl-symbol",
+            });
+        }
+        // *Wgsl camelCase symbols
+        for (const m of line.matchAll(WGSL_CAMEL_RE)) {
+            citationCandidates.push({
+                file: `.claude/rules/${file}`,
+                line: i + 1,
+                ref: m[1],
+                kind: "wgsl-symbol",
+            });
+        }
+    }
+}
+
+if (citationCandidates.length === 0) {
+    console.error(
+        "✗ citation-resolution arm matched no backtick-cited *.ts path or *_WGSL/*Wgsl symbol — the arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+// ── Resolution: does each candidate resolve against the tree? ────────────────────────────
+//
+// For .ts paths: the path is relative to an unspecified root — the rules use paths relative to
+// `packages/shallot/src/` (e.g., `engine/utils/encode.ts`), to `packages/shallot/` (e.g.,
+// `tests/standards.ts`), or to the shallot root (e.g., `scripts/check-docs.ts`). Try each prefix,
+// then fall back to a suffix match against the full tracked set (any tracked file ending in
+// `/${path}`) — a path like `src/smoke.ts` in a recipe context resolves via the suffix match.
+//
+// For symbols: `git grep --fixed-strings` in `.ts` files (excluding node_modules) — if the
+// symbol appears anywhere in a `.ts` file, it resolves. A symbol that appears only in comments
+// still resolves (the arm checks presence, not whether it's a live export — the allowlist handles
+// deliberately-retired mentions that happen to survive in comments elsewhere).
+
+const allFilesTracked = Bun.spawnSync(["git", "ls-files", "-z"], { cwd: root });
+if (!allFilesTracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — the citation-resolution arm needs a git checkout to scope its file set.",
+    );
+    process.exit(1);
+}
+const trackedSet = new Set(allFilesTracked.stdout.toString().split("\0").filter(Boolean));
+
+function tsPathResolves(path: string): boolean {
+    // Try as-is, with packages/shallot/src/, with packages/shallot/
+    const tries = [path, `packages/shallot/src/${path}`, `packages/shallot/${path}`];
+    for (const t of tries) {
+        if (trackedSet.has(t)) return true;
+    }
+    // Suffix match: any tracked file ending in `/${path}` (handles context-relative paths)
+    const suffix = `/${path}`;
+    for (const f of trackedSet) {
+        if (f.endsWith(suffix)) return true;
+    }
+    return false;
+}
+
+function symbolResolves(symbol: string): boolean {
+    // Strip trailing () for function-call forms
+    const name = symbol.replace(/\(\)$/, "");
+    const git = Bun.spawnSync(
+        ["git", "-C", root, "grep", "-l", "--fixed-strings", name, "--", "*.ts"],
+        { stdout: "pipe", stderr: "pipe" },
+    );
+    if (!git.success) return false;
+    const files = git.stdout.toString().trim().split("\n").filter(Boolean);
+    // Exclude node_modules and this arm's own source (the arm's text mentions the symbols it checks)
+    return files.some((f) => !f.includes("node_modules") && f !== "scripts/check-docs.ts");
+}
+
+// ── Allowlist: deliberately-retired mentions, asserted both ways ──────────────────────────
+//
+// A per-file allowlist admits mentions of symbols/paths that are deliberately retired — a
+// retirement notice naming a gone symbol (e.g., "the `BVH_TRAVERSE_WGSL` string constant is
+// gone"). Every entry is asserted BOTH WAYS: the mention is really present in that file (the
+// symbol appears in the file's text), AND the symbol/path is genuinely absent from the tree (no
+// `.ts` file contains it). An entry that fails either direction reds — a missing mention means
+// the allowlist is stale (the retirement notice was removed), and a present-in-tree symbol means
+// the retirement is over (the symbol came back).
+
+const CITATION_ALLOWLIST: Record<string, string[]> = {
+    ".claude/rules/exports.md": ["BVH_TRAVERSE_WGSL"],
+    ".claude/rules/avbd.md": ["broadPhase.ts", "reference/webphysics/.../avbdState.ts"],
+};
+
+type StaleCitation = {
+    file: string;
+    line: number;
+    ref: string;
+    kind: string;
+    reason: string;
+};
+
+const staleCitations: StaleCitation[] = [];
+
+// First, assert every allowlist entry both ways
+for (const [file, entries] of Object.entries(CITATION_ALLOWLIST)) {
+    const filePath = resolve(root, file);
+    let fileText: string;
+    try {
+        fileText = await Bun.file(filePath).text();
+    } catch {
+        staleCitations.push({
+            file,
+            line: 0,
+            ref: "(allowlist)",
+            kind: "allowlist",
+            reason: `allowlist names ${file} but the file does not exist`,
+        });
+        continue;
+    }
+    for (const entry of entries) {
+        // Direction 1: the mention is really present in the file
+        if (!fileText.includes(entry)) {
+            staleCitations.push({
+                file,
+                line: 0,
+                ref: entry,
+                kind: "allowlist",
+                reason: `allowlist entry \`${entry}\` is not present in ${file} — the retirement notice was removed`,
+            });
+        }
+        // Direction 2: the symbol/path is genuinely absent from the tree
+        const resolves = entry.endsWith(".ts") ? tsPathResolves(entry) : symbolResolves(entry);
+        if (resolves) {
+            staleCitations.push({
+                file,
+                line: 0,
+                ref: entry,
+                kind: "allowlist",
+                reason: `allowlist entry \`${entry}\` resolves against the tree — the retirement is over (the symbol/path came back)`,
+            });
+        }
+    }
+}
+
+// Then, check each candidate
+for (const c of citationCandidates) {
+    const resolves = c.kind === "ts-path" ? tsPathResolves(c.ref) : symbolResolves(c.ref);
+    if (resolves) continue; // live — no violation
+    // Check if it's allowlisted for this file
+    const allowlist = CITATION_ALLOWLIST[c.file];
+    if (allowlist?.includes(c.ref)) continue; // deliberately retired — no violation
+    // Stale citation
+    staleCitations.push({
+        file: c.file,
+        line: c.line,
+        ref: c.ref,
+        kind: c.kind,
+        reason: `stale ${c.kind} \`${c.ref}\` does not resolve against the tree`,
+    });
+}
+
+if (staleCitations.length > 0) {
+    console.error(
+        `✗ citation resolution: ${staleCitations.length} stale citation(s) or allowlist failure(s):\n`,
+    );
+    for (const v of staleCitations) {
+        console.error(`  ${v.file}${v.line ? `:${v.line}` : ""}: ${v.reason}`);
+    }
+    console.error(
+        "\nEvery backtick-cited `*.ts` path and `*_WGSL`/`*Wgsl`-shaped symbol in `.claude/rules/**` " +
+            "must resolve against the tree. A cited path that no file matches or a cited symbol that " +
+            "no `.ts` file contains is a stale claim. Deliberately-retired mentions (retirement " +
+            "notices naming gone symbols) are admitted via the per-file allowlist, asserted both " +
+            "ways: the mention is really present, and the symbol/path is genuinely absent.",
+    );
+    process.exit(1);
+}
+
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
@@ -733,5 +1000,6 @@ console.log(
         `cross-citations resolve (${citationCount} citation(s)), ` +
         `showcase index complete (${showcaseDirs.size} dir(s)), ` +
         `evals task-index complete (${evalsTaskDirs.size} task(s)), ` +
-        `tier roster asserted (${rosterSuffixes.length} suffix(es))`,
+        `tier roster asserted (${rosterSuffixes.length} suffix(es)), ` +
+        `citation resolution clean (${citationCandidates.length} citation(s))`,
 );
