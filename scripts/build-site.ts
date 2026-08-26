@@ -3,7 +3,12 @@ import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { type DemoEntry, ROSTER } from "../site/roster";
-import { RUM_CONFIG, RUM_INJECTION_MARKER } from "../site/rum-config";
+import {
+    RUM_CONFIG,
+    RUM_ENV_SNIPPET,
+    RUM_ENV_USAGE,
+    RUM_INJECTION_MARKER,
+} from "../site/rum-config";
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -48,7 +53,8 @@ function datadogInitSnippet(): string {
     n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
 })(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
 window.DD_RUM.onReady(function() {
-    window.DD_RUM.init(${JSON.stringify(RUM_CONFIG)});
+    ${RUM_ENV_SNIPPET}
+    window.DD_RUM.init(${RUM_ENV_USAGE}${JSON.stringify(RUM_CONFIG)}));
 });
 </script>
 `;
