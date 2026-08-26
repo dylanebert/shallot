@@ -733,6 +733,53 @@ describe("AVBD oracle — joints (the hard Force)", () => {
         expect(Math.abs(locked.posAng[2])).toBeLessThan(1e-2); // no z-rotation (measured 5e-4)
     });
 
+    test("a finite-intermediate stiffnessAng settles to a pinned rest, not free-fall (mirroring tumble's 1000-case)", () => {
+        // S2 grant arm: a legitimate finite-positive stiffnessAng (1000) still builds a joint under AVBD —
+        // the over-refusal check no refusal arm can show. Mirrors tumble's existing stiffnessAng = 1000 settle
+        // arm (tumble/joints.test.ts "an intermediate stiffnessAng settles rather than oscillates"), scored
+        // against the CPU oracle here. The setup matches the spherical/fixed test above — a dynamic box
+        // pinned to a static anchor at a 2 m arm under gravity — with the angular stiffness set to the
+        // finite-intermediate 1000 (not 0 = spherical, not ∞ = fixed). Gravity torques the box about the
+        // pin; the finite angular spring resists, and the dissipative BDF1 solver settles it to the
+        // gravity-balanced equilibrium — pinned (not free-falling like the spherical case) and settled
+        // (not oscillating like a free pendulum). The angular deflection at stiffnessAng 1000 is tiny (the
+        // penalty ramp + torqueArm scaling make the effective stiffness ≫ the gravity torque), so the
+        // observable signature is the PIN + SETTLE, not a large rotation: the body stays near its spawn
+        // pose and comes to rest, while the spherical case swings down ~2 m at ~4.7 m/s.
+        //
+        // witnessed red by mutation: exit code 1 — removing the angular constraint block from stampJoint
+        // (the `if (lengthSq(j.penaltyAng) > 0)` guard, setting penaltyAng to [0,0,0] so the rows never
+        // stamp) makes the joint behave as spherical: the body swings down to pos[1] ≈ 3.0 at vel ≈ 4.7,
+        // failing the pinned (|pos − [d,H,0]| < 0.1) and settled (vel < 0.05) assertions. The arm thus pins
+        // the angular constraint's load-bearingness, not a restatement of the linear pin.
+        const H = 5;
+        const d = 2;
+        const anchor = body(size, 0, 0.5, [0, H, 0]);
+        const b = body(size, m, 0.5, [d, H, 0]);
+        const s = makeSolver([anchor, b], { gravity: g, dt });
+        s.joints.push(joint(anchor, b, [0, 0, 0], [-d, 0, 0], Number.POSITIVE_INFINITY, 1000));
+        for (let f = 0; f < 240; f++) step(s);
+
+        // pinned: the body stays near its spawn pose (measured |pos − [2, 5, 0]| ≈ 1.2e-3), not swung
+        // down like the spherical case (which lands at pos[1] ≈ 3.0, a ~2 m drop). The linear pin is
+        // rigid (∞ stiffnessLin), so this asserts the joint was created and the linear rows are active.
+        expect(length(sub(b.posLin, [d, H, 0]))).toBeLessThan(0.1);
+        // settled: the body is at rest (measured vel ≈ 2e-4, angVel ≈ 5e-5), not oscillating like a free
+        // pendulum (which is still moving at ~4.7 m/s after 240 frames). The finite angular spring + BDF1
+        // damping converge to the gravity-balanced equilibrium.
+        expect(length(b.velLin)).toBeLessThan(0.05);
+        expect(length(b.velAng)).toBeLessThan(0.05);
+        // angular constraint active: the body's rotation is far below the spherical case's ~1.62 rad
+        // (measured 5e-4 rad). A spherical joint (stiffnessAng 0) would have rotated the body ~93°; the
+        // finite angular spring holds it near its initial orientation. The threshold (0.1 rad ≈ 6°) is
+        // far below the spherical case and far above the measured deflection, so it cleanly separates.
+        const q0: Quat = [0, 0, 0, 1]; // identity — the body's spawn orientation
+        const dot =
+            q0[0] * b.posAng[0] + q0[1] * b.posAng[1] + q0[2] * b.posAng[2] + q0[3] * b.posAng[3];
+        const rotation = 2 * Math.acos(Math.min(1, Math.abs(dot)));
+        expect(rotation).toBeLessThan(0.1);
+    });
+
     test("a hung rigid chain settles straight, anchors held to the augmented-Lagrangian residual", () => {
         // Roadmap closed forms: a fixed-joint chain settles straight + a bounded steady anchor error. The
         // fixed chain is a horizontal cantilever fixed to a static anchor; the angular rows keep it rigid, so

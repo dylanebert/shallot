@@ -47,7 +47,11 @@ function ensurePool(): Scheduler<DecodeRequest, DecodedGltf> {
     _dead = new Array(n).fill(false);
     _respawnCount = new Array(n).fill(0);
     _workers = Array.from({ length: n }, (_, slot) => spawn(slot));
-    _scheduler = new Scheduler<DecodeRequest, DecodedGltf>({ slots: n, run: dispatch, healthy: (slot) => !_dead[slot] });
+    _scheduler = new Scheduler<DecodeRequest, DecodedGltf>({
+        slots: n,
+        run: dispatch,
+        healthy: (slot) => !_dead[slot],
+    });
     return _scheduler;
 }
 
