@@ -9,11 +9,16 @@ import { oneFingerDrag, pinch, twoFingerDrag, twoToOneFingerDrag } from "../touc
 // *smoothed* rendered pose (`smoothLerp`, extras/orbit) and lags a live drag by several frames, while
 // `Orbit.yaw`/`distance`/`pan` are the immediate per-frame target the drag/pinch/pan math writes.
 //
-// Each phase asserts one gesture moves its own quantity and only that quantity's family: pinch → distance,
-// one-finger drag → yaw, two-finger drag → pan — matching three.js OrbitControls' / Babylon's touch map
-// (spec Locked decision). Phase 4 covers S3's residue: the capturing finger lifts mid-gesture (2→1
+// Each phase asserts one gesture moves its own quantity/families and holds every other one: pinch →
+// distance, one-finger drag → yaw AND pitch (a diagonal drag, so pitch is exercised as a moving quantity
+// too, not just a held one), two-finger drag → pan — matching three.js OrbitControls' / Babylon's touch
+// map (spec Locked decision). Phase 4 covers S3's residue: the capturing finger lifts mid-gesture (2→1
 // transition) — a `setPointerCapture` handoff review flagged as spec-plausible but unprovable in the bun
 // mock harness, confirmed here on real touch.
+//
+// Run by path — `cd examples/gates/orbit-touch && bunx playwright test` (or `bun run gate` in that
+// dir), display-gated (WSL bridge, `playwright.global-setup.ts`) — never part of the default
+// `bun run test` sweep.
 
 // Software rasterizers by the name they report in `GPUAdapterInfo` — the same display-gate pattern
 // `examples/showcase/roads/test/roads.playwright.ts` uses (that file's header has the full rationale).
@@ -81,14 +86,19 @@ test("orbit touch gate — pinch/drag/pan isolation, 2→1 finger transition (re
 
     const cdp = await page.context().newCDPSession(page);
 
-    // --- Phase 1: one-finger drag rotates (yaw moves; distance/pitch/pan hold) ---
+    // --- Phase 1: one-finger drag rotates (yaw AND pitch move — a diagonal drag, so pitch is
+    // exercised as a moving quantity here rather than only ever asserted held; distance/pan hold) ---
     const before1 = await readPose(page);
-    await oneFingerDrag(cdp, center, { x: center.x + 80, y: center.y }, 12);
+    await oneFingerDrag(cdp, center, { x: center.x + 80, y: center.y - 50 }, 12);
     const after1 = await readPose(page);
 
     expect(
         Math.abs(after1.yaw - before1.yaw),
         `one-finger drag: yaw ${before1.yaw} → ${after1.yaw}`,
+    ).toBeGreaterThan(MoveEps);
+    expect(
+        Math.abs(after1.pitch - before1.pitch),
+        `one-finger drag: pitch ${before1.pitch} → ${after1.pitch}`,
     ).toBeGreaterThan(MoveEps);
     expect(
         Math.abs(after1.distance - before1.distance),
@@ -115,6 +125,10 @@ test("orbit touch gate — pinch/drag/pan isolation, 2→1 finger transition (re
         `pinch: yaw moved (${before2.yaw} → ${after2.yaw}) — should hold`,
     ).toBeLessThan(HoldEps);
     expect(
+        Math.abs(after2.pitch - before2.pitch),
+        `pinch: pitch moved (${before2.pitch} → ${after2.pitch}) — should hold`,
+    ).toBeLessThan(HoldEps);
+    expect(
         Math.hypot(...after2.pan.map((v, i) => v - before2.pan[i])),
         `pinch: pan moved (${before2.pan} → ${after2.pan}) — should hold`,
     ).toBeLessThan(HoldEps);
@@ -135,6 +149,10 @@ test("orbit touch gate — pinch/drag/pan isolation, 2→1 finger transition (re
         `two-finger drag: yaw moved (${before3.yaw} → ${after3.yaw}) — should hold`,
     ).toBeLessThan(HoldEps);
     expect(
+        Math.abs(after3.pitch - before3.pitch),
+        `two-finger drag: pitch moved (${before3.pitch} → ${after3.pitch}) — should hold`,
+    ).toBeLessThan(HoldEps);
+    expect(
         Math.abs(after3.distance - before3.distance),
         `two-finger drag: distance moved (${before3.distance} → ${after3.distance}) — should hold`,
     ).toBeLessThan(HoldEps);
@@ -151,18 +169,24 @@ test("orbit touch gate — pinch/drag/pan isolation, 2→1 finger transition (re
     // actually exercises `recaptureTouch` rather than leaving the still-captured survivor untouched.
     await twoToOneFingerDrag(cdp, center, 60, { x: 70, y: 0 }, { x: 70, y: 0 }, "a", 8);
     const afterPan4 = await readPose(page);
-    await page.waitForTimeout(100); // let the last one-finger frame's delta settle
-    const afterYaw4 = await readPose(page);
 
     expect(
         Math.hypot(...afterPan4.pan.map((v, i) => v - before4.pan[i])),
         `2→1 transition: pan didn't move from the two-finger half (${before4.pan} → ${afterPan4.pan})`,
     ).toBeGreaterThan(MoveEps);
-    expect(
-        Math.abs(afterYaw4.yaw - before4.yaw),
-        `2→1 transition: yaw froze after the finger lift (${before4.yaw} → ${afterYaw4.yaw}) — the ` +
-            `survivor's one-finger rotate never continued the gesture`,
-    ).toBeGreaterThan(MoveEps);
+
+    // the survivor's one-finger rotate lands a few animation frames after the drag helper's own last
+    // dispatch — poll the observable (yaw's own delta from before4) rather than a fixed sleep (kex
+    // coding.md Testing → Forbidden: no waitForTimeout). A frozen handoff (the pre-fix defect) never
+    // clears this poll and times out rather than silently reading a stale pose.
+    await expect
+        .poll(async () => Math.abs((await readPose(page)).yaw - before4.yaw), {
+            message:
+                `2→1 transition: yaw froze after the finger lift (baseline ${before4.yaw}) — the ` +
+                `survivor's one-finger rotate never continued the gesture`,
+            timeout: 2_000,
+        })
+        .toBeGreaterThan(MoveEps);
 
     expect(errors, errors.join("\n")).toEqual([]);
 });
