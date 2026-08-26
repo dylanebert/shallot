@@ -2,17 +2,18 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-// Routes this gate through `scripts/wsl-bridge.ts` when on WSL, so it drives the Windows host's real GPU
-// instead of falling to the software adapter — the same shape `examples/showcase/roads/
-// playwright.global-setup.ts` uses (that file's header has the full rationale: the endpoint-file handoff
-// between this root process and each worker's fresh config re-import, and the known bridge-caller gaps).
-// This gate is display-gated the same way: `test/touch.playwright.ts` skips on a software adapter.
+// Routes the touch gate (`test/touch.playwright.ts`) through `scripts/wsl-bridge.ts` when on WSL, so it
+// drives the Windows host's real GPU instead of falling to the software adapter — the same shape
+// `examples/showcase/roads/playwright.global-setup.ts` uses (that file's header has the full rationale:
+// the endpoint-file handoff between this root process and each worker's fresh config re-import, and the
+// known bridge-caller gaps). Display-gated the same way: `test/touch.playwright.ts` skips on a software
+// adapter.
 
-const REPO_ROOT = resolve(import.meta.dirname, "../../..");
+const REPO_ROOT = resolve(import.meta.dirname, "../..");
 const BRIDGE_CONNECT = resolve(REPO_ROOT, "scripts/wsl-bridge-connect.ts");
 export const ENDPOINT_FILE = resolve(
     import.meta.dirname,
-    "node_modules/.cache/orbit-touch-bridge-endpoint.json",
+    "node_modules/.cache/gym-touch-bridge-endpoint.json",
 );
 
 const isWSL = process.platform === "linux" && existsSync("/proc/sys/fs/binfmt_misc/WSLInterop");
@@ -72,14 +73,14 @@ export default async function globalSetup(): Promise<(() => Promise<void>) | voi
     } catch (e) {
         child.stdin?.end();
         console.log(
-            `orbit-touch gate: bridge unavailable (${e instanceof Error ? e.message : e}), falling back to local adapter`,
+            `gym touch gate: bridge unavailable (${e instanceof Error ? e.message : e}), falling back to local adapter`,
         );
         return;
     }
 
     if ("skip" in handshake) {
         console.log(
-            `orbit-touch gate: bridge unavailable (${handshake.skip}), falling back to local adapter`,
+            `gym touch gate: bridge unavailable (${handshake.skip}), falling back to local adapter`,
         );
         child.stdin?.end();
         return;
@@ -91,7 +92,7 @@ export default async function globalSetup(): Promise<(() => Promise<void>) | voi
     } catch (e) {
         child.stdin?.end();
         console.log(
-            `orbit-touch gate: bridge unavailable (couldn't write the endpoint handoff: ${e instanceof Error ? e.message : e}), falling back to local adapter`,
+            `gym touch gate: bridge unavailable (couldn't write the endpoint handoff: ${e instanceof Error ? e.message : e}), falling back to local adapter`,
         );
         return;
     }

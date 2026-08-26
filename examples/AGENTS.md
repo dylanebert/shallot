@@ -42,7 +42,9 @@ One minimal project per problem a game developer actually has.
 `gym/` — one project, `?scenario=`-selected. Each scenario is a correctness gate + benchmark + live demo
 in one, run on a real device via `bun bench --scenario <name>`. The scenario list and the GPU-driven
 coverage each carries is the barrel header in `gym/src/scenarios/index.ts`. This is the machine tier, not
-a teaching reference — read a recipe first.
+a teaching reference — read a recipe first. A scenario needing real input dispatch (touch, a scripted
+drag) may add its own driver-level Playwright gate run by path, e.g. `gym/test/touch.playwright.ts` over
+the `orbit-touch` scenario.
 
 ## Flows
 

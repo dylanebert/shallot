@@ -6,8 +6,7 @@
         "examples/gym",
         "examples/flows/*",
         "examples/recipes/*",
-        "examples/showcase/*",
-        "examples/gates/*"
+        "examples/showcase/*"
     ],
     "scripts": {
         "build": "bun run --cwd packages/shallot build",
