@@ -397,7 +397,7 @@ function mountPanel(state: State): () => void {
     button("reset", reset);
 
     const hint = document.createElement("div");
-    hint.textContent = "drag to orbit · scroll to zoom";
+    hint.textContent = "drag to orbit · scroll or pinch to zoom";
     hint.style.cssText = "font-size:10px;color:#79736b";
 
     panel.append(title, row, hint);

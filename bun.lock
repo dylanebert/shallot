@@ -262,6 +262,9 @@
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
       },
+      "devDependencies": {
+        "@playwright/test": "^1.58.2",
+      },
     },
     "examples/showcase/roads": {
       "name": "roads",
@@ -281,6 +284,9 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
+      },
+      "devDependencies": {
+        "@playwright/test": "^1.58.2",
       },
     },
     "examples/showcase/visualization": {
@@ -309,12 +315,12 @@
     },
     "packages/create-shallot": {
       "name": "create-shallot",
-      "version": "0.9.4",
+      "version": "0.9.5",
       "bin": "./index.ts",
     },
     "packages/shallot": {
       "name": "@dylanebert/shallot",
-      "version": "0.9.4",
+      "version": "0.9.5",
       "bin": {
         "shallot": "./bin/cli.ts",
       },

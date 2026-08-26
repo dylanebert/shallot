@@ -18,7 +18,9 @@ export interface Mouse {
     right: boolean;
     /** middle button held */
     middle: boolean;
-    /** pointer is over a bound canvas */
+    /** pointer is over a bound canvas, or a drag is active (hover holds true for the whole drag).
+     *  A drag released off-canvas leaves `hover` true: `releaseCapture` clears `activePointerId` without
+     *  re-evaluating hover, and no further `pointerleave` fires once the pointer has already left the canvas */
     hover: boolean;
     /** pointer x within the focused canvas, CSS pixels from the left edge */
     x: number;
@@ -100,7 +102,8 @@ const DEFAULT_TOUCH: Touch = {
 
 // the global input gate. While off, every read reports neutral (no keys, no buttons, no deltas) and the
 // keydown handler stops accumulating, so a menu or cutscene suspends every input consumer with one flag. A
-// pointer-lock controller (the Player) watches it to release the lock too. Reset to true on each (re)bind.
+// pointer-lock controller (the Player) watches it to release the lock too. Reset to true on a bind that
+// attaches at least one canvas — a canvas-less rebind inherits the prior State's gate.
 let enabled = true;
 
 export const Inputs: Inputs = {
@@ -111,7 +114,7 @@ export const Inputs: Inputs = {
         return enabled ? (inputState?.touch ?? DEFAULT_TOUCH) : DEFAULT_TOUCH;
     },
     get focused(): number {
-        return inputState?.focused ?? -1;
+        return enabled ? (inputState?.focused ?? -1) : -1;
     },
     isKeyDown(code: string): boolean {
         return enabled ? (inputState?.keys.has(code) ?? false) : false;
@@ -132,7 +135,7 @@ export const Inputs: Inputs = {
 /**
  * suspend or resume all input. While suspended, every {@link Inputs} read reports neutral: no keys held, no
  * mouse buttons, zero deltas, so a menu or cutscene freezes every consumer (movement, look, grab) with one
- * call, and a pointer-lock controller releases its lock. Resets to enabled on each State (re)bind.
+ * call, and a pointer-lock controller releases its lock. Resets to enabled on a bind that attaches at least one canvas.
  *
  * @example
  * ```
@@ -146,6 +149,7 @@ export function setInputEnabled(on: boolean): void {
         inputState.keys.clear();
         inputState.keysPressed.clear();
         inputState.keysReleased.clear();
+        inputState.keyPressedAt.clear();
         clearAllButtons(inputState.mouse);
         inputState.mouse.deltaX = 0;
         inputState.mouse.deltaY = 0;
@@ -333,6 +337,9 @@ function createHandlers(s: InputState): void {
     };
 
     s.keyUp = (e: KeyboardEvent) => {
+        if (!enabled) return;
+        const locked = document.pointerLockElement as HTMLCanvasElement | null;
+        if (!s.canvasFocused && !(locked && s.canvases.has(locked))) return;
         s.keys.delete(e.code);
         s.keysReleased.add(e.code);
     };
@@ -372,12 +379,15 @@ function createHandlers(s: InputState): void {
     s.windowPointerDown = (e: PointerEvent) => {
         if (!s.canvases.has(e.target as HTMLCanvasElement)) {
             s.canvasFocused = false;
+            for (const code of s.keys) s.keysReleased.add(code);
             s.keys.clear();
+            s.keysPressed.clear();
         }
     };
 
     s.windowBlur = () => {
         s.canvasFocused = false;
+        for (const code of s.keys) s.keysReleased.add(code);
         s.keys.clear();
         s.keysPressed.clear();
     };
