@@ -16,6 +16,10 @@ import type { DecodeReply, DecodeRequest } from "./worker";
 // Draco / Basis wasm, so more workers cost memory (three.js' DRACOLoader defaults a workerLimit of 4). A
 // tuning constant.
 const MAX_WORKERS = 4;
+// a worker that dies at load (a real consumer-bundler failure mode for `new Worker(new URL(...))`) respawns
+// at most this many times per slot before the slot is marked dead — a bound that replaces the silent spin of
+// unbounded worker creations with an attributable rejection on dispatch.
+const MAX_RESPAWN = 3;
 
 function poolSize(): number {
     const cores = (typeof navigator !== "undefined" && navigator.hardwareConcurrency) || 4;
@@ -32,12 +36,16 @@ interface Pending {
 
 let _workers: Worker[] = [];
 let _pending: (Pending | null)[] = [];
+let _dead: boolean[] = [];
+let _respawnCount: number[] = [];
 let _scheduler: Scheduler<DecodeRequest, DecodedGltf> | null = null;
 
 function ensurePool(): Scheduler<DecodeRequest, DecodedGltf> {
     if (_scheduler) return _scheduler;
     const n = poolSize();
     _pending = new Array(n).fill(null);
+    _dead = new Array(n).fill(false);
+    _respawnCount = new Array(n).fill(0);
     _workers = Array.from({ length: n }, (_, slot) => spawn(slot));
     _scheduler = new Scheduler<DecodeRequest, DecodedGltf>({ slots: n, run: dispatch });
     return _scheduler;
@@ -50,8 +58,9 @@ function spawn(slot: number): Worker {
         if (reply.ok) settle(slot, (p) => p.resolve(reply.decoded));
         else fail(slot, reply.error);
     };
-    w.onerror = (e) => fail(slot, `[gltf] decode worker error: ${e.message}`);
-    w.onmessageerror = () => fail(slot, "[gltf] decode worker message deserialization failed");
+    w.onerror = (e) => workerError(slot, `[gltf] decode worker error: ${e.message}`);
+    w.onmessageerror = () =>
+        workerError(slot, "[gltf] decode worker message deserialization failed");
     return w;
 }
 
@@ -65,8 +74,30 @@ function fail(slot: number, msg: string): void {
     settle(slot, (p) => p.reject(new Error(msg)));
 }
 
+// a worker error leaves the slot broken — the worker is gone but the scheduler still dispatches to it, so
+// every future decode on that slot hangs forever. Reject the in-flight request if one exists (the existing
+// path); then respawn the worker (bounded) so the slot stays serviceable, or mark the slot dead once the
+// respawn budget is exhausted — subsequent dispatch rejects with an attributable message instead of hanging.
+function workerError(slot: number, msg: string): void {
+    if (_pending[slot]) fail(slot, msg);
+    if (_respawnCount[slot] < MAX_RESPAWN) {
+        _respawnCount[slot]++;
+        _workers[slot]?.terminate();
+        _workers[slot] = spawn(slot);
+    } else {
+        _workers[slot]?.terminate();
+        _dead[slot] = true;
+    }
+}
+
 function dispatch(slot: number, req: DecodeRequest): Promise<DecodedGltf> {
     return new Promise<DecodedGltf>((resolve, reject) => {
+        if (_dead[slot]) {
+            reject(
+                new Error(`[gltf] decode worker slot ${slot} is dead (respawn budget exhausted)`),
+            );
+            return;
+        }
         _pending[slot] = { resolve, reject };
         _workers[slot].postMessage(req);
     });
@@ -126,4 +157,14 @@ export function decodeInWorker(url: string, opts: { clip?: number } = {}): Promi
     const device = Compute.device;
     if (!device) throw new Error("[gltf] no GPU device — call decodeInWorker after build()");
     return poolDecode(url, { clip: opts.clip ?? 0, targets: pickTargets(device) });
+}
+
+/** @internal tear down the pool singleton — test-only, so each test starts from a fresh pool. */
+export function _resetPool(): void {
+    for (const w of _workers) w?.terminate();
+    _workers = [];
+    _pending = [];
+    _dead = [];
+    _respawnCount = [];
+    _scheduler = null;
 }
