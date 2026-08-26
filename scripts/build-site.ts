@@ -54,7 +54,7 @@ function datadogInitSnippet(): string {
 })(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
 window.DD_RUM.onReady(function() {
     ${RUM_ENV_SNIPPET}
-    window.DD_RUM.init(${RUM_ENV_USAGE}${JSON.stringify(RUM_CONFIG)});
+    window.DD_RUM.init(${RUM_ENV_USAGE}${JSON.stringify(RUM_CONFIG)}));
 });
 </script>
 `;

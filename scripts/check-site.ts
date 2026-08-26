@@ -25,9 +25,12 @@ import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/ru
 //      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`, `RUM_ENV_SNIPPET` (the
 //      hostname-derived `env: "prod" | "local"` derivation, `shallot-demo-slow-frame-attribution.md`
 //      Locked decision) and `RUM_ENV_USAGE` (the wiring that actually reads the derived `env`
-//      into `DD_RUM.init` — the derivation alone is a silent no-op if the wiring drops it);
-//      `out/site/index.html` does not, since it has no frame loop to observe. Same
-//      `SITE_OUT_REQUIRED` gate as clause 4.
+//      into `DD_RUM.init` — the derivation alone is a silent no-op if the wiring drops it); the
+//      injected `<script>` block also has to parse (`new Function(src)`) — the substring checks
+//      pin the seam, this pins that the composed call is runnable, since a dropped paren between
+//      two present fragments passes every substring check while still being broken syntax.
+//      `out/site/index.html` does not carry any of this, since it has no frame loop to observe.
+//      Same `SITE_OUT_REQUIRED` gate as clause 4.
 //
 // The roster is derived from `examples/showcase/` by enumeration (site/roster.ts), so set membership
 // is by construction — a roster-equals-disk clause would compare code against itself, the
@@ -191,6 +194,7 @@ if (rootAbsFiles.length > 0) {
 const noInjection: string[] = [];
 const noEnv: string[] = [];
 const noEnvUsage: string[] = [];
+const noParse: { file: string; error: string }[] = [];
 for (const { slug } of ROSTER) {
     const demoDir = resolve(outDir, slug);
     if (!existsSync(demoDir)) continue; // a `--demo` filtered build only writes some dirs
@@ -206,6 +210,36 @@ for (const { slug } of ROSTER) {
         }
         if (!html.includes(RUM_ENV_USAGE)) {
             noEnvUsage.push(`${slug}/${path}`);
+        }
+
+        // The substring checks above pin the seam (each fragment present) but not the
+        // composition — a paren dropped between `RUM_ENV_USAGE` and `JSON.stringify(RUM_CONFIG)`
+        // still contains every fragment while the composed call is unparseable (measured
+        // 2026-08-25: `window.DD_RUM.init(Object.assign({env:ddEnv},{...});` — missing
+        // `Object.assign`'s closing paren — threw `Unexpected token ';'` from every built page's
+        // real script and none of the substring checks caught it). Extract the injected
+        // `<script>` block after the marker (the plain inline one, not the
+        // `<script type="module">` sampler bundle right after it) and syntax-check it with
+        // `new Function(src)` — construction parses the body without executing it, so this is a
+        // syntax check, not an execution one.
+        const markerIdx = html.indexOf(RUM_INJECTION_MARKER);
+        if (markerIdx !== -1) {
+            const scriptMatch = html.slice(markerIdx).match(/<script>([\s\S]*?)<\/script>/);
+            if (!scriptMatch) {
+                noParse.push({
+                    file: `${slug}/${path}`,
+                    error: "no <script> block found after the RUM injection marker",
+                });
+            } else {
+                try {
+                    new Function(scriptMatch[1]);
+                } catch (err) {
+                    noParse.push({
+                        file: `${slug}/${path}`,
+                        error: err instanceof Error ? err.message : String(err),
+                    });
+                }
+            }
         }
     }
 }
@@ -238,6 +272,18 @@ if (noEnvUsage.length > 0) {
         "\nThe derived `env` must actually reach `DD_RUM.init` — every built demo page must" +
             " carry `site/rum-config.ts`'s `RUM_ENV_USAGE` literal (`RUM_ENV_SNIPPET` computing" +
             " `ddEnv` with nothing reading it is a silent no-op).",
+    );
+    process.exit(1);
+}
+
+if (noParse.length > 0) {
+    console.error(`✗ ${noParse.length} demo page(s) carry an unparseable RUM init script:\n`);
+    for (const { file, error } of noParse) console.error(`  ${file}: ${error}`);
+    console.error(
+        "\nThe injected `<script>` block after the RUM injection marker failed to parse" +
+            " (`new Function(src)`) — every fragment substring check above can pass while the" +
+            " composed call is still broken syntax (`scripts/build-site.ts`'s" +
+            " `datadogInitSnippet`).",
     );
     process.exit(1);
 }
