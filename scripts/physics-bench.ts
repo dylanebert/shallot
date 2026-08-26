@@ -730,7 +730,9 @@ async function main(): Promise<void> {
     if (!matrixGreen || !guardPass || !scenariosGreen) process.exit(1);
 }
 
-main().catch((err) => {
-    console.error(err instanceof Error ? err.message : err);
-    process.exit(1);
-});
+if (import.meta.main) {
+    main().catch((err) => {
+        console.error(err instanceof Error ? err.message : err);
+        process.exit(1);
+    });
+}
