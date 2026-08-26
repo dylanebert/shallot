@@ -1,4 +1,12 @@
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+    cpSync,
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Glob } from "bun";
@@ -147,8 +155,11 @@ Options:
             process.exit(1);
         }
 
-        // scratch tree under /tmp — the eject/install/build happens outside the workspace
-        const scratch = join(tmpdir(), `shallot-site-${slug}-${Date.now()}`);
+        // scratch tree under /tmp — the eject/install/build happens outside the workspace.
+        // the demo dir's basename must be the slug: `shallot build` synthesizes the page
+        // <title> from it, so a unique parent carries the uniqueness and the leaf stays clean
+        const scratchParent = mkdtempSync(join(tmpdir(), `shallot-site-${slug}-`));
+        const scratch = join(scratchParent, slug);
         mkdirSync(scratch, { recursive: true });
 
         try {
@@ -225,7 +236,7 @@ Options:
             sizes.push({ slug, size: formatSize(sizeBytes) });
             console.log(`  done — ${formatSize(sizeBytes)}`);
         } finally {
-            rmSync(scratch, { recursive: true, force: true });
+            rmSync(scratchParent, { recursive: true, force: true });
         }
     }
 
