@@ -526,7 +526,78 @@ if (missingIndex.length > 0 || staleIndex.length > 0) {
     process.exit(1);
 }
 
-// ── Arm (c): tier-suffix roster — one constant, derived consumers, asserted against testing.md ──────
+// ── Arm (c): evals task-index completeness (both directions) ───────────────────────────────────
+//
+// Every `evals/tasks/<task>/` dir with at least one tracked file must have a row in the task
+// table in `evals/README.md`, and every table row must name a dir with tracked content. Both
+// directions are reported — a stale table row is as much a defect as a missing one. Mirrors the
+// showcase index arm (Arm b) in shape: same `git ls-files` derivation, same both-directions
+// report, same empty-population guard.
+//
+// The population is derived from the TRACKED set (git ls-files), not the filesystem — same law as
+// the showcase arm and the doc scan above. Mutation proof: adding a tracked `evals/tasks/<new>/`
+// dir with no table row reds this arm (witnessed 2026-08-25, exit 1); adding a table row naming
+// no dir also reds. Both directions witnessed.
+
+const EVALS_TASKS_DIR = "evals/tasks";
+const evalsTasksTracked = Bun.spawnSync(["git", "ls-files", "-z", EVALS_TASKS_DIR], {
+    cwd: root,
+});
+if (!evalsTasksTracked.success) {
+    console.error(
+        "✗ `git ls-files` failed — the evals task-index arm needs a git checkout to scope its dir set.",
+    );
+    process.exit(1);
+}
+const evalsTaskDirs = new Set<string>();
+for (const path of evalsTasksTracked.stdout.toString().split("\0").filter(Boolean)) {
+    const rel = path.slice(EVALS_TASKS_DIR.length + 1);
+    const parts = rel.split("/");
+    if (parts.length < 2) continue; // directly under tasks/, not a subdir
+    evalsTaskDirs.add(parts[0]);
+}
+if (evalsTaskDirs.size === 0) {
+    console.error(
+        "✗ `git ls-files evals/tasks/` matched no subdir — the evals task-index arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+const evalsReadme = await Bun.file(resolve(root, "evals/README.md")).text();
+// A table row's first column is a backtick-quoted task name: `| \`task-name\` | ...`
+const evalsTaskRowRe = /^\| `([^`]+)` \|/gm;
+const indexedEvalsTasks = new Set<string>();
+for (const [, name] of evalsReadme.matchAll(evalsTaskRowRe)) {
+    indexedEvalsTasks.add(name);
+}
+
+const missingTaskIndex = [...evalsTaskDirs].filter((d) => !indexedEvalsTasks.has(d)).sort();
+const staleTaskIndex = [...indexedEvalsTasks].filter((d) => !evalsTaskDirs.has(d)).sort();
+
+if (missingTaskIndex.length > 0 || staleTaskIndex.length > 0) {
+    const parts: string[] = [];
+    if (missingTaskIndex.length > 0) {
+        parts.push(
+            `evals task dir(s) without a table row in evals/README.md: ${missingTaskIndex.join(", ")}`,
+        );
+    }
+    if (staleTaskIndex.length > 0) {
+        parts.push(
+            `table row(s) in evals/README.md naming no evals task dir: ${staleTaskIndex.join(", ")}`,
+        );
+    }
+    console.error(
+        `✗ evals task-index mismatch (${parts.length} direction(s)):\n` +
+            parts.map((p) => `  ${p}`).join("\n"),
+    );
+    console.error(
+        "\nEvery `evals/tasks/<task>/` dir must have a row in the task table in `evals/README.md`, and " +
+            "every table row must name a real task dir. Both directions are checked.",
+    );
+    process.exit(1);
+}
+
+// ── Arm (d): tier-suffix roster — one constant, derived consumers, asserted against testing.md ──────
 //
 // The test-tier suffix roster is ONE exported constant (`packages/shallot/tests/test-tiers.ts`).
 // This arm asserts (1) the roster matches `testing.md`'s tier-section bullet ledes — the
@@ -661,5 +732,6 @@ console.log(
         `entry-doc chains under budget (${ENTRY_DOC_CHAINS.length} chain(s)), ` +
         `cross-citations resolve (${citationCount} citation(s)), ` +
         `showcase index complete (${showcaseDirs.size} dir(s)), ` +
+        `evals task-index complete (${evalsTaskDirs.size} task(s)), ` +
         `tier roster asserted (${rosterSuffixes.length} suffix(es))`,
 );

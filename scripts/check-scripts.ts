@@ -23,10 +23,55 @@ import { Glob } from "bun";
 export type Violation = { file: string; script: string; detail: string };
 
 // Entry points invoked by path (`bun run evals/setup.ts red-box`), not declared as a package.json
-// script — direction 1/3's `scripts/*` scope doesn't reach `evals/`, and without this list they
+// script — direction 1/3's `scripts/*` scope doesn't reach `evals/`, and without coverage they
 // ride no gate at all. Direction 2's citation coverage is the property that matters (a reader has
 // to find the command somewhere); extend it to these by name, same corpus.
-const PATH_ENTRY_POINTS = ["evals/setup.ts", "evals/grade.ts"];
+//
+// The entry-point set is DERIVED from the tree, not hand-listed: every `.ts` file directly under
+// `evals/` (not in a subdir like `harness/` or `tasks/`) that isn't a `.test.ts` file is a
+// path-invoked entry point. Asking git makes the scope identical in every checkout (same law as
+// check-docs' doc scan). Mutation proof: adding a tracked `evals/<new>.ts` reds this arm (not
+// cited in AGENTS.md or .claude/rules/*.md), witnessed 2026-08-25, exit 1; removing it greens.
+//
+// Stated exemption: `packages/vscode-shallot/build.sh` is a shell script invoked by `bash`, not
+// `bun run`, so the gate's citation-check mechanism (which matches `bun <path>` citations) does
+// not apply. Extending the gate to cover shell scripts would be a new gate, which is out of scope
+// for this unit. The file's reachability is a different mechanism (a `.sh` file's invocation is
+// `bash <path>`, not `bun run <path>`), and this gate's three directions all scope to `bun`-
+// invoked surfaces.
+//
+// Empty-population guard: a tree with no `evals/` dir (a fixture root) yields no entry points,
+// which is valid — the gate's other arms still run. A tree with `evals/` where `git ls-files`
+// fails is an error (the derivation needs a git checkout to scope its entry-point set). A tree
+// with `evals/` where the filter yields no direct entry point (all matches in subdirs or
+// .test.ts) is also an error — the citation arm would be vacuously green, which is the exact
+// fail-open the derivation was introduced to remove. Same law as check-docs' sibling arms:// each derivation carries its empty-population guard in the same diff.
+async function derivePathEntryPoints(rootDir: string): Promise<string[]> {
+    const evalsDir = resolve(rootDir, "evals");
+    if (!existsSync(evalsDir)) return [];
+    const tracked = Bun.spawnSync(["git", "ls-files", "-z", "evals/*.ts"], { cwd: rootDir });
+    if (!tracked.success) {
+        console.error(
+            "✗ `git ls-files` failed — check-scripts needs a git checkout to derive evals entry points.",
+        );
+        process.exit(1);
+    }
+    const entryPoints = tracked.stdout
+        .toString()
+        .split("\0")
+        .filter(Boolean)
+        .filter((f) => {
+            const rel = f.slice("evals/".length);
+            return !rel.includes("/") && !rel.endsWith(".test.ts");
+        });
+    if (entryPoints.length === 0) {
+        console.error(
+            "✗ `evals/` exists but `git ls-files` yielded no direct entry point — the evals citation arm would be vacuously green.",
+        );
+        process.exit(1);
+    }
+    return entryPoints;
+}
 
 export function escapeRegExp(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -107,7 +152,7 @@ export async function checkExists(pkgPaths: string[]): Promise<Violation[]> {
 
 // Direction 2 — every root script name is cited in AGENTS.md or .claude/rules/*.md, plus any
 // path-invoked entry point named in `pathEntryPoints` (defaults to none — callers that want the
-// `evals/*.ts` coverage pass `PATH_ENTRY_POINTS` explicitly, `run()` below does).
+// `evals/*.ts` coverage pass the derived set explicitly, `run()` below does).
 export async function checkDocs(
     rootDir: string,
     rootScripts: Record<string, string>,
@@ -270,9 +315,7 @@ export async function run(rootDir: string): Promise<{
 
     // Only assert citation coverage for entry points this tree actually has — a fixture root
     // with no `evals/` carries nothing to cite, and that's not a violation of its own.
-    const pathEntryPoints = PATH_ENTRY_POINTS.filter((entry) =>
-        existsSync(resolve(rootDir, entry)),
-    );
+    const pathEntryPoints = await derivePathEntryPoints(rootDir);
 
     const existsViolations = await checkExists(pkgPaths);
     const docViolations = await checkDocs(rootDir, rootScripts, pathEntryPoints);
