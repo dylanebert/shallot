@@ -151,7 +151,7 @@ One browser session per test file. Don't split related assertions into multiple 
 
 ## Pairwise testing for combinatorial GPU features
 
-Most bugs come from 2-factor interactions. For combinatorial feature spaces (surfaces × pipelines × opaque/transparent × shadow × instance fields), generate pairwise test matrices (~40-60 combos instead of thousands). `compileSurfaceBlock` is a pure function — feed it pairwise inputs, validate structurally + GPU-compile.
+Most bugs come from 2-factor interactions. For combinatorial feature spaces (surfaces × pipelines × opaque/transparent × shadow × instance fields), generate pairwise test matrices (~40-60 combos instead of thousands). `compileVariant` is a pure function — feed it pairwise inputs, validate structurally + GPU-compile.
 
 ## Structural validation over visual regression
 

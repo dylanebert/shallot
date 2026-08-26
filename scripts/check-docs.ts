@@ -735,16 +735,20 @@ if (rosterFindings.length > 0) {
 // — candidates drawn from survivors are blind to exactly the dead referents this arm exists to
 // find (checks.md: "never draw a resolution arm's candidates from the live referents"). A
 // declared allowlist admits deliberately-exempt mentions, grouped into classes each carrying its
-// reason (a foreign-namespace reference, an anti-pattern example, a retirement notice), and every
-// allowlist entry is asserted BOTH WAYS: the mention is really present in that file, AND the
-// symbol/path is genuinely absent from the tree — an entry that fails either direction reds
-// (checks.md). The arm accumulates violations into the exit code rather than printing FAIL and
+// reason and attribution token(s) (a foreign-namespace reference, an anti-pattern example, a
+// retirement notice), and every allowlist entry is asserted THREE WAYS: (1) the mention is really
+// present in that file, (2) the symbol/path is genuinely absent from the tree, and (3) the class's
+// attribution token occurs on the citing line or in the citing line's paragraph — an entry that
+// fails any direction reds (checks.md). The third leg (attribution) makes an exemption's safety a
+// structural claim rather than the author's say-so: a dead shallot symbol laundered into a
+// foreign-namespace class reads 0 on its class's token, so the arm catches it without a human
+// re-read. The arm accumulates violations into the exit code rather than printing FAIL and
 // exiting 0 (checks.md: "Nobody reads its return value").
 //
 // The widened detector that found the initial population lives at scripts/detect-stale-claims.ts
 // (a one-off audit tool, not a gate — this arm is the gate).
 //
-// Witnessed red (mutation proofs, 2026-08-26):
+// Witnessed red (mutation proofs):
 //   (i)  Seeding `deadIdentifierCitation` into `.claude/rules/gpu.md` — a dead non-WGSL identifier,
 //         the exact class round 1's arm could not see — reds: `bun run scripts/check-docs.ts`
 //         exits 1 with `✗ citation resolution: 1 stale citation(s)`.
@@ -754,6 +758,12 @@ if (rosterFindings.length > 0) {
 //         \`GpuImage\` resolves against the tree`).
 //   (iii) Seeding `nonexistent/dead.ts` into `.claude/rules/gpu.md` — the round-1 class (a dead
 //         `*.ts` path) — still reds: exit 1 with `✗ citation resolution: 1 stale citation(s)`.
+//   (iv) Attribution leg: adding an allowlist entry whose class token is absent from its citing
+//         line's paragraph reds — e.g. adding `{ file: ".claude/rules/testing.md", ref: "someDeadSym" }`
+//         to the Bevy class (attribution ["Bevy"]) when the citing line's paragraph says no "Bevy":
+//         exit 1 with `allowlist entry \`someDeadSym\` in class "... Bevy reference ..." fails the
+//         attribution leg — none of [Bevy] occurs on the citing line or in its paragraph`
+//         (witnessed 2026-08-26, `bun run scripts/check-docs.ts`, exit 1).
 //
 // Classes this arm CANNOT see:
 //   - Prose-name references to removed concepts that don't use a backtick-cited identifier (a
@@ -910,33 +920,42 @@ function symbolResolves(symbol: string): boolean {
     );
 }
 
-// ── Allowlist: declared classes of exempt mentions, asserted both ways ───────────────────
+// ── Allowlist: declared classes of exempt mentions, asserted three ways ───────────────────
 //
-// The allowlist is a small number of DECLARED CLASSES, each carrying its reason, not a flat list
-// of individual spellings (checks.md: "a declared allow-list both readers share, never a tighter
-// regex"). Three classes cover the legitimate exempt population:
+// The allowlist is a small number of DECLARED CLASSES, each carrying its reason and attribution
+// token(s), not a flat list of individual spellings (checks.md: "a declared allow-list both
+// readers share, never a tighter regex"). The classes cover the legitimate exempt population:
 //
-//   1. Foreign-namespace citations the rules deliberately make — Bevy, Jolt, Box3D/C, webphysics
-//      references that are structural analogues, not shallot code. These identifiers are absent
-//      from the tree by design (they name concepts in other engines/libraries).
-//   2. Anti-pattern example names — illustrative identifiers in `style.md` that are not real code.
-//   3. Explicit retirement notices — the sharpest case: the mention is deliberate and the target
-//      is *meant* to be absent (a gone symbol named in a retirement sentence).
+//   1. Foreign-namespace citations the rules deliberately make — Bevy, Jolt, Box3D/C, webphysics,
+//      Bullet, PlayCanvas references that are structural analogues, not shallot code.
+//   2. Anti-pattern example names — illustrative identifiers that are not real code.
+//   3. Standard API references — WGSL built-ins or WebGPU/Vulkan/CUDA API names.
+//   4. Tool/framework references — TypeGPU, Bun, or GitHub Actions internals.
+//   5. Explicit retirement notices — the mention is deliberate and the target is *meant* to be
+//      absent (a gone symbol named in a retirement sentence).
 //
-// Every entry is asserted BOTH WAYS: the mention is really present in that file (the symbol
-// appears in the file's text), AND the symbol/path is genuinely absent from the tree (no `.ts`
-// file contains it, excluding the arm/detector's own source). An entry that fails either
-// direction reds — a missing mention means the allowlist is stale, and a present-in-tree
-// symbol means the exemption is over (the symbol came back).
+// Every entry is asserted THREE WAYS: (1) the mention is really present in that file, (2) the
+// symbol/path is genuinely absent from the tree, and (3) the class's attribution token occurs on
+// the citing line or in the citing line's paragraph. An entry that fails any direction reds — a
+// missing mention means the allowlist is stale, a present-in-tree symbol means the exemption is
+// over (the symbol came back), and a missing attribution token means the entry is a candidate
+// laundered exemption (a dead shallot symbol smuggled into a foreign-namespace class).
 
 type AllowlistClass = {
     reason: string;
+    // The attribution token(s) the class claims — each entry's citing line or its paragraph must
+    // contain at least one (case-insensitive, word-boundary). This makes an exemption's safety a
+    // structural claim rather than the author's say-so: a dead shallot symbol laundered into a
+    // foreign-namespace class reads 0 on its class's token (e.g. compileSurfaceBlock read 0 on
+    // "typegpu"/"bun"/"github"), so the arm catches it without a human re-read (checks.md).
+    attribution: string[];
     entries: { file: string; ref: string }[];
 };
 
 const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
     {
         reason: "foreign-namespace: Bevy reference (structural reference, not shallot code)",
+        attribution: ["Bevy"],
         entries: [
             { file: ".claude/rules/ecs.md", ref: "GpuImage" },
             { file: ".claude/rules/ecs.md", ref: "RenderApp" },
@@ -948,6 +967,7 @@ const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
     },
     {
         reason: "foreign-namespace: Jolt reference (structural reference, not shallot code)",
+        attribution: ["Jolt"],
         entries: [
             { file: ".claude/rules/physics.md", ref: "SolveConstraints" },
             { file: ".claude/rules/physics.md", ref: "WalkStairs" },
@@ -955,18 +975,16 @@ const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
     },
     {
         reason: "foreign-namespace: Box3D/C reference (structural reference, not shallot code)",
+        attribution: ["box3d"],
         entries: [
             { file: ".claude/rules/tumble.md", ref: "b3Shape_SetSphere" },
             { file: ".claude/rules/tumble.md", ref: "SetCapsule" },
             { file: ".claude/rules/tumble.md", ref: "b3Shape_SetFilter" },
-            { file: ".claude/rules/tumble.md", ref: "g_scenes" },
-            { file: ".claude/rules/tumble.md", ref: "vgatherdps" },
-            { file: ".claude/rules/tumble.md", ref: "emitAux" },
-            { file: ".claude/rules/tumble.md", ref: "SceneStepFn" },
         ],
     },
     {
         reason: "foreign-namespace: webphysics reference (author's workspace layout, not shallot code)",
+        attribution: ["webphysics"],
         entries: [
             { file: ".claude/rules/avbd.md", ref: "broadPhase.ts" },
             { file: ".claude/rules/avbd.md", ref: "reference/webphysics/.../avbdState.ts" },
@@ -976,10 +994,12 @@ const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
     },
     {
         reason: "foreign-namespace: Bullet 3 reference (structural reference, not shallot code)",
+        attribution: ["Bullet"],
         entries: [{ file: ".claude/rules/avbd.md", ref: "BatchSolveKernelContact" }],
     },
     {
         reason: "anti-pattern example: illustrative name, not real code",
+        attribution: ["not"],
         entries: [
             { file: ".claude/rules/style.md", ref: "createMeshGeometryFromVertices" },
             { file: ".claude/rules/style.md", ref: "prepareX" },
@@ -988,16 +1008,16 @@ const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
             { file: ".claude/rules/ecs.md", ref: "lastState" },
             { file: ".claude/rules/ecs.md", ref: "resetIfNewState" },
             { file: ".claude/rules/ecs.md", ref: "lastCamera" },
+            { file: ".claude/rules/exports.md", ref: "readBuffer" },
         ],
     },
     {
         reason: "standard API reference: WGSL built-in or WebGPU/Vulkan/CUDA API name, not shallot code",
+        attribution: ["WGSL", "WebGPU", "Vulkan", "CUDA"],
         entries: [
             { file: ".claude/rules/gpu.md", ref: "pack4x8snorm" },
-            { file: ".claude/rules/gpu.md", ref: "unpack4x8snorm" },
             { file: ".claude/rules/gpu.md", ref: "subgroupAdd" },
             { file: ".claude/rules/gpu.md", ref: "__threadfence()" },
-            { file: ".claude/rules/gpu.md", ref: "writeTimestamp" },
             { file: ".claude/rules/gpu.md", ref: "GPURenderBundle" },
             { file: ".claude/rules/gpu.md", ref: "executeBundles" },
             { file: ".claude/rules/render.md", ref: "ExecuteIndirect" },
@@ -1006,33 +1026,28 @@ const CITATION_ALLOWLIST_CLASSES: AllowlistClass[] = [
     },
     {
         reason: "tool/framework reference: TypeGPU, Bun, or GitHub Actions internal, not shallot code",
+        attribution: ["TypeGPU", "Bun", "GitHub"],
         entries: [
             { file: ".claude/rules/testing.md", ref: "disabled_manually" },
             { file: ".claude/rules/testing.md", ref: "__TYPEGPU_AUTONAME__" },
             { file: ".claude/rules/testing.md", ref: "shaderModules" },
             { file: ".claude/rules/testing.md", ref: "DependencyLoop" },
-            { file: ".claude/rules/testing.md", ref: "compileSurfaceBlock" },
             { file: ".claude/rules/gpu.md", ref: "list_typegpu_exports" },
             { file: ".claude/rules/exports.md", ref: "sideEffects" },
         ],
     },
     {
         reason: "retirement notice: deliberately names a gone symbol",
+        attribution: ["gone"],
         entries: [
-            { file: ".claude/rules/ecs.md", ref: "detectVecN" },
-            { file: ".claude/rules/tumble.md", ref: "ColumnState" },
-            { file: ".claude/rules/audio.md", ref: "AudioCommand" },
             { file: ".claude/rules/exports.md", ref: "BVH_TRAVERSE_WGSL" },
             { file: ".claude/rules/exports.md", ref: "FogLight" },
         ],
     },
     {
         reason: "foreign-namespace: PlayCanvas reference (structural reference, not shallot code)",
+        attribution: ["PlayCanvas"],
         entries: [{ file: ".claude/rules/render.md", ref: "LightTextureAtlas" }],
-    },
-    {
-        reason: "anti-pattern example: illustrative generic name, not real code",
-        entries: [{ file: ".claude/rules/exports.md", ref: "readBuffer" }],
     },
 ];
 
@@ -1055,7 +1070,34 @@ type StaleCitation = {
 
 const staleCitations: StaleCitation[] = [];
 
-// First, assert every allowlist entry both ways
+// Helper: get the paragraph text (contiguous non-blank lines) containing a 1-indexed line number,
+// plus the immediately preceding non-blank line(s) if separated by exactly one blank line and
+// the preceding block is a short heading/intro (< 200 chars). This catches section headings like
+// "**Take from Bevy:**" that introduce a list — the heading carries the attribution token even
+// when the individual bullet does not.
+function getParagraphText(lines: string[], lineno: number): string {
+    const idx = lineno - 1;
+    let start = idx;
+    while (start > 0 && lines[start - 1].trim()) start--;
+    let end = idx;
+    while (end < lines.length - 1 && lines[end + 1].trim()) end++;
+    // Check for a preceding heading/intro block separated by one blank line
+    if (start > 1 && !lines[start - 1].trim()) {
+        let prev = start - 2;
+        if (prev >= 0 && lines[prev].trim()) {
+            let prevStart = prev;
+            while (prevStart > 0 && lines[prevStart - 1].trim()) prevStart--;
+            const headingText = lines.slice(prevStart, prev + 1).join("");
+            if (headingText.length < 200) {
+                return lines.slice(prevStart, end + 1).join("\n");
+            }
+        }
+    }
+    return lines.slice(start, end + 1).join("\n");
+}
+
+// First, assert every allowlist entry three ways: mention present, target absent, attribution
+// token present on the citing line or in its paragraph.
 for (const cls of CITATION_ALLOWLIST_CLASSES) {
     for (const { file, ref } of cls.entries) {
         const filePath = resolve(root, file);
@@ -1093,6 +1135,32 @@ for (const cls of CITATION_ALLOWLIST_CLASSES) {
                 reason: `allowlist entry \`${ref}\` resolves against the tree — the exemption is over (the symbol/path came back)`,
             });
         }
+        // Direction 3 (attribution leg): the class's attribution token occurs on the citing line
+        // or in the citing line's paragraph. A dead shallot symbol laundered into a foreign-
+        // namespace class reads 0 here — the citing line carries no foreign-namespace attribution.
+        const fileLines = fileText.split("\n");
+        let citingLine = -1;
+        for (let i = 0; i < fileLines.length; i++) {
+            if (fileLines[i].includes(`\`${ref}\``)) {
+                citingLine = i + 1;
+                break;
+            }
+        }
+        if (citingLine === -1) continue; // already flagged by direction 1
+        const paraText = getParagraphText(fileLines, citingLine).toLowerCase();
+        const hasAttribution = cls.attribution.some((tok) => {
+            const re = new RegExp(`\\b${tok.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+            return re.test(paraText);
+        });
+        if (!hasAttribution) {
+            staleCitations.push({
+                file,
+                line: citingLine,
+                ref,
+                kind: "allowlist",
+                reason: `allowlist entry \`${ref}\` in class "${cls.reason}" fails the attribution leg — none of [${cls.attribution.join(", ")}] occurs on the citing line or in its paragraph`,
+            });
+        }
     }
 }
 
@@ -1125,8 +1193,9 @@ if (staleCitations.length > 0) {
             "`.claude/rules/**` must resolve against the tree. A cited path that no file matches " +
             "or a cited symbol that no `.ts` file contains is a stale claim. Deliberately-exempt " +
             "mentions (foreign-namespace references, anti-pattern examples, retirement notices) " +
-            "are admitted via the declared allowlist, asserted both ways: the mention is really " +
-            "present, and the symbol/path is genuinely absent.",
+            "are admitted via the declared allowlist, asserted three ways: the mention is really " +
+            "present, the symbol/path is genuinely absent, and the class's attribution token " +
+            "occurs on the citing line or in its paragraph.",
     );
     process.exit(1);
 }
