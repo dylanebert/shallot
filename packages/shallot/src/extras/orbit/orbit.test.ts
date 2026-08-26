@@ -974,7 +974,7 @@ describe("OrbitSystem orthographic zoom and middle-button pan", () => {
         expect(Camera.size.get(cam)).toBeCloseTo(Orbit.size.get(cam), 2);
     });
 
-    test("orthographic zoom clamps to minSize/maxSize", () => {
+    test("orthographic zoom clamps to maxSize on the high end", () => {
         const cam = state.create();
         state.add(cam, Transform);
         state.add(cam, Orbit);
