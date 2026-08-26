@@ -38,7 +38,8 @@ export const OrbitMode = { Free: 0, Locked: 1 } as const;
 export const OrbitPick: { claim?: (x: number, y: number) => boolean } = {};
 
 /**
- * orbit camera controls: drag to rotate around a target, scroll to zoom
+ * orbit camera controls: drag to rotate around a target, scroll to zoom;
+ * on touch, one finger rotates, two-finger pinch zooms, two-finger drag pans
  */
 export const Orbit = {
     /** horizontal orbit angle around the target, radians */
