@@ -2,6 +2,24 @@
 
 Newest first. **Breaking:** marks a change that needs consumer action; [`packages/shallot/MIGRATION.md`](packages/shallot/MIGRATION.md) is the 0.8→0.9 port. Versions follow [semver](https://semver.org).
 
+## 0.9.5 — 2026-08-25
+
+A robustness patch: a console-noise fix at pipeline warm, the first shipped increment of touch input, and a run of small correctness fixes an audit pass over the package turned up (a shadow-render fallback, a scene round-trip bug, a physics joint bug, a glTF memory leak, two fail-open CLI/scaffold defects). No consumer action, nothing breaking.
+
+- **gpu** — the documented warm idiom (`await pipeline.initAsync()`) no longer submits a zero-workgroup dispatch before the real one, so a consumer's console stops filling with Dawn's "DispatchWorkgroups with a workgroup count of 0 is unusual" on every warmed pipeline. A tree-wide static gate now asserts no such call survives anywhere in the shipped source, examples included.
+- **input** — `Orbit` responds to touch: one-finger drag rotates, pinch zooms, two-finger drag pans, the same mapping three.js/Babylon/PlayCanvas ship by default. `Inputs` carries the new touch fields (pointer count, pinch delta, two-finger centroid deltas) beside the unchanged mouse path; a finger lifted mid-gesture re-captures to a surviving finger instead of freezing the gesture.
+- **site** — a showcase demo's browser tab now reads its real name instead of the temp build path it used to leak (`shallot-site-<slug>-<timestamp>`).
+- **showcase** — `examples/showcase/fountain` is retired; its GPU-particle idiom lives on as the leaner `recipes/gpu-particles` recipe.
+- **render (fix)** — a shadow atlas whose combo view was missing for a frame used to fall back to slot 0, silently binding another camera's culled set into the shadow pass; it now compacts around the surviving views instead.
+- **scene (fix)** — three round-trip bugs in the scene text format: escaped attribute text grew an extra escape layer on every re-save; serializing a subset of the scene wrote a raw internal id instead of a `@name` reference for a ref target outside the subset; and `#rgb`/`#rgba` short hex now expands the CSS way (`#fff` → `#ffffff`) instead of misreading as a 12-bit integer, with any other invalid hex length now rejected rather than silently returning garbage.
+- **physics (fix)** — a joint's `stiffnessAng` spring was under- or over-damped, visible as ringing; it's now critically damped, and a non-positive value warns and is skipped instead of driving the joint.
+- **gltf (fix)** — swapping a live-skinned glTF entity to its VAT-skinned form no longer leaks the prior skin palette's GPU memory, and a worker in the glTF load pool that dies without reporting why now respawns instead of leaving that slot stuck forever.
+- **audio (fix)** — registering more than the 256-sample cap now warns and rejects the extra sample instead of silently overflowing.
+- **cli (fix)** — a numeric CLI flag (`--port` and its siblings) given an empty or non-numeric value now exits nonzero instead of silently substituting a default — `Number("")` is `0`, not `NaN`, so a typo used to no-op.
+- **scaffold** — `bun create shallot` pins the engine dependency to `~<its own version>` instead of `latest`, matching the lockstep `typegpu`/`unplugin-typegpu` pins it already carries; a stale scaffold could otherwise install a newer engine whose peer range broke it.
+- **docs** — README and `MIGRATION.md` corrected: the barrel-import claim narrows from "any JS runtime" to what's actually true (plain Node still refuses raw TypeScript out of `node_modules`), the migration guide's own prose now names the release it targets instead of the previous one, and the npm README no longer promises a prebuilt download for a build path that never attempts one.
+- **internals** — the rest of this cycle is audits over the package's own gates and tests with no behavior a consumer can observe: a Rust↔TS ABI parity check for the audio engine, an eval-harness timeout ladder derived from one owner, a bit-exact-literal sweep over the physics port's f32 constants, prose-drift fixes across rule and spec files, and a roster of doc-citation and test-tier consistency checks.
+
 ## 0.9.4 — 2026-08-24
 
 Three paths no gate had ever run are now covered: the bare barrel imports under a runtime with no WebGPU globals, the release workflow can attach its own assets without a hand recovery, and a `verify` red carries the pixel measurement behind it. No consumer action, nothing breaking.
