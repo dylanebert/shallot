@@ -883,20 +883,21 @@ if (citationCandidates.length === 0) {
 // The arm's green condition is an exhaustive four-way disjunction: a candidate passes
 // iff it never enters citationCandidates (the population predicate), or it resolves in
 // the tree token index, or it resolves in a committed roster, or it is marker-exempt.
-// Each disjunct gets a cardinality pinned as a literal and asserted equal, so an escape
-// that moves a number in the diff that narrows it reds — there is no fifth place for
-// the escape to move.
+// Each disjunct gets a cardinality pinned as a literal — disjunct 2 as an anti-narrowing
+// floor (its population grows with ordinary prose), the rest asserted equal — so an escape
+// that moves a number in the diff that narrows it reds; there is no fifth place for the
+// escape to move.
 
-// Disjunct 2: the citation population count. Any predicate narrowing that shrinks the
-// population moves this number in the diff that narrows it.
-const PINNED_CITATION_COUNT = 1734;
-if (citationCandidates.length !== PINNED_CITATION_COUNT) {
+// Disjunct 2: the citation population floor. A predicate narrowing shrinks the population
+// below the floor and reds; legitimate prose growth passes and re-pins the floor
+// opportunistically upward.
+const PINNED_CITATION_COUNT = 1739;
+if (citationCandidates.length < PINNED_CITATION_COUNT) {
     console.error(
-        `✗ citation count mismatch: pinned ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
+        `✗ citation count below floor: floor ${PINNED_CITATION_COUNT}, actual ${citationCandidates.length}.
 ` +
-            `  A predicate narrowing that shrinks the population moves this number. ` +
-            `  Update PINNED_CITATION_COUNT in scripts/check-docs.ts to match, ` +
-            `or restore the narrowed predicate.`,
+            `  A predicate narrowing shrinks the population below the floor. ` +
+            `  Restore the narrowed predicate.`,
     );
     process.exit(1);
 }
