@@ -50,7 +50,7 @@ function spawn(slot: number): Worker {
         if (reply.ok) settle(slot, (p) => p.resolve(reply.decoded));
         else fail(slot, reply.error);
     };
-    w.onerror = (e) => fail(slot, `[gltf] decode worker error: ${e.message}`);
+    w.onerror = (e) => workerError(slot, `[gltf] decode worker error: ${e.message}`);
     w.onmessageerror = () => fail(slot, "[gltf] decode worker message deserialization failed");
     return w;
 }
@@ -63,6 +63,18 @@ function settle(slot: number, f: (p: Pending) => void): void {
 
 function fail(slot: number, msg: string): void {
     settle(slot, (p) => p.reject(new Error(msg)));
+}
+
+// a worker error outside a pending request leaves the slot broken — the worker is gone but the scheduler
+// still dispatches to it, so every future decode on that slot hangs forever. Reject the in-flight request if
+// one exists (the existing path); otherwise respawn the worker so the slot stays serviceable.
+function workerError(slot: number, msg: string): void {
+    if (_pending[slot]) {
+        fail(slot, msg);
+    } else {
+        _workers[slot]?.terminate();
+        _workers[slot] = spawn(slot);
+    }
 }
 
 function dispatch(slot: number, req: DecodeRequest): Promise<DecodedGltf> {
