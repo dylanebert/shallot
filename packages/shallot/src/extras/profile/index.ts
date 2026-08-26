@@ -2,6 +2,7 @@ import type { LazyAlloc, Plugin, State, System } from "../../engine";
 import { Compute, mountOverlay } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
 import { createMeasure, foldIndirect, INDIRECT_FLOOR_US } from "./benchmark";
+import { reorderRows } from "./reorder";
 
 export type {
     BenchmarkAPI,
@@ -690,15 +691,7 @@ function flushPool(
     if (prev.length !== sorted.length || sorted.some(([name]) => !prev.includes(name))) {
         pool.order = sorted.map(([name]) => name);
     } else {
-        const next = prev.slice();
-        for (let i = 0; i < next.length; i++) {
-            const desired = rank.get(next[i])!;
-            if (Math.abs(desired - i) >= 2) {
-                next.splice(i, 1);
-                next.splice(desired, 0, prev[i]);
-            }
-        }
-        pool.order = next;
+        pool.order = reorderRows(prev, rank);
     }
 
     const byName = new Map<string, [string, string]>();

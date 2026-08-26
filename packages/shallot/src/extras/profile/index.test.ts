@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Compute, State } from "../../engine";
 import { UnsupportedError } from "../../engine/runtime";
 import { Profile, ProfilePlugin } from "./index";
+import { reorderRows } from "./reorder";
 
 // `ProfilePlugin.features` declares `timestamp-query`, and `acquireDevice` throws on a device that can't
 // grant it — but `requestGPU(externalDevice)` / `run({ device })` adopts a device as-is, so a declared
@@ -208,5 +209,34 @@ describe("ProfilePlugin", () => {
         Compute.precompiled?.("sear-typed-variants", 0, 0.16);
         expect(Profile.compile.get("sear-typed-variants")).toBe(0.16);
         expect(Profile.compiledPipelines.has("sear-typed-variants")).toBe(false);
+    });
+});
+
+describe("reorderRows", () => {
+    // The hysteresis reorder splices `next` in place but re-inserts the element
+    // from the *original* array at index i (`order[i]`) instead of the element
+    // it actually removed. After the first move, `next` and `order` diverge —
+    // `next[i]` is no longer `order[i]` — so a later move re-inserts the
+    // wrong name: the removed name is dropped and `order[i]` is duplicated.
+    //
+    // order = [a, b, c, d, e], rank = {b:0, d:1, e:2, a:3, c:4}
+    //   move 1 (i=0): removes "a", re-inserts order[0]="a" at 3 → [b,c,d,a,e]
+    //   move 2 (i=1): next[1]="c" ≠ order[1]="b"; removes "c", re-inserts
+    //                 order[1]="b" at 4 → [b,d,a,e,b]
+    //   move 3 (i=4): next[4]="b" ≠ order[4]="e"; removes "b", re-inserts
+    //                 order[4]="e" at 0 → [e,b,d,a,e]
+    // Pre-fix witness: output was ["e","b","d","a","e"] — "e" duplicated, "c" dropped.
+    test("a permutation whose second move exposes prev[i] !== next[i] yields a permutation of the input", () => {
+        const order = ["a", "b", "c", "d", "e"];
+        const rank = new Map<string, number>([
+            ["b", 0],
+            ["d", 1],
+            ["e", 2],
+            ["a", 3],
+            ["c", 4],
+        ]);
+        const result = reorderRows(order, rank);
+        // same multiset — no duplicate, no drop
+        expect(result.slice().sort()).toEqual(order.slice().sort());
     });
 });
