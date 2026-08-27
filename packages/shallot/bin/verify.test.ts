@@ -23,7 +23,10 @@ import {
     bootArm,
     buildUrl,
     type Checkpoint,
+    type CpuProfileNode,
+    classifyCpuFrame,
     coerceVerdict,
+    decodeSampleNode,
     displayGateExit,
     displayGateMessage,
     driveHarness,
@@ -35,7 +38,9 @@ import {
     formatTimings,
     gpuLogChecks,
     gridDiff,
+    HARNESS_INPAGE_FUNCTION_NAMES,
     HARNESS_PROBE_SCRIPT,
+    harnessBucketNames,
     harnessInstallMs,
     harnessPass,
     hasStructure,
@@ -44,6 +49,7 @@ import {
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
+    type RawCpuProfile,
     RESOURCE_BUFFER,
     type RenderProbe,
     type ResourceEntry,
@@ -52,12 +58,15 @@ import {
     reportBatch,
     resolveBatchQueries,
     SetupError,
+    sampleFrameNode,
+    selfTimeMsByNodeId,
     serveDev,
     serveDist,
     settlePass,
     spansFromCheckpoints,
     stepWait,
     structured,
+    summarizeCpuProfile,
     summarizeResourceTiming,
     TIMINGS_INIT_SCRIPT,
     type WaitState,
@@ -614,6 +623,184 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
         const win: { __shallotLongTasks?: unknown } = {};
         new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
         expect(win.__shallotLongTasks).toEqual([]);
+    });
+});
+
+describe("selfTimeMsByNodeId — S1b's CPU-profile self-time accounting", () => {
+    // S1c: settled against two independent reference implementations (Chrome DevTools'
+    // CPUProfileDataModel.ts and speedscope's Chrome importer — cited in full on the function's
+    // docblock), not by reasoning — CDP's own spec prose ("the first delta is relative to the profile
+    // startTime") is silent on direction. Witnessed red before this fix: the pre-S1c implementation
+    // paired timeDeltas[i] with samples[i] over this same fixture (samples.length-bounded loop, so it
+    // also double-counted the repeated node id 1 at i=0 and i=2) and read out.get(1)===0.45,
+    // out.get(2)===0.3 — exit 1 on `expect(out.get(1)).toBeCloseTo(0.3, 6)`: "Received: 0.45".
+    test("attributes timeDeltas[i+1] to samples[i] — the interval FOLLOWING a sample belongs to it, not the interval ending AT it, and the LAST sample gets nothing (no following delta to pair with)", () => {
+        const profile: RawCpuProfile = {
+            nodes: [],
+            startTime: 0,
+            endTime: 900,
+            samples: [1, 2, 1],
+            timeDeltas: [50, 300, 400, 250],
+            // [0]: startTime→sample0 (unused). [1]: sample0→sample1 (300us) → charged to samples[0]=1.
+            // [2]: sample1→sample2 (400us) → charged to samples[1]=2. [3] would be sample2→next, but
+            // sample2 is the LAST sample, so it's dropped rather than double-counted onto node 1.
+        };
+        const out = selfTimeMsByNodeId(profile);
+        expect(out.get(1)).toBeCloseTo(0.3, 6); // timeDeltas[1] only — NOT +timeDeltas[3]
+        expect(out.get(2)).toBeCloseTo(0.4, 6); // timeDeltas[2]
+        expect(out.size).toBe(2);
+    });
+
+    test("a non-positive delta is dropped rather than recorded as a zero-cost node — a real node with no observed cost is absent, not present at 0", () => {
+        const profile: RawCpuProfile = {
+            nodes: [],
+            startTime: 0,
+            endTime: 100,
+            samples: [1, 2],
+            timeDeltas: [0, -5],
+        };
+        expect(selfTimeMsByNodeId(profile).size).toBe(0);
+    });
+
+    test("a profile with no sample stream (samples/timeDeltas absent) reads as an empty map, not a crash", () => {
+        const profile: RawCpuProfile = { nodes: [], startTime: 0, endTime: 0 };
+        expect(selfTimeMsByNodeId(profile).size).toBe(0);
+    });
+});
+
+describe("classifyCpuFrame — S1b's named-candidate bucket table", () => {
+    test("routes each of the spec's named mechanisms to a distinct bucket", () => {
+        const pipelines = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+            "preparePipelines",
+        );
+        const forward = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/standard/sear/forward.ts",
+            "unwrapVariant",
+        );
+        const gpu = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/engine/runtime/gpu.ts",
+            "precompileAll",
+        );
+        const regather = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/standard/sear/regather.ts",
+            "prepareRegather",
+        );
+        const ecs = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/engine/ecs/scheduler.ts",
+            "tick",
+        );
+        const scene = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/engine/scene/preload.ts",
+            "preload",
+        );
+        const decode = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/extras/gltf/pool.ts",
+            "decodeInWorker",
+        );
+        const buckets = new Set([pipelines, forward, gpu, regather, ecs, scene, decode]);
+        expect(buckets.size).toBe(7); // every named mechanism gets its own, distinguishable bucket
+        expect(pipelines).toContain("pipelines.ts");
+        expect(forward).toContain("forward.ts");
+        expect(gpu).toContain("gpu.ts");
+    });
+
+    test("a native/no-url frame is named by its V8 convention, not folded into a file bucket", () => {
+        expect(classifyCpuFrame("", "(program)")).toContain("(program)");
+        expect(classifyCpuFrame("", "")).toContain("no source url");
+    });
+
+    // S1b's adversarial pass: the prior docblock claimed "no url implies V8-internal", refuted by
+    // `decodeSample` (verify.ts's own in-page frame-sampling helper) landing here with no url and its
+    // own real name — page.evaluate serializes a function with no backing file, so CDP reports an empty
+    // url under the function's OWN name, not a synthetic one. Witnessed red against the pre-fix
+    // implementation (`if (functionName) return \`${functionName} — V8-internal/native frame...\`` with
+    // no synthetic-name check): `classifyCpuFrame("", "decodeSample")` returned
+    // "decodeSample — V8-internal/native frame (no source url)", so this arm's
+    // `expect(...).not.toContain("V8-internal")` exited 1 there —
+    // "Received: decodeSample — V8-internal/native frame (no source url)".
+    test("a NAMED no-url frame that isn't one of V8's synthetic names is NOT V8-internal — it's an evaluated/injected script", () => {
+        const decodeSample = classifyCpuFrame("", "decodeSample");
+        expect(decodeSample).not.toContain("V8-internal");
+        expect(decodeSample).toContain("decodeSample");
+        expect(decodeSample).toContain("evaluated script");
+        // the four real synthetic names still classify as V8-internal — the fix narrows the no-url
+        // branch, it doesn't widen it into "any name is native".
+        for (const synthetic of ["(program)", "(idle)", "(garbage collector)", "(root)"]) {
+            expect(classifyCpuFrame("", synthetic)).toContain("V8-internal");
+        }
+    });
+
+    test("an unmatched frame falls through to a per-file bucket rather than disappearing", () => {
+        const out = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/some/new/module.ts",
+            "boot",
+        );
+        expect(out).toContain("new/module.ts");
+    });
+});
+
+describe("summarizeCpuProfile — the pure profile-to-attribution reduction", () => {
+    test("merges self time across nodes sharing one call-frame identity, and rolls it up by named bucket", () => {
+        const pipelinesFrame = {
+            functionName: "preparePipelines",
+            scriptId: "1",
+            url: "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+            lineNumber: 41,
+            columnNumber: 0,
+        };
+        const nodes: CpuProfileNode[] = [
+            { id: 1, callFrame: pipelinesFrame }, // called from call path A
+            { id: 2, callFrame: pipelinesFrame }, // same function, called from call path B
+            {
+                id: 3,
+                callFrame: {
+                    functionName: "(program)",
+                    scriptId: "0",
+                    url: "",
+                    lineNumber: 0,
+                    columnNumber: 0,
+                },
+            },
+        ];
+        const profile: RawCpuProfile = {
+            nodes,
+            startTime: 0,
+            endTime: 900,
+            // S1c pairing: samples[i]'s self time is timeDeltas[i+1] (the interval FOLLOWING it), and
+            // the last sample is dropped — so the stream carries one trailing sample to close node 3.
+            samples: [1, 2, 3, 3],
+            timeDeltas: [50_000, 400_000, 100_000, 200_000], // us: node1 400ms, node2 100ms, node3 200ms
+        };
+        const summary = summarizeCpuProfile(profile);
+
+        expect(summary.totalMs).toBeCloseTo(700, 6);
+        // node 1 and node 2 share one identity (same function+url+line) — merged into one entry at 500ms.
+        expect(summary.entries).toHaveLength(2);
+        const merged = summary.entries.find((e) => e.functionName === "preparePipelines");
+        expect(merged?.selfMs).toBeCloseTo(500, 6);
+
+        const pipelinesBucket = summary.buckets.find((b) => b.name.includes("pipelines.ts"));
+        expect(pipelinesBucket?.selfMs).toBeCloseTo(500, 6);
+        const programBucket = summary.buckets.find((b) => b.name.includes("(program)"));
+        expect(programBucket?.selfMs).toBeCloseTo(200, 6);
+    });
+
+    test("a node with zero sampled self time is excluded from entries entirely — not a false zero", () => {
+        const nodes: CpuProfileNode[] = [
+            {
+                id: 1,
+                callFrame: {
+                    functionName: "neverSampled",
+                    scriptId: "1",
+                    url: "file:///x.ts",
+                    lineNumber: 0,
+                    columnNumber: 0,
+                },
+            },
+        ];
+        const profile: RawCpuProfile = { nodes, startTime: 0, endTime: 0 };
+        expect(summarizeCpuProfile(profile).entries).toHaveLength(0);
     });
 });
 
@@ -2138,5 +2325,300 @@ describe("verifyDiagnostic — the render probe in the instrument-fault branch",
         expect(correct).toContain("spread=7");
         // the arm discriminates: the broken and correct outputs differ
         expect(broken).not.toBe(correct);
+    });
+});
+
+// S1c's owed pieces: (1) an arm asserting no verify-harness call frame appears in an attribution run's
+// bucket table, red on the pre-fix contaminated shape and green on the decontaminated shape; (2) coverage
+// for `decodeSampleNode` and `sampleFrameNode`, which had none — including the pngjs-unavailable fallback.
+
+describe("harnessBucketNames — S1c's absence arm over a captured CPU profile", () => {
+    // a call frame identity shared by the contaminated and clean fixtures so the only variable is
+    // whether the harness frame is present.
+    const pipelinesFrame = {
+        functionName: "preparePipelines",
+        scriptId: "1",
+        url: "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+        lineNumber: 41,
+        columnNumber: 0,
+    };
+    // the harness's own in-page decode helper — `sampleFrame`'s `page.evaluate(decodeSample, ...)`
+    // serialized this function into the profiled tab. CDP reports it with an empty url under the
+    // function's own name (not a V8 synthetic name), so `classifyCpuFrame` routes it to a bucket
+    // containing "decodeSample" and "evaluated script".
+    const decodeSampleFrame = {
+        functionName: "decodeSample",
+        scriptId: "0",
+        url: "",
+        lineNumber: 0,
+        columnNumber: 0,
+    };
+
+    // the pre-S1c contaminated shape: `sampleFrame` ran `page.evaluate(decodeSample, ...)` inside the
+    // profiled tab on every 500ms poll, so `decodeSample` appears as a real sampled node with self
+    // time — exactly the contamination S1b's adversarial pass found as the single largest bucket.
+    const contaminatedProfile: RawCpuProfile = {
+        nodes: [
+            { id: 1, callFrame: decodeSampleFrame },
+            { id: 2, callFrame: pipelinesFrame },
+        ],
+        startTime: 0,
+        endTime: 600,
+        // S1c pairing: samples[i]'s self time is timeDeltas[i+1]; last sample dropped.
+        // decodeSample (node 1) gets 400ms, preparePipelines (node 2) gets 100ms.
+        samples: [1, 2, 2],
+        timeDeltas: [50_000, 400_000, 100_000, 50_000],
+    };
+
+    // the S1c decontaminated shape: `sampleFrameNode` decodes in Node with pngjs, so no harness
+    // function appears in the page's CPU profile — only real app frames.
+    const cleanProfile: RawCpuProfile = {
+        nodes: [{ id: 2, callFrame: pipelinesFrame }],
+        startTime: 0,
+        endTime: 200,
+        samples: [2, 2],
+        timeDeltas: [50_000, 100_000, 50_000],
+    };
+
+    test("reds on the pre-fix contaminated shape — decodeSample is classified into a real bucket", () => {
+        const summary = summarizeCpuProfile(contaminatedProfile);
+        const harness = harnessBucketNames(summary);
+        // the arm FAILS here: harness buckets are present, so the absence assertion would red.
+        // This is the red witness — the arm detects the contamination it exists to catch.
+        expect(harness.length).toBeGreaterThan(0);
+        expect(harness[0]).toContain("decodeSample");
+        expect(harness[0]).toContain("evaluated script");
+        // the contaminated profile's bucket table actually carries the harness bucket with real self time
+        const decodeBucket = summary.buckets.find((b) => b.name.includes("decodeSample"));
+        expect(decodeBucket).toBeDefined();
+        expect(decodeBucket?.selfMs).toBeCloseTo(400, 6);
+    });
+
+    test("greens on the decontaminated shape — no harness bucket in the table", () => {
+        const summary = summarizeCpuProfile(cleanProfile);
+        const harness = harnessBucketNames(summary);
+        // the arm PASSES here: no harness buckets — the decontaminated profile is clean.
+        expect(harness).toHaveLength(0);
+        // and the real app frame is still present and attributed — the arm doesn't strip real work
+        expect(summary.buckets.length).toBeGreaterThan(0);
+        expect(summary.buckets[0].name).toContain("pipelines.ts");
+    });
+
+    // RED-WHEN-BROKEN WITNESS: a `harnessBucketNames` that ignores the harness function names (returns
+    // [] unconditionally) must green on the contaminated fixture, proving the arm discriminates.
+    test("red-when-broken: a no-op harnessBucketNames greens on the contaminated shape (the arm would not red)", () => {
+        function brokenHarnessBucketNames(): string[] {
+            return []; // the defect: never checks for harness frames
+        }
+        const summary = summarizeCpuProfile(contaminatedProfile);
+        const broken = brokenHarnessBucketNames();
+        const correct = harnessBucketNames(summary);
+        // the broken version misses the contamination — it returns empty on a contaminated profile
+        expect(broken).toHaveLength(0);
+        // the correct version catches it
+        expect(correct.length).toBeGreaterThan(0);
+        // the arm discriminates: the broken and correct outputs differ
+        expect(broken).not.toEqual(correct);
+    });
+});
+
+describe("decodeSampleNode — the Node-side PNG-to-FrameSample decoder", () => {
+    // a 4×4 RGBA image: top-left corner is black (0,0,0), center is red (255,0,0). Nearest-neighbor
+    // downsample to 64×64 replicates each source pixel across a 16×16 block, so the region averages
+    // preserve the source contrast — the same signal `decodeSample`'s canvas-resample produces, just
+    // via a different downsample path.
+    const mk4x4 = (
+        tl: number[],
+        center: number[],
+    ): { width: number; height: number; data: Uint8Array } => {
+        const data = new Uint8Array(4 * 4 * 4);
+        for (let y = 0; y < 4; y++)
+            for (let x = 0; x < 4; x++) {
+                const isCenter = x >= 1 && x <= 2 && y >= 1 && y <= 2;
+                const [r, g, b] = isCenter ? center : tl;
+                const i = (y * 4 + x) * 4;
+                data[i] = r;
+                data[i + 1] = g;
+                data[i + 2] = b;
+                data[i + 3] = 255;
+            }
+        return { width: 4, height: 4, data };
+    };
+
+    test("a structured image (center ≠ corner) produces a FrameSample with visible structure", () => {
+        const png = mk4x4([0, 0, 0], [255, 0, 0]);
+        const sample = decodeSampleNode(png);
+        expect(sample).not.toBeNull();
+        // center is red, corner is black — `hasStructure` should pass
+        expect(hasStructure(sample)).toBe(true);
+        expect(sample!.center[0]).toBeGreaterThan(200); // red channel lifted
+        expect(sample!.corner[0]).toBeLessThan(50); // corner stays dark
+    });
+
+    test("a flat image (center = corner) produces a FrameSample with no structure", () => {
+        const png = mk4x4([50, 50, 50], [50, 50, 50]);
+        const sample = decodeSampleNode(png);
+        expect(sample).not.toBeNull();
+        expect(hasStructure(sample)).toBe(false);
+    });
+
+    test("a zero-dimension image returns null, not a crash", () => {
+        expect(decodeSampleNode({ width: 0, height: 4, data: new Uint8Array(0) })).toBeNull();
+        expect(decodeSampleNode({ width: 4, height: 0, data: new Uint8Array(0) })).toBeNull();
+    });
+
+    test("the grid is 64×64×3 channels (12288 values), matching decodeSample's shape", () => {
+        const png = mk4x4([0, 0, 0], [255, 0, 0]);
+        const sample = decodeSampleNode(png);
+        expect(sample).not.toBeNull();
+        expect(sample!.grid.length).toBe(64 * 64 * 3);
+    });
+});
+
+describe("sampleFrameNode — the S1c decontaminated frame sampler", () => {
+    // a duck-typed page stub matching the shape `sampleFrameNode` calls: `page.locator("canvas").first()
+    // .screenshot(...)` and (fallback only) `page.evaluate(decodeSample, b64)`.
+    type ScreenshotResult = Buffer | { toString(encoding: string): string };
+
+    const mkPage = (
+        screenshotFn: () => Promise<ScreenshotResult>,
+        evaluateFn?: (fn: (...a: unknown[]) => unknown, ...args: unknown[]) => Promise<unknown>,
+    ) => ({
+        locator: () => ({
+            first: () => ({
+                screenshot: async () => screenshotFn(),
+            }),
+        }),
+        evaluate: evaluateFn ?? (async () => null),
+    });
+
+    test("screenshot failure returns null (no canvas, no crash)", async () => {
+        const page = mkPage(async () => {
+            throw new Error("no canvas");
+        });
+        expect(await sampleFrameNode(page as never)).toBeNull();
+    });
+
+    test("pngjs path: a valid PNG screenshot decodes to a FrameSample in Node (no page.evaluate)", async () => {
+        // Build a minimal 2×2 red PNG with pngjs so the screenshot returns real PNG bytes.
+        const { PNG } = await import("pngjs");
+        const png = new PNG({ width: 2, height: 2 });
+        // top-left = black, bottom-right = red — center vs corner contrast
+        for (let y = 0; y < 2; y++)
+            for (let x = 0; x < 2; x++) {
+                const i = (y * 2 + x) * 4;
+                const isCenter = x === 1 && y === 1;
+                png.data[i] = isCenter ? 255 : 0;
+                png.data[i + 1] = 0;
+                png.data[i + 2] = 0;
+                png.data[i + 3] = 255;
+            }
+        const shot = PNG.sync.write(png) as Buffer;
+
+        let evaluateCalled = false;
+        const page = mkPage(
+            async () => shot,
+            async () => {
+                evaluateCalled = true;
+                return null;
+            },
+        );
+        const sample = await sampleFrameNode(page as never);
+        expect(sample).not.toBeNull();
+        // pngjs decoded in Node — page.evaluate was never reached
+        expect(evaluateCalled).toBe(false);
+    });
+
+    test("fallback path: when pngjs decode fails, falls back to page.evaluate(decodeSample) (non-attribution)", async () => {
+        // Simulate the pngjs-unavailable path by making the screenshot succeed but the pngjs decode
+        // fail: `sampleFrameNode` catches the pngjs error and falls back to `page.evaluate(decodeSample, ...)`.
+        // We feed a non-PNG buffer that `PNG.sync.read` will reject, forcing the catch → fallback path.
+        // Under non-attribution (the default), the fallback is silent and fine — the plain verify path
+        // uses `sampleFrame` directly, but a non-attribution caller of `sampleFrameNode` still gets a
+        // working boot-settle signal.
+        const badShot = Buffer.from("not-a-png");
+        let evaluateCalled = false;
+        let evaluateArg = "";
+        const page = mkPage(
+            async () => badShot,
+            async (_fn: (...a: unknown[]) => unknown, b64: unknown) => {
+                evaluateCalled = true;
+                evaluateArg = b64 as string;
+                // simulate decodeSample's return shape — a structured frame
+                return {
+                    grid: [255, 0, 0],
+                    center: [255, 0, 0],
+                    corner: [0, 0, 0],
+                } as FrameSample;
+            },
+        );
+        const sample = await sampleFrameNode(page as never, false);
+        // the fallback fired — page.evaluate was called with the base64-encoded screenshot
+        expect(evaluateCalled).toBe(true);
+        expect(evaluateArg).toBe(badShot.toString("base64"));
+        // and it returned the page-side decode result
+        expect(sample).not.toBeNull();
+        expect(sample?.center).toEqual([255, 0, 0]);
+    });
+
+    test("fallback path: when both pngjs and page.evaluate fail, returns null (non-attribution)", async () => {
+        const badShot = Buffer.from("not-a-png");
+        const page = mkPage(
+            async () => badShot,
+            async () => {
+                throw new Error("page closed");
+            },
+        );
+        expect(await sampleFrameNode(page as never, false)).toBeNull();
+    });
+
+    test("attribution path: pngjs decode failure is FATAL (throws, no silent fallback)", async () => {
+        // Under --attribution the silent fallback to page.evaluate(decodeSample) is forbidden — it IS
+        // the contamination this stage removes. A pngjs failure must throw, not silently fall back.
+        const badShot = Buffer.from("not-a-png");
+        let evaluateCalled = false;
+        const page = mkPage(
+            async () => badShot,
+            async () => {
+                evaluateCalled = true;
+                return null;
+            },
+        );
+        await expect(sampleFrameNode(page as never, true)).rejects.toThrow(
+            /pngjs decode failed under --attribution/,
+        );
+        // the forbidden fallback was NOT taken — page.evaluate was never called
+        expect(evaluateCalled).toBe(false);
+    });
+});
+
+// S1c Finding 2: HARNESS_INPAGE_FUNCTION_NAMES is derived from the function objects' own .name
+// properties, not hardcoded strings — so a rename updates the set automatically. This test makes the
+// omission of a new in-page helper LOUD: it scans verify.ts for every NAMED function passed to
+// page.evaluate (not anonymous arrows — those are the known residual) and asserts each is registered
+// in HARNESS_INPAGE_FUNCTION_NAMES. A future in-page page.evaluate helper that isn't added to the set
+// fails this test, preventing the arm from being bypassed.
+describe("HARNESS_INPAGE_FUNCTION_NAMES — registration coverage for every named page.evaluate function", () => {
+    const verifySrc = readFileSync(resolve(import.meta.dir, "verify.ts"), "utf8");
+    // find every `page.evaluate(identifierName,` or `page.evaluate(identifierName)` where identifierName
+    // is a bare identifier (not an arrow `() =>` or `async () =>` — those are anonymous, the known residual)
+    const namedEvaluateRe = /\.evaluate\(\s*(?!async\s*\(|\(?\s*\)\s*=>)([A-Za-z_$][\w$]*)/g;
+    const found = new Set<string>();
+    let m: RegExpExecArray | null;
+    while ((m = namedEvaluateRe.exec(verifySrc)) !== null) {
+        found.add(m[1]);
+    }
+
+    test("every named function passed to page.evaluate in verify.ts is registered in HARNESS_INPAGE_FUNCTION_NAMES", () => {
+        // HARNESS_INPAGE_FUNCTION_NAMES is the closed set the arm checks against. Every named function
+        // verify.ts serializes into the page must be here, or the arm is bypassable by omission.
+        const unregistered = [...found].filter((name) => !HARNESS_INPAGE_FUNCTION_NAMES.has(name));
+        expect(unregistered).toEqual([]);
+    });
+
+    test("HARNESS_INPAGE_FUNCTION_NAMES is non-empty and contains decodeSample and decodeRgba", () => {
+        expect(HARNESS_INPAGE_FUNCTION_NAMES.size).toBeGreaterThan(0);
+        expect(HARNESS_INPAGE_FUNCTION_NAMES.has("decodeSample")).toBe(true);
+        expect(HARNESS_INPAGE_FUNCTION_NAMES.has("decodeRgba")).toBe(true);
     });
 });

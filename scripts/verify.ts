@@ -70,6 +70,30 @@ export interface VerifyResult {
         compileAfterIdle: AttributionCompile | null;
         longTasks: { start: number; duration: number }[];
     } | null;
+    /** `--attribution` only (S1b): the CDP CPU-profile self-time breakdown, per
+     *  `bin/verify.ts`'s `Result.cpuProfile` — null when CDP's `Profiler` domain wasn't reachable. */
+    cpuProfile?: CpuProfileSummary | null;
+}
+
+/** the slice of `bin/verify.ts`'s `CpuProfileSummary` a driver reads. */
+export interface CpuProfileEntry {
+    key: string;
+    functionName: string;
+    url: string;
+    lineNumber: number;
+    selfMs: number;
+}
+
+/** one named candidate mechanism's total self time. */
+export interface CpuProfileBucket {
+    name: string;
+    selfMs: number;
+}
+
+export interface CpuProfileSummary {
+    totalMs: number;
+    entries: CpuProfileEntry[];
+    buckets: CpuProfileBucket[];
 }
 
 /** the slice of `bin/verify.ts`'s `BenchmarkCompileStats` a driver reads. */

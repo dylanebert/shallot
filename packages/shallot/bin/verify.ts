@@ -652,6 +652,13 @@ export interface Result {
         compileAfterIdle: BenchmarkCompileStats | null;
         longTasks: { start: number; duration: number }[];
     } | null;
+    /** `--attribution` only (S1b): a CDP `Profiler` sample-based CPU profile of the main thread from
+     *  just before navigation through the boot wait's conclusion (the same point `attribution.compile`
+     *  is read at, before the idle wait) — sees the sync `create*Pipeline` path's real magnitude, which
+     *  `Profile.compile` structurally cannot (its docblock, and `.claude/rules/testing.md`'s
+     *  compile/startup bullet). `null` when CDP's `Profiler` domain wasn't reachable (no CDP session,
+     *  or `Profiler.start`/`stop` failed) — an honest miss, never a fabricated empty profile. */
+    cpuProfile?: CpuProfileSummary | null;
 }
 
 /** how long `--attribution`'s second `Profile.compile` read waits after the first, with no page
@@ -659,6 +666,259 @@ export interface Result {
  *  scene interaction would trigger sooner) would have already landed if the boot wait's own settle
  *  point didn't cover it. */
 export const ATTRIBUTION_IDLE_MS = 3_000;
+
+// S1b of `shallot-demo-startup-stall`: `Profile.compile` (above) can classify a pipeline label's KIND
+// (sync stub vs async await) but structurally cannot see the sync `create*Pipeline` path's real
+// magnitude — Dawn defers that cost past the sync call's return. A CDP `Profiler` sample-based CPU
+// profile sees it instead: it samples the real V8 call stack on a fixed cadence regardless of whether
+// the sampled frame is inside a sync loop, an async continuation, or module-eval, so it needs no
+// engine-internal instrumentation and can't be fooled by a span recorded at the wrong seam. Chrome's
+// `Profiler.setSamplingInterval` argument is MICROSECONDS; 200us gives ~5x DevTools' 1ms default for a
+// boot window that's only ~1-3s long, without the overhead of the finest setting.
+export const CPU_PROFILE_SAMPLING_INTERVAL_US = 200;
+
+/** the CDP `Profiler.Profile` call-frame identity: the same function can appear as more than one node
+ *  (once per distinct call path), so attributing self time to "this function, this file, this line"
+ *  needs the merge {@link summarizeCpuProfile} does across nodes sharing this identity. */
+export interface CpuProfileCallFrame {
+    functionName: string;
+    scriptId: string;
+    url: string;
+    lineNumber: number;
+    columnNumber: number;
+}
+
+/** one node in the CDP `Profiler.Profile` call tree — the tree shape itself is discarded by
+ *  {@link summarizeCpuProfile} (self time is attributed per call-frame identity, not per node/path);
+ *  `children` is read by nobody here and kept only because CDP always sends it. */
+export interface CpuProfileNode {
+    id: number;
+    callFrame: CpuProfileCallFrame;
+    hitCount?: number;
+    children?: number[];
+}
+
+/** the raw `Profiler.stop()` response body (`{ profile }`). `samples[i]` names the node id active
+ *  during `timeDeltas[i]` microseconds — the sample-based self-time accounting CDP itself defines
+ *  (https://chromedevtools.github.io/devtools-protocol/tot/Profiler/#type-Profile); a profile with no
+ *  samples (a boot too short to take one, or `Profiler.start` never reaching the page) has both fields
+ *  absent rather than empty arrays. */
+export interface RawCpuProfile {
+    nodes: CpuProfileNode[];
+    startTime: number;
+    endTime: number;
+    samples?: number[];
+    timeDeltas?: number[];
+}
+
+/** self time in ms per CDP node id, from the profile's `samples`/`timeDeltas` sample stream.
+ *  {@link RawCpuProfile}'s own doc quotes the CDP spec verbatim ("time intervals between adjacent
+ *  samples... the first delta is relative to the profile startTime") but that prose alone is silent on
+ *  DIRECTION — S1c settled it against two independent reference implementations rather than reasoning
+ *  it out: Chrome DevTools' own `CPUProfileDataModel.ts`
+ *  (front_end/models/cpu_profile/CPUProfileDataModel.ts, `ChromeDevTools/devtools-frontend`, main branch)
+ *  builds `timestamps[i] = startTime + sum(timeDeltas[0..i])` and then attributes the duration between
+ *  `timestamps[i]` and `timestamps[i+1]` — i.e. raw `timeDeltas[i+1]` — to the node found at `samples[i]`;
+ *  speedscope's independent Chrome-profile importer (`src/import/chrome.ts`,
+ *  `github.com/jlfwong/speedscope`) walks the identical pairing. So `timeDeltas[i]` is the interval
+ *  ENDING at `samples[i]`'s timestamp (time spent in the PREVIOUS sample's node), and the self time for
+ *  `samples[i]` is `timeDeltas[i+1]` — the interval running FROM it to the next sample, never its own
+ *  index. The LAST sample has no following delta to pair with; devtools synthesizes one extra timestamp
+ *  from the average prior interval to close it, which is more machinery than this floor-not-measurement
+ *  instrument needs (`.claude/rules/testing.md`'s compile/startup bullet on this same file already
+ *  accepts an honest floor over a fabricated number) — so the last sample is left unattributed here
+ *  rather than synthesized, a negligible undercount at this profile's sample rate (hundreds to thousands
+ *  of samples per boot at {@link CPU_PROFILE_SAMPLING_INTERVAL_US}). Empty when the profile carries no
+ *  sample stream. Exported only so {@link summarizeCpuProfile}'s per-node attribution is independently
+ *  testable against a hand-built sample list. */
+export function selfTimeMsByNodeId(profile: RawCpuProfile): Map<number, number> {
+    const out = new Map<number, number>();
+    const { samples, timeDeltas } = profile;
+    if (!samples || !timeDeltas) return out;
+    for (let i = 0; i < samples.length - 1; i++) {
+        const nodeId = samples[i];
+        const deltaUs = timeDeltas[i + 1] ?? 0;
+        if (deltaUs <= 0) continue;
+        out.set(nodeId, (out.get(nodeId) ?? 0) + deltaUs / 1000);
+    }
+    return out;
+}
+
+// candidate mechanisms named by the spec (`Approach`, S1b bullet), most-specific pattern first — a
+// call-frame URL is classified by the first pattern it matches. Data, not a branch tree, so the mapping
+// is auditable and testable as a table rather than as control flow.
+const CPU_FRAME_BUCKETS: { pattern: RegExp; name: string }[] = [
+    {
+        pattern: /standard\/sear\/pipelines\.ts/,
+        name: "sync createRenderPipeline loop (sear/pipelines.ts, preparePipelines)",
+    },
+    { pattern: /standard\/sear\/forward\.ts/, name: "unwrapVariant (sear/forward.ts)" },
+    { pattern: /engine\/runtime\/gpu\.ts/, name: "precompileAll drain (engine/runtime/gpu.ts)" },
+    { pattern: /engine\/app\/index\.ts/, name: "app boot orchestration (engine/app/index.ts)" },
+    {
+        pattern: /standard\/sear\/regather\.ts/,
+        name: "regather registration (sear/regather.ts, async createComputePipelineAsync)",
+    },
+    {
+        pattern: /standard\/sear\/codegen\.ts/,
+        name: "shader codegen — sear's shared WGSL constants (sear/codegen.ts)",
+    },
+    {
+        pattern: /typegpu.*(resolve|codegen|tgsl)/i,
+        name: "shader codegen (TGSL/WGSL emission, typegpu resolve)",
+    },
+    { pattern: /engine\/ecs\//, name: "ECS setup" },
+    { pattern: /engine\/scene\//, name: "scene setup" },
+    {
+        pattern: /extras\/gltf\//,
+        name: "asset decode (gltf, main-thread marshaling — the decode itself runs in decode.worker.ts, off this thread)",
+    },
+    {
+        pattern: /node_modules\/typegpu/,
+        name: "typegpu runtime (pipeline construction, non-codegen)",
+    },
+];
+
+// the exact, closed set of synthetic frame names V8's sampling profiler emits for its own internal
+// states (idle time, JS-outside-any-function execution, GC, the call-tree root) — CDP always reports
+// these with an empty url, and DevTools renders them verbatim under these names. This is the ONLY
+// legitimate no-url shape; S1c named it explicitly after the adversarial pass refuted the prior
+// docblock's blanket "no url implies V8-internal" claim with a counterexample that had no url and
+// wasn't in this set (`decodeSample`, verify.ts's own in-page frame-sampling helper — `page.evaluate`
+// serializes a function with no backing file, so CDP reports it with an empty url and the function's OWN
+// name, not a synthetic one).
+const V8_SYNTHETIC_FRAME_NAMES = new Set(["(program)", "(idle)", "(garbage collector)", "(root)"]);
+
+/** classify a CDP call frame into one of S1b's named candidate mechanisms — data-driven
+ *  ({@link CPU_FRAME_BUCKETS}) rather than a branch tree, so the mapping is a single auditable table.
+ *  A no-url frame is V8-internal ONLY when its function name is one of
+ *  {@link V8_SYNTHETIC_FRAME_NAMES} or empty (true anonymous native code carries no name at all) — any
+ *  OTHER named no-url frame is an evaluated/injected script Playwright ran in the page, not V8-internal,
+ *  and is called out as such rather than folded into the native bucket. Known residual: an ANONYMOUS
+ *  evaluated frame (e.g. an inline arrow passed to `page.evaluate`) is indistinguishable from true
+ *  anonymous native code by name alone and still falls into the native bucket — CDP's `scriptId` would
+ *  discriminate them (V8-internal frames carry `"0"`; an evaluated script gets its own id) but
+ *  {@link CpuProfileEntry} doesn't carry scriptId through the merge, so this stays a named limitation
+ *  rather than a silent one. A frame with a real url falls through to a per-file bucket keyed on its
+ *  last two path segments when unmatched, so an unclassified hot frame is still visible under its own
+ *  file rather than disappearing into a catch-all. */
+export function classifyCpuFrame(url: string, functionName: string): string {
+    if (!url) {
+        if (!functionName) return "(anonymous, no source url) — V8-internal/native frame";
+        if (V8_SYNTHETIC_FRAME_NAMES.has(functionName))
+            return `${functionName} — V8-internal/native frame (no source url)`;
+        return `${functionName} — in-page evaluated script, no source url (not a native frame: page.evaluate serializes a function with no file, so CDP reports an empty url under the function's own name)`;
+    }
+    for (const b of CPU_FRAME_BUCKETS) {
+        if (b.pattern.test(url)) return b.name;
+    }
+    return `other — module top-level or unbucketed (${url.split("/").slice(-2).join("/")})`;
+}
+
+/** one merged call-frame identity's self time — {@link summarizeCpuProfile} merges every node sharing
+ *  this identity, since the same function shows up as more than one node when called from more than
+ *  one call path and a per-node reading would split its true self time across them. */
+export interface CpuProfileEntry {
+    key: string;
+    functionName: string;
+    url: string;
+    lineNumber: number;
+    selfMs: number;
+}
+
+/** one named candidate mechanism's total self time — {@link classifyCpuFrame}'s buckets, summed. */
+export interface CpuProfileBucket {
+    name: string;
+    selfMs: number;
+}
+
+/** the reduced form of a raw CDP CPU profile: total sampled self time, every call-frame identity's own
+ *  self time (descending), and the same total rolled up into S1b's named candidate buckets. Pure —
+ *  independently testable against a hand-built {@link RawCpuProfile} fixture, no CDP or browser needed. */
+export interface CpuProfileSummary {
+    totalMs: number;
+    entries: CpuProfileEntry[];
+    buckets: CpuProfileBucket[];
+}
+
+/** reduce a raw CDP CPU profile to {@link CpuProfileSummary}: merge self time per call-frame identity
+ *  (function + url + line — the same identity {@link classifyCpuFrame} buckets), then roll that up into
+ *  the named candidate mechanisms. Deterministic — no wall-clock, no CDP, no browser — so it can be
+ *  armed over a frozen fixture profile. */
+export function summarizeCpuProfile(profile: RawCpuProfile): CpuProfileSummary {
+    const selfByNode = selfTimeMsByNodeId(profile);
+    const byKey = new Map<string, CpuProfileEntry>();
+    for (const node of profile.nodes) {
+        const ms = selfByNode.get(node.id);
+        if (!ms) continue;
+        const cf = node.callFrame;
+        const key = `${cf.functionName || "(anonymous)"}@${cf.url}:${cf.lineNumber + 1}`;
+        const existing = byKey.get(key);
+        if (existing) existing.selfMs += ms;
+        else
+            byKey.set(key, {
+                key,
+                functionName: cf.functionName || "(anonymous)",
+                url: cf.url,
+                lineNumber: cf.lineNumber,
+                selfMs: ms,
+            });
+    }
+    const entries = [...byKey.values()].sort((a, b) => b.selfMs - a.selfMs);
+    const totalMs = entries.reduce((s, e) => s + e.selfMs, 0);
+
+    const bucketTotals = new Map<string, number>();
+    for (const e of entries) {
+        const name = classifyCpuFrame(e.url, e.functionName);
+        bucketTotals.set(name, (bucketTotals.get(name) ?? 0) + e.selfMs);
+    }
+    const buckets = [...bucketTotals.entries()]
+        .map(([name, selfMs]) => ({ name, selfMs }))
+        .sort((a, b) => b.selfMs - a.selfMs);
+
+    return { totalMs, entries, buckets };
+}
+
+// S1c's absence arm: the verify harness's own in-page function names — functions verify.ts serializes
+// into the page via `page.evaluate`, which CDP reports with an empty url under the function's own name
+// (not a V8 synthetic name — see {@link classifyCpuFrame}'s docblock). Their presence in an attribution
+// run's CPU profile means the harness measured itself: `sampleFrame`'s `page.evaluate(decodeSample, ...)`
+// ran inside the profiled tab on every 500ms poll, injecting main-thread work into the window S1b exists
+// to attribute. `sampleFrameNode` (the S1c decontamination) decodes in Node with pngjs instead, so none
+// of these names should appear in a decontaminated profile's bucket table.
+//
+// Derived from the function objects' own `.name` properties (not hardcoded strings) so a rename updates
+// the set automatically. Adding a new in-page helper still requires adding it here — the
+// `harnessInpageFunctionNames` test (verify.test.ts) makes that omission loud by scanning verify.ts for
+// every named function passed to `page.evaluate` and asserting each is registered.
+//
+// Known residual: the boot wait loop's `page.evaluate(() => typeof window.__harness !== "undefined")` is
+// an ANONYMOUS arrow, so CDP reports it with an empty function name — indistinguishable from native
+// code by name alone (the residual named in {@link classifyCpuFrame}'s docblock). It runs once per
+// 500ms poll cycle, a single `typeof` property lookup whose per-invocation self-time is sub-microsecond
+// (well below the 200µs sampling interval), so it is effectively invisible in the CPU profile. The arm's
+// "no harness frames" claim states this one known blind spot rather than overclaiming: a named in-page
+// helper would be caught, this anonymous typeof check is not.
+/** @internal exported so the registration-coverage test can assert every named `page.evaluate` function
+ *  is in the set. */
+export const HARNESS_INPAGE_FUNCTION_NAMES = new Set([decodeSample.name, decodeRgba.name]);
+
+/** the bucket names an attribution run's CPU profile must NOT carry: any bucket classified from a call
+ *  frame whose function name belongs to the verify harness's own in-page helpers. Returns the offending
+ *  bucket names — empty when the profile is decontaminated (no harness frames in the bucket table).
+ *  S1c's Validation criterion: no call frame belonging to the verify harness appears in the attribution
+ *  run's profiled window, asserted by an arm over the attribution run's own captured profile rather than
+ *  read off the printed table. The fixture tests (verify.test.ts) are the unit-level arms beside it; the
+ *  live assertion runs in `scripts/stall-attribution.ts` against the real `--attribution` run's profile. */
+export function harnessBucketNames(summary: CpuProfileSummary): string[] {
+    const offending = new Set<string>();
+    for (const entry of summary.entries) {
+        if (HARNESS_INPAGE_FUNCTION_NAMES.has(entry.functionName)) {
+            offending.add(classifyCpuFrame(entry.url, entry.functionName));
+        }
+    }
+    return summary.buckets.filter((b) => offending.has(b.name)).map((b) => b.name);
+}
 
 /** the render probe the settle path records on its Result — the pixel evidence behind the `rendered`
  *  verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and the spread
@@ -804,6 +1064,104 @@ async function sampleFrame(page: Page): Promise<FrameSample | null> {
         return (await page.evaluate(decodeSample, shot.toString("base64"))) as FrameSample | null;
     } catch {
         return null;
+    }
+}
+
+/** {@link decodeSample}'s region-averaging math (center/corner box averages over a coarse grid), fed by
+ *  a pngjs-decoded PNG instead of a page-side canvas — same field shape ({@link FrameSample}), computed
+ *  entirely in Node. Nearest-neighbor downsample rather than a canvas's resample filter: the boot-settle
+ *  heuristic only needs a stable coarse structure signal, not a pixel-identical grid. Duplicated from
+ *  {@link decodeSample} rather than shared, for the same reason {@link decodeRgba} already duplicates it
+ *  (its own comment, above): {@link decodeSample} is serialized by Playwright and run in-page, so it
+ *  can't import or close over anything. @internal exported only so its coverage arm can drive it
+ *  directly without a browser. */
+export function decodeSampleNode(png: {
+    width: number;
+    height: number;
+    data: Uint8Array | Buffer;
+}): FrameSample | null {
+    const { width: W0, height: H0, data } = png;
+    if (!W0 || !H0) return null;
+    const W = 64;
+    const H = 64;
+    const grid: number[] = [];
+    for (let y = 0; y < H; y++) {
+        const sy = Math.min(H0 - 1, Math.floor((y / H) * H0));
+        for (let x = 0; x < W; x++) {
+            const sx = Math.min(W0 - 1, Math.floor((x / W) * W0));
+            const i = (sy * W0 + sx) * 4;
+            grid.push(data[i], data[i + 1], data[i + 2]);
+        }
+    }
+    const region = (fx0: number, fy0: number, fx1: number, fy1: number): number[] => {
+        const x0 = Math.floor(fx0 * W);
+        const x1 = Math.max(x0 + 1, Math.floor(fx1 * W));
+        const y0 = Math.floor(fy0 * H);
+        const y1 = Math.max(y0 + 1, Math.floor(fy1 * H));
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let y = y0; y < y1; y++)
+            for (let x = x0; x < x1; x++) {
+                const i = (y * W + x) * 3;
+                r += grid[i];
+                g += grid[i + 1];
+                b += grid[i + 2];
+                n++;
+            }
+        return [r / n, g / n, b / n];
+    };
+    return { grid, center: region(0.4, 0.4, 0.6, 0.6), corner: region(0, 0, 0.15, 0.15) };
+}
+
+// S1c of `shallot-demo-startup-stall`: `--attribution`'s CDP CPU profile spans the whole boot wait, and
+// the wait loop's own poll must not inject page-side JS into the window it exists to attribute cleanly.
+// `sampleFrame`'s `page.evaluate(decodeSample, ...)` runs INSIDE the profiled tab on every 500ms poll —
+// S1b's profile found it as the single largest self-time bucket, misattributed as V8-internal by the now-
+// fixed `classifyCpuFrame` docblock (the adversarial pass's finding). This reaches the same settle signal
+// without that cost: the screenshot capture is a CDP/compositor operation, not page JS, and decoding it
+// with pngjs happens in this process, so nothing here runs on the profiled main thread.
+//
+// pngjs is an optional dependency of @dylanebert/shallot (packages/shallot/package.json), present in the
+// repo's root devDependencies. Under `--attribution` (a developer diagnostic, not a consumer feature)
+// the pngjs decode is REQUIRED: if it fails, the function throws rather than silently falling back to the
+// page-side decode — the fallback IS the contamination this stage removes, so a silent fallback under
+// `--attribution` would defeat the arm. The plain `verify` path uses `sampleFrame` (which always runs
+// in-page) and never calls this function, so the `attribution` parameter's default of `false` preserves
+// the silent-fallback behavior for any non-attribution caller.
+/** @internal exported only so its coverage arms (pngjs path, fallback path, screenshot-fail, fatal-
+ *  attribution-fallback) can drive it with a duck-typed page stub without a browser. */
+export async function sampleFrameNode(
+    page: Page,
+    attribution = false,
+): Promise<FrameSample | null> {
+    let shot: Buffer;
+    try {
+        shot = await page.locator("canvas").first().screenshot({ timeout: 5_000 });
+    } catch {
+        return null;
+    }
+    try {
+        const { PNG } = await import("pngjs");
+        return decodeSampleNode(PNG.sync.read(shot));
+    } catch (err) {
+        if (attribution) {
+            throw new Error(
+                `sampleFrameNode: pngjs decode failed under --attribution — the in-page fallback is ` +
+                    `forbidden (it contaminates the profiled window). Install pngjs (an optional ` +
+                    `dependency of @dylanebert/shallot) or run without --attribution. Cause: ` +
+                    `${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
+        try {
+            return (await page.evaluate(
+                decodeSample,
+                shot.toString("base64"),
+            )) as FrameSample | null;
+        } catch {
+            return null;
+        }
     }
 }
 
@@ -1163,7 +1521,10 @@ const usage = `
     --attribution         Read back the startup pipeline-compile attribution twice, once when the boot
                           wait concludes and once ATTRIBUTION_IDLE_MS later (Profile.compile per label,
                           ProfilePlugin projects only — the second read names a lazy escape past the
-                          boot wait), plus any longtask entries — on result.attribution
+                          boot wait), plus any longtask entries — on result.attribution. Also captures a
+                          CDP sample-based CPU profile of the boot window (self time per function, rolled
+                          up into named candidate mechanisms) — on result.cpuProfile, null if CDP's
+                          Profiler domain wasn't reachable
     --run k=v[&k2=v2]     Batch mode (repeatable): one boot, one page load per --run (fresh browser
                           context + page each), one verdict each. Each spec is its own query string,
                           layered on the shared --query params. A JSON array on stdout; nonzero exit if
@@ -1485,6 +1846,26 @@ async function drive(
         await page.addInitScript({ content: ATTRIBUTION_INIT_SCRIPT }).catch(() => {});
     }
 
+    // S1b: a CDP sample-based CPU profile of the boot, alongside the longtask observer above — started
+    // before navigation so it covers the whole boot, including any longtask that fires before the
+    // app's own module graph finishes loading. Best-effort: a CDP failure (no `Profiler` domain, a
+    // disconnected bridge) leaves `cdpProfiler` null, which reads honestly as `cpuProfile: null` below
+    // rather than a fabricated empty profile.
+    let cdpProfiler: { send(method: string, params?: unknown): Promise<unknown> } | null = null;
+    if (args.attribution) {
+        try {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Profiler.enable");
+            await cdp.send("Profiler.setSamplingInterval", {
+                interval: CPU_PROFILE_SAMPLING_INTERVAL_US,
+            });
+            await cdp.send("Profiler.start");
+            cdpProfiler = cdp;
+        } catch {
+            cdpProfiler = null;
+        }
+    }
+
     // retry the goto once only if the first attempt itself failed (a cold vite server can re-optimize
     // deps mid-load and strand it — the flows launcher's proven shape). Never re-navigate a page that
     // loaded: a second goto re-runs the app and diverges its first-load state. navStart is stamped
@@ -1531,7 +1912,11 @@ async function drive(
         const harnessDefined = (await page
             .evaluate(() => typeof window.__harness !== "undefined")
             .catch(() => false)) as boolean;
-        const sample = harnessDefined ? null : await sampleFrame(page);
+        const sample = harnessDefined
+            ? null
+            : args.attribution
+              ? await sampleFrameNode(page, true)
+              : await sampleFrame(page);
         if (sample) {
             sampleCount++;
             lastSample = sample;
@@ -1543,6 +1928,19 @@ async function drive(
         }
         if (Date.now() >= deadline) break;
         await page.waitForTimeout(500);
+    }
+
+    // stop the CPU profile the moment the boot wait concludes — the same point `attribution.compile`
+    // reads Profile.compile below, before its ATTRIBUTION_IDLE_MS idle wait, so the profiled window is
+    // the boot window a real loading screen would key off, not padded by idle sampling.
+    if (cdpProfiler) {
+        try {
+            const stopped = (await cdpProfiler.send("Profiler.stop")) as { profile: RawCpuProfile };
+            await cdpProfiler.send("Profiler.disable").catch(() => {});
+            base.cpuProfile = summarizeCpuProfile(stopped.profile);
+        } catch {
+            base.cpuProfile = null;
+        }
     }
 
     // the render probe — the pixel evidence behind the `rendered` verdict. Carries the wait loop's

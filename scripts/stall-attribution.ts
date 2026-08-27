@@ -1,3 +1,4 @@
+import { harnessBucketNames } from "../packages/shallot/bin/verify";
 import { skipReason, teardownBridge, verify } from "./verify";
 
 // S1 of `shallot-demo-startup-stall`: discriminate the demo's startup ~1s stall by pipeline-label
@@ -244,6 +245,86 @@ async function main(): Promise<void> {
         console.log(
             `pipelineCount: ${compile.pipelineCount} → ${after.pipelineCount}; totalMs: ${r1(compile.totalMs)} → ${r1(after.totalMs)}`,
         );
+    }
+
+    // S1b: `Profile.compile` above can't see the sync path's magnitude — this is the instrument that
+    // can. A CDP sample-based CPU profile of the same boot window, taken concurrently by `--attribution`
+    // (bin/verify.ts's `Profiler.start`/`stop`), reads the real V8 call stack on a fixed cadence and
+    // needs no engine-internal instrumentation, so it sees the sync `createRenderPipeline` loop's actual
+    // cost directly rather than through a near-zero stub.
+    console.log(
+        "\n## S1b — CPU-profile self-time attribution (sees the sync path's real magnitude)\n",
+    );
+    const cpuProfile = result.cpuProfile;
+    if (cpuProfile === undefined) {
+        console.log(
+            "cpuProfile absent from the result — this verify build predates S1b's CDP Profiler capture.",
+        );
+    } else if (cpuProfile === null) {
+        console.log(
+            "cpuProfile is null — CDP's Profiler domain wasn't reachable this run (no CDP session, or " +
+                "Profiler.start/stop failed). Honest miss: no number below, not a fabricated zero.",
+        );
+    } else if (cpuProfile.totalMs === 0) {
+        console.log(
+            "cpuProfile captured but carries 0ms of sampled self time — the profile's samples/timeDeltas " +
+                "stream was empty (a boot too short to take one sample at the 200us sampling interval, or " +
+                "the tab never got a chance to run V8 between navigation and the boot wait's conclusion). " +
+                "This is an instrument miss, not evidence the boot did no work.",
+        );
+    } else {
+        console.log(
+            `total sampled main-thread self time: ${r1(cpuProfile.totalMs)}ms (this is the CPU-profile's ` +
+                `own total, independent of the longtask observer's total printed above; both describe the ` +
+                `same boot window from two different instruments and should be the same order of magnitude ` +
+                `— a big gap between them means one instrument is missing work the other sees).\n`,
+        );
+
+        console.log("### by named candidate mechanism (self time, descending)\n");
+        console.log("| candidate mechanism | self ms | % of profiled total |");
+        console.log("|---|---|---|");
+        for (const b of cpuProfile.buckets) {
+            const pct = cpuProfile.totalMs > 0 ? (100 * b.selfMs) / cpuProfile.totalMs : 0;
+            console.log(`| ${b.name} | ${r1(b.selfMs)} | ${r1(pct)}% |`);
+        }
+
+        console.log("\n### top individual call-frame identities by self time (top 15)\n");
+        console.log("| function | file:line | self ms |");
+        console.log("|---|---|---|");
+        for (const e of cpuProfile.entries.slice(0, 15)) {
+            const file = e.url ? e.url.split("/").slice(-2).join("/") || e.url : "(no url)";
+            console.log(`| ${e.functionName} | ${file}:${e.lineNumber + 1} | ${r1(e.selfMs)} |`);
+        }
+        console.log(
+            "\nCAVEAT: self time is attributed per call-frame IDENTITY (function+url+line), merged across " +
+                "every call path that reaches it — a function called from N sites reads as one row with " +
+                "self time summed across all N, never split by caller. The candidate-mechanism buckets " +
+                "(above) are a data-driven URL/path match (bin/verify.ts's CPU_FRAME_BUCKETS table), " +
+                "audited by hand against the spec's named candidates — an unmatched frame falls through to " +
+                "a per-file 'other' bucket rather than disappearing, so nothing is silently dropped, but a " +
+                "candidate this table doesn't yet name for a given demo can still hide inside 'other'.",
+        );
+    }
+
+    // S1c's absence arm: assert no verify-harness call frame appears in the attribution run's own
+    // CPU profile — not eyeballed off the printed table above, but asserted mechanically via
+    // `harnessBucketNames`. The fixture tests in verify.test.ts are the unit-level arms; this is the
+    // live assertion against the real `--attribution` run's captured profile. Fails loudly (non-zero
+    // exit, offending buckets printed) when the harness measured itself.
+    if (cpuProfile && cpuProfile.totalMs > 0) {
+        const harnessBuckets = harnessBucketNames(cpuProfile as never);
+        console.log("\n## S1c — harness contamination check\n");
+        if (harnessBuckets.length > 0) {
+            console.log(
+                `FAILED: verify-harness call frames found in the attribution run's CPU profile — ` +
+                    `the harness measured itself. Offending buckets: ${harnessBuckets.join(", ")}`,
+            );
+            process.exitCode = 1;
+        } else {
+            console.log(
+                "PASSED: no verify-harness call frames in the attribution run's CPU profile.",
+            );
+        }
     }
 
     await teardownBridge();
