@@ -122,9 +122,9 @@ export function load(nodes: Node[], state: State): Map<Node, number> {
         const eid = nodeToEntity.get(node)!;
         const { componentAttrs, refs } = categorizeAttrs(node.attrs);
 
-        if (refs.length > 0) {
+        for (const ref of refs) {
             errors.push({
-                message: `Unknown attribute "${refs[0].attr}": top-level entity-ref attrs are no longer supported; use field-property syntax instead`,
+                message: `Unknown attribute "${ref.attr}": top-level entity-ref attrs are no longer supported; use field-property syntax instead`,
             });
         }
 
@@ -308,6 +308,10 @@ function applyComponent(
                 targetName: ref.targetName,
             });
         }
+    } else if (value !== "") {
+        errors.push({
+            message: `<${name}> invalid attribute value "${value}": expected "field: value" syntax`,
+        });
     }
 }
 
@@ -369,7 +373,8 @@ function parseNumber(value: string): number | null {
     value = value.trim();
 
     if (value.startsWith("0x") || value.startsWith("0X")) {
-        return parseInt(value, 16);
+        const n = parseInt(value, 16);
+        return Number.isNaN(n) ? null : n;
     }
 
     if (value.startsWith("#")) {

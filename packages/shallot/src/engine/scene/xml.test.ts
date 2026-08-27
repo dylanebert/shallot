@@ -835,4 +835,47 @@ describe("XML", () => {
             expect(results).toHaveLength(0);
         });
     });
+
+    describe("authoring diagnostics — silent-miss routing", () => {
+        // Member 1: a non-empty non-CSS attribute value (e.g. part="cube", anything without a colon)
+        // silently applies component defaults; no error. The value is present but unparseable —
+        // the populated-but-wrong case, not mere absence.
+        test("a non-empty non-CSS attribute value errors, not silently defaults", () => {
+            const Part = { color: [] as number[] };
+            register("part", Part, { defaults: () => ({ color: 0 }) });
+
+            const nodes = parse(`<scene><a part="cube" /></scene>`);
+            expect(() => load(nodes, new State())).toThrow(/part/);
+        });
+
+        // a bare component (empty value) must NOT error — an author who wrote nothing
+        // applies defaults by design
+        test("a bare component (empty value) still loads without error", () => {
+            const Part = { color: [] as number[] };
+            register("part", Part, { defaults: () => ({ color: 0 }) });
+
+            const nodes = parse(`<scene><a part /></scene>`);
+            expect(() => load(nodes, new State())).not.toThrow();
+        });
+
+        // Member 2: the 0x branch returns parseInt's NaN for garbage like 0xzz instead of null,
+        // bypassing the some(v === null) error path the # branch regex-guards.
+        test("0x garbage (0xzz) is rejected as invalid, not silently NaN", () => {
+            const Comp = { color: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ color: 0 }) });
+
+            const nodes = parse(`<scene><a comp="color: 0xzz" /></scene>`);
+            expect(() => load(nodes, new State())).toThrow("Invalid number");
+        });
+
+        // Member 3: several legacy top-level ref attributes on one node: only the first
+        // is reported, siblings dropped from an already-error path.
+        test("multiple top-level ref attrs all report, not just the first", () => {
+            const Comp = { value: [] as number[] };
+            register("comp", Comp, { defaults: () => ({ value: 0 }) });
+
+            const nodes = parse(`<scene><a comp="@a" other="@b" /></scene>`);
+            expect(() => load(nodes, new State())).toThrow(/other/);
+        });
+    });
 });

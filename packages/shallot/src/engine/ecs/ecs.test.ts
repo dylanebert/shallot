@@ -207,3 +207,65 @@ describe("trait excludes", () => {
         expect(state.has(eid, Slab)).toBe(true);
     });
 });
+
+import { f32, vec4 } from "../..";
+
+describe("defaults compilation — silent-miss routing", () => {
+    beforeEach(() => {
+        clear();
+    });
+
+    // Member 4: a typo'd defaults key silently continues — no defaults applied, no diagnostic.
+    // The key is present but unmatched: the populated-but-wrong case.
+    test("a typo'd defaults key throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32), mp: sparse(f32) };
+        register("comp", Comp, { defaults: () => ({ hpp: 100, mp: 50 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/hpp/);
+    });
+
+    // a dotted key on a scalar parent (Single, not Pair/Quad) silently continues
+    test("a dotted key on a scalar parent throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32) };
+        register("comp", Comp, { defaults: () => ({ "hp.x": 100 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/hp\.x/);
+    });
+
+    // an out-of-range lane silently continues
+    test("an out-of-range lane key throws, not silently skipped", () => {
+        const Comp = { pos: sparse(vec4) };
+        register("comp", Comp, { defaults: () => ({ "pos.q": 100 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/pos\.q/);
+    });
+
+    // a non-number value on a scalar field silently continues
+    test("a non-number defaults value throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32) };
+        register("comp", Comp, { defaults: () => ({ hp: "high" as unknown as number }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/hp/);
+    });
+
+    // a valid defaults dict must NOT throw — an author who wrote correct keys
+    // must still load
+    test("valid defaults still apply without error", () => {
+        const Comp = { hp: sparse(f32), pos: sparse(vec4) };
+        register("comp", Comp, { defaults: () => ({ hp: 100, pos: [0, 0, 0, 1] }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).not.toThrow();
+        expect(Comp.hp.get(eid)).toBe(100);
+        expect(Comp.pos.w.get(eid)).toBe(1);
+    });
+});
