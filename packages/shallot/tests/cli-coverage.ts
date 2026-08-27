@@ -1,4 +1,4 @@
-// The stage 1 deliverable: a registry over the CLI/toolchain layer's
+// A registry over the CLI/toolchain layer's
 // tier-of-truth ("Classify by tier-of-truth, then close what nothing reaches. No coverage floor" — the
 // spec's Locked decision), asserted both directions against a mechanically walked file population
 // (`examples/gym/src/scenarios/coverage.ts`'s pattern, re-housed rather than imported so this package
@@ -32,7 +32,7 @@ export interface CoverageRow {
 }
 
 /** the population globs: every non-test `.ts` file the spec's Goal names as the CLI/toolchain layer, plus
- *  stage 6's one named engine straggler — `extras/outline/**` — added to this registry rather than left a
+ *  the one named engine straggler — `extras/outline/**` — added to this registry rather than left a
  *  prose-only mention, so a third row can't drift from the walk the way a hand-declared region list would
  *  (the Locked decision's "granularity is the file, never the region"). `packFog` and `computeGlyphMetrics`
  *  stay outside this population: each is one pure function inside a file whose *other* content (the fog

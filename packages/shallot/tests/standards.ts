@@ -161,7 +161,7 @@ export function checkStandards(population: Population, registry: StandardsRegist
     return findings;
 }
 
-// ── Part 2: the differential registry (stage 4a) ──────────────────────────────────────────────
+// ── Part 2: the differential registry ────────────────────────────────────────────────────────
 //
 // CPU-callability, the TypeGPU port's headline win (testing.md "A CPU-callable kernel is the
 // logic-truth surface for the same authored function the GPU pipeline resolves"), was recorded only
@@ -210,8 +210,7 @@ export type DifferentialEntry = { test: DifferentialTest } | { reason: string } 
 
 export type DifferentialRegistry = Record<string, DifferentialEntry>;
 
-/** the differential registry's representative slice (stage 4a). Filling every one of the 101 kernels'
- *  rows is stage 4b's mechanical queue — this hand-authored slice exists to exercise every arm of
+/** the differential registry's representative slice. This hand-authored slice exists to exercise every arm of
  *  {@link checkDifferentials} against real kernels, not to be complete: two genuine named-differential
  *  rows and one real instance of each can't-have mechanism.
  *

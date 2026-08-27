@@ -50,10 +50,9 @@ export const NON_GPU_EXTRAS: Record<string, string> = {
     tween: "pure numeric timing/easing atoms driving ECS fields — no device, buffer, or WGSL surface",
 };
 
-/** stage 3b's done-signal: flip to `true` once `SCENARIO_GATES` + `GATE_EXEMPTIONS` cover every scenario
- *  and every GPU-side module, per the completeness directions below. `coverage.test.ts` skips the two
- *  completeness assertions against real data while this is `false`; turning them on and green is the
- *  measure of "3b is done", not an optional follow-up. */
+/** `true`: `coverage.test.ts` runs the two completeness assertions against the real table —
+ *  `SCENARIO_GATES` + `GATE_EXEMPTIONS` must cover every scenario and every GPU-side module, or the
+ *  check fails. */
 export const COMPLETENESS_ENFORCED = true;
 
 export type FindingKind =

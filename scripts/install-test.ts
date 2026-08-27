@@ -995,7 +995,7 @@ const managerInstall: Record<"npm" | "pnpm", string[]> = {
     pnpm: ["pnpm", "install"],
 };
 
-// npm + pnpm arms: the stage-1 brand-check probe, reused verbatim, installed under the two package
+// npm + pnpm arms: the brand-check probe, reused verbatim, installed under the two package
 // managers bun can't stand in for — not a second `test:install` flow, a minimal fixture (engine
 // tarball + typegpu + the probe). npm 7+ auto-installs and usually hoists the `typegpu` peer to one
 // copy; pnpm's isolated `node_modules` is the high-risk arm the spec calls out. Failure output names

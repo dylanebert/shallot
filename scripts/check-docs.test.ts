@@ -1,4 +1,4 @@
-// S1 arm — scripts/check-docs.ts pointer-validity two-sided vacuity reading
+// scripts/check-docs.ts pointer-validity: the two-sided vacuity reading
 //
 // Invariant: the pointer-validity arm (Arm f) in check-docs.ts reds when a comment cites a
 // `*.md` path that resolves to nothing in-repo, and stays quiet when the cite resolves. The
