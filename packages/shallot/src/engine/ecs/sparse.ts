@@ -33,9 +33,14 @@ export function sparse(type: Type): Single | Pair | Quad {
 
     if (stride === 1) {
         const map = new Map<number, number>();
+        // truncate through the descriptor's ctor so the scalar path matches the
+        // TypedArray-backed stride-2/4 paths and slab(type) — e.g. sparse(u8)
+        // wraps 300 to 44, sparse(u32) wraps -1 to 0xFFFFFFFF
+        const scratch = new type.ctor(1);
         const out: Single = {
             set: (eid: number, v: number) => {
-                map.set(eid, enc(v));
+                scratch[0] = enc(v);
+                map.set(eid, scratch[0]);
             },
             get: (eid: number) => {
                 const raw = map.get(eid);
