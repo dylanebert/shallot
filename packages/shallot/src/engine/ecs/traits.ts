@@ -221,10 +221,22 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
             const laneKey = field.slice(dotIdx + 1);
             const parent = data[base];
             const parentLanes = lanes(parent);
-            if (parentLanes !== 2 && parentLanes !== 4) continue;
-            if (typeof value !== "number") continue;
+            if (parentLanes !== 2 && parentLanes !== 4) {
+                throw new Error(
+                    `defaults key "${field}" on component "${entry.name}" does not target a Pair/Quad field`,
+                );
+            }
+            if (typeof value !== "number") {
+                throw new Error(
+                    `defaults value for "${field}" on component "${entry.name}" is not a number`,
+                );
+            }
             const idx = LANE_INDEX[laneKey];
-            if (idx === undefined || idx >= parentLanes) continue;
+            if (idx === undefined || idx >= parentLanes) {
+                throw new Error(
+                    `defaults key "${field}" on component "${entry.name}" has an out-of-range lane`,
+                );
+            }
             let arr = dotted.get(base);
             if (!arr) {
                 arr = new Array(parentLanes).fill(0);
@@ -235,7 +247,11 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
         }
 
         const target = data[field];
-        if (target == null) continue;
+        if (target == null) {
+            throw new Error(
+                `defaults key "${field}" on component "${entry.name}" does not match any field`,
+            );
+        }
         const n = lanes(target);
 
         if (Array.isArray(value)) {
@@ -251,11 +267,19 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
             } else if (ArrayBuffer.isView(target) || Array.isArray(target)) {
                 arrs.push(target as number[] | Float32Array | Uint32Array);
                 arrVals.push(value[0] ?? 0);
+            } else {
+                throw new Error(
+                    `defaults key "${field}" on component "${entry.name}" does not target a writable field`,
+                );
             }
             continue;
         }
 
-        if (typeof value !== "number") continue;
+        if (typeof value !== "number") {
+            throw new Error(
+                `defaults value for "${field}" on component "${entry.name}" is not a number`,
+            );
+        }
 
         // typed arrays also expose `.set`, so gate on ArrayBuffer.isView first
         if (ArrayBuffer.isView(target) || Array.isArray(target)) {
@@ -264,6 +288,10 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
         } else if (typeof (target as Single).set === "function") {
             fields.push(target as Single);
             fieldVals.push(value);
+        } else {
+            throw new Error(
+                `defaults key "${field}" on component "${entry.name}" does not target a writable field`,
+            );
         }
     }
 

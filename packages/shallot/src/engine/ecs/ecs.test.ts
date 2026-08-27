@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { build, type Plugin, State, sparse, u32 } from "../..";
+import { build, f32, type Plugin, State, sparse, u32, vec2, vec4 } from "../..";
 import { clear, idOf, register } from "./core";
 
 const Health = { current: [] as number[], max: [] as number[] };
@@ -205,5 +205,111 @@ describe("trait excludes", () => {
         state.add(eid, Slab);
 
         expect(state.has(eid, Slab)).toBe(true);
+    });
+});
+
+describe("defaults compilation — silent-miss routing", () => {
+    beforeEach(() => {
+        clear();
+    });
+
+    // Member 4: a typo'd defaults key silently continues — no defaults applied, no diagnostic.
+    // The key is present but unmatched: the populated-but-wrong case.
+    test("a typo'd defaults key throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32), mp: sparse(f32) };
+        register("comp", Comp, { defaults: () => ({ hpp: 100, mp: 50 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/hpp/);
+    });
+
+    // a dotted key on a scalar parent (Single, not Pair/Quad) silently continues
+    test("a dotted key on a scalar parent throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32) };
+        register("comp", Comp, { defaults: () => ({ "hp.x": 100 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/hp\.x/);
+    });
+
+    // an out-of-range lane silently continues
+    test("an out-of-range lane key throws, not silently skipped", () => {
+        const Comp = { pos: sparse(vec4) };
+        register("comp", Comp, { defaults: () => ({ "pos.q": 100 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/pos\.q/);
+    });
+
+    // a non-number value on a scalar field silently continues
+    test("a non-number defaults value throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32) };
+        register("comp", Comp, { defaults: () => ({ hp: "high" as unknown as number }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/hp/);
+    });
+
+    // a valid defaults dict must NOT throw — an author who wrote correct keys
+    // must still load
+    test("valid defaults still apply without error", () => {
+        const Comp = { hp: sparse(f32), pos: sparse(vec4) };
+        register("comp", Comp, { defaults: () => ({ hp: 100, pos: [0, 0, 0, 1] }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).not.toThrow();
+        expect(Comp.hp.get(eid)).toBe(100);
+        expect(Comp.pos.w.get(eid)).toBe(1);
+    });
+
+    // positive control: a valid dotted key must land in the right lane, not just
+    // avoid throwing. Guards against a regression that over-fires on all dotted keys.
+    test("a valid dotted key on a Quad lands in the right lane", () => {
+        const Comp = { pos: sparse(vec4) };
+        register("comp", Comp, { defaults: () => ({ "pos.x": 1, "pos.w": 9 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).not.toThrow();
+        expect(Comp.pos.x.get(eid)).toBe(1);
+        expect(Comp.pos.w.get(eid)).toBe(9);
+    });
+
+    test("a valid dotted key on a Pair lands in the right lane", () => {
+        const Comp = { pos: sparse(vec2) };
+        register("comp", Comp, { defaults: () => ({ "pos.x": 2, "pos.y": 7 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).not.toThrow();
+        expect(Comp.pos.x.get(eid)).toBe(2);
+        expect(Comp.pos.y.get(eid)).toBe(7);
+    });
+
+    // a defaults key naming a non-field property (a metadata number) silently
+    // drops the value — the number-value tail fall-through
+    test("a defaults key naming a non-field property throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32), meta: 42 };
+        register("comp", Comp, { defaults: () => ({ meta: 100 }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/meta/);
+    });
+
+    // an array value on a non-field property silently continues — the
+    // Array.isArray branch fall-through
+    test("an array defaults value on a non-field property throws, not silently skipped", () => {
+        const Comp = { hp: sparse(f32), meta: "label" };
+        register("comp", Comp, { defaults: () => ({ meta: [1, 2, 3] }) });
+
+        const state = new State();
+        const eid = state.create();
+        expect(() => state.add(eid, Comp)).toThrow(/meta/);
     });
 });
