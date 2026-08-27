@@ -74,9 +74,9 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
     // The real red-first evidence for the ceiling deletion lives in two other arms: (1) the worst-case
     // chord capacity arm below (`edit.test.ts`, "the worst-case corner-to-corner chord stays at or under
     // ATLAS_LAYERS"), which fails at the pre-image because a corner-to-corner chord touches >64 tiles
-    // against ATLAS_LAYERS=64; and (2) the device corner arm (`test/roads.playwright.ts`, `cornerApplied ===
-    // false` at the pre-image), where the old `__roadsEdit` bridge refused a target past ROAD_MAX_LENGTH
-    // and returned false instead of applying the clamped edit.
+    // against ATLAS_LAYERS=64; and (2) the device corner arm (`test/roads.playwright.ts`), which drives `__roadsEdit`
+    // far past the world bound and asserts the bridge clamps to the bound and applies (`cornerApplied ===
+    // true`), never refusing.
     //
     // The clamp law: a constraint on a dragged quantity is a
     // projection onto the nearest admissible value, never a no-op. The one admissible no-op is a target
@@ -157,7 +157,7 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
 });
 
 describe("edit — worst-case chord capacity (stage 4d)", () => {
-    // The arm that survived the ROAD_MAX_LENGTH deletion, re-anchored on the invariant that mattered:
+    // The invariant that matters:
     // "no admissible drag can throw out of `allocate`". The worst case the world allows is a
     // corner-to-corner chord across the bounded 1024 m world. Its `documentDirtyTiles` count must be
     // at or under `ATLAS_LAYERS` (64, sized by the capsule-test measurement of 46 + headroom).

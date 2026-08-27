@@ -10,8 +10,8 @@
 //   default hang detector (`verify.ts`). A scenario with no entry keeps the 60s default. An explicit
 //   `bun bench --timeout N` overrides any entry here (operator override); `scripts/bench.ts`
 //   `benchTimeout` is the resolution.
-// - `isolate` — true for a scenario carrying perf-threshold checks. The sweep driver (stage 4) runs an
-//   `isolate` scenario in its own process, never folded into the shared-boot batch — grounded on the
+// - `isolate` — true for a scenario carrying perf-threshold checks. An `isolate` scenario runs in its
+//   own process, never folded into the shared-boot batch — grounded on the
 //   `stress` sweep-contention finding: a
 //   perf-threshold gate measured under back-to-back sweep contention is not trustworthy.
 // - `covers` — glob(s) into `packages/shallot/src` naming the GPU-side modules this scenario exercises.
@@ -193,7 +193,7 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     // (`scenarioNames()`), not guessed, since a scenario name mismatch here would silently pass
     // `checkCompleteness` on the wrong key.
 
-    // stage-4 tumble.js sample twins (`sampleScenario`, bit-exact vs a committed gold — no perf-threshold
+    // tumble.js sample twins (`sampleScenario`, bit-exact vs a committed gold — no perf-threshold
     // assert to isolate):
     "stacking-arch": {},
     "stacking-box-pyramid": {},
@@ -258,9 +258,9 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     "orbit-touch": {},
 };
 
-/** every module path this scenario's checks are explicitly exempted from covering, and why. Stage 3b
- *  populates the rest — an honest partial list here is deliberate ("an honest initial exemption list is
- *  the point"), not a gap. A reason names the property
+/** every module path this scenario's checks are explicitly exempted from covering, and why. An honest
+ *  partial list is deliberate ("an honest initial exemption list is the point"), not a gap. A reason
+ *  names the property
  *  that is actually load-bearing — no GPU surface — never a structural shape a reader would have to
  *  re-verify: "barrel re-export" was twice the stated reason for a file that was nothing of the kind. */
 export const GATE_EXEMPTIONS: Record<string, string> = {
