@@ -879,6 +879,47 @@ export function summarizeCpuProfile(profile: RawCpuProfile): CpuProfileSummary {
     return { totalMs, entries, buckets };
 }
 
+// S1c's absence arm: the verify harness's own in-page function names — functions verify.ts serializes
+// into the page via `page.evaluate`, which CDP reports with an empty url under the function's own name
+// (not a V8 synthetic name — see {@link classifyCpuFrame}'s docblock). Their presence in an attribution
+// run's CPU profile means the harness measured itself: `sampleFrame`'s `page.evaluate(decodeSample, ...)`
+// ran inside the profiled tab on every 500ms poll, injecting main-thread work into the window S1b exists
+// to attribute. `sampleFrameNode` (the S1c decontamination) decodes in Node with pngjs instead, so none
+// of these names should appear in a decontaminated profile's bucket table.
+//
+// Derived from the function objects' own `.name` properties (not hardcoded strings) so a rename updates
+// the set automatically. Adding a new in-page helper still requires adding it here — the
+// `harnessInpageFunctionNames` test (verify.test.ts) makes that omission loud by scanning verify.ts for
+// every named function passed to `page.evaluate` and asserting each is registered.
+//
+// Known residual: the boot wait loop's `page.evaluate(() => typeof window.__harness !== "undefined")` is
+// an ANONYMOUS arrow, so CDP reports it with an empty function name — indistinguishable from native
+// code by name alone (the residual named in {@link classifyCpuFrame}'s docblock). It runs once per
+// 500ms poll cycle, a single `typeof` property lookup whose per-invocation self-time is sub-microsecond
+// (well below the 200µs sampling interval), so it is effectively invisible in the CPU profile. The arm's
+// "no harness frames" claim states this one known blind spot rather than overclaiming: a named in-page
+// helper would be caught, this anonymous typeof check is not.
+/** @internal exported so the registration-coverage test can assert every named `page.evaluate` function
+ *  is in the set. */
+export const HARNESS_INPAGE_FUNCTION_NAMES = new Set([decodeSample.name, decodeRgba.name]);
+
+/** the bucket names an attribution run's CPU profile must NOT carry: any bucket classified from a call
+ *  frame whose function name belongs to the verify harness's own in-page helpers. Returns the offending
+ *  bucket names — empty when the profile is decontaminated (no harness frames in the bucket table).
+ *  S1c's Validation criterion: no call frame belonging to the verify harness appears in the attribution
+ *  run's profiled window, asserted by an arm over the attribution run's own captured profile rather than
+ *  read off the printed table. The fixture tests (verify.test.ts) are the unit-level arms beside it; the
+ *  live assertion runs in `scripts/stall-attribution.ts` against the real `--attribution` run's profile. */
+export function harnessBucketNames(summary: CpuProfileSummary): string[] {
+    const offending = new Set<string>();
+    for (const entry of summary.entries) {
+        if (HARNESS_INPAGE_FUNCTION_NAMES.has(entry.functionName)) {
+            offending.add(classifyCpuFrame(entry.url, entry.functionName));
+        }
+    }
+    return summary.buckets.filter((b) => offending.has(b.name)).map((b) => b.name);
+}
+
 /** the render probe the settle path records on its Result — the pixel evidence behind the `rendered`
  *  verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and the spread
  *  against `structured`'s threshold, the elapsed wait, and how the wait concluded. */
@@ -1032,8 +1073,9 @@ async function sampleFrame(page: Page): Promise<FrameSample | null> {
  *  heuristic only needs a stable coarse structure signal, not a pixel-identical grid. Duplicated from
  *  {@link decodeSample} rather than shared, for the same reason {@link decodeRgba} already duplicates it
  *  (its own comment, above): {@link decodeSample} is serialized by Playwright and run in-page, so it
- *  can't import or close over anything. */
-function decodeSampleNode(png: {
+ *  can't import or close over anything. @internal exported only so its coverage arm can drive it
+ *  directly without a browser. */
+export function decodeSampleNode(png: {
     width: number;
     height: number;
     data: Uint8Array | Buffer;
@@ -1079,10 +1121,21 @@ function decodeSampleNode(png: {
 // S1b's profile found it as the single largest self-time bucket, misattributed as V8-internal by the now-
 // fixed `classifyCpuFrame` docblock (the adversarial pass's finding). This reaches the same settle signal
 // without that cost: the screenshot capture is a CDP/compositor operation, not page JS, and decoding it
-// with pngjs happens in this process, so nothing here runs on the profiled main thread. Falls back to the
-// page-side decode (pre-S1c behavior) if pngjs can't be loaded — an npm consumer of `--attribution`
-// without the optional dependency still gets a working boot-settle signal, just not a decontaminated one.
-async function sampleFrameNode(page: Page): Promise<FrameSample | null> {
+// with pngjs happens in this process, so nothing here runs on the profiled main thread.
+//
+// pngjs is an optional dependency of @dylanebert/shallot (packages/shallot/package.json), present in the
+// repo's root devDependencies. Under `--attribution` (a developer diagnostic, not a consumer feature)
+// the pngjs decode is REQUIRED: if it fails, the function throws rather than silently falling back to the
+// page-side decode — the fallback IS the contamination this stage removes, so a silent fallback under
+// `--attribution` would defeat the arm. The plain `verify` path uses `sampleFrame` (which always runs
+// in-page) and never calls this function, so the `attribution` parameter's default of `false` preserves
+// the silent-fallback behavior for any non-attribution caller.
+/** @internal exported only so its coverage arms (pngjs path, fallback path, screenshot-fail, fatal-
+ *  attribution-fallback) can drive it with a duck-typed page stub without a browser. */
+export async function sampleFrameNode(
+    page: Page,
+    attribution = false,
+): Promise<FrameSample | null> {
     let shot: Buffer;
     try {
         shot = await page.locator("canvas").first().screenshot({ timeout: 5_000 });
@@ -1092,7 +1145,15 @@ async function sampleFrameNode(page: Page): Promise<FrameSample | null> {
     try {
         const { PNG } = await import("pngjs");
         return decodeSampleNode(PNG.sync.read(shot));
-    } catch {
+    } catch (err) {
+        if (attribution) {
+            throw new Error(
+                `sampleFrameNode: pngjs decode failed under --attribution — the in-page fallback is ` +
+                    `forbidden (it contaminates the profiled window). Install pngjs (an optional ` +
+                    `dependency of @dylanebert/shallot) or run without --attribution. Cause: ` +
+                    `${err instanceof Error ? err.message : String(err)}`,
+            );
+        }
         try {
             return (await page.evaluate(
                 decodeSample,
@@ -1854,7 +1915,7 @@ async function drive(
         const sample = harnessDefined
             ? null
             : args.attribution
-              ? await sampleFrameNode(page)
+              ? await sampleFrameNode(page, true)
               : await sampleFrame(page);
         if (sample) {
             sampleCount++;

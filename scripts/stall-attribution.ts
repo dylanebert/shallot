@@ -1,3 +1,4 @@
+import { harnessBucketNames } from "../packages/shallot/bin/verify";
 import { skipReason, teardownBridge, verify } from "./verify";
 
 // S1 of `shallot-demo-startup-stall`: discriminate the demo's startup ~1s stall by pipeline-label
@@ -303,6 +304,27 @@ async function main(): Promise<void> {
                 "a per-file 'other' bucket rather than disappearing, so nothing is silently dropped, but a " +
                 "candidate this table doesn't yet name for a given demo can still hide inside 'other'.",
         );
+    }
+
+    // S1c's absence arm: assert no verify-harness call frame appears in the attribution run's own
+    // CPU profile — not eyeballed off the printed table above, but asserted mechanically via
+    // `harnessBucketNames`. The fixture tests in verify.test.ts are the unit-level arms; this is the
+    // live assertion against the real `--attribution` run's captured profile. Fails loudly (non-zero
+    // exit, offending buckets printed) when the harness measured itself.
+    if (cpuProfile && cpuProfile.totalMs > 0) {
+        const harnessBuckets = harnessBucketNames(cpuProfile as never);
+        console.log("\n## S1c — harness contamination check\n");
+        if (harnessBuckets.length > 0) {
+            console.log(
+                `FAILED: verify-harness call frames found in the attribution run's CPU profile — ` +
+                    `the harness measured itself. Offending buckets: ${harnessBuckets.join(", ")}`,
+            );
+            process.exitCode = 1;
+        } else {
+            console.log(
+                "PASSED: no verify-harness call frames in the attribution run's CPU profile.",
+            );
+        }
     }
 
     await teardownBridge();

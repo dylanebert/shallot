@@ -106,6 +106,9 @@
             "optional": true
         }
     },
+    "optionalDependencies": {
+        "pngjs": "^7.0.0"
+    },
     "devDependencies": {
         "@types/bun": "latest",
         "bun-webgpu": "^0.1.4",
