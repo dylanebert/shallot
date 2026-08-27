@@ -316,8 +316,23 @@ describe("NaN-sentinel default elision", () => {
             "params.w": 0,
         });
         expect(formatted).not.toContain("NaN");
-        // round-trip: the formatted output must parse back without error
-        expect(() => parseFields("mat", formatted)).not.toThrow();
+        // value half of the round trip: parse the emitted text back, merge with defaults
+        // (elided lanes restore from defaults), and confirm the NaN-sentinel lane comes back
+        // as NaN and the non-sentinel lanes at their input values
+        const defaults = {
+            "params.x": 0,
+            "params.y": Number.NaN,
+            "params.z": 0,
+            "params.w": 0,
+        };
+        const restored: Record<string, number | string> = {
+            ...defaults,
+            ...parseFields("mat", formatted),
+        };
+        expect(Number.isNaN(restored["params.y"] as number)).toBe(true);
+        expect(restored["params.x"]).toBe(0);
+        expect(restored["params.z"]).toBe(0);
+        expect(restored["params.w"]).toBe(0);
     });
 
     // RED witnessed: formatFields emits "pos: 0 0 0 NaN" on the positional Pair/Quad path because
@@ -337,7 +352,22 @@ describe("NaN-sentinel default elision", () => {
             "pos.w": Number.NaN,
         });
         expect(formatted).not.toContain("NaN");
-        expect(() => parseFields("vec", formatted)).not.toThrow();
+        // value half of the round trip: parse back, merge with defaults, and confirm the
+        // NaN-sentinel lane comes back as NaN and the non-sentinel lanes at their input values
+        const defaults = {
+            "pos.x": 0,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": Number.NaN,
+        };
+        const restored: Record<string, number | string> = {
+            ...defaults,
+            ...parseFields("vec", formatted),
+        };
+        expect(Number.isNaN(restored["pos.w"] as number)).toBe(true);
+        expect(restored["pos.x"]).toBe(0);
+        expect(restored["pos.y"]).toBe(0);
+        expect(restored["pos.z"]).toBe(0);
     });
 
     test("NaN-sentinel default trims a trailing NaN lane on the positional path", () => {
@@ -355,6 +385,20 @@ describe("NaN-sentinel default elision", () => {
         });
         expect(formatted).not.toContain("NaN");
         expect(formatted).toBe("pos: 5 0 0");
+        // value half: the non-sentinel lane (pos.x = 5) survives, and the elided NaN-sentinel
+        // lane (pos.w) restores to NaN from defaults
+        const defaults = {
+            "pos.x": 0,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": Number.NaN,
+        };
+        const restored: Record<string, number | string> = {
+            ...defaults,
+            ...parseFields("vec", formatted),
+        };
+        expect(restored["pos.x"]).toBe(5);
+        expect(Number.isNaN(restored["pos.w"] as number)).toBe(true);
     });
 
     // positive control: a non-NaN value on a NaN-default field does NOT elide — proves the
