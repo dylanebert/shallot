@@ -44,7 +44,7 @@ describe("posts emitted WGSL", () => {
 
     test("the resolved kernel's station, lateral sign, and slot index are the correct literals", () => {
         // LITERALS, not values re-derived from POST_SPACING/POST_OFFSET — an arm that recomputes its
-        // own rule goes green on a wrong constant (this unit's stage-3 precedent). The assertions below
+        // own rule goes green on a wrong constant. The assertions below
         // pin the exact emitted WGSL text: the station `(f32(i) + 1f) * 2f` (not `f32(i) * 2f`),
         // the lateral `select(1f, -1f, ((i & 1u) == 1u))` (not a swapped or constant sign), and the slot
         // index `segments[0i]` (not `segments[1i]`). Each would fail under the mutation it names.
@@ -153,7 +153,7 @@ describe("POST_OFFSET flat-core band", () => {
     });
 
     test("the measured margins at the kerb-line offset are the ones written beside the constant", () => {
-        // the measurement the stage reports, asserted rather than printed: 0.28 m of clearance from the
+        // the measurement, asserted rather than printed: 0.28 m of clearance from the
         // pavement edge to the post's near face, 5.13685 m from its far face to the flat core's edge.
         expect(POST_OFFSET - POST_RADIUS).toBeCloseTo(0.28, 6);
         expect(FLAT_CORE_MARGIN - (POST_OFFSET + POST_RADIUS)).toBeCloseTo(5.136854, 5);
@@ -207,7 +207,7 @@ describe("the footing depth's derivation", () => {
     });
 
     test("no admissible chord's grade exceeds the ceiling the footing is sized against", () => {
-        // the measurement the stage reports, asserted: a 5-seed × 400-chord scan of admissible chords
+        // the measurement, asserted: a 5-seed × 400-chord scan of admissible chords
         // (both endpoints clamped into the world by the live drag's own `clampToBound`, length >=
         // ROAD_MIN_LENGTH) against the analytic ceiling. Half the corpus is drawn as SHORT chords — length
         // in [ROAD_MIN_LENGTH, 2 · ROAD_MIN_LENGTH] — because grade is |Δh| / length and a uniform endpoint
@@ -219,9 +219,10 @@ describe("the footing depth's derivation", () => {
         // chords this arm exists to find, because the flatness oracle's longitudinal bound is that grade.
         // A corpus that discards its steepest members cannot measure the steepest member. What this arm
         // does take from the live path is the **bound**: `clampToBound` (`editPure.ts`), so "admissible"
-        // here means what the drag means by it, rather than the `WORLD_HALF − SPACING` this arm used to
-        // hand-roll (equal at 4 m today by coincidence — `BOUND_MARGIN = ROAD_HALF_WIDTH`, an unrelated
-        // concept). The RNG is the repo's own `mulberry32`, so this file hand-rolls no generator either.
+        // here means what the drag means by it, not a hand-rolled `WORLD_HALF − SPACING` bound (equal at
+        // 4 m today only by coincidence — `BOUND_MARGIN = ROAD_HALF_WIDTH`, an unrelated concept, so that
+        // equality is not something to rely on). The RNG is the repo's own `mulberry32`, so this file
+        // hand-rolls no generator either.
         let worst = 0;
         const rand = mulberry32(0x9e3779b9);
         for (const seed of [1337, 1, 2, 99, 4242]) {

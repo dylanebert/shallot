@@ -78,10 +78,6 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
     // false` at the pre-image), where the old `__roadsEdit` bridge refused a target past ROAD_MAX_LENGTH
     // and returned false instead of applying the clamped edit.
     //
-    // Historical note: the old arms this replaces ("a drag shortening under ROAD_MIN_LENGTH is refused",
-    // "a drag lengthening past ROAD_MAX_LENGTH is refused") were green while pinning the freeze — they
-    // encoded the refusal as the contract, so the suite passed over the defect the person rejected.
-    //
     // The clamp law: a constraint on a dragged quantity is a
     // projection onto the nearest admissible value, never a no-op. The one admissible no-op is a target
     // equal to the current position.
@@ -239,7 +235,7 @@ describe("edit — sticky grab latch (stage 4b)", () => {
     //   "expected { dragging: true, dragEnd: 0, prevLeft: true } to equal { dragging: false, dragEnd: 0, prevLeft: true }"
     // (frame 3 of sequence 1 — the old inline gate in `update()` starts a drag when the cursor reaches
     // a handle mid-hold, the new one does not because the rising edge already passed). There was no
-    // `stepGrab` before this stage: the old logic was inline in `update()`, and the pre-image is
+    // `stepGrab` — the old logic was inline in `update()`, and the pre-image is
     // `git show a3827a7:examples/showcase/roads/src/edit.ts`.
     //
     // Only THIS first arm discriminates the new shape from the old. The other three produce identical
@@ -338,7 +334,7 @@ describe("edit — no no-op frames in the drag's target derivation (stage 9)", (
     // call `marchFlattenField`; it discriminates the clamp on `projectRayToBound`'s return paths.
     //
     // The companion arm asserts `lastValidTarget` has no readers — a hold path that still exists
-    // anywhere in `edit.ts` after this stage is the finding.
+    // anywhere in `edit.ts` is the finding.
 
     const Bound = WORLD_HALF - ROAD_HALF_WIDTH;
 

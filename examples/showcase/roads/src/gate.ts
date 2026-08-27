@@ -14,8 +14,8 @@ import { RELIEF } from "./terrain/noise";
 import { generate, readVertices, SEED, syncNetworkForSeed } from "./terrain/terrain";
 
 // The terrain generator's correctness gate — the seed-determinism readback the spec's Validation names
-// ("Overlay correctness"/"Rasterizer fidelity" are later stages; this stage's own arm is the height
-// kernel's seed determinism, run on the real device). It's the showcase dogfooding its own testing:
+// (its arm is the height kernel's seed determinism, run on the real device). It's the showcase
+// dogfooding its own testing:
 // published-`@dylanebert/shallot` surface + this project's own lib + driver, no reach into any repo
 // harness. `boot.ts` exposes it on `window.__roadsGate`; the project's own Playwright
 // (`test/roads.playwright.ts`) drives it on a GPU.
@@ -121,7 +121,7 @@ export async function gate(): Promise<Check[]> {
     });
 
     // the property pin: the real device's mesh reads exactly zero violations and zero amplitude on
-    // both axes — the same unconditional criterion the CPU suite asserts (`flatness.test.ts`'s stage-18
+    // both axes — the same unconditional criterion the CPU suite asserts (`flatness.test.ts`'s own
     // arm), now driven through real `readVertices()` rather than the device-free lattice.
     const deviceResult = checkSurfaceFlatness((x, z) => meshHeightAt(deviceRaw, x, z), liveDoc);
     checks.push({

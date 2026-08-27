@@ -8,7 +8,7 @@ import {
 import { heightKernelWgsl } from "./generate";
 import { HALF, SPACING, VERTS } from "./grid";
 
-// The height kernel's structural gate — the device-free seam this stage's `bun test` relies on for the
+// The height kernel's structural gate — the device-free seam this `bun test` relies on for the
 // GPU dispatch (CPU-callable TGSL + exact resolved WGSL, never a bound device). The kernel's own
 // seed-determinism *readback* runs on the real device instead
 // (`gate.ts`, driven by `test/roads.playwright.ts`) — the split voxel's `generate.test.ts`/`gate.ts` also make.

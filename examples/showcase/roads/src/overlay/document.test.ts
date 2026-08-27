@@ -90,8 +90,8 @@ describe("documentDistance", () => {
     });
 
     test("cross-checks stroke.ts's hand-rolled strokeDistance over strokeDocument()", () => {
-        // stroke.ts's strokeDistance is the stage-4 clamped-x formula (only valid for its own fixed
-        // horizontal pattern); documentDistance is the stage-5 general form. They should agree exactly
+        // stroke.ts's strokeDistance is the clamped-x formula (only valid for its own fixed
+        // horizontal pattern); documentDistance is the general form. They should agree exactly
         // over strokeDocument()'s one-segment shape, which is the point of keeping both alive.
         const doc = strokeDocument();
         const samples: Array<[number, number]> = [
@@ -226,7 +226,7 @@ describe("markingDistanceForSegment", () => {
 
     test("zero at the edge line boundary (LINE_HALF_WIDTH from the centre)", () => {
         const edgeLineZ = seg.halfWidth - EDGE_INSET; // 3.7
-        const boundary = edgeLineZ + LINE_HALF_WIDTH; // 3.7762 (3.7 + 0.0762, with stage 8's 6 in line width)
+        const boundary = edgeLineZ + LINE_HALF_WIDTH; // 3.7762 (3.7 + 0.0762, with the 6 in line width)
         expect(markingDistanceForSegment(0, boundary, seg)).toBeCloseTo(0, 6);
     });
 

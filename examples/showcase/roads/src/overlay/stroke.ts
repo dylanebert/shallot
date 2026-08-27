@@ -91,7 +91,7 @@ export const OFF_ROAD_POINT: readonly [x: number, z: number] = [
     STROKE_Z + STROKE_HALF_WIDTH + 4,
 ];
 
-/** this stage's hand-authored stroke, expressed as a one-polyline {@link StrokeDocument} — the real input
+/** the hand-authored stroke, expressed as a one-polyline {@link StrokeDocument} — the real input
  *  `terrain.ts` marks dirty and redraws through `rasterize.ts`'s GPU kernel in production. Geometrically
  *  identical to `strokeDistance`'s pattern (same endpoints, same half-width), so the capture gate's
  *  on/off-road probes stay valid unchanged. */

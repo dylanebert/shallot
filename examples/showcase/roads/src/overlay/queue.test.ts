@@ -132,12 +132,12 @@ describe("invalidate — the atlas's document-swap reset", () => {
         expect(allocate(cpu, 3, free, 8)).toBeLessThanOrEqual(7);
     });
 
-    // The regression this closes: `terrain.ts`'s `regenerate` used to call `markDirty` on the swapped-in
-    // document without first releasing the outgoing document's resident layers, so repeated F9 presses
-    // accumulated layers across reseeds until the fixed-size atlas ran out. `regenerate` now calls
-    // `overlayAtlas.invalidate()` before `markDirty` — this drives that fixed shape (reset, then allocate)
-    // against hundreds of real reseeds and asserts it never breaches ATLAS_LAYERS, since invalidation
-    // means only the *current* document's own footprint is ever resident at once.
+    // The regression this closes: `regenerate` must release the outgoing document's resident layers
+    // before calling `markDirty` on the swapped-in document — without that ordering, repeated F9 presses
+    // accumulate layers across reseeds until the fixed-size atlas runs out. `overlayAtlas.invalidate()`
+    // runs before `markDirty`, driving that fixed shape (reset, then allocate) against hundreds of real
+    // reseeds and asserting it never breaches ATLAS_LAYERS, since invalidation means only the *current*
+    // document's own footprint is ever resident at once.
     //
     // No arm demonstrates the *unfixed* path overflowing any more, and none can: the road is a fixed
     // chord that does not move with the seed, so every reseed re-marks the same tiles and reseeding is
@@ -173,7 +173,7 @@ describe("invalidate — the atlas's document-swap reset", () => {
 // with nextLayer=64 at the point of failure. The free list replaces the counter: `release` pushes
 // layers back between edits, so the same 65-edit sequence (and any sequence where each edit's footprint
 // fits within ATLAS_LAYERS) never exhausts the pool. This arm is written fresh — a fixed road's footprint
-// no longer varies with the seed, so reseeds are not a capacity input.
+// does not vary with the seed, so reseeds are not a capacity input.
 //
 // The property: over random document sequences, after every edit (retile + drain) the resident set
 // equals documentDirtyTiles(current), released ids read -1, allocate never throws, and

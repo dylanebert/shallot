@@ -26,7 +26,7 @@ import {
 // self-consistency, not correctness.
 
 /** one road-width centreline — consecutive points define its segments, `halfWidth` is constant along its
- *  whole length (a real network's per-segment width variation is out of this stage's scope). */
+ *  whole length (a real network's per-segment width variation is out of scope). */
 export interface Polyline {
     readonly points: ReadonlyArray<readonly [number, number]>;
     readonly halfWidth: number;

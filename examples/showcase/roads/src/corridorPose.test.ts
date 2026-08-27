@@ -2,8 +2,8 @@
 // document constants, never measured off the image. Three assertions:
 //   1. cutDepth ≥ 5 px of vertical extent (the resolution threshold, anchored on the road's own
 //      resolved on-screen width at the *measurement point* — the earlier scene default,
-//      900 m: 8 m × f_px / 900 ≈ 5.5 px. Every 900 in this file is that historical measurement
-//      point, never the scene's current default (120 m); the literals are
+//      900 m: 8 m × f_px / 900 ≈ 5.5 px. Every 900 in this file is the measurement point the
+//      derivation is anchored on, never the scene's current default (120 m); the literals are
 //      fixed on purpose and re-fitting them to the scene would track a presentation choice)
 //   2. ≥30 m of unflattened terrain flanking the corridor in frame (the corridor must read *set
 //      into* terrain, or the look loses its comparison)

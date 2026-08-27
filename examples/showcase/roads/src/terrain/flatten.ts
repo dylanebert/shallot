@@ -134,8 +134,8 @@ const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
  *  contributes weight 1, one past its own falloff contributes 0, so away from any overlap exactly one
  *  weight survives and this reduces to the nearest-primitive target exactly; where two primitives'
  *  falloff bands overlap (a bisector, a junction), both contribute and the target cross-fades instead
- *  of switching. The multi-road blend machinery below survives because the network's own generator
- *  only ever emits one road, but this function generalizes over `NetworkSegment.road` regardless.
+ *  of switching. The multi-road blend machinery below generalizes over `NetworkSegment.road`, so it
+ *  stays even though the network's own generator only ever emits one road.
  *
  *  A *primitive* is a whole road, never one fine profile sub-segment: a road's own chain of sub-segments
  *  is already continuous by construction (`buildNetworkGeometry`'s per-point interpolation chains

@@ -6,8 +6,8 @@
 // projects to ≈0.9 px**, under the frame's FBM mottling and an order of magnitude below the ~8–10 px
 // of natural-relief silhouette waviness, so 24b's hostile read against "the earthwork reads as an
 // artificial trench/embankment rather than terrain" was unreadable at that pose whether or not the
-// failure was present. **Every 900 m figure in this module and its arm is that historical
-// measurement point, not the scene's current default** — the scene default is 120 m
+// failure was present. **Every 900 m figure in this module and its arm is the measurement point
+// the derivation is anchored on, not the scene's current default** — the scene default is 120 m
 // (where the same excursion projects to ≈6.6 px) for presentation reasons, and this module is
 // deliberately not re-anchored on it: the pose and its anchors are fixed literals precisely so they
 // cannot drift with an unrelated change. A future reader must not "update" the 900s to
@@ -20,7 +20,7 @@
 // (the derivation written in comments beside them), so the CPU arm (`corridorPose.test.ts`) can
 // import this module under plain `bun test` and independently verify the budget by computing cutDepth
 // from the real network geometry. A future stage that moves cutDepth reds the arm because the
-// fixed-literal pose no longer satisfies the budget at the new cutDepth — the pose does not
+// fixed-literal pose does not satisfy the budget at the new cutDepth — the pose does not
 // auto-adjust, which is the whole point (per checks.md's "re-derives its own rule" and this unit's
 // Residue: "re-run that arithmetic whenever any earlier stage moves the subject's magnitude").
 
@@ -45,7 +45,7 @@ export const CAMERA_FOV_DEG = 60;
 // cutDepth and falloff are the network's own measured quantities on the boot document — the fixed
 // standard chord — at the terrain's own
 // pinned noise seed 1337 (`buildNetworkGeometry(generateNetwork(), 1337)`; the noise seed feeds
-// `heightAtCpu` alone, the chord itself is no longer seeded). halfWidth is
+// `heightAtCpu` alone, the chord itself is not seeded). halfWidth is
 // `ROAD_HALF_WIDTH` from `overlay/network.ts` (= 4).
 //
 // These are fixed literals so the pose (below) does not auto-adjust when cutDepth changes — the
@@ -93,9 +93,9 @@ export const HALF_WIDTH = 4;
 //
 // Pitch: half the corridor's average side-slope angle: atan(cutDepth / falloff) / 2 =
 //   atan(3.8720 / 18.2464) / 2 = atan(0.21219) / 2 = 0.20911 / 2 = 0.10455 rad (6.0°) — the same
-// ratio as under the retired route-selected chord (`computeFalloff`'s own side-slope-limit
-// derivation holds cutDepth/falloff roughly constant), so the pitch barely moved despite cutDepth
-// and falloff both roughly tripling.
+// ratio as under any chord geometry, because `computeFalloff`'s own side-slope-limit derivation
+// holds cutDepth/falloff roughly constant, so the pitch stays stable as cutDepth and falloff
+// scale together.
 // Below the side-slope angle so the camera sees the transition as a surface (not edge-on), with
 // enough elevation to read terrain on both sides while keeping cos(θ) ≈ 1 (0.9945, losing <1%).
 //

@@ -86,7 +86,7 @@ export const encodeDistGpu = tgpu.fn(
 });
 
 /** pack ROAD_ALBEDO's rgb into rgba8unorm's little-endian byte order — the alpha byte is constant
- *  255: the marking channel is analytic in the fs, so the alpha no longer carries the encoded marking
+ *  255: the marking channel is analytic in the fs, so the alpha does not carry the encoded marking
  *  distance. Computed once at module load. */
 function packAlbedoRgb(rgb: readonly [number, number, number]): number {
     const r = Math.round(rgb[0] * 255);
@@ -119,8 +119,8 @@ const rasterKernel = tgpu
             const worldX = origin.x + (d.f32(texelX) + d.f32(0.5)) * d.f32(TEXEL_SIZE);
 
             // nearest-segment tracking: loop over segments once, carrying the coverage distance
-            // — the marking channel is analytic in the fs from the chord uniform, so the kernel no
-            // longer computes a marking distance.
+            // — the marking channel is analytic in the fs from the chord uniform, so the kernel
+            // does not compute a marking distance.
             let bestCoverage = d.f32(3.402823e38);
             let i = d.u32(0);
             for (; i < rasterLayout.$.params.segmentCount; i = i + d.u32(1)) {
@@ -141,7 +141,7 @@ const rasterKernel = tgpu
             word = word | (byte << (k * d.u32(8)));
 
             // the albedo word: road rgb + constant 255 alpha (the marking channel is analytic in the fs,
-            // so the alpha byte no longer carries an encoded marking distance).
+            // so the alpha byte does not carry an encoded marking distance).
             const albedoIdx = gy * d.u32(TILE_RES) + texelX;
             rasterLayout.$.albedoOut[albedoIdx] = roadAlbedoRgb.$;
         }

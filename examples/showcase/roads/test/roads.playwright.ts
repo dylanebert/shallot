@@ -487,9 +487,9 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     );
 
     // Phase 4: corridor content arm — assert against the live device scene that the corridor is
-    // actually in frame and set into terrain. This closes the gate the blocker proved missing: nothing
-    // previously checked the corridor capture's content — the screenshot was written to a file and
-    // never inspected, so a capture of empty terrain passed every gate. The arm checks two things: (1)
+    // actually in frame and set into terrain. This closes the gate the blocker proved missing: the
+    // corridor capture's content is checked — a capture of empty terrain would pass no gate. The arm
+    // checks two things: (1)
     // the live height at the corridor centre matches the chord's flatten target (the terrain is
     // flattened there — a road is present), and (2) the live height ~30 m to the side does not match
     // the flatten target (unflattened terrain flanks the corridor — it reads set into terrain, not flat
