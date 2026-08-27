@@ -339,6 +339,9 @@
         "typegpu": "~0.12.0",
         "wgpu-matrix": "^3.4.0",
       },
+      "optionalDependencies": {
+        "pngjs": "^7.0.0",
+      },
       "peerDependencies": {
         "playwright": "^1.0.0",
         "typegpu": "~0.12.0",
