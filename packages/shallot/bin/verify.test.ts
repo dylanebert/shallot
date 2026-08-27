@@ -23,6 +23,8 @@ import {
     bootArm,
     buildUrl,
     type Checkpoint,
+    type CpuProfileNode,
+    classifyCpuFrame,
     coerceVerdict,
     displayGateExit,
     displayGateMessage,
@@ -44,6 +46,7 @@ import {
     LEAK_BYTES_PER_SEC,
     type MemorySample,
     parseVerifyArgs,
+    type RawCpuProfile,
     RESOURCE_BUFFER,
     type RenderProbe,
     type ResourceEntry,
@@ -52,12 +55,14 @@ import {
     reportBatch,
     resolveBatchQueries,
     SetupError,
+    selfTimeMsByNodeId,
     serveDev,
     serveDist,
     settlePass,
     spansFromCheckpoints,
     stepWait,
     structured,
+    summarizeCpuProfile,
     summarizeResourceTiming,
     TIMINGS_INIT_SCRIPT,
     type WaitState,
@@ -614,6 +619,151 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
         const win: { __shallotLongTasks?: unknown } = {};
         new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
         expect(win.__shallotLongTasks).toEqual([]);
+    });
+});
+
+describe("selfTimeMsByNodeId — S1b's CPU-profile self-time accounting", () => {
+    test("attributes timeDeltas[i] (microseconds) to samples[i], summed per node, in ms", () => {
+        const profile: RawCpuProfile = {
+            nodes: [],
+            startTime: 0,
+            endTime: 600,
+            samples: [1, 1, 2],
+            timeDeltas: [100, 200, 300],
+        };
+        const out = selfTimeMsByNodeId(profile);
+        expect(out.get(1)).toBeCloseTo(0.3, 6); // (100+200)us
+        expect(out.get(2)).toBeCloseTo(0.3, 6); // 300us
+        expect(out.size).toBe(2);
+    });
+
+    test("a non-positive delta is dropped rather than recorded as a zero-cost node — a real node with no observed cost is absent, not present at 0", () => {
+        const profile: RawCpuProfile = {
+            nodes: [],
+            startTime: 0,
+            endTime: 100,
+            samples: [1, 2],
+            timeDeltas: [0, -5],
+        };
+        expect(selfTimeMsByNodeId(profile).size).toBe(0);
+    });
+
+    test("a profile with no sample stream (samples/timeDeltas absent) reads as an empty map, not a crash", () => {
+        const profile: RawCpuProfile = { nodes: [], startTime: 0, endTime: 0 };
+        expect(selfTimeMsByNodeId(profile).size).toBe(0);
+    });
+});
+
+describe("classifyCpuFrame — S1b's named-candidate bucket table", () => {
+    test("routes each of the spec's named mechanisms to a distinct bucket", () => {
+        const pipelines = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+            "preparePipelines",
+        );
+        const forward = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/standard/sear/forward.ts",
+            "unwrapVariant",
+        );
+        const gpu = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/engine/runtime/gpu.ts",
+            "precompileAll",
+        );
+        const regather = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/standard/sear/regather.ts",
+            "prepareRegather",
+        );
+        const ecs = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/engine/ecs/scheduler.ts",
+            "tick",
+        );
+        const scene = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/engine/scene/preload.ts",
+            "preload",
+        );
+        const decode = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/extras/gltf/pool.ts",
+            "decodeInWorker",
+        );
+        const buckets = new Set([pipelines, forward, gpu, regather, ecs, scene, decode]);
+        expect(buckets.size).toBe(7); // every named mechanism gets its own, distinguishable bucket
+        expect(pipelines).toContain("pipelines.ts");
+        expect(forward).toContain("forward.ts");
+        expect(gpu).toContain("gpu.ts");
+    });
+
+    test("a native/no-url frame is named by its V8 convention, not folded into a file bucket", () => {
+        expect(classifyCpuFrame("", "(program)")).toContain("(program)");
+        expect(classifyCpuFrame("", "")).toContain("no source url");
+    });
+
+    test("an unmatched frame falls through to a per-file bucket rather than disappearing", () => {
+        const out = classifyCpuFrame(
+            "file:///repo/packages/shallot/src/some/new/module.ts",
+            "boot",
+        );
+        expect(out).toContain("new/module.ts");
+    });
+});
+
+describe("summarizeCpuProfile — the pure profile-to-attribution reduction", () => {
+    test("merges self time across nodes sharing one call-frame identity, and rolls it up by named bucket", () => {
+        const pipelinesFrame = {
+            functionName: "preparePipelines",
+            scriptId: "1",
+            url: "file:///repo/packages/shallot/src/standard/sear/pipelines.ts",
+            lineNumber: 41,
+            columnNumber: 0,
+        };
+        const nodes: CpuProfileNode[] = [
+            { id: 1, callFrame: pipelinesFrame }, // called from call path A
+            { id: 2, callFrame: pipelinesFrame }, // same function, called from call path B
+            {
+                id: 3,
+                callFrame: {
+                    functionName: "(program)",
+                    scriptId: "0",
+                    url: "",
+                    lineNumber: 0,
+                    columnNumber: 0,
+                },
+            },
+        ];
+        const profile: RawCpuProfile = {
+            nodes,
+            startTime: 0,
+            endTime: 900,
+            samples: [1, 2, 3],
+            timeDeltas: [400_000, 100_000, 200_000], // microseconds: 400ms, 100ms, 200ms
+        };
+        const summary = summarizeCpuProfile(profile);
+
+        expect(summary.totalMs).toBeCloseTo(700, 6);
+        // node 1 and node 2 share one identity (same function+url+line) — merged into one entry at 500ms.
+        expect(summary.entries).toHaveLength(2);
+        const merged = summary.entries.find((e) => e.functionName === "preparePipelines");
+        expect(merged?.selfMs).toBeCloseTo(500, 6);
+
+        const pipelinesBucket = summary.buckets.find((b) => b.name.includes("pipelines.ts"));
+        expect(pipelinesBucket?.selfMs).toBeCloseTo(500, 6);
+        const programBucket = summary.buckets.find((b) => b.name.includes("(program)"));
+        expect(programBucket?.selfMs).toBeCloseTo(200, 6);
+    });
+
+    test("a node with zero sampled self time is excluded from entries entirely — not a false zero", () => {
+        const nodes: CpuProfileNode[] = [
+            {
+                id: 1,
+                callFrame: {
+                    functionName: "neverSampled",
+                    scriptId: "1",
+                    url: "file:///x.ts",
+                    lineNumber: 0,
+                    columnNumber: 0,
+                },
+            },
+        ];
+        const profile: RawCpuProfile = { nodes, startTime: 0, endTime: 0 };
+        expect(summarizeCpuProfile(profile).entries).toHaveLength(0);
     });
 });
 

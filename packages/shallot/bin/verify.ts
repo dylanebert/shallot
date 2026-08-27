@@ -652,6 +652,13 @@ export interface Result {
         compileAfterIdle: BenchmarkCompileStats | null;
         longTasks: { start: number; duration: number }[];
     } | null;
+    /** `--attribution` only (S1b): a CDP `Profiler` sample-based CPU profile of the main thread from
+     *  just before navigation through the boot wait's conclusion (the same point `attribution.compile`
+     *  is read at, before the idle wait) — sees the sync `create*Pipeline` path's real magnitude, which
+     *  `Profile.compile` structurally cannot (its docblock, and `.claude/rules/testing.md`'s
+     *  compile/startup bullet). `null` when CDP's `Profiler` domain wasn't reachable (no CDP session,
+     *  or `Profiler.start`/`stop` failed) — an honest miss, never a fabricated empty profile. */
+    cpuProfile?: CpuProfileSummary | null;
 }
 
 /** how long `--attribution`'s second `Profile.compile` read waits after the first, with no page
@@ -659,6 +666,184 @@ export interface Result {
  *  scene interaction would trigger sooner) would have already landed if the boot wait's own settle
  *  point didn't cover it. */
 export const ATTRIBUTION_IDLE_MS = 3_000;
+
+// S1b of `shallot-demo-startup-stall`: `Profile.compile` (above) can classify a pipeline label's KIND
+// (sync stub vs async await) but structurally cannot see the sync `create*Pipeline` path's real
+// magnitude — Dawn defers that cost past the sync call's return. A CDP `Profiler` sample-based CPU
+// profile sees it instead: it samples the real V8 call stack on a fixed cadence regardless of whether
+// the sampled frame is inside a sync loop, an async continuation, or module-eval, so it needs no
+// engine-internal instrumentation and can't be fooled by a span recorded at the wrong seam. Chrome's
+// `Profiler.setSamplingInterval` argument is MICROSECONDS; 200us gives ~5x DevTools' 1ms default for a
+// boot window that's only ~1-3s long, without the overhead of the finest setting.
+export const CPU_PROFILE_SAMPLING_INTERVAL_US = 200;
+
+/** the CDP `Profiler.Profile` call-frame identity: the same function can appear as more than one node
+ *  (once per distinct call path), so attributing self time to "this function, this file, this line"
+ *  needs the merge {@link summarizeCpuProfile} does across nodes sharing this identity. */
+export interface CpuProfileCallFrame {
+    functionName: string;
+    scriptId: string;
+    url: string;
+    lineNumber: number;
+    columnNumber: number;
+}
+
+/** one node in the CDP `Profiler.Profile` call tree — the tree shape itself is discarded by
+ *  {@link summarizeCpuProfile} (self time is attributed per call-frame identity, not per node/path);
+ *  `children` is read by nobody here and kept only because CDP always sends it. */
+export interface CpuProfileNode {
+    id: number;
+    callFrame: CpuProfileCallFrame;
+    hitCount?: number;
+    children?: number[];
+}
+
+/** the raw `Profiler.stop()` response body (`{ profile }`). `samples[i]` names the node id active
+ *  during `timeDeltas[i]` microseconds — the sample-based self-time accounting CDP itself defines
+ *  (https://chromedevtools.github.io/devtools-protocol/tot/Profiler/#type-Profile); a profile with no
+ *  samples (a boot too short to take one, or `Profiler.start` never reaching the page) has both fields
+ *  absent rather than empty arrays. */
+export interface RawCpuProfile {
+    nodes: CpuProfileNode[];
+    startTime: number;
+    endTime: number;
+    samples?: number[];
+    timeDeltas?: number[];
+}
+
+/** self time in ms per CDP node id, from the profile's `samples`/`timeDeltas` sample stream — the
+ *  documented CDP self-time accounting (see {@link RawCpuProfile}'s doc): `timeDeltas[i]` is charged to
+ *  whichever node `samples[i]` names. Empty when the profile carries no sample stream. Exported only so
+ *  {@link summarizeCpuProfile}'s per-node attribution is independently testable against a hand-built
+ *  sample list. */
+export function selfTimeMsByNodeId(profile: RawCpuProfile): Map<number, number> {
+    const out = new Map<number, number>();
+    const { samples, timeDeltas } = profile;
+    if (!samples || !timeDeltas) return out;
+    for (let i = 0; i < samples.length; i++) {
+        const nodeId = samples[i];
+        const deltaUs = timeDeltas[i] ?? 0;
+        if (deltaUs <= 0) continue;
+        out.set(nodeId, (out.get(nodeId) ?? 0) + deltaUs / 1000);
+    }
+    return out;
+}
+
+// candidate mechanisms named by the spec (`Approach`, S1b bullet), most-specific pattern first — a
+// call-frame URL is classified by the first pattern it matches. Data, not a branch tree, so the mapping
+// is auditable and testable as a table rather than as control flow.
+const CPU_FRAME_BUCKETS: { pattern: RegExp; name: string }[] = [
+    {
+        pattern: /standard\/sear\/pipelines\.ts/,
+        name: "sync createRenderPipeline loop (sear/pipelines.ts, preparePipelines)",
+    },
+    { pattern: /standard\/sear\/forward\.ts/, name: "unwrapVariant (sear/forward.ts)" },
+    { pattern: /engine\/runtime\/gpu\.ts/, name: "precompileAll drain (engine/runtime/gpu.ts)" },
+    { pattern: /engine\/app\/index\.ts/, name: "app boot orchestration (engine/app/index.ts)" },
+    {
+        pattern: /standard\/sear\/regather\.ts/,
+        name: "regather registration (sear/regather.ts, async createComputePipelineAsync)",
+    },
+    {
+        pattern: /standard\/sear\/codegen\.ts/,
+        name: "shader codegen — sear's shared WGSL constants (sear/codegen.ts)",
+    },
+    {
+        pattern: /typegpu.*(resolve|codegen|tgsl)/i,
+        name: "shader codegen (TGSL/WGSL emission, typegpu resolve)",
+    },
+    { pattern: /engine\/ecs\//, name: "ECS setup" },
+    { pattern: /engine\/scene\//, name: "scene setup" },
+    {
+        pattern: /extras\/gltf\//,
+        name: "asset decode (gltf, main-thread marshaling — the decode itself runs in decode.worker.ts, off this thread)",
+    },
+    {
+        pattern: /node_modules\/typegpu/,
+        name: "typegpu runtime (pipeline construction, non-codegen)",
+    },
+];
+
+/** classify a CDP call frame into one of S1b's named candidate mechanisms — data-driven
+ *  ({@link CPU_FRAME_BUCKETS}) rather than a branch tree, so the mapping is a single auditable table.
+ *  A frame with no URL is a V8-internal/native frame CDP names by convention
+ *  (`(program)`/`(idle)`/`(garbage collector)`/`(root)`); anything else falls through to a per-file
+ *  bucket keyed on its last two path segments, so an unclassified hot frame is still visible under its
+ *  own file rather than disappearing into a catch-all. */
+export function classifyCpuFrame(url: string, functionName: string): string {
+    if (!url) {
+        if (functionName) return `${functionName} — V8-internal/native frame (no source url)`;
+        return "(anonymous, no source url) — V8-internal/native frame";
+    }
+    for (const b of CPU_FRAME_BUCKETS) {
+        if (b.pattern.test(url)) return b.name;
+    }
+    return `other — module top-level or unbucketed (${url.split("/").slice(-2).join("/")})`;
+}
+
+/** one merged call-frame identity's self time — {@link summarizeCpuProfile} merges every node sharing
+ *  this identity, since the same function shows up as more than one node when called from more than
+ *  one call path and a per-node reading would split its true self time across them. */
+export interface CpuProfileEntry {
+    key: string;
+    functionName: string;
+    url: string;
+    lineNumber: number;
+    selfMs: number;
+}
+
+/** one named candidate mechanism's total self time — {@link classifyCpuFrame}'s buckets, summed. */
+export interface CpuProfileBucket {
+    name: string;
+    selfMs: number;
+}
+
+/** the reduced form of a raw CDP CPU profile: total sampled self time, every call-frame identity's own
+ *  self time (descending), and the same total rolled up into S1b's named candidate buckets. Pure —
+ *  independently testable against a hand-built {@link RawCpuProfile} fixture, no CDP or browser needed. */
+export interface CpuProfileSummary {
+    totalMs: number;
+    entries: CpuProfileEntry[];
+    buckets: CpuProfileBucket[];
+}
+
+/** reduce a raw CDP CPU profile to {@link CpuProfileSummary}: merge self time per call-frame identity
+ *  (function + url + line — the same identity {@link classifyCpuFrame} buckets), then roll that up into
+ *  the named candidate mechanisms. Deterministic — no wall-clock, no CDP, no browser — so it can be
+ *  armed over a frozen fixture profile. */
+export function summarizeCpuProfile(profile: RawCpuProfile): CpuProfileSummary {
+    const selfByNode = selfTimeMsByNodeId(profile);
+    const byKey = new Map<string, CpuProfileEntry>();
+    for (const node of profile.nodes) {
+        const ms = selfByNode.get(node.id);
+        if (!ms) continue;
+        const cf = node.callFrame;
+        const key = `${cf.functionName || "(anonymous)"}@${cf.url}:${cf.lineNumber + 1}`;
+        const existing = byKey.get(key);
+        if (existing) existing.selfMs += ms;
+        else
+            byKey.set(key, {
+                key,
+                functionName: cf.functionName || "(anonymous)",
+                url: cf.url,
+                lineNumber: cf.lineNumber,
+                selfMs: ms,
+            });
+    }
+    const entries = [...byKey.values()].sort((a, b) => b.selfMs - a.selfMs);
+    const totalMs = entries.reduce((s, e) => s + e.selfMs, 0);
+
+    const bucketTotals = new Map<string, number>();
+    for (const e of entries) {
+        const name = classifyCpuFrame(e.url, e.functionName);
+        bucketTotals.set(name, (bucketTotals.get(name) ?? 0) + e.selfMs);
+    }
+    const buckets = [...bucketTotals.entries()]
+        .map(([name, selfMs]) => ({ name, selfMs }))
+        .sort((a, b) => b.selfMs - a.selfMs);
+
+    return { totalMs, entries, buckets };
+}
 
 /** the render probe the settle path records on its Result — the pixel evidence behind the `rendered`
  *  verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and the spread
@@ -1163,7 +1348,10 @@ const usage = `
     --attribution         Read back the startup pipeline-compile attribution twice, once when the boot
                           wait concludes and once ATTRIBUTION_IDLE_MS later (Profile.compile per label,
                           ProfilePlugin projects only — the second read names a lazy escape past the
-                          boot wait), plus any longtask entries — on result.attribution
+                          boot wait), plus any longtask entries — on result.attribution. Also captures a
+                          CDP sample-based CPU profile of the boot window (self time per function, rolled
+                          up into named candidate mechanisms) — on result.cpuProfile, null if CDP's
+                          Profiler domain wasn't reachable
     --run k=v[&k2=v2]     Batch mode (repeatable): one boot, one page load per --run (fresh browser
                           context + page each), one verdict each. Each spec is its own query string,
                           layered on the shared --query params. A JSON array on stdout; nonzero exit if
@@ -1485,6 +1673,26 @@ async function drive(
         await page.addInitScript({ content: ATTRIBUTION_INIT_SCRIPT }).catch(() => {});
     }
 
+    // S1b: a CDP sample-based CPU profile of the boot, alongside the longtask observer above — started
+    // before navigation so it covers the whole boot, including any longtask that fires before the
+    // app's own module graph finishes loading. Best-effort: a CDP failure (no `Profiler` domain, a
+    // disconnected bridge) leaves `cdpProfiler` null, which reads honestly as `cpuProfile: null` below
+    // rather than a fabricated empty profile.
+    let cdpProfiler: { send(method: string, params?: unknown): Promise<unknown> } | null = null;
+    if (args.attribution) {
+        try {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Profiler.enable");
+            await cdp.send("Profiler.setSamplingInterval", {
+                interval: CPU_PROFILE_SAMPLING_INTERVAL_US,
+            });
+            await cdp.send("Profiler.start");
+            cdpProfiler = cdp;
+        } catch {
+            cdpProfiler = null;
+        }
+    }
+
     // retry the goto once only if the first attempt itself failed (a cold vite server can re-optimize
     // deps mid-load and strand it — the flows launcher's proven shape). Never re-navigate a page that
     // loaded: a second goto re-runs the app and diverges its first-load state. navStart is stamped
@@ -1543,6 +1751,19 @@ async function drive(
         }
         if (Date.now() >= deadline) break;
         await page.waitForTimeout(500);
+    }
+
+    // stop the CPU profile the moment the boot wait concludes — the same point `attribution.compile`
+    // reads Profile.compile below, before its ATTRIBUTION_IDLE_MS idle wait, so the profiled window is
+    // the boot window a real loading screen would key off, not padded by idle sampling.
+    if (cdpProfiler) {
+        try {
+            const stopped = (await cdpProfiler.send("Profiler.stop")) as { profile: RawCpuProfile };
+            await cdpProfiler.send("Profiler.disable").catch(() => {});
+            base.cpuProfile = summarizeCpuProfile(stopped.profile);
+        } catch {
+            base.cpuProfile = null;
+        }
     }
 
     // the render probe — the pixel evidence behind the `rendered` verdict. Carries the wait loop's
