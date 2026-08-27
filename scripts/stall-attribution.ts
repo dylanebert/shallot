@@ -111,7 +111,8 @@ async function main(): Promise<void> {
         return;
     }
 
-    console.log(`booting ${args.dir} over the WSL bridge (--attribution)…`);
+    console.log(`booting ${args.dir} over the WSL bridge (--attribution, headed)…`);
+    process.env.SHALLOT_HEADED = "1";
     const result = await verify(args.dir, [
         "--attribution",
         "--timeout",
@@ -217,12 +218,16 @@ async function main(): Promise<void> {
             `Profile.compile carries no absolute per-entry timestamp) — only totals.`,
     );
 
-    // S1e: Long Animation Frames — the signal class the Goal's prod RUM `slow_frame` derives from.
-    // A LoAF entry is one per delayed *frame*, summing that frame's script/style/layout/paint-
-    // coordination work, including many sub-50ms chunks the longtask observer above cannot see
-    // individually. On a supporting engine this is the local measurement comparable to prod's
-    // slow_frame; on an unsupported engine the guard degrades to an empty array (the init script's
-    // try/catch), reported here rather than silently dropped.
+    // S1e: Long Animation Frames — a third signal class beside longtask and the Goal's prod
+    // `slow_frame` vital, not a match for either. A LoAF entry is one per delayed *frame*, summing
+    // that frame's script/style/layout/paint-coordination work, including many sub-50ms chunks the
+    // longtask observer above cannot see individually. The Goal's `slow_frame` is shallot's own
+    // rAF-delta duration vital (`site/rum-sampler.ts`, `SLOW_FRAME_THRESHOLD_MS`), not LoAF; a rAF
+    // delta counts everything that stops a frame being produced, while LoAF names per-frame
+    // main-thread-side rendering work only. S1f installs the rAF-delta sampler to match the Goal's
+    // own class; LoAF stays as a complementary per-frame main-thread signal. On an unsupported engine
+    // the guard degrades to an empty array (the init script's try/catch), reported here rather than
+    // silently dropped.
     const loafEntries: LoAFEntry[] = attribution.longAnimationFrames ?? [];
     const loafTotalMs = loafEntries.reduce((s, e) => s + e.duration, 0);
     const loafBlockingMs = loafEntries.reduce((s, e) => s + e.blockingDuration, 0);
@@ -231,15 +236,16 @@ async function main(): Promise<void> {
             ? loafEntries.reduce((a, b) => (b.duration > a.duration ? b : a))
             : null;
     console.log(
-        `\n## S1e — Long Animation Frames (LoAF) — the Goal's prod slow_frame signal class\n`,
+        `\n## S1e — Long Animation Frames (LoAF) — per-frame main-thread signal (third class beside longtask and the rAF-delta vital)\n`,
     );
     if (loafEntries.length === 0) {
         console.log(
             `0 LoAF entries — the engine does not support long-animation-frame (or no frame crossed ` +
                 `the 50ms rendering threshold this boot). The longtask total above (${r1(longTaskMs)}ms) ` +
-                `remains the only main-thread signal, and is NOT comparable to the Goal's prod ` +
-                `slow_frame numbers (sandbox 1100ms / roads 879ms) — longtask fires only on a single ` +
-                `task ≥50ms, while LoAF sums per-frame work including sub-50ms chunks.`,
+                `remains the only main-thread signal from the longtask/LoAF pair. Neither is comparable ` +
+                `to the Goal's prod slow_frame numbers (sandbox 1100ms / roads 879ms) — the Goal's ` +
+                `slow_frame is a rAF-delta vital, not a platform metric; see the S1f rAF-delta section ` +
+                `below for the Goal's own class.`,
         );
     } else {
         console.log(
@@ -268,29 +274,63 @@ async function main(): Promise<void> {
                 );
             });
     }
-    // the same-order-or-below verdict: is the local worst LoAF frame the same order as the Goal's prod
-    // worst frames (sandbox 1100ms / roads 879ms)? An order below means the local seat does not
-    // reproduce the prod stall's magnitude.
-    const ProdWorstSandbox = 1100;
-    const ProdWorstRoads = 879;
-    const prodWorst = args.dir.endsWith("roads") ? ProdWorstRoads : ProdWorstSandbox;
-    if (loafWorst) {
-        const ratio = loafWorst.duration / prodWorst;
-        const verdict =
-            ratio >= 0.5 ? "same order" : ratio >= 0.1 ? "within an order" : "an order below";
+    // S1e's LoAF-vs-prod verdict was dropped (S1f): it divided a LoAF duration by a rAF delta —
+    // two different signal classes — so it was not a reading of the Goal. The Goal's own class is
+    // the rAF-delta vital, reported in the S1f section below.
+
+    // S1f: headed check — the rAF-delta sampler's validity depends on a real display. A headless,
+    // display-less frame clock undershoots real block durations (`rum-intake-driver.ts:31-36`:
+    // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported). `stall-attribution.ts` sets
+    // `SHALLOT_HEADED=1` and `verify.ts` reads it to launch `headless: false`, but nothing tested
+    // that the setting actually took effect — the env is set unconditionally inside `main()`, so an
+    // external override cannot turn it off, and the launch flag was unarmed. This arm reads the
+    // browser's own `navigator.userAgent` back through the attribution result and asserts it does
+    // not contain `HeadlessChrome` — the discriminator Playwright's headed vs headless launches
+    // differ on (probed: headed = `Chrome/...`, headless = `HeadlessChrome/...`).
+    const userAgent = attribution.userAgent ?? "";
+    if (userAgent.includes("HeadlessChrome")) {
         console.log(
-            `\nLoAF-vs-prod verdict: local worst frame ${r1(loafWorst.duration)}ms vs prod worst ` +
-                `${prodWorst}ms (${args.dir.endsWith("roads") ? "roads" : "sandbox"}) — ratio ` +
-                // three decimals deliberately: the verdict's thresholds are 0.5 and 0.1, so a
-                // one-decimal ratio rounds 0.069 to "0.1" and reads as if it contradicted the
-                // "an order below" verdict it produced.
-                `${ratio.toFixed(3)}, ${verdict}.`,
+            `FATAL: attribution run launched headless (UA contains "HeadlessChrome") — ` +
+                `rAF-delta readings are invalid on a display-less frame clock. ` +
+                `Set SHALLOT_HEADED=1 or fix the launch path.`,
+        );
+        process.exitCode = 1;
+    } else {
+        console.log(`PASSED: attribution run launched headed — UA "${userAgent}".`);
+    }
+
+    // S1f: rAF-delta sampler — the Goal's own signal class. `slow_frame` is shallot's rAF-delta
+    // duration vital (`site/rum-sampler.ts`'s `sampleFrame`: `delta = timestamp - lastTimestamp`,
+    // threshold 50ms, first frame never reports), not a platform metric and not LoAF. The
+    // `ATTRIBUTION_INIT_SCRIPT` installs a mirror of `sampleFrame` in-page on
+    // `window.__shallotRafDeltas`, recording every inter-callback gap >= 50ms with its rAF timestamp
+    // (which is `msSinceLoad` on the vital's own context axis). Run headed because a display-less
+    // frame clock undershoots real block durations (`rum-intake-driver.ts:31-36`).
+    const rafDeltas: { delta: number; timestamp: number }[] = attribution.rafDeltas ?? [];
+    const rafMax = rafDeltas.length > 0 ? Math.max(...rafDeltas.map((d) => d.delta)) : 0;
+    console.log(`\n## S1f — rAF-delta sampler (the Goal's own signal class, headed)\n`);
+    if (rafDeltas.length === 0) {
+        console.log(
+            `0 rAF deltas >= 50ms — no frame crossed the slow-frame threshold this boot. ` +
+                `This is the Goal's own signal class (mirrors \`site/rum-sampler.ts\`'s \`sampleFrame\`), ` +
+                `so a zero here means the local seat did not reproduce the prod stall in this metric.`,
         );
     } else {
         console.log(
-            `\nLoAF-vs-prod verdict: no LoAF entries to compare — the local instrument cannot ` +
-                `produce a number in the Goal's signal class for this run.`,
+            `${rafDeltas.length} rAF deltas >= 50ms, max delta ${r1(rafMax)}ms across the boot window.`,
         );
+        console.log(
+            `prod slow_frame cluster: 0.3–3.1s post-load, worst frames sandbox 1100ms / roads 879ms.`,
+        );
+        console.log("");
+        console.log("| # | timestamp (msSinceLoad) | delta (ms) |");
+        console.log("|---|---|---|");
+        rafDeltas
+            .slice()
+            .sort((a, b) => a.timestamp - b.timestamp)
+            .forEach((d, i) => {
+                console.log(`| ${i + 1} | ${r1(d.timestamp)} | ${r1(d.delta)} |`);
+            });
     }
 
     console.log("\n## Lazy-escape check (compile vs compileAfterIdle)\n");
@@ -398,7 +438,9 @@ async function main(): Promise<void> {
             process.exitCode = 1;
         } else {
             console.log(
-                "PASSED: no verify-harness call frames in the attribution run's CPU profile.",
+                "PASSED: no contaminating verify-harness call frames in the attribution run's CPU profile — " +
+                    "the instrument's own `__shallotRafTick` rAF callback is a known, deliberate, negligible " +
+                    "exception (the sampler itself, not injected polling).",
             );
         }
     }

@@ -17,6 +17,7 @@ import {
 import { parsePhases, parseResources, parseTransformLine } from "../../../scripts/boot-cost";
 import { verifyDiagnostic } from "../../../scripts/install-test";
 import type { ShaderArtifactSummary, VerifyResult } from "../../../scripts/verify";
+import { initialFrameSamplerState, sampleFrame } from "../../../site/rum-sampler";
 import {
     ATTRIBUTION_INIT_SCRIPT,
     batchPass,
@@ -620,7 +621,8 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
     });
 
     test("initializes the sink to an empty array regardless of PerformanceObserver support", () => {
-        const win: { __shallotLongTasks?: unknown } = {};
+        const win: Record<string, unknown> = {};
+        win.requestAnimationFrame = (() => 0) as unknown as typeof requestAnimationFrame;
         new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
         expect(win.__shallotLongTasks).toEqual([]);
     });
@@ -635,7 +637,8 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
     });
 
     test("initializes the LoAF sink to an empty array regardless of PerformanceObserver support", () => {
-        const win: { __shallotLoAF?: unknown } = {};
+        const win: Record<string, unknown> = {};
+        win.requestAnimationFrame = (() => 0) as unknown as typeof requestAnimationFrame;
         new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
         expect(win.__shallotLoAF).toEqual([]);
     });
@@ -645,6 +648,7 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
     // must degrade the LoAF sink to an empty array while keeping the longtask sink working.
     test("degrades the LoAF sink to [] when the observer constructor throws on long-animation-frame, while keeping longtask working", () => {
         const win: Record<string, unknown> = {};
+        win.requestAnimationFrame = (() => 0) as unknown as typeof requestAnimationFrame;
         win.PerformanceObserver = ((_cb: (list: { getEntries(): unknown[] }) => void) => ({
             observe(opts: { entryTypes: string[] }) {
                 if (opts.entryTypes.includes("long-animation-frame")) {
@@ -657,6 +661,73 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
         new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
         expect(win.__shallotLoAF).toEqual([]);
         expect(win.__shallotLongTasks).toEqual([]);
+    });
+
+    // S1f: the rAF-delta sampler is installed beside the longtask and LoAF observers on
+    // `window.__shallotRafDeltas`. It mirrors `site/rum-sampler.ts`'s pure `sampleFrame` — same
+    // threshold (50ms), same `delta = timestamp - lastTimestamp`, same first-frame rule (never
+    // reports). An `addInitScript` string cannot import the module, so the mirror is a copy and
+    // drift is the exposure: the arm below feeds the same fixture timestamps to both the mirror
+    // (extracted from the shipped init-script string) and the real exported `sampleFrame`, asserting
+    // they agree on which frames are slow and what their deltas/timestamps are.
+    test("initializes the rAF-delta sink to an empty array", () => {
+        const win: { __shallotRafDeltas?: unknown; requestAnimationFrame?: unknown } = {};
+        win.requestAnimationFrame = (() => 0) as unknown as typeof requestAnimationFrame;
+        new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
+        expect(win.__shallotRafDeltas).toEqual([]);
+    });
+
+    test("rAF-delta mirror agrees with sampleFrame on a fixture timestamp sequence", () => {
+        // Evaluate the shipped init script in a mock environment to extract the rAF callback.
+        // The mock `requestAnimationFrame` captures the first callback (the one the IIFE registers)
+        // and ignores subsequent registrations (the callback's own recursive rAF call), so the test
+        // can drive the callback manually with fixture timestamps.
+        const win: Record<string, unknown> = {};
+        let rafCallback: ((timestamp: number) => void) | null = null;
+        win.requestAnimationFrame = ((cb: (timestamp: number) => void) => {
+            if (rafCallback === null) rafCallback = cb;
+            return 0;
+        }) as unknown as typeof requestAnimationFrame;
+        win.PerformanceObserver = class {
+            observe() {}
+        } as unknown as typeof PerformanceObserver;
+        new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
+        expect(rafCallback).not.toBeNull();
+        expect(win.__shallotRafDeltas).toEqual([]);
+
+        // Fixture: a mix of normal frames (16ms), slow frames (>=50ms), a near-threshold frame
+        // (45ms — below the 50ms threshold but above a perturbed 40ms threshold, so a threshold
+        // perturbation is detectable), an exact-threshold frame (50ms — the boundary case, reported
+        // by both sides because the comparison is >=), and a first frame.
+        // deltas: first(0→0, no report), 16, 80(slow), 16, 60(slow), 16, 45(near), 16, 200(slow), 16, 1000(slow), 50(boundary)
+        const timestamps = [0, 16, 96, 112, 172, 188, 233, 249, 449, 465, 1465, 1515];
+
+        // Drive the mirror (extracted from the shipped init-script string)
+        for (const t of timestamps) {
+            rafCallback!(t);
+        }
+        const mirrorDeltas = win.__shallotRafDeltas as { delta: number; timestamp: number }[];
+
+        // Drive the real exported `sampleFrame` with the same timestamps
+        let state = initialFrameSamplerState;
+        const moduleReports: { duration: number; msSinceLoad: number }[] = [];
+        for (const t of timestamps) {
+            const result = sampleFrame(state, t);
+            state = result.state;
+            if (result.report) {
+                moduleReports.push({
+                    duration: result.report.duration,
+                    msSinceLoad: result.report.context.msSinceLoad,
+                });
+            }
+        }
+
+        // Assert they agree: same count, same deltas, same timestamps (msSinceLoad)
+        expect(mirrorDeltas).toHaveLength(moduleReports.length);
+        for (let i = 0; i < mirrorDeltas.length; i++) {
+            expect(mirrorDeltas[i].delta).toBe(moduleReports[i].duration);
+            expect(mirrorDeltas[i].timestamp).toBe(moduleReports[i].msSinceLoad);
+        }
     });
 });
 

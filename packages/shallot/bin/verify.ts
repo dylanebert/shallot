@@ -317,9 +317,15 @@ export const TIMINGS_INIT_SCRIPT = `performance.setResourceTimingBufferSize(${RE
  * `window.__shallotLoAF`. A LoAF entry names a single *frame* whose main-thread-side work (script,
  * style, layout, paint coordination) delayed it past the 50ms rendering threshold — one entry per
  * delayed frame, summing that frame's work including many sub-50ms chunks the longtask observer
- * cannot see individually. This is the signal class the Goal's prod RUM `slow_frame` derives from
- * (W3C Long Animation Frames), so a local LoAF number and a prod `slow_frame` number are the same
- * measurement, where a longtask total is not. Each entry carries `startTime`, `duration`,
+ * cannot see individually. LoAF is a *third* signal class beside longtask and the Goal's prod
+ * `slow_frame` vital — not a match for either. The Goal's `slow_frame` is shallot's own rAF-delta
+ * duration vital (`site/rum-sampler.ts`, `SLOW_FRAME_THRESHOLD_MS`, `delta = timestamp -
+ * state.lastTimestamp`, emitted via `DD_RUM.addDurationVital` in `site/rum-runtime.ts`), not a
+ * platform metric and not LoAF; a rAF delta counts everything that stops a frame being produced
+ * (main-thread block, compositor/GPU backpressure, any interval where rAF isn't dispatched), while
+ * LoAF names per-frame main-thread-side rendering work only. S1f installs the rAF-delta sampler on
+ * `window.__shallotRafDeltas` to match the Goal's own class; LoAF stays as a complementary
+ * per-frame main-thread signal. Each LoAF entry carries `startTime`, `duration`,
  * `blockingDuration`, and `renderStart`/`styleAndLayoutStart` where the engine provides them. Guarded
  * the same way as longtask: an unsupported `entryTypes` throws synchronously in the observer
  * constructor, caught so a missing LoAF degrades to an empty array rather than killing the init
@@ -348,6 +354,18 @@ export const ATTRIBUTION_INIT_SCRIPT = `
             }
         }).observe({ entryTypes: ["long-animation-frame"] });
     } catch {}
+    window.__shallotRafDeltas = [];
+    let __shallotRafLastTs = null;
+    window.requestAnimationFrame(function __shallotRafTick(timestamp) {
+        if (__shallotRafLastTs !== null) {
+            const delta = timestamp - __shallotRafLastTs;
+            if (delta >= 50) {
+                window.__shallotRafDeltas.push({ delta: delta, timestamp: timestamp });
+            }
+        }
+        __shallotRafLastTs = timestamp;
+        window.requestAnimationFrame(__shallotRafTick);
+    });
 })();
 `;
 
@@ -687,13 +705,18 @@ export interface Result {
      *  init through the second read. `longAnimationFrames` is every `long-animation-frame` (LoAF)
      *  PerformanceObserver entry recorded over the same window — one entry per delayed frame, summing
      *  that frame's script/style/layout/paint-coordination work including sub-50ms chunks the longtask
-     *  observer cannot see (S1e: the signal class matching the Goal's prod `slow_frame`). Absent when
-     *  `--attribution` wasn't passed. */
+     *  observer cannot see (S1e: a third signal class beside longtask and the Goal's prod `slow_frame` vital — not a match for either). `rafDeltas` is every rAF inter-callback gap ≥ 50ms recorded over the
+     *  same window (S1f: the Goal's own signal class — mirrors `site/rum-sampler.ts`'s `sampleFrame`,
+     *  same threshold, same `delta = timestamp - lastTimestamp`, same first-frame rule), each carrying
+     *  `delta` (the gap) and `timestamp` (the rAF timestamp, which is `msSinceLoad` on the vital's own
+     *  context axis). Absent when `--attribution` wasn't passed. */
     attribution?: {
         compile: BenchmarkCompileStats | null;
         compileAfterIdle: BenchmarkCompileStats | null;
         longTasks: { start: number; duration: number }[];
         longAnimationFrames: LoAFEntry[];
+        rafDeltas: { delta: number; timestamp: number }[];
+        userAgent: string;
     } | null;
     /** `--attribution` only (S1b): a CDP `Profiler` sample-based CPU profile of the main thread from
      *  just before navigation through the boot wait's conclusion (the same point `attribution.compile`
@@ -942,6 +965,11 @@ export function summarizeCpuProfile(profile: RawCpuProfile): CpuProfileSummary {
 // (well below the 200µs sampling interval), so it is effectively invisible in the CPU profile. The arm's
 // "no harness frames" claim states this one known blind spot rather than overclaiming: a named in-page
 // helper would be caught, this anonymous typeof check is not.
+//
+// S1f: `__shallotRafTick` (the ATTRIBUTION_INIT_SCRIPT's in-page rAF callback) is deliberately NOT in this
+// set — it is the instrument itself, not injected polling, so flagging it would misread the sampler's own
+// necessary overhead as contamination. Measured self time ~0.6–2.6ms across runs, a negligible floor-level
+// presence the arm's "no contaminating harness frames" claim explicitly exempts.
 /** @internal exported so the registration-coverage test can assert every named `page.evaluate` function
  *  is in the set. */
 export const HARNESS_INPAGE_FUNCTION_NAMES = new Set([decodeSample.name, decodeRgba.name]);
@@ -1696,7 +1724,13 @@ async function verifyCommand(raw: string[]): Promise<number> {
             browser = args.connect
                 ? await chromium.connect(args.connect, { timeout: 30_000 })
                 : await chromium.launch({
-                      headless: true,
+                      // S1f: headless rAF timestamps are derived from a display-less frame clock with no
+                      // real compositor/vsync, so they undershoot real block durations (probed:
+                      // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported — `rum-intake-driver.ts:31-36`).
+                      // The rAF-delta sampler needs a real display to produce valid readings, so the
+                      // attribution run goes headed when `SHALLOT_HEADED` is set — scoped to `--attribution`
+                      // only, not the default for every `shallot verify` consumer.
+                      headless: !(args.attribution && process.env.SHALLOT_HEADED),
                       // the published real-GPU recipe (`src/harness/browser.ts`) — its JSDoc carries the
                       // headless-shell/SwiftShader finding this channel exists to avoid.
                       ...REAL_GPU_LAUNCH,
@@ -2058,6 +2092,13 @@ async function drive(
                                 __shallotLoAF?: LoAFEntry[];
                             }
                         ).__shallotLoAF ?? [],
+                    rafDeltas:
+                        (
+                            window as unknown as {
+                                __shallotRafDeltas?: { delta: number; timestamp: number }[];
+                            }
+                        ).__shallotRafDeltas ?? [],
+                    userAgent: navigator.userAgent,
                 };
             }, ATTRIBUTION_IDLE_MS)
             .catch(() => null)) as Result["attribution"];
