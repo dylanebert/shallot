@@ -738,9 +738,8 @@ if (rosterFindings.length > 0) {
 // — camelCase, PascalCase, snake/SCREAMING_SNAKE, lowercase-with-digits, or a backticked `*.ts`
 // path — **backticked or bare** — must resolve against the tree or a committed roster. The
 // population predicate is formatting-invariant: a token is caught whether it's in backticks or
-// bare in prose, so removing backticks (round 3's escape) no longer removes a citation from the
-// arm's population. Round 3 removed backticks from 10 tokens to escape the arm; round 4 reverts
-// those markup edits and widens the predicate to catch bare tokens too.
+// bare in prose, so removing backticks does not remove a citation from the
+// arm's population.
 //
 // Resolution is a one-pass token index over `*.ts`/`*.rs`/`*.wgsl` (excluding `node_modules`,
 // `scripts/check-docs.ts`, `scripts/rosters.ts`, `scripts/stale-claim-predicates.ts`), NOT
@@ -994,7 +993,7 @@ if (rosterInTree.length > 0) {
 //   (iii) Roster swap-in: in scripts/rosters.ts replace "PowerVR" with
 //         "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace
 //         the solo-backticked `advanceColor` with `zombieUploadPass` (citation
-//         count stays 1734) → exit 1, stale citation — PowerVR's citation
+//         count stays above the floor) → exit 1, stale citation — PowerVR's citation
 //         sites in gpu.md no longer resolve. Count-neutral in every pinned
 //         quantity, so the red comes from the resolution leg, not a count pin.
 //         Witnesses: every surviving roster entry is load-bearing, so a
@@ -1007,8 +1006,8 @@ if (rosterInTree.length > 0) {
 //   (vi) Weak-shape bare: `advanceColor` → bare `zombie_upload_pass` (snake) in avbd.md:114
 //         → exit 1, stale citation (all shapes caught bare, round 6b's escape shut;
 //         round 7 also admits weak shapes in-span)
-//   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` moves the
-//         pinned citation count (1507 vs 1734) → exit 1, citation count mismatch
+//   (vii) Predicate narrowing: removing `matchesWeakShape` from `matchesShape` shrinks the
+//         citation population below the floor → exit 1, citation count below floor
 //   (viii) Retired: the round-6 SHAPE_FALSE_POSITIVES set was deleted in round 6b.
 //         Re-introducing it as an unread variable is a tautology about dead code, not a
 //         gate witness — the real channel was closed by deletion, not by the gate catching

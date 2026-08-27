@@ -20,8 +20,8 @@ export const RUM_INJECTION_MARKER = "<!-- shallot: datadog rum slow-frame vitals
 // cannot import anything. Derives the Datadog `env` facet from the served hostname: "prod" for
 // dylanebert.com and any subdomain (the site is served at dylanebert.com/shallot/, README.md /
 // AGENTS.md), "local" otherwise (a `bun run verify`/dev preview at localhost, or a raw
-// `file://`/IP checkout) — the Locked decision's localhost-noise fix
-// (`shallot-demo-slow-frame-attribution.md`). One shared string: `scripts/build-site.ts` injects
+// `file://`/IP checkout) — so a localhost preview is tagged "local" and never pollutes prod's
+// slow-frame vitals. One shared string: `scripts/build-site.ts` injects
 // it verbatim and `scripts/check-site.ts`'s env-presence clause matches on the same literal, so
 // the two never drift apart (mirrors `RUM_INJECTION_MARKER` above).
 export const RUM_ENV_SNIPPET =

@@ -22,12 +22,12 @@ Witnessed at the round 7 working state on branch `audit-stale-claim-sweep/S1`, r
 |---|----------|------|-------------|
 | (i) | Seeded backticked dead symbol: `` `advanceColor` `` → `` `zombieUploadPass` `` in avbd.md:114 (in place) | 1 | stale citation |
 | (ii) | Bare dead symbol: `` `advanceColor` `` → bare `zombieUploadPass` in avbd.md:114 (in place) | 1 | stale citation |
-| (iii) | Roster swap-in (count-neutral): in scripts/rosters.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays 1734) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
+| (iii) | Roster swap-in (count-neutral): in scripts/rosters.ts replace "PowerVR" with "zombieUploadPass" (roster count stays 43); in avbd.md:114 replace the solo-backticked `advanceColor` with `zombieUploadPass` (citation count stays above the floor) | 1 | stale citation (PowerVR at gpu.md:257, :265) |
 | (iv) | Substring: `` `advanceColor` `` → `` `spotInner` `` in avbd.md:114 (substring of live `spotInnerF`) | 1 | stale citation |
 | (v) | Launder-via-marker: `` `advanceColor` `` → `` `zombieUploadPass` (retired) `` in avbd.md:114 | 1 | marker-exempted count mismatch (21 vs 20) |
 | (vi) | Weak-shape bare: `` `advanceColor` `` → bare `zombie_upload_pass` (snake) in avbd.md:114 | 1 | stale citation |
-| (vii) | Predicate narrowing: `matchesWeakShape` call removed from `matchesShape` | 1 | citation count mismatch (1507 vs 1734) |
-| baseline | Clean tree (1734 citations, 43 roster entries, 20 marker-exempted) | 0 | — |
+| (vii) | Predicate narrowing: `matchesWeakShape` call removed from `matchesShape` | 1 | citation count below floor |
+| baseline | Clean tree (citation count above floor, 43 roster entries, 20 marker-exempted) | 0 | — |
 
 ## (viii) — SHAPE_FALSE_POSITIVES, retired honestly
 
@@ -41,7 +41,7 @@ function reads has no effect, so the dead symbol is caught by the population
 predicate regardless of the set's presence. The real channel
 (`SHAPE_FALSE_POSITIVES` greening a dead symbol) was closed by **deletion** of
 the set, not by the gate catching a re-introduction. There is no mutation to
-witness — the escape no longer exists in the code, and a re-introduction as
+witness — the escape is closed (the set is deleted), and a re-introduction as
 an unread variable is inert by construction. Row (viii) is retired.
 
 ## A — Roster disjointness (round 7, item a)

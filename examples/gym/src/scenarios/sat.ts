@@ -81,13 +81,12 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 //   "ref-kernel"      — workgroup_size(32), one active lane, hardcoded face-y-overlap. The reference
 //                       configuration the SAT kernel is correct under.
 //
-// This gate caught a Metal-3-only miscompile: under multi-lane SIMD execution the full collideBoxBox's
-// peak function-private footprint spilled, and Metal miscompiled the per-lane offset of the spilled
-// SatResult, collapsing every face manifold to count=1 (single-lane was fine; the ref-kernel proves
-// the SAT math correct). Fixed by cutting Poly to its exact 8-vertex bound (collide.ts MAX_POLY_VERTS),
-// dropping the footprint below the spill threshold. metal-3 now passes; nvidia/lovelace was already
-// green and the fix only reduces an over-allocation, so it stays green. Mechanism + refuted
-// candidates: shallot gpu.md "WebGPU-specific traps".
+// This gate guards a Metal-3-only miscompile: under multi-lane SIMD execution the full collideBoxBox's
+// peak function-private footprint spills, and Metal miscompiles the per-lane offset of the spilled
+// SatResult, collapsing every face manifold to count=1. The ref-kernel (single-lane) proves the SAT
+// math correct; Poly is cut to its exact 8-vertex bound (collide.ts MAX_POLY_VERTS), keeping the
+// footprint below the spill threshold on both Metal-3 and nvidia/lovelace. Mechanism: shallot gpu.md
+// "WebGPU-specific traps".
 
 interface GoldContact {
     feature: number;

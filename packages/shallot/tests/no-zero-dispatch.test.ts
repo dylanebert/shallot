@@ -1,11 +1,8 @@
-// Tree-wide static arm for S6 item 3 (`shallot-boot-noise.md`): four in-repo `examples/showcase/**`
-// forcers still zero-dispatched on a deploying site while `AGENTS.md`/`MIGRATION.md` forbid it — the
-// Goal's own symptom, still live in a stranger's console, because S1 enumerated `packages/shallot/src`
-// alone. This is the load-bearing half of criterion 6/7's re-opened oracle: criterion 2's only witness
-// (`bin/console-warning.probes.ts`) runs under no gate and no CI, so nothing today catches a
-// reintroduced zero-workgroup dispatch or a zero-count `.draw`. `prebuilt.test.ts`'s static arms are
-// the precedent for a repo-shape assertion living beside the code it checks rather than inside a
-// script nobody runs.
+// Tree-wide static arm: a zero-workgroup dispatch or a zero-count `.draw` in any shipped or example
+// forcer warns in a stranger's console at deploy time, and nothing else under gate or CI catches a
+// reintroduced one — so this scans the whole tree (`SCAN_DIRS` below), not `packages/shallot/src`
+// alone. `prebuilt.test.ts`'s static arms are the precedent for a repo-shape assertion living
+// beside the code it checks rather than inside a script nobody runs.
 //
 // Scanned **dynamically** by glob over the whole repo tree (the same `consumerDirs` shape
 // `check-exports.ts` uses for its own cross-cutting walk) — never a fixed enumeration of "the four

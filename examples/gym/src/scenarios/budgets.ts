@@ -24,12 +24,9 @@
 //   count by zero — the blindness `gpu.md`'s per-pipeline-label law is meant to prevent, pinned at
 //   exactly one surface (`sear/pipelines.test.ts`) and nowhere else. This axis closes it at the mechanism
 //   instead of at the naming convention: a multiplied pipeline moves the call count whatever it's called.
-//   **The equality form `pipelineCalls === pipelines` was tried first and refuted by measurement**
-//   (2026-08-06, nvidia/lovelace): TypeGPU derives several raw pipelines from one named typed pipeline —
-//   `pile` builds 133 raw pipelines under 66 labels (every `phys-*` and BVH kernel ×3, from ONE
-//   `AvbdPlugin.warm`, verified by instrumenting the hook), `accel` 60 under 44 (the BVH stage set ×2).
-//   Labels are not 1:1 with pipelines post-port, so equality would have gated three scenarios red against
-//   an invariant the engine's own idiom never held. The exact count is the sound form of the same intent.
+//   Labels are not 1:1 with pipelines — TypeGPU derives several raw pipelines from one named typed
+//   pipeline (`pile` builds 133 raw pipelines under 66 labels, `accel` 60 under 44) — so the count is
+//   per call, never a label-equality form. The exact count is the sound form of the same intent.
 // - `gpuBytes` — the exact `Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes` total: every
 //   live allocation EXCEPT one an allocator marked `LazyAlloc.lazy` at creation (`Mirror`'s readback ring,
 //   `Slab`'s staging pool — a pool that grows on real GPU backpressure, so its live-stager count is
@@ -42,35 +39,16 @@
 // invented, not derived. A scenario axis that legitimately can't be budgeted this way carries a
 // `BUDGET_EXEMPTIONS` reason for that axis instead, never both.
 //
-// History: stage 3b landed the mechanism plus one entry (`render`); stage 4 measured the rest of the
-// roster (2-sample reads, later shown too thin); stage 4b split the exemption per axis; stage 4c/4d traced
-// every disagreement in the roster to ONE mechanism — `Mirror`'s readback ring and `Slab`'s staging pool,
-// both lazily-grown pools under real GPU backpressure (`standard/mirror/index.ts`, `standard/slab/
-// index.ts`). Stage 4e (2026-08-05) closed the axis by EXCLUDING those pools' bytes at the allocation site
-// (`LazyAlloc`, `Profile.lazyBytes`) instead of exempting the scenarios that hold one, then re-harvested
-// the entire roster off one `bun bench --sweep` (nvidia/lovelace via the WSL bridge) under the new
-// definition — every number below changed because the total's definition changed, not because the scene
-// did. The 7 rows previously byte-exempt (`backend`, `render`, `character`, `motor`, `sat`, `stress`,
-// `chain`) were re-verified beyond the two sweeps below (two independent same-day `--scenario` runs
-// each, so four agreeing samples) and all 7 came back exact — `BUDGET_EXEMPTIONS` is empty: excluding the
-// lazy pools' bytes at the mechanism resolved every known disagreement, including the AVBD-driven rows
-// (`motor`/`sat`/`character`/`stress`) whose prior exemption reasons cited AVBD's documented contact-order
-// non-determinism (`avbd.md`) — their measured disagreement tracks back to the SAME lazy-pool bytes
-// (`slab-staging`, shared by every scene with a dirty transform slab), not to a byte-affecting instance of
-// that non-determinism, on the topologies these scenarios exercise.
+// `BUDGET_EXEMPTIONS` is empty — every row is exact — because the two lazily-grown pools (`Mirror`'s
+// readback ring, `Slab`'s staging pool) are excluded at the allocation site (`LazyAlloc`,
+// `Profile.lazyBytes`), not by exempting the scenarios that hold one. `AvbdPlugin`'s other
+// grow-on-demand buffer, `setHulls`'s `hullData` (`standard/avbd/step.ts`), is not a third lazy site:
+// it re-uploads only when `Hulls.size` changes, a count fixed by which hulls a scenario registers at
+// build, so it carries no `LazyAlloc` mark. The AVBD-driven rows (`motor`/`sat`/`character`/`stress`)
+// are exact for the same reason — their measured disagreement traced to the shared `slab-staging`
+// label, never to AVBD's contact-order non-determinism.
 //
-// `AvbdPlugin`'s other grow-on-demand buffer, `setHulls`'s `hullData` (`standard/avbd/step.ts`), was
-// checked and ruled out as a third lazy site: it re-uploads only when `Hulls.size` changes
-// (`standard/avbd/index.ts`), a count fixed by which hulls a scenario registers at build — static
-// registry content, not real-device readback timing — so it's deterministic for a fixed scenario at
-// fixed params and carries no `LazyAlloc` mark. Stage 4d's attribution corroborates this independently:
-// every one of the 34 disagreeing rows, including the AVBD-heavy ones, traced to the single label
-// `slab-staging`, never `phys-hulls`.
-//
-// `orbit-touch` (`shallot-mobile-controls` spec, S5) first landed from a software-adapter reading
-// (SwiftShader, the WSL→Windows real-GPU bridge unreachable that session) flagged as unconfirmed;
-// 2026-08-26 real-hardware run (nvidia/lovelace, via the fixed bridge dial) agreed exactly (29/29/
-// 31_828_368) — the row carries no further caveat.
+// `orbit-touch` is exact at DEFAULT params: 29 pipelines, 29 pipeline calls, 31_828_368 GPU bytes.
 export interface AxisBudget {
     pipelines?: number;
     pipelineCalls?: number;
@@ -91,17 +69,13 @@ export const AXES = Object.keys(AXIS_SET) as readonly Axis[];
 export type AxisExemption = { [K in Axis]?: string };
 
 export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
-    // measured 2026-08-05, nvidia/lovelace via the WSL bridge, under the stage 4e exclusion (`gpuBytes` =
-    // `Profile.bufferBytes + Profile.textureBytes - Profile.lazyBytes`) — a data-only re-harvest, not a
-    // re-measurement of the scene. Every row here rests on TWO independent
-    // agreeing samples, not one: the harvest `bun bench --sweep` that produced these numbers finished
-    // 22:17, the numbers were written here at 22:29, the temporary harvest check (`assertBudget`'s
-    // `pass: false` instrument) was removed at 22:30, and a second sweep ran 22:31–22:37 — clean 57/57
-    // against these already-final goldens through the real exact-equality checks, a verifier confirming
-    // the harvest's numbers, not a second producer of them. `backend`, `render`, `character`, `motor`,
-    // `sat`, `stress`, `chain` additionally carry two independent same-day `--scenario` confirmation runs
-    // from the stage 4c floor (since each was previously byte-exempt), so those 7 rows rest on FOUR
-    // independent agreeing samples.
+    // measured under the lazy-pool exclusion (`gpuBytes` = `Profile.bufferBytes + Profile.textureBytes -
+    // `Profile.lazyBytes`) — a data-only read of the total, not a re-measurement of the scene. Every row
+    // here rests on TWO independent agreeing samples: the harvest `bun bench --sweep` that produced these
+    // numbers, plus a second sweep run against these already-final goldens through the real exact-equality
+    // checks — a verifier confirming the harvest's numbers, not a second producer of them. `backend`,
+    // `render`, `character`, `motor`, `sat`, `stress`, `chain` additionally carry two independent
+    // same-day `--scenario` confirmation runs, so those 7 rows rest on FOUR independent agreeing samples.
     accel: { pipelines: 44, pipelineCalls: 60, gpuBytes: 34_574_780 },
     backend: { pipelines: 29, pipelineCalls: 29, gpuBytes: 12_723_708 },
     "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
@@ -164,10 +138,9 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
 
 /** every axis explicitly exempted from a compile/memory budget, and why — keyed by scenario, one optional
  *  reason per axis. A scenario/axis pair appears in exactly one of this table or `SCENARIO_BUDGETS`, never
- *  both, checked in `budget-coverage.test.ts`. Empty since stage 4e (2026-08-05):
- *  every scenario previously exempt on `gpuBytes` was a lazily-grown pool (`Mirror`'s ring or `Slab`'s
- *  staging pool) under real GPU backpressure, and excluding those bytes at the allocation site made the
- *  remaining total exact on all 7 — see the history note on `SCENARIO_BUDGETS`. Kept non-empty-shaped (the
+ *  both, checked in `budget-coverage.test.ts`. Empty: the two lazily-grown pools (`Mirror`'s ring or
+ *  `Slab`'s staging pool) are excluded at the allocation site, so the remaining total is exact on every
+ *  row. Kept non-empty-shaped (the
  *  type, not a value) because the mechanism this axis excludes is scoped to two known pools, not to "no
  *  scenario can ever disagree" — a future lazily-grown pool that isn't marked `LazyAlloc.lazy` yet would
  *  reintroduce a disagreeing row here, not a silent gate weakening. */

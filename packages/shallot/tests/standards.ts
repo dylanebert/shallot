@@ -121,7 +121,7 @@ export type Population = Record<string, readonly DisciplineCheck[]>;
  *  WGSL resolution. Mirrors `coverage.ts`'s `checkGateEntries`/`checkCompleteness` split: a declared
  *  registry asserted against a real population the caller supplies.
  *
- *  Four finding kinds: a registry key naming a kernel no longer in the population (`stale-exemption-key`,
+ *  Four finding kinds: a registry key naming a kernel absent from the population (`stale-exemption-key`,
  *  a rename/removal orphaned the exemption); an exemption with no reason (`missing-exemption-reason`);
  *  an exemption for a (kernel, check) pair whose check doesn't actually fail — a dead exemption hiding
  *  a check that would otherwise run clean (`exempt-shadows-passing`); and a live kernel violating an
@@ -682,7 +682,7 @@ export function gapKernels(registry: DifferentialRegistry): string[] {
  *  real-filesystem half ("the named file exists, imports its kernel, and calls it") lives in
  *  `standards.test.ts` beside the population walk, per the same split `checkStandards` uses.
  *
- *  Six finding kinds: a registry key naming a kernel no longer in the population
+ *  Six finding kinds: a registry key naming a kernel absent from the population
  *  (`stale-differential-key`); a can't-have entry with an empty reason
  *  (`missing-differential-reason`); a gap entry with an empty note
  *  (`missing-differential-gap-note`); a test entry with an empty file or symbol

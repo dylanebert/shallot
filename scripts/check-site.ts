@@ -23,9 +23,10 @@ import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/ru
 //   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
 //      `*.html` under each `out/site/<slug>/` (including a nested page like
 //      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`, `RUM_ENV_SNIPPET` (the
-//      hostname-derived `env: "prod" | "local"` derivation, `shallot-demo-slow-frame-attribution.md`
-//      Locked decision) and `RUM_ENV_USAGE` (the wiring that actually reads the derived `env`
-//      into `DD_RUM.init` — the derivation alone is a silent no-op if the wiring drops it); the
+//      hostname-derived `env: "prod" | "local"` derivation — localhost previews tag "local" so
+//      they never pollute prod's slow-frame vitals) and `RUM_ENV_USAGE` (the wiring that actually
+//      reads the derived `env` into `DD_RUM.init` — the derivation alone is a silent no-op if the
+//      wiring drops it); the
 //      injected `<script>` block also has to parse (`new Function(src)`) — the substring checks
 //      pin the seam, this pins that the composed call is runnable, since a dropped paren between
 //      two present fragments passes every substring check while still being broken syntax.
