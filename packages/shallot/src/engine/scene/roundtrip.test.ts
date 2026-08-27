@@ -296,9 +296,11 @@ describe("serialize(state)", () => {
 });
 
 describe("NaN-sentinel default elision", () => {
-    // RED witnessed: formatFields emits "roughness: NaN" on the alias-lane path because
-    // `value === defaults[dotKey]` is false for NaN. Witnessed red: expected not.toContain("NaN"),
-    // received "metallic: 0; roughness: NaN; emissive: 0; occlusion: 0".
+    // RED witnessed: before b9dafde, formatFields emitted "roughness: NaN" on the alias-lane path
+    // because `value === defaults[dotKey]` was false for NaN. Witnessed red: expected
+    // not.toContain("NaN"), received "metallic: 0; roughness: NaN; emissive: 0; occlusion: 0".
+    // b9dafde routed the comparison through atDefault (codec.ts), which treats a field at its NaN
+    // default as default, so today a NaN-sentinel lane elides on the alias-lane path.
     test("NaN-sentinel default elides on the alias-lane path", () => {
         clear();
         const Mat = { params: sparse(vec4) };
@@ -335,9 +337,11 @@ describe("NaN-sentinel default elision", () => {
         expect(restored["params.w"]).toBe(0);
     });
 
-    // RED witnessed: formatFields emits "pos: 0 0 0 NaN" on the positional Pair/Quad path because
-    // `v === defaultValues[i]` is false for NaN. Witnessed red: expected not.toContain("NaN"),
-    // received "pos: 0 0 0 NaN".
+    // RED witnessed: before b9dafde, formatFields emitted "pos: 0 0 0 NaN" on the positional
+    // Pair/Quad path because `v === defaultValues[i]` was false for NaN. Witnessed red: expected
+    // not.toContain("NaN"), received "pos: 0 0 0 NaN". b9dafde routed the comparison through
+    // atDefault (codec.ts), which treats a field at its NaN default as default, so today a
+    // NaN-sentinel lane elides on the positional Pair/Quad path.
     test("NaN-sentinel default elides on the positional Pair/Quad path", () => {
         clear();
         const Vec = { pos: sparse(vec4) };
@@ -485,10 +489,13 @@ describe("serialize identity + refs", () => {
         expect(Mark.v.get(target2)).toBe(77);
     });
 
-    // RED witnessed: serialize(state, [a]) emits "to: 2" (raw eid) instead of "to: @b"
-    // because resolveRef returns undefined for a ref target outside the serialized subset.
-    // Witnessed red: expected to contain "to: @b", received `arrow="to: 2"` — the raw eid
+    // RED witnessed: before e200a63, serialize(state, [a]) emitted "to: 2" (raw eid) instead of
+    // "to: @b" because resolveRef returned undefined for a ref target outside the serialized
+    // subset. Witnessed red: expected to contain "to: @b", received `arrow="to: 2"` — the raw eid
     // points at the wrong (recycled) entity on reload, breaking the round-trip-by-name contract.
+    // e200a63 made resolveRef resolve an out-of-set target to its scene id (codec.ts), so today a
+    // subset serialize emits `@name` for a target outside the serialized set; b9dafde later made
+    // it throw when that target has no scene id (the sibling arm below).
     test("subset serialize emits @-ref for a target outside the serialized set", () => {
         clear();
         const Arrow = { to: sparse(entity) };
@@ -499,10 +506,12 @@ describe("serialize identity + refs", () => {
         expect(stringify(serialize(state, [a]))).toContain("to: @b");
     });
 
-    // RED witnessed: serialize(state, [a]) does not throw — resolveRef returns undefined for a
-    // ref target outside the serialized set with no scene id, leaving a raw eid in the output.
-    // Witnessed red: expected toThrow, received `arrow="to: 2"` — the raw eid points at the
-    // wrong (recycled) entity on reload, silently breaking the round-trip-by-name contract.
+    // RED witnessed: before b9dafde, serialize(state, [a]) did not throw — resolveRef returned
+    // undefined for a ref target outside the serialized set with no scene id, leaving a raw eid
+    // in the output. Witnessed red: expected toThrow, received `arrow="to: 2"` — the raw eid
+    // pointed at the wrong (recycled) entity on reload, silently breaking the round-trip-by-name
+    // contract. b9dafde made resolveRef throw for a destroyed or unnamed out-of-set target
+    // (codec.ts), so today serialize fails loud instead of emitting a raw eid.
     test("serialize throws on a ref to a destroyed entity (not a raw eid)", () => {
         clear();
         const Arrow = { to: sparse(entity) };
