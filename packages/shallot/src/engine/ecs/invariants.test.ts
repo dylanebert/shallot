@@ -137,4 +137,56 @@ describe("Entity lifecycle invariants", () => {
         const second = q[Symbol.iterator]();
         expect(second).toBe(first); // return() pushed it back on break
     });
+
+    // ecs.md: the membership generation count is fixed for a State's life — build assigns every
+    // component its bit up front. A post-build component that would require a new generation
+    // (the 32nd, filling generation 0's 31 bits) must be refused rather than silently outsizing
+    // the fixed GPU mirror SlabPlugin allocates at warm. Bare-marker adds that fit in an existing
+    // generation are sanctioned; only growing the generation count past build is refused.
+    test("post-freeze component add that grows membership generation past build-fixed count is refused", () => {
+        const state = new State();
+        const eid = state.create();
+        // fill generation 0 (31 bits)
+        const comps = Array.from({ length: 31 }, () => ({ x: [] as number[] }));
+        for (const c of comps) state.add(eid, c);
+        expect(state.membership.generations).toBe(1);
+        // freeze the generation count (as warm does via allocMembership)
+        state.membership.freeze();
+        // a 32nd component would require generation 1 — refused
+        const comp32 = { x: [] as number[] };
+        expect(() => state.add(eid, comp32)).toThrow();
+        expect(state.membership.generations).toBe(1);
+    });
+
+    // The class doc on RegisteredQuery narrows safe mutation during iteration to the current-eid case:
+    // a swap-remove of the current eid overwrites an already-visited slot, so every original member is
+    // still visited exactly once. Removing a *not-yet-visited* eid mid-iteration is not safe — the
+    // swap-remove moves the tail into the unvisited slot, so the tail member is visited twice and the
+    // removed one skipped. This arm pins that narrowed contract: the double-visit is the expected
+    // behavior, not a bug to fix (fixing it would break the zero-alloc iterator or the current-eid case).
+    test("removing a not-yet-visited eid mid-iteration double-visits the tail and skips the removed", () => {
+        const state = new State();
+        const eids: number[] = [];
+        for (let i = 0; i < 5; i++) {
+            const eid = state.create();
+            state.add(eid, A);
+            eids.push(eid);
+        }
+
+        const visited: number[] = [];
+        for (const eid of state.query([A])) {
+            visited.push(eid);
+            // remove a not-yet-visited eid (eids[2]) on the first iteration
+            if (eid === eids[0]) state.remove(eids[2], A);
+        }
+
+        // the removed eid is skipped (swap-remove overwrites its slot with the tail)
+        expect(visited).not.toContain(eids[2]);
+        // the tail member (eids[4]) is visited twice: once at the swapped-in slot, once at its stale copy
+        const counts = new Map<number, number>();
+        for (const v of visited) counts.set(v, (counts.get(v) ?? 0) + 1);
+        expect(counts.get(eids[4])).toBe(2);
+        // every other visited member appears exactly once
+        for (const [eid, c] of counts) if (eid !== eids[4]) expect(c).toBe(1);
+    });
 });
