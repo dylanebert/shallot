@@ -69,6 +69,7 @@ export interface VerifyResult {
         compile: AttributionCompile | null;
         compileAfterIdle: AttributionCompile | null;
         longTasks: { start: number; duration: number }[];
+        longAnimationFrames: LoAFEntry[];
     } | null;
     /** `--attribution` only (S1b): the CDP CPU-profile self-time breakdown, per
      *  `bin/verify.ts`'s `Result.cpuProfile` — null when CDP's `Profiler` domain wasn't reachable. */
@@ -94,6 +95,17 @@ export interface CpuProfileSummary {
     totalMs: number;
     entries: CpuProfileEntry[];
     buckets: CpuProfileBucket[];
+}
+
+/** a single `long-animation-frame` PerformanceObserver entry (S1e) — mirrors `bin/verify.ts`'s
+ *  `LoAFEntry`. `renderStart`/`styleAndLayoutStart` are present on a supporting engine and undefined
+ *  on one that doesn't provide them. */
+export interface LoAFEntry {
+    start: number;
+    duration: number;
+    blockingDuration: number;
+    renderStart: number | undefined;
+    styleAndLayoutStart: number | undefined;
 }
 
 /** the slice of `bin/verify.ts`'s `BenchmarkCompileStats` a driver reads. */

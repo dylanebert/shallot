@@ -1,4 +1,4 @@
-import { harnessBucketNames } from "../packages/shallot/bin/verify";
+import { harnessBucketNames, type LoAFEntry } from "../packages/shallot/bin/verify";
 import { skipReason, teardownBridge, verify } from "./verify";
 
 // S1 of `shallot-demo-startup-stall`: discriminate the demo's startup ~1s stall by pipeline-label
@@ -216,6 +216,82 @@ async function main(): Promise<void> {
             `cannot align an individual longtask entry to an individual label in either case (` +
             `Profile.compile carries no absolute per-entry timestamp) — only totals.`,
     );
+
+    // S1e: Long Animation Frames — the signal class the Goal's prod RUM `slow_frame` derives from.
+    // A LoAF entry is one per delayed *frame*, summing that frame's script/style/layout/paint-
+    // coordination work, including many sub-50ms chunks the longtask observer above cannot see
+    // individually. On a supporting engine this is the local measurement comparable to prod's
+    // slow_frame; on an unsupported engine the guard degrades to an empty array (the init script's
+    // try/catch), reported here rather than silently dropped.
+    const loafEntries: LoAFEntry[] = attribution.longAnimationFrames ?? [];
+    const loafTotalMs = loafEntries.reduce((s, e) => s + e.duration, 0);
+    const loafBlockingMs = loafEntries.reduce((s, e) => s + e.blockingDuration, 0);
+    const loafWorst =
+        loafEntries.length > 0
+            ? loafEntries.reduce((a, b) => (b.duration > a.duration ? b : a))
+            : null;
+    console.log(
+        `\n## S1e — Long Animation Frames (LoAF) — the Goal's prod slow_frame signal class\n`,
+    );
+    if (loafEntries.length === 0) {
+        console.log(
+            `0 LoAF entries — the engine does not support long-animation-frame (or no frame crossed ` +
+                `the 50ms rendering threshold this boot). The longtask total above (${r1(longTaskMs)}ms) ` +
+                `remains the only main-thread signal, and is NOT comparable to the Goal's prod ` +
+                `slow_frame numbers (sandbox 1100ms / roads 879ms) — longtask fires only on a single ` +
+                `task ≥50ms, while LoAF sums per-frame work including sub-50ms chunks.`,
+        );
+    } else {
+        console.log(
+            `${loafEntries.length} LoAF entries, ${r1(loafTotalMs)}ms total frame duration, ` +
+                `${r1(loafBlockingMs)}ms total blockingDuration across the boot window.`,
+        );
+        console.log(
+            `worst single frame: ${r1(loafWorst!.duration)}ms (start ${r1(loafWorst!.start)}ms, ` +
+                `blocking ${r1(loafWorst!.blockingDuration)}ms, ` +
+                `renderStart ${loafWorst!.renderStart !== undefined ? r1(loafWorst!.renderStart) + "ms" : "n/a"}, ` +
+                `styleAndLayoutStart ${loafWorst!.styleAndLayoutStart !== undefined ? r1(loafWorst!.styleAndLayoutStart) + "ms" : "n/a"}).`,
+        );
+        console.log("");
+        console.log(
+            "| # | start (ms) | duration (ms) | blocking (ms) | renderStart | styleAndLayoutStart |",
+        );
+        console.log("|---|---|---|---|---|---|");
+        loafEntries
+            .slice()
+            .sort((a, b) => a.start - b.start)
+            .forEach((e, i) => {
+                console.log(
+                    `| ${i + 1} | ${r1(e.start)} | ${r1(e.duration)} | ${r1(e.blockingDuration)} | ` +
+                        `${e.renderStart !== undefined ? r1(e.renderStart) : "n/a"} | ` +
+                        `${e.styleAndLayoutStart !== undefined ? r1(e.styleAndLayoutStart) : "n/a"} |`,
+                );
+            });
+    }
+    // the same-order-or-below verdict: is the local worst LoAF frame the same order as the Goal's prod
+    // worst frames (sandbox 1100ms / roads 879ms)? An order below means the local seat does not
+    // reproduce the prod stall's magnitude.
+    const ProdWorstSandbox = 1100;
+    const ProdWorstRoads = 879;
+    const prodWorst = args.dir.endsWith("roads") ? ProdWorstRoads : ProdWorstSandbox;
+    if (loafWorst) {
+        const ratio = loafWorst.duration / prodWorst;
+        const verdict =
+            ratio >= 0.5 ? "same order" : ratio >= 0.1 ? "within an order" : "an order below";
+        console.log(
+            `\nLoAF-vs-prod verdict: local worst frame ${r1(loafWorst.duration)}ms vs prod worst ` +
+                `${prodWorst}ms (${args.dir.endsWith("roads") ? "roads" : "sandbox"}) — ratio ` +
+                // three decimals deliberately: the verdict's thresholds are 0.5 and 0.1, so a
+                // one-decimal ratio rounds 0.069 to "0.1" and reads as if it contradicted the
+                // "an order below" verdict it produced.
+                `${ratio.toFixed(3)}, ${verdict}.`,
+        );
+    } else {
+        console.log(
+            `\nLoAF-vs-prod verdict: no LoAF entries to compare — the local instrument cannot ` +
+                `produce a number in the Goal's signal class for this run.`,
+        );
+    }
 
     console.log("\n## Lazy-escape check (compile vs compileAfterIdle)\n");
     const after = attribution.compileAfterIdle;

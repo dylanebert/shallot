@@ -289,6 +289,18 @@ export const HARNESS_PROBE_SCRIPT = `(${installHarnessProbe.toString()})(window)
  *  exists to measure. */
 export const RESOURCE_BUFFER = 20_000;
 
+/** a single `long-animation-frame` PerformanceObserver entry, reduced to the fields the readout
+ *  surfaces. `renderStart`/`styleAndLayoutStart` are present on a supporting engine and absent
+ *  (undefined) on one that doesn't provide them — the init script forwards them unconditionally and
+ *  the readout treats `undefined` as 'not reported'. */
+export interface LoAFEntry {
+    start: number;
+    duration: number;
+    blockingDuration: number;
+    renderStart: number | undefined;
+    styleAndLayoutStart: number | undefined;
+}
+
 /** everything `--timings` installs before navigation: the harness-install probe plus the raised
  *  resource-timing buffer. Both must be in place before the first request, so they share one init
  *  script rather than racing two. */
@@ -299,7 +311,19 @@ export const TIMINGS_INIT_SCRIPT = `performance.setResourceTimingBufferSize(${RE
  * concurrently-reported async span (e.g. `Compute.precompiled`'s awaited elapsed time) if something
  * else pinned the main thread for that same window, since an `await` itself yields. Best-effort: an
  * unsupported `entryTypes` throws synchronously in the observer constructor on some engines, caught so
- * a missing API degrades to an empty array rather than failing the whole init script. */
+ * a missing API degrades to an empty array rather than failing the whole init script.
+ *
+ * S1e: a `long-animation-frame` (LoAF) observer is installed beside the longtask one on
+ * `window.__shallotLoAF`. A LoAF entry names a single *frame* whose main-thread-side work (script,
+ * style, layout, paint coordination) delayed it past the 50ms rendering threshold — one entry per
+ * delayed frame, summing that frame's work including many sub-50ms chunks the longtask observer
+ * cannot see individually. This is the signal class the Goal's prod RUM `slow_frame` derives from
+ * (W3C Long Animation Frames), so a local LoAF number and a prod `slow_frame` number are the same
+ * measurement, where a longtask total is not. Each entry carries `startTime`, `duration`,
+ * `blockingDuration`, and `renderStart`/`styleAndLayoutStart` where the engine provides them. Guarded
+ * the same way as longtask: an unsupported `entryTypes` throws synchronously in the observer
+ * constructor, caught so a missing LoAF degrades to an empty array rather than killing the init
+ * script. */
 export const ATTRIBUTION_INIT_SCRIPT = `
 (() => {
     window.__shallotLongTasks = [];
@@ -309,6 +333,20 @@ export const ATTRIBUTION_INIT_SCRIPT = `
                 window.__shallotLongTasks.push({ start: e.startTime, duration: e.duration });
             }
         }).observe({ entryTypes: ["longtask"] });
+    } catch {}
+    window.__shallotLoAF = [];
+    try {
+        new PerformanceObserver((list) => {
+            for (const e of list.getEntries()) {
+                window.__shallotLoAF.push({
+                    start: e.startTime,
+                    duration: e.duration,
+                    blockingDuration: e.blockingDuration,
+                    renderStart: e.renderStart,
+                    styleAndLayoutStart: e.styleAndLayoutStart,
+                });
+            }
+        }).observe({ entryTypes: ["long-animation-frame"] });
     } catch {}
 })();
 `;
@@ -646,11 +684,16 @@ export interface Result {
      *  `totalMs` increase with no new label, one already-known label recompiling) is a compile that
      *  landed after the boot wait concluded, i.e. past wherever a project's own loading screen gates on
      *  that same signal. `longTasks` is every `longtask` PerformanceObserver entry recorded from page
-     *  init through the second read. Absent when `--attribution` wasn't passed. */
+     *  init through the second read. `longAnimationFrames` is every `long-animation-frame` (LoAF)
+     *  PerformanceObserver entry recorded over the same window — one entry per delayed frame, summing
+     *  that frame's script/style/layout/paint-coordination work including sub-50ms chunks the longtask
+     *  observer cannot see (S1e: the signal class matching the Goal's prod `slow_frame`). Absent when
+     *  `--attribution` wasn't passed. */
     attribution?: {
         compile: BenchmarkCompileStats | null;
         compileAfterIdle: BenchmarkCompileStats | null;
         longTasks: { start: number; duration: number }[];
+        longAnimationFrames: LoAFEntry[];
     } | null;
     /** `--attribution` only (S1b): a CDP `Profiler` sample-based CPU profile of the main thread from
      *  just before navigation through the boot wait's conclusion (the same point `attribution.compile`
@@ -2009,6 +2052,12 @@ async function drive(
                                 __shallotLongTasks?: { start: number; duration: number }[];
                             }
                         ).__shallotLongTasks ?? [],
+                    longAnimationFrames:
+                        (
+                            window as unknown as {
+                                __shallotLoAF?: LoAFEntry[];
+                            }
+                        ).__shallotLoAF ?? [],
                 };
             }, ATTRIBUTION_IDLE_MS)
             .catch(() => null)) as Result["attribution"];
