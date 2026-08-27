@@ -245,6 +245,9 @@ describe("one-shot GPU probes", () => {
         }
     });
 
+    // RED witnessed: before 1e46aae, the five rejects.toThrow calls were not awaited, so a missing
+    // rejection passed silently. Removed the throw in probeTexture → exit 1; today each rejection
+    // is awaited and a missing throw fails the arm.
     test("depth/stencil defaults are unambiguous and combined formats require one aspect", async () => {
         const device = fakeDevice([]);
         const values = new Float32Array([1, 0.25]);

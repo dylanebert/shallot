@@ -113,6 +113,9 @@ describe("Scene Roundtrip", () => {
     });
 
     describe("field-level roundtrip", () => {
+        // RED witnessed: before 1e46aae, the continues let the round-trip pass asserting nothing.
+        // Made formatFields return "" → exit 1 (6 fail); today the assertion floor reds a body that
+        // reaches no expect call.
         test.each(SCENE_FILES)("component fields survive roundtrip: %s", async (file) => {
             const xml = await readScene(file);
             const nodes = parse(xml);
@@ -162,6 +165,9 @@ describe("Scene Roundtrip", () => {
     });
 
     describe("normalization idempotence", () => {
+        // RED witnessed: before 1e46aae, the continues let the idempotence check pass asserting
+        // nothing. Made formatFields return "" → exit 1 (6 fail); today the assertion floor reds a
+        // body that reaches no expect call.
         test.each(SCENE_FILES)("normalizeAttr is idempotent: %s", async (file) => {
             const xml = await readScene(file);
             const nodes = parse(xml);
