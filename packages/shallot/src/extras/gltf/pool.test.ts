@@ -284,7 +284,7 @@ describe("decode pool", () => {
             spawnCount++;
             workers.push(w);
             // override postMessage: 2nd dispatch succeeds, all others die on dispatch
-            w.postMessage = function (_msg: unknown): void {
+            w.postMessage = (_msg: unknown): void => {
                 if (!w.alive) return;
                 dispatchCount++;
                 if (dispatchCount === 2) {
