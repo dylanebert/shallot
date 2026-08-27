@@ -1178,6 +1178,10 @@ if (staleCitations.length > 0) {
 // Witnessed red (pre-sweep tree, 2026-08-26): 46 dead *.md path citations in comments
 // (43 `roads-interactive.md`, 1 `shallot-boot-noise.md`, 2
 // `shallot-demo-slow-frame-attribution.md`) → exit 1.
+// Mutation proof: adding `// see zzz-dead-pointer-mutation-proof.md` to a comment in
+// `scripts/rosters.ts` reds this arm (witnessed 2026-08-26, exit 1 —
+// `scripts/rosters.ts:100: zzz-dead-pointer-mutation-proof.md` moves the count from 46
+// to 47).
 
 // Build the resolved .md basenames set: shallot tracked + superproject tracked. A
 // citation resolves if SOME file with that basename is tracked in the shallot repo or
