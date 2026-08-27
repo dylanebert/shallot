@@ -20,11 +20,11 @@ let _mirror: Uint32Array<ArrayBuffer> | null = null;
  *
  * Called from `SlabPlugin.warm`, not the system's `setup`: a consumer that binds `"membership"` builds
  * its bind group at warm (the transform compose, so its pipeline can be force-compiled there), and a
- * lazily-allocated buffer wouldn't exist yet.
+ * lazily-allocated buffer wouldn't exist yet. The generation count is frozen by the engine
+ * (`app/index.ts`) before `warmPlugins` runs, so it is already fixed when this is called.
  * @internal
  */
 export function allocMembership(state: State): void {
-    state.membership.freeze();
     _gpu?.destroy();
     _mirror = new Uint32Array(state.membership.generations * capacity);
     _gpu = Compute.device.createBuffer({

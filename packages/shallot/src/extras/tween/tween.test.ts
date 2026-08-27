@@ -457,8 +457,9 @@ describe("tween scene wiring", () => {
         state.step(0.025); // setup grows the period to 0.2, then the clock advances
         expect(Sequence.duration.get(seq)).toBeCloseTo(0.2, 5);
         // sparse(f32) truncates on each write — see the looping-clock test above
-        // for the derivation: 75%-points carry no error and stay at precision 10,
-        // the accumulated 25%-points stay at precision 4.
+        // for the derivation: points reached before the clock accumulates carry
+        // no error and stay at precision 10, the later accumulated points stay
+        // at precision 4.
         expect(Probe.value.get(p)).toBeCloseTo(25, 10); // rise at 25%
         state.step(0.05); // elapsed 0.075, rise at 75%
         expect(Probe.value.get(p)).toBeCloseTo(75, 10);

@@ -41,7 +41,11 @@ export const Tween = {
     to: sparse(f32),
     /** length of the animation, seconds */
     duration: sparse(f32),
-    /** current clock position, seconds; seekable: set it to scrub */
+    /** current clock position, seconds; seekable: set it to scrub.
+     * Stored as `sparse(f32)`, so each write truncates to f32 precision; drift
+     * scales with `duration` (not session length) since `elapsed` is wrapped or
+     * clamped at `duration` every frame, keeping the unbounded-accumulator
+     * cliff out of reach. */
     elapsed: sparse(f32),
     /** easing curve, by id (the `ease-out-quad` names) */
     easing: sparse(u8),
@@ -65,7 +69,11 @@ export const Tween = {
 export const Sequence = {
     /** play control; a fresh sequence defaults to playing */
     state: sparse(u8),
-    /** playhead position, seconds; the tweens on it read their slice as `elapsed - at` */
+    /** playhead position, seconds; the tweens on it read their slice as `elapsed - at`.
+     * Stored as `sparse(f32)`, so each write truncates to f32 precision; drift
+     * scales with `duration` (not session length) since `elapsed` is wrapped or
+     * clamped at `duration` every frame, keeping the unbounded-accumulator
+     * cliff out of reach. */
     elapsed: sparse(f32),
     /** timeline period, seconds; grows to span its tweens' ends */
     duration: sparse(f32),

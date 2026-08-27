@@ -290,6 +290,12 @@ export async function build(config: Config): Promise<App> {
 
         const warmable = sorted.filter((p) => p.warm);
         const warmBase = sorted.length + scenes.length;
+        // freeze the membership generation count before any plugin's `warm` runs:
+        // `allocMembership` (SlabPlugin.warm) sizes the GPU mirror from it, and the
+        // fixed-generation-count invariant (ecs.md) must hold before a device-bound
+        // plugin can build against it. Owned here, not in a standard plugin, so it
+        // holds for every State regardless of which plugins are loaded.
+        state.membership.freeze();
         await warmPlugins(Compute.device, state, warmable, (completed, progress) => {
             loading?.update((warmBase + completed + (progress ?? 0)) / total);
         });
@@ -488,8 +494,9 @@ export interface SwapResult {
  * (slab buffers, bind groups, pipelines) survive untouched. It swaps each system's
  * behavior onto the live scheduler object (identity + ordering + setup state
  * preserved), and re-runs `initialize` to repopulate module singletons with the
- * reloaded code. A schema / system-set / ordering / feature change it can't carry
- * safely returns `{ ok: false, reason }`; the caller then rebuilds from the
+ * reloaded code. A schema / system-set / ordering / dependency / feature change
+ * it can't carry safely returns `{ ok: false, reason }`; the caller then rebuilds
+ * from the
  * document. A `warm`- or `setup`-body edit is undetectable (a closure body can't
  * be diffed) and lands on the next rebuild rather than this swap. A live host
  * drives this from its HMR seam; `prev`/`next` are the project's own plugins
@@ -573,7 +580,7 @@ export async function swap(
 }
 
 // a plugin's shape signature for the swap-vs-rebuild decision: a component-schema, system-set,
-// ordering, or device-feature change can't be carried in place, so it forces a rebuild instead.
+// ordering, dependency, or device-feature change can't be carried in place, so it forces a rebuild instead.
 function shapeDiff(
     prev: Plugin,
     next: Plugin,

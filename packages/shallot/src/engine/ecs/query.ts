@@ -104,11 +104,14 @@ class QueryIterator implements Iterator<number> {
  * callers can mutate the *current* eid during iteration — adding a marker to
  * or removing a component from the eid being visited swap-removes it from the
  * query mid-loop, yet every original member is still visited exactly once (the
- * swap only overwrites already-visited slots). Removing a *not-yet-visited*
- * eid mid-iteration is not safe: the swap-remove moves the tail into the
- * unvisited slot, so that tail member is visited twice and the removed one
- * skipped. e.g. `for (const eid of state.query([Spawn, not(Initialized)]))
- * state.add(eid, Initialized)`.
+ * swap only overwrites already-visited slots). e.g. `for (const eid of
+ * state.query([Spawn, not(Initialized)])) state.add(eid, Initialized)`.
+ * Removing a *not-yet-visited* eid mid-iteration is not safe: the swap-remove
+ * moves the tail into the unvisited slot, so that tail member is visited twice
+ * and the removed one skipped. Adding a *new* matching entity mid-iteration is
+ * safe but the new member is not visited this loop — `add()` appends at
+ * `_dense[_count++]` past the snapshot, so it first appears on the next query
+ * call.
  */
 export class RegisteredQuery implements Iterable<number> {
     readonly required: any[] = [];
