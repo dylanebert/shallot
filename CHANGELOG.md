@@ -4,6 +4,8 @@ Newest first. **Breaking:** marks a change that needs consumer action; [`package
 
 ## Unreleased — next minor
 
+- **reflection** — `FieldInfo.default` for vec fields (`vec2`, `vec4`) now carries every lane as `readonly number[]` instead of just lane 0 as a single `number`. The type widens from `number | string` to `number | string | readonly number[]`, a minor-release-visible change: tooling that read `default` as a scalar for a vec field was already getting only lane 0, so consumers that treated it as a number now see an array and need to index lane 0 explicitly. The same union drops `"vec3"` from the exported `FieldKind`: `VEC_KIND` maps only 2 and 4 lanes, so no `schema()` ever produced it and nothing reads it at runtime — but a consumer switching on `FieldKind` with a `case "vec3"` arm loses that arm at compile time, which is why the dead variant's removal ships in a minor rather than a patch.
+
 - **audio** — `DYNAMICS_MODE`, `WAVESHAPER_MODE`, and `EQ_MODE` are no longer exported: no consumer referenced them, and the mode values they named stay documented on the node-parameter docblocks. The tables survive internally as the defaults' source. Removal is semver-visible, so it ships in a minor.
 - **input (doc)** — `OrbitMode.Locked`'s JSDoc claimed it disables orbit rotation while leaving pan and zoom; the shipped gate also freezes fly look, so a Locked camera flies blind. The doc now says so. Runtime behavior is unchanged, and there's nothing for a consumer to do beyond re-reading the reference.
 

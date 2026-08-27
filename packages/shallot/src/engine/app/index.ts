@@ -599,6 +599,15 @@ function shapeDiff(
         )
             return `system ${i} scheduling changed`;
     }
+    const pdeps = (prev.dependencies ?? [])
+        .map((d) => d.name)
+        .sort()
+        .join(",");
+    const ndeps = (next.dependencies ?? [])
+        .map((d) => d.name)
+        .sort()
+        .join(",");
+    if (pdeps !== ndeps) return "dependencies changed";
     if ((prev.features ?? []).join(",") !== (next.features ?? []).join(","))
         return "features changed";
     if ((prev.preferredFeatures ?? []).join(",") !== (next.preferredFeatures ?? []).join(","))
@@ -608,7 +617,10 @@ function shapeDiff(
 
 function fieldSig(component: Component): string {
     return fields(component)
-        .map((f) => `${f.name}:${f.store.type.name}`)
+        .map(
+            (f) =>
+                `${f.name}:${f.store.type.name}:${"gpuSupported" in f.store ? "slab" : "sparse"}`,
+        )
         .join(",");
 }
 
