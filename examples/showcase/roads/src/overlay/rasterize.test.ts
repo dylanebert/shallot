@@ -4,7 +4,7 @@ import { type Segment, segmentDistance } from "./document";
 import { encodeDistGpu, rasterizeWgsl, segmentDistanceGpu } from "./rasterize";
 import { DIST_RANGE, decodeDist, encodeDist, TEXEL_SIZE } from "./tiles";
 
-// Stage 5's differential oracle: `segmentDistanceGpu` (rasterize.ts, clamped-projection form, CPU-called
+// Differential oracle: `segmentDistanceGpu` (rasterize.ts, clamped-projection form, CPU-called
 // through TypeGPU's dual execution) against `document.ts`'s `segmentDistance` (perpendicular-offset-via-
 // cross-product form) — two independently written derivations of the same geometric quantity. The GPU
 // side is additionally quantized through `encodeDistGpu` +

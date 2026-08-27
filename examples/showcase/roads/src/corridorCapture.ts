@@ -1,5 +1,5 @@
-// Stage 24a's corridor-pose capture — repositions the scene's orbit camera to the derived corridor
-// pose (corridorPose.ts) so a screenshot can be taken for 24b's release look.
+// The corridor-pose capture — repositions the scene's orbit camera to the derived corridor
+// pose (corridorPose.ts) so a screenshot can be taken for the release look.
 //
 // Exposed as `window.__roadsCorridorCapture` (`boot.ts`); the Playwright driver
 // (`test/roads.playwright.ts`) calls it, waits, and saves the screenshot to a second file alongside the

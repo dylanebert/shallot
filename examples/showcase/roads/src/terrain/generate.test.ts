@@ -33,8 +33,7 @@ describe("height kernel reference", () => {
         expect(flat(wgsl)).toContain(
             "@group(0) @binding(0) var<storage, read> perm_1: array<u32, 512>;",
         );
-        // perm + vertices + position + the flatten network's segments (`roads-interactive.md` stage
-        // 1 deleted the polygon-stamp path's own polygons/polyVerts storage bindings)
+        // perm + vertices + position + the flatten network's segments
         expect(wgsl.match(/var<storage/g)?.length).toBeGreaterThanOrEqual(4);
     });
 

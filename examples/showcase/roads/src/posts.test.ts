@@ -27,7 +27,7 @@ import { SPACING, WORLD_EXTENT, WORLD_HALF } from "./terrain/grid";
 import { makePermutation, RELIEF } from "./terrain/noise";
 import { heightAtCpu } from "./terrain/profile";
 
-// Stage 5's posts test — the WGSL structural seam plus the plain-TS behavioural witnesses for the
+// Posts test — the WGSL structural seam plus the plain-TS behavioural witnesses for the
 // station/lateral/slot-count/scale-0 derivations. The structural arm (the resolved WGSL contains
 // `flattenedHeightAt`) is the named oracle Validation requires; the behavioural arms witness the
 // real properties by calling the exported pure derivation functions and checking against
@@ -146,8 +146,6 @@ describe("POST_OFFSET flat-core band", () => {
         // from the centreline, and the post occupies halfWidth + POST_OFFSET ± POST_RADIUS — so the whole
         // footing is strictly inside the affine region (where the mesh reproduces the field exactly, the
         // property the placement oracle reads) and strictly off the pavement iff both bounds below hold.
-        // Stage 11 re-checked the LOWER end on purpose: 0.4 m approaches it, and the older
-        // `0 < POST_OFFSET` form ignored the post's own radius.
         // red: POST_OFFSET = 0.1 (< POST_RADIUS) fails the lower bound — the footing overhangs the asphalt
         // red: POST_OFFSET = 5.6 (> FLAT_CORE_MARGIN − POST_RADIUS) fails the upper bound
         expect(POST_OFFSET).toBeGreaterThan(POST_RADIUS);
@@ -164,8 +162,7 @@ describe("POST_OFFSET flat-core band", () => {
     test("POST_OFFSET is the kerb line (~0.4 m), not stage 5's flat-core convenience (SPACING = 4 m)", () => {
         // the referent's own value, pinned as a literal: a kerbside bollard stands immediately off the
         // pavement edge. 4 m (13 ft) is what made the row read as posts standing in a field. The literal
-        // is the whole assertion — a companion `not.toBe(SPACING)` was dropped at stage 11's repair as
-        // vacuous, since `toBe(0.4)` already refutes every value `SPACING` could hold.
+        // is the whole assertion — `toBe(0.4)` already refutes every value `SPACING` could hold.
         expect(POST_OFFSET).toBe(0.4);
     });
 
@@ -191,7 +188,7 @@ describe("the referent's own dimensions", () => {
     });
 
     test("POST_COLOR is RAL 1023 traffic yellow, and the emitted FS carries it", () => {
-        // the finish standard, as a literal triple — stage 5's [0.5, 0.4, 0.3] had no referent at all.
+        // the finish standard, as a literal triple.
         expect(POST_COLOR).toEqual([0.941, 0.792, 0.0]);
         // and the FS actually uses it: the resolved surface WGSL carries the f32 rounding of those
         // components. red: reverting POST_COLOR to [0.5, 0.4, 0.3] emits 0.5/0.4/0.30000001 instead.
@@ -214,11 +211,11 @@ describe("the footing depth's derivation", () => {
         // (both endpoints clamped into the world by the live drag's own `clampToBound`, length >=
         // ROAD_MIN_LENGTH) against the analytic ceiling. Half the corpus is drawn as SHORT chords — length
         // in [ROAD_MIN_LENGTH, 2 · ROAD_MIN_LENGTH] — because grade is |Δh| / length and a uniform endpoint
-        // pair is almost always long: measured at stage 11's repair, the corpus reads **0.151686** while
+        // pair is almost always long: the corpus reads **0.151686** while
         // its uniform-endpoint half alone reads **0.123455**.
         //
-        // **Why this scan and not `dragCorpus`** (stage 12's frozen fixture, the one derivation both
-        // flatness tiers read): `dragCorpus` *filters by* `MAX_GRADE = 0.12` — it rejects exactly the steep
+        // **Why this scan and not `dragCorpus`** (the frozen fixture both flatness tiers read):
+        // `dragCorpus` *filters by* `MAX_GRADE = 0.12` — it rejects exactly the steep
         // chords this arm exists to find, because the flatness oracle's longitudinal bound is that grade.
         // A corpus that discards its steepest members cannot measure the steepest member. What this arm
         // does take from the live path is the **bound**: `clampToBound` (`editPure.ts`), so "admissible"
@@ -253,8 +250,7 @@ describe("the footing depth's derivation", () => {
             }
         }
         expect(worst).toBeLessThanOrEqual(MAX_CHORD_GRADE);
-        // a **corpus non-vacuity tripwire**, and nothing more — restated at stage 11's repair, because the
-        // old wording ("grades steep enough that the footing matters") was false at this value: grade 0.1
+        // a **corpus non-vacuity tripwire**, and nothing more: grade 0.1
         // needs 0.012 m of burial, 5 % of the shipped 0.24 m. **No arm in this file can witness that the
         // depth is needed**, because the domain it is sized for (grade → MAX_CHORD_GRADE = 1.0) is ~6.6×
         // outside anything this terrain reaches — the footing is sized against the admissible domain by
@@ -297,13 +293,7 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
         // red-first, witnessed 2026-08-22 at `POST_BURIAL_DEPTH = 0`: the base ring sits flush at y = 0, so
         // the uphill side of the ring reads 0.12 m ABOVE the surface — `Expected: <= 0, Received: 0.12` —
         // and three more arms red with it (the depth, the derived shaft length, and the emitted VS
-        // literals). **`burial = 0` is NOT the shape stage 5 shipped**, and calling it that would overclaim
-        // the witness: stage 5 mapped the mesh's *lowest point* to the surface, putting the base ring
-        // 0.25 m ABOVE grade with the whole bottom hemisphere on show, so no value of
-        // `POST_BURIAL_DEPTH` reproduces it — `burial = 0` is already a strictly better shape (0.12 m of
-        // exposure against 0.25 m). The pre-image witness is the companion assertion in the emitted-VS arm
-        // below, `not.toContain("input.localPos.y * 0.5f")`, which is stage 5's actual y scale. This arm's
-        // mutation witnesses that the *depth* is load-bearing, not that stage 5 is refuted.
+        // literals).
         const baseRing = postVertexOffset(0, -0.5, 0)[1];
         expect(baseRing).toBeCloseTo(-POST_BURIAL_DEPTH, 12);
         expect(baseRing + MAX_CHORD_GRADE * POST_RADIUS).toBeLessThanOrEqual(0);
@@ -311,9 +301,7 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
     });
 
     test("both caps are spheres of exactly POST_RADIUS, independent of the shaft length", () => {
-        // the property an arm over total height alone cannot see — and the defect that shipped: stage 5
-        // scaled y by POST_HEIGHT/2 and x/z by POST_RADIUS · 2, stretching each cap into an ellipsoid
-        // 0.25 m tall and 0.12 m wide (a bullet nose). Here the cap term takes the SAME factor x/z take,
+        // the cap term takes the SAME factor x/z take,
         // so every cap vertex sits at exactly POST_RADIUS from its cap centre at any radius/length ratio.
         // red: scaling the cap by shaftLength instead of the radius makes the distance vary with the
         // shaft length (and differ from POST_RADIUS at every angle but 0).
@@ -340,7 +328,7 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
         // what makes the shaft a cylinder rather than a taper. The y half is pinned as **literals** at the
         // shaft's two ends rather than as the function's own expression — restating
         // `ly * shaftLength + shaftLength/2 − burial` here would re-derive the subject's own rule and go
-        // green on wrong constants (stage 3's precedent, and the defect this repair closes).
+        // green on wrong constants.
         for (const ly of [-0.5, -0.2, 0, 0.25, 0.5]) {
             const side = postVertexOffset(0.5, ly, 0);
             expect(side[0]).toBeCloseTo(POST_RADIUS, 12);
@@ -367,20 +355,19 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
     test("the resolved VS emits the decomposition, with the cap and the radius sharing one factor", () => {
         // structural, over the emitted text, because the sphericity is a property of WHICH factor the cap
         // term takes: `cap * radial` and `localPos.x * radial` must be the same `radial`, and only the
-        // core may carry the shaft length. Literals rather than values re-derived from the constants
-        // (stage 3's precedent).
+        // core may carry the shaft length. Literals rather than values re-derived from the constants.
         const wgsl = flat(postsSurfaceWgsl());
         expect(wgsl).toContain("clamp(input.localPos.y, -0.5f, 0.5f)");
         expect(wgsl).toContain("(input.localPos.y - core)");
         expect(wgsl).toContain("(cap * radial)");
         expect(wgsl).toContain("(input.localPos.x * radial)");
         expect(wgsl).toContain("(input.localPos.z * radial)");
-        // and `radial`'s own VALUE, not just its identifier — added at stage 11's repair, which found that
-        // the three assertions above pin only that one shared factor exists and pass unchanged under any
+        // and `radial`'s own VALUE, not just its identifier — the three assertions above pin only that
+        // one shared factor exists and pass unchanged under any
         // value for it. Nothing else in the suite reads the VS's numbers: `postVertexOffset` carries its
         // own `params.radius * 2`, `checkPosts` reads records rather than vertices, and the fs probes are
-        // on-road while the posts are now off it — so the post's rendered width and its cap radius, this
-        // stage's headline property, were unpinned in production. POST_RADIUS * 2 = 0.24 in f32.
+        // on-road while the posts are off it — so the post's rendered width and its cap radius were
+        // unpinned in production. POST_RADIUS * 2 = 0.24 in f32.
         // red witnessed 2026-08-22 — the VS's own `radial` mutated to `d.f32(POST_RADIUS)` (dropping the
         // mesh's 0.5-radius compensation, the plausible wrong factor), this file run, the production line
         // then restored byte-identical. Verbatim, with the emitted WGSL of `Received` elided after the
@@ -397,7 +384,6 @@ describe("the capsule's core/cap decomposition (the VS's own arithmetic)", () =>
         // 1.12 and 1.12/2 − 0.24 = 0.32.
         expect(wgsl).toMatch(/core \* 1\.12\d*f/);
         expect(wgsl).toMatch(/\+ 0\.3199\d*f/);
-        // and the y scale stage 5 shipped (POST_HEIGHT / 2 = 0.5) is gone from the VS
         expect(wgsl).not.toContain("input.localPos.y * 0.5f");
     });
 });

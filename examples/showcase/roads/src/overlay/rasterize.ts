@@ -1,12 +1,12 @@
 // The GPU rasterizer: a TGSL compute pass that writes one dirty tile's albedo + boundary-distance content
 // directly from a `StrokeDocument` (`document.ts`) — the real producer `atlas.ts`'s `redraw` calls per
-// drained tile, replacing stage 4's CPU `TilePacker` (`stroke.ts`'s `packStrokeTile`, now a CPU reference
-// kept for its own tests and the cross-check in `document.test.ts`, no longer the live path).
+// drained tile. `stroke.ts`'s `packStrokeTile` remains as a CPU reference, kept for its own tests and the
+// cross-check in `document.test.ts`, not the live path.
 //
 // Why a storage *buffer*, not `texture_storage_2d<r8unorm, write>`: WebGPU's storage-texture write
 // capability is restricted to a fixed format list (rgba8unorm, the r32/rg32/rgba32 family, rgba16float,
-// …) that does not include r8unorm — `tiles.ts`'s DIST_FORMAT, chosen in stage 4 to spend every
-// quantization step where the fwidth threshold samples. `textureStore` into it would fail pipeline
+// …) that does not include r8unorm — `tiles.ts`'s DIST_FORMAT (r8unorm, chosen to spend every
+// quantization step where the fwidth threshold samples). `textureStore` into it would fail pipeline
 // validation. The fix keeps r8unorm as the atlas's sampled format and moves the packing into the kernel
 // itself: one thread per 4-texel group computes all 4 texels' distance, quantizes each to a byte
 // (`encodeDistGpu`, `tiles.ts`'s `encodeDist` reimplemented in TGSL — no shared source, but the same
@@ -14,8 +14,8 @@
 // write the same output word, so no atomics. Albedo is rgba8unorm, which *is* storage-writable, but the
 // same one-thread-owns-one-word shape (one thread emits 4 texels' worth of `u32`s) keeps both channels on
 // one dispatch. `encoder.copyBufferToTexture` then moves both packed buffers into the atlas array layer —
-// a GPU-side command, not a CPU readback, so `redraw`'s per-frame throttle stays synchronous exactly as
-// stage 4 left it (`queue.ts`'s `drain`/`allocate` are untouched).
+// a GPU-side command, not a CPU readback, so `redraw`'s per-frame throttle stays synchronous
+// (`queue.ts`'s `drain`/`allocate` are untouched).
 
 import { Compute, type State } from "@dylanebert/shallot";
 import tgpu from "typegpu";
@@ -50,7 +50,7 @@ const rasterLayout = tgpu.bindGroupLayout({
  * point-segment signed distance (minus half-width), the compute kernel's own derivation: clamp the
  * projection parameter `t` onto [0, 1], measure straight-line distance to the clamped point. CPU-callable
  * so `bun test` exercises this exact math with no device — the GPU half of
- * stage 5's differential oracle against `document.ts`'s independently-derived `segmentDistance`.
+ * a differential oracle against `document.ts`'s independently-derived `segmentDistance`.
  * @example segmentDistanceGpu(5, 0, -10, 0, 10, 0, 2) // -2 (on the centreline, inside a 2 m half-width)
  */
 export const segmentDistanceGpu = tgpu.fn(
@@ -86,8 +86,8 @@ export const encodeDistGpu = tgpu.fn(
 });
 
 /** pack ROAD_ALBEDO's rgb into rgba8unorm's little-endian byte order — the alpha byte is constant
- *  255 (stage 8 moved the marking channel to analytic fs evaluation, so the alpha no longer carries
- *  the encoded marking distance). Computed once at module load. */
+ *  255: the marking channel is analytic in the fs, so the alpha no longer carries the encoded marking
+ *  distance. Computed once at module load. */
 function packAlbedoRgb(rgb: readonly [number, number, number]): number {
     const r = Math.round(rgb[0] * 255);
     const g = Math.round(rgb[1] * 255);
@@ -119,8 +119,8 @@ const rasterKernel = tgpu
             const worldX = origin.x + (d.f32(texelX) + d.f32(0.5)) * d.f32(TEXEL_SIZE);
 
             // nearest-segment tracking: loop over segments once, carrying the coverage distance
-            // — the marking channel is now analytic in the fs from the chord uniform (stage 8),
-            // so the kernel no longer computes a marking distance.
+            // — the marking channel is analytic in the fs from the chord uniform, so the kernel no
+            // longer computes a marking distance.
             let bestCoverage = d.f32(3.402823e38);
             let i = d.u32(0);
             for (; i < rasterLayout.$.params.segmentCount; i = i + d.u32(1)) {
@@ -140,8 +140,8 @@ const rasterKernel = tgpu
             const byte = encodeDistGpu(bestCoverage);
             word = word | (byte << (k * d.u32(8)));
 
-            // the albedo word: road rgb + constant 255 alpha (stage 8 moved the marking channel to
-            // analytic fs evaluation, so the alpha byte no longer carries an encoded marking distance).
+            // the albedo word: road rgb + constant 255 alpha (the marking channel is analytic in the fs,
+            // so the alpha byte no longer carries an encoded marking distance).
             const albedoIdx = gy * d.u32(TILE_RES) + texelX;
             rasterLayout.$.albedoOut[albedoIdx] = roadAlbedoRgb.$;
         }
@@ -150,7 +150,7 @@ const rasterKernel = tgpu
     })
     .$name("roads-rasterize");
 
-/** the emitted rasterizer WGSL — the device-free structural seam stage 5's tests resolve. */
+/** the emitted rasterizer WGSL — the device-free structural seam `rasterize.test.ts` resolves. */
 export function rasterizeWgsl(): string {
     return tgpu.resolve([segmentDistanceGpu, encodeDistGpu, rasterKernel], {
         names: "strict",

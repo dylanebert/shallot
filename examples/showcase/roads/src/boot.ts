@@ -47,11 +47,11 @@ declare global {
         // which reaches `standard/sear/codegen.ts` reading `GPUTextureUsage` at module scope — a
         // `ReferenceError` under Node; `test/roads.playwright.ts` stays bridge-only).
         __roadsTransitionTolerancePx?: number;
-        // stage 24a's corridor-pose capture (`corridorCapture.ts`) — repositions the orbit to the
-        // derived corridor pose for 24b's release-look screenshot. The Playwright driver calls this,
-        // waits, and saves the screenshot to a second file alongside the gate's own.
+        // the corridor-pose capture (`corridorCapture.ts`) — repositions the orbit to the derived
+        // corridor pose for the release-look screenshot. The Playwright driver calls this, waits, and
+        // saves the screenshot to a second file alongside the gate's own.
         __roadsCorridorCapture?: () => Promise<void>;
-        // stage 14's reseed-integrity device arm (`test/roads.playwright.ts`) — a deterministic bridge onto the
+        // the reseed-integrity device arm (`test/roads.playwright.ts`) — a deterministic bridge onto the
         // real F9 handler's own `regenerate` call, so the check can drive two reseeds by fixed seed
         // instead of `Math.random()`'s live keypress (which could coincidentally re-touch the probed
         // tile and make a still-stale read look correct by accident). `__roadsHeightAt` re-derives a
@@ -60,34 +60,33 @@ declare global {
         // network's flatten target is gone.
         __roadsRegenerate?: (seed: number) => Promise<void>;
         __roadsHeightAt?: (x: number, z: number) => Promise<[number, number, number]>;
-        // stage 3's marking device probes — four world points derived from the document, each on a
-        // distinct marking class (edge line, asphalt, dash gap, dash). The device gate asserts the
-        // luminance bands at these points are disjoint.
+        // the marking device probes — four world points derived from the document, each on a distinct
+        // marking class (edge line, asphalt, dash gap, dash). The device gate asserts the luminance
+        // bands at these points are disjoint.
         __roadsMarkingProbePoints?: () => Promise<{
             edgeLine: [number, number, number];
             asphalt: [number, number, number];
             dashGap: [number, number, number];
             dash: [number, number, number];
         }>;
-        // stage 4's edit bridge — drive `__roadsEdit(end, x, z)` to move an endpoint. The target is
-        // clamped to the world bounds and then to the `ROAD_MIN_LENGTH` floor (never refused — a
-        // constraint on a dragged quantity clamps, never no-ops). Returns true once the edit is applied.
-        // The device gate drives this, waits for overlay idle, and reads the flatness and handle
-        // position back.
+        // the edit bridge — drive `__roadsEdit(end, x, z)` to move an endpoint. The target is clamped
+        // to the world bounds and then to the `ROAD_MIN_LENGTH` floor (never refused — a constraint on
+        // a dragged quantity clamps, never no-ops). Returns true once the edit is applied. The device
+        // gate drives this, waits for overlay idle, and reads the flatness and handle position back.
         __roadsEdit?: (end: number, x: number, z: number) => Promise<boolean>;
-        // stage 4's flatness bridge — reads `readVertices()` and runs `checkSurfaceFlatness` against the
-        // live document, returning the violation counts on both axes.
+        // the flatness bridge — reads `readVertices()` and runs `checkSurfaceFlatness` against the live
+        // document, returning the violation counts on both axes.
         __roadsFlatnessViolations?: () => Promise<{
             longitudinal: number;
             crossSection: number;
         }>;
-        // stage 4's handle position bridge — returns the two handle entities' world (x, y, z).
+        // the handle position bridge — returns the two handle entities' world (x, y, z).
         __roadsHandlePos?: () => [[number, number, number], [number, number, number]];
-        // stage 5's posts check bridge — reads back the posts buffer and verifies every Validation
-        // criterion (y = flattenFieldAt, lateral pinned at exactly `halfWidth + POST_OFFSET` — the kerb
-        // line — with the footing ±POST_RADIUS inside the flat core, lateral sign matches
-        // postLateralSign(i), live-slot count, scale-0). The device gate drives this after an
-        // __roadsEdit to re-verify post placement on the edited chord.
+        // the posts check bridge — reads back the posts buffer and verifies every Validation criterion
+        // (y = flattenFieldAt, lateral pinned at exactly `halfWidth + POST_OFFSET` — the kerb line —
+        // with the footing ±POST_RADIUS inside the flat core, lateral sign matches postLateralSign(i),
+        // live-slot count, scale-0). The device gate drives this after an __roadsEdit to re-verify post
+        // placement on the edited chord.
         __roadsPostsCheck?: () => Promise<{ name: string; pass: boolean; detail: string }>;
     }
 }

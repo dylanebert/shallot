@@ -1,11 +1,11 @@
-// Stage 4 — handles and drag (`roads-interactive.md` stage 4). Two Part `sphere` entities at the
+// Handles and drag. Two Part `sphere` entities at the
 // endpoints, a `Color` slab carrying idle / hover / grabbed, hover via `cursorRay` → `raySphere`, and
 // `OrbitPick.claim` so a press over a handle suppresses orbit rotation for the whole drag. On a claimed
 // press, each frame marches `flattenFieldAt` along the cursor ray to find the world point, clamps to
 // the world bounds, and clamps to the `ROAD_MIN_LENGTH` floor (never refuses — a constraint on a dragged
 // quantity clamps, never no-ops). When the march misses (the ray doesn't cross the surface within
 // `MARCH_MAX`), the ray's projection onto the world bound is returned instead — never null, so every
-// frame of a held drag produces a target (stage 9, the clamp-never-refuse law on the derivation chain).
+// frame of a held drag produces a target (the clamp-never-refuse law on the derivation chain).
 // The pure, device-free halves (`applyEdit`, `clampToBound`, `clampDragTarget`, `chordLength`,
 // `HANDLE_RADIUS`, `projectRayToBound`) live in `editPure.ts`, which imports nothing
 // from `@dylanebert/shallot`; this module imports what it needs from there and re-exports the three
@@ -21,7 +21,7 @@ export { applyEdit, clampDragTarget, clampToBound } from "./editPure";
 
 // --- the grab latch (pure, device-free state machine) ---
 //
-// `stepGrab` is the press-edge latch the spec's stage 4b names: on the rising edge of `left` while
+// `stepGrab` is the press-edge latch: on the rising edge of `left` while
 // `hovered >= 0`, record the handle index and set `dragging`; `dragging` survives every subsequent
 // frame regardless of hover and clears only on the falling edge; a press with no handle under it
 // latches nothing. Extracted as a pure function so `edit.test.ts` can drive a synthetic press →
@@ -124,7 +124,7 @@ function marchFlattenField(
     }
     // The march missed — project the ray onto the world bound instead of returning null. The drag's
     // target derivation never no-ops: a missed march yields the ray's projection, not the previous
-    // frame's target (roads-interactive.md stage 9, the clamp-never-refuse law on the derivation chain).
+    // frame's target (the clamp-never-refuse law on the derivation chain).
     return projectRayToBound(ray.origin, ray.dir);
 }
 

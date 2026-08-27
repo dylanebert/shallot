@@ -4,12 +4,8 @@ import { documentDirtyTiles, documentDistance, flattenSegments } from "./documen
 import { captureProbePoints, generateNetwork, ROAD_COUNT, ROAD_HALF_WIDTH } from "./network";
 
 // The network generator's shape gate — the standard road generateNetwork always returns.
-// `roads-interactive.md` stage 1 deleted route selection: `generateNetwork` takes no seed, is not
-// deterministic-in-a-seed (there is no seed), and always returns the same document, so the seed-scan
-// arms this file used to run (determinism-in-seed, a 0–5000 seed world-footprint scan, a 200-seed
-// captureProbePoints classification scan, the route-selection differential and its structural/aggregate
-// arms, and the reseed-disjointness pin) are deleted with their subject rather than adapted — none of
-// them have anything left to scan over.
+// `generateNetwork` takes no seed, is not deterministic-in-a-seed (there is no seed), and always
+// returns the same document.
 
 describe("generateNetwork — shape", () => {
     test("one road, a single straight segment, within the world footprint", () => {

@@ -14,7 +14,7 @@ import {
 } from "../overlay/tiles";
 import { coverFn, markingDistanceFromChord, terrainFsWgsl } from "./terrain";
 
-// The overlay composite's structural gate — the device-free seam this stage's `bun test` relies on for the
+// The overlay composite's structural gate — the device-free seam `bun test` relies on for the
 // fs's atlas-sampling half (CPU-callable/resolved-WGSL first, never a bound device). The composite's
 // actual pixel output is the capture gate's own arm (`gate.ts`/`test/roads.playwright.ts`) — layers are a
 // granularity: the compute-write half is proven by the seeded-tile readback oracle (`overlay/stroke.test.ts`),
@@ -41,7 +41,7 @@ describe("terrain fs — overlay composite", () => {
         expect(wgsl).toContain("var albedo: texture_2d_array<f32>;");
         expect(wgsl).toContain("var dist: texture_2d_array<f32>;");
         expect(wgsl).toContain("var overlaySamp: sampler;");
-        // the chord uniform (stage 8) — the analytic fs's marking geometry input
+        // the chord uniform — the analytic fs's marking geometry input
         expect(wgsl).toContain("var<uniform> chord");
     });
 
@@ -101,8 +101,8 @@ describe("terrain fs — marking channel (stage 8: analytic from chord uniform)"
     const fs = flat(body(wgsl, "fn terrainFs"));
 
     test("reads the chord uniform (endpoints + halfWidth) for marking geometry, not the albedo alpha", () => {
-        // stage 8 moved the marking channel from a baked texel (albedo alpha byte) to analytic fs
-        // evaluation from the chord uniform. The fs must read the chord uniform, not decode alpha.
+        // the marking channel is analytic in the fs from the chord uniform, not a baked texel (albedo
+        // alpha byte). The fs must read the chord uniform, not decode alpha.
         expect(fs).toContain("(*chord).a");
         expect(fs).toContain("(*chord).b");
         expect(fs).toContain("(*chord).halfWidth");
@@ -114,7 +114,7 @@ describe("terrain fs — marking channel (stage 8: analytic from chord uniform)"
         // the coverage form: cover(e) = clamp((e - x)/p + 0.5, 0, 1), alpha = cover(h) - cover(-h)
         // — not the old clamp(0.5 - dist/fw, 0, 1) threshold. The coverFn helper is resolved into the WGSL.
         expect(flat(wgsl)).toContain("fn coverFn");
-        // edge line coverage uses coverFn with LINE_HALF_WIDTH (0.0762 = 0.1524/2, the stage 8 upper bound)
+        // edge line coverage uses coverFn with LINE_HALF_WIDTH (0.0762 = 0.1524/2)
         expect(fs).toMatch(/coverFn\(/);
         // the old threshold form must NOT survive
         expect(fs).not.toMatch(/clamp\(0\.5f - \(markingDist/);
@@ -151,7 +151,7 @@ describe("terrain fs — marking channel (stage 8: analytic from chord uniform)"
     });
 });
 
-// Stage 8's marking differential oracle: `markingDistanceFromChord` (terrain.ts, clamped-projection form,
+// The marking differential oracle: `markingDistanceFromChord` (terrain.ts, clamped-projection form,
 // CPU-called through TypeGPU's dual execution) against `document.ts`'s `markingDistanceForSegment`
 // (cross-product form) — two independently written derivations of the same geometric quantity, the
 // signed distance to the nearest road marking (edge lines + broken centreline). The GPU side is the
@@ -243,8 +243,8 @@ describe("marking differential oracle — markingDistanceFromChord vs document.t
     });
 });
 
-// R3 behavioural arms — the two-edge coverage integral and the dash's Nyquist convergence are the
-// whole point of stage 8, and the existing arms above are structural (toContain/toMatch over resolved
+// R3 behavioural arms — the two-edge coverage integral and the dash's Nyquist convergence, which the
+// existing arms above never exercise: those are structural (toContain/toMatch over resolved
 // WGSL text) or distance differentials that never call the coverage function. These arms call the
 // production `coverFn` (a `tgpu.fn`, CPU-callable through TypeGPU's dual execution — the same path
 // `markingDistanceFromChord` uses in the differential oracle above) so they witness the shipped fs's

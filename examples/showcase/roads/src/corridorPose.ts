@@ -1,16 +1,16 @@
-// Stage 24a's corridor-pose derivation — the admissible artifact for the release look (24b).
+// The corridor-pose derivation — the admissible artifact for the release look.
 //
 // The gate's default-orbit capture (`test-results/roads-capture.png`) is the scene's own orbit
-// (`public/scenes/roads.scene`). **At the pose this module was derived against — the pre-stage-25
+// (`public/scenes/roads.scene`). **At the pose this module was derived against — the earlier
 // default, distance 900, pitch 0.5 — the post-selection earthwork's 1.4404 m vertical excursion
 // projects to ≈0.9 px**, under the frame's FBM mottling and an order of magnitude below the ~8–10 px
 // of natural-relief silhouette waviness, so 24b's hostile read against "the earthwork reads as an
 // artificial trench/embankment rather than terrain" was unreadable at that pose whether or not the
 // failure was present. **Every 900 m figure in this module and its arm is that historical
-// measurement point, not the scene's current default** — stage 25 moved the scene default to 120 m
-// (where the same excursion projects to ≈6.6 px) for presentation reasons, and deliberately did not
-// re-anchor this module on it: the pose and its anchors are fixed literals precisely so they cannot
-// drift with an unrelated stage (24a's whole finding). A future reader must not "update" the 900s to
+// measurement point, not the scene's current default** — the scene default is 120 m
+// (where the same excursion projects to ≈6.6 px) for presentation reasons, and this module is
+// deliberately not re-anchored on it: the pose and its anchors are fixed literals precisely so they
+// cannot drift with an unrelated change. A future reader must not "update" the 900s to
 // track the scene — that would re-fit the anchors to the treatment. This module derives a second pose that makes the
 // earthwork's vertical excursion resolvable (≥5 px) while keeping ≥30 m of unflattened terrain
 // flanking the corridor in frame (the corridor must read *set into* terrain, or the look loses its
@@ -43,10 +43,9 @@ export const CAMERA_FOV_DEG = 60;
 // ─── Document constants (measured from the network geometry at seed 1337) ──────────────────────
 //
 // cutDepth and falloff are the network's own measured quantities on the boot document — the fixed
-// standard chord `roads-interactive.md` stage 1 replaced route selection with — at the terrain's own
+// standard chord — at the terrain's own
 // pinned noise seed 1337 (`buildNetworkGeometry(generateNetwork(), 1337)`; the noise seed feeds
-// `heightAtCpu` alone, the chord itself is no longer seeded). Re-measured at stage 1: 3.8720 m →
-// 18.2464 m (was 1.4404 m → 6.7876 m under the retired route-selected chord). halfWidth is
+// `heightAtCpu` alone, the chord itself is no longer seeded). halfWidth is
 // `ROAD_HALF_WIDTH` from `overlay/network.ts` (= 4).
 //
 // These are fixed literals so the pose (below) does not auto-adjust when cutDepth changes — the
@@ -75,13 +74,13 @@ export const HALF_WIDTH = 4;
 //   D ≤ cutDepth × cos(θ) × f_px / 5 = 3.8720 × cos(θ) × 623.54 / 5 = 483.06 × cos(θ)
 //
 // The 5 px anchor is the road's own already-resolved on-screen width at the *measurement point*
-// (the pre-stage-25 scene default, 900 m): 8 m (2 × halfWidth) × f_px / 900 = 5.54 px — the smallest
+// (the earlier scene default, 900 m): 8 m (2 × halfWidth) × f_px / 900 = 5.54 px — the smallest
 // extent this artifact was demonstrated to resolve, so the threshold is anchored on a resolved
 // quantity in that frame rather than picked to make something pass. The anchor stays at 900 m by
-// design: it is the frame the ≈0.9 px inadmissibility reading came from, and re-deriving it at stage
-// 25's 120 m default (where the road is ~41.6 px) would raise the floor to track a presentation
-// choice rather than a resolved quantity. Unaffected by stage 1's route-selection deletion — it
-// depends only on halfWidth, f_px, and the 900 m measurement point, none of which moved.
+// design: it is the frame the ≈0.9 px inadmissibility reading came from, and re-deriving it at the
+// 120 m default (where the road is ~41.6 px) would raise the floor to track a presentation
+// choice rather than a resolved quantity. It depends only on halfWidth, f_px, and the 900 m
+// measurement point, none of which moved.
 //
 // Constraint 2 — ≥30 m of unflattened terrain flanking the corridor in frame:
 //   D × tan(fov_h/2) − (halfWidth + falloff) ≥ 30
@@ -105,17 +104,10 @@ export const HALF_WIDTH = 4;
 //   earthwork_px = 3.8720 × cos(0.10455) × 623.54 / 120 = 20.01 px (≥5, 4.0× margin over the floor)
 //   flanking     = 120 × 1.0264 − (4 + 18.2464) = 100.92 m (≥30, 3.4× margin)
 //
-// D = 120 was picked before stage 1's route-selection deletion, for the confounder-ratio reasoning
-// below, and stayed inside the admissible interval after the chord's own re-measurement (comfortably
-// so — the floor moved to 50.90 m, still well under 120), so it is not re-picked here. What selected
-// it originally: the confounder ratio (earthwork_px / confounder_px) is constant across the
+// The confounder ratio (earthwork_px / confounder_px) is constant across the
 // interval — both earthwork and confounder scale the same way with D and θ — so it does not
-// constrain the distance. The absolute 5 px floor is what constrained it, and the pre-stage-1 pose
-// sat at D_max = 178.6 m where earthwork was exactly 5 px (the resolution threshold, zero margin).
-// D = 120 gave 7.44 px there (49% margin, the reviewer's own measurement of a suitable pose, stage
-// 24's split, taken as measurement not remedy per this unit's Residue); it now gives 20.01 px (4.0×
-// margin) against the re-measured chord. The confounder comparison is an assertion (see
-// corridorPose.test.ts), not what selected the distance.
+// constrain the distance. The absolute 5 px floor is what constrained it. The confounder comparison
+// is an assertion (see corridorPose.test.ts), not what selected the distance.
 
 /** Half the corridor's average side-slope angle: atan(CUT_DEPTH / FALLOFF) / 2 = 0.10455 rad.
  *  Fixed literal — does not auto-adjust if cutDepth changes. */

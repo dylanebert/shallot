@@ -1,14 +1,11 @@
-// The longitudinal road profile: a straight chord per polyline — the spec's Locked decision half two
-// (stage 17, the 2026-08-19 rescope). `flatten.ts`'s `setNetwork` calls {@link buildPolylineProfile} once
+// The longitudinal road profile: a straight chord per polyline — the spec's Locked decision half two.
+// `flatten.ts`'s `setNetwork` calls {@link buildPolylineProfile} once
 // per polyline to build the GPU segment list's per-endpoint heights; `networkCore` (flatten.ts) then
 // interpolates between them by the clamped projection parameter `t` it already computes. On a straight
 // segment the longitudinal station `s` is an affine function of `(x, z)`, so a linear profile in `s`
 // makes the flatten target an affine function of `(x, z)` — barycentric interpolation over a triangle
 // reproduces an affine field exactly, so the in-corridor reconstruction error vanishes identically rather
-// than shrinking with cell size. The resample-and-limit chain this replaced (stage 8's "low-pass, don't
-// linearize") made the target a curved function of station; that curvature was the entire remaining
-// defect, and the whole apparatus was deleted at stage 19 — `buildPolylineProfile` no longer calls any
-// of it.
+// than shrinking with cell size.
 //
 // Pure CPU module (the device-free split `overlay/document.ts`/`overlay/tiles.ts` use) — `heightAtCpu`
 // below is a from-scratch JS re-authoring of `noise.ts`'s TGSL `perlin2`/`fbm2`/`heightAt` (not a call
@@ -41,8 +38,8 @@ export const PROFILE_STEP = SPACING; // 4 m
 export const MAX_GRADE = 0.12; // rise/run
 
 /** the seeded permutation table's hash, mirroring `noise.ts`'s `grad2` — a from-scratch switch instead of
- *  an if-chain (a different code shape over the same 8-direction gradient set, same independent-derivation
- *  spirit stage 5/6 use for distance). */
+ *  an if-chain (a different code shape over the same 8-direction gradient set, in the same
+ *  independent-derivation spirit). */
 function grad2Cpu(hash: number, x: number, z: number): number {
     switch (hash & 7) {
         case 0:
@@ -122,7 +119,7 @@ export interface ProfilePoint {
 }
 
 /**
- * the straight-chord profile (stage 17, the spec's Locked decision half two): one {@link ProfilePoint} per
+ * the straight-chord profile (the spec's Locked decision half two): one {@link ProfilePoint} per
  * polyline endpoint — `points[0]` and `points[points.length - 1]` — with `height` the natural terrain
  * height there (`heightAtCpu`). `buildNetworkGeometry` (`flatten.ts`) emits exactly one `ProfileSegment`
  * per polyline spanning these two points, so `networkCore`'s `mix(aHeight, bHeight, t)` is a linear
@@ -161,7 +158,7 @@ export interface LongitudinalCheck {
  * sampled centreline profile's first difference (grade) against {@link MAX_GRADE}. The bound is not fitted
  * to any one network's own output. Generic over any `x, z, height` sequence, not just
  * {@link buildPolylineProfile}'s own output: this is what `flatten.test.ts`'s/`profile.test.ts`'s mutation
- * proof runs against both the chord profile (should pass) and a reconstruction of stage 6's raw one
+ * proof runs against both the chord profile (should pass) and a reconstruction of the raw one
  * (should fail).
  */
 export function longitudinalOracle(profile: readonly ProfilePoint[]): LongitudinalCheck {

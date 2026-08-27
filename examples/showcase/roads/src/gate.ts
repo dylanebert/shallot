@@ -104,17 +104,13 @@ export async function gate(): Promise<Check[]> {
     syncNetworkForSeed(SEED);
     await generate(SEED);
 
-    // Stage 23's device arm — re-pinned to exact zero over real `readVertices()`, consistent with the
-    // CPU criterion's unconditional form (stage 21 deleted the junction carve-out; stage 18 proved the
-    // real generator reads exactly zero on both axes at both resolutions). The fidelity check
-    // (`reconstructionAgreement`) stays — it proves `bun test`'s device-free arm reads the same mesh the
-    // real device renders, without which a CPU/GPU divergence could make the device-free suite pass or
-    // fail for the wrong reason. The property arm now asserts the same unconditional exact-zero the CPU
-    // suite does: 0 violations and 0.0000 m on both axes over the real device's mesh — no exclusions,
-    // no junction zone, no `excludedStationCount` (deleted at stage 21). The `sampleCount` pin (546,
-    // re-pinned at stage 1: `roads-interactive.md` deleted route selection, so the boot document is
-    // the one fixed standard chord, not a seed-selected route) prevents an emptied population from
-    // passing on empty arrays.
+    // The property arm asserts the same unconditional exact-zero the CPU suite does: 0 violations and
+    // 0.0000 m on both axes over the real device's mesh — no exclusions, no junction zone, no
+    // `excludedStationCount`. The fidelity check (`reconstructionAgreement`) proves `bun test`'s
+    // device-free arm reads the same mesh the real device renders, without which a CPU/GPU divergence
+    // could make the device-free suite pass or fail for the wrong reason. The `sampleCount` pin (546,
+    // the one fixed standard chord's own reading) prevents an emptied population from passing on empty
+    // arrays.
     const liveDoc = generateNetwork();
     const deviceRaw = await readVertices();
     const agreement = reconstructionAgreement(deviceRaw, liveDoc, SEED);
@@ -139,12 +135,10 @@ export async function gate(): Promise<Check[]> {
         detail: `device crossSection=${deviceResult.crossSection.length} longitudinal=${deviceResult.longitudinal.length} maxCrossSectionExcess=${deviceResult.maxCrossSectionExcess.toFixed(4)} maxLongitudinalExcess=${deviceResult.maxLongitudinalExcess.toFixed(4)} sampleCount=${deviceResult.sampleCount}`,
     });
 
-    // stage 5's post-placement check — reads back the posts buffer and verifies every Validation
-    // criterion: every live slot's y equals CPU flattenFieldAt (baked against the live seed), the lateral
-    // offset pinned at exactly halfWidth + POST_OFFSET (the kerb line, stage 11 — it replaced the old
-    // "somewhere inside the flat core" band, which passed for any offset in a 5.66 m window), lateral sign
-    // matches postLateralSign(i), floor(chordLength / POST_SPACING) live slots, and every slot past the
-    // chord at scale 0.
+    // the post-placement check — reads back the posts buffer and verifies every Validation criterion:
+    // every live slot's y equals CPU flattenFieldAt (baked against the live seed), the lateral offset
+    // pinned at exactly halfWidth + POST_OFFSET (the kerb line), lateral sign matches postLateralSign(i),
+    // floor(chordLength / POST_SPACING) live slots, and every slot past the chord at scale 0.
     checks.push(await checkPosts());
 
     return checks;

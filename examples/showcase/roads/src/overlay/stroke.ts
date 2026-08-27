@@ -10,12 +10,10 @@ import {
     tileOrigin,
 } from "./tiles";
 
-// The stage's hand-authored "known pattern": a single straight road-width stroke. Stage 4 built this as
-// the substrate's CPU stand-in (atlas + indirection + composite + dirty/redraw); stage 5's `rasterize.ts`
-// is the real GPU rasterizer `strokeDocument()` (below) now feeds in production (`terrain.ts`). This
-// module's own `strokeDistance`/`packStrokeTile` stay live as the CPU analytic reference: `document.test.ts`
-// cross-checks `documentDistance` over `strokeDocument()` against `strokeDistance` directly, and this
-// file's own tests still pin the hand-derived pattern stage 4 built them against.
+// The hand-authored "known pattern": a single straight road-width stroke. `strokeDocument()` (below)
+// feeds the real GPU rasterizer `rasterize.ts` in production (`terrain.ts`). This module's own
+// `strokeDistance`/`packStrokeTile` stay live as the CPU analytic reference: `document.test.ts`
+// cross-checks `documentDistance` over `strokeDocument()` against `strokeDistance` directly.
 //
 // Run along +X through the world origin at Z=0 (grid.ts centres the terrain there, and `heightAt(0, 0)` is
 // the one analytically known height on the seeded surface — an exact perlin-lattice point samples zero
@@ -32,10 +30,9 @@ export const STROKE_Z = 0;
 export const ROAD_ALBEDO: readonly [number, number, number] = [0.05, 0.05, 0.06];
 
 /** signed distance in world metres from (x, z) to the stroke's road edge — negative inside the road,
- *  positive outside, zero at the boundary. The primitive stage 5's differential oracle will re-derive
- *  independently against a GPU rasterization of the same shape — two derivations written from scratch,
- *  neither calling the other; here it's the one source both the CPU packer and this stage's unit tests
- *  read. */
+ *  positive outside, zero at the boundary. The differential oracle re-derives this independently
+ *  against a GPU rasterization of the same shape — two derivations written from scratch, neither
+ *  calling the other; here it's the one source both the CPU packer and this module's unit tests read. */
 export function strokeDistance(x: number, z: number): number {
     const clampedX = Math.max(-STROKE_HALF_LENGTH, Math.min(STROKE_HALF_LENGTH, x));
     const dx = x - clampedX;

@@ -12,8 +12,8 @@ import {
     tileOrigin,
 } from "./tiles";
 
-// The stroke document: pure data (one road's polyline + width) plus the CPU analytic distance math
-// stage 5's differential oracle checks the GPU rasterizer (`rasterize.ts`) against. No GPU/engine
+// The stroke document: pure data (one road's polyline + width) plus the CPU analytic distance math the
+// differential oracle checks the GPU rasterizer (`rasterize.ts`) against. No GPU/engine
 // imports, so `bun test` exercises every formula here without a device — the same device-free split
 // `tiles.ts` and `terrain/noise.ts` use.
 //
@@ -32,8 +32,7 @@ export interface Polyline {
     readonly halfWidth: number;
 }
 
-/** the rasterizer's whole input: every polyline stroke for one redraw — one road, no carpark
- *  (`roads-interactive.md` stage 1: the polygon-stamp path is deleted, not kept dormant). */
+/** the rasterizer's whole input: every polyline stroke for one redraw — one road, no carpark. */
 export interface StrokeDocument {
     readonly polylines: readonly Polyline[];
 }
@@ -84,7 +83,7 @@ export function segmentDistance(px: number, pz: number, seg: Segment): number {
 }
 
 /** the document's analytic distance at (px, pz) — the minimum (nearest, most-inside) signed distance
- *  over every segment. The CPU half of stage 5's differential oracle. */
+ *  over every segment. The CPU half of the differential oracle. */
 export function documentDistance(px: number, pz: number, doc: StrokeDocument): number {
     let best = Number.POSITIVE_INFINITY;
     for (const seg of flattenSegments(doc)) {
@@ -142,7 +141,7 @@ export function markingDistanceForSegment(px: number, pz: number, seg: Segment):
 }
 
 /** the document's analytic marking distance at (px, pz) — the minimum (nearest) signed distance to any
- *  road marking over every segment. The CPU half of stage 8's marking differential oracle. */
+ *  road marking over every segment. The CPU half of the marking differential oracle. */
 export function markingDistance(px: number, pz: number, doc: StrokeDocument): number {
     let best = Number.POSITIVE_INFINITY;
     for (const seg of flattenSegments(doc)) {
@@ -259,9 +258,8 @@ export function drivable(px: number, pz: number, doc: StrokeDocument): boolean {
  * Why the capsule and not the AABB: for an axis-aligned chord the AABB *is* the swath and the count is
  * exact (a full-width chord reads 32 tiles); for a diagonal chord the AABB is the whole enclosing rect,
  * so a corner-to-corner chord reads 256 — every tile in the world — against a true swath of at most
- * `2 × TILES_PER_SIDE − 1 = 31` tiles before width. The AABB was a dirty-set coarseness hiding behind the
- * deleted `ROAD_MAX_LENGTH` ceiling; the capsule narrows it to the chord's actual footprint
- * (`roads-interactive.md` stage 4d).
+ * `2 × TILES_PER_SIDE − 1 = 31` tiles before width. The capsule narrows the dirty set to the chord's
+ * actual footprint.
  *
  * Deliberately not one bounding rect over the whole document — two primitives far apart would otherwise
  * mark every tile *between* them too, which is exactly the over-approximation the spec's

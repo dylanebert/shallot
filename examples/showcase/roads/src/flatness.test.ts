@@ -22,15 +22,12 @@ import { GROUND_LEVEL, makePermutation } from "./terrain/noise";
 import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
 import { SEED } from "./terrain/terrain";
 
-// Stage 15c's pin legitimacy — the criterion 15b's numbers are read against (spec Validation, "Surface
-// flatness along the road", 2026-08-19 second consult). No code under test changes behaviour; the pins
-// are replaced with the two-leg criterion (Leg A: the field, Leg B: the mesh's convergence). Numbers are
-// measured, not predicted — every bound below is read off an actual run, with margin for run-to-run
-// float noise, never fitted so tight a legitimate reading could flip the assertion.
+// The pins below are read against the two-leg criterion (Leg A: the field, Leg B: the mesh's
+// convergence). Numbers are measured, not predicted — every bound below is read off an actual run, with
+// margin for run-to-run float noise, never fitted so tight a legitimate reading could flip the assertion.
 
-// Stage 1 (`roads-interactive.md`) deleted route selection: `generateNetwork` takes no seed and always
-// returns the one fixed standard chord. The sample population these two constants pin was re-measured
-// against that chord (not carried over from the seed-1337 route-selected network they replace).
+// `generateNetwork` takes no seed and always returns the one fixed standard chord; the sample population
+// these two constants pin is measured against that chord.
 const SAMPLE_COUNT_SPACING = 546;
 const NO_CUT_LONGITUDINAL = 57;
 
@@ -80,16 +77,8 @@ describe("surface flatness — Leg A: the continuous field, no mesh (arm v)", ()
     // the mesh's discretization. This is the leg that gates the blend's design and it carries no
     // fitted number.
     //
-    // Stage 20: the relative-depth suppression factor and its `suppressionBand` parameter are deleted
-    // (non-overlapping primitives never contend, so the suppression had nothing left to suppress). The
-    // band-`= falloff` red-first arm whose subject was the deleted mechanism is removed with it.
-    //
-    // Stage 1 (`roads-interactive.md`): the "stage 18 arm (c)" overlapping-pair null control — the
-    // discriminating proof that non-overlap is what buys exactness — is deleted along with the
-    // multi-road generator's own non-overlap-by-construction guarantee it was proving (one road cannot
-    // overlap, so there is no clearance/non-overlap machinery left for that arm to be a foil against;
-    // `checks.md`'s hollowed-foil rule). The "stage 17 arm (a)" synthetic non-overlapping network below
-    // still exercises the surviving multi-road blend machinery directly.
+    // The synthetic non-overlapping network below exercises the surviving multi-road blend machinery
+    // directly.
     const perm = makePermutation(SEED);
     const natural = (x: number, z: number) => heightAtCpu(x, z, perm);
 
@@ -120,11 +109,9 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
     const result = checkSurfaceFlatness((x, z) => meshHeightAt(raw, x, z), doc);
 
     test("the readings are reported (no fitted bound — Leg B gates the mesh, Leg A gates the field)", () => {
-        // 15c: the fitted bounds (`longitudinal.length < 20`, `maxCrossSectionExcess < 0.3`) are deleted
-        // — they were written to 15b's own reading and would defend the miss once the blend improves. The
-        // mesh residual is gated by Leg B's convergence assertion (amplitude ratio +
-        // count decrease), not by an absolute bound (Blocker 3: any honest bound is ≥ MAX_GRADE·SPACING =
-        // 0.48 m and reads stage 12's founding 0.471 m defect green). The readings are logged as evidence.
+        // The mesh residual is gated by Leg B's convergence assertion (amplitude ratio + count decrease),
+        // not by an absolute bound: any honest absolute bound is ≥ MAX_GRADE·SPACING = 0.48 m, which
+        // reads the founding 0.471 m defect green. The readings are logged as evidence.
         console.log(
             `SURFACE_FLATNESS_SHIPPED longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(4)} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(4)}`,
         );
@@ -146,16 +133,13 @@ describe("surface flatness — shipped pipeline at SEED=1337 (arm i, stage 15b)"
 describe("surface flatness — stage 18 arm (b): real generator reads exactly zero at both resolutions", () => {
     // The real-generator exactness arm (spec Validation, "Surface flatness in the corridor — exactly zero,
     // unconditional"): `checkSurfaceFlatness` over the banded lattice on the real `generateNetwork()`
-    // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. This reading
-    // landed at stage 18 and is what licenses the exactness claim on the shipped pipeline — it is not an
-    // owed reading. The non-overlapping generator guarantees no two primitives' falloff bands overlap at
-    // any sampled station, so the composite target is affine everywhere the oracle samples, and
-    // barycentric interpolation reproduces an affine field exactly at any cell size and any road angle.
-    // The population is pinned `toBe(SAMPLE_COUNT_SPACING)` at both resolutions, so an emptied population
+    // reads exactly 0 violations / 0.0000 m on both axes, at `SPACING` and at `SPACING/2`. The
+    // non-overlapping generator guarantees no two primitives' falloff bands overlap at any sampled
+    // station, so the composite target is affine everywhere the oracle samples, and barycentric
+    // interpolation reproduces an affine field exactly at any cell size and any road angle. The
+    // population is pinned `toBe(SAMPLE_COUNT_SPACING)` at both resolutions, so an emptied population
     // reds instead of passing on empty arrays — do not reintroduce a `sampleCount > 1000` inequality
-    // beside the exact pin (the spec forbids it; the exact pin is strictly stronger). Stage 1
-    // (`roads-interactive.md`) re-pinned the population at the standard chord's own reading (546, not
-    // carried over from the seed-1337 route-selected network's 1197).
+    // beside the exact pin (the exact pin is strictly stronger).
     const doc = generateNetwork();
     const perm = makePermutation(SEED);
     const { segments, cutDepth } = buildNetworkGeometry(doc, SEED);
@@ -171,11 +155,8 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         console.log(
             `REAL_EXACTNESS_SPACING crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount} cutDepth=${cutDepth.toFixed(4)} falloff=${falloff.toFixed(4)}`,
         );
-        // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING)
-        // so a future change that silently shrinks the population reds instead of passing on a
-        // thinner array. Stage 1 (`roads-interactive.md`) reduced the network to one road: the
-        // population re-pinned at the one-road document's own reading (re-measured, not carried over
-        // from the five-road network).
+        // Pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING) so a future change
+        // that silently shrinks the population reds instead of passing on a thinner array.
         expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
@@ -200,20 +181,13 @@ describe("surface flatness — stage 18 arm (b): real generator reads exactly ze
         console.log(
             `REAL_EXACTNESS_SPACING_HALF crossSection=${result.crossSection.length} longitudinal=${result.longitudinal.length} maxCrossSectionExcess=${result.maxCrossSectionExcess.toFixed(5)} maxLongitudinalExcess=${result.maxLongitudinalExcess.toFixed(5)} sampleCount=${result.sampleCount}`,
         );
-        // Stage-18 repair: pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
-        // Stage 1 (`roads-interactive.md`): re-pinned at the one-road document's own reading.
+        // Pin the sampleCount at the widened endpointMargin (halfWidth + √2·SPACING).
         expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
         expect(result.crossSection.length).toBe(0);
         expect(result.maxCrossSectionExcess).toBe(0);
         expect(result.longitudinal.length).toBe(0);
         expect(result.maxLongitudinalExcess).toBe(0);
     });
-
-    // R2 (stage-18 repair) deleted at stage 1 (`roads-interactive.md`): the multi-seed scan existed to
-    // witness "by construction" holding across the route-selected generator's seed-dependent placements.
-    // `generateNetwork` no longer takes a seed — it always returns the one fixed standard chord, so a
-    // seed loop here would just re-check the same document N times. The arm's subject (seed-varying
-    // placement) is gone; the both-resolutions reading above is the whole population now.
 });
 
 describe("surface flatness — null control: no cut, real relief (arm iii)", () => {
@@ -234,12 +208,9 @@ describe("surface flatness — null control: no cut, real relief (arm iii)", () 
         console.log(
             `SURFACE_FLATNESS_NO_CUT longitudinal=${result.longitudinal.length} crossSection=${result.crossSection.length} sampleCount=${result.sampleCount}`,
         );
-        // Stage 1 (`roads-interactive.md`) reduced the network to one road, re-pinning the population and
-        // the failing count at the one-road document's own reading (re-measured, not carried over from
-        // the five-road network) — the population is pinned, not just the failing count: a shrinking
-        // sample array would otherwise buy this arm a green the same way it would buy the exactness arms
-        // one (this unit's own residue — an amputated instrument degrades the quantifier, not just the
-        // population).
+        // The population is pinned, not just the failing count: a shrinking sample array would otherwise
+        // buy this arm a green the same way it would buy the exactness arms one (an amputated instrument
+        // degrades the quantifier, not just the population).
         expect(result.sampleCount).toBe(SAMPLE_COUNT_SPACING);
         expect(result.longitudinal.length).toBe(NO_CUT_LONGITUDINAL);
     });
@@ -383,17 +354,11 @@ describe("reconstructionAgreement — the device arm's own fidelity pin", () => 
     });
 });
 
-// Stage 17's exactness arm — the instrument that decides a round ships with the chord profile
-// (spec Validation, "Surface flatness in the corridor"). The chord's affine target makes the in-corridor
-// reconstruction error vanish identically on a non-overlapping network (barycentric interpolation
-// reproduces an affine field exactly at any cell size and any road angle). Stage 1
-// (`roads-interactive.md`) deleted "stage 18 arm (c)"'s hand-built OVERLAPPING pair — the discriminating
-// proof that non-overlap is what buys exactness — along with the multi-road generator's own
-// non-overlap-by-construction guarantee it was a foil against: one road cannot overlap, so there is no
-// clearance/non-overlap machinery left in `overlay/network.ts` for that arm to prove anything about
-// (`checks.md`'s hollowed-foil rule). This arm still exercises the surviving multi-road blend machinery
-// in `networkCoreCpu` directly, over a hand-built non-overlapping synthetic network — that machinery
-// generalizes over `NetworkSegment.road` even though the real generator only ever emits one road.
+// The chord's affine target makes the in-corridor reconstruction error vanish identically on a
+// non-overlapping network (barycentric interpolation reproduces an affine field exactly at any cell size
+// and any road angle). This arm exercises the surviving multi-road blend machinery in `networkCoreCpu`
+// directly, over a hand-built non-overlapping synthetic network — that machinery generalizes over
+// `NetworkSegment.road` even though the real generator only ever emits one road.
 
 describe("surface flatness — stage 17 arm (a): synthetic non-overlapping network reads exactly zero", () => {
     // a hand-built NON-OVERLAPPING network: five straight roads at 30° heading (not 0°/45°/90°),
@@ -403,10 +368,10 @@ describe("surface flatness — stage 17 arm (a): synthetic non-overlapping netwo
     // primitives' falloff bands overlap, and the affine-exactness argument holds at every sampled
     // station.
     //
-    // `roads-interactive` stage 12: banded lattice, for the same reason as the real-generator pair above — the oracle samples
-    // only inside the five footprints, and the arms' exact-zero assertion is what makes an over-narrow
-    // band red rather than green. The multi-road geometry also exercises the band's per-segment capsule
-    // union, which a single chord cannot.
+    // The banded lattice is used for the same reason as the real-generator pair above — the oracle
+    // samples only inside the five footprints, and the arms' exact-zero assertion is what makes an
+    // over-narrow band red rather than green. The multi-road geometry also exercises the band's
+    // per-segment capsule union, which a single chord cannot.
     const Heading = Math.PI / 6; // 30° — non-axis- and non-45°-aligned
     const RoadSpacing = 200; // metres, perpendicular separation between adjacent roads
     const RoadLen = 200; // metres

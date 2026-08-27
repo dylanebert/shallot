@@ -6,12 +6,10 @@
 // normal reflects the flattened surface too ("affected-region remesh" — every reseed/regenerate
 // re-dispatches the whole kernel, so there's no separate patch step).
 //
-// Stage 8 (2026-08-18, road profile linearization): the road's own *longitudinal* target height used to be a
-// bare `heightAt` at the projected centreline point — every noise octave at the 4 m vertex scale rode
-// straight into the road surface. `terrain/profile.ts`'s {@link buildPolylineProfile} now returns one
-// straight chord per polyline; `networkCore` interpolates between its endpoint heights by the same
-// clamped projection parameter `t` it already computes, instead of re-sampling `heightAt` at every query
-// point.
+// The road's own *longitudinal* target height is one straight chord per polyline:
+// `terrain/profile.ts`'s {@link buildPolylineProfile} returns one straight chord per polyline, and
+// `networkCore` interpolates between its endpoint heights by the same clamped projection parameter `t`
+// it already computes, instead of re-sampling `heightAt` at every query point.
 //
 // Two independently-derived cosine-ease forms (the same split `overlay/document.ts`/`overlay/rasterize.ts`
 // use for distance): {@link flattenHeight} is the CPU reference `flatten.test.ts` pins directly;
@@ -28,12 +26,11 @@ import { SPACING } from "./grid";
 import { heightAt, makePermutation } from "./noise";
 import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
 
-// FALLOFF is no longer `= SPACING` (stage 6's choice, derived only from a capture probe's own grid
-// alignment, not a road-geometry argument). Once the profile is the straight chord the cut depth at a given point
-// can grow past what a fixed 4 m band eases gracefully — a deep cut eased back over 4 m reads as a cliff
-// wall, not a shoulder. {@link computeFalloff} re-derives it per network, from the network's own measured
-// cut depth (the largest |natural - target| the flatten pipeline actually produces this reseed) and a
-// cited side-slope limit, so the transition is only ever as wide as the deepest cut demands.
+// The cut depth at a given point can grow past what a fixed 4 m band eases gracefully — a deep cut
+// eased back over 4 m reads as a cliff wall, not a shoulder. {@link computeFalloff} re-derives the
+// falloff per network, from the network's own measured cut depth (the largest |natural - target| the
+// flatten pipeline actually produces this reseed) and a cited side-slope limit, so the transition is
+// only ever as wide as the deepest cut demands.
 //
 // AASHTO's Roadside Design Guide draws the line between a "traversable, non-recoverable" and a "critical,
 // non-traversable" roadside slope at 1V:3H (~33%) — steeper reads as a cliff face to a driver leaving the
@@ -43,14 +40,13 @@ import { buildPolylineProfile, heightAtCpu, PROFILE_STEP } from "./profile";
 // `D·(π/2)/F`. Solving for `F` at the side-slope limit gives the derivation below.
 export const SIDE_SLOPE_LIMIT = 1 / 3; // AASHTO Roadside Design Guide, 1V:3H, rise/run
 
-// Stage 15 (2026-08-19, the reconstruction-axis fix `flatness.ts` diagnosed): a triangle straddling the
-// footprint edge can have a corner *outside* the old `halfWidth`-radius flat core, eased toward off-road
-// terrain that varies by metres over one grid cell — the mesh reads that blend at a point whose analytic
-// position is still inside the road. Widening the flat core (the `coreDist <= 0` region `flattenHeight`
-// hands `targetHeight` outright) by a grid cell's own diagonal guarantees every vertex that can support
-// a footprint-intersecting triangle sits inside it: a cell is `SPACING` square, so the farthest any of a
-// straddling triangle's corners can sit from the footprint edge is that cell's diagonal, `√2·SPACING`.
-// Cell geometry, not a fitted number.
+// A triangle straddling the footprint edge can have a corner *outside* the `halfWidth`-radius flat core,
+// eased toward off-road terrain that varies by metres over one grid cell — the mesh reads that blend at
+// a point whose analytic position is still inside the road. Widening the flat core (the `coreDist <= 0`
+// region `flattenHeight` hands `targetHeight` outright) by a grid cell's own diagonal guarantees every
+// vertex that can support a footprint-intersecting triangle sits inside it: a cell is `SPACING` square,
+// so the farthest any of a straddling triangle's corners can sit from the footprint edge is that cell's
+// diagonal, `√2·SPACING`. Cell geometry, not a fitted number.
 export const FLAT_CORE_MARGIN = Math.SQRT2 * SPACING;
 
 /** the falloff distance (metres) whose cosine-ease transition peaks at exactly {@link SIDE_SLOPE_LIMIT}
@@ -100,7 +96,7 @@ export const flattenHeightGpu = tgpu.fn(
  *  (`terrain/profile.ts`'s `buildPolylineProfile` returns one straight chord per polyline), each
  *  carrying its own natural elevation at `aHeight`/`bHeight` so
  *  `networkCore` interpolates between them instead of re-sampling `heightAt`. `road` is the owning
- *  polyline's own index in `doc.polylines` (stage 15) — segments are emitted contiguously per road
+ *  polyline's own index in `doc.polylines` — segments are emitted contiguously per road
  *  (`buildNetworkGeometry`'s own per-line loop), which `networkCore` relies on to fold a road's own chain
  *  of sub-segments (continuous by construction — consecutive sub-segments share an endpoint height) down
  *  to *one* nearest-point contribution before blending across distinct primitives, rather than blending
@@ -130,21 +126,16 @@ const NetworkCore = d.struct({ coreDist: d.f32, targetHeight: d.f32 });
  *  `segmentDistanceGpu` uses — an independent derivation from `overlay/document.ts`'s cross-product form)
  *  minus half-width, widened by {@link FLAT_CORE_MARGIN}; target is the segment's own chord profile
  *  height, linearly interpolated by the same clamped projection parameter `t` the distance calculation
- *  already computes — never a fresh `heightAt` sample at the projected point (stage 8's fix: that was
- *  every noise octave riding straight into the road surface).
+ *  already computes — never a fresh `heightAt` sample at the projected point.
  *
- *  Stage 15: `bestTarget` used to be the *nearest* primitive's own target, picked by a hard `core <
- *  bestCore` switch — continuous in `bestCore` (a min of SDFs) but discontinuous in the target it carries,
- *  since crossing the bisector between two primitives flips which one's target wins outright. This now
- *  blends every *primitive*'s target by the same cosine-ease weight {@link flattenHeightGpu} already uses
- *  to fade a single primitive's target toward natural (`1 - ease(coreDist / falloff)`, clamped to `[0,
- *  1]`) — a primitive fully inside its own core contributes weight 1, one past its own falloff contributes
- *  0, so away from any overlap exactly one weight survives and this reduces to the old nearest-primitive
- *  target exactly; where two primitives' falloff bands overlap (a bisector, a junction), both contribute
- *  and the target cross-fades instead of switching. Stage 1 (`roads-interactive.md`) retired the
- *  carpark-polygon primitive kind and its own ray-cast/nearest-edge leg here, but kept the multi-road
- *  blend machinery below — the network's own generator only ever emits one road, but this function
- *  generalizes over `NetworkSegment.road` regardless.
+ *  `bestTarget` blends every *primitive*'s target by the same cosine-ease weight
+ *  {@link flattenHeightGpu} already uses to fade a single primitive's target toward natural
+ *  (`1 - ease(coreDist / falloff)`, clamped to `[0, 1]`) — a primitive fully inside its own core
+ *  contributes weight 1, one past its own falloff contributes 0, so away from any overlap exactly one
+ *  weight survives and this reduces to the nearest-primitive target exactly; where two primitives'
+ *  falloff bands overlap (a bisector, a junction), both contribute and the target cross-fades instead
+ *  of switching. The multi-road blend machinery below survives because the network's own generator
+ *  only ever emits one road, but this function generalizes over `NetworkSegment.road` regardless.
  *
  *  A *primitive* is a whole road, never one fine profile sub-segment: a road's own chain of sub-segments
  *  is already continuous by construction (`buildNetworkGeometry`'s per-point interpolation chains
@@ -261,7 +252,7 @@ export function warmNetwork(state: State): void {
 
 /** one flattened profile sub-segment — a `flatten.ts`-local extension of `overlay/document.ts`'s
  *  `Segment` shape with the two elevation control-point heights `networkCore` interpolates between, plus
- *  `road` (stage 15): the owning polyline's own index in `doc.polylines`, {@link NetworkSegment}'s CPU
+ *  `road`: the owning polyline's own index in `doc.polylines`, {@link NetworkSegment}'s CPU
  *  twin. */
 export interface ProfileSegment {
     readonly ax: number;

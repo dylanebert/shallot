@@ -13,8 +13,7 @@ import { SPACING } from "./grid";
 import { mulberry32 } from "./noise";
 import { MAX_GRADE } from "./profile";
 
-// FALLOFF is no longer a fixed module constant (stage 8's re-derivation, `flatten.ts`'s module header) —
-// these pure-math tests exercise `flattenHeight`/`flattenHeightGpu` at an arbitrary representative
+// These pure-math tests exercise `flattenHeight`/`flattenHeightGpu` at an arbitrary representative
 // falloff, since the formula's own correctness doesn't depend on which falloff a network happened to
 // produce.
 const TEST_FALLOFF = 4;
@@ -160,7 +159,7 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     });
 
     test("each road's single chord segment spans its own polyline endpoints — no sub-segment chain", () => {
-        // stage 17: the chord is one segment per road, so there's no chain to check — each segment's
+        // The chord is one segment per road, so there's no chain to check — each segment's
         // endpoints ARE the polyline's endpoints. This pin verifies that directly.
         const doc = generateNetwork();
         const { segments } = buildNetworkGeometry(doc, 1337);
@@ -180,11 +179,9 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
         // by detecting `seg.road` changes in the segment array — it relies on segments being emitted
         // contiguously per road. The CPU mirror (`networkCoreCpu` in `flatness.ts`) uses a Map keyed
         // by `road`, so it does not rely on contiguity — the invariant is load-bearing on one side
-        // only. Stage 17: one segment per road, so the invariant is trivially true — the `road` field
-        // is strictly increasing (0, 1, 2, ..., ROAD_COUNT-1). Stage 1 (`roads-interactive.md`)
-        // deleted route selection: `generateNetwork` always returns the one fixed standard chord, so
-        // the seed scan this arm used to run over is gone with it — there is exactly one document to
-        // check.
+        // only. One segment per road, so the invariant is trivially true — the `road` field
+        // is strictly increasing (0, 1, 2, ..., ROAD_COUNT-1). `generateNetwork` always returns the
+        // one fixed standard chord, so there is exactly one document to check.
         const doc = generateNetwork();
         const { segments } = buildNetworkGeometry(doc, 1337);
         expect(segments.length).toBe(doc.polylines.length);
@@ -194,9 +191,8 @@ describe("buildNetworkGeometry — the CPU profile-to-segment builder", () => {
     });
 
     test("the boot chord's grade at perm 1337 stays under MAX_GRADE — by measurement, not by a limiter", () => {
-        // stage 17: the chord has no grade limiter — the grade is the natural chord grade between the
-        // endpoint heights. It stays under MAX_GRADE by measurement. Stage 1 (`roads-interactive.md`)
-        // replaced route selection with the one fixed standard chord, so this reads that measurement
+        // The chord has no grade limiter — the grade is the natural chord grade between the
+        // endpoint heights. It stays under MAX_GRADE by measurement. This reads that measurement
         // on the standard chord against perm 1337's terrain.
         //
         // Extent, stated because the old name ("any road's chord") overclaimed it: this is one document at
