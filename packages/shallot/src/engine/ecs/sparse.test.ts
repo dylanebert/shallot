@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { entity, f16, f32, i32, slab, sparse, u8, u32, vec2, vec4 } from "../..";
+import { entity, f16, f32, i32, Slab, slab, sparse, u8, u32, vec2, vec4 } from "../..";
 import { lanes, refs } from "./core";
 
 describe("sparse scalar", () => {
@@ -37,6 +37,35 @@ describe("sparse scalar", () => {
         expect(field.get(5)).toBe(Infinity);
         field.set(5, -70000);
         expect(field.get(5)).toBe(-Infinity);
+    });
+
+    test("sparse(u8) truncates to the descriptor's element type, matching slab(u8)", () => {
+        // 300 wraps to 44 in a Uint8Array (300 & 0xFF). Before the fix the stride-1
+        // path stored raw JS doubles in a Map and never touched type.ctor, so
+        // sparse(u8) kept 300 while slab(u8) and the stride-2/4 paths truncated.
+        const cpu = sparse(u8);
+        cpu.set(3, 300);
+        expect(cpu.get(3)).toBe(44);
+
+        // parity against the sibling storage under the same descriptor — the
+        // check that cannot be satisfied by restating your own arithmetic
+        const gpu = new Slab(u8);
+        gpu.alloc();
+        gpu.set(3, 300);
+        expect(cpu.get(3)).toBe(gpu.get(3));
+    });
+
+    test("sparse(u32) wraps signed values to unsigned, matching slab(u32)", () => {
+        // -1 wraps to 0xFFFFFFFF (4294967295) in a Uint32Array. Before the fix
+        // the stride-1 path kept the raw -1.
+        const cpu = sparse(u32);
+        cpu.set(3, -1);
+        expect(cpu.get(3)).toBe(4294967295);
+
+        const gpu = new Slab(u32);
+        gpu.alloc();
+        gpu.set(3, -1);
+        expect(cpu.get(3)).toBe(gpu.get(3));
     });
 
     test("unset eids return the type's zero", () => {
