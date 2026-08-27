@@ -11,11 +11,10 @@ import {
 } from "./cli-coverage";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
-// fixture-only red-proofs (a check is evidence only if you've seen it fail): each of these
-// was run against a broken registry first — see the spec's Live log / commit for the real-file mutations
-// this stage red-proved (deleting a row, adding an unrowed file, adding a second row for an already-
-// rowed file, adding an oracle/lab scratch file). None of these fixture cases touch the filesystem or
-// the real registry.
+// fixture-only red-proofs (a check is evidence only if you've seen it fail): each fixture case
+// reproduces a real registry defect (deleting a row, adding an unrowed file, adding a second row for an
+// already-rowed file, adding an oracle/lab scratch file) and proves the check reds on it. None of these
+// fixture cases touch the filesystem or the real registry.
 describe("checkCliCoverage (fixtures)", () => {
     // the cases below predate the per-arm link checks and exercise the structural rules only; they assert
     // with `toContainEqual`, so an extra link finding on the same fixture row can't mask them.
@@ -176,7 +175,7 @@ describe("cliPopulation suffix exclusion", () => {
 });
 
 // the real-filesystem seam: walks the real shallot repo and proves the registry both directions against
-// it. This is the check the spec calls "completeness enforced from the start, not behind a flag" — no
+// it. "Completeness enforced from the start, not behind a flag" — no
 // on-switch, no exemption list, red the moment a walked file lacks a row, a row drifts from the walk, or
 // a file carries more than one row.
 describe("CLI_COVERAGE against the real repo (both directions)", () => {
@@ -212,7 +211,7 @@ describe("CLI_COVERAGE against the real repo (both directions)", () => {
         ]);
     });
 
-    // the Locked decision's "extract, never mock" is asserted once at stage 2 by a one-off grep — this
+    // "extract, never mock" is asserted by a one-off grep — this
     // makes it a standing check over the same population `cliPopulation` walks (its test-tier inverse,
     // `cliTestFiles`), so the next test added to this layer can't quietly mock a module.
     test("no test in this layer mocks a module", async () => {

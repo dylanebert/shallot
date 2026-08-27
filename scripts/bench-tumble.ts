@@ -20,8 +20,8 @@ const INDEX = resolve(REPO_ROOT, "packages/shallot/tests/tumble/samples/index.js
 // a stall, not normal run-to-run variance.
 const BUDGET_S = 90;
 
-// The gym twins = every minted sample gold except the Benchmark category (Large Pyramid + Joint Grid dropped
-// in stage 2 — throughput is pile/stress's job; Rain never minted). Derived from the committed gold index,
+// The gym twins = every minted sample gold except the Benchmark category (Large Pyramid + Joint Grid —
+// throughput is pile/stress's job). Derived from the committed gold index,
 // never hand-listed: the twins ARE the golds, so a new twin is a new gold and shows up here for free. Each
 // scenario registers under its gold slug (`tumble-sample.ts`: `name ?? gold.slug`), so the slug is the
 // `--query scenario=` value.

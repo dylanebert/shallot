@@ -196,8 +196,8 @@ describe("ProfilePlugin", () => {
 
     // `precompileVariants` wraps N real pipeline compiles in ONE `Compute.precompiled` call under a
     // scope label that matches no actual pipeline (`"sear-typed-variants"`) — its timing is real and
-    // belongs in `compile`, but counting it as a pipeline is exactly the blind spot stage 3a closed for
-    // per-variant pipelines and must not reopen for the scope label itself (review finding 2).
+    // belongs in `compile`, but counting it as a pipeline is exactly the blind spot closed for
+    // per-variant pipelines and must not reopen for the scope label itself.
     test("a scope-only Compute.precompiled label lands in compile but not compiledPipelines", () => {
         const prev = Compute.device;
         Object.assign(Compute, { device: capableDevice() });
@@ -216,7 +216,7 @@ describe("reorderRows", () => {
     // The hysteresis reorder splices `next` in place but re-inserts the element
     // from the *original* array at index i (`order[i]`) instead of the element
     // it actually removed. After the first move, `next` and `order` diverge —
-    // `next[i]` is no longer `order[i]` — so a later move re-inserts the
+    // `next[i]` differs from `order[i]` — so a later move re-inserts the
     // wrong name: the removed name is dropped and `order[i]` is duplicated.
     //
     // order = [a, b, c, d, e], rank = {b:0, d:1, e:2, a:3, c:4}

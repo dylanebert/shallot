@@ -181,7 +181,7 @@ function createShallotFlow(work: string, engineTgz: string) {
     const pkg = JSON.parse(readFileSync(join(proj, "package.json"), "utf8"));
     // the scaffold must pin @dylanebert/shallot to the scaffold's own version (lockstep-gated by
     // check-versions.ts), not "latest" — a "latest" pin beside exact-tilde typegpu/unplugin-typegpu
-    // pins installs a newer engine whose peer ranges the pins no longer satisfy.
+    // pins could resolve to a newer engine whose peer ranges the pins don't satisfy.
     const createPkg = JSON.parse(readFileSync(CREATE_SHALLOT_PKG, "utf8")) as { version: string };
     const expectedShallotRange = `~${createPkg.version}`;
     check(
@@ -544,16 +544,16 @@ function identityFlow(work: string, engineTgz: string) {
     );
 }
 
-// Stage 3: the browser-side arm of the peer-identity probe. Node-side probes (identityFlow above,
+// The browser-side arm of the peer-identity probe. Node-side probes (identityFlow above,
 // pmIdentityFlow below) can't see Vite's own resolution — the dependency scanner rewrites the module
 // graph on real page load, a rewrite no `bun`/`node` process ever performs. This is the ordering-
-// independent observation of the standing ejected-path question (spec "Approach" stage 3): do the app's
+// independent observation of the standing ejected-path question: do the app's
 // own `isTgpuFn` and the engine-built `tgslCanary` meet (one physical typegpu copy) or diverge (two),
-// under the normal config and under the perturbation that reproduced the class for real (5b-2f-5:
-// stripping the zero-config path's `optimizeDeps` exclusion so `typegpu` gets prebundled ahead of the
-// transform). The zero-config sandbox's own perturbed arm turned out unrealizable in this harness (see the
-// comment at its call site in `identityBrowserFlow`, below) — the ejected fixture is where the
-// perturbation is both real and observed.
+// under the normal config and under the perturbation that reproduced the class for real (stripping the
+// zero-config path's `optimizeDeps` exclusion so `typegpu` gets prebundled ahead of the transform). The
+// zero-config sandbox's own perturbed arm is unrealizable in this harness (see the comment at its call
+// site in `identityBrowserFlow`, below) — the ejected fixture is where the perturbation is both real and
+// observed.
 //
 // The own-vs-canary fixtures below carry no second `typegpu` copy: a genuine duplicate trips the
 // engine's own pre-existing `checkTgsl` write-counter (`engine/runtime/gpu.ts`) inside `requestGPU`,
@@ -725,7 +725,7 @@ function writeIdentityEjected(dir: string, engineTgz: string, configText: string
 }
 
 // the red-proof fixture: a genuine second physical copy must brand the canary false — the witnessed red
-// that proves the browser-side instrument (not just the node-side one, stage 1) can produce a false
+// that proves the browser-side instrument (not just the node-side one) can produce a false
 // read. Ejected-shaped but never calls `run()` — no App boot, so `checkTgsl`'s duplicate-write counter
 // never runs (it fires only inside `requestGPU`, itself only reachable from `App.build()`), and the two
 // real physical copies this fixture needs can safely coexist with the engine's own peer `typegpu` copy
@@ -794,9 +794,9 @@ function stripTypegpuExclude(config: string): string {
 }
 
 // read the "own vs canary" check the fixtures above publish. Reported for every arm; additionally
-// asserted true under the normal config, where stage 1/2's node-side probes already established a
+// asserted true under the normal config, where the node-side probes already established a
 // single clean physical copy — the perturbation arm is recorded, not asserted, since it's the open
-// question this stage answers.
+// question the browser-side arm answers.
 function checkIdentityVerdict(label: string, result: VerifyResult | null, expectOwnTrue: boolean) {
     const own = (result?.verdict?.checks ?? []).find((c) => c.name.startsWith("app resolution"));
     check(
@@ -1073,7 +1073,7 @@ function tgslFlow(sandbox: string, dist: string) {
     // (typegpu/shared/normalizeMetadata.js:18,23) — and typegpu exports no version constant, so the
     // expectation is a literal here. It is a literal in exactly ONE place: the extraction below is
     // version-agnostic and this constant is the only expectation, so a bump cannot leave a name and
-    // an assertion disagreeing (the duplicated-threshold defect this unit already paid for at S4).
+    // an assertion disagreeing (the duplicated-threshold defect).
     // Pinning the version rather than a field name means the next V1→V2-style rename reds as a
     // version change instead of a mystery string absence.
     //
@@ -1331,7 +1331,7 @@ if (import.meta.main) {
             // `target/`), so `shallot build --target <os>` from an installed package compiles the crate
             // lazily via cargo. A real native build is a multi-minute cargo/CEF arm — gated out of the
             // default suite (suite-speed budgets). Here we assert the crate is present and
-            // resolvable in the installed layout; the premise builds (spec gates 4+5) run it for real.
+            // resolvable in the installed layout; the premise builds run it for real.
             check(
                 "the rust/window crate ships in the installed package (lazy native-build source)",
                 existsSync(join(shipped, "rust/window/Cargo.toml")) &&

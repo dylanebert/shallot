@@ -357,8 +357,8 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "ensureIcon, tryStrip, copyLocale, copyCefLibs, copyCefDlls, prepareMacIcon, convertIconToIcns) " +
             '— frozen out of the `unit` arm by the Locked decision itself ("native.ts extracts and ' +
             "declares; it gets no real-cargo gate\"). The missing-crate guard (rust/window isn't shipped in " +
-            "package.json's `files`, so an installed `--target <os>` build used to die on a raw ENOENT) is " +
-            "now closed end to end: requireRustCrate calls missingCrateDiagnostic before cargoBuild spawns " +
+            "package.json's `files`, so an installed `--target <os>` build would die on a raw ENOENT) is " +
+            "closed end to end: requireRustCrate calls missingCrateDiagnostic before cargoBuild spawns " +
             "anything, and `bun run test:install`'s \"native build fails with the missing-crate diagnostic, " +
             'not a raw ENOENT" rung asserts it from a real installed package via `shallot build --target ' +
             "linux`, red-proved by removing the requireRustCrate() call (surfaces a raw ENOENT from " +
@@ -514,8 +514,8 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         arm: "gap",
         reason:
             "assetSrc, orphanedAssets, discoverScenes, and findPublicDirs are all directly asserted by " +
-            "vite.test.ts against a temp dir; the pure readers this file used to hold — readManifest, " +
-            "manifestWarnings, contentType, resolveAssetPath — moved to the internal sibling assets.ts " +
+            "vite.test.ts against a temp dir; the pure readers readManifest, " +
+            "manifestWarnings, contentType, resolveAssetPath live in the internal sibling assets.ts " +
             "and are asserted by assets.test.ts (own row below). projectPlugin's " +
             "resolveId, load, configureServer's static-asset middleware, handleHotUpdate, and " +
             "generateBundle's orphan deletion + byte accounting are each exercised against a stub " +

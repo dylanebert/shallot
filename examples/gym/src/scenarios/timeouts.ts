@@ -279,8 +279,6 @@ export const GATE_EXEMPTIONS: Record<string, string> = {
     "packages/shallot/src/engine/runtime/platform.ts":
         "cross-cutting frame/timing primitive, unit-gated by runtime.test.ts, not a real-device concern",
 
-    // extras/orbit/** and extras/tween/** used to sit here as six exemptions absorbing a frontmatter
-    // mismatch: `gpu.md` globbed all of `extras/`, so `GPU_MODULE_GLOBS` swept in two CPU-only modules.
-    // Both now enumerate the GPU-facing extras directories instead, and the classification lives beside
-    // the population as `NON_GPU_EXTRAS` (`coverage.ts`) rather than as exemptions here.
+    // extras/orbit/** and extras/tween/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not
+    // exempted here — the classification lives beside the population, not as exemptions in this table.
 };

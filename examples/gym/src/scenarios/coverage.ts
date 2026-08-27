@@ -40,7 +40,8 @@ export const GPU_MODULE_GLOBS: readonly string[] = [
 
 /** the `extras/` modules deliberately outside the GPU population, declared with the property that puts them
  *  there — no device, buffer, or WGSL surface. `GPU_MODULE_GLOBS` enumerates the GPU-facing extras
- *  directories one by one (mirroring `gpu.md`'s frontmatter, which no longer globs all of `extras/`), so a
+ *  directories one by one (mirroring `gpu.md`'s frontmatter, which enumerates the GPU-facing extras
+ *  directories explicitly), so a
  *  *new* extras module would fall out of the population silently rather than reding as uncovered. This table
  *  is what keeps that from happening: every immediate subdirectory of `src/extras/` is either matched by the
  *  globs or listed here. */
