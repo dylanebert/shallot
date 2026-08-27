@@ -623,17 +623,27 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
 });
 
 describe("selfTimeMsByNodeId — S1b's CPU-profile self-time accounting", () => {
-    test("attributes timeDeltas[i] (microseconds) to samples[i], summed per node, in ms", () => {
+    // S1c: settled against two independent reference implementations (Chrome DevTools'
+    // CPUProfileDataModel.ts and speedscope's Chrome importer — cited in full on the function's
+    // docblock), not by reasoning — CDP's own spec prose ("the first delta is relative to the profile
+    // startTime") is silent on direction. Witnessed red before this fix: the pre-S1c implementation
+    // paired timeDeltas[i] with samples[i] over this same fixture (samples.length-bounded loop, so it
+    // also double-counted the repeated node id 1 at i=0 and i=2) and read out.get(1)===0.45,
+    // out.get(2)===0.3 — exit 1 on `expect(out.get(1)).toBeCloseTo(0.3, 6)`: "Received: 0.45".
+    test("attributes timeDeltas[i+1] to samples[i] — the interval FOLLOWING a sample belongs to it, not the interval ending AT it, and the LAST sample gets nothing (no following delta to pair with)", () => {
         const profile: RawCpuProfile = {
             nodes: [],
             startTime: 0,
-            endTime: 600,
-            samples: [1, 1, 2],
-            timeDeltas: [100, 200, 300],
+            endTime: 900,
+            samples: [1, 2, 1],
+            timeDeltas: [50, 300, 400, 250],
+            // [0]: startTime→sample0 (unused). [1]: sample0→sample1 (300us) → charged to samples[0]=1.
+            // [2]: sample1→sample2 (400us) → charged to samples[1]=2. [3] would be sample2→next, but
+            // sample2 is the LAST sample, so it's dropped rather than double-counted onto node 1.
         };
         const out = selfTimeMsByNodeId(profile);
-        expect(out.get(1)).toBeCloseTo(0.3, 6); // (100+200)us
-        expect(out.get(2)).toBeCloseTo(0.3, 6); // 300us
+        expect(out.get(1)).toBeCloseTo(0.3, 6); // timeDeltas[1] only — NOT +timeDeltas[3]
+        expect(out.get(2)).toBeCloseTo(0.4, 6); // timeDeltas[2]
         expect(out.size).toBe(2);
     });
 
@@ -696,6 +706,27 @@ describe("classifyCpuFrame — S1b's named-candidate bucket table", () => {
         expect(classifyCpuFrame("", "")).toContain("no source url");
     });
 
+    // S1b's adversarial pass: the prior docblock claimed "no url implies V8-internal", refuted by
+    // `decodeSample` (verify.ts's own in-page frame-sampling helper) landing here with no url and its
+    // own real name — page.evaluate serializes a function with no backing file, so CDP reports an empty
+    // url under the function's OWN name, not a synthetic one. Witnessed red against the pre-fix
+    // implementation (`if (functionName) return \`${functionName} — V8-internal/native frame...\`` with
+    // no synthetic-name check): `classifyCpuFrame("", "decodeSample")` returned
+    // "decodeSample — V8-internal/native frame (no source url)", so this arm's
+    // `expect(...).not.toContain("V8-internal")` exited 1 there —
+    // "Received: decodeSample — V8-internal/native frame (no source url)".
+    test("a NAMED no-url frame that isn't one of V8's synthetic names is NOT V8-internal — it's an evaluated/injected script", () => {
+        const decodeSample = classifyCpuFrame("", "decodeSample");
+        expect(decodeSample).not.toContain("V8-internal");
+        expect(decodeSample).toContain("decodeSample");
+        expect(decodeSample).toContain("evaluated script");
+        // the four real synthetic names still classify as V8-internal — the fix narrows the no-url
+        // branch, it doesn't widen it into "any name is native".
+        for (const synthetic of ["(program)", "(idle)", "(garbage collector)", "(root)"]) {
+            expect(classifyCpuFrame("", synthetic)).toContain("V8-internal");
+        }
+    });
+
     test("an unmatched frame falls through to a per-file bucket rather than disappearing", () => {
         const out = classifyCpuFrame(
             "file:///repo/packages/shallot/src/some/new/module.ts",
@@ -732,8 +763,10 @@ describe("summarizeCpuProfile — the pure profile-to-attribution reduction", ()
             nodes,
             startTime: 0,
             endTime: 900,
-            samples: [1, 2, 3],
-            timeDeltas: [400_000, 100_000, 200_000], // microseconds: 400ms, 100ms, 200ms
+            // S1c pairing: samples[i]'s self time is timeDeltas[i+1] (the interval FOLLOWING it), and
+            // the last sample is dropped — so the stream carries one trailing sample to close node 3.
+            samples: [1, 2, 3, 3],
+            timeDeltas: [50_000, 400_000, 100_000, 200_000], // us: node1 400ms, node2 100ms, node3 200ms
         };
         const summary = summarizeCpuProfile(profile);
 

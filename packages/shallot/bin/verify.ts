@@ -711,18 +711,33 @@ export interface RawCpuProfile {
     timeDeltas?: number[];
 }
 
-/** self time in ms per CDP node id, from the profile's `samples`/`timeDeltas` sample stream — the
- *  documented CDP self-time accounting (see {@link RawCpuProfile}'s doc): `timeDeltas[i]` is charged to
- *  whichever node `samples[i]` names. Empty when the profile carries no sample stream. Exported only so
- *  {@link summarizeCpuProfile}'s per-node attribution is independently testable against a hand-built
- *  sample list. */
+/** self time in ms per CDP node id, from the profile's `samples`/`timeDeltas` sample stream.
+ *  {@link RawCpuProfile}'s own doc quotes the CDP spec verbatim ("time intervals between adjacent
+ *  samples... the first delta is relative to the profile startTime") but that prose alone is silent on
+ *  DIRECTION — S1c settled it against two independent reference implementations rather than reasoning
+ *  it out: Chrome DevTools' own `CPUProfileDataModel.ts`
+ *  (front_end/models/cpu_profile/CPUProfileDataModel.ts, `ChromeDevTools/devtools-frontend`, main branch)
+ *  builds `timestamps[i] = startTime + sum(timeDeltas[0..i])` and then attributes the duration between
+ *  `timestamps[i]` and `timestamps[i+1]` — i.e. raw `timeDeltas[i+1]` — to the node found at `samples[i]`;
+ *  speedscope's independent Chrome-profile importer (`src/import/chrome.ts`,
+ *  `github.com/jlfwong/speedscope`) walks the identical pairing. So `timeDeltas[i]` is the interval
+ *  ENDING at `samples[i]`'s timestamp (time spent in the PREVIOUS sample's node), and the self time for
+ *  `samples[i]` is `timeDeltas[i+1]` — the interval running FROM it to the next sample, never its own
+ *  index. The LAST sample has no following delta to pair with; devtools synthesizes one extra timestamp
+ *  from the average prior interval to close it, which is more machinery than this floor-not-measurement
+ *  instrument needs (`.claude/rules/testing.md`'s compile/startup bullet on this same file already
+ *  accepts an honest floor over a fabricated number) — so the last sample is left unattributed here
+ *  rather than synthesized, a negligible undercount at this profile's sample rate (hundreds to thousands
+ *  of samples per boot at {@link CPU_PROFILE_SAMPLING_INTERVAL_US}). Empty when the profile carries no
+ *  sample stream. Exported only so {@link summarizeCpuProfile}'s per-node attribution is independently
+ *  testable against a hand-built sample list. */
 export function selfTimeMsByNodeId(profile: RawCpuProfile): Map<number, number> {
     const out = new Map<number, number>();
     const { samples, timeDeltas } = profile;
     if (!samples || !timeDeltas) return out;
-    for (let i = 0; i < samples.length; i++) {
+    for (let i = 0; i < samples.length - 1; i++) {
         const nodeId = samples[i];
-        const deltaUs = timeDeltas[i] ?? 0;
+        const deltaUs = timeDeltas[i + 1] ?? 0;
         if (deltaUs <= 0) continue;
         out.set(nodeId, (out.get(nodeId) ?? 0) + deltaUs / 1000);
     }
@@ -764,16 +779,35 @@ const CPU_FRAME_BUCKETS: { pattern: RegExp; name: string }[] = [
     },
 ];
 
+// the exact, closed set of synthetic frame names V8's sampling profiler emits for its own internal
+// states (idle time, JS-outside-any-function execution, GC, the call-tree root) — CDP always reports
+// these with an empty url, and DevTools renders them verbatim under these names. This is the ONLY
+// legitimate no-url shape; S1c named it explicitly after the adversarial pass refuted the prior
+// docblock's blanket "no url implies V8-internal" claim with a counterexample that had no url and
+// wasn't in this set (`decodeSample`, verify.ts's own in-page frame-sampling helper — `page.evaluate`
+// serializes a function with no backing file, so CDP reports it with an empty url and the function's OWN
+// name, not a synthetic one).
+const V8_SYNTHETIC_FRAME_NAMES = new Set(["(program)", "(idle)", "(garbage collector)", "(root)"]);
+
 /** classify a CDP call frame into one of S1b's named candidate mechanisms — data-driven
  *  ({@link CPU_FRAME_BUCKETS}) rather than a branch tree, so the mapping is a single auditable table.
- *  A frame with no URL is a V8-internal/native frame CDP names by convention
- *  (`(program)`/`(idle)`/`(garbage collector)`/`(root)`); anything else falls through to a per-file
- *  bucket keyed on its last two path segments, so an unclassified hot frame is still visible under its
- *  own file rather than disappearing into a catch-all. */
+ *  A no-url frame is V8-internal ONLY when its function name is one of
+ *  {@link V8_SYNTHETIC_FRAME_NAMES} or empty (true anonymous native code carries no name at all) — any
+ *  OTHER named no-url frame is an evaluated/injected script Playwright ran in the page, not V8-internal,
+ *  and is called out as such rather than folded into the native bucket. Known residual: an ANONYMOUS
+ *  evaluated frame (e.g. an inline arrow passed to `page.evaluate`) is indistinguishable from true
+ *  anonymous native code by name alone and still falls into the native bucket — CDP's `scriptId` would
+ *  discriminate them (V8-internal frames carry `"0"`; an evaluated script gets its own id) but
+ *  {@link CpuProfileEntry} doesn't carry scriptId through the merge, so this stays a named limitation
+ *  rather than a silent one. A frame with a real url falls through to a per-file bucket keyed on its
+ *  last two path segments when unmatched, so an unclassified hot frame is still visible under its own
+ *  file rather than disappearing into a catch-all. */
 export function classifyCpuFrame(url: string, functionName: string): string {
     if (!url) {
-        if (functionName) return `${functionName} — V8-internal/native frame (no source url)`;
-        return "(anonymous, no source url) — V8-internal/native frame";
+        if (!functionName) return "(anonymous, no source url) — V8-internal/native frame";
+        if (V8_SYNTHETIC_FRAME_NAMES.has(functionName))
+            return `${functionName} — V8-internal/native frame (no source url)`;
+        return `${functionName} — in-page evaluated script, no source url (not a native frame: page.evaluate serializes a function with no file, so CDP reports an empty url under the function's own name)`;
     }
     for (const b of CPU_FRAME_BUCKETS) {
         if (b.pattern.test(url)) return b.name;
@@ -989,6 +1023,84 @@ async function sampleFrame(page: Page): Promise<FrameSample | null> {
         return (await page.evaluate(decodeSample, shot.toString("base64"))) as FrameSample | null;
     } catch {
         return null;
+    }
+}
+
+/** {@link decodeSample}'s region-averaging math (center/corner box averages over a coarse grid), fed by
+ *  a pngjs-decoded PNG instead of a page-side canvas — same field shape ({@link FrameSample}), computed
+ *  entirely in Node. Nearest-neighbor downsample rather than a canvas's resample filter: the boot-settle
+ *  heuristic only needs a stable coarse structure signal, not a pixel-identical grid. Duplicated from
+ *  {@link decodeSample} rather than shared, for the same reason {@link decodeRgba} already duplicates it
+ *  (its own comment, above): {@link decodeSample} is serialized by Playwright and run in-page, so it
+ *  can't import or close over anything. */
+function decodeSampleNode(png: {
+    width: number;
+    height: number;
+    data: Uint8Array | Buffer;
+}): FrameSample | null {
+    const { width: W0, height: H0, data } = png;
+    if (!W0 || !H0) return null;
+    const W = 64;
+    const H = 64;
+    const grid: number[] = [];
+    for (let y = 0; y < H; y++) {
+        const sy = Math.min(H0 - 1, Math.floor((y / H) * H0));
+        for (let x = 0; x < W; x++) {
+            const sx = Math.min(W0 - 1, Math.floor((x / W) * W0));
+            const i = (sy * W0 + sx) * 4;
+            grid.push(data[i], data[i + 1], data[i + 2]);
+        }
+    }
+    const region = (fx0: number, fy0: number, fx1: number, fy1: number): number[] => {
+        const x0 = Math.floor(fx0 * W);
+        const x1 = Math.max(x0 + 1, Math.floor(fx1 * W));
+        const y0 = Math.floor(fy0 * H);
+        const y1 = Math.max(y0 + 1, Math.floor(fy1 * H));
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let y = y0; y < y1; y++)
+            for (let x = x0; x < x1; x++) {
+                const i = (y * W + x) * 3;
+                r += grid[i];
+                g += grid[i + 1];
+                b += grid[i + 2];
+                n++;
+            }
+        return [r / n, g / n, b / n];
+    };
+    return { grid, center: region(0.4, 0.4, 0.6, 0.6), corner: region(0, 0, 0.15, 0.15) };
+}
+
+// S1c of `shallot-demo-startup-stall`: `--attribution`'s CDP CPU profile spans the whole boot wait, and
+// the wait loop's own poll must not inject page-side JS into the window it exists to attribute cleanly.
+// `sampleFrame`'s `page.evaluate(decodeSample, ...)` runs INSIDE the profiled tab on every 500ms poll —
+// S1b's profile found it as the single largest self-time bucket, misattributed as V8-internal by the now-
+// fixed `classifyCpuFrame` docblock (the adversarial pass's finding). This reaches the same settle signal
+// without that cost: the screenshot capture is a CDP/compositor operation, not page JS, and decoding it
+// with pngjs happens in this process, so nothing here runs on the profiled main thread. Falls back to the
+// page-side decode (pre-S1c behavior) if pngjs can't be loaded — an npm consumer of `--attribution`
+// without the optional dependency still gets a working boot-settle signal, just not a decontaminated one.
+async function sampleFrameNode(page: Page): Promise<FrameSample | null> {
+    let shot: Buffer;
+    try {
+        shot = await page.locator("canvas").first().screenshot({ timeout: 5_000 });
+    } catch {
+        return null;
+    }
+    try {
+        const { PNG } = await import("pngjs");
+        return decodeSampleNode(PNG.sync.read(shot));
+    } catch {
+        try {
+            return (await page.evaluate(
+                decodeSample,
+                shot.toString("base64"),
+            )) as FrameSample | null;
+        } catch {
+            return null;
+        }
     }
 }
 
@@ -1739,7 +1851,11 @@ async function drive(
         const harnessDefined = (await page
             .evaluate(() => typeof window.__harness !== "undefined")
             .catch(() => false)) as boolean;
-        const sample = harnessDefined ? null : await sampleFrame(page);
+        const sample = harnessDefined
+            ? null
+            : args.attribution
+              ? await sampleFrameNode(page)
+              : await sampleFrame(page);
         if (sample) {
             sampleCount++;
             lastSample = sample;
