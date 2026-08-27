@@ -489,12 +489,13 @@ describe("serialize identity + refs", () => {
         expect(Mark.v.get(target2)).toBe(77);
     });
 
-    // RED witnessed: before b9dafde, serialize(state, [a]) emitted "to: 2" (raw eid) instead of
+    // RED witnessed: before e200a63, serialize(state, [a]) emitted "to: 2" (raw eid) instead of
     // "to: @b" because resolveRef returned undefined for a ref target outside the serialized
     // subset. Witnessed red: expected to contain "to: @b", received `arrow="to: 2"` — the raw eid
     // points at the wrong (recycled) entity on reload, breaking the round-trip-by-name contract.
-    // b9dafde made resolveRef resolve an out-of-set target to its scene id (codec.ts), so today a
-    // subset serialize emits `@name` for a target outside the serialized set.
+    // e200a63 made resolveRef resolve an out-of-set target to its scene id (codec.ts), so today a
+    // subset serialize emits `@name` for a target outside the serialized set; b9dafde later made
+    // it throw when that target has no scene id (the sibling arm below).
     test("subset serialize emits @-ref for a target outside the serialized set", () => {
         clear();
         const Arrow = { to: sparse(entity) };
