@@ -56,7 +56,8 @@ export const or = makeOp("or");
 // iterator object). It snapshots count + the live `_dense` reference exactly as a fresh iterator
 // would, so iteration-during-mutation is unchanged: a swap-remove of the current eid still visits
 // every original member once (the swap only overwrites already-visited slots; the snapshotted count
-// reads the original tail values at their original indices).
+// reads the original tail values at their original indices) — unless the body also adds a new
+// matching entity, which can land in an unvisited slot (see RegisteredQuery's doc).
 class QueryIterator implements Iterator<number> {
     private _i = 0;
     private _count = 0;
@@ -104,7 +105,8 @@ class QueryIterator implements Iterator<number> {
  * callers can mutate the *current* eid during iteration — adding a marker to
  * or removing a component from the eid being visited swap-removes it from the
  * query mid-loop, yet every original member is still visited exactly once (the
- * swap only overwrites already-visited slots). e.g. `for (const eid of
+ * swap only overwrites already-visited slots) — unless the body also adds a new
+ * matching entity mid-iteration (see below). e.g. `for (const eid of
  * state.query([Spawn, not(Initialized)])) state.add(eid, Initialized)`.
  * Removing a *not-yet-visited* eid mid-iteration is not safe: the swap-remove
  * moves the tail into the unvisited slot, so that tail member is visited twice

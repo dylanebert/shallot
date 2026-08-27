@@ -286,5 +286,9 @@ describe("Entity lifecycle invariants", () => {
         const comp32 = { z: [] as number[] };
         expect(() => state.add(eid, comp32)).toThrow();
         expect(state.membership.generations).toBe(1);
+        // clean up the module-global registry — this arm registers 31 components
+        // via build() beyond what beforeEach sets up, and bun shares module state
+        // across files in a process
+        clear();
     });
 });
