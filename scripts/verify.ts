@@ -60,6 +60,24 @@ export interface VerifyResult {
      *  measurement rather than printing `[]`. Absent on a setup failure (a crash before the settle
      *  path ran emits `{ pass:false, error }` with no probe). */
     renderProbe?: RenderProbe;
+    /** `--attribution` only: `bin/verify.ts`'s `Result.attribution` — the startup pipeline-compile
+     *  breakdown (`Profile.compile` per label, ProfilePlugin projects only), read once at the boot
+     *  wait's settle point and again `ATTRIBUTION_IDLE_MS` later (a label or count present only in
+     *  `compileAfterIdle` is a compile that landed after the boot wait), plus any `longtask` entries
+     *  recorded across the boot window. */
+    attribution?: {
+        compile: AttributionCompile | null;
+        compileAfterIdle: AttributionCompile | null;
+        longTasks: { start: number; duration: number }[];
+    } | null;
+}
+
+/** the slice of `bin/verify.ts`'s `BenchmarkCompileStats` a driver reads. */
+export interface AttributionCompile {
+    totalMs: number;
+    pipelines: Record<string, number>;
+    pipelineCount: number;
+    pipelineCalls: number;
 }
 
 /** the render probe `verify`'s settle path records on its Result — the pixel evidence behind the

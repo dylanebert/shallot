@@ -18,6 +18,7 @@ import { parsePhases, parseResources, parseTransformLine } from "../../../script
 import { verifyDiagnostic } from "../../../scripts/install-test";
 import type { ShaderArtifactSummary, VerifyResult } from "../../../scripts/verify";
 import {
+    ATTRIBUTION_INIT_SCRIPT,
     batchPass,
     bootArm,
     buildUrl,
@@ -203,6 +204,11 @@ describe("parseVerifyArgs", () => {
     test("--timings defaults off, flips on", () => {
         expect(parseVerifyArgs([]).timings).toBe(false);
         expect(parseVerifyArgs(["--timings"]).timings).toBe(true);
+    });
+
+    test("--attribution defaults off, flips on", () => {
+        expect(parseVerifyArgs([]).attribution).toBe(false);
+        expect(parseVerifyArgs(["--attribution"]).attribution).toBe(true);
     });
 
     test("--run defaults to empty (single-run path); repeats, both space and = forms", () => {
@@ -589,6 +595,25 @@ describe("TIMINGS_INIT_SCRIPT — what --timings installs pre-navigation", () =>
 
     test("the probe script is the tested function's own source, not a hand-written copy", () => {
         expect(HARNESS_PROBE_SCRIPT).toContain(installHarnessProbe.toString());
+    });
+});
+
+describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation", () => {
+    test("is syntactically valid, self-contained script source", () => {
+        expect(() => new Function(ATTRIBUTION_INIT_SCRIPT)).not.toThrow();
+    });
+
+    test("initializes the longtask sink before observing, and never throws on a missing API", () => {
+        expect(ATTRIBUTION_INIT_SCRIPT.indexOf("__shallotLongTasks = []")).toBeLessThan(
+            ATTRIBUTION_INIT_SCRIPT.indexOf("PerformanceObserver"),
+        );
+        expect(ATTRIBUTION_INIT_SCRIPT).toContain("try {");
+    });
+
+    test("initializes the sink to an empty array regardless of PerformanceObserver support", () => {
+        const win: { __shallotLongTasks?: unknown } = {};
+        new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
+        expect(win.__shallotLongTasks).toEqual([]);
     });
 });
 
