@@ -624,6 +624,40 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
         new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
         expect(win.__shallotLongTasks).toEqual([]);
     });
+
+    // S1e: the LoAF observer is installed beside the longtask one, same guard shape — an unsupported
+    // entryTypes throws synchronously in the observer constructor, caught so a missing LoAF degrades
+    // to an empty array rather than killing the init script.
+    test("initializes the LoAF sink before observing, and never throws on a missing API", () => {
+        expect(ATTRIBUTION_INIT_SCRIPT.indexOf("__shallotLoAF = []")).toBeLessThan(
+            ATTRIBUTION_INIT_SCRIPT.indexOf("long-animation-frame"),
+        );
+    });
+
+    test("initializes the LoAF sink to an empty array regardless of PerformanceObserver support", () => {
+        const win: { __shallotLoAF?: unknown } = {};
+        new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
+        expect(win.__shallotLoAF).toEqual([]);
+    });
+
+    // the unsupported-engine path exercised: an engine that supports longtask but NOT long-animation-
+    // frame (the current Playwright chromium's LoAF support is the open question this test arms over)
+    // must degrade the LoAF sink to an empty array while keeping the longtask sink working.
+    test("degrades the LoAF sink to [] when the observer constructor throws on long-animation-frame, while keeping longtask working", () => {
+        const win: Record<string, unknown> = {};
+        win.PerformanceObserver = ((_cb: (list: { getEntries(): unknown[] }) => void) => ({
+            observe(opts: { entryTypes: string[] }) {
+                if (opts.entryTypes.includes("long-animation-frame")) {
+                    throw new TypeError(
+                        "The provided value 'long-animation-frame' is not a valid enum value",
+                    );
+                }
+            },
+        })) as unknown as PerformanceObserver;
+        new Function("window", ATTRIBUTION_INIT_SCRIPT)(win);
+        expect(win.__shallotLoAF).toEqual([]);
+        expect(win.__shallotLongTasks).toEqual([]);
+    });
 });
 
 describe("selfTimeMsByNodeId — S1b's CPU-profile self-time accounting", () => {
