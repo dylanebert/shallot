@@ -477,7 +477,7 @@ export class Components implements Membership {
                 throw new Error(
                     `membership: generation count is frozen at ${this._gen + 1} after build; ` +
                         `a new component would require generation ${this._gen + 2} — ` +
-                        `rebuild to add more than ${BITS_PER_GEN} components per generation`,
+                        `rebuild to register more than ${(this._gen + 1) * BITS_PER_GEN} components`,
                 );
             }
             this._gen++;
