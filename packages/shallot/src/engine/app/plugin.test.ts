@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { build, type Plugin, type System, serialize, sparse, stringify, swap, u32 } from "../..";
+import {
+    build,
+    f32,
+    type Plugin,
+    type System,
+    serialize,
+    slab,
+    sparse,
+    stringify,
+    swap,
+    u32,
+} from "../..";
 import { clear, getComponent, getTraits } from "../ecs/core";
 import { Compute, requestGPU } from "../runtime";
 import { warmPlugins } from ".";
@@ -284,6 +295,35 @@ describe("Plugin", () => {
             const result = await swap(state, [P1], [P2]);
             expect(result.ok).toBe(false);
             expect(result.reason).toContain("schema");
+        });
+
+        // a sparse↔slab migration under the same type name (f32) must not swap in place —
+        // the copied CPU store would never grow its GPU mirror, silently breaking the slab flush
+        test("a storage-kind change (sparse→slab) under the same type name falls back to rebuild", async () => {
+            clear();
+            const A = { n: sparse(f32) };
+            const P1: Plugin = { name: "store", components: { A } };
+            const { state } = await build({ plugins: [P1], defaults: false });
+
+            const A2 = { n: slab(f32) }; // same type name "f32", different storage kind
+            const P2: Plugin = { name: "store", components: { A: A2 } };
+            const result = await swap(state, [P1], [P2]);
+            expect(result.ok).toBe(false);
+            expect(result.reason).toContain("schema");
+        });
+
+        // build ordering and the skip rule derive from plugin dependencies, so a change
+        // in the dependency set can't be carried in place — it forces a rebuild
+        test("a dependency change falls back to rebuild", async () => {
+            clear();
+            const Dep: Plugin = { name: "dep" };
+            const P1: Plugin = { name: "main", dependencies: [Dep] };
+            const { state } = await build({ plugins: [Dep, P1], defaults: false });
+
+            const P2: Plugin = { name: "main" }; // lost the dependency
+            const result = await swap(state, [Dep, P1], [Dep, P2]);
+            expect(result.ok).toBe(false);
+            expect(result.reason).toContain("dependencies");
         });
 
         test("a system-set change falls back to rebuild", async () => {

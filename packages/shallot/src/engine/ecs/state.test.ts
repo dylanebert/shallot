@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { angle, degrees, radians, State } from "../..";
-import { entity } from "./component";
+import { entity, vec2, vec4 } from "./component";
 import {
     clear,
     dependencies,
@@ -395,6 +395,19 @@ describe("Introspection", () => {
             expect(speed!.default).toBe(1);
         });
 
+        test("vec field default carries all lanes, not just lane 0", () => {
+            clear();
+            const C = { pos: sparse(vec4), vel: sparse(vec2) };
+            register("lanes", C, { defaults: () => ({ pos: [1, 2, 3, 4], vel: [5, 6] }) });
+            const s = schema("lanes")!;
+            const pos = s.fields.find((f) => f.name === "pos")!;
+            expect(pos.kind).toBe("vec4");
+            expect(pos.default).toEqual([1, 2, 3, 4]);
+            const vel = s.fields.find((f) => f.name === "vel")!;
+            expect(vel.kind).toBe("vec2");
+            expect(vel.default).toEqual([5, 6]);
+        });
+
         test("detects color fields", () => {
             const s = schema("style-component")!;
             const color = s.fields.find((f) => f.name === "color");
@@ -446,6 +459,19 @@ describe("Introspection", () => {
             expect(fields.posY).toBe(20);
             expect(fields.posZ).toBe(30);
             expect(fields.speed).toBe(5);
+        });
+
+        test("returns zero for an unwritten bare-array field, not undefined", () => {
+            clear();
+            const C = { value: [] as number[] };
+            register("bare", C);
+            const s = new State();
+            const eid = s.create();
+            s.add(eid, C);
+            // no defaults trait, so state.add writes nothing — every other branch returns
+            // the type's zero, so the bare-array branch must too, not undefined
+            const fields = readFields(C, eid);
+            expect(fields.value).toBe(0);
         });
     });
 

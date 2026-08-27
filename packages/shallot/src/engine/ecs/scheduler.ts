@@ -316,12 +316,30 @@ function validate(systems: System[], all: System[]): void {
             throw new Error("System cannot have both first and last constraints");
         }
         const group = s.group ?? "simulation";
+        const sRank = s.first ? 0 : s.last ? 2 : 1;
         for (const ref of [...(s.before ?? []), ...(s.after ?? [])]) {
             if (!all.includes(ref)) continue;
             const refGroup = ref.group ?? "simulation";
             if (refGroup !== group) {
                 throw new Error(`Cross-group constraint: ${group} references ${refGroup}`);
             }
+            // satisfiable cross-partition constraints hold by construction (first < normal < last)
+            // and stay silent; only the unsatisfiable direction errors
+            const refRank = ref.first ? 0 : ref.last ? 2 : 1;
+            if (s.before?.includes(ref) && sRank > refRank) {
+                throw new Error(
+                    `Unsatisfiable ordering: a ${partitionName(sRank)} system cannot run before a ${partitionName(refRank)} system`,
+                );
+            }
+            if (s.after?.includes(ref) && sRank < refRank) {
+                throw new Error(
+                    `Unsatisfiable ordering: a ${partitionName(sRank)} system cannot run after a ${partitionName(refRank)} system`,
+                );
+            }
         }
     }
+}
+
+function partitionName(rank: number): string {
+    return rank === 0 ? "first" : rank === 2 ? "last" : "normal";
 }

@@ -414,6 +414,66 @@ describe("Scheduler", () => {
 
             expect(() => state.step()).toThrow("Circular dependency");
         });
+
+        // a first system `after` a normal one is unsatisfiable: first always runs before
+        // normal by construction, so the constraint can never hold — it must error, not silently drop
+        test("should throw on unsatisfiable cross-partition ordering (first after normal)", () => {
+            const normal: System = { group: "simulation", update: () => {} };
+            const first: System = {
+                group: "simulation",
+                first: true,
+                after: [normal],
+                update: () => {},
+            };
+            state.addSystem(normal);
+            state.addSystem(first);
+            expect(() => state.step()).toThrow(/unsatisfiable/i);
+        });
+
+        // the mirror: a normal system `before` a first system is unsatisfiable for the same reason
+        test("should throw on unsatisfiable cross-partition ordering (normal before first)", () => {
+            const first: System = { group: "simulation", first: true, update: () => {} };
+            const normal: System = {
+                group: "simulation",
+                before: [first],
+                update: () => {},
+            };
+            state.addSystem(first);
+            state.addSystem(normal);
+            expect(() => state.step()).toThrow(/unsatisfiable/i);
+        });
+
+        // a satisfiable cross-partition constraint (first before normal) holds by construction
+        // and must stay silent — it's already true, so edgesOf drops it and validate doesn't error
+        test("a satisfiable cross-partition ordering (first before normal) stays silent", () => {
+            const normal: System = {
+                group: "simulation",
+                update: () => executionOrder.push("normal"),
+            };
+            const first: System = {
+                group: "simulation",
+                first: true,
+                before: [normal],
+                update: () => executionOrder.push("first"),
+            };
+            state.addSystem(normal);
+            state.addSystem(first);
+            expect(() => state.step()).not.toThrow();
+            expect(executionOrder.indexOf("first")).toBeLessThan(executionOrder.indexOf("normal"));
+        });
+
+        // an absent-target ref is load-bearing for optional-plugin composition: the target
+        // plugin may not be loaded, so the ref dangles and must not error
+        test("an absent-target ordering ref does not error", () => {
+            const absent: System = { update: () => {} } as System;
+            const sys: System = {
+                group: "simulation",
+                after: [absent],
+                update: () => {},
+            };
+            state.addSystem(sys);
+            expect(() => state.step()).not.toThrow();
+        });
     });
 
     // unregister clears _errored/_names but not the _initialized WeakSet, so an unregistered-then-

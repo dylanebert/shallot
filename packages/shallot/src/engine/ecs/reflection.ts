@@ -19,14 +19,14 @@ export function camel(str: string): string {
 
 /** the presentation category of a component field, how it's shown and edited: a `vec3` as three lanes, an
  * `enum` as a dropdown, an `entity` as an `@name` reference, a `unit` through a unit switcher */
-export type FieldKind = "float" | "vec2" | "vec3" | "vec4" | "color" | "enum" | "unit" | "entity";
+export type FieldKind = "float" | "vec2" | "vec4" | "color" | "enum" | "unit" | "entity";
 
 /** one field's reflected shape: its name, `kind`, default, and kind-specific extras (enum `options`,
  * vec lane keys in `fields`, the `units` menu) */
 export interface FieldInfo {
     name: string;
     kind: FieldKind;
-    default?: number | string;
+    default?: number | string | readonly number[];
     options?: Record<string, number>;
     fields?: string[];
     /** the unit menu, when `kind` is `unit` — `[0]` is the unit shown by default */
@@ -87,14 +87,14 @@ export function schema(name: string): Schema | null {
             const arrDefault = defaults[key];
             const hasArrDefault = Array.isArray(arrDefault);
             const hasDotDefaults = dotKeys.every((m) => defaults[m] !== undefined);
-            let defaultLane0: number | undefined;
-            if (hasArrDefault) defaultLane0 = arrDefault[0] as number;
-            else if (hasDotDefaults) defaultLane0 = defaults[dotKeys[0]] as number;
+            let defaultLanes: readonly number[] | undefined;
+            if (hasArrDefault) defaultLanes = arrDefault as number[];
+            else if (hasDotDefaults) defaultLanes = dotKeys.map((m) => defaults[m] as number);
             fields.push({
                 name: key,
                 kind: VEC_KIND[direct],
                 fields: dotKeys,
-                default: defaultLane0,
+                default: defaultLanes,
             });
             continue;
         }
@@ -204,7 +204,7 @@ export function readFields(component: Component, eid: number): FieldValues {
         } else if (n === 1) {
             fields[field] = (store as Single).get(eid);
         } else if (ArrayBuffer.isView(store) || Array.isArray(store)) {
-            fields[field] = (store as number[])[eid];
+            fields[field] = (store as number[])[eid] ?? 0;
         }
     }
     return fields;

@@ -146,19 +146,11 @@ describe("Serialization roundtrip", () => {
             for (const field of s.fields) {
                 switch (field.kind) {
                     case "float": {
-                        if (field.fields) {
-                            for (const f of field.fields) {
-                                arbs[f] = fc.double({ min: -1000, max: 1000, noNaN: true });
-                                generatable++;
-                            }
-                        } else {
-                            arbs[field.name] = fc.double({ min: -1000, max: 1000, noNaN: true });
-                            generatable++;
-                        }
+                        arbs[field.name] = fc.double({ min: -1000, max: 1000, noNaN: true });
+                        generatable++;
                         break;
                     }
                     case "vec2":
-                    case "vec3":
                     case "vec4": {
                         if (field.fields) {
                             for (const f of field.fields) {
