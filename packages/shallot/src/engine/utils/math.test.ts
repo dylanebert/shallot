@@ -80,7 +80,7 @@ describe("Math functions vs wgpu-matrix", () => {
     });
 
     describe("euler (from quat)", () => {
-        // RED witnessed: before 1e46aae, the arm was named for a reference-library comparison it did
+        // RED witnessed: The arm was named for a reference-library comparison it did
         // not perform. Added +1 to the euler z-return → exit 1; today the arm pins the identity
         // mapping directly.
         test("returns zero angles for identity quaternion", () => {
@@ -183,7 +183,7 @@ describe("Math functions vs wgpu-matrix", () => {
             expect(quatEqual(result, expected)).toBe(true);
         });
 
-        // RED witnessed: before 1e46aae, the arm asserted only isFinite, so any wrong-axis quaternion
+        // RED witnessed: The arm asserted only isFinite, so any wrong-axis quaternion
         // read green. Set zz = -1 in the zero-length fallback under eye == target (0,0,0) → exit 1
         // (1 fail); today the arm pins the identity quaternion the fallback returns.
         test("should handle eye == target (zero distance)", () => {
@@ -193,7 +193,7 @@ describe("Math functions vs wgpu-matrix", () => {
             expect(quatEqual(result, [0, 0, 0, 1])).toBe(true);
         });
 
-        // RED witnessed: before 1e46aae, the arm asserted only isFinite, so any wrong-axis quaternion
+        // RED witnessed: The arm asserted only isFinite, so any wrong-axis quaternion
         // read green. Perturbed the upZ fallback (upZ -= 1e-4) under forward (0,1,0) parallel to up
         // (0,1,0) → exit 1 (2 fail); today the arm pins the actual fallback quaternion.
         test("should handle looking straight up (parallel to up vector)", () => {
@@ -203,7 +203,7 @@ describe("Math functions vs wgpu-matrix", () => {
             expect(quatEqual(result, [Math.SQRT1_2, 0, 0, Math.SQRT1_2])).toBe(true);
         });
 
-        // RED witnessed: before 1e46aae, the arm asserted only isFinite, so any wrong-axis quaternion
+        // RED witnessed: The arm asserted only isFinite, so any wrong-axis quaternion
         // read green. Perturbed the upZ fallback (upZ -= 1e-4) under forward (0,-1,0) anti-parallel
         // to up (0,1,0) → exit 1 (2 fail); today the arm pins the actual fallback quaternion.
         test("should handle looking straight down (parallel to up vector)", () => {

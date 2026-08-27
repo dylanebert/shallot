@@ -133,7 +133,7 @@ describe("Serialization roundtrip", () => {
         });
     });
 
-    // RED witnessed: before 1e46aae, the early returns let every run pass asserting nothing.
+    // RED witnessed: The early returns let every run pass asserting nothing.
     // Made formatFields return "" → exit 1; today the assertion floor reds a round-trip that
     // reaches no expect call.
     test("parseFields(formatFields(fields)) preserves values", () => {

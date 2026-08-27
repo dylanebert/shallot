@@ -1042,7 +1042,7 @@ describe("precompile", () => {
         }
     });
 
-    // RED witnessed: before 1e46aae, the Compute singleton was restored on the last line with no
+    // RED witnessed: The Compute singleton was restored on the last line with no
     // try/finally, so a mid-test failure leaked the fake device. Changed the error message in
     // precompile → exit 1; today the finally restores the singleton on any path.
     test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {

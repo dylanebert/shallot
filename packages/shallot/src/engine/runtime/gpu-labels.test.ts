@@ -154,7 +154,7 @@ describe("GPU diagnostic labels", () => {
         ).toEqual([{ line: 1, method: "createComputePipeline" }]);
     });
 
-    // RED witnessed: before 1e46aae, maskTrivia treated a regex literal's contents as code, so a
+    // RED witnessed: MaskTrivia treated a regex literal's contents as code, so a
     // quote inside one blinded later detections. Disabled regex handling → exit 1; today regex
     // literals are masked first and a quote inside one cannot blind later detections.
     test("maskTrivia masks regex literals so a quote inside one does not blind the rest of the file", () => {
@@ -166,7 +166,7 @@ describe("GPU diagnostic labels", () => {
         ).toEqual([{ line: 2, method: "createShaderModule" }]);
     });
 
-    // RED witnessed: before 1e46aae, the corpus scan had no non-vacuity floor, so a wrong root
+    // RED witnessed: The corpus scan had no non-vacuity floor, so a wrong root
     // read green. Broke the glob root to ../../../.. → exit 1; today the scanned-count floor reds
     // a broken root before failures is checked.
     test("every shader and pipeline creation in the instrumented engine path is named", async () => {

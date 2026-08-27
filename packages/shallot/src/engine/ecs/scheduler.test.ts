@@ -237,7 +237,7 @@ describe("Scheduler", () => {
             expect(fixedCount).toBe(0);
         });
 
-        // RED witnessed: before 1e46aae, the cap arm was satisfied by zero fixed steps. Set the loop
+        // RED witnessed: The cap arm was satisfied by zero fixed steps. Set the loop
         // bound to steps < 0 → exit 1; today the lower bound reds a zero-iteration cap.
         test("a large timescale caps fixed steps at MAX_FIXED_STEPS and marks the frame throttled", () => {
             let fixedCount = 0;

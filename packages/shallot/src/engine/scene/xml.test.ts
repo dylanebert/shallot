@@ -434,7 +434,7 @@ describe("XML", () => {
             expect(normalizeAttr("comp", "myField: 5")).toBe("my-field: 5");
         });
 
-        // RED witnessed: before 1e46aae, the fixture used the retired split-suffix shape and
+        // RED witnessed: The fixture used the retired split-suffix shape and
         // compared null to null. Made normalizeAttr return null → exit 1; today the non-null
         // assertion reds a null first pass before the idempotence check runs.
         test("is idempotent", () => {
