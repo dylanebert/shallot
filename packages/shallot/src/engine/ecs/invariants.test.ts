@@ -1,16 +1,20 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import { State } from "../..";
+import { build, type Plugin, State } from "../..";
 import { clear, register } from "./core";
 import { not } from "./query";
 
 describe("Entity lifecycle invariants", () => {
     const A = { x: [] as number[] };
     const B = { y: [] as number[] };
+    const Trigger = { t: [] as number[] };
+    const Done = { d: [] as number[] };
 
     beforeEach(() => {
         clear();
         register("inv-a", A);
         register("inv-b", B);
+        register("inv-trigger", Trigger);
+        register("inv-done", Done);
     });
 
     test("destroyed entity absent from all queries", () => {
@@ -188,5 +192,103 @@ describe("Entity lifecycle invariants", () => {
         expect(counts.get(eids[4])).toBe(2);
         // every other visited member appears exactly once
         for (const [eid, c] of counts) if (eid !== eids[4]) expect(c).toBe(1);
+    });
+
+    // The class doc on RegisteredQuery covers the add-during-iteration case: adding a *new* matching
+    // entity mid-iteration appends it at `_dense[_count++]` past the snapshot, so it is not visited
+    // this loop. Every original member is still visited exactly once — the new member simply appears
+    // on the next query call. This arm pins that characterization: the new entity is absent from the
+    // visited list, and no original member is skipped or double-visited.
+    test("adding a new matching entity mid-iteration does not visit it this loop", () => {
+        const state = new State();
+        const eids: number[] = [];
+        for (let i = 0; i < 4; i++) {
+            const eid = state.create();
+            state.add(eid, A);
+            eids.push(eid);
+        }
+
+        const visited: number[] = [];
+        let newEid = -1;
+        for (const eid of state.query([A])) {
+            visited.push(eid);
+            if (eid === eids[0]) {
+                newEid = state.create();
+                state.add(newEid, A);
+            }
+        }
+
+        // the new entity is appended past the snapshot count — not visited this loop
+        expect(visited).not.toContain(newEid);
+        // every original member is visited exactly once
+        expect(visited).toEqual(eids);
+        // the new entity appears on the next query call
+        expect([...state.query([A])]).toContain(newEid);
+    });
+
+    // Case B of the add-during-iteration pair: when the same loop body removes the current eid
+    // from the query (e.g. `add(eid, Done)` on `query([Trigger, not(Done)])`) AND spawns a new
+    // matching entity, the removal decrements `_count` first, so the subsequent `add()` writes at
+    // `_dense[_count++]` into an unvisited slot the snapshot iterator reaches — the new entity is
+    // visited and one original is skipped. Characterization arm: pins today's behavior, which is
+    // what the class doc now describes.
+    test("adding a new matching entity in a body that also removes the current eid visits it and skips an original", () => {
+        const state = new State();
+        const eids: number[] = [];
+        for (let i = 0; i < 4; i++) {
+            const eid = state.create();
+            state.add(eid, Trigger);
+            eids.push(eid);
+        }
+
+        const visited: number[] = [];
+        let spawned = -1;
+        let spawnedOnce = false;
+        for (const eid of state.query([Trigger, not(Done)])) {
+            visited.push(eid);
+            state.add(eid, Done); // removes eid from this query
+            if (!spawnedOnce) {
+                spawnedOnce = true;
+                spawned = state.create();
+                state.add(spawned, Trigger);
+            }
+        }
+
+        const missingOriginals = eids.filter((e) => !visited.includes(e));
+
+        // the spawned entity is visited (it landed in an unvisited slot after _count was decremented)
+        expect(visited).toContain(spawned);
+        // exactly one original is skipped
+        expect(missingOriginals).toHaveLength(1);
+        // three originals + the spawned entity = four visits
+        expect(visited).toHaveLength(4);
+        const visitedOriginals = visited.filter((e) => eids.includes(e));
+        expect(visitedOriginals).toHaveLength(3);
+    });
+
+    // The membership generation freeze is an engine-owned session invariant: `app/index.ts` calls
+    // `state.membership.freeze()` before `warmPlugins`, not a standard plugin's `warm`. This arm
+    // exercises the invariant through the real build path — after `build()` returns, the membership
+    // is frozen, so a component that would require a new generation is refused.
+    test("build freezes membership generations, refusing a post-build 32nd component", async () => {
+        clear();
+        const comps = Array.from({ length: 31 }, (_, i) => ({ [`c${i}`]: [] as number[] }));
+        const components: Record<string, any> = {};
+        for (let i = 0; i < 31; i++) components[`c${i}`] = comps[i];
+        const P: Plugin = { name: "P31", components };
+        const { state } = await build({ plugins: [P], defaults: false });
+
+        const eid = state.create();
+        // add all 31 registered components (generation 0, 31 bits)
+        for (let i = 0; i < 31; i++) state.add(eid, comps[i]);
+        expect(state.membership.generations).toBe(1);
+        // a 32nd component would require generation 1 — refused because build froze the count
+        const comp32 = { z: [] as number[] };
+        expect(() => state.add(eid, comp32)).toThrow();
+        expect(state.membership.generations).toBe(1);
+        // clean up the module-global registry — this arm registers 31 components
+        // via build() beyond what beforeEach sets up, and bun shares module state
+        // across files in a process
+        clear();
     });
 });
