@@ -1044,57 +1044,60 @@ describe("precompile", () => {
 
     test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {
         const saved = { ...Compute };
-        // a build began: that, and only that, re-opens the queue
-        await requestGPU(fakeDevice());
-        const order: string[] = [];
-        precompile("a", () => {
-            order.push("a");
-            return [];
-        });
-        precompile("b", () => {
-            order.push("b");
-            return [];
-        });
-        // nothing runs during warm — a forcer here could bind against a group whose dependency another
-        // plugin's warm hasn't published yet
-        expect(order).toEqual([]);
+        try {
+            // a build began: that, and only that, re-opens the queue
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("a", () => {
+                order.push("a");
+                return [];
+            });
+            precompile("b", () => {
+                order.push("b");
+                return [];
+            });
+            // nothing runs during warm — a forcer here could bind against a group whose dependency another
+            // plugin's warm hasn't published yet
+            expect(order).toEqual([]);
 
-        precompile("broken", () => {
-            throw new Error("createComputePipeline failed");
-        });
-        precompile("c", () => {
-            order.push("c");
-            return [];
-        });
-
-        // the throw names the pipeline, so a build failure points at the kernel, not at `build`
-        await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
-        // "c" was never shifted off, so the throw costs one pipeline, not the rest of the queue
-        expect(order).toEqual(["a", "b"]);
-        await precompileAll();
-        expect(order).toEqual(["a", "b", "c"]);
-        await precompileAll();
-        expect(order).toEqual(["a", "b", "c"]);
-
-        // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
-        // which would surface as a multi-second first-frame stall with nothing pointing at it
-        await precompile("late", () => {
-            order.push("late");
-            return [];
-        });
-        expect(order).toEqual(["a", "b", "c", "late"]);
-        await expect(
-            precompile("late-broken", () => {
+            precompile("broken", () => {
                 throw new Error("createComputePipeline failed");
-            }),
-        ).rejects.toThrow(/precompile "late-broken" failed/);
+            });
+            precompile("c", () => {
+                order.push("c");
+                return [];
+            });
 
-        // a forcer that binds nothing has no pipeline to init, so its compile silently falls through to
-        // the first frame — the multi-second stall the queue exists to prevent. The drain refuses it
-        await expect(precompile("unbound", () => null)).rejects.toThrow(
-            /precompile "unbound" bound nothing/,
-        );
-        Object.assign(Compute, saved);
+            // the throw names the pipeline, so a build failure points at the kernel, not at `build`
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            // "c" was never shifted off, so the throw costs one pipeline, not the rest of the queue
+            expect(order).toEqual(["a", "b"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "c"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "c"]);
+
+            // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
+            // which would surface as a multi-second first-frame stall with nothing pointing at it
+            await precompile("late", () => {
+                order.push("late");
+                return [];
+            });
+            expect(order).toEqual(["a", "b", "c", "late"]);
+            await expect(
+                precompile("late-broken", () => {
+                    throw new Error("createComputePipeline failed");
+                }),
+            ).rejects.toThrow(/precompile "late-broken" failed/);
+
+            // a forcer that binds nothing has no pipeline to init, so its compile silently falls through to
+            // the first frame — the multi-second stall the queue exists to prevent. The drain refuses it
+            await expect(precompile("unbound", () => null)).rejects.toThrow(
+                /precompile "unbound" bound nothing/,
+            );
+        } finally {
+            Object.assign(Compute, saved);
+        }
     });
 
     test("a forcer returning a truthy non-pipeline, non-array value throws with its label", async () => {

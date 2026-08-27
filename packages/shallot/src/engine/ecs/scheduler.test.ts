@@ -244,6 +244,7 @@ describe("Scheduler", () => {
             state.timescale(10);
             state.step(Time.FIXED_DT);
             expect(fixedCount).toBeLessThanOrEqual(Time.MAX_FIXED_STEPS);
+            expect(fixedCount).toBeGreaterThan(0);
             expect(state.time.fixedSteps).toBeLessThanOrEqual(Time.MAX_FIXED_STEPS);
             expect(state.time.throttled).toBe(true);
         });
