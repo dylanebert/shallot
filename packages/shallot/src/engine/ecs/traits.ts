@@ -267,6 +267,10 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
             } else if (ArrayBuffer.isView(target) || Array.isArray(target)) {
                 arrs.push(target as number[] | Float32Array | Uint32Array);
                 arrVals.push(value[0] ?? 0);
+            } else {
+                throw new Error(
+                    `defaults key "${field}" on component "${entry.name}" does not target a writable field`,
+                );
             }
             continue;
         }
@@ -284,6 +288,10 @@ function compilePlan(entry: Entry): DefaultsPlan | null {
         } else if (typeof (target as Single).set === "function") {
             fields.push(target as Single);
             fieldVals.push(value);
+        } else {
+            throw new Error(
+                `defaults key "${field}" on component "${entry.name}" does not target a writable field`,
+            );
         }
     }
 
