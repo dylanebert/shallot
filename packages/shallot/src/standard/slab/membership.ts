@@ -24,6 +24,7 @@ let _mirror: Uint32Array<ArrayBuffer> | null = null;
  * @internal
  */
 export function allocMembership(state: State): void {
+    state.membership.freeze();
     _gpu?.destroy();
     _mirror = new Uint32Array(state.membership.generations * capacity);
     _gpu = Compute.device.createBuffer({

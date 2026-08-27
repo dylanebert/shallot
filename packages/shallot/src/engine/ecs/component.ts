@@ -385,6 +385,12 @@ export interface Membership {
     /** membership words per entity (31 components each); fixes the mirror size */
     readonly generations: number;
     /**
+     * lock the generation count after `build` has assigned every registered
+     * component its bit. A later component that would require a new generation
+     * is refused rather than silently outsizing the fixed GPU mirror.
+     */
+    freeze(): void;
+    /**
      * report every entity whose membership changed since the last call, then
      * clear the pending set; returns false when nothing changed. The standard
      * membership mirror is the sole caller — it copies each `(eid, gen, word)`
@@ -397,6 +403,7 @@ export interface Membership {
 export class Components implements Membership {
     private _nextBit = 0;
     private _gen = 0;
+    private _frozen = false;
     // keyed by component id (idOf), not the object — a reloaded component handle
     // re-attaches by id. Array-by-id, since ids are small and monotonic.
     private _meta: ({ gen: number; bit: number } | undefined)[] = [];
@@ -445,6 +452,11 @@ export class Components implements Membership {
         return this._gen + 1;
     }
 
+    /** {@inheritDoc Membership.freeze} */
+    freeze(): void {
+        this._frozen = true;
+    }
+
     /** {@inheritDoc Membership.drain} */
     drain(visit: (eid: number, gen: number, word: number) => void): boolean {
         if (this._dirty.size === 0) return false;
@@ -461,6 +473,13 @@ export class Components implements Membership {
         const existing = this._meta[id];
         if (existing) return existing;
         if (this._nextBit >= BITS_PER_GEN) {
+            if (this._frozen) {
+                throw new Error(
+                    `membership: generation count is frozen at ${this._gen + 1} after build; ` +
+                        `a new component would require generation ${this._gen + 2} — ` +
+                        `rebuild to add more than ${BITS_PER_GEN} components per generation`,
+                );
+            }
             this._gen++;
             this._nextBit = 0;
             this._masks.push([]);

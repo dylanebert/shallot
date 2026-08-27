@@ -101,8 +101,14 @@ class QueryIterator implements Iterator<number> {
 /**
  * matched-entity set + iteration for one registered query. owns sparse-set
  * state inline (no wrapper class). iteration snapshots count at start so
- * callers can mutate during iteration, e.g. `for (const eid of state.query([Spawn,
- * not(Initialized)])) state.add(eid, Initialized)`.
+ * callers can mutate the *current* eid during iteration — adding a marker to
+ * or removing a component from the eid being visited swap-removes it from the
+ * query mid-loop, yet every original member is still visited exactly once (the
+ * swap only overwrites already-visited slots). Removing a *not-yet-visited*
+ * eid mid-iteration is not safe: the swap-remove moves the tail into the
+ * unvisited slot, so that tail member is visited twice and the removed one
+ * skipped. e.g. `for (const eid of state.query([Spawn, not(Initialized)]))
+ * state.add(eid, Initialized)`.
  */
 export class RegisteredQuery implements Iterable<number> {
     readonly required: any[] = [];
