@@ -189,10 +189,11 @@ export function readComponent(
  * `warm`-derived entities are absent by construction and
  * rebuilt by `warm` on the next build, so a restore never doubles them; pass an
  * explicit `eids` to serialize a different set (entities spawned outside load).
- * Each entity keeps its scene `id`, and a `refs` field round-trips as `@<id>`
- * (a target lacking a scene id is minted one). A round-trip preserves
- * codec-representable component state; GPU buffers and derived entities are
- * rebuilt, not serialized (`ecs.md`).
+ * Each entity keeps its scene `id`, and a `refs` field round-trips as `@<id>`.
+ * A target inside the serialized set that lacks a scene id is minted one; a
+ * target outside it resolves to its scene id if it has one, or throws if not
+ * (destroyed or unnamed). A round-trip preserves codec-representable component
+ * state; GPU buffers and derived entities are rebuilt, not serialized (`ecs.md`).
  *
  * @example
  * const xml = stringify(serialize(state));
@@ -239,7 +240,17 @@ export function serialize(state: State, eids?: Iterable<number>): Node[] {
         // a target outside the serialized set resolves to its scene id, so a subset
         // serialize emits `@name` rather than a raw eid that points at the wrong
         // (recycled) entity on reload
-        return state.identity.id(target);
+        const id = state.identity.id(target);
+        if (id !== undefined) return id;
+        // a ref target that is destroyed or was never authored a scene id cannot be
+        // expressed as `@name` — fail loud rather than emitting a raw eid that points
+        // at the wrong (recycled) entity on reload
+        if (!state.exists(target)) {
+            throw new Error(`Scene: cannot serialize ref to destroyed entity ${target}`);
+        }
+        throw new Error(
+            `Scene: cannot serialize ref to entity ${target} — target is outside the serialized set and has no scene id`,
+        );
     };
 
     const nodes: Node[] = [];
@@ -725,7 +736,7 @@ export function formatFields(
                 handled.add(dotKey);
                 remaining.delete(dotKey);
                 const value = fields[dotKey] as number;
-                if (stripDefaults && defaults[dotKey] !== undefined && value === defaults[dotKey]) {
+                if (stripDefaults && atDefault(value, defaults[dotKey])) {
                     continue;
                 }
                 parts.push(`${kebab(axes[i])}: ${formatNumber(value)}`);
@@ -757,16 +768,13 @@ export function formatFields(
         if (prefix < minPartial) continue;
         const values = dotKeys.slice(0, prefix).map((k) => fields[k] as number);
         const defaultValues = dotKeys.slice(0, prefix).map((k) => defaults[k]);
-        const allDefault =
-            stripDefaults &&
-            values.every((v, i) => defaultValues[i] !== undefined && v === defaultValues[i]);
+        const allDefault = stripDefaults && values.every((v, i) => atDefault(v, defaultValues[i]));
         if (!allDefault) {
             let trimEnd = values.length;
             if (stripDefaults) {
                 while (
                     trimEnd > minPartial &&
-                    defaultValues[trimEnd - 1] !== undefined &&
-                    values[trimEnd - 1] === defaultValues[trimEnd - 1]
+                    atDefault(values[trimEnd - 1], defaultValues[trimEnd - 1])
                 ) {
                     trimEnd--;
                 }
@@ -793,16 +801,7 @@ export function formatFields(
         const value = fields[field];
         const def = defaults[field];
 
-        // NaN is a valid sentinel default (e.g. Tween.from = "capture at runtime") but NaN !== NaN, so
-        // a plain `value === def` never elides it and emits an unparseable `from: NaN`. Treat a field
-        // sitting at its NaN default as default, so it elides and re-parses back to the sentinel.
-        if (
-            stripDefaults &&
-            typeof value === "number" &&
-            def !== undefined &&
-            (value === def || (Number.isNaN(value) && Number.isNaN(def)))
-        )
-            continue;
+        if (stripDefaults && typeof value === "number" && atDefault(value, def)) continue;
 
         const k = kebab(field);
 
@@ -824,6 +823,13 @@ export function formatFields(
     }
 
     return parts.join("; ");
+}
+
+/** NaN is a valid sentinel default (e.g. `Tween.from` = "capture at runtime") but `NaN !== NaN`,
+ * so a plain `value === def` never elides it — this comparison treats a field sitting at its NaN
+ * default as default, so it elides and re-parses back to the sentinel. */
+function atDefault(value: number, def: number | undefined): boolean {
+    return def !== undefined && (value === def || (Number.isNaN(value) && Number.isNaN(def)));
 }
 
 /**

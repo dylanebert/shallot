@@ -218,6 +218,17 @@ describe("State", () => {
             expect(state.identity.id(b)).toBeUndefined();
         });
 
+        // RED witnessed: author(eid) then author(eid, "x") then author(eid) leaves "x" in _ids
+        // because the else-branch is missing. Witnessed red: expected id(eid) to be undefined,
+        // received "x" — the stale id makes the doc's "undefined if anonymous" false.
+        test("re-authoring anonymously clears the stale recorded id", () => {
+            const a = state.create();
+            state.identity.author(a, "cube");
+            state.identity.author(a); // re-author anonymously — should clear "cube"
+            expect(state.identity.id(a)).toBeUndefined();
+            expect(state.identity.authored.has(a)).toBe(true); // still authored
+        });
+
         test("destroy forgets identity, so a recycled eid never inherits a stale id", () => {
             const a = state.create();
             state.identity.author(a, "cube");
