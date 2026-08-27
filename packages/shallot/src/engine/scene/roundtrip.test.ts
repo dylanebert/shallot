@@ -9,6 +9,7 @@ import {
     InputPlugin,
     i32,
     LinesPlugin,
+    laneAlias,
     load,
     type Node,
     OrbitPlugin,
@@ -294,6 +295,132 @@ describe("serialize(state)", () => {
     });
 });
 
+describe("NaN-sentinel default elision", () => {
+    // RED witnessed: formatFields emits "roughness: NaN" on the alias-lane path because
+    // `value === defaults[dotKey]` is false for NaN. Witnessed red: expected not.toContain("NaN"),
+    // received "metallic: 0; roughness: NaN; emissive: 0; occlusion: 0".
+    test("NaN-sentinel default elides on the alias-lane path", () => {
+        clear();
+        const Mat = { params: sparse(vec4) };
+        register("mat", Mat, {
+            defaults: () => ({ params: [0, Number.NaN, 0, 0] }),
+            aliases: {
+                params: laneAlias("params", ["metallic", "roughness", "emissive", "occlusion"]),
+            },
+        });
+        // params.y (roughness) sits at its NaN default — it should elide, not emit "roughness: NaN"
+        const formatted = formatFields("mat", {
+            "params.x": 0,
+            "params.y": Number.NaN,
+            "params.z": 0,
+            "params.w": 0,
+        });
+        expect(formatted).not.toContain("NaN");
+        // value half of the round trip: parse the emitted text back, merge with defaults
+        // (elided lanes restore from defaults), and confirm the NaN-sentinel lane comes back
+        // as NaN and the non-sentinel lanes at their input values
+        const defaults = {
+            "params.x": 0,
+            "params.y": Number.NaN,
+            "params.z": 0,
+            "params.w": 0,
+        };
+        const restored: Record<string, number | string> = {
+            ...defaults,
+            ...parseFields("mat", formatted),
+        };
+        expect(Number.isNaN(restored["params.y"] as number)).toBe(true);
+        expect(restored["params.x"]).toBe(0);
+        expect(restored["params.z"]).toBe(0);
+        expect(restored["params.w"]).toBe(0);
+    });
+
+    // RED witnessed: formatFields emits "pos: 0 0 0 NaN" on the positional Pair/Quad path because
+    // `v === defaultValues[i]` is false for NaN. Witnessed red: expected not.toContain("NaN"),
+    // received "pos: 0 0 0 NaN".
+    test("NaN-sentinel default elides on the positional Pair/Quad path", () => {
+        clear();
+        const Vec = { pos: sparse(vec4) };
+        register("vec", Vec, {
+            defaults: () => ({ pos: [0, 0, 0, Number.NaN] }),
+        });
+        // pos.w sits at its NaN default — it should elide, not emit "pos: 0 0 0 NaN"
+        const formatted = formatFields("vec", {
+            "pos.x": 0,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": Number.NaN,
+        });
+        expect(formatted).not.toContain("NaN");
+        // value half of the round trip: parse back, merge with defaults, and confirm the
+        // NaN-sentinel lane comes back as NaN and the non-sentinel lanes at their input values
+        const defaults = {
+            "pos.x": 0,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": Number.NaN,
+        };
+        const restored: Record<string, number | string> = {
+            ...defaults,
+            ...parseFields("vec", formatted),
+        };
+        expect(Number.isNaN(restored["pos.w"] as number)).toBe(true);
+        expect(restored["pos.x"]).toBe(0);
+        expect(restored["pos.y"]).toBe(0);
+        expect(restored["pos.z"]).toBe(0);
+    });
+
+    test("NaN-sentinel default trims a trailing NaN lane on the positional path", () => {
+        clear();
+        const Vec = { pos: sparse(vec4) };
+        register("vec", Vec, {
+            defaults: () => ({ pos: [0, 0, 0, Number.NaN] }),
+        });
+        // pos.w is NaN (default), pos.x is non-default — the trailing NaN lane should trim
+        const formatted = formatFields("vec", {
+            "pos.x": 5,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": Number.NaN,
+        });
+        expect(formatted).not.toContain("NaN");
+        expect(formatted).toBe("pos: 5 0 0");
+        // value half: the non-sentinel lane (pos.x = 5) survives, and the elided NaN-sentinel
+        // lane (pos.w) restores to NaN from defaults
+        const defaults = {
+            "pos.x": 0,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": Number.NaN,
+        };
+        const restored: Record<string, number | string> = {
+            ...defaults,
+            ...parseFields("vec", formatted),
+        };
+        expect(restored["pos.x"]).toBe(5);
+        expect(Number.isNaN(restored["pos.w"] as number)).toBe(true);
+    });
+
+    // positive control: a non-NaN value on a NaN-default field does NOT elide — proves the
+    // NaN-aware comparison doesn't over-elide valid values beside the sentinel
+    test("a non-NaN value on a NaN-default field does not elide (positive control)", () => {
+        clear();
+        const Vec = { pos: sparse(vec4) };
+        register("vec", Vec, {
+            defaults: () => ({ pos: [0, 0, 0, Number.NaN] }),
+        });
+        // pos.w holds 3 (not the NaN default) — it should emit, not elide
+        const formatted = formatFields("vec", {
+            "pos.x": 0,
+            "pos.y": 0,
+            "pos.z": 0,
+            "pos.w": 3,
+        });
+        expect(formatted).toContain("3");
+        expect(formatted).not.toContain("NaN");
+    });
+});
+
 const Link = { target: sparse(entity) };
 const Mark = { v: sparse(u32) };
 
@@ -370,6 +497,37 @@ describe("serialize identity + refs", () => {
         load(parse(`<scene><a id="a" arrow="to: @b" /><a id="b" /></scene>`), state);
         const a = state.only([Arrow as never]);
         expect(stringify(serialize(state, [a]))).toContain("to: @b");
+    });
+
+    // RED witnessed: serialize(state, [a]) does not throw — resolveRef returns undefined for a
+    // ref target outside the serialized set with no scene id, leaving a raw eid in the output.
+    // Witnessed red: expected toThrow, received `arrow="to: 2"` — the raw eid points at the
+    // wrong (recycled) entity on reload, silently breaking the round-trip-by-name contract.
+    test("serialize throws on a ref to a destroyed entity (not a raw eid)", () => {
+        clear();
+        const Arrow = { to: sparse(entity) };
+        register("arrow", Arrow, { defaults: () => ({ to: 0 }) });
+        const state = new State();
+        const a = state.create();
+        state.add(a, Arrow);
+        const b = state.create();
+        Arrow.to.set(a, b);
+        state.destroy(b);
+        // b is destroyed — the ref target is genuinely unresolvable, not merely absent
+        expect(() => serialize(state, [a])).toThrow(/destroyed/);
+    });
+
+    test("serialize throws on a ref to an unnamed entity outside the serialized set", () => {
+        clear();
+        const Arrow = { to: sparse(entity) };
+        register("arrow", Arrow, { defaults: () => ({ to: 0 }) });
+        const state = new State();
+        const a = state.create();
+        state.add(a, Arrow);
+        const b = state.create(); // alive, no scene id, outside the serialized set
+        Arrow.to.set(a, b);
+        // b is alive but outside the set and unnamed — the ref cannot be expressed as @name
+        expect(() => serialize(state, [a])).toThrow(/outside the serialized set/);
     });
 
     test("captures authored entities, excludes warm-derived ones — a restore never doubles them", async () => {

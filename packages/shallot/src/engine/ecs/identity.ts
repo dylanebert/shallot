@@ -16,6 +16,7 @@ export class Identity {
     author(eid: Entity, id?: string): void {
         this._authored.add(eid);
         if (id !== undefined) this._ids.set(eid, id);
+        else this._ids.delete(eid);
     }
 
     /** the scene `id` an entity was named with, or undefined if anonymous / not authored */
