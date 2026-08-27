@@ -6,11 +6,15 @@ import { not } from "./query";
 describe("Entity lifecycle invariants", () => {
     const A = { x: [] as number[] };
     const B = { y: [] as number[] };
+    const Trigger = { t: [] as number[] };
+    const Done = { d: [] as number[] };
 
     beforeEach(() => {
         clear();
         register("inv-a", A);
         register("inv-b", B);
+        register("inv-trigger", Trigger);
+        register("inv-done", Done);
     });
 
     test("destroyed entity absent from all queries", () => {
@@ -220,6 +224,46 @@ describe("Entity lifecycle invariants", () => {
         expect(visited).toEqual(eids);
         // the new entity appears on the next query call
         expect([...state.query([A])]).toContain(newEid);
+    });
+
+    // Case B of the add-during-iteration pair: when the same loop body removes the current eid
+    // from the query (e.g. `add(eid, Done)` on `query([Trigger, not(Done)])`) AND spawns a new
+    // matching entity, the removal decrements `_count` first, so the subsequent `add()` writes at
+    // `_dense[_count++]` into an unvisited slot the snapshot iterator reaches — the new entity is
+    // visited and one original is skipped. Characterization arm: pins today's behavior, which is
+    // what the class doc now describes.
+    test("adding a new matching entity in a body that also removes the current eid visits it and skips an original", () => {
+        const state = new State();
+        const eids: number[] = [];
+        for (let i = 0; i < 4; i++) {
+            const eid = state.create();
+            state.add(eid, Trigger);
+            eids.push(eid);
+        }
+
+        const visited: number[] = [];
+        let spawned = -1;
+        let spawnedOnce = false;
+        for (const eid of state.query([Trigger, not(Done)])) {
+            visited.push(eid);
+            state.add(eid, Done); // removes eid from this query
+            if (!spawnedOnce) {
+                spawnedOnce = true;
+                spawned = state.create();
+                state.add(spawned, Trigger);
+            }
+        }
+
+        const missingOriginals = eids.filter((e) => !visited.includes(e));
+
+        // the spawned entity is visited (it landed in an unvisited slot after _count was decremented)
+        expect(visited).toContain(spawned);
+        // exactly one original is skipped
+        expect(missingOriginals).toHaveLength(1);
+        // three originals + the spawned entity = four visits
+        expect(visited).toHaveLength(4);
+        const visitedOriginals = visited.filter((e) => eids.includes(e));
+        expect(visitedOriginals).toHaveLength(3);
     });
 
     // The membership generation freeze is an engine-owned session invariant: `app/index.ts` calls

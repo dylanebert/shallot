@@ -108,10 +108,12 @@ class QueryIterator implements Iterator<number> {
  * state.query([Spawn, not(Initialized)])) state.add(eid, Initialized)`.
  * Removing a *not-yet-visited* eid mid-iteration is not safe: the swap-remove
  * moves the tail into the unvisited slot, so that tail member is visited twice
- * and the removed one skipped. Adding a *new* matching entity mid-iteration is
- * safe but the new member is not visited this loop — `add()` appends at
- * `_dense[_count++]` past the snapshot, so it first appears on the next query
- * call.
+ * and the removed one skipped. Adding a *new* matching entity mid-iteration splits
+ * two ways: a pure add appends at `_dense[_count++]` past the snapshot and is
+ * not visited this loop; but when the same body first removes the current eid
+ * (e.g. `add(eid, Done)` on `query([Trigger, not(Done)])`), that removal
+ * decrements `_count` and the subsequent `add()` writes into an unvisited slot
+ * — the new entity is visited and one original is skipped.
  */
 export class RegisteredQuery implements Iterable<number> {
     readonly required: any[] = [];
