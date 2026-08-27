@@ -5,6 +5,7 @@ import { basename, join, resolve } from "node:path";
 import { createServer, preview } from "vite";
 import type { GpuDiagnostics, ShaderArtifact } from "../src/engine/runtime/gpu";
 import type { GpuLog } from "../src/engine/runtime/log";
+import type { BenchmarkCompileStats } from "../src/extras/profile/benchmark";
 import type { Check, PixelProbe, Verdict } from "../src/harness";
 import { REAL_GPU_LAUNCH } from "../src/harness/browser";
 import { pixelProbePass, probePixels } from "../src/harness/pixels";
@@ -99,6 +100,13 @@ export interface VerifyArgs {
     /** print per-phase wall-clock spans (server boot, first page load, harness ready, run, memory idle,
      *  capture, teardown) after the verdict — makes a slow or hung run attributable to a phase. */
     timings: boolean;
+    /** read back the startup pipeline-compile attribution once the boot wait concludes: `Profile.compile`
+     *  (per-pipeline label, `window.__benchmark.measure(0, 1)` — a ProfilePlugin project only, null
+     *  otherwise) plus any `longtask` PerformanceObserver entries recorded from page init through that
+     *  read, so a caller can separate a label's own sync `create*Pipeline` span (main-thread block, by
+     *  construction of single-threaded JS — no probe needed) from an async `create*PipelineAsync` span
+     *  that only overlaps a longtask if something else was blocking the main thread at the same time. */
+    attribution: boolean;
     /** batch mode: one `&`-joined query-string spec per run, layered on top of the shared `--query`
      *  params. One boot, N page loads (fresh browser context + page each), one verdict each, a JSON
      *  array out, nonzero exit if any run fails. Empty (the default) keeps the single-run path. */
@@ -142,6 +150,7 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         alloc: false,
         leak: 0,
         timings: false,
+        attribution: false,
         run: [],
         help: false,
     };
@@ -153,6 +162,7 @@ export function parseVerifyArgs(raw: string[]): VerifyArgs {
         else if (a === "--memory") args.memory = true;
         else if (a === "--alloc") args.alloc = true;
         else if (a === "--timings") args.timings = true;
+        else if (a === "--attribution") args.attribution = true;
         else if (a === "--leak" && raw[i + 1]) args.leak = numNonNeg("--leak", raw[++i]);
         else if (a?.startsWith("--leak="))
             args.leak = numNonNeg("--leak", a.slice("--leak=".length));
@@ -283,6 +293,25 @@ export const RESOURCE_BUFFER = 20_000;
  *  resource-timing buffer. Both must be in place before the first request, so they share one init
  *  script rather than racing two. */
 export const TIMINGS_INIT_SCRIPT = `performance.setResourceTimingBufferSize(${RESOURCE_BUFFER});${HARNESS_PROBE_SCRIPT}`;
+
+/** install a `longtask` `PerformanceObserver` on `window.__shallotLongTasks` before any app code runs.
+ * A `longtask` entry names a main-thread task that ran ≥50ms uninterrupted — it can only overlap a
+ * concurrently-reported async span (e.g. `Compute.precompiled`'s awaited elapsed time) if something
+ * else pinned the main thread for that same window, since an `await` itself yields. Best-effort: an
+ * unsupported `entryTypes` throws synchronously in the observer constructor on some engines, caught so
+ * a missing API degrades to an empty array rather than failing the whole init script. */
+export const ATTRIBUTION_INIT_SCRIPT = `
+(() => {
+    window.__shallotLongTasks = [];
+    try {
+        new PerformanceObserver((list) => {
+            for (const e of list.getEntries()) {
+                window.__shallotLongTasks.push({ start: e.startTime, duration: e.duration });
+            }
+        }).observe({ entryTypes: ["longtask"] });
+    } catch {}
+})();
+`;
 
 /** ms from navigation start to the `__harness` setter firing, per {@link installHarnessProbe} —
  *  null when it never fired (no harness on this page, or the probe wasn't installed). */
@@ -610,7 +639,26 @@ export interface Result {
     renderProbe?: RenderProbe;
     errors: string[];
     pass: boolean;
+    /** `--attribution` only. `compile` is `window.__benchmark.measure(0, 1)`'s compile section, read
+     *  the moment the boot wait concludes (null without a ProfilePlugin project); `compileAfterIdle` is
+     *  the same read taken again `ATTRIBUTION_IDLE_MS` later, with no page interaction in between — a
+     *  pipeline label present in `compileAfterIdle` but not `compile` (or a `pipelineCount` /
+     *  `totalMs` increase with no new label, one already-known label recompiling) is a compile that
+     *  landed after the boot wait concluded, i.e. past wherever a project's own loading screen gates on
+     *  that same signal. `longTasks` is every `longtask` PerformanceObserver entry recorded from page
+     *  init through the second read. Absent when `--attribution` wasn't passed. */
+    attribution?: {
+        compile: BenchmarkCompileStats | null;
+        compileAfterIdle: BenchmarkCompileStats | null;
+        longTasks: { start: number; duration: number }[];
+    } | null;
 }
+
+/** how long `--attribution`'s second `Profile.compile` read waits after the first, with no page
+ *  interaction in between — long enough that a specializing surface's lazy first-draw compile (a real
+ *  scene interaction would trigger sooner) would have already landed if the boot wait's own settle
+ *  point didn't cover it. */
+export const ATTRIBUTION_IDLE_MS = 3_000;
 
 /** the render probe the settle path records on its Result — the pixel evidence behind the `rendered`
  *  verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and the spread
@@ -1112,6 +1160,10 @@ const usage = `
                           than launching one — the endpoint owner supplies the browser's channel + flags
     --timings             Print per-phase wall-clock spans after the verdict (server boot, first page
                           load, harness ready, run, memory idle, capture, teardown)
+    --attribution         Read back the startup pipeline-compile attribution twice, once when the boot
+                          wait concludes and once ATTRIBUTION_IDLE_MS later (Profile.compile per label,
+                          ProfilePlugin projects only — the second read names a lazy escape past the
+                          boot wait), plus any longtask entries — on result.attribution
     --run k=v[&k2=v2]     Batch mode (repeatable): one boot, one page load per --run (fresh browser
                           context + page each), one verdict each. Each spec is its own query string,
                           layered on the shared --query params. A JSON array on stdout; nonzero exit if
@@ -1427,6 +1479,12 @@ async function drive(
         await page.addInitScript({ content: TIMINGS_INIT_SCRIPT }).catch(() => {});
     }
 
+    // installed before any app code runs, so it catches every longtask across the whole boot —
+    // including any that fires before the app's own module graph finishes loading.
+    if (args.attribution) {
+        await page.addInitScript({ content: ATTRIBUTION_INIT_SCRIPT }).catch(() => {});
+    }
+
     // retry the goto once only if the first attempt itself failed (a cold vite server can re-optimize
     // deps mid-load and strand it — the flows launcher's proven shape). Never re-navigate a page that
     // loaded: a second goto re-runs the app and diverges its first-load state. navStart is stamped
@@ -1523,6 +1581,39 @@ async function drive(
             )
             .catch(() => [])) as ResourceEntry[];
         probes.resourceTiming = summarizeResourceTiming(entries);
+    }
+
+    // read once the wait has concluded, same as the two probes above, then again `ATTRIBUTION_IDLE_MS`
+    // later with no page interaction — `Profile.compile` is cumulative since attach (never cleared per
+    // frame), so a 0-warmup/1-frame `measure()` reads startup's compile attribution without waiting on
+    // any steady-state window, and a second read some time after the first names any pipeline that
+    // compiled past the boot wait (the lazy specializing-variant escape). `window.__benchmark` only
+    // exists on a ProfilePlugin project; its absence reads as `compile: null`, never a throw.
+    if (args.attribution) {
+        base.attribution = (await page
+            .evaluate(async (idleMs: number) => {
+                const bench = (
+                    window as unknown as {
+                        __benchmark?: {
+                            measure(w: number, f: number): Promise<{ compile: unknown }>;
+                        };
+                    }
+                ).__benchmark;
+                const first = bench ? await bench.measure(0, 1) : null;
+                await new Promise((r) => setTimeout(r, idleMs));
+                const second = bench ? await bench.measure(0, 1) : null;
+                return {
+                    compile: (first?.compile ?? null) as BenchmarkCompileStats | null,
+                    compileAfterIdle: (second?.compile ?? null) as BenchmarkCompileStats | null,
+                    longTasks:
+                        (
+                            window as unknown as {
+                                __shallotLongTasks?: { start: number; duration: number }[];
+                            }
+                        ).__shallotLongTasks ?? [],
+                };
+            }, ATTRIBUTION_IDLE_MS)
+            .catch(() => null)) as Result["attribution"];
     }
 
     if (outcome === "harness")
