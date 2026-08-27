@@ -236,7 +236,7 @@ export class State {
     }
 
     /**
-     * find exactly one entity, warns if multiple match
+     * find exactly one entity, warns if multiple match, returns -1 when nothing matches
      * @example
      * const player = state.only([Player]);
      */

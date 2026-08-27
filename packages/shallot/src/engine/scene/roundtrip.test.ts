@@ -296,9 +296,11 @@ describe("serialize(state)", () => {
 });
 
 describe("NaN-sentinel default elision", () => {
-    // RED witnessed: formatFields emits "roughness: NaN" on the alias-lane path because
-    // `value === defaults[dotKey]` is false for NaN. Witnessed red: expected not.toContain("NaN"),
-    // received "metallic: 0; roughness: NaN; emissive: 0; occlusion: 0".
+    // RED witnessed: before b9dafde, formatFields emitted "roughness: NaN" on the alias-lane path
+    // because `value === defaults[dotKey]` was false for NaN. Witnessed red: expected
+    // not.toContain("NaN"), received "metallic: 0; roughness: NaN; emissive: 0; occlusion: 0".
+    // b9dafde routed the comparison through atDefault (codec.ts), which treats a field at its NaN
+    // default as default, so today a NaN-sentinel lane elides on the alias-lane path.
     test("NaN-sentinel default elides on the alias-lane path", () => {
         clear();
         const Mat = { params: sparse(vec4) };
@@ -335,9 +337,11 @@ describe("NaN-sentinel default elision", () => {
         expect(restored["params.w"]).toBe(0);
     });
 
-    // RED witnessed: formatFields emits "pos: 0 0 0 NaN" on the positional Pair/Quad path because
-    // `v === defaultValues[i]` is false for NaN. Witnessed red: expected not.toContain("NaN"),
-    // received "pos: 0 0 0 NaN".
+    // RED witnessed: before b9dafde, formatFields emitted "pos: 0 0 0 NaN" on the positional
+    // Pair/Quad path because `v === defaultValues[i]` was false for NaN. Witnessed red: expected
+    // not.toContain("NaN"), received "pos: 0 0 0 NaN". b9dafde routed the comparison through
+    // atDefault (codec.ts), which treats a field at its NaN default as default, so today a
+    // NaN-sentinel lane elides on the positional Pair/Quad path.
     test("NaN-sentinel default elides on the positional Pair/Quad path", () => {
         clear();
         const Vec = { pos: sparse(vec4) };

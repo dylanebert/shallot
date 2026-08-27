@@ -78,8 +78,8 @@ describe("packColor", () => {
 // Regression pin: linearToSrgb must not produce NaN for negative inputs. The CPU ternary's
 // condition (c <= 0.0031308) routes every negative value to the linear branch, so no negative
 // ever reaches the power branch — that is what makes the function correct as written, with no
-// max(c,0) guard needed. (The TGSL twin in encode.ts:345 does need max because WGSL `select`
-// evaluates both arms.) This test pins that already-correct behavior against future regressions.
+// max(c,0) guard needed. (The TGSL twin `linearToSrgb1` in encode.ts does need max because WGSL
+// `select` evaluates both arms.) This test pins that already-correct behavior against future regressions.
 describe("linearToSrgb", () => {
     test("does not produce NaN for a negative channel", () => {
         expect(Number.isNaN(linearToSrgb(-0.1))).toBe(false);

@@ -24,7 +24,7 @@ export interface TextureProbe {
 
 /** buffer range and trigger captured by {@link probeBuffer}. */
 export interface BufferProbeOptions {
-    /** byte offset in `source`; an unaligned range is copied through an aligned enclosing range. */
+    /** byte offset in `source`; an unaligned range is copied through an aligned enclosing range when that aligned range fits in `source`, but a trailing unaligned tail with no aligned copy range in the source throws. */
     offset?: number;
     /** bytes to return. Defaults to the rest of `source`. */
     size?: number;

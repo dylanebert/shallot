@@ -218,9 +218,11 @@ describe("State", () => {
             expect(state.identity.id(b)).toBeUndefined();
         });
 
-        // RED witnessed: author(eid) then author(eid, "x") then author(eid) leaves "x" in _ids
-        // because the else-branch is missing. Witnessed red: expected id(eid) to be undefined,
-        // received "x" — the stale id makes the doc's "undefined if anonymous" false.
+        // RED witnessed: before b9dafde, author(eid) then author(eid, "x") then author(eid) left
+        // "x" in _ids because the else-branch was missing. Witnessed red: expected id(eid) to be
+        // undefined, received "x" — the stale id made the doc's "undefined if anonymous" false.
+        // b9dafde added the else-branch in identity.ts (author deletes _ids when id is undefined),
+        // so today re-authoring anonymously clears the stale recorded id.
         test("re-authoring anonymously clears the stale recorded id", () => {
             const a = state.create();
             state.identity.author(a, "cube");

@@ -855,9 +855,11 @@ describe("TGSL metadata", () => {
 
     // the other failure checkTgsl guards: a second typegpu copy loaded after the engine's. The key is
     // redefined as a write-counting accessor (gpu.ts), so mutating it at check time exercises the real
-    // production path; restore both the version and the counter in `finally` (the counter, not just
-    // the version, since a later test would otherwise inherit an elevated count from this one).
-    test("checkTgsl throws when a second typegpu copy's version differs from the engine's", () => {
+    // production path; the throw comes from the write counter, not the version value, so this arm pins
+    // the same mechanism as its same-version sibling below. Restore both the version and the counter
+    // in `finally` (the counter, not just the version, since a later test would otherwise inherit an
+    // elevated count from this one).
+    test("checkTgsl throws when a second typegpu copy writes a differing version (the write-count trips on any distinct evaluation, version-independent)", () => {
         const globals = globalThis as unknown as Record<string, unknown>;
         const priorVersion = globals.__TYPEGPU_VERSION__;
         const priorWrites = globals.__SHALLOT_TYPEGPU_WRITES__;
