@@ -70,8 +70,8 @@ const terrainSurfaceLayout = surfaceLayout({
  *  on signed cross-coordinate `x` with pixel footprint `p`. `cover(e) = clamp((e - x)/p + 0.5, 0, 1)`,
  *  `alpha = cover(h) - cover(-h)`. Correct through the sub-pixel regime by construction: when both
  *  edges land inside one pixel the terms subtract to the stripe's true fractional coverage, so the line
- *  fades proportionally instead of snapping to fully-opaque or vanishing (roads-interactive.md Locked
- *  decision, stage 8). CPU-callable so `bun test` exercises this exact math with no device. */
+ *  fades proportionally instead of snapping to fully-opaque or vanishing. CPU-callable so `bun test`
+ *  exercises this exact math with no device. */
 export const coverFn = tgpu.fn(
     [d.f32, d.f32, d.f32],
     d.f32,
@@ -85,8 +85,8 @@ export const coverFn = tgpu.fn(
  *  `segmentDistanceGpu` vs `segmentDistance`). Two solid edge lines inset from the road edge (centred
  *  at d = −EDGE_INSET on the existing edge distance) and a broken centreline (perpendicular distance via
  *  the cross product, station along the chord via fract(s / DASH_PERIOD) < DASH_DUTY). CPU-callable so
- *  `bun test` exercises this exact math with no device — the GPU half of stage 8's marking differential
- *  oracle. `terrain.ts` never imports `markingDistance` — the two derivations are independent by contract.
+ *  `bun test` exercises this exact math with no device — the GPU side of the marking differential oracle.
+ *  `terrain.ts` never imports `markingDistance` — the two derivations are independent by contract.
  * @example markingDistanceFromChord(0, 0, -100, 0, 100, 0, 4) // on the centreline, in a gap → positive */
 export const markingDistanceFromChord = tgpu.fn(
     [d.f32, d.f32, d.f32, d.f32, d.f32, d.f32, d.f32],
@@ -198,11 +198,11 @@ const terrainFs = tgpu.fn(
     const resident = std.select(d.f32(0), d.f32(1), layer >= 0);
     const coverage = std.clamp(d.f32(0.5) - dist / fw, 0, 1) * resident;
 
-    // the marking channel: analytic in the fs from the chord uniform (stage 8), not baked into a texel.
+    // the marking channel: analytic in the fs from the chord uniform, not baked into a texel.
     // Two-edge pixel coverage — the fraction of the pixel the marking covers — not a smoothstep threshold.
     // For a stripe of half-width h on signed cross-coordinate x with p = max(fwidth(x), 1e-6):
     //   cover(e) = clamp((e - x)/p + 0.5, 0, 1),  alpha = cover(h) - cover(-h)
-    // This is correct through the sub-pixel regime by construction (roads-interactive.md Locked decision).
+    // This is correct through the sub-pixel regime by construction.
     const chord = terrainSurfaceLayout.$.chord;
     const ax = chord.a.x;
     const az = chord.a.y;
@@ -257,7 +257,7 @@ const terrainFs = tgpu.fn(
     // is still fully resolvable and the blend must be inactive (otherwise the pattern washes toward
     // continuous inside the regime where it still reads crisp). The blend starts at half a period and
     // reaches full convergence at one period: a far dashed line reads as a faint continuous line at
-    // DASH_DUTY opacity, never as resolved flickering dots (roads-interactive.md Locked decision).
+    // DASH_DUTY opacity, never as resolved flickering dots.
     const nyquist = std.clamp(
         (sP - d.f32(DASH_PERIOD) * d.f32(0.5)) / (d.f32(DASH_PERIOD) * d.f32(0.5)),
         0,
@@ -338,11 +338,10 @@ function teardown(): void {
 }
 
 // The boot document is the network's one fixed standard chord (`overlay/network.ts`'s
-// `generateNetwork`, no longer seeded — `roads-interactive.md` stage 1 deleted route selection).
-// `capture.ts`'s `capturePoints` derives its on/off-road probe points from this exact
-// `generateNetwork()` call (`overlay/network.ts`'s `captureProbePoints`), so the two can't drift
-// apart. `overlay/stroke.ts`'s hand-authored stroke stays live only as the CPU-vs-GPU differential's
-// known pattern (`document.test.ts`), no longer what boots on screen. {@link regenerate} draws a
+// `generateNetwork`, no seed). `capture.ts`'s `capturePoints` derives its on/off-road probe points
+// from this exact `generateNetwork()` call (`overlay/network.ts`'s `captureProbePoints`), so the two
+// can't drift apart. `overlay/stroke.ts`'s hand-authored stroke stays live only as the CPU-vs-GPU
+// differential's known pattern (`document.test.ts`), not what boots on screen. {@link regenerate} draws a
 // fresh terrain seed on demand (the seed control, `boot.ts`'s F9 handler) and resets the road to the
 // standard chord — the seed drives the noise permutation alone, never the road's placement.
 let liveDocument: StrokeDocument = generateNetwork();
@@ -424,11 +423,11 @@ async function warm(state: State): Promise<void> {
 
     bindTerrainKernel(vertices, position);
     warmNetwork(state); // its own onDispose registration, the same pattern
-    warmPosts(state); // posts buffer + surface + registered draw (stage 5)
+    warmPosts(state); // posts buffer + surface + registered draw
     setNetwork(liveDocument, currentSeed); // the flatten kernel's geometry input, kept in sync with
     // the overlay's own document and the height kernel's own permutation seed
-    overlayAtlas.updateChord(liveDocument); // the fs's marking geometry input (stage 8)
-    await dispatchPosts(currentSeed); // write post positions for the boot chord (stage 5)
+    overlayAtlas.updateChord(liveDocument); // the fs's marking geometry input
+    await dispatchPosts(currentSeed); // write post positions for the boot chord
     if (state.signal.aborted) return;
     await generate(SEED);
 }
@@ -448,15 +447,15 @@ const OverlayRedrawSystem: System = {
 /**
  * reseed the terrain's noise permutation and re-dispatch the height kernel, resetting the live document
  * to the standard chord — the seed control's live reseed (`boot.ts`'s F9 handler). The seed drives the
- * noise permutation alone (`roads-interactive.md` stage 1: "the road is not seeded"), never the road's
- * placement — a person's drag is the only thing that ever moves it (stage 4). `overlayAtlas.invalidate()`
+ * noise permutation alone ("the road is not seeded"), never the road's
+ * placement — a person's drag is the only thing that ever moves it. `overlayAtlas.invalidate()`
  * releases every tile the outgoing document left resident (the indirection mirror reset to unallocated,
  * the layer counter restarted, any still-pending redraw dropped) *before* the new network's tiles are
  * marked dirty (`overlay/atlas.ts`'s `markDirty`, the exact-set oracle `document.test.ts` pins) —
  * otherwise a tile the old document touched but the new one doesn't would keep its stale content forever,
  * and each reseed's fresh handful of layers would pile onto the last's until the fixed-size atlas ran out
  * (`overlay/queue.test.ts` drives the fixed order against real reseeds; the pre-invalidation overflow has
- * no live demonstration, the road no longer moving with the seed — see that file's note).
+ * no live demonstration, the road not moving with the seed — see that file's note).
  * Rebinds the flatten kernel's geometry (`flatten.ts`'s `setNetwork`) before `generate` re-dispatches, so
  * the next-drawn frame's heights and overlay both reflect the new terrain in one call — the
  * "affected-region remesh" the spec's Approach names.
@@ -465,7 +464,7 @@ export async function regenerate(seed: number): Promise<void> {
     currentSeed = seed;
     liveDocument = generateNetwork();
     setNetwork(liveDocument, seed);
-    await dispatchPosts(seed); // re-write post positions for the reset chord (stage 5)
+    await dispatchPosts(seed); // re-write post positions for the reset chord
     overlayAtlas.updateChord(liveDocument);
     overlayAtlas.invalidate();
     overlayAtlas.markDirty(liveDocument);
@@ -477,8 +476,8 @@ export async function regenerate(seed: number): Promise<void> {
  * (`flatten.ts`'s `setNetwork`), re-tile the overlay atlas (`overlay/atlas.ts`'s `retile` — marks
  * `tiles(old) ∪ tiles(new)` dirty and releases `tiles(old) − tiles(new)`), and re-dispatch the height
  * kernel (`generate(currentSeed)`). The seed is unchanged — a person's drag moves the road, not the
- * terrain permutation (`roads-interactive.md`'s locked decision: "the seed owns the terrain; the road is
- * not seeded"). The edit system's per-frame system (`edit.ts`) calls this on an admissible drag; the
+ * terrain permutation ("the seed owns the terrain; the road is not seeded"). The edit system's per-frame
+ * system (`edit.ts`) calls this on an admissible drag; the
  * handle re-placement is the edit system's own job (it reads {@link getDocument} each frame and sets the
  * handle Transform positions to the endpoints at `y = heightAtCpu`).
  */
@@ -486,7 +485,7 @@ export async function editDocument(doc: StrokeDocument): Promise<void> {
     const oldDoc = liveDocument;
     liveDocument = doc;
     setNetwork(doc, currentSeed);
-    await dispatchPosts(currentSeed); // re-write post positions for the edited chord (stage 5)
+    await dispatchPosts(currentSeed); // re-write post positions for the edited chord
     overlayAtlas.updateChord(doc);
     overlayAtlas.retile(oldDoc, doc);
     await generate(currentSeed);
@@ -502,7 +501,7 @@ export function getDocument(): StrokeDocument {
 /** the seed the height kernel was last dispatched with — the live permutation seed, not the boot
  *  constant `SEED`. After an F9 reseed (`regenerate`) this differs from `SEED`, and a CPU twin that
  *  bakes against `SEED` instead of this accessor (e.g. `checkPosts`'s `makePermutation`/
- *  `buildNetworkGeometry`, which formerly used `SEED`) diverges from the GPU output — the permutation
+ *  `buildNetworkGeometry`) diverges from the GPU output — the permutation
  *  and the falloff change with the seed. An accessor rather than exporting `currentSeed` directly so the
  *  mutable module state stays write-only from outside this module. */
 export function getCurrentSeed(): number {
@@ -525,8 +524,7 @@ export function getCurrentSeed(): number {
  * at the F9 seed even though the gate has just forced the displayed terrain back to `SEED` — a later
  * `setNetwork` call would then bake against the wrong permutation until the next `regenerate`. Not
  * reachable by today's single-fresh-page-load gate flow, so left as documented residue rather than a
- * bigger restructure (`gate.ts` resetting `liveDocument` itself is a separate, pre-existing design choice
- * this stage didn't touch).
+ * bigger restructure (`gate.ts` resetting `liveDocument` itself is a separate, pre-existing design choice).
  */
 export function syncNetworkForSeed(seed: number): void {
     setNetwork(liveDocument, seed);

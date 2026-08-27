@@ -34,9 +34,8 @@ const albedoLuminance = (rgb: readonly [number, number, number]): number =>
 const roadLuminance = albedoLuminance(ROAD_ALBEDO);
 const centreLuminance = albedoLuminance(CENTRE_ALBEDO);
 
-// Stage 24a's corridor-pose capture — a second file alongside the gate's own, written at the derived
-// corridor pose (corridorPose.ts). The default-orbit capture above stays unchanged in pose; this one
-// is the admissible artifact for 24b's release look.
+// The corridor-pose capture — a second file alongside the gate's own, written at the derived
+// corridor pose (corridorPose.ts). The default-orbit capture above stays unchanged in pose.
 const CORRIDOR_CAPTURE_PATH = join(
     dirname(fileURLToPath(import.meta.url)),
     "..",
@@ -242,10 +241,10 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Phase 2b: stage 3's marking device probes — four world points derived from the document, each on
+    // Marking device probes — four world points derived from the document, each on
     // a distinct marking class (edge line, asphalt, dash gap, dash). The device gate asserts the
     // luminance bands at these points are DISJOINT, so a probe that cannot discriminate the classes it
-    // gates is not evidence (roads-interactive.md stage 3, Marking fidelity).
+    // gates is not evidence.
     const markingProbes = (await page.evaluate(() =>
         (
             window as unknown as {
@@ -347,25 +346,21 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Phase 3: stage 14's reseed-integrity device arm (spec Validation, "Reseed integrity" — device half).
-    // F9 twice via `__roadsRegenerate` (a deterministic bridge onto the same `regenerate()` the real F9
-    // handler calls, `boot.ts`), rather than real random keypresses: a live F9 draws a fresh
-    // `Math.random()` seed every press, and this stage's `overlay/queue.test.ts` already covers the
-    // reset mechanics device-free — what only the device can show is that the *composite* actually reads
-    // the reset indirection.
+    // Reseed-integrity device arm. F9 twice via `__roadsRegenerate` (a deterministic bridge onto the
+    // same `regenerate()` the real F9 handler calls, `boot.ts`), rather than real random keypresses: a
+    // live F9 draws a fresh `Math.random()` seed every press, and `overlay/queue.test.ts` already
+    // covers the reset mechanics device-free — what only the device can show is that the *composite*
+    // actually reads the reset indirection.
     //
-    // `roads-interactive.md` stage 1 deleted route selection: `regenerate(seed)`'s seed now reseeds the
-    // noise permutation alone and resets the road to the standard chord (`overlay/network.ts`'s
-    // `generateNetwork` — no seed), so there is no longer an "old road" and a "new road" at different
-    // positions — every reseed lands the identical document at the identical on-road probe point. The
-    // two-complement stale-vs-new arm this used to run (one probe must stop reading road, a second must
-    // start reading road) has no subject left: read it as one complement instead — the single, unmoved
-    // on-road point must still read road after two full invalidate/redraw cycles, proving the redraw
-    // survived `regenerate`'s `invalidate()` → `markDirty()` → `generate()` sequence rather than leaving
-    // the tile stuck unresolved. A `markDirty`-then-`invalidate` ordering bug (the regression this arm
-    // was written to catch, adversarial review 2026-08-19) still reds it: that ordering wipes the very
-    // pending-queue entries `markDirty` just pushed, so the road never redraws after the reseed and the
-    // probe reads bare terrain instead.
+    // `regenerate(seed)`'s seed reseeds the noise permutation alone and resets the road to the standard
+    // chord (`overlay/network.ts`'s `generateNetwork` — no seed), so every reseed lands the identical
+    // document at the identical on-road probe point. The single, unmoved on-road point must still read
+    // road after two full invalidate/redraw cycles, proving the redraw survived `regenerate`'s
+    // `invalidate()` → `markDirty()` → `generate()` sequence rather than leaving the tile stuck
+    // unresolved. A `markDirty`-then-`invalidate` ordering bug (the regression this arm was written to
+    // catch, adversarial review 2026-08-19) still reds it: that ordering wipes the very pending-queue
+    // entries `markDirty` just pushed, so the road never redraws after the reseed and the probe reads
+    // bare terrain instead.
     const ReseedSeedA = 111111;
     const ReseedSeedB = 233332;
 
@@ -492,9 +487,9 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
     );
 
     // Phase 4: corridor content arm — assert against the live device scene that the corridor is
-    // actually in frame and set into terrain. This closes the gate the blocker proved missing: nothing
-    // previously checked the corridor capture's content — the screenshot was written to a file and
-    // never inspected, so a capture of empty terrain passed every gate. The arm checks two things: (1)
+    // actually in frame and set into terrain. This closes the gate the blocker proved missing: the
+    // corridor capture's content is checked — a capture of empty terrain would pass no gate. The arm
+    // checks two things: (1)
     // the live height at the corridor centre matches the chord's flatten target (the terrain is
     // flattened there — a road is present), and (2) the live height ~30 m to the side does not match
     // the flatten target (unflattened terrain flanks the corridor — it reads set into terrain, not flat
@@ -569,13 +564,12 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Phase 5: stage 24a's corridor-pose capture. Reposition the orbit to the derived corridor pose
+    // Corridor-pose capture. Reposition the orbit to the derived corridor pose
     // (corridorCapture.ts via window.__roadsCorridorCapture), wait for it to settle, and save the
     // screenshot to a second file. The default-orbit capture (Phase 2) is already saved and must not
-    // move — it feeds the fs-composite pixel probes. This capture is the admissible artifact for 24b's
-    // human release look: the earthwork's 3.8720 m vertical excursion projects to ≥5 px at this pose
-    // (asserted device-free by corridorPose.test.ts), while ≥30 m of unflattened terrain flanks the
-    // corridor in frame.
+    // move — it feeds the fs-composite pixel probes. The earthwork's 3.8720 m vertical excursion
+    // projects to ≥5 px at this pose (asserted device-free by corridorPose.test.ts), while ≥30 m of
+    // unflattened terrain flanks the corridor in frame.
     await page.evaluate(() =>
         (
             window as unknown as { __roadsCorridorCapture: () => Promise<void> }
@@ -588,18 +582,17 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Phase 6: stage 4's edit device arms — drive `__roadsEdit` to a new position, wait for overlay idle,
+    // Edit device arms — drive `__roadsEdit` to a new position, wait for overlay idle,
     // and read exactly 0 violations on both axes from `readVertices()` on the edited live document. Then
     // check the handle entity's `y` equals `heightAtCpu` at its `(x, z)` after the edit, and that a drag
     // past the world corner leaves the handle on the boundary rather than frozen mid-map.
     //
-    // Stage 3 trap: `capture.ts`'s marking probes are derived from the chord's own station, so a drag moves
-    // every marking probe with it. The marking probes were read in Phase 2b (before any edits), so they are
+    // `capture.ts`'s marking probes are derived from the chord's own station, so a drag moves
+    // every marking probe with it. The marking probes were read before any edits, so they are
     // not used across this edit — no re-derivation needed. After this phase, the boot document is restored.
     //
-    // Stage 4c: the old refused-edit arm (a drag under ROAD_MIN_LENGTH returns false and leaves vertices
-    // byte-identical) is replaced by the clamp arm — every drag moves the endpoint, clamped to the bound
-    // and the floor. A drag past the world corner leaves the handle on the boundary, not frozen.
+    // Every drag moves the endpoint, clamped to the bound and the floor. A drag past the world
+    // corner leaves the handle on the boundary, not frozen.
 
     // an edit: move endpoint 1 to (50, 30) — chord from (-100, 0) to (50, 30), length ≈ 153 m
     const editEnd = 1;
@@ -698,13 +691,11 @@ test("terrain generator gate — sized, deterministic, reseeds, not flat (real G
 
     expect(errors, errors.join("\n")).toEqual([]);
 
-    // Phase 6.5: stage 5's post-placement re-check after an edit. The gate already checked posts at
-    // boot (Phase 1); this re-verifies on the edited chord — the Validation criterion "re-read after an
-    // __roadsEdit". The bridge reads back the posts buffer and checks y = flattenFieldAt, the lateral
-    // offset pinned at exactly halfWidth + POST_OFFSET (the kerb line, stage 11 — it replaced the old
-    // "somewhere inside the flat core" band), lateral sign matches postLateralSign(i), live-slot count,
-    // and scale-0 — all in the browser (flattenFieldAt is not Node-safe), so the test only reads the
-    // pass/fail verdict.
+    // Post-placement re-check after an edit. The gate already checked posts at boot; this re-verifies
+    // on the edited chord. The bridge reads back the posts buffer and checks y = flattenFieldAt, the
+    // lateral offset pinned at exactly halfWidth + POST_OFFSET (the kerb line), lateral sign matches
+    // postLateralSign(i), live-slot count, and scale-0 — all in the browser (flattenFieldAt is not
+    // Node-safe), so the test only reads the pass/fail verdict.
     const postsCheck = (await page.evaluate(() =>
         (
             window as unknown as {

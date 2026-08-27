@@ -52,10 +52,10 @@ export function applyEdit(doc: StrokeDocument, end: 0 | 1, x: number, z: number)
  *  that maintains the floor — the last valid position on the drag ray. A target already at or above the
  *  floor is returned unchanged. Pure, device-free.
  *
- *  The ceiling (`ROAD_MAX_LENGTH`) is deleted: a chord is any length the world contains, and capacity is
- *  sized by measurement — the worst-case single-document swath under the capsule dirty-set test, sized
- *  with headroom over the measured worst case — not by a refusal (`roads-interactive.md`'s Locked
- *  decision). See `overlay/tiles.ts`'s `ATLAS_LAYERS` for the derivation and the measured number. */
+ *  A chord is any length the world contains: capacity is sized by measurement — the worst-case
+ *  single-document swath under the capsule dirty-set test, sized with headroom over the measured worst
+ *  case — not by a refusal. See `overlay/tiles.ts`'s `ATLAS_LAYERS` for the derivation and the measured
+ *  number. */
 export function clampDragTarget(
     doc: StrokeDocument,
     end: 0 | 1,
@@ -107,16 +107,14 @@ export function clampDragTarget(
  *  clamp-never-refuse law applied to the target's derivation, not just its constraints. Pure,
  *  device-free.
  *
- *  RED-FIRST WITNESS (stage 9, roads-interactive.md): the mutation that produces the red is removing
+ *  RED-FIRST WITNESS: the mutation that produces the red is removing
  *  `clampToBound` from every return path of this function, so a shallow ray (e.g. dir [0.999, -0.001,
  *  0.001] from origin [0, 200, 0]) yields a target far outside the world bound. The arm then fails
  *  its `|x| ≤ Bound` assertion. The failure text witnessed before the fix:
  *   "shallow past MARCH_MAX (x-axis): |x|=199800 past bound 508" / "Expected: <= 508" / "Received: 199800"
  *
- *  History (not this arm's output): against the shipped shape, the *old* `marchFlattenField` returned
- *  null on a miss and the caller held `lastValidTarget` — the handle froze under a moving cursor. That
- *  defect is what motivated replacing the null return with `projectRayToBound`, but this arm does not
- *  call `marchFlattenField`; it discriminates the clamp on `projectRayToBound`'s return paths.
+ *  This arm does not call `marchFlattenField`; it discriminates the clamp on `projectRayToBound`'s
+ *  return paths.
  */
 export function projectRayToBound(
     origin: readonly [number, number, number],

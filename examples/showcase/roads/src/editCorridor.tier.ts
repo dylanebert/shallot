@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { CORPUS_DRAGS, dragCorpus, scanDrag } from "./dragCorpus";
 
-// By-path tier (`coding.md` Suite speed): the whole 200-drag corridor-flatness corpus, moved out of the
-// default suite because it costs ~12 s there against a whole-suite budget of ~30 s, while the property
-// it pins is one corpus-scale oracle over one kernel. Coverage moved tiers and did not shrink — the
-// default suite keeps `edit.test.ts`'s sentinel over the *same* frozen fixture's first
-// `SENTINEL_DRAGS` entries (`dragCorpus.ts`).
+// By-path tier (`coding.md` Suite speed): the whole 200-drag corridor-flatness corpus, run by path
+// rather than in the default suite because it costs ~12 s there against a whole-suite budget of ~30 s,
+// while the property it pins is one corpus-scale oracle over one kernel. The default suite keeps
+// `edit.test.ts`'s sentinel over the *same* frozen fixture's first `SENTINEL_DRAGS` entries
+// (`dragCorpus.ts`).
 //
 // Run by path, one file per invocation:
 //   bun test ./examples/showcase/roads/src/editCorridor.tier.ts     (from the shallot root)
@@ -33,7 +33,7 @@ describe(`edit — corridor flatness over ${CORPUS_DRAGS} random clamped drags`,
     // identically (barycentric interpolation reproduces an affine field exactly at any cell size and
     // any road angle), so this reads zero on every clamped drag — not just the boot document.
     //
-    // The corpus draws from the *unbounded* band (stage 4c) and clamps via `clampToBound` +
+    // The corpus draws from the *unbounded* band and clamps via `clampToBound` +
     // `clampDragTarget` before `applyEdit`; the only filter is grade (`dragCorpus.ts`).
     //
     // The lattice is the banded builder, whose equivalence to the full builder for this oracle is the

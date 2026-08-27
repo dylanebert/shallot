@@ -37,7 +37,7 @@ import {
 // isn't tuned away, it has no surface to occur on.
 //
 // The overlay atlas's GPU state: two texture-2d-arrays (albedo + boundary distance, `tiles.ts`'s formats)
-// sized to {@link ATLAS_LAYERS} — 64 layers (measured worst-case swath 46 + headroom, stage 4d), so
+// sized to {@link ATLAS_LAYERS} — 64 layers (measured worst-case swath 46 + headroom), so
 // the indirection table maps 256 tile ids into 64 atlas layers with compaction — plus the indirection
 // storage buffer the terrain fs (`terrain/terrain.ts`) looks tile id up in. The indirection is retained
 // (the fs still reads it as "which layer holds this tile?"), and it packs a larger tile space into a
@@ -47,10 +47,9 @@ import {
 // every resident layer at once, so the incoming document allocates into a fresh atlas rather than
 // accreting on top of the outgoing one. `redraw` drains the dirty queue at a fixed per-frame throttle, so
 // a burst of edits (a hand-authored stroke, or a full network regeneration) never stalls one frame with
-// every tile's rasterize dispatch at once. Stage 5 moved the per-tile content from a CPU `TilePacker` (`writeTexture`
-// on a JS-computed `Uint8Array`) to `rasterize.ts`'s GPU compute dispatch (`copyBufferToTexture` off a
-// packed storage buffer) — `redraw` below is the seam that changed; `queue.ts`'s `drain`/`allocate` are
-// untouched.
+// every tile's rasterize dispatch at once. `redraw` below rasterizes per-tile content through
+// `rasterize.ts`'s GPU compute dispatch (`copyBufferToTexture` off a packed storage buffer);
+// `queue.ts`'s `drain`/`allocate` are untouched.
 
 /** the indirection buffer's declared element schema: `array<i32, TILE_COUNT>` — negative = unallocated
  *  (`terrain.ts`'s fs reads `< 0` as "no overlay here"). Exported so the surface layout and this module's
@@ -58,7 +57,7 @@ import {
 export const Indirection = d.arrayOf(d.i32, TILE_COUNT);
 
 /** the chord uniform's schema: two endpoints (vec2f, world x/z) + halfWidth — the analytic fs's marking
- *  geometry input (stage 8). Exported so `terrain.ts`'s surface layout and this module's typed buffer
+ *  geometry input. Exported so `terrain.ts`'s surface layout and this module's typed buffer
  *  agree on one struct, never two independently-constructed `d.struct` calls. */
 export const ChordUniform = d.struct({
     a: d.vec2f,
@@ -138,7 +137,7 @@ export function warm(state: State): void {
     device.queue.writeBuffer(indirectionRaw, 0, indirectionCpu as Int32Array<ArrayBuffer>);
     indirectionTyped = root.createBuffer(Indirection, indirectionRaw).$usage("storage");
 
-    // the chord uniform — the analytic fs's marking geometry input (stage 8). Written once at warm
+    // the chord uniform — the analytic fs's marking geometry input. Written once at warm
     // and re-written on every document change via updateChord.
     chordRaw = device.createBuffer({
         label: "overlay-chord",

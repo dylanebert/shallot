@@ -9,8 +9,8 @@ import { WORLD_EXTENT, WORLD_HALF } from "../terrain/grid";
 // — a round number a reader can check, not a fit. Atlas resolution: 512² texels/tile (Anno precedent,
 // spec's Locked decision) — one row is 512 texels regardless of TILE_SIZE, so a texel is
 // TILE_SIZE / TILE_RES = 0.125 m, the sub-texel-crisp unit the fwidth-thresholded coverage distance
-// channel (terrain.ts's fs) reads against. The marking channel is no longer baked into a texel —
-// stage 8 moved it to analytic fs evaluation from the chord uniform.
+// channel (terrain.ts's fs) reads against. The marking channel is not baked into a texel — it is
+// evaluated analytically in the fs from the chord uniform.
 
 export const TILE_SIZE = 64; // world metres per tile side
 export const TILE_RES = 512; // atlas texels per tile side (Anno's 512² slices)
@@ -21,7 +21,7 @@ export const TILE_COUNT = TILES_PER_SIDE * TILES_PER_SIDE; // 256
 
 // Atlas capacity: a layer is allocated the first time a tile is marked dirty and never evicted (the
 // spec's Locked decision forbids eviction — this atlas is single-resolution with no coarse tier to fall
-// back to, so an eviction miss mid-drag degrades to a hole). Sized by measurement (stage 4d): the
+// back to, so an eviction miss mid-drag degrades to a hole). Sized by measurement: the
 // worst-case single-document footprint under the capsule (swath) dirty-set test — a corner-to-corner
 // diagonal chord at 45° across the bounded 1024 m world (~1437 m long, 8 m wide + 1-texel margin) —
 // touches **46** tiles. Measured over a scan of orientations across the admissible domain (0–180° at
@@ -32,7 +32,7 @@ export const TILE_COUNT = TILES_PER_SIDE * TILES_PER_SIDE; // 256
 // the old AABB) to **46** — the true swath. A straight chord crosses at most `2 × TILES_PER_SIDE − 1 =
 // 31` tiles before width, so 46 is 1.48× the hand-derived bound (the extra tiles are the halfWidth +
 // margin band on each side), not ~8× — the instrument is now measuring the artifact's real footprint,
-// not the AABB's. Stage 4c's residue rule: a measurement ~8× the bound means the instrument is wrong,
+// not the AABB's. A measurement ~8× the bound means the instrument is wrong,
 // not that the buffer is small; 46 is well within the plausible range.
 //
 // `ATLAS_LAYERS = 64` gives ~39% headroom over the measured 46 (64 − 46 = 18 spare layers). This is also
@@ -42,7 +42,7 @@ export const TILE_COUNT = TILES_PER_SIDE * TILES_PER_SIDE; // 256
 // (512² texels × 4 B/texel rgba8unorm + 512² × 1 B/texel r8unorm) = 64 × 512² × 5 B = 83,886,080 B ≈ 80 MiB.
 // Exceeding it is a fail-loud error (atlas.ts), not silent eviction.
 export const THROTTLE = 8; // dirty-tile redraws (writeTexture calls) per frame
-export const ATLAS_LAYERS = 64; // measured worst-case swath 46 + headroom (stage 4d)
+export const ATLAS_LAYERS = 64; // measured worst-case swath 46 + headroom
 
 export const ALBEDO_FORMAT = "rgba8unorm" as const;
 export const ALBEDO_BYTES_PER_TEXEL = 4;
@@ -51,21 +51,20 @@ export const ALBEDO_BYTES_PER_TEXEL = 4;
 // fwidth-thresholded composite (terrain.ts) only ever reads distance within a few texels of its zero
 // crossing (0.125 m/texel × a handful of texels), so saturating the unorm range at ±1 m spends every
 // quantization step (2 m / 255 ≈ 0.0078 m ≈ 0.06 texel) where the antialiasing actually samples, instead of
-// wasting range on interior distances no reader needs precisely. The marking channel no longer uses this
-// codec — stage 8 moved markings to analytic fs evaluation.
+// wasting range on interior distances no reader needs precisely. The marking channel does not use this
+// codec — markings are evaluated analytically in the fs.
 export const DIST_FORMAT = "r8unorm" as const;
 export const DIST_BYTES_PER_TEXEL = 1;
 export const DIST_RANGE = 1; // metres, half-range
 
 // Road markings — evaluated analytically in the fs from the chord uniform (endpoints + halfWidth),
-// not baked into a texel (roads-interactive.md Locked decision, stage 8). The marking channel is a
+// not baked into a texel. The marking channel is a
 // two-edge analytic pixel-coverage form, not a distance threshold — a feature narrower than a texel is
 // a regime mismatch to bake, not a tuning problem. Dimensions from the MUTCD's normal line and
 // broken-line pattern, in metres — a legibility standard, not a compliance claim.
 
-// MUTCD normal line width: 4–6 in (0.1016–0.1524 m). Upper bound (6 in = 0.1524 m) — the lower bound was
-// chosen to survive the 0.125 m texel the bake stored the marking in, and stage 8 removes that texel
-// from the path entirely, so the parameter is free to take the standard's upper bound: 50 % more pixel
+// MUTCD normal line width: 4–6 in (0.1016–0.1524 m). Upper bound (6 in = 0.1524 m) — the marking is not
+// baked into a texel, so the parameter is free to take the standard's upper bound: 50 % more pixel
 // coverage at every distance, still inside the standard.
 export const LINE_WIDTH = 0.1524; // metres — MUTCD normal line, 6 in (0.1524 m), upper bound
 export const LINE_HALF_WIDTH = LINE_WIDTH / 2; // derived: half the line width

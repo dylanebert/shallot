@@ -1,45 +1,40 @@
-// Stage 12's surface-flatness oracle — the spec's Validation "Surface flatness in the corridor —
-// exactly zero, unconditional", the unit's defect gate. Stage 9-11 all measured a *boundary* axis (albedo
-// straightness, then height straightness, then a falloff-width knob 11c proved orthogonal to the reported
-// defect); the spec's own diagnosis routes this stage to a different axis entirely — the mesh's
-// piecewise-linear *reconstruction* across the footprint edge, not the boundary's own width or position.
+// The surface-flatness oracle — the spec's Validation "Surface flatness in the corridor — exactly zero,
+// unconditional", the unit's defect gate. It measures the mesh's piecewise-linear *reconstruction* across
+// the footprint edge, not the boundary's own width or position.
 //
 // A vertex-only check is insufficient by construction: footprint vertices already carry the flattened
 // chord profile (`terrain/flatten.ts`'s `networkCore` interpolates `mix(aHeight, bHeight, t)`), so
 // away from junctions they're flat to a few centimetres — a vertex-only oracle would read green over the
-// live defect, the sixth instrument failing the way the first five did (stage 9's screen-space albedo
-// probe, stage 10's un-anchored height probe, stage 11's width-only floor). The predicted defect lives in
-// the *reconstruction*: a triangle straddling the footprint edge has one or more corners *outside* the
-// flattened core, cosine-eased toward off-road terrain that can vary by metres over one 4 m cell — so a
-// point sampled right at the edge, inside a triangle whose other corners sit outside it, reads a height
-// blended toward that off-road variation, not the flat corridor its own analytic position implies. Reading
-// height from `capture.ts`'s `meshHeightAt` (a two-triangle-per-quad reconstruction over a raw vertex
-// buffer) rather than the continuous `flattenHeight` function is what makes this oracle able to see that —
-// the continuous function has no triangles to straddle.
+// live defect. The predicted defect lives in the *reconstruction*: a triangle straddling the footprint
+// edge has one or more corners *outside* the flattened core, cosine-eased toward off-road terrain that can
+// vary by metres over one 4 m cell — so a point sampled right at the edge, inside a triangle whose other
+// corners sit outside it, reads a height blended toward that off-road variation, not the flat corridor its
+// own analytic position implies. Reading height from `capture.ts`'s `meshHeightAt` (a two-triangle-per-quad
+// reconstruction over a raw vertex buffer) rather than the continuous `flattenHeight` function is what
+// makes this oracle able to see that — the continuous function has no triangles to straddle.
 //
 // Three vertex-buffer sources feed the one oracle below (`checkSurfaceFlatness`), which only ever touches a
 // `Uint32Array` + `meshHeightAt` — never which device produced it:
 //   - {@link buildBandedLatticeVertices} — the same full-resolution lattice with **only** the vertices
 //     within one cell diagonal of the chords filled, so it is valid for a footprint-interior-only reader
-//     and for nothing else (its own docblock carries the derivation and the caveat). This is now the
-//     oracle's main substrate: six default-suite arms in `flatness.test.ts` build from it (the
-//     real-generator exactness pair, the banded-vs-full null control pair, the synthetic 30°-network
-//     exactness pair), plus `edit.test.ts`'s corridor-flatness sentinel and the whole 200-drag corpus in
+//     and for nothing else (its own docblock carries the derivation and the caveat). It is the oracle's
+//     main substrate: six default-suite arms in `flatness.test.ts` build from it (the real-generator
+//     exactness pair, the banded-vs-full null control pair, the synthetic 30°-network exactness pair),
+//     plus `edit.test.ts`'s corridor-flatness sentinel and the whole 200-drag corpus in
 //     `editCorridor.tier.ts` — both of those through `dragCorpus.ts`'s `scanDrag`.
 //   - {@link buildDeviceFreeVertices} — a CPU-only mirror of `terrain/generate.ts`'s height-kernel loop
 //     (no GPU dispatch, the full {@link buildLatticeVertices} fill at `SPACING`/`CELLS`). It feeds
 //     `checkSurfaceFlatness` from one default-suite `describe` only — the shipped-pipeline reading
-//     (`flatness.test.ts`, arm i, stage 15b), whose `result` two tests then read: the first *reports* the
-//     readings (a `console.log`, no `expect` — deliberate, Blocker 3's "no absolute amplitude bound is
+//     (`flatness.test.ts`, arm i), whose `result` two tests then read: the first *reports* the readings
+//     (a `console.log`, no `expect` — deliberate, Blocker 3's "no absolute amplitude bound is
 //     admissible", and labelled in its own body), the second asserts every violation sits inside the road
 //     footprint. So the substrate feeds one reading and one assertion, not one arm — and is otherwise
 //     {@link reconstructionAgreement}'s own CPU side, where every vertex is needed because the comparison
 //     is against a real readback.
 //   - the real `readVertices()` (`terrain/terrain.ts`) — the device arms inside `bun run gate`, two of
-//     them since stage 23: `gate.ts`'s `reconstructionAgreement` pins the CPU builder's *fidelity*
-//     against the real GPU output, and its `surface-flatness-property-on-device` check re-asserts the
-//     *property* device-side — the same unconditional exact zero the default suite asserts, over real
-//     `readVertices()`.
+//     them: `gate.ts`'s `reconstructionAgreement` pins the CPU builder's *fidelity* against the real GPU
+//     output, and its `surface-flatness-property-on-device` check re-asserts the *property* device-side —
+//     the same unconditional exact zero the default suite asserts, over real `readVertices()`.
 //
 // What this oracle cannot see (name the blind axes, `checks.md`'s granularity clause):
 //   - albedo registration — the overlay's own texel/coverage crispness is a separate render-half property
@@ -49,7 +44,7 @@
 //   - everything outside the road footprint — `documentDistance(x, z, doc) > 0` terrain is natural and
 //     unconstrained by design; this oracle only walks centreline + edge lines *inside* a footprint.
 //   - reseed staleness — this always samples the *live* document's own current geometry; a stale
-//     atlas/dirty-tile residue (stage 14's subject) leaves no trace on the heightfield this oracle reads.
+//     atlas/dirty-tile residue leaves no trace on the heightfield this oracle reads.
 //   - the segment endpoint cap — every sampled line excises an arc-length margin of `halfWidth +
 //     √2·SPACING` (9.66 m on this network) at *both* ends of every segment (`endpointMargin`, below):
 //     past that margin, `networkCoreCpu`'s own nearest-*point* clamp is a different geometric case from
@@ -57,7 +52,7 @@
 //     past its sample point. A green run says nothing about the geometry within that margin of any road
 //     endpoint. Both terms are treatment-free: `halfWidth` is document geometry, `SPACING` is the mesh
 //     constant. This cap is the criterion's *only* remaining exclusion — the junction carve-out, the
-//     partition invariant, and the exclusion fraction are all gone (stage 21).
+//     partition invariant, and the exclusion fraction are all gone.
 //
 // The oracle's sampling window is the per-segment endpoint cap (`halfWidth + √2·SPACING` at each
 // end, derived from the affine region and the lattice — see `endpointMargin` below); beyond that, the
@@ -82,8 +77,8 @@ import { makePermutation } from "./terrain/noise";
 import { heightAtCpu, MAX_GRADE } from "./terrain/profile";
 
 // --- derived window + tolerance — no candidate treatment (falloff) appears in any of these,
-// per the spec's own non-coupling requirement (stage 11's whole lesson: a criterion whose window or
-// threshold is a function of the parameter under test is not a differential over that parameter).
+// per the spec's own non-coupling requirement: a criterion whose window or threshold is a function of the
+// parameter under test is not a differential over that parameter.
 
 /** the spec's own longitudinal sample spacing bound: no coarser than a quarter of the mesh's own vertex
  *  spacing, so no triangle edge along a sampled line is ever skipped between two adjacent samples. */
@@ -129,19 +124,19 @@ export const EDGE_EPSILON = SPACING / 100;
  *  has to match production's own `flattenedHeightAt` or the built lattice isn't the mesh this oracle is
  *  meant to read.
  *
- *  Stage 15: each primitive's core distance is widened by `terrain/flatten.ts`'s {@link FLAT_CORE_MARGIN}
+ *  Each primitive's core distance is widened by `terrain/flatten.ts`'s {@link FLAT_CORE_MARGIN}
  *  (a grid cell's own diagonal, so every vertex that can support a footprint-intersecting triangle reads
  *  the flat plateau), and `bestTarget` is a weighted blend across every *primitive* (a whole road, never
  *  one fine profile sub-segment) whose falloff band reaches (px, pz) — weight `1 - ease(coreDist /
  *  falloff)`, the same cosine ease {@link flattenHeight} fades a single primitive's target toward natural
- *  with — rather than the old hard `core < bestCore` switch, whose discontinuity across two primitives'
- *  bisector was the fork's own visible step. A road's own sub-segments are reduced to one (core, target)
+ *  with — rather than a hard `core < bestCore` switch, whose discontinuity across two primitives'
+ *  bisector would be a visible step. A road's own sub-segments are reduced to one (core, target)
  *  pair by a hard nearest-sub-segment min *first* (`roadBest`, below) — they're already continuous by
  *  construction (chained endpoint to endpoint), so blending them as if they were separate primitives
  *  reintroduces noise along a single, already-smooth road: measured directly (2026-08-19), blending every
  *  sub-segment left ~1078 cross-section violations up to 0.44 m on interior stretches of one curving road
- *  with no other primitive nearby. Stage 1 (`roads-interactive.md`) retired the carpark-polygon primitive
- *  kind and its own ray-cast/nearest-edge leg here, mirroring `terrain/flatten.ts`'s GPU `networkCore`. */
+ *  with no other primitive nearby. The carpark-polygon primitive kind and its own ray-cast/nearest-edge
+ *  leg are not part of this path — it mirrors `terrain/flatten.ts`'s GPU `networkCore`. */
 export function networkCoreCpu(
     px: number,
     pz: number,
@@ -173,8 +168,8 @@ export function networkCoreCpu(
 
     // Weighted blend across primitives — each weight is the cosine-ease fade of the primitive's own
     // target toward natural (`1 - ease(core / falloff)`), with no depth suppression: non-overlapping
-    // primitives never contend (stage 18), so the suppression factor the blend once carried has
-    // nothing left to suppress (deleted at stage 20).
+    // primitives never contend, so the blend carries no depth-suppression factor — there is nothing
+    // left to suppress.
     let sumWeight = 0;
     let sumWeightedTarget = 0;
     for (const best of roadBest.values()) {
@@ -321,8 +316,8 @@ function withinBand(
  *  mesh's real `SPACING`/`CELLS` — a drop-in `readVertices()` substitute with no device, `flatness.test.ts`'s
  *  and `gate.ts`'s shared entry point. `flattenDoc` and `sampleDoc` (the caller's own footprint definition,
  *  `checkSurfaceFlatness`) are deliberately the same `doc` here; {@link buildLatticeVertices} lets a caller
- *  split them (stage 12's own null-control arm: an empty `flattenDoc` with the real network's footprint
- *  still standing, `flatness.test.ts`'s "no-cut" arm). */
+ *  split them (a null-control arm: an empty `flattenDoc` with the real network's footprint still
+ *  standing, `flatness.test.ts`'s "no-cut" arm). */
 export function buildDeviceFreeVertices(flattenDoc: StrokeDocument, seed: number): Uint32Array {
     const perm = makePermutation(seed);
     const { segments, cutDepth } = buildNetworkGeometry(flattenDoc, seed);
@@ -377,8 +372,8 @@ function segmentFrames(doc: StrokeDocument): RoadFrame[] {
 // so a vertex can sit `√2·SPACING` past the endpoint while the sample point is still inside the window,
 // reading the clamped (non-affine) target and contaminating the interpolation. Widening the margin by that
 // same diagonal keeps every vertex the oracle interpolates from inside the affine region. This is the
-// longitudinal-direction twin of stage-18 repair R1's perpendicular-direction `√2·SPACING` clearance: the
-// same lattice-vertex argument, applied to the endpoint edge rather than the side edge. Treatment-free:
+// longitudinal-direction twin of the perpendicular-direction `√2·SPACING` clearance: the same
+// lattice-vertex argument, applied to the endpoint edge rather than the side edge. Treatment-free:
 // only `halfWidth` and `SPACING` (the document and mesh constants), never `computeFalloff` or a falloff
 // scale — the generator's own placement/clearance appears in neither the window
 // nor the threshold.
@@ -391,7 +386,7 @@ function endpointMargin(frame: RoadFrame): number {
  *  margins would cross — a segment shorter than `2 * halfWidth` has no interior left once both endpoint
  *  caps are removed. Not reachable by this project's own generator (`ROAD_MIN_LENGTH = 80` against
  *  `halfWidth = 4`), but a reused caller could feed a shorter segment, and the alternative (sampling
- *  nothing, silently) is exactly the failure mode this stage's own finding was about — so this returns one
+ *  nothing, silently) is exactly the failure mode this guard exists for — so this returns one
  *  real sample point instead of an empty line. */
 function sampleWindow(frame: RoadFrame): { tLo: number; tHi: number } {
     const margin = endpointMargin(frame);
@@ -462,8 +457,8 @@ export interface FlatnessResult {
 }
 
 /**
- * the stage 12 property (spec Validation, "Surface flatness along the road"): within the road footprint,
- * rendered mesh height is a bounded-grade function of longitudinal station alone.
+ * the surface-flatness property (spec Validation, "Surface flatness along the road"): within the road
+ * footprint, rendered mesh height is a bounded-grade function of longitudinal station alone.
  *
  * (a) *cross-section* — at each sampled station, the centreline and both edge lines (`±(halfWidth −
  *     {@link EDGE_EPSILON})`) must read the same height within {@link CROSS_SECTION_TOL}.
@@ -475,7 +470,7 @@ export interface FlatnessResult {
  * sampled) comes only from `doc`'s own geometry (`halfWidth`, segment endpoints); the threshold comes only
  * from road-design constants and the codec's own quantization — {@link gradeBound}/{@link
  * CROSS_SECTION_TOL} take no falloff input, so no candidate treatment can move the
- * window or the threshold (the non-coupling stage 11's whole investigation turned on).
+ * window or the threshold (the non-coupling requirement).
  */
 export function checkSurfaceFlatness(
     sampleAt: (x: number, z: number) => number,
@@ -563,8 +558,8 @@ export function checkSurfaceFlatness(
  * footprint-line samples against `deviceRaw` (a real `readVertices()` readback) point for point. This is
  * the "device arm" the spec asks for — it validates the CPU builder's *fidelity* against the real GPU
  * output (a reference/differential check), not the surface-flatness property itself — that is a separate
- * `gate.ts` check (`surface-flatness-property-on-device`, stage 23), which asserts exact zero over the same
- * `deviceRaw` because the property has read exactly zero on the shipped pipeline since stage 18. Keep the
+ * `gate.ts` check (`surface-flatness-property-on-device`), which asserts exact zero over the same
+ * `deviceRaw` because the property reads exactly zero on the shipped pipeline. Keep the
  * two apart: this one is a tolerance-bounded differential and must stay one, since a fidelity tolerance
  * cannot express an unconditional zero. Tolerance is quantization noise
  * only, doubled for two independent codec round-trips plus float-precision drift between the CPU (f64) and

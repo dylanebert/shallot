@@ -92,7 +92,7 @@ export async function withHeight(x: number, z: number): Promise<[x: number, y: n
  *  between this reconstruction and the continuous analytic height at the same point. `raw` is one
  *  `readVertices()` readback, reused across every sample in a scan so the GPU is read back once, not once
  *  per probe step. `spacing`/`cells` default to the live mesh's own `grid.ts` constants —
- *  `flatness.ts`'s mesh-resolution discrimination arm (stage 12) is the one caller that overrides them,
+ *  `flatness.ts`'s mesh-resolution discrimination arm is the one caller that overrides them,
  *  reconstructing a *different*-resolution lattice `raw` was built at without a second,
  *  independently-drifting copy of this same triangle-interpolation formula. */
 export function meshHeightAt(
@@ -127,8 +127,8 @@ export function meshHeightAt(
 }
 
 /** the capture gate's on-road/off-road world probe points over the network's one fixed standard chord
- *  (`overlay/network.ts`'s `captureProbePoints`, `terrain.ts`'s live boot document — no seed,
- *  `roads-interactive.md` stage 1), heights read from the live generated terrain. */
+ *  (`overlay/network.ts`'s `captureProbePoints`, `terrain.ts`'s live boot document — no seed), heights
+ *  read from the live generated terrain. */
 export async function capturePoints(): Promise<{
     onRoad: [number, number, number];
     offRoad: [number, number, number];
@@ -147,7 +147,7 @@ export async function capturePoints(): Promise<{
  * (solid white), one on the asphalt between the edge line and the centreline, one in a dash gap
  * (centreline absent → reads road), and one on a dash (broken yellow centreline). The device gate
  * asserts the luminance bands at these four points are DISJOINT — a probe that cannot discriminate
- * the classes it gates is not evidence (roads-interactive.md stage 3, Marking fidelity).
+ * the classes it gates is not evidence.
  *
  * Derivation: the standard chord's midpoint, offset along the road's normal by (halfWidth −
  * EDGE_INSET) for the edge line, by halfWidth/2 for the asphalt between, and along the centreline

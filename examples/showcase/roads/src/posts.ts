@@ -1,25 +1,15 @@
-// Stage 5 — posts (`roads-interactive.md` stage 5). A row of abstract posts along the road, positioned
-// entirely on the GPU: a compute kernel writes one `Post` record per slot (station along the chord,
-// lateral offset alternating sides, `y` from `flatten.ts`'s own `flattenedHeightAt` TGSL fn, scale 0 for
-// slots past the chord), and a custom surface's VS maps the standard `capsule` mesh onto the post's own
-// dimensions and translates by the record. The `gpu-particles` recipe's shape: a typed record buffer written
-// by compute, read by a custom surface's VS at `input.iid`, one shared mesh, `Draws.register` with a
-// fixed `instanceCount`. The records never touch Part or the Transform slabs.
+// A row of abstract posts along the road, positioned entirely on the GPU: a compute kernel writes one
+// `Post` record per slot (station along the chord, lateral offset alternating sides, `y` from
+// `flatten.ts`'s own `flattenedHeightAt` TGSL fn, scale 0 for slots past the chord), and a custom
+// surface's VS maps the standard `capsule` mesh onto the post's own dimensions and translates by the
+// record. The `gpu-particles` recipe's shape: a typed record buffer written by compute, read by a custom
+// surface's VS at `input.iid`, one shared mesh, `Draws.register` with a fixed `instanceCount`. The
+// records never touch Part or the Transform slabs.
 //
-// `POST_COUNT` is sized off the world's own diagonal (`WORLD_EXTENT · √2` ≈ 1448 m, since
-// `ROAD_MAX_LENGTH` was deleted in stage 4c) divided by `POST_SPACING`, so `instanceCount` stays fixed
-// across edits and short chords leave most slots at scale 0. Re-dispatched after every `setNetwork` (edit
-// and reseed), never per frame — `terrain.ts`'s `warm`, `regenerate`, and `editDocument` each call
-// `dispatchPosts(seed)` after `setNetwork`.
-//
-// Stage 11 re-derived every constant off **one referent** (see the constant block's header) and rewrote
-// the VS's mesh mapping as a core/cap decomposition with a buried base (see {@link postVertexOffset}).
-// **Only the mesh half has the placement arms as its null control.** The kernel's own *code* is untouched
-// — every expression in it (station, lateral sign, slot index, the `flattenedHeightAt` call) and the
-// record's shape are byte-for-byte stage 5's — but `POST_OFFSET` moved 4 → 0.4, and the kernel reads it,
-// so every live record's x/z (and the `y` that follows from them) moved ~3.6 m laterally and
-// `checkPosts`'s lateral assertion had to be re-anchored on the new offset. The mesh rewrite is what the
-// placement arms are blind to; the offset move is not, and it reds the device gate against the pre-image.
+// `POST_COUNT` is sized off the world's own diagonal (`WORLD_EXTENT · √2` ≈ 1448 m) divided by
+// `POST_SPACING`, so `instanceCount` stays fixed across edits and short chords leave most slots at scale
+// 0. Re-dispatched after every `setNetwork` (edit and reseed), never per frame — `terrain.ts`'s `warm`,
+// `regenerate`, and `editDocument` each call `dispatchPosts(seed)` after `setNetwork`.
 
 import { Compute, type State } from "@dylanebert/shallot";
 import {
@@ -59,12 +49,10 @@ import { getCurrentSeed, getDocument } from "./terrain/terrain";
 
 // --- constants --------------------------------------------------------------
 //
-// THE REFERENT (stage 11, `roads-interactive.md`'s Locked decision): **one kerbside pipe bollard**, the
-// galvanized/painted steel pipe set in a footing at the kerb line of an urban street edge — a single
-// object. Stage 10 cited a pipe OD for the radius, a foundry catalogue for the height and NACTO
-// channelization for the spacing: three numbers from three different *objects*, which is what left the row
-// still reading wrong (spec: "a decorative element's referent is a single thing in the world, and every
-// constant describing it is read off that one thing").
+// THE REFERENT: **one kerbside pipe bollard**, the galvanized/painted steel pipe set in a footing at the
+// kerb line of an urban street edge — a single object. A decorative element's referent is a single thing
+// in the world, and every constant describing it is read off that one thing: three numbers from three
+// different objects is what leaves a row reading wrong.
 //
 // **Five constants are read off that object: `POST_HEIGHT`, `POST_RADIUS`, `POST_SPACING`, `POST_OFFSET`,
 // `POST_COLOR`.** The header claims nothing about the rest, because the rest are not the referent's to
@@ -74,7 +62,7 @@ import { getCurrentSeed, getDocument } from "./terrain/terrain";
 // bollard is *set in a footing*; it does not say how deep, and this scene's grade is what answers that.
 //
 // The referent's dimensions, as one object, from two evidence sources for two different kinds of fact —
-// which is not stage 10's defect, since both describe the same object rather than three:
+// both describe the same object rather than three:
 //   * the **kerbside-bollard snippet** (`[snippet]`-grade, 1800bollards.com + the OSHA colour-use
 //     interpretation, read 2026-08-22, recorded in the spec's Locked decision) records what the object
 //     is *in the street*: ~1 m tall above grade, set at the **kerb line** rather than out in the grass,
@@ -89,9 +77,9 @@ import { getCurrentSeed, getDocument } from "./terrain/terrain";
 
 /** metres between posts along the chord — the kerb row's own spacing.
  *
- *  Held at 2 m by stage 11 rather than moved: 2.0 m is the **upper bound of the referent's own 1.5–2.0 m
- *  kerbside range**, so the value stage 10 shipped is already read off this object and needs no change.
- *  Below 1.5 m the row reads as a barrier rather than a kerb line; above 2.0 m it stops reading as a row. */
+ *  2.0 m is the **upper bound of the referent's own 1.5–2.0 m kerbside range**, so the value is read off
+ *  this object. Below 1.5 m the row reads as a barrier rather than a kerb line; above 2.0 m it stops
+ *  reading as a row. */
 export const POST_SPACING = 2;
 
 /** the lateral offset from the road edge (pavement edge) to the post centre, in metres — the **kerb line**.
@@ -99,11 +87,9 @@ export const POST_SPACING = 2;
  *  Referent value: a kerbside bollard stands at the kerb, i.e. immediately off the pavement edge, not out
  *  in the verge. ~0.4 m from the pavement edge puts the post's near face ~0.28 m clear of the asphalt —
  *  a kerb-and-gutter's own width, which is what "at the kerb line" means in this scene, where the road is
- *  a bare 8 m strip with no modelled kerb. Stage 5's `POST_OFFSET = SPACING = 4 m` (13 ft) was the flat
- *  core band's convenience and never a fact about bollards — it is why the row read as posts standing in
- *  a field.
+ *  a bare 8 m strip with no modelled kerb.
  *
- *  Admissibility, re-measured at stage 11's claim against `flatten.ts`'s own constants rather than assumed safer for
+ *  Admissibility against `flatten.ts`'s own constants rather than assumed safer for
  *  being smaller (the *lower* end of the band is the one 0.4 m approaches). The flat core is the region
  *  `coreDist <= 0` (`flatten.ts`'s `networkCore`), i.e. perpendicular distance from the centreline up to
  *  `halfWidth + FLAT_CORE_MARGIN`, where `FLAT_CORE_MARGIN = √2 · SPACING = √2 · 4 = 5.65685 m`. Inside
@@ -127,11 +113,10 @@ export const POST_OFFSET = 0.4;
  *  this number exactly.
  *
  *  Referent value: **the kerbside-bollard snippet's own ~1 m above grade** — that is what this constant
- *  rests on, and it is the snippet's own quantity. Stage 10's Reliance Foundry R-7181 (a cast-iron bollard
- *  at 36 in / 0.914 m, reliance-fd.com, read 2026-08-22) is kept only as a **corroborating catalogue
- *  reading in the same class**, not as "the same object": the snippet does not name that catalogue and the
- *  catalogue names a different casting, so resting the height on it would be stage 10's three-objects
- *  defect wearing one sentence. Held at 1 m by stage 11. */
+ *  rests on, and it is the snippet's own quantity. The Reliance Foundry R-7181 (a cast-iron bollard
+ *  at 36 in / 0.914 m, reliance-fd.com, read 2026-08-22) is a **corroborating catalogue reading in the
+ *  same class**, not "the same object": the snippet does not name that catalogue and the catalogue names
+ *  a different casting. */
 export const POST_HEIGHT = 1;
 
 /** the post's radius in metres — the referent's pipe OD / 2, and the radius of **both** spherical caps.
@@ -139,8 +124,7 @@ export const POST_HEIGHT = 1;
  *  Referent value: the referent's shaft is Schedule 40 steel pipe in the 8–10 NPS range, and the OD is
  *  cited to the **pipe dimension table** rather than to the kerbside snippet, which carries no schedule and
  *  no OD (see the block header): ASME B36.10M gives 8 NPS OD 8.625 in = 219.1 mm (r = 0.1096 m) and 10 NPS
- *  OD 10.75 in = 273.1 mm (r = 0.1366 m). 0.12 m (OD 240 mm) sits between the two. Held at 0.12 m by
- *  stage 11. */
+ *  OD 10.75 in = 273.1 mm (r = 0.1366 m). 0.12 m (OD 240 mm) sits between the two. */
 export const POST_RADIUS = 0.12;
 
 /** the bollard's finish colour, in the same 0–1 linear-albedo convention as `ROAD_ALBEDO`/`EDGE_ALBEDO`
@@ -149,8 +133,7 @@ export const POST_RADIUS = 0.12;
  *  Referent value: **RAL 1023 traffic yellow** ≈ `[0.941, 0.792, 0.0]` — the high-visibility default
  *  finish for a kerbside safety bollard. The referent's other two catalogue finishes are the one-constant
  *  swap if the look prefers them: **RAL 9005 jet black** ≈ `[0.039, 0.039, 0.039]` and **bare galvanized
- *  grey** ≈ `[0.66, 0.67, 0.68]`. Stage 5's `[0.5, 0.4, 0.3]` was an unexplained brown triple with no
- *  referent at all, and it is half of why the row read as fence posts. */
+ *  grey** ≈ `[0.66, 0.67, 0.68]`. */
 export const POST_COLOR: readonly [number, number, number] = [0.941, 0.792, 0.0];
 
 /** the steepest grade (rise/run) the flatten field can carry *along* a chord the drag admits — the input
@@ -182,8 +165,7 @@ export const MAX_CHORD_GRADE = (2 * RELIEF) / ROAD_MIN_LENGTH;
 
 /** the footing: how far below the surface the shaft's base sits, in metres — so the shaft meets the
  *  pavement at a **line** and the bottom cap is entirely underground, which is what a bollard set in a
- *  footing looks like and what stage 5's shipped mapping got wrong (its lowest mesh point sat *on* the
- *  surface, leaving a 0.25 m dome bulging under the shaft).
+ *  footing looks like.
  *
  *  Derived, not eyeballed. The flatten field is exactly flat *laterally* inside the flat core, so the only
  *  rise across the post's own footprint is the road's along-chord grade. The base ring's uphill side sits
@@ -204,8 +186,8 @@ export const POST_BURIAL_DEPTH = MAX_CHORD_GRADE * 2 * POST_RADIUS;
  *  `POST_SHAFT_LENGTH = POST_HEIGHT + POST_BURIAL_DEPTH − POST_RADIUS` = 1 + 0.24 − 0.12 = 1.12 m. */
 export const POST_SHAFT_LENGTH = POST_HEIGHT + POST_BURIAL_DEPTH - POST_RADIUS;
 
-/** the world's own diagonal — the maximum chord length the world contains (`WORLD_EXTENT · √2` ≈ 1448 m),
- *  since `ROAD_MAX_LENGTH` was deleted in stage 4c. This is the ceiling `POST_COUNT` is sized against. */
+/** the world's own diagonal — the maximum chord length the world contains (`WORLD_EXTENT · √2` ≈ 1448 m).
+ *  This is the ceiling `POST_COUNT` is sized against. */
 const WORLD_DIAGONAL = WORLD_EXTENT * Math.SQRT2;
 
 /** the fixed slot count — sized off the world's own diagonal divided by `POST_SPACING`, so `instanceCount`
@@ -241,8 +223,8 @@ export function liveSlotCount(chordLength: number): number {
 
 /** whether slot `i` is live (scale ≠ 0) for a chord of `chordLength` metres: the station is within the
  *  chord (`station <= chordLength`). Slots past the chord are scale 0. `checkPosts` is the production
- *  reader, so the predicate exists once rather than twice (the same one-expression rule stage 5 applied
- *  to `postStation`; a second inlined copy is what lets an arm agree with a stale twin). */
+ *  reader, so the predicate exists once rather than twice; a second inlined copy is what lets an arm
+ *  agree with a stale twin). */
 export function isLiveSlot(i: number, chordLength: number): boolean {
     return postStation(i) <= chordLength;
 }
@@ -326,8 +308,8 @@ export function postsWgsl(): string {
     return tgpu.resolve([flattenedHeightAt, postsKernel], { names: "strict" });
 }
 
-/** the emitted posts **surface** WGSL — the VS's core/cap decomposition and the FS's finish colour
- *  (stage 11). A second seam from {@link postsWgsl} because the surface functions resolve on their own
+/** the emitted posts **surface** WGSL — the VS's core/cap decomposition and the FS's finish colour.
+ *  A second seam from {@link postsWgsl} because the surface functions resolve on their own
  *  schemas, not through the compute entry point. */
 export function postsSurfaceWgsl(): string {
     return tgpu.resolve([postsVs, postsFs], { names: "strict" });
@@ -337,15 +319,15 @@ export function postsSurfaceWgsl(): string {
 
 const postsPatch = vsPatchSchema({});
 
-/** the core/cap decomposition of the standard `capsule` mesh (stage 11), and the CPU twin of exactly the
+/** the core/cap decomposition of the standard `capsule` mesh, and the CPU twin of exactly the
  *  arithmetic {@link postsVs} performs — `posts.test.ts`'s mesh arms read this rather than a
  *  re-derivation, and the VS's own structural arm pins the emitted WGSL beside it.
  *
  *  The mesh (`part/mesh.ts`'s `capsule()`) is `radius = 0.5`, `halfHeight = 0.5`: a cylinder section over
- *  `y ∈ [−0.5, 0.5]` with a hemisphere cap beyond each end, total extent `[−1, 1]`. Stage 5 scaled the
- *  whole thing anisotropically — y by `POST_HEIGHT/2`, x/z by `POST_RADIUS · 2` — which stretched both
- *  caps into ellipsoids taller than they are wide (a bullet nose, not a hemisphere). The decomposition
- *  fixes that at any radius/length ratio:
+ *  `y ∈ [−0.5, 0.5]` with a hemisphere cap beyond each end, total extent `[−1, 1]`. A single anisotropic
+ *  scale — y by `POST_HEIGHT/2`, x/z by `POST_RADIUS · 2` — would stretch both caps into ellipsoids
+ *  taller than they are wide (a bullet nose, not a hemisphere); the decomposition keeps them spheres at
+ *  any radius/length ratio:
  *
  *    - **core** `= clamp(localY, −0.5, 0.5)`, the cylinder section, scaled by the **shaft length** — it
  *      spans one unit, so `core · shaftLength` spans `shaftLength`;
@@ -357,7 +339,7 @@ const postsPatch = vsPatchSchema({});
  *      `shaftLength + radius − burial = POST_HEIGHT` above grade exactly.
  *
  *  Everything is multiplied by the record's `scale`, so a scale-0 slot collapses to a point at the record
- *  position (the fixed-`instanceCount` mechanism stage 5 shipped, unchanged). */
+ *  position (the fixed-`instanceCount` mechanism). */
 export interface PostMeshParams {
     readonly shaftLength: number;
     readonly radius: number;
@@ -652,7 +634,7 @@ function signedPerpDist(
  *  every live slot's `y` equals CPU `flattenFieldAt` at its `(x, z)` (baked against the live seed via
  *  `getCurrentSeed`, not the boot `SEED` — an F9 reseed changes the permutation and the falloff, so a
  *  stale-seed twin produces a false negative), the lateral offset is at the kerb line (`halfWidth +
- *  POST_OFFSET`, re-anchored by stage 11) with the whole footing inside the flat core, each live
+ *  POST_OFFSET`) with the whole footing inside the flat core, each live
  *  slot is on the side `postLateralSign(i)` predicts (the alternation the distance band alone never
  *  checks), the live-slot count is `floor(chordLength / POST_SPACING)`, and every slot past the chord
  *  is at scale 0. Called from `gate.ts` at boot and from `boot.ts`'s `__roadsPostsCheck` bridge after an
@@ -683,11 +665,9 @@ export async function checkPosts(): Promise<Check> {
             liveCount++;
             const expectedY = flattenFieldAt(rec.x, rec.z, segments, falloff, natural);
             maxDiff = Math.max(maxDiff, Math.abs(rec.y - expectedY));
-            // the lateral band, re-anchored on stage 11's kerb-line offset: the record sits at exactly
-            // `halfWidth + POST_OFFSET` from the centreline (the old assertion — anywhere between
-            // `halfWidth` and `halfWidth + FLAT_CORE_MARGIN` — passed for any offset in a 5.66 m band and
-            // so could not witness the offset at all), and the post's whole footing, ±POST_RADIUS about
-            // that, is strictly inside the flat core and strictly off the pavement.
+            // the lateral band: the record sits at exactly `halfWidth + POST_OFFSET` from the centreline,
+            // and the post's whole footing, ±POST_RADIUS about that, is strictly inside the flat core and
+            // strictly off the pavement.
             //
             // The `0.01` tolerance is the same f32-readback slack `maxDiff` takes below: the record is a
             // vec4f written by the kernel from f32 chord endpoints, so the exact-offset comparison needs a

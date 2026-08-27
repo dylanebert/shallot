@@ -1,4 +1,4 @@
-// Stage 25's frustum-coverage arm — Validation's "Camera frustum covers the world it can reach".
+// The frustum-coverage arm — Validation's "Camera frustum covers the world it can reach".
 //
 // The engine's Camera trait defaults `far: 1000` (`packages/shallot/src/standard/render/index.ts:369`).
 // The scene's orbit can reach `max-distance` from the target, and the grid's far corner sits
@@ -12,7 +12,7 @@
 // derivation — so it is a claim about the mechanism (nothing the camera can orbit to may sit behind
 // the far plane), not a restatement of the value it polices. If `far` is absent from the scene's
 // camera attribute, the engine default (1000) applies and the arm reds — which is the bug this
-// stage fixes.
+// arm polices.
 
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";

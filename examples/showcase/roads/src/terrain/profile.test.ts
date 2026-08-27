@@ -58,11 +58,11 @@ describe("buildPolylineProfile — the straight chord (stage 17)", () => {
     });
 
     test("refuses a 3-point polyline — the one-chord premise is structural, not a silent drop", () => {
-        // Red-first demonstrated: a 3-point polyline must throw, because `buildPolylineProfile` used to
-        // silently drop interior points (the overlay rasterizes every point while the flatten chords only
-        // the endpoints), so a multi-point road would ship a non-affine target and a geometry mismatch
-        // with every gate green. One chord per road is the spec's locked decision, and "Out of scope"
-        // forbids the polyline generalization, so a refusal is the correct shape, not a TODO.
+        // Red-first demonstrated: a 3-point polyline must throw, because a silent drop of interior points
+        // is the failure this arm forbids (the overlay rasterizes every point while the flatten chords
+        // only the endpoints), so a multi-point road would ship a non-affine target and a geometry
+        // mismatch with every gate green. One chord per road is the spec's locked decision, and "Out of
+        // scope" forbids the polyline generalization, so a refusal is the correct shape, not a TODO.
         const perm = makePermutation(1337);
         const points: [number, number][] = [
             [-100, 0],
@@ -73,13 +73,12 @@ describe("buildPolylineProfile — the straight chord (stage 17)", () => {
     });
 });
 
-/** reconstruction of stage 6's shipped (pre-stage-8) raw-profile behaviour: `flatten.ts`'s `networkCore`
- *  used to set a segment's target to `heightAt(cx, cz)`, the bare natural height at the exact projected
- *  centreline point — unfiltered. On the centreline itself (`coreDist <= 0`) the ease returns the target
- *  outright, so the flattened height sampled along the centreline *is* this: natural height at each
- *  <= PROFILE_STEP-spaced point, unfiltered. Not a call into `buildPolylineProfile` (that would just be
- *  testing the new code against itself) — a from-scratch sample, mirroring only the *shape* of stage 6's
- *  own target derivation. */
+/** reconstruction of the pre-fix raw-profile behaviour, computed from scratch: the raw centreline
+ *  profile is the natural height at each <= PROFILE_STEP-spaced point along the centreline, unfiltered.
+ *  On the centreline itself (`coreDist <= 0`) the ease returns the target outright, so the flattened
+ *  height sampled along the centreline *is* this: natural height at each <= PROFILE_STEP-spaced point,
+ *  unfiltered. Not a call into `buildPolylineProfile` (that would just be testing the new code against
+ *  itself) — a from-scratch sample, mirroring only the *shape* of the raw target derivation. */
 function rawCenterlineProfile(
     points: ReadonlyArray<readonly [number, number]>,
     perm: Uint32Array,
@@ -99,12 +98,11 @@ function rawCenterlineProfile(
 }
 
 describe("longitudinalOracle — the spec's own Validation criterion, proven by mutation", () => {
-    // Stage 1 (`roads-interactive.md`) deleted route selection: `generateNetwork` takes no seed and
-    // always returns the one fixed standard chord, so the seed scan these two arms used to run is gone
-    // with it — there is exactly one road to check, not several per seed.
+    // `generateNetwork` takes no seed and always returns the one fixed standard chord — there is exactly
+    // one road to check, not several per seed.
 
     test("the chord profile passes on the standard road", () => {
-        // stage 17: the chord is one straight segment per road — grade is constant along it and stays
+        // the chord is one straight segment per road — grade is constant along it and stays
         // under MAX_GRADE by measurement, not by a limiter.
         const perm = makePermutation(1337);
         const doc = generateNetwork();

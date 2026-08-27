@@ -8,8 +8,8 @@ import * as d from "typegpu/data";
 // "~1 km² showcase scale" (the voxel-example spirit: round numbers a reader can check, not a tuned
 // figure). 4 m spacing keeps the vertex count small (257×257 = 66,049 verts, well under any storage-
 // binding pressure) while staying fine enough to read the rolling hills at showcase camera distances —
-// a road's own marking legibility is stage 8's problem (analytic fs evaluation, not this grid), not this
-// stage's. CELLS must be even so the grid centres exactly on the world origin (HALF is a whole number of cells).
+// a road's own marking legibility is handled by analytic fs evaluation, not this grid. CELLS must be even
+// so the grid centres exactly on the world origin (HALF is a whole number of cells).
 
 export const SPACING = 4; // world metres per grid cell
 export const CELLS = 256; // quads per side

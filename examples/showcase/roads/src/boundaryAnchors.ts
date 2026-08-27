@@ -5,7 +5,7 @@ import { generateNetwork } from "./overlay/network";
 // importable under plain `bun test`.
 //
 // Reuses the *same* boot document every run (`generateNetwork()` — no seed, `terrain.ts`'s own boot
-// document, `roads-interactive.md` stage 1) — road 0's own single segment, fixed and never seeded, so a
+// document) — road 0's own single segment, fixed and never seeded, so a
 // SPACING/TILE_RES/DIST_RANGE edit between runs changes only the mesh/atlas resolution, never the network
 // geometry the frame is derived from.
 

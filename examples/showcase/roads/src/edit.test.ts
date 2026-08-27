@@ -14,7 +14,7 @@ import { generateNetwork, ROAD_HALF_WIDTH, ROAD_MIN_LENGTH } from "./overlay/net
 import { ATLAS_LAYERS, TILE_COUNT } from "./overlay/tiles";
 import { WORLD_HALF } from "./terrain/grid";
 
-// Stage 4's pure-half tests — `applyEdit`, `clampToBound`, `clampDragTarget`, the worst-case capacity
+// Pure-half tests — `applyEdit`, `clampToBound`, `clampDragTarget`, the worst-case capacity
 // arm, and the corridor-flatness sentinel over the first few drags of `dragCorpus.ts`'s frozen corpus
 // (the whole 200-drag corpus is `editCorridor.tier.ts`, run by path). The device-bound halves (the live
 // drag, the handle entity's y) live in `test/roads.playwright.ts` via the `__roadsEdit` bridge.
@@ -78,11 +78,7 @@ describe("edit — every drag constraint clamps (stage 4c)", () => {
     // false` at the pre-image), where the old `__roadsEdit` bridge refused a target past ROAD_MAX_LENGTH
     // and returned false instead of applying the clamped edit.
     //
-    // Historical note: the old arms this replaces ("a drag shortening under ROAD_MIN_LENGTH is refused",
-    // "a drag lengthening past ROAD_MAX_LENGTH is refused") were green while pinning the freeze — they
-    // encoded the refusal as the contract, so the suite passed over the defect the person rejected.
-    //
-    // The clamp law (`roads-interactive.md`'s Locked decision): a constraint on a dragged quantity is a
+    // The clamp law: a constraint on a dragged quantity is a
     // projection onto the nearest admissible value, never a no-op. The one admissible no-op is a target
     // equal to the current position.
 
@@ -164,13 +160,8 @@ describe("edit — worst-case chord capacity (stage 4d)", () => {
     // The arm that survived the ROAD_MAX_LENGTH deletion, re-anchored on the invariant that mattered:
     // "no admissible drag can throw out of `allocate`". The worst case the world allows is a
     // corner-to-corner chord across the bounded 1024 m world. Its `documentDirtyTiles` count must be
-    // at or under `ATLAS_LAYERS` (now 64, sized by the stage 4d capsule-test measurement of 46 + headroom).
+    // at or under `ATLAS_LAYERS` (64, sized by the capsule-test measurement of 46 + headroom).
     //
-    // Stage 4d narrowed the dirty set from the segment's AABB to its capsule (swath): the diagonal's
-    // count dropped from 256 (the whole grid under the AABB) to 46 (the true swath). ATLAS_LAYERS fell
-    // from TILE_COUNT (256, full residency) back to 64 — the original pre-4c value — with ~39% headroom
-    // over the measured 46. The capacity arms in `queue.test.ts` are witnesses again: with capacity
-    // below full residency, `allocate` can throw if `release` breaks.
     test("the worst-case corner-to-corner chord stays at or under ATLAS_LAYERS resident tiles", () => {
         const bound = WORLD_HALF - ROAD_HALF_WIDTH;
         const worstDoc: StrokeDocument = {
@@ -191,7 +182,7 @@ describe("edit — worst-case chord capacity (stage 4d)", () => {
         // wrapper whose only reader was this arm (close sweep, B2).
         const count = documentDirtyTiles(worstDoc).length;
         expect(count).toBeLessThanOrEqual(ATLAS_LAYERS);
-        // the measured worst-case swath is 46 (stage 4d), ATLAS_LAYERS is 64 with headroom
+        // the measured worst-case swath is 46, ATLAS_LAYERS is 64 with headroom
         expect(count).toBe(46);
         expect(ATLAS_LAYERS).toBe(64);
         expect(ATLAS_LAYERS).toBeLessThan(TILE_COUNT);
@@ -244,7 +235,7 @@ describe("edit — sticky grab latch (stage 4b)", () => {
     //   "expected { dragging: true, dragEnd: 0, prevLeft: true } to equal { dragging: false, dragEnd: 0, prevLeft: true }"
     // (frame 3 of sequence 1 — the old inline gate in `update()` starts a drag when the cursor reaches
     // a handle mid-hold, the new one does not because the rising edge already passed). There was no
-    // `stepGrab` before this stage: the old logic was inline in `update()`, and the pre-image is
+    // `stepGrab` — the old logic was inline in `update()`, and the pre-image is
     // `git show a3827a7:examples/showcase/roads/src/edit.ts`.
     //
     // Only THIS first arm discriminates the new shape from the old. The other three produce identical
@@ -343,7 +334,7 @@ describe("edit — no no-op frames in the drag's target derivation (stage 9)", (
     // call `marchFlattenField`; it discriminates the clamp on `projectRayToBound`'s return paths.
     //
     // The companion arm asserts `lastValidTarget` has no readers — a hold path that still exists
-    // anywhere in `edit.ts` after this stage is the finding.
+    // anywhere in `edit.ts` is the finding.
 
     const Bound = WORLD_HALF - ROAD_HALF_WIDTH;
 
