@@ -329,16 +329,19 @@ describe("tween sequence", () => {
 
         expect(Sequence.duration.get(seq)).toBeCloseTo(0.2, 5); // period spans both children
 
-        // sparse(f32) truncates to f32 on each write, so elapsed accumulates
-        // f32 rounding across steps — precision 5 for the 75%-point values (a
-        // few ULP), precision 4 for the 25%-point values where the accumulated
-        // elapsed rounding lands further from the exact rational
+        // sparse(f32) truncates on each write, so the sequence clock accumulates
+        // f32 rounding: ULP_f32(~0.175 max elapsed) ≈ 1.5e-8 → ≤3e-8 over the
+        // four steps, plus the `at` truncation → ≤3.75e-8; /duration → ≤4.3e-7
+        // progress error, ×100 output scale → ≤4.3e-5, + the output's own f32
+        // truncation ULP_f32(25)/2 ≈ 1.5e-6 → ≤4.5e-5 worst case, inside
+        // precision 4's 5e-5. Points reached before the clock accumulates carry
+        // no error and stay at precision 10.
         state.step(0.025); // up at 25% → 25 (down idle, before its window)
-        expect(Probe.value.get(target)).toBeCloseTo(25, 5);
+        expect(Probe.value.get(target)).toBeCloseTo(25, 10);
         state.step(0.05); // elapsed 0.075, up at 75% → 75
-        expect(Probe.value.get(target)).toBeCloseTo(75, 5);
+        expect(Probe.value.get(target)).toBeCloseTo(75, 10);
         state.step(0.05); // elapsed 0.125, up released, down at 25% → 75 (falling)
-        expect(Probe.value.get(target)).toBeCloseTo(75, 5);
+        expect(Probe.value.get(target)).toBeCloseTo(75, 10);
         state.step(0.05); // elapsed 0.175, down at 75% → 25
         expect(Probe.value.get(target)).toBeCloseTo(25, 4);
         state.step(0.05); // elapsed 0.225 → wraps to 0.025, up at 25% → 25
@@ -453,13 +456,14 @@ describe("tween scene wiring", () => {
 
         state.step(0.025); // setup grows the period to 0.2, then the clock advances
         expect(Sequence.duration.get(seq)).toBeCloseTo(0.2, 5);
-        // sparse(f32) truncates to f32 on each write — see the looping-clock
-        // test above for the precision rationale (5 for 75%-point, 4 for 25%-point)
-        expect(Probe.value.get(p)).toBeCloseTo(25, 5); // rise at 25%
+        // sparse(f32) truncates on each write — see the looping-clock test above
+        // for the derivation: 75%-points carry no error and stay at precision 10,
+        // the accumulated 25%-points stay at precision 4.
+        expect(Probe.value.get(p)).toBeCloseTo(25, 10); // rise at 25%
         state.step(0.05); // elapsed 0.075, rise at 75%
-        expect(Probe.value.get(p)).toBeCloseTo(75, 5);
+        expect(Probe.value.get(p)).toBeCloseTo(75, 10);
         state.step(0.05); // elapsed 0.125, rise released, fall at 25% → 75 (falling)
-        expect(Probe.value.get(p)).toBeCloseTo(75, 5);
+        expect(Probe.value.get(p)).toBeCloseTo(75, 10);
         state.step(0.05); // elapsed 0.175, fall at 75% → 25
         expect(Probe.value.get(p)).toBeCloseTo(25, 4);
         state.step(0.05); // elapsed 0.225 → wraps to 0.025, rise at 25%
