@@ -70,6 +70,7 @@ export interface VerifyResult {
         compileAfterIdle: AttributionCompile | null;
         longTasks: { start: number; duration: number }[];
         longAnimationFrames: LoAFEntry[];
+        rafDeltas: { delta: number; timestamp: number }[];
     } | null;
     /** `--attribution` only (S1b): the CDP CPU-profile self-time breakdown, per
      *  `bin/verify.ts`'s `Result.cpuProfile` — null when CDP's `Profiler` domain wasn't reachable. */
