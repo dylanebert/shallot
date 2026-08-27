@@ -697,9 +697,10 @@ describe("ATTRIBUTION_INIT_SCRIPT — what --attribution installs pre-navigation
 
         // Fixture: a mix of normal frames (16ms), slow frames (>=50ms), a near-threshold frame
         // (45ms — below the 50ms threshold but above a perturbed 40ms threshold, so a threshold
-        // perturbation is detectable), and a first frame.
-        // deltas: first(0→0, no report), 16, 80(slow), 16, 60(slow), 16, 45(near), 16, 200(slow), 16, 1000(slow)
-        const timestamps = [0, 16, 96, 112, 172, 188, 233, 249, 449, 465, 1465];
+        // perturbation is detectable), an exact-threshold frame (50ms — the boundary case, reported
+        // by both sides because the comparison is >=), and a first frame.
+        // deltas: first(0→0, no report), 16, 80(slow), 16, 60(slow), 16, 45(near), 16, 200(slow), 16, 1000(slow), 50(boundary)
+        const timestamps = [0, 16, 96, 112, 172, 188, 233, 249, 449, 465, 1465, 1515];
 
         // Drive the mirror (extracted from the shipped init-script string)
         for (const t of timestamps) {

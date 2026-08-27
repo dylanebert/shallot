@@ -965,6 +965,11 @@ export function summarizeCpuProfile(profile: RawCpuProfile): CpuProfileSummary {
 // (well below the 200µs sampling interval), so it is effectively invisible in the CPU profile. The arm's
 // "no harness frames" claim states this one known blind spot rather than overclaiming: a named in-page
 // helper would be caught, this anonymous typeof check is not.
+//
+// S1f: `__shallotRafTick` (the ATTRIBUTION_INIT_SCRIPT's in-page rAF callback) is deliberately NOT in this
+// set — it is the instrument itself, not injected polling, so flagging it would misread the sampler's own
+// necessary overhead as contamination. Measured self time ~0.6–2.6ms across runs, a negligible floor-level
+// presence the arm's "no contaminating harness frames" claim explicitly exempts.
 /** @internal exported so the registration-coverage test can assert every named `page.evaluate` function
  *  is in the set. */
 export const HARNESS_INPAGE_FUNCTION_NAMES = new Set([decodeSample.name, decodeRgba.name]);

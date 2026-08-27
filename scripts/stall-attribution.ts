@@ -295,6 +295,8 @@ async function main(): Promise<void> {
                 `Set SHALLOT_HEADED=1 or fix the launch path.`,
         );
         process.exitCode = 1;
+    } else {
+        console.log(`PASSED: attribution run launched headed — UA "${userAgent}".`);
     }
 
     // S1f: rAF-delta sampler — the Goal's own signal class. `slow_frame` is shallot's rAF-delta
@@ -436,7 +438,9 @@ async function main(): Promise<void> {
             process.exitCode = 1;
         } else {
             console.log(
-                "PASSED: no verify-harness call frames in the attribution run's CPU profile.",
+                "PASSED: no contaminating verify-harness call frames in the attribution run's CPU profile — " +
+                    "the instrument's own `__shallotRafTick` rAF callback is a known, deliberate, negligible " +
+                    "exception (the sampler itself, not injected polling).",
             );
         }
     }
