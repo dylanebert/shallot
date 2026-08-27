@@ -344,17 +344,18 @@ describe("XML", () => {
             expect(parsed.color).toBe(0xff8800);
         });
 
-        // RED witnessed: parseNumber treats #fff as parseInt("fff", 16) = 4095 (a 12-bit int)
-        // instead of expanding to the 24-bit 0xffffff or rejecting as null. Witnessed red:
-        // expected 0xffffff or null, received 4095.
+        // RED witnessed: before e200a63, parseNumber treated #fff as parseInt("fff", 16) = 4095
+        // (a 12-bit int) instead of expanding to the 24-bit 0xffffff or rejecting as null.
+        // Witnessed red: expected 0xffffff or null, received 4095. e200a63 made #rgb expand to
+        // #rrggbb (each digit doubled, CSS convention); today parseNumber returns 0xffffff for
+        // #fff or null for a non-hex value, never the 12-bit integer.
         //
-        // The spec leaves expand-vs-reject to S2's executor, so this asserts the *disjunction*
-        // of the two acceptable answers rather than pinning one. It is deliberately not the
-        // weaker `not.toBe(4095)`: that form is satisfied by `undefined`, a thrown-and-swallowed
-        // parse, or any garbage value, so S2 could green it without expanding or rejecting
-        // anything (`checks.md`: a criterion a shipped commit can satisfy without fixing the
-        // defect is not a criterion). The matcher below can only go green on a real fix, and it
-        // discriminates *which* fix landed without caring which one S2 picks.
+        // The matcher asserts the *disjunction* of the two acceptable answers rather than pinning
+        // one. It is deliberately not the weaker `not.toBe(4095)`: that form is satisfied by
+        // `undefined`, a thrown-and-swallowed parse, or any garbage value, so it could go green
+        // without expanding or rejecting anything (a criterion a shipped commit can satisfy
+        // without fixing the defect is not a criterion). The matcher below can only go green on a
+        // real fix, and it discriminates *which* fix landed without caring which one is picked.
         test("#rgb shorthand expands to 24-bit or is rejected, never a 12-bit integer", () => {
             const Part = { color: [] as number[] };
             register("part", Part, { defaults: () => ({ color: 0 }) });
@@ -729,7 +730,9 @@ describe("XML", () => {
         // RED witnessed: the original fixture (three plain ids) could not construct the escape
         // asymmetry its name claims. Replaced with a fixture carrying an escaped id ("a&amp;b").
         // Witnessed red: expected `a&amp;amp;b` (once), received `a&amp;amp;amp;b` (twice) —
-        // escapeAttr has no parse-side inverse, so each round grows an escape layer.
+        // before e200a63 escapeAttr had no parse-side inverse, so each round grew an escape layer.
+        // e200a63 added decodeAttr in xml.ts (called in parseEntity on id and attribute values), so
+        // today stringify(parse(xml)) is a fixed point over escaped attribute text.
         test("stringify(parse(xml)) is idempotent", () => {
             const xml = `<scene>
     <a id="a&amp;b" />
@@ -741,9 +744,11 @@ describe("XML", () => {
             expect(twice).toBe(once);
         });
 
-        // RED witnessed: escapeAttr escapes & → &amp; but parse never decodes &amp; back to &.
-        // Witnessed red: expected `a&amp;b`, received `a&amp;amp;b` — one round grows an escape
-        // layer, so a formatter write-back (parse → stringify) corrupts well-formed scenes.
+        // RED witnessed: before e200a63, escapeAttr escaped & → &amp; but parse never decoded
+        // &amp; back to &. Witnessed red: expected `a&amp;b`, received `a&amp;amp;b` — one round
+        // grew an escape layer, so a formatter write-back (parse → stringify) corrupted
+        // well-formed scenes. e200a63 added decodeAttr in xml.ts (called in parseEntity), so today
+        // parse decodes &amp; back to & and stringify(parse(src)) preserves escaped attribute text.
         test("stringify(parse(xml)) preserves escaped attribute text", () => {
             const src = '<scene>\n    <a id="a&amp;b" />\n</scene>';
             expect(stringify(parse(src))).toBe(src);
