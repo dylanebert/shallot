@@ -17,7 +17,7 @@ export function camel(str: string): string {
     return str.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
 }
 
-/** the presentation category of a component field, how it's shown and edited: a `vec3` as three lanes, an
+/** the presentation category of a component field, how it's shown and edited: a `vec4` as four lanes, an
  * `enum` as a dropdown, an `entity` as an `@name` reference, a `unit` through a unit switcher */
 export type FieldKind = "float" | "vec2" | "vec4" | "color" | "enum" | "unit" | "entity";
 
