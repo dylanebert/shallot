@@ -278,6 +278,25 @@ async function main(): Promise<void> {
     // two different signal classes — so it was not a reading of the Goal. The Goal's own class is
     // the rAF-delta vital, reported in the S1f section below.
 
+    // S1f: headed check — the rAF-delta sampler's validity depends on a real display. A headless,
+    // display-less frame clock undershoots real block durations (`rum-intake-driver.ts:31-36`:
+    // 90ms→66.7ms, 120ms→100ms, below ~90ms never reported). `stall-attribution.ts` sets
+    // `SHALLOT_HEADED=1` and `verify.ts` reads it to launch `headless: false`, but nothing tested
+    // that the setting actually took effect — the env is set unconditionally inside `main()`, so an
+    // external override cannot turn it off, and the launch flag was unarmed. This arm reads the
+    // browser's own `navigator.userAgent` back through the attribution result and asserts it does
+    // not contain `HeadlessChrome` — the discriminator Playwright's headed vs headless launches
+    // differ on (probed: headed = `Chrome/...`, headless = `HeadlessChrome/...`).
+    const userAgent = attribution.userAgent ?? "";
+    if (userAgent.includes("HeadlessChrome")) {
+        console.log(
+            `FATAL: attribution run launched headless (UA contains "HeadlessChrome") — ` +
+                `rAF-delta readings are invalid on a display-less frame clock. ` +
+                `Set SHALLOT_HEADED=1 or fix the launch path.`,
+        );
+        process.exitCode = 1;
+    }
+
     // S1f: rAF-delta sampler — the Goal's own signal class. `slow_frame` is shallot's rAF-delta
     // duration vital (`site/rum-sampler.ts`'s `sampleFrame`: `delta = timestamp - lastTimestamp`,
     // threshold 50ms, first frame never reports), not a platform metric and not LoAF. The

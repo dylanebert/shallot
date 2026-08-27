@@ -71,6 +71,7 @@ export interface VerifyResult {
         longTasks: { start: number; duration: number }[];
         longAnimationFrames: LoAFEntry[];
         rafDeltas: { delta: number; timestamp: number }[];
+        userAgent: string;
     } | null;
     /** `--attribution` only (S1b): the CDP CPU-profile self-time breakdown, per
      *  `bin/verify.ts`'s `Result.cpuProfile` — null when CDP's `Profiler` domain wasn't reachable. */
@@ -235,7 +236,15 @@ async function spawnVerify(
     quiet: boolean,
 ): Promise<{ stdout: string; exitCode: number }> {
     const cmd = isWSL ? await wslCmd(dir, extra) : ["bun", CLI, "verify", dir, "--json", ...extra];
-    const proc = Bun.spawn(cmd, { cwd: repoRoot, stdout: "pipe", stderr: "inherit" });
+    // `env: { ...process.env }` is required because Bun.spawn does NOT propagate runtime
+    // process.env changes (e.g. `process.env.SHALLOT_HEADED = "1"` set by stall-attribution.ts)
+    // to the child process — only pre-existing shell env vars are inherited by default.
+    const proc = Bun.spawn(cmd, {
+        cwd: repoRoot,
+        stdout: "pipe",
+        stderr: "inherit",
+        env: { ...process.env },
+    });
     const stdout = await new Response(proc.stdout).text();
     if (!quiet) process.stdout.write(stdout);
     const exitCode = await proc.exited;

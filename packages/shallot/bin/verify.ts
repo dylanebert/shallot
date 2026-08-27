@@ -716,6 +716,7 @@ export interface Result {
         longTasks: { start: number; duration: number }[];
         longAnimationFrames: LoAFEntry[];
         rafDeltas: { delta: number; timestamp: number }[];
+        userAgent: string;
     } | null;
     /** `--attribution` only (S1b): a CDP `Profiler` sample-based CPU profile of the main thread from
      *  just before navigation through the boot wait's conclusion (the same point `attribution.compile`
@@ -2092,6 +2093,7 @@ async function drive(
                                 __shallotRafDeltas?: { delta: number; timestamp: number }[];
                             }
                         ).__shallotRafDeltas ?? [],
+                    userAgent: navigator.userAgent,
                 };
             }, ATTRIBUTION_IDLE_MS)
             .catch(() => null)) as Result["attribution"];
