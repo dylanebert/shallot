@@ -1149,6 +1149,123 @@ if (staleCitations.length > 0) {
     process.exit(1);
 }
 
+// ── Arm (f): pointer-validity — dead *.md path citations in comments ──────────────────
+//
+// A comment in a .ts file citing a *.md path that resolves to nothing in-repo reds.
+// style.md:45 — "A comment anchored to something outside this repo rots invisibly." A
+// *.md path citation is the greppable surface form of that anchor: `roads-interactive.md`,
+// `ecs.md`, `gpu.md:110`. The arm scans every tracked .ts file's comment lines for *.md
+// path citations and checks each basename against the set of .md files tracked in the
+// shallot repo or the superproject (the full repo a reader has). A citation that
+// resolves to nothing is a dead anchor — it reads as authoritative for years.
+//
+// The discrimination follows the fixture-pin scan's shape (the `fixtureUnclassified`
+// classifier at the FIXTURE_FILE scan): match a pattern, check if it resolves, red if
+// not. The fixture-pin scan splits real pins from prose mentions by skipping comment
+// lines and matching a pin regex; this arm does the inverse — it scans ONLY comment
+// lines (where dead anchors live) and matches a *.md path regex. Non-comment lines
+// (string literals, code) are not scanned: a .md path in a string literal is not a
+// citation, it's a test description or a path.
+//
+// False positives preserved (asserted by presence, not just spared):
+// - tumble's `// Stage N:` algorithm-step labels (body.ts ×6, tree.ts ×3) — they name
+//   the ported algorithm's own stages, not a workflow anchor (style.md:43). No *.md
+//   path → not matched.
+// - AASHTO derivation cites in flatten.ts (×2) — cite an external standard, not a
+//   *.md path. Not matched.
+// - English "used to <verb>" — no *.md path. Not matched.
+//
+// Witnessed red (pre-sweep tree, 2026-08-26): 46 dead *.md path citations in comments
+// (43 `roads-interactive.md`, 1 `shallot-boot-noise.md`, 2
+// `shallot-demo-slow-frame-attribution.md`) → exit 1.
+// Mutation proof: adding `// see zzz-dead-pointer-mutation-proof.md` to a comment in
+// `scripts/rosters.ts` reds this arm (witnessed 2026-08-26, exit 1 —
+// `scripts/rosters.ts:100: zzz-dead-pointer-mutation-proof.md` moves the count from 46
+// to 47).
+
+// Build the resolved .md basenames set: shallot tracked + superproject tracked. A
+// citation resolves if SOME file with that basename is tracked in the shallot repo or
+// the superproject — the full repo a reader has. `checks.md` and `coding.md` live in
+// the superproject's `.claude/rules/`, not the shallot submodule, so a shallot-only
+// check would false-positive on them. `scratch.md` lives in a sibling submodule
+// (`orrstead/`), tracked by the superproject. `roads-interactive.md` is tracked by
+// neither — it resolves to nothing.
+const resolvedMdBasenames = new Set<string>();
+for (const path of docs) {
+    resolvedMdBasenames.add(path.split("/").pop()!);
+}
+const superprojectRoot = resolve(root, "..");
+const superprojectMd = Bun.spawnSync(["git", "ls-files", "-z", "*.md"], {
+    cwd: superprojectRoot,
+});
+if (superprojectMd.success) {
+    for (const path of superprojectMd.stdout.toString().split("\0").filter(Boolean)) {
+        resolvedMdBasenames.add(path.split("/").pop()!);
+    }
+}
+
+// A *.md path citation in a comment: a word ending in .md, not preceded by a word
+// character or hyphen (so `unplugin-typegpu@…` does not match — its .md is not a path
+// citation). The `(?<![-\w])` lookbehind is the same boundary law as PIN_RE's. The
+// .md extension is the anchor — a bare `roads-interactive` without .md is a stage-ID
+// anchor, not a path citation, and is swept by S2 rather than gated here.
+const MD_PATH_RE = /(?<![-\w])([a-zA-Z][a-zA-Z0-9_-]*\.md)\b/g;
+
+// Scan every tracked .ts file's comment lines for *.md path citations. Excludes
+// `scripts/check-docs.ts` — its own comments describe the citation patterns the arm
+// matches (e.g. `rule.md "phrase"`), which are not real citations.
+const POINTER_EXCLUSION = new Set(["scripts/check-docs.ts"]);
+type DeadPointer = { file: string; line: number; ref: string };
+const deadPointers: DeadPointer[] = [];
+let pointerCitationCount = 0;
+
+for (const file of trackedFiles) {
+    if (!file.endsWith(".ts") || POINTER_EXCLUSION.has(file)) continue;
+    let source: string;
+    try {
+        source = await Bun.file(resolve(root, file)).text();
+    } catch {
+        continue; // file deleted but not yet committed — skip
+    }
+    const lines = source.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+        const trimmed = lines[i].trim();
+        // Comment lines only — `//` line comments, `*` block-comment continuations,
+        // `/*` block-comment openers. Non-comment lines are not scanned.
+        if (!trimmed.startsWith("//") && !trimmed.startsWith("*") && !trimmed.startsWith("/*"))
+            continue;
+        for (const [, ref] of lines[i].matchAll(MD_PATH_RE)) {
+            pointerCitationCount++;
+            if (!resolvedMdBasenames.has(ref)) {
+                deadPointers.push({ file, line: i + 1, ref });
+            }
+        }
+    }
+}
+
+if (pointerCitationCount === 0) {
+    console.error(
+        "✗ pointer-validity arm matched no `*.md` path citation in any comment — the arm would be vacuously green.",
+    );
+    process.exit(1);
+}
+
+if (deadPointers.length > 0) {
+    console.error(
+        `✗ pointer-validity: ${deadPointers.length} comment(s) cite a *.md path that resolves to nothing in-repo (pre-sweep red — S2/S3 will green it):\n`,
+    );
+    for (const p of deadPointers) {
+        console.error(`  ${p.file}:${p.line}: ${p.ref}`);
+    }
+    console.error(
+        "\nA comment citing a *.md path that resolves to nothing in-repo is a dead anchor " +
+            "(style.md:45 — a comment anchored to something outside this repo rots " +
+            "invisibly). Rewrite the comment as the invariant that holds today, or delete " +
+            "it. The sweep (S2/S3) handles existing sites; this gate prevents re-accretion.",
+    );
+    process.exit(1);
+}
+
 console.log(
     `✓ doc commands clean (${scanTargets.length} file(s)), ` +
         `install/scaffold/fixture/manifest pins match the manifests (${scanned} doc(s), ${fixtureMatched} fixture line(s), ${manifestPkgCount} manifest(s)), ` +
@@ -1160,5 +1277,6 @@ console.log(
         `citation resolution clean (${citationCandidates.length} citation(s) from ${ruleFiles.length} rule file(s), ` +
         `${allRosters.length} roster(s) with ${totalRosterEntries} entr(y/ies), ` +
         `${PINNED_MARKER_EXEMPTED_COUNT} marker-exempted citation(s), ` +
-        `token index ${tokenIndex.size} token(s))`,
+        `token index ${tokenIndex.size} token(s)), ` +
+        `pointer-validity clean (${pointerCitationCount} .md citation(s))`,
 );
