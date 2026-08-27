@@ -1251,7 +1251,7 @@ if (pointerCitationCount === 0) {
 
 if (deadPointers.length > 0) {
     console.error(
-        `✗ pointer-validity: ${deadPointers.length} comment(s) cite a *.md path that resolves to nothing in-repo (pre-sweep red — S2/S3 will green it):\n`,
+        `✗ pointer-validity: ${deadPointers.length} comment(s) cite a *.md path that resolves to nothing in-repo:\n`,
     );
     for (const p of deadPointers) {
         console.error(`  ${p.file}:${p.line}: ${p.ref}`);
@@ -1260,7 +1260,7 @@ if (deadPointers.length > 0) {
         "\nA comment citing a *.md path that resolves to nothing in-repo is a dead anchor " +
             "(style.md:45 — a comment anchored to something outside this repo rots " +
             "invisibly). Rewrite the comment as the invariant that holds today, or delete " +
-            "it. The sweep (S2/S3) handles existing sites; this gate prevents re-accretion.",
+            "it. This gate prevents re-accretion; it does not sweep what is already there.",
     );
     process.exit(1);
 }
