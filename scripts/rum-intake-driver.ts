@@ -53,14 +53,22 @@ interface ScenarioResult {
     called: boolean;
     callDuration: number | null;
     reportedOnWire: boolean;
+    // S2p (`shallot-demo-startup-stall`): the LoAF attribution context attached to the vital, so
+    // the above-threshold direction can assert the correlator actually saw the busy-loop's own
+    // long-animation-frame entry rather than reading a false "idle main thread" (site/rum-loaf.ts,
+    // site/rum-runtime.ts's deferred read).
+    loafEntryCount: number | null;
 }
 
 type RumWindow = Window & {
     // biome-ignore lint/style/useNamingConvention: DD_RUM is the SDK's own global name
     DD_RUM?: {
-        addDurationVital: (name: string, opts: { duration: number }) => void;
+        addDurationVital: (
+            name: string,
+            opts: { duration: number; context?: Record<string, unknown> },
+        ) => void;
     };
-    __vitalCalls?: { name: string; duration: number }[];
+    __vitalCalls?: { name: string; duration: number; context?: Record<string, unknown> }[];
 };
 
 async function runScenario(
@@ -100,7 +108,7 @@ async function runScenario(
             const orig = w.DD_RUM?.addDurationVital.bind(w.DD_RUM);
             if (w.DD_RUM && orig) {
                 w.DD_RUM.addDurationVital = (name, opts) => {
-                    w.__vitalCalls?.push({ name, duration: opts.duration });
+                    w.__vitalCalls?.push({ name, duration: opts.duration, context: opts.context });
                     return orig(name, opts);
                 };
             }
@@ -118,8 +126,10 @@ async function runScenario(
             }
         }, busyMs);
 
-        // a couple more rAF ticks for the sampler to observe the delta and call addDurationVital.
-        await page.waitForTimeout(500);
+        // a couple more rAF ticks for the sampler to observe the delta, plus `rum-runtime.ts`'s
+        // own deferred LoAF read (`LOAF_ATTRIBUTION_DELAY_MS`) before it calls addDurationVital —
+        // margin above that deferral, not just above the sampler's own rAF cadence.
+        await page.waitForTimeout(1_500);
 
         const calls = await page.evaluate(
             () => (window as unknown as RumWindow).__vitalCalls ?? [],
@@ -127,6 +137,8 @@ async function runScenario(
         const slowFrameCalls = calls.filter((c) => c.name === "slow_frame");
         const called = slowFrameCalls.length > 0;
         const callDuration = slowFrameCalls[0]?.duration ?? null;
+        const loafEntryCount =
+            (slowFrameCalls[0]?.context?.loafEntryCount as number | undefined) ?? null;
 
         if (expectReport) {
             // wire proof required: poll for the periodic batch flush to reach the intake host,
@@ -145,6 +157,7 @@ async function runScenario(
             called,
             callDuration,
             reportedOnWire: bodies.some((b) => b.includes("slow_frame")),
+            loafEntryCount,
         };
     } finally {
         await browser.close();
