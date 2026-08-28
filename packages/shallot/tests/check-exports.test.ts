@@ -91,6 +91,50 @@ export const TumblePlugin: Plugin = { name: "Tumble" };
     });
 });
 
+// Regex literals: `/["']/` carries a quote that the old scanner read as a string opener, and the
+// string then ran to end of file — every comment after it was copied through as code, so a
+// `@example export const ghost` inside a JSDoc block became a real export. The engine twin
+// (`maskTrivia`, `runtime/gpu-labels.test.ts`) was repaired first; these arms are that repair
+// here. Mutation: delete the regex branch in `maskTrivia` → `ghost` reappears and this reds.
+describe("stripComments — regex literals", () => {
+    const source = [
+        "const QUOTE = /[\"']/;",
+        "/**",
+        " * @example",
+        " * export const ghost = 1;",
+        " */",
+        "export const real = 2;",
+        "",
+    ].join("\n");
+
+    test("a quote inside a regex does not blind the scanner to the comments after it", () => {
+        const names = extractDirectExports(stripComments(source)).map((e) => e.name);
+        expect(names).toContain("real");
+        expect(names).not.toContain("ghost");
+    });
+
+    test("division is not read as a regex", () => {
+        const stripped = stripComments("const ratio = total / count; // note\nconst y = 2;");
+        expect(stripped).toContain("total / count");
+        expect(stripped).not.toContain("note");
+    });
+
+    test("a non-null assertion before a slash is division, not a regex start", () => {
+        const stripped = stripComments("const r = a.get(k)! / b.get(k)!;\nconst y = 2;");
+        expect(stripped).toContain("const y = 2;");
+    });
+
+    // The strict half: a scanner that runs an unterminated construct to end of file reports a
+    // clean pass over code it never read, so the reader every walk goes through refuses instead.
+    // Mutation: drop the `unparsed` check in `stripComments` → this arm reds.
+    test("throws on a region it could not close", () => {
+        expect(() => stripComments("const q = /unterminated\nconst y = 2;\n")).toThrow(
+            /unterminated regex literal/,
+        );
+        expect(() => stripComments("/* unterminated")).toThrow(/unterminated block comment/);
+    });
+});
+
 describe("extractDirectExports", () => {
     test("captures function, const, class, type, interface, enum", () => {
         const content = `

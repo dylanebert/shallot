@@ -168,6 +168,44 @@ describe("maskLiterals", () => {
     });
 });
 
+// Regex literals: a `/["']/` body carries characters that every other branch of the lexer treats
+// as an opener. Before the repair the quote started a string that ran to end of file, so every
+// `f32(...)` after it was invisible and the sweep reported a clean pass over code it never read
+// — the same defect repaired first in the engine twin (`maskTrivia`,
+// `runtime/gpu-labels.test.ts`). Mutation: delete the regex branch in `maskLiterals` → the
+// literal after the regex disappears from the sweep and these arms red.
+describe("maskLiterals — regex literals", () => {
+    test("masks a regex body carrying a quote, leaving the code after it visible", () => {
+        const { masked, unparsed } = maskLiterals(
+            "const q = /[\"']/;\nconst bad = f32(0.1 * mass);\n",
+        );
+        expect(unparsed).toEqual([]);
+        expect(masked).toContain("f32(0.1 * mass)");
+        expect(masked).not.toContain("[\"']");
+    });
+
+    test("masks a regex body carrying a comment opener", () => {
+        const { masked, unparsed } = maskLiterals("const c = /a\\/*b/;\nconst y = f32(0.1 * m);\n");
+        expect(unparsed).toEqual([]);
+        expect(masked).toContain("f32(0.1 * m)");
+    });
+
+    test("leaves division alone — a `/` after an operand is not a regex start", () => {
+        const { masked, unparsed } = maskLiterals(
+            "const r = a / b;\nconst bad = f32(0.1 * mass);\n",
+        );
+        expect(unparsed).toEqual([]);
+        expect(masked).toContain("a / b");
+        expect(masked).toContain("f32(0.1 * mass)");
+    });
+
+    test("reports an unterminated regex literal as an unparsed site", () => {
+        const { unparsed } = maskLiterals("const q = /unterminated\nconst y = 2;\n");
+        expect(unparsed).toHaveLength(1);
+        expect(unparsed[0].reason).toBe("unterminated regex literal");
+    });
+});
+
 // `stripComments` is a backward-compatible wrapper around `maskLiterals` — the masked text only,
 // without the unparsed-site list. The S1 tests checked that comment content is removed and string
 // content is preserved; the S1b rebuild masks string content too (so a `)` inside a string never
@@ -185,6 +223,16 @@ describe("stripComments", () => {
         expect(out).not.toContain("// not a comment");
         expect(out).toContain("const s = ");
         expect(out).toContain(";");
+    });
+
+    // The strict half: `sourceFiles` reports `maskLiterals`' unparsed sites as findings, and this
+    // wrapper used to drop them — a caller reading only the masked text cannot tell a fully-lexed
+    // file from one the lexer went blind partway through. Mutation: return `masked` without the
+    // check → this arm reds.
+    test("throws on a region the lexer could not decompose", () => {
+        expect(() => stripComments('const s = "unterminated')).toThrow(
+            /unterminated string literal/,
+        );
     });
 });
 
@@ -495,6 +543,11 @@ describe("sweep — F1: composition fixture exercising every structural leg", ()
         // Mutation: delete the recursion into parenthesized groups in `collectOffendingLiterals`
         // → `0.1` is invisible, this finding disappears, the assertion reds.
         "engine/nested-call.ts": "export const bad = f32(Math.sqrt(0.1 * a));\n",
+        // Regex literal: the quote inside `/["']/` must not open a string. `f32(0.1 * mass)`
+        // after it is real code and must be found.
+        // Mutation: delete the regex branch in `maskLiterals` → the quote opens a string that
+        // runs to end of file, the finding disappears, the assertion reds.
+        "engine/regex.ts": "const q = /[\"']/;\nexport const bad = f32(0.1 * mass);\n",
         // Undecomposable region: an unterminated string. Must be reported as unparsed, not
         // silently swallowed.
         // Mutation: delete the unterminated-string report in `maskLiterals` → the unparsed
@@ -503,13 +556,14 @@ describe("sweep — F1: composition fixture exercising every structural leg", ()
             'const s = "unterminated string\nconst bad = f32(0.1 * mass);\n',
     };
 
-    test("sweepLiterals finds the template-interpolation literal and the nested-call literal", async () => {
+    test("sweepLiterals finds the template-interpolation, nested-call and post-regex literals", async () => {
         const root = fixture(compositionFixture);
         const findings = await sweepLiterals(root);
-        // Two literal findings: one from the template interpolation, one from the nested call.
-        expect(findings).toHaveLength(2);
+        // Three literal findings: the template interpolation, the nested call, and the line
+        // after the regex literal (invisible before the regex branch existed).
+        expect(findings).toHaveLength(3);
         const files = findings.map((f) => f.file).sort();
-        expect(files).toEqual(["engine/nested-call.ts", "engine/template.ts"]);
+        expect(files).toEqual(["engine/nested-call.ts", "engine/regex.ts", "engine/template.ts"]);
         // The string and comment fixtures must NOT appear — they are masked.
         const allFiles = findings.map((f) => f.file);
         expect(allFiles).not.toContain("engine/string.ts");
@@ -527,11 +581,11 @@ describe("sweep — F1: composition fixture exercising every structural leg", ()
     test("sweep over the composition fixture exercises every leg through the real entry point", async () => {
         const root = fixture(compositionFixture);
         const findings = await sweep(root);
-        // 2 literal findings + 1 unparsed = 3 total. No trig findings.
-        expect(findings).toHaveLength(3);
+        // 3 literal findings + 1 unparsed = 4 total. No trig findings.
+        expect(findings).toHaveLength(4);
         const literalCount = findings.filter((f) => f.kind === "literal").length;
         const unparsedCount = findings.filter((f) => f.kind === "unparsed").length;
-        expect(literalCount).toBe(2);
+        expect(literalCount).toBe(3);
         expect(unparsedCount).toBe(1);
     });
 });

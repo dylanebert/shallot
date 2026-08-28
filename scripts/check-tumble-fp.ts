@@ -1,6 +1,7 @@
 import { join, resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
+import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
 
 // The tumble engine's rule 1a (`.claude/rules/tumble.md` § "The contract: bit-exact f32
 // parity") says to `fround` a non-exact float literal before it enters `f32(...)` arithmetic:
@@ -106,8 +107,8 @@ function lineOf(text: string, pos: number): number {
 // Lexer: mask strings, comments, and template-literal text (preserve interpolations)
 // ---------------------------------------------------------------------------
 
-// A region the lexer could not fully decompose — an unterminated string, template literal, or
-// block comment, or an unbalanced template interpolation. The sweep reports these as `unparsed`
+// A region the lexer could not fully decompose — an unterminated string, template literal, regex
+// literal, or block comment, or an unbalanced template interpolation. The sweep reports these as `unparsed`
 // findings and exits non-zero, so safety rests on exhaustiveness plus a loud inconclusive.
 export type UnparsedSite = { line: number; reason: string; snippet: string };
 
@@ -117,6 +118,8 @@ export type UnparsedSite = { line: number; reason: string; snippet: string };
 //   - single- and double-quoted string content → spaces (quote delimiters → spaces too, so a `)`
 //     inside a string never confuses the paren depth counter in `findCalls`);
 //   - template-literal text portions → spaces (backtick delimiters → spaces);
+//   - regex-literal bodies and flags → spaces (delimiters too), so a quote or `/` inside a
+//     regex cannot open a string or comment and blind the rest of the file;
 //   - template-literal interpolation expressions (`${...}`) → **preserved as real code**, so a
 //     `f32(...)` inside an interpolation IS found by `findCalls` (it is a real call);
 //   - everything else → preserved verbatim.
@@ -150,6 +153,21 @@ export function maskLiterals(content: string): { masked: string; unparsed: Unpar
             i++;
         }
         return false;
+    }
+
+    // The last few emitted (masked) characters, enough for `isRegexLiteralStart`'s longest
+    // keyword. Joining the whole output at every `/` would be quadratic over a large file.
+    function maskedTail(): string {
+        return out.slice(Math.max(0, out.length - 32)).join("");
+    }
+
+    // Mask a regex literal opening at `i` (masking delimiters, body and flags to spaces, since
+    // none of it is code the sweep may read). Returns true if the closing `/` was found on the
+    // same line. Called only where `isRegexLiteralStart` says a `/` cannot be division.
+    function maskRegex(): boolean {
+        const { end, terminated } = scanRegexLiteral(content, i);
+        for (; i < end; i++) out.push(content[i] === "\n" ? "\n" : " ");
+        return terminated;
     }
 
     // Mask a template literal. Text portions and backtick delimiters → spaces; `${...}`
@@ -196,6 +214,10 @@ export function maskLiterals(content: string): { masked: string; unparsed: Unpar
                             out.push(content[i] === "\n" ? "\n" : " ");
                             i++;
                         }
+                        continue;
+                    }
+                    if (content[i] === "/" && isRegexLiteralStart(maskedTail())) {
+                        maskRegex(); // unterminated → reported by the outer loop's own scan
                         continue;
                     }
                     if (content[i] === '"' || content[i] === "'") {
@@ -274,6 +296,20 @@ export function maskLiterals(content: string): { masked: string; unparsed: Unpar
             continue;
         }
 
+        // Regex literal — must be masked before the string branch, because a quote inside a
+        // regex would otherwise open a string that swallows the rest of the file.
+        if (c === "/" && isRegexLiteralStart(maskedTail())) {
+            const start = i;
+            if (!maskRegex()) {
+                unparsed.push({
+                    line: lineOf(content, start),
+                    reason: "unterminated regex literal",
+                    snippet: content.slice(start, Math.min(start + 40, len)).trim(),
+                });
+            }
+            continue;
+        }
+
         // Single/double-quoted string
         if (c === '"' || c === "'") {
             const start = i;
@@ -307,12 +343,19 @@ export function maskLiterals(content: string): { masked: string; unparsed: Unpar
     return { masked: out.join(""), unparsed };
 }
 
-// Backward-compatible wrapper: returns just the masked text. Replaces the S1 `stripComments`
-// (which preserved string content and did not handle template-literal interpolations). String
-// and comment content is now masked so a `)` or `{` inside a string never confuses the depth
-// counters in `findCalls` / `splitTopLevelTokens`.
+// Strict reader: the masked text, and a throw on any region the lexer could not decompose.
+// Replaces the S1 `stripComments` (which preserved string content and did not handle
+// template-literal interpolations). String and comment content is now masked so a `)` or `{`
+// inside a string never confuses the depth counters in `findCalls` / `splitTopLevelTokens`.
+// `sourceFiles` reads `maskLiterals` directly and reports the unparsed sites as findings; every
+// other caller goes through here, where dropping the list would let a blind scan read as clean.
 export function stripComments(content: string): string {
-    return maskLiterals(content).masked;
+    const { masked, unparsed } = maskLiterals(content);
+    if (unparsed.length > 0) {
+        const sites = unparsed.map((u) => `line ${u.line}: ${u.reason}`).join("; ");
+        throw new Error(`source could not be fully lexed — ${sites}`);
+    }
+    return masked;
 }
 
 // ---------------------------------------------------------------------------
@@ -646,7 +689,7 @@ export async function sweepTrig(root: string): Promise<Finding[]> {
 }
 
 // The unparsed arm: any region the lexer could not fully decompose — an unterminated string,
-// template literal, or block comment from `maskLiterals`, or an `f32(` call whose parens don't
+// template literal, regex literal, or block comment from `maskLiterals`, or an `f32(` call whose parens don't
 // balance. Safety rests on exhaustiveness over the region set plus a loud inconclusive: the sweep
 // exits non-zero rather than silently swallowing the rest of the file and returning zero findings.
 export async function sweepUnparsed(root: string): Promise<Finding[]> {
