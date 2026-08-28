@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { Glob } from "bun";
 import { TEST_TIER_SUFFIXES } from "../packages/shallot/tests/test-tiers";
+import { isRegexLiteralStart, scanRegexLiteral } from "./source-mask";
 
 const PKG = "@dylanebert/shallot";
 
@@ -57,10 +58,19 @@ function lineOf(content: string, offset: number): number {
     return content.slice(0, offset).split("\n").length;
 }
 
-// Strip line comments (`// ...`) and block comments (`/* ... */`, including JSDoc) while
-// preserving string literals and newlines (for line-number accuracy). A reference inside a
-// JSDoc `@example` block is not a consumer.
-export function stripComments(content: string): string {
+// A region the scanner could not close — an unterminated string, regex literal, or block
+// comment. A scanner that runs one of these to end of file reads the remainder as literal text
+// and reports a clean pass over code it never saw, so the callers refuse instead.
+export type UnparsedSite = { line: number; reason: string };
+
+// Mask comments (`// ...`, `/* ... */`, JSDoc included) and regex-literal bodies while preserving
+// string literals and newlines (for line-number accuracy). A reference inside a JSDoc `@example`
+// block is not a consumer. Regex literals are masked — not preserved — because a `/`, quote or
+// backtick inside one would otherwise open a comment or string and blind the rest of the file
+// (the same defect repaired in the engine twin, `maskTrivia` in `runtime/gpu-labels.test.ts`);
+// their contents are never an export, an import or a namespace access, so masking loses nothing.
+export function maskTrivia(content: string): { masked: string; unparsed: UnparsedSite[] } {
+    const unparsed: UnparsedSite[] = [];
     let result = "";
     let i = 0;
     const len = content.length;
@@ -69,6 +79,8 @@ export function stripComments(content: string): string {
         // String literals — copy through, don't treat // or /* inside them as comments
         if (content[i] === '"' || content[i] === "'" || content[i] === "`") {
             const quote = content[i];
+            const start = i;
+            let closed = false;
             result += content[i];
             i++;
             while (i < len) {
@@ -80,9 +92,19 @@ export function stripComments(content: string): string {
                 result += content[i];
                 if (content[i] === quote) {
                     i++;
+                    closed = true;
                     break;
                 }
                 i++;
+            }
+            if (!closed) {
+                unparsed.push({
+                    line: lineOf(content, start),
+                    reason:
+                        quote === "`"
+                            ? "unterminated template literal"
+                            : "unterminated string literal",
+                });
             }
             continue;
         }
@@ -96,14 +118,39 @@ export function stripComments(content: string): string {
 
         // Block comments (including JSDoc) — skip, but preserve newlines for line numbers
         if (content[i] === "/" && i + 1 < len && content[i + 1] === "*") {
+            const start = i;
             i += 2;
+            let closed = false;
             while (i < len) {
                 if (content[i] === "*" && i + 1 < len && content[i + 1] === "/") {
                     i += 2;
+                    closed = true;
                     break;
                 }
                 if (content[i] === "\n") result += "\n";
                 i++;
+            }
+            if (!closed) {
+                unparsed.push({
+                    line: lineOf(content, start),
+                    reason: "unterminated block comment",
+                });
+            }
+            continue;
+        }
+
+        // Regex literals — mask body, delimiters and flags. Checked after the two comment forms,
+        // so `//` and `/*` are already consumed, and gated on `isRegexLiteralStart` reading the
+        // masked output so a `/` that is division stays code.
+        if (content[i] === "/" && isRegexLiteralStart(result.slice(-32))) {
+            const start = i;
+            const { end, terminated } = scanRegexLiteral(content, i);
+            for (; i < end; i++) result += content[i] === "\n" ? "\n" : " ";
+            if (!terminated) {
+                unparsed.push({
+                    line: lineOf(content, start),
+                    reason: "unterminated regex literal",
+                });
             }
             continue;
         }
@@ -112,7 +159,29 @@ export function stripComments(content: string): string {
         i++;
     }
 
-    return result;
+    return { masked: result, unparsed };
+}
+
+// Strict reader over `maskTrivia`: the masked text, and a throw naming every region the scanner
+// could not close. Both walks in `findDeadExports` read through here — silently dropping the
+// unparsed list is what lets a blinded scan report a clean pass.
+export function stripComments(content: string): string {
+    const { masked, unparsed } = maskTrivia(content);
+    if (unparsed.length > 0) {
+        const sites = unparsed.map((u) => `line ${u.line}: ${u.reason}`).join("; ");
+        throw new Error(`source could not be fully lexed — ${sites}`);
+    }
+    return masked;
+}
+
+// The two source walks below read every file through here, so a refusal names the file it
+// could not lex rather than only the reason.
+async function readMasked(path: string, rel: string): Promise<string> {
+    try {
+        return stripComments(await Bun.file(path).text());
+    } catch (err) {
+        throw new Error(`${rel}: ${err instanceof Error ? err.message : String(err)}`);
+    }
 }
 
 // --- Export extraction ------------------------------------------------------
@@ -502,8 +571,8 @@ export async function findDeadExports(
     for await (const path of srcGlob.scan({ cwd: srcDir })) {
         if (isTestFile(path)) continue;
         const full = resolve(srcDir, path);
-        const content = stripComments(await Bun.file(full).text());
         const relPath = relative(rootDir, full).replace(/\\/g, "/");
+        const content = await readMasked(full, relPath);
         fileContents.set(relPath, content);
 
         const exports = extractDirectExports(content);
@@ -547,8 +616,8 @@ export async function findDeadExports(
             if (path.includes("node_modules") || path.includes("dist/")) continue;
 
             const fullPath = resolve(full, path);
-            const content = stripComments(await Bun.file(fullPath).text());
             const relPath = relative(rootDir, fullPath).replace(/\\/g, "/");
+            const content = await readMasked(fullPath, relPath);
             const isTest = isTestFile(relPath);
 
             const imports = extractImports(content);
