@@ -17,8 +17,35 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { RUM_ENV_SNIPPET, RUM_ENV_SNIPPET_STAGING } from "../site/rum-config";
+import { datadogInitSnippet } from "./build-site";
 
 const src = readFileSync(resolve(import.meta.dir, "build-site.ts"), "utf8");
+
+// S1 (staging build mode) — datadogInitSnippet is a pure function, so its mode selection is
+// armed behaviorally rather than by source-text match, unlike the arms below.
+test("build-site — datadogInitSnippet selects the env constant by mode, mutually exclusive", () => {
+    const prod = datadogInitSnippet("prod");
+    const staging = datadogInitSnippet("staging");
+    expect(prod).toContain(RUM_ENV_SNIPPET);
+    expect(prod).not.toContain(RUM_ENV_SNIPPET_STAGING);
+    expect(staging).toContain(RUM_ENV_SNIPPET_STAGING);
+    expect(staging).not.toContain(RUM_ENV_SNIPPET);
+    // no mode arg defaults to prod — the prod build path stays byte-unchanged for a caller that
+    // never learns about `--staging`
+    expect(datadogInitSnippet()).toBe(prod);
+});
+
+// The staging pack-and-`file:`-pin mechanism itself needs a real `bun pm pack` + `bun install`,
+// which this file's other arms already document as too slow/non-hermetic for a source-text
+// match (see the file header). Structural pins only, same discipline and the same caveat: a
+// source-text match cannot tell a live guard from a commented-out one.
+test("build-site --staging — packs the engine once and pins every demo to the tarball, not the version", () => {
+    expect(src).toMatch(/bun pm pack/);
+    // the per-demo rewrite must use the mode-selected `enginePin`, not the bare release `version`
+    // — this is the line staging mode depends on to avoid ever pinning a prod release
+    expect(src).toMatch(/@dylanebert\/shallot["']\]\s*=\s*enginePin/);
+});
 
 test("build-site --demo — only clears that demo's slot, not all of out/site", () => {
     // The fix: when `only` is set, rmSync targets `resolve(outDir, only)` (that demo's slot),

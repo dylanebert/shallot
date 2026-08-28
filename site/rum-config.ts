@@ -27,6 +27,16 @@ export const RUM_INJECTION_MARKER = "<!-- shallot: datadog rum slow-frame vitals
 export const RUM_ENV_SNIPPET =
     "var ddEnv=/(^|\\.)dylanebert\\.com$/.test(location.hostname)?'prod':'local';";
 
+// The staging build's env sibling — a constant `ddEnv`, no hostname derivation. Staging deploys
+// to a Cloudflare `pages.dev` URL that shares no host-suffix rule with `dylanebert.com`, so
+// `RUM_ENV_SNIPPET`'s regex has nothing to key on there; rather than generalize that regex (which
+// would put the prod path at risk for staging's sake), `scripts/build-site.ts` selects between the
+// two sibling constants by build mode. Same shared-literal discipline as `RUM_ENV_SNIPPET`:
+// `build-site.ts` injects this verbatim in `--staging` mode and `check-site.ts`'s clause-5 env
+// check matches on the same literal, so the two never drift apart. `RUM_ENV_USAGE` below is
+// shared unchanged — it wires whichever of the two derivations ran into `DD_RUM.init`.
+export const RUM_ENV_SNIPPET_STAGING = "var ddEnv='staging';";
+
 // The `env` wiring into `DD_RUM.init` — the derivation line above (`RUM_ENV_SNIPPET`) computes
 // `ddEnv` but does nothing until it's spread into the init call. `scripts/build-site.ts` opens
 // its `Object.assign(...)` call with this exact literal; `scripts/check-site.ts`'s clause 5
