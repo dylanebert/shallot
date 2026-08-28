@@ -80,7 +80,12 @@ describe("Math functions vs wgpu-matrix", () => {
     });
 
     describe("euler (from quat)", () => {
-        test("should match wgpu-matrix for identity quaternion", () => {
+        // RED witnessed: The arm was named for a reference-library comparison it did
+        // not perform. Added +1 to the euler z-return → exit 1; today the arm pins the identity
+        // mapping directly.
+        test("returns zero angles for identity quaternion", () => {
+            // wgpu-matrix has no quat→euler conversion, so this arm pins the identity
+            // mapping directly rather than differential against the reference library
             const result = math.euler(0, 0, 0, 1);
             expect(eulerEqual(result, { x: 0, y: 0, z: 0 })).toBe(true);
         });
@@ -178,28 +183,34 @@ describe("Math functions vs wgpu-matrix", () => {
             expect(quatEqual(result, expected)).toBe(true);
         });
 
+        // RED witnessed: The arm asserted only isFinite, so any wrong-axis quaternion
+        // read green. Set zz = -1 in the zero-length fallback under eye == target (0,0,0) → exit 1
+        // (1 fail); today the arm pins the identity quaternion the fallback returns.
         test("should handle eye == target (zero distance)", () => {
             const result = math.aim(0, 0, 0, 0, 0, 0);
-            expect(Number.isFinite(result.x)).toBe(true);
-            expect(Number.isFinite(result.y)).toBe(true);
-            expect(Number.isFinite(result.z)).toBe(true);
-            expect(Number.isFinite(result.w)).toBe(true);
+            // zero forward length falls back to -Z (identity orientation), so the
+            // quaternion is the identity rotation
+            expect(quatEqual(result, [0, 0, 0, 1])).toBe(true);
         });
 
+        // RED witnessed: The arm asserted only isFinite, so any wrong-axis quaternion
+        // read green. Perturbed the upZ fallback (upZ -= 1e-4) under forward (0,1,0) parallel to up
+        // (0,1,0) → exit 1 (2 fail); today the arm pins the actual fallback quaternion.
         test("should handle looking straight up (parallel to up vector)", () => {
             const result = math.aim(0, 0, 0, 0, 1, 0);
-            expect(Number.isFinite(result.x)).toBe(true);
-            expect(Number.isFinite(result.y)).toBe(true);
-            expect(Number.isFinite(result.z)).toBe(true);
-            expect(Number.isFinite(result.w)).toBe(true);
+            // forward (0,1,0) is parallel to up (0,1,0): the fallback perturbs up
+            // and produces a 90° rotation about X from default -Z to +Y
+            expect(quatEqual(result, [Math.SQRT1_2, 0, 0, Math.SQRT1_2])).toBe(true);
         });
 
+        // RED witnessed: The arm asserted only isFinite, so any wrong-axis quaternion
+        // read green. Perturbed the upZ fallback (upZ -= 1e-4) under forward (0,-1,0) anti-parallel
+        // to up (0,1,0) → exit 1 (2 fail); today the arm pins the actual fallback quaternion.
         test("should handle looking straight down (parallel to up vector)", () => {
             const result = math.aim(0, 0, 0, 0, -1, 0);
-            expect(Number.isFinite(result.x)).toBe(true);
-            expect(Number.isFinite(result.y)).toBe(true);
-            expect(Number.isFinite(result.z)).toBe(true);
-            expect(Number.isFinite(result.w)).toBe(true);
+            // forward (0,-1,0) is anti-parallel to up (0,1,0): the fallback yields
+            // a 180° rotation (w=0) about the axis bisecting Y and Z
+            expect(quatEqual(result, [0, Math.SQRT1_2, Math.SQRT1_2, 0])).toBe(true);
         });
     });
 

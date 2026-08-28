@@ -237,6 +237,8 @@ describe("Scheduler", () => {
             expect(fixedCount).toBe(0);
         });
 
+        // RED witnessed: The cap arm was satisfied by zero fixed steps. Set the loop
+        // bound to steps < 0 → exit 1; today the lower bound reds a zero-iteration cap.
         test("a large timescale caps fixed steps at MAX_FIXED_STEPS and marks the frame throttled", () => {
             let fixedCount = 0;
             state.addSystem({ group: "fixed", update: () => fixedCount++ });
@@ -244,6 +246,7 @@ describe("Scheduler", () => {
             state.timescale(10);
             state.step(Time.FIXED_DT);
             expect(fixedCount).toBeLessThanOrEqual(Time.MAX_FIXED_STEPS);
+            expect(fixedCount).toBeGreaterThan(0);
             expect(state.time.fixedSteps).toBeLessThanOrEqual(Time.MAX_FIXED_STEPS);
             expect(state.time.throttled).toBe(true);
         });

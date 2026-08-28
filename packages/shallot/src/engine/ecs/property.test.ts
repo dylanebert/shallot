@@ -133,11 +133,15 @@ describe("Serialization roundtrip", () => {
         });
     });
 
+    // RED witnessed: The early returns let every run pass asserting nothing.
+    // Made formatFields return "" → exit 1; today the assertion floor reds a round-trip that
+    // reaches no expect call.
     test("parseFields(formatFields(fields)) preserves values", () => {
         // formatFields serializes non-integers via toPrecision(7); the round-trip
         // relative error is bounded by a half-ULP at the 7th significant figure.
         const SerializeRel = 5e-7;
         const allSchemas = schemas();
+        let assertionsExecuted = 0;
 
         for (const s of allSchemas) {
             const arbs: Record<string, fc.Arbitrary<number>> = {};
@@ -186,6 +190,7 @@ describe("Serialization roundtrip", () => {
 
                     for (const key of Object.keys(parsed)) {
                         if (!(key in fields)) continue;
+                        assertionsExecuted++;
                         const a = fields[key];
                         const b = parsed[key];
                         if (typeof a === "number" && typeof b === "number") {
@@ -200,6 +205,11 @@ describe("Serialization roundtrip", () => {
                 { numRuns: 200 },
             );
         }
+
+        // floor: the early returns (generatable === 0, !formatted, key not in
+        // fields) let every run pass asserting nothing — pin that at least one
+        // assertion was reached
+        expect(assertionsExecuted).toBeGreaterThan(0);
     });
 });
 

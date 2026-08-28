@@ -113,9 +113,13 @@ describe("Scene Roundtrip", () => {
     });
 
     describe("field-level roundtrip", () => {
+        // RED witnessed: The continues let the round-trip pass asserting nothing.
+        // Made formatFields return "" → exit 1 (6 fail); today the assertion floor reds a body that
+        // reaches no expect call.
         test.each(SCENE_FILES)("component fields survive roundtrip: %s", async (file) => {
             const xml = await readScene(file);
             const nodes = parse(xml);
+            let assertionsExecuted = 0;
 
             function checkNode(node: Node) {
                 for (const attr of node.attrs) {
@@ -134,6 +138,7 @@ describe("Scene Roundtrip", () => {
 
                     for (const key of Object.keys(fields2)) {
                         if (!(key in fields)) continue;
+                        assertionsExecuted++;
                         const a = fields[key];
                         const b = fields2[key];
                         if (typeof a === "number" && typeof b === "number") {
@@ -152,13 +157,21 @@ describe("Scene Roundtrip", () => {
             }
 
             for (const node of nodes) checkNode(node);
+
+            // floor: the continues (empty value, unregistered component, parse
+            // failure, empty format, absent key) let the test pass asserting nothing
+            expect(assertionsExecuted).toBeGreaterThan(0);
         });
     });
 
     describe("normalization idempotence", () => {
+        // RED witnessed: The continues let the idempotence check pass asserting
+        // nothing. Made formatFields return "" → exit 1 (6 fail); today the assertion floor reds a
+        // body that reaches no expect call.
         test.each(SCENE_FILES)("normalizeAttr is idempotent: %s", async (file) => {
             const xml = await readScene(file);
             const nodes = parse(xml);
+            let assertionsExecuted = 0;
 
             function checkNode(node: Node) {
                 for (const attr of node.attrs) {
@@ -167,6 +180,7 @@ describe("Scene Roundtrip", () => {
                     // null = unregistered; "" = all fields at default (the bare form), a terminal that
                     // re-normalizes to null. Idempotence is the fixed-point claim on a non-empty result.
                     if (first === null || first === "") continue;
+                    assertionsExecuted++;
                     const second = normalizeAttr(attr.name, first);
                     expect(second).toBe(first);
                 }
@@ -174,6 +188,10 @@ describe("Scene Roundtrip", () => {
             }
 
             for (const node of nodes) checkNode(node);
+
+            // floor: the continues (empty value, null/empty normalize) let the test
+            // pass asserting nothing
+            expect(assertionsExecuted).toBeGreaterThan(0);
         });
     });
 });

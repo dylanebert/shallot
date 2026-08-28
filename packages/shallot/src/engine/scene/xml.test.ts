@@ -434,15 +434,17 @@ describe("XML", () => {
             expect(normalizeAttr("comp", "myField: 5")).toBe("my-field: 5");
         });
 
+        // RED witnessed: The fixture used the retired split-suffix shape and
+        // compared null to null. Made normalizeAttr return null → exit 1; today the non-null
+        // assertion reds a null first pass before the idempotence check runs.
         test("is idempotent", () => {
             const Transform = {
-                posX: [] as number[],
-                posY: [] as number[],
-                posZ: [] as number[],
+                pos: sparse(vec4),
             };
-            register("transform", Transform, { defaults: () => ({ posX: 0, posY: 0, posZ: 0 }) });
+            register("transform", Transform, { defaults: () => ({ pos: [0, 0, 0, 0] }) });
 
             const first = normalizeAttr("transform", "pos: 1 2 3");
+            expect(first).not.toBeNull();
             const second = normalizeAttr("transform", first!);
             expect(second).toBe(first);
         });

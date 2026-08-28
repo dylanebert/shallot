@@ -245,6 +245,10 @@ describe("one-shot GPU probes", () => {
         }
     });
 
+    // The five rejects.toThrow calls were un-awaited while every sibling in the file awaits
+    // them. Awaiting makes the arm's failure independent of the matcher's settle-time behavior
+    // rather than newly possible — bun 1.4.0 reds either way, so this is hygiene and a
+    // version-scoped guarantee, not a repair of an unfailable arm.
     test("depth/stencil defaults are unambiguous and combined formats require one aspect", async () => {
         const device = fakeDevice([]);
         const values = new Float32Array([1, 0.25]);
@@ -269,23 +273,23 @@ describe("one-shot GPU probes", () => {
         expect(combinedDepth.bytesPerRow).toBe(4);
         expect(combinedStencil.bytesPerRow).toBe(1);
 
-        expect(
+        await expect(
             probeTexture(device, texture("depth32float-stencil8", 1, 1, new Uint8Array(4))),
         ).rejects.toThrow("requires an explicit");
-        expect(
+        await expect(
             probeTexture(device, texture("depth24plus", 1, 1, new Uint8Array(4))),
         ).rejects.toThrow("no portable buffer-copy representation");
-        expect(
+        await expect(
             probeTexture(device, texture("depth24plus-stencil8", 1, 1, new Uint8Array(4)), {
                 aspect: "depth-only",
             }),
         ).rejects.toThrow("depth has no portable");
-        expect(
+        await expect(
             probeTexture(device, texture("rgba8unorm", 1, 1, new Uint8Array(4)), {
                 aspect: "depth-only",
             }),
         ).rejects.toThrow('requires aspect "all"');
-        expect(
+        await expect(
             probeTexture(device, texture("bc1-rgba-unorm", 4, 4, new Uint8Array(8))),
         ).rejects.toThrow("accepts uncompressed copyable textures only");
     });
