@@ -295,7 +295,10 @@ export function resolveSpecifier(
     if (specifier.startsWith(".")) {
         const fromDir = dirname(resolve(rootDir, fromFile));
         const abs = resolve(fromDir, specifier);
-        for (const candidate of [abs + ".ts", join(abs, "index.ts"), abs]) {
+        // a `.js` specifier is a vendored codec artifact (extras/gltf/codec) — the types live in the sibling
+        // declaration, so resolve there first or its named exports read as unconsumed
+        const decl = abs.endsWith(".js") ? [abs.replace(/\.js$/, ".d.ts")] : [];
+        for (const candidate of [abs + ".ts", join(abs, "index.ts"), ...decl, abs]) {
             if (existsSync(candidate)) {
                 return relative(rootDir, candidate).replace(/\\/g, "/");
             }

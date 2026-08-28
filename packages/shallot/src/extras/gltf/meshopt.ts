@@ -1,9 +1,10 @@
-// the zeux/meshoptimizer glTF buffer decoder (EXT_meshopt_compression). Imported from the decoder submodule
-// directly, not the `meshoptimizer` barrel — the barrel also pulls the encoder/simplifier/clusterizer, and
-// only the decoder is needed at runtime. The module embeds its wasm as inline base64 and instantiates it from
+// the zeux/meshoptimizer glTF buffer decoder (EXT_meshopt_compression). Vendored (the draco / basis
+// treatment — see the header on the codec file) rather than depended on: only the decoder is needed at
+// runtime, the npm barrel also pulls the encoder/simplifier/clusterizer, and the engine's runtime deps stay
+// typegpu + the environment. The module embeds its wasm as inline base64 and instantiates it from
 // `MeshoptDecoder.ready` (no wasm asset to fetch, unlike draco/basis), so it bundles into the decode worker
 // chunk with no `import.meta.url` resolution.
-import { MeshoptDecoder } from "meshoptimizer/meshopt_decoder.module.js";
+import { MeshoptDecoder } from "./codec/meshopt_decoder.js";
 import type { MeshoptExtension } from "./gltf";
 
 // process-wide singleton (the loadDraco / loadBasis shape) — lazy because the decoder is only needed by a

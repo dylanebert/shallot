@@ -93,7 +93,6 @@
     "dependencies": {
         "@types/node": "^26.0.0",
         "@webgpu/types": "^0.1.70",
-        "meshoptimizer": "^0.22.0",
         "unplugin-typegpu": "~0.12.1",
         "vite": "^8.0.0"
     },
