@@ -105,6 +105,15 @@ describe("Math functions vs wgpu-matrix", () => {
                 expect(eulerEqual(e, angle, EulerRt)).toBe(true);
             }
         });
+
+        test("throws on NaN in any of the 4 quaternion components", () => {
+            // NaN makes m13 NaN, so `m13 > -0.9999999 && m13 < 0.9999999` is false →
+            // the else branch runs and NaN reaches the returned euler angles.
+            expect(() => math.euler(NaN, 0, 0, 1)).toThrow(/NaN/);
+            expect(() => math.euler(0, NaN, 0, 1)).toThrow(/NaN/);
+            expect(() => math.euler(0, 0, NaN, 1)).toThrow(/NaN/);
+            expect(() => math.euler(0, 0, 0, NaN)).toThrow(/NaN/);
+        });
     });
 
     describe("slerp", () => {
@@ -235,6 +244,20 @@ describe("Math functions vs wgpu-matrix", () => {
             const m = math.lookAt(0, 0, 0, 1e-7, 0, 0);
             // the forward vector is -X (normalized), not the fallback -Z
             expect(m[2]).toBeCloseTo(-1, 5);
+        });
+
+        test("throws on NaN in any of the 9 scalar params (eye, target, up)", () => {
+            // NaN param makes zLen/xLen NaN; `xLen < 1e-6` is false and
+            // `Math.abs(zy) > 0.9` is false, so NaN propagates into the matrix.
+            expect(() => math.lookAt(NaN, 0, 0, 0, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, NaN, 0, 0, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, NaN, 0, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, NaN, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, NaN, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, NaN)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, NaN, 1, 0)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, NaN, 0)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, 1, NaN)).toThrow(/NaN/);
         });
     });
 

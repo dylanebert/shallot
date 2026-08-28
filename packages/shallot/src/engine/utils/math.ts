@@ -101,6 +101,9 @@ export function euler(
     z: number,
     w: number,
 ): { x: number; y: number; z: number } {
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(w)) {
+        throw new Error(`euler received NaN: q=[${x},${y},${z},${w}]`);
+    }
     const x2 = x + x,
         y2 = y + y,
         z2 = z + z;
@@ -465,6 +468,21 @@ export function lookAt(
     upZ = 0,
     out?: Float32Array,
 ): Float32Array {
+    if (
+        !Number.isFinite(eyeX) ||
+        !Number.isFinite(eyeY) ||
+        !Number.isFinite(eyeZ) ||
+        !Number.isFinite(targetX) ||
+        !Number.isFinite(targetY) ||
+        !Number.isFinite(targetZ) ||
+        !Number.isFinite(upX) ||
+        !Number.isFinite(upY) ||
+        !Number.isFinite(upZ)
+    ) {
+        throw new Error(
+            `lookAt received NaN: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}], up=[${upX},${upY},${upZ}]`,
+        );
+    }
     let zx = eyeX - targetX;
     let zy = eyeY - targetY;
     let zz = eyeZ - targetZ;
