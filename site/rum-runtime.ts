@@ -4,6 +4,7 @@
 // page; never imported by anything else, so it has no test of its own — the logic it drives is
 // tested in `rum-sampler.test.ts`.
 
+import { attributeSlowFrame, type LoAFEntry, unsupportedLoafAttribution } from "./rum-loaf";
 import { initialFrameSamplerState, resetFrameSampler, sampleFrame } from "./rum-sampler";
 
 declare global {
@@ -19,6 +20,45 @@ declare global {
 }
 
 let state = initialFrameSamplerState;
+
+// Bound on buffered `long-animation-frame` entries — one entry per delayed frame, so this covers
+// several minutes of steady-state jank without growing unbounded on a long-lived page.
+const LOAF_BUFFER_LIMIT = 200;
+
+let loafSupported = true;
+let loafEntries: LoAFEntry[] = [];
+
+try {
+    // `long-animation-frame` entries (`scripts`, `blockingDuration`) aren't in lib.dom's
+    // `PerformanceEntry` yet — same shape as `packages/shallot/bin/verify.ts`'s own LoAF observer.
+    new PerformanceObserver((list) => {
+        for (const e of list.getEntries() as any[]) {
+            loafEntries.push({
+                startTime: e.startTime,
+                duration: e.duration,
+                blockingDuration: e.blockingDuration,
+                scripts: (e.scripts ?? []).map((s: any) => ({
+                    sourceURL: s.sourceURL ?? "",
+                    sourceFunctionName: s.sourceFunctionName ?? "",
+                    invoker: s.invoker ?? "",
+                    duration: s.duration,
+                })),
+            });
+        }
+        if (loafEntries.length > LOAF_BUFFER_LIMIT) {
+            loafEntries = loafEntries.slice(-LOAF_BUFFER_LIMIT);
+        }
+    }).observe({ type: "long-animation-frame", buffered: true });
+} catch {
+    // Engine lacks LoAF (Safari) — `attributeContext` degrades to `loafSupported: false` below.
+    loafSupported = false;
+}
+
+function attributeContext(startTime: number, duration: number) {
+    return loafSupported
+        ? attributeSlowFrame(startTime, duration, loafEntries)
+        : unsupportedLoafAttribution();
+}
 
 // `wasHidden` has two setters, for two different failure modes, and one consumer:
 //
@@ -68,11 +108,14 @@ function tick(timestamp: number): void {
             // console error, no exception (found 2026-08-26, S2's wire proof — a raw relative
             // startTime reads as ~1970 to the SDK's own event-time bookkeeping).
             const epochStartTime = performance.timeOrigin + startTime;
+            // `startTime`/`duration` here are still rAF-relative, the same clock LoAF entries
+            // report on — the attribution runs before the epoch conversion above, never after.
+            const attribution = attributeContext(startTime, duration);
             window.DD_RUM?.onReady(() => {
                 window.DD_RUM?.addDurationVital("slow_frame", {
                     startTime: epochStartTime,
                     duration,
-                    context,
+                    context: { ...context, ...attribution },
                 });
             });
         }
