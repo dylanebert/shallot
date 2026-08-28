@@ -1042,9 +1042,9 @@ describe("precompile", () => {
         }
     });
 
-    // RED witnessed: The Compute singleton was restored on the last line with no
-    // try/finally, so a mid-test failure leaked the fake device. Changed the error message in
-    // precompile → exit 1; today the finally restores the singleton on any path.
+    // The Compute singleton was restored on a bare trailing line with no try/finally, so a
+    // mid-test throw skipped the restore and the fake device leaked forward. The finally restores
+    // the singleton on any path, matching the file's other restore-guarded arms.
     test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {
         const saved = { ...Compute };
         try {

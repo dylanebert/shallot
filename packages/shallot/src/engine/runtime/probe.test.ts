@@ -245,9 +245,10 @@ describe("one-shot GPU probes", () => {
         }
     });
 
-    // RED witnessed: The five rejects.toThrow calls were not awaited, so a missing
-    // rejection passed silently. Removed the throw in probeTexture → exit 1; today each rejection
-    // is awaited and a missing throw fails the arm.
+    // The five rejects.toThrow calls were un-awaited while every sibling in the file awaits
+    // them. Awaiting makes the arm's failure independent of the matcher's settle-time behavior
+    // rather than newly possible — bun 1.4.0 reds either way, so this is hygiene and a
+    // version-scoped guarantee, not a repair of an unfailable arm.
     test("depth/stencil defaults are unambiguous and combined formats require one aspect", async () => {
         const device = fakeDevice([]);
         const values = new Float32Array([1, 0.25]);
