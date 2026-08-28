@@ -4,21 +4,21 @@
  * compare it with the existing f64 oracle advanced from the identical marshaled state and with the
  * GPU's actual coloring.
  *
- * The envelopes are derived before observing the GPU. The dynamic box starts 1 m clear of the
- * ground's speculative band, so this step is the closed-form inertial kernel plus the zero-force
- * diagonal solve. Its position is `y + vy·dt + g·dt²`: five f32 operations, every intermediate
- * bounded by 2 m, give γ5·2 < 6e-7 m for u=2^-24. The diagonal solve adds one multiply and one
- * divide over the same inertial target; rounding outward to POSITION_TOLERANCE=2e-6 m leaves over
- * 3x the seven-operation interval. BDF1 divides the pose delta by dt, amplifying that bound by 60;
- * its subtraction and division contribute under 2u at the <1 m/s result, so
- * VELOCITY_TOLERANCE=2e-4 m/s rounds the 1.2e-4 m/s propagated bound outward. Every input to both
- * arms is first materialized through one Float32Array.
+ * The envelopes are derived before observing the GPU. The ground top is y=0.5 and the dynamic
+ * box bottom is y=0.49, so their 0.01 m overlap exercises broadphase, SAT contact generation,
+ * coloring, and all ten contact-solve iterations. With u=2^-24, each iteration's contact path has
+ * at most 240 rounded scalar operations (basis/arms, C and J, LDL solve, pose update); all position
+ * operands are below 11 m and the configured 1e5 penalty cancels through H^-1, so outward
+ * first-order propagation is 10·γ240·11 < 1.58e-3 m. POSITION_TOLERANCE=2e-3 m rounds that bound
+ * outward. BDF1 then divides the pose interval by dt=1/60; adding two rounded operations at a
+ * result below 2 m/s gives 60·2e-3 + γ2·2 < 0.121 m/s, so VELOCITY_TOLERANCE=0.125 m/s is its
+ * outward band. Every input to both arms is first materialized through one Float32Array.
  *
- * Red proof (shader integer-division mutant): in `inertialKernel`, replacing gravity's second `dt`
- * factor in `g * dt * dt` with `d.f32(idiv(d.u32(1), d.u32(60)))` makes the resolved WGSL evaluate
- * integer `1u / 60u` before conversion. `bun test ./packages/shallot/tests/avbd/differential.tier.ts`
- * exits 1 with body 1 position error 2.78e-3 m (limit 2e-6): probe readback catches the lost GPU
- * gravity term. The correct floating-point expression is restored in the tracked tree.
+ * Red proof (shader integer-division mutant): in `inertialKernel`, replacing the `dt` in
+ * `std.mul(vel, dt)` with `d.f32(idiv(d.u32(8), d.u32(8)))` makes the real resolved shader evaluate
+ * integer `8u / 8u` before conversion. `bun test ./packages/shallot/tests/avbd/differential.tier.ts`
+ * exits 1 with body 1 position error 1.059e-2 m (limit 2e-3): probe readback catches the corrupted
+ * contact-step inertial target. The correct floating-point expression is restored in the tree.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -32,12 +32,12 @@ import { makeSolver, step } from "./solver";
 const CAPACITY = 8;
 const DT = Math.fround(1 / 60);
 const ITERATIONS = 10;
-const POSITION_TOLERANCE = 2e-6;
-const VELOCITY_TOLERANCE = 2e-4;
+const POSITION_TOLERANCE = 2e-3;
+const VELOCITY_TOLERANCE = 0.125;
 
 const scene = (): Body[] => [
     body([10, 1, 10], 0, 0.5, [0, 0, 0]),
-    body([1, 1, 1], 1, 0.5, [0, 2, 0], [0.1, -0.2, 0.05]),
+    body([1, 1, 1], 1, 0.5, [0, 0.99, 0], [0.1, -0.2, 0.05]),
 ];
 
 function seed(bodies: Body[]): Float32Array {
