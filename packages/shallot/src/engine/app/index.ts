@@ -397,8 +397,9 @@ function sortPlugins(nodes: Plugin[], edges: [Plugin, Plugin][]): Plugin[] {
  * box, so app UI is bounded to the canvas region and can never spill into an embedding host (a
  * host page), even a stray `position: fixed`. `pointer-events: none` lets input
  * reach the canvas; UI panels re-enable it. Returns the overlay. Pass `state` to tie the overlay's
- * removal to the State's lifetime — it auto-registers `overlay.remove()` via {@link State.onDispose},
- * so a build that disposes cleans it up; omit `state` to remove the overlay yourself.
+ * removal to the State's lifetime — it auto-registers `overlay.remove()` via {@link State.onDispose}
+ * and restores the host element's prior inline `position`, so a build that disposes cleans it up; omit
+ * `state` to remove the overlay yourself, in which case the `position` is not restored.
  */
 export function mountOverlay(canvas: HTMLElement | null, state?: State): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
