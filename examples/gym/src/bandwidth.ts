@@ -118,7 +118,6 @@ export const BandwidthPlugin: Plugin = {
         {
             name: "bandwidth",
             group: "draw",
-            annotations: { mode: "always" },
             update() {
                 const device = Compute.device;
                 if (!device || !pipeline || !bind || !cfgBuf || sweeps <= 0) return;

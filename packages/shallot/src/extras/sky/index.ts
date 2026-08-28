@@ -65,7 +65,6 @@ const _staging = new Float32Array(SKY_FLOATS);
 const SkySystem: System = {
     name: "sky",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [ColorSystem],
     update(state) {

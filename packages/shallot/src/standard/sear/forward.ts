@@ -839,7 +839,6 @@ export function precompileVariants(
 export const PrepassSystem: System = {
     name: "prepass",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     update(state) {
         if (!Render.encoder) return;
@@ -873,7 +872,6 @@ export const PrepassSystem: System = {
 export const ColorSystem: System = {
     name: "color",
     group: "draw",
-    annotations: { mode: "always" },
     after: [PrepassSystem],
     before: [GlazeSystem],
     update(state) {
@@ -896,7 +894,6 @@ export const ColorSystem: System = {
 const ShadowCameraSystem: System = {
     name: "shadow-camera",
     group: "simulation",
-    annotations: { mode: "always" },
     update(state) {
         let main = -1;
         for (const eid of state.query([Camera, Sear])) {
@@ -925,7 +922,6 @@ const ShadowCameraSystem: System = {
 const ShadowMapSystem: System = {
     name: "shadowmap",
     group: "draw",
-    annotations: { mode: "always" },
     after: [PrepassSystem],
     before: [ColorSystem],
     update() {

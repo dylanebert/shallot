@@ -112,8 +112,6 @@ export interface Config {
      * cheapest; below 1 = pixel-art downscale). See {@link pixelRatio}.
      */
     pixelRatio?: number | "auto";
-    /** filter systems by `annotations.mode`; fixed at construction. omit to run every system. */
-    mode?: "edit" | "play";
 }
 
 /** result of {@link build} / {@link run}. owns the plugin teardown order. */
@@ -206,7 +204,6 @@ export async function build(config: Config): Promise<App> {
     const state = new State({
         capacity: config.capacity,
         pixelRatio: config.pixelRatio,
-        mode: config.mode,
     });
     const useDefaults = config.defaults !== false;
     const loading = config.loading ?? _defaultLoading?.();
@@ -671,7 +668,6 @@ function systemSig(s: System): string {
         s.group ?? "simulation",
         s.first ? 1 : 0,
         s.last ? 1 : 0,
-        (s.annotations?.mode as string) ?? "",
         (s.annotations?.layer as string) ?? "",
     ].join("|");
 }

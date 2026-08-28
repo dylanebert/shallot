@@ -193,7 +193,6 @@ const Counter = { ticks: sparse(u32) };
 const CounterSystem: System = {
     name: "counter",
     group: "simulation",
-    annotations: { mode: "always" },
     update: (s) => {
         for (const eid of s.query([Counter])) Counter.ticks.set(eid, Counter.ticks.get(eid) + 1);
     },

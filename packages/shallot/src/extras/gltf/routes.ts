@@ -94,13 +94,12 @@ function dropSkin(state: State, eid: number): void {
 /**
  * converge each Part onto its mesh's route: surface + `Textured`/`Skin` follow the handle, and a mesh
  * edited off a glTF handle drops them. Compare-before-write throughout: an unconditional slab set would
- * dirty every decorated entity every frame. `mode: "always"` so an edit-mode viewport renders textures;
- * the add/remove is sanctioned by the components' `derived` trait (nothing serialized sees them).
+ * dirty every decorated entity every frame. The add/remove is sanctioned by the components'
+ * `derived` trait (nothing serialized sees them).
  */
 export const RouteSystem: System = {
     name: "GltfRoute",
     group: "simulation",
-    annotations: { mode: "always" },
     update(state: State) {
         if (routes.size === 0) return;
         const solid = Surfaces.id("default") ?? 0;

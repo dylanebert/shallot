@@ -66,13 +66,11 @@ function release(): void {
 /**
  * flushes the component-membership bitset to the `"membership"` GPU buffer.
  * Draw-group head, before any index-scan consumer (the Part pack) reads it.
- * `mode: "always"` so it runs in edit mode too; the pack it feeds does.
  * The buffer is allocated by `SlabPlugin.warm` ({@link allocMembership}) and released here on dispose
  */
 export const MembershipSystem: System = {
     group: "draw",
     first: true,
-    annotations: { mode: "always" },
     update(state) {
         flush(state);
     },

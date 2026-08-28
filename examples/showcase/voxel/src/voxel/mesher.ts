@@ -681,7 +681,6 @@ function buildChunkList(slots: readonly number[]): Uint32Array {
 export const VoxelEmitSystem: System = {
     name: "voxel-emit",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     // re-emit before sear reads geometry. Sear reads the same vertex/index buffers across its prepass,
     // shadow map, and color passes within a frame, so the emit must land ahead of all of them or a

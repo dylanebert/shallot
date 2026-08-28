@@ -474,10 +474,8 @@ function createCascadeCamera(state: State): number {
 }
 
 // grow/shrink the cascade-camera pool to exactly `n` (the active cascade count). The count is hysteresis-free
-// but `sunCascades()` is fixed before build, so this is effectively a one-time create. Play mode only (an
-// entity add/destroy is forbidden in edit, the always-mode contract)
+// but `sunCascades()` is fixed before build, so this is effectively a one-time create
 function syncCascadePool(state: State, n: number): void {
-    if (state.mode === "edit") return;
     while (_cascadeEids.length < n) _cascadeEids.push(createCascadeCamera(state));
     while (_cascadeEids.length > n) {
         const eid = _cascadeEids.pop()!;
@@ -528,8 +526,8 @@ export function resetCascades(): void {
 /**
  * pose the sun's cascade light cameras + fill the dense per-cascade viewProjs + meta + rects + far-bounds +
  * covers the atlas render + the receiver read. Runs in the `simulation` group, before the draw frame opens.
- * Casts nothing (sets `_cascadeCount = 0`) when no directional light carries a {@link Shadow}, there's no main
- * camera, or in edit mode (no entity may spawn). Two paths by main-camera projection:
+ * Casts nothing (sets `_cascadeCount = 0`) when no directional light carries a {@link Shadow} or there's no
+ * main camera. Two paths by main-camera projection:
  *
  * - **perspective** — split `[near, Shadow.distance]` into {@link sunCascades} depth slices, fit one ortho box
  *   per slice ({@link cascadeFit}); the receiver selects a cascade by view-z and blends across the overlap band.
@@ -543,7 +541,7 @@ export function resetCascades(): void {
  */
 export function updateCascades(state: State, main: number): void {
     const light = state.only([DirectionalLight]);
-    if (light < 0 || !state.has(light, Shadow) || main < 0 || state.mode === "edit") {
+    if (light < 0 || !state.has(light, Shadow) || main < 0) {
         _cascadeCount = 0;
         return;
     }
@@ -982,9 +980,8 @@ function createComboCamera(state: State): number {
 // grow/shrink the combo-camera pool to exactly `n` (the active combo count), creating depth-only cameras
 // as casters appear and tearing the excess down as they leave. Only a count change drives create/destroy —
 // the per-frame path just reposes the live ones — and the caster set is hysteresis-stable, so this is
-// cold. Play mode only (an entity add/destroy is forbidden in edit, the always-mode contract)
+// cold
 function syncComboPool(state: State, n: number): void {
-    if (state.mode === "edit") return;
     while (_comboEids.length < n) _comboEids.push(createComboCamera(state));
     while (_comboEids.length > n) {
         const eid = _comboEids.pop()!;
@@ -1088,7 +1085,7 @@ export function packCasters(frames: PointShadowFrame[], side: number): Rect[][] 
  * perspective(pointFov(tilePx), 1, near, far) × lookAt(light, light+fwd, up)` (near/far = `[range/1000,
  * range]`), written into the shared {@link pointFaceVP} buffer combo-major, with its rect in {@link pointTileRects}.
  * Each combo also gets a pooled depth-only camera ({@link pointComboEids}) the pack frustum-culls casters
- * into (the per-combo cull), spawned lazily in play mode only.
+ * into (the per-combo cull), spawned lazily at the first casting frame.
  */
 export function updatePointShadows(state: State, main: number): PointShadowFrame[] {
     const cap = pointCasters();
@@ -1213,9 +1210,8 @@ export function updatePointShadows(state: State, main: number): PointShadowFrame
 
     // size the combo-camera pool to the active combo count, so each cube face / spot cone is its own
     // depth-only frustum-culled view this frame (the per-combo cull) — the pack culls casters into each
-    // independently. The loop below poses each from its face/cone basis; play mode only (the pool stays
-    // empty in edit, where no entity may spawn, so point shadows don't render while editing), and an empty
-    // caster set tears the pool down
+    // independently. The loop below poses each from its face/cone basis, and an empty caster set tears
+    // the pool down
     syncComboPool(state, comboSlots(frames));
 
     // fill the combo tile-viewProjs densely (a point caster's 6 cube faces, a spot's 1 cone), the per-combo

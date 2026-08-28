@@ -125,7 +125,6 @@ function inputs(): Inputs {
 const PackSystem: System = {
     name: "pack",
     group: "draw",
-    annotations: { mode: "always" },
     update(state: State) {
         const step = Avbd.step;
         if (!step || !Compute.device) return;

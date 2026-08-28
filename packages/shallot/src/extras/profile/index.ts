@@ -1077,7 +1077,7 @@ let _benchmarkReady = false;
 // the overlay is a convenience HUD, off by default and toggled with F3 (owned here, not per-consumer).
 // it lives inside the canvas's container so it sits within the view, not over the whole window — a
 // fullscreen example reads the same; an embedded canvas stays inside its host container. persists across
-// rebuilds (module-scoped), so a scene edit in a live authoring host doesn't re-hide it.
+// rebuilds (module-scoped), so a rebuild doesn't re-hide it.
 let _visible = false;
 
 /**
@@ -1102,7 +1102,6 @@ export function showProfiler(show = true): void {
 // before reset zeroes it. The map is kicked here, so draining trails by 1–2 frames.
 const ProfileFrameBeginSystem: System = {
     group: "setup",
-    annotations: { mode: "always" },
     first: true,
     update() {
         _profile.drain();
@@ -1117,7 +1116,6 @@ const ProfileFrameBeginSystem: System = {
 // races the render submit (a `last: true` tie with EndFrameSystem, which the render contract warns off).
 const ProfileRenderSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     last: true,
     update(state: State) {
         _benchmarkReady = true;

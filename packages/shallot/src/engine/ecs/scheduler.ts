@@ -213,13 +213,8 @@ export class Scheduler {
 
     private runGroup(state: State, group: SystemGroup): void {
         const record = this.record;
-        const mode = state.mode;
         for (const system of this.getSorted(group)) {
             if (this._errored.has(system)) continue;
-            if (mode !== undefined) {
-                const systemMode = (system.annotations?.mode as string | undefined) ?? "play";
-                if (systemMode !== "always" && systemMode !== mode) continue;
-            }
             // quarantine, not crash: a throwing system must not kill the frame loop (a hot-reloaded
             // bug would wedge a live host). It pauses after the first throw — a failed setup stays
             // uninitialized so the fix retries it — and resumes on its next swap or a rebuild.

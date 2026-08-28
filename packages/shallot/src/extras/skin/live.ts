@@ -672,7 +672,6 @@ export const LiveSkin = {
 export const LiveSkinSystem: System = {
     name: "LiveSkin",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     update() {

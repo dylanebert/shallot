@@ -140,7 +140,6 @@ export function particleState(): { raw: GPUBuffer; typed: ParticleBuffer; draw: 
 const integrate: System = {
     name: "particles",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     update() {

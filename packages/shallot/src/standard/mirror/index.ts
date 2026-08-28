@@ -180,10 +180,6 @@ export function mirror<T extends MirrorSource>(source: T, opts?: { ring?: number
  */
 export const MirrorSystem: System = {
     group: "draw",
-    // `mode: "always"` — a live authoring host builds with `mode: "edit"`, and a readback in edit mode
-    // (a viewport pick samples `view.tag` through a Mirror) needs the flush to run there too. The flush is
-    // non-destructive (buffer copies + a `snapshot` field, no component add/remove), so it's edit-safe.
-    annotations: { mode: "always" },
     last: true,
     update(state) {
         Mirror.flush(state);

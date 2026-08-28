@@ -424,7 +424,6 @@ export const ConstraintSystem: System = {
 export const ComposeSystem: System = {
     name: "compose",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     update(state) {

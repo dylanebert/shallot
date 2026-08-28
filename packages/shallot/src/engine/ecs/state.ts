@@ -46,14 +46,6 @@ const _liveStates = new Set<State>();
  * };
  */
 export class State {
-    /**
-     * when set, scheduler skips systems whose `annotations.mode` differs.
-     * `"always"`-annotated systems run in both modes. fixed at construction.
-     * rebuild the app to switch modes. leave undefined to run every system
-     * regardless of annotation.
-     */
-    readonly mode: "edit" | "play" | undefined;
-
     private _scheduler = new Scheduler();
     private _entities = new Entities();
     private _components = new Components();
@@ -66,7 +58,6 @@ export class State {
     constructor(opts?: {
         capacity?: number;
         pixelRatio?: number | "auto";
-        mode?: "edit" | "play";
     }) {
         if (opts?.capacity !== undefined && opts.capacity !== capacity) {
             if (!Number.isFinite(opts.capacity) || opts.capacity < 1) {
@@ -89,7 +80,6 @@ export class State {
             }
             pixelRatio = opts.pixelRatio;
         }
-        this.mode = opts?.mode;
         _liveStates.add(this);
     }
 

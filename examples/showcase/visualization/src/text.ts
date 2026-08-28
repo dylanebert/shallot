@@ -19,7 +19,6 @@ const Ring = { phase: sparse(f32) };
 
 const RingSystem: System = {
     group: "simulation",
-    annotations: { mode: "always" },
     update(state) {
         const t = performance.now() * 0.001;
         for (const eid of state.query([Ring, Transform])) {

@@ -434,7 +434,6 @@ const warmAccelArm = createGenerationWarm<
 function accelPlugin(): Plugin {
     const pass: System = {
         group: "draw",
-        annotations: { mode: "always" },
         after: [BeginFrameSystem], // opens Render.encoder; build is a pure-compute producer pass on it
         update() {
             if (!bvh || !tracer || !Render.encoder) return;
@@ -446,7 +445,6 @@ function accelPlugin(): Plugin {
     };
     const draw: System = {
         group: "simulation",
-        annotations: { mode: "always" },
         update: drawOverlay,
     };
     // the arm the live tab measures + orbits; `subgroups=false` forces the LDS kernels (bounds reduce

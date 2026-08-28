@@ -222,7 +222,6 @@ const StressDriver: Plugin = {
         {
             name: "stress-driver",
             group: "draw",
-            annotations: { mode: "always" },
             update() {
                 if (assertActive) return;
                 setLoad(Number(stressParams?.compute ?? 0) | 0);

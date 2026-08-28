@@ -8,7 +8,6 @@ let panel: HTMLDivElement | null = null;
 
 const HudSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     update(state: State) {
         if (typeof document === "undefined") return;
         if (!panel) {

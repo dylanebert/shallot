@@ -8,7 +8,6 @@ import { start } from "./boot";
 // (the cube layout) and drawing over it. Half a cube is half its scale.
 const FeedSystem: System = {
     group: "simulation",
-    annotations: { mode: "always" },
     update(state) {
         const cubes = [...state.query([Part, Transform])];
         const sel = Math.floor(performance.now() * 0.0008) % cubes.length;

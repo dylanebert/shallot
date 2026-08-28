@@ -219,12 +219,11 @@ let booted = false;
 
 // the world spawns from a boot system, not `warm`: build() reads `Avbd.step` (joints, the body Mirror),
 // and plugin warms run concurrently (Promise.all in build()), so AvbdPlugin.warm may not have created the
-// step yet. A one-shot system gated on `Avbd.step` runs after every plugin has warmed — `mode: always` so
-// the room renders in edit mode too, not only play. `setup` re-arms per State build.
+// step yet. A one-shot system gated on `Avbd.step` runs after every plugin has warmed. `setup` re-arms
+// per State build.
 const BootSystem: System = {
     name: "sandbox-boot",
     group: "simulation",
-    annotations: { mode: "always" },
     setup() {
         booted = false;
     },
@@ -232,18 +231,16 @@ const BootSystem: System = {
         if (booted || !Avbd.step) return;
         booted = true;
         build(state);
-        // the crosshair + prompts are gameplay chrome — skip them in edit mode (the gun
-        // doesn't run there), mount in play + standalone. Plugin-owned DOM mounts into the engine's
-        // sandboxed overlay (`mountOverlay`), the same canvas-bounded surface `config.ui` hands an app.
-        // Teardown is State-owned: passing `state` auto-removes the overlay, and the hud's own cleanup
-        // registers beside it — both unwind at `state.dispose()`, no plugin `dispose` hook for the UI.
-        if (state.mode !== "edit") {
-            const overlay = mountOverlay(document.querySelector("canvas"), state);
-            state.onDispose(hud(overlay));
-            // Pointer Lock has no touch equivalent (this unit ships sandbox desktop-only, `ui.ts`'s
-            // header) — a touch-only visitor gets a reason instead of a silently unplayable gun.
-            if (isTouchOnly()) state.onDispose(touchNotice(overlay));
-        }
+        // the crosshair + prompts are gameplay chrome, mounted alongside the scene. Plugin-owned DOM
+        // mounts into the engine's sandboxed overlay (`mountOverlay`), the same canvas-bounded surface
+        // `config.ui` hands an app. Teardown is State-owned: passing `state` auto-removes the overlay,
+        // and the hud's own cleanup registers beside it — both unwind at `state.dispose()`, no plugin
+        // `dispose` hook for the UI.
+        const overlay = mountOverlay(document.querySelector("canvas"), state);
+        state.onDispose(hud(overlay));
+        // Pointer Lock has no touch equivalent (this unit ships sandbox desktop-only, `ui.ts`'s
+        // header) — a touch-only visitor gets a reason instead of a silently unplayable gun.
+        if (isTouchOnly()) state.onDispose(touchNotice(overlay));
     },
 };
 

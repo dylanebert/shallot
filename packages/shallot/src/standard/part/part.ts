@@ -135,7 +135,6 @@ export const Parts: Parts = {
  */
 export const PartSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     update() {
         if (!Render.encoder || !_countPipe || !_scanPipe || !_scatterPipe) return;

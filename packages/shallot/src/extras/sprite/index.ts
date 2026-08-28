@@ -146,7 +146,6 @@ function rebuild(state: State, device: GPUDevice): void {
 const SpriteSystem: System = {
     name: "sprite",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup() {

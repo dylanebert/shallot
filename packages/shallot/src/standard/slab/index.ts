@@ -493,12 +493,9 @@ export function slab(type: Type, name?: string): Single | Pair | Quad {
 /**
  * per-frame flush of every slab. Runs at the head of the draw group so any
  * draw-group consumer sees the just-uploaded canonical buffer this frame.
- * `mode: "always"`; a live authoring host builds with `mode: "edit"`, and the transform
- * compose firehose this feeds must upload there too, or the viewport renders nothing.
  */
 export const SlabSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     first: true,
     update() {
         Slab.flush();

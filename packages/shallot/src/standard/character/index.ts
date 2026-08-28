@@ -263,8 +263,7 @@ function sweepEid(eid: number, st: CharState, state: State, backend: PhysicsBack
     }
 }
 
-// Fixed group — the deterministic dt the sweep integrates gravity over. Plays only (no `mode: "always"`):
-// edit mode doesn't simulate, so a play start re-syncs `states` from the current Body slab.
+// Fixed group — the deterministic dt the sweep integrates gravity over.
 /**
  * the kinematic-character sweep: runs collide-and-slide for every `[Character, Body]` each fixed step,
  * before the physics solve, uploading the swept pose as a kinematic body. Exported as an ordering anchor: a

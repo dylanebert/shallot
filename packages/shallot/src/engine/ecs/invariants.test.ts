@@ -266,7 +266,7 @@ describe("Entity lifecycle invariants", () => {
         expect(visitedOriginals).toHaveLength(3);
     });
 
-    // The membership generation freeze is an engine-owned session invariant: `app/index.ts` calls
+    // The membership generation freeze is an engine-owned build invariant: `app/index.ts` calls
     // `state.membership.freeze()` before `warmPlugins`, not a standard plugin's `warm`. This arm
     // exercises the invariant through the real build path — after `build()` returns, the membership
     // is frozen, so a component that would require a new generation is refused.

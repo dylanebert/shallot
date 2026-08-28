@@ -143,7 +143,6 @@ function fogLights(): LightsGroup {
 export const FogSystem: System = {
     name: "fog",
     group: "draw",
-    annotations: { mode: "always" },
     after: [ColorSystem],
     // a scene-transform effect runs before the overlay anchor, so a screen-space overlay (outline)
     // composites on top of the haze rather than getting marched over by it (render.md "the post-color seam")
