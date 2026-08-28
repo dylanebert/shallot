@@ -42,6 +42,14 @@ import { bodyCandidates, raycast, StepSystem } from "@dylanebert/shallot/physics
 // isolation gate reads it to confirm the multithreaded boot engaged
 import { threads } from "@dylanebert/shallot/tumble/core";
 import { type Check, frames, type Params, register, type Scenario, settle } from "../gym";
+import {
+    BACKEND_BOX_HALF as BOX_HALF,
+    BACKEND_DROP_Y as DROP_Y,
+    BACKEND_FALL_THROUGH_BAND as FALL_THROUGH_BAND,
+    BACKEND_FLOOR_HALF_Y as FLOOR_HALF_Y,
+    BACKEND_REST_BAND as REST_BAND,
+    BACKEND_REST_Y as REST_Y,
+} from "./backend-geometry";
 
 // backend — the substrate swap gate: ONE scene, authored purely against
 // the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
@@ -74,12 +82,8 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 //     sync system (`tumble-sync` / `pack`), so a `count` sweep gives a comparable backend-vs-backend perf
 //     snapshot.
 
-const FLOOR_HALF_Y = 0.5;
 const FLOOR_MARGIN = 2; // clearance past the grid's outer edge / the platform's swept lane
-const BOX_HALF = 0.4;
 const SPACING = 1.2;
-const DROP_Y = 5;
-const REST_Y = FLOOR_HALF_Y + BOX_HALF; // 0.9 — the box settles on the floor top
 const PLATFORM_HALF: [number, number, number] = [1.5, 0.25, 1.5];
 const PLATFORM_Y = 1.5;
 const PLATFORM_X0 = 6;
@@ -485,12 +489,12 @@ function settleGates(): Check[] {
     }
     checks.push({
         name: "settle (every dropped box rests on the floor)",
-        pass: allFinite && maxErr < 0.1,
+        pass: allFinite && maxErr < REST_BAND,
         detail: `max |y − rest| ${maxErr.toFixed(4)} (rest ${REST_Y}), all finite ${allFinite}`,
     });
     checks.push({
         name: "no fall-through (nothing sank below the floor)",
-        pass: allFinite && minY > REST_Y - 0.5,
+        pass: allFinite && minY > REST_Y - FALL_THROUGH_BAND,
         detail: `min y ${minY.toFixed(3)} (rest ${REST_Y})`,
     });
     return checks;
