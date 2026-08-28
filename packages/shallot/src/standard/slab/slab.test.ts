@@ -22,8 +22,8 @@ import { elementBytes, scatterWgsl } from "./scatter";
 
 // Pure-CPU slab logic (no device): CPU-storage alloc, set/get + dirty bits, defaults-through-.set,
 // and the sub-32-bit warn. The real-GPU scatter flush (dirty slots → the canonical buffer, per type,
-// dirty-clear) is the gym `render` scenario's transport round-trip (`bun bench --scenario
-// render`) — the single source of truth for anything that binds a device. `Slab.collect()` is the
+// dirty-clear) is gated by the gym `render` scenario's transport round-trip (`bun bench --scenario
+// render`), the product-truth gate for the resolved pipeline's execution. `Slab.collect()` is the
 // device-free CPU-alloc pass `build()` runs over the registry; the `.gpu` mirror is `prepare()` at warm.
 // One exception binds a device here: the reset/in-flight-stager lifecycle race, unreachable from the gym.
 

@@ -9,6 +9,7 @@
 
 import {
     build,
+    Physics,
     type Plugin,
     type State,
     type System,
@@ -24,10 +25,13 @@ import { OrbitPlugin } from "../src/extras/orbit";
 import { LiveSkin, Skin, SkinPlugin } from "../src/extras/skin";
 import { SpritePlugin } from "../src/extras/sprite";
 import { TweenPlugin } from "../src/extras/tween";
+import { Avbd, AvbdPlugin } from "../src/standard/avbd";
+import { CharacterPlugin } from "../src/standard/character";
 import { GlazePlugin } from "../src/standard/glaze";
 import { InputPlugin } from "../src/standard/input";
 import { MirrorPlugin } from "../src/standard/mirror";
 import { PartPlugin } from "../src/standard/part";
+import { PlayerPlugin } from "../src/standard/player";
 import { RenderPlugin } from "../src/standard/render";
 import { Draws, Surfaces } from "../src/standard/render/core";
 import { SearPlugin } from "../src/standard/sear";
@@ -39,6 +43,11 @@ export interface Conformance {
     scene?: string;
     /** snapshot of plugin-owned module registries, compared across builds */
     probe?: () => unknown;
+    /** entity capacity fixed at app construction (`build({ capacity })`). Only the physics entries set
+     *  it: 8192 keeps the solver's contact store (eidCap × 3584 B ≈ 28 MiB) under the bun-webgpu
+     *  lavapipe adapter's 128 MiB maxStorageBufferBindingSize ceiling, so the AVBD build pipeline
+     *  runs headlessly too — measured, see `tests/avbd/headless.tier.ts`'s header. */
+    capacity?: number;
 }
 
 // GPU validation errors are reported via the device's uncapturederror → console.error path, invisible
@@ -59,7 +68,7 @@ export function captureGpuErrors(out: string[]): () => void {
 // build reuses the first's device — the rebuild contract (a same-device rebuild; a fresh device
 // is the page-reload case, where module scope resets too). Returns the signature divergences
 // between the two passes — a compliant plugin returns none.
-export async function conform({ plugins, scene, probe }: Conformance): Promise<string[]> {
+export async function conform({ plugins, scene, probe, capacity }: Conformance): Promise<string[]> {
     clear();
     const passes: Record<string, unknown>[] = [];
     const gpuErrors: string[] = [];
@@ -67,7 +76,7 @@ export async function conform({ plugins, scene, probe }: Conformance): Promise<s
     let device: GPUDevice | undefined;
     try {
         for (let pass = 0; pass < 2; pass++) {
-            const app = await build({ plugins, defaults: false, scene, device });
+            const app = await build({ plugins, defaults: false, scene, device, capacity });
             device = Compute.device;
             if (app.skipped.length > 0) {
                 app.dispose();
@@ -114,6 +123,7 @@ export async function conformSequence(steps: Conformance[]): Promise<string[]> {
                 defaults: false,
                 scene: step.scene,
                 device,
+                capacity: step.capacity,
             });
             device = Compute.device;
             if (app.skipped.length > 0) {
@@ -267,9 +277,53 @@ export const roster: Record<string, Conformance> = {
             <a id="box" part transform />
         </scene>`,
     },
-    // Physics / Character / Player can't build on the bun-webgpu adapter (the contact store
-    // exceeds its limits — UnsupportedError at build), so they join at the real-GPU tier when
-    // a rebuild-loop gym scenario exists, not here.
+    // the physics stack builds and steps headlessly too — at a capacity its contact store fits
+    // under the bun-webgpu adapter's ceiling. The old exclusion here ("can't build on the
+    // bun-webgpu adapter — join at the real-GPU tier") was a capacity artifact, not a device
+    // capability: the engine-default 65536 capacity sizes the contact store at ~235 MiB, over
+    // lavapipe's 128 MiB maxStorageBufferBindingSize, while 8192 (~28 MiB) fits with 4.5× headroom
+    // (measured, Mesa 25.3.4 — derivation + per-arm wall clock in `tests/avbd/headless.tier.ts`'s
+    // header, which proves build → fixed-tick step → probeBuffer readback on the preloaded adapter).
+    // The probe pins the backend singleton being re-created per build at the threaded capacity — a
+    // rebuild that leaked or doubled the solver handle diverges here. Solver math parity stays CPU
+    // (`avbd/*.oracle.ts`) + real-GPU (gym `pile`); these are lifecycle arms only.
+    Physics: {
+        plugins: [SlabPlugin, MirrorPlugin, AvbdPlugin],
+        capacity: 8192,
+        scene: `<scene>
+            <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
+            <a body="pos: 0 6 0; half-extents: 0.6 0.6 0.6; mass: 1" />
+        </scene>`,
+        probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+    },
+    Character: {
+        plugins: [SlabPlugin, MirrorPlugin, AvbdPlugin, CharacterPlugin],
+        capacity: 8192,
+        scene: `<scene>
+            <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
+            <a id="char" body="pos: 0 3 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character />
+        </scene>`,
+        probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+    },
+    Player: {
+        plugins: [
+            SlabPlugin,
+            TransformsPlugin,
+            RenderPlugin,
+            InputPlugin,
+            MirrorPlugin,
+            AvbdPlugin,
+            CharacterPlugin,
+            PlayerPlugin,
+        ],
+        capacity: 8192,
+        scene: `<scene>
+            <a id="eye" camera transform="pos: 0 1.5 5" />
+            <a id="player" body="pos: 0 1 0; shape: 2; half-extents: 0 0.6 0 0.3; mass: 0" character player="camera: @eye" />
+            <a body="pos: 0 0 0; half-extents: 10 0.5 10; mass: 0" />
+        </scene>`,
+        probe: () => ({ backend: Physics.backend !== null, eidCap: Avbd.step?.eidCap ?? 0 }),
+    },
     Tween: {
         plugins: [SlabPlugin, TransformsPlugin, TweenPlugin],
         scene: `<scene><a id="thing" transform tween="field: transform.pos.y; to: 3; duration: 1" /></scene>`,
@@ -302,10 +356,14 @@ export const roster: Record<string, Conformance> = {
 };
 
 /**
- * The declared predicate splitting the roster: true when an entry's plugins include `RenderPlugin`,
- * the plugin whose presence triggers GPU render-pipeline compilation — the cost being promoted to
- * the by-path tier. Entries without it (Project, Mirror, Input, Slab+Transforms, Orbit, Tween) are
- * cheap and stay in the default-tier sentinel.
+ * The declared predicate splitting the roster: true when an entry's plugins include `RenderPlugin`
+ * or `AvbdPlugin` — the plugins whose presence triggers GPU pipeline compilation, the cost being
+ * promoted to the by-path tier. `RenderPlugin` compiles render pipelines; `AvbdPlugin` compiles the
+ * AVBD solver's compute pipeline set and binds the device at the entry's threaded capacity (its
+ * headless build cost is measured in `tests/avbd/headless.tier.ts`'s header — Physics/Character would
+ * blow the 5000 ms per-file cap on a cold adapter, the same straddle that split this tier).
+ * Entries with neither (Project, Mirror, Input, Slab+Transforms, Orbit, Tween) are cheap and stay
+ * in the default-tier sentinel.
  */
 export const isPipelineCompiling = (entry: Conformance): boolean =>
-    entry.plugins.includes(RenderPlugin);
+    entry.plugins.includes(RenderPlugin) || entry.plugins.includes(AvbdPlugin);

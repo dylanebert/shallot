@@ -1,9 +1,13 @@
 // the by-path tier holding the GPU pipeline-compiling arms promoted out of `conformance.test.ts`.
 //
 // Reason: real GPU pipeline-compile cost. The promoted arms (Render, Part, Sear, Glaze, Lines,
-// Sprite, Skin roster entries; both producer/non-producer toggle arms; the SkinPlugin+GltfPlugin
-// pair; the shared-trait ordering arm) each build through `RenderPlugin`, which compiles GPU render
-// pipelines. Measured 2026-08-26 on trunk: the full 18-arm file ran 4.6–6.3 s, straddling the
+// Sprite, Skin, Physics, Character, Player roster entries; both producer/non-producer toggle arms;
+// the SkinPlugin+GltfPlugin pair; the shared-trait ordering arm) each build through `RenderPlugin`,
+// which compiles GPU render pipelines — or, for the physics stack (Physics, Character, Player),
+// through `AvbdPlugin`, whose build compiles the AVBD solver's compute pipeline set on the device at
+// a threaded entity capacity (8192 — the contact store fits under the bun-webgpu adapter's 128 MiB
+// binding ceiling; the headless build/step/readback measurement lives in
+// `tests/avbd/headless.tier.ts`'s header). Measured 2026-08-26 on trunk: the full 18-arm file ran 4.6–6.3 s, straddling the
 // 5000 ms per-file cap (`tests/test-cap.ts`) — readings 5062–6279 ms across isolated runs, so the
 // verdict was a host-load coin flip (4-in-6 red), and the blamed arm was whichever test crossed the
 // budget. No conformance assertion ever failed; every red was `per-file test cap exceeded`. The
@@ -24,9 +28,12 @@
 // `src/standard/part/`, `src/standard/sear/`, `src/standard/glaze/`, `src/extras/lines/`,
 // `src/extras/sprite/`, `src/extras/skin/`, `src/extras/gltf/`, `src/extras/tween/`, plus the
 // `src/standard/slab/` and `src/standard/transforms/` trees every promoted arm builds on
-// (`SlabPlugin`/`TransformsPlugin` ride in as `RenderPlugin`'s declared `dependencies`). Re-derive
-// this list from the imports above if it drifts — the derivation is the operative rule, not the
-// enumeration. A by-path tier file's own header is its registry (`test-cap.ts:96`).
+// (`SlabPlugin`/`TransformsPlugin` ride in as `RenderPlugin`'s declared `dependencies`), plus —
+// for the physics-stack arms — `src/standard/avbd/` (the solver), `src/standard/physics/`
+// (the substrate), `src/standard/character/` + `src/standard/player/` (the sweep + controller),
+// and `src/standard/mirror/` + `src/standard/input/` (their readback + input dependencies).
+// Re-derive this list from the imports above if it drifts — the derivation is the operative rule,
+// not the enumeration. A by-path tier file's own header is its registry (`test-cap.ts:96`).
 //
 // Run by path from the shallot root: `bun test ./packages/shallot/tests/conformance.tier.ts`.
 //
