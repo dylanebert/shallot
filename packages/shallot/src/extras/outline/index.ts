@@ -336,7 +336,6 @@ function renderOutline(
 const OutlineSystem: System = {
     name: "outline",
     group: "draw",
-    annotations: { mode: "always" },
     // an overlay: after the scene color (ColorSystem) and after any scene-transform effect (the OverlaySystem
     // anchor, which fog runs before), so the band composites on top of the haze; before glaze presents it.
     // Both anchor refs drop harmlessly when their plugin isn't registered (render.md "the post-color seam")

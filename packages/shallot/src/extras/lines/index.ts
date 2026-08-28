@@ -48,7 +48,7 @@ export const Line = {
     color: sparse(f32),
     /** 0..1 opacity multiplier */
     opacity: sparse(f32),
-    /** drawn when nonzero; set to 0 to hide without removing (edit-mode safe) */
+    /** drawn when nonzero; set to 0 to hide without removing */
     visible: sparse(f32),
 };
 
@@ -114,7 +114,6 @@ function expandRetained(state: State): void {
 const LinesSystem: System = {
     name: "lines",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup() {

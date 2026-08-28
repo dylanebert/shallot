@@ -16,7 +16,7 @@ export type PluginValue = boolean | string | [string, boolean];
 /**
  * the on-disk manifest, tolerant-parsed — the serialized form of the runtime `Config`, read identically
  * by the toolchain and a standalone boot. `plugins` is name → {@link PluginValue}; `capacity` is the fixed
- * entity capacity (a session invariant, like `new State({ capacity })`), omitted to take the engine default.
+ * entity capacity (a build invariant, like `new State({ capacity })`), omitted to take the engine default.
  */
 export interface Manifest {
     /** JSON Schema pointer for IDE autocomplete/validation (`@dylanebert/shallot/shallot.schema.json`);

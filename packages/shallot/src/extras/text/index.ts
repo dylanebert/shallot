@@ -390,7 +390,6 @@ function rebuild(state: State, device: GPUDevice): void {
 const TextSystem: System = {
     name: "text",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup() {

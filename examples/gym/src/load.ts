@@ -91,7 +91,6 @@ export const LoadPlugin: Plugin = {
         {
             name: "load",
             group: "draw",
-            annotations: { mode: "always" },
             update() {
                 const device = Compute.device;
                 if (!device || !pipeline || !bind || !cfgBuf || iters <= 0) return;

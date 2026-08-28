@@ -54,7 +54,6 @@ const noWallsFs = tgpu.fn(
 const RawProducerSystem: System = {
     name: "no-walls-raw-producer",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     async setup() {

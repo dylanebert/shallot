@@ -369,7 +369,7 @@ function wave(): void {
 
 const transportPlugin: Plugin = {
     name: "GymRenderTransport",
-    systems: [{ group: "simulation", annotations: { mode: "always" }, update: wave } as System],
+    systems: [{ group: "simulation", update: wave } as System],
 };
 
 // the cluster grid's CPU↔GPU boundary gate: Mirror-read the GPU AABB buffer and
@@ -3306,7 +3306,6 @@ function maxPosedExcursion(g: ReturnType<typeof buildRigGeometry>): number {
 const RigDriverSystem: System = {
     name: "skin-live-driver",
     group: "simulation",
-    annotations: { mode: "always" },
     update(state: State) {
         if (rigEid < 0) return;
         const t = state.time.elapsed;
@@ -3835,7 +3834,6 @@ const _ragQTi: Q4 = [0, 0, 0, 1];
 const RagdollSystem: System = {
     name: "ragdoll-driver",
     group: "simulation",
-    annotations: { mode: "always" },
     update(state: State) {
         if (ragEid < 0 || ragBones.length === 0) return;
         if (ragJointsWired === 0) wireRagdoll();
@@ -4347,7 +4345,6 @@ export function ownTagHookResource<T extends { destroy(): void }>(state: State, 
 const TagHookNonInstancedDrawSystem: System = {
     name: "tag-hook-non-instanced-draw",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     before: [PrepassSystem],
     setup(state) {

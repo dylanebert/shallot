@@ -322,8 +322,7 @@ export function disposeVatFallback(): void {
  * advance each skinned instance's play time, looping on its own clip duration (`Skin.anim.w`, so N meshes
  * with different clip lengths coexist). Reload-safe: time is derived from `state.time.elapsed` + the
  * instance's phase lane, never accumulated (ecs.md "no module-level accumulator"). A `simulation`-group
- * system, so SlabSystem (`draw`, first) flushes the write before sear's geometry passes read it. Runs in play
- * only (default mode), so a live host in edit mode shows the rest/bind pose.
+ * system, so SlabSystem (`draw`, first) flushes the write before sear's geometry passes read it.
  */
 export const SkinSystem: System = {
     name: "Skin",

@@ -302,7 +302,6 @@ let _typedAabbs: (TgpuBuffer<d.WgslArray<d.Vec4f>> & StorageFlag) | null = null;
  */
 export const ClusterSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     update() {
         if (!Render.encoder || !_pipe || Render.shadeCount === 0) return;
         const used = Render.shadeCount * CLUSTER_VIEW_FLOATS;
@@ -743,7 +742,6 @@ function checkOverflow(): void {
  */
 export const LightCullSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     update(state) {
         if (!Render.encoder || !_compactPipe || !_cullPipe || Render.shadeCount === 0) return;
         warnLightOverflow(state);

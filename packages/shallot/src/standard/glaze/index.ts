@@ -120,7 +120,6 @@ function uploadConfig(state: State, eid: number, slot: number): void {
 export const GlazeSystem: System = {
     name: "glaze",
     group: "draw",
-    annotations: { mode: "always" },
     after: [BeginFrameSystem],
     update(state) {
         const encoder = Render.encoder;

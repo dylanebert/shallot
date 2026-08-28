@@ -29,7 +29,7 @@ import {
 // voxel's carve-capable mesher needs); this plugin's only job is installing the device gate + the capture
 // bridge once the terrain mesh is registered, and the seed control's F9 key (the spec's "a seed control in
 // the voxel-toolbar idiom at most" — a key, not a toolbar: this example has no drawing tool for a toolbar
-// to switch between). `mode: always` so the poll runs in edit mode too, not just play.
+// to switch between).
 
 declare global {
     interface Window {
@@ -96,7 +96,6 @@ let armed = true;
 const BootSystem: System = {
     name: "roads-boot",
     group: "simulation",
-    annotations: { mode: "always" },
     setup() {
         armed = true; // setup runs once per State build — re-arm so a rebuild re-installs the gate
     },

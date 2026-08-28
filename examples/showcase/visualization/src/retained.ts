@@ -14,7 +14,6 @@ const Spin = {
 
 const SpinSystem: System = {
     group: "simulation",
-    annotations: { mode: "always" },
     update(state) {
         const t = performance.now() * 0.001;
         for (const eid of state.query([Spin, Line])) {

@@ -11,8 +11,7 @@ import { Voxels } from "./voxel/mesher";
 // they exist: it fills the grid on the GPU (FBM terrain — the live visual), syncs the CPU mirror so the carve
 // path can march it, mounts the toolbar + keys, and installs the device gate. The gate + perf probe both
 // mirror `Voxels.cursor` (the per-chunk atomic face count) rather than `.indirect` — the CPU-authored draw
-// record would make the gate circular. `mode: always` so the terrain meshes
-// in edit mode too, not just play. Idempotent per State — `setup` re-arms it each build (ecs.md
+// record would make the gate circular. Idempotent per State — `setup` re-arms it each build (ecs.md
 // "Reload-safety"); `dispose` tears the UI down so a rebuild doesn't stack overlays.
 
 declare global {
@@ -33,7 +32,6 @@ let toolbar: { setTool: (t: "pointer" | "terrain") => void; dispose: () => void 
 const BootSystem: System = {
     name: "voxel-boot",
     group: "simulation",
-    annotations: { mode: "always" },
     setup() {
         armed = true; // setup runs once per State build — re-arm so a rebuild re-boots
     },

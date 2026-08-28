@@ -86,7 +86,6 @@ export const SubmissionPlugin: Plugin = {
         {
             name: "submission",
             group: "draw",
-            annotations: { mode: "always" },
             update(state) {
                 if (passes <= 0) return;
                 for (let p = 0; p < passes; p++) {

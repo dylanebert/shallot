@@ -171,7 +171,6 @@ export function handlePositions(): [[number, number, number], [number, number, n
 const EditSystem: System = {
     name: "roads-edit",
     group: "simulation",
-    annotations: { mode: "always" },
 
     update(state) {
         liveState = state;

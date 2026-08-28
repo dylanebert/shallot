@@ -11,7 +11,6 @@ const STEP = (SPAN * 2) / (N - 1);
 
 const FeedSystem: System = {
     group: "simulation",
-    annotations: { mode: "always" },
     update() {
         const t = performance.now() * 0.001;
         for (let i = 0; i < N; i++) {

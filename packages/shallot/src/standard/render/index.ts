@@ -77,7 +77,6 @@ function basisColumn(world: Float32Array, base: number, out: Float32Array, at: n
  */
 export const BeginFrameSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     first: true,
     update(state) {
         Render.encoder = null;
@@ -242,7 +241,6 @@ export const BeginFrameSystem: System = {
 /** closes the frame: submits the encoder, advances `Compute.frame` */
 const EndFrameSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     last: true,
     update() {
         const encoder = Render.encoder;
@@ -274,7 +272,6 @@ const EndFrameSystem: System = {
 export const OverlaySystem: System = {
     name: "overlay",
     group: "draw",
-    annotations: { mode: "always" },
 };
 
 /** allocates the device-shared substrate: format, view UBO, frame UBO */

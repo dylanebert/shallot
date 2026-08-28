@@ -116,7 +116,6 @@ function isButton(mouse: Readonly<Mouse>, button: number): boolean {
 
 const OrbitSystem: System = {
     group: "simulation",
-    annotations: { mode: "always" },
 
     update(state: State) {
         const input = Inputs;

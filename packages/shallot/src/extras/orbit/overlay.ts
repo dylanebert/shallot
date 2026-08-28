@@ -83,7 +83,6 @@ let _shownUntil = 0;
 
 const OrbitOverlaySystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     last: true,
     update(state: State) {
         if (typeof document === "undefined") return;

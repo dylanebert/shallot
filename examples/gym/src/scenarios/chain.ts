@@ -164,7 +164,6 @@ function chainPlugin(): Plugin {
 
     const pass: System = {
         group: "draw",
-        annotations: { mode: "always" },
         after: [BeginFrameSystem],
         update() {
             const owner = active;

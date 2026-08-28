@@ -526,103 +526,8 @@ describe("Scheduler", () => {
         });
     });
 
-    describe("System Mode", () => {
-        test("default-annotated system runs when mode=play, skipped when mode=edit", () => {
-            const sys: System = { update: () => executionOrder.push("default") };
-
-            const sPlay = new State({ mode: "play" });
-            sPlay.addSystem(sys);
-            sPlay.step();
-            expect(executionOrder).toEqual(["default"]);
-
-            executionOrder = [];
-            const sEdit = new State({ mode: "edit" });
-            sEdit.addSystem(sys);
-            sEdit.step();
-            expect(executionOrder).toEqual([]);
-        });
-
-        test("always-annotated system runs regardless of mode", () => {
-            const sys: System = {
-                annotations: { mode: "always" },
-                update: () => executionOrder.push("always"),
-            };
-
-            const sPlay = new State({ mode: "play" });
-            sPlay.addSystem(sys);
-            sPlay.step();
-            expect(executionOrder).toEqual(["always"]);
-
-            executionOrder = [];
-            const sEdit = new State({ mode: "edit" });
-            sEdit.addSystem(sys);
-            sEdit.step();
-            expect(executionOrder).toEqual(["always"]);
-        });
-
-        test("edit-annotated system runs when mode=edit, skipped when mode=play", () => {
-            const sys: System = {
-                annotations: { mode: "edit" },
-                update: () => executionOrder.push("edit-system"),
-            };
-
-            const sEdit = new State({ mode: "edit" });
-            sEdit.addSystem(sys);
-            sEdit.step();
-            expect(executionOrder).toEqual(["edit-system"]);
-
-            executionOrder = [];
-            const sPlay = new State({ mode: "play" });
-            sPlay.addSystem(sys);
-            sPlay.step();
-            expect(executionOrder).toEqual([]);
-        });
-
-        test("undefined mode runs every system regardless of annotation", () => {
-            state.addSystem({ update: () => executionOrder.push("default") });
-            state.addSystem({
-                annotations: { mode: "edit" },
-                update: () => executionOrder.push("edit"),
-            });
-            state.addSystem({
-                annotations: { mode: "always" },
-                update: () => executionOrder.push("always"),
-            });
-
-            state.step();
-            expect(executionOrder).toContain("default");
-            expect(executionOrder).toContain("edit");
-            expect(executionOrder).toContain("always");
-        });
-
-        test("setup runs only on the first step where the system is mode-active", () => {
-            let setupCount = 0;
-            const sys: System = {
-                annotations: { mode: "play" },
-                setup: () => setupCount++,
-                update: () => executionOrder.push("play"),
-            };
-
-            const sEdit = new State({ mode: "edit" });
-            sEdit.addSystem(sys);
-            sEdit.step();
-            sEdit.step();
-            expect(setupCount).toBe(0);
-            expect(executionOrder).toEqual([]);
-
-            const sPlay = new State({ mode: "play" });
-            sPlay.addSystem(sys);
-            sPlay.step();
-            expect(setupCount).toBe(1);
-            expect(executionOrder).toEqual(["play"]);
-
-            sPlay.step();
-            expect(setupCount).toBe(1);
-        });
-    });
-
-    // a reloaded system that throws must not wedge the frame loop (the editor's never-wedge bar):
-    // it is paused after the first throw, reported once, and a swap (the next good edit) resumes it
+    // a reloaded system that throws must not wedge the frame loop (a live host's never-wedge bar):
+    // it is paused after the first throw, reported once, and a swap (the reloaded fix) resumes it
     describe("Failure Recovery", () => {
         let errors: unknown[][];
         const origError = console.error;
@@ -656,7 +561,7 @@ describe("Scheduler", () => {
             expect(executionOrder).toEqual(["healthy", "healthy"]); // the loop survived
             expect(errors.length).toBe(1); // reported once, not per frame
 
-            // the next good edit: a swap clears the pause and the new behavior runs
+            // the reloaded fix: a swap clears the pause and the new behavior runs
             state.swap(Bad, { update: () => executionOrder.push("fixed") });
             state.step();
             expect(executionOrder).toEqual(["healthy", "healthy", "fixed", "healthy"]);

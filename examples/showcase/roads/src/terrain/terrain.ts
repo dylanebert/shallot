@@ -438,7 +438,6 @@ async function warm(state: State): Promise<void> {
 const OverlayRedrawSystem: System = {
     name: "roads-overlay-redraw",
     group: "simulation",
-    annotations: { mode: "always" },
     update() {
         overlayAtlas.redraw(liveDocument);
     },

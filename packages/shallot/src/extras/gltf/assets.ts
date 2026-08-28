@@ -1218,7 +1218,6 @@ export function unionPending(): boolean {
 const UnionBuildSystem: System = {
     group: "draw",
     after: [BeginFrameSystem],
-    annotations: { mode: "always" },
     update() {
         const staging = _staging;
         if (!staging || staging.busy) return;

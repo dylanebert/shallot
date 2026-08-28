@@ -617,7 +617,6 @@ function setup(state: State, canvasElements: HTMLCanvasElement[]): void {
 
 const InputSystem: System = {
     group: "simulation",
-    annotations: { mode: "always" },
 
     setup(state: State) {
         // Bind to canvas elements in the document directly.
@@ -633,7 +632,6 @@ const InputSystem: System = {
 
 const InputResetSystem: System = {
     group: "draw",
-    annotations: { mode: "always" },
     last: true,
 
     update() {
