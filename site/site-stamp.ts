@@ -40,15 +40,37 @@ import { resolve } from "node:path";
  * dotfile) so no static host's filter drops it and the artifact carries its own provenance. */
 export const STAMP_FILE = "build-stamp.json";
 
+/** Which build mode produced the artifact, and the `@dylanebert/shallot` pin that mode wrote into
+ * every demo's ejected `package.json` — recorded because the pin itself never survives to be read
+ * back: each demo is ejected into a scratch tree under /tmp and that tree is deleted once the demo
+ * is built, so `check-site.ts`'s clause 2 has nothing else to read the actual pin from. Prod
+ * carries the release version it pinned; staging carries the `file:<tgz>` pin `bun pm pack`
+ * produced, so a mode mix-up (prod artifact stamped staging, or vice versa) reds on the pin shape
+ * instead of passing silently. */
+export type SiteMode = { kind: "prod"; version: string } | { kind: "staging"; pin: string };
+
+function isSiteMode(v: unknown): v is SiteMode {
+    if (typeof v !== "object" || v === null) return false;
+    const m = v as Record<string, unknown>;
+    if (m.kind === "prod") return typeof m.version === "string";
+    if (m.kind === "staging") return typeof m.pin === "string";
+    return false;
+}
+
 export interface SiteStamp {
     /** Bumped when the fingerprint recipe below changes: an old stamp then reads stale, which is
-     * the correct answer — a fingerprint computed by a different recipe is not comparable. */
-    recipe: 1;
+     * the correct answer — a fingerprint computed by a different recipe is not comparable. Bumped
+     * 1 → 2 to add `mode` — a recipe-1 stamp predates mode recording and reads stale rather than
+     * being read with a mode it never carried. */
+    recipe: 2;
+    /** The mode this build ran in, and the engine pin it used — see `SiteMode` above. Overwritten
+     * on every write (unlike `demos`, which merges) since a build run has exactly one mode. */
+    mode: SiteMode;
     /** slug → fingerprint of the sources that demo was built from. */
     demos: Record<string, string>;
 }
 
-const RECIPE: SiteStamp["recipe"] = 1;
+const RECIPE: SiteStamp["recipe"] = 2;
 
 /** The builder files whose contents reach every built page regardless of demo. */
 const BUILDER_FILES = [
@@ -123,21 +145,32 @@ export function readStamp(outDirPath: string): SiteStamp | null {
     if (!existsSync(path)) return null;
     try {
         const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<SiteStamp>;
-        if (parsed.recipe !== RECIPE || typeof parsed.demos !== "object" || parsed.demos === null) {
+        if (
+            parsed.recipe !== RECIPE ||
+            typeof parsed.demos !== "object" ||
+            parsed.demos === null ||
+            !isSiteMode(parsed.mode)
+        ) {
             return null;
         }
-        return { recipe: RECIPE, demos: parsed.demos as Record<string, string> };
+        return { recipe: RECIPE, mode: parsed.mode, demos: parsed.demos as Record<string, string> };
     } catch {
         return null; // an unparseable stamp is no stamp — the artifact reads stale
     }
 }
 
 /** Records the fingerprints of the demos this build wrote, merging over any prior stamp — a
- * `--demo <slug>` build only rebuilt one slot, so the other slots keep the stamp they earned. */
-export function writeStamp(outDirPath: string, entries: Record<string, string>): void {
+ * `--demo <slug>` build only rebuilt one slot, so the other slots keep the stamp they earned.
+ * `mode` is not merged — it names the mode this build ran in, and a build run has one mode. */
+export function writeStamp(
+    outDirPath: string,
+    entries: Record<string, string>,
+    mode: SiteMode,
+): void {
     const prior = readStamp(outDirPath);
     const stamp: SiteStamp = {
         recipe: RECIPE,
+        mode,
         demos: { ...(prior?.demos ?? {}), ...entries },
     };
     writeFileSync(resolve(outDirPath, STAMP_FILE), `${JSON.stringify(stamp, null, 4)}\n`);

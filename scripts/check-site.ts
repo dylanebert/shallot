@@ -2,8 +2,13 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
-import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/rum-config";
-import { STAMP_FILE, staleDemos } from "../site/site-stamp";
+import {
+    RUM_ENV_SNIPPET,
+    RUM_ENV_SNIPPET_STAGING,
+    RUM_ENV_USAGE,
+    RUM_INJECTION_MARKER,
+} from "../site/rum-config";
+import { readStamp, STAMP_FILE, staleDemos } from "../site/site-stamp";
 
 // `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Seven
 // clauses, and a freshness precondition standing in front of the four (4-7) that read the built
@@ -218,6 +223,37 @@ if (stale.length > 0) {
     process.exit(0);
 }
 
+// --- clause 2 (artifact leg): the ejected pin actually used matches the declared mode -----
+//
+// The source-side half of clause 2 (above) can only assert the in-repo form (`workspace:*`) and
+// that the release version is a real semver — the pin actually written into each demo's ejected
+// `package.json` exists only in a scratch tree that `scripts/build-site.ts` deletes before this
+// script ever runs. So the build stamp records which pin the run used
+// (`site/site-stamp.ts`'s `SiteMode`), and this leg reads it back: a prod-mode stamp must have
+// pinned the current release version, a staging-mode stamp must have pinned a `file:`-form
+// workspace tarball — never the other way, so a mode mix-up reds here instead of the built
+// artifact silently carrying the wrong pin.
+const stamp = readStamp(outDir);
+if (stamp) {
+    if (stamp.mode.kind === "prod") {
+        if (stamp.mode.version !== version) {
+            fail(
+                `✗ build stamp records prod mode pinned to v${stamp.mode.version}, but ` +
+                    `packages/shallot/package.json now names v${version} — rebuild with ` +
+                    "`bun run site`",
+            );
+        }
+    } else {
+        if (!stamp.mode.pin.startsWith("file:") || !stamp.mode.pin.endsWith(".tgz")) {
+            fail(
+                `✗ build stamp records staging mode with pin "${stamp.mode.pin}" — expected a ` +
+                    "`file:<tgz>` workspace pin (`scripts/build-site.ts`'s `bun pm pack` step)",
+            );
+        }
+    }
+}
+const mode: "prod" | "staging" = stamp?.mode.kind ?? "prod";
+
 // scan every generated HTML/JS/CSS file for root-absolute paths: `href="/..."` or `src="/..."`
 // HTML attributes. A root-absolute path would break at a non-root base path (GitHub Pages
 // serves at /shallot/).
@@ -249,9 +285,19 @@ if (rootAbsFiles.length > 0) {
 }
 
 // --- clause 5: the RUM slow-frame injection reaches every demo page, and skips the index --
+//
+// The env check is two-sided: a page must carry the *mode's own* env literal and must not carry
+// the *other* mode's. A one-sided check (present-only) passes a mode mix-up — a prod build that
+// somehow injected the staging literal instead would still clear "prod snippet missing? no" if
+// nothing ever checked for staging's literal being there — so `wrongModeEnv` reds that shape
+// explicitly rather than relying on the two literals happening to differ enough in practice.
+
+const ownEnvSnippet = mode === "staging" ? RUM_ENV_SNIPPET_STAGING : RUM_ENV_SNIPPET;
+const otherEnvSnippet = mode === "staging" ? RUM_ENV_SNIPPET : RUM_ENV_SNIPPET_STAGING;
 
 const noInjection: string[] = [];
 const noEnv: string[] = [];
+const wrongModeEnv: string[] = [];
 const noEnvUsage: string[] = [];
 const noParse: { file: string; error: string }[] = [];
 for (const { slug } of ROSTER) {
@@ -264,8 +310,11 @@ for (const { slug } of ROSTER) {
         if (!html.includes(RUM_INJECTION_MARKER)) {
             noInjection.push(`${slug}/${path}`);
         }
-        if (!html.includes(RUM_ENV_SNIPPET)) {
+        if (!html.includes(ownEnvSnippet)) {
             noEnv.push(`${slug}/${path}`);
+        }
+        if (html.includes(otherEnvSnippet)) {
+            wrongModeEnv.push(`${slug}/${path}`);
         }
         if (!html.includes(RUM_ENV_USAGE)) {
             noEnvUsage.push(`${slug}/${path}`);
@@ -314,12 +363,27 @@ if (noInjection.length > 0) {
 }
 
 if (noEnv.length > 0) {
-    console.error(`✗ ${noEnv.length} demo page(s) missing the RUM env-derivation snippet:\n`);
+    console.error(
+        `✗ ${noEnv.length} demo page(s) missing the RUM env-derivation snippet for ${mode} mode:\n`,
+    );
     for (const f of noEnv) console.error(`  ${f}`);
     console.error(
-        '\nEvery built demo page must carry the hostname-derived `env: "prod" | "local"`' +
-            " snippet (`site/rum-config.ts`'s `RUM_ENV_SNIPPET`, injected by" +
-            " `scripts/build-site.ts`).",
+        `\nEvery built demo page must carry the ${mode} env snippet` +
+            ` (\`site/rum-config.ts\`'s \`${mode === "staging" ? "RUM_ENV_SNIPPET_STAGING" : "RUM_ENV_SNIPPET"}\`,` +
+            " injected by `scripts/build-site.ts`).",
+    );
+    process.exit(1);
+}
+
+if (wrongModeEnv.length > 0) {
+    console.error(
+        `✗ ${wrongModeEnv.length} demo page(s) built in ${mode} mode carry the other mode's env` +
+            " snippet:\n",
+    );
+    for (const f of wrongModeEnv) console.error(`  ${f}`);
+    console.error(
+        `\nA ${mode}-mode build must carry only the ${mode} env snippet — a page carrying both` +
+            " reads as a mode mix-up in the build itself, not the check.",
     );
     process.exit(1);
 }

@@ -3,6 +3,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readdirSync,
     readFileSync,
     rmSync,
     writeFileSync,
@@ -24,10 +25,11 @@ import { type DemoEntry, ROSTER } from "../site/roster";
 import {
     RUM_CONFIG,
     RUM_ENV_SNIPPET,
+    RUM_ENV_SNIPPET_STAGING,
     RUM_ENV_USAGE,
     RUM_INJECTION_MARKER,
 } from "../site/rum-config";
-import { demoFingerprints, writeStamp } from "../site/site-stamp";
+import { demoFingerprints, type SiteMode, writeStamp } from "../site/site-stamp";
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -38,9 +40,19 @@ import { demoFingerprints, writeStamp } from "../site/site-stamp";
 // so the artifact is a real published-consumer build — not a workspace build that silently carries
 // gitignored wasm the clean path does not (the Locked decision's measured fact).
 //
+// `--staging` is the same pipeline with one pin swapped: `bun pm pack` packs the engine once,
+// ahead of the demo loop, and every demo's `@dylanebert/shallot` dependency is rewritten to
+// `file:<tgz>` instead of the release version — a workspace-source build with no other machinery
+// forked (`scripts/install-test.ts` is the in-repo reference for the pack-and-`file:`-install
+// mechanism). The RUM env constant and the index label switch with it (`datadogInitSnippet`,
+// `siteIndex`); everything else — eject, install, `bunx shallot build`, RUM injection, artifact
+// assembly — is shared verbatim between modes.
+//
 // The page itself is static HTML: system monospace, no web fonts, no JS, one small style block,
 // readable at 360px. Each row carries a play link to the built demo and a code link to the
-// version-pinned tag path on GitHub. The page labels what it was built from (version plus ref).
+// version-pinned tag path on GitHub (staging: the built ref, since a staging build's version may
+// have no matching tag yet). The page labels what it was built from (version plus ref, or the ref
+// alone in staging mode).
 
 const root = resolve(import.meta.dir, "..");
 const showcaseDir = resolve(root, "examples/showcase");
@@ -63,7 +75,8 @@ const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATA
 // CORS-mode load is exempt from the CORP check entirely — so `crossOrigin` fixes the verify-only failure
 // without needing a header change in `packages/shallot` (out of scope) or the deployed site, which never
 // sets COEP (a static host can't set headers, the doc comment above `CROSS_ORIGIN_ISOLATION` already notes).
-export function datadogInitSnippet(): string {
+export function datadogInitSnippet(mode: "prod" | "staging" = "prod"): string {
+    const envSnippet = mode === "staging" ? RUM_ENV_SNIPPET_STAGING : RUM_ENV_SNIPPET;
     return `${RUM_INJECTION_MARKER}
 <script>
 (function(h,o,u,n,d) {
@@ -72,7 +85,7 @@ export function datadogInitSnippet(): string {
     n=o.getElementsByTagName(u)[0];n.parentNode.insertBefore(d,n)
 })(window,document,'script','${DATADOG_RUM_CDN_URL}','DD_RUM')
 window.DD_RUM.onReady(function() {
-    ${RUM_ENV_SNIPPET}
+    ${envSnippet}
     window.DD_RUM.init(${RUM_ENV_USAGE}${JSON.stringify(RUM_CONFIG)}));
 });
 </script>
@@ -106,8 +119,8 @@ async function buildRumRuntimeBundle(): Promise<string> {
 /** Injects the Datadog init snippet plus the bundled sampler into every `*.html` file under
  * `dir` (recursive — a demo like `visualization` emits nested pages under `demos/`), right
  * before `</body>`. */
-function injectRum(dir: string, runtimeBundle: string): void {
-    const snippet = `${datadogInitSnippet()}<script type="module">\n${runtimeBundle}</script>\n`;
+function injectRum(dir: string, runtimeBundle: string, mode: "prod" | "staging"): void {
+    const snippet = `${datadogInitSnippet(mode)}<script type="module">\n${runtimeBundle}</script>\n`;
     const glob = new Glob("**/*.html");
     for (const path of glob.scanSync({ cwd: dir })) {
         const full = resolve(dir, path);
@@ -124,13 +137,15 @@ function injectRum(dir: string, runtimeBundle: string): void {
 async function main(): Promise<void> {
     const args = process.argv.slice(2);
     if (args.includes("--help") || args.includes("-h")) {
-        console.log(`Usage: bun run site [--demo <slug>]
+        console.log(`Usage: bun run site [--demo <slug>] [--staging]
 
 Builds every showcase demo as an ejected consumer of the published @dylanebert/shallot,
 assembles out/site/<slug>/ per demo, and emits out/site/index.html.
 
 Options:
-  --demo <slug>   Build a single demo by its roster slug`);
+  --demo <slug>   Build a single demo by its roster slug
+  --staging       Pin @dylanebert/shallot to a packed workspace tarball instead of the
+                   release version, and tag the RUM env + index label "staging"`);
         process.exit(0);
     }
 
@@ -140,6 +155,9 @@ Options:
         console.error(`no demo "${only}" — one of: ${ROSTER.map((d) => d.slug).join(", ")}`);
         process.exit(2);
     }
+
+    const staging = args.includes("--staging");
+    const mode: "prod" | "staging" = staging ? "staging" : "prod";
 
     const pkg = (await Bun.file(resolve(root, "packages/shallot/package.json")).json()) as {
         version: string;
@@ -162,114 +180,149 @@ Options:
 
     const rumRuntimeBundle = await buildRumRuntimeBundle();
 
-    const sizes: { slug: string; size: string }[] = [];
-
-    for (const demo of demos) {
-        const slug = demo.slug;
-        const srcDir = resolve(showcaseDir, slug);
-        if (!existsSync(srcDir)) {
-            console.error(`✗ showcase dir not found: ${srcDir}`);
+    // `--staging`: pack the engine once, ahead of the demo loop, into a scratch dir that outlives
+    // every demo's own ejection — every demo pins the same tarball, so it must still exist when the
+    // last demo installs. `scripts/install-test.ts`'s `pack()` is the in-repo reference for this
+    // exact `bun pm pack --destination` shape.
+    let enginePin = version;
+    let packDest: string | undefined;
+    if (staging) {
+        packDest = mkdtempSync(join(tmpdir(), "shallot-site-pack-"));
+        console.log(`\npacking @dylanebert/shallot for staging...`);
+        const packResult = Bun.spawnSync(["bun", "pm", "pack", "--destination", packDest], {
+            cwd: resolve(root, "packages/shallot"),
+            stdout: "inherit",
+            stderr: "inherit",
+        });
+        if (packResult.exitCode !== 0) {
+            console.error(`✗ \`bun pm pack\` failed for packages/shallot`);
             process.exit(1);
         }
-
-        // scratch tree under /tmp — the eject/install/build happens outside the workspace.
-        // the demo dir's basename must be the slug: `shallot build` synthesizes the page
-        // <title> from it, so a unique parent carries the uniqueness and the leaf stays clean
-        const scratchParent = mkdtempSync(join(tmpdir(), `shallot-site-${slug}-`));
-        const scratch = join(scratchParent, slug);
-        mkdirSync(scratch, { recursive: true });
-
-        try {
-            console.log(`\n=== ${slug} ===`);
-
-            // copy the showcase dir verbatim (node_modules/dist excluded by the dir's own .gitignore
-            // patterns — but a fresh worktree has none, so just copy everything except those)
-            const nodeModulesDir = resolve(srcDir, "node_modules");
-            const distDir = resolve(srcDir, "dist");
-            cpSync(srcDir, scratch, {
-                recursive: true,
-                filter: (s) =>
-                    s !== nodeModulesDir &&
-                    !s.startsWith(nodeModulesDir + sep) &&
-                    s !== distDir &&
-                    !s.startsWith(distDir + sep),
-            });
-
-            // rewrite package.json: pin @dylanebert/shallot to the release version, carry every
-            // other dep over as authored
-            const demoPkg = (await Bun.file(resolve(scratch, "package.json")).json()) as {
-                dependencies?: Record<string, string>;
-                devDependencies?: Record<string, string>;
-                [key: string]: unknown;
-            };
-            if (demoPkg.dependencies?.["@dylanebert/shallot"]) {
-                demoPkg.dependencies["@dylanebert/shallot"] = version;
-            }
-            writeFileSync(
-                resolve(scratch, "package.json"),
-                `${JSON.stringify(demoPkg, null, 4)}\n`,
-            );
-
-            // rewrite tsconfig.json: standalone (the in-repo one extends a repo-root path that
-            // doesn't exist outside the workspace). Inline the compilerOptions from the root
-            // tsconfig.json, minus the workspace-only `paths` mapping.
-            writeFileSync(resolve(scratch, "tsconfig.json"), `${standaloneTsconfig()}\n`);
-
-            // install against the published package from npm
-            console.log(`  installing...`);
-            const install = Bun.spawnSync(["bun", "install"], {
-                cwd: scratch,
-                stdout: "inherit",
-                stderr: "inherit",
-            });
-            if (install.exitCode !== 0) {
-                console.error(`✗ install failed for ${slug}`);
-                process.exit(1);
-            }
-
-            // build with the published CLI
-            console.log(`  building...`);
-            const build = Bun.spawnSync(["bunx", "shallot", "build"], {
-                cwd: scratch,
-                stdout: "inherit",
-                stderr: "inherit",
-            });
-            if (build.exitCode !== 0) {
-                console.error(`✗ build failed for ${slug}`);
-                process.exit(1);
-            }
-
-            // assemble out/site/<slug>/ from dist/
-            const dist = resolve(scratch, "dist");
-            if (!existsSync(dist)) {
-                console.error(`✗ no dist/ produced for ${slug}`);
-                process.exit(1);
-            }
-            const demoOut = resolve(outDir, slug);
-            cpSync(dist, demoOut, { recursive: true });
-            injectRum(demoOut, rumRuntimeBundle);
-
-            const sizeBytes = dirSize(demoOut);
-            sizes.push({ slug, size: formatSize(sizeBytes) });
-            console.log(`  done — ${formatSize(sizeBytes)}`);
-        } finally {
-            rmSync(scratchParent, { recursive: true, force: true });
+        const tgz = readdirSync(packDest).find((f) => f.endsWith(".tgz") && !f.startsWith("."));
+        if (!tgz) {
+            console.error(`✗ no tarball produced in ${packDest}`);
+            process.exit(1);
         }
+        enginePin = `file:${resolve(packDest, tgz)}`;
+    }
+
+    const sizes: { slug: string; size: string }[] = [];
+
+    try {
+        for (const demo of demos) {
+            const slug = demo.slug;
+            const srcDir = resolve(showcaseDir, slug);
+            if (!existsSync(srcDir)) {
+                console.error(`✗ showcase dir not found: ${srcDir}`);
+                process.exit(1);
+            }
+
+            // scratch tree under /tmp — the eject/install/build happens outside the workspace.
+            // the demo dir's basename must be the slug: `shallot build` synthesizes the page
+            // <title> from it, so a unique parent carries the uniqueness and the leaf stays clean
+            const scratchParent = mkdtempSync(join(tmpdir(), `shallot-site-${slug}-`));
+            const scratch = join(scratchParent, slug);
+            mkdirSync(scratch, { recursive: true });
+
+            try {
+                console.log(`\n=== ${slug} ===`);
+
+                // copy the showcase dir verbatim (node_modules/dist excluded by the dir's own .gitignore
+                // patterns — but a fresh worktree has none, so just copy everything except those)
+                const nodeModulesDir = resolve(srcDir, "node_modules");
+                const distDir = resolve(srcDir, "dist");
+                cpSync(srcDir, scratch, {
+                    recursive: true,
+                    filter: (s) =>
+                        s !== nodeModulesDir &&
+                        !s.startsWith(nodeModulesDir + sep) &&
+                        s !== distDir &&
+                        !s.startsWith(distDir + sep),
+                });
+
+                // rewrite package.json: pin @dylanebert/shallot to the release version (prod) or the
+                // packed workspace tarball (staging), carry every other dep over as authored
+                const demoPkg = (await Bun.file(resolve(scratch, "package.json")).json()) as {
+                    dependencies?: Record<string, string>;
+                    devDependencies?: Record<string, string>;
+                    [key: string]: unknown;
+                };
+                if (demoPkg.dependencies?.["@dylanebert/shallot"]) {
+                    demoPkg.dependencies["@dylanebert/shallot"] = enginePin;
+                }
+                writeFileSync(
+                    resolve(scratch, "package.json"),
+                    `${JSON.stringify(demoPkg, null, 4)}\n`,
+                );
+
+                // rewrite tsconfig.json: standalone (the in-repo one extends a repo-root path that
+                // doesn't exist outside the workspace). Inline the compilerOptions from the root
+                // tsconfig.json, minus the workspace-only `paths` mapping.
+                writeFileSync(resolve(scratch, "tsconfig.json"), `${standaloneTsconfig()}\n`);
+
+                // install against the published package from npm
+                console.log(`  installing...`);
+                const install = Bun.spawnSync(["bun", "install"], {
+                    cwd: scratch,
+                    stdout: "inherit",
+                    stderr: "inherit",
+                });
+                if (install.exitCode !== 0) {
+                    console.error(`✗ install failed for ${slug}`);
+                    process.exit(1);
+                }
+
+                // build with the published CLI
+                console.log(`  building...`);
+                const build = Bun.spawnSync(["bunx", "shallot", "build"], {
+                    cwd: scratch,
+                    stdout: "inherit",
+                    stderr: "inherit",
+                });
+                if (build.exitCode !== 0) {
+                    console.error(`✗ build failed for ${slug}`);
+                    process.exit(1);
+                }
+
+                // assemble out/site/<slug>/ from dist/
+                const dist = resolve(scratch, "dist");
+                if (!existsSync(dist)) {
+                    console.error(`✗ no dist/ produced for ${slug}`);
+                    process.exit(1);
+                }
+                const demoOut = resolve(outDir, slug);
+                cpSync(dist, demoOut, { recursive: true });
+                injectRum(demoOut, rumRuntimeBundle, mode);
+
+                const sizeBytes = dirSize(demoOut);
+                sizes.push({ slug, size: formatSize(sizeBytes) });
+                console.log(`  done — ${formatSize(sizeBytes)}`);
+            } finally {
+                rmSync(scratchParent, { recursive: true, force: true });
+            }
+        }
+    } finally {
+        if (packDest) rmSync(packDest, { recursive: true, force: true });
     }
 
     // emit the site index — always lists the full roster so a single-demo build's index
     // still references the other demos from a prior full build
-    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, refShort));
+    writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, refShort, mode));
 
     // record what each demo was built from, so `check-site.ts` can tell an artifact of *these*
     // sources from an artifact of some other sources before it judges the artifact
     // (`site/site-stamp.ts`). Merging, not overwriting: a `--demo` build only rebuilt one slot.
+    // `mode` is not merged — it names the mode this run built in.
+    const siteMode: SiteMode = staging
+        ? { kind: "staging", pin: enginePin }
+        : { kind: "prod", version };
     writeStamp(
         outDir,
         demoFingerprints(
             root,
             demos.map((d) => d.slug),
         ),
+        siteMode,
     );
 
     const total = sizes.reduce((sum, s) => sum + parseSize(s.size), 0);
@@ -279,7 +332,9 @@ Options:
     }
     console.log(`  total: ${formatSize(total)}`);
     console.log(`\n  index: ${resolve(outDir, "index.html")}`);
-    console.log(`  built from: v${version} (${refShort})`);
+    console.log(
+        `  built from: ${staging ? `staging (${enginePin})` : `v${version}`} (${refShort})`,
+    );
 }
 
 // The standalone tsconfig — the root tsconfig.json's compilerOptions inlined, minus the
@@ -339,9 +394,18 @@ function parseSize(s: string): number {
     return n;
 }
 
-function siteIndex(demos: DemoEntry[], version: string, ref: string): string {
+function siteIndex(
+    demos: DemoEntry[],
+    version: string,
+    ref: string,
+    mode: "prod" | "staging",
+): string {
+    // staging labels by ref, never by version tag — a staging build routinely runs ahead of the
+    // last release, so `v${version}` may name a GitHub tag that doesn't exist yet.
     const codeUrl = (slug: string) =>
-        `https://github.com/dylanebert/shallot/tree/v${version}/examples/showcase/${slug}`;
+        mode === "staging"
+            ? `https://github.com/dylanebert/shallot/tree/${ref}/examples/showcase/${slug}`
+            : `https://github.com/dylanebert/shallot/tree/v${version}/examples/showcase/${slug}`;
 
     const rows = demos
         .map((d) => {
@@ -388,7 +452,7 @@ function siteIndex(demos: DemoEntry[], version: string, ref: string): string {
     </head>
     <body>
         <h1>shallot</h1>
-        <p class="meta">v${version} · ${ref}</p>
+        <p class="meta">${mode === "staging" ? `staging · ${ref}` : `v${version} · ${ref}`}</p>
         <p class="warn">WebGPU required — Chrome, Edge, or Safari 26+ on desktop.</p>
         <table>
             <tbody>
