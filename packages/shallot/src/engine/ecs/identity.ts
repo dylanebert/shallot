@@ -1,8 +1,8 @@
 import type { Entity } from "./entity";
 
 /**
- * per-{@link State} entity identity: which entities `load` authored from the
- * document, and the stable scene `id` each was named with. The runtime half of
+ * per-{@link State} entity identity: which entities `load` authored, and the
+ * stable scene `id` each was named with. The runtime half of
  * the durable-identity story `serialize` reads. An eid stays a borrow
  * (`ecs.md`), so a round-trip keys refs by the recorded scene id, never the
  * recycled eid. Reset with the State; populated by `load`, dropped on

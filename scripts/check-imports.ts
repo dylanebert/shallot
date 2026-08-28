@@ -22,13 +22,13 @@ for (const [, value] of Object.entries(pkg.exports as Record<string, unknown>)) 
     }
 }
 
-// Module = directory directly under engine/, standard/, extras/, or document/
+// Module = directory directly under engine/, standard/, or extras/
 // e.g. "standard/render", "engine/ecs", "extras/orbit"
 function getModule(fileRelative: string): string | null {
     const parts = fileRelative.split("/");
     if (parts.length < 2) return null;
     const group = parts[0];
-    if (["engine", "standard", "extras", "document"].includes(group) && parts.length >= 2) {
+    if (["engine", "standard", "extras"].includes(group) && parts.length >= 2) {
         return `${group}/${parts[1]}`;
     }
     return null;

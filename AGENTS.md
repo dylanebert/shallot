@@ -2,7 +2,7 @@
 
 WebGPU game engine. The repo is the documentation: readable source with JSDoc contracts on every public export, a problem-indexed examples corpus, and this file plus `.claude/rules/` as the behavioral contract. There is no docs site and no editor — agents and humans both read the source, the examples index (`examples/AGENTS.md`), and `packages/shallot/AGENTS.md` (the consumer-facing contract — how to build games on Shallot: ECS, plugins, GPU, render, physics, testing — shipped with the npm package). This file covers engine-internal layout and commands; behavioral constraints live in `.claude/rules/`.
 
-**Layout:** `packages/shallot/` (engine — `src/engine/`, `src/standard/`, `src/extras/`, `src/document/` (scene document model: `Document`/`History`/`Session`), `src/project/` (manifest/generate/vite toolchain behind the CLI)), `packages/create-shallot/` (the `bun create shallot` scaffold), `packages/vscode-shallot/` (the VS Code extension), `evals/` (the eval harness), `examples/` (standalone projects).
+**Layout:** `packages/shallot/` (engine — `src/engine/`, `src/standard/`, `src/extras/`, `src/project/` (manifest/generate/vite toolchain behind the CLI)), `packages/create-shallot/` (the `bun create shallot` scaffold), `packages/vscode-shallot/` (the VS Code extension), `evals/` (the eval harness), `examples/` (standalone projects).
 
 Code is source of truth — elegant first, document what's non-obvious.
 
@@ -12,7 +12,7 @@ Code is source of truth — elegant first, document what's non-obvious.
 
 - `packages/shallot/src/standard/audio/**/*.ts`, `packages/shallot/rust/audio/**/*.rs` → `.claude/rules/audio.md`
 - `packages/shallot/src/standard/avbd/**/*.ts`, `packages/shallot/tests/avbd/**/*.ts` → `.claude/rules/avbd.md`
-- `packages/shallot/src/engine/**/*.ts`, `packages/shallot/src/standard/**/*.ts`, `packages/shallot/src/extras/**/*.ts`, `packages/shallot/src/document/**/*.ts`, `examples/**/*.scene`, `examples/**/*.ts` → `.claude/rules/ecs.md`
+- `packages/shallot/src/engine/**/*.ts`, `packages/shallot/src/standard/**/*.ts`, `packages/shallot/src/extras/**/*.ts`, `examples/**/*.scene`, `examples/**/*.ts` → `.claude/rules/ecs.md`
 - `examples/**/*.ts`, `examples/**/*.scene`, `examples/AGENTS.md` → `.claude/rules/examples.md`
 - `packages/shallot/src/**/*.ts`, `packages/shallot/package.json` → `.claude/rules/exports.md`
 - `packages/shallot/src/engine/runtime/**/*.ts`, `packages/shallot/src/engine/utils/encode.ts`, `packages/shallot/src/standard/render/**/*.ts`, `packages/shallot/src/standard/sear/**/*.ts`, `packages/shallot/src/standard/part/**/*.ts`, `packages/shallot/src/standard/slab/**/*.ts`, `packages/shallot/src/standard/bvh/**/*.ts`, `packages/shallot/src/extras/{gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts` → `.claude/rules/gpu.md`

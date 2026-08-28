@@ -3,12 +3,11 @@ paths:
     - "packages/shallot/src/engine/**/*.ts"
     - "packages/shallot/src/standard/**/*.ts"
     - "packages/shallot/src/extras/**/*.ts"
-    - "packages/shallot/src/document/**/*.ts"
     - "examples/**/*.scene"
     - "examples/**/*.ts"
 ---
 
-# ECS & Document Model
+# ECS
 
 ## Plugin lifecycle gotchas
 
@@ -18,7 +17,7 @@ paths:
 
 ## Reload-safety: lifecycle + module scope
 
-A `State` is rebuilt routinely — a live host (the document layer's `Session`, an embedding app) rebuilds on a scene switch, plugin toggle, or play/stop, re-running every plugin's `initialize`/`warm` against the **same module-level singletons** (registries and services persist across States). In-place plugin hot-reload (swapping a system's behavior on a live State) is the same shape, tighter. Both need the two rules below — better practice regardless, load-bearing once a State outlives one build.
+A `State` is rebuilt routinely — an embedding app rebuilds on a scene switch, plugin toggle, or play/stop, re-running every plugin's `initialize`/`warm` against the **same module-level singletons** (registries and services persist across States). In-place plugin hot-reload (swapping a system's behavior on a live State) is the same shape, tighter. Both need the two rules below — better practice regardless, load-bearing once a State outlives one build.
 
 **Module scope holds idempotent definitions + registries, never runtime identity.**
 
@@ -26,7 +25,7 @@ A `State` is rebuilt routinely — a live host (the document layer's `Session`, 
 - No module-level runtime accumulators (`let angle += dt`). Derive from `State` (`state.time.elapsed`), so the value is correct after a rebuild and isn't a hidden second source of truth.
 - A module-level registry (the `Surfaces`/`Draws`/`Meshes` shape, or a plugin's own) is **idempotent w.r.t. `initialize`**: clear then rebuild, so re-running `initialize` is a no-op-equivalent. `RenderPlugin.initialize` clearing `Surfaces`/`Draws` (`Registry.clear`) + `clearMeshes()` is the exemplar — a same-set rebuild re-registers identically, and a plugin **toggled off** leaves no stale entry (otherwise its dead draw/mesh is paired against torn-down buffers — a GPU error, the conformance "producer toggle" gate).
 
-**Lifecycle phases are idempotent and re-runnable.** `initialize` — registration only, pre-scene, no entities; clears + rebuilds any registry it owns. `warm` — post-parse GPU setup + derived (non-authored) spawns, idempotent; warm-spawned entities re-create each build (they live in `State`, not the Document). `setup` — per-`State` lazy init. `update` — pure over `State`. `dispose` — teardown.
+**Lifecycle phases are idempotent and re-runnable.** `initialize` — registration only, pre-scene, no entities; clears + rebuilds any registry it owns. `warm` — post-parse GPU setup + derived (non-authored) spawns, idempotent; warm-spawned entities re-create each build (they live in `State`, not the serialized scene). `setup` — per-`State` lazy init. `update` — pure over `State`. `dispose` — teardown.
 
 **External side effects register their teardown on the State.** A DOM mount, window/document listener, or rAF loop created during a build leaks unless something unwinds it. Register that cleanup where you create it: `state.onDispose(fn)` runs `fn` (LIFO) when the State disposes, and `state.signal` is an `AbortSignal` — pass it as `{ signal }` to `addEventListener`/`fetch` and the listener detaches at dispose with no removal code (`engine/ecs/state.ts`). Cleanup lives beside its creation site, not in a separate `dispose` hook. A plugin `dispose` hook is still correct for **process/module-lifetime** teardown — an engine singleton or global, not a per-build mount/listener (the profile plugin's Compute-sink + `window.__benchmark` teardown is the exemplar, the way collapse is the exemplar for the swap fallback). A plugin mounting UI hands its State to `mountOverlay(canvas, state)` (auto-registers `overlay.remove()`) or calls `state.onDispose` directly; `examples/showcase/collapse` is the exemplar. Removing a mounted framework component's host DOM is not teardown — register its real unmount (Svelte `unmount()`, React `root.unmount()`) or its effects and rAF loops survive.
 
@@ -38,15 +37,9 @@ A `State` is rebuilt routinely — a live host (the document layer's `Session`, 
 
 ## Runtime state
 
-ECS state is built from a Document via `load()`. `serialize(state)` is the on-demand inverse (save / survive-reload / rebuild), never per-frame. Format a component to its scene attribute through the one shared `readComponent` (`scene`), never a second copy of defaults + `readFields` + `formatFields`. A round-trip preserves codec-representable component values; GPU buffers and `warm`-spawned (derived) entities are rebuilt, not serialized.
+ECS state is built from a parsed scene via `load()`. `serialize(state)` is the on-demand inverse (save / survive-reload / rebuild), never per-frame. Format a component to its scene attribute through the one shared `readComponent` (`scene`), never a second copy of defaults + `readFields` + `formatFields`. A round-trip preserves codec-representable component values; GPU buffers and `warm`-spawned (derived) entities are rebuilt, not serialized.
 
 `load` records each entity's identity on `state.identity` (its scene `id` + the load-authored set; an eid stays a borrow, so this is the durable-by-name half — see *Entity reference fields*). `serialize(state)` reads it to serialize **the authored set only** — `warm`-derived entities are absent by construction, so a restore (`load` then `warm`) never doubles them — and to round-trip an entity-ref field as `@<id>`. Pass `serialize(state, eids)` to serialize entities spawned outside `load`.
-
-## Edit mode contract
-
-Systems with `mode: "always"` run in edit mode but must be non-destructive — update existing component values only, never add/remove components. Use field values (set to 0) rather than add/remove.
-
-The rule guards the **authored** document: a system churning an authored entity's registered components per frame desyncs serialize + any live document view. A one-time, marker-gated **load** is outside it — spawning *derived* entities (not in the Document, like a `warm` spawn) and gating on an *unregistered* marker (out of `entries()`, so never serialized) touches no authored state. The shape is `query([Trigger, not(Done)])` → `add(Done)` + spawn: the `not(marker)` one-time gate with the spawned entities derived, so a declarative trigger loads content in edit mode and at runtime without desyncing anything.
 
 ## Choosing the right primitive
 
@@ -84,13 +77,9 @@ A flat component is a real data shape, not a bundle of named scalars. Splitting 
 - `standard/transforms/index.ts` — canonical direct Quad component, slab-backed.
 - `engine/scene/xml.test.ts` — scene-parse contract end to end ("direct Pair/Quad — scene parsing").
 
-## Single-writer rule
-
-ReadbackSystem is the sole writer of `attr.value`. A live host's gestures communicate via the Document edit API (`doc.setAttr`, or a `doc.begin`/`commit` gesture that coalesces a drag's writes into one undoable entry, prev auto-captured) — never write `attr.value` directly. Never add serialization concerns to ECS.
-
 ## Entity reference fields
 
-Component fields that store entity IDs (like `Joint.a`, `Tween.target`, `Player.camera`) use `@name` syntax in scene files. ReadbackSystem skips attributes containing `@` to avoid converting name references to literal entity IDs — literal IDs break on serialize→reload because entity ID assignment depends on creation order (which differs between edit and play states). The scene loader resolves `@name` to a real eid at load time.
+Component fields that store entity IDs (like `Joint.a`, `Tween.target`, `Player.camera`) use `@name` syntax in scene files. The scene loader resolves `@name` to a real eid at load time — never a literal eid, which would break on serialize→reload because entity ID assignment depends on creation order.
 
 A ref field declares itself by **type**: `target: sparse(entity)` (the `entity` descriptor — u32 storage tagged as a ref), not `sparse(u32)`. `serialize` enumerates them (`refs`) and, with the scene `id` `load` recorded on `state.identity`, emits each as `@<id>` — minting an id for a referenced target *inside the serialized set* that lacks one, and falling back to the recorded scene id for a target outside it — so a ref round-trips by name across the creation-order eid reshuffle a reload causes. A target that is neither (destroyed, or outside the set and never authored an id) throws rather than emitting a raw eid, so the round-trip claim holds by failing loud, not by best effort. The type is the one source of truth — a plain `sparse(u32)` (e.g. `Tween.field`, which interns a path) is never a ref, so no parallel list can drift.
 

@@ -356,7 +356,7 @@ function world(state: State): void {
 }
 
 // spawn the world + props + player — runs once from BootSystem after the physics step exists. Idempotent
-// per State: a rebuild re-runs it, re-creating the derived bodies (they live in State, not the Document).
+// per State: a rebuild re-runs it, re-creating the derived bodies (they live in State, not the serialized scene).
 function build(state: State): void {
     const step = Avbd.step;
     if (!step) throw new Error("[sandbox] AvbdPlugin not warmed — no step");

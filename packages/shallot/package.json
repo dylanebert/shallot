@@ -28,7 +28,6 @@
             "types": "./src/harness/browser.ts",
             "default": "./dist/harness-browser.js"
         },
-        "./document": "./src/document/index.ts",
         "./vite": {
             "types": "./src/project/vite.ts",
             "default": "./dist/vite.js"
