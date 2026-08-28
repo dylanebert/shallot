@@ -154,9 +154,10 @@ export async function warmPlugins(
             (result): result is PromiseRejectedResult => result.status === "rejected",
         );
         if (rejected.length > 0) {
+            const reasons = rejected.map((r) => r.reason);
             throw new AggregateError(
-                rejected.map((r) => r.reason),
-                "plugin warm failed",
+                reasons,
+                reasons.map((r) => (r instanceof Error ? r.message : String(r))).join(", "),
             );
         }
 
@@ -309,8 +310,8 @@ export async function build(config: Config): Promise<App> {
             loading?.update((warmBase + progress) / total);
         });
 
+        loading?.update(1);
         if (cleanup) {
-            loading?.update(1);
             await new Promise<void>((r) => requestFrame(() => r()));
             cleanup();
         }

@@ -1011,5 +1011,144 @@ describe("Plugin", () => {
             );
             expect(cleanupCalled).toBe(true);
         });
+
+        // the AggregateError's message must name the actual reason(s), not a fixed string —
+        // validateGpu wraps it as a cause whose own message is built from cause.message alone,
+        // and the startup screen renders `${error.name}: ${error.message}`, so a fixed message
+        // loses the one piece a human reads. Assert on the thrown text a caller would log.
+        test("a single warm rejection's thrown error text names the plugin's own reason", async () => {
+            const saved = { ...Compute };
+            const device = {
+                queue: { onSubmittedWorkDone: async () => {} },
+                features: new Set(),
+                limits: {},
+                lost: new Promise(() => {}),
+                pushErrorScope: () => {},
+                popErrorScope: async () => null,
+            } as unknown as GPUDevice;
+            const plugins: Plugin[] = [
+                {
+                    name: "solo",
+                    warm: async () => {
+                        throw new Error("solo pipeline kaboom");
+                    },
+                },
+            ];
+            try {
+                await requestGPU(device);
+                try {
+                    await warmPlugins(device, {} as never, plugins);
+                    expect.unreachable("should have rejected");
+                } catch (e) {
+                    expect((e as Error).message).toContain("solo pipeline kaboom");
+                    const errors = (e as { cause?: AggregateError }).cause?.errors as Error[];
+                    expect(errors).toBeDefined();
+                    expect(errors.some((err) => err.message.includes("solo pipeline kaboom"))).toBe(
+                        true,
+                    );
+                }
+            } finally {
+                Object.assign(Compute, saved);
+            }
+        });
+
+        test("multiple warm rejections' thrown error text names every reason", async () => {
+            const saved = { ...Compute };
+            const device = {
+                queue: { onSubmittedWorkDone: async () => {} },
+                features: new Set(),
+                limits: {},
+                lost: new Promise(() => {}),
+                pushErrorScope: () => {},
+                popErrorScope: async () => null,
+            } as unknown as GPUDevice;
+            const plugins: Plugin[] = [
+                {
+                    name: "a",
+                    warm: async () => {
+                        throw new Error("a pipeline kaboom");
+                    },
+                },
+                {
+                    name: "b",
+                    warm: async () => {
+                        throw new Error("b pipeline kaboom");
+                    },
+                },
+            ];
+            try {
+                await requestGPU(device);
+                try {
+                    await warmPlugins(device, {} as never, plugins);
+                    expect.unreachable("should have rejected");
+                } catch (e) {
+                    expect((e as Error).message).toContain("a pipeline kaboom");
+                    expect((e as Error).message).toContain("b pipeline kaboom");
+                    const errors = (e as { cause?: AggregateError }).cause?.errors as Error[];
+                    expect(errors).toBeDefined();
+                    expect(errors.some((err) => err.message.includes("a pipeline kaboom"))).toBe(
+                        true,
+                    );
+                    expect(errors.some((err) => err.message.includes("b pipeline kaboom"))).toBe(
+                        true,
+                    );
+                }
+            } finally {
+                Object.assign(Compute, saved);
+            }
+        });
+
+        // a non-Error throw still surfaces its text in the AggregateError message
+        test("a non-Error warm throw's message falls back to String(reason)", async () => {
+            const saved = { ...Compute };
+            const device = {
+                queue: { onSubmittedWorkDone: async () => {} },
+                features: new Set(),
+                limits: {},
+                lost: new Promise(() => {}),
+                pushErrorScope: () => {},
+                popErrorScope: async () => null,
+            } as unknown as GPUDevice;
+            const plugins: Plugin[] = [
+                {
+                    name: "str",
+                    warm: async () => {
+                        throw "string-reason-kaboom";
+                    },
+                },
+            ];
+            try {
+                await requestGPU(device);
+                try {
+                    await warmPlugins(device, {} as never, plugins);
+                    expect.unreachable("should have rejected");
+                } catch (e) {
+                    expect((e as Error).message).toContain("string-reason-kaboom");
+                    const errors = (e as { cause?: AggregateError }).cause?.errors as unknown[];
+                    expect(errors).toBeDefined();
+                    expect(errors.some((r) => String(r).includes("string-reason-kaboom"))).toBe(
+                        true,
+                    );
+                }
+            } finally {
+                Object.assign(Compute, saved);
+            }
+        });
+
+        // the 0–1 progress contract this unit enforces must hold in its own degenerate case:
+        // a build with zero plugins and zero scenes still reports update reaching 1, even when
+        // Loading.show() returns no cleanup (warmPlugins([]) never invokes its progress callback)
+        test("a zero-plugin zero-scene build with no cleanup still reports progress reaching 1", async () => {
+            clear();
+            const trace: number[] = [];
+            const loading: Loading = {
+                show() {},
+                update(progress) {
+                    trace.push(progress);
+                },
+            };
+            await build({ plugins: [], defaults: false, loading });
+            expect(trace.at(-1)).toBe(1);
+        });
     });
 });
