@@ -493,6 +493,12 @@ export async function run(config: Config): Promise<App> {
                 () => {
                     pendingFenceWaitMs = now() - waitStart;
                 },
+                // a rejected fence is device loss, and this continuation carries nothing but a timing
+                // sample — drop it rather than reporting a bogus wait. The handler exists only so the
+                // rejection isn't unhandled; the loss itself is reported by `observeDevice`, and the
+                // loop deliberately keeps running (report-only device-loss policy). Don't delete this
+                // as dead code: `Compute.sync`'s own `inFlight` accounting is what must not wedge, and
+                // it is guarded at the fence in `runtime/gpu.ts`, not here.
                 () => {},
             );
         }
