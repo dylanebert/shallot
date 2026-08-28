@@ -11,6 +11,7 @@ import {
     deviceLimits,
     GpuDiagnosticError,
     observeDevice,
+    PIPELINE_COMPILE_MEASURE_PREFIX,
     precompile,
     precompileAll,
     precompileScope,
@@ -1201,6 +1202,42 @@ describe("precompile", () => {
             await precompileAll();
             expect(spans.map(([label]) => label)).toEqual(["mixed", "real"]);
         } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a warmed compile leaves a performance.measure entry named prefix+label", async () => {
+        const saved = { ...Compute };
+        performance.clearMeasures();
+        try {
+            await requestGPU(fakeDevice());
+            precompile("warmed-label", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+
+            const entries = performance.getEntriesByName(
+                `${PIPELINE_COMPILE_MEASURE_PREFIX}warmed-label`,
+            );
+            expect(entries.length).toBe(1);
+        } finally {
+            performance.clearMeasures();
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("the all-skip array path leaves no performance.measure entry", async () => {
+        const saved = { ...Compute };
+        performance.clearMeasures();
+        try {
+            await requestGPU(fakeDevice());
+            precompile("all-skip", () => [{ label: "raw-a" }, { label: "raw-b" }]);
+            await precompileAll();
+
+            const entries = performance
+                .getEntriesByType("measure")
+                .filter((entry) => entry.name.startsWith(PIPELINE_COMPILE_MEASURE_PREFIX));
+            expect(entries).toEqual([]);
+        } finally {
+            performance.clearMeasures();
             Object.assign(Compute, saved);
         }
     });
