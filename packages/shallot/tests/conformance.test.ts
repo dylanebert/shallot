@@ -9,9 +9,12 @@
 //
 // This is the default-tier SENTINEL (`coding.md` Suite speed: a gate leaving the default suite
 // leaves a cheap sentinel): the pipeline-compiling arms — Render, Part, Sear, Glaze, Lines, Sprite,
-// Skin, both toggle arms, and the SkinPlugin+GltfPlugin pair — were promoted to the by-path tier
-// `conformance.tier.ts` because their real GPU pipeline-compile cost (measured 4.6–6.3 s, readings
-// 5062–6279 ms) straddled the 5000 ms per-file cap (`tests/test-cap.ts`). What stays here is the
+// Skin, Physics, Character, Player, both toggle arms, and the SkinPlugin+GltfPlugin pair — were
+// promoted to the by-path tier `conformance.tier.ts` because their real GPU pipeline-compile cost
+// (render arms measured 4.6–6.3 s, readings 5062–6279 ms) straddled the 5000 ms per-file cap
+// (`tests/test-cap.ts`). The physics arms (Physics/Character/Player) compile the AVBD solver's
+// compute pipeline set on the device — their headless cost is measured in
+// `tests/avbd/headless.tier.ts`'s header. What stays here is the
 // cheap half of the roster (Project, Mirror, Input, Slab+Transforms, Orbit, Tween) plus the seeded
 // non-idempotent red arm — the sentinel that discriminates: a split can silently drop the population
 // a red-capable arm needs, so the red arm stays to prove the harness still catches a violation.

@@ -144,7 +144,7 @@ Shallot is procedural-first: meshes, materials, and motion are data you author, 
 
 ## Testing
 
-- **Unit tests** (`bun test`) — fast, hardware-invariant logic. Catches structure, layout, math errors. **Never bind a GPU device in a unit test** — software adapters flake by construction.
+- **Unit tests** (`bun test`) — fast, hardware-invariant logic. Catches structure, layout, math errors. **Never bind a GPU device in a default-suite unit test** — software adapters flake by construction. A measured by-path `.tier.ts` probe may bind the preloaded adapter (testing.md's GPU testing section).
 - **Real GPU** (Playwright) — pipeline validation, compile, raster, readback. Unit tests alone miss real hardware failures.
 - **`.test.ts`** — spec tests. First principles, tight tolerances, permanent. **`.lab.ts`** — investigation, not auto-run, temporary.
 - **Tolerances are derived, not tuned:** exact invariants → 1e-10; f32 precision → ~1e-6 relative; truncation and convergence → derive from order, step size, iteration count. If you can't derive it, investigate in a `.lab.ts` first.
