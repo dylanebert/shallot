@@ -165,7 +165,7 @@ export function signature(state: State, probe?: () => unknown): Record<string, u
     return {
         components: components.sort(),
         counts,
-        document: stringify(serialize(state)),
+        scene: stringify(serialize(state)),
         probe: probe?.(),
     };
 }
@@ -186,7 +186,7 @@ export const skinLayout = () => ({
 });
 
 // a custom project-style plugin — the user-authored shape a project boot builds from a manifest's local
-// plugins (the hot-reload capture fixture's `ticker`). Project plugins never ran the conformance loop
+// plugins (e.g. `examples/recipes/moving-platform`'s `Elevator`, loaded from `./src/elevator`). Project plugins never ran the conformance loop
 // before; this pins that a project warm spawns exactly once per build (a doubling warm shows as a
 // Counter count of 2 in the second pass) and rebuilds idempotently against the same module singletons.
 const Counter = { ticks: sparse(u32) };

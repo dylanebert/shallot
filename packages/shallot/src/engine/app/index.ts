@@ -529,7 +529,7 @@ export interface SwapResult {
  * preserved), and re-runs `initialize` to repopulate module singletons with the
  * reloaded code. A schema / system-set / ordering / dependency / feature change
  * it can't carry safely returns `{ ok: false, reason }`; the caller then rebuilds
- * from the document. A `warm`- or `setup`-body edit is undetectable (a closure body can't
+ * from the serialized scene. A `warm`- or `setup`-body edit is undetectable (a closure body can't
  * be diffed) and lands on the next rebuild rather than this swap. A live host
  * drives this from its HMR seam; `prev`/`next` are the project's own plugins
  * before and after the reload.
