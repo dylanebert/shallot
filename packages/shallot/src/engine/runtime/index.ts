@@ -4,6 +4,7 @@ export {
     checkTextureLimits,
     checkTgsl,
     type LazyAlloc,
+    PIPELINE_COMPILE_MEASURE_PREFIX,
     precompile,
     precompileAll,
     precompileScope,

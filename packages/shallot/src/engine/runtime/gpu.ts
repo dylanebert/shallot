@@ -928,6 +928,22 @@ export async function precompileAll(): Promise<void> {
     }
 }
 
+/**
+ * User Timing measure-name prefix for a compiled forcer's `pipeline_compile` vital
+ * (`{@link PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`). A page-side RUM script can't reach
+ * this bundle's `Compute` singleton — each demo bundles the engine itself, so `performance.measure`
+ * is the cross-bundle wire; the constant is exported so a site-side script can filter on it without
+ * a second engine copy. Stable string contract: the deployed demos run the published engine while
+ * an importer builds from workspace source, so renaming this silently breaks that wire.
+ *
+ * Async-only coverage: a measure is emitted only when a forcer actually awaited `initAsync`
+ * ({@link compileValidated}'s `warmed`), the same gate `Compute.precompiled` reports through — a
+ * non-forced sync pipeline records a near-zero stub (TypeGPU returns before the driver compiles),
+ * so no vital is emitted for it.
+ * @internal
+ */
+export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
+
 async function compileValidated(forcer: Forcer): Promise<void> {
     const start = now();
     let warmed = false;
@@ -965,7 +981,23 @@ async function compileValidated(forcer: Forcer): Promise<void> {
     // only compile-timing attribution is reported here. A forcer that never awaited a real
     // initAsync (sear's raw-pipeline array, or `[]`) skips the report entirely — attributing that
     // skip as a compile is the still-unwarmed path reporting warm
-    if (warmed) Compute.precompiled?.(forcer.label, start, now());
+    if (warmed) {
+        const end = now();
+        Compute.precompiled?.(forcer.label, start, end);
+        // telemetry must never throw into compileValidated's validation path — a User Timing entry
+        // is a nice-to-have for the site's RUM script, not a build-breaking dependency, so a missing
+        // or throwing `performance.measure` (an older runtime, a locked-down embedder) is swallowed.
+        try {
+            if (typeof performance?.measure === "function") {
+                performance.measure(`${PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`, {
+                    start,
+                    end,
+                });
+            }
+        } catch {
+            // never let telemetry break a build
+        }
+    }
 }
 
 // the root is device-scoped, not build-scoped. A device outlives any one build (a host sharing one
