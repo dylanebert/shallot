@@ -69,6 +69,11 @@ export class State {
         mode?: "edit" | "play";
     }) {
         if (opts?.capacity !== undefined && opts.capacity !== capacity) {
+            if (!Number.isFinite(opts.capacity) || opts.capacity < 1) {
+                throw new Error(
+                    `State: capacity ${opts.capacity} is not a finite positive integer`,
+                );
+            }
             if (_liveStates.size > 0) {
                 console.warn(
                     `State: capacity retune from ${capacity} to ${opts.capacity} while ${_liveStates.size} State(s) are live — ` +

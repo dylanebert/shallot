@@ -66,6 +66,9 @@ export function checkStorageBinding(
     maxBinding: number,
     remedy: string,
 ): void {
+    if (!Number.isFinite(bytes)) {
+        throw new UnsupportedError(`${label} received a non-finite byte count (${bytes})`);
+    }
     if (bytes > maxBinding) {
         throw new UnsupportedError(
             `${label} needs ${mb(bytes)}, but the device's maxStorageBufferBindingSize is ` +
@@ -88,6 +91,11 @@ export function checkTextureLimits(
     limits: Pick<GPUSupportedLimits, "maxTextureDimension2D" | "maxTextureArrayLayers">,
     remedy: string,
 ): void {
+    if (!Number.isFinite(size.width) || !Number.isFinite(size.height)) {
+        throw new UnsupportedError(
+            `${label} received a non-finite extent (${size.width}×${size.height})`,
+        );
+    }
     const dim = Math.max(size.width, size.height);
     if (dim > limits.maxTextureDimension2D) {
         throw new UnsupportedError(
@@ -96,6 +104,9 @@ export function checkTextureLimits(
         );
     }
     const layers = size.layers ?? 1;
+    if (!Number.isFinite(layers)) {
+        throw new UnsupportedError(`${label} received a non-finite layer count (${layers})`);
+    }
     if (layers > limits.maxTextureArrayLayers) {
         throw new UnsupportedError(
             `${label} needs ${layers} array layers, but the device's maxTextureArrayLayers is ` +

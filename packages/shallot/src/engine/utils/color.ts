@@ -28,6 +28,8 @@ export function unpackColor(packed: number): { r: number; g: number; b: number }
  * const word = packColor(0xff8040, 0.5); // 0x80_40_80_ff, half alpha
  */
 export function packColor(hex: number, opacity: number): number {
+    if (!Number.isFinite(opacity))
+        throw new Error(`packColor received non-finite opacity: ${opacity}`);
     const r = (hex >> 16) & 0xff;
     const g = (hex >> 8) & 0xff;
     const b = hex & 0xff;

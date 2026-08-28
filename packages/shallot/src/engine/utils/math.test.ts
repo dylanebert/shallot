@@ -105,6 +105,15 @@ describe("Math functions vs wgpu-matrix", () => {
                 expect(eulerEqual(e, angle, EulerRt)).toBe(true);
             }
         });
+
+        test("throws on NaN in any of the 4 quaternion components", () => {
+            // NaN makes m13 NaN, so `m13 > -0.9999999 && m13 < 0.9999999` is false →
+            // the else branch runs and NaN reaches the returned euler angles.
+            expect(() => math.euler(NaN, 0, 0, 1)).toThrow(/NaN/);
+            expect(() => math.euler(0, NaN, 0, 1)).toThrow(/NaN/);
+            expect(() => math.euler(0, 0, NaN, 1)).toThrow(/NaN/);
+            expect(() => math.euler(0, 0, 0, NaN)).toThrow(/NaN/);
+        });
     });
 
     describe("slerp", () => {
@@ -159,6 +168,19 @@ describe("Math functions vs wgpu-matrix", () => {
             const expected = quat.slerp(from, to, 0.5);
             expect(quatEqual(result, expected)).toBe(true);
         });
+
+        test("throws on NaN in any of the 8 quaternion components (guard checks all 8, not 3)", () => {
+            const from = quat.fromEuler(0, 0, 0, "xyz");
+            const to = quat.fromEuler(utils.degToRad(90), 0, 0, "xyz");
+            // fromX is NaN — the current guard only checks t, fromW, toW
+            expect(() =>
+                math.slerp(NaN, from[1], from[2], from[3], to[0], to[1], to[2], to[3], 0.5),
+            ).toThrow(/NaN/);
+            // toY is NaN
+            expect(() =>
+                math.slerp(from[0], from[1], from[2], from[3], to[0], NaN, to[2], to[3], 0.5),
+            ).toThrow(/NaN/);
+        });
     });
 
     describe("aim", () => {
@@ -211,6 +233,31 @@ describe("Math functions vs wgpu-matrix", () => {
             // forward (0,-1,0) is anti-parallel to up (0,1,0): the fallback yields
             // a 180° rotation (w=0) about the axis bisecting Y and Z
             expect(quatEqual(result, [0, Math.SQRT1_2, Math.SQRT1_2, 0])).toBe(true);
+        });
+    });
+
+    describe("lookAt degeneracy", () => {
+        // the derived bound (eps_f64 * max(|eye|, |target|)) replaces the old tuned 1e-6 in lookAt
+        // and the exact === 0 in aim. A direction of length 1e-7 at unit scale is above the derived
+        // threshold (~2.22e-16) so it must NOT trigger the fallback — the old < 1e-6 would have.
+        test("a small-but-legitimate direction (1e-7) does not trigger the lookAt fallback", () => {
+            const m = math.lookAt(0, 0, 0, 1e-7, 0, 0);
+            // the forward vector is -X (normalized), not the fallback -Z
+            expect(m[2]).toBeCloseTo(-1, 5);
+        });
+
+        test("throws on NaN in any of the 9 scalar params (eye, target, up)", () => {
+            // NaN param makes zLen/xLen NaN; `xLen < 1e-6` is false and
+            // `Math.abs(zy) > 0.9` is false, so NaN propagates into the matrix.
+            expect(() => math.lookAt(NaN, 0, 0, 0, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, NaN, 0, 0, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, NaN, 0, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, NaN, 0, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, NaN, -1)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, NaN)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, NaN, 1, 0)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, NaN, 0)).toThrow(/NaN/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, 1, NaN)).toThrow(/NaN/);
         });
     });
 
@@ -270,6 +317,21 @@ describe("invert", () => {
         for (let i = 0; i < 16; i++) {
             expect(result[i]).toBe(0);
         }
+    });
+
+    // a ~2e-4-scale transform has det = (2e-4)^3 = 8e-12, below the old absolute 1e-10 threshold,
+    // so the old code silently zeroed a legitimate invertible matrix. The derived relative threshold
+    // (n * eps_f32 * Hadamard product) scales with the matrix's own magnitude, so it does not zero it.
+    test("a small-scale transform (det ~8e-12) is not silently zeroed by the threshold", () => {
+        const s = 2e-4;
+        const m = math.compose(0, 0, 0, 0, 0, 0, 1, s, s, s);
+        const inv = math.invert(m);
+        // not zeroed — the inverse exists and has scale 1/s = 5000
+        expect(inv[0]).not.toBe(0);
+        expect(inv[5]).not.toBe(0);
+        expect(inv[10]).not.toBe(0);
+        // compose is TRS, so the inverse scale is 1/s
+        expect(inv[0]).toBeCloseTo(1 / s, 5);
     });
 });
 
@@ -344,6 +406,13 @@ describe("orthographic", () => {
     test("throws on near === far", () => {
         expect(() => math.orthographic(5, 1, 100, 100)).toThrow("Invalid depth planes");
     });
+
+    test("throws on NaN fov/aspect/near/far (NaN <= 0 and NaN === far are both false)", () => {
+        expect(() => math.orthographic(NaN, 1, 0.1, 100)).toThrow();
+        expect(() => math.orthographic(5, NaN, 0.1, 100)).toThrow();
+        expect(() => math.orthographic(5, 1, NaN, 100)).toThrow();
+        expect(() => math.orthographic(5, 1, 0.1, NaN)).toThrow();
+    });
 });
 
 describe("perspective", () => {
@@ -388,6 +457,13 @@ describe("perspective", () => {
 
     test("throws on near === far", () => {
         expect(() => math.perspective(60, 1, 100, 100)).toThrow("Invalid depth planes");
+    });
+
+    test("throws on NaN fov/aspect/near/far (NaN <= 0 and NaN === far are both false)", () => {
+        expect(() => math.perspective(NaN, 1, 0.1, 100)).toThrow();
+        expect(() => math.perspective(60, NaN, 0.1, 100)).toThrow();
+        expect(() => math.perspective(60, 1, NaN, 100)).toThrow();
+        expect(() => math.perspective(60, 1, 0.1, NaN)).toThrow();
     });
 });
 

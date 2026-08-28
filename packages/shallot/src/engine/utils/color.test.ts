@@ -73,6 +73,10 @@ describe("packColor", () => {
         expect((packColor(0xffffff, 0.5) >>> 24) & 0xff).toBe(128);
         expect((packColor(0xffffff, 0) >>> 24) & 0xff).toBe(0);
     });
+
+    test("NaN opacity throws — not silently packing transparent (NaN << 24 === 0)", () => {
+        expect(() => packColor(0xffffff, NaN)).toThrow();
+    });
 });
 
 // Regression pin: linearToSrgb must not produce NaN for negative inputs. The CPU ternary's
