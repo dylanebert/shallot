@@ -104,8 +104,8 @@ function buildState(eid: number): CharState {
 // re-sync `states` to the authored `[Character, Body]` set on a signature change. A new character builds a
 // fresh state; an existing one KEEPS its live pose + motion (the controller owns the pose, like the GPU char
 // pass — a sibling spawning must not teleport a walking character back to its spawn) and only picks up a
-// tuning edit; a removed one is dropped. Edit-time pose edits land at play start (a fresh play State syncs
-// from the edited Body slab — `states` is empty then).
+// tuning edit; a removed one is dropped. A freshly built State starts with `states` empty, so its first sync
+// takes every pose from the authored Body slab.
 function syncStates(state: State): void {
     const sig = signature(state);
     if (sig === charSig) return;
