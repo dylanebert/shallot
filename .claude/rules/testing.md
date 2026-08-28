@@ -5,7 +5,9 @@ paths:
     - "packages/shallot/bin/*.test.ts"
     - "packages/shallot/bin/*.probes.ts"
     - "scripts/install-test.ts"
+    - "scripts/stall-attribution.ts"
     - "packages/shallot/scripts/build-tooling.ts"
+    - "site/rum-*.ts"
 ---
 
 # Testing
@@ -125,6 +127,12 @@ Two more limits the byte axis owes its reader. Its exactness claim is grounded i
 - **A diagnostic that asserts a cause instead of reporting an observation can cost more than none.** `printSweepResult` once rendered any unparseable stdout as "verify crashed before reporting"; nothing had crashed, and 13 attempts searched for a page crash that did not exist. A caller that cannot distinguish a crash from a truncation must say what it saw (no parseable verdict array, N bytes received), not what it guessed that meant.
 - **Never let `process.exit` carry a payload out.** Node's stdout to a pipe is async, so `process.exit()` truncates at the 64 KiB pipe buffer, silently and size-dependently, which reads as flaky because a concurrently-draining reader sometimes wins the race. `runVerify` awaits `flushStdout()` in a `finally` before returning its exit code. Any CLI whose output is another program's input flushes before it exits, and the pin belongs at that seam rather than on the flush primitive alone.
 - **A numeric flag parser rejects a non-numeric or empty value with a throw or nonzero exit, never a substituted default.** `Number("")`, `Number(" ")` and `Number("-0")` are all `0` rather than `NaN`, so a typo silently no-ops or flows `NaN` without a `v.trim() === ""` guard *before* `Number()` — and a fix that substitutes a default satisfies "no NaN" while reproducing the defect, so rejection must be loud.
+- **A claim about the measuring environment is armed, never configured.** Where a reading is valid only under a launch condition (headed, a device, a build mode), the run asserts that condition from inside the subject and fails loud, because the config that sets it can be silently defeated — a runtime `SHALLOT_HEADED=1` mutation dropped by a spawn once measured a headless page as a headed one behind every green gate, until the run read `navigator.userAgent` back and reds loud on `HeadlessChrome`.
+
+## Production RUM reads
+
+- **A comparability claim between a local instrument and a production metric is established by grepping the code that emits the metric, never inferred from the metric's name or the provenance of its threshold.** A metric that reads as a browser platform signal by name alone can be the product's own duration vital instead, with a different unit entirely — the two were conflated for five rounds against an unread 40-line emitter in this same repo.
+- **An own-session production RUM read starts in a clean or incognito browser profile, never the reader's everyday one.** A browser extension can silently drop the RUM SDK's requests, and zero events reads identically to ingestion lag until the same session succeeds incognito.
 
 ## Harness verdict — `rendered` and the leak flag
 
