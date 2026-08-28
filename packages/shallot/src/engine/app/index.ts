@@ -132,24 +132,33 @@ export async function warmPlugins(
     device: GPUDevice,
     state: State,
     plugins: readonly Plugin[],
-    onProgress?: (completed: number, progress?: number) => void,
+    onProgress?: (progress: number) => void,
 ): Promise<void> {
     await validateGpu(device, "pipeline warm", async () => {
-        let completed = 0;
+        const perPlugin = new Array(plugins.length).fill(0);
+        const report = () => onProgress?.(perPlugin.reduce((a, b) => a + b, 0));
         const results = await Promise.allSettled(
-            plugins.map(async (plugin) => {
+            plugins.map(async (plugin, i) => {
                 try {
-                    await plugin.warm!(state, (progress) => onProgress?.(completed, progress));
+                    await plugin.warm!(state, (p) => {
+                        perPlugin[i] = Math.max(perPlugin[i], p);
+                        report();
+                    });
                 } finally {
-                    completed++;
-                    onProgress?.(completed);
+                    perPlugin[i] = 1;
+                    report();
                 }
             }),
         );
-        const rejected = results.find(
+        const rejected = results.filter(
             (result): result is PromiseRejectedResult => result.status === "rejected",
         );
-        if (rejected) throw rejected.reason;
+        if (rejected.length > 0) {
+            throw new AggregateError(
+                rejected.map((r) => r.reason),
+                "plugin warm failed",
+            );
+        }
 
         // typegpu creates pipelines synchronously and Dawn defers that compile to the first dispatch,
         // so every registered pipeline is forced here — under the loading screen, not on frame one.
@@ -263,7 +272,8 @@ export async function build(config: Config): Promise<App> {
                 : [config.scene]
             : [];
 
-        const total = sorted.length * 2 + scenes.length;
+        const warmable = sorted.filter((p) => p.warm);
+        const total = sorted.length + warmable.length + scenes.length;
 
         config.setup?.(state);
 
@@ -271,8 +281,8 @@ export async function build(config: Config): Promise<App> {
             const onProgress = loading
                 ? (progress: number) => loading.update((i + progress) / total)
                 : undefined;
-            await sorted[i].initialize?.(state, onProgress);
             initialized.push(sorted[i]);
+            await sorted[i].initialize?.(state, onProgress);
             loading?.update((i + 1) / total);
         }
 
@@ -288,7 +298,6 @@ export async function build(config: Config): Promise<App> {
             loading?.update((sorted.length + i + 1) / total);
         }
 
-        const warmable = sorted.filter((p) => p.warm);
         const warmBase = sorted.length + scenes.length;
         // freeze the membership generation count before any plugin's `warm` runs:
         // `allocMembership` (SlabPlugin.warm) sizes the GPU mirror from it, and the
@@ -296,8 +305,8 @@ export async function build(config: Config): Promise<App> {
         // plugin can build against it. Owned here, not in a standard plugin, so it
         // holds for every State regardless of which plugins are loaded.
         state.membership.freeze();
-        await warmPlugins(Compute.device, state, warmable, (completed, progress) => {
-            loading?.update((warmBase + completed + (progress ?? 0)) / total);
+        await warmPlugins(Compute.device, state, warmable, (progress) => {
+            loading?.update((warmBase + progress) / total);
         });
 
         if (cleanup) {
@@ -306,18 +315,29 @@ export async function build(config: Config): Promise<App> {
             cleanup();
         }
 
+        let disposed = false;
         return {
             state,
             skipped: [...skipped].map((p) => p.name),
             dispose() {
+                if (disposed) return;
+                disposed = true;
                 for (let i = sorted.length - 1; i >= 0; i--) {
-                    sorted[i].dispose?.(state);
+                    try {
+                        sorted[i].dispose?.(state);
+                    } catch (err) {
+                        console.error(`Plugin "${sorted[i].name}" threw during dispose:`, err);
+                    }
                 }
-                state.dispose();
+                try {
+                    state.dispose();
+                } catch (err) {
+                    console.error("State dispose threw:", err);
+                }
             },
         };
     } catch (e) {
-        // a failed build leaves nothing live: plugins that completed initialize dispose in
+        // a failed build leaves nothing live: plugins that started initialize dispose in
         // reverse, then the State, so a retry builds against clean module singletons. A dispose
         // throw here is reported, never allowed to mask the build error.
         for (let i = initialized.length - 1; i >= 0; i--) {
@@ -332,7 +352,8 @@ export async function build(config: Config): Promise<App> {
         } catch (err) {
             console.error("State dispose threw during cleanup:", err);
         }
-        loading?.error?.(e);
+        if (loading?.error) loading.error(e);
+        else cleanup?.();
         throw e;
     }
 }
@@ -380,12 +401,16 @@ function sortPlugins(nodes: Plugin[], edges: [Plugin, Plugin][]): Plugin[] {
  */
 export function mountOverlay(canvas: HTMLElement | null, state?: State): HTMLDivElement {
     const parent = canvas?.parentElement ?? document.body;
+    const prior = parent.style.position;
     parent.style.position = "relative";
     const overlay = document.createElement("div");
     overlay.style.cssText =
         "position:absolute;inset:0;pointer-events:none;z-index:1;contain:layout paint;overflow:hidden";
     parent.appendChild(overlay);
-    state?.onDispose(() => overlay.remove());
+    state?.onDispose(() => {
+        overlay.remove();
+        parent.style.position = prior;
+    });
     return overlay;
 }
 
@@ -463,9 +488,12 @@ export async function run(config: Config): Promise<App> {
         const fence = Compute.sync?.();
         if (fence) {
             const waitStart = now();
-            fence.then(() => {
-                pendingFenceWaitMs = now() - waitStart;
-            });
+            fence.then(
+                () => {
+                    pendingFenceWaitMs = now() - waitStart;
+                },
+                () => {},
+            );
         }
     }
 

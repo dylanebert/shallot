@@ -9,6 +9,7 @@ function mockElement() {
         style: {} as Record<string, string>,
         children: [] as unknown[],
         removed: false,
+        parentElement: null as unknown,
         appendChild(child: unknown) {
             this.children.push(child);
             return child;
@@ -54,5 +55,29 @@ describe("mountOverlay", () => {
         const overlay = mountOverlay(null) as unknown as ReturnType<typeof mockElement>;
         state.dispose();
         expect(overlay.removed).toBe(false);
+    });
+
+    test("restores the host element's prior inline position on dispose", () => {
+        const parent = mockElement();
+        parent.style.position = "absolute";
+        const canvas = mockElement();
+        canvas.parentElement = parent;
+        const state = new State();
+        mountOverlay(canvas as unknown as HTMLElement, state);
+        expect(parent.style.position).toBe("relative");
+        state.dispose();
+        expect(parent.style.position).toBe("absolute");
+    });
+
+    test("restores the prior position when there was no inline position", () => {
+        const parent = mockElement();
+        const prior = parent.style.position;
+        const canvas = mockElement();
+        canvas.parentElement = parent;
+        const state = new State();
+        mountOverlay(canvas as unknown as HTMLElement, state);
+        expect(parent.style.position).toBe("relative");
+        state.dispose();
+        expect(parent.style.position).toBe(prior);
     });
 });

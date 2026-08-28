@@ -705,4 +705,34 @@ describe("Scheduler", () => {
             expect(Number.isFinite(state.time.scale)).toBe(true);
         });
     });
+
+    // a throwing system.dispose must not skip later disposes or the _queries.clear() that
+    // state.dispose() runs after the scheduler — one throw must not re-open the leak
+    describe("dispose", () => {
+        test("a throwing system.dispose does not skip later disposes", () => {
+            const log: string[] = [];
+            const sysA: System = {
+                update: () => {},
+                dispose: () => {
+                    throw new Error("dispose A boom");
+                },
+            };
+            const sysB: System = {
+                update: () => {},
+                dispose: () => log.push("b-dispose"),
+            };
+            state.addSystem(sysA);
+            state.addSystem(sysB);
+
+            const origError = console.error;
+            console.error = () => {};
+            try {
+                expect(() => state.dispose()).not.toThrow();
+            } finally {
+                console.error = origError;
+            }
+            expect(log).toContain("b-dispose");
+            expect(state.disposed).toBe(true);
+        });
+    });
 });
