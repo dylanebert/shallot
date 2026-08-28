@@ -23,7 +23,17 @@ export function slerp(
     toW: number,
     t: number,
 ): { x: number; y: number; z: number; w: number } {
-    if (!Number.isFinite(t) || !Number.isFinite(fromW) || !Number.isFinite(toW)) {
+    if (
+        !Number.isFinite(fromX) ||
+        !Number.isFinite(fromY) ||
+        !Number.isFinite(fromZ) ||
+        !Number.isFinite(fromW) ||
+        !Number.isFinite(toX) ||
+        !Number.isFinite(toY) ||
+        !Number.isFinite(toZ) ||
+        !Number.isFinite(toW) ||
+        !Number.isFinite(t)
+    ) {
         throw new Error(
             `slerp received NaN: from=[${fromX},${fromY},${fromZ},${fromW}], to=[${toX},${toY},${toZ},${toW}], t=${t}`,
         );
@@ -163,9 +173,11 @@ export function perspective(
     far: number,
     out?: Float32Array,
 ): Float32Array {
-    if (fov <= 0) throw new Error(`Invalid FOV: ${fov} (must be > 0)`);
-    if (aspect <= 0) throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
-    if (near === far) throw new Error(`Invalid depth planes: near === far (${near})`);
+    if (!Number.isFinite(fov) || fov <= 0) throw new Error(`Invalid FOV: ${fov} (must be > 0)`);
+    if (!Number.isFinite(aspect) || aspect <= 0)
+        throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
+    if (!Number.isFinite(near) || !Number.isFinite(far) || near === far)
+        throw new Error(`Invalid depth planes: near === far (${near})`);
     if (!out) out = new Float32Array(16);
     const f = 1 / Math.tan((fov * Math.PI) / 360);
     const nf = 1 / (near - far);
@@ -199,9 +211,12 @@ export function orthographic(
     far: number,
     out?: Float32Array,
 ): Float32Array {
-    if (size <= 0) throw new Error(`Invalid orthographic size: ${size} (must be > 0)`);
-    if (aspect <= 0) throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
-    if (near === far) throw new Error(`Invalid depth planes: near === far (${near})`);
+    if (!Number.isFinite(size) || size <= 0)
+        throw new Error(`Invalid orthographic size: ${size} (must be > 0)`);
+    if (!Number.isFinite(aspect) || aspect <= 0)
+        throw new Error(`Invalid aspect ratio: ${aspect} (must be > 0)`);
+    if (!Number.isFinite(near) || !Number.isFinite(far) || near === far)
+        throw new Error(`Invalid depth planes: near === far (${near})`);
     if (!out) out = new Float32Array(16);
     const lr = 1 / (size * aspect);
     const bt = 1 / size;
@@ -351,7 +366,7 @@ export function decompose(m: Float32Array, out?: Float32Array): Float32Array {
     return out;
 }
 
-/** mat4 × mat4, column-major */
+/** mat4 × mat4, column-major. `out` must not alias `a` or `b` — the element-wise write-back corrupts the read. */
 export function multiply(a: Float32Array, b: Float32Array, out?: Float32Array): Float32Array {
     if (!out) out = new Float32Array(16);
     for (let i = 0; i < 4; i++) {
@@ -401,7 +416,17 @@ export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     const b11 = a22 * a33 - a23 * a32;
 
     let det = b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06;
-    if (Math.abs(det) < 1e-10) {
+
+    // relative singularity threshold: Hadamard's inequality bounds |det| by the product of column
+    // norms, so |det| / Hadamard ∈ [0, 1] measures relative volume. A matrix is numerically singular
+    // when that ratio falls to the f32 rounding level (inputs are Float32Array, eps = 2^-23). The n
+    // factor (dimension = 4) accounts for the O(n) multiplications in the determinant expansion.
+    const col0 = Math.hypot(m[0], m[1], m[2], m[3]);
+    const col1 = Math.hypot(m[4], m[5], m[6], m[7]);
+    const col2 = Math.hypot(m[8], m[9], m[10], m[11]);
+    const col3 = Math.hypot(m[12], m[13], m[14], m[15]);
+    const hadamard = col0 * col1 * col2 * col3;
+    if (hadamard === 0 || Math.abs(det) < 4 * 2 ** -23 * hadamard) {
         out.fill(0);
         return out;
     }
@@ -445,7 +470,19 @@ export function lookAt(
     let zz = eyeZ - targetZ;
     let zLen = Math.sqrt(zx * zx + zy * zy + zz * zz);
 
-    if (zLen < 1e-6) {
+    // degeneracy: the eye-minus-target direction is garbage when |z| falls to the f64 rounding
+    // level of the subtraction (eps * max(|eye|, |target|)). The 1 floor avoids a zero threshold
+    // for origin-coincident coordinates. Unifies the old tuned 1e-6 (lookAt) and exact === 0 (aim).
+    const _zScale = Math.max(
+        Math.abs(eyeX),
+        Math.abs(eyeY),
+        Math.abs(eyeZ),
+        Math.abs(targetX),
+        Math.abs(targetY),
+        Math.abs(targetZ),
+        1,
+    );
+    if (zLen < Number.EPSILON * _zScale) {
         zx = 0;
         zy = 0;
         zz = 1;
@@ -537,7 +574,16 @@ export function aim(
     let zz = eyeZ - targetZ;
     let zLen = Math.sqrt(zx * zx + zy * zy + zz * zz);
 
-    if (zLen === 0) {
+    const _zScale = Math.max(
+        Math.abs(eyeX),
+        Math.abs(eyeY),
+        Math.abs(eyeZ),
+        Math.abs(targetX),
+        Math.abs(targetY),
+        Math.abs(targetZ),
+        1,
+    );
+    if (zLen < Number.EPSILON * _zScale) {
         zz = 1;
     } else {
         zLen = 1 / zLen;
