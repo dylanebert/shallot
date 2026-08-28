@@ -905,7 +905,7 @@ describe("TGSL metadata", () => {
 
 // a device stand-in: `initFromDevice` only stores the handle and nothing here submits work, so root
 // identity and the build boundary are testable with no adapter (testing.md — never bind a device in
-// `bun test`). `Compute` is a process singleton every other test file also writes, so each test that
+// a default-suite `bun test` file). `Compute` is a process singleton every other test file also writes, so each test that
 // drives `requestGPU` restores what it found.
 const fakeDevice = () =>
     ({

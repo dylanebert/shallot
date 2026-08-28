@@ -47,7 +47,8 @@ export function isSoftwareAdapter(hardware: string): boolean {
 
 /** the display gate's decision for a probed adapter identity: {@link EXIT_NO_DISPLAY} to refuse, `null`
  *  to proceed. The seam `verifyCommand`'s refusal path reduces to, so the decision — and its exit code —
- *  is unit-testable without a browser (`testing.md`: never bind a device in `bun test`). */
+ *  is unit-testable without a browser (`testing.md`: never bind a device in a default-suite
+ *  `bun test` file). */
 export function displayGateExit(hardware: string): number | null {
     return isSoftwareAdapter(hardware) ? EXIT_NO_DISPLAY : null;
 }

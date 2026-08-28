@@ -360,7 +360,7 @@ export const roster: Record<string, Conformance> = {
  * or `AvbdPlugin` — the plugins whose presence triggers GPU pipeline compilation, the cost being
  * promoted to the by-path tier. `RenderPlugin` compiles render pipelines; `AvbdPlugin` compiles the
  * AVBD solver's compute pipeline set and binds the device at the entry's threaded capacity (its
- * build measured 1.65 s cold / 0.15 s warm on the bun-webgpu adapter — Physics/Character would
+ * headless build cost is measured in `tests/avbd/headless.tier.ts`'s header — Physics/Character would
  * blow the 5000 ms per-file cap on a cold adapter, the same straddle that split this tier).
  * Entries with neither (Project, Mirror, Input, Slab+Transforms, Orbit, Tween) are cheap and stay
  * in the default-tier sentinel.

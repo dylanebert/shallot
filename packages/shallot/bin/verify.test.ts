@@ -320,7 +320,7 @@ describe("bootArm", () => {
 // exact CLI against `examples/showcase/voxel` and `roads` under WSL's `dzn`/SwiftShader fallback, hardware
 // read as "google / swiftshader". `isSoftwareAdapter` is the pure classification that refuses it before
 // any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, testable without
-// binding a device (`testing.md`: never bind a device in `bun test`).
+// binding a device (`testing.md`: never bind a device in a default-suite `bun test` file).
 describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", () => {
     test("real-hardware identity strings pass", () => {
         expect(isSoftwareAdapter("nvidia / ... / geforce rtx 4090 / ...")).toBe(false);

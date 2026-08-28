@@ -22,8 +22,8 @@
 //
 // Placement: `.tier.ts`, decided by the measured per-arm wall clock against the 5000 ms
 // per-file cap (`tests/test-cap.ts`): cold (first run in a fresh checkout, no adapter shader
-// cache) physics 1652 ms, character 95 ms, player 150 ms, 2.30 s for the file — 46% of the cap,
-// below the ~60% headroom bar that earns a `.test.ts` suffix. Warm (adapter shader cache
+// cache) physics 1652 ms, character 95 ms, player 150 ms, 2.30 s for the file — 54% headroom
+// under the cap, below the ~60% headroom bar that earns a `.test.ts` suffix. Warm (adapter shader cache
 // present) the file runs ~0.7 s, but the placement decision must hold for the cold worst
 // case, so it stays a by-path tier (the cap's own promotion move, 2). Re-run numbers are
 // expected to vary with the host (lavapipe is CPU-executed). Run by path from the shallot
@@ -123,8 +123,13 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
         expectFinite(pose);
         // closed-form gravity direction: after solved free-fall ticks the box sits strictly below its
         // authored start (Δy ≈ −0.5·g·(ticks·h)² ≈ −0.03 at 5 ticks, h = 1/60) — a band derived from
-        // free-fall kinematics, never from the observed value.
+        // free-fall kinematics, never from the observed value. The floor is the same derivation's
+        // other side: five ticks of free fall cover at most Δy = ½·g·(TICKS·h)² ≈ 0.035 m (the box
+        // starts 4.9 m above contact, far outside the 0.04 speculative band, so no contact can have
+        // accelerated it), so the pose must still exceed 6 − 0.035 ≈ 5.97 — assert > 5.9, the derived
+        // floor with band margin, so a zero readback (wrong eid or a broken readback seam) reds.
         expect(pose.pos[1]).toBeLessThan(6);
+        expect(pose.pos[1]).toBeGreaterThan(5.9);
         app.dispose();
     });
 
@@ -152,8 +157,13 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
         const pose = await probePose(chars[0]);
         expectFinite(pose);
         // the sweep applies the world gravity (−10, the plugin's configured GRAVITY) to an un-driven
-        // character, so it too falls from its authored 3 m — derived from the sweep contract, not tuned.
+        // character, so it too falls from its authored 3 m — derived from the sweep contract, not
+        // tuned. The floor is the same derivation's other side: five ticks of un-driven fall cover at
+        // most Δy = ½·g·(TICKS·h)² ≈ 0.035 m (the capsule's bottom at 2.1 sits 1.6 m above the ground
+        // top at 0.5, so no depenetration or contact can have moved it), so the pose must still exceed
+        // 3 − 0.035 ≈ 2.97 — assert > 2.9, the derived floor with band margin, so a zero readback reds.
         expect(pose.pos[1]).toBeLessThan(3);
+        expect(pose.pos[1]).toBeGreaterThan(2.9);
         app.dispose();
     });
 
