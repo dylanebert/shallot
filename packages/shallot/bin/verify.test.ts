@@ -319,8 +319,8 @@ describe("bootArm", () => {
 // dies mid-execution (`GPU device lost`, oversized `mappedAtCreation`) — measured 2026-08-18 running this
 // exact CLI against `examples/showcase/voxel` and `roads` under WSL's `dzn`/SwiftShader fallback, hardware
 // read as "google / swiftshader". `isSoftwareAdapter` is the pure classification that refuses it before
-// any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, testable without
-// binding a device (`testing.md`: never bind a device in a default-suite `bun test` file).
+// any check runs; `displayGateExit` is the refusal-path seam reduced to its exit code, with no device
+// execution (`testing.md`: a default-suite verdict must not depend on device execution).
 describe("isSoftwareAdapter / displayGateExit — the CLI's own display gate", () => {
     test("real-hardware identity strings pass", () => {
         expect(isSoftwareAdapter("nvidia / ... / geforce rtx 4090 / ...")).toBe(false);

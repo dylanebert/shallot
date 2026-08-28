@@ -115,10 +115,10 @@ describe("compileVariant — boundaries and glTF support", () => {
             "use gpu";
             return d.vec4f(1);
         });
-        // `bun test` binds no device (testing.md — never bind a device in a default-suite `bun test`
-        // file), so past the now-dropped
-        // guard the call reaches `Compute.root` and throws on the missing device, not on a boundary
-        // check — the positive proof (a real transparent pipeline compiles) is `bun bench`'s job.
+        // This arm supplies no device, so past the now-dropped guard the call reaches `Compute.root`
+        // and throws on the missing device, not on a boundary check. Its verdict therefore needs no
+        // device execution (testing.md); the positive proof that a real transparent pipeline compiles
+        // is `bun bench`'s job.
         expect(() =>
             compileVariant({
                 name: `alpha-past-guard-${Math.random()}`,

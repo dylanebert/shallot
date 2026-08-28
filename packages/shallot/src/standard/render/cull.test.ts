@@ -11,7 +11,7 @@ import { meshBounds } from "./mesh";
 
 // Pure-CPU logic only (no device). The real-GPU cull truth — survivor counts, survivor identity,
 // per-view slot offsets, the View prune on a destroyed camera — lives in the gym `render` scenario
-// (`bun bench --scenario render`), the single source of truth for anything that binds a device.
+// (`bun bench --scenario render`), the product-truth gate for the resolved pipeline's execution.
 
 // mirrors the WGSL `visible` test: a sphere is inside when its signed distance
 // stays ≥ -radius for all six planes
