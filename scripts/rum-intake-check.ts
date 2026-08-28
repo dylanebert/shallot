@@ -2,11 +2,16 @@ import { existsSync, mkdirSync } from "node:fs";
 import { extname, resolve } from "node:path";
 
 // `bun run scripts/rum-intake-check.ts [--demo <slug>]` — the RUM slow-frame intake proof (spec
-// `shallot-rum-slow-frame-vitals` S2). Serves `out/site/<slug>/` statically, drives it through a
-// real (headless) browser, forces a deterministic main-thread busy-loop above and below the
-// sampler's 50ms threshold (`site/rum-sampler.ts`'s `SLOW_FRAME_THRESHOLD_MS`), intercepts every
-// request to the Datadog intake host, and asserts both directions: the above-threshold run's
-// intercepted body carries a `slow_frame` vital, the below-threshold run's doesn't. Nothing this
+// `shallot-rum-slow-frame-vitals` S2), plus (spec `shallot-compile-vitals` S2) the
+// `pipeline_compile` wire proof. Serves `out/site/<slug>/` statically, drives it through a real
+// (headless) browser, forces a deterministic main-thread busy-loop above and below the sampler's
+// 50ms threshold (`site/rum-sampler.ts`'s `SLOW_FRAME_THRESHOLD_MS`), intercepts every request to
+// the Datadog intake host, and asserts both directions: the above-threshold run's intercepted
+// body carries a `slow_frame` vital, the below-threshold run's doesn't. A second, independent
+// two-sided arm does the same for `pipeline_compile`: a synthetic prefixed `performance.measure`
+// emitted in-page drives `site/rum-runtime.ts`'s own `PerformanceObserver`, and the intercepted
+// body must carry `pipeline_compile`; a non-prefixed synthetic measure must forward nothing. This
+// proves the site half end to end with no engine release and no real GPU device. Nothing this
 // check does reaches the real Datadog intake — every matching request is intercepted and never
 // forwarded (`scripts/rum-intake-driver.ts`).
 //
@@ -122,7 +127,16 @@ async function main(): Promise<void> {
             reportedOnWire: boolean;
             loafEntryCount: number | null;
         }
-        const result = JSON.parse(line) as { below: ScenarioResult; above: ScenarioResult };
+        interface CompileVitalScenarioResult {
+            called: boolean;
+            reportedOnWire: boolean;
+        }
+        const result = JSON.parse(line) as {
+            below: ScenarioResult;
+            above: ScenarioResult;
+            compileVitalPrefixed: CompileVitalScenarioResult;
+            compileVitalUnprefixed: CompileVitalScenarioResult;
+        };
 
         console.log(
             `  below threshold (${result.below.busyMs}ms busy-loop): addDurationVital ${
@@ -163,7 +177,43 @@ async function main(): Promise<void> {
             );
         }
 
-        console.log("✓ RUM slow-frame intake proof: both directions discriminate correctly");
+        // the `pipeline_compile` two-sided wire proof (spec `shallot-compile-vitals` S2) — a
+        // synthetic prefixed measure must forward, a non-prefixed one must not. `called` is the
+        // structural, primary verdict for both directions (`rum-intake-driver.ts`'s docblock:
+        // a wire-only negative check bounded by a sanity window can't distinguish a working
+        // filter from a disabled one when the SDK's flush cadence outlasts the window either
+        // way); `reportedOnWire` stays required for the positive direction.
+        console.log(
+            `  pipeline_compile (prefixed synthetic measure): addDurationVital ${
+                result.compileVitalPrefixed.called ? "called" : "not called (unexpected)"
+            }; wire: ${
+                result.compileVitalPrefixed.reportedOnWire
+                    ? "pipeline_compile seen"
+                    : "no pipeline_compile seen (unexpected)"
+            }`,
+        );
+        console.log(
+            `  pipeline_compile (non-prefixed synthetic measure): addDurationVital ${
+                result.compileVitalUnprefixed.called ? "called (unexpected)" : "not called"
+            }`,
+        );
+        if (!result.compileVitalPrefixed.called) {
+            fail(
+                "a prefixed synthetic measure never called addDurationVital with pipeline_compile",
+            );
+        }
+        if (!result.compileVitalPrefixed.reportedOnWire) {
+            fail(
+                "a prefixed synthetic measure never sent an intake request carrying pipeline_compile",
+            );
+        }
+        if (result.compileVitalUnprefixed.called) {
+            fail("a non-prefixed synthetic measure called addDurationVital with pipeline_compile");
+        }
+
+        console.log(
+            "✓ RUM slow-frame + pipeline_compile intake proof: all directions discriminate correctly",
+        );
         process.exit(0);
     } finally {
         server.stop();

@@ -1,9 +1,11 @@
-// Browser-only rAF/SDK glue — drives `rum-sampler.ts`'s pure decision logic with real
-// `requestAnimationFrame` timestamps and reports through the Datadog RUM CDN snippet's global.
-// Bundled by `scripts/build-site.ts` (`Bun.build`, target "browser") and inlined into every demo
-// page; never imported by anything else, so it has no test of its own — the logic it drives is
-// tested in `rum-sampler.test.ts`.
+// Browser-only rAF/SDK glue — drives `rum-sampler.ts`'s and `rum-compile-vitals.ts`'s pure
+// decision logic with real `requestAnimationFrame` timestamps and `PerformanceObserver` entries,
+// reporting through the Datadog RUM CDN snippet's global. Bundled by `scripts/build-site.ts`
+// (`Bun.build`, target "browser") and inlined into every demo page; never imported by anything
+// else, so it has no test of its own — the logic it drives is tested in `rum-sampler.test.ts` and
+// `rum-compile-vitals.test.ts`.
 
+import { compileVitalReports } from "./rum-compile-vitals";
 import {
     attributeSlowFrame,
     type LoAFEntry,
@@ -21,6 +23,53 @@ declare global {
                 options: { startTime: number; duration: number; context: Record<string, unknown> },
             ) => void;
         };
+    }
+}
+
+// Inlined at build time (`scripts/build-site.ts`'s `buildRumRuntimeBundle`, `Bun.build`'s
+// `define`) — never imported. `packages/shallot/src/engine/runtime/gpu.ts`'s
+// `PIPELINE_COMPILE_MEASURE_PREFIX` can't be imported directly into this browser bundle: `gpu.ts`
+// has a top-level `tgpu.fn(...)` call, a real side effect no bundler can tree-shake, so any import
+// from it pulls TypeGPU's whole module graph in (measured 0.56 MB / 170 modules for a probe
+// importing only the constant — `rum-compile-vitals.ts`'s own docblock records the same fact).
+declare const __PIPELINE_COMPILE_MEASURE_PREFIX__: string;
+
+// `PerformanceObserver({ type: "measure", buffered: true })` — `buffered: true` is load-bearing:
+// a compile forced during boot (the sear/slab forcers `precompileAll` warms before the page is
+// interactive) finishes and calls `performance.measure` well before this script's own
+// `DD_RUM.onReady` fires, let alone before an observer constructed here would otherwise see it.
+// `buffered` replays every matching entry already on the timeline at `observe()` time, so a
+// compile finished during boot is still reported.
+if (typeof PerformanceObserver !== "undefined") {
+    try {
+        new PerformanceObserver((list) => {
+            const reports = compileVitalReports(
+                list.getEntries(),
+                __PIPELINE_COMPILE_MEASURE_PREFIX__,
+                performance.timeOrigin,
+            );
+            for (const report of reports) {
+                window.DD_RUM?.onReady(() => {
+                    window.DD_RUM?.addDurationVital("pipeline_compile", {
+                        startTime: report.startTime,
+                        duration: report.duration,
+                        context: report.context,
+                    });
+                });
+                // Bound the shared `performance` timeline: `compileValidated` writes one `measure`
+                // entry per forcer per `build()` call against a device, so a page that rebuilds
+                // scenes (a demo switcher, a hot-reloaded editor) grows the timeline unboundedly
+                // if nothing ever clears it (S1's review finding, owned here). Clear only what
+                // this callback just forwarded — `clearMeasures(name)` removes every entry sharing
+                // that name, never the whole timeline, so an unrelated `measure` entry (there are
+                // none today, but the API is shared) is untouched.
+                performance.clearMeasures(report.name);
+            }
+        }).observe({ type: "measure", buffered: true });
+    } catch {
+        // Telemetry never breaks the page — an older runtime or a locked-down embedder that
+        // throws on `observe` degrades silently, same posture as the engine-side emitter's own
+        // guard (`gpu.ts`'s `compileValidated`).
     }
 }
 

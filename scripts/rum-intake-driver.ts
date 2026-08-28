@@ -1,4 +1,5 @@
-// Node-runnable driver for the RUM slow-frame intake proof (`scripts/rum-intake-check.ts`).
+// Node-runnable driver for the RUM slow-frame intake proof, and (spec `shallot-compile-vitals`
+// S2) the `pipeline_compile` two-sided wire proof — both in `scripts/rum-intake-check.ts`.
 // Bundled to a node target and spawned with `node` — `scripts/wsl-bridge.ts`'s documented fact 2:
 // Bun's Playwright client hangs on this platform (`chromium.launch`/`chromium.connect` never
 // resolve), Node's client doesn't. No real GPU is needed here: the RUM sampler
@@ -18,13 +19,23 @@
 // entailed by `called === false` (the SDK cannot batch a vital it was never told about) rather than
 // a bounded wait proving a negative over a shared, noisy machine.
 //
+// `runCompileVitalScenario` (below) runs the analogous two-sided proof for `pipeline_compile`:
+// a synthetic `performance.measure` emitted in-page, prefixed or not, is real enough to drive
+// `site/rum-runtime.ts`'s `PerformanceObserver` without a real GPU device or a forced compile.
+//
 // argv: [baseUrl, slug]. Every request to the Datadog RUM intake host
 // (`browser-intake-datadoghq.com`, confirmed 2026-08-25 against the served CDN bundle) is
 // intercepted and fulfilled locally — never forwarded, so nothing this check does reaches the
 // real Datadog org. Prints one JSON line to stdout:
-//   { below: ScenarioResult, above: ScenarioResult }
+//   { below: ScenarioResult, above: ScenarioResult,
+//     compileVitalPrefixed: CompileVitalScenarioResult, compileVitalUnprefixed: CompileVitalScenarioResult }
 
 import { chromium } from "playwright";
+// This driver is bundled `--target node` (never browser) and runs in a Node subprocess — the
+// same bundle-graph concern `site/rum-compile-vitals.ts`'s docblock records for the *browser*
+// bundle doesn't apply here, so importing the real constant is fine and is the wire's own source
+// of truth rather than a second hand-copied string.
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/runtime/gpu";
 
 const INTAKE_HOST_RE = /browser-intake-datadoghq\.com/;
 const BELOW_THRESHOLD_MS = 20;
@@ -164,6 +175,111 @@ async function runScenario(
     }
 }
 
+interface CompileVitalScenarioResult {
+    /** Whether `DD_RUM.addDurationVital` was called with `"pipeline_compile"` — the structural
+     * proof, read back immediately (no flush wait), same shape as `runScenario`'s `called`. */
+    called: boolean;
+    /** Whether the intercepted intake body carried a `pipeline_compile` vital — the wire proof,
+     * required for the positive direction (this is what caught S1's own
+     * raw-rAF-timestamp-as-epoch bug for `slow_frame`, the analogous bug this arm exists to catch
+     * for `pipeline_compile`). */
+    reportedOnWire: boolean;
+}
+
+// The `pipeline_compile` two-sided wire proof (spec `shallot-compile-vitals` S2): a synthetic
+// `performance.measure` emitted in-page, prefixed or not, drives `site/rum-runtime.ts`'s own
+// `PerformanceObserver({ type: "measure", buffered: true })` — this is the same mechanism a real
+// forced compile drives (`gpu.ts`'s `compileValidated`), just without needing a real GPU device.
+// Two instruments, same reason `runScenario` above carries two: `called` is read back
+// immediately after the synthetic measure with no flush wait, so it's the primary verdict for
+// the negative direction — a wire-only negative check bounded by a *sanity* window (not a full
+// flush wait, since "no request" can't be proven by a bounded wait ending early) passed with the
+// prefix filter itself deleted, discovered by mutation-testing this arm: the SDK's flush cadence
+// in this environment outlasted the sanity window either way, so the wire read never distinguished
+// a working filter from a disabled one. `reportedOnWire` stays the required check for the
+// positive direction, which does cross the network boundary.
+async function runCompileVitalScenario(
+    url: string,
+    prefixed: boolean,
+): Promise<CompileVitalScenarioResult> {
+    const browser = await chromium.launch({ headless: true });
+    try {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const bodies: string[] = [];
+
+        await page.route("**/*", async (route) => {
+            const req = route.request();
+            if (INTAKE_HOST_RE.test(req.url())) {
+                bodies.push(req.postData() ?? "");
+                await route.fulfill({ status: 202, body: "" });
+            } else {
+                await route.continue();
+            }
+        });
+
+        await page.goto(url, { waitUntil: "load" });
+        await page.waitForFunction(
+            () => typeof (window as unknown as RumWindow).DD_RUM?.addDurationVital === "function",
+            null,
+            { timeout: 30_000 },
+        );
+
+        // monkey-patch the real call so we can read back what the observer actually told the
+        // SDK, immediately — no dependency on the SDK's own batch/flush timing (same shape as
+        // `runScenario` above).
+        await page.evaluate(() => {
+            const w = window as unknown as RumWindow;
+            w.__vitalCalls = [];
+            const orig = w.DD_RUM?.addDurationVital.bind(w.DD_RUM);
+            if (w.DD_RUM && orig) {
+                w.DD_RUM.addDurationVital = (name, opts) => {
+                    w.__vitalCalls?.push({ name, duration: opts.duration, context: opts.context });
+                    return orig(name, opts);
+                };
+            }
+        });
+
+        // a couple of natural frames first — `rum-runtime.ts`'s own observer is constructed at
+        // module top level, before this, so by the time the page has loaded it's already
+        // observing; this margin is just to let the page settle, not to wait for the observer.
+        await page.waitForTimeout(300);
+
+        const measureName = prefixed
+            ? `${PIPELINE_COMPILE_MEASURE_PREFIX}intake-check-synthetic`
+            : "intake-check-synthetic-unprefixed";
+        await page.evaluate((name) => {
+            const start = performance.now();
+            performance.measure(name, { start, end: start + 5 });
+        }, measureName);
+
+        // the observer's callback is synchronous on `measure` (no `LOAF_ATTRIBUTION_DELAY_MS`
+        // deferral the slow_frame path has), so a short margin is enough for `called`.
+        await page.waitForTimeout(500);
+
+        const calls = await page.evaluate(
+            () => (window as unknown as RumWindow).__vitalCalls ?? [],
+        );
+        const called = calls.some((c) => c.name === "pipeline_compile");
+
+        if (prefixed) {
+            // wire proof required for the positive direction — poll for the periodic batch flush
+            // to reach the intake host, stopping the moment a match lands.
+            const deadline = Date.now() + FLUSH_CEILING_MS;
+            while (Date.now() < deadline && !bodies.some((b) => b.includes("pipeline_compile"))) {
+                await page.waitForTimeout(FLUSH_POLL_MS);
+            }
+        } else {
+            // negative direction: `called === false` is the whole proof (the SDK cannot batch a
+            // vital it was never told about), so no flush wait is owed here at all.
+        }
+
+        return { called, reportedOnWire: bodies.some((b) => b.includes("pipeline_compile")) };
+    } finally {
+        await browser.close();
+    }
+}
+
 async function main(): Promise<void> {
     const [baseUrl, slug] = process.argv.slice(2);
     if (!baseUrl || !slug) {
@@ -173,7 +289,16 @@ async function main(): Promise<void> {
     const url = `${baseUrl}/${slug}/`;
     const below = await runScenario(url, BELOW_THRESHOLD_MS, false);
     const above = await runScenario(url, ABOVE_THRESHOLD_MS, true);
-    console.log(JSON.stringify({ below, above }));
+    const compileVitalPrefixed = await runCompileVitalScenario(url, true);
+    const compileVitalUnprefixed = await runCompileVitalScenario(url, false);
+    console.log(
+        JSON.stringify({
+            below,
+            above,
+            compileVitalPrefixed,
+            compileVitalUnprefixed,
+        }),
+    );
 }
 
 if (import.meta.main) {
