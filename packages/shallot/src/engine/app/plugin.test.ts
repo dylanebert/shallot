@@ -155,8 +155,7 @@ describe("Plugin", () => {
     });
 
     // the plugin-swap half of the reload-safety tier (testing.md "Reload tier"); the component-identity
-    // half lives in ecs/ecs.test.ts "stable component ids". The in-place hot-swap e2e died with the
-    // editor — `swap()` coverage is these unit tests alone.
+    // half lives in ecs/ecs.test.ts "stable component ids". `swap()` coverage is these unit tests alone.
     describe("swap (hot reload)", () => {
         test("in-place swap preserves runtime state and applies new behavior", async () => {
             clear();
@@ -202,8 +201,8 @@ describe("Plugin", () => {
             expect(Counter2.n.get(eid)).toBe(12);
         });
 
-        // the editor keeps `prev` = the build-time plugins across consecutive swaps: a swap mutates
-        // the live system objects in place, so the build-time objects stay the scheduler's identity
+        // consecutive swaps keep `prev` = the build-time plugins: a swap mutates the live system
+        // objects in place, so the build-time objects stay the scheduler's identity
         test("a second swap pairs against the build-time plugins", async () => {
             clear();
             const Counter = { n: sparse(u32) };
@@ -654,12 +653,11 @@ describe("Plugin", () => {
             expect(state.has(other, A)).toBe(true);
         });
 
-        // the rebuild-from-document fallback the swap rejections above hand off to: capture the
+        // the rebuild-from-serialized-scene fallback the swap rejections above hand off to: capture the
         // live State with `serialize`, rebuild from it with the SAME device, no page reload. A runtime
         // value on the authored entity survives (serialize reads it); a warm-derived entity re-derives
-        // once, never doubled (serialize captures the authored set only). This is the non-editor path; the
-        // editor's is the same `serialize`→`build` with its device reused via `ensureDevice`.
-        test("rebuild from the serialized document preserves a runtime value, device reused", async () => {
+        // once, never doubled (serialize captures the authored set only).
+        test("rebuild from the serialized scene preserves a runtime value, device reused", async () => {
             clear();
             const Counter = { n: sparse(u32) };
             const Derived = { of: sparse(u32) };

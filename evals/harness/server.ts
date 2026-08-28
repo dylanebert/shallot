@@ -21,7 +21,7 @@ async function answers(url: string): Promise<boolean> {
 // Boot a dev server on `port` and resolve once it answers. `cwd` + `cmd` is any project that serves a
 // page: by default `bun run dev` in `cwd` (a shallot example, or an external workspace driving the
 // window.__harness contract); pass `cmd` to run something else from `cwd`
-// (capture boots the editor via the shallot CLI against an in-repo fixture). `label` names it in
+// (capture boots the standalone runtime via `shallot dev` against an in-repo fixture). `label` names it in
 // log + error lines. `BROWSER=none` suppresses vite's auto-open — a harness never wants a tab.
 //
 // A crash or a wedged-but-listening server throws (naming the server + port, killing the child) within

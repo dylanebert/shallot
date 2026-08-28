@@ -70,7 +70,7 @@ describe("reload conformance (pipeline-compiling tier)", () => {
         });
     }
 
-    // the plugin-toggle rebuild path: a rebuild with a CHANGED plugin set (the editor's toggle path).
+    // the plugin-toggle rebuild path: a rebuild with a CHANGED plugin set.
     // Toggling an extra on then back off must return the State to its pre-toggle shape — no residue from
     // the toggled-out plugin. A non-producer (Tween: a component + a system, no GPU registries) isolates
     // the plain toggle from the producer-registry case below.

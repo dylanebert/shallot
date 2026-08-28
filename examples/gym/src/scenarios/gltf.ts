@@ -35,9 +35,9 @@ import { type Check, frames, type Params, register, type Scenario } from "../gym
 // `requestGPU(device)` which wipes `Compute.textures`/`buffers` to empty maps every build (the engine's
 // clear-then-rebuild contract — each producer re-publishes its slots), but the glTF union memo
 // (`ensureUnion`) re-points the surviving textures only on a miss — so a cache-hit rebuild left the 1×1
-// fallback bound and the textured scene went solid black on the second build onward (the editor's first
-// play/stop). The gate reads the published artifacts + the decode counter directly (no GPU readback): the
-// rebuild must re-publish the real union with no re-decode, no re-upload.
+// fallback bound and the textured scene went solid black on the second build onward. The gate reads the
+// published artifacts + the decode counter directly (no GPU readback): the rebuild must re-publish the
+// real union with no re-decode, no re-upload.
 
 const SOURCES: Record<string, string> = {
     sponza: "sponza/Sponza-KTX-Draco.glb", // textured union path — the black-on-replay case
@@ -60,7 +60,7 @@ const renderStack: Plugin[] = [
 ];
 const liveStack: Plugin[] = [ProfilePlugin, ...renderStack];
 
-// the env without the asset — the import loads imperatively after build (the editor's build-then-load runtime
+// the env without the asset — the import loads imperatively after build (a live host's build-then-load
 // path), so the first-load cost lands on a measurable `loadGltf`, not buried in warm behind a loading screen.
 const envScene = `<scene>
     <a ambient-light="color: 0x6a7290; intensity: 1.0" />

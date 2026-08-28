@@ -143,7 +143,7 @@ describe("a device with no texture-compression family", () => {
 });
 
 // the content-keyed decode cache. The deviceless half — keyed
-// (src, clip), it reuses the decoded payload across loads so an editor rebuild never re-decodes. The GPU
+// (src, clip), it reuses the decoded payload across loads so a rebuild never re-decodes. The GPU
 // assembly half (register) is device-only, gated in the gym `render` `gltf-model` mode.
 describe("asset cache", () => {
     test("ensureDecoded reuses the decode across loads; re-decodes on a new clip / invalidate", async () => {
@@ -175,7 +175,7 @@ describe("asset cache", () => {
     });
 
     test("invalidate is targeted — dropping one src preserves another's cached decode", async () => {
-        // the contract the editor's live asset-swap relies on: re-saving model A
+        // the contract a live asset-swap relies on: re-saving model A
         // invalidates only A, so model B keeps its cached decode + never re-decodes on the paired rebuild
         clearGltfCache();
         const before = gltfCacheStats().decodes;
