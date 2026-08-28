@@ -70,9 +70,7 @@ export class State {
     }) {
         if (opts?.capacity !== undefined && opts.capacity !== capacity) {
             if (!Number.isFinite(opts.capacity) || opts.capacity < 1) {
-                throw new Error(
-                    `State: capacity ${opts.capacity} is not a finite positive integer`,
-                );
+                throw new Error(`State: capacity ${opts.capacity} is not a finite number >= 1`);
             }
             if (_liveStates.size > 0) {
                 console.warn(

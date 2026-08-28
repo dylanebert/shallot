@@ -35,7 +35,7 @@ export function slerp(
         !Number.isFinite(t)
     ) {
         throw new Error(
-            `slerp received NaN: from=[${fromX},${fromY},${fromZ},${fromW}], to=[${toX},${toY},${toZ},${toW}], t=${t}`,
+            `slerp received non-finite: from=[${fromX},${fromY},${fromZ},${fromW}], to=[${toX},${toY},${toZ},${toW}], t=${t}`,
         );
     }
 
@@ -102,7 +102,7 @@ export function euler(
     w: number,
 ): { x: number; y: number; z: number } {
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z) || !Number.isFinite(w)) {
-        throw new Error(`euler received NaN: q=[${x},${y},${z},${w}]`);
+        throw new Error(`euler received non-finite: q=[${x},${y},${z},${w}]`);
     }
     const x2 = x + x,
         y2 = y + y,
@@ -455,6 +455,36 @@ export function invert(m: Float32Array, out?: Float32Array): Float32Array {
     return out;
 }
 
+/** shared finite-guard for aim/lookAt's nine congruent numeric params (eye, target, up) */
+function assertFiniteAimLookAtParams(
+    name: string,
+    eyeX: number,
+    eyeY: number,
+    eyeZ: number,
+    targetX: number,
+    targetY: number,
+    targetZ: number,
+    upX: number,
+    upY: number,
+    upZ: number,
+): void {
+    if (
+        !Number.isFinite(eyeX) ||
+        !Number.isFinite(eyeY) ||
+        !Number.isFinite(eyeZ) ||
+        !Number.isFinite(targetX) ||
+        !Number.isFinite(targetY) ||
+        !Number.isFinite(targetZ) ||
+        !Number.isFinite(upX) ||
+        !Number.isFinite(upY) ||
+        !Number.isFinite(upZ)
+    ) {
+        throw new Error(
+            `${name} received non-finite: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}], up=[${upX},${upY},${upZ}]`,
+        );
+    }
+}
+
 /** view matrix from eye looking at target */
 export function lookAt(
     eyeX: number,
@@ -468,21 +498,18 @@ export function lookAt(
     upZ = 0,
     out?: Float32Array,
 ): Float32Array {
-    if (
-        !Number.isFinite(eyeX) ||
-        !Number.isFinite(eyeY) ||
-        !Number.isFinite(eyeZ) ||
-        !Number.isFinite(targetX) ||
-        !Number.isFinite(targetY) ||
-        !Number.isFinite(targetZ) ||
-        !Number.isFinite(upX) ||
-        !Number.isFinite(upY) ||
-        !Number.isFinite(upZ)
-    ) {
-        throw new Error(
-            `lookAt received NaN: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}], up=[${upX},${upY},${upZ}]`,
-        );
-    }
+    assertFiniteAimLookAtParams(
+        "lookAt",
+        eyeX,
+        eyeY,
+        eyeZ,
+        targetX,
+        targetY,
+        targetZ,
+        upX,
+        upY,
+        upZ,
+    );
     let zx = eyeX - targetX;
     let zy = eyeY - targetY;
     let zz = eyeZ - targetZ;
@@ -574,24 +601,16 @@ export function aim(
     upY = 1,
     upZ = 0,
 ): { x: number; y: number; z: number; w: number } {
-    if (
-        !Number.isFinite(eyeX) ||
-        !Number.isFinite(eyeY) ||
-        !Number.isFinite(eyeZ) ||
-        !Number.isFinite(targetX) ||
-        !Number.isFinite(targetY) ||
-        !Number.isFinite(targetZ)
-    ) {
-        throw new Error(
-            `aim received NaN: eye=[${eyeX},${eyeY},${eyeZ}], target=[${targetX},${targetY},${targetZ}]`,
-        );
-    }
+    assertFiniteAimLookAtParams("aim", eyeX, eyeY, eyeZ, targetX, targetY, targetZ, upX, upY, upZ);
 
     let zx = eyeX - targetX;
     let zy = eyeY - targetY;
     let zz = eyeZ - targetZ;
     let zLen = Math.sqrt(zx * zx + zy * zy + zz * zz);
 
+    // degeneracy: the eye-minus-target direction is garbage when |z| falls to the f64 rounding
+    // level of the subtraction (eps * max(|eye|, |target|)). The 1 floor avoids a zero threshold
+    // for origin-coincident coordinates. Unifies the old tuned 1e-6 (lookAt) and exact === 0 (aim).
     const _zScale = Math.max(
         Math.abs(eyeX),
         Math.abs(eyeY),

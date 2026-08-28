@@ -109,10 +109,10 @@ describe("Math functions vs wgpu-matrix", () => {
         test("throws on NaN in any of the 4 quaternion components", () => {
             // NaN makes m13 NaN, so `m13 > -0.9999999 && m13 < 0.9999999` is false →
             // the else branch runs and NaN reaches the returned euler angles.
-            expect(() => math.euler(NaN, 0, 0, 1)).toThrow(/NaN/);
-            expect(() => math.euler(0, NaN, 0, 1)).toThrow(/NaN/);
-            expect(() => math.euler(0, 0, NaN, 1)).toThrow(/NaN/);
-            expect(() => math.euler(0, 0, 0, NaN)).toThrow(/NaN/);
+            expect(() => math.euler(NaN, 0, 0, 1)).toThrow(/non-finite/);
+            expect(() => math.euler(0, NaN, 0, 1)).toThrow(/non-finite/);
+            expect(() => math.euler(0, 0, NaN, 1)).toThrow(/non-finite/);
+            expect(() => math.euler(0, 0, 0, NaN)).toThrow(/non-finite/);
         });
     });
 
@@ -169,17 +169,59 @@ describe("Math functions vs wgpu-matrix", () => {
             expect(quatEqual(result, expected)).toBe(true);
         });
 
-        test("throws on NaN in any of the 8 quaternion components (guard checks all 8, not 3)", () => {
+        test("throws on non-finite in any of the 8 quaternion components or t", () => {
             const from = quat.fromEuler(0, 0, 0, "xyz");
             const to = quat.fromEuler(utils.degToRad(90), 0, 0, "xyz");
-            // fromX is NaN — the current guard only checks t, fromW, toW
+            const fromArgs = [from[0], from[1], from[2], from[3]] as const;
+            const toArgs = [to[0], to[1], to[2], to[3]] as const;
+            // exhaustively test each of the 8 quaternion components + t
+            for (let i = 0; i < 4; i++) {
+                const f = [...fromArgs] as number[];
+                f[i] = NaN;
+                expect(() =>
+                    math.slerp(
+                        f[0],
+                        f[1],
+                        f[2],
+                        f[3],
+                        toArgs[0],
+                        toArgs[1],
+                        toArgs[2],
+                        toArgs[3],
+                        0.5,
+                    ),
+                ).toThrow(/non-finite/);
+            }
+            for (let i = 0; i < 4; i++) {
+                const t = [...toArgs] as number[];
+                t[i] = NaN;
+                expect(() =>
+                    math.slerp(
+                        fromArgs[0],
+                        fromArgs[1],
+                        fromArgs[2],
+                        fromArgs[3],
+                        t[0],
+                        t[1],
+                        t[2],
+                        t[3],
+                        0.5,
+                    ),
+                ).toThrow(/non-finite/);
+            }
             expect(() =>
-                math.slerp(NaN, from[1], from[2], from[3], to[0], to[1], to[2], to[3], 0.5),
-            ).toThrow(/NaN/);
-            // toY is NaN
-            expect(() =>
-                math.slerp(from[0], from[1], from[2], from[3], to[0], NaN, to[2], to[3], 0.5),
-            ).toThrow(/NaN/);
+                math.slerp(
+                    fromArgs[0],
+                    fromArgs[1],
+                    fromArgs[2],
+                    fromArgs[3],
+                    toArgs[0],
+                    toArgs[1],
+                    toArgs[2],
+                    toArgs[3],
+                    NaN,
+                ),
+            ).toThrow(/non-finite/);
         });
     });
 
@@ -234,6 +276,45 @@ describe("Math functions vs wgpu-matrix", () => {
             // a 180° rotation (w=0) about the axis bisecting Y and Z
             expect(quatEqual(result, [0, Math.SQRT1_2, Math.SQRT1_2, 0])).toBe(true);
         });
+
+        test("throws on non-finite in any of the 9 scalar params (eye, target, up)", () => {
+            expect(() => math.aim(NaN, 0, 0, 0, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.aim(0, NaN, 0, 0, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, NaN, 0, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, 0, NaN, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, 0, 0, NaN, -1)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, 0, 0, 0, NaN)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, 0, 0, 0, -1, NaN, 1, 0)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, 0, 0, 0, -1, 0, NaN, 0)).toThrow(/non-finite/);
+            expect(() => math.aim(0, 0, 0, 0, 0, -1, 0, 1, NaN)).toThrow(/non-finite/);
+        });
+    });
+
+    describe("aim/lookAt finite-guard agreement", () => {
+        // the aim/lookAt twin has produced the same miss three times: each pass fixed the side
+        // it was looking at and re-opened the other. This arm asserts the two functions agree
+        // param-for-param: for each of the nine numeric params, a non-finite value in that slot
+        // makes both throw. A divergence between the guard blocks is caught by a sample that
+        // exercises every param, not just the one under edit.
+        test("both throw for a non-finite value in each of the 9 shared params", () => {
+            const base = [0, 0, 0, 0, 0, -1, 0, 1, 0];
+            for (let i = 0; i < 9; i++) {
+                const args = [...base] as [
+                    number,
+                    number,
+                    number,
+                    number,
+                    number,
+                    number,
+                    number,
+                    number,
+                    number,
+                ];
+                args[i] = NaN;
+                expect(() => math.aim(...args)).toThrow();
+                expect(() => math.lookAt(...args)).toThrow();
+            }
+        });
     });
 
     describe("lookAt degeneracy", () => {
@@ -249,15 +330,15 @@ describe("Math functions vs wgpu-matrix", () => {
         test("throws on NaN in any of the 9 scalar params (eye, target, up)", () => {
             // NaN param makes zLen/xLen NaN; `xLen < 1e-6` is false and
             // `Math.abs(zy) > 0.9` is false, so NaN propagates into the matrix.
-            expect(() => math.lookAt(NaN, 0, 0, 0, 0, -1)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, NaN, 0, 0, 0, -1)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, NaN, 0, 0, -1)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, 0, NaN, 0, -1)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, 0, 0, NaN, -1)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, 0, 0, 0, NaN)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, NaN, 1, 0)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, NaN, 0)).toThrow(/NaN/);
-            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, 1, NaN)).toThrow(/NaN/);
+            expect(() => math.lookAt(NaN, 0, 0, 0, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, NaN, 0, 0, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, NaN, 0, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, 0, NaN, 0, -1)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, 0, 0, NaN, -1)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, NaN)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, NaN, 1, 0)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, NaN, 0)).toThrow(/non-finite/);
+            expect(() => math.lookAt(0, 0, 0, 0, 0, -1, 0, 1, NaN)).toThrow(/non-finite/);
         });
     });
 

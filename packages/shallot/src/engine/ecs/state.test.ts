@@ -360,6 +360,25 @@ describe("State", () => {
                 r.dispose();
             }
         });
+
+        // the guard checks !Number.isFinite(capacity) || capacity < 1 — no integer enforcement,
+        // so capacity: 1.5 passes. The message must not claim "integer" since that misnames the check.
+        test("capacity error message does not claim 'integer' (check is finiteness + >= 1)", () => {
+            const restore = sharedCapacity;
+            try {
+                let msg = "";
+                try {
+                    new State({ capacity: 0.5 });
+                } catch (e) {
+                    msg = (e as Error).message;
+                }
+                expect(msg).toBeTruthy();
+                expect(msg).not.toMatch(/integer/);
+            } finally {
+                const r = new State({ capacity: restore });
+                r.dispose();
+            }
+        });
     });
 });
 
