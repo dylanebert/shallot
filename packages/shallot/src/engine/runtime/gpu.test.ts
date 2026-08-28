@@ -836,6 +836,20 @@ describe("checkTextureLimits", () => {
             checkTextureLimits("x", { width: 1, height: 1, layers: 257 }, limits(), "r"),
         ).toThrow(UnsupportedError);
     });
+
+    test("NaN byte count passes the single-sided > guard silently — must throw instead", () => {
+        expect(() => checkStorageBinding("x", NaN, 128 * MB, "r")).toThrow();
+    });
+
+    test("NaN width passes the single-sided > guard silently — must throw instead", () => {
+        expect(() => checkTextureLimits("x", { width: NaN, height: 4 }, limits(), "r")).toThrow();
+    });
+
+    test("NaN layers passes the single-sided > guard silently — must throw instead", () => {
+        expect(() =>
+            checkTextureLimits("x", { width: 256, height: 256, layers: NaN }, limits(), "r"),
+        ).toThrow();
+    });
 });
 
 describe("TGSL metadata", () => {
