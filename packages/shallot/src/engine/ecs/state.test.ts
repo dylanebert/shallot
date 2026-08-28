@@ -347,6 +347,19 @@ describe("State", () => {
                 r.dispose();
             }
         });
+
+        // NaN capacity passes the `!== capacity` guard (NaN !== anything is true) and assigns NaN to
+        // the module global, defeating create()'s check (eid + 1 > NaN is always false)
+        test("NaN capacity throws rather than poisoning the module global", () => {
+            const restore = sharedCapacity;
+            try {
+                expect(() => new State({ capacity: NaN }).dispose()).toThrow();
+                expect(Number.isFinite(sharedCapacity)).toBe(true);
+            } finally {
+                const r = new State({ capacity: restore });
+                r.dispose();
+            }
+        });
     });
 });
 
