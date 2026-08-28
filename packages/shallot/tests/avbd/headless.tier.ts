@@ -122,12 +122,18 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
         const pose = await probePose(box!);
         expectFinite(pose);
         // closed-form gravity direction: after solved free-fall ticks the box sits strictly below its
-        // authored start (Δy ≈ −0.5·g·(ticks·h)² ≈ −0.03 at 5 ticks, h = 1/60) — a band derived from
-        // free-fall kinematics, never from the observed value. The floor is the same derivation's
-        // other side: five ticks of free fall cover at most Δy = ½·g·(TICKS·h)² ≈ 0.035 m (the box
-        // starts 4.9 m above contact, far outside the 0.04 speculative band, so no contact can have
-        // accelerated it), so the pose must still exceed 6 − 0.035 ≈ 5.97 — assert > 5.9, the derived
-        // floor with band margin, so a zero readback (wrong eid or a broken readback seam) reds.
+        // authored start — a band derived from free-fall kinematics, never from the observed value.
+        // The floor is the same derivation's other side, on the discrete scheme the solver actually
+        // runs: symplectic Euler (velocity first, then position), whose closed form the oracle pins as
+        // x_n = x0 + g·h²·n(n+1)/2 per integrated tick (tests/avbd/oracle.oracle.ts). The seeding
+        // precondition is what fixes n: the first tick's draw-group pack seeds the box's slot (authored
+        // pose, velocity zeroed) and lands no observable integration, so TICKS − 1 = 4 ticks integrate
+        // — five ticks of free fall cover Δy = g·h²·n(n+1)/2 at g = 10, h = 1/60, n = 4 ≈ 0.0278 m
+        // (the box starts 4.9 m above contact, far outside the 0.04 speculative band, so no contact
+        // can have accelerated it), so the pose must still exceed 6 − 0.0278 ≈ 5.972 — assert > 5.9,
+        // deliberately below the derived bound so the arm cannot flake on the derivation's own
+        // precision (a floor is never tightened to the derived value, never fit to an observed
+        // reading), while a zero readback (wrong eid or a broken readback seam) still reds.
         expect(pose.pos[1]).toBeLessThan(6);
         expect(pose.pos[1]).toBeGreaterThan(5.9);
         app.dispose();
@@ -158,10 +164,19 @@ describe("headless lavapipe physics (build + step + probeBuffer readback)", () =
         expectFinite(pose);
         // the sweep applies the world gravity (−10, the plugin's configured GRAVITY) to an un-driven
         // character, so it too falls from its authored 3 m — derived from the sweep contract, not
-        // tuned. The floor is the same derivation's other side: five ticks of un-driven fall cover at
-        // most Δy = ½·g·(TICKS·h)² ≈ 0.035 m (the capsule's bottom at 2.1 sits 1.6 m above the ground
-        // top at 0.5, so no depenetration or contact can have moved it), so the pose must still exceed
-        // 3 − 0.035 ≈ 2.97 — assert > 2.9, the derived floor with band margin, so a zero readback reds.
+        // tuned. The floor is the same derivation's other side, on the discrete scheme the sweep
+        // actually runs: symplectic Euler (velocity first, then position — the runtime twin of the
+        // oracle's moveCharacter), whose closed form the oracle pins as x_n = x0 + g·h²·n(n+1)/2 per
+        // integrated tick (tests/avbd/oracle.oracle.ts). The seeding precondition is what fixes n,
+        // differently than the box: the sweep's velocity is persistent CPU-side state and integrates
+        // from the first tick, but the first tick's draw-group pack seed overwrites the slot with the
+        // authored pose (the readback shows 3 at tick 1; the sweep's own trajectory has already moved
+        // once), so TICKS = 5 ticks of un-driven fall cover Δy = g·h²·n(n+1)/2 at g = 10, h = 1/60,
+        // n = TICKS = 5 ≈ 0.0417 m (the capsule's bottom at 2.1 sits 1.6 m above the ground top at
+        // 0.5, so no depenetration or contact can have moved it), so the pose must still exceed
+        // 3 − 0.0417 ≈ 2.958 — assert > 2.9, deliberately below the derived bound so the arm cannot
+        // flake on the derivation's own precision (a floor is never tightened to the derived value,
+        // never fit to an observed reading), while a zero readback still reds.
         expect(pose.pos[1]).toBeLessThan(3);
         expect(pose.pos[1]).toBeGreaterThan(2.9);
         app.dispose();
