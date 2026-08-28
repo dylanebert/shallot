@@ -99,6 +99,8 @@ export class Scheduler {
     }
 
     setScale(scale: number): void {
+        if (!Number.isFinite(scale))
+            throw new Error(`timescale received ${scale} (must be a finite number)`);
         this._time.scale = Math.max(0, scale);
     }
 
@@ -158,6 +160,9 @@ export class Scheduler {
     }
 
     step(state: State, deltaTime = Time.DEFAULT_DT): void {
+        if (!Number.isFinite(deltaTime) || deltaTime < 0) {
+            throw new Error(`step received ${deltaTime} (must be a finite, non-negative number)`);
+        }
         const fixedDt = Time.FIXED_DT;
         const maxDt = fixedDt * Time.MAX_FIXED_STEPS;
 

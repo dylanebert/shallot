@@ -688,4 +688,21 @@ describe("Scheduler", () => {
             expect(executionOrder).toEqual(["setup-new", "update-new"]);
         });
     });
+
+    // NaN dt poisons _accumulator permanently (NaN >= fixedDt is false forever), so step must reject it
+    describe("NaN guard", () => {
+        test("step(NaN) throws rather than poisoning the accumulator", () => {
+            expect(() => state.step(NaN)).toThrow(/NaN/);
+            expect(Number.isFinite(state.time.elapsed)).toBe(true);
+        });
+
+        test("step(-1) throws — negative dt drives the accumulator permanently negative", () => {
+            expect(() => state.step(-1)).toThrow();
+        });
+
+        test("timescale(NaN) throws — NaN scale poisons every subsequent step", () => {
+            expect(() => state.timescale(NaN)).toThrow(/NaN/);
+            expect(Number.isFinite(state.time.scale)).toBe(true);
+        });
+    });
 });
