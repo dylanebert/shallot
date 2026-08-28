@@ -143,7 +143,7 @@ function box(
 }
 
 // spawn the wall + balls into the live State — runs from the plugin's `warm` (post-scene), idempotent: a
-// State rebuild re-runs it, re-creating the derived bodies (they live in State, not the Document).
+// State rebuild re-runs it, re-creating the derived bodies (they live in State, not the serialized scene).
 function build(state: State): void {
     // no per-scene solver config — the engine's ship default (iters=6) settles the 10-storey wall, so this
     // runs on the plain AvbdPlugin defaults (physics.md "iters is a free knob"). A taller TARGET that

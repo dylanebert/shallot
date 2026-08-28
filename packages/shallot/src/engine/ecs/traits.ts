@@ -22,8 +22,7 @@ export interface Traits {
      * `Textured` / `Skin`), so scenes never author it: `serialize` skips it, authoring tooling
      * hides it, and `diagnose` flags an authored attr. Registration
      * still allocates its storage (a slab field needs it), and an always-mode system may add/remove it
-     * freely — the exemption from the edit-mode "never add/remove components" contract, since nothing
-     * document-facing can see it
+     * freely, since nothing serialized sees it
      */
     derived?: boolean;
     /**
