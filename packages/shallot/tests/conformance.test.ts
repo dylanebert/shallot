@@ -5,8 +5,7 @@
 // build→step→dispose passes must produce the same observable State, so a registry that
 // double-registers or a warm that doubles its derived spawns goes red here. The browser end-to-end
 // is the survive-reload flow at examples/flows/survive-reload/ (`bun run flows`), which rebuilds through a real page
-// reload; the editor's live rebuild-loop e2e died with the editor, so this roster is the sole
-// per-plugin conformance coverage.
+// reload; this roster is the sole per-plugin conformance coverage.
 //
 // This is the default-tier SENTINEL (`coding.md` Suite speed: a gate leaving the default suite
 // leaves a cheap sentinel): the pipeline-compiling arms — Render, Part, Sear, Glaze, Lines, Sprite,

@@ -56,7 +56,7 @@ export function captureGpuErrors(out: string[]): () => void {
 }
 
 // the rebuild loop: build → step → dispose, twice, against the same module singletons. The second
-// build reuses the first's device — the rebuild contract (the editor's ensureDevice; a fresh device
+// build reuses the first's device — the rebuild contract (a same-device rebuild; a fresh device
 // is the page-reload case, where module scope resets too). Returns the signature divergences
 // between the two passes — a compliant plugin returns none.
 export async function conform({ plugins, scene, probe }: Conformance): Promise<string[]> {
@@ -94,8 +94,8 @@ export async function conform({ plugins, scene, probe }: Conformance): Promise<s
 }
 
 // the rebuild loop's toggle variant: build a SEQUENCE of (possibly different) plugin sets in order
-// against the same module singletons, clearing the ECS registry before each — mirroring the editor's
-// buildState, which clears on every scene-switch / plugin-toggle / play-stop rebuild. Steps sharing a
+// against the same module singletons, clearing the ECS registry before each — mirroring a host
+// rebuild, which clears on every scene-switch / plugin-toggle / play-stop rebuild. Steps sharing a
 // plugin set + scene must produce the same observable signature, so toggling a plugin on then back off
 // returns the State to its pre-toggle shape. Module-level residue a `clear()` doesn't wipe (the render
 // registries are module-level, not ECS-scoped) shows as a divergence between two same-config steps.
@@ -153,7 +153,7 @@ export async function conformSequence(steps: Conformance[]): Promise<string[]> {
 }
 
 // the observable shape a rebuild must reproduce: the registered component set, per-component live
-// entity counts (a doubling warm spawn shows here), the serialized document (authored values
+// entity counts (a doubling warm spawn shows here), the serialized scene (authored values
 // stable), and any plugin-owned registry the entry probes.
 export function signature(state: State, probe?: () => unknown): Record<string, unknown> {
     const components: string[] = [];
@@ -185,7 +185,7 @@ export const skinLayout = () => ({
     published: Compute.buffers.has("skinData"),
 });
 
-// a custom project-style plugin — the user-authored shape the editor builds from a manifest's local
+// a custom project-style plugin — the user-authored shape a project boot builds from a manifest's local
 // plugins (the hot-reload capture fixture's `ticker`). Project plugins never ran the conformance loop
 // before; this pins that a project warm spawns exactly once per build (a doubling warm shows as a
 // Counter count of 2 in the second pass) and rebuilds idempotently against the same module singletons.
@@ -208,7 +208,7 @@ const ProjectPlugin: Plugin = {
 
 // a hand-rig live-skin producer, the shape SkinPlugin exists for: no glTF asset, a mesh's joints/weights
 // registered once and a palette block allocated per instance. Derived (warm-spawned), so it never enters
-// the serialized document.
+// the serialized scene.
 const RigPlugin: Plugin = {
     name: "rig",
     dependencies: [SkinPlugin],

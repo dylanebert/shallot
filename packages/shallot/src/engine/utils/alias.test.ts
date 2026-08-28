@@ -45,7 +45,7 @@ describe("laneAlias", () => {
     });
 
     test("identity by construction: axes.length === lane count (the parser/serializer discriminator)", () => {
-        // euler is 3 axes over a 4-lane quat — non-identity, so it stays editor-only and positional
+        // euler is 3 axes over a 4-lane quat — non-identity, so it stays authoring-only and positional
         expect(mat.axes.length).toBe(4);
         expect(eulerAlias("rot").axes.length).toBe(3);
     });

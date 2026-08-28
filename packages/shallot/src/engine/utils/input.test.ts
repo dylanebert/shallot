@@ -12,7 +12,7 @@ describe("unit converters", () => {
     test("degrees maps half-turn ↔ 180 and round-trips", () => {
         expect(degrees.to(Math.PI)).toBeCloseTo(180, 10);
         expect(degrees.from(180)).toBeCloseTo(Math.PI, 10);
-        // to/from are inverse — the editor relies on this when it stores an edited shown value
+        // to/from are inverse — a host storing an edited shown value relies on this
         for (const r of [0, 0.5, 1.2345, -Math.PI / 3]) {
             expect(degrees.from(degrees.to(r))).toBeCloseTo(r, 12);
         }
