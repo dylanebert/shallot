@@ -4,6 +4,12 @@
 // page; never imported by anything else, so it has no test of its own — the logic it drives is
 // tested in `rum-sampler.test.ts`.
 
+import {
+    attributeSlowFrame,
+    type LoAFEntry,
+    type SlowFrameAttribution,
+    unsupportedLoafAttribution,
+} from "./rum-loaf";
 import { initialFrameSamplerState, resetFrameSampler, sampleFrame } from "./rum-sampler";
 
 declare global {
@@ -19,6 +25,72 @@ declare global {
 }
 
 let state = initialFrameSamplerState;
+
+// Bound on buffered `long-animation-frame` entries — one entry per delayed frame, so this covers
+// several minutes of steady-state jank without growing unbounded on a long-lived page.
+const LOAF_BUFFER_LIMIT = 200;
+
+// `.observe({ type: "long-animation-frame" })` does NOT throw on an engine that lacks the entry
+// type (measured: Chromium's own `.observe()` with a made-up type string is a silent no-op, and
+// the Performance Timeline spec's `observe()` algorithm aborts without throwing for both the
+// `type` and `entryTypes` forms when the type is unsupported) — a `try/catch` around the observer
+// alone stays `loafSupported: true` forever on Safari with `loafEntries` permanently empty,
+// indistinguishable from a genuinely idle main thread on every single slow frame. The reliable
+// feature check is `PerformanceObserver.supportedEntryTypes`, read before ever calling `.observe`.
+let loafSupported =
+    typeof PerformanceObserver !== "undefined" &&
+    (PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false);
+let loafEntries: LoAFEntry[] = [];
+
+if (loafSupported) {
+    try {
+        // `long-animation-frame` entries (`scripts`, `blockingDuration`) aren't in lib.dom's
+        // `PerformanceEntry` yet — same shape as `packages/shallot/bin/verify.ts`'s own LoAF observer.
+        new PerformanceObserver((list) => {
+            for (const e of list.getEntries() as any[]) {
+                loafEntries.push({
+                    startTime: e.startTime,
+                    duration: e.duration,
+                    blockingDuration: e.blockingDuration,
+                    scripts: (e.scripts ?? []).map((s: any) => ({
+                        sourceURL: s.sourceURL ?? "",
+                        sourceFunctionName: s.sourceFunctionName ?? "",
+                        invoker: s.invoker ?? "",
+                        duration: s.duration,
+                    })),
+                });
+            }
+            if (loafEntries.length > LOAF_BUFFER_LIMIT) {
+                loafEntries = loafEntries.slice(-LOAF_BUFFER_LIMIT);
+            }
+        }).observe({ type: "long-animation-frame", buffered: true });
+    } catch {
+        // Belt-and-suspenders — `supportedEntryTypes` said yes but construction/`observe` still
+        // threw (a real engine quirk, not the expected path); degrade rather than break the page.
+        loafSupported = false;
+    }
+}
+
+// `long-animation-frame` entries are delivered to the PerformanceObserver asynchronously, in a
+// task separate from the frame whose work they describe — measured (a standalone Playwright probe,
+// 2026-08-27) at two animation frames / ~130ms after the busy frame completes, never on the same
+// task. A slow frame's own LoAF entry is therefore never in `loafEntries` yet at the moment `tick`
+// detects the gap: a synchronous read at that point always sees `loafEntryCount: 0` for exactly the
+// frame being attributed — the worst possible wrong reading, since every genuinely scripted stall
+// would read as "idle main thread". Give the observer time to deliver the entry before correlating.
+const LOAF_ATTRIBUTION_DELAY_MS = 500;
+
+function attributeContext(startTime: number, duration: number): Promise<SlowFrameAttribution> {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve(
+                loafSupported
+                    ? attributeSlowFrame(startTime, duration, loafEntries)
+                    : unsupportedLoafAttribution(),
+            );
+        }, LOAF_ATTRIBUTION_DELAY_MS);
+    });
+}
 
 // `wasHidden` has two setters, for two different failure modes, and one consumer:
 //
@@ -68,11 +140,18 @@ function tick(timestamp: number): void {
             // console error, no exception (found 2026-08-26, S2's wire proof — a raw relative
             // startTime reads as ~1970 to the SDK's own event-time bookkeeping).
             const epochStartTime = performance.timeOrigin + startTime;
-            window.DD_RUM?.onReady(() => {
-                window.DD_RUM?.addDurationVital("slow_frame", {
-                    startTime: epochStartTime,
-                    duration,
-                    context,
+            // `startTime`/`duration` here are still rAF-relative, the same clock LoAF entries
+            // report on — the attribution reads them before the epoch conversion above, never
+            // after. The read itself is deferred (`attributeContext`'s `LOAF_ATTRIBUTION_DELAY_MS`)
+            // so the frame's own LoAF entry has had time to arrive; `epochStartTime`/`duration` are
+            // captured synchronously here, so the deferral doesn't skew the vital's own timing.
+            attributeContext(startTime, duration).then((attribution) => {
+                window.DD_RUM?.onReady(() => {
+                    window.DD_RUM?.addDurationVital("slow_frame", {
+                        startTime: epochStartTime,
+                        duration,
+                        context: { ...context, ...attribution },
+                    });
                 });
             });
         }

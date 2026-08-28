@@ -120,6 +120,7 @@ async function main(): Promise<void> {
             called: boolean;
             callDuration: number | null;
             reportedOnWire: boolean;
+            loafEntryCount: number | null;
         }
         const result = JSON.parse(line) as { below: ScenarioResult; above: ScenarioResult };
 
@@ -150,6 +151,16 @@ async function main(): Promise<void> {
         // (this is what caught the raw-rAF-timestamp-as-epoch bug `site/rum-runtime.ts` fixes).
         if (!result.above.reportedOnWire) {
             fail("above-threshold run never sent an intake request carrying slow_frame");
+        }
+        // S2p: the busy-loop above threshold is a genuinely scripted stall — the LoAF correlator
+        // must see its own long-animation-frame entry and report non-zero overlap, or the
+        // attribution context is reading a false "idle main thread" for a stall this run knows is
+        // scripted (the exact defect a synchronous-read correlator produces).
+        console.log(`  above threshold: loafEntryCount=${result.above.loafEntryCount}`);
+        if (!result.above.loafEntryCount) {
+            fail(
+                `above-threshold run's slow_frame vital reported loafEntryCount=${result.above.loafEntryCount} for a known-scripted stall`,
+            );
         }
 
         console.log("✓ RUM slow-frame intake proof: both directions discriminate correctly");
