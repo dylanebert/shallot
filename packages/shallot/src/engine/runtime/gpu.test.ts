@@ -1043,8 +1043,11 @@ describe("precompile", () => {
     });
 
     // The Compute singleton was restored on a bare trailing line with no try/finally, so a
-    // mid-test throw skipped the restore and the fake device leaked forward. The finally restores
-    // the singleton on any path, matching the file's other restore-guarded arms.
+    // mid-test throw skipped the restore. The finally restores it on any path, matching the
+    // fourteen restore-guarded arms around it. No witnessed red backs this: mutating the arm to
+    // throw reds it identically guarded or unguarded (42 pass / 1 fail both ways), and whether
+    // the unrestored fake device reaches a later file is unmeasured, so this is guard-by-symmetry
+    // with its siblings rather than a demonstrated leak.
     test("the queue's lifecycle: held through warm, drained once, late arrivals run on the spot", async () => {
         const saved = { ...Compute };
         try {
