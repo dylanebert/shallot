@@ -10,6 +10,16 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { Glob } from "bun";
+// `PIPELINE_COMPILE_MEASURE_PREFIX` is imported here — a Node-side build script, never bundled
+// for the browser — and threaded into `buildRumRuntimeBundle`'s `Bun.build` call via `define`,
+// never via a plain `import` inside `site/rum-runtime.ts` itself. `gpu.ts` has a top-level
+// `tgpu.fn(...)` call, a real side effect no bundler can tree-shake away, so importing anything
+// from it — even a single string constant — pulls TypeGPU's whole module graph into the bundle
+// (measured: a probe entry point importing only the prefix constant bundled to 0.56 MB / 170
+// modules for `--target browser`). `define` inlines the literal at build time instead, so the
+// browser bundle carries the string and nothing else — `site/rum-compile-vitals.ts`'s own
+// docblock records the same measurement for the reader who only sees the pure module.
+import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/runtime/gpu";
 import { type DemoEntry, ROSTER } from "../site/roster";
 import {
     RUM_CONFIG,
@@ -71,12 +81,18 @@ window.DD_RUM.onReady(function() {
 
 /** Bundles `site/rum-runtime.ts` (which imports the pure sampler) to a single browser-target ESM
  * script — inlined so every demo page, at any output depth (`visualization/demos/*.html`
- * included), carries it with no relative-path plumbing. */
+ * included), carries it with no relative-path plumbing. `define` inlines
+ * `PIPELINE_COMPILE_MEASURE_PREFIX` as a literal (see the import comment above) — `rum-runtime.ts`
+ * references it as the ambient `__PIPELINE_COMPILE_MEASURE_PREFIX__` global, never imported. */
 async function buildRumRuntimeBundle(): Promise<string> {
     const result = await Bun.build({
         entrypoints: [resolve(root, "site/rum-runtime.ts")],
         target: "browser",
         minify: false,
+        define: {
+            // biome-ignore lint/style/useNamingConvention: mirrors the ambient global rum-runtime.ts declares — a `define` key must match the identifier verbatim.
+            __PIPELINE_COMPILE_MEASURE_PREFIX__: JSON.stringify(PIPELINE_COMPILE_MEASURE_PREFIX),
+        },
     });
     if (!result.success) {
         for (const log of result.logs) console.error(log);
