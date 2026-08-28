@@ -106,7 +106,14 @@ export class Scheduler {
 
     dispose(state: State): void {
         for (const system of this._systems) {
-            system.dispose?.(state);
+            try {
+                system.dispose?.(state);
+            } catch (err) {
+                console.error(
+                    `System "${this._names.get(system) ?? system.name ?? "?"}" threw during dispose:`,
+                    err,
+                );
+            }
         }
     }
 

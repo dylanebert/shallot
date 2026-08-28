@@ -1205,3 +1205,26 @@ describe("precompile", () => {
         }
     });
 });
+
+// a rejected onSubmittedWorkDone (device loss) must decrement inFlight so the
+// pending() >= MAX_FRAMES_IN_FLIGHT backpressure gate cannot wedge
+describe("fence rejection", () => {
+    test("a rejected fence decrements inFlight so the backpressure gate cannot wedge", async () => {
+        const saved = { ...Compute };
+        try {
+            const fence = Promise.reject(new Error("device lost"));
+            const device = {
+                ...fakeDevice(),
+                queue: { onSubmittedWorkDone: () => fence },
+            } as unknown as GPUDevice;
+            await requestGPU(device);
+            expect(Compute.pending!()).toBe(0);
+            const f = Compute.sync!();
+            expect(Compute.pending!()).toBe(1);
+            await expect(f).rejects.toThrow("device lost");
+            expect(Compute.pending!()).toBe(0);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});

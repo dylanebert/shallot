@@ -1021,7 +1021,10 @@ export async function requestGPU(
         sync: () => {
             inFlight++;
             const fence = d.queue.onSubmittedWorkDone();
-            fence.then(() => inFlight--);
+            fence.then(
+                () => inFlight--,
+                () => inFlight--,
+            );
             return fence;
         },
         buffers: new Map<string, GPUBuffer>(),
