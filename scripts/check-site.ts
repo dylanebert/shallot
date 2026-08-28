@@ -3,8 +3,21 @@ import { dirname, resolve, sep } from "node:path";
 import { Glob } from "bun";
 import { ROSTER } from "../site/roster";
 import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/rum-config";
+import { STAMP_FILE, staleDemos } from "../site/site-stamp";
 
-// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Seven clauses:
+// `bun run scripts/check-site.ts` — the site membership gate, wired into `bun check`. Seven
+// clauses, and a freshness precondition standing in front of the four (4-7) that read the built
+// artifact:
+//
+//   0. every present `out/site/<slug>/` is a build of *this* tree's sources — the build stamps
+//      each demo with a content fingerprint of what it built that demo from (`site/site-stamp.ts`),
+//      and a slot whose fingerprint no longer matches the tree is refused as stale instead of
+//      being read as a live defect. Without this relation clause 6 reported a stale local artifact
+//      (built before the title fix at `bf1c25f`, never rebuilt) as a present-tense title defect,
+//      and a roadmap item was written from the false red. Stale under `SITE_OUT_REQUIRED=1` (the
+//      deploy path, where the build just ran) is itself the failure; otherwise the artifact
+//      clauses skip with a note, the same shape as an absent `out/site/`.
+//
 //
 //   1. every entry's dir has a manifest — a showcase dir without `shallot.json` (or, for an
 //      ejected project, `index.html`) is not a buildable demo.
@@ -19,7 +32,7 @@ import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/ru
 //      `typegpu`) resolve through node_modules and are fine.
 //   4. no generated path is root-absolute — the site must work at any base path (GitHub Pages
 //      serves at `/shallot/`, a dry-run artifact at root, a local out dir at `file://`). Scans
-//      `out/site/` if it exists; skips with a note if not (the build hasn't run yet).
+//      the output dir if it exists; skips with a note if not (the build hasn't run yet).
 //   5. the Datadog RUM slow-frame injection reaches every demo page and skips the index — every
 //      `*.html` under each `out/site/<slug>/` (including a nested page like
 //      `visualization/demos/*.html`) carries `RUM_INJECTION_MARKER`, `RUM_ENV_SNIPPET` (the
@@ -46,7 +59,12 @@ import { RUM_ENV_SNIPPET, RUM_ENV_USAGE, RUM_INJECTION_MARKER } from "../site/ru
 
 const root = resolve(import.meta.dir, "..");
 const showcaseDir = resolve(root, "examples/showcase");
-const outDir = resolve(root, "out/site");
+// `SITE_OUT_DIR` points the artifact clauses at an output dir other than the default — a CI job
+// that downloaded a build artifact elsewhere, or a fixture tree proving clause ordering. The
+// source-side clauses (1-3) always read this repo.
+const outDir = process.env.SITE_OUT_DIR
+    ? resolve(process.env.SITE_OUT_DIR)
+    : resolve(root, "out/site");
 
 function fail(msg: string): never {
     console.error(msg);
@@ -163,6 +181,41 @@ if (!existsSync(outDir)) {
 if (process.env.SITE_OUT_REQUIRED === "1" && readdirSync(outDir).length === 0) {
     console.error(`✗ out/site/ is empty — run \`bun run site\` first, then re-run this check`);
     process.exit(1);
+}
+
+// --- clause 0: the artifact is a build of this tree's sources ----------------------------
+//
+// Content-derived, never mtime: the build records a fingerprint of each demo's own build inputs
+// (`site/site-stamp.ts`) and this compares the recorded fingerprint against the tree's current
+// one. mtime cannot carry this — the founding stale artifact's mtime (22:52) sat *after* the fix
+// commit it predated (22:50), so "newer than the fix" was true of a dir built without it.
+// Everything below reads the artifact, so a stale artifact stops here.
+const stale = staleDemos(
+    root,
+    outDir,
+    ROSTER.map((d) => d.slug),
+);
+if (stale.length > 0) {
+    if (process.env.SITE_OUT_REQUIRED === "1") {
+        console.error(
+            `✗ ${stale.length} built demo dir(s) are stale — not a build of this tree's sources:\n`,
+        );
+        for (const { slug, reason } of stale) console.error(`  ${slug}: ${reason}`);
+        console.error(
+            `\nThe artifact clauses (root-absolute paths, RUM injection, <title>) read the built` +
+                ` output as present-tense truth about this tree, so a stale slot would report a` +
+                ` defect the sources no longer carry. Run \`bun run site\` and re-run this check.`,
+        );
+        process.exit(1);
+    }
+    console.log(
+        `✓ site roster clean (${ROSTER.length} demos, ` +
+            `all manifested, all workspace-pinned, no escaping imports) — ` +
+            `${stale.length} built demo dir(s) stale against the current sources ` +
+            `(${stale.map((s) => s.slug).join(", ")}; ${STAMP_FILE}), ` +
+            `skipping the artifact clauses (run \`bun run site\` to judge them)`,
+    );
+    process.exit(0);
 }
 
 // scan every generated HTML/JS/CSS file for root-absolute paths: `href="/..."` or `src="/..."`

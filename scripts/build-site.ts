@@ -17,6 +17,7 @@ import {
     RUM_ENV_USAGE,
     RUM_INJECTION_MARKER,
 } from "../site/rum-config";
+import { demoFingerprints, writeStamp } from "../site/site-stamp";
 
 // `bun run site` — build every showcase demo as an ejected consumer of the *published* package,
 // then assemble the site index. Each demo is copied out of the workspace to a scratch tree under
@@ -52,7 +53,7 @@ const DATADOG_RUM_CDN_URL = `https://www.datadoghq-browser-agent.com/us1/v${DATA
 // CORS-mode load is exempt from the CORP check entirely — so `crossOrigin` fixes the verify-only failure
 // without needing a header change in `packages/shallot` (out of scope) or the deployed site, which never
 // sets COEP (a static host can't set headers, the doc comment above `CROSS_ORIGIN_ISOLATION` already notes).
-function datadogInitSnippet(): string {
+export function datadogInitSnippet(): string {
     return `${RUM_INJECTION_MARKER}
 <script>
 (function(h,o,u,n,d) {
@@ -243,6 +244,17 @@ Options:
     // emit the site index — always lists the full roster so a single-demo build's index
     // still references the other demos from a prior full build
     writeFileSync(resolve(outDir, "index.html"), siteIndex(ROSTER, version, refShort));
+
+    // record what each demo was built from, so `check-site.ts` can tell an artifact of *these*
+    // sources from an artifact of some other sources before it judges the artifact
+    // (`site/site-stamp.ts`). Merging, not overwriting: a `--demo` build only rebuilt one slot.
+    writeStamp(
+        outDir,
+        demoFingerprints(
+            root,
+            demos.map((d) => d.slug),
+        ),
+    );
 
     const total = sizes.reduce((sum, s) => sum + parseSize(s.size), 0);
     console.log(`\n=== summary ===`);
