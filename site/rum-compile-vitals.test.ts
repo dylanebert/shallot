@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compileVitalReports } from "./rum-compile-vitals";
+import { compileConcurrencyRatio, compileVitalReports } from "./rum-compile-vitals";
 
 // Red-first: witnessed red with `compileVitalReports` stubbed to `return []` unconditionally —
 // 6 of 8 tests failed (`received length 0`, `TypeError: undefined is not an object (evaluating
@@ -89,5 +89,90 @@ describe("compileVitalReports", () => {
             0,
         );
         expect(reports[0].name).toBe(`${PREFIX}clear-me`);
+    });
+});
+
+// Red-first (S1 of `shallot-boot-compile-parallel`): witnessed red with `span` computed as `sum`
+// instead of `max(end) - min(start)` (the named mutation this arm exists to catch) — the
+// back-to-back and gapped arms both stayed green (their span equals their sum by construction on
+// a fully-packed batch, and a gap only lowers a correct span below sum), but "a 3-way overlap
+// reads ratio > 1" failed: `sum === sum` forces ratio to exactly 1 on every input, so the
+// overlapping-set arm below is the one that discriminates the mutation.
+describe("compileConcurrencyRatio", () => {
+    test("a fully serial (back-to-back, no gap) batch reads ratio ≈ 1.0", () => {
+        // three entries, each starting exactly where the previous one ended.
+        const result = compileConcurrencyRatio(
+            [
+                { name: `${PREFIX}a`, startTime: 0, duration: 10 },
+                { name: `${PREFIX}b`, startTime: 10, duration: 15 },
+                { name: `${PREFIX}c`, startTime: 25, duration: 5 },
+            ],
+            PREFIX,
+        );
+        expect(result.count).toBe(3);
+        expect(result.sum).toBe(30);
+        expect(result.span).toBe(30);
+        expect(result.ratio).toBeCloseTo(1.0, 5);
+    });
+
+    test("an overlapping batch reads ratio > 1", () => {
+        // three entries all starting at 0, each running the whole 10ms window concurrently —
+        // sum (30) triples the span (10) they actually occupy.
+        const result = compileConcurrencyRatio(
+            [
+                { name: `${PREFIX}a`, startTime: 0, duration: 10 },
+                { name: `${PREFIX}b`, startTime: 0, duration: 10 },
+                { name: `${PREFIX}c`, startTime: 0, duration: 10 },
+            ],
+            PREFIX,
+        );
+        expect(result.count).toBe(3);
+        expect(result.sum).toBe(30);
+        expect(result.span).toBe(10);
+        expect(result.ratio).toBeCloseTo(3.0, 5);
+    });
+
+    test("a gapped (idle between compiles) batch reads ratio < 1", () => {
+        // two 10ms entries with a 30ms idle gap between them — the span includes the gap, the
+        // sum doesn't, so the ratio reads below 1 (still correctly "not overlapping").
+        const result = compileConcurrencyRatio(
+            [
+                { name: `${PREFIX}a`, startTime: 0, duration: 10 },
+                { name: `${PREFIX}b`, startTime: 40, duration: 10 },
+            ],
+            PREFIX,
+        );
+        expect(result.span).toBe(50);
+        expect(result.sum).toBe(20);
+        expect(result.ratio).toBeCloseTo(0.4, 5);
+    });
+
+    test("non-prefixed entries are excluded from count, sum, and span", () => {
+        const result = compileConcurrencyRatio(
+            [
+                { name: `${PREFIX}a`, startTime: 100, duration: 10 },
+                { name: "unrelated-measure", startTime: 0, duration: 10_000 },
+            ],
+            PREFIX,
+        );
+        expect(result.count).toBe(1);
+        expect(result.sum).toBe(10);
+        expect(result.span).toBe(10);
+    });
+
+    test("an empty prefix-matching batch reads the documented degenerate answer, never NaN", () => {
+        const result = compileConcurrencyRatio(
+            [{ name: "unrelated-measure", startTime: 0, duration: 5 }],
+            PREFIX,
+        );
+        expect(result).toEqual({ count: 0, sum: 0, span: 0, ratio: 1 });
+    });
+
+    test("a single entry reads ratio 1.0 with span equal to its own duration", () => {
+        const result = compileConcurrencyRatio(
+            [{ name: `${PREFIX}solo`, startTime: 500, duration: 42 }],
+            PREFIX,
+        );
+        expect(result).toEqual({ count: 1, sum: 42, span: 42, ratio: 1 });
     });
 });
