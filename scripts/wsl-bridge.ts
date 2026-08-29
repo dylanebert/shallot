@@ -125,7 +125,12 @@ const RV_HOST = process.env.RV_HOST, RV_PORT = Number(process.env.RV_PORT), POOL
 try {
   const { chromium } = await import("playwright");
   const server = await chromium.launchServer({
-    headless: true,
+    // Headed when the WSL side forwarded SHALLOT_HEADED (see the $env line in the powershell spawn).
+    // The bridge is what actually launches the browser on this seat, so the verify CLI's own
+    // \`headless: !(args.attribution && process.env.SHALLOT_HEADED)\` never runs under \`--connect\` —
+    // without this the flag was unreachable and every bridged run was headless regardless, which
+    // invalidates a frame-timing reading on a display-less frame clock.
+    headless: !process.env.SHALLOT_HEADED,
     channel: "chromium",
     args: ["--enable-unsafe-webgpu", "--enable-features=WebGPUDeveloperFeatures"],
   });
@@ -268,6 +273,16 @@ export function bridgePrereq(): string | null {
 
 /** provision + launch the bridge: host browser server, the reverse tunnel, and the node verify bundle.
  *  Resolves a handle, or throws with a reason naming what failed (the caller surfaces it and fails loud). */
+/** the `$env:SHALLOT_HEADED` assignment to prepend to the host launcher's powershell command, or the
+ *  empty string when the flag is unset. The bridge — not the verify CLI — is what launches the browser
+ *  under `--connect`, so a headed run has to reach the host launcher through this hop or it silently
+ *  stays headless (and every frame-timing number read off it is taken on a display-less frame clock).
+ *  Only the flag's presence crosses: the value is normalized to `1` rather than interpolated, so
+ *  nothing from the environment reaches a powershell command line. */
+export function headedAssignment(env: NodeJS.ProcessEnv = process.env): string {
+    return env.SHALLOT_HEADED ? "$env:SHALLOT_HEADED='1'; " : "";
+}
+
 export async function start(): Promise<Bridge> {
     const version = playwrightVersion();
     const rvHost = await resolveRvHost();
@@ -317,7 +332,7 @@ export async function start(): Promise<Bridge> {
             "powershell.exe",
             "-NoProfile",
             "-Command",
-            `$env:ENDPOINT_FILE='${staged.win}\\endpoint.txt'; $env:PID_FILE='${staged.win}\\pid.txt'; $env:RV_HOST='${rvHost}'; $env:RV_PORT='${rvPort}'; $env:POOL='${POOL}'; cd '${staged.win}'; node launch.mjs`,
+            `$env:ENDPOINT_FILE='${staged.win}\\endpoint.txt'; $env:PID_FILE='${staged.win}\\pid.txt'; $env:RV_HOST='${rvHost}'; $env:RV_PORT='${rvPort}'; $env:POOL='${POOL}'; ${headedAssignment()}cd '${staged.win}'; node launch.mjs`,
         ],
         { stdin: "pipe", stdout: "inherit", stderr: "inherit" },
     );

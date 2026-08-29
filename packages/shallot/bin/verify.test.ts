@@ -48,6 +48,9 @@ import {
     installHarnessProbe,
     isSoftwareAdapter,
     LEAK_BYTES_PER_SEC,
+    type LoAFEntry,
+    type LoAFScriptEntry,
+    loafByCompilePhase,
     type MemorySample,
     parseVerifyArgs,
     type RawCpuProfile,
@@ -2725,5 +2728,148 @@ describe("HARNESS_INPAGE_FUNCTION_NAMES — registration coverage for every name
         expect(HARNESS_INPAGE_FUNCTION_NAMES.size).toBeGreaterThan(0);
         expect(HARNESS_INPAGE_FUNCTION_NAMES.has("decodeSample")).toBe(true);
         expect(HARNESS_INPAGE_FUNCTION_NAMES.has("decodeRgba")).toBe(true);
+    });
+});
+
+describe("loafByCompilePhase — pre-compile LoAF attribution", () => {
+    const script = (over: Partial<LoAFScriptEntry> = {}): LoAFScriptEntry => ({
+        startTime: 0,
+        duration: 0,
+        executionStart: undefined,
+        invoker: "",
+        invokerType: "classic-script",
+        sourceURL: "https://host/src/a.ts",
+        sourceFunctionName: "f",
+        sourceCharPosition: undefined,
+        forcedStyleAndLayoutDuration: undefined,
+        pauseDuration: undefined,
+        ...over,
+    });
+    const frame = (
+        start: number,
+        duration: number,
+        scripts: LoAFScriptEntry[] = [],
+    ): LoAFEntry => ({
+        start,
+        duration,
+        blockingDuration: Math.max(0, duration - 50),
+        renderStart: undefined,
+        styleAndLayoutStart: undefined,
+        scripts,
+    });
+    const measure = (name: string, startTime: number, duration = 10) => ({
+        name,
+        startTime,
+        duration,
+    });
+
+    test("splits entries around the FIRST prefix-matching measure, not the earliest measure overall", () => {
+        const entries = [frame(0, 100), frame(400, 100), frame(1000, 100)];
+        const measures = [
+            measure("nav", 10),
+            measure("pipeline-compile:b", 900),
+            measure("pipeline-compile:a", 500),
+        ];
+        const report = loafByCompilePhase(entries, measures, "pipeline-compile:");
+        expect(report.boundaryMs).toBe(500);
+        expect(report.before.map((e) => e.start)).toEqual([0, 400]);
+        expect(report.after.map((e) => e.start)).toEqual([1000]);
+        expect(report.straddling).toEqual([]);
+        expect(report.unclassified).toEqual([]);
+    });
+
+    test("a frame spanning the boundary is straddling, claimed by neither side", () => {
+        const report = loafByCompilePhase([frame(450, 100)], [measure("pc:x", 500)], "pc:");
+        expect(report.before).toEqual([]);
+        expect(report.after).toEqual([]);
+        expect(report.straddling.map((e) => e.start)).toEqual([450]);
+    });
+
+    test("boundary edges are inclusive on both sides: end == boundary is before, start == boundary is after", () => {
+        const report = loafByCompilePhase(
+            [frame(400, 100), frame(500, 100)],
+            [measure("pc:x", 500)],
+            "pc:",
+        );
+        expect(report.before.map((e) => e.start)).toEqual([400]);
+        expect(report.after.map((e) => e.start)).toEqual([500]);
+        expect(report.straddling).toEqual([]);
+    });
+
+    test("no prefix-matching measure leaves everything unclassified rather than claiming a pre-compile side", () => {
+        const report = loafByCompilePhase([frame(0, 100)], [measure("nav", 10)], "pc:");
+        expect(report.boundaryMs).toBeNull();
+        expect(report.unclassified.map((e) => e.start)).toEqual([0]);
+        expect(report.before).toEqual([]);
+        expect(report.after).toEqual([]);
+        expect(report.beforeScripts).toEqual([]);
+        expect(report.beforeAttributedMs).toBe(0);
+        expect(report.beforeUnattributedMs).toBe(0);
+    });
+
+    test("rolls up pre-compile scripts by source identity, descending, merging across frames", () => {
+        const entries = [
+            frame(0, 300, [
+                script({ duration: 200, sourceFunctionName: "codegen" }),
+                script({
+                    duration: 40,
+                    sourceFunctionName: "boot",
+                    sourceURL: "https://host/src/b.ts",
+                }),
+            ]),
+            frame(310, 120, [script({ duration: 90, sourceFunctionName: "codegen" })]),
+            // after the boundary — must not appear in the rollup
+            frame(900, 200, [script({ duration: 180, sourceFunctionName: "drain" })]),
+        ];
+        const report = loafByCompilePhase(entries, [measure("pc:x", 800)], "pc:");
+        expect(report.beforeScripts.map((s) => [s.sourceFunctionName, s.totalMs, s.count])).toEqual(
+            [
+                ["codegen", 290, 2],
+                ["boot", 40, 1],
+            ],
+        );
+        expect(report.beforeScripts[0].key).toBe("codegen@https://host/src/a.ts");
+    });
+
+    test("the same function name in two files stays two rows", () => {
+        const report = loafByCompilePhase(
+            [
+                frame(0, 200, [
+                    script({ duration: 100, sourceURL: "https://host/src/a.ts" }),
+                    script({ duration: 60, sourceURL: "https://host/src/b.ts" }),
+                ]),
+            ],
+            [measure("pc:x", 800)],
+            "pc:",
+        );
+        expect(report.beforeScripts).toHaveLength(2);
+    });
+
+    test("empty source fields fall back to readable placeholders rather than an empty key", () => {
+        const report = loafByCompilePhase(
+            [frame(0, 200, [script({ duration: 100, sourceFunctionName: "", sourceURL: "" })])],
+            [measure("pc:x", 800)],
+            "pc:",
+        );
+        expect(report.beforeScripts[0].key).toBe("(anonymous)@(no source url)");
+    });
+
+    test("unattributed pre-compile delay is reported, never folded into the attributed total", () => {
+        const report = loafByCompilePhase(
+            [frame(0, 500, [script({ duration: 120 })]), frame(600, 100)],
+            [measure("pc:x", 800)],
+            "pc:",
+        );
+        expect(report.beforeAttributedMs).toBe(120);
+        expect(report.beforeUnattributedMs).toBe(480);
+    });
+
+    test("script durations exceeding the frame duration floor the unattributed remainder at zero", () => {
+        const report = loafByCompilePhase(
+            [frame(0, 100, [script({ duration: 140 })])],
+            [measure("pc:x", 800)],
+            "pc:",
+        );
+        expect(report.beforeUnattributedMs).toBe(0);
     });
 });

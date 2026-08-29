@@ -13,10 +13,11 @@
 // logic against a real subprocess's output and exit code, not a grep over source text.
 
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { applyExitCodeGate, extractResult, verify } from "./verify";
+import { headedAssignment } from "./wsl-bridge";
 
 test("verify — a nonzero child exit with a passing envelope reddens the verdict", async () => {
     // Build a stub driver script that prints a passing JSON envelope and exits nonzero.
@@ -62,4 +63,26 @@ test("verify — a nonexistent dir still reds (the original behavioral arm, kept
     const result = await verify("/nonexistent-shallot-arm-dir-12345", [], true);
     expect(result).not.toBeNull();
     expect(result!.pass).toBe(false);
+});
+
+// The WSL bridge — not the verify CLI — is what launches the browser under `--connect`, so
+// `SHALLOT_HEADED` has to cross the powershell hop to the host launcher or a "headed" attribution run
+// is silently headless and every frame-timing number it prints was taken on a display-less frame
+// clock. These arms pin the assignment both ways and pin that nothing from the environment is
+// interpolated into a powershell command line.
+test("headedAssignment emits the $env line only when SHALLOT_HEADED is set", () => {
+    expect(headedAssignment({})).toBe("");
+    expect(headedAssignment({ SHALLOT_HEADED: "1" })).toBe("$env:SHALLOT_HEADED='1'; ");
+});
+
+test("headedAssignment normalizes the value rather than interpolating the environment's", () => {
+    expect(headedAssignment({ SHALLOT_HEADED: "'; calc.exe; $x='" })).toBe(
+        "$env:SHALLOT_HEADED='1'; ",
+    );
+});
+
+test("the host launcher gates headless on SHALLOT_HEADED rather than hardcoding true", () => {
+    const source = readFileSync(new URL("./wsl-bridge.ts", import.meta.url), "utf8");
+    expect(source).toContain("headless: !process.env.SHALLOT_HEADED");
+    expect(source).not.toContain("headless: true");
 });
