@@ -1017,13 +1017,20 @@ describe("precompile", () => {
             );
 
             await precompileAll();
+            // S2 (spec `shallot-boot-compile-parallel`, ruled at claim): under a level partition
+            // `optional`'s only `after` names `"missing"`, an unknown label the drain documents as
+            // ignored, so it has no resolvable predecessor and sits in level 0 with `first`,
+            // `independent`, and `publish` — not last, which was an artifact of the old linear
+            // sort inserting by registration order. `dependent-a`/`dependent-b` (after `publish`)
+            // are level 1. Every other expectation here — the `after` contract itself, the relative
+            // order of `publish` before its dependents — is unmodified.
             expect(order).toEqual([
                 "first",
                 "independent",
                 "publish",
+                "optional",
                 "dependent-a",
                 "dependent-b",
-                "optional",
             ]);
 
             await requestGPU(fakeDevice());
@@ -1089,14 +1096,26 @@ describe("precompile", () => {
                 return [];
             });
 
-            // the throw names the pipeline, so a build failure points at the kernel, not at `build`
+            // S2 (spec `shallot-boot-compile-parallel`, ruled at claim): `a`, `b`, `broken`, `c`
+            // declare no `after` edges, so they land in one level and batch concurrently under a
+            // shared `validateGpu` scope — level batching's whole point. The throw still names the
+            // pipeline (batch-then-bisect's per-forcer re-drain), but the *cost* of a level failure
+            // is no longer "one pipeline, the rest untouched": every member of the failing level ran
+            // once in the batch attempt (`a`, `b`, `c` all force before `broken`'s rejection is even
+            // known — `Array.prototype.map`/an async body both run synchronously to their first
+            // `await`), then the serial re-drain re-runs the level from its start, through the
+            // thrower, a second time — `a` and `b` twice, `broken` twice, `c` once (it sits after
+            // `broken` in registration order, so the bisect never reaches it this call). That is the
+            // Locked decision's own priced trade ("at the cost of a recompile in the failure case
+            // only"), not a new one. What survives unmodified from the old contract: nothing is
+            // silently dropped — `c` stays queued and drains on a later call — and the throw still
+            // names `broken`, not the level.
             await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
-            // "c" was never shifted off, so the throw costs one pipeline, not the rest of the queue
-            expect(order).toEqual(["a", "b"]);
+            expect(order).toEqual(["a", "b", "c", "a", "b"]);
             await precompileAll();
-            expect(order).toEqual(["a", "b", "c"]);
+            expect(order).toEqual(["a", "b", "c", "a", "b", "c"]);
             await precompileAll();
-            expect(order).toEqual(["a", "b", "c"]);
+            expect(order).toEqual(["a", "b", "c", "a", "b", "c"]);
 
             // past the drain a lazily-built pipeline compiles on arrival: late beats silently dropped,
             // which would surface as a multi-second first-frame stall with nothing pointing at it
@@ -1104,7 +1123,7 @@ describe("precompile", () => {
                 order.push("late");
                 return [];
             });
-            expect(order).toEqual(["a", "b", "c", "late"]);
+            expect(order).toEqual(["a", "b", "c", "a", "b", "c", "late"]);
             await expect(
                 precompile("late-broken", () => {
                     throw new Error("createComputePipeline failed");
@@ -1238,6 +1257,442 @@ describe("precompile", () => {
             expect(entries).toEqual([]);
         } finally {
             performance.clearMeasures();
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+// spec `shallot-boot-compile-parallel` S2: `ordered()`'s level partition and `precompileAll`'s
+// batch-then-bisect drain over it. `ordered` itself is `@internal` and unexported, so these arms
+// drive it through the public `precompile`/`precompileAll` surface — the same boundary every other
+// arm in this file uses — and observe the level partition's one externally-visible effect: which
+// forcers are genuinely IN FLIGHT together. A deferred `initAsync` lets an arm hold a forcer mid-await
+// and read a shared log, so "two forcers started before either finished" is a directly observed fact,
+// not an inference from ordering alone.
+function deferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+        resolve = res;
+    });
+    return { promise, resolve };
+}
+
+describe("level partition — chain, fan, diamond, no-edge", () => {
+    test("no-edge: forcers with no `after` land in one level and are concurrently in flight", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const labels = ["a", "b", "c"];
+            const gates = labels.map(() => deferred<void>());
+            labels.forEach((label, i) => {
+                precompile(label, () => ({
+                    initAsync: async () => {
+                        log.push(`start:${label}`);
+                        await gates[i].promise;
+                        log.push(`end:${label}`);
+                    },
+                }));
+            });
+            const done = precompileAll();
+            // every forcer's own synchronous prelude (`compile()` through the first `await` inside
+            // `initAsync`) runs inside `Promise.all`'s synchronous mapping phase, before the first
+            // real suspend — so all three have already started by the time this line runs, with no
+            // extra microtask turn needed. A serial drain could never produce this: `b` would not
+            // start until `a`'s gate resolved.
+            expect(log).toEqual(["start:a", "start:b", "start:c"]);
+            for (const gate of gates) gate.resolve();
+            await done;
+            expect(log).toEqual(["start:a", "start:b", "start:c", "end:a", "end:b", "end:c"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("chain: A -> B -> C (each `after` the last) stays strictly serial, one level each", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const gates = { a: deferred<void>(), b: deferred<void>(), c: deferred<void>() };
+            precompile("a", () => ({
+                initAsync: async () => {
+                    log.push("start:a");
+                    await gates.a.promise;
+                    log.push("end:a");
+                },
+            }));
+            precompile(
+                "b",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:b");
+                        await gates.b.promise;
+                        log.push("end:b");
+                    },
+                }),
+                { after: ["a"] },
+            );
+            precompile(
+                "c",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:c");
+                        await gates.c.promise;
+                        log.push("end:c");
+                    },
+                }),
+                { after: ["b"] },
+            );
+            const done = precompileAll();
+            expect(log).toEqual(["start:a"]);
+            gates.a.resolve();
+            while (!log.includes("start:b")) await Promise.resolve();
+            expect(log).toEqual(["start:a", "end:a", "start:b"]);
+            gates.b.resolve();
+            while (!log.includes("start:c")) await Promise.resolve();
+            expect(log).toEqual(["start:a", "end:a", "start:b", "end:b", "start:c"]);
+            gates.c.resolve();
+            await done;
+            expect(log).toEqual(["start:a", "end:a", "start:b", "end:b", "start:c", "end:c"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("fan: a root plus two independent children run the children concurrently, only after the root", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const gates = {
+                root: deferred<void>(),
+                left: deferred<void>(),
+                right: deferred<void>(),
+            };
+            precompile("root", () => ({
+                initAsync: async () => {
+                    log.push("start:root");
+                    await gates.root.promise;
+                    log.push("end:root");
+                },
+            }));
+            precompile(
+                "left",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:left");
+                        await gates.left.promise;
+                        log.push("end:left");
+                    },
+                }),
+                { after: ["root"] },
+            );
+            precompile(
+                "right",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:right");
+                        await gates.right.promise;
+                        log.push("end:right");
+                    },
+                }),
+                { after: ["root"] },
+            );
+            const done = precompileAll();
+            expect(log).toEqual(["start:root"]);
+            gates.root.resolve();
+            while (!log.includes("start:right")) await Promise.resolve();
+            // level 1 is {left, right} — both started before either finished, i.e. genuinely
+            // concurrent, not two more serial steps.
+            expect(log).toEqual(["start:root", "end:root", "start:left", "start:right"]);
+            gates.left.resolve();
+            gates.right.resolve();
+            await done;
+            expect(log).toEqual([
+                "start:root",
+                "end:root",
+                "start:left",
+                "start:right",
+                "end:left",
+                "end:right",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("diamond: A -> {B, C} -> D runs B and C concurrently between two serial steps", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const log: string[] = [];
+            const gates = {
+                a: deferred<void>(),
+                b: deferred<void>(),
+                c: deferred<void>(),
+                d: deferred<void>(),
+            };
+            precompile("a", () => ({
+                initAsync: async () => {
+                    log.push("start:a");
+                    await gates.a.promise;
+                    log.push("end:a");
+                },
+            }));
+            precompile(
+                "b",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:b");
+                        await gates.b.promise;
+                        log.push("end:b");
+                    },
+                }),
+                { after: ["a"] },
+            );
+            precompile(
+                "c",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:c");
+                        await gates.c.promise;
+                        log.push("end:c");
+                    },
+                }),
+                { after: ["a"] },
+            );
+            precompile(
+                "d",
+                () => ({
+                    initAsync: async () => {
+                        log.push("start:d");
+                        await gates.d.promise;
+                        log.push("end:d");
+                    },
+                }),
+                { after: ["b", "c"] },
+            );
+            const done = precompileAll();
+            expect(log).toEqual(["start:a"]);
+            gates.a.resolve();
+            while (!log.includes("start:c")) await Promise.resolve();
+            expect(log).toEqual(["start:a", "end:a", "start:b", "start:c"]);
+            gates.b.resolve();
+            gates.c.resolve();
+            while (!log.includes("start:d")) await Promise.resolve();
+            expect(log).toEqual([
+                "start:a",
+                "end:a",
+                "start:b",
+                "start:c",
+                "end:b",
+                "end:c",
+                "start:d",
+            ]);
+            gates.d.resolve();
+            await done;
+            expect(log).toEqual([
+                "start:a",
+                "end:a",
+                "start:b",
+                "start:c",
+                "end:b",
+                "end:c",
+                "start:d",
+                "end:d",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+});
+
+describe("batch-then-bisect", () => {
+    test("a level with one throwing forcer names that forcer, not the level, on the serial re-drain", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            precompile("healthy", () => ({ initAsync: async () => {} }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("error-scope balance, fast path: one push/pop for a multi-member level that succeeds", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            events.push("pop");
+            return null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("a", () => ({ initAsync: async () => {} }));
+            precompile("b", () => ({ initAsync: async () => {} }));
+            precompile("c", () => ({ initAsync: async () => {} }));
+            await precompileAll();
+            // one shared scope for the whole level, not one per forcer — the fast path's whole point.
+            expect(events).toEqual(["push:validation", "pop"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("error-scope balance, bisect path: a JS throw mid-`Promise.all` still balances every push/pop", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            events.push("pop");
+            return null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("a", () => ({ initAsync: async () => {} }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            // one push/pop for the failed batch attempt over the whole level, then one push/pop per
+            // forcer the serial re-drain actually reached (a, then broken — the throw stops it there).
+            expect(events).toEqual([
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("error-scope balance, scope-pop failure with no JS throw: the batch still bisects and balances, and the level recovers", async () => {
+        const saved = { ...Compute };
+        const events: string[] = [];
+        const device = fakeDevice();
+        // the batch's own scope pop reports a validation error even though nothing in the level threw
+        // in JS — the exact case the error-scope-is-a-stack problem describes: a genuine GPU-side
+        // validation failure loses per-forcer attribution under a shared scope. Every per-forcer pop
+        // during the serial re-drain stays clean, so the level recovers fully on the bisect.
+        let pops = 0;
+        device.pushErrorScope = (filter) => {
+            events.push(`push:${filter}`);
+        };
+        device.popErrorScope = async () => {
+            pops++;
+            events.push("pop");
+            return pops === 1
+                ? ({ message: "batch validation error" } as GPUValidationError)
+                : null;
+        };
+        try {
+            await requestGPU(device);
+            precompile("a", () => ({ initAsync: async () => {} }));
+            precompile("b", () => ({ initAsync: async () => {} }));
+            // no throw this time — the scope-pop failure is recoverable once bisected
+            await expect(precompileAll()).resolves.toBeUndefined();
+            // one push/pop for the failed batch attempt, then one push/pop per forcer in the serial
+            // re-drain (both run — neither one's own pop reports an error).
+            expect(events).toEqual([
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+                "push:validation",
+                "pop",
+            ]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    // Repair-arm regression guard (`shallot-boot-compile-parallel` S2 adversarial pass, finding 1):
+    // witnessed RED before the fix, exit code 1, `bun test ./packages/shallot/src/engine/runtime/
+    // gpu.test.ts -t "mid-batch-await"` — 2 fail — against the pre-fix `precompileAll`, which
+    // reconstructed `_precompile` from a `Forcer[][]` snapshot taken *before* the level's shared
+    // `await`. A `precompile()` call landing during that await pushed onto the live array and was
+    // then silently erased by the stale-snapshot splice; its own registration call had already
+    // resolved (the `!_drained` branch), so nothing retried it and it never drained, on that call or
+    // any later one. Green after the fix (`removeForcers`, identity-based), exit code 0.
+    test("a forcer registered mid-batch-await (from inside a level member's initAsync) survives to the next call — batch-success path", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("a", () => ({
+                initAsync: async () => {
+                    order.push("a");
+                    // registered while this level's shared `Promise.all` is still in flight — the
+                    // exact window a stale `Forcer[][]` snapshot silently erases.
+                    precompile("mid-batch", () => {
+                        order.push("mid-batch");
+                        return [];
+                    });
+                },
+            }));
+            precompile("b", () => ({
+                initAsync: async () => {
+                    order.push("b");
+                },
+            }));
+            await precompileAll();
+            // the outer drain loop keeps going after a successful level, so "mid-batch" is picked
+            // up and drained within this SAME call — not dropped, and not even deferred to a later
+            // one (unlike the bisect path below, where the level's own throw ends the call early).
+            expect(order).toEqual(["a", "b", "mid-batch"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "mid-batch"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a forcer registered mid-batch-await survives to the next call — bisect path", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            // `healthy`'s own force() runs twice under batch-then-bisect (once in the failed batch
+            // attempt, once in the serial re-drain) — guard the registration so it fires only on the
+            // first call, matching a real forcer's own force() being idempotent-by-construction here
+            // (the point under test is the registration surviving, not re-registering).
+            let registered = false;
+            precompile("healthy", () => ({
+                initAsync: async () => {
+                    order.push("healthy");
+                    if (!registered) {
+                        registered = true;
+                        // registered from inside the batch attempt, before the level's failure is
+                        // even known — the bisect `finally`'s own stale-snapshot window.
+                        precompile("mid-bisect", () => {
+                            order.push("mid-bisect");
+                            return [];
+                        });
+                    }
+                },
+            }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            expect(order).toEqual(["healthy", "healthy"]);
+            await precompileAll();
+            expect(order).toEqual(["healthy", "healthy", "mid-bisect"]);
+        } finally {
             Object.assign(Compute, saved);
         }
     });

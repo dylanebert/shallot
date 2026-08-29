@@ -64,13 +64,17 @@ export interface VerifyResult {
      *  breakdown (`Profile.compile` per label, ProfilePlugin projects only), read once at the boot
      *  wait's settle point and again `ATTRIBUTION_IDLE_MS` later (a label or count present only in
      *  `compileAfterIdle` is a compile that landed after the boot wait), plus any `longtask` entries
-     *  recorded across the boot window. */
+     *  recorded across the boot window. `compileMeasures` (spec `shallot-boot-compile-parallel` S2) is
+     *  every raw `performance` `measure` entry over the same window, unfiltered — a caller feeds it
+     *  through `compileConcurrencyRatio` (`site/rum-compile-vitals.ts`) rather than re-deriving the
+     *  ratio here. */
     attribution?: {
         compile: AttributionCompile | null;
         compileAfterIdle: AttributionCompile | null;
         longTasks: { start: number; duration: number }[];
         longAnimationFrames: LoAFEntry[];
         rafDeltas: { delta: number; timestamp: number }[];
+        compileMeasures: { name: string; startTime: number; duration: number }[];
         userAgent: string;
     } | null;
     /** `--attribution` only (S1b): the CDP CPU-profile self-time breakdown, per

@@ -871,7 +871,17 @@ export function precompileScope(prefix: string): string {
     return n === 1 ? prefix : `${prefix}-${n}`;
 }
 
-function ordered(forcers: readonly Forcer[]): Forcer[] {
+/**
+ * partition {@link _precompile} into dependency **levels** (Kahn's algorithm, one level per step):
+ * level 0 is every forcer with no unresolved `after` predecessor, level 1 is every forcer whose only
+ * predecessors are in level 0, and so on. The `after` edges are real but sparse — most forcers declare
+ * none — so this is a genuine level-wise partial order, not a linear chain; {@link precompileAll} drains
+ * each level concurrently rather than one forcer at a time (spec `shallot-boot-compile-parallel`,
+ * Locked decision). Within a level, forcers are ordered by registration `order` — stable, but no longer
+ * load-bearing for *when* they run, only for the label-join order a level's shared scope reports and
+ * the order `Promise.all` starts them in.
+ */
+function ordered(forcers: readonly Forcer[]): Forcer[][] {
     const byLabel = new Map(forcers.map((forcer) => [forcer.label, forcer]));
     const outgoing = new Map(forcers.map((forcer) => [forcer.label, [] as Forcer[]]));
     const incoming = new Map(forcers.map((forcer) => [forcer.label, 0]));
@@ -883,49 +893,78 @@ function ordered(forcers: readonly Forcer[]): Forcer[] {
         }
     }
 
-    const ready = forcers.filter((forcer) => incoming.get(forcer.label) === 0);
+    const levels: Forcer[][] = [];
+    let ready = forcers.filter((forcer) => incoming.get(forcer.label) === 0);
     ready.sort((a, b) => a.order - b.order);
-    const result: Forcer[] = [];
+    let drained = 0;
     while (ready.length > 0) {
-        const forcer = ready.shift()!;
-        result.push(forcer);
-        for (const dependent of outgoing.get(forcer.label)!) {
-            const count = incoming.get(dependent.label)! - 1;
-            incoming.set(dependent.label, count);
-            if (count === 0) {
-                const at = ready.findIndex((entry) => entry.order > dependent.order);
-                ready.splice(at < 0 ? ready.length : at, 0, dependent);
+        levels.push(ready);
+        drained += ready.length;
+        const next: Forcer[] = [];
+        for (const forcer of ready) {
+            for (const dependent of outgoing.get(forcer.label)!) {
+                const count = incoming.get(dependent.label)! - 1;
+                incoming.set(dependent.label, count);
+                if (count === 0) next.push(dependent);
             }
         }
+        next.sort((a, b) => a.order - b.order);
+        ready = next;
     }
-    if (result.length !== forcers.length) {
+    if (drained !== forcers.length) {
         const cycle = forcers
             .filter((forcer) => incoming.get(forcer.label)! > 0)
             .map((forcer) => forcer.label);
         throw new Error(`precompile cycle: ${cycle.join(" -> ")}`);
     }
-    return result;
+    return levels;
 }
 
 /**
- * drain the {@link precompile} queue in stable topological order. `build` calls it after every plugin
- * `warm`; a forcer registered afterwards runs on arrival. Entries leave the queue one at a time, so a
- * throwing forcer names itself and leaves the rest queued rather than taking them down with it.
- * @internal
+ * the actual compile work for one forcer — {@link compile} plus the exhaustive `initAsync` await
+ * classification — with no error scope of its own. Split out of {@link compileValidated} so a level's
+ * batch attempt ({@link precompileAll}) can run N of these concurrently inside one shared
+ * `validateGpu` scope; the serial per-forcer path wraps this in its own scope via
+ * {@link compileValidated}. Timing is scoped tightly around this function's own work (start just
+ * before {@link compile}, end just after the await classification resolves) rather than around the
+ * caller's error-scope push/pop, which is now shared across a whole level and would attribute
+ * scope-management overhead to whichever forcer happened to be timed.
  */
-export async function precompileAll(): Promise<void> {
-    if (_draining) return;
-    _draining = true;
-    try {
-        while (_precompile.length > 0) {
-            _precompile.splice(0, _precompile.length, ...ordered(_precompile));
-            const forcer = _precompile.shift()!;
-            await compileValidated(forcer);
-        }
-        _drained = true;
-    } finally {
-        _draining = false;
+async function compileBody(
+    forcer: Forcer,
+): Promise<{ warmed: boolean; start: number; end: number }> {
+    const start = now();
+    let warmed = false;
+    const pipeline = compile(forcer);
+    // the drain classifies a forcer's return exhaustively:
+    // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
+    if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
+        await (pipeline as { initAsync(): Promise<void> }).initAsync();
+        warmed = true;
+    } else if (Array.isArray(pipeline)) {
+        // (b) an array is awaited element-wise — the natural generalization of the sear forcer's
+        // shape is an array of typegpu pipelines, and skipping the whole array unconditionally
+        // would silently warm nothing for that caller. Each entry exposing initAsync is awaited;
+        // the sear variant's (standard/sear/forward.ts) own already-unwrapped raw pipelines expose
+        // none, so they're skipped element-wise too, same as `[]` when nothing specializes. `warmed`
+        // tracks whether any entry actually did — an all-skip array must not report a compile span
+        // below, since that's the one still-unwarmed path and the profiler must not call it warm
+        const awaited = await Promise.all(
+            pipeline.map((entry) =>
+                typeof (entry as { initAsync?: unknown })?.initAsync === "function"
+                    ? (entry as { initAsync(): Promise<void> }).initAsync().then(() => true)
+                    : false,
+            ),
+        );
+        warmed = awaited.some(Boolean);
+    } else {
+        // (c) anything else truthy is a forcer that returned the wrong shape — name the site
+        throw new Error(
+            `precompile "${forcer.label}" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines`,
+        );
     }
+    const end = now();
+    return { warmed, start, end };
 }
 
 /**
@@ -937,66 +976,145 @@ export async function precompileAll(): Promise<void> {
  * an importer builds from workspace source, so renaming this silently breaks that wire.
  *
  * Async-only coverage: a measure is emitted only when a forcer actually awaited `initAsync`
- * ({@link compileValidated}'s `warmed`), the same gate `Compute.precompiled` reports through — a
+ * ({@link compileBody}'s `warmed`), the same gate `Compute.precompiled` reports through — a
  * non-forced sync pipeline records a near-zero stub (TypeGPU returns before the driver compiles),
  * so no vital is emitted for it.
  * @internal
  */
 export const PIPELINE_COMPILE_MEASURE_PREFIX = "shallot:pipeline-compile:";
 
+/**
+ * report one forcer's compile timing — {@link Compute.precompiled} plus the paired
+ * `performance.measure` entry — once {@link compileBody} has resolved. A forcer that never awaited a
+ * real `initAsync` (sear's raw-pipeline array, or `[]`) is not warmed, so nothing is reported;
+ * attributing that skip as a compile is the still-unwarmed path reporting warm.
+ */
+function reportCompile(forcer: Forcer, warmed: boolean, start: number, end: number): void {
+    if (!warmed) return;
+    Compute.precompiled?.(forcer.label, start, end);
+    // telemetry must never throw into the validation path — a User Timing entry is a nice-to-have
+    // for the site's RUM script, not a build-breaking dependency, so a missing or throwing
+    // `performance.measure` (an older runtime, a locked-down embedder) is swallowed.
+    try {
+        if (typeof performance?.measure === "function") {
+            performance.measure(`${PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`, {
+                start,
+                end,
+            });
+        }
+    } catch {
+        // never let telemetry break a build
+    }
+}
+
+/** the serial per-forcer path: one `validateGpu` scope, one {@link compileBody}, one report. Used for
+ *  a single-member level, for a late arrival past `_drained` ({@link precompile}'s own branch), and as
+ *  {@link precompileAll}'s batch-then-bisect fallback when a multi-member level's shared scope fails. */
 async function compileValidated(forcer: Forcer): Promise<void> {
-    const start = now();
-    let warmed = false;
-    await validateGpu(Compute.device, forcer.label, async () => {
-        const pipeline = compile(forcer);
-        // the drain classifies a forcer's return exhaustively:
-        // (a) a typegpu pipeline (compute / render / guarded) exposes initAsync → await it
-        if (typeof (pipeline as { initAsync?: unknown }).initAsync === "function") {
-            await (pipeline as { initAsync(): Promise<void> }).initAsync();
-            warmed = true;
-        } else if (Array.isArray(pipeline)) {
-            // (b) an array is awaited element-wise — the natural generalization of the sear forcer's
-            // shape is an array of typegpu pipelines, and skipping the whole array unconditionally
-            // would silently warm nothing for that caller. Each entry exposing initAsync is awaited;
-            // the sear variant's (standard/sear/forward.ts) own already-unwrapped raw pipelines expose
-            // none, so they're skipped element-wise too, same as `[]` when nothing specializes. `warmed`
-            // tracks whether any entry actually did — an all-skip array must not report a compile span
-            // below, since that's the one still-unwarmed path and the profiler must not call it warm
-            const awaited = await Promise.all(
-                pipeline.map((entry) =>
-                    typeof (entry as { initAsync?: unknown })?.initAsync === "function"
-                        ? (entry as { initAsync(): Promise<void> }).initAsync().then(() => true)
-                        : false,
-                ),
-            );
-            warmed = awaited.some(Boolean);
-        } else {
-            // (c) anything else truthy is a forcer that returned the wrong shape — name the site
-            throw new Error(
-                `precompile "${forcer.label}" returned a value that is neither a pipeline with initAsync nor an array of raw pipelines`,
-            );
-        }
-    });
-    // validation wraps what precompile claims through an error-scope pop, not a completion fence —
-    // only compile-timing attribution is reported here. A forcer that never awaited a real
-    // initAsync (sear's raw-pipeline array, or `[]`) skips the report entirely — attributing that
-    // skip as a compile is the still-unwarmed path reporting warm
-    if (warmed) {
-        const end = now();
-        Compute.precompiled?.(forcer.label, start, end);
-        // telemetry must never throw into compileValidated's validation path — a User Timing entry
-        // is a nice-to-have for the site's RUM script, not a build-breaking dependency, so a missing
-        // or throwing `performance.measure` (an older runtime, a locked-down embedder) is swallowed.
-        try {
-            if (typeof performance?.measure === "function") {
-                performance.measure(`${PIPELINE_COMPILE_MEASURE_PREFIX}${forcer.label}`, {
-                    start,
-                    end,
-                });
+    const { warmed, start, end } = await validateGpu(Compute.device, forcer.label, () =>
+        compileBody(forcer),
+    );
+    reportCompile(forcer, warmed, start, end);
+}
+
+/**
+ * remove exactly `drained` from {@link _precompile}, by identity, leaving every other entry —
+ * including anything a concurrent {@link precompile} call appended — untouched and in place.
+ * {@link precompileAll}'s multi-member paths never remove a level's members before awaiting the
+ * batch (unlike the single-member path, which splices before its one await and is immune by
+ * construction), so a `precompile()` call landing mid-await pushes onto the live array and must
+ * survive whatever bookkeeping runs after that await resolves. Reconstructing the queue from a
+ * `Forcer[][]` snapshot taken *before* the await — the bug this replaces — silently erases exactly
+ * that push: its own registration call already returned a resolved promise (the `!_drained`
+ * branch), so nothing retries it, and it never drains, on this call or any later one. Identity
+ * removal has no such snapshot to go stale, since it reads `_precompile`'s live contents at the
+ * moment it runs, not a copy taken earlier.
+ */
+function removeForcers(drained: readonly Forcer[]): void {
+    if (drained.length === 0) return;
+    const set = new Set(drained);
+    for (let i = _precompile.length - 1; i >= 0; i--) {
+        if (set.has(_precompile[i])) _precompile.splice(i, 1);
+    }
+}
+
+/**
+ * drain the {@link precompile} queue level by level ({@link ordered}'s `Forcer[][]` partition).
+ * `build` calls it after every plugin `warm`; a forcer registered afterwards runs on arrival (a
+ * different code path, {@link precompile}'s own `_drained` branch) — unless it lands mid-await
+ * while a multi-member level is in flight, in which case it lands directly in `_precompile` and is
+ * picked up by this function's own next iteration; see {@link removeForcers}.
+ *
+ * A single-member level runs the serial per-forcer path directly. A multi-member level runs
+ * **batch-then-bisect** (spec `shallot-boot-compile-parallel`, Locked decision): one `validateGpu`
+ * scope shared across the whole level, `Promise.all` over each member's {@link compileBody} inside
+ * it — the fast path, paying nothing beyond one scope. WebGPU error scopes are a per-device stack, so
+ * two concurrent validated operations pop each other's scopes and per-forcer attribution is lost;
+ * when the shared scope pops non-null, or the `Promise.all` itself rejects, none of the batch
+ * attempt's results are trusted (the pop can't say *which* member failed), and the whole level
+ * re-drains **serially** through {@link compileValidated} from its start, so the throw still names a
+ * specific forcer. Every member of a failing level therefore compiles twice — batch, then serial — a
+ * recompile spent only in the failure case, exactly as the Locked decision prices it. The serial
+ * re-drain stops at the first throw (matching {@link compileValidated}'s own single-forcer contract);
+ * whatever it didn't reach — the untried remainder of the level, plus every later level — stays queued
+ * for a later {@link precompileAll} call, so nothing is silently dropped.
+ * @internal
+ */
+export async function precompileAll(): Promise<void> {
+    if (_draining) return;
+    _draining = true;
+    try {
+        while (_precompile.length > 0) {
+            const levels = ordered(_precompile);
+            const level = levels[0];
+
+            if (level.length === 1) {
+                // splices before its one await — nothing can be appended between reading `levels`
+                // and this splice, so a stale snapshot here is not reachable.
+                const rest = levels.slice(1).flat();
+                _precompile.splice(0, _precompile.length, ...rest);
+                await compileValidated(level[0]);
+                continue;
             }
-        } catch {
-            // never let telemetry break a build
+
+            const scopeLabel = level.map((forcer) => forcer.label).join(", ");
+            let results:
+                | { forcer: Forcer; warmed: boolean; start: number; end: number }[]
+                | undefined;
+            try {
+                results = await validateGpu(Compute.device, scopeLabel, () =>
+                    Promise.all(
+                        level.map(async (forcer) => ({ forcer, ...(await compileBody(forcer)) })),
+                    ),
+                );
+            } catch {
+                results = undefined;
+            }
+
+            if (results) {
+                removeForcers(level);
+                for (const { forcer, warmed, start, end } of results) {
+                    reportCompile(forcer, warmed, start, end);
+                }
+                continue;
+            }
+
+            // batch-then-bisect: re-drain the level serially, from its start through the thrower.
+            let ranThrough = 0;
+            try {
+                for (; ranThrough < level.length; ranThrough++) {
+                    await compileValidated(level[ranThrough]);
+                }
+            } finally {
+                // indices [0, ranThrough] actually ran (succeeded, or the thrower itself) — remove
+                // exactly those, by identity, so anything appended during any of these awaits (the
+                // batch attempt's, or a serial member's) survives into the next iteration.
+                removeForcers(level.slice(0, ranThrough + 1));
+            }
         }
+        _drained = true;
+    } finally {
+        _draining = false;
     }
 }
 
