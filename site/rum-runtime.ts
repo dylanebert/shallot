@@ -56,9 +56,9 @@ if (typeof PerformanceObserver !== "undefined") {
                         context: report.context,
                     });
                 });
-                // Bound the shared `performance` timeline: `compileValidated` writes one `measure`
-                // entry per forcer per `build()` call against a device, so a page that rebuilds
-                // scenes (a demo switcher, a hot-reloaded editor) grows the timeline unboundedly
+                // Bound the shared `performance` timeline: the drain (`gpu.ts`'s `reportCompile`)
+                // writes one `measure` entry per forcer per `build()` call against a device, so a
+                // page that rebuilds scenes (a demo switcher, a hot-reloaded editor) grows the timeline unboundedly
                 // if nothing ever clears it (S1's review finding, owned here). Clear only what
                 // this callback just forwarded — `clearMeasures(name)` removes every entry sharing
                 // that name, never the whole timeline, so an unrelated `measure` entry (there are
@@ -69,7 +69,7 @@ if (typeof PerformanceObserver !== "undefined") {
     } catch {
         // Telemetry never breaks the page — an older runtime or a locked-down embedder that
         // throws on `observe` degrades silently, same posture as the engine-side emitter's own
-        // guard (`gpu.ts`'s `compileValidated`).
+        // guard (`gpu.ts`'s `reportCompile`).
     }
 }
 

@@ -1619,6 +1619,83 @@ describe("batch-then-bisect", () => {
             Object.assign(Compute, saved);
         }
     });
+
+    // Repair-arm regression guard (`shallot-boot-compile-parallel` S2 adversarial pass, finding 1):
+    // witnessed RED before the fix, exit code 1, `bun test ./packages/shallot/src/engine/runtime/
+    // gpu.test.ts -t "mid-batch-await"` — 2 fail — against the pre-fix `precompileAll`, which
+    // reconstructed `_precompile` from a `Forcer[][]` snapshot taken *before* the level's shared
+    // `await`. A `precompile()` call landing during that await pushed onto the live array and was
+    // then silently erased by the stale-snapshot splice; its own registration call had already
+    // resolved (the `!_drained` branch), so nothing retried it and it never drained, on that call or
+    // any later one. Green after the fix (`removeForcers`, identity-based), exit code 0.
+    test("a forcer registered mid-batch-await (from inside a level member's initAsync) survives to the next call — batch-success path", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            precompile("a", () => ({
+                initAsync: async () => {
+                    order.push("a");
+                    // registered while this level's shared `Promise.all` is still in flight — the
+                    // exact window a stale `Forcer[][]` snapshot silently erases.
+                    precompile("mid-batch", () => {
+                        order.push("mid-batch");
+                        return [];
+                    });
+                },
+            }));
+            precompile("b", () => ({
+                initAsync: async () => {
+                    order.push("b");
+                },
+            }));
+            await precompileAll();
+            // the outer drain loop keeps going after a successful level, so "mid-batch" is picked
+            // up and drained within this SAME call — not dropped, and not even deferred to a later
+            // one (unlike the bisect path below, where the level's own throw ends the call early).
+            expect(order).toEqual(["a", "b", "mid-batch"]);
+            await precompileAll();
+            expect(order).toEqual(["a", "b", "mid-batch"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
+
+    test("a forcer registered mid-batch-await survives to the next call — bisect path", async () => {
+        const saved = { ...Compute };
+        try {
+            await requestGPU(fakeDevice());
+            const order: string[] = [];
+            // `healthy`'s own force() runs twice under batch-then-bisect (once in the failed batch
+            // attempt, once in the serial re-drain) — guard the registration so it fires only on the
+            // first call, matching a real forcer's own force() being idempotent-by-construction here
+            // (the point under test is the registration surviving, not re-registering).
+            let registered = false;
+            precompile("healthy", () => ({
+                initAsync: async () => {
+                    order.push("healthy");
+                    if (!registered) {
+                        registered = true;
+                        // registered from inside the batch attempt, before the level's failure is
+                        // even known — the bisect `finally`'s own stale-snapshot window.
+                        precompile("mid-bisect", () => {
+                            order.push("mid-bisect");
+                            return [];
+                        });
+                    }
+                },
+            }));
+            precompile("broken", () => {
+                throw new Error("createComputePipeline failed");
+            });
+            await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
+            expect(order).toEqual(["healthy", "healthy"]);
+            await precompileAll();
+            expect(order).toEqual(["healthy", "healthy", "mid-bisect"]);
+        } finally {
+            Object.assign(Compute, saved);
+        }
+    });
 });
 
 // a rejected onSubmittedWorkDone (device loss) must decrement inFlight so the

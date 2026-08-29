@@ -1018,9 +1018,32 @@ async function compileValidated(forcer: Forcer): Promise<void> {
 }
 
 /**
+ * remove exactly `drained` from {@link _precompile}, by identity, leaving every other entry —
+ * including anything a concurrent {@link precompile} call appended — untouched and in place.
+ * {@link precompileAll}'s multi-member paths never remove a level's members before awaiting the
+ * batch (unlike the single-member path, which splices before its one await and is immune by
+ * construction), so a `precompile()` call landing mid-await pushes onto the live array and must
+ * survive whatever bookkeeping runs after that await resolves. Reconstructing the queue from a
+ * `Forcer[][]` snapshot taken *before* the await — the bug this replaces — silently erases exactly
+ * that push: its own registration call already returned a resolved promise (the `!_drained`
+ * branch), so nothing retries it, and it never drains, on this call or any later one. Identity
+ * removal has no such snapshot to go stale, since it reads `_precompile`'s live contents at the
+ * moment it runs, not a copy taken earlier.
+ */
+function removeForcers(drained: readonly Forcer[]): void {
+    if (drained.length === 0) return;
+    const set = new Set(drained);
+    for (let i = _precompile.length - 1; i >= 0; i--) {
+        if (set.has(_precompile[i])) _precompile.splice(i, 1);
+    }
+}
+
+/**
  * drain the {@link precompile} queue level by level ({@link ordered}'s `Forcer[][]` partition).
  * `build` calls it after every plugin `warm`; a forcer registered afterwards runs on arrival (a
- * different code path, {@link precompile}'s own `_drained` branch).
+ * different code path, {@link precompile}'s own `_drained` branch) — unless it lands mid-await
+ * while a multi-member level is in flight, in which case it lands directly in `_precompile` and is
+ * picked up by this function's own next iteration; see {@link removeForcers}.
  *
  * A single-member level runs the serial per-forcer path directly. A multi-member level runs
  * **batch-then-bisect** (spec `shallot-boot-compile-parallel`, Locked decision): one `validateGpu`
@@ -1044,9 +1067,11 @@ export async function precompileAll(): Promise<void> {
         while (_precompile.length > 0) {
             const levels = ordered(_precompile);
             const level = levels[0];
-            const rest = levels.slice(1).flat();
 
             if (level.length === 1) {
+                // splices before its one await — nothing can be appended between reading `levels`
+                // and this splice, so a stale snapshot here is not reachable.
+                const rest = levels.slice(1).flat();
                 _precompile.splice(0, _precompile.length, ...rest);
                 await compileValidated(level[0]);
                 continue;
@@ -1067,7 +1092,7 @@ export async function precompileAll(): Promise<void> {
             }
 
             if (results) {
-                _precompile.splice(0, _precompile.length, ...rest);
+                removeForcers(level);
                 for (const { forcer, warmed, start, end } of results) {
                     reportCompile(forcer, warmed, start, end);
                 }
@@ -1081,7 +1106,10 @@ export async function precompileAll(): Promise<void> {
                     await compileValidated(level[ranThrough]);
                 }
             } finally {
-                _precompile.splice(0, _precompile.length, ...level.slice(ranThrough + 1), ...rest);
+                // indices [0, ranThrough] actually ran (succeeded, or the thrower itself) — remove
+                // exactly those, by identity, so anything appended during any of these awaits (the
+                // batch attempt's, or a serial member's) survives into the next iteration.
+                removeForcers(level.slice(0, ranThrough + 1));
             }
         }
         _drained = true;

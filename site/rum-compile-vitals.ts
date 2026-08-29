@@ -3,16 +3,19 @@
 // and reports through `DD_RUM.addDurationVital`; this module is unit-testable on its own
 // (`rum-compile-vitals.test.ts`).
 //
-// The wire: `packages/shallot/src/engine/runtime/gpu.ts`'s `compileValidated` emits
+// The wire: `packages/shallot/src/engine/runtime/gpu.ts`'s `reportCompile` emits
 // `performance.measure("<prefix><forcer.label>", { start, end })` beside the existing
-// `Compute.precompiled?.(...)` call — a page-side RUM script can't reach a demo bundle's
-// `Compute` singleton (each demo bundles the engine itself), so User Timing is the cross-bundle
-// wire. `<prefix>` is `PIPELINE_COMPILE_MEASURE_PREFIX`, imported build-side only (see the
-// module docblock on `../scripts/build-site.ts`'s `buildRumRuntimeBundle`) — never imported
-// here, since a plain `import` of anything from `gpu.ts` pulls TypeGPU's whole module graph into
-// a browser bundle through `gpu.ts`'s own top-level `tgpu.fn(...)` call (measured: 0.56 MB / 170
-// modules for a probe importing nothing but the string constant). This module takes the prefix
-// as a parameter instead, so it carries no import of its own.
+// `Compute.precompiled?.(...)` call — called from `compileValidated`'s serial per-forcer path and
+// directly from `precompileAll`'s multi-member batch fast path (spec `shallot-boot-compile-parallel`
+// S2), so it's the one emitter regardless of which drain path a forcer took. A page-side RUM
+// script can't reach a demo bundle's `Compute` singleton (each demo bundles the engine itself), so
+// User Timing is the cross-bundle wire. `<prefix>` is `PIPELINE_COMPILE_MEASURE_PREFIX`, imported
+// build-side only (see the module docblock on `../scripts/build-site.ts`'s
+// `buildRumRuntimeBundle`) — never imported here, since a plain `import` of anything from
+// `gpu.ts` pulls TypeGPU's whole module graph into a browser bundle through `gpu.ts`'s own
+// top-level `tgpu.fn(...)` call (measured: 0.56 MB / 170 modules for a probe importing nothing
+// but the string constant). This module takes the prefix as a parameter instead, so it carries no
+// import of its own.
 
 export interface CompileVitalContext {
     /** The part of the measure entry's name after the prefix — the forcer's own label. */
