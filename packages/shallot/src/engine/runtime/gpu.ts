@@ -531,7 +531,15 @@ function failure(error: unknown): { errorClass: string; message: string } {
     return { errorClass: "Error", message: String(error) };
 }
 
-/** run one labeled operation inside a balanced WebGPU validation scope. @internal */
+/**
+ * run one labeled operation inside a balanced WebGPU validation scope.
+ *
+ * Error scopes are a per-device stack: two `validateGpu` operations awaited concurrently on one
+ * device pop each other's scopes and lose attribution. Nest them (await fully inside), serialize
+ * them (the late-`precompile` chain), or share one scope and re-drain serially on failure
+ * (`precompileAll`'s batch-then-bisect).
+ * @internal
+ */
 export async function validateGpu<T>(
     device: GPUDevice,
     label: string,
@@ -876,10 +884,10 @@ export function precompileScope(prefix: string): string {
  * level 0 is every forcer with no unresolved `after` predecessor, level 1 is every forcer whose only
  * predecessors are in level 0, and so on. The `after` edges are real but sparse — most forcers declare
  * none — so this is a genuine level-wise partial order, not a linear chain; {@link precompileAll} drains
- * each level concurrently rather than one forcer at a time (spec `shallot-boot-compile-parallel`,
- * Locked decision). Within a level, forcers are ordered by registration `order` — stable, but no longer
- * load-bearing for *when* they run, only for the label-join order a level's shared scope reports and
- * the order `Promise.all` starts them in.
+ * each level concurrently rather than one forcer at a time, batching each level under one shared
+ * `validateGpu` scope (batch-then-bisect, below). Within a level, forcers are ordered by registration
+ * `order` — stable, but no longer load-bearing for *when* they run, only for the label-join order a
+ * level's shared scope reports and the order `Promise.all` starts them in.
  */
 function ordered(forcers: readonly Forcer[]): Forcer[][] {
     const byLabel = new Map(forcers.map((forcer) => [forcer.label, forcer]));
@@ -1046,15 +1054,16 @@ function removeForcers(drained: readonly Forcer[]): void {
  * picked up by this function's own next iteration; see {@link removeForcers}.
  *
  * A single-member level runs the serial per-forcer path directly. A multi-member level runs
- * **batch-then-bisect** (spec `shallot-boot-compile-parallel`, Locked decision): one `validateGpu`
- * scope shared across the whole level, `Promise.all` over each member's {@link compileBody} inside
- * it — the fast path, paying nothing beyond one scope. WebGPU error scopes are a per-device stack, so
- * two concurrent validated operations pop each other's scopes and per-forcer attribution is lost;
- * when the shared scope pops non-null, or the `Promise.all` itself rejects, none of the batch
- * attempt's results are trusted (the pop can't say *which* member failed), and the whole level
- * re-drains **serially** through {@link compileValidated} from its start, so the throw still names a
- * specific forcer. Every member of a failing level therefore compiles twice — batch, then serial — a
- * recompile spent only in the failure case, exactly as the Locked decision prices it. The serial
+ * **batch-then-bisect**: one `validateGpu` scope shared across the whole level, `Promise.all` over
+ * each member's {@link compileBody} inside it — the fast path, paying nothing beyond one scope.
+ * WebGPU error scopes are a per-device stack, so two concurrent validated operations pop each
+ * other's scopes and per-forcer attribution is lost; when the shared scope pops non-null, or the
+ * `Promise.all` itself rejects, none of the batch attempt's results are trusted (the pop can't say
+ * *which* member failed), and the whole level re-drains **serially** through {@link compileValidated}
+ * from its start, so the throw still names a specific forcer. Every member of a failing level
+ * therefore compiles twice — batch, then serial — a recompile spent only in the failure case:
+ * concurrency is free on the fast path and costs one extra compile per member only when a level's
+ * shared scope fails. The serial
  * re-drain stops at the first throw (matching {@link compileValidated}'s own single-forcer contract);
  * whatever it didn't reach — the untried remainder of the level, plus every later level — stays queued
  * for a later {@link precompileAll} call, so nothing is silently dropped.

@@ -710,9 +710,9 @@ export interface Result {
      *  same window (S1f: the Goal's own signal class — mirrors `site/rum-sampler.ts`'s `sampleFrame`,
      *  same threshold, same `delta = timestamp - lastTimestamp`, same first-frame rule), each carrying
      *  `delta` (the gap) and `timestamp` (the rAF timestamp, which is `msSinceLoad` on the vital's own
-     *  context axis). `compileMeasures` (spec `shallot-boot-compile-parallel` S2) is every raw
-     *  `performance` `measure` entry recorded from page init through the boot wait's conclusion — every
-     *  measure entry, not pre-filtered to `PIPELINE_COMPILE_MEASURE_PREFIX`, since the filtering is the
+     *  context axis). `compileMeasures` is every raw `performance` `measure` entry recorded from page
+     *  init through the boot wait's conclusion — every measure entry, not pre-filtered to
+     *  `PIPELINE_COMPILE_MEASURE_PREFIX`, since the filtering is the
      *  pure reader's own job (`compileConcurrencyRatio`, `site/rum-compile-vitals.ts`): this field is
      *  the raw capture, a caller feeds it through that reader rather than this file re-deriving the
      *  ratio. Absent when `--attribution` wasn't passed. */

@@ -189,7 +189,8 @@ interface CompileVitalScenarioResult {
 // The `pipeline_compile` two-sided wire proof (spec `shallot-compile-vitals` S2): a synthetic
 // `performance.measure` emitted in-page, prefixed or not, drives `site/rum-runtime.ts`'s own
 // `PerformanceObserver({ type: "measure", buffered: true })` — this is the same mechanism a real
-// forced compile drives (`gpu.ts`'s `compileValidated`), just without needing a real GPU device.
+// forced compile drives (`gpu.ts`'s `reportCompile`, called from both `compileValidated`'s serial
+// path and `precompileAll`'s batch-then-bisect fast path), just without needing a real GPU device.
 // Two instruments, same reason `runScenario` above carries two: `called` is read back
 // immediately after the synthetic measure with no flush wait, so it's the primary verdict for
 // the negative direction — a wire-only negative check bounded by a *sanity* window (not a full

@@ -974,7 +974,7 @@ describe("precompile", () => {
         }
     });
 
-    test("dependencies drain in stable topological order and reject invalid graphs", async () => {
+    test("dependencies partition into levels, order is stable within a level, and invalid graphs reject", async () => {
         const saved = { ...Compute };
         try {
             await requestGPU(fakeDevice());
@@ -1017,7 +1017,7 @@ describe("precompile", () => {
             );
 
             await precompileAll();
-            // S2 (spec `shallot-boot-compile-parallel`, ruled at claim): under a level partition
+            // `ordered()`'s level partition (`gpu.ts`):
             // `optional`'s only `after` names `"missing"`, an unknown label the drain documents as
             // ignored, so it has no resolvable predecessor and sits in level 0 with `first`,
             // `independent`, and `publish` — not last, which was an artifact of the old linear
@@ -1096,7 +1096,7 @@ describe("precompile", () => {
                 return [];
             });
 
-            // S2 (spec `shallot-boot-compile-parallel`, ruled at claim): `a`, `b`, `broken`, `c`
+            // Level batching (`ordered()`/`precompileAll` in `gpu.ts`): `a`, `b`, `broken`, `c`
             // declare no `after` edges, so they land in one level and batch concurrently under a
             // shared `validateGpu` scope — level batching's whole point. The throw still names the
             // pipeline (batch-then-bisect's per-forcer re-drain), but the *cost* of a level failure
@@ -1105,11 +1105,26 @@ describe("precompile", () => {
             // known — `Array.prototype.map`/an async body both run synchronously to their first
             // `await`), then the serial re-drain re-runs the level from its start, through the
             // thrower, a second time — `a` and `b` twice, `broken` twice, `c` once (it sits after
-            // `broken` in registration order, so the bisect never reaches it this call). That is the
-            // Locked decision's own priced trade ("at the cost of a recompile in the failure case
+            // `broken` in registration order, so the bisect never reaches it this call). That is
+            // batch-then-bisect's own priced trade ("at the cost of a recompile in the failure case
             // only"), not a new one. What survives unmodified from the old contract: nothing is
             // silently dropped — `c` stays queued and drains on a later call — and the throw still
             // names `broken`, not the level.
+            //
+            // Mutation witnesses (both restored via `git show HEAD:<path>` after the read, per
+            // `checks.md`): (a) changing the serial re-drain's start index so it restarts a failing
+            // level from `ranThrough` (its own last-attempted member) instead of `0` reds this arm —
+            // `expect(order).toEqual(["a", "b", "c", "a", "b"])` becomes `["a", "b", "c", "b"]`, i.e.
+            // `a` is never re-run — `bun test` exit 1, this arm the sole failure. (b) making the batch
+            // swallow a member — dropping `broken` from `Promise.all`'s mapped array before the
+            // `validateGpu` call, so the level's rejection carries only `a`, `b`, `c` — reds this same
+            // arm: the level's `validateGpu` scope no longer pops non-null (no forcer threw), so
+            // `precompileAll()` resolves instead of rejecting and
+            // `await expect(precompileAll()).rejects.toThrow(...)` fails — `bun test` exit 1. Both
+            // mutations discriminate the widened failure cost this arm pins: (a) that the re-drain
+            // restarts the level from its first member, not from where the batch attempt gave up; (b)
+            // that every member of the batch is actually awaited, so a level failure can't silently
+            // lose one.
             await expect(precompileAll()).rejects.toThrow(/precompile "broken" failed/);
             expect(order).toEqual(["a", "b", "c", "a", "b"]);
             await precompileAll();
@@ -1262,8 +1277,8 @@ describe("precompile", () => {
     });
 });
 
-// spec `shallot-boot-compile-parallel` S2: `ordered()`'s level partition and `precompileAll`'s
-// batch-then-bisect drain over it. `ordered` itself is `@internal` and unexported, so these arms
+// `ordered()`'s level partition and `precompileAll`'s batch-then-bisect drain over it (`gpu.ts`).
+// `ordered` itself is `@internal` and unexported, so these arms
 // drive it through the public `precompile`/`precompileAll` surface — the same boundary every other
 // arm in this file uses — and observe the level partition's one externally-visible effect: which
 // forcers are genuinely IN FLIGHT together. A deferred `initAsync` lets an arm hold a forcer mid-await
@@ -1620,7 +1635,7 @@ describe("batch-then-bisect", () => {
         }
     });
 
-    // Repair-arm regression guard (`shallot-boot-compile-parallel` S2 adversarial pass, finding 1):
+    // Repair-arm regression guard (level-batched drain, adversarial pass):
     // witnessed RED before the fix, exit code 1, `bun test ./packages/shallot/src/engine/runtime/
     // gpu.test.ts -t "mid-batch-await"` — 2 fail — against the pre-fix `precompileAll`, which
     // reconstructed `_precompile` from a `Forcer[][]` snapshot taken *before* the level's shared

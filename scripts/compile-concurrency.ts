@@ -2,20 +2,19 @@ import { PIPELINE_COMPILE_MEASURE_PREFIX } from "../packages/shallot/src/engine/
 import { compileConcurrencyRatio } from "../site/rum-compile-vitals";
 import { queryFlags, skipReason, teardownBridge, verify } from "./verify";
 
-// spec `shallot-boot-compile-parallel` S2: the permanent capture S1's own Live log found missing —
-// nothing in the tree read the raw `PIPELINE_COMPILE_MEASURE_PREFIX`-filtered `performance.measure`
-// entries out of a real run before this landed (S1's own baseline came from a throwaway probe,
-// reverted). Re-runnable, the same shape as `scripts/stall-attribution.ts`: one `shallot verify
+// The permanent capture of the boot pipeline-compile chain's own concurrency: nothing else in the
+// tree reads the raw `PIPELINE_COMPILE_MEASURE_PREFIX`-filtered `performance.measure` entries out of
+// a real run. Re-runnable, the same shape as `scripts/stall-attribution.ts`: one `shallot verify
 // --attribution` boot (`bin/verify.ts`'s `attribution.compileMeasures`, every raw `measure` entry over
 // the boot window, unfiltered), fed through the pure reader `compileConcurrencyRatio`
-// (`site/rum-compile-vitals.ts`, landed by S1) rather than re-deriving the ratio here. Prints
+// (`site/rum-compile-vitals.ts`) rather than re-deriving the ratio here. Prints
 // `{count, sum, span, ratio}` plus the absolute span ungated — a concurrency claim (the ratio) is
 // host-independent by construction, so nothing here gates on a wall-clock number
 // (`.claude/rules/checks.md` on a threshold over wall-clock duration).
 //
 //     bun run scripts/compile-concurrency.ts [--dir <project>] [--query k=v ...]
 //
-// Default `--dir` is `examples/showcase/sandbox` — the project S1's recorded baseline ran against.
+// Default `--dir` is `examples/showcase/sandbox` — the project the recorded baseline ran against.
 
 interface Args {
     dir: string;
