@@ -43,8 +43,8 @@ jobs:
       # reads out/site/, which the staging build just created.
       SITE_OUT_REQUIRED: "1"
       # `secrets.*` is readable inside `env:` (unlike inside an `if:` expression, above) — this
-      # is the one place the Cloudflare token's presence is derived, never its value.
-      CF_DEPLOY_READY: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && 'true' || 'false' }}
+      # is the one place the Cloudflare token and account ID presence are derived, never their values.
+      CF_DEPLOY_READY: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
