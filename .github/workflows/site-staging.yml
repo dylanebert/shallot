@@ -1,0 +1,113 @@
+# Staging demo site build + deploy — the sibling of `site.yml` that ejects every showcase demo
+# against WORKSPACE SOURCE (`bun pm pack` + `file:<tgz>`) instead of the published npm package,
+# so a change is readable before a release ships (`shallot-site-staging` spec S1). Deploys to
+# Cloudflare Pages, a second host — GitHub Pages serves exactly one deployment per repo and that
+# slot is `site.yml`'s production `dylanebert.com/shallot/`.
+#
+# THIS FILE NEVER TOUCHES THE PROD PATH. It has no `pages: write`, no `id-token: write`, and
+# never calls `actions/deploy-pages`, so it is structurally incapable of reaching the GitHub
+# Pages deployment `site.yml` owns.
+#
+# DEPLOY IS DARK UNTIL THE CLOUDFLARE SECRETS EXIST (spec S3). The deploy step is
+# skipped-when-unset: `if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}` on the step itself, so this
+# workflow lands and runs green — build, check, artifact upload — with the deploy step reporting
+# `skipped` rather than failing on an absent credential. Nothing here echoes a secret value into
+# a log or a step output.
+
+name: site-staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Keyed on the ref so two pushes to main (or a push racing a manual dispatch) don't run two
+  # concurrent deploys of the same staging slot.
+  group: site-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      # check-site.ts's root-absolute clause reads out/site/ — without SITE_OUT_REQUIRED=1
+      # it skips green over nothing. Set at the job level so it applies to the check step.
+      # The ordering (bun run site --staging before the check) is load-bearing: the check
+      # reads out/site/, which the staging build just created.
+      SITE_OUT_REQUIRED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+
+      # Plain `bun install`, deliberately NOT `--frozen-lockfile` — see site.yml for why (the
+      # installing bun's version floats ahead of the committed one).
+      - run: bun install
+
+      # `--staging` packs the ENGINE'S OWN WORKING TREE (`bun pm pack`, S1's locked decision),
+      # unlike prod mode, which installs the already-published npm tarball. A fresh checkout's
+      # `rust/audio/pkg/` is gitignored build output (`packages/shallot/scripts/build.ts`'s
+      # audio section produces it; the published tarball ships it, a clean checkout doesn't), so
+      # staging mode needs it built here or the pack omits it and every ejected demo's audio
+      # import fails to resolve. GitHub runners ship rustup + a stable toolchain preinstalled
+      # (see release.yml); only the wasm32 target needs adding. No `wasm-opt` install — the
+      # build script's own try/cp fallback (`packages/shallot/scripts/build.ts`) covers its
+      # absence, so this step mirrors that fallback rather than requiring the optimizer. The
+      # rust/window native-host build (release.yml's job) is NOT run here — the web build never
+      # touches it.
+      - name: Add wasm32 target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Build audio wasm
+        working-directory: packages/shallot/rust/audio
+        run: |
+          set -e
+          mkdir -p pkg
+          cargo build --target wasm32-unknown-unknown --release
+          WASM=target/wasm32-unknown-unknown/release/shallot_audio.wasm
+          if command -v wasm-opt >/dev/null 2>&1; then
+            wasm-opt -O3 --enable-simd --enable-nontrapping-float-to-int --enable-bulk-memory "$WASM" -o pkg/shallot_audio.wasm
+          else
+            cp "$WASM" pkg/shallot_audio.wasm
+          fi
+          cat > pkg/shallot_audio.js <<'EOF'
+          const url = new URL("shallot_audio.wasm", import.meta.url);
+          export default async function loadAudioWasm() {
+              const response = await fetch(url);
+              return response.arrayBuffer();
+          }
+          EOF
+          cat > pkg/shallot_audio.d.ts <<'EOF'
+          export default function loadAudioWasm(): Promise<ArrayBuffer>;
+          EOF
+
+      - run: bun run site --staging
+
+      # Runs check-site.ts (the site membership + root-absolute gate) with SITE_OUT_REQUIRED=1.
+      # check-site.ts imports only site/roster (no engine, no wasm), so it runs green without a
+      # Rust build step, same as site.yml's own check step.
+      - run: bun run scripts/check-site.ts
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-staging
+          path: out/site
+
+      # Direct Upload to Cloudflare Pages (the locked decision: not Cloudflare's git integration
+      # — the build is this job's bun + ejected-install pipeline, already proven here, and
+      # moving it to Cloudflare's build image would fork the build path for no gain). Skipped,
+      # not failed, while the repo secrets don't exist yet (spec S3's authority precondition) —
+      # `secrets.CLOUDFLARE_API_TOKEN != ''` reads false for an unset secret, so the run stays
+      # green end to end and this step reports `skipped` in the run's own job summary.
+      - name: Deploy to Cloudflare Pages
+        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy out/site
