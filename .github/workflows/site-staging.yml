@@ -9,10 +9,12 @@
 # Pages deployment `site.yml` owns.
 #
 # DEPLOY IS DARK UNTIL THE CLOUDFLARE SECRETS EXIST (spec S3). The deploy step is
-# skipped-when-unset: `if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}` on the step itself, so this
-# workflow lands and runs green — build, check, artifact upload — with the deploy step reporting
-# `skipped` rather than failing on an absent credential. Nothing here echoes a secret value into
-# a log or a step output.
+# skipped-when-unset. `secrets.*` cannot be read directly inside an `if:` expression — GitHub
+# rejects the workflow at dispatch time with "Unrecognized named-value: 'secrets'" (witnessed
+# 2026-08-28) — so the presence check runs once into a job-level `env` var (`env:` can read
+# `secrets`) and the step's `if:` reads that var instead. The workflow still lands and runs
+# green — build, check, artifact upload — with the deploy step reporting `skipped` rather than
+# failing on an absent credential. Nothing here echoes a secret value into a log or a step output.
 
 name: site-staging
 
@@ -40,6 +42,9 @@ jobs:
       # The ordering (bun run site --staging before the check) is load-bearing: the check
       # reads out/site/, which the staging build just created.
       SITE_OUT_REQUIRED: "1"
+      # `secrets.*` is readable inside `env:` (unlike inside an `if:` expression, above) — this
+      # is the one place the Cloudflare token's presence is derived, never its value.
+      CF_DEPLOY_READY: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -102,10 +107,11 @@ jobs:
       # — the build is this job's bun + ejected-install pipeline, already proven here, and
       # moving it to Cloudflare's build image would fork the build path for no gain). Skipped,
       # not failed, while the repo secrets don't exist yet (spec S3's authority precondition) —
-      # `secrets.CLOUDFLARE_API_TOKEN != ''` reads false for an unset secret, so the run stays
-      # green end to end and this step reports `skipped` in the run's own job summary.
+      # `env.CF_DEPLOY_READY` (derived from `secrets.CLOUDFLARE_API_TOKEN != ''` above) reads
+      # `'false'` for an unset secret, so the run stays green end to end and this step reports
+      # `skipped` in the run's own job summary.
       - name: Deploy to Cloudflare Pages
-        if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
+        if: ${{ env.CF_DEPLOY_READY == 'true' }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
