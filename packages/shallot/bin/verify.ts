@@ -290,16 +290,166 @@ export const HARNESS_PROBE_SCRIPT = `(${installHarnessProbe.toString()})(window)
  *  exists to measure. */
 export const RESOURCE_BUFFER = 20_000;
 
+/** one `PerformanceScriptTiming` off a LoAF entry's `scripts` array — the per-script attribution the
+ *  entry-level `duration`/`blockingDuration` pair structurally cannot carry. `sourceURL` /
+ *  `sourceFunctionName` / `sourceCharPosition` name the JS the engine attributed the script's own
+ *  execution to (empty string / -1 when the engine could not attribute it — a cross-origin script, or
+ *  work with no single source position); `invoker` / `invokerType` name what CALLED it (a
+ *  `PerformanceScriptTiming` spec pair: e.g. `invokerType: "classic-script"` with `invoker` the
+ *  module URL, or `"user-callback"` with `invoker` a `Window.requestAnimationFrame` style label).
+ *  `executionStart` is when the script's own body began after entry callback overhead, on the same
+ *  `performance.now()` axis as {@link LoAFEntry.start}. `forcedStyleAndLayoutDuration` and
+ *  `pauseDuration` are the spec's two carve-outs from `duration` — synchronous layout the script
+ *  forced, and time it spent in a blocking dialog/sync XHR — reported so a script's own compute time
+ *  can be read as `duration` minus both rather than assumed to be all of it. */
+export interface LoAFScriptEntry {
+    startTime: number;
+    duration: number;
+    executionStart: number | undefined;
+    invoker: string;
+    invokerType: string;
+    sourceURL: string;
+    sourceFunctionName: string;
+    sourceCharPosition: number | undefined;
+    forcedStyleAndLayoutDuration: number | undefined;
+    pauseDuration: number | undefined;
+}
+
 /** a single `long-animation-frame` PerformanceObserver entry, reduced to the fields the readout
  *  surfaces. `renderStart`/`styleAndLayoutStart` are present on a supporting engine and absent
  *  (undefined) on one that doesn't provide them — the init script forwards them unconditionally and
- *  the readout treats `undefined` as 'not reported'. */
+ *  the readout treats `undefined` as 'not reported'. `scripts` is the entry's own per-script
+ *  attribution ({@link LoAFScriptEntry}), empty on an engine that reports the entry but no script
+ *  breakdown, and empty for a frame whose delay was not script work at all — an entry with a large
+ *  `duration` and no scripts is a legitimate reading (style/layout, or rendering the engine could not
+ *  attribute to JS), not a missing measurement. */
 export interface LoAFEntry {
     start: number;
     duration: number;
     blockingDuration: number;
     renderStart: number | undefined;
     styleAndLayoutStart: number | undefined;
+    scripts: LoAFScriptEntry[];
+}
+
+/** which side of the boot pipeline-compile chain a LoAF entry falls on
+ *  ({@link loafByCompilePhase}). `straddling` is its own bucket rather than folded into either side:
+ *  a frame that spans the boundary is evidence about both and about neither alone. */
+export type LoafPhase = "before" | "straddling" | "after";
+
+/** one call site's rolled-up LoAF script time — every {@link LoAFScriptEntry} sharing a
+ *  source-function/source-url identity, summed. The identity deliberately excludes `invokerType`
+ *  from the key (it is reported off the first occurrence) so the same function invoked through two
+ *  callback kinds still reads as one hot site. */
+export interface LoafScriptRollup {
+    key: string;
+    sourceURL: string;
+    sourceFunctionName: string;
+    invokerType: string;
+    totalMs: number;
+    count: number;
+}
+
+/** {@link loafByCompilePhase}'s reading: the boundary, the entries either side of it, and the script
+ *  rollup for the pre-compile side — the population the boot roadmap item's two unexplained spikes
+ *  live in. */
+export interface LoafPhaseReport {
+    /** the earliest `startTime` among prefix-matching compile measures, or null when the run recorded
+     *  none — in which case nothing can be said about which side of a compile chain a frame fell on,
+     *  and every entry lands in {@link unclassified}. */
+    boundaryMs: number | null;
+    /** entries that END at or before the boundary. */
+    before: LoAFEntry[];
+    /** entries that START before the boundary and END after it. */
+    straddling: LoAFEntry[];
+    /** entries that START at or after the boundary. */
+    after: LoAFEntry[];
+    /** every entry, when `boundaryMs` is null; empty otherwise. */
+    unclassified: LoAFEntry[];
+    /** script rollup over {@link before} only, descending by `totalMs`. */
+    beforeScripts: LoafScriptRollup[];
+    /** summed script `duration` across {@link before} — the part of those frames JS is named for. */
+    beforeAttributedMs: number;
+    /** summed frame `duration` across {@link before}, minus {@link beforeAttributedMs}, floored at 0.
+     *  Non-zero means the pre-compile frames carry delay the engine attributed to no script —
+     *  style/layout, rendering, or work below the spec's per-script reporting threshold. A real
+     *  reading, not a gap in the instrument. */
+    beforeUnattributedMs: number;
+}
+
+/**
+ * Split LoAF entries around the first pipeline-compile `performance.measure` and roll up the
+ * pre-compile side's script attribution.
+ *
+ * The boot roadmap item's open question is that the compile vital sees async compiles only, so two
+ * large LoAF spikes standing *before* the compile chain have no owner. Entry-level LoAF fields
+ * (`duration`, `blockingDuration`) cannot name one; `scripts` can, and this is the reader over that
+ * pair. Pure — no DOM, no observer, no CDP — so it arms against hand-built entry sets
+ * (`.claude/rules/checks.md`'s extract-the-arithmetic move) rather than needing a GPU.
+ *
+ * @example
+ * const report = loafByCompilePhase(attribution.longAnimationFrames, attribution.compileMeasures, PREFIX);
+ */
+export function loafByCompilePhase(
+    entries: LoAFEntry[],
+    measures: { name: string; startTime: number; duration: number }[],
+    prefix: string,
+): LoafPhaseReport {
+    const starts = measures.filter((m) => m.name.startsWith(prefix)).map((m) => m.startTime);
+    const boundaryMs = starts.length > 0 ? Math.min(...starts) : null;
+
+    const before: LoAFEntry[] = [];
+    const straddling: LoAFEntry[] = [];
+    const after: LoAFEntry[] = [];
+    const unclassified: LoAFEntry[] = [];
+
+    for (const entry of entries) {
+        if (boundaryMs === null) {
+            unclassified.push(entry);
+            continue;
+        }
+        if (entry.start + entry.duration <= boundaryMs) before.push(entry);
+        else if (entry.start >= boundaryMs) after.push(entry);
+        else straddling.push(entry);
+    }
+
+    const byKey = new Map<string, LoafScriptRollup>();
+    let beforeAttributedMs = 0;
+    let beforeDurationMs = 0;
+    for (const entry of before) {
+        beforeDurationMs += entry.duration;
+        for (const script of entry.scripts) {
+            beforeAttributedMs += script.duration;
+            const sourceFunctionName = script.sourceFunctionName || "(anonymous)";
+            const sourceURL = script.sourceURL || "(no source url)";
+            const key = `${sourceFunctionName}@${sourceURL}`;
+            const existing = byKey.get(key);
+            if (existing) {
+                existing.totalMs += script.duration;
+                existing.count += 1;
+            } else {
+                byKey.set(key, {
+                    key,
+                    sourceURL,
+                    sourceFunctionName,
+                    invokerType: script.invokerType,
+                    totalMs: script.duration,
+                    count: 1,
+                });
+            }
+        }
+    }
+
+    return {
+        boundaryMs,
+        before,
+        straddling,
+        after,
+        unclassified,
+        beforeScripts: [...byKey.values()].sort((a, b) => b.totalMs - a.totalMs),
+        beforeAttributedMs,
+        beforeUnattributedMs: Math.max(0, beforeDurationMs - beforeAttributedMs),
+    };
 }
 
 /** everything `--timings` installs before navigation: the harness-install probe plus the raised
@@ -327,7 +477,11 @@ export const TIMINGS_INIT_SCRIPT = `performance.setResourceTimingBufferSize(${RE
  * LoAF names per-frame main-thread-side rendering work only. S1f installs the rAF-delta sampler on
  * `window.__shallotRafDeltas` to match the Goal's own class; LoAF stays as a complementary
  * per-frame main-thread signal. Each LoAF entry carries `startTime`, `duration`,
- * `blockingDuration`, and `renderStart`/`styleAndLayoutStart` where the engine provides them. Guarded
+ * `blockingDuration`, `renderStart`/`styleAndLayoutStart` where the engine provides them, and the
+ * entry's own `scripts` array ({@link LoAFScriptEntry}) — the per-script attribution that names WHICH
+ * JS delayed the frame. The entry-level duration pair cannot: it says a frame was slow, never what
+ * ran. Forwarding `scripts` is what lets a LoAF spike standing outside the compile chain be attributed
+ * to a source function rather than left open (`loafByCompilePhase`). Guarded
  * the same way as longtask: an unsupported `entryTypes` throws synchronously in the observer
  * constructor, caught so a missing LoAF degrades to an empty array rather than killing the init
  * script. */
@@ -351,6 +505,18 @@ export const ATTRIBUTION_INIT_SCRIPT = `
                     blockingDuration: e.blockingDuration,
                     renderStart: e.renderStart,
                     styleAndLayoutStart: e.styleAndLayoutStart,
+                    scripts: (e.scripts ?? []).map((s) => ({
+                        startTime: s.startTime,
+                        duration: s.duration,
+                        executionStart: s.executionStart,
+                        invoker: s.invoker ?? "",
+                        invokerType: s.invokerType ?? "",
+                        sourceURL: s.sourceURL ?? "",
+                        sourceFunctionName: s.sourceFunctionName ?? "",
+                        sourceCharPosition: s.sourceCharPosition,
+                        forcedStyleAndLayoutDuration: s.forcedStyleAndLayoutDuration,
+                        pauseDuration: s.pauseDuration,
+                    })),
                 });
             }
         }).observe({ entryTypes: ["long-animation-frame"] });

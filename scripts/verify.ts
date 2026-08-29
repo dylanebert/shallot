@@ -102,15 +102,34 @@ export interface CpuProfileSummary {
     buckets: CpuProfileBucket[];
 }
 
+/** one `PerformanceScriptTiming` off a LoAF entry's `scripts` array — mirrors `bin/verify.ts`'s
+ *  `LoAFScriptEntry`. This is the per-script attribution that names WHICH JS delayed a frame; the
+ *  entry-level duration pair cannot. */
+export interface LoAFScriptEntry {
+    startTime: number;
+    duration: number;
+    executionStart: number | undefined;
+    invoker: string;
+    invokerType: string;
+    sourceURL: string;
+    sourceFunctionName: string;
+    sourceCharPosition: number | undefined;
+    forcedStyleAndLayoutDuration: number | undefined;
+    pauseDuration: number | undefined;
+}
+
 /** a single `long-animation-frame` PerformanceObserver entry (S1e) — mirrors `bin/verify.ts`'s
  *  `LoAFEntry`. `renderStart`/`styleAndLayoutStart` are present on a supporting engine and undefined
- *  on one that doesn't provide them. */
+ *  on one that doesn't provide them. `scripts` is empty on an engine reporting no script breakdown,
+ *  and empty for a frame whose delay was not script work — a real reading either way, never a gap to
+ *  be summed into a top script. */
 export interface LoAFEntry {
     start: number;
     duration: number;
     blockingDuration: number;
     renderStart: number | undefined;
     styleAndLayoutStart: number | undefined;
+    scripts: LoAFScriptEntry[];
 }
 
 /** the slice of `bin/verify.ts`'s `BenchmarkCompileStats` a driver reads. */
