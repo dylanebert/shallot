@@ -109,10 +109,11 @@ export function compileConcurrencyRatio(
         if (end > maxEnd) maxEnd = end;
     }
     const span = maxEnd - minStart;
-    // a single entry (or a batch whose entries share one identical start/end) has span 0 — sum/0
-    // is Infinity/NaN, not a ratio. A zero-width span carries no overlap information either way
-    // (there's no window to have overlapped within), so it reads as the same vacuous 1 the
-    // zero-count case above uses.
+    // a batch whose matching entries all have zero duration and one identical start has span 0 —
+    // sum/0 is Infinity/NaN, not a ratio. A zero-width span carries no overlap information either
+    // way (there's no window to have overlapped within), so it reads as the same vacuous 1 the
+    // zero-count case above uses. A single entry of nonzero duration is not this case: its span is
+    // its own duration, so the ratio is a real 1.
     const ratio = span === 0 ? 1 : sum / span;
     return { count, sum, span, ratio };
 }
