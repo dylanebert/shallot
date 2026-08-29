@@ -68,3 +68,51 @@ export function compileVitalReports(
     }
     return reports;
 }
+
+/** The concurrency-ratio oracle (spec `shallot-boot-compile-parallel` S1): how much of the
+ *  prefix-matching batch's wall-clock span its durations actually fill. `count` is the number of
+ *  matching entries; `sum` is their total duration; `span` is `max(startTime + duration) -
+ *  min(startTime)` across the matching set — the wall-clock window the whole batch occupies,
+ *  never the window of any one entry; `ratio` is `sum / span`. `ratio ≈ 1.0` reads as fully
+ *  serial (each entry's span is packed back-to-back with no gap and no overlap); `ratio > 1`
+ *  reads as N-way overlap (durations summing to more than the window they fit in, so at least two
+ *  entries ran concurrently). `ratio < 1` is possible too — a serial drain with idle gaps between
+ *  compiles reads below 1, still correctly "not overlapping".
+ *
+ *  Degenerate case, decided and documented rather than left to divide-by-zero: an empty
+ *  prefix-matching batch (`count === 0`) reads `{ count: 0, sum: 0, span: 0, ratio: 1 }` — no
+ *  entries carry no evidence of either serialization or overlap, so the vacuous ratio is the
+ *  fully-serial value (1), never `NaN`, so a caller comparing this ratio against a recorded
+ *  baseline never has to special-case an empty run. */
+export interface CompileConcurrencyRatio {
+    count: number;
+    sum: number;
+    span: number;
+    ratio: number;
+}
+
+export function compileConcurrencyRatio(
+    entries: readonly MeasureEntryLike[],
+    prefix: string,
+): CompileConcurrencyRatio {
+    const matches = entries.filter((entry) => entry.name.startsWith(prefix));
+    const count = matches.length;
+    if (count === 0) return { count: 0, sum: 0, span: 0, ratio: 1 };
+
+    let sum = 0;
+    let minStart = Number.POSITIVE_INFINITY;
+    let maxEnd = Number.NEGATIVE_INFINITY;
+    for (const entry of matches) {
+        sum += entry.duration;
+        if (entry.startTime < minStart) minStart = entry.startTime;
+        const end = entry.startTime + entry.duration;
+        if (end > maxEnd) maxEnd = end;
+    }
+    const span = maxEnd - minStart;
+    // a single entry (or a batch whose entries share one identical start/end) has span 0 — sum/0
+    // is Infinity/NaN, not a ratio. A zero-width span carries no overlap information either way
+    // (there's no window to have overlapped within), so it reads as the same vacuous 1 the
+    // zero-count case above uses.
+    const ratio = span === 0 ? 1 : sum / span;
+    return { count, sum, span, ratio };
+}
