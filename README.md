@@ -8,7 +8,7 @@ webgpu game engine
 
 ## live demos
 
-Five demos are built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/). Each links to its source at the version it was built from.
+Five demos are built and served at [dylanebert.com/shallot](https://dylanebert.com/shallot/). Each links to its source at the version it was built from. A [staging build](https://shallot-staging.pages.dev/) at the same demos runs against the workspace source, rebuilt on every push to `main`, so changes are visible there before a release.
 
 | demo | play | code |
 |---|---|---|
