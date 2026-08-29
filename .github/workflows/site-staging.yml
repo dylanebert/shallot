@@ -107,13 +107,16 @@ jobs:
       # — the build is this job's bun + ejected-install pipeline, already proven here, and
       # moving it to Cloudflare's build image would fork the build path for no gain). Skipped,
       # not failed, while the repo secrets don't exist yet (spec S3's authority precondition) —
-      # `env.CF_DEPLOY_READY` (derived from `secrets.CLOUDFLARE_API_TOKEN != ''` above) reads
-      # `'false'` for an unset secret, so the run stays green end to end and this step reports
-      # `skipped` in the run's own job summary.
+      # `env.CF_DEPLOY_READY` (derived from both `secrets.CLOUDFLARE_API_TOKEN` and
+      # `secrets.CLOUDFLARE_ACCOUNT_ID`) reads `'false'` for an unset secret, so the run stays
+      # green end to end and this step reports `skipped` in the run's own job summary.
       - name: Deploy to Cloudflare Pages
         if: ${{ env.CF_DEPLOY_READY == 'true' }}
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy out/site
+          command: pages deploy out/site --project-name=shallot-staging --branch=main
+          # `--project-name` specifies the Cloudflare Pages project and must match the project
+          # created in the Cloudflare dashboard. `--branch=main` directs the upload to the
+          # project's production URL rather than a preview deployment.
