@@ -6,8 +6,8 @@
 // The wire: `packages/shallot/src/engine/runtime/gpu.ts`'s `reportCompile` emits
 // `performance.measure("<prefix><forcer.label>", { start, end })` beside the existing
 // `Compute.precompiled?.(...)` call — called from `compileValidated`'s serial per-forcer path and
-// directly from `precompileAll`'s multi-member batch fast path (spec `shallot-boot-compile-parallel`
-// S2), so it's the one emitter regardless of which drain path a forcer took. A page-side RUM
+// directly from `precompileAll`'s multi-member batch-then-bisect fast path, so it's the one emitter
+// regardless of which drain path a forcer took. A page-side RUM
 // script can't reach a demo bundle's `Compute` singleton (each demo bundles the engine itself), so
 // User Timing is the cross-bundle wire. `<prefix>` is `PIPELINE_COMPILE_MEASURE_PREFIX`, imported
 // build-side only (see the module docblock on `../scripts/build-site.ts`'s
@@ -72,8 +72,8 @@ export function compileVitalReports(
     return reports;
 }
 
-/** The concurrency-ratio oracle (spec `shallot-boot-compile-parallel` S1): how much of the
- *  prefix-matching batch's wall-clock span its durations actually fill. `count` is the number of
+/** The concurrency-ratio oracle: how much of the prefix-matching batch's wall-clock span its
+ *  durations actually fill. `count` is the number of
  *  matching entries; `sum` is their total duration; `span` is `max(startTime + duration) -
  *  min(startTime)` across the matching set — the wall-clock window the whole batch occupies,
  *  never the window of any one entry; `ratio` is `sum / span`. `ratio ≈ 1.0` reads as fully

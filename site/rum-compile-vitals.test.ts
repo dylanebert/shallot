@@ -92,8 +92,8 @@ describe("compileVitalReports", () => {
     });
 });
 
-// Red-first (S1 of `shallot-boot-compile-parallel`): witnessed red with `span` computed as `sum`
-// instead of `max(end) - min(start)` (the named mutation this arm exists to catch) — the
+// Red-first, `compileConcurrencyRatio`'s own `span` computation: witnessed red with `span` computed
+// as `sum` instead of `max(end) - min(start)` (the named mutation this arm exists to catch) — the
 // back-to-back and gapped arms both stayed green (their span equals their sum by construction on
 // a fully-packed batch, and a gap only lowers a correct span below sum), but "a 3-way overlap
 // reads ratio > 1" failed: `sum === sum` forces ratio to exactly 1 on every input, so the
