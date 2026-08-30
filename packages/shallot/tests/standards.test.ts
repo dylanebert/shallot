@@ -71,7 +71,7 @@ describe("TGSL corpus standards", () => {
 
 // the differential registry's real-filesystem half: "the named file exists and references
 // its kernel symbol" needs the real filesystem, so it lives here beside the population walk, not in
-// the pure `standards.ts` (which stays filesystem-free per checkDifferentials's own contract).
+// the pure `checkDifferentials` seam (which receives its population and registry as arguments).
 /** the kernels declaring `gap` — no CPU differential written, none forbidden. Frozen by name, not by
  *  count, so closing one gap while a new kernel takes the arm still reds (`gapKernels`'s own note).
  *  Writing these differentials is deliberately not part of the registry; making the list exist is.

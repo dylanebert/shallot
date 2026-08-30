@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { Compute, requestGPU } from "../../src/engine/runtime/gpu";
 import { probeBuffer } from "../../src/engine/runtime/probe";
 import {
+    B_POS,
     BODY_VEC4,
     CONSTRAINT_CONTACT,
     CONTACT_META,
@@ -80,16 +81,17 @@ describe("headless AVBD execution sentinel", () => {
             physics.record(encoder);
             device.queue.submit([encoder.finish()]);
 
-            const contactProbe = await probeBuffer(device, physics!.pairContacts, {
+            const contactProbe = await probeBuffer(device, physics.pairContacts, {
                 offset: 0,
-                size: physics!.recordCap * CONTACT_VEC4 * 16,
+                size: physics.recordCap * CONTACT_VEC4 * 16,
                 label: "avbd-sentinel-contacts",
             });
             const contactWords = new Uint32Array(contactProbe.bytes);
-            const live = Array.from({ length: physics!.recordCap }, (_, rec) => ({
-                kind: contactWords[(CONTACT_META * physics!.recordCap + rec) * 4],
-                a: contactWords[(CONTACT_META * physics!.recordCap + rec) * 4 + 1],
-                b: contactWords[(CONTACT_META * physics!.recordCap + rec) * 4 + 2],
+            const recordCap = physics.recordCap;
+            const live = Array.from({ length: recordCap }, (_, rec) => ({
+                kind: contactWords[(CONTACT_META * recordCap + rec) * 4],
+                a: contactWords[(CONTACT_META * recordCap + rec) * 4 + 1],
+                b: contactWords[(CONTACT_META * recordCap + rec) * 4 + 2],
             })).filter(({ kind }) => kind === CONSTRAINT_CONTACT);
             expect(
                 live.some(({ a, b }) => a === 1 && b === 0),
@@ -102,7 +104,8 @@ describe("headless AVBD execution sentinel", () => {
                 label: "avbd-sentinel-bodies",
             });
             const state = new Float32Array(bodyProbe.bytes);
-            const pos = [state[4], state[5], state[6]];
+            const posOffset = (B_POS * CAPACITY + 1) * 4;
+            const pos = [state[posOffset], state[posOffset + 1], state[posOffset + 2]];
             expect(pos.every(Number.isFinite), "device-produced dynamic pose is finite").toBe(true);
 
             const freeTangentialTravel = Math.abs(authored[1].velLin[0]) * DT;
