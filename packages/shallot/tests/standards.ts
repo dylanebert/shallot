@@ -1,4 +1,73 @@
+import { join } from "node:path";
+import tgpu, { isTgpuFn } from "typegpu";
+import { TEST_TIER_SUFFIXES } from "./test-tiers";
 import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
+
+export const STANDARDS_POPULATION_GOLDEN = 101;
+
+const SRC_DIR = join(import.meta.dir, "../src");
+
+export interface ResolvedKernel {
+    file: string;
+    name: string;
+    wgsl: string;
+}
+
+interface KernelExport {
+    file: string;
+    name: string;
+    value: unknown;
+}
+
+async function sourceModules(): Promise<string[]> {
+    const out: string[] = [];
+    for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: SRC_DIR })) {
+        if (/\.d\.ts$/.test(path) || TEST_TIER_SUFFIXES.test(path) || /\.fixture\.ts$/.test(path)) {
+            continue;
+        }
+        out.push(path);
+    }
+    return out.sort();
+}
+
+/** Resolves the complete identity-deduplicated population of exported `tgpu.fn` kernels. */
+export async function resolvedKernels(): Promise<ResolvedKernel[]> {
+    const byIdentity = new Map<unknown, KernelExport[]>();
+    for (const file of await sourceModules()) {
+        const mod = (await import(join(SRC_DIR, file))) as Record<string, unknown>;
+        for (const [name, value] of Object.entries(mod)) {
+            if (!isTgpuFn(value)) continue;
+            const group = byIdentity.get(value);
+            if (group) group.push({ file, name, value });
+            else byIdentity.set(value, [{ file, name, value }]);
+        }
+    }
+
+    const byName = new Map<string, KernelExport>();
+    for (const group of byIdentity.values()) {
+        const nonBarrel = group.filter(
+            (entry) => !entry.file.endsWith("/index.ts") && entry.file !== "index.ts",
+        );
+        const candidates = nonBarrel.length > 0 ? nonBarrel : group;
+        candidates.sort((a, b) => a.file.length - b.file.length || a.file.localeCompare(b.file));
+        const entry = candidates[0];
+        const prior = byName.get(entry.name);
+        if (prior) {
+            throw new Error(
+                `kernel name collision: "${entry.name}" in ${prior.file} and ${entry.file}`,
+            );
+        }
+        byName.set(entry.name, entry);
+    }
+
+    return [...byName.values()]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(({ file, name, value }) => ({
+            file,
+            name,
+            wgsl: tgpu.resolve([value] as never, { names: "strict" }),
+        }));
+}
 
 // The declared registry + pure checker half of the TGSL-corpus meta-test. Shape copied from `examples/gym/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
 // data, a pure checker asserted both directions, red-provable against fixtures. `standards.test.ts` is

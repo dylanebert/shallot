@@ -13,6 +13,7 @@ import {
     gapKernels,
     importsSymbol,
     type Population,
+    STANDARDS_POPULATION_GOLDEN,
     STANDARDS_REGISTRY,
     violation,
 } from "./standards";
@@ -135,7 +136,7 @@ describe("TGSL corpus standards", () => {
         // or pipeline-count golden rather than floored — a loose bound passes a walk that silently
         // drops half the corpus, which is the hole this meta-test exists to close. Bump it deliberately
         // in the same commit that adds or removes a kernel.
-        expect(kernels.size).toBe(101);
+        expect(kernels.size).toBe(STANDARDS_POPULATION_GOLDEN);
         for (const [name, kernel] of kernels) {
             expect(
                 () => tgpu.resolve([kernel.value] as never, { names: "strict" }),
