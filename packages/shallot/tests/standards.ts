@@ -13,13 +13,13 @@ export interface ResolvedKernel {
     wgsl: string;
 }
 
-interface KernelExport {
+export interface KernelExport {
     file: string;
     name: string;
     value: unknown;
 }
 
-async function sourceModules(): Promise<string[]> {
+export async function sourceModules(): Promise<string[]> {
     const out: string[] = [];
     for await (const path of new Bun.Glob("**/*.ts").scan({ cwd: SRC_DIR })) {
         if (/\.d\.ts$/.test(path) || TEST_TIER_SUFFIXES.test(path) || /\.fixture\.ts$/.test(path)) {
@@ -30,8 +30,8 @@ async function sourceModules(): Promise<string[]> {
     return out.sort();
 }
 
-/** Resolves the complete identity-deduplicated population of exported `tgpu.fn` kernels. */
-export async function resolvedKernels(): Promise<ResolvedKernel[]> {
+/** The shared filesystem/import/identity-dedup enumerator for both standards verdicts. */
+export async function kernelExports(): Promise<Map<string, KernelExport>> {
     const byIdentity = new Map<unknown, KernelExport[]>();
     for (const file of await sourceModules()) {
         const mod = (await import(join(SRC_DIR, file))) as Record<string, unknown>;
@@ -59,8 +59,12 @@ export async function resolvedKernels(): Promise<ResolvedKernel[]> {
         }
         byName.set(entry.name, entry);
     }
+    return byName;
+}
 
-    return [...byName.values()]
+/** Resolves the complete identity-deduplicated population of exported `tgpu.fn` kernels. */
+export async function resolvedKernels(): Promise<ResolvedKernel[]> {
+    return [...(await kernelExports()).values()]
         .sort((a, b) => a.name.localeCompare(b.name))
         .map(({ file, name, value }) => ({
             file,

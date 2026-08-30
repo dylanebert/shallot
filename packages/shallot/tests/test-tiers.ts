@@ -5,8 +5,8 @@
  *
  *  Consumers of this constant include `cli-coverage.ts`'s `TEST_TIER_SUFFIXES` (excludes test-tier
  *  files from the CLI coverage population so a `*.tier.ts` isn't demanded a coverage row as
- *  production code), `standards.test.ts`'s `sourceModules()` (excludes them from the TGSL kernel
- *  walk), and `check-exports.ts`'s `isTestFile()` (excludes them from the dead-export walk).
+ *  production code), `standards.ts`'s shared `sourceModules()` (excludes them from both TGSL
+ *  standards verdicts), and `check-exports.ts`'s `isTestFile()` (excludes them from the dead-export walk).
  *  `scripts/check-docs.ts`'s arm (c) scans every tracked file for a literal tier-suffix roster and
  *  asserts none exists outside this constant — so the roster stops being restated. A fix that
  *  leaves two hand-written lists in agreement fails that criterion. */

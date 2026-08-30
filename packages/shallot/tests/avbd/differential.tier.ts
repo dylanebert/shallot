@@ -1,13 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { requestGPU } from "../../src/engine/runtime/gpu";
+import { Compute, requestGPU } from "../../src/engine/runtime/gpu";
 import { probeBuffer } from "../../src/engine/runtime/probe";
 import {
     BODY_VEC4,
     CONSTRAINT_CONTACT,
+    CONTACT_META,
     CONTACT_VEC4,
     PhysicsStep,
 } from "../../src/standard/avbd/step";
 import { type Body, body } from "./rigid";
+
+// Trigger cone: `packages/shallot/src/standard/avbd/**/*.ts` and this tier's direct fixtures. Run from
+// the shallot root with `bun test ./packages/shallot/tests/avbd/differential.tier.ts`.
+// Red arm: the temporary raw TGSL integer-division mutation makes the geometry-band assertion fail
+// after compilation and execution; the focused run recorded 0 pass / 1 fail / 3 expects before restore.
 
 const CAPACITY = 8;
 const DT = Math.fround(1 / 60);
@@ -42,6 +48,7 @@ function seed(bodies: Body[]): Float32Array {
 
 describe("headless AVBD execution sentinel", () => {
     test("produces the intended contact and a geometry-bounded pose", async () => {
+        const previousCompute = { ...Compute };
         const { device } = await requestGPU();
         const physics = await PhysicsStep.create(device, CAPACITY, CAPACITY);
         try {
@@ -77,11 +84,10 @@ describe("headless AVBD execution sentinel", () => {
                 label: "avbd-sentinel-contacts",
             });
             const contactWords = new Uint32Array(contactProbe.bytes);
-            const contactValues = new Float32Array(contactProbe.bytes);
             const live = Array.from({ length: physics.recordCap }, (_, rec) => ({
-                kind: contactWords[rec * 4],
-                a: contactValues[(physics.recordCap + rec) * 4 + 1],
-                b: contactValues[(physics.recordCap + rec) * 4 + 2],
+                kind: contactWords[(CONTACT_META * physics.recordCap + rec) * 4],
+                a: contactWords[(CONTACT_META * physics.recordCap + rec) * 4 + 1],
+                b: contactWords[(CONTACT_META * physics.recordCap + rec) * 4 + 2],
             })).filter(({ kind }) => kind === CONSTRAINT_CONTACT);
             expect(
                 live.some(({ a, b }) => a === 1 && b === 0),
@@ -110,6 +116,9 @@ describe("headless AVBD execution sentinel", () => {
         } finally {
             physics.destroy();
             device.destroy();
+            for (const key of Object.keys(Compute))
+                delete (Compute as unknown as Record<string, unknown>)[key];
+            Object.assign(Compute, previousCompute);
         }
     });
 });
