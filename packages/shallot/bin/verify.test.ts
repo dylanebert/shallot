@@ -2532,10 +2532,11 @@ describe("harnessBucketNames — S1c's absence arm over a captured CPU profile",
 });
 
 describe("decodeSampleNode — the Node-side PNG-to-FrameSample decoder", () => {
-    // a 4×4 RGBA image: top-left corner is black (0,0,0), center is red (255,0,0). Nearest-neighbor
-    // downsample to 64×64 replicates each source pixel across a 16×16 block, so the region averages
-    // preserve the source contrast — the same signal `decodeSample`'s canvas-resample produces, just
-    // via a different downsample path.
+    // a 4×4 RGBA image: top-left corner is black (0,0,0), center is red (255,0,0). Box-averaging
+    // the source pixels covering each 64×64 cell still replicates each source pixel across a 16×16
+    // block here (4 divides 64 evenly, so every cell's source rect is exactly one source pixel), so
+    // the region averages preserve the source contrast — the same signal `decodeSample`'s canvas
+    // resample produces, just via a different downsample path.
     const mk4x4 = (
         tl: number[],
         center: number[],
@@ -2581,6 +2582,178 @@ describe("decodeSampleNode — the Node-side PNG-to-FrameSample decoder", () => 
         const sample = decodeSampleNode(png);
         expect(sample).not.toBeNull();
         expect(sample!.grid.length).toBe(64 * 64 * 3);
+    });
+});
+
+// shallot-boot-stall-repair S1 follow-up (blocker repair): `decodeSample` (the browser path) downsamples
+// through `ctx.drawImage(img, 0, 0, 64, 64)` — an area-average resample — while `decodeSampleNode` (the
+// Node path every non-`--attribution` boot now takes) has to reproduce that same area-average by
+// construction, since it can never run through a real `<canvas>`. Display-gated real-hardware evidence
+// (S1's own recorded verdict-parity differential) cannot witness this: `pollFrameSample` returns null
+// whenever `harnessDefined`, so every harness project in this repo takes a display-gated path that never
+// reaches the Node decoder's non-attribution branch at all, and a plain `shallot verify` at this seat
+// doesn't boot ({samples: 0, outcome: "timeout"} identically on both the pre-fix and post-fix branch).
+// This arm is the display-independent substitute: a real pngjs-round-tripped PNG, decoded through
+// `decodeSampleNode` and through an independently-written area-average reference (fractional pixel-
+// coverage weighting — NOT decodeSampleNode's own non-overlapping-cell box grouping, so the two
+// implementations can actually disagree), asserting the two 64×64 grids agree within a tight per-channel
+// tolerance and that `structured()`/`gridDiff` read the same verdict off both. The high-frequency
+// checkerboard region is the arm's whole point: a point-sample (nearest-neighbor) decoder passes per-
+// pixel dither straight through at full amplitude where an area-average one suppresses it, so this arm
+// reds against the pre-fix nearest-neighbor `decodeSampleNode` and is green only against the box-averaged
+// one — witnessed by hand: reverting `decodeSampleNode` to point-sampling (`git show 6ddb68d1:…`) and
+// re-running this file reds exactly this describe block, on the checkerboard region's per-channel
+// tolerance assertions, with the smooth-gradient region staying green throughout (a point sample of a
+// smooth ramp is already close to its local area average — the checkerboard is the discriminating input).
+describe("decodeSampleNode area-average equivalence — the blocker repair's own oracle", () => {
+    const canvasW = 1280;
+    const canvasH = 720; // 720 / 64 = 11.25 — deliberately not integer-divisible, so 64×64 grid cells
+    // land on fractional source-pixel boundaries and the two implementations' rounding can diverge.
+
+    // left half: a smooth horizontal luminance ramp (low frequency — a point sample and an area
+    // average of a smooth gradient are already close, by construction). Right half: a 1px checkerboard
+    // (the highest spatial frequency a raster can carry) — the region a point sample cannot suppress
+    // and an area average must.
+    function buildSyntheticFrame(): { width: number; height: number; data: Buffer } {
+        const data = Buffer.alloc(canvasW * canvasH * 4);
+        for (let y = 0; y < canvasH; y++) {
+            for (let x = 0; x < canvasW; x++) {
+                const i = (y * canvasW + x) * 4;
+                let r: number;
+                let g: number;
+                let b: number;
+                if (x < canvasW / 2) {
+                    const v = Math.round((x / (canvasW / 2)) * 255);
+                    r = v;
+                    g = v;
+                    b = v;
+                } else {
+                    const on = (x + y) % 2 === 0;
+                    r = on ? 255 : 0;
+                    g = on ? 255 : 0;
+                    b = on ? 255 : 0;
+                }
+                data[i] = r;
+                data[i + 1] = g;
+                data[i + 2] = b;
+                data[i + 3] = 255;
+            }
+        }
+        return { width: canvasW, height: canvasH, data };
+    }
+
+    // independently-derived area-average reference: for each 64×64 destination cell, weight every
+    // overlapping source pixel by its fractional coverage of the cell's continuous source-space rect —
+    // the textbook box-filter resize, not decodeSampleNode's own integer-cell grouping. Two different
+    // implementations of "area average", so agreement is evidence rather than a restated identity
+    // (checks.md: "an equality between two quantities the same expression produces is only a check when
+    // one side comes from outside the artifact").
+    function areaAverageReference(png: { width: number; height: number; data: Buffer }): number[] {
+        const { width: W0, height: H0, data } = png;
+        const W = 64;
+        const H = 64;
+        const grid: number[] = [];
+        for (let y = 0; y < H; y++) {
+            const fy0 = (y / H) * H0;
+            const fy1 = ((y + 1) / H) * H0;
+            const sy0 = Math.floor(fy0);
+            const sy1 = Math.min(H0, Math.ceil(fy1));
+            for (let x = 0; x < W; x++) {
+                const fx0 = (x / W) * W0;
+                const fx1 = ((x + 1) / W) * W0;
+                const sx0 = Math.floor(fx0);
+                const sx1 = Math.min(W0, Math.ceil(fx1));
+                let r = 0;
+                let g = 0;
+                let b = 0;
+                let wsum = 0;
+                for (let sy = sy0; sy < sy1; sy++) {
+                    const yOverlap = Math.min(sy + 1, fy1) - Math.max(sy, fy0);
+                    if (yOverlap <= 0) continue;
+                    for (let sx = sx0; sx < sx1; sx++) {
+                        const xOverlap = Math.min(sx + 1, fx1) - Math.max(sx, fx0);
+                        if (xOverlap <= 0) continue;
+                        const w = xOverlap * yOverlap;
+                        const i = (sy * W0 + sx) * 4;
+                        r += data[i] * w;
+                        g += data[i + 1] * w;
+                        b += data[i + 2] * w;
+                        wsum += w;
+                    }
+                }
+                grid.push(r / wsum, g / wsum, b / wsum);
+            }
+        }
+        return grid;
+    }
+
+    const region = (
+        grid: number[],
+        fx0: number,
+        fy0: number,
+        fx1: number,
+        fy1: number,
+    ): number[] => {
+        const W = 64;
+        const H = 64;
+        const x0 = Math.floor(fx0 * W);
+        const x1 = Math.max(x0 + 1, Math.floor(fx1 * W));
+        const y0 = Math.floor(fy0 * H);
+        const y1 = Math.max(y0 + 1, Math.floor(fy1 * H));
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let n = 0;
+        for (let y = y0; y < y1; y++)
+            for (let x = x0; x < x1; x++) {
+                const i = (y * W + x) * 3;
+                r += grid[i];
+                g += grid[i + 1];
+                b += grid[i + 2];
+                n++;
+            }
+        return [r / n, g / n, b / n];
+    };
+
+    test("decodeSampleNode's box-average grid agrees with an independent area-average reference, tightly, on both the smooth and the high-frequency regions", async () => {
+        const { PNG } = await import("pngjs");
+        const frame = buildSyntheticFrame();
+        const png = new PNG({ width: canvasW, height: canvasH });
+        frame.data.copy(png.data);
+        // round-trip through a real PNG encode/decode, the same as a Playwright screenshot buffer —
+        // not just a raw object literal — so this exercises the real pngjs codepath sampleFrameNode uses.
+        const roundTripped = PNG.sync.read(PNG.sync.write(png));
+
+        const nodeSample = decodeSampleNode(roundTripped);
+        expect(nodeSample).not.toBeNull();
+        const referenceGrid = areaAverageReference(roundTripped);
+
+        // per-channel tolerance: loose enough to absorb the two implementations' different rounding
+        // (floor-based integer cells vs. fractional-coverage weighting) and tight enough that a
+        // nearest-neighbor decoder — which disagrees with the area-average reference by up to the full
+        // 0..255 range on the checkerboard — cannot pass it.
+        const tolerance = 8;
+        let maxDiff = 0;
+        for (let i = 0; i < nodeSample!.grid.length; i++) {
+            maxDiff = Math.max(maxDiff, Math.abs(nodeSample!.grid[i] - referenceGrid[i]));
+        }
+        expect(maxDiff).toBeLessThanOrEqual(tolerance);
+
+        // the high-frequency checkerboard region specifically — the discriminating input a smooth
+        // gradient can't exercise, since a point sample of a smooth ramp already sits close to its
+        // local area average.
+        const nodeChecker = region(nodeSample!.grid, 0.5, 0, 1, 1);
+        const refChecker = region(referenceGrid, 0.5, 0, 1, 1);
+        for (let c = 0; c < 3; c++) {
+            expect(Math.abs(nodeChecker[c] - refChecker[c])).toBeLessThanOrEqual(tolerance);
+        }
+
+        // structured()/gridDiff agree on both grids — the two thresholds the boot-settle heuristic
+        // actually gates on read the same verdict off either implementation.
+        const nodeCorner = region(nodeSample!.grid, 0, 0, 0.15, 0.15);
+        const refCorner = region(referenceGrid, 0, 0, 0.15, 0.15);
+        expect(structured(nodeChecker, nodeCorner)).toBe(structured(refChecker, refCorner));
+        expect(gridDiff(nodeSample!.grid, referenceGrid)).toBeLessThan(tolerance);
     });
 });
 
@@ -2759,7 +2932,7 @@ describe("pollFrameSample — S1's boot wait poll routing seam", () => {
         expect(evaluateCalled).toBe(false);
     });
 
-    test("non-attribution poll still falls back silently when the pngjs import fails", async () => {
+    test("non-attribution poll still falls back silently when the pngjs decode fails (malformed PNG buffer)", async () => {
         const badShot = Buffer.from("not-a-png");
         let evaluateCalled = false;
         const page = mkPage(

@@ -1168,7 +1168,7 @@ export function harnessBucketNames(summary: CpuProfileSummary): string[] {
  *  verdict. Carries the frame samples the wait loop took, the last centre/corner RGB and the spread
  *  against `structured`'s threshold, the elapsed wait, and how the wait concluded. */
 export interface RenderProbe {
-    /** frame samples the wait loop captured (non-null `sampleFrame` returns). */
+    /** frame samples the wait loop captured (non-null `pollFrameSample` returns). */
     samples: number;
     /** last centre RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
     center: number[] | null;
@@ -1313,12 +1313,15 @@ async function sampleFrame(page: Page): Promise<FrameSample | null> {
 
 /** {@link decodeSample}'s region-averaging math (center/corner box averages over a coarse grid), fed by
  *  a pngjs-decoded PNG instead of a page-side canvas — same field shape ({@link FrameSample}), computed
- *  entirely in Node. Nearest-neighbor downsample rather than a canvas's resample filter: the boot-settle
- *  heuristic only needs a stable coarse structure signal, not a pixel-identical grid. Duplicated from
- *  {@link decodeSample} rather than shared, for the same reason {@link decodeRgba} already duplicates it
- *  (its own comment, above): {@link decodeSample} is serialized by Playwright and run in-page, so it
- *  can't import or close over anything. @internal exported only so its coverage arm can drive it
- *  directly without a browser. */
+ *  entirely in Node. Box-averages every source pixel covering each 64×64 grid cell, matching `drawImage`'s
+ *  downsample-by-area-average by construction rather than point-sampling one source pixel per cell:
+ *  nearest-neighbor passes per-pixel dither/AA/jitter through at full amplitude where the browser's own
+ *  resample suppresses it, which both `structured()` (`STRUCTURE_THRESHOLD`) and `stepWait`'s `gridDiff`
+ *  epsilon are tuned against — a different resample changes what those thresholds see without changing
+ *  either constant (shallot-boot-stall-repair S1 follow-up). Duplicated from {@link decodeSample} rather
+ *  than shared, for the same reason {@link decodeRgba} already duplicates it (its own comment, above):
+ *  {@link decodeSample} is serialized by Playwright and run in-page, so it can't import or close over
+ *  anything. @internal exported only so its coverage arm can drive it directly without a browser. */
 export function decodeSampleNode(png: {
     width: number;
     height: number;
@@ -1330,11 +1333,25 @@ export function decodeSampleNode(png: {
     const H = 64;
     const grid: number[] = [];
     for (let y = 0; y < H; y++) {
-        const sy = Math.min(H0 - 1, Math.floor((y / H) * H0));
+        const sy0 = Math.floor((y / H) * H0);
+        const sy1 = Math.max(sy0 + 1, Math.min(H0, Math.floor(((y + 1) / H) * H0)));
         for (let x = 0; x < W; x++) {
-            const sx = Math.min(W0 - 1, Math.floor((x / W) * W0));
-            const i = (sy * W0 + sx) * 4;
-            grid.push(data[i], data[i + 1], data[i + 2]);
+            const sx0 = Math.floor((x / W) * W0);
+            const sx1 = Math.max(sx0 + 1, Math.min(W0, Math.floor(((x + 1) / W) * W0)));
+            let r = 0;
+            let g = 0;
+            let b = 0;
+            let n = 0;
+            for (let sy = sy0; sy < sy1; sy++) {
+                for (let sx = sx0; sx < sx1; sx++) {
+                    const i = (sy * W0 + sx) * 4;
+                    r += data[i];
+                    g += data[i + 1];
+                    b += data[i + 2];
+                    n++;
+                }
+            }
+            grid.push(r / n, g / n, b / n);
         }
     }
     const region = (fx0: number, fy0: number, fx1: number, fy1: number): number[] => {
