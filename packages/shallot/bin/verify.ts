@@ -1371,9 +1371,17 @@ export function decodeSampleNode(png: {
 // repo's root devDependencies. Under `--attribution` (a developer diagnostic, not a consumer feature)
 // the pngjs decode is REQUIRED: if it fails, the function throws rather than silently falling back to the
 // page-side decode — the fallback IS the contamination this stage removes, so a silent fallback under
-// `--attribution` would defeat the arm. The plain `verify` path uses `sampleFrame` (which always runs
-// in-page) and never calls this function, so the `attribution` parameter's default of `false` preserves
-// the silent-fallback behavior for any non-attribution caller.
+// `--attribution` would defeat the arm.
+//
+// shallot-boot-stall-repair S1: the boot wait poll now routes EVERY consumer through this function
+// (`pollFrameSample`, below) — plain `verify` included, not just `--attribution` — because the poll's own
+// per-500ms decode was S1b's largest contaminating bucket regardless of which sampler read it. The
+// `attribution` parameter is no longer a routing switch between two different samplers; it only selects
+// this function's own throw-vs-silent-fallback contract on a pngjs failure (above), and the plain path's
+// `false` default preserves that silent fallback. `sampleFrame` (the pure in-page decode) survives only
+// for the two post-boot, single-shot reads outside the wait loop (~2391, ~2478): a one-off decode is not
+// the per-poll cost this stage exists to remove, and both run after the CDP profile has already stopped,
+// so neither was ever inside the window `--attribution` needs clean.
 /** @internal exported only so its coverage arms (pngjs path, fallback path, screenshot-fail, fatal-
  *  attribution-fallback) can drive it with a duck-typed page stub without a browser. */
 export async function sampleFrameNode(
@@ -1407,6 +1415,21 @@ export async function sampleFrameNode(
             return null;
         }
     }
+}
+
+// shallot-boot-stall-repair S1: the boot wait loop's per-tick sample selection, extracted out of
+// `drive` so it is a testable seam — `drive` itself takes no page mock (it drives a real `page.goto`
+// plus a CDP session), so this is the "extract it into a pure sibling module" escape (`checks.md`)
+// rather than a source-text proxy over `drive`'s call site. Every poll consumer now takes the Node
+// decode; `attribution` only selects `sampleFrameNode`'s own throw-vs-fallback contract, never a
+// different sampler. `harnessDefined` short-circuits to null without sampling — unchanged from the
+// pre-extraction loop.
+export async function pollFrameSample(
+    page: Page,
+    harnessDefined: boolean,
+    attribution: boolean,
+): Promise<FrameSample | null> {
+    return harnessDefined ? null : sampleFrameNode(page, attribution);
 }
 
 // the GPU adapter's identity string, read in the page. "unknown" when there's no adapter or the info is
@@ -2162,11 +2185,7 @@ async function drive(
         const harnessDefined = (await page
             .evaluate(() => typeof window.__harness !== "undefined")
             .catch(() => false)) as boolean;
-        const sample = harnessDefined
-            ? null
-            : args.attribution
-              ? await sampleFrameNode(page, true)
-              : await sampleFrame(page);
+        const sample = await pollFrameSample(page, harnessDefined, args.attribution);
         if (sample) {
             sampleCount++;
             lastSample = sample;

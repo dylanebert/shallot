@@ -53,6 +53,7 @@ import {
     loafByCompilePhase,
     type MemorySample,
     parseVerifyArgs,
+    pollFrameSample,
     type RawCpuProfile,
     RESOURCE_BUFFER,
     type RenderProbe,
@@ -2696,6 +2697,98 @@ describe("sampleFrameNode — the S1c decontaminated frame sampler", () => {
             /pngjs decode failed under --attribution/,
         );
         // the forbidden fallback was NOT taken — page.evaluate was never called
+        expect(evaluateCalled).toBe(false);
+    });
+});
+
+// shallot-boot-stall-repair S1: the boot wait poll's routing seam. `drive` itself (the loop's real
+// caller, ~line 2161) drives a live `page.goto` + CDP session no unit test mocks, so `pollFrameSample`
+// is the extracted pure function the loop now calls (checks.md's "extract it into a pure sibling
+// module" escape) — these arms are the oracle over THAT seam, not a re-test of `sampleFrameNode` in
+// isolation (already covered above): they prove the poll's non-attribution consumer takes the Node
+// decode, not just `--attribution`'s.
+describe("pollFrameSample — S1's boot wait poll routing seam", () => {
+    type ScreenshotResult = Buffer | { toString(encoding: string): string };
+    const mkPage = (
+        screenshotFn: () => Promise<ScreenshotResult>,
+        evaluateFn?: (fn: (...a: unknown[]) => unknown, ...args: unknown[]) => Promise<unknown>,
+    ) => ({
+        locator: () => ({
+            first: () => ({
+                screenshot: async () => screenshotFn(),
+            }),
+        }),
+        evaluate: evaluateFn ?? (async () => null),
+    });
+
+    test("harnessDefined short-circuits to null without touching the page at all", async () => {
+        let screenshotCalled = false;
+        const page = mkPage(async () => {
+            screenshotCalled = true;
+            return Buffer.from("");
+        });
+        const sample = await pollFrameSample(page as never, true, false);
+        expect(sample).toBeNull();
+        expect(screenshotCalled).toBe(false);
+    });
+
+    test("non-attribution poll takes the Node decode — pngjs succeeds, page.evaluate never runs", async () => {
+        const { PNG } = await import("pngjs");
+        const png = new PNG({ width: 2, height: 2 });
+        for (let y = 0; y < 2; y++)
+            for (let x = 0; x < 2; x++) {
+                const i = (y * 2 + x) * 4;
+                const isCenter = x === 1 && y === 1;
+                png.data[i] = isCenter ? 255 : 0;
+                png.data[i + 1] = 0;
+                png.data[i + 2] = 0;
+                png.data[i + 3] = 255;
+            }
+        const shot = PNG.sync.write(png) as Buffer;
+        let evaluateCalled = false;
+        const page = mkPage(
+            async () => shot,
+            async () => {
+                evaluateCalled = true;
+                return null;
+            },
+        );
+        // attribution=false — the plain `verify` path's own poll call shape.
+        const sample = await pollFrameSample(page as never, false, false);
+        expect(sample).not.toBeNull();
+        expect(evaluateCalled).toBe(false);
+    });
+
+    test("non-attribution poll still falls back silently when the pngjs import fails", async () => {
+        const badShot = Buffer.from("not-a-png");
+        let evaluateCalled = false;
+        const page = mkPage(
+            async () => badShot,
+            async (_fn: (...a: unknown[]) => unknown, b64: unknown) => {
+                evaluateCalled = true;
+                expect(b64).toBe(badShot.toString("base64"));
+                return { grid: [1], center: [255, 0, 0], corner: [0, 0, 0] } as FrameSample;
+            },
+        );
+        const sample = await pollFrameSample(page as never, false, false);
+        expect(evaluateCalled).toBe(true);
+        expect(sample).not.toBeNull();
+        expect(sample?.center).toEqual([255, 0, 0]);
+    });
+
+    test("attribution poll still throws on a pngjs failure (no silent fallback)", async () => {
+        const badShot = Buffer.from("not-a-png");
+        let evaluateCalled = false;
+        const page = mkPage(
+            async () => badShot,
+            async () => {
+                evaluateCalled = true;
+                return null;
+            },
+        );
+        await expect(pollFrameSample(page as never, false, true)).rejects.toThrow(
+            /pngjs decode failed under --attribution/,
+        );
         expect(evaluateCalled).toBe(false);
     });
 });
