@@ -74,14 +74,13 @@ export async function resolvedKernels(): Promise<ResolvedKernel[]> {
 }
 
 // The declared registry + pure checker half of the TGSL-corpus meta-test. Shape copied from `examples/gym/src/scenarios/timeouts.ts` + `coverage.ts`: plain committed
-// data, a pure checker asserted both directions, red-provable against fixtures. `standards.test.ts` is
-// the one real-filesystem/real-import/real-resolve seam — it walks `packages/shallot/src`, dynamic-imports
-// every module, duck-detects live TGSL kernels, resolves each to WGSL, and runs the checks below against
-// the real text, producing a `Population` this file's `checkStandards` consumes. This file imports
-// `tests/wgsl.ts`'s existing checkers (the four discipline checks it already ships and every ported-kernel
-// test file already calls) rather than reimplementing their regexes a second time — "one source of truth"
-// outweighs a literal zero-runtime-import reading here, since the alternative is a second,
-// driftable copy of the same regex logic.
+// data, a pure checker asserted both directions, red-provable against fixtures. The shared
+// `kernelExports`/`resolvedKernels` seam above walks `packages/shallot/src`, imports each module,
+// identity-deduplicates live TGSL kernels, and resolves them to WGSL; `standards.test.ts` and the
+// compile tier consume that same population. The checks below receive the resulting `Population` and
+// use `tests/wgsl.ts`'s existing checkers (the four discipline checks it already ships and every
+// ported-kernel test file already calls) rather than reimplementing their regexes a second time —
+// one source of truth for the checker logic is preferable to a second, driftable copy.
 
 export type DisciplineCheck =
     | "noIntegerDivision"
@@ -186,8 +185,8 @@ export interface Finding {
 }
 
 /** kernel name -> the checks (from {@link DEFAULT_CHECKS} ∪ its registry entry's `also`) that actually
- *  fail against its real resolved WGSL, computed by the real-import/resolve seam (`standards.test.ts`).
- *  This file never resolves a kernel or touches the filesystem — the population is handed in. */
+ *  fail against its real resolved WGSL. `standards.test.ts` computes this from the shared
+ *  real-import/resolve population and hands it to the pure checker below. */
 export type Population = Record<string, readonly DisciplineCheck[]>;
 
 /** the both-directions check over `{population, registry}`, pure — no filesystem, no dynamic import, no

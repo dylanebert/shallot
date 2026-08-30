@@ -49,9 +49,11 @@ function seed(bodies: Body[]): Float32Array {
 describe("headless AVBD execution sentinel", () => {
     test("produces the intended contact and a geometry-bounded pose", async () => {
         const previousCompute = { ...Compute };
-        const { device } = await requestGPU();
-        const physics = await PhysicsStep.create(device, CAPACITY, CAPACITY);
+        let device: GPUDevice | undefined;
+        let physics: PhysicsStep | undefined;
         try {
+            ({ device } = await requestGPU());
+            physics = await PhysicsStep.create(device, CAPACITY, CAPACITY);
             const authored = scene();
             device.queue.writeBuffer(physics.bodies, 0, seed(authored));
             device.queue.writeBuffer(
@@ -78,16 +80,16 @@ describe("headless AVBD execution sentinel", () => {
             physics.record(encoder);
             device.queue.submit([encoder.finish()]);
 
-            const contactProbe = await probeBuffer(device, physics.pairContacts, {
+            const contactProbe = await probeBuffer(device, physics!.pairContacts, {
                 offset: 0,
-                size: physics.recordCap * CONTACT_VEC4 * 16,
+                size: physics!.recordCap * CONTACT_VEC4 * 16,
                 label: "avbd-sentinel-contacts",
             });
             const contactWords = new Uint32Array(contactProbe.bytes);
-            const live = Array.from({ length: physics.recordCap }, (_, rec) => ({
-                kind: contactWords[(CONTACT_META * physics.recordCap + rec) * 4],
-                a: contactWords[(CONTACT_META * physics.recordCap + rec) * 4 + 1],
-                b: contactWords[(CONTACT_META * physics.recordCap + rec) * 4 + 2],
+            const live = Array.from({ length: physics!.recordCap }, (_, rec) => ({
+                kind: contactWords[(CONTACT_META * physics!.recordCap + rec) * 4],
+                a: contactWords[(CONTACT_META * physics!.recordCap + rec) * 4 + 1],
+                b: contactWords[(CONTACT_META * physics!.recordCap + rec) * 4 + 2],
             })).filter(({ kind }) => kind === CONSTRAINT_CONTACT);
             expect(
                 live.some(({ a, b }) => a === 1 && b === 0),
@@ -114,11 +116,17 @@ describe("headless AVBD execution sentinel", () => {
                 groundTop + authored[1].size[1],
             );
         } finally {
-            physics.destroy();
-            device.destroy();
-            for (const key of Object.keys(Compute))
-                delete (Compute as unknown as Record<string, unknown>)[key];
-            Object.assign(Compute, previousCompute);
+            try {
+                physics?.destroy();
+            } finally {
+                try {
+                    device?.destroy();
+                } finally {
+                    for (const key of Object.keys(Compute))
+                        delete (Compute as unknown as Record<string, unknown>)[key];
+                    Object.assign(Compute, previousCompute);
+                }
+            }
         }
     });
 });

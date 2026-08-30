@@ -51,10 +51,6 @@ import {
     BACKEND_REST_Y as REST_Y,
 } from "./backend-geometry";
 
-// Trigger cone: `examples/gym/src/scenarios/backend.ts` and the published physics substrate/backend
-// modules it imports. Run from the shallot root with `bun test ./examples/gym/src` (the migrated
-// headless verdict is exercised by the gym host-layer gate).
-//
 // backend — the substrate swap gate: ONE scene, authored purely against
 // the `standard/physics` substrate (Body components, `Physics.backend`'s kinematic drive, the CPU raycast,
 // the `transforms` firehose), that runs unmodified under EITHER `TumblePlugin` (default) or `AvbdPlugin`
