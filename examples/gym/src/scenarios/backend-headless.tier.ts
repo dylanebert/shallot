@@ -10,6 +10,11 @@ import {
     BACKEND_REST_Y,
 } from "./backend-geometry";
 
+// Trigger cone: `examples/gym/src/scenarios/backend-headless.tier.ts`, `backend-geometry.ts`, and the
+// published physics substrate/backend modules it imports. Run from the shallot root with
+// `bun test ./examples/gym/src`. The verdict derives its settle and no-fall-through bands from the
+// shared authored geometry constants imported below; the browser twin remains the reference.
+
 const CAPACITY = 8192;
 const TICKS = 240;
 

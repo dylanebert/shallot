@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
-import tgpu, { isTgpuFn } from "typegpu";
+import tgpu from "typegpu";
 import {
     callsSymbol,
     checkDifferentials,
@@ -12,126 +12,29 @@ import {
     type Finding,
     gapKernels,
     importsSymbol,
+    kernelExports,
     type Population,
     STANDARDS_POPULATION_GOLDEN,
     STANDARDS_REGISTRY,
     violation,
 } from "./standards";
-import { TEST_TIER_SUFFIXES } from "./test-tiers";
 
-// The real-filesystem/real-import/real-resolve seam over the pure `checkStandards` (`./standards.ts`):
-// walk `packages/shallot/src`, dynamic-import every module, duck-detect live TGSL kernels with a
-// tighter predicate than a bare duck-test (which also catches data schemas like `MeshQuant`) —
-// TypeGPU's own `isTgpuFn`, identity-dedup, resolve each kernel to WGSL, and
-// run the discipline checks against the real text — producing the `Population` the pure checker consumes.
+// The filesystem/import/identity-dedup seam is shared with the compile tier by `kernelExports` in
+// `standards.ts`; this file adds only the differential registry's source-file assertions.
 
-const SRC_DIR = join(import.meta.dir, "../src");
-
-/** every `.ts` module under `src`, repo-relative path, excluding the test-tier suffixes
- *  (`testing.md`'s tier convention, via the shared `test-tiers.ts` constant) plus `.fixture.ts`,
- *  which is not a tier `testing.md` names — it's a test-data file (the tumble step fixture), excluded
- *  from the kernel walk alongside the tiers, never a second hand-written tier list — and `.d.ts`
- *  declaration files, which have no runtime module body (dynamic-importing one throws on whatever
- *  ambient global it declares, e.g. `draco_wasm_wrapper.d.ts` -> `DracoDecoderModule is not defined`),
- *  which is a false import failure, not a real one. */
-async function sourceModules(): Promise<string[]> {
-    const out: string[] = [];
-    for await (const p of new Bun.Glob("**/*.ts").scan({ cwd: SRC_DIR })) {
-        if (/\.d\.ts$/.test(p)) continue;
-        if (TEST_TIER_SUFFIXES.test(p)) continue;
-        // `.fixture.ts` is not a tier `testing.md` names — it's a test-data file, excluded from the
-        // kernel walk as roster-plus-named-extras, never a second hand-written tier list.
-        if (/\.fixture\.ts$/.test(p)) continue;
-        out.push(p);
-    }
-    return out.sort();
-}
-
-/** a TGSL kernel exported from `src`: the tighter predicate is TypeGPU's own `isTgpuFn` (marks the
- *  `resourceType === "function"` shell `tgpu.fn(...)` produces) rather than the population probe's duck
- *  test (which also matched `d.struct(...)` data schemas, e.g. `MeshQuant` — a schema, not a kernel: it
- *  carries no resolvable body, and running discipline checks against its resolved form is meaningless).
- *  `isTgpuFn` returns false for a data schema (`d.struct` sets no `resourceType: "function"`) and for a
- *  compute/vertex/fragment entry point (`isTgpuComputeFn` etc., a different `resourceType`) — the
- *  population is exactly the `tgpu.fn` CPU-callable seams `wgsl.ts`'s own header describes ("the
- *  device-free seam every ported kernel exposes as a `*Wgsl()` function"). */
-interface Export {
-    file: string;
-    name: string;
-    value: unknown;
-}
-
-async function walkExports(files: readonly string[]): Promise<Export[]> {
-    const out: Export[] = [];
-    for (const file of files) {
-        const mod = (await import(join(SRC_DIR, file))) as Record<string, unknown>;
-        for (const [name, value] of Object.entries(mod)) {
-            if (isTgpuFn(value)) out.push({ file, name, value });
-        }
-    }
-    return out;
-}
-
-/** identity-dedup: 53 of the 154 exported symbols found (measured 2026-08-06, this predicate) are the
- *  same object re-exported through a barrel — keying by `module#name` would multiply every row and let a
- *  barrel rename silently orphan an exemption (Locked decision). Canonical name per identity: the
- *  shortest path among candidates that isn't a barrel (`index.ts`) — the barrel is definitionally a
- *  re-export, so the non-barrel candidate is closer to the definition site; ties broken by shortest path,
- *  then lexicographic, for determinism. */
-function canonicalize(exports: readonly Export[]): Map<unknown, Export> {
-    const byIdentity = new Map<unknown, Export[]>();
-    for (const e of exports) {
-        const group = byIdentity.get(e.value);
-        if (group) group.push(e);
-        else byIdentity.set(e.value, [e]);
-    }
-    const canonical = new Map<unknown, Export>();
-    for (const [identity, group] of byIdentity) {
-        const nonBarrel = group.filter(
-            (e) => !e.file.endsWith("/index.ts") && e.file !== "index.ts",
-        );
-        const candidates = nonBarrel.length > 0 ? nonBarrel : group;
-        candidates.sort((a, b) => a.file.length - b.file.length || a.file.localeCompare(b.file));
-        canonical.set(identity, candidates[0]);
-    }
-    return canonical;
-}
-
-/** kernel name -> checks that actually fail against its real resolved WGSL. `tgpu.resolve` on a single
- *  kernel standalone is the seam the Locked decision measured at 255/255 success — a resolve failure here
- *  would be a real defect, not something to swallow, so it's asserted, not caught. */
-async function population(kernels: ReadonlyMap<string, Export>): Promise<Population> {
+async function population(kernels: ReadonlyMap<string, { value: unknown }>): Promise<Population> {
     const out: Population = {};
     for (const [name, kernel] of kernels) {
         const wgsl = tgpu.resolve([kernel.value] as never, { names: "strict" });
         const checks = [...DEFAULT_CHECKS, ...(STANDARDS_REGISTRY[name]?.also ?? [])];
-        const failing = checks.filter((c) => violation(c, wgsl) !== null);
-        out[name] = failing;
+        out[name] = checks.filter((c) => violation(c, wgsl) !== null);
     }
     return out;
 }
 
-async function namedKernels(): Promise<Map<string, Export>> {
-    const files = await sourceModules();
-    const exports = await walkExports(files);
-    const canonical = canonicalize(exports);
-    const byName = new Map<string, Export>();
-    for (const e of canonical.values()) {
-        // the registry keys on the bare export name, so two distinct-identity kernels sharing one name
-        // would silently overwrite — one kernel leaving the population with nothing red. 0 collisions
-        // measured 2026-08-06; this throws the day that changes rather than shrinking the corpus.
-        const prior = byName.get(e.name);
-        if (prior) {
-            throw new Error(`kernel name collision: "${e.name}" in ${prior.file} and ${e.file}`);
-        }
-        byName.set(e.name, e);
-    }
-    return byName;
-}
-
 describe("TGSL corpus standards", () => {
     test("the enumerator resolves the live population with no import or resolve failures", async () => {
-        const kernels = await namedKernels();
+        const kernels = await kernelExports();
         // exact by mechanism (a deterministic walk over committed source), so it's frozen like a byte
         // or pipeline-count golden rather than floored — a loose bound passes a walk that silently
         // drops half the corpus, which is the hole this meta-test exists to close. Bump it deliberately
@@ -146,7 +49,7 @@ describe("TGSL corpus standards", () => {
     });
 
     test("no registry key is stale, no exemption reason is missing, no exemption shadows a passing check", async () => {
-        const kernels = await namedKernels();
+        const kernels = await kernelExports();
         const pop = await population(kernels);
         const findings = checkStandards(pop, STANDARDS_REGISTRY);
         const structural = findings.filter((f) => f.kind !== "unexempted-violation");
@@ -157,7 +60,7 @@ describe("TGSL corpus standards", () => {
     // source or carry a (kernel, check) exemption whose reason claims the load-bearing property
     // (testing.md, STANDARDS_REGISTRY). A new kernel violating a check reds here with no opt-in.
     test("every live kernel's discipline violations are fixed or exempted", async () => {
-        const kernels = await namedKernels();
+        const kernels = await kernelExports();
         const pop = await population(kernels);
         const unexempted = checkStandards(pop, STANDARDS_REGISTRY).filter(
             (f) => f.kind === "unexempted-violation",
@@ -168,7 +71,7 @@ describe("TGSL corpus standards", () => {
 
 // the differential registry's real-filesystem half: "the named file exists and references
 // its kernel symbol" needs the real filesystem, so it lives here beside the population walk, not in
-// the pure `standards.ts` (which stays filesystem-free per checkDifferentials's own contract).
+// the pure `checkDifferentials` seam (which receives its population and registry as arguments).
 /** the kernels declaring `gap` — no CPU differential written, none forbidden. Frozen by name, not by
  *  count, so closing one gap while a new kernel takes the arm still reds (`gapKernels`'s own note).
  *  Writing these differentials is deliberately not part of the registry; making the list exist is.
@@ -210,7 +113,7 @@ describe("differential registry (real filesystem)", () => {
     const root = resolve(import.meta.dir, "../../..");
 
     test("no differential registry key is stale, no can't-have reason is missing, no test entry is missing a file or symbol", async () => {
-        const kernels = await namedKernels();
+        const kernels = await kernelExports();
         const findings = checkDifferentials([...kernels.keys()], DIFFERENTIAL_REGISTRY);
         const structural = findings.filter((f) => f.kind !== "kernel-without-differential-entry");
         expect(structural as DifferentialFinding[]).toEqual([]);
@@ -243,7 +146,7 @@ describe("differential registry (real filesystem)", () => {
     // the corpus-wide completeness direction: every live kernel declares a differential test, a
     // can't-have mechanism, or a gap. A kernel added tomorrow reds here until it answers.
     test("every live kernel has a declared differential entry", async () => {
-        const kernels = await namedKernels();
+        const kernels = await kernelExports();
         const findings = checkDifferentials([...kernels.keys()], DIFFERENTIAL_REGISTRY);
         const missing = findings.filter((f) => f.kind === "kernel-without-differential-entry");
         expect(missing).toEqual([]);

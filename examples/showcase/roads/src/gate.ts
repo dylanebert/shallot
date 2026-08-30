@@ -20,9 +20,10 @@ import { generate, readVertices, SEED, syncNetworkForSeed } from "./terrain/terr
 // harness. `boot.ts` exposes it on `window.__roadsGate`; the project's own Playwright
 // (`test/roads.playwright.ts`) drives it on a GPU.
 //
-// `bun test ./src` (noise.test.ts, grid.test.ts, generate.test.ts) covers the device-free half: the
-// permutation table's seed determinism, the WGSL structural resolve, and the grid-topology oracle —
-// `bun test` never binds a device. This gate covers the one thing
+// `bun test ./src` (noise.test.ts, grid.test.ts, generate.test.ts) covers the device-independent half:
+// the permutation table's seed determinism, the WGSL structural resolve, and the grid-topology oracle.
+// The default suite may bind the preloaded adapter through engine setup, but its verdict does not rest on
+// device execution. This gate covers the one thing
 // only a real device can show: that two GPU dispatches at the same seed actually produce byte-identical
 // vertex content, and two different seeds don't.
 

@@ -42,40 +42,43 @@ describe("resolved kernel Tint compilation", () => {
 
         const failures: string[] = [];
         const seenConsumerBound = new Set<string>();
-        for (const kernel of kernels) {
-            device.pushErrorScope("validation");
-            device.createShaderModule({
-                label: `standards:${kernel.name}`,
-                code: kernel.wgsl,
-            });
-            const error = await device.popErrorScope();
-            const expectedResource =
-                CONSUMER_BOUND_RESOURCES[kernel.name as keyof typeof CONSUMER_BOUND_RESOURCES];
+        try {
+            for (const kernel of kernels) {
+                device.pushErrorScope("validation");
+                device.createShaderModule({
+                    label: `standards:${kernel.name}`,
+                    code: kernel.wgsl,
+                });
+                const error = await device.popErrorScope();
+                const expectedResource =
+                    CONSUMER_BOUND_RESOURCES[kernel.name as keyof typeof CONSUMER_BOUND_RESOURCES];
 
-            if (!expectedResource) {
-                if (error !== null) {
+                if (!expectedResource) {
+                    if (error !== null) {
+                        failures.push(
+                            `${kernel.name} (${kernel.file}) expected null, got ${error.constructor.name}: ${error.message}`,
+                        );
+                    }
+                    continue;
+                }
+
+                seenConsumerBound.add(kernel.name);
+                if (!(error instanceof GPUValidationError)) {
                     failures.push(
-                        `${kernel.name} (${kernel.file}) expected null, got ${error.constructor.name}: ${error.message}`,
+                        `${kernel.name} (${kernel.file}) expected GPUValidationError for ${expectedResource}, got ${error === null ? "null" : error.constructor.name}`,
+                    );
+                    continue;
+                }
+                const resources = [...new Set(unresolvedResources(error.message))];
+                if (resources.length !== 1 || resources[0] !== expectedResource) {
+                    failures.push(
+                        `${kernel.name} (${kernel.file}) expected sole unresolved resource ${expectedResource}, got [${resources.join(", ")}]: ${error.message}`,
                     );
                 }
-                continue;
             }
-
-            seenConsumerBound.add(kernel.name);
-            if (!(error instanceof GPUValidationError)) {
-                failures.push(
-                    `${kernel.name} (${kernel.file}) expected GPUValidationError for ${expectedResource}, got ${error === null ? "null" : error.constructor.name}`,
-                );
-                continue;
-            }
-            const resources = unresolvedResources(error.message);
-            if (resources.length !== 1 || resources[0] !== expectedResource) {
-                failures.push(
-                    `${kernel.name} (${kernel.file}) expected sole unresolved resource ${expectedResource}, got [${resources.join(", ")}]: ${error.message}`,
-                );
-            }
+        } finally {
+            device.destroy();
         }
-        device.destroy();
 
         const manifestNames = Object.keys(CONSUMER_BOUND_RESOURCES).sort();
         const seenNames = [...seenConsumerBound].sort();

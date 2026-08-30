@@ -3,9 +3,10 @@ import { body, flat } from "../../../../../packages/shallot/tests/wgsl";
 import { GROUND_LEVEL, HFREQ, makePermutation, noiseWgsl, RELIEF } from "./noise";
 
 describe("makePermutation", () => {
-    // the seed → identical terrain determinism (validated end-to-end on the GPU in the roads gate) rests
-    // on the permutation table being deterministic in its seed. These pin that CPU-side foundation —
-    // `bun test` never binds a device, so this is the device-free half of that guarantee.
+    // The seed → identical terrain determinism (validated end-to-end on the GPU in the roads gate) rests
+    // on the permutation table being deterministic in its seed. These pin that CPU-side foundation of the
+    // guarantee; their default-suite verdict is device-independent even where engine setup binds the
+    // preloaded adapter.
 
     test("is deterministic in the seed", () => {
         expect(makePermutation(1337)).toEqual(makePermutation(1337));

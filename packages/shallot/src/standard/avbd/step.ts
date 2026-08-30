@@ -75,6 +75,7 @@ export const BODY_VEC4 = 12;
 const SOLVE_VEC4 = 2;
 /** logical columns per contact record in the persistent `pairContacts` SoA cols-buffer
  * (`pairContacts[col*recordCap + rec]`): meta(type,a,b,feature) / normal / rA / rB / c0 / penalty / lambda */
+export const CONTACT_META = 0;
 export const CONTACT_VEC4 = 7;
 /**
  * contact records per persistent manifold block: one block holds a body pair's whole manifold at a stable
@@ -321,7 +322,7 @@ const B_ROUND = 11;
 /** contact-record columns (SoA, `pairContacts[col*recordCap + rec]`): a record's `C_META` is
  * (type, a, b, feature) — type 0 = inactive (cleared slot), {@link CONSTRAINT_CONTACT} = live; a/b are the
  * body eids, so a record is self-describing (the collide's warmstart pair-identity gate). */
-const C_META = 0;
+const C_META = CONTACT_META;
 const C_NORMAL = 1;
 const C_RA = 2;
 const C_RB = 3;
