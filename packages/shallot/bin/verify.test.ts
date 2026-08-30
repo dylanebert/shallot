@@ -63,6 +63,7 @@ import {
     reportBatch,
     resolveBatchQueries,
     SetupError,
+    STRUCTURE_THRESHOLD,
     sampleFrameNode,
     selfTimeMsByNodeId,
     serveDev,
@@ -75,6 +76,7 @@ import {
     summarizeResourceTiming,
     TIMINGS_INIT_SCRIPT,
     type WaitState,
+    waitDiagnosis,
     withGpuLog,
     withTimeout,
 } from "./verify";
@@ -556,6 +558,37 @@ describe("stepWait — the unified wait decision", () => {
         expect(stepWait(st, false, blank)).toBe("continue");
         expect(st.booted).toBe(true);
         expect(st.prev).toBeNull();
+    });
+});
+
+// shallot-boot-stall-repair S1d. The three states a wait can time out in are the three the loop's own
+// counters distinguish, and the branch that motivated the function is the first: `shallot verify
+// examples/gym` with no `?scenario=` lands on gym's index page (a list of links, no canvas), and read
+// `booted: false, samples: 0, errors: []` after a 60s clock — indistinguishable from a broken boot.
+describe("waitDiagnosis — what a timed-out wait names", () => {
+    test("only a timeout carries one", () => {
+        expect(waitDiagnosis("harness", 0, false)).toBeNull();
+        expect(waitDiagnosis("settled", 4, true)).toBeNull();
+    });
+
+    test("zero samples names the missing canvas and the URL-selection escape", () => {
+        const d = waitDiagnosis("timeout", 0, false);
+        expect(d).toContain("no capturable <canvas>");
+        expect(d).toContain("--query scenario=");
+    });
+
+    test("samples without structure names a blank canvas, carrying the threshold it was judged against", () => {
+        const d = waitDiagnosis("timeout", 7, false);
+        expect(d).toContain("blank");
+        expect(d).toContain("7 sample(s)");
+        expect(d).toContain(String(STRUCTURE_THRESHOLD));
+        expect(d).not.toContain("<canvas>");
+    });
+
+    test("structure that never settles names the animated scene, not a failure", () => {
+        const d = waitDiagnosis("timeout", 12, true);
+        expect(d).toContain("never went still");
+        expect(d).toContain("12 sample(s)");
     });
 });
 
@@ -1888,6 +1921,32 @@ describe("report — the unrendered arms (⚠ LEAK, compilationError)", () => {
         errors: [],
         pass: true,
     };
+
+    test("a timeout's diagnosis prints as its own line; a result without one prints nothing", () => {
+        const lines: string[] = [];
+        const original = console.log;
+        console.log = (...args: unknown[]) => lines.push(args.join(" "));
+        try {
+            report(
+                {
+                    ...base,
+                    booted: false,
+                    rendered: false,
+                    pass: false,
+                    diagnosis: "no capturable <canvas> ever appeared",
+                } as never,
+                false,
+            );
+            expect(lines.some((l) => l.includes("! no capturable <canvas> ever appeared"))).toBe(
+                true,
+            );
+            lines.length = 0;
+            report(base as never, false);
+            expect(lines.some((l) => l.startsWith("  !"))).toBe(false);
+        } finally {
+            console.log = original;
+        }
+    });
 
     test("memory.leak marks the line with ⚠ LEAK; a clean slope doesn't", () => {
         const lines: string[] = [];

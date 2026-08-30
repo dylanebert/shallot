@@ -860,6 +860,9 @@ export interface Result {
      *  threshold, elapsed wait, and how the wait concluded — so a blank-render red carries its
      *  measurement rather than printing `[]`. Absent on a setup failure. */
     renderProbe?: RenderProbe;
+    /** why the boot wait timed out, per {@link waitDiagnosis} — present only on a timeout, so a
+     *  `booted: false` result names its own cause instead of leaving the reader a bare `samples: 0`. */
+    diagnosis?: string;
     errors: string[];
     pass: boolean;
     /** `--attribution` only. `compile` is `window.__benchmark.measure(0, 1)`'s compile section, read
@@ -1183,6 +1186,38 @@ export interface RenderProbe {
     /** how the wait concluded: `harness` (window.__harness appeared), `settled` (two consecutive
      *  structured shots below the diff epsilon), or `timeout` (the deadline expired). */
     outcome: "harness" | "settled" | "timeout";
+}
+
+/**
+ * why a boot wait ran out its clock, in one line for the reader — null for every outcome but `timeout`,
+ * since a wait that concluded needs no explanation.
+ *
+ * shallot-boot-stall-repair S1d: a timeout printed `booted: false`, `samples: 0`, `errors: []` and named
+ * nothing, so a page verify structurally cannot check — one with no `<canvas>` at all, e.g. `shallot verify
+ * examples/gym` with no `?scenario=`, whose index page is a list of links — read exactly like a slow or
+ * broken boot. The three branches are the three states the wait can time out in, and each is decided from
+ * data the wait already collected: no sample ever captured (nothing to screenshot), samples that never
+ * carried structure (a blank canvas), and structure that never went stable (an animated scene, which
+ * `rendered` already passes). Pure over the wait's own counters — it reads no page, so it adds no work to
+ * the profiled window S1 exists to keep clean.
+ */
+export function waitDiagnosis(
+    outcome: RenderProbe["outcome"],
+    samples: number,
+    sawStructure: boolean,
+): string | null {
+    if (outcome !== "timeout") return null;
+    if (samples === 0) {
+        return (
+            "no capturable <canvas> ever appeared — this page presents nothing verify can sample. " +
+            "A project that selects its scene from the URL needs that selection passed: " +
+            "`--query scenario=<name>` (examples/gym), or whatever query its entry point reads."
+        );
+    }
+    if (!sawStructure) {
+        return `the canvas stayed blank — ${samples} sample(s), none above the structure threshold (${STRUCTURE_THRESHOLD}).`;
+    }
+    return `structure appeared but never went still — ${samples} sample(s), an animated scene the settle check cannot conclude on.`;
 }
 
 // the Playwright Page — typed loosely because playwright is an optional dep with no types at build time.
@@ -2334,6 +2369,9 @@ async function drive(
     // settled = the verdict; timed out structured-but-never-stable = an animated scene, rendered
     // (the caller's own gates judge motion); never structured = a blank canvas.
     const rendered = outcome === "settled" || st.prev != null;
+    // a timeout that names nothing reads like a slow boot whatever it was (S1d) — `st.prev` is the
+    // wait's own "structure was seen at least once" record, the same signal `rendered` is derived from.
+    const diagnosis = waitDiagnosis(outcome, sampleCount, st.prev != null);
     return withGpuLog(page, {
         ...base,
         booted: st.booted,
@@ -2342,6 +2380,7 @@ async function drive(
         ...(args.memory ? { memory: null } : {}),
         pass: settlePass(st.booted, rendered, errors.length),
         renderProbe,
+        ...(diagnosis === null ? {} : { diagnosis }),
     });
 }
 
@@ -2607,6 +2646,9 @@ export function report(result: Result, json: boolean): void {
             `  memory: ${m.growthPerSecond.toFixed(0)} B/s${m.leak ? " ⚠ LEAK" : ""}` +
                 ` (${(m.start / 1e6).toFixed(1)}→${(m.end / 1e6).toFixed(1)} MB, gc ${m.gcCount}× / ${m.gcPauseMs.toFixed(1)}ms)`,
         );
+    }
+    if (result.diagnosis) {
+        console.log(`  ! ${result.diagnosis}`);
     }
     if (result.errors.length) {
         console.log(`  errors:`);
