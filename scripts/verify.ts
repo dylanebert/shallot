@@ -145,7 +145,7 @@ export interface AttributionCompile {
  *  the spread against `structured`'s threshold, the elapsed wait, and how the wait concluded — so a
  *  blank-render red names its measurement rather than printing `[]`. */
 export interface RenderProbe {
-    /** frame samples the wait loop captured (non-null `sampleFrame` returns). */
+    /** frame samples the wait loop captured (non-null `pollFrameSample` returns). */
     samples: number;
     /** last centre RGB [r,g,b] the probe measured, or null if no sample was ever taken. */
     center: number[] | null;
