@@ -20,8 +20,8 @@ bunx shallot dev    # run it, with hot reload
 ## add to an existing project
 
 ```bash
-bun add @dylanebert/shallot typegpu@~0.12.0
-bun add -d unplugin-typegpu@~0.12.1
+bun add @dylanebert/shallot typegpu@~0.12.4
+bun add -d unplugin-typegpu@~0.12.3
 ```
 
 TypeGPU is a required peer, and TGSL needs exactly one TypeGPU transform in your bundler. A `shallot.json` project gets that from the CLI. An ejected Vite app adds `typegpu()` from `unplugin-typegpu/vite` plus `optimizeDeps: { exclude: ["@dylanebert/shallot", "typegpu"] }` — [MIGRATION.md](https://github.com/dylanebert/shallot/blob/main/packages/shallot/MIGRATION.md) has the full setup.

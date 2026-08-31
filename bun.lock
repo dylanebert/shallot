@@ -27,7 +27,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/flows/no-walls": {
@@ -37,7 +37,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/flows/survive-reload": {
@@ -47,7 +47,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/flows/ui-containment": {
@@ -57,7 +57,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/gym": {
@@ -65,11 +65,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.62.1",
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
         "vite": "^8.0.16",
       },
     },
@@ -162,7 +162,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
     },
     "examples/recipes/import-a-model": {
@@ -271,7 +271,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
@@ -294,11 +294,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
         "vite": "^8.0.16",
       },
     },
@@ -307,7 +307,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
@@ -354,11 +354,11 @@
       "version": "0.0.0",
       "devDependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "peerDependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
     },
     "packages/vscode-shallot": {

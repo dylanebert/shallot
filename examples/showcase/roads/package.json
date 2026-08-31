@@ -9,7 +9,7 @@
     },
     "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0"
+        "typegpu": "~0.12.4"
     },
     "devDependencies": {
         "@playwright/test": "^1.58.2",
