@@ -129,6 +129,12 @@ export interface SpectrumMutation {
     lnForLog10?: boolean;
 }
 
+/** Named realization defects used only by the production-path red witnesses. */
+export interface RealizationMutation {
+    omitCellArea?: boolean;
+    rescalePerRealization?: boolean;
+}
+
 /** Neutral drag estimate used to realize Elfouhaily's `u* = √Cd10N U10` relation. */
 export function frictionVelocity(windSpeed: number): number {
     if (windSpeed <= 0) return 0;
@@ -201,9 +207,19 @@ export function directionalDensity(
     return Math.max(0, (curvatureSpectrum(k, windSpeed, omegaC, mutation) * angular) / k ** 4);
 }
 
+function assertCascadeSeaState(
+    config: CascadeConfig,
+    seaState: Pick<SeaState, "windSpeed" | "windDir">,
+): void {
+    if (config.windSpeed !== seaState.windSpeed || config.windDir !== seaState.windDir) {
+        throw new Error("shallot-ocean: cascade wind must match the shared sea state");
+    }
+}
+
 /** Compatibility name used by the committed spike's spectral diagnostic. */
 export function philips(kx: number, kz: number, config: CascadeConfig): number {
-    return directionalDensity(kx, kz, config.windSpeed, config.windDir, OMEGA_C);
+    assertCascadeSeaState(config, SEA_STATE);
+    return directionalDensity(kx, kz, SEA_STATE.windSpeed, SEA_STATE.windDir, SEA_STATE.omegaC);
 }
 
 function integrateRadialMoment(windSpeed: number, omegaC: number, slope: boolean): number {
@@ -263,6 +279,8 @@ export const SEA_STATE: SeaState = Object.freeze({
     truncationRatio: DECLARED_VARIANCE / FULL_VARIANCE,
 });
 
+for (const config of CASCADE_CONFIGS) assertCascadeSeaState(config, SEA_STATE);
+
 function hashBits(kx: number, kz: number, seed: number, salt: number): number {
     const bytes = new ArrayBuffer(24);
     const view = new DataView(bytes);
@@ -296,9 +314,12 @@ export function generateH0(
     seed = 0,
     labelFn: LabelFn = kIndex,
     seaState: SeaState = SEA_STATE,
+    mutation: RealizationMutation = {},
 ): Float32Array {
     const dk = (2 * Math.PI) / config.L;
     const h0 = new Float32Array(config.N * config.N * 2);
+    let expectedEnergy = 0;
+    let realizedEnergy = 0;
     for (let y = 0; y < config.N; y++) {
         for (let x = 0; x < config.N; x++) {
             const kx = labelFn(x, config.N) * dk;
@@ -306,14 +327,27 @@ export function generateH0(
             const index = (y * config.N + x) * 2;
             const k = Math.hypot(kx, kz);
             if (k < config.kLo || k > config.kHi) continue;
-            const cell =
-                directionalDensity(kx, kz, seaState.windSpeed, seaState.windDir, seaState.omegaC) *
-                dk *
-                dk;
+            const density = directionalDensity(
+                kx,
+                kz,
+                seaState.windSpeed,
+                seaState.windDir,
+                seaState.omegaC,
+            );
+            const correctCell = density * dk * dk;
+            const cell = mutation.omitCellArea ? density : correctCell;
             const amplitude = Math.sqrt(Math.max(cell, 0)) / 2;
-            h0[index] = gaussian(kx, kz, seed, 0) * amplitude;
-            h0[index + 1] = gaussian(kx, kz, seed, 1) * amplitude;
+            const real = gaussian(kx, kz, seed, 0) * amplitude;
+            const imaginary = gaussian(kx, kz, seed, 1) * amplitude;
+            h0[index] = real;
+            h0[index + 1] = imaginary;
+            expectedEnergy += correctCell / 2;
+            realizedEnergy += real * real + imaginary * imaginary;
         }
+    }
+    if (mutation.rescalePerRealization && realizedEnergy > 0) {
+        const scale = Math.sqrt(expectedEnergy / realizedEnergy);
+        for (let i = 0; i < h0.length; i++) h0[i] *= scale;
     }
     return h0;
 }

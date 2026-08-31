@@ -5,7 +5,9 @@ reviewed source is `tests/elfouhaily-independent.ts`; it imports no production s
 
 **Primary source:** T. Elfouhaily, D. Vandemark, B. Chapron, K. Katsaros, *A unified directional
 spectrum for long and short wind-driven waves*, JGR 102(C7), 1997,
-DOI `10.1029/97JC00467`, verified against the Archimer copy of the journal PDF.
+DOI `10.1029/97JC00467`. The reviewed journal PDF is the stable
+[Archimer copy](https://archimer.ifremer.fr/doc/00091/20226/17877.pdf), SHA-256
+`50fe069ada389d3367590a2c99d9d5cfee474646948413012d95e2539fcff6a2` as retrieved 2026-08-31.
 
 **External moment anchor:** the clean-surface Cox–Munk total mean-square-slope fit
 `0.003 + 0.00512 U₁₀`, which the paper compares with its integrated spectrum in Figure 7b.
@@ -30,6 +32,15 @@ The stage shorthand named the two speed-ratio terms in eq. (57) but omitted the 
 coefficient `ap`. The oracle keeps all three grouped eq. (59) definitions explicit. Earlier notes that
 assigned `ap` and `am` to eqs. (60) and (61) were refuted by the PDF: those numbers belong to the wind
 profile and drag-coefficient relation.
+
+## Reproducing the source anchors
+
+Run `bun test ./packages/shallot-ocean/tests/elfouhaily-independent.test.ts` from the Shallot root.
+That test derives, without production imports, the paper's `km = √(ρg/τ)` (about 368.6 rad/m),
+`cm = √(2g/km)` (about 0.23 m/s), `Lpm(kp) = exp(−1.25)`, `Jp(kp) = γ = 1.7` at `Ωc = 0.9`, angular
+normalization to one, both `αm` regimes, and the full-tail slope moments at four winds. These
+source-derived anchors make the equation-locus review repeatable without vendoring the paper; the
+production comparison imports the independent implementation only from its test module.
 
 ## Factor audit
 

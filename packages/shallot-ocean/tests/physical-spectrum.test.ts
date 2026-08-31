@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+    CASCADE_CONFIGS,
     directionalDensity,
     fullMeanSquareSlope,
     K_M,
+    philips,
     SEA_STATE,
     type SpectrumMutation,
 } from "../src/spectrum";
@@ -42,7 +44,7 @@ function reference(row: Row): number {
 }
 
 function relativeError(actual: number, expected: number): number {
-    if (expected === 0) return actual === 0 ? 0 : Number.POSITIVE_INFINITY;
+    if (!(expected > 0)) throw new Error("comparison rows require a positive reference density");
     return Math.abs(actual / expected - 1);
 }
 
@@ -53,18 +55,35 @@ describe("production Elfouhaily density", () => {
         expect(K_ROWS).toContain(60);
         const comparisonRows = rows.filter(
             (row) =>
-                (row.wind === SEA_STATE.windSpeed && row.age === SEA_STATE.omegaC) ||
-                (row.wind === SEA_STATE.windSpeed && row.age === 1.5),
+                ((row.wind === SEA_STATE.windSpeed && row.age === SEA_STATE.omegaC) ||
+                    (row.wind === SEA_STATE.windSpeed && row.age === 1.5)) &&
+                reference(row) > 0,
         );
+        for (const k of K_ROWS) expect(comparisonRows.some((row) => row.k === k)).toBe(true);
+        expect(comparisonRows.some((row) => row.theta === 0.6 + Math.PI / 2)).toBe(true);
         for (const row of comparisonRows) {
             expect(relativeError(production(row), reference(row))).toBeLessThan(0.15);
         }
     });
 
-    test("derives significant wave height from the full density integral", () => {
+    test("derives significant wave height and records the declared-band truncation", () => {
+        console.info("Elfouhaily shipped sea state", {
+            significantWaveHeight: SEA_STATE.significantWaveHeight,
+            truncationRatio: SEA_STATE.truncationRatio,
+        });
         expect(SEA_STATE.significantWaveHeight).toBeGreaterThan(0);
         expect(SEA_STATE.truncationRatio).toBeGreaterThan(0);
         expect(SEA_STATE.truncationRatio).toBeLessThan(1);
+    });
+
+    test("cascade compatibility winds cannot diverge from the shared sea state", () => {
+        for (const config of CASCADE_CONFIGS) {
+            expect(config.windSpeed).toBe(SEA_STATE.windSpeed);
+            expect(config.windDir).toBe(SEA_STATE.windDir);
+        }
+        expect(() =>
+            philips(1, 0, { ...CASCADE_CONFIGS[0], windSpeed: SEA_STATE.windSpeed + 1 }),
+        ).toThrow("cascade wind must match the shared sea state");
     });
 
     test("full-tail slope moment stays in the declared Cox–Munk bands", () => {
