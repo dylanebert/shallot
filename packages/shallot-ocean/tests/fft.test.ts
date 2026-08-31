@@ -98,7 +98,7 @@ describe("cascade config — I1's own structural invariants", () => {
         for (const c of CASCADE_CONFIGS) expect(isPowerOfTwo(c.N)).toBe(true);
     });
 
-    test("assertCoprimeL correctly classifies a coprime and a non-coprime pair (general-purpose utility, not asserted for the shipped configs — spectrum.ts's own docblock)", () => {
+    test("assertCoprimeL classifies coprime and non-coprime patch lengths", () => {
         expect(
             assertCoprimeL([
                 { ...CASCADE_CONFIGS[0], L: 80 },
@@ -113,13 +113,14 @@ describe("cascade config — I1's own structural invariants", () => {
         ).toBe(false);
     });
 
-    test("the shipped cascades report their real cross-cascade tile period", () => {
-        expect(tilePeriod(CASCADE_CONFIGS)).toBe(240);
+    test("the shipped cascades use coprime world-space patch lengths", () => {
+        expect(assertCoprimeL(CASCADE_CONFIGS)).toBe(true);
         expect(CASCADE_CONFIGS[0].L).toBe(80);
-        expect(CASCADE_CONFIGS[1].L).toBe(30);
+        expect(CASCADE_CONFIGS[1].L).toBe(31);
+        expect(tilePeriod(CASCADE_CONFIGS)).toBe(2480);
     });
 
-    test("cascade 1's declared band Nyquist headroom: N=128,L=30 covers kHi with margin", () => {
+    test("cascade 1's declared band Nyquist headroom: N=128,L=31 covers kHi with margin", () => {
         const cfg = CASCADE_CONFIGS[1];
         const dk = (2 * Math.PI) / cfg.L;
         const kNyquist = (cfg.N / 2) * dk;

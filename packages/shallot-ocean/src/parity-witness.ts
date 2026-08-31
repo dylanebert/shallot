@@ -4,14 +4,9 @@
 // mismatched pair is observable rather than being made equal by one callback.
 
 import { idft2, updateH } from "./cpu-reference";
-import { type CascadeConfig, generateH0, kIndex, type LabelFn } from "./spectrum";
+import { type CascadeConfig, generateH0, type LabelFn } from "./spectrum";
 
 export type { LabelFn } from "./spectrum";
-
-/** the centered-order label used only as a negative-control fixture. */
-export function centeredLabelPreFix(i: number, N: number): number {
-    return i - N / 2;
-}
 
 /** the realized spatial field's own lag-1 autocorrelation along x, averaged over every row. */
 export function measuredLag1AutocorrX(height: Float64Array | Float32Array, N: number): number {
@@ -38,12 +33,12 @@ export interface ParityWitnessReading {
 }
 
 /** measures the realized lag-1 autocorrelation against a prediction using an independent label.
- * The default pair is production's `kIndex`; passing a different `h0Label` while retaining
- * `predictLabel` creates a falsifiable mismatched-label control. */
+ * Both labels are required so a caller cannot accidentally use one callback for the measured and
+ * predicted sides, making the witness vacuous. */
 export function lag1AutocorrParityWitness(
     cfg: CascadeConfig,
-    h0Label: LabelFn = kIndex,
-    predictLabel: LabelFn = h0Label,
+    h0Label: LabelFn,
+    predictLabel: LabelFn,
 ): ParityWitnessReading {
     const N = cfg.N;
     const L = cfg.L;

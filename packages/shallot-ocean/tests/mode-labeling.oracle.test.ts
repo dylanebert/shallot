@@ -12,10 +12,14 @@
 // pass merely because one callback drives every side of the comparison.
 import { describe, expect, test } from "bun:test";
 import { idft2, updateH } from "../src/cpu-reference";
-import { centeredLabelPreFix, lag1AutocorrParityWitness } from "../src/parity-witness";
+import { lag1AutocorrParityWitness } from "../src/parity-witness";
 import { CASCADE_CONFIGS, kIndex } from "../src/spectrum";
 
 const PI = Math.PI;
+
+function centeredLabelPreFix(i: number, N: number): number {
+    return i - N / 2;
+}
 
 function worldForTexel(x: number, N: number, L: number): number {
     return ((x + 0.5) / N - 0.5) * L;
@@ -63,7 +67,7 @@ function projectOnto(raster: Float32Array, N: number, L: number, k: number): num
 describe("mode-placement oracle — leg (a): both shipped power-of-two N", () => {
     for (const N of [64, 128]) {
         test(`N=${N}: production energy lands on the label, not its Nyquist image`, () => {
-            const L = N === 64 ? 80 : 30; // the shipped cascades' own L (spectrum.ts's CASCADE_CONFIGS)
+            const L = N === 64 ? 80 : 31; // the shipped cascades' own L (spectrum.ts's CASCADE_CONFIGS)
             const dk = (2 * PI) / L;
             const kNyquist = (N / 2) * dk;
             const target = 3 * dk;
@@ -78,7 +82,7 @@ describe("mode-placement oracle — leg (a): both shipped power-of-two N", () =>
         });
 
         test(`N=${N}: red-witness — the pre-fix centered label lands energy on the Nyquist image instead`, () => {
-            const L = N === 64 ? 80 : 30;
+            const L = N === 64 ? 80 : 31;
             const dk = (2 * PI) / L;
             const kNyquist = (N / 2) * dk;
             const target = 3 * dk;
@@ -97,22 +101,13 @@ describe("mode-placement oracle — leg (a): both shipped power-of-two N", () =>
 describe("mode-placement oracle — leg (b): the lag-1 autocorrelation parity witness (I1's replacement for the odd-N leg)", () => {
     for (const cfg of CASCADE_CONFIGS) {
         test(`cascade N=${cfg.N}: production labeling (kIndex) predicts the realized field's own autocorrelation`, () => {
-            const reading = lag1AutocorrParityWitness(cfg, kIndex);
+            const reading = lag1AutocorrParityWitness(cfg, kIndex, kIndex);
             // production is the identity case of its own derivation (Wiener-Khinchin, exact up to
             // f32/f64 rounding through updateH+idft2) — a tight bound is the honest one, not a fit.
             expect(reading.relDiff).toBeLessThan(0.01);
         });
 
-        test(`cascade N=${cfg.N}: RED-WITNESS — centered placement and prediction expose the checkerboard class`, () => {
-            const reading = lag1AutocorrParityWitness(
-                cfg,
-                centeredLabelPreFix,
-                centeredLabelPreFix,
-            );
-            expect(reading.relDiff).toBeGreaterThan(0.5);
-        });
-
-        test(`cascade N=${cfg.N}: RED-WITNESS — independent prediction label remains discriminating`, () => {
+        test(`cascade N=${cfg.N}: RED-WITNESS — production placement against centered prediction exposes the checkerboard class`, () => {
             const reading = lag1AutocorrParityWitness(cfg, kIndex, centeredLabelPreFix);
             expect(reading.relDiff).toBeGreaterThan(0.5);
         });

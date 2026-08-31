@@ -32,9 +32,9 @@ export interface CascadeConfig {
 
 /**
  * The shipped cascades use `N=64` and `N=128`, the smallest power-of-two choices that preserve their
- * declared bands. Their patch lengths are `L=80` and `L=30`, so the composed field repeats every 240 m.
- * `tilePeriod` exposes that period; consumers that require a different anti-alignment guarantee must
- * choose patch lengths and a corresponding resource budget explicitly.
+ * declared bands. Their patch lengths are `L=80` and `L=31`; pairwise-coprime world-space lengths
+ * maximize the shared repeat period, which is 2480 m here. `tilePeriod` exposes that least common
+ * multiple for callers that intentionally choose repeating patches.
  *
  * The amplitude and choppiness values are configuration inputs. Spectrum normalization and derived
  * physical parameters belong to the caller that selects them.
@@ -52,7 +52,7 @@ export const CASCADE_CONFIGS: CascadeConfig[] = [
     },
     {
         N: 128,
-        L: 30,
+        L: 31,
         windSpeed: 12,
         windDir: 0.6,
         amplitude: 0.00003,
@@ -90,9 +90,8 @@ export function assertAllPowerOfTwo(configs: CascadeConfig[]): boolean {
 }
 
 /**
- * tests whether integer patch lengths are pairwise coprime. This is a sufficient condition for
- * eliminating a shared tile period; the shipped configuration reports its actual period through
- * `tilePeriod` instead of asserting this stronger condition.
+ * tests whether integer patch lengths are pairwise coprime. Pairwise-coprime world-space lengths
+ * are the anti-alignment invariant for the shipped cascades.
  */
 export function assertCoprimeL(configs: CascadeConfig[]): boolean {
     for (let i = 0; i < configs.length; i++) {

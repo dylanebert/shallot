@@ -42,7 +42,6 @@ export {
     updateLayout,
 } from "./ocean";
 export {
-    centeredLabelPreFix,
     type LabelFn,
     lag1AutocorrParityWitness,
     measuredLag1AutocorrX,
