@@ -6,9 +6,8 @@
  *
  * This file is deliberately a SEPARATE authoring pass from `src/spectrum.ts`: it exists so the
  * production implementation can be compared against an oracle that was not read out of the
- * production code. Each factor carries its equation-number citation inline; the citation
- * provenance (what was and was not re-verified against the journal text in this environment) is
- * recorded in `tests/elfouhaily-source-review.md`, which must be read together with this file.
+ * production code. Each factor carries its verified source locus inline; the citation provenance
+ * is recorded in `tests/elfouhaily-source-review.md`, which must be read together with this file.
  *
  * Structure notes (independence): this module works in the paper's polar quantities — phase speed
  * c(k), the two curvature-spectrum branches B_l and B_h, and the directional spreading function
@@ -20,15 +19,13 @@
 /** gravitational acceleration [m/s²] (paper works in MKS units throughout). */
 export const G = 9.81;
 
-/** Kinematic viscosity of air at ~15 °C [m²/s] — enters the smooth/rough roughness closure's
- * viscous term (eqs. (10)–(15) region: the wind-stress chapter's z₀ closure). */
+/** Kinematic viscosity of air at ~15 °C [m²/s], used by the declared neutral-log closure. */
 const NU_AIR = 1.46e-5;
 
-/** von Kármán constant used by the paper's wind-stress closure (eqs. (10)–(15) region). */
+/** von Kármán constant used by the declared neutral-log closure. */
 const KAPPA = 0.4;
 
-/** Charnock constant of the revised Charnock relation the paper's stress chapter adopts
- * (eqs. (10)–(15) region): z₀ = α_ch·u*²/g + 0.11·ν/u*. */
+/** Charnock coefficient used by the declared neutral-log closure. */
 const CHARNOCK = 0.0185;
 
 /** Gravity-capillary transition wavenumber [rad/m], eq. (17): km = √(ρ_w·g/τ) — the wavenumber
@@ -49,11 +46,10 @@ export function phaseSpeed(k: number): number {
 }
 
 /**
- * Friction velocity u* [m/s] from the 10 m wind speed U₁₀ [m/s], eqs. (10)–(15) region: the
- * paper's wind-stress chapter closes the profile through the roughness length
- * z₀ = α_ch·u*²/g + 0.11·ν/u* and the logarithmic layer law U₁₀ = (u* over κ)·ln(10/z₀).
- * Solved by fixed-point iteration from a smooth-flow start (32 sweeps — the same order of
- * convergence discipline the production loop uses, reached independently).
+ * Friction velocity u* [m/s] from the 10 m wind speed U₁₀ [m/s]. Elfouhaily et al. define the
+ * wind profile in eq. (60) and u* = √Cd10N·U₁₀ in eq. (61), referring the neutral drag coefficient
+ * to Garratt/Wu rather than prescribing its closure in this spectrum. This oracle declares a
+ * Charnock-plus-viscous neutral-log closure and solves it by fixed-point iteration.
  * Pure. Positive for U₁₀ > 0.
  */
 export function frictionVelocity(u10: number): number {
@@ -76,11 +72,11 @@ export function peakWavenumber(u10: number, omegaC: number): number {
 }
 
 /**
- * The shared peak envelope of both curvature-spectrum branches, eqs. (32)–(33) region:
+ * The shared peak envelope of both curvature-spectrum branches, eq. (32):
  *   Lpm = exp(−1.25·(kp/k)²)               — the Phillips-equilibrium taper,
  *   r   = exp(−(√(k/kp)−1)²/(2σ²))          — the peakedness weighting,
  *   Jp  = γ^r                               — the peakedness enhancement,
- * with the paper's long-wave shape parameters (eq. (31)-region):
+ * with the paper's long-wave shape parameters from eq. (32):
  *   σ   = 0.08·(1 + 4·Ωc⁻³)                — the spread of the peak around kp,
  *   γ   = 1.7 for Ωc ≤ 1, else 1.7 + 6·log₁₀(Ωc) — the Ωc ≤ 1 and log₁₀ branches.
  * Both Fp and Fm multiply THIS envelope and their own private exponential — Fp's
@@ -98,8 +94,8 @@ export function peakEnvelope(k: number, u10: number, omegaC: number): number {
 }
 
 /**
- * The low-wavenumber (long gravity wave) branch of the curvature spectrum's directional
- * factor, eqs. (30)–(34) region: Fp = Lpm·Jp·exp(−(Ωc/√10)(√(k/kp)−1)) — the peak envelope
+ * The low-wavenumber (long gravity wave) side-effect factor, eq. (32):
+ * Fp = Lpm·Jp·exp(−(Ωc/√10)(√(k/kp)−1)) — the peak envelope
  * times Fp's own side-effect exponential.
  * Pure.
  */
@@ -111,10 +107,9 @@ export function longWaveFactor(k: number, u10: number, omegaC: number): number {
 }
 
 /**
- * The high-wavenumber (short gravity wave) branch of the curvature spectrum's directional
- * factor, eqs. (30)–(34) region: Fm = Lpm·Jp·exp(−0.25·(k/km−1)²) — the same Lpm/Jp peak
- * envelope the long-wave branch carries (and NOTHING of Fp's exponential), cut off beyond
- * the gravity–capillary transition km by a Gaussian in (k/km − 1)² (eq. (34)-region).
+ * The high-wavenumber (short gravity wave) side-effect factor, eq. (41):
+ * Fm = Lpm·Jp·exp(−0.25·(k/km−1)²) — the same Lpm/Jp peak envelope the long-wave branch
+ * carries (and nothing of Fp's exponential), cut off beyond the gravity–capillary transition km.
  * Pure.
  */
 export function shortWaveFactor(k: number, u10: number, omegaC: number): number {
@@ -122,7 +117,7 @@ export function shortWaveFactor(k: number, u10: number, omegaC: number): number 
 }
 
 /**
- * The saturation-spectrum prefactors, eqs. (29)+(35) region:
+ * The curvature-spectrum prefactors, eqs. (34) and (44):
  *   αp = 0.006·Ωc^0.55 (the long-wave amplitude; the 0.55 exponent is the published one),
  *   αm: BOTH branches — for u* > cm the rough-flow form 0.01·(1 + 3·ln(u* / cm)), else the
  *   smooth-flow form 0.01·(1 + ln(u* / cm)).
@@ -140,9 +135,9 @@ export function spectrumAmplitudes(
 }
 
 /**
- * The curvature spectrum B(k) = B_l(k) + B_h(k), eq. (4)+eqs. (29)–(34):
- *   B_l = 0.5·αp·(cp/c)·Fp      (long-wave branch, eq. (35)-region),
- *   B_h = 0.5·αm·(cm/c)·Fm      (short-wave branch, eq. (36)-region).
+ * The curvature spectrum B(k) = B_l(k) + B_h(k), eq. (30):
+ *   B_l = 0.5·αp·(cp/c)·Fp      (long-wave branch, eq. (31)),
+ *   B_h = 0.5·αm·(cm/c)·Fm      (short-wave branch, eq. (40)).
  * Pure. Positive for k in the paper's validity range (kp ≲ k ≲ several·km).
  */
 export function curvatureSpectrum(k: number, u10: number, omegaC: number): number {
@@ -155,10 +150,10 @@ export function curvatureSpectrum(k: number, u10: number, omegaC: number): numbe
 }
 
 /**
- * The directional spreading function's anisotropy parameter, eqs. (37)–(40) region: the paper's
- * Δ(k) enters through tanh of the harmonic mean of the long- and short-wave contributions
- *   4·(c/cp)^2.5 + am·(cm/c)^2.5     with am = 0.13·u* / cm (the wind-shifted asymmetry),
- * wrapped by the constant ln(2)/4 that keeps Δ → 1⁻ in the fully developed limit.
+ * The directional spreading anisotropy, eq. (57):
+ * Δ(k) = tanh(a0 + ap·(c/cp)^2.5 + am·(cm/c)^2.5). The grouped definitions in eq. (59)
+ * set a0 = ln(2)/4, ap = 4, and am = 0.13 times u-star/cm. The stage shorthand named only the two
+ * speed-ratio terms; the published constants remain explicit here.
  * Returns the tanh argument's evaluation Δ itself. Pure.
  */
 export function spreadingDelta(k: number, u10: number, omegaC: number): number {
@@ -170,7 +165,7 @@ export function spreadingDelta(k: number, u10: number, omegaC: number): number {
 }
 
 /**
- * The directional spreading normalization, eqs. (37)–(40) region: the paper's angular factor is
+ * The directional spreading normalization, eqs. (45), (46), and (49): the paper's angular factor is
  * Φ(k, θ) = (1 + Δ·cos(2(θ − θw)))/(2π) — unit integral over θ (checked by
  * `elfouhaily-independent.test.ts`), second harmonic only, θw the wind direction [rad].
  * Pure.
@@ -206,11 +201,8 @@ export function directionalDensity(
 }
 
 /**
- * The omnidirectional radial moment ∫₀^{2π} Ψ(k, θ)·k^p dθ for p ∈ {0, 1, 2} — the building
- * block of the independent variance (p = 1, the paper's polar measure) and of the independent
- * full-tail mean-square-slope integral (p = 3 against the polar k·dk measure, i.e. the slope
- * moment k²·Ψ). Log-spaced Simpson quadrature over ln k — the integrand is smooth in ln k and
- * the band spans four decades. Pure.
+ * The angular integral ∫₀^{2π} Ψ(k, θ)·k^p dθ for p ∈ {0, 1, 2}. `radialIntegral` supplies
+ * the polar k·dk measure and the requested height or slope moment separately. Pure.
  */
 export function radialMoment(k: number, u10: number, omegaC: number, power: 0 | 1 | 2): number {
     // ∫₀^{2π} Ψ dθ = B/k⁴ exactly: the spreading's second harmonic (1 + Δ·cos(2(θ−θw)))/(2π)
