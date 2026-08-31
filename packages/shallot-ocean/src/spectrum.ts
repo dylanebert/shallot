@@ -9,6 +9,10 @@ export type LabelFn = (i: number, N: number) => number;
 export interface CascadeConfig {
     N: number;
     L: number;
+    /** Shared sea-state wind mirrored for compatibility with the committed spike harness. */
+    windSpeed: number;
+    /** Shared sea-state wind direction mirrored for compatibility with the committed spike harness. */
+    windDir: number;
     /** Existing displacement strength; physical derivation belongs to the later fold stage. */
     lambda: number;
     kLo: number;
@@ -31,8 +35,24 @@ export interface SeaState {
 
 /** Shipped power-of-two cascades; coprime world lengths avoid aligned repeat boundaries. */
 export const CASCADE_CONFIGS: CascadeConfig[] = [
-    { N: 64, L: 80, lambda: 1.925088, kLo: 0.07853981633974483, kHi: 0.75 },
-    { N: 128, L: 31, lambda: 5.492399, kLo: 0.75, kHi: 8.482300164692441 },
+    {
+        N: 64,
+        L: 80,
+        windSpeed: 15,
+        windDir: 0.6,
+        lambda: 1.925088,
+        kLo: 0.07853981633974483,
+        kHi: 0.75,
+    },
+    {
+        N: 128,
+        L: 31,
+        windSpeed: 15,
+        windDir: 0.6,
+        lambda: 5.492399,
+        kLo: 0.75,
+        kHi: 8.482300164692441,
+    },
 ];
 
 /** Standard unshifted FFT label: positive bins through Nyquist, then negative bins. */
@@ -181,6 +201,11 @@ export function directionalDensity(
     return Math.max(0, (curvatureSpectrum(k, windSpeed, omegaC, mutation) * angular) / k ** 4);
 }
 
+/** Compatibility name used by the committed spike's spectral diagnostic. */
+export function philips(kx: number, kz: number, config: CascadeConfig): number {
+    return directionalDensity(kx, kz, config.windSpeed, config.windDir, OMEGA_C);
+}
+
 function integrateRadialMoment(windSpeed: number, omegaC: number, slope: boolean): number {
     const steps = 4096;
     const logLo = Math.log(0.01);
@@ -268,7 +293,7 @@ function gaussian(kx: number, kz: number, seed: number, salt: number): number {
  */
 export function generateH0(
     config: CascadeConfig,
-    seed: number,
+    seed = 0,
     labelFn: LabelFn = kIndex,
     seaState: SeaState = SEA_STATE,
 ): Float32Array {

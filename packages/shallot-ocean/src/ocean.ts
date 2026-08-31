@@ -1,4 +1,4 @@
-// FFT ocean compute substrate — two JONSWAP cascades over world-space patches.
+// FFT ocean compute substrate — two physical-spectrum cascades over world-space patches.
 // Compute passes per cascade: update H(k,t); chop spectrum (i·k̂·H̃ for x and z); three inverse 2D
 // FFTs (height, Dx, Dz) plus the spectral-gradient chain's own three (gxx, gxz, gzz — six total);
 // post-process (Jacobian from the resulting displacement field, texture + probe write).

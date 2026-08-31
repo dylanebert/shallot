@@ -64,6 +64,7 @@ export {
     K_M,
     kIndex,
     OMEGA_C,
+    philips,
     SEA_STATE,
     type SeaState,
     type SpectrumMutation,
