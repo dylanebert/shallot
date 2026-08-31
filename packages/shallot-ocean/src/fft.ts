@@ -1,11 +1,11 @@
-// CPU radix-2 Cooley-Tukey FFT — the butterfly transform `cpu-reference.ts`'s `idft2` (I1) and the
+// CPU radix-2 Cooley-Tukey FFT — the butterfly transform used by the CPU reference and the
 // GPU kernels in `gpu-fft.ts` both realize. `N` must be a power of two (`spectrum.ts`'s
 // `assertAllPowerOfTwo`, checked at module load for every shipped cascade).
 //
-// The transform computed here is UNNORMALIZED and matches the spike's own `idft2` phase convention
+// The transform computed here is UNNORMALIZED and uses the inverse phase convention
 // exactly: `out[n] = Σ_k in[k]·exp(sign·i·2π·k·n/N)`, no `1/N` factor (the amplitude convention is
-// baked into `generateH0`, per that file's own docblock). `sign = +1` reproduces the spike's inverse
-// DFT bit-for-bit in exact arithmetic (verified against a direct O(N²) summation in
+// baked into `generateH0`, per that file's own docblock). `sign = +1` is verified against a direct
+// O(N²) summation in
 // `tests/fft.test.ts`); nothing here ever needs `sign = -1` (the forward direction) — `generateH0`
 // already produces its output directly in the frequency domain, so no forward transform is needed
 // anywhere in this package.
@@ -77,7 +77,7 @@ export function fft1dInPlace(re: Float64Array, im: Float64Array, N: number, sign
 
 /**
  * Unnormalized 2D inverse FFT — a row pass (along x) then a column pass (along y), matching the
- * spike's `idft2` signature and semantics exactly (interleaved re/im `Float32Array` in and out,
+ * `idft2`'s signature and semantics exactly (interleaved re/im `Float32Array` in and out,
  * length `N*N*2`). Row-major layout: `input[(y*N + x)*2 + {0,1}]`.
  */
 export function ifft2(input: Float32Array, N: number): Float32Array {
@@ -126,7 +126,7 @@ export function ifft2(input: Float32Array, N: number): Float32Array {
     return out;
 }
 
-/** Direct O(N²) unnormalized inverse DFT — the spike's original `idft2`, kept only as the
+/** Direct O(N²) unnormalized inverse DFT — a reference implementation kept only for the
  *  brute-force reference `tests/fft.test.ts` checks `ifft2` against (never called from production). */
 export function directIdft2(input: Float32Array, N: number): Float32Array {
     const mid = new Float64Array(N * N * 2);

@@ -1,4 +1,4 @@
-// The mode-placement oracle, ported from the water-surface spike's `mode-labeling.oracle.ts` (I1).
+// The mode-placement oracle checks the transform's realized frequency against its declared labels.
 //
 // Leg (a) — mode-placement: does a single labelled mode's realized energy land on its label, not its
 // Nyquist image? The spike ran this at one even N (64) and one odd N (81); the odd-N case dies with
@@ -107,8 +107,9 @@ describe("mode-placement oracle — leg (b): the lag-1 autocorrelation parity wi
         });
 
         test(`cascade N=${cfg.N}: RED-WITNESS — the pre-fix centered label disagrees sharply (the checkerboard class, caught)`, () => {
-            const reading = lag1AutocorrParityWitness(cfg, centeredLabelPreFix);
-            // the defect fixture must clearly fail the SAME bound production clears — proving this
+            const reading = lag1AutocorrParityWitness(cfg, kIndex, centeredLabelPreFix);
+            // Keep H0 on production labels and change only the prediction labels: this is the
+            // independent-label defect the witness is designed to catch.
             // detector discriminates rather than passing vacuously.
             expect(reading.relDiff).toBeGreaterThan(0.5);
         });

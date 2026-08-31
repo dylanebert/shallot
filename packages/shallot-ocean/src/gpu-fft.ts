@@ -1,4 +1,4 @@
-// GPU butterfly FFT (I1) — replaces the water-surface spike's `dftRowKernel`/`dftColKernel` (one
+// GPU butterfly FFT — one workgroup processes each row or column with shared-memory radix-2
 // thread per output element, an O(N) inner loop per thread) with a shared-memory radix-2
 // decimation-in-time FFT: one workgroup per row (or column), `N/2` threads, `log2(N)` synchronized
 // butterfly stages in workgroup-shared memory (`var<workgroup>`, `gpu.md`'s LDS convention).
@@ -10,14 +10,12 @@
 // cascades (and the N-invariance probe, which reuses the same two `N`) share one compiled kernel
 // object each rather than rebuilding per cascade instance.
 //
-// TGSL compiles plain `u32 / u32` to a REAL division (`gpu.md`'s promoted rule, already carried in
-// `@dylanebert/shallot`'s `packages/shallot/AGENTS.md`: "TGSL integer division uses `idiv` from
-// `utils/core`, never `/`"). This kernel derives a butterfly pair's (block, local-index) split from
-// the thread id via exactly that division, so every division below goes through `idiv`; `%`
+// TGSL compiles plain `u32 / u32` as real division. This kernel derives a butterfly pair's
+// (block, local-index) split from the thread id, so integer division goes through `idiv`; `%`
 // (WGSL's native integer remainder) is unaffected and used directly, per the same rule.
 //
 // Direction: unnormalized inverse only (`sign = +1`, matching `fft.ts`'s `fft1dInPlace` and the
-// spike's own `idft2` phase convention `Σ_k in[k]·exp(+i·2π·k·n/N)`, no `1/N`). Nothing in this
+// `idft2` phase convention `Σ_k in[k]·exp(+i·2π·k·n/N)`, no `1/N`). Nothing in this
 // package ever needs the forward direction — `generateH0` already produces its output in the
 // frequency domain.
 

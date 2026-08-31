@@ -1,20 +1,13 @@
 // JONSWAP-modified Phillips spectrum generation for the FFT ocean substrate.
-// Ported from the water-surface spike's `spectrum.ts` (I1) — the spike's O(N²) direct DFT becomes a
-// butterfly FFT here, which is what forces `N` to power-of-two on every cascade. The spike's cascade
-// 1 ran at `N=81` (chosen for coprimality with cascade 0's `N=64`); that coprimality argument was
-// itself the defect the Locked decision names: **coprimality belongs to the world-space patch length
-// `L`, never to the grid resolution `N`** — reading it onto `N` is what cost the spike its FFT. Both
-// `N` are now powers of two (64, 128); `L` stays untouched (see `CASCADE_CONFIGS`'s own docblock for
-// why this stage does not also move `L` to a coprime pair — the foam pass's tiling domain is what
-// stopped it, and it is a documented, deliberate deferral, not an oversight).
+// Grid resolution is constrained by the radix-2 transform; world-space patch lengths define the
+// spatial repeat period independently.
+
+export type LabelFn = (i: number, N: number) => number;
 
 export interface CascadeConfig {
-    /** FFT grid resolution (N×N). Power-of-two on every cascade — the butterfly FFT's own
-     * requirement (I1). Cross-cascade tile alignment is NOT this field's concern (see `L`). */
+    /** FFT grid resolution (N×N), constrained to a power of two by the radix-2 transform. */
     N: number;
-    /** Physical domain size in meters (the patch the N×N grid covers). Coprime across cascades
-     * (as integers) to prevent cross-cascade tile alignment — this is the field the spike's
-     * `N`-coprimality argument actually belonged to (Locked decision). */
+    /** Physical domain size in meters (the patch the N×N grid covers). */
     L: number;
     /** Wind speed in m/s. */
     windSpeed: number;
@@ -27,11 +20,10 @@ export interface CascadeConfig {
     /**
      * Declared spectral band (rad/m), applied in `generateH0`. N-INDEPENDENT: this cascade
      * represents wavenumbers in [kLo, kHi] regardless of grid resolution — `kMax = Nπ/L` would make
-     * the represented sea a function of N, which is exactly what the spike's S2h stage closed. The
+     * the represented sea a function of N, which is not part of the declared band contract. The
      * two cascades below are declared non-overlapping and contiguous at kSplit=0.75 rad/m: cascade 0
      * owns the swell/large-scale band [dk₀, 0.75], cascade 1 owns the chop/ripple band [0.75, its
-     * own Nyquist]. `kLo`/`kHi` are carried forward byte-for-byte from the spike (only `N`/`L`
-     * changed at I1) — I1 does not touch spectrum normalization or the fold band (I2's scope).
+     * own Nyquist]. `kLo`/`kHi` define the band independently of the grid resolution.
      */
     kLo: number;
     /** See `kLo`. */
@@ -39,32 +31,13 @@ export interface CascadeConfig {
 }
 
 /**
- * I1 — both cascades moved to power-of-two `N` for the butterfly FFT. Cascade 0 keeps its spike
- * values verbatim (`N=64` was already a power of two). Cascade 1 moves `N: 81 → 128`; `L` stays
- * `30`, UNCHANGED. `N=128` is the smallest power of two whose Nyquist (`kNyquist = Nπ/L = 128π/30 ≈
- * 13.40 rad/m`) still covers the unchanged declared band's `kHi` (8.4823 rad/m) — the spike's own
- * `N=81,L=30` pair sat exactly AT its Nyquist edge (`81π/30 = 8.4823 = kHi`, zero headroom); this
- * pair carries real headroom above `kHi` instead, a byproduct of the smallest-power-of-two choice,
- * not a retuned target.
+ * The shipped cascades use `N=64` and `N=128`, the smallest power-of-two choices that preserve their
+ * declared bands. Their patch lengths are `L=80` and `L=30`, so the composed field repeats every 240 m.
+ * `tilePeriod` exposes that period; consumers that require a different anti-alignment guarantee must
+ * choose patch lengths and a corresponding resource budget explicitly.
  *
- * **`L` deliberately stays untouched, and cross-cascade non-alignment is NOT strict coprimality
- * here.** The Locked decision names `L` (not `N`) as where a non-alignment guarantee belongs, but
- * does not mandate `gcd(L₀, L₁) = 1` — the shipped pair (`80, 30`) shares a factor of 10
- * (`gcd = 10`, `lcm = 240`), a 240 m repeat period the spike's own foam pass (`spike/src/foam.ts`)
- * already built its tiling domain around and no prior stage flagged as a visible defect. Moving `L₁`
- * to a value coprime with 80 (e.g. 31) was tried and reverted: it forces `lcm(L₀, L₁) = L₀·L₁`
- * (2480 m instead of 240 m), which blows up the foam pass's own domain/texel budget — a foam-side
- * recalibration outside I1's scope (foam is I4's territory) for a property this spec does not
- * actually gate. `tilePeriod` below reports the real (unchanged) 240 m period; `assertCoprimeL` is
- * kept as a general-purpose utility for a later stage that chooses to decorrelate `L` further, not
- * asserted true for the shipped configs (see the spec's Residue).
- *
- * `lambda` is carried forward UNCHANGED (1.925088 / 5.492399) — I1 does not re-derive it. The spike's
- * S2h/S3c bisection that produced these values targeted the OLD `N` (this stage's `L` is unchanged);
- * I2 ("physical spectrum normalization") owns re-deriving both lambda and the fold-fraction band for
- * the new grid, per the spec's Locked decision ("a third hand-fitted amplitude/λ pair is the exact
- * defect the spike spent five stages on" — re-fitting lambda here, against this stage's own gates,
- * would be exactly that).
+ * The amplitude and choppiness values are configuration inputs. Spectrum normalization and derived
+ * physical parameters belong to the caller that selects them.
  */
 export const CASCADE_CONFIGS: CascadeConfig[] = [
     {
@@ -90,11 +63,9 @@ export const CASCADE_CONFIGS: CascadeConfig[] = [
 ];
 
 /** Standard DFT/FFT mode index: `k = (i <= N/2 ? i : i-N) * dk`. Every k-labelled kernel
- * (`generateH0`'s band mask below, `updateH`/`chop`/`spectralGradient` in `cpu-reference.ts`, and the
- * matching GPU kernels in `ocean.ts`) computes a physical wavenumber this way, and the FFT transforms
- * with the matching unshifted phase `2π·x·k/N` — carried forward verbatim from the spike (S3c),
- * unaffected by the FFT swap: re-indexing changes which `(kx,kz)` value each grid index labels, not
- * whether a shared wavenumber draws identically at both N, so `kIndex` needs no change here. */
+ * (`generateH0`'s band mask, the CPU reference, and the matching GPU kernels) computes a physical
+ * wavenumber this way, and the FFT transforms with the matching unshifted phase `2π·x·k/N`. A mode's
+ * physical value is therefore stable when it is represented at more than one resolution. */
 export function kIndex(i: number, N: number): number {
     return i <= N / 2 ? i : i - N;
 }
@@ -104,7 +75,7 @@ export function isPowerOfTwo(n: number): boolean {
     return n >= 1 && (n & (n - 1)) === 0;
 }
 
-/** Greatest common divisor — used to assert coprime domain sizes. */
+/** greatest common divisor for integer patch lengths. */
 export function gcd(a: number, b: number): number {
     while (b > 0) [a, b] = [b, a % b];
     return a;
@@ -119,12 +90,9 @@ export function assertAllPowerOfTwo(configs: CascadeConfig[]): boolean {
 }
 
 /**
- * Assert all cascade world-space patch lengths (`L`) are pairwise coprime (as integers) — a
- * SUFFICIENT (not necessary) condition for cross-cascade tile non-alignment, which the Locked
- * decision names as living on `L`, never `N`. General-purpose utility for a future stage that
- * chooses to decorrelate `L` further; **not asserted true for the shipped `CASCADE_CONFIGS`** — see
- * that constant's own docblock for why (the shipped pair shares a factor of 10, a 240 m repeat
- * period the foam pass already tiles around; `tilePeriod` below reports it).
+ * tests whether integer patch lengths are pairwise coprime. This is a sufficient condition for
+ * eliminating a shared tile period; the shipped configuration reports its actual period through
+ * `tilePeriod` instead of asserting this stronger condition.
  */
 export function assertCoprimeL(configs: CascadeConfig[]): boolean {
     for (let i = 0; i < configs.length; i++) {
@@ -136,16 +104,13 @@ export function assertCoprimeL(configs: CascadeConfig[]): boolean {
     return true;
 }
 
-/** Least common multiple — the real cross-cascade repeat period in world-space meters when `L` is
- *  not coprime (`lcm(a,b) = a*b/gcd(a,b)`), reported by `tilePeriod` below. */
+/** Least common multiple for integer patch lengths (`lcm(a,b) = a*b/gcd(a,b)`). */
 function lcm(a: number, b: number): number {
     return (a * b) / gcd(a, b);
 }
 
-/** The world-space distance at which every shipped cascade's tile boundary re-aligns — `lcm` of
- *  every pairwise `L`, folded across more than two cascades. `Infinity` for a single cascade (no
- *  cross-cascade alignment to speak of). Informational: nothing in this package gates on this value,
- *  it is the honest number `assertCoprimeL`'s absence leaves on the table for the shipped configs. */
+/** the world-space distance at which all cascade boundaries re-align, folded across every `L`.
+ * `Infinity` for a single cascade. Consumers can use this value when sizing periodic resources. */
 export function tilePeriod(configs: CascadeConfig[]): number {
     if (configs.length < 2) return Number.POSITIVE_INFINITY;
     return configs.reduce((period, c) => lcm(period, c.L), 1);
@@ -164,8 +129,8 @@ export const G = 9.81;
 /**
  * H0 is a deterministic hash of the WAVENUMBER `(kx, kz)`, not of the grid — so a given physical
  * wavenumber draws the identical amplitude/phase pair at every `N` that can represent it, which is
- * what the N-invariance arm's premise depends on (ported verbatim from the spike's S2e; unaffected by
- * the FFT swap since it operates purely in the frequency domain `generateH0` already occupies).
+ * what cross-resolution comparisons depend on: it operates purely in the frequency domain occupied
+ * by `generateH0`.
  *
  * The mixer is a murmur3-style avalanche over the raw IEEE-754 bits of kx/kz plus a salt.
  */
@@ -200,9 +165,8 @@ function gaussFromK(kx: number, kz: number, salt: number): number {
 }
 
 /**
- * JONSWAP-modified Phillips spectrum P(k). Exported (unlike the spike's private `philips`) so the
- * mode-labeling oracle's parity witness can build an energy-weighted lag-1 autocorrelation prediction
- * directly from the declared spectral shape (see `tests/mode-labeling.oracle.ts`).
+ * JONSWAP-modified Phillips spectrum P(k). Exported so a parity witness can build an energy-weighted
+ * lag-1 autocorrelation prediction directly from the declared spectral shape.
  *
  * Phillips base: A·exp(-1/(kL)²) / k⁴ · |k̂·D̂|²
  * JONSWAP enhancement: γ^r where r = exp(-((ω-ω_p)/(σ·ω_p))²/2)
@@ -233,23 +197,24 @@ export function philips(kx: number, kz: number, cfg: CascadeConfig): number {
  * Generate the Fourier-domain initial height field H₀(k) for one cascade.
  * Returns a flat Float32Array of length N*N*2 (interleaved real, imag per element).
  *
- * H₀(k) = (1/√2)·(ξᵣ + i·ξᵢ)·√P(k) — carried forward from the spike without the `Δk` (bin-width)
- * factor a fully normalized Tessendorf spectrum carries; `lambda`/`amplitude` absorb the missing
- * normalization (I2's scope — see the spec's Residue).
+ * H₀(k) = (1/√2)·(ξᵣ + i·ξᵢ)·√P(k). The bin-width normalization is left to the caller's
+ * spectrum calibration; `lambda` and `amplitude` are configuration inputs.
  *
  * `cfg.kLo`/`cfg.kHi` (rad/m, N-independent) zero every mode outside the cascade's declared band.
+ * `labelFn` defaults to `kIndex`; supplying another label is useful for independent diagnostic
+ * comparisons, but does not change the transform's phase convention.
  * The conjugate H₀*(-k) needed for time evolution is derived in the GPU update kernel by looking up
  * H₀ at index (-k) and conjugating — so we only store H₀.
  */
-export function generateH0(cfg: CascadeConfig): Float32Array {
+export function generateH0(cfg: CascadeConfig, labelFn: LabelFn = kIndex): Float32Array {
     const N = cfg.N;
     const dk = (2 * Math.PI) / cfg.L;
     const h0 = new Float32Array(N * N * 2);
 
     for (let y = 0; y < N; y++) {
         for (let x = 0; x < N; x++) {
-            const kx = kIndex(x, N) * dk;
-            const kz = kIndex(y, N) * dk;
+            const kx = labelFn(x, N) * dk;
+            const kz = labelFn(y, N) * dk;
             const idx = (y * N + x) * 2;
             const kMag = Math.sqrt(kx * kx + kz * kz);
 
@@ -298,7 +263,7 @@ export function totalTheoreticalFlops(configs: CascadeConfig[]): number {
 }
 
 /**
- * The flop cost a direct O(N²)-per-dimension DFT (what the water-surface spike actually computed)
+ * The flop cost a direct O(N²)-per-dimension DFT
  * would pay at this cascade's `N` — kept for the achieved-vs-legacy comparison the ALU-ratio reading
  * cites (`totalTheoreticalFlops` is this package's own FFT cost; this is the counterfactual it
  * replaced). Per dimension pass: N² output elements, each an N-term complex sum, 8 FLOPs/term

@@ -1018,7 +1018,7 @@ if (rosterInTree.length > 0) {
 // The pinned marker-exempted count. This literal is the law the arm already applies to its
 // tier rosters and chain budgets: growth reds, and a swap-in moves prose a reviewer reads.
 // When a marker is added or removed from a rule file, this count must be updated to match.
-const PINNED_MARKER_EXEMPTED_COUNT = 20;
+const PINNED_MARKER_EXEMPTED_COUNT = 19;
 
 type StaleCitation = {
     file: string;

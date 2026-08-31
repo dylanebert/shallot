@@ -1,20 +1,17 @@
-// FFT ocean compute substrate — 2 cascades (JONSWAP, coprime *world-space patch lengths*).
+// FFT ocean compute substrate — two JONSWAP cascades over world-space patches.
 // Compute passes per cascade: update H(k,t); chop spectrum (i·k̂·H̃ for x and z); three inverse 2D
 // FFTs (height, Dx, Dz) plus the spectral-gradient chain's own three (gxx, gxz, gzz — six total);
 // post-process (Jacobian from the resulting displacement field, texture + probe write).
 //
-// I1 — ported from the water-surface spike's `ocean.ts`. The spike used a direct O(N²)-per-dimension
-// DFT (simpler, works for non-power-of-2 `N`); this file replaces the two DFT kernels with the
+// The compute path uses a shared-memory butterfly FFT instead of a direct O(N²)-per-dimension DFT.
 // shared-memory butterfly FFT in `./gpu-fft.ts`, which forces `N` to power-of-two on every cascade
-// (`spectrum.ts`'s `CASCADE_CONFIGS`). Every other kernel (update, chop, gradient, post) is the same
-// formula in the same operation order as the spike — the FFT swap is isolated to the two inverse-
-// transform passes per field.
+// (`spectrum.ts`'s `CASCADE_CONFIGS`). Update, chop, gradient, and post-process retain the same
+// spectral formulas around the inverse-transform passes.
 //
 // The canonical displacement operator (i·k̂·H̃(k,t), inverse-transformed and scaled by `lambda` after
 // the transform — never a finite difference on `h`) and the spectral Jacobian (analytic derivative of
-// the spectral representation, no `dx`/`1/dx` anywhere) are carried forward unchanged from the spike;
-// see `spectrum.ts`'s `CascadeConfig` docblock for the re-derived (I1: only `N`/`L` changed) band and
-// `tests/`'s N-invariance arm for the invariance check this operator is held to.
+// the spectral representation, with no finite-difference spacing factor. `spectrum.ts` defines the
+// represented bands, while the package tests cover cross-resolution behavior.
 
 import { Compute, type Plugin, RenderPlugin, type State, type System } from "@dylanebert/shallot";
 import { BeginFrameSystem, Frame, Render } from "@dylanebert/shallot/render/core";
@@ -26,7 +23,7 @@ import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
 import { CASCADE_CONFIGS, type CascadeConfig, generateH0 } from "./spectrum";
 
-// Re-export for consumers (matches the spike's own re-export shape)
+// Re-export the cascade configuration alongside the plugin API.
 export { CASCADE_CONFIGS, type CascadeConfig };
 
 // ── schemas ──────────────────────────────────────────────────────────────────

@@ -1,9 +1,5 @@
-// @dylanebert/shallot-ocean — the FFT ocean surface extension. First-party shallot package (I1):
-// the water-surface spike's direct O(N²) DFT becomes a butterfly FFT here (`./gpu-fft.ts`,
-// `./fft.ts`), landing in a package for the first time — no other first-party `@dylanebert/shallot-*`
-// extension existed before this one. Spectrum normalization (I2), the capillary slope cascade (I3),
-// and fragment-side slope-texture shading (I4) are later stages of the same spec; this package
-// currently ships the substrate those stages extend.
+// @dylanebert/shallot-ocean — FFT ocean surface extension. The package exposes a butterfly FFT,
+// spectral ocean kernels, CPU reference functions, and a Shallot plugin.
 
 export {
     type ComplexArray,

@@ -4,9 +4,8 @@
 // `./fft`) — transcribed by hand from `ocean.ts`'s own WGSL/TGSL source, sharing nothing with the GPU
 // path except its inputs (`CASCADE_CONFIGS`, `generateH0`, imported from `./spectrum`, both plain TS
 // already shared between CPU and GPU). This file exists to answer one question: does the GPU probe
-// agree with the operator's own arithmetic — ported from the water-surface spike's `cpu-reference.ts`
-// (I1: `idft2`'s O(N²) direct summation becomes `ifft2`'s butterfly FFT; every other kernel is
-// unchanged formula, unchanged operation order).
+// agree with the operator's own arithmetic; the inverse transform uses the same butterfly FFT as
+// the GPU path.
 //
 // Every function below is a literal transcription — same formula, same operation order as the
 // WGSL source it mirrors — so a divergence from the GPU reading localizes to whichever stage
@@ -97,9 +96,8 @@ export function chop(
 
 /**
  * Unnormalized 2D inverse transform — a row FFT then a column FFT (`ifft2`, `./fft`), matching the
- * amplitude convention baked into `generateH0` (that file's own comment). Ported I1: this is the
- * only stage the FFT swap touches — same signature, same phase convention, same output as the
- * spike's direct-DFT `idft2`, verified against `directIdft2` in `tests/fft.test.ts`.
+ * amplitude convention baked into `generateH0` (that file's own comment). The function keeps the
+ * stable public signature and phase convention; `tests/fft.test.ts` compares it with a direct sum.
  */
 export function idft2(input: ComplexArray, N: number): ComplexArray {
     return ifft2(input, N);

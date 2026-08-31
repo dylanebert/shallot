@@ -90,7 +90,7 @@ CPU↔GPU layouts belong to schemas beside their data. Create/wrap via `Compute.
 
 Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Pure functions run in tests; use WGSL strings only when needed. Every factory-returned kernel calls `.$name()`; name factory-built schemas/pipelines too.
 
-TGSL integer division uses `idiv` from `utils/core`, never `/`; initialize integer locals with `d.u32(...)` or `d.i32(...)`. Apply `eslint-plugin-typegpu` to every `"use gpu"` file.
+TGSL `u32 / u32` is real division: use `idiv`.
 
 Force pipeline creation during loading: from `warm`, queue `precompile(label, force)`; return the bound pipeline or an array — the drain awaits each entry's `initAsync()`, never dispatch.
 
