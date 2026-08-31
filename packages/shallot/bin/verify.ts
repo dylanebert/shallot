@@ -1357,8 +1357,11 @@ async function sampleFrame(page: Page): Promise<FrameSample | null> {
  *  verify.test.ts's "decodeSampleNode area-average equivalence" oracle drives this decoder and an
  *  independently written fractional-coverage reference over a pngjs-round-tripped frame (smooth ramp plus
  *  1 px checkerboard, the discriminating input) and asserts per-channel agreement within tolerance 8 —
- *  an oracle that reds against a point-sampler, the pre-fix defect (shallot-boot-stall-repair S1
- *  follow-up). Duplicated from {@link decodeSample} rather than shared, for the same reason
+ *  so the Node oracle witnesses this area-averaging math itself; what it does not witness is the
+ *  canvas filter, since `drawImage`'s downsample is implementation-defined and no oracle drives the
+ *  in-page and Node filters against each other, making canvas-filter agreement unwitnessed —
+ *  approximate by construction, never asserted — an oracle that reds against a point-sampler, the
+ *  pre-fix defect (shallot-boot-stall-repair S1 follow-up). Duplicated from {@link decodeSample} rather than shared, for the same reason
  *  {@link decodeRgba} already duplicates it (its own comment, above): {@link decodeSample} is serialized
  *  by Playwright and run in-page, so it can't import or close over anything. @internal exported only so
  *  its coverage arm can drive it directly without a browser. */

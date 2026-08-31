@@ -435,7 +435,10 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "decodeSample survives only as `sampleFrameNode`'s silent pngjs-missing fallback — the fallback " +
             "arm reaches the `page.evaluate(decodeSample, …)` call site with a duck-typed page stub, but the " +
             "stub returns a hand-built frame and never executes the body — and as the two post-boot " +
-            "single-shot `sampleFrame` reads. The stage's open question — whether they're pure pixel math " +
+            "single-shot `sampleFrame` reads — which execute `decodeSample` in-page only for harness " +
+            'consumers without `noRender` (a `noRender` consumer reports `rendered: "opt-out"` and never ' +
+            "samples), while harness-less execution reaches the `page.evaluate(decodeSample, …)` call site " +
+            "only as the pngjs-missing fallback. The stage's open question — whether they're pure pixel math " +
             "over a captured buffer — is settled false: both construct `new Image()`, " +
             '`document.createElement("canvas")`, and call `getImageData`, genuine in-page DOM serialized ' +
             "into the browser by Playwright's `page.evaluate`, not a CPU-callable function a `bun test` " +
