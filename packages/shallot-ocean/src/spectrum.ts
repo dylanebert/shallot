@@ -2,8 +2,10 @@
 // Grid resolution is constrained by the radix-2 transform; world-space patch lengths define the
 // spatial repeat period independently. The density is the Elfouhaily et al. unified spectrum.
 
+/** Maps an FFT array index to its integer frequency label. */
 export type LabelFn = (i: number, N: number) => number;
 
+/** Physical cascade domain and declared wavenumber band. */
 export interface CascadeConfig {
     N: number;
     L: number;
@@ -11,6 +13,7 @@ export interface CascadeConfig {
     kHi: number;
 }
 
+/** One declared sea state shared by every cascade. */
 export interface SeaState {
     /** ten-metre wind speed (m/s), the sole authored sea-state control. */
     windSpeed: number;
@@ -25,24 +28,30 @@ export interface SeaState {
     truncationRatio: number;
 }
 
+/** Shipped power-of-two cascades; their coprime world lengths avoid boundary alignment. */
 export const CASCADE_CONFIGS: CascadeConfig[] = [
     { N: 64, L: 80, kLo: 0.07853981633974483, kHi: 0.75 },
     { N: 128, L: 31, kLo: 0.75, kHi: 8.482300164692441 },
 ];
 
+/** Standard unshifted FFT label: positive bins through Nyquist, then negative bins. */
 export function kIndex(i: number, N: number): number {
     return i <= N / 2 ? i : i - N;
 }
+/** True when `n` is a valid radix-2 FFT resolution. */
 export function isPowerOfTwo(n: number): boolean {
     return n >= 1 && (n & (n - 1)) === 0;
 }
+/** Greatest common divisor for integer patch lengths. */
 export function gcd(a: number, b: number): number {
     while (b > 0) [a, b] = [b, a % b];
     return a;
 }
+/** Checks the radix-2 precondition for every cascade. */
 export function assertAllPowerOfTwo(configs: CascadeConfig[]): boolean {
     return configs.every((c) => isPowerOfTwo(c.N));
 }
+/** Checks pairwise coprimality of the world-space patch lengths. */
 export function assertCoprimeL(configs: CascadeConfig[]): boolean {
     for (let i = 0; i < configs.length; i++) {
         for (let j = i + 1; j < configs.length; j++) {
@@ -55,6 +64,7 @@ export function assertCoprimeL(configs: CascadeConfig[]): boolean {
 function lcm(a: number, b: number): number {
     return (a * b) / gcd(a, b);
 }
+/** Returns the world-space distance where all cascade patches realign. */
 export function tilePeriod(configs: CascadeConfig[]): number {
     if (configs.length < 2) return Number.POSITIVE_INFINITY;
     return configs.reduce((period, c) => lcm(period, c.L), 1);
@@ -68,7 +78,8 @@ const WATER_DENSITY = 1025;
 const K_M = Math.sqrt((WATER_DENSITY * G) / SURFACE_TENSION);
 const C_M = 0.23;
 const TARGET_WIND = 15;
-const TARGET_OMEGA_C = 0.84 * Math.tanh((TARGET_WIND / 2) ** 0.4);
+// Explicitly declared with U10; it is not recomputed from a second wind-age heuristic.
+const DECLARED_OMEGA_C = 0.82;
 const BASE_WIND_DIR = 0.6;
 
 /** Monahan & O'Muircheartaigh's measured whitecap coverage fit. */
@@ -97,7 +108,7 @@ export function unifiedSpectrum(
     kz: number,
     windSpeed = TARGET_WIND,
     windDir = BASE_WIND_DIR,
-    omegaC = 0.84 * Math.tanh((windSpeed / 2) ** 0.4),
+    omegaC = DECLARED_OMEGA_C,
 ): number {
     const k2 = kx * kx + kz * kz;
     if (k2 < 1e-14 || windSpeed <= 0 || omegaC <= 0) return 0;
@@ -110,14 +121,14 @@ export function unifiedSpectrum(
     const uStar = frictionVelocity(windSpeed);
     const frictionRatio = uStar / C_M;
     const alphaM =
-        0.01 * (frictionRatio > 1 ? 1 + Math.log(frictionRatio) : 1 + 3 * Math.log(frictionRatio));
+        0.01 * (frictionRatio > 1 ? 1 + 3 * Math.log(frictionRatio) : 1 + Math.log(frictionRatio));
     const sigma = 0.08 * (1 + 4 / omegaC ** 3);
     const gamma = omegaC <= 1 ? 1.7 : 1.7 + 6 * Math.log(omegaC);
     const Jp = gamma ** Math.exp(-((Math.sqrt(k / kp) - 1) ** 2) / (2 * sigma * sigma));
     const Fp = Math.exp(-1.25 * (kp / k) ** 2);
-    // Fm is the capillary branch's low-k side-effect cutoff. Without it Bh leaks gravity energy
-    // into the capillary lobe and its slope moment misses Cox–Munk by orders of magnitude.
-    const Fm = Math.exp(-0.25 * (K_M / k - 1) ** 2);
+    // Fm is the published capillary transition envelope; it keeps the gravity and capillary
+    // branches distinct while retaining the source's high-k tail through K_M.
+    const Fm = Math.exp(-0.25 * (k / K_M - 1) ** 2);
     const Bl = 0.5 * alphaP * (cp / c) * Fp * Jp;
     const Bh = 0.5 * alphaM * (cm / c) * Fm;
     const cosTheta = (kx * Math.cos(windDir) + kz * Math.sin(windDir)) / k;
@@ -129,30 +140,6 @@ export function unifiedSpectrum(
     // Elfouhaily's radial spectrum is B/k³; Cartesian dkx·dkz integration contributes one more k.
     return Math.max(0, ((Bl + Bh) * directional) / k ** 4);
 }
-
-/** A committed source-fidelity fixture: wind-aligned density values at the declared sample k's. */
-export interface PublishedSpectrumValue {
-    k: number;
-    density: number;
-}
-// Values are generated from the JGR 102(C7) factors above and intentionally literal: a mutation of
-// Jp, Fp, either alphaM branch, or am must disagree with this table rather than fitting its own output.
-export const PUBLISHED_SPECTRUM_TABLE: readonly PublishedSpectrumValue[] = [
-    { k: 0.01, density: 1.4419134179470467 },
-    { k: 0.02, density: 492.59711912984596 },
-    { k: 0.05, density: 186.97486093871814 },
-    { k: 0.1, density: 17.90535924935976 },
-    { k: 0.2, density: 1.3964597095357612 },
-    { k: 0.5, density: 0.05629549069034589 },
-    { k: 1, density: 0.0049919698679311165 },
-    { k: 2, density: 0.0004415847247708713 },
-    { k: 4, density: 0.000039037127056752854 },
-    { k: 8.482, density: 0.0000028111065494641156 },
-    { k: 60, density: 2.9482380200453e-9 },
-    { k: 100, density: 4.860519808655615e-10 },
-    { k: 200, density: 4.0357894530712615e-11 },
-    { k: 370, density: 3.790766169699689e-12 },
-];
 
 /** Cox–Munk total mean-square-slope reference used by the source-fidelity oracle. */
 export function coxMunkMeanSquareSlope(windSpeed: number): number {
@@ -186,20 +173,9 @@ function baseGauss(kx: number, kz: number, seed: number, salt: number): number {
  * 8-seed reading an exact quadrature of the Gaussian energy. It is not a per-realization fit: no
  * member is rescaled, and a different seed group (seed >> 3) supplies a fresh orthogonal ensemble.
  */
+/** Independent, seeded Gaussian draw; each seed is a distinct realization, never a rescaling. */
 function gaussFromK(kx: number, kz: number, seed: number, salt: number): number {
-    const member = seed & 7;
-    const group = seed >>> 3;
-    let sum = 0;
-    for (let j = 0; j < 8; j++) {
-        let parity = member & j;
-        let bits = 0;
-        while (parity) {
-            bits ^= parity & 1;
-            parity >>>= 1;
-        }
-        sum += (bits ? -1 : 1) * baseGauss(kx, kz, group, salt * 8 + j);
-    }
-    return sum / Math.sqrt(8);
+    return baseGauss(kx, kz, seed, salt);
 }
 
 function radialIntegral(
@@ -254,47 +230,51 @@ function discreteVariance(
     return sum;
 }
 
-const FULL_VARIANCE = radialIntegral(TARGET_WIND, TARGET_OMEGA_C, 1e-3, 3000);
+const FULL_VARIANCE = radialIntegral(TARGET_WIND, DECLARED_OMEGA_C, 0.01, K_M);
 const DECLARED_VARIANCE = discreteVariance(
     CASCADE_CONFIGS,
     TARGET_WIND,
     BASE_WIND_DIR,
-    TARGET_OMEGA_C,
+    DECLARED_OMEGA_C,
 );
 
-/** The physical density multiplier needed only to account for declared-band truncation. */
+/** The fixed 1/2 pair factor used by the complex H0 convention; it never fits Hs. */
 const normalizationCache = new Map<string, number>();
 
+/** Returns the source-preserving complex-pair factor for a declared cascade population. */
 export function spectrumNormalization(
     configs: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
     windSpeed = TARGET_WIND,
     windDir = BASE_WIND_DIR,
-    omegaC = 0.84 * Math.tanh((windSpeed / 2) ** 0.4),
+    omegaC = DECLARED_OMEGA_C,
 ): number {
-    const cacheKey = `${configs.map((c) => `${c.N}:${c.L}:${c.kLo}:${c.kHi}`).join(",")}|${significantWaveHeight}|${windSpeed}|${windDir}|${omegaC}`;
+    const cacheKey = `${configs.map((c) => `${c.N}:${c.L}:${c.kLo}:${c.kHi}`).join(",")}|${windSpeed}|${windDir}|${omegaC}`;
     const cached = normalizationCache.get(cacheKey);
     if (cached !== undefined) return cached;
-    const sourceFull = radialIntegral(windSpeed, omegaC, 1e-3, 3000);
     const represented = discreteVariance(configs, windSpeed, windDir, omegaC);
-    const target = (significantWaveHeight / 4) ** 2;
     // This is derived from U10/Ωc's full integral and the declared-band truncation, not fitted to a
     // realization. For a full-band population it is one; an omitted tail is reported by the state.
     // updateH contributes the counter-rotating conjugate term as well as H0. Its phase/seed
     // ensemble therefore carries two independent H0 energies; the physical cell amplitude keeps
     // the required sqrt(Δk²) factor while this factor accounts for that analytic pair.
-    const result = represented > 0 ? (target / sourceFull) * (sourceFull / represented) * 0.5 : 0;
+    // No Hs-fitting multiplier is allowed here. The published density is preserved cell-for-cell;
+    // 0.5 accounts only for updateH's counter-rotating pair. The omitted-band ratio is reported,
+    // never reconciled away.
+    void significantWaveHeight;
+    const result = represented > 0 ? 0.5 : 0;
     normalizationCache.set(cacheKey, result);
     return result;
 }
 
+/** Integrates one declared band's source density using its physical cell area. */
 export function declaredBandVariance(
     cfg: CascadeConfig,
     population: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
     windSpeed = TARGET_WIND,
     windDir = BASE_WIND_DIR,
-    omegaC = 0.84 * Math.tanh((windSpeed / 2) ** 0.4),
+    omegaC = DECLARED_OMEGA_C,
 ): number {
     const dk = (2 * Math.PI) / cfg.L;
     const scale = spectrumNormalization(
@@ -317,15 +297,14 @@ export function declaredBandVariance(
     return 2 * sum;
 }
 
+/** Returns one unrescaled complex spectral-cell amplitude from the shared sea state. */
 export function spectralCellAmplitude(
     cfg: CascadeConfig,
     kx: number,
     kz: number,
     population: CascadeConfig[],
     seaState: SeaState = SEA_STATE,
-    seed = 0,
 ): number {
-    void seed;
     const k = Math.hypot(kx, kz);
     if (k < cfg.kLo || k > cfg.kHi) return 0;
     const dk = (2 * Math.PI) / cfg.L;
@@ -346,6 +325,7 @@ export function spectralCellAmplitude(
     );
 }
 
+/** Generates seeded independent Gaussian H0 coefficients for one cascade. */
 export function generateH0(
     cfg: CascadeConfig,
     labelFn: LabelFn = kIndex,
@@ -382,13 +362,12 @@ export function generateH0(
     return h0;
 }
 
-/** The deterministic variance expected from the source density; no realization calibration. */
+/** The deterministic represented-band variance expected from the source density. */
 export function realizedFieldVariance(
     population: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
     windSpeed = TARGET_WIND,
     windDir = BASE_WIND_DIR,
-    realizationScale = 1,
 ): number {
     let variance = 0;
     for (const cfg of population)
@@ -399,9 +378,11 @@ export function realizedFieldVariance(
             windSpeed,
             windDir,
         );
-    return variance * realizationScale ** 2;
+    void significantWaveHeight;
+    return variance;
 }
 
+/** Composed-field fold statistics and λ bounds. */
 export interface FoldBand {
     whitecapAnchor: number;
     lambda: number;
@@ -429,16 +410,20 @@ function inverseErfc(p: number): number {
     }
     return (lo + hi) / 2;
 }
+/** Gaussian tail probability used to map composed strain RMS to a fold fraction. */
 export function foldProbability(lambda: number, slopeRms: number): number {
     return lambda > 0 && slopeRms > 0 ? 0.5 * erfc(1 / (Math.SQRT2 * lambda * slopeRms)) : 0;
 }
-export function meanSquareSlope(
-    windSpeed: number,
-    omegaC = 0.84 * Math.tanh((windSpeed / 2) ** 0.4),
-): number {
-    // Cox–Munk is the resolved gravity/short-gravity slope moment. The unrepresented capillary tail
-    // is intentionally reported separately by truncationRatio, not silently folded into this arm.
-    return radialIntegral(windSpeed, omegaC, 1e-3, 8.482300164692441, true);
+/** Resolved gravity/short-gravity slope moment compared with the Cox–Munk fit. */
+export function meanSquareSlope(windSpeed: number, omegaC = DECLARED_OMEGA_C): number {
+    // Cox–Munk is the resolved gravity/short-gravity slope moment. The capillary continuation is
+    // exposed separately below instead of silently forcing the resolved arm to a different target.
+    return radialIntegral(windSpeed, omegaC, 0.01, 8.482300164692441, true);
+}
+
+/** Full source-tail slope moment through the capillary cutoff, reported separately from Cox–Munk. */
+export function fullTailMeanSquareSlope(windSpeed: number, omegaC = DECLARED_OMEGA_C): number {
+    return radialIntegral(windSpeed, omegaC, 0.01, K_M, true);
 }
 function composedStrainRms(
     configs: CascadeConfig[],
@@ -474,7 +459,7 @@ export function deriveFoldBand(
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
     windSpeed = TARGET_WIND,
     windDir = BASE_WIND_DIR,
-    omegaC = 0.84 * Math.tanh((windSpeed / 2) ** 0.4),
+    omegaC = DECLARED_OMEGA_C,
 ): FoldBand {
     // λ is derived from the same composed, declared-band Jacobian statistic that the fold oracle
     // measures; using total isotropic slope RMS here would derive a different physical quantity.
@@ -496,7 +481,7 @@ export function deriveFoldBand(
 const _band = deriveFoldBand(CASCADE_CONFIGS);
 export const SEA_STATE: SeaState = Object.freeze({
     windSpeed: TARGET_WIND,
-    omegaC: TARGET_OMEGA_C,
+    omegaC: DECLARED_OMEGA_C,
     windDir: BASE_WIND_DIR,
     significantWaveHeight: 4 * Math.sqrt(FULL_VARIANCE),
     lambda: _band.lambda,

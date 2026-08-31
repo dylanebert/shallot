@@ -835,6 +835,41 @@ export async function measureFoldFraction(config: CascadeConfig, time = 0): Prom
     return negDetCount / Math.max(totalCount, 1);
 }
 
+/**
+ * Calls the production GPU fold probe over an explicit phase ensemble. This is intentionally a
+ * caller rather than a dead helper: each reading runs update, chop, FFT, gradient, post, and the
+ * per-texel Jacobian reduction on the actual render kernels.
+ */
+export async function measureGpuFoldEnsemble(
+    config: CascadeConfig,
+    phaseCount = 32,
+    period = 1,
+): Promise<number[]> {
+    const values: number[] = [];
+    for (let phase = 0; phase < phaseCount; phase++)
+        values.push(
+            await measureFoldFraction(config, (period * phase) / Math.max(phaseCount - 1, 1)),
+        );
+    return values;
+}
+
+/** Measure the composed fold fraction by area-weighting each production cascade's full probe. */
+export async function measureGpuComposedFoldEnsemble(
+    configs: CascadeConfig[] = CASCADE_CONFIGS,
+    phaseCount = 32,
+    period = 1,
+): Promise<number[]> {
+    const values = Array.from({ length: phaseCount }, () => 0);
+    let totalTexels = 0;
+    for (const config of configs) {
+        const weight = config.N * config.N;
+        const readings = await measureGpuFoldEnsemble(config, phaseCount, period);
+        totalTexels += weight;
+        for (let phase = 0; phase < phaseCount; phase++) values[phase] += readings[phase] * weight;
+    }
+    return values.map((value) => value / Math.max(totalTexels, 1));
+}
+
 /** Read one complex (vec2f) storage buffer back to a plain Float32Array (interleaved re, im). */
 async function readComplexBuffer(
     device: GPUDevice,
