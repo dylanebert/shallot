@@ -9,6 +9,8 @@ import {
     CASCADE_CONFIGS,
     generateH0,
     isPowerOfTwo,
+    kIndex,
+    SEA_STATE,
     tilePeriod,
 } from "../src/spectrum";
 
@@ -68,7 +70,7 @@ describe("ifft2 vs directIdft2 — the FFT swap's own correctness gate", () => {
 
     test("agrees on a real production H0 draw (cascade 0, N=64)", () => {
         const cfg = CASCADE_CONFIGS[0];
-        const h0 = generateH0(cfg);
+        const h0 = generateH0(cfg, kIndex, SEA_STATE, CASCADE_CONFIGS);
         const viaFft = ifft2(h0, cfg.N);
         const viaDft = directIdft2(h0, cfg.N);
         expect(maxAbsDiff(viaFft, viaDft)).toBeLessThan(1e-3);
@@ -76,7 +78,7 @@ describe("ifft2 vs directIdft2 — the FFT swap's own correctness gate", () => {
 
     test("agrees on a real production H0 draw (cascade 1, N=128)", () => {
         const cfg = CASCADE_CONFIGS[1];
-        const h0 = generateH0(cfg);
+        const h0 = generateH0(cfg, kIndex, SEA_STATE, CASCADE_CONFIGS);
         const viaFft = ifft2(h0, cfg.N);
         const viaDft = directIdft2(h0, cfg.N);
         expect(maxAbsDiff(viaFft, viaDft)).toBeLessThan(1e-3);

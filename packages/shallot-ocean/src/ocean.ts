@@ -21,7 +21,7 @@ import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
-import { CASCADE_CONFIGS, type CascadeConfig, generateH0, SEA_STATE } from "./spectrum";
+import { CASCADE_CONFIGS, type CascadeConfig, generateH0, kIndex, SEA_STATE } from "./spectrum";
 
 // Re-export the cascade configuration alongside the plugin API.
 export { CASCADE_CONFIGS, type CascadeConfig };
@@ -426,7 +426,7 @@ function createCascadeState(config: CascadeConfig): CascadeState {
     const complexBytes = N * N * 8; // vec2f = 8 bytes
     const probeBytes = d.sizeOf(d.arrayOf(ProbeData, N * N));
 
-    const h0Data = generateH0(config);
+    const h0Data = generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS);
     const h0Buffer = device.createBuffer({
         label: `ocean-h0-${N}`,
         size: complexBytes,

@@ -1,9 +1,13 @@
 import { describe, expect, test } from "bun:test";
+import { runCpuPipeline } from "../src/cpu-reference";
 import {
     CASCADE_CONFIGS,
     declaredBandVariance,
     deriveFoldBand,
+    foldProbability,
     generateH0,
+    kIndex,
+    realizedFieldVariance,
     SEA_STATE,
     spectralCellAmplitude,
     spectrumNormalization,
@@ -17,8 +21,8 @@ describe("physical spectrum normalization", () => {
         const kz = 0.2;
         const cfg80 = { ...CASCADE_CONFIGS[0], L: 80, kLo: 0.01, kHi: 2 };
         const cfg40 = { ...cfg80, L: 40 };
-        const a80 = spectralCellAmplitude(cfg80, kx, kz);
-        const a40 = spectralCellAmplitude(cfg40, kx, kz);
+        const a80 = spectralCellAmplitude(cfg80, kx, kz, [cfg80, cfg40]);
+        const a40 = spectralCellAmplitude(cfg40, kx, kz, [cfg80, cfg40]);
         expect(a80 / a40).toBeCloseTo(0.5, 5);
     });
 
@@ -27,9 +31,67 @@ describe("physical spectrum normalization", () => {
         const high = { ...low, N: 128 };
         // Both resolutions contain every mode in the declared band because their Nyquist limits are
         // above kHi; summing the normalized density is therefore exactly N-independent.
-        expect(declaredBandVariance(low)).toBeCloseTo(declaredBandVariance(high), 12);
+        expect(declaredBandVariance(low, [low, high])).toBeCloseTo(
+            declaredBandVariance(high, [low, high]),
+            12,
+        );
         expect(spectrumNormalization([low])).toBeGreaterThan(0);
-        expect(generateH0(low).length).toBe(low.N * low.N * 2);
+        expect(generateH0(low, kIndex, SEA_STATE, [low, high]).length).toBe(low.N * low.N * 2);
+    });
+
+    test("realized Parseval variance is N-invariant for one fixed physical band", () => {
+        const n64 = { ...CASCADE_CONFIGS[0], N: 64 };
+        const n128 = { ...CASCADE_CONFIGS[0], N: 128 };
+        expect(realizedFieldVariance([n64])).toBeCloseTo(realizedFieldVariance([n128]), 12);
+    });
+
+    test("realized pipeline preserves the normalized declared-band ratio", () => {
+        const realized: number[] = [];
+        for (const config of CASCADE_CONFIGS) {
+            const result = runCpuPipeline(
+                generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS),
+                config,
+            );
+            let sum = 0;
+            for (const sample of result.jacobian.height) sum += sample * sample;
+            realized.push(sum / (config.N * config.N));
+        }
+        const expected = CASCADE_CONFIGS.map((config) =>
+            declaredBandVariance(config, CASCADE_CONFIGS),
+        );
+        const ratioError = Math.abs(realized[0] / realized[1] / (expected[0] / expected[1]) - 1);
+        expect(ratioError).toBeLessThan(0.4);
+    });
+
+    test("realized composed field matches the declared significant-wave-height variance", () => {
+        const rawVariance = realizedFieldVariance(
+            CASCADE_CONFIGS,
+            SEA_STATE.significantWaveHeight,
+            SEA_STATE.windSpeed,
+            SEA_STATE.windDir,
+        );
+        const target = (SEA_STATE.significantWaveHeight / 4) ** 2;
+        const realizationScale = Math.sqrt(target / rawVariance);
+        const h0Variance = realizedFieldVariance(
+            CASCADE_CONFIGS,
+            SEA_STATE.significantWaveHeight,
+            SEA_STATE.windSpeed,
+            SEA_STATE.windDir,
+            realizationScale,
+        );
+        let pipelineVariance = 0;
+        for (const config of CASCADE_CONFIGS) {
+            const result = runCpuPipeline(
+                generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS),
+                config,
+            );
+            let sum = 0;
+            for (const sample of result.jacobian.height) sum += sample * sample;
+            pipelineVariance += sum / (config.N * config.N);
+        }
+        expect(rawVariance).not.toBeCloseTo(target, 2);
+        expect(h0Variance).toBeCloseTo(target, 6);
+        expect(pipelineVariance).toBeCloseTo(target, 6);
     });
 
     test("one shared wind and sea-state target are explicit", () => {
@@ -59,12 +121,31 @@ describe("Elfouhaily unified directional spectrum", () => {
 
 describe("composed-field whitecap fold derivation", () => {
     test("anchor is the published wind coverage and λ is strictly below the fold ceiling", () => {
-        const band = deriveFoldBand();
+        const band = deriveFoldBand(CASCADE_CONFIGS);
         expect(band.whitecapAnchor).toBeCloseTo(whitecapFraction(SEA_STATE.windSpeed), 12);
         expect(band.whitecapAnchor).toBeGreaterThan(0);
         expect(band.lambda).toBeGreaterThan(0);
         expect(band.lambda).toBeLessThan(band.lambdaCeiling);
         expect(band.lambda).toBeCloseTo(SEA_STATE.lambda, 12);
+        expect(band.foldAnchor).toBeCloseTo(band.whitecapAnchor, 3);
+        expect(band.foldCeiling).toBeGreaterThan(band.foldAnchor);
+        expect(foldProbability(band.lambda, band.slopeRms)).toBeCloseTo(band.whitecapAnchor, 3);
+        let folded = 0;
+        let samples = 0;
+        for (const config of CASCADE_CONFIGS) {
+            const result = runCpuPipeline(
+                generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS),
+                config,
+            );
+            folded += result.jacobian.foldCount;
+            samples += config.N * config.N;
+        }
+        const realizedFold = folded / samples;
+        // One-sided anchor→ceiling semantics: the realized field must not fall below the
+        // whitecap anchor or exceed the unit-RMS ceiling. This reads the actual CPU pipeline,
+        // rather than restating foldProbability's algebra.
+        expect(realizedFold).toBeGreaterThanOrEqual(band.whitecapAnchor);
+        expect(realizedFold).toBeLessThanOrEqual(band.foldCeiling);
         expect(band.lambda).toBeGreaterThan(0.1);
         expect(band.lambda).toBeLessThan(10);
     });

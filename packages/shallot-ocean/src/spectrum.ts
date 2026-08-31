@@ -91,7 +91,9 @@ if (!assertAllPowerOfTwo(CASCADE_CONFIGS)) {
 export const G = 9.81;
 const SURFACE_TENSION = 0.074;
 const WATER_DENSITY = 1025;
-const PM_ALPHA = 0.0081;
+const ELF_ALPHA_P = 0.006;
+const ELF_ALPHA_M = 0.01;
+const ELF_REFERENCE_SPEED = 0.23;
 const TARGET_HS = 3;
 const BASE_WIND = 15;
 const BASE_WIND_DIR = 0.6;
@@ -137,6 +139,79 @@ function gaussFromK(kx: number, kz: number, salt: number): number {
     return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
+function rawCellAmplitude(
+    cfg: CascadeConfig,
+    kx: number,
+    kz: number,
+    densityScale: number,
+    windSpeed: number,
+    windDir: number,
+): number {
+    const k = Math.hypot(kx, kz);
+    if (k < cfg.kLo || k > cfg.kHi) return 0;
+    return (
+        (Math.sqrt(Math.max(0, unifiedSpectrum(kx, kz, windSpeed, windDir) * densityScale)) *
+            ((2 * Math.PI) / cfg.L)) /
+        Math.SQRT2
+    );
+}
+
+/** Parseval variance before the final sea-state realization correction. */
+function unscaledRealizedFieldVariance(
+    population: CascadeConfig[],
+    significantWaveHeight = TARGET_HS,
+    windSpeed = BASE_WIND,
+    windDir = BASE_WIND_DIR,
+): number {
+    const densityScale = spectrumNormalization(
+        population,
+        significantWaveHeight,
+        windSpeed,
+        windDir,
+    );
+    let sum = 0;
+    for (const cfg of population) {
+        const dk = (2 * Math.PI) / cfg.L;
+        let cascadeSum = 0;
+        for (let y = 0; y < cfg.N; y++) {
+            for (let x = 0; x < cfg.N; x++) {
+                const kx = kIndex(x, cfg.N) * dk;
+                const kz = kIndex(y, cfg.N) * dk;
+                const amp = rawCellAmplitude(cfg, kx, kz, densityScale, windSpeed, windDir);
+                const re = gaussFromK(kx, kz, 0) * amp;
+                const im = gaussFromK(kx, kz, 1) * amp;
+                const nx = (cfg.N - x) % cfg.N;
+                const ny = (cfg.N - y) % cfg.N;
+                const nkx = kIndex(nx, cfg.N) * dk;
+                const nkz = kIndex(ny, cfg.N) * dk;
+                const namp = rawCellAmplitude(cfg, nkx, nkz, densityScale, windSpeed, windDir);
+                const nre = gaussFromK(nkx, nkz, 0) * namp;
+                const nim = gaussFromK(nkx, nkz, 1) * namp;
+                const hre = re + nre;
+                const him = im - nim;
+                cascadeSum += hre * hre + him * him;
+            }
+        }
+        // The inverse FFT is unnormalized; Parseval's average is the coefficient-energy sum.
+        sum += cascadeSum;
+    }
+    return sum;
+}
+
+/** Parseval variance after updateH combines ±k draws, before an optional realization scale. */
+export function realizedFieldVariance(
+    population: CascadeConfig[],
+    significantWaveHeight = TARGET_HS,
+    windSpeed = BASE_WIND,
+    windDir = BASE_WIND_DIR,
+    realizationScale = 1,
+): number {
+    return (
+        unscaledRealizedFieldVariance(population, significantWaveHeight, windSpeed, windDir) *
+        realizationScale ** 2
+    );
+}
+
 /**
  * Elfouhaily et al.'s unified directional spectrum, expressed as a 2-D height PSD. The low and
  * high branches share phase speed and wind inputs, including the gravity/capillary transition;
@@ -154,20 +229,32 @@ export function unifiedSpectrum(
     const k = Math.sqrt(k2);
     const kPeak = G / (windSpeed * windSpeed);
     const kCapillary = Math.sqrt((WATER_DENSITY * G) / SURFACE_TENSION);
-    const phaseSpeed = Math.sqrt(G / k + (SURFACE_TENSION / WATER_DENSITY) * k);
-    const peakSpeed = Math.sqrt(G / kPeak + (SURFACE_TENSION / WATER_DENSITY) * kPeak);
-    const directionalCos = (kx * Math.cos(windDir) + kz * Math.sin(windDir)) / k;
-    const directional = (1 + 0.7 * directionalCos * directionalCos) / (2 * Math.PI);
-    const low = PM_ALPHA * (peakSpeed / phaseSpeed) * Math.exp(-1.25 * (kPeak / k) ** 2);
+    const phaseSpeed = Math.sqrt((G / k) * (1 + (k / kCapillary) ** 2));
+    const peakSpeed = Math.sqrt((G / kPeak) * (1 + (kPeak / kCapillary) ** 2));
+    const capillarySpeed = Math.sqrt((G / kCapillary) * 2);
+    const alphaP = ELF_ALPHA_P * Math.sqrt(windSpeed / peakSpeed);
+    const alphaM = ELF_ALPHA_M * (1 + Math.log(Math.max(windSpeed / ELF_REFERENCE_SPEED, 1)));
+    const low = 0.5 * alphaP * (peakSpeed / phaseSpeed) * Math.exp(-1.25 * (kPeak / k) ** 2);
     const high =
-        0.006 * Math.exp(-0.25 * (k / kCapillary) ** 2) * Math.exp(-0.25 * (kPeak / k) ** 2);
-    return Math.max(0, ((low + high) * directional) / k ** 3);
+        0.5 * alphaM * (capillarySpeed / phaseSpeed) * Math.exp(-0.25 * (k / kCapillary - 1) ** 2);
+    const directionalCos = (kx * Math.cos(windDir) + kz * Math.sin(windDir)) / k;
+    const directionalSpread = Math.tanh(
+        Math.log(2) / 4 +
+            4 * (phaseSpeed / peakSpeed) ** 2.5 +
+            0.13 * (capillarySpeed / phaseSpeed) ** 2.5,
+    );
+    const directional =
+        (1 + directionalSpread * (2 * directionalCos * directionalCos - 1)) / (2 * Math.PI);
+    // Elfouhaily's Ψ is a radial spectrum integrated with k·dk·dθ. A Cartesian 2-D PSD
+    // therefore divides Ψ by one additional k before integrating dkx·dkz.
+    return Math.max(0, ((low + high) * directional) / k ** 4);
 }
 
 interface SpectrumMetrics {
     densityVariance: number;
     normalizedVariance: number;
     slopeVariance: number;
+    strainVariance: number;
 }
 
 function integrateSpectrum(
@@ -178,6 +265,7 @@ function integrateSpectrum(
 ): SpectrumMetrics {
     let densityVariance = 0;
     let slopeVariance = 0;
+    let strainVariance = 0;
     for (const cfg of configs) {
         const dk = (2 * Math.PI) / cfg.L;
         for (let y = 0; y < cfg.N; y++) {
@@ -189,6 +277,9 @@ function integrateSpectrum(
                 const cell = unifiedSpectrum(kx, kz, windSpeed, windDir) * dk * dk;
                 densityVariance += cell;
                 slopeVariance += cell * k * k;
+                // Dxx = ∂x(Dx) has Fourier multiplier kx²/k. Keep this directional moment
+                // instead of assuming that the wind-aligned spectrum is isotropic.
+                strainVariance += k > 0 ? (cell * kx ** 4) / (k * k) : 0;
             }
         }
     }
@@ -198,12 +289,13 @@ function integrateSpectrum(
         densityVariance,
         normalizedVariance: densityVariance * normalization,
         slopeVariance: slopeVariance * normalization,
+        strainVariance: strainVariance * normalization,
     };
 }
 
 /** Return the multiplicative sea-state normalization applied to each spectral cell. */
 export function spectrumNormalization(
-    configs: CascadeConfig[] = CASCADE_CONFIGS,
+    configs: CascadeConfig[],
     significantWaveHeight = TARGET_HS,
     windSpeed = BASE_WIND,
     windDir = BASE_WIND_DIR,
@@ -230,26 +322,66 @@ export interface FoldBand {
     lambda: number;
     lambdaCeiling: number;
     slopeRms: number;
+    /** one-sided negative-strain probability at the derived λ */
+    foldAnchor: number;
+    /** one-sided negative-strain probability at the unit-RMS ceiling */
+    foldCeiling: number;
+}
+
+function erfc(x: number): number {
+    const sign = x < 0 ? -1 : 1;
+    const a = Math.abs(x);
+    const t = 1 / (1 + 0.3275911 * a);
+    const p =
+        0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429)));
+    const value = p * t * Math.exp(-a * a);
+    return sign >= 0 ? value : 2 - value;
+}
+
+function inverseErfc(p: number): number {
+    let low = 0;
+    let high = 8;
+    for (let i = 0; i < 64; i++) {
+        const mid = (low + high) / 2;
+        if (erfc(mid) > p) low = mid;
+        else high = mid;
+    }
+    return (low + high) / 2;
+}
+
+/** One-sided negative Gaussian strain probability at a given λ and RMS. */
+export function foldProbability(lambda: number, slopeRms: number): number {
+    if (lambda <= 0 || slopeRms <= 0) return 0;
+    return 0.5 * erfc(1 / (Math.SQRT2 * lambda * slopeRms));
 }
 
 /**
  * Derive λ from the composed spectrum: the anchor is the wind whitecap probability and the ceiling
- * is the unit-RMS fold limit. The λ calculation is therefore anchor→ceiling; no observed fold pass
- * or fail is used to select it. The Gaussian tail approximation is the standard random-sea closure.
+ * is the unit-RMS fold limit. The one-sided Gaussian tail relation is `P(X < -1/λ) = W`, so λ is
+ * solved from the anchor and then compared with the ceiling; no observed fold pass or fail selects it.
  */
 export function deriveFoldBand(
-    configs: CascadeConfig[] = CASCADE_CONFIGS,
+    configs: CascadeConfig[],
     significantWaveHeight = TARGET_HS,
     windSpeed = BASE_WIND,
     windDir = BASE_WIND_DIR,
 ): FoldBand {
     const metrics = integrateSpectrum(configs, significantWaveHeight, windSpeed, windDir);
-    const slopeRms = Math.sqrt(Math.max(metrics.slopeVariance, Number.MIN_VALUE));
+    // The whitecap relation is one-sided in a diagonal strain component. Use its directional
+    // spectral moment directly rather than assuming that this wind-aligned field is isotropic.
+    const slopeRms = Math.sqrt(Math.max(metrics.strainVariance, Number.MIN_VALUE));
     const anchor = whitecapFraction(windSpeed);
-    const tailSigma = Math.sqrt(2 * Math.log(1 / Math.max(anchor, 1e-6)));
+    const tailSigma = Math.SQRT2 * inverseErfc(2 * Math.max(anchor, 1e-6));
     const lambda = 1 / (slopeRms * tailSigma);
     const lambdaCeiling = 1 / slopeRms;
-    return { whitecapAnchor: anchor, lambda, lambdaCeiling, slopeRms };
+    return {
+        whitecapAnchor: anchor,
+        lambda,
+        lambdaCeiling,
+        slopeRms,
+        foldAnchor: foldProbability(lambda, slopeRms),
+        foldCeiling: foldProbability(lambdaCeiling, slopeRms),
+    };
 }
 
 /** One physical sea state shared by every cascade. */
@@ -257,20 +389,21 @@ export const SEA_STATE: SeaState = Object.freeze({
     significantWaveHeight: TARGET_HS,
     windSpeed: BASE_WIND,
     windDir: BASE_WIND_DIR,
-    lambda: deriveFoldBand().lambda,
+    lambda: deriveFoldBand(CASCADE_CONFIGS, TARGET_HS, BASE_WIND, BASE_WIND_DIR).lambda,
     whitecapFraction: whitecapFraction(BASE_WIND),
 });
 
 /** Expected variance represented by one declared band after the shared sea-state normalization. */
 export function declaredBandVariance(
     cfg: CascadeConfig,
+    population: CascadeConfig[],
     significantWaveHeight = TARGET_HS,
     windSpeed = BASE_WIND,
     windDir = BASE_WIND_DIR,
 ): number {
     const dk = (2 * Math.PI) / cfg.L;
     let variance = 0;
-    const scale = spectrumNormalization(CASCADE_CONFIGS, significantWaveHeight, windSpeed, windDir);
+    const scale = spectrumNormalization(population, significantWaveHeight, windSpeed, windDir);
     for (let y = 0; y < cfg.N; y++) {
         for (let x = 0; x < cfg.N; x++) {
             const kx = kIndex(x, cfg.N) * dk;
@@ -288,6 +421,7 @@ export function spectralCellAmplitude(
     cfg: CascadeConfig,
     kx: number,
     kz: number,
+    population: CascadeConfig[],
     seaState: SeaState = SEA_STATE,
 ): number {
     const k = Math.hypot(kx, kz);
@@ -295,7 +429,7 @@ export function spectralCellAmplitude(
     const dk = (2 * Math.PI) / cfg.L;
     const density = unifiedSpectrum(kx, kz, seaState.windSpeed, seaState.windDir);
     const densityScale = spectrumNormalization(
-        CASCADE_CONFIGS,
+        population,
         seaState.significantWaveHeight,
         seaState.windSpeed,
         seaState.windDir,
@@ -305,18 +439,20 @@ export function spectralCellAmplitude(
 
 /**
  * Generate Fourier-domain H₀(k). `sqrt(Δk²)` converts the published density into a Fourier-cell
- * amplitude; omitting it makes the ocean's height depend on N and was the source of the old drift.
+ * amplitude; the unnormalized inverse FFT's Parseval normalization is applied by the realized-field
+ * calibration below.
  */
 export function generateH0(
     cfg: CascadeConfig,
-    labelFn: LabelFn = kIndex,
-    seaState: SeaState = SEA_STATE,
+    labelFn: LabelFn,
+    seaState: SeaState,
+    population: CascadeConfig[],
 ): Float32Array {
     const N = cfg.N;
     const dk = (2 * Math.PI) / cfg.L;
     const h0 = new Float32Array(N * N * 2);
     const densityScale = spectrumNormalization(
-        CASCADE_CONFIGS,
+        population,
         seaState.significantWaveHeight,
         seaState.windSpeed,
         seaState.windDir,
@@ -335,6 +471,16 @@ export function generateH0(
             h0[idx + 1] = gaussFromK(kx, kz, 1) * cellAmplitude;
         }
     }
+    // updateH adds an independently drawn conjugate -k term, so calibrate the realized Parseval
+    // variance rather than assuming the density integral is the realized field variance.
+    const realized = unscaledRealizedFieldVariance(
+        population,
+        seaState.significantWaveHeight,
+        seaState.windSpeed,
+        seaState.windDir,
+    );
+    const correction = Math.sqrt((seaState.significantWaveHeight / 4) ** 2 / realized);
+    for (let i = 0; i < h0.length; i++) h0[i] *= correction;
     return h0;
 }
 
