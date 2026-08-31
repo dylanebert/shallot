@@ -1,4 +1,10 @@
+// By-path I2r-a real-space realization oracle. It is intentionally outside `bun run test`: 200
+// seeded realizations × nine phases × both cascades each run production updateH and idft2 before a
+// grid-variance read. Run `bun run test:ocean-realization` after changes to spectrum.ts,
+// cpu-reference.ts, fft.ts, this oracle, or the physical-spectrum tests that define its target.
+
 import { describe, expect, test } from "bun:test";
+import { idft2, updateH } from "../src/cpu-reference";
 import {
     CASCADE_CONFIGS,
     type CascadeConfig,
@@ -32,21 +38,20 @@ interface EnsembleReading {
 }
 
 function prediction(sampleSize = SEEDS.length): Prediction {
-    let target = 0;
-    let variance = 0;
+    const weights: number[] = [];
     for (const config of CASCADE_CONFIGS) {
         const dk = (2 * Math.PI) / config.L;
         for (let y = 0; y < config.N; y++) {
             for (let x = 0; x < config.N; x++) {
+                const index = y * config.N + x;
                 const negativeX = (config.N - x) % config.N;
                 const negativeY = (config.N - y) % config.N;
-                if (y * config.N + x > negativeY * config.N + negativeX) continue;
+                const negativeIndex = negativeY * config.N + negativeX;
+                if (index > negativeIndex) continue;
                 const kx = kIndex(x, config.N) * dk;
                 const kz = kIndex(y, config.N) * dk;
                 const k = Math.hypot(kx, kz);
                 if (k < config.kLo || k > config.kHi) continue;
-                const oppositeKx = kIndex(negativeX, config.N) * dk;
-                const oppositeKz = kIndex(negativeY, config.N) * dk;
                 const cell =
                     directionalDensity(
                         kx,
@@ -57,6 +62,12 @@ function prediction(sampleSize = SEEDS.length): Prediction {
                     ) *
                     dk *
                     dk;
+                if (index === negativeIndex) {
+                    weights.push(cell);
+                    continue;
+                }
+                const oppositeKx = kIndex(negativeX, config.N) * dk;
+                const oppositeKz = kIndex(negativeY, config.N) * dk;
                 const oppositeCell =
                     directionalDensity(
                         oppositeKx,
@@ -67,32 +78,17 @@ function prediction(sampleSize = SEEDS.length): Prediction {
                     ) *
                     dk *
                     dk;
-                const omega = Math.sqrt(G * k);
-                let phaseReal = 0;
-                let phaseImaginary = 0;
-                for (const time of PHASES) {
-                    phaseReal += Math.cos(2 * omega * time);
-                    phaseImaginary += Math.sin(2 * omega * time);
-                }
-                phaseReal /= PHASES.length;
-                phaseImaginary /= PHASES.length;
-                const phaseCoherence = phaseReal * phaseReal + phaseImaginary * phaseImaginary;
-                target += cell + oppositeCell;
-                // For the phase-averaged pair statistic, independent circular Gaussians contribute
-                // cell² + oppositeCell² plus the surviving cross-term covariance.
-                variance +=
-                    cell * cell +
-                    oppositeCell * oppositeCell +
-                    2 * phaseCoherence * cell * oppositeCell;
+                weights.push(cell + oppositeCell);
             }
         }
     }
-    const cv = Math.sqrt(variance) / target;
+    const target = weights.reduce((sum, weight) => sum + weight, 0);
+    const cv = Math.sqrt(weights.reduce((sum, weight) => sum + weight * weight, 0)) / target;
     return { target, cv, interval: (1.96 * cv) / Math.sqrt(sampleSize) };
 }
 
 const realizationStatisticCache = new Map<string, number>();
-function phaseAveragedVariance(
+function phaseAveragedGridVariance(
     config: CascadeConfig,
     seed: number,
     mutation: RealizationMutation = {},
@@ -105,44 +101,21 @@ function phaseAveragedVariance(
     const key = `${mutationKey}:${config.N}:${config.L}:${seed}`;
     const cached = realizationStatisticCache.get(key);
     if (cached !== undefined) return cached;
+
     const h0 = generateH0(config, seed, kIndex, SEA_STATE, mutation);
-    const dk = (2 * Math.PI) / config.L;
-    let result = 0;
-    // Parseval turns the declared real-grid statistic into pair energies. Averaging exp(i2ωt)
-    // over the declared schedule first avoids nine redundant transforms of the same realization.
-    for (let y = 0; y < config.N; y++) {
-        for (let x = 0; x < config.N; x++) {
-            const index = y * config.N + x;
-            const negativeX = (config.N - x) % config.N;
-            const negativeY = (config.N - y) % config.N;
-            const negativeIndex = negativeY * config.N + negativeX;
-            if (index >= negativeIndex) continue;
-            const k = Math.hypot(kIndex(x, config.N) * dk, kIndex(y, config.N) * dk);
-            if (k < config.kLo || k > config.kHi) continue;
-            const omega = Math.sqrt(G * k);
-            let phaseReal = 0;
-            let phaseImaginary = 0;
-            for (const time of PHASES) {
-                phaseReal += Math.cos(2 * omega * time);
-                phaseImaginary += Math.sin(2 * omega * time);
-            }
-            phaseReal /= PHASES.length;
-            phaseImaginary /= PHASES.length;
-            const ar = h0[index * 2];
-            const ai = h0[index * 2 + 1];
-            const br = h0[negativeIndex * 2];
-            const bi = h0[negativeIndex * 2 + 1];
-            const productReal = ar * br - ai * bi;
-            const productImaginary = ar * bi + ai * br;
-            result +=
-                2 *
-                (ar * ar +
-                    ai * ai +
-                    br * br +
-                    bi * bi +
-                    2 * (productReal * phaseReal - productImaginary * phaseImaginary));
+    const phaseVariances = PHASES.map((time) => {
+        const field = idft2(updateH(h0, config.N, config.L, time), config.N);
+        let gridMean = 0;
+        for (let i = 0; i < config.N * config.N; i++) gridMean += field[i * 2];
+        gridMean /= config.N * config.N;
+        let gridVariance = 0;
+        for (let i = 0; i < config.N * config.N; i++) {
+            const centered = field[i * 2] - gridMean;
+            gridVariance += centered * centered;
         }
-    }
+        return gridVariance / (config.N * config.N);
+    });
+    const result = mean(phaseVariances);
     realizationStatisticCache.set(key, result);
     return result;
 }
@@ -162,7 +135,7 @@ function ensembleReading(mutation: RealizationMutation = {}, seeds = SEEDS): Ens
     const target = prediction(seeds.length).target;
     const perSeed = seeds.map((seed) =>
         CASCADE_CONFIGS.reduce(
-            (sum, config) => sum + phaseAveragedVariance(config, seed, mutation),
+            (sum, config) => sum + phaseAveragedGridVariance(config, seed, mutation),
             0,
         ),
     );
@@ -174,38 +147,37 @@ function ensembleReading(mutation: RealizationMutation = {}, seeds = SEEDS): Ens
     };
 }
 
-function failsEnsembleCriterion(reading: EnsembleReading, expected: Prediction): boolean {
-    return (
-        Math.abs(reading.relativeError) >= expected.interval ||
-        Math.abs(reading.cv / expected.cv - 1) >= CV_TOLERANCE
-    );
-}
-
 describe("seeded physical realization", () => {
-    test("200 explicit seeds on the declared nine-phase schedule match represented variance", () => {
+    test("200 explicit seeds on the declared real-grid phase schedule match represented variance", () => {
         const expected = prediction();
+        const spectralTarget = CASCADE_CONFIGS.reduce(
+            (sum, config) => sum + declaredBandVariance(config),
+            0,
+        );
         const measured = ensembleReading();
-        console.info("Elfouhaily realization ensemble", {
+        console.info("Elfouhaily real-grid realization ensemble", {
             seeds: SEEDS.length,
             phasePeriods: PHASE_PERIODS,
             dominantPeriod,
-            target: expected.target,
+            spectralTarget,
+            representedTarget: expected.target,
             measured: measured.mean,
             cvPred: expected.cv,
             measuredCv: measured.cv,
             relativeError: measured.relativeError,
             interval: expected.interval,
         });
+        expect(expected.target).toBeCloseTo(spectralTarget, 12);
         expect(Math.abs(measured.relativeError)).toBeLessThan(expected.interval);
         expect(Math.abs(measured.cv / expected.cv - 1)).toBeLessThan(CV_TOLERANCE);
-    });
+    }, 30_000);
 
-    test("each declared band realizes its density within ten percent", () => {
+    test("each declared band realizes its density on the real grid within ten percent", () => {
         for (const config of CASCADE_CONFIGS) {
             const target = declaredBandVariance(config);
-            const perSeed = SEEDS.map((seed) => phaseAveragedVariance(config, seed));
+            const perSeed = SEEDS.map((seed) => phaseAveragedGridVariance(config, seed));
             const measured = mean(perSeed);
-            console.info("Elfouhaily realized band", {
+            console.info("Elfouhaily realized real-grid band", {
                 N: config.N,
                 band: [config.kLo, config.kHi],
                 target,
@@ -215,30 +187,30 @@ describe("seeded physical realization", () => {
         }
     });
 
-    test("production-path per-realization rescaling reds the ensemble criterion", () => {
+    test("production-path per-realization rescaling reds the real-grid ensemble criterion", () => {
         const expected = prediction(MUTATION_SEEDS.length);
         const measured = ensembleReading({ rescalePerRealization: true }, MUTATION_SEEDS);
-        console.info("Elfouhaily realization mutation", {
+        console.info("Elfouhaily real-grid realization mutation", {
             mutation: "rescalePerRealization",
             seeds: MUTATION_SEEDS.length,
             ...measured,
             cvPred: expected.cv,
             interval: expected.interval,
         });
-        expect(failsEnsembleCriterion(measured, expected)).toBe(true);
+        expect(Math.abs(measured.cv / expected.cv - 1)).toBeGreaterThanOrEqual(CV_TOLERANCE);
     });
 
-    test("production-path cell-area removal reds the ensemble criterion", () => {
+    test("production-path cell-area removal reds the real-grid ensemble criterion", () => {
         const expected = prediction(MUTATION_SEEDS.length);
         const measured = ensembleReading({ omitCellArea: true }, MUTATION_SEEDS);
-        console.info("Elfouhaily realization mutation", {
+        console.info("Elfouhaily real-grid realization mutation", {
             mutation: "omitCellArea",
             seeds: MUTATION_SEEDS.length,
             ...measured,
             cvPred: expected.cv,
             interval: expected.interval,
         });
-        expect(failsEnsembleCriterion(measured, expected)).toBe(true);
+        expect(Math.abs(measured.relativeError)).toBeGreaterThanOrEqual(expected.interval);
     });
 
     test("declared-band density and draws stay N-invariant", () => {
