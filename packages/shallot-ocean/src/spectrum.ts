@@ -517,10 +517,9 @@ export function deriveFoldBand(
     const slopeRms = composedStrainRms(configs, significantWaveHeight, windSpeed, windDir, omegaC);
     const anchor = whitecapFraction(windSpeed);
     const tailSigma = Math.SQRT2 * inverseErfc(2 * Math.max(anchor, 1e-6));
-    // The determinant sees both diagonal strains and the cross term; its Gaussian RMS is √2 times
-    // the one-axis moment above. The symmetric two-axis projection contributes the measured 0.7
-    // factor, so the shared Jacobian statistic uses this dimensionless 1.4 correction.
-    const jacobianRmsFactor = 1.4;
+    // The determinant sees both diagonal strains and the cross term; the two symmetric diagonal
+    // projections therefore contribute the exact isotropic √2 factor to the shared statistic.
+    const jacobianRmsFactor = Math.SQRT2;
     const effectiveSlopeRms = slopeRms / jacobianRmsFactor;
     const lambda = 1 / (effectiveSlopeRms * tailSigma);
     const lambdaCeiling = 1 / effectiveSlopeRms;
