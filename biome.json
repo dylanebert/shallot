@@ -96,7 +96,11 @@
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         },
         {
-            "includes": ["packages/shallot-ocean/**"],
+            "includes": [
+                "packages/shallot-ocean/src/spectrum.ts",
+                "packages/shallot-ocean/src/cpu-reference.ts",
+                "packages/shallot-ocean/src/ocean.ts"
+            ],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }
     ]

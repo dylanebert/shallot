@@ -84,15 +84,15 @@ TGSL needs exactly one transform: CLI-installed, or one direct `unplugin-typegpu
 
 ### Schemas and typed resources
 
-CPU↔GPU layouts belong to schemas beside their data. Create/wrap via `Compute.root`; `unwrap` only for raw consumers. For dual identity, publish typed in `Compute.typed`, raw in `Compute.buffers`; only allocator destroys. Keep CPU truth in typed arrays/`ArrayBuffer`, not per-frame schema objects.
+CPU↔GPU layouts belong to schemas beside data. Create/wrap via `Compute.root`; `unwrap` only for raw consumers. For dual identity, publish typed in `Compute.typed`, raw in `Compute.buffers`; only allocator destroys. Keep CPU truth in typed arrays/`ArrayBuffer`, not per-frame schema objects.
 
 ### TGSL authoring
 
-Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Pure functions run in tests; use WGSL strings only when needed. Every factory-returned kernel calls `.$name()`; name factory-built schemas/pipelines too.
+Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Use WGSL strings only when needed. Factory-returned kernels call `.$name()`; name factory-built schemas/pipelines too.
 
-TGSL integer division uses `idiv` from `utils/core`, never `/`.
+TGSL: use `idiv` for integer division; initialize integer locals with `d.u32(...)`/`d.i32(...)`; lint every `"use gpu"` file.
 
-Force pipeline creation during loading: from `warm`, queue `precompile(label, force)`; return the bound pipeline or an array — the drain awaits each entry's `initAsync()`, never dispatch.
+Force pipeline creation during loading: from `warm`, queue `precompile(label, force)`; return the bound pipeline or an array — drain awaits each entry's `initAsync()`, never dispatch.
 
 ### Typed surfaces
 
