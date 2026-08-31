@@ -1,6 +1,6 @@
 // Hardware-invariant CPU logic tier (`testing.md`'s "Logic — bun test"): the butterfly FFT (`fft.ts`)
 // against the direct O(N²) DFT it replaces, and the CPU/GPU shared cascade config sanity (power-of-two
-// N, coprime L). No device.
+// N and reported patch period). No device.
 import { describe, expect, test } from "bun:test";
 import { directIdft2, fft1dInPlace, ifft2 } from "../src/fft";
 import {
@@ -113,7 +113,7 @@ describe("cascade config — I1's own structural invariants", () => {
         ).toBe(false);
     });
 
-    test("the shipped cascades' real cross-cascade tile period is 240m, unchanged from the spike (L is untouched at I1)", () => {
+    test("the shipped cascades report their real cross-cascade tile period", () => {
         expect(tilePeriod(CASCADE_CONFIGS)).toBe(240);
         expect(CASCADE_CONFIGS[0].L).toBe(80);
         expect(CASCADE_CONFIGS[1].L).toBe(30);

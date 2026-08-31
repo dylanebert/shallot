@@ -5,14 +5,11 @@
 // power-of-two N (I1's Locked decision — every shipped cascade N is now a power of two). Both shipped
 // cascade N (64, 128) are exercised here instead — still two distinct N, still a real cross-N check.
 //
-// Leg (b) — the parity witness (`../src/parity-witness.ts`), this stage's stated replacement for what
-// the odd-N case used to catch: a spectrum labelled in centered order and transformed with unshifted
-// phase emerges modulated by a full-amplitude `(-1)^(x+y)` Nyquist checkerboard that leg (a)'s own
-// single-mode probe cannot see on the composed, multi-mode production field. Production
-// (`labelFn = kIndex`) must read a SMALL disagreement between the measured and predicted lag-1
-// autocorrelation; the `centeredLabelPreFix` fixture must read a LARGE one — both are asserted below,
-// so this leg is red-witnessed in the same run that proves it green, per the spec's own requirement
-// ("demonstrate it reds on an injected parity defect and greens on the correct field").
+// Leg (b) — the parity witness (`../src/parity-witness.ts`) checks the realized raster against its
+// declared mode labels. Production (`kIndex`) must read a small disagreement. The centered-order
+// fixture is run in both the original defective shape (centered placement and prediction) and an
+// independently mismatched prediction; both must read a large disagreement so the witness cannot
+// pass merely because one callback drives every side of the comparison.
 import { describe, expect, test } from "bun:test";
 import { idft2, updateH } from "../src/cpu-reference";
 import { centeredLabelPreFix, lag1AutocorrParityWitness } from "../src/parity-witness";
@@ -106,11 +103,13 @@ describe("mode-placement oracle — leg (b): the lag-1 autocorrelation parity wi
             expect(reading.relDiff).toBeLessThan(0.01);
         });
 
-        test(`cascade N=${cfg.N}: RED-WITNESS — the pre-fix centered label disagrees sharply (the checkerboard class, caught)`, () => {
+        test(`cascade N=${cfg.N}: RED-WITNESS — centered placement and prediction expose the checkerboard class`, () => {
+            const reading = lag1AutocorrParityWitness(cfg, centeredLabelPreFix, centeredLabelPreFix);
+            expect(reading.relDiff).toBeGreaterThan(0.5);
+        });
+
+        test(`cascade N=${cfg.N}: RED-WITNESS — independent prediction label remains discriminating`, () => {
             const reading = lag1AutocorrParityWitness(cfg, kIndex, centeredLabelPreFix);
-            // Keep H0 on production labels and change only the prediction labels: this is the
-            // independent-label defect the witness is designed to catch.
-            // detector discriminates rather than passing vacuously.
             expect(reading.relDiff).toBeGreaterThan(0.5);
         });
     }
