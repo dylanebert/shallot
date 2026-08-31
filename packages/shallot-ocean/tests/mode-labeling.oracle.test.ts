@@ -104,7 +104,11 @@ describe("mode-placement oracle — leg (b): the lag-1 autocorrelation parity wi
         });
 
         test(`cascade N=${cfg.N}: RED-WITNESS — centered placement and prediction expose the checkerboard class`, () => {
-            const reading = lag1AutocorrParityWitness(cfg, centeredLabelPreFix, centeredLabelPreFix);
+            const reading = lag1AutocorrParityWitness(
+                cfg,
+                centeredLabelPreFix,
+                centeredLabelPreFix,
+            );
             expect(reading.relDiff).toBeGreaterThan(0.5);
         });
 
