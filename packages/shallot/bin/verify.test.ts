@@ -2660,10 +2660,19 @@ describe("decodeSampleNode — the Node-side PNG-to-FrameSample decoder", () => 
 // checkerboard region is the arm's whole point: a point-sample (nearest-neighbor) decoder passes per-
 // pixel dither straight through at full amplitude where an area-average one suppresses it, so this arm
 // reds against the pre-fix nearest-neighbor `decodeSampleNode` and is green only against the box-averaged
-// one — witnessed by hand: reverting `decodeSampleNode` to point-sampling (`git show 6ddb68d1:…`) and
+// one — witnessed by hand: revert `decodeSampleNode` to point-sampling (in `bin/verify.ts`, replace the
+// inner accumulation loop of `decodeSampleNode` — the `for (let sy = sy0; …) for (let sx = sx0; …)`
+// double loop that sums every source pixel the cell covers into `r`/`g`/`b` and counts them in `n` —
+// with a single read of the cell's top-left source pixel: `const i = (sy0 * W0 + sx0) * 4; r = data[i];
+// g = data[i + 1]; b = data[i + 2];`, leaving `n` fixed at 1 so the trailing
+// `grid.push(r / n, g / n, b / n)` still divides by 1) and
 // re-running this file reds exactly this describe block, on the checkerboard region's per-channel
 // tolerance assertions, with the smooth-gradient region staying green throughout (a point sample of a
 // smooth ramp is already close to its local area average — the checkerboard is the discriminating input).
+// Recorded result of that witness: the two implementations' checkerboard per-channel diffs read
+// `maxDiff` **127.5** against `tolerance` **8** — the nearest-neighbor grid's flat 0/255 cells sit a
+// full channel-swing away from the area-average reference's ~127.5 mid-gray, so the oracle reds by
+// more than an order of magnitude while the smooth ramp stays inside the tolerance.
 describe("decodeSampleNode area-average equivalence — the blocker repair's own oracle", () => {
     const canvasW = 1280;
     const canvasH = 720; // 720 / 64 = 11.25 — deliberately not integer-divisible, so 64×64 grid cells
