@@ -72,7 +72,7 @@ DOM UI mounts into **one engine-provided container, sandboxed to the canvas regi
 - **One attachment point.** `config.ui(container, state) => () => void` — `run()` creates the container over the canvas and hands it in; mount your UI (any framework) and return a cleanup. A plugin that owns UI calls `mountOverlay(canvas, state)` for the identical sandboxed container; passing `state` ties its removal to the State's lifetime.
 - **Author within the container** — position relative to it; **never `position: fixed`** (escapes to the viewport) and **never `document.body`**. The container is `pointer-events: none`; an interactive panel sets `pointer-events: auto`.
 - **Cleanup means real unmount, registered on the State.** Tie teardown to the State: `state.onDispose(fn)` runs `fn` at `state.dispose()`, and `state.signal` passed as `{ signal }` to `addEventListener`/`fetch` detaches with no removal code. The cleanup you return from `config.ui` registers the same way. Whatever you register must unmount what it mounted — Svelte `unmount()`, React `root.unmount()` — and cancel any rAF/interval the UI started; removing the host DOM alone leaves a framework component's effects running. `onDispose` fires only on `state.dispose()`, so if you mount from `warm` (which re-runs on an in-place rebuild with no `dispose` first) also clear the prior mount at the top of `warm` so it can't stack.
-- The engine guarantees containment (`contain: layout paint` + `overflow: hidden`), so overflowing UI is clipped to the canvas region by construction.
+- The engine guarantees containment (`contain: layout paint` + `overflow: hidden`), so overflowing UI is clipped to the canvas region.
 
 ## GPU
 
@@ -84,13 +84,13 @@ TGSL needs exactly one transform: CLI-installed, or one direct `unplugin-typegpu
 
 ### Schemas and typed resources
 
-CPU↔GPU layouts belong to schemas beside data. Create/wrap via `Compute.root`; `unwrap` only for raw consumers. For dual identity, publish typed in `Compute.typed`, raw in `Compute.buffers`; only allocator destroys. Keep CPU truth in typed arrays/`ArrayBuffer`, not per-frame schema objects.
+CPU↔GPU layouts belong to schemas beside data. Create/wrap via `Compute.root`; `unwrap` only for raw consumers. For dual identity, publish typed in `Compute.typed`, raw in `Compute.buffers`; only allocator destroys. Keep CPU truth in typed arrays/`ArrayBuffer`, not per-frame objects.
 
 ### TGSL authoring
 
-Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Use WGSL strings only when needed. Factory-returned kernels call `.$name()`; name factory-built schemas/pipelines too.
+Author with `tgpu.fn`, `computeFn`, `vertexFn`, or `fragmentFn`; put `"use gpu"` first. Pure functions run in tests; WGSL strings only when needed. Factory kernels call `.$name()`; name factory schemas/pipelines.
 
-TGSL: use `idiv` for integer division; initialize integer locals with `d.u32(...)`/`d.i32(...)`; lint every `"use gpu"` file.
+TGSL integer division uses `idiv`, never `/`; initialize integer locals with `d.u32(...)`/`d.i32(...)`; lint every `"use gpu"` file.
 
 Force pipeline creation during loading: from `warm`, queue `precompile(label, force)`; return the bound pipeline or an array — drain awaits each entry's `initAsync()`, never dispatch.
 
