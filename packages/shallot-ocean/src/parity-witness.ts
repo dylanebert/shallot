@@ -48,7 +48,7 @@ export function lag1AutocorrParityWitness(
     const N = cfg.N;
     const L = cfg.L;
     const dx = L / N;
-    const h0 = generateH0(cfg, h0Label);
+    const h0 = generateH0(cfg, 0, h0Label);
     const h = updateH(h0, N, L, 0);
     const height = idft2(h, N);
 

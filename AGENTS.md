@@ -8,7 +8,7 @@ Code is source of truth — elegant first, document what's non-obvious.
 
 ## Rules
 
-`.claude/rules/style.md` carries no `paths:` frontmatter: it applies to all engine code, always. The rest are path-scoped, and their globs match the path from the repo root (`packages/shallot/…`), not your cwd:
+`.claude/rules/style.md` has no `paths:` frontmatter and always applies. Other globs match repo-root paths (`packages/shallot/…`), not cwd:
 
 - `packages/shallot/src/standard/audio/**/*.ts`, `packages/shallot/rust/audio/**/*.rs` → `.claude/rules/audio.md`
 - `packages/shallot/src/standard/avbd/**/*.ts`, `packages/shallot/tests/avbd/**/*.ts` → `.claude/rules/avbd.md`
@@ -18,7 +18,7 @@ Code is source of truth — elegant first, document what's non-obvious.
 - `packages/shallot/src/engine/runtime/**/*.ts`, `packages/shallot/src/engine/utils/encode.ts`, `packages/shallot/src/standard/render/**/*.ts`, `packages/shallot/src/standard/sear/**/*.ts`, `packages/shallot/src/standard/part/**/*.ts`, `packages/shallot/src/standard/slab/**/*.ts`, `packages/shallot/src/standard/bvh/**/*.ts`, `packages/shallot/src/extras/{gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts`, `packages/shallot-ocean/**` → `.claude/rules/gpu.md`
 - `packages/shallot/src/standard/physics/**/*.ts`, `packages/shallot/src/standard/character/**/*.ts`, `packages/shallot/src/standard/player/**/*.ts` → `.claude/rules/physics.md`
 - `packages/shallot/src/standard/render/**/*.ts`, `packages/shallot/src/standard/sear/**/*.ts`, `packages/shallot/src/standard/glaze/**/*.ts`, `packages/shallot/src/standard/part/**/*.ts` → `.claude/rules/render.md`
-- `packages/shallot/src/**/*.test.ts`, `packages/shallot/tests/**/*.ts`, `packages/shallot/bin/*.test.ts`, `packages/shallot/bin/*.probes.ts`, `scripts/install-test.ts`, `packages/shallot/scripts/build-tooling.ts`, `packages/shallot-ocean/**/*.test.ts` → `.claude/rules/testing.md`
+- `packages/shallot/src/**/*.test.ts`, `packages/shallot/tests/**/*.ts`, `packages/shallot/bin/*.test.ts`, `packages/shallot/bin/*.probes.ts`, `scripts/install-test.ts`, `packages/shallot/scripts/build-tooling.ts`, `packages/shallot-ocean/**/*.test.ts`, `packages/shallot-ocean/**/*.oracle.ts` → `.claude/rules/testing.md`
 - `packages/shallot/src/standard/tumble/**/*.ts`, `packages/shallot/rust/tumble/**`, `packages/shallot/tests/tumble/**`, `packages/shallot/scripts/build-tumble-kernel.ts`, `packages/shallot/scripts/run-tumble-fixtures.ts`, `packages/shallot/scripts/gen-tumble-fixtures.ts`, `packages/shallot/scripts/gen-tumble-gold.ts`, `packages/shallot/scripts/gen-tumble-sample-golds.ts`, `packages/shallot/scripts/tumble-exit-test.ts`, `examples/gym/src/tumble-*.ts`, `examples/gym/src/scenarios/**`, `scripts/bench-tumble.ts`, `scripts/tumble-interaction.ts`, `scripts/tumble-repro*`, `scripts/check-tumble-fp.ts` → `.claude/rules/tumble.md`
 - `examples/**/*.html` → `.claude/rules/visual-identity.md`
 

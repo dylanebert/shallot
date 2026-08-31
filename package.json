@@ -14,6 +14,7 @@
         "format": "biome check --write && bun run scripts/format.ts",
         "test": "bun test packages/shallot packages/shallot-ocean scripts evals site examples/showcase/visualization/test",
         "test:install": "bun run scripts/install-test.ts",
+        "test:ocean-realization": "bun test ./packages/shallot-ocean/tests/realization.oracle.ts",
         "bench": "bun run scripts/bench.ts",
         "flows": "bun run scripts/flows.ts",
         "recipes": "bun run scripts/recipes.ts",
