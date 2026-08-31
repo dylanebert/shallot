@@ -1,7 +1,7 @@
 {
     "name": "@dylanebert/shallot-ocean",
     "version": "0.0.0",
-    "description": "FFT ocean surface extension for Shallot — JONSWAP-Phillips cascades over a butterfly FFT.",
+    "description": "FFT ocean surface extension for Shallot — physically normalized unified-spectrum cascades over a butterfly FFT.",
     "license": "MIT",
     "author": "Dylan Ebert <dylan.ebert@gmail.com>",
     "repository": {

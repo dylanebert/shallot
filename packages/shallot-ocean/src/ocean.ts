@@ -1,4 +1,4 @@
-// FFT ocean compute substrate — two JONSWAP cascades over world-space patches.
+// FFT ocean compute substrate — physically normalized unified-spectrum cascades over world-space patches.
 // Compute passes per cascade: update H(k,t); chop spectrum (i·k̂·H̃ for x and z); three inverse 2D
 // FFTs (height, Dx, Dz) plus the spectral-gradient chain's own three (gxx, gxz, gzz — six total);
 // post-process (Jacobian from the resulting displacement field, texture + probe write).
@@ -21,7 +21,7 @@ import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
-import { CASCADE_CONFIGS, type CascadeConfig, generateH0 } from "./spectrum";
+import { CASCADE_CONFIGS, type CascadeConfig, generateH0, SEA_STATE } from "./spectrum";
 
 // Re-export the cascade configuration alongside the plugin API.
 export { CASCADE_CONFIGS, type CascadeConfig };
@@ -723,7 +723,8 @@ function writeCascadeParams(cs: CascadeState, time: number): void {
     const pf = new Float32Array(paramsStaging);
     p32[0] = cs.N;
     pf[1] = cs.config.L;
-    pf[2] = cs.config.lambda;
+    // λ is derived once from the composed sea-state whitecap anchor, never per cascade.
+    pf[2] = SEA_STATE.lambda;
     pf[3] = time;
     pf[4] = 9.81;
     pf[5] = 0;
@@ -794,8 +795,7 @@ function encodeCascadePasses(encoder: GPUCommandEncoder, cs: CascadeState): void
  * encodeCascadePasses, the same functions the live render loop uses) at an arbitrary one-off
  * config, off the persistent `cascades[]` array, and returns the fold fraction (det<0 share over
  * the full N*N grid). Used by the N-invariance arm to compare fold fraction at two grid
- * resolutions over one held-fixed sea state (same L/windSpeed/windDir/amplitude/lambda, only N
- * differs).
+ * resolutions over one held-fixed composed sea state; only N differs.
  */
 export async function measureFoldFraction(config: CascadeConfig, time = 0): Promise<number> {
     const { device } = Compute;

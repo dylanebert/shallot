@@ -12,7 +12,7 @@
 // disagrees first, rather than being explained away as "a different but equivalent formula".
 
 import { ifft2 } from "./fft";
-import { type CascadeConfig, kIndex } from "./spectrum";
+import { type CascadeConfig, kIndex, SEA_STATE } from "./spectrum";
 
 const G = 9.81;
 const PI = Math.PI;
@@ -62,8 +62,8 @@ export function updateH(h0: ComplexArray, N: number, L: number, t: number): Comp
 }
 
 /**
- * D(k) = i·k̂·H̃(k,t), emitted for x and z — verbatim `chopKernel`. `lambda` is NOT applied here
- * (matches ocean.ts: lambda scales the transformed real-space field, in `postKernel`).
+ * D(k) = i·k̂·H̃(k,t), emitted for x and z — verbatim `chopKernel`. The shared sea-state λ is NOT
+ * applied here (ocean.ts scales the transformed real-space field in `postKernel`).
  */
 export function chop(
     h: ComplexArray,
@@ -96,8 +96,8 @@ export function chop(
 
 /**
  * Unnormalized 2D inverse transform — a row FFT then a column FFT (`ifft2`, `./fft`), matching the
- * amplitude convention baked into `generateH0` (that file's own comment). The function keeps the
- * stable public signature and phase convention; `tests/fft.test.ts` compares it with a direct sum.
+ * physical-cell amplitude convention implemented by `generateH0`. The function keeps the stable
+ * public signature and phase convention; `tests/fft.test.ts` compares it with a direct sum.
  */
 export function idft2(input: ComplexArray, N: number): ComplexArray {
     return ifft2(input, N);
@@ -252,7 +252,7 @@ export interface CpuStageResult {
 }
 
 export function runCpuPipeline(h0: ComplexArray, config: CascadeConfig, time = 0): CpuStageResult {
-    const { N, L, lambda } = config;
+    const { N, L } = config;
     const h = updateH(h0, N, L, time);
     const { dxSpec, dzSpec } = chop(h, N, L);
     const { gxxSpec, gxzSpec, gzzSpec } = spectralGradient(dxSpec, dzSpec, N, L);
@@ -270,7 +270,7 @@ export function runCpuPipeline(h0: ComplexArray, config: CascadeConfig, time = 0
         gxzHeight,
         gzzHeight,
         N,
-        lambda,
+        SEA_STATE.lambda,
     );
     return {
         h,
