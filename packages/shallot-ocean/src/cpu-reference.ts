@@ -12,7 +12,7 @@
 // disagrees first, rather than being explained away as "a different but equivalent formula".
 
 import { ifft2 } from "./fft";
-import { type CascadeConfig, kIndex } from "./spectrum";
+import { type CascadeConfig, kIndex, SEA_STATE } from "./spectrum";
 
 const G = 9.81;
 const PI = Math.PI;
@@ -62,8 +62,8 @@ export function updateH(h0: ComplexArray, N: number, L: number, t: number): Comp
 }
 
 /**
- * D(k) = i·k̂·H̃(k,t), emitted for x and z — verbatim `chopKernel`. `lambda` is NOT applied here
- * (matches ocean.ts: lambda scales the transformed real-space field, in `postKernel`).
+ * D(k) = i·k̂·H̃(k,t), emitted for x and z — verbatim `chopKernel`. The shared sea-state λ is NOT
+ * applied here (ocean.ts scales the transformed real-space field in `postKernel`).
  */
 export function chop(
     h: ComplexArray,
@@ -96,8 +96,8 @@ export function chop(
 
 /**
  * Unnormalized 2D inverse transform — a row FFT then a column FFT (`ifft2`, `./fft`), matching the
- * amplitude convention baked into `generateH0` (that file's own comment). The function keeps the
- * stable public signature and phase convention; `tests/fft.test.ts` compares it with a direct sum.
+ * physical-cell amplitude convention implemented by `generateH0`. The function keeps the stable
+ * public signature and phase convention; `tests/fft.test.ts` compares it with a direct sum.
  */
 export function idft2(input: ComplexArray, N: number): ComplexArray {
     return ifft2(input, N);
@@ -238,6 +238,54 @@ export function jacobianStats(
 /** Run the whole pipeline (update → chop → gradient → IFFT → Jacobian) for one config at one
  * time — the CPU side of the stage-by-stage comparison the CPU/GPU agreement arms drive against
  * the GPU readback (`ocean.ts`'s `readStageBuffers`). */
+export interface WorldJacobianStats {
+    worldSize: number;
+    foldCount: number;
+    sampleCount: number;
+    foldFraction: number;
+    variance: number;
+}
+
+/** Compose every cascade on one world-space lattice before taking the Jacobian determinant. */
+export function composeWorldJacobian(
+    results: CpuStageResult[],
+    configs: CascadeConfig[],
+    worldSize = 128,
+): WorldJacobianStats {
+    let foldCount = 0;
+    let variance = 0;
+    for (let z = 0; z < worldSize; z++) {
+        for (let x = 0; x < worldSize; x++) {
+            let h = 0;
+            let dxdx = 0;
+            let dxdz = 0;
+            let dzdz = 0;
+            for (let c = 0; c < configs.length; c++) {
+                const cfg = configs[c];
+                const result = results[c];
+                const localX = ((Math.floor((x / worldSize) * cfg.N) % cfg.N) + cfg.N) % cfg.N;
+                const localZ = ((Math.floor((z / worldSize) * cfg.N) % cfg.N) + cfg.N) % cfg.N;
+                const i = localZ * cfg.N + localX;
+                h += result.jacobian.height[i];
+                dxdx += SEA_STATE.lambda * result.gxxHeight[i * 2];
+                dxdz += SEA_STATE.lambda * result.gxzHeight[i * 2];
+                dzdz += SEA_STATE.lambda * result.gzzHeight[i * 2];
+            }
+            const det = (1 + dxdx) * (1 + dzdz) - dxdz * dxdz;
+            if (det < 0) foldCount++;
+            variance += h * h;
+        }
+    }
+    const sampleCount = worldSize * worldSize;
+    return {
+        worldSize,
+        foldCount,
+        sampleCount,
+        foldFraction: foldCount / sampleCount,
+        variance: variance / sampleCount,
+    };
+}
+
 export interface CpuStageResult {
     h: ComplexArray;
     dxSpec: ComplexArray;
@@ -252,7 +300,7 @@ export interface CpuStageResult {
 }
 
 export function runCpuPipeline(h0: ComplexArray, config: CascadeConfig, time = 0): CpuStageResult {
-    const { N, L, lambda } = config;
+    const { N, L } = config;
     const h = updateH(h0, N, L, time);
     const { dxSpec, dzSpec } = chop(h, N, L);
     const { gxxSpec, gxzSpec, gzzSpec } = spectralGradient(dxSpec, dzSpec, N, L);
@@ -270,7 +318,7 @@ export function runCpuPipeline(h0: ComplexArray, config: CascadeConfig, time = 0
         gxzHeight,
         gzzHeight,
         N,
-        lambda,
+        SEA_STATE.lambda,
     );
     return {
         h,

@@ -4,7 +4,13 @@
 // mismatched pair is observable rather than being made equal by one callback.
 
 import { idft2, updateH } from "./cpu-reference";
-import { type CascadeConfig, generateH0, type LabelFn } from "./spectrum";
+import {
+    CASCADE_CONFIGS,
+    type CascadeConfig,
+    generateH0,
+    type LabelFn,
+    SEA_STATE,
+} from "./spectrum";
 
 export type { LabelFn } from "./spectrum";
 
@@ -48,7 +54,7 @@ export function lag1AutocorrParityWitness(
     const N = cfg.N;
     const L = cfg.L;
     const dx = L / N;
-    const h0 = generateH0(cfg, h0Label);
+    const h0 = generateH0(cfg, h0Label, SEA_STATE, CASCADE_CONFIGS);
     const h = updateH(h0, N, L, 0);
     const height = idft2(h, N);
 

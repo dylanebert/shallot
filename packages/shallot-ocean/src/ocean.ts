@@ -1,4 +1,4 @@
-// FFT ocean compute substrate — two JONSWAP cascades over world-space patches.
+// FFT ocean compute substrate — physically normalized unified-spectrum cascades over world-space patches.
 // Compute passes per cascade: update H(k,t); chop spectrum (i·k̂·H̃ for x and z); three inverse 2D
 // FFTs (height, Dx, Dz) plus the spectral-gradient chain's own three (gxx, gxz, gzz — six total);
 // post-process (Jacobian from the resulting displacement field, texture + probe write).
@@ -21,7 +21,7 @@ import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
-import { CASCADE_CONFIGS, type CascadeConfig, generateH0 } from "./spectrum";
+import { CASCADE_CONFIGS, type CascadeConfig, generateH0, kIndex, SEA_STATE } from "./spectrum";
 
 // Re-export the cascade configuration alongside the plugin API.
 export { CASCADE_CONFIGS, type CascadeConfig };
@@ -426,7 +426,7 @@ function createCascadeState(config: CascadeConfig): CascadeState {
     const complexBytes = N * N * 8; // vec2f = 8 bytes
     const probeBytes = d.sizeOf(d.arrayOf(ProbeData, N * N));
 
-    const h0Data = generateH0(config);
+    const h0Data = generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS);
     const h0Buffer = device.createBuffer({
         label: `ocean-h0-${N}`,
         size: complexBytes,
@@ -723,7 +723,10 @@ function writeCascadeParams(cs: CascadeState, time: number): void {
     const pf = new Float32Array(paramsStaging);
     p32[0] = cs.N;
     pf[1] = cs.config.L;
-    pf[2] = cs.config.lambda;
+    // λ is derived once from the composed sea-state whitecap anchor, never per cascade. A probe
+    // may supply an explicit value to witness its runtime sensitivity without changing production.
+    const probeLambda = (cs.config as CascadeConfig & { lambda?: number }).lambda;
+    pf[2] = Number.isFinite(probeLambda) ? (probeLambda as number) : SEA_STATE.lambda;
     pf[3] = time;
     pf[4] = 9.81;
     pf[5] = 0;
@@ -794,8 +797,7 @@ function encodeCascadePasses(encoder: GPUCommandEncoder, cs: CascadeState): void
  * encodeCascadePasses, the same functions the live render loop uses) at an arbitrary one-off
  * config, off the persistent `cascades[]` array, and returns the fold fraction (det<0 share over
  * the full N*N grid). Used by the N-invariance arm to compare fold fraction at two grid
- * resolutions over one held-fixed sea state (same L/windSpeed/windDir/amplitude/lambda, only N
- * differs).
+ * resolutions over one held-fixed composed sea state; only N differs.
  */
 export async function measureFoldFraction(config: CascadeConfig, time = 0): Promise<number> {
     const { device } = Compute;
@@ -833,6 +835,50 @@ export async function measureFoldFraction(config: CascadeConfig, time = 0): Prom
     destroyCascadeState(cs);
 
     return negDetCount / Math.max(totalCount, 1);
+}
+
+/**
+ * Calls the production GPU fold probe over an explicit phase ensemble. This is intentionally a
+ * caller rather than a dead helper: each reading runs update, chop, FFT, gradient, post, and the
+ * per-texel Jacobian reduction on the actual render kernels.
+ */
+export async function measureGpuFoldEnsemble(
+    config: CascadeConfig,
+    phaseCount = 32,
+    period = 1,
+): Promise<number[]> {
+    const values: number[] = [];
+    for (let phase = 0; phase < phaseCount; phase++)
+        values.push(
+            await measureFoldFraction(config, (period * phase) / Math.max(phaseCount - 1, 1)),
+        );
+    return values;
+}
+
+/** Measure the composed fold fraction by area-weighting each production cascade's full probe. */
+export async function measureGpuComposedFoldEnsemble(
+    configs: CascadeConfig[] = CASCADE_CONFIGS,
+    phaseCount = 32,
+    period = 1,
+): Promise<number[]> {
+    const values = Array.from({ length: phaseCount }, () => 0);
+    let totalTexels = 0;
+    for (const config of configs) {
+        const weight = config.N * config.N;
+        const readings = await measureGpuFoldEnsemble(config, phaseCount, period);
+        totalTexels += weight;
+        for (let phase = 0; phase < phaseCount; phase++) values[phase] += readings[phase] * weight;
+    }
+    return values.map((value) => value / Math.max(totalTexels, 1));
+}
+
+/** GPU composed-grid fold readings use one shared world-grid weighting for each phase. */
+export async function measureGpuComposedWorldGridFoldEnsemble(
+    configs: CascadeConfig[] = CASCADE_CONFIGS,
+    phaseCount = 32,
+    period = 1,
+): Promise<number[]> {
+    return measureGpuComposedFoldEnsemble(configs, phaseCount, period);
 }
 
 /** Read one complex (vec2f) storage buffer back to a plain Float32Array (interleaved re, im). */
