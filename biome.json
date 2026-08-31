@@ -94,6 +94,10 @@
         {
             "includes": ["site/rum-runtime.ts"],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
+        },
+        {
+            "includes": ["packages/shallot-ocean/**"],
+            "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }
     ]
 }
