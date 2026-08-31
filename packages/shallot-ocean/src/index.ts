@@ -48,6 +48,16 @@ export {
     type ParityWitnessReading,
 } from "./parity-witness";
 export {
+    composedSlopePsd,
+    getSlopeCascadeConfigs,
+    getSlopeTexture,
+    runSlopeCpuPipeline,
+    SLOPE_CASCADE_CONFIGS,
+    SLOPE_MIP_LEVELS,
+    slopeMipSize,
+    slopeSpectra,
+} from "./slope";
+export {
     assertAllPowerOfTwo,
     assertCoprimeL,
     C_M,

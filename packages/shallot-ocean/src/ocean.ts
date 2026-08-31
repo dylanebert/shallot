@@ -1,5 +1,6 @@
-// FFT ocean compute substrate — two physical-spectrum cascades over world-space patches.
-// Compute passes per cascade: update H(k,t); chop spectrum (i·k̂·H̃ for x and z); three inverse 2D
+// FFT ocean compute substrate — two displacement cascades over world-space patches. The separate
+// high-wavenumber cascade is in `slope.ts` and contributes slope textures only.
+// Compute passes per displacement cascade: update H(k,t); chop spectrum (i·k̂·H̃ for x and z); three inverse 2D
 // FFTs (height, Dx, Dz) plus the spectral-gradient chain's own three (gxx, gxz, gzz — six total);
 // post-process (Jacobian from the resulting displacement field, texture + probe write).
 //
@@ -21,6 +22,7 @@ import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { getFftKernels } from "./gpu-fft";
+import { buildSlopes, slopeCompute, teardownSlopes } from "./slope";
 import { CASCADE_CONFIGS, type CascadeConfig, generateH0 } from "./spectrum";
 
 // Re-export the cascade configuration alongside the plugin API.
@@ -1046,9 +1048,15 @@ function teardown(): void {
 export const OceanPlugin: Plugin = {
     name: "Ocean",
     dependencies: [RenderPlugin],
-    systems: [oceanCompute],
-    warm: build,
-    dispose: teardown,
+    systems: [oceanCompute, slopeCompute],
+    warm() {
+        build();
+        buildSlopes();
+    },
+    dispose() {
+        teardown();
+        teardownSlopes();
+    },
 };
 
 export default OceanPlugin;
