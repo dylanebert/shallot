@@ -72,12 +72,12 @@ export function gcd(a: number, b: number): number {
 }
 
 /** Checks the radix-2 precondition for every cascade. */
-export function assertAllPowerOfTwo(configs: CascadeConfig[]): boolean {
+export function assertAllPowerOfTwo(configs: readonly CascadeConfig[]): boolean {
     return configs.every((config) => isPowerOfTwo(config.N));
 }
 
 /** Checks pairwise coprimality of the world-space patch lengths. */
-export function assertCoprimeL(configs: CascadeConfig[]): boolean {
+export function assertCoprimeL(configs: readonly CascadeConfig[]): boolean {
     for (let i = 0; i < configs.length; i++) {
         for (let j = i + 1; j < configs.length; j++) {
             if (!Number.isInteger(configs[i].L) || !Number.isInteger(configs[j].L)) return false;
@@ -92,13 +92,9 @@ function lcm(a: number, b: number): number {
 }
 
 /** Returns the world-space distance where all cascade patches realign. */
-export function tilePeriod(configs: CascadeConfig[]): number {
+export function tilePeriod(configs: readonly CascadeConfig[]): number {
     if (configs.length < 2) return Number.POSITIVE_INFINITY;
     return configs.reduce((period, config) => lcm(period, config.L), 1);
-}
-
-if (!assertAllPowerOfTwo(CASCADE_CONFIGS)) {
-    throw new Error("shallot-ocean: cascade N must be powers of two");
 }
 
 /** Gravitational acceleration in m/s². */
@@ -270,6 +266,32 @@ const DECLARED_VARIANCE = CASCADE_CONFIGS.reduce(
     0,
 );
 
+/** Short-gravity/capillary cascade configuration; it is slope-only and contributes no displacement. */
+export const SLOPE_CASCADE_CONFIGS: readonly CascadeConfig[] = Object.freeze([
+    {
+        N: 256,
+        L: 13,
+        windSpeed: U10,
+        windDir: WIND_DIR,
+        lambda: 0,
+        kLo: 8.482300164692441,
+        kHi: 60,
+    },
+]);
+
+/** Every cascade domain, including slope-only domains, for shared invariant checks. */
+export const ALL_CASCADE_CONFIGS: readonly CascadeConfig[] = Object.freeze([
+    ...CASCADE_CONFIGS,
+    ...SLOPE_CASCADE_CONFIGS,
+]);
+
+if (!assertAllPowerOfTwo(ALL_CASCADE_CONFIGS)) {
+    throw new Error("shallot-ocean: cascade N must be powers of two");
+}
+if (!assertCoprimeL(ALL_CASCADE_CONFIGS)) {
+    throw new Error("shallot-ocean: cascade patch lengths must be pairwise coprime");
+}
+
 /** Shared physical sea state; significant wave height is derived rather than independently authored. */
 export const SEA_STATE: SeaState = Object.freeze({
     windSpeed: U10,
@@ -279,7 +301,7 @@ export const SEA_STATE: SeaState = Object.freeze({
     truncationRatio: DECLARED_VARIANCE / FULL_VARIANCE,
 });
 
-for (const config of CASCADE_CONFIGS) assertCascadeSeaState(config, SEA_STATE);
+for (const config of ALL_CASCADE_CONFIGS) assertCascadeSeaState(config, SEA_STATE);
 
 function hashBits(kx: number, kz: number, seed: number, salt: number): number {
     const bytes = new ArrayBuffer(24);

@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { directIdft2, fft1dInPlace, ifft2 } from "../src/fft";
 import {
+    ALL_CASCADE_CONFIGS,
     assertAllPowerOfTwo,
     assertCoprimeL,
     CASCADE_CONFIGS,
@@ -94,8 +95,8 @@ describe("cascade config — I1's own structural invariants", () => {
     });
 
     test("every shipped cascade N is a power of two — the FFT's own precondition", () => {
-        expect(assertAllPowerOfTwo(CASCADE_CONFIGS)).toBe(true);
-        for (const c of CASCADE_CONFIGS) expect(isPowerOfTwo(c.N)).toBe(true);
+        expect(assertAllPowerOfTwo(ALL_CASCADE_CONFIGS)).toBe(true);
+        for (const c of ALL_CASCADE_CONFIGS) expect(isPowerOfTwo(c.N)).toBe(true);
     });
 
     test("assertCoprimeL classifies coprime and non-coprime patch lengths", () => {
@@ -114,10 +115,9 @@ describe("cascade config — I1's own structural invariants", () => {
     });
 
     test("the shipped cascades use coprime world-space patch lengths", () => {
-        expect(assertCoprimeL(CASCADE_CONFIGS)).toBe(true);
-        expect(CASCADE_CONFIGS[0].L).toBe(80);
-        expect(CASCADE_CONFIGS[1].L).toBe(31);
-        expect(tilePeriod(CASCADE_CONFIGS)).toBe(2480);
+        expect(assertCoprimeL(ALL_CASCADE_CONFIGS)).toBe(true);
+        expect(ALL_CASCADE_CONFIGS.map((config) => config.L)).toEqual([80, 31, 13]);
+        expect(tilePeriod(ALL_CASCADE_CONFIGS)).toBe(32240);
     });
 
     test("cascade 1's declared band Nyquist headroom: N=128,L=31 covers kHi with margin", () => {

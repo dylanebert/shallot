@@ -122,6 +122,7 @@ import "./mesh-fixture";
 import "./motion-locks";
 import "./motor";
 import "./orbit-touch";
+import "./ocean-slope";
 import "./outline";
 import "./overlap-box";
 import "./paddle";

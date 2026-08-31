@@ -116,6 +116,7 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "mesh-terrain": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_616_308 },
     "mesh-torus": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_895_924 },
     motor: { pipelines: 66, pipelineCalls: 66, gpuBytes: 88_873_964 },
+    "ocean-slope": { pipelines: 47, pipelineCalls: 47, gpuBytes: 56_386_840 },
     "orbit-touch": { pipelines: 29, pipelineCalls: 29, gpuBytes: 31_828_368 },
     outline: { pipelines: 33, pipelineCalls: 33, gpuBytes: 38_517_664 },
     pile: { pipelines: 66, pipelineCalls: 133, gpuBytes: 26_173_716 },

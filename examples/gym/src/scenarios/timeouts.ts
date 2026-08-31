@@ -52,6 +52,9 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     outline: {
         covers: ["packages/shallot/src/extras/outline/**/*.ts"],
     },
+    "ocean-slope": {
+        covers: ["packages/shallot-ocean/src/**/*.ts"],
+    },
     sprite: {
         covers: ["packages/shallot/src/extras/sprite/**/*.ts"],
     },

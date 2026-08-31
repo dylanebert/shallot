@@ -1,6 +1,6 @@
 // High-wavenumber slope cascades. These modes are rendered as slope textures only: no height,
 // horizontal displacement, or Jacobian output is allocated for this band. The source is a seeded
-// height spectrum, converted to directional slope spectra and inverse-transformed with the same
+// height spectrum, converted to directional slope spectra (`i·kx·h̃`, `i·kz·h̃`) and inverse-transformed with the same
 // radix-2 FFT used by the displacement cascades. Each output texture owns every mip level so a
 // later shading pass can select measured residual variance without inventing a footprint heuristic.
 
@@ -13,23 +13,50 @@ import * as d from "typegpu/data";
 import * as std from "typegpu/std";
 import { ifft2 } from "./fft";
 import { getFftKernels } from "./gpu-fft";
-import { type CascadeConfig, directionalDensity, generateH0, kIndex, SEA_STATE } from "./spectrum";
+import {
+    type CascadeConfig,
+    directionalDensity,
+    generateH0,
+    kIndex,
+    SEA_STATE,
+    SLOPE_CASCADE_CONFIGS,
+    type SpectrumMutation,
+} from "./spectrum";
 
-/** The short-gravity/capillary cascade. Its Nyquist edge leaves headroom above 60 rad/m. */
-export const SLOPE_CASCADE_CONFIGS: readonly CascadeConfig[] = Object.freeze([
-    {
-        N: 256,
-        L: 13,
-        windSpeed: SEA_STATE.windSpeed,
-        windDir: SEA_STATE.windDir,
-        lambda: 0,
-        kLo: 8.482300164692441,
-        kHi: 60,
-    },
-]);
+export { SLOPE_CASCADE_CONFIGS } from "./spectrum";
 
 /** Number of complete mip levels in each slope texture, including level zero. */
 export const SLOPE_MIP_LEVELS = Math.floor(Math.log2(SLOPE_CASCADE_CONFIGS[0].N)) + 1;
+
+/** CPU mirror of the GPU mip reduction: XY means plus second moment and sub-texel residual variance. */
+export function reduceSlopeMip(source: Float32Array, size: number): Float32Array {
+    if (!Number.isInteger(size) || size < 2 || source.length !== size * size * 4) {
+        throw new RangeError("reduceSlopeMip: source must be an RGBA square with size >= 2");
+    }
+    const nextSize = size / 2;
+    if (!Number.isInteger(nextSize)) throw new RangeError("reduceSlopeMip: size must be even");
+    const out = new Float32Array(nextSize * nextSize * 4);
+    for (let y = 0; y < nextSize; y++) {
+        for (let x = 0; x < nextSize; x++) {
+            const offsets = [
+                (2 * y * size + 2 * x) * 4,
+                (2 * y * size + 2 * x + 1) * 4,
+                ((2 * y + 1) * size + 2 * x) * 4,
+                ((2 * y + 1) * size + 2 * x + 1) * 4,
+            ];
+            const meanX = offsets.reduce((sum, i) => sum + source[i], 0) / 4;
+            const meanZ = offsets.reduce((sum, i) => sum + source[i + 1], 0) / 4;
+            const second = offsets.reduce((sum, i) => sum + source[i + 2], 0) / 4;
+            const residual = Math.max(0, second - meanX * meanX - meanZ * meanZ);
+            const index = (y * nextSize + x) * 4;
+            out[index] = meanX;
+            out[index + 1] = meanZ;
+            out[index + 2] = second;
+            out[index + 3] = residual;
+        }
+    }
+    return out;
+}
 
 /** Per-level dimensions for a square slope texture. */
 export function slopeMipSize(config: CascadeConfig, level: number): number {
@@ -52,30 +79,32 @@ export function getSlopeCascadeConfigs(): readonly CascadeConfig[] {
 }
 
 /**
- * Sum of the composed slope-PSD over the declared band. `i·k̂·h̃` preserves the source PSD's
- * energy while carrying the directional slope vector into the texture; the two components sum to
- * one mode's height-PSD because k̂x² + k̂z² = 1.
+ * Independently integrate the restricted slope moment over the declared band. The polar Jacobian
+ * supplies `k`, the gradient operator supplies `k²`, and the angular quadrature evaluates the
+ * published Cartesian density without reusing the discrete height-variance helper.
  */
-export function composedSlopePsd(config: CascadeConfig): number {
-    const dk = (2 * Math.PI) / config.L;
+export function composedSlopePsd(config: CascadeConfig, mutation: SpectrumMutation = {}): number {
+    const radialSteps = 512;
+    const angularSteps = 256;
+    const logLo = Math.log(config.kLo);
+    const dLog = Math.log(config.kHi / config.kLo) / radialSteps;
+    const dTheta = (2 * Math.PI) / angularSteps;
     let total = 0;
-    for (let y = 0; y < config.N; y++) {
-        for (let x = 0; x < config.N; x++) {
-            const kx = kIndex(x, config.N) * dk;
-            const kz = kIndex(y, config.N) * dk;
-            const k = Math.hypot(kx, kz);
-            if (k < config.kLo || k > config.kHi) continue;
-            total +=
-                directionalDensity(
-                    kx,
-                    kz,
-                    SEA_STATE.windSpeed,
-                    SEA_STATE.windDir,
-                    SEA_STATE.omegaC,
-                ) *
-                dk *
-                dk;
+    for (let radial = 0; radial < radialSteps; radial++) {
+        const k = Math.exp(logLo + (radial + 0.5) * dLog);
+        let angularMean = 0;
+        for (let angular = 0; angular < angularSteps; angular++) {
+            const theta = (angular + 0.5) * dTheta;
+            angularMean += directionalDensity(
+                k * Math.cos(theta),
+                k * Math.sin(theta),
+                SEA_STATE.windSpeed,
+                SEA_STATE.windDir,
+                SEA_STATE.omegaC,
+                mutation,
+            );
         }
+        total += angularMean * k * k * k * dLog * dTheta;
     }
     return total;
 }
@@ -94,15 +123,12 @@ export function slopeSpectra(
             const i = y * N + ix;
             const kx = kIndex(ix, N) * dk;
             const kz = kIndex(y, N) * dk;
-            const magnitude = Math.hypot(kx, kz);
-            const xHat = magnitude > 1e-6 ? kx / magnitude : 0;
-            const zHat = magnitude > 1e-6 ? kz / magnitude : 0;
             const hr = h[i * 2];
             const hi = h[i * 2 + 1];
-            x[i * 2] = -xHat * hi;
-            x[i * 2 + 1] = xHat * hr;
-            z[i * 2] = -zHat * hi;
-            z[i * 2 + 1] = zHat * hr;
+            x[i * 2] = -kx * hi;
+            x[i * 2 + 1] = kx * hr;
+            z[i * 2] = -kz * hi;
+            z[i * 2 + 1] = kz * hr;
         }
     }
     return { x, z };
@@ -147,8 +173,9 @@ export function runSlopeCpuPipeline(
 }
 
 const slopeParams = d
-    .struct({ n: d.u32, L: d.f32, time: d.f32, width: d.u32, height: d.u32, pad: d.vec3u })
+    .struct({ n: d.u32, L: d.f32, time: d.f32, pad: d.vec3u })
     .$name("SlopeParams");
+const mipParams = d.struct({ width: d.u32, height: d.u32, pad: d.vec2u }).$name("SlopeMipParams");
 const slopeUpdateLayout = tgpu.bindGroupLayout({
     h0: { storage: d.arrayOf(d.vec2f), access: "readonly" },
     h: { storage: d.arrayOf(d.vec2f), access: "mutable" },
@@ -166,7 +193,6 @@ const slopePostLayout = tgpu.bindGroupLayout({
     output: { storageTexture: d.textureStorage2d("rgba16float", "write-only") },
     params: { uniform: slopeParams },
 });
-const mipParams = d.struct({ width: d.u32, height: d.u32, pad: d.vec2u }).$name("SlopeMipParams");
 const mipLayout = tgpu.bindGroupLayout({
     source: { texture: d.texture2d(d.f32), visibility: ["compute"] },
     output: {
@@ -219,13 +245,9 @@ const slopeKernel = tgpu
         const dk = (d.f32(2) * PI) / slopeLayout.$.params.L;
         const kx = std.select(d.f32(x) - d.f32(N), d.f32(x), d.f32(x) <= d.f32(N) / d.f32(2)) * dk;
         const kz = std.select(d.f32(y) - d.f32(N), d.f32(y), d.f32(y) <= d.f32(N) / d.f32(2)) * dk;
-        const magnitude = std.sqrt(kx * kx + kz * kz);
-        const inv = std.select(d.f32(0), d.f32(1) / magnitude, magnitude > d.f32(1e-6));
-        const xHat = kx * inv;
-        const zHat = kz * inv;
         const h = slopeLayout.$.h[idx];
-        slopeLayout.$.x[idx] = d.vec2f(-xHat * h.y, xHat * h.x);
-        slopeLayout.$.z[idx] = d.vec2f(-zHat * h.y, zHat * h.x);
+        slopeLayout.$.x[idx] = d.vec2f(-kx * h.y, kx * h.x);
+        slopeLayout.$.z[idx] = d.vec2f(-kz * h.y, kz * h.x);
     })
     .$name("ocean-slope-spectrum");
 
@@ -238,10 +260,13 @@ const slopePostKernel = tgpu
         if (x >= N || y >= N) return;
         const valueX = slopePostLayout.$.x[y * N + x];
         const valueZ = slopePostLayout.$.z[y * N + x];
+        const energy = valueX.x * valueX.x + valueZ.x * valueZ.x;
+        // Level zero has no sub-texel residual; each later mip computes the residual from the
+        // four source texels' second moment and its new mean.
         std.textureStore(
             slopePostLayout.$.output,
             d.vec2i(d.i32(x), d.i32(y)),
-            d.vec4f(valueX.x, valueZ.x, 0, 1),
+            d.vec4f(valueX.x, valueZ.x, energy, 0),
         );
     })
     .$name("ocean-slope-post");
@@ -262,11 +287,13 @@ const mipKernel = tgpu
             d.vec2i(d.i32(x * 2 + 1), d.i32(y * 2 + 1)),
             0,
         );
-        const sum = std.add(std.add(a, b), std.add(c, e));
+        const mean = std.mul(std.add(std.add(a, b), std.add(c, e)), d.vec4f(0.25));
+        const secondMoment = mean.z;
+        const residual = std.max(d.f32(0), secondMoment - mean.x * mean.x - mean.y * mean.y);
         std.textureStore(
             mipLayout.$.output,
             d.vec2i(d.i32(x), d.i32(y)),
-            std.mul(sum, d.vec4f(0.25)),
+            d.vec4f(mean.x, mean.y, secondMoment, residual),
         );
     })
     .$name("ocean-slope-mip");
@@ -305,11 +332,15 @@ function createSlopeState(config: CascadeConfig): SlopeState {
     const N = config.N;
     const complexBytes = N * N * 8;
     const make = (label: string) =>
-        device.createBuffer({ label, size: complexBytes, usage: GPUBufferUsage.STORAGE });
+        device.createBuffer({
+            label,
+            size: complexBytes,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+        });
     const h0 = device.createBuffer({
         label: `ocean-slope-h0-${N}`,
         size: complexBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
     });
     device.queue.writeBuffer(h0, 0, generateH0(config, 0));
     const h = make(`ocean-slope-h-${N}`);
@@ -381,7 +412,6 @@ function createSlopeState(config: CascadeConfig): SlopeState {
     const zColGroup = root.createBindGroup(fft.layout, { input: zTempT, output: zT });
     const mipGroups: TgpuBindGroup[] = [];
     for (let level = 1; level < SLOPE_MIP_LEVELS; level++) {
-        const width = slopeMipSize(config, level);
         const source = texture.createView({ baseMipLevel: level - 1, mipLevelCount: 1 });
         const output = texture.createView({ baseMipLevel: level, mipLevelCount: 1 });
         mipGroups.push(
@@ -391,7 +421,6 @@ function createSlopeState(config: CascadeConfig): SlopeState {
                 params: mipParamsT[level - 1],
             }),
         );
-        void width;
     }
     return {
         config,
@@ -508,6 +537,41 @@ function runFft(
     const pass = encoder.beginComputePass({ label, timestampWrites: Compute.span?.(label) });
     pipeline.with(group).with(pass).dispatchWorkgroups(state.n);
     pass.end();
+}
+
+async function readComplexBuffer(buffer: GPUBuffer, n: number): Promise<Float32Array> {
+    const size = n * n * 8;
+    const readback = Compute.device.createBuffer({
+        label: "ocean-slope-readback",
+        size,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-copy" });
+    encoder.copyBufferToBuffer(buffer, 0, readback, 0, size);
+    Compute.device.queue.submit([encoder.finish()]);
+    await readback.mapAsync(GPUMapMode.READ);
+    const result = new Float32Array(readback.getMappedRange().slice(0));
+    readback.unmap();
+    readback.destroy();
+    return result;
+}
+
+/** GPU output of one slope cascade's two inverse-transformed spectra. */
+export async function readSlopeBuffers(
+    config: CascadeConfig = SLOPE_CASCADE_CONFIGS[0],
+    time = 0,
+): Promise<{ x: Float32Array; z: Float32Array }> {
+    const state = createSlopeState(config);
+    writeParams(state, time);
+    const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-run" });
+    encode(state, encoder);
+    Compute.device.queue.submit([encoder.finish()]);
+    const [x, z] = await Promise.all([
+        readComplexBuffer(state.x, state.n),
+        readComplexBuffer(state.z, state.n),
+    ]);
+    destroy(state);
+    return { x, z };
 }
 
 /** GPU system for the slope-only cascade. */

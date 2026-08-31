@@ -18,6 +18,7 @@ import { GATE_EXEMPTIONS, SCENARIO_GATES, type ScenarioGate } from "./timeouts";
  *  so its truth already lives in a tier this check isn't responsible for; it excludes ECS/scene
  *  core for the same reason (`bun test` unit coverage). */
 export const GPU_MODULE_GLOBS: readonly string[] = [
+    "packages/shallot-ocean/src/**/*.ts",
     "packages/shallot/src/engine/runtime/**/*.ts",
     "packages/shallot/src/engine/utils/encode.ts",
     "packages/shallot/src/standard/render/**/*.ts",
@@ -176,9 +177,14 @@ export function checkCompleteness(
 export async function gpuModulePopulation(root: string): Promise<string[]> {
     const globs = GPU_MODULE_GLOBS.map(globToRegExp);
     const out: string[] = [];
-    for await (const path of new Bun.Glob("packages/shallot/src/**/*.ts").scan({ cwd: root })) {
-        if (/\.(test|fixture|lab)\.ts$/.test(path)) continue;
-        if (globs.some((re) => re.test(path))) out.push(path);
+    for (const sourceRoot of [
+        "packages/shallot/src/**/*.ts",
+        "packages/shallot-ocean/src/**/*.ts",
+    ]) {
+        for await (const path of new Bun.Glob(sourceRoot).scan({ cwd: root })) {
+            if (/\.(test|fixture|lab)\.ts$/.test(path)) continue;
+            if (globs.some((re) => re.test(path))) out.push(path);
+        }
     }
     return out;
 }

@@ -51,6 +51,8 @@ export {
     composedSlopePsd,
     getSlopeCascadeConfigs,
     getSlopeTexture,
+    readSlopeBuffers,
+    reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
@@ -58,6 +60,7 @@ export {
     slopeSpectra,
 } from "./slope";
 export {
+    ALL_CASCADE_CONFIGS,
     assertAllPowerOfTwo,
     assertCoprimeL,
     C_M,
