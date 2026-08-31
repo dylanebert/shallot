@@ -1348,15 +1348,20 @@ async function sampleFrame(page: Page): Promise<FrameSample | null> {
 
 /** {@link decodeSample}'s region-averaging math (center/corner box averages over a coarse grid), fed by
  *  a pngjs-decoded PNG instead of a page-side canvas — same field shape ({@link FrameSample}), computed
- *  entirely in Node. Box-averages every source pixel covering each 64×64 grid cell, matching `drawImage`'s
- *  downsample-by-area-average by construction rather than point-sampling one source pixel per cell:
- *  nearest-neighbor passes per-pixel dither/AA/jitter through at full amplitude where the browser's own
- *  resample suppresses it, which both `structured()` (`STRUCTURE_THRESHOLD`) and `stepWait`'s `gridDiff`
- *  epsilon are tuned against — a different resample changes what those thresholds see without changing
- *  either constant (shallot-boot-stall-repair S1 follow-up). Duplicated from {@link decodeSample} rather
- *  than shared, for the same reason {@link decodeRgba} already duplicates it (its own comment, above):
- *  {@link decodeSample} is serialized by Playwright and run in-page, so it can't import or close over
- *  anything. @internal exported only so its coverage arm can drive it directly without a browser. */
+ *  entirely in Node. Box-averages every source pixel covering each 64×64 grid cell: an area average by
+ *  construction — nearest-neighbor passes per-pixel dither/AA/jitter through at full amplitude where an
+ *  area average suppresses it, which both `structured()` (`STRUCTURE_THRESHOLD`) and `stepWait`'s
+ *  `gridDiff` epsilon are tuned against — but **not** the same filter `drawImage` runs: the canvas
+ *  downsample's resampling quality is implementation-defined, not a specified box filter, so agreement
+ *  with the in-page path is approximate, never identical by construction. It is witnessed, not derived:
+ *  verify.test.ts's "decodeSampleNode area-average equivalence" oracle drives this decoder and an
+ *  independently written fractional-coverage reference over a pngjs-round-tripped frame (smooth ramp plus
+ *  1 px checkerboard, the discriminating input) and asserts per-channel agreement within tolerance 8 —
+ *  an oracle that reds against a point-sampler, the pre-fix defect (shallot-boot-stall-repair S1
+ *  follow-up). Duplicated from {@link decodeSample} rather than shared, for the same reason
+ *  {@link decodeRgba} already duplicates it (its own comment, above): {@link decodeSample} is serialized
+ *  by Playwright and run in-page, so it can't import or close over anything. @internal exported only so
+ *  its coverage arm can drive it directly without a browser. */
 export function decodeSampleNode(png: {
     width: number;
     height: number;

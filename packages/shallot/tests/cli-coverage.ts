@@ -429,12 +429,19 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
             "verifyCommand's green path — serveDist/serveDev/serveEjected booting a real project and " +
             "driving a real Playwright page end to end — stays `tier`: exercised on every `bun bench`, " +
             "`bun run flows`, and `bun run recipes` run, with no unit test standing in for the real boot-" +
-            "and-navigate sequence. What stays reached by nothing, permanently: decodeSample and " +
-            "decodeRgba. The stage's open question — whether they're pure pixel math over a captured " +
-            'buffer — is settled false: both construct `new Image()`, `document.createElement("canvas")`, ' +
-            "and call `getImageData`, genuine in-page DOM serialized into the browser by Playwright's " +
-            "`page.evaluate`, not a CPU-callable function a `bun test` could drive. They run for real only " +
-            "inside a genuine harness/settle pass under bench/flows/recipes.",
+            "and-navigate sequence. What stays reached by nothing (decodeSample's and decodeRgba's " +
+            "bodies, never their call sites): shallot-boot-stall-repair S1 moved the boot wait's poll onto " +
+            "`decodeSampleNode`/`sampleFrameNode` (unit-covered, this row's own verify.test.ts arms), so " +
+            "decodeSample survives only as `sampleFrameNode`'s silent pngjs-missing fallback — the fallback " +
+            "arm reaches the `page.evaluate(decodeSample, …)` call site with a duck-typed page stub, but the " +
+            "stub returns a hand-built frame and never executes the body — and as the two post-boot " +
+            "single-shot `sampleFrame` reads. The stage's open question — whether they're pure pixel math " +
+            "over a captured buffer — is settled false: both construct `new Image()`, " +
+            '`document.createElement("canvas")`, and call `getImageData`, genuine in-page DOM serialized ' +
+            "into the browser by Playwright's `page.evaluate`, not a CPU-callable function a `bun test` " +
+            "could drive. They execute for real only inside a genuine browser boot — any `verify()`/`shallot " +
+            "verify` consumer runs them (the post-boot reads on the plain path, `samplePixelProbes`' " +
+            "decodeRgba wherever pixelProbes are declared), not only bench/flows/recipes.",
     },
     {
         file: "packages/shallot/src/extras/outline/index.ts",
