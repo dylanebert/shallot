@@ -24,6 +24,9 @@ const dominantPeriod = (2 * Math.PI) / Math.sqrt(G * dominantK);
 const PHASE_PERIODS = Array.from({ length: 9 }, (_, period) => period);
 const PHASES = PHASE_PERIODS.map((period) => period * dominantPeriod);
 const CV_TOLERANCE = 0.15;
+// One tier-wide hang guard: the full 200-seed arm determines the class, and 30 seconds leaves the
+// 48-seed mutation arms more than three times their reviewed under-load runtime.
+const REAL_GRID_TIMEOUT_MS = 30_000;
 
 interface Prediction {
     target: number;
@@ -148,70 +151,86 @@ function ensembleReading(mutation: RealizationMutation = {}, seeds = SEEDS): Ens
 }
 
 describe("seeded physical realization", () => {
-    test("200 explicit seeds on the declared real-grid phase schedule match represented variance", () => {
-        const expected = prediction();
-        const spectralTarget = CASCADE_CONFIGS.reduce(
-            (sum, config) => sum + declaredBandVariance(config),
-            0,
-        );
-        const measured = ensembleReading();
-        console.info("Elfouhaily real-grid realization ensemble", {
-            seeds: SEEDS.length,
-            phasePeriods: PHASE_PERIODS,
-            dominantPeriod,
-            spectralTarget,
-            representedTarget: expected.target,
-            measured: measured.mean,
-            cvPred: expected.cv,
-            measuredCv: measured.cv,
-            relativeError: measured.relativeError,
-            interval: expected.interval,
-        });
-        expect(expected.target).toBeCloseTo(spectralTarget, 12);
-        expect(Math.abs(measured.relativeError)).toBeLessThan(expected.interval);
-        expect(Math.abs(measured.cv / expected.cv - 1)).toBeLessThan(CV_TOLERANCE);
-    }, 30_000);
-
-    test("each declared band realizes its density on the real grid within ten percent", () => {
-        for (const config of CASCADE_CONFIGS) {
-            const target = declaredBandVariance(config);
-            const perSeed = SEEDS.map((seed) => phaseAveragedGridVariance(config, seed));
-            const measured = mean(perSeed);
-            console.info("Elfouhaily realized real-grid band", {
-                N: config.N,
-                band: [config.kLo, config.kHi],
-                target,
-                measured,
+    test(
+        "200 explicit seeds on the declared real-grid phase schedule match represented variance",
+        () => {
+            const expected = prediction();
+            const spectralTarget = CASCADE_CONFIGS.reduce(
+                (sum, config) => sum + declaredBandVariance(config),
+                0,
+            );
+            const measured = ensembleReading();
+            console.info("Elfouhaily real-grid realization ensemble", {
+                seeds: SEEDS.length,
+                phasePeriods: PHASE_PERIODS,
+                dominantPeriod,
+                spectralTarget,
+                representedTarget: expected.target,
+                measured: measured.mean,
+                cvPred: expected.cv,
+                measuredCv: measured.cv,
+                relativeError: measured.relativeError,
+                interval: expected.interval,
             });
-            expect(Math.abs(measured / target - 1)).toBeLessThan(0.1);
-        }
-    });
+            expect(expected.target).toBeCloseTo(spectralTarget, 12);
+            expect(Math.abs(measured.relativeError)).toBeLessThan(expected.interval);
+            expect(Math.abs(measured.cv / expected.cv - 1)).toBeLessThan(CV_TOLERANCE);
+        },
+        REAL_GRID_TIMEOUT_MS,
+    );
 
-    test("production-path per-realization rescaling reds the real-grid ensemble criterion", () => {
-        const expected = prediction(MUTATION_SEEDS.length);
-        const measured = ensembleReading({ rescalePerRealization: true }, MUTATION_SEEDS);
-        console.info("Elfouhaily real-grid realization mutation", {
-            mutation: "rescalePerRealization",
-            seeds: MUTATION_SEEDS.length,
-            ...measured,
-            cvPred: expected.cv,
-            interval: expected.interval,
-        });
-        expect(Math.abs(measured.cv / expected.cv - 1)).toBeGreaterThanOrEqual(CV_TOLERANCE);
-    });
+    test(
+        "each declared band realizes its density on the real grid within ten percent",
+        () => {
+            for (const config of CASCADE_CONFIGS) {
+                const target = declaredBandVariance(config);
+                const perSeed = SEEDS.map((seed) => phaseAveragedGridVariance(config, seed));
+                const measured = mean(perSeed);
+                console.info("Elfouhaily realized real-grid band", {
+                    N: config.N,
+                    band: [config.kLo, config.kHi],
+                    target,
+                    measured,
+                });
+                expect(Math.abs(measured / target - 1)).toBeLessThan(0.1);
+            }
+        },
+        REAL_GRID_TIMEOUT_MS,
+    );
 
-    test("production-path cell-area removal reds the real-grid ensemble criterion", () => {
-        const expected = prediction(MUTATION_SEEDS.length);
-        const measured = ensembleReading({ omitCellArea: true }, MUTATION_SEEDS);
-        console.info("Elfouhaily real-grid realization mutation", {
-            mutation: "omitCellArea",
-            seeds: MUTATION_SEEDS.length,
-            ...measured,
-            cvPred: expected.cv,
-            interval: expected.interval,
-        });
-        expect(Math.abs(measured.relativeError)).toBeGreaterThanOrEqual(expected.interval);
-    });
+    test(
+        "production-path per-realization rescaling reds the real-grid ensemble criterion",
+        () => {
+            const expected = prediction(MUTATION_SEEDS.length);
+            const measured = ensembleReading({ rescalePerRealization: true }, MUTATION_SEEDS);
+            console.info("Elfouhaily real-grid realization mutation", {
+                mutation: "rescalePerRealization",
+                seeds: MUTATION_SEEDS.length,
+                ...measured,
+                cvPred: expected.cv,
+                interval: expected.interval,
+            });
+            expect(Math.abs(measured.cv / expected.cv - 1)).toBeGreaterThanOrEqual(CV_TOLERANCE);
+        },
+        REAL_GRID_TIMEOUT_MS,
+    );
+
+    test(
+        "production-path cell-area removal reds the real-grid ensemble criterion",
+        () => {
+            const expected = prediction(MUTATION_SEEDS.length);
+            const measured = ensembleReading({ omitCellArea: true }, MUTATION_SEEDS);
+            console.info("Elfouhaily real-grid realization mutation", {
+                mutation: "omitCellArea",
+                seeds: MUTATION_SEEDS.length,
+                ...measured,
+                cvPred: expected.cv,
+                interval: expected.interval,
+            });
+            expect(Math.abs(measured.relativeError)).toBeGreaterThanOrEqual(expected.interval);
+        },
+        REAL_GRID_TIMEOUT_MS,
+    );
 
     test("declared-band density and draws stay N-invariant", () => {
         for (const config of CASCADE_CONFIGS) {
