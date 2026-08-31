@@ -20,6 +20,7 @@ import { idiv } from "@dylanebert/shallot/utils/core";
 import tgpu, { type TgpuBindGroup, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
+import { composeWorldJacobian } from "./cpu-reference";
 import { getFftKernels } from "./gpu-fft";
 import { CASCADE_CONFIGS, type CascadeConfig, generateH0, kIndex, SEA_STATE } from "./spectrum";
 
@@ -420,13 +421,13 @@ export function getCascadeConfigs(): CascadeConfig[] {
 
 /** Allocate all GPU state for one cascade config (buffers, pipelines, bind groups). Does NOT
  * publish textures/samplers into Compute — callers that want the cascade rendered do that. */
-function createCascadeState(config: CascadeConfig): CascadeState {
+function createCascadeState(config: CascadeConfig, seed = 0): CascadeState {
     const { device, root } = Compute;
     const N = config.N;
     const complexBytes = N * N * 8; // vec2f = 8 bytes
     const probeBytes = d.sizeOf(d.arrayOf(ProbeData, N * N));
 
-    const h0Data = generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS);
+    const h0Data = generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS, seed);
     const h0Buffer = device.createBuffer({
         label: `ocean-h0-${N}`,
         size: complexBytes,
@@ -799,9 +800,13 @@ function encodeCascadePasses(encoder: GPUCommandEncoder, cs: CascadeState): void
  * the full N*N grid). Used by the N-invariance arm to compare fold fraction at two grid
  * resolutions over one held-fixed composed sea state; only N differs.
  */
-export async function measureFoldFraction(config: CascadeConfig, time = 0): Promise<number> {
+export async function measureFoldFraction(
+    config: CascadeConfig,
+    time = 0,
+    seed = 0,
+): Promise<number> {
     const { device } = Compute;
-    const cs = createCascadeState(config);
+    const cs = createCascadeState(config, seed);
     writeCascadeParams(cs, time);
 
     const encoder = device.createCommandEncoder({ label: "fold-fraction-probe" });
@@ -846,11 +851,12 @@ export async function measureGpuFoldEnsemble(
     config: CascadeConfig,
     phaseCount = 32,
     period = 1,
+    seed = 0,
 ): Promise<number[]> {
     const values: number[] = [];
     for (let phase = 0; phase < phaseCount; phase++)
         values.push(
-            await measureFoldFraction(config, (period * phase) / Math.max(phaseCount - 1, 1)),
+            await measureFoldFraction(config, (period * phase) / Math.max(phaseCount - 1, 1), seed),
         );
     return values;
 }
@@ -860,25 +866,48 @@ export async function measureGpuComposedFoldEnsemble(
     configs: CascadeConfig[] = CASCADE_CONFIGS,
     phaseCount = 32,
     period = 1,
+    seed = 0,
 ): Promise<number[]> {
     const values = Array.from({ length: phaseCount }, () => 0);
     let totalTexels = 0;
     for (const config of configs) {
         const weight = config.N * config.N;
-        const readings = await measureGpuFoldEnsemble(config, phaseCount, period);
+        const readings = await measureGpuFoldEnsemble(config, phaseCount, period, seed);
         totalTexels += weight;
         for (let phase = 0; phase < phaseCount; phase++) values[phase] += readings[phase] * weight;
     }
     return values.map((value) => value / Math.max(totalTexels, 1));
 }
 
-/** GPU composed-grid fold readings use one shared world-grid weighting for each phase. */
+/** Read production GPU fields and compose their Jacobian on one shared world grid per phase. */
 export async function measureGpuComposedWorldGridFoldEnsemble(
     configs: CascadeConfig[] = CASCADE_CONFIGS,
     phaseCount = 32,
     period = 1,
+    seed = 0,
 ): Promise<number[]> {
-    return measureGpuComposedFoldEnsemble(configs, phaseCount, period);
+    if (!Compute.device)
+        throw new Error(
+            "GPU adapter unavailable: composed world-grid fold requires a real adapter",
+        );
+    const values: number[] = [];
+    for (let phase = 0; phase < phaseCount; phase++) {
+        const time = (period * phase) / Math.max(phaseCount - 1, 1);
+        const buffers = await Promise.all(
+            configs.map((config) => readStageBuffers(config, time, seed)),
+        );
+        const fields = buffers.map((buffer) => ({
+            height: Float32Array.from(
+                { length: buffer.N * buffer.N },
+                (_, i) => buffer.height[i * 2],
+            ),
+            gxxHeight: buffer.gxxHeight,
+            gxzHeight: buffer.gxzHeight,
+            gzzHeight: buffer.gzzHeight,
+        }));
+        values.push(composeWorldJacobian(fields, configs, 128, SEA_STATE.lambda, 80).foldFraction);
+    }
+    return values;
 }
 
 /** Read one complex (vec2f) storage buffer back to a plain Float32Array (interleaved re, im). */
@@ -953,12 +982,19 @@ export interface StageBuffers {
     height: Float32Array;
     dxHeight: Float32Array;
     dzHeight: Float32Array;
+    gxxHeight: Float32Array;
+    gxzHeight: Float32Array;
+    gzzHeight: Float32Array;
     probe: ProbeRow;
 }
 
-export async function readStageBuffers(config: CascadeConfig, time = 0): Promise<StageBuffers> {
+export async function readStageBuffers(
+    config: CascadeConfig,
+    time = 0,
+    seed = 0,
+): Promise<StageBuffers> {
     const { device } = Compute;
-    const cs = createCascadeState(config);
+    const cs = createCascadeState(config, seed);
     writeCascadeParams(cs, time);
 
     const encoder = device.createCommandEncoder({ label: "stage-probe" });
@@ -966,7 +1002,19 @@ export async function readStageBuffers(config: CascadeConfig, time = 0): Promise
     device.queue.submit([encoder.finish()]);
 
     const N = cs.N;
-    const [h0, h, dxSpec, dzSpec, height, dxHeight, dzHeight, probe] = await Promise.all([
+    const [
+        h0,
+        h,
+        dxSpec,
+        dzSpec,
+        height,
+        dxHeight,
+        dzHeight,
+        gxxHeight,
+        gxzHeight,
+        gzzHeight,
+        probe,
+    ] = await Promise.all([
         readComplexBuffer(device, cs.h0Buffer, N),
         readComplexBuffer(device, cs.hBuffer, N),
         readComplexBuffer(device, cs.dxSpecBuffer, N),
@@ -974,11 +1022,27 @@ export async function readStageBuffers(config: CascadeConfig, time = 0): Promise
         readComplexBuffer(device, cs.heightBuffer, N),
         readComplexBuffer(device, cs.dxHeightBuffer, N),
         readComplexBuffer(device, cs.dzHeightBuffer, N),
+        readComplexBuffer(device, cs.gxxHeightBuffer, N),
+        readComplexBuffer(device, cs.gxzHeightBuffer, N),
+        readComplexBuffer(device, cs.gzzHeightBuffer, N),
         readProbeBuffer(device, cs.probeBuffer, N),
     ]);
     destroyCascadeState(cs);
 
-    return { N, h0, h, dxSpec, dzSpec, height, dxHeight, dzHeight, probe };
+    return {
+        N,
+        h0,
+        h,
+        dxSpec,
+        dzSpec,
+        height,
+        dxHeight,
+        dzHeight,
+        gxxHeight,
+        gxzHeight,
+        gzzHeight,
+        probe,
+    };
 }
 
 // ── compute system ───────────────────────────────────────────────────────────

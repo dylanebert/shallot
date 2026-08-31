@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runCpuPipeline } from "../src/cpu-reference";
+import { composeWorldJacobian, runCpuPipeline } from "../src/cpu-reference";
 import {
     CASCADE_CONFIGS,
     declaredBandVariance,
@@ -128,22 +128,30 @@ describe("composed-field whitecap fold derivation", () => {
         expect(band.foldAnchor).toBeCloseTo(band.whitecapAnchor, 3);
         expect(band.foldCeiling).toBeGreaterThan(band.foldAnchor);
         expect(band.foldAnchor).toBeCloseTo(band.whitecapAnchor, 3);
-        let folded = 0;
-        let samples = 0;
-        for (const config of CASCADE_CONFIGS) {
+        const fields = CASCADE_CONFIGS.map((config) => {
             const result = runCpuPipeline(
                 generateH0(config, kIndex, SEA_STATE, CASCADE_CONFIGS),
                 config,
             );
-            folded += result.jacobian.foldCount;
-            samples += config.N * config.N;
-        }
-        const realizedFold = folded / samples;
-        // One-sided anchor→ceiling semantics: the realized field must not fall below the
-        // whitecap anchor or exceed the unit-RMS ceiling. This reads the actual CPU pipeline,
-        // rather than restating foldProbability's algebra.
-        expect(realizedFold).toBeGreaterThanOrEqual(band.whitecapAnchor);
-        expect(realizedFold).toBeLessThanOrEqual(band.foldCeiling);
+            return {
+                height: result.jacobian.height,
+                gxxHeight: result.gxxHeight,
+                gxzHeight: result.gxzHeight,
+                gzzHeight: result.gzzHeight,
+            };
+        });
+        const realizedFold = composeWorldJacobian(
+            fields,
+            CASCADE_CONFIGS,
+            128,
+            SEA_STATE.lambda,
+            80,
+        );
+        // This single-phase caller guards against a regression to per-cascade proxy weighting;
+        // the required two-sided anchor assertion lives on the 32-phase oracle.
+        expect(realizedFold.sampleCount).toBe(128 * 128);
+        expect(realizedFold.foldFraction).toBeGreaterThan(0);
+        expect(realizedFold.foldFraction).toBeLessThan(band.foldCeiling);
         expect(band.lambda).toBeGreaterThan(0.1);
         expect(band.lambda).toBeLessThan(10);
     });

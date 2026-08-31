@@ -246,16 +246,30 @@ export interface WorldJacobianStats {
     variance: number;
 }
 
-/** Compose every cascade on one world-space lattice before taking the Jacobian determinant. */
+/** Fields needed to evaluate a composed world-grid Jacobian. */
+export interface WorldJacobianFields {
+    height: Float32Array | Float64Array;
+    gxxHeight: ComplexArray;
+    gxzHeight: ComplexArray;
+    gzzHeight: ComplexArray;
+}
+
+/** Compose every cascade on one shared world-space lattice before taking the determinant. */
 export function composeWorldJacobian(
-    results: CpuStageResult[],
+    results: WorldJacobianFields[],
     configs: CascadeConfig[],
     worldSize = 128,
+    lambda = SEA_STATE.lambda,
+    worldExtent = Math.max(...configs.map((config) => config.L)),
 ): WorldJacobianStats {
+    if (results.length !== configs.length)
+        throw new Error("world-grid fields/configs length mismatch");
     let foldCount = 0;
     let variance = 0;
     for (let z = 0; z < worldSize; z++) {
         for (let x = 0; x < worldSize; x++) {
+            const worldX = ((x + 0.5) / worldSize - 0.5) * worldExtent;
+            const worldZ = ((z + 0.5) / worldSize - 0.5) * worldExtent;
             let h = 0;
             let dxdx = 0;
             let dxdz = 0;
@@ -263,13 +277,15 @@ export function composeWorldJacobian(
             for (let c = 0; c < configs.length; c++) {
                 const cfg = configs[c];
                 const result = results[c];
-                const localX = ((Math.floor((x / worldSize) * cfg.N) % cfg.N) + cfg.N) % cfg.N;
-                const localZ = ((Math.floor((z / worldSize) * cfg.N) % cfg.N) + cfg.N) % cfg.N;
+                const localX =
+                    ((Math.floor((worldX / cfg.L + 0.5) * cfg.N) % cfg.N) + cfg.N) % cfg.N;
+                const localZ =
+                    ((Math.floor((worldZ / cfg.L + 0.5) * cfg.N) % cfg.N) + cfg.N) % cfg.N;
                 const i = localZ * cfg.N + localX;
-                h += result.jacobian.height[i];
-                dxdx += SEA_STATE.lambda * result.gxxHeight[i * 2];
-                dxdz += SEA_STATE.lambda * result.gxzHeight[i * 2];
-                dzdz += SEA_STATE.lambda * result.gzzHeight[i * 2];
+                h += result.height[i];
+                dxdx += lambda * result.gxxHeight[i * 2];
+                dxdz += lambda * result.gxzHeight[i * 2];
+                dzdz += lambda * result.gzzHeight[i * 2];
             }
             const det = (1 + dxdx) * (1 + dzdz) - dxdz * dxdz;
             if (det < 0) foldCount++;
