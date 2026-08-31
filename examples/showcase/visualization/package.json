@@ -16,6 +16,6 @@
     "devDependencies": {
         "@playwright/test": "^1.58.2",
         "unplugin-typegpu": "~0.12.1",
-        "vite": "^8.0.0"
+        "vite": "^8.0.16"
     }
 }
