@@ -9,6 +9,7 @@ paths:
     - "scripts/compile-concurrency.ts"
     - "scripts/loaf-attribution.ts"
     - "packages/shallot/scripts/build-tooling.ts"
+    - "packages/shallot-ocean/**/*.test.ts"
     - "site/rum-*.ts"
 ---
 

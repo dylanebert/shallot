@@ -1,0 +1,64 @@
+// @dylanebert/shallot-ocean — FFT ocean surface extension. The package exposes a butterfly FFT,
+// spectral ocean kernels, CPU reference functions, and a Shallot plugin.
+
+export {
+    type ComplexArray,
+    type CpuStageResult,
+    chop,
+    idft2,
+    type JacobianStats,
+    jacobianStats,
+    runCpuPipeline,
+    spectralGradient,
+    updateH,
+} from "./cpu-reference";
+export { directIdft2, fft1dInPlace, ifft2 } from "./fft";
+export {
+    type FftLayout,
+    getFftKernels,
+    makeColFftKernel,
+    makeFftLayout,
+    makeRowFftKernel,
+} from "./gpu-fft";
+export {
+    type CascadeConfig,
+    CascadeParams,
+    Complex,
+    getCascadeConfigs,
+    getDisplacementTexture,
+    getProbeBufferForCascade,
+    measureFoldFraction,
+    OceanPlugin,
+    oceanCompute,
+    PEAK_FMA_FLOPS,
+    PROBE_COUNTS,
+    PROBE_TOTAL,
+    ProbeData,
+    type ProbeRow,
+    readStageBuffers,
+    type StageBuffers,
+    setPeakFmaEnabled,
+    updateKernel,
+    updateLayout,
+} from "./ocean";
+export {
+    type LabelFn,
+    lag1AutocorrParityWitness,
+    measuredLag1AutocorrX,
+    type ParityWitnessReading,
+} from "./parity-witness";
+export {
+    assertAllPowerOfTwo,
+    assertCoprimeL,
+    CASCADE_CONFIGS,
+    directDftFlops,
+    G,
+    gcd,
+    generateH0,
+    isPowerOfTwo,
+    kIndex,
+    philips,
+    theoreticalFlops,
+    tilePeriod,
+    totalTheoreticalFlops,
+} from "./spectrum";

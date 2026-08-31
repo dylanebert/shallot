@@ -8,6 +8,7 @@ paths:
     - "packages/shallot/src/standard/slab/**/*.ts"
     - "packages/shallot/src/standard/bvh/**/*.ts"
     - "packages/shallot/src/extras/{gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts"
+    - "packages/shallot-ocean/**"
 ---
 
 # GPU
@@ -15,6 +16,10 @@ paths:
 Reference: `render.md` for the rendering pipeline + mesh format. Capacity is fixed at app construction (`build({ capacity })`, default 65536) and exposed as a module-level `capacity` export; component storage is SoA typed columns (`ecs.md`).
 
 ## Framing — WebGPU isn't Vulkan
+
+TGSL compiles `u32 / u32` as real division. Derive integer coordinates with `idiv` from
+`@dylanebert/shallot/utils/core`; `%` remains integer remainder. Initialize integer locals with
+`d.u32(...)` or `d.i32(...)`, and apply `eslint-plugin-typegpu` to every `"use gpu"` file.
 
 WebGPU enforces bounds-check semantics on storage accesses (via hardware robustness on most discrete GPUs, injected clamps where unavailable — measured 17% perf cost on AMD, 34% on NVIDIA 1080 Ti, up to 70% on Intel integrated, per [gpuweb#1202](https://github.com/gpuweb/gpuweb/issues/1202)). It has no bindless ([proposal in draft](https://github.com/gpuweb/gpuweb/blob/main/proposals/bindless.md), no shipping date), single queue (no graphics/compute concurrency, [gpuweb#1065](https://github.com/gpuweb/gpuweb/issues/1065)), and validates every indirect dispatch. Our integrated-GPU floor is what bites, not the desktop ceiling. When porting from a Vulkan reference, be more aggressive on layout, precision, and interpolator count than the reference suggests — not less.
 
