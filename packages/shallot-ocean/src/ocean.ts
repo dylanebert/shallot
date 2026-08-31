@@ -426,7 +426,7 @@ function createCascadeState(config: CascadeConfig): CascadeState {
     const complexBytes = N * N * 8; // vec2f = 8 bytes
     const probeBytes = d.sizeOf(d.arrayOf(ProbeData, N * N));
 
-    const h0Data = generateH0(config);
+    const h0Data = generateH0(config, 0);
     const h0Buffer = device.createBuffer({
         label: `ocean-h0-${N}`,
         size: complexBytes,
@@ -794,7 +794,7 @@ function encodeCascadePasses(encoder: GPUCommandEncoder, cs: CascadeState): void
  * encodeCascadePasses, the same functions the live render loop uses) at an arbitrary one-off
  * config, off the persistent `cascades[]` array, and returns the fold fraction (det<0 share over
  * the full N*N grid). Used by the N-invariance arm to compare fold fraction at two grid
- * resolutions over one held-fixed sea state (same L/windSpeed/windDir/amplitude/lambda, only N
+ * resolutions over one held-fixed sea state (same L, physical density, band, and lambda; only N
  * differs).
  */
 export async function measureFoldFraction(config: CascadeConfig, time = 0): Promise<number> {
