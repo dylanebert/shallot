@@ -77,9 +77,10 @@ const SURFACE_TENSION = 0.074;
 const WATER_DENSITY = 1025;
 const K_M = Math.sqrt((WATER_DENSITY * G) / SURFACE_TENSION);
 const C_M = 0.23;
-const TARGET_WIND = 15;
+/** Declared ten-metre wind speed (m/s) for the shipped sea state. */
+export const U10 = 15;
 // Explicitly declared with U10; it is not recomputed from a second wind-age heuristic.
-const DECLARED_OMEGA_C = 0.82;
+export const OMEGA_C = 0.82;
 const BASE_WIND_DIR = 0.6;
 
 /** Monahan & O'Muircheartaigh's measured whitecap coverage fit. */
@@ -106,9 +107,9 @@ export function frictionVelocity(windSpeed: number): number {
 export function unifiedSpectrum(
     kx: number,
     kz: number,
-    windSpeed = TARGET_WIND,
+    windSpeed = U10,
     windDir = BASE_WIND_DIR,
-    omegaC = DECLARED_OMEGA_C,
+    omegaC = OMEGA_C,
 ): number {
     const k2 = kx * kx + kz * kz;
     if (k2 < 1e-14 || windSpeed <= 0 || omegaC <= 0) return 0;
@@ -230,13 +231,8 @@ function discreteVariance(
     return sum;
 }
 
-const FULL_VARIANCE = radialIntegral(TARGET_WIND, DECLARED_OMEGA_C, 0.01, K_M);
-const DECLARED_VARIANCE = discreteVariance(
-    CASCADE_CONFIGS,
-    TARGET_WIND,
-    BASE_WIND_DIR,
-    DECLARED_OMEGA_C,
-);
+const FULL_VARIANCE = radialIntegral(U10, OMEGA_C, 0.01, K_M);
+const DECLARED_VARIANCE = discreteVariance(CASCADE_CONFIGS, U10, BASE_WIND_DIR, OMEGA_C);
 
 /** The fixed 1/2 pair factor used by the complex H0 convention; it never fits Hs. */
 const normalizationCache = new Map<string, number>();
@@ -245,9 +241,9 @@ const normalizationCache = new Map<string, number>();
 export function spectrumNormalization(
     configs: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
-    windSpeed = TARGET_WIND,
+    windSpeed = U10,
     windDir = BASE_WIND_DIR,
-    omegaC = DECLARED_OMEGA_C,
+    omegaC = OMEGA_C,
 ): number {
     const cacheKey = `${configs.map((c) => `${c.N}:${c.L}:${c.kLo}:${c.kHi}`).join(",")}|${windSpeed}|${windDir}|${omegaC}`;
     const cached = normalizationCache.get(cacheKey);
@@ -272,9 +268,9 @@ export function declaredBandVariance(
     cfg: CascadeConfig,
     population: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
-    windSpeed = TARGET_WIND,
+    windSpeed = U10,
     windDir = BASE_WIND_DIR,
-    omegaC = DECLARED_OMEGA_C,
+    omegaC = OMEGA_C,
 ): number {
     const dk = (2 * Math.PI) / cfg.L;
     const scale = spectrumNormalization(
@@ -366,7 +362,7 @@ export function generateH0(
 export function realizedFieldVariance(
     population: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
-    windSpeed = TARGET_WIND,
+    windSpeed = U10,
     windDir = BASE_WIND_DIR,
 ): number {
     let variance = 0;
@@ -415,14 +411,14 @@ export function foldProbability(lambda: number, slopeRms: number): number {
     return lambda > 0 && slopeRms > 0 ? 0.5 * erfc(1 / (Math.SQRT2 * lambda * slopeRms)) : 0;
 }
 /** Resolved gravity/short-gravity slope moment compared with the Cox–Munk fit. */
-export function meanSquareSlope(windSpeed: number, omegaC = DECLARED_OMEGA_C): number {
+export function meanSquareSlope(windSpeed: number, omegaC = OMEGA_C): number {
     // Cox–Munk is the resolved gravity/short-gravity slope moment. The capillary continuation is
     // exposed separately below instead of silently forcing the resolved arm to a different target.
     return radialIntegral(windSpeed, omegaC, 0.01, 8.482300164692441, true);
 }
 
 /** Full source-tail slope moment through the capillary cutoff, reported separately from Cox–Munk. */
-export function fullTailMeanSquareSlope(windSpeed: number, omegaC = DECLARED_OMEGA_C): number {
+export function fullTailMeanSquareSlope(windSpeed: number, omegaC = OMEGA_C): number {
     return radialIntegral(windSpeed, omegaC, 0.01, K_M, true);
 }
 function composedStrainRms(
@@ -457,9 +453,9 @@ function composedStrainRms(
 export function deriveFoldBand(
     configs: CascadeConfig[],
     significantWaveHeight = 4 * Math.sqrt(FULL_VARIANCE),
-    windSpeed = TARGET_WIND,
+    windSpeed = U10,
     windDir = BASE_WIND_DIR,
-    omegaC = DECLARED_OMEGA_C,
+    omegaC = OMEGA_C,
 ): FoldBand {
     // λ is derived from the same composed, declared-band Jacobian statistic that the fold oracle
     // measures; using total isotropic slope RMS here would derive a different physical quantity.
@@ -480,12 +476,12 @@ export function deriveFoldBand(
 
 const _band = deriveFoldBand(CASCADE_CONFIGS);
 export const SEA_STATE: SeaState = Object.freeze({
-    windSpeed: TARGET_WIND,
-    omegaC: DECLARED_OMEGA_C,
+    windSpeed: U10,
+    omegaC: OMEGA_C,
     windDir: BASE_WIND_DIR,
     significantWaveHeight: 4 * Math.sqrt(FULL_VARIANCE),
     lambda: _band.lambda,
-    whitecapFraction: whitecapFraction(TARGET_WIND),
+    whitecapFraction: whitecapFraction(U10),
     truncationRatio: DECLARED_VARIANCE / FULL_VARIANCE,
 });
 

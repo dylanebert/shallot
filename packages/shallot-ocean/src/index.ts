@@ -67,6 +67,7 @@ export {
     isPowerOfTwo,
     kIndex,
     meanSquareSlope,
+    OMEGA_C,
     realizedFieldVariance,
     SEA_STATE,
     type SeaState,
@@ -75,6 +76,7 @@ export {
     theoreticalFlops,
     tilePeriod,
     totalTheoreticalFlops,
+    U10,
     unifiedSpectrum,
     whitecapFraction,
 } from "./spectrum";
