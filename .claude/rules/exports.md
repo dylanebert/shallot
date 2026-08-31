@@ -86,4 +86,4 @@ Cross-module imports within `standard/` use relative paths. Producers (the `extr
 
 ## Naming
 
-Exports should not commonly conflict (no `as` renames at import sites). If a name is too generic (e.g. `readBuffer`), it belongs in a subpath or stays internal — not the main barrel.
+Exports should not commonly conflict (no `as` renames at import sites). If a name is too generic (e.g. `readBuffer`), it belongs in a subpath or stays internal — not the main barrel. (anti-pattern)

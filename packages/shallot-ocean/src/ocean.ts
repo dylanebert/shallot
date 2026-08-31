@@ -809,17 +809,17 @@ export async function measureFoldFraction(config: CascadeConfig, time = 0): Prom
     const N = cs.N;
     const entrySize = 32; // ProbeData = 8 × 4 bytes
     const readSize = N * N * entrySize;
-    const readBuffer = device.createBuffer({
+    const probeReadback = device.createBuffer({
         label: "ocean-fold-probe-read",
         size: readSize,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const copyEncoder = device.createCommandEncoder({ label: "fold-fraction-probe-copy" });
-    copyEncoder.copyBufferToBuffer(cs.probeBuffer, 0, readBuffer, 0, readSize);
+    copyEncoder.copyBufferToBuffer(cs.probeBuffer, 0, probeReadback, 0, readSize);
     device.queue.submit([copyEncoder.finish()]);
 
-    await readBuffer.mapAsync(GPUMapMode.READ);
-    const mapped = readBuffer.getMappedRange();
+    await probeReadback.mapAsync(GPUMapMode.READ);
+    const mapped = probeReadback.getMappedRange();
     const u32View = new Uint32Array(mapped);
     let negDetCount = 0;
     let totalCount = 0;
@@ -828,8 +828,8 @@ export async function measureFoldFraction(config: CascadeConfig, time = 0): Prom
         negDetCount += u32View[offset + 3];
         totalCount += u32View[offset + 5];
     }
-    readBuffer.unmap();
-    readBuffer.destroy();
+    probeReadback.unmap();
+    probeReadback.destroy();
     destroyCascadeState(cs);
 
     return negDetCount / Math.max(totalCount, 1);
@@ -842,18 +842,18 @@ async function readComplexBuffer(
     N: number,
 ): Promise<Float32Array> {
     const size = N * N * 8; // vec2f = 8 bytes
-    const readBuffer = device.createBuffer({
+    const stageReadback = device.createBuffer({
         label: "ocean-stage-probe-read",
         size,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = device.createCommandEncoder({ label: "stage-probe-copy" });
-    encoder.copyBufferToBuffer(buffer, 0, readBuffer, 0, size);
+    encoder.copyBufferToBuffer(buffer, 0, stageReadback, 0, size);
     device.queue.submit([encoder.finish()]);
-    await readBuffer.mapAsync(GPUMapMode.READ);
-    const out = new Float32Array(readBuffer.getMappedRange().slice(0));
-    readBuffer.unmap();
-    readBuffer.destroy();
+    await stageReadback.mapAsync(GPUMapMode.READ);
+    const out = new Float32Array(stageReadback.getMappedRange().slice(0));
+    stageReadback.unmap();
+    stageReadback.destroy();
     return out;
 }
 
@@ -868,16 +868,16 @@ export interface ProbeRow {
 async function readProbeBuffer(device: GPUDevice, buffer: GPUBuffer, N: number): Promise<ProbeRow> {
     const entrySize = 32; // ProbeData = 8 × 4 bytes
     const size = N * N * entrySize;
-    const readBuffer = device.createBuffer({
+    const probeReadback = device.createBuffer({
         label: "ocean-stage-probe-read",
         size,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
     const encoder = device.createCommandEncoder({ label: "stage-probe-copy" });
-    encoder.copyBufferToBuffer(buffer, 0, readBuffer, 0, size);
+    encoder.copyBufferToBuffer(buffer, 0, probeReadback, 0, size);
     device.queue.submit([encoder.finish()]);
-    await readBuffer.mapAsync(GPUMapMode.READ);
-    const mapped = readBuffer.getMappedRange().slice(0);
+    await probeReadback.mapAsync(GPUMapMode.READ);
+    const mapped = probeReadback.getMappedRange().slice(0);
     const f32 = new Float32Array(mapped);
     const energy = new Float32Array(N * N);
     const detJ = new Float32Array(N * N);
@@ -885,8 +885,8 @@ async function readProbeBuffer(device: GPUDevice, buffer: GPUBuffer, N: number):
         energy[i] = f32[i * 8 + 0]; // ProbeData.energy
         detJ[i] = f32[i * 8 + 1]; // ProbeData.minDet (== maxDet == this texel's own detJ)
     }
-    readBuffer.unmap();
-    readBuffer.destroy();
+    probeReadback.unmap();
+    probeReadback.destroy();
     return { energy, detJ };
 }
 

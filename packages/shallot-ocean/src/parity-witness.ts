@@ -8,6 +8,11 @@ import { type CascadeConfig, generateH0, type LabelFn } from "./spectrum";
 
 export type { LabelFn } from "./spectrum";
 
+/** centered mode labels used only as the deliberate checkerboard red-witness prediction. */
+export function centeredLabelPreFix(i: number, N: number): number {
+    return i - N / 2;
+}
+
 /** the realized spatial field's own lag-1 autocorrelation along x, averaged over every row. */
 export function measuredLag1AutocorrX(height: Float64Array | Float32Array, N: number): number {
     let mean = 0;

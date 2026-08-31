@@ -12,20 +12,14 @@
 // pass merely because one callback drives every side of the comparison.
 import { describe, expect, test } from "bun:test";
 import { idft2, updateH } from "../src/cpu-reference";
-import { lag1AutocorrParityWitness } from "../src/parity-witness";
-import { CASCADE_CONFIGS, kIndex } from "../src/spectrum";
+import { centeredLabelPreFix, lag1AutocorrParityWitness } from "../src/parity-witness";
+import { CASCADE_CONFIGS, kIndex, type LabelFn } from "../src/spectrum";
 
 const PI = Math.PI;
-
-function centeredLabelPreFix(i: number, N: number): number {
-    return i - N / 2;
-}
 
 function worldForTexel(x: number, N: number, L: number): number {
     return ((x + 0.5) / N - 0.5) * L;
 }
-
-type LabelFn = (i: number, N: number) => number;
 
 function nearestIndexForLabel(labelFn: LabelFn, N: number, dk: number, target: number): number {
     let best = 0;
