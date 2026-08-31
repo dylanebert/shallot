@@ -78,12 +78,20 @@ export function getSlopeCascadeConfigs(): readonly CascadeConfig[] {
     return SLOPE_CASCADE_CONFIGS;
 }
 
+/** Deliberately omit the gradient k factor for the red-witness oracle. */
+export interface SlopeMutation {
+    missingGradientK?: boolean;
+}
+
 /**
  * Independently integrate the restricted slope moment over the declared band. The polar Jacobian
  * supplies `k`, the gradient operator supplies `k²`, and the angular quadrature evaluates the
  * published Cartesian density without reusing the discrete height-variance helper.
  */
-export function composedSlopePsd(config: CascadeConfig, mutation: SpectrumMutation = {}): number {
+export function composedSlopePsd(
+    config: CascadeConfig,
+    mutation: SpectrumMutation & SlopeMutation = {},
+): number {
     const radialSteps = 512;
     const angularSteps = 256;
     const logLo = Math.log(config.kLo);
@@ -104,7 +112,10 @@ export function composedSlopePsd(config: CascadeConfig, mutation: SpectrumMutati
                 mutation,
             );
         }
-        total += angularMean * k * k * k * dLog * dTheta;
+        // k² from |∇h|², then k·dk = k²·dLog from the polar/log-radial measure.
+        // The resulting radial weight is k⁴·dLog·dTheta.
+        const gradientMoment = mutation.missingGradientK ? k ** 3 : k ** 4;
+        total += angularMean * gradientMoment * dLog * dTheta;
     }
     return total;
 }
@@ -113,6 +124,7 @@ export function composedSlopePsd(config: CascadeConfig, mutation: SpectrumMutati
 export function slopeSpectra(
     h: Float32Array,
     config: CascadeConfig,
+    mutation: SlopeMutation = {},
 ): { x: Float32Array; z: Float32Array } {
     const { N, L } = config;
     const dk = (2 * Math.PI) / L;
@@ -125,10 +137,12 @@ export function slopeSpectra(
             const kz = kIndex(y, N) * dk;
             const hr = h[i * 2];
             const hi = h[i * 2 + 1];
-            x[i * 2] = -kx * hi;
-            x[i * 2 + 1] = kx * hr;
-            z[i * 2] = -kz * hi;
-            z[i * 2 + 1] = kz * hr;
+            const gradientX = mutation.missingGradientK ? 1 : kx;
+            const gradientZ = mutation.missingGradientK ? 1 : kz;
+            x[i * 2] = -gradientX * hi;
+            x[i * 2 + 1] = gradientX * hr;
+            z[i * 2] = -gradientZ * hi;
+            z[i * 2 + 1] = gradientZ * hr;
         }
     }
     return { x, z };
@@ -139,6 +153,7 @@ export function runSlopeCpuPipeline(
     h0: Float32Array,
     config: CascadeConfig = SLOPE_CASCADE_CONFIGS[0],
     time = 0,
+    mutation: SlopeMutation = {},
 ): {
     h: Float32Array;
     x: Float32Array;
@@ -168,8 +183,25 @@ export function runSlopeCpuPipeline(
             h[index * 2 + 1] = ar * s + ai * c + br * sm + bi * cm;
         }
     }
-    const { x, z } = slopeSpectra(h, config);
+    const { x, z } = slopeSpectra(h, config, mutation);
     return { h, x, z, xField: ifft2(x, N), zField: ifft2(z, N) };
+}
+
+/** Mean-square slope of a realized CPU field, measured over the raster's real components. */
+export function realizedSlopeMss(
+    result: Pick<ReturnType<typeof runSlopeCpuPipeline>, "xField" | "zField">,
+): number {
+    const samples = result.xField.length / 2;
+    let sum = 0;
+    for (let i = 0; i < samples; i++) {
+        sum += result.xField[i * 2] ** 2 + result.zField[i * 2] ** 2;
+    }
+    return sum / samples;
+}
+
+/** Rasterized realized slope moment; its sample count and FFT field are explicitly N-dependent. */
+export function rasterSlopeMoment(h0: Float32Array, config: CascadeConfig, time = 0): number {
+    return realizedSlopeMss(runSlopeCpuPipeline(h0, config, time));
 }
 
 const slopeParams = d
@@ -327,7 +359,7 @@ interface SlopeState {
 }
 const states: SlopeState[] = [];
 
-function createSlopeState(config: CascadeConfig): SlopeState {
+function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
     const { device, root } = Compute;
     const N = config.N;
     const complexBytes = N * N * 8;
@@ -335,12 +367,12 @@ function createSlopeState(config: CascadeConfig): SlopeState {
         device.createBuffer({
             label,
             size: complexBytes,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+            usage: GPUBufferUsage.STORAGE | (readback ? GPUBufferUsage.COPY_SRC : 0),
         });
     const h0 = device.createBuffer({
         label: `ocean-slope-h0-${N}`,
         size: complexBytes,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(h0, 0, generateH0(config, 0));
     const h = make(`ocean-slope-h-${N}`);
@@ -365,7 +397,10 @@ function createSlopeState(config: CascadeConfig): SlopeState {
         size: { width: N, height: N },
         mipLevelCount: SLOPE_MIP_LEVELS,
         format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        usage:
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.TEXTURE_BINDING |
+            (readback ? GPUTextureUsage.COPY_SRC : 0),
     });
     const h0T = root.createBuffer(d.arrayOf(d.vec2f, N * N), h0).$usage("storage");
     const hT = root.createBuffer(d.arrayOf(d.vec2f, N * N), h).$usage("storage");
@@ -546,22 +581,81 @@ async function readComplexBuffer(buffer: GPUBuffer, n: number): Promise<Float32A
         size,
         usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
     });
-    const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-copy" });
-    encoder.copyBufferToBuffer(buffer, 0, readback, 0, size);
-    Compute.device.queue.submit([encoder.finish()]);
-    await readback.mapAsync(GPUMapMode.READ);
-    const result = new Float32Array(readback.getMappedRange().slice(0));
-    readback.unmap();
-    readback.destroy();
-    return result;
+    try {
+        const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-copy" });
+        encoder.copyBufferToBuffer(buffer, 0, readback, 0, size);
+        Compute.device.queue.submit([encoder.finish()]);
+        await readback.mapAsync(GPUMapMode.READ);
+        return new Float32Array(readback.getMappedRange().slice(0));
+    } catch (cause) {
+        throw new Error("ocean slope GPU buffer readback failed", { cause });
+    } finally {
+        try {
+            readback.unmap();
+        } catch {
+            // A rejected mapAsync leaves the buffer unmapped.
+        }
+        readback.destroy();
+    }
 }
 
-/** GPU output of one slope cascade's two inverse-transformed spectra. */
+function halfToFloat(value: number): number {
+    const sign = (value & 0x8000) !== 0 ? -1 : 1;
+    const exponent = (value >>> 10) & 0x1f;
+    const fraction = value & 0x3ff;
+    if (exponent === 0) return sign * 2 ** -14 * (fraction / 1024);
+    if (exponent === 0x1f) return fraction === 0 ? sign * Infinity : Number.NaN;
+    return sign * 2 ** (exponent - 15) * (1 + fraction / 1024);
+}
+
+async function readMipTexture(
+    texture: GPUTexture,
+    level: number,
+    size: number,
+): Promise<Float32Array> {
+    const bytesPerRow = Math.ceil((size * 8) / 256) * 256;
+    const readback = Compute.device.createBuffer({
+        label: `ocean-slope-mip-readback-${level}`,
+        size: bytesPerRow * size,
+        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+    });
+    try {
+        const encoder = Compute.device.createCommandEncoder({
+            label: `ocean-slope-mip-copy-${level}`,
+        });
+        encoder.copyTextureToBuffer(
+            { texture, mipLevel: level },
+            { buffer: readback, bytesPerRow, rowsPerImage: size },
+            { width: size, height: size, depthOrArrayLayers: 1 },
+        );
+        Compute.device.queue.submit([encoder.finish()]);
+        await readback.mapAsync(GPUMapMode.READ);
+        const bytes = new DataView(readback.getMappedRange());
+        const out = new Float32Array(size * size * 4);
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size * 4; x++) {
+                out[y * size * 4 + x] = halfToFloat(bytes.getUint16(y * bytesPerRow + x * 2, true));
+            }
+        }
+        return out;
+    } catch (cause) {
+        throw new Error(`ocean slope mip ${level} readback failed`, { cause });
+    } finally {
+        try {
+            readback.unmap();
+        } catch {
+            // A rejected mapAsync leaves the buffer unmapped.
+        }
+        readback.destroy();
+    }
+}
+
+/** @internal test-only GPU output of one slope cascade's two inverse-transformed spectra. */
 export async function readSlopeBuffers(
     config: CascadeConfig = SLOPE_CASCADE_CONFIGS[0],
     time = 0,
 ): Promise<{ x: Float32Array; z: Float32Array }> {
-    const state = createSlopeState(config);
+    const state = createSlopeState(config, true);
     writeParams(state, time);
     const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-run" });
     encode(state, encoder);
@@ -572,6 +666,29 @@ export async function readSlopeBuffers(
     ]);
     destroy(state);
     return { x, z };
+}
+
+/** @internal test-only numerical readback of every slope mip payload. */
+export async function readSlopeMips(
+    config: CascadeConfig = SLOPE_CASCADE_CONFIGS[0],
+    time = 0,
+): Promise<Float32Array[]> {
+    const state = createSlopeState(config, true);
+    try {
+        writeParams(state, time);
+        const encoder = Compute.device.createCommandEncoder({
+            label: "ocean-slope-mip-readback-run",
+        });
+        encode(state, encoder);
+        Compute.device.queue.submit([encoder.finish()]);
+        const levels: Float32Array[] = [];
+        for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
+            levels.push(await readMipTexture(state.texture, level, slopeMipSize(config, level)));
+        }
+        return levels;
+    } finally {
+        destroy(state);
+    }
 }
 
 /** GPU system for the slope-only cascade. */

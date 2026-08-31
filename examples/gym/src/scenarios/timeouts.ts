@@ -53,7 +53,13 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         covers: ["packages/shallot/src/extras/outline/**/*.ts"],
     },
     "ocean-slope": {
-        covers: ["packages/shallot-ocean/src/**/*.ts"],
+        covers: [
+            "packages/shallot-ocean/src/slope.ts",
+            "packages/shallot-ocean/src/ocean.ts",
+            "packages/shallot-ocean/src/gpu-fft.ts",
+            "packages/shallot-ocean/src/fft.ts",
+            "packages/shallot-ocean/src/spectrum.ts",
+        ],
     },
     sprite: {
         covers: ["packages/shallot/src/extras/sprite/**/*.ts"],
@@ -267,6 +273,12 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
  *  that is actually load-bearing — no GPU surface — never a structural shape a reader would have to
  *  re-verify: "barrel re-export" was twice the stated reason for a file that was nothing of the kind. */
 export const GATE_EXEMPTIONS: Record<string, string> = {
+    "packages/shallot-ocean/src/index.ts":
+        "barrel-only exports; ocean-slope executes the selected kernels directly",
+    "packages/shallot-ocean/src/cpu-reference.ts":
+        "CPU-only reference is exercised by the package test tier, not the GPU gym scenario",
+    "packages/shallot-ocean/src/parity-witness.ts":
+        "CPU-only parity witness is exercised by package tests, not the GPU gym scenario",
     // NOT `standard/sear/index.ts`: it's a genuine barrel too, but `render`'s `covers` glob already
     // matches every file under `standard/sear/**`, so exempting it would be shadowed — the coverage check
     // (`coverage.ts`) asserts covered ∩ exempt = ∅ for exactly this reason.

@@ -8,8 +8,9 @@ import { GATE_EXEMPTIONS, SCENARIO_GATES, type ScenarioGate } from "./timeouts";
 
 /** the GPU-side module population: every `.ts` file under the paths `AGENTS.md`'s `gpu.md` rule already
  *  declares as GPU-facing engine code (`engine/runtime`, `engine/utils/encode.ts`, the render/sear/part/slab
- *  pipeline, and `extras` — `gpu.md`'s own `paths:` frontmatter), plus two additions it doesn't already
- *  list: `standard/bvh` (the acceleration-structure pipeline `gpu.md`'s own body cites repeatedly as
+ *  pipeline, and `extras` — `gpu.md`'s own `paths:` frontmatter), plus the selected shallot-ocean GPU modules
+ *  explicitly covered by the ocean-slope scenario, and two additions it doesn't already list:
+ *  `standard/bvh` (the acceleration-structure pipeline `gpu.md`'s own body cites repeatedly as
  *  canonical GPU code — `bounds.ts`, `build.ts`, `sort.ts`; that gap in `gpu.md`'s frontmatter has since been
  *  fixed, so the two now agree here) and `standard/avbd` (the GPU physics swap-in, `avbd.md`'s own `paths:`,
  *  deliberately not `gpu.md`'s). Reusing the codebase's own committed boundaries for "GPU-side" rather
