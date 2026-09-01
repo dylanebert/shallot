@@ -82,7 +82,7 @@ describe("installTeardown", () => {
         expect(calls).toEqual([130]);
     });
 
-    test("the returned teardown can be invoked directly on a clean shutdown, and never calls exit", () => {
+    test("the returned teardown can be invoked directly on a clean shutdown, and never calls exit itself", () => {
         const signals = new FakeSignals();
         const written: string[] = [];
         const { exit, calls } = fakeExit();
@@ -90,10 +90,36 @@ describe("installTeardown", () => {
         teardown();
         expect(written).toEqual([ALT_SCREEN_EXIT]);
         expect(calls).toEqual([]);
-        // and a subsequent signal does not double-write or exit
+        // a subsequent signal does not double-write the restore bytes (idempotent)...
         signals.emit("SIGINT");
         expect(written).toEqual([ALT_SCREEN_EXIT]);
+    });
+
+    test("B1: a signal arriving after a direct teardown invocation still exits — restoring the screen and discharging the exit obligation are independent", () => {
+        // The exact bug the module docblock names: a caller invokes the returned teardown
+        // directly and keeps running; the listener registered by `installTeardown` has already
+        // removed Node/Bun's default SIGINT disposition, so if the exit decision were gated on
+        // "already restored," this SIGINT would silently do nothing at all — worse than the
+        // failure the module exists to prevent.
+        const signals = new FakeSignals();
+        const written: string[] = [];
+        const { exit, calls } = fakeExit();
+        const teardown = installTeardown({ write: (b) => written.push(b), signals, exit });
+        teardown();
         expect(calls).toEqual([]);
+        signals.emit("SIGINT");
+        expect(calls).toEqual([130]);
+    });
+
+    test("B1b: a throw inside write still calls exit for a terminating signal", () => {
+        const signals = new FakeSignals();
+        const { exit, calls } = fakeExit();
+        const throwingWrite = () => {
+            throw new Error("EPIPE");
+        };
+        installTeardown({ write: throwingWrite, signals, exit });
+        signals.emit("SIGINT");
+        expect(calls).toEqual([130]);
     });
 
     test("only the caller-supplied events register (no default-signal leakage)", () => {

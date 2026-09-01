@@ -5,11 +5,55 @@
 // `packages/shallot-ocean/tests/elfouhaily-independent.ts` already uses in this repo.
 
 import type { Tier } from "../src/color-support";
-import { cube6 } from "../src/sgr";
 import type { Cell, Grid, RGB } from "../src/types";
 import { makeGrid } from "../src/types";
 
-const CUBE_STEP = [0, 51, 102, 153, 204, 255] as const;
+// The real xterm 256-color palette, restated here independently of `src/sgr.ts` rather than
+// imported from it (B2) — this file's own docblock disclaims re-deriving the encoder's own logic,
+// so a regression in the encoder's cube/grey selection shows up as a round-trip mismatch instead
+// of being silently absorbed into what this reader treats as "expected." `CUBE_STEP` is the 6x6x6
+// cube's real per-channel levels (not evenly spaced); the 24-step grayscale ramp fills indices
+// 232-255 at `8 + 10*step`.
+const CUBE_STEP = [0, 95, 135, 175, 215, 255] as const;
+const GREY_RAMP_COUNT = 24;
+const greyRampLevel = (step: number): number => 8 + 10 * step;
+
+/** Index of the nearest value in `levels` to `value`, by real distance. */
+function nearestLevelIndex(value: number, levels: readonly number[]): number {
+    let best = 0;
+    let bestDist = Math.abs(value - levels[0]);
+    for (let i = 1; i < levels.length; i++) {
+        const dist = Math.abs(value - levels[i]);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
+}
+
+const squaredDistance = (r: number, g: number, b: number, cr: number, cg: number, cb: number) =>
+    (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+
+/**
+ * Independently replicates the xterm 256-color selection a real terminal (and a correct encoder)
+ * makes for an RGB triple: nearest 6x6x6 cube corner vs. nearest 24-step grayscale ramp value,
+ * whichever is closer by squared distance — the same choice `sgr.ts`'s `ansi256FromRgb` makes,
+ * restated here rather than called, so this reader stays independent of that implementation.
+ */
+function quantizeAnsi256(c: RGB): RGB {
+    const cr = CUBE_STEP[nearestLevelIndex(c.r, CUBE_STEP)];
+    const cg = CUBE_STEP[nearestLevelIndex(c.g, CUBE_STEP)];
+    const cb = CUBE_STEP[nearestLevelIndex(c.b, CUBE_STEP)];
+    const cubeDist = squaredDistance(c.r, c.g, c.b, cr, cg, cb);
+
+    const avg = Math.round((c.r + c.g + c.b) / 3);
+    const greySteps = Array.from({ length: GREY_RAMP_COUNT }, (_, i) => greyRampLevel(i));
+    const grey = greySteps[nearestLevelIndex(avg, greySteps)];
+    const greyDist = squaredDistance(c.r, c.g, c.b, grey, grey, grey);
+
+    return greyDist < cubeDist ? { r: grey, g: grey, b: grey } : { r: cr, g: cg, b: cb };
+}
 
 function blankCell(): Cell {
     return { glyph: " ", fg: null, bg: null };
@@ -157,8 +201,13 @@ export class TerminalModel {
     }
 }
 
-/** Inverse of `ansi256FromRgb`'s 6x6x6 cube for the index range the encoder ever produces (16-231). */
+/** Inverse of `ansi256FromRgb`'s palette index — the 6x6x6 cube (16-231) or the grayscale ramp
+ * (232-255), whichever range the index falls in. */
 function dequantizeAnsi256(index: number): RGB {
+    if (index >= 232) {
+        const value = greyRampLevel(index - 232);
+        return { r: value, g: value, b: value };
+    }
     const i = index - 16;
     const r = Math.floor(i / 36);
     const g = Math.floor((i % 36) / 6);
@@ -169,8 +218,9 @@ function dequantizeAnsi256(index: number): RGB {
 /**
  * Projects a source grid onto what the given tier can actually carry, so a round-trip equality
  * check compares like with like: `glyph` drops color entirely (the tier never emits it), and
- * `ansi256` quantizes each channel through the same 6-step cube the encoder itself quantizes
- * through — a genuine information loss the ladder accepts, not a test artifact to work around.
+ * `ansi256` quantizes each fg/bg triple to whichever of the 6x6x6 cube or the 24-step grayscale
+ * ramp is a real nearest neighbour (`quantizeAnsi256` above) — a genuine information loss the
+ * ladder accepts, not a test artifact to work around.
  */
 export function projectForTier(grid: Grid, tier: Tier): Grid {
     if (tier === "plain" || tier === "glyph") {
@@ -181,10 +231,7 @@ export function projectForTier(grid: Grid, tier: Tier): Grid {
         }));
     }
     if (tier === "truecolor") return grid;
-    const quantize = (c: RGB | null): RGB | null =>
-        c === null
-            ? null
-            : { r: CUBE_STEP[cube6(c.r)], g: CUBE_STEP[cube6(c.g)], b: CUBE_STEP[cube6(c.b)] };
+    const quantize = (c: RGB | null): RGB | null => (c === null ? null : quantizeAnsi256(c));
     return makeGrid(grid.width, grid.height, (x, y) => {
         const cell = grid.cells[y][x];
         return { glyph: cell.glyph, fg: quantize(cell.fg), bg: quantize(cell.bg) };

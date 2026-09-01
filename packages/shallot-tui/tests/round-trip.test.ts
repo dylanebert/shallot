@@ -155,6 +155,58 @@ describe("Encoder.invalidate — the out-of-band-resize seam (B4)", () => {
     });
 });
 
+// N7 — B2's actual failure scenario: a default-fg cell following a colored run. Every color-tier
+// fixture above builds cells with non-null fg, so `39` (reset fg to default) is asserted only as
+// a string in sgr.test.ts and never round-tripped end-to-end. A mixed grid with a colored run
+// immediately followed by a default-fg cell exercises the bleed guard the way a real diff would.
+describe("round trip — a default-fg cell adjacent to a colored run round-trips the bleed guard (N7)", () => {
+    for (const tier of ["ansi256", "truecolor"] as const) {
+        test(`${tier}: a colored run followed by a default-fg cell does not bleed the prior color`, () => {
+            const encoder = new Encoder(tier);
+            const model = new TerminalModel(3, 1);
+            const colored: Cell = { glyph: "R", fg: COLOR_A, bg: null };
+            const defaultFg: Cell = { glyph: " ", fg: null, bg: null };
+            const grid: Grid = { width: 3, height: 1, cells: [[colored, colored, defaultFg]] };
+
+            model.write(encoder.encode(grid));
+            expect(model.grid()).toEqual(projectForTier(grid, tier));
+
+            // and diffed: change only the default-fg cell in a later frame, adjacent to a
+            // still-colored run the encoder does not re-touch.
+            const changed: Cell = { glyph: "!", fg: null, bg: null };
+            const grid2: Grid = { width: 3, height: 1, cells: [[colored, colored, changed]] };
+            model.write(encoder.encode(grid2));
+            expect(model.grid()).toEqual(projectForTier(grid2, tier));
+        });
+    }
+});
+
+// N8 — `Encoder` must not alias the caller's `Grid` by reference. A producer that reuses one grid
+// buffer per frame (mutating the same outer array in place rather than allocating fresh each
+// call) is the natural shape for a GPU readback loop; if `_prev` aliased that object, the next
+// diff would compare the grid to itself and emit zero bytes forever.
+describe("Encoder does not alias the caller's grid (N8)", () => {
+    test("mutating the caller's row array in place after encode() does not corrupt the next diff", () => {
+        const encoder = new Encoder("truecolor");
+        const model = new TerminalModel(3, 1);
+        const cellA: Cell = { glyph: "A", fg: COLOR_A, bg: null };
+        const cellB: Cell = { glyph: "B", fg: COLOR_B, bg: null };
+        const rows: Cell[][] = [[cellA, cellA, cellA]];
+        const grid: Grid = { width: 3, height: 1, cells: rows };
+
+        model.write(encoder.encode(grid));
+        expect(model.grid()).toEqual(projectForTier(grid, "truecolor"));
+
+        // the producer reuses the same `Grid` object and outer `cells` array, replacing a row in
+        // place rather than allocating a fresh `Grid` — if `Encoder` stored `grid` by reference,
+        // this mutation would also mutate `_prev`, so the next diff would compare the grid to
+        // itself and never see a change.
+        rows[0] = [cellB, cellB, cellB];
+        model.write(encoder.encode(grid));
+        expect(model.grid()).toEqual(projectForTier(grid, "truecolor"));
+    });
+});
+
 // N3 — the two-sided proof itself, wired structurally rather than demonstrated by hand. Each
 // mutant below is a deliberately-broken miniature of `Encoder`, built from the same low-level
 // primitives (`diffRuns`, `encodeRun`, `cursorTo`) so the only difference from the real encoder is

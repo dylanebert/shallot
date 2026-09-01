@@ -8,32 +8,46 @@ const BLUE: Cell = { glyph: "B", fg: { r: 0, g: 0, b: 255 }, bg: null };
 const PLAIN: Cell = { glyph: "x", fg: null, bg: null };
 
 describe("cube6 / ansi256FromRgb", () => {
-    test("quantizes the 6-step cube exactly at its own step values", () => {
+    test("quantizes the 6-step cube exactly at its own (real, non-evenly-spaced) step values", () => {
         expect(cube6(0)).toBe(0);
-        expect(cube6(51)).toBe(1);
-        expect(cube6(102)).toBe(2);
-        expect(cube6(153)).toBe(3);
-        expect(cube6(204)).toBe(4);
+        expect(cube6(95)).toBe(1);
+        expect(cube6(135)).toBe(2);
+        expect(cube6(175)).toBe(3);
+        expect(cube6(215)).toBe(4);
         expect(cube6(255)).toBe(5);
     });
 
-    test("maps pure red/green/blue to the expected cube indices (base 16, r*36 + g*6 + b)", () => {
+    test("maps pure red/green/blue to the expected cube indices (base 16, r*36 + g*6 + b) — every axis-aligned primary and black beat the grayscale ramp on distance", () => {
         expect(ansi256FromRgb(255, 0, 0)).toBe(16 + 36 * 5);
         expect(ansi256FromRgb(0, 255, 0)).toBe(16 + 6 * 5);
         expect(ansi256FromRgb(0, 0, 255)).toBe(16 + 5);
         expect(ansi256FromRgb(0, 0, 0)).toBe(16);
     });
 
-    test("hand-computed (rgb -> index) pairs beyond the four pure corners — the general case, not just axis-aligned primaries and black", () => {
-        // 128/255*5 = 2.5098 -> round 3; 64/255*5 = 1.2549 -> round 1; 32/255*5 = 0.6275 -> round 1
-        expect(ansi256FromRgb(128, 64, 32)).toBe(16 + 36 * 3 + 6 * 1 + 1); // 131
-        // 200/255*5 = 3.9216 -> round 4; 150/255*5 = 2.9412 -> round 3; 100/255*5 = 1.9608 -> round 2
-        expect(ansi256FromRgb(200, 150, 100)).toBe(16 + 36 * 4 + 6 * 3 + 2); // 180
-        // pure white — every channel quantizes to the top step, the corner opposite pure black
+    test("hand-computed (rgb -> index) pairs against the real xterm palette — B2: not the evenly-spaced formula (0,51,102,153,204,255), the real cube levels (0,95,135,175,215,255), nearest cube corner vs. nearest grayscale-ramp value by real distance", () => {
+        // (128,64,32): nearest cube corner is (135,95,0) [idx 2,1,0], squared dist 7^2+31^2+32^2 =
+        // 2034; nearest grayscale value is avg=75 -> ramp step 7 (value 78), squared dist
+        // 50^2+14^2+46^2 = 4812. Cube wins.
+        expect(ansi256FromRgb(128, 64, 32)).toBe(16 + 36 * 2 + 6 * 1 + 0); // 94
+        // (200,150,100): nearest cube corner is (215,135,95) [idx 4,2,1], squared dist
+        // 15^2+15^2+5^2 = 475; nearest grayscale value is avg=150 -> ramp step 14 (value 148),
+        // squared dist 52^2+2^2+48^2 = 5012. Cube wins.
+        expect(ansi256FromRgb(200, 150, 100)).toBe(16 + 36 * 4 + 6 * 2 + 1); // 173
+        // pure white — every channel quantizes to the top cube step, the corner opposite black
         expect(ansi256FromRgb(255, 255, 255)).toBe(16 + 36 * 5 + 6 * 5 + 5); // 231
-        // the rounding boundary itself: 25/255*5 = 0.4902 rounds down, 26/255*5 = 0.5098 rounds up
-        expect(cube6(25)).toBe(0);
-        expect(cube6(26)).toBe(1);
+        // the real rounding boundary is the midpoint between the cube's first two levels, 0 and
+        // 95 — 47.5, not 25.5 (the evenly-spaced formula's wrong boundary)
+        expect(cube6(47)).toBe(0);
+        expect(cube6(48)).toBe(1);
+    });
+
+    test("a near-grey color quantizes to the grayscale ramp (232-255), not the color cube, when the ramp is the real nearest neighbour", () => {
+        // (120, 118, 122): every channel far from any cube corner (0/95/135/...), but very close
+        // to a grayscale ramp value — avg=120, nearest ramp step 11 (value 118), squared dist
+        // 4+0+16=20; nearest cube corner (135,95,135) or similar is far worse.
+        const index = ansi256FromRgb(120, 118, 122);
+        expect(index).toBeGreaterThanOrEqual(232);
+        expect(index).toBeLessThanOrEqual(255);
     });
 });
 

@@ -7,14 +7,66 @@ import type { Tier } from "./color-support";
 import type { Cell } from "./types";
 import { rgbEqual } from "./types";
 
-/** Quantizes an 8-bit channel to the xterm 256-color cube's 6 steps (0, 51, 102, 153, 204, 255). */
-export function cube6(channel: number): number {
-    return Math.max(0, Math.min(5, Math.round((channel / 255) * 5)));
+/**
+ * The xterm 256-color 6x6x6 cube's real per-channel levels — **not** evenly spaced. This is the
+ * palette every real terminal actually renders; a formula that guesses evenly-spaced steps (as a
+ * prior version of this file did) picks the visibly wrong cube corner across a wide input range
+ * (B2) — e.g. r=30 was mapped to the corner that renders 95 (error 65) when 0 (error 30) is
+ * nearer, and every dark channel value from 26 upward was sent to mid-grey on a real terminal.
+ */
+const CUBE_LEVELS = [0, 95, 135, 175, 215, 255] as const;
+
+/** 256-color palette indices 232-255: a 24-step grayscale ramp, `8 + 10*step`. Finer-grained near
+ * grey than the color cube (whose steps are 40-95 apart), so a near-grey RGB often quantizes
+ * better here than to any cube corner. */
+const GREY_RAMP_COUNT = 24;
+const greyRampLevel = (step: number): number => 8 + 10 * step;
+
+/** Index (0-5) of the nearest level in `levels` to `value`, by real distance — never a
+ * divide-and-round guess at spacing. */
+function nearestLevelIndex(value: number, levels: readonly number[]): number {
+    let best = 0;
+    let bestDist = Math.abs(value - levels[0]);
+    for (let i = 1; i < levels.length; i++) {
+        const dist = Math.abs(value - levels[i]);
+        if (dist < bestDist) {
+            bestDist = dist;
+            best = i;
+        }
+    }
+    return best;
 }
 
-/** Maps an RGB color to its nearest xterm 256-color palette index in the 6x6x6 cube (16-231). */
+/** Quantizes an 8-bit channel to its nearest xterm 256-color cube step (0-5), by real distance
+ * against `CUBE_LEVELS`. */
+export function cube6(channel: number): number {
+    return nearestLevelIndex(channel, CUBE_LEVELS);
+}
+
+const squaredDistance = (r: number, g: number, b: number, cr: number, cg: number, cb: number) =>
+    (r - cr) ** 2 + (g - cg) ** 2 + (b - cb) ** 2;
+
+/**
+ * Maps an RGB color to its nearest xterm 256-color palette index — the 6x6x6 color cube
+ * (16-231) or the 24-step grayscale ramp (232-255), whichever is a real nearest neighbour by
+ * squared distance. A saturated color always wins the cube (the ramp is achromatic, so its
+ * distance to a saturated color is large); a near-grey color often quantizes more accurately on
+ * the ramp, whose steps are ~10 apart versus the cube's 40-95.
+ */
 export function ansi256FromRgb(r: number, g: number, b: number): number {
-    return 16 + 36 * cube6(r) + 6 * cube6(g) + cube6(b);
+    const cr = cube6(r);
+    const cg = cube6(g);
+    const cb = cube6(b);
+    const cubeIndex = 16 + 36 * cr + 6 * cg + cb;
+    const cubeDist = squaredDistance(r, g, b, CUBE_LEVELS[cr], CUBE_LEVELS[cg], CUBE_LEVELS[cb]);
+
+    const avg = Math.round((r + g + b) / 3);
+    const greySteps = Array.from({ length: GREY_RAMP_COUNT }, (_, i) => greyRampLevel(i));
+    const greyStep = nearestLevelIndex(avg, greySteps);
+    const greyValue = greySteps[greyStep];
+    const greyDist = squaredDistance(r, g, b, greyValue, greyValue, greyValue);
+
+    return greyDist < cubeDist ? 232 + greyStep : cubeIndex;
 }
 
 /** Two cells share a run iff their fg and bg are structurally equal — glyph is irrelevant to style. */

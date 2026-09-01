@@ -14,9 +14,20 @@
 // itself, because only the caller knows whether this process's lifetime is its own to end: a
 // caller embedding this inside a larger process must not have a terminal helper terminate it
 // uninvited. `exit` is never called for `"exit"` (the process is already tearing down by the time
-// that event fires — calling it again is incoherent) nor for a direct invocation of the returned
-// teardown on a clean shutdown path (the caller invoking it directly is already handling its own
-// exit on its own terms).
+// that event fires — calling it again is incoherent).
+//
+// **Restoring the screen and discharging the exit obligation are two different once-only
+// obligations, not one shared flag.** A caller that invokes the returned teardown directly on a
+// clean shutdown path and then keeps running is still exposed to a signal arriving *after* that
+// direct call — the listener registered below has already suppressed the default termination, so
+// if the exit decision were gated on "has the screen already been restored" a later `SIGINT`
+// would silently do nothing at all. `didRestore` below guards only the (idempotent) write;
+// `didExit` guards the (also idempotent, but tracked independently) exit call, so a signal after
+// a direct invocation still finds `didExit` false and still exits. The restore write is also
+// wrapped so a throw inside `opts.write` (EPIPE on a closed pty is the realistic case) can never
+// suppress the exit call that follows it — the ordering that matters is "restore, then
+// unconditionally decide on exit," not "restore, and only decide on exit if restoring didn't
+// throw."
 
 import { ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, HIDE_CURSOR, SHOW_CURSOR } from "./cursor";
 
@@ -63,20 +74,36 @@ export interface TeardownOptions {
  * Registers a teardown listener on every event in `events` (default `DEFAULT_TEARDOWN_SIGNALS`)
  * that writes `ALT_SCREEN_EXIT` exactly once, however many of those events fire — a double-write
  * is harmless but a signal handler that assumes it fires once is not. A listener firing from a
- * terminating signal (anything other than `"exit"`) also calls `opts.exit` once, with that
- * signal's conventional exit code, restoring the termination that registering the listener
- * removed. Returns the same idempotent teardown so a caller can also invoke it directly on a
- * clean shutdown path — a direct invocation never calls `exit`, since the caller invoking it is
- * already mid-shutdown on its own terms.
+ * terminating signal (anything other than `"exit"`) also calls `opts.exit` exactly once overall,
+ * with the *first* such signal's conventional exit code — in real use `opts.exit` (typically
+ * `process.exit`) ends the process synchronously, so a second terminating signal only has a
+ * process left to fire against if `opts.exit` didn't actually terminate (a test double, or a
+ * caller-supplied non-terminating `exit`), and this module still owes exactly one exit call in
+ * that case, not one per signal. That single exit obligation is tracked independently of the
+ * (also idempotent) screen restore: a direct invocation of the returned teardown on a clean
+ * shutdown path restores the screen but never discharges the exit obligation itself, so a signal
+ * arriving afterward still owes exactly one `opts.exit` call — restoring the screen and
+ * discharging the exit obligation are two different once-only obligations, not one shared flag
+ * (see the module docblock). Returns the same idempotent teardown so a caller can also invoke it
+ * directly on a clean shutdown path.
  */
 export function installTeardown(opts: TeardownOptions): () => void {
     const events = opts.events ?? DEFAULT_TEARDOWN_SIGNALS;
-    let didTeardown = false;
+    let didRestore = false;
+    let didExit = false;
     const teardown = (signalEvent?: string) => {
-        if (didTeardown) return;
-        didTeardown = true;
-        opts.write(ALT_SCREEN_EXIT);
-        if (signalEvent !== undefined && signalEvent !== "exit") {
+        if (!didRestore) {
+            didRestore = true;
+            try {
+                opts.write(ALT_SCREEN_EXIT);
+            } catch {
+                // Best-effort: a write failure (EPIPE on a closed pty) must never suppress the
+                // exit decision below — restoring the terminal is best-effort, discharging the
+                // exit obligation on a terminating signal is not (B1b).
+            }
+        }
+        if (!didExit && signalEvent !== undefined && signalEvent !== "exit") {
+            didExit = true;
             opts.exit(SIGNAL_EXIT_CODE[signalEvent] ?? 1);
         }
     };

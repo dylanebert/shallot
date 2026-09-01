@@ -37,6 +37,12 @@ describe("detectTier", () => {
         expect(detectTier({ isTTY: true, env: { TERM: "dumb" } })).toBe("glyph");
     });
 
+    test("N6: TERM=dumb wins over COLORTERM=truecolor — supports-color treats a dumb terminal as a hard no-color regardless of COLORTERM's claim", () => {
+        expect(detectTier({ isTTY: true, env: { COLORTERM: "truecolor", TERM: "dumb" } })).toBe(
+            "glyph",
+        );
+    });
+
     test("an unrecognized or absent TERM with no COLORTERM defaults to glyph", () => {
         expect(detectTier({ isTTY: true, env: {} })).toBe("glyph");
         expect(detectTier({ isTTY: true, env: { TERM: "vt100" } })).toBe("glyph");
@@ -81,5 +87,13 @@ describe("FORCE_COLOR — the standard override for CI and wrapped runs", () => 
             "truecolor",
         );
         expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "0", NO_COLOR: "" } })).toBe("glyph");
+    });
+
+    test("N6: FORCE_COLOR overrides a non-TTY sink — the primary reason the variable exists (CI, a wrapped run, `| less -R`), matching supports-color's own short-circuit-only-when-undefined rule", () => {
+        expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "3" } })).toBe("truecolor");
+        expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "1" } })).toBe("ansi256");
+        expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "0" } })).toBe("glyph");
+        // absent FORCE_COLOR, a non-TTY sink still always reads plain.
+        expect(detectTier({ isTTY: false, env: { COLORTERM: "truecolor" } })).toBe("plain");
     });
 });

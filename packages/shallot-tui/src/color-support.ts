@@ -17,29 +17,33 @@ export interface ColorEnvSnapshot {
 }
 
 /**
- * Selects a tier from TTY-ness plus the standard color-support environment variables. A non-TTY
- * stream (a pipe, a file redirect) always gets `plain` — color escapes in a non-terminal sink are
- * noise, not content.
+ * Selects a tier from TTY-ness plus the standard color-support environment variables.
  *
- * On a real TTY: `FORCE_COLOR` (the standard override for CI and wrapped runs — the
- * `supports-color`/chalk convention) wins over every other signal, including `NO_COLOR` — `"0"`
- * or `"false"` forces `glyph`, `"1"` or `"2"` force `ansi256` (this ladder has no separate
- * 16-color tier, so both collapse to the lowest color tier it does have), `"3"` forces
+ * `FORCE_COLOR` (the standard override for CI and wrapped runs — the `supports-color`/chalk
+ * convention) is checked **first, regardless of TTY-ness** (N6) — overriding a non-TTY sink (CI,
+ * a wrapped run, `| less -R`) is the primary reason the variable exists, so a `FORCE_COLOR` set on
+ * a pipe or file redirect is honored exactly like `supports-color` does (it short-circuits a
+ * non-TTY stream only when `forceColor === undefined`), not silently discarded by a TTY check that
+ * runs first. `"0"` or `"false"` forces `glyph`, `"1"` or `"2"` force `ansi256` (this ladder has no
+ * separate 16-color tier, so both collapse to the lowest color tier it does have), `"3"` forces
  * `truecolor`, and any other set value (a bare `FORCE_COLOR=` or `"true"`) forces the lowest color
- * tier on. Absent `FORCE_COLOR`: `NO_COLOR` (https://no-color.org) forces `glyph`,
- * `COLORTERM=truecolor|24bit` opts into 24-bit color, a `TERM` ending `-256color` opts into the
- * 256-color SGR tier, a `TERM` ending `-direct` (the terminfo convention for direct-color
- * terminals, e.g. `xterm-direct`) opts into truecolor, and `xterm-kitty`/`xterm-ghostty` are
- * recognized as truecolor-capable by `TERM` alone — both are commonly reached over `ssh`, where
- * `COLORTERM` isn't inherited across the connection and would otherwise fall all the way to
- * `glyph`. An unrecognized or absent `TERM` with none of the above still defaults to `glyph`:
- * every terminal can print plain text and move its cursor, but not every terminal can be assumed
- * to parse color SGR correctly, so the safe default is the tier that always renders as legible
- * text.
+ * tier on.
+ *
+ * Absent `FORCE_COLOR`: a non-TTY stream always gets `plain` — color escapes in a non-terminal
+ * sink are noise, not content. On a real TTY: `NO_COLOR` (https://no-color.org) forces `glyph`.
+ * `TERM=dumb` is checked next, and wins over `COLORTERM` (N6) — `supports-color` treats a dumb
+ * terminal as a hard "no color" regardless of what `COLORTERM` claims, so `COLORTERM=truecolor
+ * TERM=dumb` reads `glyph` here too, not `truecolor`. Otherwise: `COLORTERM=truecolor|24bit` opts
+ * into 24-bit color, a `TERM` ending `-256color` opts into the 256-color SGR tier, a `TERM` ending
+ * `-direct` (the terminfo convention for direct-color terminals, e.g. `xterm-direct`) opts into
+ * truecolor, and `xterm-kitty`/`xterm-ghostty` are recognized as truecolor-capable by `TERM` alone
+ * — both are commonly reached over `ssh`, where `COLORTERM` isn't inherited across the connection
+ * and would otherwise fall all the way to `glyph`. An unrecognized or absent `TERM` with none of
+ * the above still defaults to `glyph`: every terminal can print plain text and move its cursor,
+ * but not every terminal can be assumed to parse color SGR correctly, so the safe default is the
+ * tier that always renders as legible text.
  */
 export function detectTier({ isTTY, env }: ColorEnvSnapshot): Tier {
-    if (!isTTY) return "plain";
-
     const forceColor = env.FORCE_COLOR;
     if (forceColor !== undefined) {
         if (forceColor === "0" || forceColor === "false") return "glyph";
@@ -48,11 +52,13 @@ export function detectTier({ isTTY, env }: ColorEnvSnapshot): Tier {
         return "ansi256";
     }
 
+    if (!isTTY) return "plain";
+
     if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return "glyph";
-    const colorterm = (env.COLORTERM ?? "").toLowerCase();
-    if (colorterm === "truecolor" || colorterm === "24bit") return "truecolor";
     const term = env.TERM ?? "";
     if (term === "dumb") return "glyph";
+    const colorterm = (env.COLORTERM ?? "").toLowerCase();
+    if (colorterm === "truecolor" || colorterm === "24bit") return "truecolor";
     if (/-256color\b/.test(term)) return "ansi256";
     if (/-direct\b/.test(term)) return "truecolor";
     if (term === "xterm-kitty" || term === "xterm-ghostty") return "truecolor";

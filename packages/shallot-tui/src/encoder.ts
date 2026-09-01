@@ -36,7 +36,19 @@ function renderPlain(grid: Grid): string {
  * describes what's actually on screen, and the mismatch never self-corrects. `invalidate()` is
  * the seam for that case — call it from a real resize notification (`resize.ts`'s `onResize`) and
  * the next `encode()` call repaints in full, exactly like the first frame ever encoded.
+ *
+ * **`encode()` never stores the caller's `Grid` by reference (N8).** A producer that reuses one
+ * grid buffer per frame — writing new cells into the same object rather than allocating a fresh
+ * `Grid` each call — is the natural shape for a GPU readback loop. If `_prev` aliased that object,
+ * a later in-place mutation would also mutate `_prev`, so the next `diffRuns(_prev, curr)` would
+ * compare the grid to itself and emit zero bytes forever. `encode()` snapshots the row array
+ * (`cloneGrid` below) before storing it, so the caller's own object is free to mutate between
+ * calls.
  */
+function cloneGrid(grid: Grid): Grid {
+    return { width: grid.width, height: grid.height, cells: grid.cells.map((row) => row.slice()) };
+}
+
 export class Encoder {
     private _prev: Grid | null = null;
     private _cursorRow = -1;
@@ -58,7 +70,7 @@ export class Encoder {
      * or on the first call after `invalidate()`). */
     encode(grid: Grid): string {
         if (this._tier === "plain") {
-            this._prev = grid;
+            this._prev = cloneGrid(grid);
             return renderPlain(grid);
         }
 
@@ -89,7 +101,7 @@ export class Encoder {
         }
 
         if (wroteColor) out += SGR_RESET;
-        this._prev = grid;
+        this._prev = cloneGrid(grid);
         return out;
     }
 }
