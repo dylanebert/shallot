@@ -16,7 +16,8 @@ paths:
 
 # Testing
 
-Shallot-specific testing patterns.
+Shallot-specific testing patterns. The deterministic ocean slope N-invariance oracle is reachable from the repository root with `bun run test:ocean-slope`.
+
 
 **A gate verifies and never writes; `bun run format` is the only writer.** `bun check` reports and exits without touching the tree, so the state you read before it is the state you commit.
 
