@@ -50,6 +50,7 @@
         "./cells/core": "./src/extras/cells/core.ts",
         "./gltf/core": "./src/extras/gltf/core.ts",
         "./skin/core": "./src/extras/skin/core.ts",
+        "./text/core": "./src/extras/text/core.ts",
         "./tween/core": "./src/extras/tween/core.ts",
         "./runtime": "./src/engine/runtime/index.ts",
         "./src/*": "./src/*"

@@ -1,8 +1,11 @@
-import { type Mirror, MirrorPlugin, mirror, type Plugin, run } from "@dylanebert/shallot";
+import { Compute, type Mirror, MirrorPlugin, mirror, type Plugin, run } from "@dylanebert/shallot";
 import {
+    CELL_AT,
     CELL_BYTES,
+    CELL_FILL_GLYPHS,
     CELL_GLYPH_COUNT,
     createCellGrid,
+    dispatchSelect,
     fillCellGrid,
     packCell,
     unpackCell,
@@ -189,25 +192,182 @@ async function assertFillDispatch(): Promise<Check> {
     };
 }
 
+// S3's real content producer (`select.ts`'s two compute passes) against a synthetic HDR source texture —
+// deliberately not a rendered 3D scene: `recordSelect`/`dispatchSelect` bind against any float-sampleable
+// 2D texture view (`select.ts`'s own contract), so a hand-authored pattern gives a deterministic, bounded
+// "one scene at one tick" input with a known edge and a known flat region, at a fraction of a real
+// camera/light/mesh scene's setup cost and with zero cross-frame nondeterminism to control for. A vertical
+// step edge at the grid's horizontal midpoint (columns 0-3 bright, 4-7 dark) — SELECT_COLS/SELECT_ROWS
+// deliberately small (8×4) so the whole readback is cheap to walk cell-by-cell.
+const SELECT_COLS = 8;
+const SELECT_ROWS = 4;
+const SELECT_BLOCK = 4; // device px per cell edge
+const SELECT_SRC_W = SELECT_COLS * SELECT_BLOCK;
+const SELECT_SRC_H = SELECT_ROWS * SELECT_BLOCK;
+// bright/dark post-tonemap luma: reinhard(2.0) ≈ 0.667, reinhard(0.05) ≈ 0.0476 — a Sobel magnitude of
+// 4×|0.667−0.0476| ≈ 2.48 at the boundary columns, well over EDGE_MAGNITUDE_THRESHOLD (0.4), and exactly
+// 0 at every column away from the boundary (uniform neighborhoods, `select.ts`'s own derivation)
+const SELECT_BRIGHT = 2.0;
+const SELECT_DARK = 0.05;
+
+let selectGrid: ReturnType<typeof createCellGrid> | null = null;
+let selectMirror: Mirror | null = null;
+let selectSourceTexture: GPUTexture | null = null;
+
+const SelectPlugin: Plugin = {
+    name: "GymCellsSelect",
+    initialize() {
+        const device = Compute.device;
+        selectSourceTexture = device.createTexture({
+            label: "cells-select-src",
+            size: { width: SELECT_SRC_W, height: SELECT_SRC_H },
+            format: "rgba32float",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        const data = new Float32Array(SELECT_SRC_W * SELECT_SRC_H * 4);
+        for (let y = 0; y < SELECT_SRC_H; y++) {
+            for (let x = 0; x < SELECT_SRC_W; x++) {
+                const v = x < SELECT_SRC_W / 2 ? SELECT_BRIGHT : SELECT_DARK;
+                const o = (y * SELECT_SRC_W + x) * 4;
+                data[o] = v;
+                data[o + 1] = v;
+                data[o + 2] = v;
+                data[o + 3] = 1;
+            }
+        }
+        device.queue.writeTexture(
+            { texture: selectSourceTexture },
+            data,
+            { bytesPerRow: SELECT_SRC_W * 16 },
+            { width: SELECT_SRC_W, height: SELECT_SRC_H },
+        );
+        selectGrid = createCellGrid(SELECT_COLS, SELECT_ROWS, CELL_GLYPH_COUNT);
+        dispatchSelect(
+            selectGrid.buffer,
+            SELECT_COLS,
+            SELECT_ROWS,
+            selectSourceTexture.createView(),
+            SELECT_SRC_W,
+            SELECT_SRC_H,
+        );
+        selectMirror = mirror(selectGrid.buffer);
+    },
+};
+
+// criterion 4's cross-target differential: decode the *same* readback bytes two structurally independent
+// ways — `unpackCell` (a Uint32Array view + bit-shift, what `packages/shallot-tui`'s future terminal-side
+// bridge calls) against a raw Uint8Array walk assembling the glyph word by hand (what a GPU vertex fetch
+// reading the identical struct layout does, one level of abstraction lower). One producer buffer, one
+// scene tick, two independent readers — the strongest arm in the unit, per the spec's own naming: if the
+// web draw path and the terminal encoder's input could ever diverge on what one cell means, this is where
+// it would show, since nothing here is shared code between the two decode functions.
+function decodeByteView(bytes: ArrayBuffer, index: number) {
+    const u8 = new Uint8Array(bytes, index * CELL_BYTES, CELL_BYTES);
+    const glyphOff = CELL_AT.glyph * 4;
+    const fgOff = CELL_AT.fg * 4;
+    const bgOff = CELL_AT.bg * 4;
+    const glyph =
+        (u8[glyphOff] |
+            (u8[glyphOff + 1] << 8) |
+            (u8[glyphOff + 2] << 16) |
+            (u8[glyphOff + 3] << 24)) >>>
+        0;
+    const fg: [number, number, number, number] = [
+        u8[fgOff],
+        u8[fgOff + 1],
+        u8[fgOff + 2],
+        u8[fgOff + 3],
+    ];
+    const bg: [number, number, number, number] = [
+        u8[bgOff],
+        u8[bgOff + 1],
+        u8[bgOff + 2],
+        u8[bgOff + 3],
+    ];
+    return { glyph, fg, bg };
+}
+
+async function assertSelectDispatch(): Promise<Check> {
+    const name =
+        "select dispatch: web-draw-shaped decode == terminal-encoder-shaped decode, one buffer";
+    if (!selectMirror) return { name, pass: false, detail: "no select grid mirror" };
+    await settle(selectMirror);
+    const snap = selectMirror.snapshot;
+    if (!snap) return { name, pass: false, detail: "no select grid snapshot" };
+
+    let mismatches = 0;
+    let first = "";
+    let directionalAtBoundary = 0;
+    let fillAwayFromBoundary = 0;
+    for (let y = 0; y < SELECT_ROWS; y++) {
+        for (let x = 0; x < SELECT_COLS; x++) {
+            const i = y * SELECT_COLS + x;
+            const a = unpackCell(snap.bytes, i);
+            const b = decodeByteView(snap.bytes, i);
+            const same =
+                a.glyph === b.glyph &&
+                a.fg.every((c, k) => c === b.fg[k]) &&
+                a.bg.every((c, k) => c === b.bg[k]);
+            if (!same) {
+                mismatches++;
+                if (!first) {
+                    first = `(${x},${y}) unpackCell glyph ${a.glyph} fg [${a.fg}] bg [${a.bg}] / byteView glyph ${b.glyph} fg [${b.fg}] bg [${b.bg}]`;
+                }
+            }
+            const directional = a.glyph >= CELL_FILL_GLYPHS.length;
+            if ((x === 3 || x === 4) && directional) directionalAtBoundary++;
+            if ((x === 0 || x === SELECT_COLS - 1) && !directional) fillAwayFromBoundary++;
+        }
+    }
+
+    if (mismatches > 0) {
+        return {
+            name,
+            pass: false,
+            detail: `${mismatches}/${SELECT_COLS * SELECT_ROWS} cells disagreed between the two decode paths; first: ${first}`,
+        };
+    }
+    // non-vacuity: both selection branches (edge → directional, flat → fill) must actually have fired,
+    // or the decode-agreement check above is vacuously comparing an all-fill (or all-directional) buffer
+    const wantBoundary = SELECT_ROWS * 2; // both boundary columns (3, 4), every row
+    const wantAway = SELECT_ROWS * 2; // both far columns (0, last), every row
+    if (directionalAtBoundary !== wantBoundary || fillAwayFromBoundary !== wantAway) {
+        return {
+            name,
+            pass: false,
+            detail: `branch coverage missing — directional-at-boundary ${directionalAtBoundary}/${wantBoundary}, fill-away-from-boundary ${fillAwayFromBoundary}/${wantAway}; the synthetic edge didn't reach both selection branches`,
+        };
+    }
+    return {
+        name,
+        pass: true,
+        detail: `${SELECT_COLS * SELECT_ROWS} cells' unpackCell and byte-view decodes agreed bit-exact; the edge fired a directional glyph at both boundary columns and a fill glyph at both far columns every row`,
+    };
+}
+
 const scenario: Scenario = {
     name: "cells",
     noRender: true,
     async build(_canvas) {
         const { state, dispose } = await run({
             defaults: false,
-            plugins: [ProfilePlugin, MirrorPlugin, CellsPlugin],
+            plugins: [ProfilePlugin, MirrorPlugin, CellsPlugin, SelectPlugin],
         });
         return {
             state,
             dispose() {
                 grid = null;
                 gridMirror = null;
+                selectGrid = null;
+                selectMirror = null;
+                selectSourceTexture?.destroy();
+                selectSourceTexture = null;
                 dispose();
             },
         };
     },
     async assert(): Promise<Check[]> {
-        return [await assertFillDispatch()];
+        return [await assertFillDispatch(), await assertSelectDispatch()];
     },
     live(): string {
         return `${COLS}x${ROWS} cell grid, compute-only (no framed scene)`;

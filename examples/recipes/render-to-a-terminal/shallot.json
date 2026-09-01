@@ -1,0 +1,8 @@
+{
+  "scene": "scenes/render-to-a-terminal.scene",
+  "plugins": {
+    "Orbit": true,
+    "Cells": true,
+    "KeyOrbit": "./src/keys"
+  }
+}

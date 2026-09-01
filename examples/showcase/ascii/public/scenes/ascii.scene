@@ -1,0 +1,9 @@
+<scene>
+    <a id="camera" camera sear transform orbit="distance: 6; yaw: 0.6; pitch: 0.3" />
+
+    <!-- flat-shaded, unlit on purpose: near-constant albedo across the whole surface keeps each
+         facade's luminance (and so its slice of the glyph ramp) stable as the camera orbits — a lit
+         cube churns glyphs and criterion 8 would read shading motion instead of the ramp's shape
+         (`specs/shallot-tui.md`'s locked glyph-selection addendum). -->
+    <a id="box" part="surface: unlit" transform color="rgba: 0.85 0.55 0.35" />
+</scene>

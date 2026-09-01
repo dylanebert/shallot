@@ -81,10 +81,17 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
-    // measured 2026-09-01, two agreeing `--scenario cells` runs (WSL/NVIDIA bridge, lovelace): one
-    // compute pipeline (`cells-fill`), gpuBytes excludes the lazy `Mirror` staging pool (1440 B),
-    // leaving the 720 B `cells-grid` buffer alone (10x6 cells × 12 B `CELL_BYTES`).
-    cells: { pipelines: 1, pipelineCalls: 1, gpuBytes: 720 },
+    // measured 2026-09-01, agreeing `--scenario cells` runs (WSL/NVIDIA bridge, lovelace): three compute
+    // pipelines (`cells-fill`, S1's synthetic producer; `cells-avg` + `cells-select`, S3's two-pass real
+    // content producer over the differential arm's synthetic source texture). gpuBytes excludes the lazy
+    // `Mirror` staging pool: two `cells-grid`-labeled buffers share that name (S1's 10×6 fixture, 720 B,
+    // and S3's differential 8×4 fixture, 384 B — both call `createCellGrid`, which always names its
+    // buffer `cells-grid`), the differential's `rgba32float` synthetic source texture (32×16×16 B =
+    // 8192 B), its intermediate per-cell average buffer (32 cells × 16 B `vec4f` = 512 B), and the
+    // persistent `cells-select-params` uniform (`select.ts`'s `paramsBuffer`, one `SelectParams` = 4×u32
+    // = 16 B) — allocated once and written per call rather than recreated, so it stands for the run
+    // rather than being destroyed before this snapshot the way a per-call buffer would be.
+    cells: { pipelines: 3, pipelineCalls: 3, gpuBytes: 9824 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

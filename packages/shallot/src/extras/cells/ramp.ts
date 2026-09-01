@@ -73,21 +73,19 @@ export function cellGlyphString(): string {
     return CELL_FILL_GLYPHS.join("") + CELL_DIRECTIONAL_GLYPHS.join("");
 }
 
-// The GPU-side half of this contract — the uv-rect table S3's instanced draw reads per glyph index —
-// is defined here and built there, not here: it needs a *live* `GlyphAtlas` (a real GPU device + a
-// loaded `Font`, `extras/text/atlas.ts`), which today only exists once a plugin's `initialize` creates
-// one (`TextPlugin`'s own `_atlases`), and S1 ships no cells-side plugin to own that lifecycle. The
-// contract a producer of that table fulfills:
+// The GPU-side half of this contract — the uv-rect table the instanced draw reads per glyph index — is
+// `glyphs.ts`'s `buildGlyphUvTable`, against a live `GlyphAtlas` (`text/core`'s `createGlyphAtlas` +
+// `ensureString`, the same shelf-packed atlas `extras/text`'s own instanced glyph quads use — reused
+// rather than re-derived) that `CellsPlugin` (`./index.ts`) owns the lifecycle of. The contract:
 //
 //   1. Ensure every ramp glyph is resident once: `ensureString(atlas, cellGlyphString())`.
 //   2. For `i` in `0 .. CELL_GLYPH_COUNT - 1`, read `atlas.glyphs.get(cellGlyphChar(i))` (a
-//      `GlyphMetrics`, `atlas.ts`) and pack its `u0, v0, u1, v1` into lane `i` of a
-//      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer — the same shelf-packed uv rect
-//      `computeGlyphMetrics` already produces for `extras/text`'s own instanced glyph quads, reused
-//      rather than re-derived.
-//   3. The instanced draw's vertex/fragment stage indexes that buffer by `cells[i].glyph`, exactly the
-//      way `extras/text/index.ts`'s `typedTextSurface` indexes `textGlyphs` by instance id today.
+//      `GlyphMetrics`) and pack its `u0, v0, u1, v1` into lane `i` of a
+//      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer.
+//   3. The instanced draw's vertex stage indexes that buffer by `cells[i].glyph`, mixes the quad-local
+//      corner across the whole `u0,v0..u1,v1` box (no anchor/kerning math — a monospace cell stretches
+//      the glyph's own padded bounds to fill it), and the fragment stage samples the SDF there.
 //
-// A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`, e.g. an unsupported code
-// point) is S3's own concern to define a fallback for — out of this file's contract, which only fixes
-// the index ↔ character mapping every consumer shares.
+// A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`) packs the zero-area sentinel
+// `(0,0,0,0)` (`u1 <= u0`) — the draw's fragment stage treats that as "no glyph" and renders the cell's
+// background alone, never sampling atlas texel `(0,0)`, which a real glyph could legitimately occupy.

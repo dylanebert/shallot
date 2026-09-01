@@ -3,7 +3,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
 
-export const STANDARDS_POPULATION_GOLDEN = 102;
+export const STANDARDS_POPULATION_GOLDEN = 105;
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
@@ -396,6 +396,12 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     decodeUv: {
         gap: "a CPU differential would call decodeUv on a quantized w3 word and a MeshQuant and compare against the analytic uv dequantize; none written",
     },
+    directionalGlyphIndex: {
+        test: {
+            file: "packages/shallot/src/extras/cells/select.test.ts",
+            symbol: "directionalGlyphIndex",
+        },
+    },
     distanceAttenuation: {
         test: {
             file: "packages/shallot/src/standard/render/lighting.test.ts",
@@ -484,6 +490,9 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     litPbr: {
         gap: "a CPU differential would call litPbr(Pbr, normal, world) against a hand-computed Cook-Torrance value (or against brdf at radius 0) and assert agreement; none written",
     },
+    luma: {
+        test: { file: "packages/shallot/src/extras/cells/select.test.ts", symbol: "luma" },
+    },
     meshIdOf: {
         test: { file: "packages/shallot/src/engine/utils/encode.test.ts", symbol: "meshIdOf" },
     },
@@ -549,6 +558,9 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
             file: "packages/shallot/src/standard/fog/march.test.ts",
             symbol: "reconstructWorld",
         },
+    },
+    reinhard: {
+        test: { file: "packages/shallot/src/extras/cells/select.test.ts", symbol: "reinhard" },
     },
     sampleSky: {
         test: { file: "packages/shallot/src/extras/sky/sky.test.ts", symbol: "sampleSky" },
