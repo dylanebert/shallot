@@ -100,22 +100,37 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // pipeline dispatched twice — against the drawn target and the undrawn control — which is the other
     // `pipelineCalls` unit past the reused `cells-draw`: 9 (prior pipelineCalls) + 1 (an extra `cells-draw`
     // create, criterion 9's own `drawCells` call) + 1 (`cells-gym-frame-probe`'s single create) = 11).
-    // gpuBytes excludes the lazy `Mirror` staging pool (3_016 B, `mirror-staging`) — every other
-    // `bun bench --scenario cells`-reported label, summed exactly: `cells-grid` 2_364 (2_220 plus criterion
-    // 9's own 12-cell `FRAME_COLS * FRAME_ROWS` grid sharing that label, 12 cells × 12 B/cell = 144 B) +
-    // `cells-select-src` 8_192 + `cells-select-params` 32 (16 B dims uniform + the item-8 `bg: vec4f`
-    // reference above) + `cells-select-avg` 512 + `cells-gym-draw-glyphuv` 32 + `cells-gym-draw-glyphsize`
-    // 16 + `cells-gym-draw-atlas` 16 + `cells-gym-draw-target` 2_048 + `cells-gym-draw-probe-out` 32 +
-    // `glyphAtlas` 4_194_304 (a real `createGlyphAtlas` 2048×2048 `r8unorm` texture, the same size every
-    // real-font cells/text scene allocates) + the SDF generator's unlabeled 96×96 `rgba8unorm`
-    // intermediate texture 36_864 (`""` in `bun bench`'s by-label memory breakdown) + `cells-glyph-uv`
-    // 1_520 + `cells-glyph-size` 760 + `cells-gym-mono-target` 209_664 (`2184×24 rgba8unorm`) +
-    // `cells-draw-params` 16 + `cells-gym-mono-out` 364 + `cells-gym-frame-glyphuv` 32 +
-    // `cells-gym-frame-glyphsize` 16 + `cells-gym-frame-atlas` 16 + `cells-gym-frame-drawn` 12_288
+    // gpuBytes excludes the lazy `Mirror` staging pool (1_492 B, `mirror-staging`) — every other
+    // `bun bench --scenario cells`-reported label, summed exactly: `cells-grid` 2_316 — four scenarios'
+    // grids share this one label: `CellsPlugin`'s `COLS × ROWS` (10×6, 60 cells × 12 B/cell = 720),
+    // `SelectPlugin`'s `SELECT_COLS × SELECT_ROWS` (8×4, 32 × 12 = 384), `DrawPlugin`'s `DRAW_COLS ×
+    // DRAW_ROWS` (2×1, 2 × 12 = 24), `MonoPlugin`'s `MONO_GLYPH_COUNT × 1` (`= CELL_FILL_GLYPHS.length`,
+    // 87 × 12 = 1_044, down from 91 × 12 = 1_092 pre-rule-2), and `FramePlugin`'s `FRAME_COLS × FRAME_ROWS`
+    // (4×3, 12 × 12 = 144) — 720 + 384 + 24 + 1_044 + 144 = 2_316 — + `cells-select-src` 8_192 +
+    // `cells-select-params` 32 (16 B dims uniform + the item-8 `bg: vec4f` reference above) +
+    // `cells-select-avg` 512 + `cells-gym-draw-glyphuv`
+    // 32 + `cells-gym-draw-glyphsize` 16 + `cells-gym-draw-atlas` 16 + `cells-gym-draw-target` 2_048 +
+    // `cells-gym-draw-probe-out` 32 + `glyphAtlas` 4_194_304 (a real `createGlyphAtlas` 2048×2048
+    // `r8unorm` texture, the same size every real-font cells/text scene allocates) + the SDF generator's
+    // unlabeled 96×96 `rgba8unorm` intermediate texture 36_864 (`""` in `bun bench`'s by-label memory
+    // breakdown) + `cells-glyph-uv` 1_456 + `cells-glyph-size` 728 + `cells-gym-mono-target` 200_448
+    // (`2088×24 rgba8unorm`) + `cells-draw-params` 16 + `cells-gym-mono-out` 348 + `cells-gym-frame-glyphuv`
+    // 32 + `cells-gym-frame-glyphsize` 16 + `cells-gym-frame-atlas` 16 + `cells-gym-frame-drawn` 12_288
     // (64×48 `rgba8unorm`) + `cells-gym-frame-control` 12_288 (same size, the undrawn sentinel control) +
-    // `cells-gym-frame-out` 8 (two 4 B atomic-u32 counters sharing that label) = 4_481_384, matching
+    // `cells-gym-frame-out` 8 (two 4 B atomic-u32 counters sharing that label) = 4_472_008, matching
     // `gpuBytes` below exactly.
-    cells: { pipelines: 9, pipelineCalls: 11, gpuBytes: 4_481_384 },
+    //
+    // Re-measured 2026-09-01, same day, after the s3r fill-treatment amendment (`specs/shallot-tui.md`):
+    // rule 2's curated curved-glyph exclusion (`ramp.ts`'s `CELL_FILL_EXCLUDED_GLYPHS`) shrinks
+    // `CELL_FILL_GLYPHS` from 91 to 87 and `MONO_GLYPH_COUNT` (this file, `= CELL_FILL_GLYPHS.length`)
+    // with it, moving five labels that scale off the fill-ramp length: `cells-grid` (-48 B, `MonoPlugin`'s
+    // own grid), `cells-glyph-uv` (-64 B, 16 B/glyph), `cells-glyph-size` (-32 B, 8 B/glyph),
+    // `cells-gym-mono-target` (-9_216 B, `MONO_CELL_PX²` × 4 B/glyph) and `cells-gym-mono-out` (-16 B, 4
+    // B/glyph) — a net -9_376 B, `4_481_384 → 4_472_008`. `pipelines`/`pipelineCalls` are unaffected (no
+    // pipeline count changed, only buffer/texture sizes); rule 1's threshold re-derivation and rule 3's
+    // `INK_DILATE_FRACTION` change gpu*behavior*, not any allocation size, so neither moves this row.
+    // Two independent same-day confirming runs agree exactly on `gpuBytes`.
+    cells: { pipelines: 9, pipelineCalls: 11, gpuBytes: 4_472_008 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

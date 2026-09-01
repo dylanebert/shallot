@@ -68,6 +68,39 @@ export const drawLayout = tgpu.bindGroupLayout({
 const MIN_GLYPH_EM = 0.001;
 
 /**
+ * a small, uniform stroke-weight boost (the s3r fill-treatment amendment's rule 3, `specs/shallot-tui.md`:
+ * "facade ink is low… the target is the number") — genuinely required, and genuinely a `draw.ts` change:
+ * this brand font's own glyph outlines are thin relative to their em-box even at their densest
+ * (`RAMP_TABLE`'s own ceiling, the `@`/`W` entries, tops out under 8.5%), so the ramp's real *rendered*
+ * ink (the `cells` gym scenario's per-glyph device readback, `assertMonoRamp`'s underlying data) sits
+ * under the reference's ~10% floor with no selection or footprint change able to reach it — a glyph's
+ * *outline* can occupy more of its cell, but that alone never changes how much of that outline is ink. A
+ * bias subtracted from `signedDist` before the AA smoothstep (below) is a stroke-weight boost, the SDF
+ * equivalent of a bolder font cut, and it must be **proportional to the glyph's own footprint** (`maxDim`,
+ * device px) rather than a fixed pixel margin or an isotropic footprint *scale* (`cellFootprintPx`'s own
+ * `size` input, `glyphs.ts`'s `glyphSizeRect`) — both were tried first and measured wrong: either one
+ * inflates a small-em-size glyph (which the ramp's own low-coverage band is disproportionately made of, by
+ * construction — thin marks like `.`/`'`/`;` measure little ink *because* they're small) by a much larger
+ * relative amount than an already-near-1-em glyph, inverting `assertMonoRamp`'s own low-band-vs-rest
+ * ordering rather than preserving it (measured: a fixed 2px dilate alone read low band 0.1805 avg > rest
+ * 0.1532 avg, the arm wanting the reverse by 1.2x; a 2.6-6x isotropic footprint scale made it worse still,
+ * up to 0.24 vs 0.20). A **fractional** bias (`INK_DILATE_FRACTION * maxDim`, applied to the *unscaled*
+ * natural footprint) grows every glyph by the same **relative** margin instead, which is what a uniform
+ * stroke-weight boost — as opposed to a size-dependent one — actually means, and it is what keeps
+ * `assertMonoRamp` green rather than fighting it. It cannot leak ink outside a cell: `cellFragment`'s
+ * `inside` gate on `t` is a hard boolean cutoff on the *footprint rectangle*, entirely independent of
+ * `signedDist`/this bias, so a dilated glyph still stops exactly at its own footprint's edge. Measured,
+ * not guessed: `0.3` (30% of the glyph's own natural on-screen footprint) moved the `cells` gym scenario's
+ * real readback for the facade-relevant band into the reference's target band with margin on both sides
+ * (facade ink ~13%, low-band-vs-rest ratio ~1.69x against a 1.2x floor), and it is the *sole* lever this
+ * rule needed in the end — re-measure and update this derivation if it moves. Applied uniformly to every
+ * glyph (fill and directional both) rather than gated by role: a directional edge reading *heavier* is
+ * rule 1's own intent (`select.ts`'s `EDGE_MAGNITUDE_THRESHOLD` docblock — "brighter and heavier than
+ * either fill"), so the same boost serves both rules rather than needing a second, role-gated mechanism.
+ */
+const INK_DILATE_FRACTION = 0.3;
+
+/**
  * a glyph's on-screen footprint in device px, isotropically scaled from its own em-normalized `size`
  * (`glyphs.ts`'s `glyphSizeTable`): both axes move by the *same* factor, `min(cellW, cellH)` — the
  * largest pixels-per-em scale that still keeps any glyph (`size` clamped to at most `(1, 1)`) inside the
@@ -217,7 +250,7 @@ export const cellFragment = tgpu
         const uv = std.mix(input.rect.xy, input.rect.zw, tc);
         const sdf = std.textureSample(drawLayout.$.atlasTex, drawLayout.$.atlasSamp, uv).x;
         const maxDim = std.max(input.gsize.x, input.gsize.y);
-        const signedDist = sdfToSignedDistance(sdf, maxDim);
+        const signedDist = sdfToSignedDistance(sdf, maxDim) - INK_DILATE_FRACTION * maxDim;
         const aa = std.length(std.fwidth(std.mul(input.t, input.gsize))) * 0.5;
         const rawAlpha = std.smoothstep(aa, -aa, signedDist);
         const inside =

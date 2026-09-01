@@ -10,6 +10,10 @@ import {
     createCellGrid,
     dispatchSelect,
     drawCells,
+    FACADE_INK_CEILING,
+    FACADE_INK_FLOOR,
+    FACADE_LUMA_SWEEP,
+    facadeInkFraction,
     fillCellGrid,
     type GlyphSizeBuffer,
     type GlyphUvBuffer,
@@ -223,8 +227,10 @@ const SELECT_BLOCK = 4; // device px per cell edge
 const SELECT_SRC_W = SELECT_COLS * SELECT_BLOCK;
 const SELECT_SRC_H = SELECT_ROWS * SELECT_BLOCK;
 // bright/dark post-tonemap luma: reinhard(2.0) ≈ 0.667, reinhard(0.05) ≈ 0.0476 — a Sobel magnitude of
-// 4×|0.667−0.0476| ≈ 2.48 at the boundary columns, well over EDGE_MAGNITUDE_THRESHOLD (0.4), and exactly
-// 0 at every column away from the boundary (uniform neighborhoods, `select.ts`'s own derivation)
+// 4×|0.667−0.0476| ≈ 2.48 at the boundary columns, well over EDGE_MAGNITUDE_THRESHOLD (re-derived
+// downward by the s3r fill-treatment amendment, `select.ts`'s own docblock — comfortably below 2.48
+// regardless), and exactly 0 at every column away from the boundary (uniform neighborhoods, `select.ts`'s
+// own derivation)
 const SELECT_BRIGHT = 2.0;
 const SELECT_DARK = 0.05;
 
@@ -776,6 +782,42 @@ async function assertMonoRamp(): Promise<Check> {
     };
 }
 
+// rule 3's own real-device arm (`specs/shallot-tui.md`'s fill-treatment amendment, "facade ink is low… the
+// target is the number"). Reuses `MonoPlugin`'s already-dispatched per-glyph ink readback — the same real
+// rendered ink `assertMonoRamp` reads above, over the *whole* fill ramp this time (`ink.length ===
+// CELL_FILL_GLYPHS.length`, unlike that arm's own `MONO_CHECKED_COUNT`-bounded population) — rather than
+// dispatching a second draw, since "the rendered cells" is exactly what this readback already is
+// (`select.ts`'s own `facadeInkFraction`/`FACADE_LUMA_SWEEP` docblocks have the derivation for why this is
+// the cheaper, honest choice over a second synthetic scene). `facadeInkFraction` is the same function
+// `select.test.ts`'s two-sided vacuity arms drive with synthetic all-zero / all-one arrays — this is its
+// one production caller, against real data.
+async function assertFacadeInk(): Promise<Check> {
+    const name = "facade ink: the real ramp's rendered ink lands in the reference's target band";
+    if (!monoMirror) return { name, pass: false, detail: "no mono probe mirror" };
+    await settle(monoMirror);
+    const snap = monoMirror.snapshot;
+    if (!snap) return { name, pass: false, detail: "no mono probe snapshot" };
+
+    const ink = new Float32Array(snap.bytes);
+    if (ink.length !== MONO_GLYPH_COUNT) {
+        return {
+            name,
+            pass: false,
+            detail: `probe output length ${ink.length} !== ${MONO_GLYPH_COUNT} fill glyphs`,
+        };
+    }
+
+    const fraction = facadeInkFraction(FACADE_LUMA_SWEEP, Array.from(ink));
+    const pass = fraction >= FACADE_INK_FLOOR && fraction <= FACADE_INK_CEILING;
+    return {
+        name,
+        pass,
+        detail: pass
+            ? `facade ink ${(fraction * 100).toFixed(1)}% over ${FACADE_LUMA_SWEEP.length} facade-luma samples — inside [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%]`
+            : `facade ink ${(fraction * 100).toFixed(1)}% over ${FACADE_LUMA_SWEEP.length} facade-luma samples — outside [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%]; FILL_GLYPH_INK_SCALE (glyphs.ts) and INK_DILATE_PX (draw.ts) are the levers`,
+    };
+}
+
 // Criterion 9 (`shallot-tui` spec, added 2026-09-01 after a human look found the shaded 3D scene visible
 // underneath the glyphs): "the web frame contains the cell grid and nothing else." `assertDrawDispatch`
 // above proves the *ink* pixels read correctly at a sampled center point; it says nothing about the
@@ -1118,6 +1160,7 @@ const scenario: Scenario = {
             await assertSelectDispatch(),
             await assertDrawDispatch(),
             await assertMonoRamp(),
+            await assertFacadeInk(),
             await assertFrameIsGrid(),
         ];
     },

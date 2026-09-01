@@ -10,6 +10,13 @@ import {
     directionalGlyphIndex,
     dispatchSelect,
     EDGE_MAGNITUDE_THRESHOLD,
+    FACADE_INK_CEILING,
+    FACADE_INK_FLOOR,
+    FACADE_LUMA_SWEEP,
+    FACE_BOUNDARY_MAGNITUDE_THRESHOLD,
+    facadeInkFraction,
+    fillIndexForLuma,
+    localBoundaryMagnitude,
     luma,
     reinhard,
     resetSelectPipelines,
@@ -139,6 +146,55 @@ describe("EDGE_MAGNITUDE_THRESHOLD", () => {
     });
 });
 
+// rule 1's own repair proof (`specs/shallot-tui.md`'s fill-treatment amendment, "a shared face boundary
+// carries its own rule"): FACE_BOUNDARY_MAGNITUDE_THRESHOLD's own docblock claims a witnessed reproduction
+// — a real yaw (2.4 rad) where a genuinely flat 4-connected neighborhood still read a nonzero full-Sobel
+// magnitude solely from its diagonal taps landing in the next face over. This reproduces that shape
+// directly (not the real device numbers, which live in the docblock's own prose) and proves
+// localBoundaryMagnitude reads 0 where the diagonal-bearing Sobel construction would not.
+describe("localBoundaryMagnitude / FACE_BOUNDARY_MAGNITUDE_THRESHOLD (rule 1's shared-face-boundary gate)", () => {
+    test("a flat 4-connected neighborhood reads exactly 0, regardless of what the diagonal corners hold", () => {
+        // own row/column all equal to the center's own luma (0.517) — a textbook-flat 4-neighborhood, the
+        // exact shape the docblock's reproduction names.
+        expect(localBoundaryMagnitude(0.517, 0.517, 0.517, 0.517)).toBe(0);
+    });
+
+    test("the full-Sobel construction this gate replaces would have read nonzero on the same case, from diagonal taps alone", () => {
+        // the reproduction's own numbers: own row/column flat at 0.517, but the diagonal corners (top-right,
+        // bottom-right) sit in the next face over at 0.473 — a real, measured bled-Sobel input.
+        const l00 = 0.517;
+        const l10 = 0.517;
+        const l20 = 0.473; // diagonal — the next face over
+        const l01 = 0.517;
+        const l21 = 0.517;
+        const l02 = 0.517;
+        const l12 = 0.517;
+        const l22 = 0.473; // diagonal — the next face over
+        const gx = l20 + 2 * l21 + l22 - (l00 + 2 * l01 + l02);
+        const gy = l02 + 2 * l12 + l22 - (l00 + 2 * l10 + l20);
+        const fullSobelMagnitude = Math.hypot(gx, gy);
+        expect(fullSobelMagnitude).toBeGreaterThan(0);
+        // and this gate's own localized metric reads 0 on the identical 4-connected neighbors
+        expect(localBoundaryMagnitude(l01, l21, l10, l12)).toBe(0);
+    });
+
+    test("reads the target defect correctly — a real two-face luma step reads a nonzero, above-threshold magnitude", () => {
+        // the amendment's own measured boundary: a ~0.012 luma step between two adjacent faces
+        const magnitude = localBoundaryMagnitude(0.529, 0.517, 0.529, 0.529);
+        expect(magnitude).toBeCloseTo(0.012, 5);
+        expect(magnitude).toBeGreaterThan(FACE_BOUNDARY_MAGNITUDE_THRESHOLD);
+    });
+
+    test("sits strictly between zero and the metric's own reachable maximum (sqrt(2), a full 0-1 step on both axes)", () => {
+        expect(FACE_BOUNDARY_MAGNITUDE_THRESHOLD).toBeGreaterThan(0);
+        expect(FACE_BOUNDARY_MAGNITUDE_THRESHOLD).toBeLessThan(Math.SQRT2);
+    });
+
+    test("sits well below EDGE_MAGNITUDE_THRESHOLD — a second, lower gate, not a re-setting of the first", () => {
+        expect(FACE_BOUNDARY_MAGNITUDE_THRESHOLD).toBeLessThan(EDGE_MAGNITUDE_THRESHOLD);
+    });
+});
+
 describe("selectWgsl", () => {
     test("resolves both kernels with no device", () => {
         const wgsl = selectWgsl();
@@ -242,5 +298,44 @@ describe("background detection (s3r item 8's own repair)", () => {
         // real one-step-darker surface as background — this is the standing bound on that budget.
         const rampStep = 1 / (CELL_FILL_GLYPHS.length - 1);
         expect(BG_MATCH_EPSILON).toBeLessThan(rampStep / 2);
+    });
+});
+
+// rule 3's own two-sided vacuity proof (`specs/shallot-tui.md`'s fill-treatment amendment): the real
+// facade-ink assertion lives against a real device readback (`examples/gym/src/scenarios/cells.ts`'s
+// `assertFacadeInk`, since only a real dispatch can measure rendered ink); this proves the *measurement
+// function itself* discriminates, with no device — the same shared `facadeInkFraction`/`fillIndexForLuma`
+// the production check calls, fed a synthetic ink array instead of a real one.
+describe("facadeInkFraction (rule 3's own two-sided vacuity proof)", () => {
+    test("an all-blank (zero ink) population reads under the floor", () => {
+        const allBlank = CELL_FILL_GLYPHS.map(() => 0);
+        const fraction = facadeInkFraction(FACADE_LUMA_SWEEP, allBlank);
+        expect(fraction).toBe(0);
+        expect(fraction).toBeLessThan(FACADE_INK_FLOOR);
+    });
+
+    test("a maximally dense ('all-@'-shaped) population reads over the ceiling", () => {
+        // every fill index reads as fully inked — the "all-@" fill the criterion names, generalized past
+        // this font's own specific ceiling (`glyphs.ts`'s FILL_GLYPH_INK_SCALE docblock has that
+        // measurement) so this arm proves the *arithmetic* discriminates regardless of what any one real
+        // glyph happens to measure.
+        const allDense = CELL_FILL_GLYPHS.map(() => 1);
+        const fraction = facadeInkFraction(FACADE_LUMA_SWEEP, allDense);
+        expect(fraction).toBe(1);
+        expect(fraction).toBeGreaterThan(FACADE_INK_CEILING);
+    });
+
+    test("the sweep is non-empty and spans the full luma domain — a non-vacuity control on the population itself", () => {
+        expect(FACADE_LUMA_SWEEP.length).toBeGreaterThan(2);
+        expect(Math.min(...FACADE_LUMA_SWEEP)).toBe(0);
+        expect(Math.max(...FACADE_LUMA_SWEEP)).toBe(1);
+    });
+
+    test("fillIndexForLuma stays in range across the whole sweep", () => {
+        for (const l of FACADE_LUMA_SWEEP) {
+            const idx = fillIndexForLuma(l);
+            expect(idx).toBeGreaterThanOrEqual(0);
+            expect(idx).toBeLessThan(CELL_FILL_GLYPHS.length);
+        }
     });
 });

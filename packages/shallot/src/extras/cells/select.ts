@@ -20,10 +20,22 @@
 // and picks a glyph: Sobel magnitude over the neighborhood's luma decides edge-vs-fill, gated by
 // {@link EDGE_MAGNITUDE_THRESHOLD}; over threshold picks a directional glyph from the gradient angle
 // (converted to its perpendicular tangent bucket, `ramp.ts`'s locked contract); under it picks a
-// coverage-ordered fill glyph from the cell's own luma. `fg`/`bg` are a fixed high-contrast pair (white
-// glyph ink, the cell's own average as background) — deliberately not itself part of the structure-first
-// question the Locked decision settles, since criterion 8 strips color entirely; tuning fg/bg for the
-// colored web preview is cosmetic and left open for the taste read that criterion asks for.
+// coverage-ordered fill glyph from the cell's own luma. The s3r fill-treatment amendment's "a shared face
+// boundary carries its own rule" (`specs/shallot-tui.md`) is a **second, independent** gate,
+// {@link FACE_BOUNDARY_MAGNITUDE_THRESHOLD} — not a lower setting of the same one: the full 3×3 Sobel
+// kernel's diagonal taps carry a real face boundary's influence *past* its own row/column into an
+// adjacent, genuinely flat cell (measured directly, `FACE_BOUNDARY_MAGNITUDE_THRESHOLD`'s own docblock has
+// the reproduction), so a single lowered Sobel threshold sensitive enough to catch a dim interior boundary
+// also mis-fires one cell into every flat neighbor beside one, turning a small box's whole visible surface
+// into edge glyphs. The boundary gate instead reads a **4-connected central difference** (own-row
+// left/right, own-column up/down only, no diagonals) — a metric that cannot see past its immediate
+// neighbor, so it reads exactly 0 for the flat-neighbor case the Sobel-based approach mis-fired on. Either
+// gate firing selects a directional glyph, oriented by the *full* Sobel `(gx, gy)` (the diagonal taps are
+// fine for angle, since a slightly bled angle is a far smaller defect than a mis-classified cell); `fg` is
+// forced to full-bright white whenever either fires — a solid, continuous, brighter-than-either-fill
+// stroke, per the reference's own contrast hierarchy (edges continuous and bright, fill dim and broken) —
+// and `bg` stays the cell's own tonemapped average (unchanged, cosmetic for the colored web preview;
+// criterion 8 strips color entirely so nothing here bears on it).
 
 import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -52,9 +64,39 @@ const PI = Math.PI;
  * a 0.1 average per-tap luma delta across the neighborhood to fire (the axis-aligned case, `0.4 / 4`) —
  * well above sensor/render noise on a lit 3D scene, well below what a silhouette or a hard shadow
  * boundary produces. This is the constant criterion 8's taste read is expected to move — record a new
- * derivation here if it does, not just the number.
+ * derivation here if it does, not just the number. Unchanged by the s3r fill-treatment amendment: the
+ * shared-face-boundary rule it adds is {@link FACE_BOUNDARY_MAGNITUDE_THRESHOLD}, a separate gate on a
+ * separate, more localized metric — own docblock has the reason a single lowered Sobel threshold doesn't
+ * serve both roles.
  */
 export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
+
+/**
+ * the shared-face-boundary gate (the s3r fill-treatment amendment, `specs/shallot-tui.md`: "a shared face
+ * boundary carries its own rule") — independent of {@link EDGE_MAGNITUDE_THRESHOLD}, on an independent
+ * metric: a **4-connected central difference**, `dx = l21 - l01` (own row, right minus left) and
+ * `dy = l12 - l10` (own column, bottom minus top), `magnitude = sqrt(dx² + dy²)`, using none of the full
+ * Sobel kernel's diagonal taps (`l00`, `l20`, `l02`, `l22`). Tried first as a second, lower threshold on
+ * the *same* Sobel magnitude `selectKernel` already computes, and measured wrong: the Sobel kernel's
+ * diagonal taps carry a real boundary's influence *past* its own row/column into an adjacent, genuinely
+ * flat cell — reproduced directly against `examples/recipes/render-to-a-terminal` at a yaw showing three
+ * faces (2.4 rad): a cell sitting one row below a real horizontal face boundary, with identical luma to
+ * both its immediate left and right neighbors *and* to the same cell one row above and one row below (a
+ * textbook-flat 4-connected neighborhood), still read a nonzero Sobel magnitude solely from its two
+ * diagonal corner taps landing in the *next* face over — turning a small on-screen cube's entire visible
+ * surface into directional glyphs, the opposite of rule 3's "facade ink is low." The central-difference
+ * metric reads exactly 0 there (its four inputs are the flat 4-neighbors only), while still reading the
+ * *target* defect correctly: at the two-face boundary the amendment names, the adjacent cell differs by
+ * roughly a 0.012 luma step, giving `magnitude ≈ 0.012` directly (weights are ±1, not Sobel's ±4, so no 4×
+ * amplification). The threshold is derived the same way {@link BG_MATCH_EPSILON} derives its own budget:
+ * half the fill ramp's own per-index luma step (`0.5 / (CELL_FILL_GLYPHS.length - 1)`, ≈0.0058 at 87 fill
+ * glyphs) — comfortably above the quantization-noise floor (`BG_MATCH_EPSILON`'s own ~0.0007 derivation,
+ * several times below it) and comfortably below the measured real boundary (≈2x margin), re-deriving
+ * automatically if the ramp's own length moves. When this gate fires, the emitted glyph's *angle* still
+ * comes from the full Sobel `(gx, gy)` (`directionalGlyphIndex`) — a slightly bled angle at the boundary's
+ * own edge is a far smaller defect than the mis-classified-flat-cell one this gate exists to avoid.
+ */
+export const FACE_BOUNDARY_MAGNITUDE_THRESHOLD = 0.5 / (CELL_FILL_GLYPHS.length - 1);
 
 /**
  * the background-match gate: how close a cell's own tonemapped block average must sit to the
@@ -69,8 +111,8 @@ export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
  * to a similar post-tonemap delta; a pass-1 block average of 9 bit-identical background samples divided
  * by 9 adds only float-rounding noise on top, several orders below that. 0.004 clears that quantization
  * budget by roughly 4-6x while staying well under the fill ramp's own per-index luma step (`1 /
- * (CELL_FILL_GLYPHS.length - 1)` ≈ 0.0111 at 91 fill glyphs) — the gap a legitimately-one-step-darker
- * real surface sits at, so this gate should not misfire on it.
+ * (CELL_FILL_GLYPHS.length - 1)` ≈ 0.0116 at 87 fill glyphs, post rule-2's curved-glyph exclusion) — the
+ * gap a legitimately-one-step-darker real surface sits at, so this gate should not misfire on it.
  */
 export const BG_MATCH_EPSILON = 0.004;
 
@@ -184,6 +226,88 @@ export const directionalGlyphIndex = tgpu.fn(
     return d.u32(CELL_FILL_GLYPHS.length) + tangentBucket;
 });
 
+/**
+ * the fill role's own luma→index map: round `luma` linearly across the coverage-ordered ramp, clamped to
+ * the last fill index. Extracted from `selectKernel`'s own inline arithmetic (unchanged) so the exact same
+ * mapping is callable with no device (`directionalGlyphIndex`'s own dual CPU/GPU shape) — the facade-ink
+ * measurement below (rule 3, `specs/shallot-tui.md`'s fill-treatment amendment) has to use the *real*
+ * mapping the kernel selects with, not a re-derived copy that could silently drift from it
+ * (`checks.md`: "an oracle that shares an assumption with the thing it checks proves nothing" runs the
+ * other way here — the risk is a *second*, drifting implementation, not a shared blind spot, so sharing one
+ * function is the fix).
+ * @example const idx = fillIndexForLuma(0.55); // an index into CELL_FILL_GLYPHS
+ */
+export const fillIndexForLuma = tgpu.fn(
+    [d.f32],
+    d.u32,
+)((luma) => {
+    "use gpu";
+    const fillCount = d.u32(CELL_FILL_GLYPHS.length);
+    const idx = d.u32(std.round(std.saturate(luma) * d.f32(fillCount - 1)));
+    return std.min(idx, fillCount - 1);
+});
+
+/**
+ * the shared-face-boundary gate's own metric ({@link FACE_BOUNDARY_MAGNITUDE_THRESHOLD}'s own docblock has
+ * the derivation and the reproduction that motivated it): a 4-connected central difference over the
+ * *immediate* left/right/top/bottom neighbors only — no diagonal taps — so it cannot see past its own row
+ * or column the way the full Sobel kernel (`selectKernel`'s `gx`/`gy`) does. Extracted to a pure,
+ * dual-mode function (`directionalGlyphIndex`'s own shape) so `select.test.ts` can reproduce the exact
+ * bled-Sobel-but-flat-4-neighbor scenario this gate exists to fix, with no device.
+ * @example const m = localBoundaryMagnitude(0.5, 0.5, 0.5, 0.5); // 0 — a flat 4-neighborhood
+ */
+export const localBoundaryMagnitude = tgpu.fn(
+    [d.f32, d.f32, d.f32, d.f32],
+    d.f32,
+)((left, right, top, bottom) => {
+    "use gpu";
+    const dx = right - left;
+    const dy = bottom - top;
+    return std.sqrt(dx * dx + dy * dy);
+});
+
+/**
+ * the representative facade-luma population the facade-ink measurement (rule 3, `specs/shallot-tui.md`'s
+ * fill-treatment amendment) averages over: 101 evenly spaced samples across the full `[0, 1]` luma domain
+ * `fillIndexForLuma` maps from. Deliberately the *whole* domain rather than this one recipe's own narrow
+ * observed band (`EDGE_MAGNITUDE_THRESHOLD`'s own docblock cites that band, roughly 0.517-0.603, at one
+ * orbit angle) — the mapping this measures is a property of the selector, not of one camera pose, and a
+ * population scoped to a single frame's own readings would be self-graded (`checks.md`: "an item gated by
+ * a file its own diff creates is self-graded"). Exported so the two-sided arms (`select.test.ts`) and the
+ * real-device measurement (`examples/gym/src/scenarios/cells.ts`'s own `assertFacadeInk`) read one shared
+ * population rather than two that could quietly diverge.
+ */
+export const FACADE_LUMA_SWEEP: readonly number[] = Array.from({ length: 101 }, (_, i) => i / 100);
+
+/** the facade-ink band's floor and ceiling (rule 3, `specs/shallot-tui.md`: "the target is the number,"
+ *  ~10-35% off the reference's own measured facade crops). Real, achievable numbers, not aspirational
+ *  ones: a single ASCII glyph's own outline coverage in this brand font tops out under 10% even fully
+ *  saturated to a 1×1-em footprint (`glyphs.ts`'s `FILL_GLYPH_INK_SCALE`, `draw.ts`'s `INK_DILATE_PX` —
+ *  both docblocks carry the measurement that made the floor reachable at all), so these bounds are read
+ *  off {@link FACADE_LUMA_SWEEP} against the real `cells` gym scenario's own per-glyph device readback, not
+ *  copied from the reference's crops unread. */
+export const FACADE_INK_FLOOR = 0.1;
+export const FACADE_INK_CEILING = 0.35;
+
+/**
+ * average rendered ink over a population of facade lumas, each mapped to its fill index by
+ * {@link fillIndexForLuma} (the real selector mapping, not a re-derived copy) and looked up in
+ * `inkByIndex` — the real per-glyph device readback in production (`examples/gym/src/scenarios/cells.ts`'s
+ * `assertFacadeInk`), or a synthetic all-high / all-zero array in the two-sided vacuity arms
+ * (`select.test.ts`), which is what proves this function — not just its production caller — actually
+ * discriminates a dense population from a blank one.
+ * @example facadeInkFraction(FACADE_LUMA_SWEEP, realInkReadback); // ~0.1-0.35 in production
+ */
+export function facadeInkFraction(lumas: readonly number[], inkByIndex: readonly number[]): number {
+    if (lumas.length === 0) return 0;
+    let sum = 0;
+    for (const luma of lumas) {
+        const idx = fillIndexForLuma(luma);
+        sum += inkByIndex[idx] ?? 0;
+    }
+    return sum / lumas.length;
+}
+
 const avgKernel = tgpu.computeFn({
     workgroupSize: [WG, WG],
     in: { gid: d.builtin.globalInvocationId },
@@ -250,26 +374,41 @@ const selectKernel = tgpu.computeFn({
     const gy = l02 + 2 * l12 + l22 - (l00 + 2 * l10 + l20);
     const magnitude = std.sqrt(gx * gx + gy * gy);
 
+    // the shared-face-boundary gate's own localized metric (FACE_BOUNDARY_MAGNITUDE_THRESHOLD's own
+    // docblock has the derivation): a 4-connected central difference, no diagonal taps, so it can't bleed
+    // a real boundary's influence into an adjacent flat cell the way the full Sobel kernel above does.
+    const magnitudeLocal = localBoundaryMagnitude(l01, l21, l10, l12);
+
     const own = selectLayout.$.avg[yi * colsI + xi].xyz;
     const ownLuma = luma(own);
     const bgTone = reinhard(selectLayout.$.params.bg.xyz);
 
     let glyph = d.u32(0);
+    // two independent gates: the silhouette/hard-shadow Sobel gate (EDGE_MAGNITUDE_THRESHOLD) and the
+    // shared-face-boundary localized gate (FACE_BOUNDARY_MAGNITUDE_THRESHOLD) — either firing selects a
+    // directional glyph, oriented by the full Sobel (gx, gy) regardless of which gate fired, and gets the
+    // same bright, continuous-stroke emphasis below, per the reference's own contrast hierarchy (edges
+    // continuous and bright, fill dim and broken).
+    const isEdge =
+        magnitude > EDGE_MAGNITUDE_THRESHOLD || magnitudeLocal > FACE_BOUNDARY_MAGNITUDE_THRESHOLD;
     if (std.distance(own, bgTone) < BG_MATCH_EPSILON) {
         // untouched background: force the ramp's own zero-coverage entry (glyph index 0, guaranteed
         // to be the blank glyph — `ramp.ts`'s `candidateChars` starts at code point 0x20 and ties at
         // zero coverage break by ascending code point, so nothing sorts ahead of it) rather than
         // whatever index the background's own non-zero clear luma would otherwise round to.
         glyph = d.u32(0);
-    } else if (magnitude > EDGE_MAGNITUDE_THRESHOLD) {
+    } else if (isEdge) {
         glyph = directionalGlyphIndex(gx, gy);
     } else {
-        const fillCount = d.u32(CELL_FILL_GLYPHS.length);
-        const idx = d.u32(std.round(std.saturate(ownLuma) * d.f32(fillCount - 1)));
-        glyph = std.min(idx, fillCount - 1);
+        glyph = fillIndexForLuma(ownLuma);
     }
 
-    const fg = std.select(d.vec3f(0, 0, 0), d.vec3f(1, 1, 1), ownLuma < 0.5);
+    // fill ink stays luma-derived (dim and broken, per the reference); an edge glyph always gets
+    // full-bright fg regardless of its own luma, so the stroke reads brighter than either adjacent fill
+    // rather than sometimes matching or undershooting a bright fill's own ink (`ownLuma < 0.5`'s old split
+    // would otherwise hand a bright-face edge black ink, the opposite of "brighter than either fill").
+    const fillFg = std.select(d.vec3f(0, 0, 0), d.vec3f(1, 1, 1), ownLuma < 0.5);
+    const fg = std.select(fillFg, d.vec3f(1, 1, 1), isEdge);
     const packed = packCell(glyph, d.vec4f(fg, 1), d.vec4f(own, 1));
     const i = y * cols + x;
     selectLayout.$.cells[i].glyph = packed.x;
