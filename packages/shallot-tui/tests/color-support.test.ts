@@ -41,4 +41,45 @@ describe("detectTier", () => {
         expect(detectTier({ isTTY: true, env: {} })).toBe("glyph");
         expect(detectTier({ isTTY: true, env: { TERM: "vt100" } })).toBe("glyph");
     });
+
+    test("a -direct TERM (the terminfo direct-color convention) selects truecolor", () => {
+        expect(detectTier({ isTTY: true, env: { TERM: "xterm-direct" } })).toBe("truecolor");
+    });
+
+    test("xterm-kitty and xterm-ghostty select truecolor by TERM alone — the common ssh case where COLORTERM isn't inherited", () => {
+        expect(detectTier({ isTTY: true, env: { TERM: "xterm-kitty" } })).toBe("truecolor");
+        expect(detectTier({ isTTY: true, env: { TERM: "xterm-ghostty" } })).toBe("truecolor");
+    });
+});
+
+describe("FORCE_COLOR — the standard override for CI and wrapped runs", () => {
+    test("FORCE_COLOR=0 (or false) forces glyph even with a truecolor-capable COLORTERM", () => {
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "0", COLORTERM: "truecolor" } })).toBe(
+            "glyph",
+        );
+        expect(
+            detectTier({ isTTY: true, env: { FORCE_COLOR: "false", COLORTERM: "truecolor" } }),
+        ).toBe("glyph");
+    });
+
+    test("FORCE_COLOR=1 or 2 force ansi256 — this ladder has no separate 16-color tier to map to", () => {
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "1" } })).toBe("ansi256");
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "2" } })).toBe("ansi256");
+    });
+
+    test("FORCE_COLOR=3 forces truecolor", () => {
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "3" } })).toBe("truecolor");
+    });
+
+    test("a bare or non-numeric FORCE_COLOR (no explicit level) forces the lowest color tier on", () => {
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "" } })).toBe("ansi256");
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "true" } })).toBe("ansi256");
+    });
+
+    test("FORCE_COLOR wins over NO_COLOR — the standard's own precedence, since FORCE_COLOR is the more deliberate, explicit signal", () => {
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "3", NO_COLOR: "1" } })).toBe(
+            "truecolor",
+        );
+        expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "0", NO_COLOR: "" } })).toBe("glyph");
+    });
 });

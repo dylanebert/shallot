@@ -4,7 +4,6 @@
 // bytes-per-*changed-cell* estimate and paying that cost per cell regardless of runs.
 
 import type { Tier } from "./color-support";
-import { SGR_RESET } from "./cursor";
 import type { Cell } from "./types";
 import { rgbEqual } from "./types";
 
@@ -25,19 +24,27 @@ export function sameStyle(a: Cell, b: Cell): boolean {
 
 /**
  * The SGR escape that establishes `cell`'s style at the given tier, or `""` for a colorless tier
- * (`plain` / `glyph`) or a cell with no explicit fg/bg (terminal defaults, nothing to set).
+ * (`plain` / `glyph`). SGR is sticky — a terminal keeps whatever fg/bg a prior run set until
+ * something changes it — so every color-tier prefix declares *both* channels explicitly, never
+ * omitting one: an explicit color code for a set channel, or the "reset to terminal default" code
+ * (`39` for fg, `49` for bg) for a `null` one. `types.ts`'s `Cell` contract makes `null` mean "the
+ * terminal's own default," distinct from black — a prefix that silently omitted a null channel
+ * would let a preceding run's color bleed onto a cell that asked for the default, which is a
+ * contract violation, not a harmless omission.
  */
 export function sgrPrefix(cell: Cell, tier: Tier): string {
     if (tier === "plain" || tier === "glyph") return "";
-    const params: string[] = [];
-    if (tier === "truecolor") {
-        if (cell.fg) params.push(`38;2;${cell.fg.r};${cell.fg.g};${cell.fg.b}`);
-        if (cell.bg) params.push(`48;2;${cell.bg.r};${cell.bg.g};${cell.bg.b}`);
-    } else {
-        if (cell.fg) params.push(`38;5;${ansi256FromRgb(cell.fg.r, cell.fg.g, cell.fg.b)}`);
-        if (cell.bg) params.push(`48;5;${ansi256FromRgb(cell.bg.r, cell.bg.g, cell.bg.b)}`);
-    }
-    if (params.length === 0) return SGR_RESET;
+    const { fg, bg } = cell;
+    const params =
+        tier === "truecolor"
+            ? [
+                  fg ? `38;2;${fg.r};${fg.g};${fg.b}` : "39",
+                  bg ? `48;2;${bg.r};${bg.g};${bg.b}` : "49",
+              ]
+            : [
+                  fg ? `38;5;${ansi256FromRgb(fg.r, fg.g, fg.b)}` : "39",
+                  bg ? `48;5;${ansi256FromRgb(bg.r, bg.g, bg.b)}` : "49",
+              ];
     return `\x1b[${params.join(";")}m`;
 }
 

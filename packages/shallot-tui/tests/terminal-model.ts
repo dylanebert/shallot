@@ -136,6 +136,15 @@ export class TerminalModel {
                 } else {
                     i += 1;
                 }
+            } else if (code === "39") {
+                // explicit "reset foreground to terminal default" — `sgr.ts`'s `sgrPrefix` emits
+                // this for a `null` fg so a preceding run's color can't bleed onto this cell.
+                this._fg = null;
+                i += 1;
+            } else if (code === "49") {
+                // the background counterpart of "39" above.
+                this._bg = null;
+                i += 1;
             } else {
                 i += 1;
             }

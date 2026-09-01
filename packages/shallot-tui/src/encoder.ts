@@ -26,6 +26,16 @@ function renderPlain(grid: Grid): string {
  *
  * `plain` tier is stateless by design — every call is a full text dump, appropriate for a
  * non-tty sink with no cursor to address and no reason to diff.
+ *
+ * **Two distinct notions of "resize."** `diffRuns` treats a change in the *grid's own* width or
+ * height as a resize and repaints in full — but a real terminal reflows its own screen buffer on
+ * an out-of-band window resize regardless of what the grid producer feeds it. A fixed-size grid
+ * producer (the common case — a terminal command that always renders at the terminal's current
+ * columns/rows, only occasionally changing) never sees that as a grid-dimension change, so
+ * `diffRuns` alone never knows to repaint: it keeps diffing against a `_prev` that no longer
+ * describes what's actually on screen, and the mismatch never self-corrects. `invalidate()` is
+ * the seam for that case — call it from a real resize notification (`resize.ts`'s `onResize`) and
+ * the next `encode()` call repaints in full, exactly like the first frame ever encoded.
  */
 export class Encoder {
     private _prev: Grid | null = null;
@@ -34,7 +44,18 @@ export class Encoder {
 
     constructor(private readonly _tier: Tier) {}
 
-    /** Encodes `grid` against the previously encoded grid (or as a full frame, on the first call). */
+    /**
+     * Forces the next `encode()` call to be an unconditional full repaint, regardless of whether
+     * the grid's own dimensions changed — the seam for an out-of-band terminal resize (see the
+     * class docblock). The caller owns deciding *when* a physical resize happened (typically by
+     * subscribing to `resize.ts`'s `onResize`); this method is how it tells the encoder.
+     */
+    invalidate(): void {
+        this._prev = null;
+    }
+
+    /** Encodes `grid` against the previously encoded grid (or as a full frame, on the first call,
+     * or on the first call after `invalidate()`). */
     encode(grid: Grid): string {
         if (this._tier === "plain") {
             this._prev = grid;

@@ -1,4 +1,4 @@
-// Criterion 1 — "The encoder round-trips at every tier" (shallot-tui spec, Validation #1).
+// The encoder round-trips at every tier.
 //
 // Encodes a known multi-frame sequence (a full first paint, a sparse diffed update touching
 // non-adjacent cells across different rows, a resize, another sparse diffed update, then a
@@ -8,19 +8,19 @@
 // tier can carry — `terminal-model.ts`'s `projectForTier`), and the repeated final frame must
 // encode to zero bytes.
 //
-// Those two assertions are deliberately the two-sided proof the spec requires:
-//   - the zero-bytes-on-repeat assertion reds if diff suppression is disabled (a full repaint
-//     every frame is still content-correct, so only a byte-budget assertion catches it);
-//   - the per-frame equality assertion reds if cursor addressing is removed (glyphs land wherever
-//     the cursor was last left, not where the diff says they belong, once two changed runs are
-//     non-adjacent across rows).
-// Both reds are demonstrated by hand (temporarily reverting `src/encoder.ts`, run, observe,
-// revert) rather than wired as a permanent flag — the property under test is the shipped
-// encoder's actual behavior, not a parallel "what if" code path.
+// Two-sided, structurally: the "the two-sided proof itself" describe block below runs the same
+// shape of assertion against two deliberately-broken miniature encoders — one with diff
+// suppression disabled, one with cursor addressing removed for diffed runs — and asserts each one
+// fails exactly where the property it lacks predicts. That's the two-sidedness the criterion
+// requires, wired as a permanent, always-run check rather than a hand-reverted-and-observed
+// one-time proof whose witness doesn't survive in the tree.
 
 import { describe, expect, test } from "bun:test";
 import type { Tier } from "../src/color-support";
+import { CLEAR_SCREEN, CURSOR_HOME, cursorTo, SGR_RESET } from "../src/cursor";
+import { diffRuns } from "../src/diff";
 import { Encoder } from "../src/encoder";
+import { encodeRun } from "../src/sgr";
 import type { Cell, Grid } from "../src/types";
 import { makeGrid } from "../src/types";
 import { projectForTier, TerminalModel } from "./terminal-model";
@@ -101,4 +101,131 @@ describe("round trip — encode then parse back through TerminalModel", () => {
             expect(model.grid()).toEqual(projectForTier(d, tier));
         });
     }
+
+    // N1: `plain` is a tier too — the spec names four, and only three were ever exercised here.
+    // Unlike the cursor-addressed tiers, `plain` is stateless by design (`encoder.ts`'s
+    // `renderPlain`): every call is a full text dump with no cursor addressing and no diffing, so
+    // each frame is checked against its own fresh `TerminalModel` — the faithful model of how a
+    // real non-tty consumer reads it (one complete snapshot at a time), not an artifact of the
+    // test being unable to track cursor-addressed state that `plain` never emits in the first
+    // place.
+    test("plain: every frame decodes independently, in full, with no cursor state carried across frames", () => {
+        const encoder = new Encoder("plain");
+        for (const grid of [frameA("plain"), frameB("plain"), frameC("plain"), frameD("plain")]) {
+            const model = new TerminalModel(grid.width, grid.height);
+            model.write(encoder.encode(grid));
+            expect(model.grid()).toEqual(projectForTier(grid, "plain"));
+        }
+    });
+});
+
+describe("Encoder.invalidate — the out-of-band-resize seam (B4)", () => {
+    test("forces a full repaint on the next encode even though the grid's own dimensions did not change", () => {
+        const encoder = new Encoder("truecolor");
+        const model = new TerminalModel(6, 3);
+
+        const a = frameA("truecolor");
+        model.write(encoder.encode(a));
+        expect(model.grid()).toEqual(projectForTier(a, "truecolor"));
+
+        // simulate the terminal's own window resize reflowing the physical screen — same width
+        // and height from the grid producer's point of view, so `diffRuns` alone would still read
+        // this as an ordinary same-size diffable frame and never know to repaint. A real terminal
+        // really did clear/reflow though, which this models by wiping the TerminalModel directly
+        // — the "out-of-band, independent of the byte stream" shape, just without a dimension
+        // change this time (contrast `TerminalModel.resize`, used above for the dimension-change
+        // case `diffRuns` already handles on its own).
+        model.write(CLEAR_SCREEN + CURSOR_HOME);
+
+        encoder.invalidate();
+        const b = frameB("truecolor");
+        model.write(encoder.encode(b));
+        expect(model.grid()).toEqual(projectForTier(b, "truecolor"));
+    });
+
+    test("omitting invalidate() after the same out-of-band reflow fails to reconstruct — proving the seam is load-bearing, not decorative", () => {
+        const encoder = new Encoder("truecolor");
+        const model = new TerminalModel(6, 3);
+        model.write(encoder.encode(frameA("truecolor")));
+        model.write(CLEAR_SCREEN + CURSOR_HOME); // the same out-of-band reflow, no invalidate() this time
+
+        const b = frameB("truecolor");
+        model.write(encoder.encode(b)); // the encoder still thinks _prev is frame A — diffs sparsely
+        expect(model.grid()).not.toEqual(projectForTier(b, "truecolor"));
+    });
+});
+
+// N3 — the two-sided proof itself, wired structurally rather than demonstrated by hand. Each
+// mutant below is a deliberately-broken miniature of `Encoder`, built from the same low-level
+// primitives (`diffRuns`, `encodeRun`, `cursorTo`) so the only difference from the real encoder is
+// the one property under test. Running the same style of assertion against each mutant proves the
+// round-trip test's two assertions actually discriminate.
+describe("the two-sided proof itself — the assertions above actually discriminate", () => {
+    /** Mutant: diff suppression disabled. Every frame is an unconditional full repaint, never a
+     * diff against a remembered previous grid — still content-correct (a full repaint of
+     * identical content reconstructs fine), which is exactly why only a byte-count assertion,
+     * not a grid-equality one, catches it. */
+    class NoDiffSuppressionEncoder {
+        constructor(private readonly _tier: Tier) {}
+        encode(grid: Grid): string {
+            let out = CLEAR_SCREEN + CURSOR_HOME;
+            for (let y = 0; y < grid.height; y++) {
+                out += cursorTo(y, 0);
+                out += encodeRun(grid.cells[y], this._tier);
+            }
+            return out + SGR_RESET;
+        }
+    }
+
+    /** Mutant: cursor addressing removed for diffed runs. The initial full paint is unaffected
+     * (it still calls `cursorTo` per row, matching the real encoder), but a diffed frame's
+     * changed runs are written with no repositioning at all — the one line the real `Encoder`
+     * has that this mutant doesn't. */
+    class NoCursorAddressingEncoder {
+        private _prev: Grid | null = null;
+        constructor(private readonly _tier: Tier) {}
+        encode(grid: Grid): string {
+            const runsOrResize = diffRuns(this._prev, grid);
+            let out = "";
+            if (runsOrResize === "resize") {
+                out += CLEAR_SCREEN + CURSOR_HOME;
+                for (let y = 0; y < grid.height; y++) {
+                    out += cursorTo(y, 0);
+                    out += encodeRun(grid.cells[y], this._tier);
+                }
+            } else {
+                for (const run of runsOrResize) out += encodeRun(run.cells, this._tier);
+            }
+            this._prev = grid;
+            return out + SGR_RESET;
+        }
+    }
+
+    test("disabling diff suppression still reconstructs correctly but never costs zero bytes on a repeated frame", () => {
+        const mutant = new NoDiffSuppressionEncoder("truecolor");
+        const d = frameD("truecolor");
+        mutant.encode(d);
+        const repeat = mutant.encode(d);
+
+        const model = new TerminalModel(4, 2);
+        model.write(repeat);
+        expect(model.grid()).toEqual(projectForTier(d, "truecolor")); // content-correct...
+        expect(repeat.length).toBeGreaterThan(0); // ...but not zero bytes, which the real assertion requires
+    });
+
+    test("removing cursor addressing for diffed runs loses content — the cursor is never repositioned off where the initial full paint left it", () => {
+        const mutant = new NoCursorAddressingEncoder("truecolor");
+        const model = new TerminalModel(6, 3);
+
+        model.write(mutant.encode(frameA("truecolor")));
+        expect(model.grid()).toEqual(projectForTier(frameA("truecolor"), "truecolor")); // the full paint alone is unaffected
+
+        model.write(mutant.encode(frameB("truecolor")));
+        // frameB's diffed runs were never repositioned, and the full paint above left the cursor
+        // exactly one column past the last cell (matching the real encoder's own bookkeeping) —
+        // every byte this frame writes lands out of bounds and is silently dropped, so the model
+        // still reads back frame A's content, not frame B's.
+        expect(model.grid()).not.toEqual(projectForTier(frameB("truecolor"), "truecolor"));
+        expect(model.grid()).toEqual(projectForTier(frameA("truecolor"), "truecolor"));
+    });
 });

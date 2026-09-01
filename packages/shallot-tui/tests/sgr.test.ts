@@ -23,6 +23,18 @@ describe("cube6 / ansi256FromRgb", () => {
         expect(ansi256FromRgb(0, 0, 255)).toBe(16 + 5);
         expect(ansi256FromRgb(0, 0, 0)).toBe(16);
     });
+
+    test("hand-computed (rgb -> index) pairs beyond the four pure corners — the general case, not just axis-aligned primaries and black", () => {
+        // 128/255*5 = 2.5098 -> round 3; 64/255*5 = 1.2549 -> round 1; 32/255*5 = 0.6275 -> round 1
+        expect(ansi256FromRgb(128, 64, 32)).toBe(16 + 36 * 3 + 6 * 1 + 1); // 131
+        // 200/255*5 = 3.9216 -> round 4; 150/255*5 = 2.9412 -> round 3; 100/255*5 = 1.9608 -> round 2
+        expect(ansi256FromRgb(200, 150, 100)).toBe(16 + 36 * 4 + 6 * 3 + 2); // 180
+        // pure white — every channel quantizes to the top step, the corner opposite pure black
+        expect(ansi256FromRgb(255, 255, 255)).toBe(16 + 36 * 5 + 6 * 5 + 5); // 231
+        // the rounding boundary itself: 25/255*5 = 0.4902 rounds down, 26/255*5 = 0.5098 rounds up
+        expect(cube6(25)).toBe(0);
+        expect(cube6(26)).toBe(1);
+    });
 });
 
 describe("sgrPrefix", () => {
@@ -31,9 +43,9 @@ describe("sgrPrefix", () => {
         expect(sgrPrefix(RED, "glyph")).toBe("");
     });
 
-    test("a colorless cell in a color tier emits a bare reset", () => {
-        expect(sgrPrefix(PLAIN, "ansi256")).toBe("\x1b[0m");
-        expect(sgrPrefix(PLAIN, "truecolor")).toBe("\x1b[0m");
+    test("a colorless cell in a color tier explicitly resets both channels to default (39;49), never a bare reset", () => {
+        expect(sgrPrefix(PLAIN, "ansi256")).toBe("\x1b[39;49m");
+        expect(sgrPrefix(PLAIN, "truecolor")).toBe("\x1b[39;49m");
     });
 
     test("truecolor emits exact 38;2;r;g;b / 48;2;r;g;b params", () => {
@@ -42,7 +54,13 @@ describe("sgrPrefix", () => {
     });
 
     test("ansi256 emits 38;5;N / 48;5;N against the cube index", () => {
-        expect(sgrPrefix(RED, "ansi256")).toBe(`\x1b[38;5;${ansi256FromRgb(255, 0, 0)}m`);
+        expect(sgrPrefix(RED, "ansi256")).toBe(`\x1b[38;5;${ansi256FromRgb(255, 0, 0)};49m`);
+    });
+
+    test("a set fg with a null bg still explicitly resets the bg to default — B2: an unset channel must never inherit a prior run's color", () => {
+        expect(sgrPrefix(RED, "truecolor")).toBe(`\x1b[38;2;255;0;0;49m`);
+        const bgOnly: Cell = { glyph: "x", fg: null, bg: { r: 9, g: 9, b: 9 } };
+        expect(sgrPrefix(bgOnly, "truecolor")).toBe(`\x1b[39;48;2;9;9;9m`);
     });
 });
 

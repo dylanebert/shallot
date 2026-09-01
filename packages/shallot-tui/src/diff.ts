@@ -1,7 +1,7 @@
-// Frame diffing: the encoder's bandwidth lever (`shallot-tui.md`'s measurement table — the
-// constraint that remains is bytes to the terminal). Turns two grids into the minimal set of
-// changed horizontal runs, or the sentinel `"resize"` when dimensions moved and nothing but a
-// full repaint is coherent.
+// Frame diffing: the encoder's bandwidth lever — once rendering itself is cheap, the constraint
+// that remains is bytes to the terminal. Turns two grids into the minimal set of changed
+// horizontal runs, or the sentinel `"resize"` when dimensions moved and nothing but a full
+// repaint is coherent.
 
 import type { Cell, Grid } from "./types";
 import { cellEqual } from "./types";
