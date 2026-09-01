@@ -56,9 +56,41 @@ const PI = Math.PI;
  */
 export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
 
-/** pass 1 + pass 2's shared dims uniform: the cell grid shape plus the source texture's own pixel size
- *  (block-sample bounds derive from both). @internal */
-export const SelectParams = d.struct({ cols: d.u32, rows: d.u32, srcW: d.u32, srcH: d.u32 });
+/**
+ * the background-match gate: how close a cell's own tonemapped block average must sit to the
+ * caller-supplied background reference (`SelectParams.bg`, tonemapped the same way inside the kernel)
+ * before the cell is forced to the blank fill glyph regardless of luma or edge (the s3r item-8 repair —
+ * `specs/shallot-tui.md`'s residue log names the mechanism: a non-black clear color's tonemapped luma
+ * never reaches the ramp's zero-coverage entry, so an unlit background read as a uniform field of `'`
+ * instead of blank). Derived from `rg11b10ufloat`'s own quantization, not fitted: the format packs R/G
+ * as 11-bit unsigned floats (5 exponent + 6 mantissa bits) and B as 10-bit (5 exponent + 5 mantissa),
+ * so the worst-case per-channel relative step is `2^-5` (B) — for the default clear color's raw linear
+ * B channel (~0.0212), that's a ~0.00066 absolute step, propagated through reinhard (slope ≈1 near 0)
+ * to a similar post-tonemap delta; a pass-1 block average of 9 bit-identical background samples divided
+ * by 9 adds only float-rounding noise on top, several orders below that. 0.004 clears that quantization
+ * budget by roughly 4-6x while staying well under the fill ramp's own per-index luma step (`1 /
+ * (CELL_FILL_GLYPHS.length - 1)` ≈ 0.0111 at 91 fill glyphs) — the gap a legitimately-one-step-darker
+ * real surface sits at, so this gate should not misfire on it.
+ */
+export const BG_MATCH_EPSILON = 0.004;
+
+/** the sentinel background reference {@link recordSelect} / {@link dispatchSelect} default to when the
+ *  caller has no known background color (e.g. a synthetic test texture with no camera behind it):
+ *  tonemapped by the same `reinhard()` the kernel applies to a real reference, `reinhard(-1e6)` lands at
+ *  `≈1.000001`, outside every luma a real scene sample's own reinhard-compressed average can reach
+ *  (strictly `< 1`), so {@link BG_MATCH_EPSILON}'s distance check can never fire against it. @internal */
+export const NO_BACKGROUND: readonly [number, number, number] = [-1e6, -1e6, -1e6];
+
+/** pass 1 + pass 2's shared dims uniform: the cell grid shape, the source texture's own pixel size
+ *  (block-sample bounds derive from both), and pass 2's background reference (`bg`, raw linear, un-
+ *  tonemapped — {@link NO_BACKGROUND} when the caller has none). @internal */
+export const SelectParams = d.struct({
+    cols: d.u32,
+    rows: d.u32,
+    srcW: d.u32,
+    srcH: d.u32,
+    bg: d.vec4f,
+});
 
 /** pass 1's bind group: the dims uniform, the source color texture, the per-cell average out.
  *  @internal */
@@ -220,9 +252,16 @@ const selectKernel = tgpu.computeFn({
 
     const own = selectLayout.$.avg[yi * colsI + xi].xyz;
     const ownLuma = luma(own);
+    const bgTone = reinhard(selectLayout.$.params.bg.xyz);
 
     let glyph = d.u32(0);
-    if (magnitude > EDGE_MAGNITUDE_THRESHOLD) {
+    if (std.distance(own, bgTone) < BG_MATCH_EPSILON) {
+        // untouched background: force the ramp's own zero-coverage entry (glyph index 0, guaranteed
+        // to be the blank glyph — `ramp.ts`'s `candidateChars` starts at code point 0x20 and ties at
+        // zero coverage break by ascending code point, so nothing sorts ahead of it) rather than
+        // whatever index the background's own non-zero clear luma would otherwise round to.
+        glyph = d.u32(0);
+    } else if (magnitude > EDGE_MAGNITUDE_THRESHOLD) {
         glyph = directionalGlyphIndex(gx, gy);
     } else {
         const fillCount = d.u32(CELL_FILL_GLYPHS.length);
@@ -318,7 +357,14 @@ export function resetSelectPipelines(): void {
  * with the draw pass that reads this dispatch's output; {@link dispatchSelect} is the standalone,
  * submit-its-own-encoder convenience wrapper for a test or gym scenario with no frame encoder of its own).
  *
- * @example recordSelect(encoder, cellsBuffer, cols, rows, framebufferView, srcW, srcH);
+ * `bg` is the raw linear (un-tonemapped) color of the source's own empty background — a camera's
+ * unpacked-to-linear `Camera.clearColor` in production — so a cell whose source region is untouched
+ * background selects the blank fill glyph instead of whatever index its clear luma would otherwise round
+ * to ({@link BG_MATCH_EPSILON}'s module doc names the mechanism). Omit it (or pass {@link NO_BACKGROUND})
+ * when the source has no real background — a synthetic test texture with no camera behind it — and the
+ * gate never fires.
+ *
+ * @example recordSelect(encoder, cellsBuffer, cols, rows, framebufferView, srcW, srcH, [0.02, 0.02, 0.02]);
  */
 export function recordSelect(
     encoder: GPUCommandEncoder,
@@ -328,9 +374,10 @@ export function recordSelect(
     source: GPUTextureView,
     srcW: number,
     srcH: number,
+    bg: readonly [number, number, number] = NO_BACKGROUND,
 ): void {
     const params = paramsBuffer();
-    params.write({ cols, rows, srcW, srcH });
+    params.write({ cols, rows, srcW, srcH, bg: [bg[0], bg[1], bg[2], 0] });
     const avg = avgBuffer(cols * rows);
     const { avg: avgPipeline, select: selectPipeline } = pipelines();
 
@@ -363,9 +410,10 @@ export function recordSelect(
 /**
  * standalone convenience: record + submit both passes in their own command buffer. For a test or gym
  * scenario with no per-frame `Render.encoder` to share (`grid.ts`'s `fillCellGrid` shape) — production
- * (`CellsPlugin`) calls {@link recordSelect} directly against the shared frame encoder instead.
+ * (`CellsPlugin`) calls {@link recordSelect} directly against the shared frame encoder instead. `bg` is
+ * {@link recordSelect}'s own background-reference parameter, same default.
  *
- * @example dispatchSelect(cellsBuffer, cols, rows, framebufferView, srcW, srcH);
+ * @example dispatchSelect(cellsBuffer, cols, rows, framebufferView, srcW, srcH, [0.02, 0.02, 0.02]);
  */
 export function dispatchSelect(
     cells: CellBuffer,
@@ -374,10 +422,11 @@ export function dispatchSelect(
     source: GPUTextureView,
     srcW: number,
     srcH: number,
+    bg: readonly [number, number, number] = NO_BACKGROUND,
 ): void {
     const device = Compute.device;
     const encoder = device.createCommandEncoder({ label: "cells-select" });
-    recordSelect(encoder, cells, cols, rows, source, srcW, srcH);
+    recordSelect(encoder, cells, cols, rows, source, srcW, srcH, bg);
     device.queue.submit([encoder.finish()]);
 }
 

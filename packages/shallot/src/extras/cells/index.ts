@@ -11,7 +11,7 @@
 // yet; that's an author-facing knob for a later unit, not this one's contract.
 
 import type { Plugin, State, System } from "../../engine";
-import { Compute } from "../../engine";
+import { Compute, unpackColor } from "../../engine";
 import { GlazeSystem } from "../../standard/glaze";
 import { Camera, RenderPlugin } from "../../standard/render";
 import { OverlaySystem, Render, Views } from "../../standard/render/core";
@@ -56,6 +56,15 @@ function gridFor(eid: number): CellGrid {
     const grid = createCellGrid(COLS, ROWS, CELL_GLYPH_COUNT);
     _grids.set(eid, grid);
     return grid;
+}
+
+/** the live cell grid `CellsSystem` selected and drew for camera `eid` this frame, or `undefined` before
+ *  its first frame — a diagnostic/tooling seam (`scripts/dump-cells-ascii.ts`'s tier-0 text dump, which
+ *  needs the real plugin-driven grid rather than reimplementing `recordSelect`'s own call against a
+ *  camera it drives by hand) rather than a game-author API; not re-exported on the main `extras` barrel,
+ *  same as everything else module-private to this directory (`core.ts`'s own docblock). */
+export function cellsGridFor(eid: number): CellGrid | undefined {
+    return _grids.get(eid);
 }
 
 // warn-once guard for the single-camera scope below — module state, not per-frame, so a scene that
@@ -103,6 +112,11 @@ const CellsSystem: System = {
             }
             drawnEid = eid;
             const grid = gridFor(eid);
+            // the camera's own empty-background reference, raw linear — recordSelect tonemaps it the
+            // same way it tonemaps every scene sample before comparing, so a cell whose source region
+            // is untouched clear color selects the blank fill glyph instead of whatever non-zero index
+            // its clear luma would otherwise round to (`select.ts`'s BG_MATCH_EPSILON module doc).
+            const bg = unpackColor(Camera.clearColor.get(eid));
             recordSelect(
                 encoder,
                 grid.buffer,
@@ -111,6 +125,7 @@ const CellsSystem: System = {
                 view.framebuffer,
                 view.width,
                 view.height,
+                [bg.r, bg.g, bg.b],
             );
             drawCells(
                 encoder,

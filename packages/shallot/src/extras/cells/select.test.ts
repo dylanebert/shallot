@@ -1,11 +1,18 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { vec3f } from "typegpu/data";
-import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_GLYPHS } from "./ramp";
+import { Compute } from "../../engine";
+import { probeBuffer, requestGPU } from "../../engine/runtime";
+import { unpackCell } from "./cell";
+import { createCellGrid } from "./grid";
+import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_GLYPHS, CELL_GLYPH_COUNT } from "./ramp";
 import {
+    BG_MATCH_EPSILON,
     directionalGlyphIndex,
+    dispatchSelect,
     EDGE_MAGNITUDE_THRESHOLD,
     luma,
     reinhard,
+    resetSelectPipelines,
     selectWgsl,
 } from "./select";
 
@@ -137,5 +144,103 @@ describe("selectWgsl", () => {
         const wgsl = selectWgsl();
         expect(wgsl).toContain("fn");
         expect(wgsl.length).toBeGreaterThan(0);
+    });
+});
+
+// The s3r item-8 repair's own regression guard: a real device dispatch (not the device-free structural
+// arms above), because the defect this repair closes lived entirely in a runtime comparison
+// (`BG_MATCH_EPSILON`'s distance gate against a live tonemapped average) no WGSL-text or pure-function
+// arm can see. `specs/shallot-tui.md`'s residue log names what this replaces: a non-black clear color's
+// tonemapped luma never rounds to the ramp's zero-coverage entry, so a real scene's empty background read
+// as a uniform field of `'` (glyph index 2) instead of blank — refuted twice at the wrong layer before
+// this repair (the directional-glyph mechanism was never it; the fill computation itself was).
+describe("background detection (s3r item 8's own repair)", () => {
+    afterEach(() => {
+        resetSelectPipelines();
+        Object.assign(Compute, { root: undefined, device: undefined });
+    });
+
+    const Cols = 4;
+    const Rows = 4;
+    const Src = 16; // device px per axis, well over the 3x3 block-sample grid per cell
+
+    // a uniform HDR source texture, every texel the same raw linear color — the shape a camera's
+    // untouched clear-color background takes (no draw ever wrote a different value there).
+    function uniformSourceTexture(color: readonly [number, number, number]): GPUTexture {
+        const device = Compute.device;
+        const texture = device.createTexture({
+            label: "select-bg-test-src",
+            size: { width: Src, height: Src },
+            format: "rgba32float",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        const data = new Float32Array(Src * Src * 4);
+        for (let i = 0; i < Src * Src; i++) {
+            data[i * 4] = color[0];
+            data[i * 4 + 1] = color[1];
+            data[i * 4 + 2] = color[2];
+            data[i * 4 + 3] = 1;
+        }
+        device.queue.writeTexture(
+            { texture },
+            data,
+            { bytesPerRow: Src * 16 },
+            { width: Src, height: Src },
+        );
+        return texture;
+    }
+
+    // dispatch + one-shot readback (`probeBuffer`, the `tests/avbd/headless.tier.ts` pattern) — no Mirror
+    // ring, no per-frame State, since this is a single dispatch against a hand-built texture.
+    async function readGlyphs(
+        color: readonly [number, number, number],
+        bg?: readonly [number, number, number],
+    ): Promise<number[]> {
+        await requestGPU();
+        // `Compute.span` is a module-level singleton `requestGPU` never clears (it only assigns
+        // `device`/`root`/etc — `gpu.ts`'s own `Object.assign` list omits it), so a `ProfilePlugin`-
+        // carrying test earlier in this same `bun test` process can leave a stale timestamp-writing
+        // `span` installed on a device that never requested the `timestamp-query` feature. `recordSelect`
+        // reads `Compute.span?.(...)` for its pass labels — a stale span makes the whole command buffer
+        // invalid (a real GPU validation error, silently zeroing the readback), which reds this arm only
+        // in full-suite order, never in isolation. This diagnostic dispatch needs no profiling.
+        Compute.span = undefined;
+        const texture = uniformSourceTexture(color);
+        const grid = createCellGrid(Cols, Rows, CELL_GLYPH_COUNT);
+        dispatchSelect(grid.buffer, Cols, Rows, texture.createView(), Src, Src, bg);
+        const raw = Compute.root.unwrap(grid.buffer);
+        const probe = await probeBuffer(Compute.device, raw, { label: "select-bg-test" });
+        const glyphs: number[] = [];
+        for (let i = 0; i < Cols * Rows; i++) glyphs.push(unpackCell(probe.bytes, i).glyph);
+        texture.destroy();
+        return glyphs;
+    }
+
+    test("a cell whose source region matches the caller's background reference selects the blank glyph", async () => {
+        // reinhard(0.03) ≈ 0.0291 -> round(0.0291 * 90) = 3 absent the fix — a real, provably non-zero
+        // fill index without the repair, so this arm reds first against the pre-fix mapping.
+        const bg: [number, number, number] = [0.03, 0.03, 0.03];
+        const glyphs = await readGlyphs(bg, bg);
+        expect(glyphs.every((g) => g === 0)).toBe(true);
+    });
+
+    test("a mismatched background reference does not force the blank glyph — the gate discriminates rather than always firing", async () => {
+        const glyphs = await readGlyphs([0.5, 0.5, 0.5], [0.03, 0.03, 0.03]);
+        expect(glyphs.every((g) => g !== 0)).toBe(true);
+    });
+
+    test("omitting the background reference (NO_BACKGROUND) preserves the pre-repair mapping for a caller with no known background", async () => {
+        // gym's own SelectPlugin scenario calls dispatchSelect this way (no bg argument) — its low-luma
+        // SELECT_DARK regression guard expects a real ramp index, never the blank glyph, so the default
+        // must stay inert.
+        const glyphs = await readGlyphs([0.03, 0.03, 0.03]);
+        expect(glyphs.every((g) => g > 0)).toBe(true);
+    });
+
+    test("BG_MATCH_EPSILON sits well inside the fill ramp's own per-index luma step", () => {
+        // if the gate's tolerance ever grew past roughly half a ramp step, it would start swallowing a
+        // real one-step-darker surface as background — this is the standing bound on that budget.
+        const rampStep = 1 / (CELL_FILL_GLYPHS.length - 1);
+        expect(BG_MATCH_EPSILON).toBeLessThan(rampStep / 2);
     });
 });

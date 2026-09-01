@@ -59,9 +59,11 @@ export {
     cellGlyphString,
 } from "./ramp";
 export {
+    BG_MATCH_EPSILON,
     directionalGlyphIndex,
     dispatchSelect,
     EDGE_MAGNITUDE_THRESHOLD,
+    NO_BACKGROUND,
     recordSelect,
     resetSelectPipelines,
 } from "./select";
