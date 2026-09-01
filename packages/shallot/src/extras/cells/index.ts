@@ -52,11 +52,24 @@ function gridFor(eid: number): CellGrid {
     return grid;
 }
 
+// warn-once guard for the single-camera scope below — module state, not per-frame, so a scene that
+// carries a second camera doesn't spam the console every frame.
+let _warnedMultiCamera = false;
+
 /**
  * for every camera with a rendered scene, select this frame's cell grid from its offscreen color, then
  * draw that grid back into the same target — one compute recording, one render recording, both against
  * the shared `Render.encoder` (`extras/outline`'s post-color-seam shape). A canvas-less view (no
  * `framebuffer`) is skipped, same as glaze.
+ *
+ * Single-camera per frame, enforced here rather than only disclosed: `select.ts`'s `avgBuffer`/
+ * `paramsBuffer` and `draw.ts`'s `paramsBuffer` are each one persistent GPU resource, written (never
+ * reallocated) per call and shared across every caller in the frame — correct only when every caller
+ * that frame requests the same `cols`/`rows`/`viewW`/`viewH`. A second camera with a different view size
+ * would silently corrupt both the first camera's still-unsubmitted recording and its own (`select.ts`'s
+ * own docblock names the hazard; this is the demonstrated instance of it, `specs/shallot-tui.md`'s s3r
+ * item 5). Per-camera buffer keying is the eventual fix; until then, draw the first camera with a
+ * rendered scene and warn once rather than composite garbage for every camera after it.
  */
 const CellsSystem: System = {
     name: "cells",
@@ -66,9 +79,23 @@ const CellsSystem: System = {
     update(state: State) {
         const encoder = Render.encoder;
         if (!encoder || !Compute.device || !_atlas || !_glyphUv || !_sampler) return;
+        let drawnEid: number | null = null;
         for (const eid of state.query([Camera])) {
             const view = Views.get(eid);
             if (!view?.framebuffer) continue;
+            if (drawnEid !== null) {
+                if (!_warnedMultiCamera) {
+                    _warnedMultiCamera = true;
+                    console.warn(
+                        `shallot: Cells drew camera ${drawnEid} this frame; camera ${eid} shares its ` +
+                            "one persistent select/draw buffer set and would silently corrupt both — " +
+                            "skipping every camera after the first with a rendered scene until Cells " +
+                            "supports per-camera buffers.",
+                    );
+                }
+                break;
+            }
+            drawnEid = eid;
             const grid = gridFor(eid);
             recordSelect(
                 encoder,
