@@ -1,6 +1,7 @@
 // Trigger: changes to slope-cascade resolution, patch length, declared band, or seeded realization
 // can break the N-independent mode placement and represented slope moment checked here.
 import { expect, test } from "bun:test";
+import { ifft2 } from "../src/fft";
 import {
     composedSlopePsd,
     rasterSlopeMoment,
@@ -8,14 +9,15 @@ import {
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     slopeMomentAgreementTolerance,
+    slopeSpectra,
 } from "../src/slope";
 import { generateH0, kIndex } from "../src/spectrum";
 
 const [config] = SLOPE_CASCADE_CONFIGS;
 
-/** Relative machine epsilon of the `Float32Array` storage the CPU pipeline reads and writes
- *  through — the quantization quantum of the representation being compared, not an authored
- *  constant. */
+/** The `Float32` ULP spacing (machine epsilon) at 1.0 — twice the round-to-nearest relative
+ *  rounding bound (`2 ** -24`), used here as a deliberately 2×-conservative stand-in for it. The
+ *  safe direction, so kept rather than tightened. */
 const FLOAT32_EPSILON = 2 ** -23;
 
 /**
@@ -36,20 +38,84 @@ const FLOAT32_STORE_DEPTH = 4;
 
 /**
  * FFT/storage round-off bound for two rasters carrying identical modes by construction (same
- * seed, same represented band, denser grid's shared-`k` modes bit-identical to the base grid's —
- * asserted below). Each of the `FLOAT32_STORE_DEPTH` stores above introduces an independent
- * relative rounding of magnitude at most `FLOAT32_EPSILON`; treating the intervening linear steps
- * as non-amplifying (a real-scalar multiply, a norm-preserving FFT, no near-cancelling sum on
- * this path) bounds the compounded relative error in one side's realized field value, to first
- * order, by the additive worst case `FLOAT32_STORE_DEPTH · FLOAT32_EPSILON` — no averaging or
- * cancellation assumed. `realizedSlopeMss` then squares that field value
- * (`d(x²)/x² ≈ 2·dx/x`), doubling the bound, and the comparison sums two independently-rounded
- * sides (base `N` and denser `2N`), doubling it again. The combined multiplier is therefore
- * `FLOAT32_STORE_DEPTH · 2 (square) · 2 (two sides) = 16`.
+ * seed, same represented band; the base grid's Nyquist strictly covers `config.kHi` — asserted
+ * below — so the denser grid's shared-`k` modes are bit-identical to the base grid's, itself
+ * asserted in the guarded arm).
+ *
+ * The route is through Parseval, never through a single field sample. `realizedSlopeMss` reads
+ * only each sample's real component, but the spectral coefficients here are Hermitian-symmetric
+ * by construction (`slopeSpectra` applied to a real, Hermitian-symmetric `h`), so the discarded
+ * imaginary components are themselves ~0 by construction and the quantity measured is, to that
+ * same round-off, the field's total energy `(1/N²)·Σ_x|out(x)|²`. `ifft2` is UNNORMALIZED
+ * (`fft.ts`'s own docblock), so by Parseval `Σ_x|out(x)|² = N²·Σ_k|in(k)|²` — verified numerically
+ * below against the code's actual constant, not assumed. The `1/N²` in `realizedSlopeMss` cancels
+ * that `N²`, so the realized moment is, up to round-off, exactly `Σ_k|in(k)|²`: a sum of
+ * non-negative terms. That sum is immune to `ifft2`'s own near-cancelling butterfly sum
+ * (`fft.ts:71`, `re[oddI] = evenR - tr`) because Parseval only needs the transform itself to be
+ * exact — which it is, to float64 precision — never that any one output sample be well-conditioned
+ * relative to the terms that produced it.
+ *
+ * Every one of the `FLOAT32_STORE_DEPTH` stores enters through that same route: a relative-
+ * `FLOAT32_EPSILON` perturbation of one non-negative term in a sum of squares moves that term's
+ * relative contribution, and so the sum's relative error, by at most `2·FLOAT32_EPSILON`
+ * (`d(x²)/x² ≈ 2·dx/x`) regardless of the perturbations' signs — no cancellation needed on either
+ * side of this argument. Stores 1–3 (`h0`, the time-evolved `h`, `slopeSpectra`'s `x`/`z`)
+ * compound additively into the spectral coefficient `in(k)` the Parseval sum reads: bounded by
+ * `3·FLOAT32_EPSILON` before squaring, `6·FLOAT32_EPSILON` after. Store 4 (`ifft2`'s own output
+ * quantization) is a second, independent quantization applied directly to the stored field samples
+ * summed on the left of the Parseval identity, contributing its own `2·FLOAT32_EPSILON`. One
+ * side's worst-case relative error in the realized moment is therefore
+ * `6·FLOAT32_EPSILON + 2·FLOAT32_EPSILON = 8·FLOAT32_EPSILON`; comparing two independently-rounded
+ * sides (base `N` and denser `2N`) sums both sides' bound, giving the final multiplier
+ * `FLOAT32_STORE_DEPTH · 2 (square) · 2 (two sides) = 16` — the same number a prior, incorrect
+ * single-field-sample route also landed on, now reached without that route's two false premises
+ * (an unnormalized FFT is not norm-preserving, and its butterfly sum is exactly the near-cancelling
+ * sum that route disclaimed depending on).
  */
 function fftRoundoffBound(): number {
     return FLOAT32_STORE_DEPTH * 2 * 2 * FLOAT32_EPSILON;
 }
+
+/**
+ * Grounds the Parseval route above: `ifft2`'s own energy-scaling constant, derived from actual
+ * code execution rather than assumed from `fft.ts`'s stated convention. A single unit impulse at
+ * `k=(0,0)` produces an exactly-computable field — every sample equals `exp(i·0) = 1`, with no
+ * floating-point rounding anywhere in that specific case (`1.0` stores and sums exactly) — so its
+ * energy ratio pins the constant with no round-off to bound. That derived constant is then checked
+ * against a real slope-cascade spectrum at the round-off tolerance store 4 alone contributes, the
+ * same sub-claim `fftRoundoffBound`'s comment reasons from.
+ */
+test("ifft2's Parseval energy constant is derived from the code, not assumed", () => {
+    const N = config.N;
+    const impulse = new Float32Array(N * N * 2);
+    impulse[0] = 1;
+    const impulseField = ifft2(impulse, N);
+    let impulseEnergy = 0;
+    for (let i = 0; i < impulseField.length; i++) impulseEnergy += impulseField[i] ** 2;
+    expect(impulseEnergy).toBe(N * N);
+    const parsevalConstant = impulseEnergy;
+
+    const { x: spectrum } = slopeSpectra(generateH0(config, 5), config);
+    let inEnergy = 0;
+    for (let i = 0; i < spectrum.length; i++) inEnergy += spectrum[i] ** 2;
+    const field = ifft2(spectrum, N);
+    let outEnergy = 0;
+    for (let i = 0; i < field.length; i++) outEnergy += field[i] ** 2;
+    const predicted = parsevalConstant * inEnergy;
+    const bound = 2 * FLOAT32_EPSILON;
+    const deviation = Math.abs(outEnergy / predicted - 1);
+    console.log(
+        `ifft2 Parseval: constant=${parsevalConstant} (N²=${N * N}), outEnergy=${outEnergy}, ` +
+            `predicted=${predicted}, deviation=${deviation}, bound=${bound}`,
+    );
+    expect(deviation).toBeLessThan(bound);
+});
+
+test("slope cascade's declared band Nyquist headroom: N=256,L=13 covers kHi with margin", () => {
+    const dk = (2 * Math.PI) / config.L;
+    const kNyquist = (config.N / 2) * dk;
+    expect(kNyquist).toBeGreaterThan(config.kHi);
+});
 
 /**
  * A test-authored radial partition of the cascade's declared band, its outer edges (`config.kLo`,
@@ -57,7 +123,10 @@ function fftRoundoffBound(): number {
  * for coverage and read from no production declaration — no drift arm is constructible against a
  * production source for those interior edges today, since none exists to drift against. The two
  * loops below iterate this array directly, so an emptied or shortened list would read green on
- * both; the cardinality assertion after each loop is what catches that.
+ * both; the `expect(SUB_BANDS.length).toBe(5)` each test asserts before iterating is what catches
+ * that. A per-loop iteration counter was tried and removed: it derives from the same array with no
+ * early exit, so it is provably equal to `.length` by construction and cannot fail — a decorative
+ * assertion that argues for coverage it does not check.
  */
 const SUB_BANDS = [
     [config.kLo, 20],
@@ -152,9 +221,7 @@ test("slope N-invariance's round-off bound reds on an independently-drawn denser
 test("slope coverage checks every radial sub-band against its composed moment", () => {
     expect(SUB_BANDS.length).toBe(5);
     const h0 = generateH0(config, 0);
-    let iterations = 0;
     for (const [lo, hi] of SUB_BANDS) {
-        iterations++;
         const { band, modes } = bandMask(h0, lo, hi);
         expect(modes, `no seeded modes in ${lo}..${hi} rad/m`).toBeGreaterThan(0);
         const realized = realizedSlopeMss(runSlopeCpuPipeline(band, config));
@@ -165,7 +232,6 @@ test("slope coverage checks every radial sub-band against its composed moment", 
         expect(realized).toBeGreaterThan(0);
         expect(Math.abs(ratio - 1)).toBeLessThan(bound);
     }
-    expect(iterations).toBe(SUB_BANDS.length);
 });
 
 /**
@@ -178,9 +244,7 @@ test("slope coverage checks every radial sub-band against its composed moment", 
 test("missing gradient k red-witnesses the per-band coverage arm at every radial sub-band", () => {
     expect(SUB_BANDS.length).toBe(5);
     const h0 = generateH0(config, 0);
-    let iterations = 0;
     for (const [lo, hi] of SUB_BANDS) {
-        iterations++;
         const { band } = bandMask(h0, lo, hi);
         const bandConfig = { ...config, kLo: lo, kHi: hi };
         const expected = composedSlopePsd(bandConfig);
@@ -199,5 +263,4 @@ test("missing gradient k red-witnesses the per-band coverage arm at every radial
         expect(greenDeviation).toBeLessThan(bound);
         expect(mutatedDeviation).toBeGreaterThan(bound);
     }
-    expect(iterations).toBe(SUB_BANDS.length);
 });
