@@ -281,4 +281,12 @@ export const GATE_EXEMPTIONS: Record<string, string> = {
 
     // extras/orbit/** and extras/tween/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not
     // exempted here — the classification lives beside the population, not as exemptions in this table.
+
+    // extras/cells/**: shallot-tui S1 ships the cell-grid contract + a headless fill producer (the
+    // compute pass, bind group layout, and pack/unpack codec) with no gym scenario driving it — S1's own
+    // scope excludes wiring an example/scenario (that lands with S3's web sink or S4's terminal command).
+    // The CPU-logic rungs (schema layout, resolved WGSL, the pack/unpack differential) are `bun test`
+    // gated in `extras/cells/*.test.ts`; real-device dispatch coverage is owed once a scene drives it.
+    "packages/shallot/src/extras/cells/**/*.ts":
+        "no scene wires the fill pass through a scenario yet — deferred to S3/S4, not a gap in this module",
 };

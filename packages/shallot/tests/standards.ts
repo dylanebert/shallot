@@ -3,7 +3,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
 
-export const STANDARDS_POPULATION_GOLDEN = 101;
+export const STANDARDS_POPULATION_GOLDEN = 102;
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
@@ -501,6 +501,9 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     orderU32: {
         test: { file: "packages/shallot/src/standard/bvh/bounds.test.ts", symbol: "orderU32" },
+    },
+    packCell: {
+        test: { file: "packages/shallot/src/extras/cells/cell.test.ts", symbol: "packCell" },
     },
     packHdrColor: {
         gap: "a CPU differential would call packHdrColor on a swept rgb domain and compare each channel's r11/g11/b10 bit lanes against a hand-computed f16-pack-then-mantissa-drop reference; none written",
