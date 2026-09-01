@@ -92,12 +92,12 @@
     "dependencies": {
         "@types/node": "^26.0.0",
         "@webgpu/types": "^0.1.70",
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
         "vite": "^8.0.16"
     },
     "peerDependencies": {
         "playwright": "^1.0.0",
-        "typegpu": "~0.12.0"
+        "typegpu": "~0.12.4"
     },
     "peerDependenciesMeta": {
         "playwright": {
@@ -112,7 +112,7 @@
         "bun-webgpu": "^0.1.4",
         "fast-check": "^4.6.0",
         "js-yaml": "^4.1.0",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
         "wgpu-matrix": "^3.4.0"
     },
     "trustedDependencies": [

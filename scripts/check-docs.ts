@@ -183,8 +183,8 @@ for (const { name, field } of SCAFFOLD_PINS) {
 // deliberate second physical copy (`identityFlow`'s duplicate-identity proof) whose version must
 // still track the engine peer; `PM_RED_COPY_VERSION` is the one deliberate exclusion — that
 // fixture needs a differing version on purpose. Mutation proof: bumping the first `typegpu` pin
-// in `scripts/install-test.ts` from `~0.12.0` to `~0.12.1` reds this arm (witnessed 2026-08-25,
-// exit 1 — `scripts/install-test.ts:365: typegpu@~0.12.1 — the manifest declares ~0.12.0`).
+// in `scripts/install-test.ts` from `~0.12.4` to `~0.12.5` reds this arm (witnessed 2026-09-01,
+// exit 1 — `scripts/install-test.ts:375: typegpu@~0.12.5 — the manifest declares ~0.12.4`).
 const FIXTURE_FILE = "scripts/install-test.ts";
 const FIXTURE_EXCLUSION = "PM_RED_COPY_VERSION";
 // A version token: an optional range prefix (`~`, `^`, or bare) followed by semver, or the
