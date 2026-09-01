@@ -361,6 +361,10 @@
         "typegpu": "~0.12.4",
       },
     },
+    "packages/shallot-tui": {
+      "name": "@dylanebert/shallot-tui",
+      "version": "0.0.0",
+    },
     "packages/vscode-shallot": {
       "name": "vscode-shallot",
       "version": "0.2.0",
@@ -426,6 +430,8 @@
     "@dylanebert/shallot": ["@dylanebert/shallot@workspace:packages/shallot"],
 
     "@dylanebert/shallot-ocean": ["@dylanebert/shallot-ocean@workspace:packages/shallot-ocean"],
+
+    "@dylanebert/shallot-tui": ["@dylanebert/shallot-tui@workspace:packages/shallot-tui"],
 
     "@eslint-community/eslint-utils": ["@eslint-community/eslint-utils@4.10.1", "", { "dependencies": { "eslint-visitor-keys": "^3.4.3" }, "peerDependencies": { "eslint": "^6.0.0 || ^7.0.0 || >=8.0.0" } }, "sha512-cuadcxVFE8sDK6iWJbs8Sn0av2Nrh2QSGQhVlBW9AaAHqHwjWsZHT8LJ4hFGPh7ASBV2deFdM7H/DPjulmh8rg=="],
 
