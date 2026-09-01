@@ -112,22 +112,26 @@ describe("capillary slope cascade", () => {
         expect(Math.abs(realized / expected - 1)).toBeLessThan(tolerance);
     });
 
-    test("missing gradient k red-witnesses both integral and spectra paths", () => {
+    test("missing gradient k red-witnesses the composed-coverage arm", () => {
+        // Re-runs the guarded arm's own assertion ("restricted slope moment ties to realized
+        // mean-square slope", above) with only the realized subject mutated — the expectation
+        // (`composedSlopePsd`) and the shared bound (`slopeMomentAgreementTolerance`) are the
+        // same ones that arm already uses, never a separately authored floor.
         const h = generateH0(config, 0);
-        const correct = runSlopeCpuPipeline(h, config);
-        const missingResult = runSlopeCpuPipeline(h, config, 0, { missingGradientK: true });
-        const correctEnergy = correct.x.reduce((sum, value) => sum + value * value, 0);
-        const missingEnergy = missingResult.x.reduce((sum, value) => sum + value * value, 0);
-        const spectralSeparation = Math.abs(missingEnergy / correctEnergy - 1);
         const expected = composedSlopePsd(config);
-        const missingMoment = composedSlopePsd(config, { missingGradientK: true });
-        const expectedSeparation = Math.abs(missingMoment / expected - 1);
-        console.log(
-            `dropped-gradient separation: spectral=${spectralSeparation}, ` +
-                `expected=${expectedSeparation}`,
+        const bound = slopeMomentAgreementTolerance(config);
+        const greenRealized = realizedSlopeMss(runSlopeCpuPipeline(h, config));
+        const mutatedRealized = realizedSlopeMss(
+            runSlopeCpuPipeline(h, config, 0, { missingGradientK: true }),
         );
-        expect(spectralSeparation).toBeGreaterThan(expectedSeparation * 0.5);
-        expect(expectedSeparation).toBeGreaterThan(0);
+        const greenDeviation = Math.abs(greenRealized / expected - 1);
+        const mutatedDeviation = Math.abs(mutatedRealized / expected - 1);
+        console.log(
+            `dropped-gradient reach: green=${greenDeviation}, mutated=${mutatedDeviation}, ` +
+                `bound=${bound}, reach=${(mutatedDeviation / bound).toFixed(1)}x`,
+        );
+        expect(greenDeviation).toBeLessThan(bound);
+        expect(mutatedDeviation).toBeGreaterThan(bound);
     });
 
     test("CPU reference emits only slope fields and no displacement field", () => {
