@@ -1,32 +1,33 @@
-// ocean-slope — the published slope-cascade product-texture verdict (`shallot-water-surface` I3g).
-// One real-device arm reads the SAME texture `buildSlopes` builds and `slopeCompute` steps every
-// frame (never a second GPU state built from the same kernels — the texture is read straight off
-// `Compute.textures`, the plugin's own publication surface). For every mip level and channel it
-// derives a comparison bound from the compared representation's own error model — the rgba16float
-// storage quantum plus the GPU inverse FFT's own twiddle-factor trig error (below), scaled per
-// level AND PER CHANNEL by that channel's own CPU-reference magnitude at that level (never a single
-// level-0 scale reused across channels or projected onto deeper levels) — asserts the resulting
-// verified/unverifiable partition, requires at least one verified channel per level, then zeroes
-// each verified GPU payload and re-runs the same comparison at the same bound. A control reading
-// taken BEFORE any frame steps — the exact state a plugin missing `slopeCompute` would leave
-// forever, by WebGPU's zero-initialization guarantee — reds the same comparison at every verified
-// mip-0 channel.
+// ocean-slope — the exact storage-seam pyramid claim, replacing a prior tolerance-based
+// mip-agreement arm after two correction rounds convicted every version of that tolerance as
+// either a permitted-floor term that cannot discriminate, or a term sized to the very readings it
+// was meant to gate. The ruling: the comparison sits on a representation seam (the published value
+// IS a rounding of the f32 value it came from), so the claim is DISCRETE — no tolerance belongs
+// there at all — and the one place a real numeric tolerance is warranted is one layer up, at the
+// FFT's own floating-point arithmetic. Two independent claims, never one number standing in for
+// both (`packages/shallot-ocean/src/slope-seam.ts` owns the math for both):
 //
-// The bound carries NO term for `slopeKernel`'s phase evolution (cos/sin(ω·t), cos/sin(-ω·t)) — the
-// one place a NONZERO elapsed time would make the CPU and GPU sides structurally diverge. The arm
-// asserts `state.time.elapsed === 0` before it reads any level (below) — the same declared time the
-// CPU reference uses — so both sides evaluate cos(0)/sin(0), exact on both implementations, and
-// that error path is unreachable by construction rather than merely small; a nonzero elapsed reds
-// the assertion before any comparison runs. The bound DOES still carry a trig-accuracy term for a
-// DIFFERENT, still-live consumer: the inverse FFT's OWN twiddle factors (`gpu-fft.ts`'s
-// `std.cos(angle)`/`std.sin(angle)`, `angle = 2π·blockLocal/len`) are structural, time-independent
-// angles evaluated at every butterfly stage every frame regardless of `t` — see `levelBound`.
+//  - STORAGE SEAM (every level, every channel, every texel — no tolerance): the published
+//    rgba16float texel is one of the f16-representable values immediately bracketing the f32
+//    value it was rounded from (WGSL's own numeric-conversion clause). Level 0 compares against
+//    the GPU's OWN post-inverse-FFT f32 buffers (`getSlopeBuffers`, read back once via COPY_SRC —
+//    never a second GPU state built from the same kernels); level L>=1 compares against the mean
+//    of the four PUBLISHED level-(L-1) texels — self-referential through the GPU's own publication
+//    chain, never the CPU reference.
+//  - COMPUTATION (level 0's slopeX/slopeZ ONLY — the one place a tolerance sits): the GPU's own
+//    f32 inverse-FFT output against an f64 recompute of the identical transform on the identical
+//    spectral input, bounded by Higham's Theorem 24.2 (`slope-seam.ts`'s own docblock transcribes
+//    it) with every input MEASURED: `u` is IEEE754 single-precision unit roundoff, `muMax` is this
+//    device's own exhaustively-measured twiddle-trig error (`measureTwiddleTrigError`, every
+//    `(len, blockLocal)` pair the FFT kernels evaluate), and `||x64||_2` is the f64 reference
+//    field's own norm. No seed set, margin, partition, or per-channel scale lands anywhere here.
 //
 // `bun bench` itself already skips loudly (`scripts/bench.ts`'s `skipReason()`) when the seat has
 // no real GPU adapter, before any scenario boots — this file adds no second adapter check.
 
 import {
     Compute,
+    probeBuffer,
     probeTexture,
     RenderPlugin,
     run,
@@ -36,175 +37,128 @@ import {
 } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import {
-    type CascadeConfig,
+    CHANNELS,
+    type Channel,
+    complexL2Norm,
+    expectedFromPublished,
+    expectedLevel0,
+    f16StepDistance,
     generateH0,
     getCascadeConfigs,
+    getSlopeBuffers,
+    higham242AbsoluteBound,
+    ifft2Exact,
+    measureTwiddleTrigError,
     OceanPlugin,
-    reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
+    seamSlack,
     slopeCompute,
     slopeMipSize,
 } from "@dylanebert/shallot-ocean";
 import { type Check, frames, register, type Scenario } from "../gym";
 
 const [SLOPE_CONFIG] = SLOPE_CASCADE_CONFIGS;
-const CHANNEL_NAMES = ["slopeX", "slopeZ", "energy", "residual"] as const;
+const N = SLOPE_CONFIG.N;
 
-/** rgba16float round-to-nearest relative quantum: 10 explicit mantissa bits, half a ULP. */
-const HALF_FLOAT_REL_QUANTUM = 2 ** -11;
-
-/**
- * rgba16float's subnormal step is a FIXED 2^-24 (5-bit exponent field zero, 10-bit mantissa),
- * independent of the represented value's own magnitude — `HALF_FLOAT_REL_QUANTUM` above only
- * models half float's NORMAL range (|x| >= 2^-14); below it, round-to-nearest error is bounded by
- * half this fixed step rather than by any fraction of the (near-zero) value itself. A deep mip
- * level's channel can land here: level 8 of a 256x256 field averages slope down to ~1e-7.
- */
-const HALF_FLOAT_SUBNORMAL_ABS_QUANTUM = 2 ** -25;
-
-/**
- * WGSL's documented absolute error bound for the trigonometric built-ins over their accurate
- * domain (WebGPU Shading Language spec, "Floating Point Evaluation" — built-in function accuracy).
- * The live consumer is the inverse FFT's OWN twiddle factors (`gpu-fft.ts`'s `std.cos(angle)`/
- * `std.sin(angle)`, `angle = 2π·blockLocal/len`) — a structural angle independent of elapsed time,
- * evaluated at every butterfly stage every frame regardless of `t` (never the phase-evolution
- * `cos/sin(ω·t)` term this bound used to carry — that term is unreachable by construction, per the
- * file header's `state.time.elapsed === 0` assertion).
- */
-const WGSL_TRIG_ABS_ERROR = 2 ** -11;
+/** IEEE754 single-precision unit roundoff — Higham's own `u` (2^-24, matching the theorem's own
+ *  convention for f32, `slope-seam.ts`'s `higham242RelativeBound`). */
+const F32_UNIT_ROUNDOFF = 2 ** -24;
 
 /** `ifft2` is separable — a row pass then a column pass, each a full radix-2 Cooley-Tukey
- *  transform over `SLOPE_CONFIG.N` (`fft.ts`) — so the twiddle term below counts TWO independent
- *  stage sequences, each `log2(N)` complex butterfly stages deep. */
-const FFT_DIMENSIONS = 2;
-const FFT_STAGES_PER_DIMENSION = Math.log2(SLOPE_CONFIG.N);
+ *  transform of length N (`log2(N)` butterfly stages) — so Higham's theorem is applied here with
+ *  the TOTAL stage count across both passes (`slope-seam.ts`'s own docblock justifies why this is
+ *  the conservative, not the tight, choice). */
+const FFT_STAGES = 2 * Math.log2(N);
 
-/**
- * Absolute comparison bound for one mip level and channel, scaled by `channelScale` — that
- * channel's own CPU-reference magnitude AT THAT LEVEL (measured directly from `cpuSlopeLevels()`,
- * never level 0's range projected onto a deeper level or a different channel — `energy` and
- * `residual` are quadratic in `slopeX`/`slopeZ` and shrink through mip-averaging at a different
- * rate, so a shared scale would misprice them). Two additive routes, both re-derived here rather
- * than authored:
- *
- * - STORAGE: level 0 is quantized once when `slopePostKernel` writes it; each further mip level
- *   reads the previous (already half-float-quantized) level and re-quantizes its own reduced
- *   output on write, so level `L` has been through `L + 1` independent half-float round trips —
- *   the accumulation-depth term the Gate law requires beside the quantum itself.
- * - FFT TWIDDLE: baked into level 0's real-space value once by the GPU inverse FFT's own
- *   twiddle-factor trig evaluations (`WGSL_TRIG_ABS_ERROR` above), then carried forward roughly
- *   UNCHANGED in relative magnitude through every later level's linear mip-averaging
- *   (`reduceSlopeMip`/`mipKernel` perform no further trig evaluations) — so this term does NOT
- *   compound with level the way the storage term does.
- *
- * A floor covers the regime the relative model above cannot: below half float's normal range
- * (`HALF_FLOAT_SUBNORMAL_ABS_QUANTUM`), the two relative terms shrink toward zero alongside the
- * (also shrinking) reference scale, while the ACTUAL round-to-nearest error floors at a fixed
- * absolute step — so the per-round-trip bound is the max of the relative and absolute routes,
- * summed over the same `L + 1` accumulation depth as the storage term.
- */
-function levelBound(level: number, channelScale: number): number {
-    const trips = level + 1;
-    const storageTerm = trips * HALF_FLOAT_REL_QUANTUM * channelScale;
-    const fftTwiddleTerm =
-        FFT_DIMENSIONS * FFT_STAGES_PER_DIMENSION * WGSL_TRIG_ABS_ERROR * channelScale;
-    const relativeBound = storageTerm + fftTwiddleTerm;
-    const absoluteFloor = trips * HALF_FLOAT_SUBNORMAL_ABS_QUANTUM;
-    return Math.max(relativeBound, absoluteFloor);
+/** Extract the real component of an interleaved complex `Float32Array` buffer readback. */
+function realComponent(bytes: ArrayBuffer, count: number): Float32Array {
+    const raw = new Float32Array(bytes);
+    const out = new Float32Array(count);
+    for (let i = 0; i < count; i++) out[i] = raw[i * 2];
+    return out;
 }
 
-/** The CPU mip chain, mirroring the GPU's own `slopePostKernel` → `mipKernel` chain exactly
- *  (`reduceSlopeMip` is the package's own CPU mirror of `mipKernel`). */
-function cpuSlopeLevels(): Float32Array[] {
-    const h0 = generateH0(SLOPE_CONFIG, 0);
-    const { xField, zField } = runSlopeCpuPipeline(h0, SLOPE_CONFIG, 0);
-    const N = SLOPE_CONFIG.N;
-    const level0 = new Float32Array(N * N * 4);
-    for (let i = 0; i < N * N; i++) {
-        const sx = xField[i * 2];
-        const sz = zField[i * 2];
-        level0[i * 4] = sx;
-        level0[i * 4 + 1] = sz;
-        level0[i * 4 + 2] = sx * sx + sz * sz;
-        level0[i * 4 + 3] = 0;
-    }
-    const levels: Float32Array[] = [level0];
-    for (let level = 1; level < SLOPE_MIP_LEVELS; level++) {
-        levels.push(reduceSlopeMip(levels[level - 1], slopeMipSize(SLOPE_CONFIG, level - 1)));
-    }
-    return levels;
+interface ComplexDeviation {
+    /** L2 norm over the whole complex field — what Higham's theorem bounds and what E0 gates. */
+    l2: number;
+    /** largest single-texel complex-magnitude deviation. */
+    max: number;
+    /** RMS single-texel complex-magnitude deviation. */
+    rms: number;
 }
 
-/** One mip level's published RGBA payload, widened from the texture's native half-float storage —
- *  `Float16Array` is an already-relied-on platform floor in this repo (`skin.ts`'s VAT path). */
-async function gpuSlopeLevel(texture: GPUTexture, level: number): Promise<Float32Array> {
+/** Deviation between a GPU complex buffer readback and an f64 complex reference — the whole
+ *  population Higham's theorem bounds (both real AND imaginary components: the theorem bounds the
+ *  full transformed vector, and the imaginary component of a real-valued field's inverse FFT is
+ *  analytically zero, so its magnitude here is purely the FFT's own numerical error, part of what
+ *  the bound must cover). `l2` is the gated quantity; `max`/`rms` are the printed reading. */
+function complexDeviation(
+    bytes: ArrayBuffer,
+    re64: Float64Array,
+    im64: Float64Array,
+): ComplexDeviation {
+    const raw = new Float32Array(bytes);
+    let sumSquares = 0;
+    let max = 0;
+    for (let i = 0; i < re64.length; i++) {
+        const dr = raw[i * 2] - re64[i];
+        const di = raw[i * 2 + 1] - im64[i];
+        const magnitude = Math.hypot(dr, di);
+        if (magnitude > max) max = magnitude;
+        sumSquares += dr * dr + di * di;
+    }
+    return { l2: Math.sqrt(sumSquares), max, rms: Math.sqrt(sumSquares / re64.length) };
+}
+
+/** Widen one mip level's published rgba16float texture content to f32. */
+async function publishedLevel(texture: GPUTexture, level: number): Promise<Float32Array> {
     const probe = await probeTexture(Compute.device, texture, { mipLevel: level });
     return Float32Array.from(new Float16Array(probe.bytes));
 }
 
-function maxAbs(rgba: Float32Array, channel: number): number {
-    let max = 0;
-    for (let i = 0; i < rgba.length / 4; i++) {
-        const v = Math.abs(rgba[i * 4 + channel]);
-        if (v > max) max = v;
+function allowedSteps(level: number, channel: Channel): number {
+    if (level === 0 && channel === "residual") return 0; // hardcoded literal, no rounding ambiguity
+    return 1 + seamSlack(level, channel);
+}
+
+interface SeamHistogram {
+    exact: number;
+    neighbor: number;
+    slack: number;
+    violations: string[];
+}
+
+/** Runs the discrete storage-seam claim over one level's `expected`/`published` pair, accumulating
+ *  into `histogram` and returning nothing — the caller decides whether to assert. */
+function checkSeamLevel(
+    level: number,
+    expected: Float32Array,
+    published: Float32Array,
+    histogram: SeamHistogram,
+): void {
+    const count = expected.length / 4;
+    for (let i = 0; i < count; i++) {
+        CHANNELS.forEach((channel, c) => {
+            const steps = f16StepDistance(expected[i * 4 + c], published[i * 4 + c]);
+            if (steps === 0) histogram.exact++;
+            else if (steps === 1) histogram.neighbor++;
+            else histogram.slack++;
+            const limit = allowedSteps(level, channel);
+            if (steps > limit) {
+                histogram.violations.push(
+                    `L${level} ${channel} texel${i} steps=${steps} limit=${limit}`,
+                );
+            }
+        });
     }
-    return max;
-}
-
-function maxDeviation(cpu: Float32Array, gpu: Float32Array, channel: number): number {
-    let max = 0;
-    for (let i = 0; i < cpu.length / 4; i++) {
-        const d = Math.abs(cpu[i * 4 + channel] - gpu[i * 4 + channel]);
-        if (d > max) max = d;
-    }
-    return max;
-}
-
-type Classification = "verified" | "unverifiable" | "failed";
-
-/** Payload below its own derived bound enters the unverifiable partition (Gate law) rather than a
- *  universal pass/fail claim — only a payload that clears the bound and still agrees is "verified",
- *  and only a payload that clears the bound and disagrees is a real "failed" reading. */
-function classify(payloadMax: number, deviation: number, bound: number): Classification {
-    if (payloadMax < bound) return "unverifiable";
-    return deviation < bound ? "verified" : "failed";
-}
-
-interface LevelReading {
-    level: number;
-    gpu: Float32Array;
-    /** per-channel: each channel's own scale-derived bound, never one bound shared across channels. */
-    bound: number[];
-    payloadMax: number[];
-    deviation: number[];
-    classification: Classification[];
-}
-
-/** `cpu` is THIS level's CPU reference (from `cpuSlopeLevels()`), so `channelScale` is measured at
- *  the same level it bounds — never level 0's range projected onto a deeper level. A channel whose
- *  CPU reference is identically zero at this level (`residual` at level 0 — no sub-texel content by
- *  design) still gets a nonzero bound from `levelBound`'s absolute floor, so an exact zero-vs-zero
- *  match reads "unverifiable" (nothing to check) rather than tripping `classify`'s strict `<` on a
- *  degenerate zero bound. */
-function readLevel(level: number, cpu: Float32Array, gpu: Float32Array): LevelReading {
-    const channelScale = CHANNEL_NAMES.map((_, c) => maxAbs(cpu, c));
-    const bound = channelScale.map((scale) => levelBound(level, scale));
-    const payloadMax = CHANNEL_NAMES.map((_, c) => maxAbs(gpu, c));
-    const deviation = CHANNEL_NAMES.map((_, c) => maxDeviation(cpu, gpu, c));
-    const classification = CHANNEL_NAMES.map((_, c) =>
-        classify(payloadMax[c], deviation[c], bound[c]),
-    );
-    return { level, gpu, bound, payloadMax, deviation, classification };
 }
 
 async function runChecks(state: State): Promise<Check[]> {
     const checks: Check[] = [];
 
-    const expectedNames = SLOPE_CASCADE_CONFIGS.map(
-        (_config: CascadeConfig, i: number) => `slope${i}`,
-    );
+    const expectedNames = SLOPE_CASCADE_CONFIGS.map((_config, i) => `slope${i}`);
     checks.push({
         name: "slope publication names are non-empty",
         pass: expectedNames.length > 0,
@@ -218,11 +172,7 @@ async function runChecks(state: State): Promise<Check[]> {
         detail: `slope=[${expectedNames.join(", ")}] displace=[${displacementNames.join(", ")}]`,
     });
 
-    // Identity check over the real registered System array, never a cardinality proxy — a count
-    // like `otherSystems.length === 1` passes on any substitute system and reds on a legitimate
-    // third one; `slopeCompute` is on the package barrel beside `oceanCompute`, so pinning the
-    // concrete identity is consistent with the existing public surface rather than a widening
-    // invented for this arm.
+    // Identity check over the real registered System array, never a cardinality proxy.
     const systems = OceanPlugin.systems ?? [];
     checks.push({
         name: "OceanPlugin registers the slope compute system",
@@ -230,10 +180,6 @@ async function runChecks(state: State): Promise<Check[]> {
         detail: `systems=[${systems.map((system) => system.name ?? "?").join(", ")}]`,
     });
 
-    // Mutation-red control for the two presence checks above: this branch is a real, reachable
-    // path (not a decorative always-true assertion) — it fires exactly when `buildSlopes` never
-    // publishes `textureName`, so a regression that stops publishing under this name reds here
-    // rather than passing through an untaken branch.
     const [textureName] = expectedNames;
     const texture = Compute.textures.get(textureName);
     if (!texture) {
@@ -246,103 +192,198 @@ async function runChecks(state: State): Promise<Check[]> {
         detail: `mipLevelCount=${texture.mipLevelCount}, expected ${SLOPE_MIP_LEVELS}`,
     });
 
-    const cpu = cpuSlopeLevels();
+    const buffers = getSlopeBuffers(0);
+    if (!buffers) {
+        checks.push({ name: "slope0 post-IFFT buffers reachable", pass: false, detail: "missing" });
+        return checks;
+    }
 
-    // Pre-publish control: read the exact texture the plugin publishes BEFORE any frame steps —
-    // `buildSlopes` has allocated it but `slopeCompute` has never run, so by WebGPU's
+    // Pre-publish control: read the exact buffers `slopeCompute` writes BEFORE any frame steps —
+    // `buildSlopes` has allocated them but `slopeCompute` has never run, so by WebGPU's
     // zero-initialization guarantee this is exactly the state a plugin permanently missing
     // `slopeCompute` from its `systems` array would leave forever.
-    const prePublish = await gpuSlopeLevel(texture, 0);
+    // `Promise.all`, never two sequential `await`s: `state.pause()` freezes the virtual clock but
+    // NOT the frame loop itself (`slopeCompute` is a `draw`-group system and still runs every real
+    // animation frame while paused), so a real frame tick landing between two separately-awaited
+    // probes would let the SECOND buffer publish before the FIRST is read — witnessed exactly this
+    // way once: `x` read zero as expected while `z` had already been written. Starting both
+    // `probeBuffer` calls in the same microtask keeps their synchronous encode+submit prefix atomic
+    // with respect to the frame loop.
+    const [prePublishXProbe, prePublishZProbe] = await Promise.all([
+        probeBuffer(Compute.device, buffers.x),
+        probeBuffer(Compute.device, buffers.z),
+    ]);
 
-    // `state.pause()` was called synchronously right after `run()` resolved, before the auto frame
-    // loop's first `requestAnimationFrame` could fire, so `elapsed` has been pinned at exactly 0
-    // this whole time (`scheduler.ts`: `elapsed += paused ? 0 : real * scale`) — the one declared
-    // deterministic time this arm's CPU reference (`runSlopeCpuPipeline(..., 0)`) also uses. `draw`
-    // group systems (`slopeCompute` included) still run every frame while paused; only the virtual
-    // clock freezes.
     await frames(2);
 
-    // The premise `levelBound` rests on: with no term for `slopeKernel`'s phase evolution, every
-    // downstream comparison assumes cos/sin(ω·elapsed) was never exercised (the FFT twiddle-factor
-    // trig term levelBound DOES carry is unaffected by this — it comes from the transform's own
-    // structural angles, not from elapsed time). Assert the premise as an arm rather than leave it
-    // as a comment — a red here means the bound above is no longer honest and every reading past
-    // this point is measuring the wrong thing.
     checks.push({
         name: "the compared reading is taken at declared time zero",
         pass: state.time.elapsed === 0,
-        detail: `state.time.elapsed=${state.time.elapsed} — levelBound's phase-evolution omission depends on this`,
+        detail: `state.time.elapsed=${state.time.elapsed}`,
     });
     if (state.time.elapsed !== 0) return checks;
 
-    const readings: LevelReading[] = [];
-    for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
-        const gpu = await gpuSlopeLevel(texture, level);
-        readings.push(readLevel(level, cpu[level], gpu));
-    }
+    // f64 CPU reference — the exact same spectral input the GPU's own slopeKernel derives from
+    // the SAME h0 (`buildSlopes`/`createSlopeState` seeds every cascade with `generateH0(config,
+    // 0)`), transformed WITHOUT the final f32-truncating cast (`ifft2Exact`, never `ifft2`).
+    const h0 = generateH0(SLOPE_CONFIG, 0);
+    const { x: xSpectrum, z: zSpectrum } = runSlopeCpuPipeline(h0, SLOPE_CONFIG, 0);
+    const x64 = ifft2Exact(xSpectrum, N);
+    const z64 = ifft2Exact(zSpectrum, N);
+    const normX64 = complexL2Norm(x64.re, x64.im);
+    const normZ64 = complexL2Norm(z64.re, z64.im);
 
-    for (const reading of readings) {
-        for (let c = 0; c < CHANNEL_NAMES.length; c++) {
-            const kind = reading.classification[c];
-            checks.push({
-                name: `mip ${reading.level} channel ${CHANNEL_NAMES[c]} verified/unverifiable partition`,
-                pass: kind !== "failed",
-                detail:
-                    `payloadMax=${reading.payloadMax[c]}, deviation=${reading.deviation[c]}, ` +
-                    `bound=${reading.bound[c]}, classification=${kind}`,
-                data: {
-                    payloadMax: reading.payloadMax[c],
-                    deviation: reading.deviation[c],
-                    bound: reading.bound[c],
-                },
-            });
-        }
-        const verifiedCount = reading.classification.filter((k) => k === "verified").length;
-        checks.push({
-            name: `mip ${reading.level} has at least one verified channel`,
-            pass: verifiedCount > 0,
-            detail: `verified=[${reading.classification.join(", ")}]`,
-        });
-    }
-
-    // Vacuity witness (Gate law): zero each verified GPU payload and re-run the SAME comparison at
-    // the SAME bound — a red here is required, or the comparison isn't actually reading the GPU.
-    for (const reading of readings) {
-        for (let c = 0; c < CHANNEL_NAMES.length; c++) {
-            if (reading.classification[c] !== "verified") continue;
-            const zeroed = reading.gpu.slice();
-            for (let i = 0; i < zeroed.length / 4; i++) zeroed[i * 4 + c] = 0;
-            const mutatedDeviation = maxDeviation(cpu[reading.level], zeroed, c);
-            checks.push({
-                name: `mip ${reading.level} channel ${CHANNEL_NAMES[c]} zeroed-payload vacuity witness`,
-                pass: mutatedDeviation >= reading.bound[c],
-                detail:
-                    `green=${reading.deviation[c]}, mutated(zeroed)=${mutatedDeviation}, ` +
-                    `bound=${reading.bound[c]}, reach=${(mutatedDeviation / reading.bound[c]).toFixed(1)}x`,
-            });
-        }
-    }
-
-    // "removing slopeCompute from the plugin must red": every verified mip-0 channel's comparison,
-    // re-run against the pre-publish (never-stepped) reading above, must fail — proving the arm's
-    // green depends on `slopeCompute` having actually run, not merely on the texture existing.
-    const mip0 = readings[0];
-    const mip0VerifiedChannels = mip0.classification
-        .map((kind, c) => (kind === "verified" ? c : -1))
-        .filter((c) => c >= 0);
+    const twiddle = await measureTwiddleTrigError(N);
+    const e0X = higham242AbsoluteBound(twiddle.muMax, F32_UNIT_ROUNDOFF, FFT_STAGES, normX64);
+    const e0Z = higham242AbsoluteBound(twiddle.muMax, F32_UNIT_ROUNDOFF, FFT_STAGES, normZ64);
+    // Informational: E0's own derivation inputs, printed once beside the two claims that use it.
     checks.push({
-        name: "mip 0 carries at least one verified channel to red-witness slopeCompute removal",
-        pass: mip0VerifiedChannels.length > 0,
-        detail: `verified=[${mip0.classification.join(", ")}]`,
+        name: "E0 (Higham Theorem 24.2) derivation inputs",
+        pass: true,
+        detail:
+            `u=${F32_UNIT_ROUNDOFF}, muMax=${twiddle.muMax.toExponential(4)} (measured over ` +
+            `${twiddle.pairs} twiddle pairs), stages=${FFT_STAGES}, ||x64||2=${normX64.toFixed(4)}, ` +
+            `||z64||2=${normZ64.toFixed(4)} -> E0(slopeX)=${e0X.toExponential(4)}, ` +
+            `E0(slopeZ)=${e0Z.toExponential(4)}`,
     });
-    for (const c of mip0VerifiedChannels) {
-        const preDeviation = maxDeviation(cpu[0], prePublish, c);
+
+    // Pre-publish read: the buffers are still all-zero at this point, so the deviation against a
+    // nonzero real field is (up to floating point) the field's own norm — this MUST red.
+    const preDevX = complexDeviation(prePublishXProbe.bytes, x64.re, x64.im);
+    const preDevZ = complexDeviation(prePublishZProbe.bytes, z64.re, z64.im);
+    checks.push({
+        name: "pre-publish read reds the level-0 computation claim on slopeX",
+        pass: preDevX.l2 > e0X,
+        detail: `deviation(L2)=${preDevX.l2.toExponential(4)}, E0=${e0X.toExponential(4)}`,
+    });
+    checks.push({
+        name: "pre-publish read reds the level-0 computation claim on slopeZ",
+        pass: preDevZ.l2 > e0Z,
+        detail: `deviation(L2)=${preDevZ.l2.toExponential(4)}, E0=${e0Z.toExponential(4)}`,
+    });
+
+    // Live (post-publish) buffers — the SAME resources the pre-publish read above just probed,
+    // now after `slopeCompute` has actually run.
+    const [liveXProbe, liveZProbe] = await Promise.all([
+        probeBuffer(Compute.device, buffers.x),
+        probeBuffer(Compute.device, buffers.z),
+    ]);
+    const postDevX = complexDeviation(liveXProbe.bytes, x64.re, x64.im);
+    const postDevZ = complexDeviation(liveZProbe.bytes, z64.re, z64.im);
+    checks.push({
+        name: "level-0 computation claim holds on slopeX",
+        pass: postDevX.l2 <= e0X,
+        detail:
+            `deviation: L2=${postDevX.l2.toExponential(4)} (gated), max=${postDevX.max.toExponential(4)}, ` +
+            `rms=${postDevX.rms.toExponential(4)}, E0=${e0X.toExponential(4)}, ` +
+            `reach=${(e0X / Math.max(postDevX.l2, 1e-30)).toFixed(1)}x`,
+    });
+    checks.push({
+        name: "level-0 computation claim holds on slopeZ",
+        pass: postDevZ.l2 <= e0Z,
+        detail:
+            `deviation: L2=${postDevZ.l2.toExponential(4)} (gated), max=${postDevZ.max.toExponential(4)}, ` +
+            `rms=${postDevZ.rms.toExponential(4)}, E0=${e0Z.toExponential(4)}, ` +
+            `reach=${(e0Z / Math.max(postDevZ.l2, 1e-30)).toFixed(1)}x`,
+    });
+
+    // Energy/residual recomputed in f64 from the SAME x64/z64 inputs — informational only (no
+    // tolerance sits here; these two channels are covered by the discrete storage-seam claim
+    // below, never by a second numeric bound).
+    const xReal0 = realComponent(liveXProbe.bytes, N * N);
+    const zReal0 = realComponent(liveZProbe.bytes, N * N);
+    const expected0 = expectedLevel0(xReal0, zReal0);
+    let energyMax = 0;
+    let energySumSquares = 0;
+    for (let i = 0; i < N * N; i++) {
+        const energy64 = x64.re[i] * x64.re[i] + z64.re[i] * z64.re[i];
+        const d = Math.abs(energy64 - expected0[i * 4 + 2]);
+        if (d > energyMax) energyMax = d;
+        energySumSquares += d * d;
+    }
+    checks.push({
+        name: "energy/residual recomputed in f64 (informational — no tolerance sits here)",
+        pass: true,
+        detail:
+            `energy: max=${energyMax.toExponential(4)} rms=${Math.sqrt(energySumSquares / (N * N)).toExponential(4)} ` +
+            "(f64 recompute vs f32-disciplined recompute); residual is architecturally exact zero at level 0",
+    });
+
+    // ── Storage seam claim: every texel, every level, every channel ────────────────────────────
+    const published: Float32Array[] = [];
+    for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
+        published.push(await publishedLevel(texture, level));
+    }
+
+    const total: SeamHistogram = { exact: 0, neighbor: 0, slack: 0, violations: [] };
+    for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
+        const expected =
+            level === 0
+                ? expected0
+                : expectedFromPublished(
+                      published[level - 1],
+                      slopeMipSize(SLOPE_CONFIG, level - 1),
+                  );
+        const levelHistogram: SeamHistogram = { exact: 0, neighbor: 0, slack: 0, violations: [] };
+        checkSeamLevel(level, expected, published[level], levelHistogram);
+        const size = slopeMipSize(SLOPE_CONFIG, level);
+        const levelTexels = levelHistogram.exact + levelHistogram.neighbor + levelHistogram.slack;
         checks.push({
-            name: `mip 0 channel ${CHANNEL_NAMES[c]} reds against the pre-publish (no-slopeCompute) state`,
-            pass: preDeviation >= mip0.bound[c],
+            name: `mip ${level} storage seam histogram (0/1/>=2 step)`,
+            pass: levelHistogram.violations.length === 0,
             detail:
-                `pre-publish deviation=${preDeviation}, bound=${mip0.bound[c]} — the zero-init state ` +
-                "a plugin missing slopeCompute leaves forever",
+                `size=${size}x${size}, texels=${levelTexels}, 0-step=${levelHistogram.exact}, ` +
+                `1-step=${levelHistogram.neighbor}, >=2-step=${levelHistogram.slack}, ` +
+                `violations=${levelHistogram.violations.length}` +
+                (levelHistogram.violations.length > 0
+                    ? ` (${levelHistogram.violations.slice(0, 5).join("; ")})`
+                    : ""),
+        });
+        total.exact += levelHistogram.exact;
+        total.neighbor += levelHistogram.neighbor;
+        total.slack += levelHistogram.slack;
+        // `.concat`, never a spread `push(...huge array)` — a pathological mutation can produce a
+        // violations array well past V8's max call-argument count, and a spread there throws
+        // `RangeError: Maximum call stack size exceeded` before the real (failing) check is even
+        // reported (witnessed against a swapped-channel mutation: 65534 violations at one level).
+        total.violations = total.violations.concat(levelHistogram.violations);
+    }
+    const totalTexels = total.exact + total.neighbor + total.slack;
+    checks.push({
+        name: "storage seam claim holds over every texel of every level and channel",
+        pass: total.violations.length === 0,
+        detail:
+            `total=${totalTexels}, 0-step=${total.exact}, 1-step=${total.neighbor}, ` +
+            `>=2-step=${total.slack}, violations=${total.violations.length}`,
+    });
+
+    // residual at level 0 is exactly zero on both sides — asserted directly, not merely folded
+    // into the aggregate seam claim above.
+    let residualNonZero = 0;
+    for (let i = 0; i < N * N; i++) if (published[0][i * 4 + 3] !== 0) residualNonZero++;
+    checks.push({
+        name: "residual at level 0 is exactly zero",
+        pass: residualNonZero === 0,
+        detail: `${residualNonZero} nonzero texels of ${N * N}`,
+    });
+
+    // Zeroed-payload vacuity witness per level (Gate law): zero the published level and re-run
+    // the SAME seam comparison at the SAME allowed-steps limit — a red here is required.
+    for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
+        const expected =
+            level === 0
+                ? expected0
+                : expectedFromPublished(
+                      published[level - 1],
+                      slopeMipSize(SLOPE_CONFIG, level - 1),
+                  );
+        const zeroed = new Float32Array(expected.length);
+        const zeroHistogram: SeamHistogram = { exact: 0, neighbor: 0, slack: 0, violations: [] };
+        checkSeamLevel(level, expected, zeroed, zeroHistogram);
+        checks.push({
+            name: `mip ${level} zeroed-payload vacuity witness`,
+            pass: zeroHistogram.violations.length > 0,
+            detail: `${zeroHistogram.violations.length} violations against a zeroed payload`,
         });
     }
 
@@ -359,9 +400,7 @@ const scenario: Scenario = {
             defaults: false,
             plugins: [ProfilePlugin, SlabPlugin, TransformsPlugin, RenderPlugin, OceanPlugin],
         });
-        // Pin `elapsed` at 0 before the auto frame loop's first `requestAnimationFrame` can fire —
-        // see the comment beside `frames(2)` in `runChecks` for why this is the arm's one declared
-        // deterministic time.
+        // Pin `elapsed` at 0 before the auto frame loop's first `requestAnimationFrame` can fire.
         state.pause();
         try {
             checks = await runChecks(state);

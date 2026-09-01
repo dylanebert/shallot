@@ -121,8 +121,11 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "mesh-torus": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_895_924 },
     motor: { pipelines: 66, pipelineCalls: 66, gpuBytes: 88_873_964 },
     // measured at DEFAULT params on nvidia/lovelace, two independent `bun bench --scenario
-    // ocean-slope` runs agreeing exactly (I3g, `shallot-water-surface`).
-    "ocean-slope": { pipelines: 23, pipelineCalls: 23, gpuBytes: 40_808_844 },
+    // ocean-slope` runs agreeing exactly (`shallot-water-surface` I3g). Bumped 23->24 by I3g-r2's
+    // exhaustive device twiddle-trig measurement (`measureTwiddleTrigError`), which builds one
+    // additional real compute pipeline (`ocean-fft-twiddle-probe`) to drive the level-0
+    // computation claim's E0 bound off a real device reading rather than an authored constant.
+    "ocean-slope": { pipelines: 24, pipelineCalls: 24, gpuBytes: 40_808_844 },
     "orbit-touch": { pipelines: 29, pipelineCalls: 29, gpuBytes: 31_828_368 },
     outline: { pipelines: 33, pipelineCalls: 33, gpuBytes: 38_517_664 },
     pile: { pipelines: 66, pipelineCalls: 133, gpuBytes: 26_173_716 },
