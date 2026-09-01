@@ -42,7 +42,19 @@ const fillKernel = tgpu.computeFn({
     const one = d.f32(1);
     const u = d.f32(x) / d.f32(cols);
     const v = d.f32(y) / d.f32(rows);
-    const packed = packCell(glyph, d.vec4f(u, v, one - u, one), d.vec4f(one - u, one - v, v, one));
+    // fg/bg alpha (the linear lane packLdrColor passes straight into packUnorm4x8, no sRGB transfer)
+    // sweeps column/row across the unorm8 lattice's own midpoints — `(x + 0.5) / 255` and
+    // `(y + 0.5) / 255` land exactly on `k + 0.5` for every x/y this test pattern produces, the one input
+    // class that can expose a half-up (CPU `Math.round`) vs half-to-even (the real `pack4x8unorm`
+    // intrinsic) divergence. `cell.ts`'s own module doc names the seam; the `cells` gym scenario
+    // dispatches this kernel on a real device to differential against it.
+    const alphaFg = (d.f32(x) + d.f32(0.5)) / d.f32(255);
+    const alphaBg = (d.f32(y) + d.f32(0.5)) / d.f32(255);
+    const packed = packCell(
+        glyph,
+        d.vec4f(u, v, one - u, alphaFg),
+        d.vec4f(one - u, one - v, v, alphaBg),
+    );
     gridLayout.$.cells[i].glyph = packed.x;
     gridLayout.$.cells[i].fg = packed.y;
     gridLayout.$.cells[i].bg = packed.z;

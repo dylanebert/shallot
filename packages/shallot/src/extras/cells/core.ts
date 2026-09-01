@@ -29,4 +29,10 @@ export {
     unpackCell,
 } from "./cell";
 export { type CellGrid, createCellGrid, fillCellGrid } from "./grid";
-export { CELL_GLYPH_COUNT, cellGlyphChar, cellGlyphString } from "./ramp";
+export {
+    CELL_DIRECTIONAL_GLYPHS,
+    CELL_FILL_GLYPHS,
+    CELL_GLYPH_COUNT,
+    cellGlyphChar,
+    cellGlyphString,
+} from "./ramp";

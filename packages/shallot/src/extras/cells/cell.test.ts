@@ -81,9 +81,17 @@ describe("packCell / unpackCell round-trip (bit-identical)", () => {
 
     // N2: the prior fixture used only k/255 multiples, landing exactly on the unorm8 lattice with no
     // rounding ambiguity — proving nothing about a fraction that actually needs rounding. `grid.ts`'s own
-    // fill kernel produces exactly the class widened to here: `x / cols`, `y / rows`, arbitrary fractions
-    // including one deliberately placed at a lattice midpoint (`0.5 / 255` scales to exactly `k + 0.5`).
-    test("crosses the lattice-midpoint seam: arbitrary (non-1/255-aligned) fractions round-trip", () => {
+    // fill kernel produces exactly the class widened to here: `x / cols`, `y / rows`, arbitrary fractions.
+    // None of these land on an exact lattice midpoint once the rgb channels go through `linearToSrgb1`
+    // first (1/3 → ~156.2, 2/7 → ~145.6, 5/9 → ~196.6, 11/13 → ~236.9, 0.5/255 → ~6.5, 254.5/255 → ~254.8
+    // — none within 0.1 of `k + 0.5`), so this arm proves wiring (arg order into `packLdrColor`, word
+    // order into the three raw words, `unpackCell`'s stride/offset) on arbitrary fractions, not a
+    // rounding-divergence check — and it couldn't be one regardless: `expectedRgba`'s own `Math.round`
+    // (above) and `packCell`'s CPU arm round the same way, so a half-up/half-to-even divergence can't red
+    // here at any input. The real-device rounding differential lives in the `cells` gym scenario
+    // (`bun bench --scenario cells`), which sweeps fg/bg alpha across genuine lattice midpoints
+    // (`grid.ts`'s fill kernel; `cell.ts`'s own module doc names the seam).
+    test("round-trips arbitrary non-1/255-aligned fractions through the shared CPU rounding path", () => {
         for (const v of [1 / 3, 2 / 7, 5 / 9, 11 / 13, 0.5 / 255, 254.5 / 255]) {
             const decoded = packAndDecode(0, [v, v, v, v], [0, 0, 0, 1]);
             expect(decoded.fg).toEqual(expectedRgba([v, v, v, v]));
