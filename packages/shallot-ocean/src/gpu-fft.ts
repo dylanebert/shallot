@@ -19,6 +19,7 @@
 // package ever needs the forward direction — `generateH0` already produces its output in the
 // frequency domain.
 
+import { Compute, probeBuffer } from "@dylanebert/shallot";
 import { idiv } from "@dylanebert/shallot/utils/core";
 import tgpu, { type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -32,6 +33,24 @@ const PI = Math.PI;
 function isPow2(n: number): boolean {
     return n >= 1 && (n & (n - 1)) === 0;
 }
+
+/**
+ * Twiddle angle for the butterfly stage of length `len` at local index `blockLocal` — the SAME
+ * expression `makeRowFftKernel`/`makeColFftKernel` evaluate at every stage, every frame. Exported
+ * so a CPU-side measurement of the device's own trig accuracy (`measureTwiddleTrigError`, below)
+ * drives the real kernel through this one shared formula rather than a hand-copied second
+ * version that could silently drift from what the WGSL actually emits (`checks.md`'s "two things
+ * one author wrote from one document" class). Calling this directly from JS still round-trips
+ * through typegpu's `d.f32` return-type cast, so it is an f32-ROUNDED value, not a device
+ * measurement — see that function's own docblock for why a real GPU dispatch is still required.
+ */
+export const twiddleAngle = tgpu.fn(
+    [d.u32, d.u32],
+    d.f32,
+)((blockLocal, len) => {
+    "use gpu";
+    return (d.f32(2) * PI * d.f32(blockLocal)) / d.f32(len);
+});
 
 /** Per-N bind group layout: unsized complex storage arrays, input read-only, output mutable. */
 export function makeFftLayout(N: number) {
@@ -93,7 +112,7 @@ export function makeRowFftKernel(N: number, layout: FftLayout) {
                 const blockLocal = tid % halfLen; // native u32 remainder — the u32/u32 hazard is `/` only
                 const evenIdx = block * len + blockLocal;
                 const oddIdx = evenIdx + halfLen;
-                const angle = (d.f32(2) * PI * d.f32(blockLocal)) / d.f32(len);
+                const angle = twiddleAngle(blockLocal, len);
                 const wr = std.cos(angle);
                 const wi = std.sin(angle);
                 const evenR = reLds.$[evenIdx];
@@ -166,7 +185,7 @@ export function makeColFftKernel(N: number, layout: FftLayout) {
                 const blockLocal = tid % halfLen;
                 const evenIdx = block * len + blockLocal;
                 const oddIdx = evenIdx + halfLen;
-                const angle = (d.f32(2) * PI * d.f32(blockLocal)) / d.f32(len);
+                const angle = twiddleAngle(blockLocal, len);
                 const wr = std.cos(angle);
                 const wi = std.sin(angle);
                 const evenR = reLds.$[evenIdx];
@@ -214,6 +233,125 @@ export function getFftKernels(N: number): FftKernelSet {
         kernelCache.set(N, entry);
     }
     return entry;
+}
+
+// ── exhaustive device twiddle-trig measurement ──────────────────────────────────────────────
+//
+// Higham's radix-2 FFT forward-error theorem (below, `packages/shallot-ocean/src/slope-seam.ts`'s
+// `higham242Bound`) bounds the FFT's OWN floating-point rounding error under unit roundoff `u`,
+// but says nothing about how far a real device's `cos`/`sin` intrinsics land from the
+// mathematically exact value — WGSL leaves transcendental built-ins to an accuracy CLASS, not an
+// exact result, so that term has to be MEASURED on the seat under test, never authored (the I3g
+// re-verdict's own convicted class: "a computation-accuracy term taken from a permitted floor
+// either cannot discriminate... or is a fit... measure it under solve/held-out; never author it").
+// This is that measurement: dispatch a real compute pass evaluating `twiddleAngle` + `std.cos`/
+// `std.sin` at EVERY `(len, blockLocal)` pair the row/col FFT kernels evaluate for transform
+// length `N` — there are exactly `N - 1` such pairs (`len` doubling from 2 to `N`, `blockLocal`
+// spanning `[0, len/2)` at each) — and compare each against `Math.cos`/`Math.sin` of the exact f64
+// angle. `μ_max` is the maximum absolute deviation over the whole population, on EITHER function.
+
+const twiddleProbeParams = d.struct({ count: d.u32, pad: d.vec3u }).$name("TwiddleProbeParams");
+const twiddleProbeLayout = tgpu.bindGroupLayout({
+    pairs: { storage: d.arrayOf(d.vec2u), access: "readonly" },
+    out: { storage: d.arrayOf(d.vec2f), access: "mutable" },
+    params: { uniform: twiddleProbeParams },
+});
+
+/** `pairs[i] = (len, blockLocal)`; `out[i] = (cos(twiddleAngle(blockLocal, len)),
+ *  sin(twiddleAngle(blockLocal, len)))`, evaluated by the SAME `twiddleAngle` the production FFT
+ *  kernels call — never a hand-copied angle formula. */
+const twiddleProbeKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const idx = input.gid.x;
+        if (idx >= twiddleProbeLayout.$.params.count) return;
+        const pair = twiddleProbeLayout.$.pairs[idx];
+        const angle = twiddleAngle(pair.y, pair.x);
+        twiddleProbeLayout.$.out[idx] = d.vec2f(std.cos(angle), std.sin(angle));
+    })
+    .$name("ocean-fft-twiddle-probe");
+
+export interface TwiddleErrorReading {
+    /** population size — exactly `N - 1` for a transform of length `N`. */
+    pairs: number;
+    /** max(maxCosError, maxSinError) — the single number `slope-seam.ts` feeds into E0. */
+    muMax: number;
+    maxCosError: number;
+    maxSinError: number;
+}
+
+/** Exhaustively measures this device's own `cos`/`sin` deviation from the mathematically exact
+ *  value at every twiddle angle the length-`N` radix-2 FFT evaluates. Requires a real GPU adapter
+ *  (`Compute.device`) — there is no CPU stand-in: typegpu's CPU execution of a `tgpu.fn` only
+ *  rounds its RETURN value once (verified: `twiddleAngle(3, 16)` called directly from JS reads
+ *  `Math.fround((2*Math.PI*3)/16)` exactly), which cannot represent what a real WGSL runtime's
+ *  `cos`/`sin` intrinsics compute on real hardware — only a device dispatch can. */
+export async function measureTwiddleTrigError(N: number): Promise<TwiddleErrorReading> {
+    if (!isPow2(N)) throw new Error(`measureTwiddleTrigError: N must be a power of two, got ${N}`);
+    const { device, root } = Compute;
+    const pairs: number[] = [];
+    for (let len = 2; len <= N; len <<= 1) {
+        for (let blockLocal = 0; blockLocal < len / 2; blockLocal++) pairs.push(len, blockLocal);
+    }
+    const count = pairs.length / 2;
+    const pairsBuffer = device.createBuffer({
+        label: "ocean-fft-twiddle-pairs",
+        size: count * 8,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(pairsBuffer, 0, new Uint32Array(pairs));
+    const outBuffer = device.createBuffer({
+        label: "ocean-fft-twiddle-out",
+        size: count * 8,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const paramsBuffer = device.createBuffer({
+        label: "ocean-fft-twiddle-params",
+        size: d.sizeOf(twiddleProbeParams),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    device.queue.writeBuffer(paramsBuffer, 0, new Uint32Array([count, 0, 0, 0]));
+    const pairsT = root.createBuffer(d.arrayOf(d.vec2u, count), pairsBuffer).$usage("storage");
+    const outT = root.createBuffer(d.arrayOf(d.vec2f, count), outBuffer).$usage("storage");
+    const paramsT = root.createBuffer(twiddleProbeParams, paramsBuffer).$usage("uniform");
+    const pipeline = root.createComputePipeline({ compute: twiddleProbeKernel });
+    const group = root.createBindGroup(twiddleProbeLayout, {
+        pairs: pairsT,
+        out: outT,
+        params: paramsT,
+    });
+
+    const probe = await probeBuffer(device, outBuffer, {
+        label: "ocean-fft-twiddle-probe",
+        encode: (encoder) => {
+            const pass = encoder.beginComputePass({
+                label: "ocean-fft-twiddle-probe",
+                timestampWrites: Compute.span?.("ocean-fft-twiddle-probe"),
+            });
+            pipeline
+                .with(group)
+                .with(pass)
+                .dispatchWorkgroups(Math.ceil(count / 64));
+            pass.end();
+        },
+    });
+    const out = new Float32Array(probe.bytes);
+    pairsBuffer.destroy();
+    outBuffer.destroy();
+    paramsBuffer.destroy();
+
+    let maxCosError = 0;
+    let maxSinError = 0;
+    for (let i = 0; i < count; i++) {
+        const len = pairs[i * 2];
+        const blockLocal = pairs[i * 2 + 1];
+        const angleExact = (2 * Math.PI * blockLocal) / len;
+        const cosErr = Math.abs(out[i * 2] - Math.cos(angleExact));
+        const sinErr = Math.abs(out[i * 2 + 1] - Math.sin(angleExact));
+        if (cosErr > maxCosError) maxCosError = cosErr;
+        if (sinErr > maxSinError) maxSinError = sinErr;
+    }
+    return { pairs: count, muMax: Math.max(maxCosError, maxSinError), maxCosError, maxSinError };
 }
 
 export type { TgpuComputePipeline };

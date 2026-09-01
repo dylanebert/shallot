@@ -76,7 +76,15 @@ export function slopeMipSize(config: CascadeConfig, level: number): number {
 
 const PI = Math.PI;
 
-/** Deliberately omit the gradient k factor for the red-witness oracle. */
+/** Deliberately omit the gradient-k factor from the slope spectra (`slopeSpectra`, the only
+ *  function that reads `missingGradientK`). `SlopeMutation` also types `runSlopeCpuPipeline`'s own
+ *  `mutation` parameter, which is the entry point the dropped-gradient red-witness oracle's
+ *  production consumers (`slope.test.ts`, `slope.oracle.ts`) actually call — both pass
+ *  `missingGradientK` to `runSlopeCpuPipeline`, which forwards it into `slopeSpectra` unchanged;
+ *  neither test calls `slopeSpectra` directly. `integrateComposedSlopePsd`/`composedSlopePsd` never
+ *  took this flag: the correct red-witness for the composed-quadrature side compares against the
+ *  *unmutated* `composedSlopePsd` (I3c-r), so there is no caller left that needs a mutable gradient
+ *  term in the quadrature. */
 export interface SlopeMutation {
     missingGradientK?: boolean;
 }
@@ -88,7 +96,7 @@ export interface SlopeMutation {
  */
 function integrateComposedSlopePsd(
     config: CascadeConfig,
-    mutation: SpectrumMutation & SlopeMutation,
+    mutation: SpectrumMutation,
     radialSteps: number,
     angularSteps: number,
 ): number {
@@ -110,19 +118,16 @@ function integrateComposedSlopePsd(
                 mutation,
             );
         }
-        // k² from |∇h|², then k·dk = k²·dLog from the polar/log-radial measure.
-        // The resulting radial weight is k⁴·dLog·dTheta. Omitting both gradient factors leaves k².
-        const gradientMoment = mutation.missingGradientK ? k ** 2 : k ** 4;
+        // k² from |∇h|², then k·dk = k²·dLog from the polar/log-radial measure: the radial weight
+        // is k⁴·dLog·dTheta.
+        const gradientMoment = k ** 4;
         total += angularMean * gradientMoment * dLog * dTheta;
     }
     return total;
 }
 
 /** Restricted slope moment from the production density and a fixed midpoint quadrature. */
-export function composedSlopePsd(
-    config: CascadeConfig,
-    mutation: SpectrumMutation & SlopeMutation = {},
-): number {
+export function composedSlopePsd(config: CascadeConfig, mutation: SpectrumMutation = {}): number {
     return integrateComposedSlopePsd(config, mutation, 512, 256);
 }
 
@@ -386,11 +391,11 @@ function createSlopeState(config: CascadeConfig): SlopeState {
     const { device, root } = Compute;
     const N = config.N;
     const complexBytes = N * N * 8;
-    const make = (label: string) =>
+    const make = (label: string, usage: GPUBufferUsageFlags = GPUBufferUsage.STORAGE) =>
         device.createBuffer({
             label,
             size: complexBytes,
-            usage: GPUBufferUsage.STORAGE,
+            usage,
         });
     const h0 = device.createBuffer({
         label: `ocean-slope-h0-${N}`,
@@ -398,8 +403,12 @@ function createSlopeState(config: CascadeConfig): SlopeState {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(h0, 0, generateH0(config, 0));
-    const x = make(`ocean-slope-x-${N}`);
-    const z = make(`ocean-slope-z-${N}`);
+    // COPY_SRC: the I3g-r2 level-0 computation claim (`ocean-slope` gym scenario) reads these
+    // buffers straight back — the SAME post-inverse-FFT f32 complex values `slopePostKernel`
+    // rounds to the published rgba16float texture — never a second GPU state built from the same
+    // kernels. `xTemp`/`zTemp` are pure intra-pass scratch and carry no COPY_SRC.
+    const x = make(`ocean-slope-x-${N}`, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
+    const z = make(`ocean-slope-z-${N}`, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
     const xTemp = make(`ocean-slope-x-temp-${N}`);
     const zTemp = make(`ocean-slope-z-temp-${N}`);
     const params = device.createBuffer({
@@ -419,7 +428,14 @@ function createSlopeState(config: CascadeConfig): SlopeState {
         size: { width: N, height: N },
         mipLevelCount: SLOPE_MIP_LEVELS,
         format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        // COPY_SRC: the published-texture readback arm (`ocean-slope` gym scenario) probes this
+        // exact resource via `probeTexture`, which requires the source to carry COPY_SRC — without
+        // it the only way to inspect this texture's content is a second GPU state built from the
+        // same kernels, which the arm is written to avoid.
+        usage:
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC,
     });
     const h0T = root.createBuffer(d.arrayOf(d.vec2f, N * N), h0).$usage("storage");
     const xT = root.createBuffer(d.arrayOf(d.vec2f, N * N), x).$usage("storage");
@@ -617,4 +633,15 @@ export function teardownSlopes(): void {
     for (const state of states) destroy(state);
     states.length = 0;
     for (let i = 0; i < SLOPE_CASCADE_CONFIGS.length; i++) Compute.textures.delete(`slope${i}`);
+}
+
+/** Read-only accessor for one slope cascade's own post-inverse-FFT f32 complex buffers (`.x`
+ *  real component = the real-space slopeX/slopeZ value `slopePostKernel` reads to build the
+ *  published texture). `states` is module-private so the I3g-r2 level-0 computation claim can
+ *  reach the SAME live buffers `slopeCompute` writes every frame — never a second GPU state
+ *  built from the same kernels — only through this accessor. Returns `null` before `buildSlopes`
+ *  has run for the requested cascade index. */
+export function getSlopeBuffers(cascade: number): { x: GPUBuffer; z: GPUBuffer } | null {
+    const state = states[cascade];
+    return state ? { x: state.x, z: state.z } : null;
 }

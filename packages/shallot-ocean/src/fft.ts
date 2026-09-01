@@ -76,11 +76,15 @@ export function fft1dInPlace(re: Float64Array, im: Float64Array, N: number, sign
 }
 
 /**
- * Unnormalized 2D inverse FFT — a row pass (along x) then a column pass (along y), matching the
- * `idft2`'s signature and semantics exactly (interleaved re/im `Float32Array` in and out,
- * length `N*N*2`). Row-major layout: `input[(y*N + x)*2 + {0,1}]`.
+ * Unnormalized 2D inverse FFT at full f64 precision — a row pass (along x) then a column pass
+ * (along y), interleaved re/im `Float32Array` IN (the input is already f32-quantized by every
+ * production caller, matching what the GPU's own spectral kernel would produce), `Float64Array`
+ * re/im OUT. `ifft2` (below) is the f32-truncated convenience wrapper every existing caller uses;
+ * this is the untruncated form `slope-seam.ts`'s Higham-bound comparison needs as its "x64"
+ * reference — truncating the OUTPUT to f32 (what `ifft2` does) would silently inject an extra
+ * rounding step this stage's whole point is to keep out of the reference side of that comparison.
  */
-export function ifft2(input: Float32Array, N: number): Float32Array {
+export function ifft2Exact(input: Float32Array, N: number): { re: Float64Array; im: Float64Array } {
     const re = new Float64Array(N * N);
     const im = new Float64Array(N * N);
     for (let i = 0; i < N * N; i++) {
@@ -118,6 +122,18 @@ export function ifft2(input: Float32Array, N: number): Float32Array {
         }
     }
 
+    return { re, im };
+}
+
+/**
+ * Unnormalized 2D inverse FFT — a row pass (along x) then a column pass (along y), matching the
+ * `idft2`'s signature and semantics exactly (interleaved re/im `Float32Array` in and out,
+ * length `N*N*2`). Row-major layout: `input[(y*N + x)*2 + {0,1}]`. Thin f32-truncating wrapper
+ * over {@link ifft2Exact} — every existing caller wants the truncated form; `slope-seam.ts` is the
+ * one caller that wants the untruncated `re`/`im` directly.
+ */
+export function ifft2(input: Float32Array, N: number): Float32Array {
+    const { re, im } = ifft2Exact(input, N);
     const out = new Float32Array(N * N * 2);
     for (let i = 0; i < N * N; i++) {
         out[i * 2] = re[i];

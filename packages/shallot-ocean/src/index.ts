@@ -12,13 +12,16 @@ export {
     spectralGradient,
     updateH,
 } from "./cpu-reference";
-export { directIdft2, fft1dInPlace, ifft2 } from "./fft";
+export { directIdft2, fft1dInPlace, ifft2, ifft2Exact } from "./fft";
 export {
     type FftLayout,
     getFftKernels,
     makeColFftKernel,
     makeFftLayout,
     makeRowFftKernel,
+    measureTwiddleTrigError,
+    type TwiddleErrorReading,
+    twiddleAngle,
 } from "./gpu-fft";
 export {
     type CascadeConfig,
@@ -49,14 +52,31 @@ export {
 } from "./parity-witness";
 export {
     composedSlopePsd,
+    getSlopeBuffers,
     rasterSlopeMoment,
     realizedSlopeMss,
     reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
+    slopeCompute,
+    slopeMipSize,
     slopeSpectra,
 } from "./slope";
+export {
+    CHANNELS,
+    type Channel,
+    complexL2Norm,
+    expectedFromPublished,
+    expectedLevel0,
+    f16Neighbors,
+    f16NextDown,
+    f16NextUp,
+    f16Round,
+    f16StepDistance,
+    higham242AbsoluteBound,
+    higham242RelativeBound,
+} from "./slope-seam";
 export {
     ALL_CASCADE_CONFIGS,
     assertAllPowerOfTwo,
