@@ -11,8 +11,8 @@ Already on 0.9.0 or 0.9.1? You need none of the GPU-substrate port — only the 
 Install the engine and its TypeGPU peer at the same time. Keep TypeGPU on the 0.12 minor used by Shallot; two copies in one bundle race over the same metadata map. The TypeGPU plugin versions move with the library, never independently.
 
 ```bash
-bun add @dylanebert/shallot@^0.9 typegpu@~0.12.0
-bun add -d unplugin-typegpu@~0.12.1 eslint@^9 eslint-plugin-typegpu@~0.12.0
+bun add @dylanebert/shallot@^0.9 typegpu@~0.12.4
+bun add -d unplugin-typegpu@~0.12.3 eslint@^9 eslint-plugin-typegpu@~0.12.0
 bun add -d @babel/core@^7.28.6 @babel/eslint-parser@^7.28.6 @babel/plugin-syntax-typescript@^7.28.5
 ```
 

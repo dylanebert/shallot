@@ -27,7 +27,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/flows/no-walls": {
@@ -37,7 +37,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/flows/survive-reload": {
@@ -47,7 +47,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/flows/ui-containment": {
@@ -57,7 +57,7 @@
         "@dylanebert/shallot": "workspace:*",
       },
       "devDependencies": {
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
       },
     },
     "examples/gym": {
@@ -65,11 +65,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.62.1",
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
         "vite": "^8.0.16",
       },
     },
@@ -162,7 +162,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
     },
     "examples/recipes/import-a-model": {
@@ -271,7 +271,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
@@ -294,11 +294,11 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
         "vite": "^8.0.16",
       },
     },
@@ -307,7 +307,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "devDependencies": {
         "@playwright/test": "^1.58.2",
@@ -327,7 +327,7 @@
       "dependencies": {
         "@types/node": "^26.0.0",
         "@webgpu/types": "^0.1.70",
-        "unplugin-typegpu": "~0.12.1",
+        "unplugin-typegpu": "~0.12.3",
         "vite": "^8.0.16",
       },
       "devDependencies": {
@@ -335,7 +335,7 @@
         "bun-webgpu": "^0.1.4",
         "fast-check": "^4.6.0",
         "js-yaml": "^4.1.0",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
         "wgpu-matrix": "^3.4.0",
       },
       "optionalDependencies": {
@@ -343,7 +343,7 @@
       },
       "peerDependencies": {
         "playwright": "^1.0.0",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "optionalPeers": [
         "playwright",
@@ -354,11 +354,11 @@
       "version": "0.0.0",
       "devDependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
       "peerDependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "typegpu": "~0.12.0",
+        "typegpu": "~0.12.4",
       },
     },
     "packages/vscode-shallot": {
@@ -869,9 +869,9 @@
 
     "surface-friction": ["surface-friction@workspace:examples/recipes/surface-friction"],
 
-    "tinyest": ["tinyest@0.3.2", "", {}, "sha512-1wqSt97RLezWzeogLSVXHr+E3jpYO8jxyaK2AIdJeGoZZTCubwNxQ9IqU5gbQpJVcxlbPugPAsII+m9/gqpPSA=="],
+    "tinyest": ["tinyest@0.3.3", "", {}, "sha512-LUDiIzyDUQ1mGo8Bam9c7Dubid6Psx14zMzGNwwvOEmNs03FWNUtOrHVXd+TcCorzogQ24Rk0fcfdZ+9rGr1Fw=="],
 
-    "tinyest-for-wgsl": ["tinyest-for-wgsl@0.4.0", "", { "dependencies": { "tinyest": "~0.3.1" } }, "sha512-3vkeNf74HrJ1C6QJUiL92ArsaigD8ra52JBMTeyDfqEz6SawyCO1aiF+XCKiMt3MBaL5QIsKOHG5gl/v21MqKA=="],
+    "tinyest-for-wgsl": ["tinyest-for-wgsl@0.4.1", "", { "dependencies": { "tinyest": "~0.3.3" } }, "sha512-2xCW2a6uJ+8jzYnaeVcJ1HdYBO3OYOsRNUdLEQ1D0O7KekfZkZ46qloczQRVozzbR+J1UocWpXI8UfF2E4CLOg=="],
 
     "tinyglobby": ["tinyglobby@0.2.17", "", { "dependencies": { "fdir": "^6.5.0", "picomatch": "^4.0.4" } }, "sha512-wXR/dYpcqKmfWpEdZjiKJOwCNFndD0DMnrW/cYjVGttEkBfVgcLFHoNrlj47mjOVic9yyNu65alsgF4NQyTa2g=="],
 
@@ -883,7 +883,7 @@
 
     "typed-binary": ["typed-binary@4.3.3", "", {}, "sha512-W2hLsSzt3k/tg38gDE4Fn/QiwcoqGuUHBc2cb3mXuH7KcYxe/GM57vzW14s2/bawB4R5knGgGq8Xb57vsaJ4Sg=="],
 
-    "typegpu": ["typegpu@0.12.0", "", { "dependencies": { "tinyest": "~0.3.2", "tsover-runtime": "^0.0.7", "typed-binary": "^4.3.3" }, "bin": { "typegpu": "./bin.mjs" } }, "sha512-onz2jmLierL9cQUCfUhyP8x9XROyWFoFuHTFqyz4p45FTEBYFY9zNfnSntswuREGGZdPaZxQYOlBERAidhybWg=="],
+    "typegpu": ["typegpu@0.12.4", "", { "dependencies": { "tinyest": "~0.3.3", "tsover-runtime": "^0.0.7", "typed-binary": "^4.3.3" }, "bin": { "typegpu": "./bin.mjs" } }, "sha512-4+w79fNPKFp7q/2lVJqNRo4ewr/4+IHuo1d4g2kSYyB53bx8TtbN8I+y2hO8TxNeHhRsUhKsAViDZX7mhtQDAg=="],
 
     "typescript": ["typescript@7.0.2", "", { "optionalDependencies": { "@typescript/typescript-aix-ppc64": "7.0.2", "@typescript/typescript-darwin-arm64": "7.0.2", "@typescript/typescript-darwin-x64": "7.0.2", "@typescript/typescript-freebsd-arm64": "7.0.2", "@typescript/typescript-freebsd-x64": "7.0.2", "@typescript/typescript-linux-arm": "7.0.2", "@typescript/typescript-linux-arm64": "7.0.2", "@typescript/typescript-linux-loong64": "7.0.2", "@typescript/typescript-linux-mips64el": "7.0.2", "@typescript/typescript-linux-ppc64": "7.0.2", "@typescript/typescript-linux-riscv64": "7.0.2", "@typescript/typescript-linux-s390x": "7.0.2", "@typescript/typescript-linux-x64": "7.0.2", "@typescript/typescript-netbsd-arm64": "7.0.2", "@typescript/typescript-netbsd-x64": "7.0.2", "@typescript/typescript-openbsd-arm64": "7.0.2", "@typescript/typescript-openbsd-x64": "7.0.2", "@typescript/typescript-sunos-x64": "7.0.2", "@typescript/typescript-win32-arm64": "7.0.2", "@typescript/typescript-win32-x64": "7.0.2" }, "bin": { "tsc": "bin/tsc" } }, "sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA=="],
 
@@ -891,7 +891,7 @@
 
     "unplugin": ["unplugin@3.3.0", "", { "dependencies": { "@jridgewell/remapping": "^2.3.5", "picomatch": "^4.0.4", "webpack-virtual-modules": "^0.6.2" }, "peerDependencies": { "@farmfe/core": "*", "@rspack/core": "*", "bun-types-no-globals": "*", "esbuild": "*", "rolldown": "*", "rollup": "*", "unloader": "*", "vite": "*", "webpack": "*" }, "optionalPeers": ["@farmfe/core", "@rspack/core", "bun-types-no-globals", "esbuild", "rolldown", "rollup", "unloader", "vite", "webpack"] }, "sha512-qa66K+crbfyE6JK10GjvbJeRrOsuC/JpbnHctfyp/i4oBTxWOzJfRZyDiOk1PtErMFRu8JhsU/wPvOdBNWe5Rg=="],
 
-    "unplugin-typegpu": ["unplugin-typegpu@0.12.1", "", { "dependencies": { "@babel/parser": "^7.29.0", "@babel/traverse": "^7.29.0", "@babel/types": "^7.29.0", "ast-kit": "^2.2.0", "defu": "^6.1.4", "magic-string": "^0.30.21", "pathe": "^2.0.3", "picomatch": "^4.0.4", "tinyest": "~0.3.2", "tinyest-for-wgsl": "~0.4.0", "unplugin": "^3.0.0" }, "peerDependencies": { "typegpu": "^0.12.0" } }, "sha512-UII2efnC4eRywJr/ot/U4+xB/3kzu5aTnhHMkXOwwLKSi1i0iKoQbVFXQEQYCaBvOwF8Sy2jqnTPdMaa+aF0PA=="],
+    "unplugin-typegpu": ["unplugin-typegpu@0.12.3", "", { "dependencies": { "@babel/parser": "^7.29.0", "@babel/traverse": "^7.29.0", "@babel/types": "^7.29.0", "ast-kit": "^2.2.0", "defu": "^6.1.4", "magic-string": "^0.30.21", "pathe": "^2.0.3", "picomatch": "^4.0.4", "tinyest": "~0.3.3", "tinyest-for-wgsl": "~0.4.1", "unplugin": "^3.0.0" }, "peerDependencies": { "typegpu": "^0.12.4" } }, "sha512-60jIV4kH2jt2GMCtPIKjnTiLMrtRGggUD+hPc/8anJrC1TDfBYwnjcQsX0fCJpK24zlF3Ivi3fPAN6o/cRmz+Q=="],
 
     "update-browserslist-db": ["update-browserslist-db@1.3.1", "", { "dependencies": { "escalade": "^3.2.0", "picocolors": "^1.1.1" }, "peerDependencies": { "browserslist": ">= 4.21.0" }, "bin": { "update-browserslist-db": "cli.js" } }, "sha512-ZZ61DsRsOnakl74HAmp3oSN4aXUmEWXf+i/yv0h7tIBfICc3VdrFErQKUUKPgu3AMsTUMbcongALEN4l6GSUrQ=="],
 
