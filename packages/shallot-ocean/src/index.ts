@@ -55,8 +55,6 @@ export {
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
-    slopeMomentAgreementTolerance,
-    slopeMomentSamplingError,
     slopeSpectra,
 } from "./slope";
 export {
