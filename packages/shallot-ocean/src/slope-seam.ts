@@ -22,18 +22,19 @@
 // against the SAME texel's own f32 source, never a scaled tolerance), and the computation claim's
 // only free inputs are the three measured/derived quantities above.
 //
-// Mutation table (`bun bench --scenario ocean-slope` against a real WebGPU device, nvidia/lovelace,
-// each mutation applied in place to the named production line and reverted immediately after the
-// reading below — via direct file restoration from a pre-mutation copy rather than
-// `git show HEAD:<path>`, since these five were run before this stage's own commit existed for
-// `HEAD` to name; a mutation applied AFTER this file lands reverts with `git show HEAD:<path>`, per
-// the usual convention, since `HEAD` then holds this exact content):
+// Mutation table, re-run at the I3g-r2 review-round-1 correction against the LANDED I3g-r2 commits
+// (`bun bench --scenario ocean-slope` against a real WebGPU device, nvidia/lovelace, for every row
+// but 6; `bun test packages/shallot-ocean/tests/slope-seam.test.ts` for row 6, since `reduceSlopeMip`
+// has no GPU-reachable caller). Every mutation below targets `slope.ts`/`gpu-fft.ts` — files this
+// correction round does not otherwise edit — so each reverts cleanly with `git show HEAD:<path>`
+// (the commits now exist, so the earlier file-backup convention this table used at first authoring,
+// before any of this had landed, no longer applies):
 //
 //   1. `slope.ts`'s `mipKernel`, mean weight 0.25 -> 0.2 (wrong divisor, same 4 texels averaged):
 //      exit 1. "storage seam claim holds over every texel of every level and channel" failed —
-//      total 349524, violations=87255 (every channel of every level >=1 moved >=2 steps).
+//      total 349524, violations=87322 (every channel of every level >=1 moved >=2 steps).
 //   2. `slope.ts`'s `mipKernel`, dropped texel (`std.add(std.add(a, b), c)`, `e` never added,
-//      divisor left at 0.25): exit 1. Same check failed — violations=87178.
+//      divisor left at 0.25): exit 1. Same check failed — violations=87237.
 //   3. `slope.ts`'s `slopePostKernel`, swapped channel (`vec4f(valueZ.x, valueX.x, energy, 0)`):
 //      exit 1. "mip 0 storage seam histogram" failed — violations=131020 (level 0 only: L>=1
 //      compares against its own already-swapped published parent, so the self-referential claim
@@ -49,6 +50,15 @@
 //      "level-0 computation claim holds on slopeX" failed — deviation L2 ~4.02e1 against E0
 //      ~1.6e-4 (reach 0.0x); slopeZ's claim and the storage-seam claim both stayed green, showing
 //      the computation claim discriminates per-channel rather than being fooled by one good side.
+//   6. `slope.ts`'s `reduceSlopeMip`, wrong divisor on all three means (`/4` -> `/5`, same 4 texels
+//      summed): exit 1 (`bun test`, not `bun bench` — this function has no GPU-reachable caller).
+//      "every published texel is within its allowed f16 rounding distance..." failed at the FIRST
+//      texel checked past level 0 — received steps=353 against limit=1. This is the row the I3g-r2
+//      review-round-1 correction added: `slope-seam.test.ts`'s `publishedPyramid()` now builds every
+//      level >= 1 through THIS function (the package's own independent CPU mirror of the GPU
+//      `mipKernel`) rather than through `expectedFromPublished` on both sides, so a defect here is
+//      now visible to the arm that mutation 1/2 above could already see through `bun bench` — this
+//      row is what makes it visible through `bun test` too, with no GPU adapter required.
 
 export const CHANNELS = ["slopeX", "slopeZ", "energy", "residual"] as const;
 export type Channel = (typeof CHANNELS)[number];
@@ -96,54 +106,23 @@ export function f16Neighbors(value: number): [number, number] {
     return value > nearest ? [nearest, f16NextUp(nearest)] : [f16NextDown(nearest), nearest];
 }
 
-/** `f16Neighbors` widened by `slack` extra f16 steps on each side — see `seamSlack`'s own docblock
- *  for what that slack pays for and why it is derived rather than authored. */
-export function f16NeighborsWithSlack(value: number, slack: number): [number, number] {
-    let [lo, hi] = f16Neighbors(value);
-    for (let i = 0; i < slack; i++) {
-        lo = f16NextDown(lo);
-        hi = f16NextUp(hi);
-    }
-    return [lo, hi];
-}
-
 /** Signed f16-ULP hop count from `published`'s nearest-rounding of `expected` — 0 means an exact
- *  round-to-nearest match, 1 means the OTHER of the two WGSL-legal neighbours, >=2 means the slack
- *  a compound expression's optional FMA fusion buys (`seamSlack`). Same-sign texels only (every
- *  channel here is far from a sign change at the f16 subnormal floor in practice; a sign flip
- *  reports a large sentinel distance rather than a false small one). */
+ *  round-to-nearest match, 1 means the OTHER of the two WGSL-legal neighbours, and anything else is
+ *  a genuine violation of the storage-seam claim (no slack term sits in front of this comparison —
+ *  see the I3g-r re-verdict this file's header cites for why an FMA-fusion slack was deleted here
+ *  rather than sized: the consult's own bench reading found every texel-channel on this device at
+ *  `steps <= 1`, so an authored allowance the reading proves inert is deleted, not justified).
+ *  Same-sign texels only (every channel here is far from a sign change at the f16 subnormal floor
+ *  in practice; a sign flip reports a large sentinel distance rather than a false small one). */
 export function f16StepDistance(expected: number, published: number): number {
     const nearest = f16Round(expected);
     if (nearest === published) return 0;
     const nb = f16BitsOf(nearest);
     const pb = f16BitsOf(published);
     if ((nb & 0x8000) !== (pb & 0x8000) && nearest !== 0 && published !== 0) {
-        return 1000; // not a legitimate rounding neighbour under any realistic slack
+        return 1000; // not a legitimate rounding neighbour under any realistic reading
     }
     return Math.abs((nb & 0x7fff) - (pb & 0x7fff));
-}
-
-/**
- * FMA-fusable multiply-then-add/subtract sites in this channel's own expression at this level —
- * the f16-ULP slack the storage-seam claim allows beyond the base two-neighbour bracket. IEEE 754
- * permits (never requires) a compiler/driver to fuse an `a*b+c`-shaped expression into one rounding
- * step even where the WGSL source writes separate `*`/`+` operators; that optional fusion can shift
- * the f32 RESULT by up to 0.5 f32 ULP relative to this module's strictly-separately-rounded
- * (`Math.fround`-per-op) recompute — utterly negligible against f32 precision, but able to tip a
- * borderline f16-rounding decision by at most one extra f16 step per fusable site. Counted directly
- * from the kernel's own expression (`slope.ts`'s `slopePostKernel`/`mipKernel`), never fitted to a
- * reading:
- *   - level 0 `energy = valueX.x*valueX.x + valueZ.x*valueZ.x`: one fusable site.
- *   - level 0 `slopeX`/`slopeZ`: direct buffer readback, no arithmetic at all.
- *   - level 0 `residual`: hardcoded literal 0 on both sides — no slack, exact equality only.
- *   - level >=1 `slopeX`/`slopeZ`/`energy = mean(4 parents)`: a pure add-then-scale chain, no
- *     multiply-then-add-of-a-DIFFERENT-term pattern for an FMA to fuse.
- *   - level >=1 `residual = secondMoment - mean.x*mean.x - mean.y*mean.y`: two fusable sites
- *     (each subtract-of-a-product).
- */
-export function seamSlack(level: number, channel: Channel): number {
-    if (level === 0) return channel === "energy" ? 1 : 0;
-    return channel === "residual" ? 2 : 0;
 }
 
 /**
@@ -249,7 +228,11 @@ export function higham242RelativeBound(muMax: number, u: number, stages: number)
 }
 
 /** `E0 = higham242RelativeBound(...) * normX64` — the theorem is stated relative to `||y||_2`,
- *  which IS `||x64||_2` here (the f64-computed, exact-arithmetic transform output). */
+ *  which IS `||x64||_2` here: `ifft2Exact`'s (`fft.ts`) own f64 radix-2 FFT output, computed at
+ *  full f64 precision (`fft.ts`'s own docblock wording) rather than the theorem's own EXACT
+ *  transform, which `ifft2Exact` is not — it carries its own rounding error at `u ~ 2^-53` per
+ *  chained operation, roughly nine orders of magnitude below E0's own f32-driven `u = 2^-24` scale,
+ *  negligible against E0 rather than zero. */
 export function higham242AbsoluteBound(
     muMax: number,
     u: number,

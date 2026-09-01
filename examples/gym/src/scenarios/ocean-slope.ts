@@ -53,7 +53,6 @@ import {
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
-    seamSlack,
     slopeCompute,
     slopeMipSize,
 } from "@dylanebert/shallot-ocean";
@@ -120,7 +119,7 @@ async function publishedLevel(texture: GPUTexture, level: number): Promise<Float
 
 function allowedSteps(level: number, channel: Channel): number {
     if (level === 0 && channel === "residual") return 0; // hardcoded literal, no rounding ambiguity
-    return 1 + seamSlack(level, channel);
+    return 1; // bare discrete claim — no slack term (I3g-r re-verdict; `slope-seam.ts`'s own header)
 }
 
 interface SeamHistogram {
@@ -130,13 +129,23 @@ interface SeamHistogram {
     violations: string[];
 }
 
+/** Per-channel maximum observed step distance at one level — the durable, attributable replacement
+ *  for the deleted scalar `seamSlack`: this device's own reading printed alongside the histogram so
+ *  a future >=2-step texel is traceable to the channel that carries it, never anonymous. */
+function emptyMaxSteps(): Record<Channel, number> {
+    const out = {} as Record<Channel, number>;
+    for (const channel of CHANNELS) out[channel] = 0;
+    return out;
+}
+
 /** Runs the discrete storage-seam claim over one level's `expected`/`published` pair, accumulating
- *  into `histogram` and returning nothing — the caller decides whether to assert. */
+ *  into `histogram` and `maxSteps` (per channel) — the caller decides whether to assert. */
 function checkSeamLevel(
     level: number,
     expected: Float32Array,
     published: Float32Array,
     histogram: SeamHistogram,
+    maxSteps: Record<Channel, number>,
 ): void {
     const count = expected.length / 4;
     for (let i = 0; i < count; i++) {
@@ -145,6 +154,7 @@ function checkSeamLevel(
             if (steps === 0) histogram.exact++;
             else if (steps === 1) histogram.neighbor++;
             else histogram.slack++;
+            if (steps > maxSteps[channel]) maxSteps[channel] = steps;
             const limit = allowedSteps(level, channel);
             if (steps > limit) {
                 histogram.violations.push(
@@ -223,9 +233,14 @@ async function runChecks(state: State): Promise<Check[]> {
     });
     if (state.time.elapsed !== 0) return checks;
 
-    // f64 CPU reference — the exact same spectral input the GPU's own slopeKernel derives from
-    // the SAME h0 (`buildSlopes`/`createSlopeState` seeds every cascade with `generateH0(config,
-    // 0)`), transformed WITHOUT the final f32-truncating cast (`ifft2Exact`, never `ifft2`).
+    // f64 CPU reference — from the SAME h0 seed (`buildSlopes`/`createSlopeState` seeds every
+    // cascade with `generateH0(config, 0)`), transformed WITHOUT the final f32-truncating cast
+    // (`ifft2Exact`, never `ifft2`). NOT "the exact same spectral input": `slopeSpectra` (CPU, this
+    // module's `runSlopeCpuPipeline` call) and `slopeKernel` (GPU, WGSL) are two SEPARATE f32
+    // computations of the same `i*k*h̃` formula from the same seed, each accumulating its own f32
+    // rounding, so they can differ by ~1 ULP even before either FFT runs. That difference is priced
+    // out rather than ignored: it sits at the same `u = 2^-24` order Higham's own bound already
+    // carries as its per-operation unit roundoff, so E0 (derived below) already covers it.
     const h0 = generateH0(SLOPE_CONFIG, 0);
     const { x: xSpectrum, z: zSpectrum } = runSlopeCpuPipeline(h0, SLOPE_CONFIG, 0);
     const x64 = ifft2Exact(xSpectrum, N);
@@ -325,7 +340,8 @@ async function runChecks(state: State): Promise<Check[]> {
                       slopeMipSize(SLOPE_CONFIG, level - 1),
                   );
         const levelHistogram: SeamHistogram = { exact: 0, neighbor: 0, slack: 0, violations: [] };
-        checkSeamLevel(level, expected, published[level], levelHistogram);
+        const levelMaxSteps = emptyMaxSteps();
+        checkSeamLevel(level, expected, published[level], levelHistogram, levelMaxSteps);
         const size = slopeMipSize(SLOPE_CONFIG, level);
         const levelTexels = levelHistogram.exact + levelHistogram.neighbor + levelHistogram.slack;
         checks.push({
@@ -334,6 +350,7 @@ async function runChecks(state: State): Promise<Check[]> {
             detail:
                 `size=${size}x${size}, texels=${levelTexels}, 0-step=${levelHistogram.exact}, ` +
                 `1-step=${levelHistogram.neighbor}, >=2-step=${levelHistogram.slack}, ` +
+                `maxSteps=[${CHANNELS.map((channel) => `${channel}:${levelMaxSteps[channel]}`).join(", ")}], ` +
                 `violations=${levelHistogram.violations.length}` +
                 (levelHistogram.violations.length > 0
                     ? ` (${levelHistogram.violations.slice(0, 5).join("; ")})`
@@ -379,7 +396,7 @@ async function runChecks(state: State): Promise<Check[]> {
                   );
         const zeroed = new Float32Array(expected.length);
         const zeroHistogram: SeamHistogram = { exact: 0, neighbor: 0, slack: 0, violations: [] };
-        checkSeamLevel(level, expected, zeroed, zeroHistogram);
+        checkSeamLevel(level, expected, zeroed, zeroHistogram, emptyMaxSteps());
         checks.push({
             name: `mip ${level} zeroed-payload vacuity witness`,
             pass: zeroHistogram.violations.length > 0,

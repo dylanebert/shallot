@@ -70,14 +70,12 @@ export {
     expectedFromPublished,
     expectedLevel0,
     f16Neighbors,
-    f16NeighborsWithSlack,
     f16NextDown,
     f16NextUp,
     f16Round,
     f16StepDistance,
     higham242AbsoluteBound,
     higham242RelativeBound,
-    seamSlack,
 } from "./slope-seam";
 export {
     ALL_CASCADE_CONFIGS,

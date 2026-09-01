@@ -1,11 +1,22 @@
 // CPU-only regression proof of the storage-seam pyramid claim's own math (`slope-seam.ts`) —
-// self-contained, no GPU adapter needed: this file quantizes a real slope field at every level
-// exactly the way the GPU's own rgba16float storage does (`Float16Array` round trip) and confirms
-// the discrete claim holds at every texel — the companion real-device arm lives in the
-// `ocean-slope` gym scenario, which reads the ACTUAL published texture and buffers rather than a
-// JS-simulated storage rounding.
+// self-contained, no GPU adapter needed. What this file CAN see: level >= 1's "published" pyramid
+// is built here through `slope.ts`'s own `reduceSlopeMip` — a SEPARATE, independently-authored CPU
+// mirror of the GPU `mipKernel` (plain double-precision `reduce`/`/4`, no per-step `Math.fround`
+// discipline) — while the "expected" comparison below recomputes through `expectedFromPublished`,
+// a DIFFERENT implementation of the same reduction (Math.fround-chained, matching the WGSL
+// expression order exactly). Two independently-written functions computing the same mean/residual
+// formula: a defect in either one shows up as a step-distance divergence between "published" and
+// "expected", which the mutation table in `slope-seam.ts` now exercises directly on
+// `reduceSlopeMip` (mutation 6). What this file CANNOT see: level 0 has no second CPU
+// implementation anywhere in this package — `expectedLevel0` is the only CPU mirror of
+// `slopePostKernel`'s own WGSL logic that exists, so this file necessarily builds AND checks level
+// 0 with that SAME function, proving only that the f16 round-trip arithmetic is self-consistent,
+// never that `slopePostKernel` itself is correct. That reach belongs entirely to the companion
+// real-device arm in the `ocean-slope` gym scenario, which reads the ACTUAL published texture and
+// buffers (real WGSL kernel output) rather than a JS-simulated storage rounding.
 import { expect, test } from "bun:test";
 import {
+    reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
@@ -20,7 +31,6 @@ import {
     f16NextUp,
     f16Round,
     f16StepDistance,
-    seamSlack,
 } from "../src/slope-seam";
 import { generateH0 } from "../src/spectrum";
 
@@ -30,9 +40,12 @@ function quantize(field: Float32Array): Float32Array {
     return Float32Array.from(new Float16Array(field));
 }
 
-/** Simulated published pyramid: level 0 quantized straight from the (unquantized) FFT output,
- *  every later level quantized from the PREVIOUS level's own quantized (published) values —
- *  mirrors the GPU's own storage chain exactly (`slope.ts`'s `slopePostKernel` -> `mipKernel`). */
+/** Simulated published pyramid: level 0 quantized straight from the (unquantized) FFT output via
+ *  `expectedLevel0` (the only CPU form level 0 has — see file header for what this cannot catch);
+ *  every level >= 1 quantized from the PREVIOUS level's own quantized (published) values through
+ *  `reduceSlopeMip`, the package's independently-authored CPU mirror of the GPU `mipKernel` —
+ *  deliberately NOT `expectedFromPublished`, which is what the comparison below uses as `expected`,
+ *  so the two sides of the level >= 1 comparison come from two different implementations. */
 function publishedPyramid(): Float32Array[] {
     const h0 = generateH0(config, 0);
     const { xField, zField } = runSlopeCpuPipeline(h0, config, 0);
@@ -47,14 +60,14 @@ function publishedPyramid(): Float32Array[] {
     const levels = [level0];
     for (let level = 1; level < SLOPE_MIP_LEVELS; level++) {
         const parentSize = slopeMipSize(config, level - 1);
-        levels.push(quantize(expectedFromPublished(levels[level - 1], parentSize)));
+        levels.push(quantize(reduceSlopeMip(levels[level - 1], parentSize)));
     }
     return levels;
 }
 
 function allowedSteps(level: number, channel: (typeof CHANNELS)[number]): number {
     if (level === 0 && channel === "residual") return 0; // hardcoded literal, no rounding ambiguity
-    return 1 + seamSlack(level, channel);
+    return 1; // bare discrete claim — see the Ledger's I3g-r re-verdict for why no slack term sits here
 }
 
 test("f16 neighbour helpers round-trip and bracket correctly across binades", () => {
