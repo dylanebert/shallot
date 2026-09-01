@@ -139,11 +139,21 @@ const cellVaryings = {
     has: d.interpolate("flat", d.u32),
 };
 
+// the vertex stage's full output shape, `pos` included — declared once and reused verbatim for the
+// fragment stage's `in` below (`cellFragment`) rather than the varyings alone. A fragment `in` that
+// *omits* `pos` (the shape every field-less-of-pos struct in this pattern takes) is still legal WGSL, but
+// it is a structurally different type from the vertex `out`, so `createRenderPipeline`'s stage-linking
+// step converts one into the other at every resolve — the tgpu `[implicit-conversion]` console warning
+// this fixes, verified by removing it (`draw.test.ts`'s own resolve-time proof, plus the real-browser
+// reproduction the fix was validated against). Declaring both stages against the identical shape avoids
+// the conversion at the source rather than suppressing the warning.
+const cellVsOut = { pos: d.builtin.position, ...cellVaryings };
+
 /** @internal */
 export const cellVertex = tgpu
     .vertexFn({
         in: { vidx: d.builtin.vertexIndex, iid: d.builtin.instanceIndex },
-        out: { pos: d.builtin.position, ...cellVaryings },
+        out: cellVsOut,
     })((input) => {
         "use gpu";
         const corner = QUAD_CORNERS.$[input.vidx];
@@ -188,7 +198,9 @@ export const cellVertex = tgpu
 /** @internal */
 export const cellFragment = tgpu
     .fragmentFn({
-        in: cellVaryings,
+        // `cellVsOut` (`pos` included), not `cellVaryings` alone — matches `cellVertex`'s `out` exactly
+        // (module doc above). `input.pos` is otherwise unused here.
+        in: cellVsOut,
         out: d.vec4f,
     })((input) => {
         "use gpu";

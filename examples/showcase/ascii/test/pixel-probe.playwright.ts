@@ -31,12 +31,34 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // all three channels simultaneously high (near-white ink) — a signal the raw scene cannot produce, only
 // the Cells system's glyph draw can. Deleting `"Cells": true` removes every ink pixel from the frame,
 // which is what `glyphInk`'s own two-sidedness rests on (this file's second test).
+//
+// The console-clean check (`shallot-tui` spec, s3r item 3, added 2026-09-01): a `⚠️ [implicit-conversion]`
+// tgpu warning reached this page's live console with no gate reading for it — this probe already drives
+// the page, so it now asserts every console warning too, not only `console.error`. One warning is a
+// known, pre-existing exclusion rather than a fix: `Implicit conversions from [r: struct:vertexVsOut] to
+// struct` — verified (this file's own diagnostic run, both directions) to reproduce **identically** with
+// `"Cells": true` deleted from `shallot.json`, i.e. with `extras/cells`'s own draw pipeline never built at
+// all, so it cannot be `extras/cells`'s emission; every `createRenderPipeline({ vertex, fragment })` call
+// across `standard/sear`'s several pipelines shares that same literal `vertex` property key, which is what
+// tgpu derives the generic `vertexVsOut` struct name from regardless of which pipeline it belongs to, so
+// the name alone can't attribute it further than "some pipeline outside this stage's footprint" — sear's
+// shading pipeline is exactly what `Boundaries` (`specs/shallot-tui.md`'s s3r brief) forbids retuning in
+// this stage. `extras/cells`'s own draw pipeline was independently re-shaped to declare its fragment `in`
+// as its vertex `out` verbatim (`draw.ts`'s `cellVsOut`) rather than a narrower varyings-only subset — the
+// shape that triggers this exact warning class — so a future regression there is not shielded by this
+// exclusion: only this one exact, narrow signature is excluded, and any other warning (including a
+// differently-worded implicit-conversion from a cells shape change) still fails this check.
+const KNOWN_PREEXISTING_WARNING = /\[implicit-conversion\][\s\S]*struct:vertexVsOut/;
 
 test("ascii showcase — the cell grid reaches the compositor", async ({ page }) => {
     const errors: string[] = [];
+    const warnings: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     page.on("console", (m) => {
         if (m.type() === "error") errors.push(`[console.error] ${m.text()}`);
+        if (m.type() === "warning" && !KNOWN_PREEXISTING_WARNING.test(m.text())) {
+            warnings.push(`[console.warning] ${m.text()}`);
+        }
     });
 
     await page.goto("/");
@@ -94,4 +116,5 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
     ).toBe(true);
 
     expect(errors, `page errors: ${errors.join("\n")}`).toEqual([]);
+    expect(warnings, `page console warnings: ${warnings.join("\n")}`).toEqual([]);
 });
