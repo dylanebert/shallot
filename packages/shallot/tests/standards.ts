@@ -3,7 +3,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
 
-export const STANDARDS_POPULATION_GOLDEN = 106;
+export const STANDARDS_POPULATION_GOLDEN = 107;
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
@@ -368,6 +368,9 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     bvhRoot: {
         test: { file: "packages/shallot/src/standard/bvh/traverse.test.ts", symbol: "bvhRoot" },
     },
+    cellFootprintPx: {
+        test: { file: "packages/shallot/src/extras/cells/draw.test.ts", symbol: "cellFootprintPx" },
+    },
     clusterCell: {
         test: {
             file: "packages/shallot/src/standard/render/cluster.test.ts",
@@ -441,10 +444,10 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
             symbol: "fresnelSchlick",
         },
     },
-    glyphLocalCorner: {
+    glyphFootprintT: {
         test: {
             file: "packages/shallot/src/extras/cells/draw.test.ts",
-            symbol: "glyphLocalCorner",
+            symbol: "glyphFootprintT",
         },
     },
     halfLambert: {

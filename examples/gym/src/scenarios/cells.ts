@@ -559,7 +559,7 @@ async function assertDrawDispatch(): Promise<Check> {
 // S3r item 2's owed arm: render every coverage-ordered fill glyph through `draw.ts`'s own real pipeline
 // (not the synthetic solid atlas `DrawPlugin` above uses for its fg/bg-only check) and assert the
 // *rendered* ink rises with the ramp's own measured-coverage order — the property `draw.ts`'s
-// `glyphLocalCorner` fix exists to preserve at the point of use (`specs/shallot-tui.md`'s s3r item 2,
+// `cellFootprintPx`/`glyphFootprintT` fix exists to preserve at the point of use (`specs/shallot-tui.md`'s s3r item 2,
 // "the coverage-ordered ramp whose rendered order does not match its measured order is the defect class
 // here"). One cell per fill glyph, `CELL_FILL_GLYPHS[i]`'s glyph index `i` — `ramp.ts`'s own contract
 // keeps that array sorted ascending by measured coverage, so "monotone in the same direction as
@@ -776,6 +776,279 @@ async function assertMonoRamp(): Promise<Check> {
     };
 }
 
+// Criterion 9 (`shallot-tui` spec, added 2026-09-01 after a human look found the shaded 3D scene visible
+// underneath the glyphs): "the web frame contains the cell grid and nothing else." `assertDrawDispatch`
+// above proves the *ink* pixels read correctly at a sampled center point; it says nothing about the
+// pixels a cell's own footprint margin leaves — exactly where the s3r item 9 defect lived (`draw.ts`'s
+// `loadOp: "load"` composited the grid *over* whatever `view.framebuffer` already held, and the shrunk
+// glyph-quad geometry the size-proportional-placement fix (item 2) introduced left most of every cell's
+// own area unpainted by that geometry). This probe pre-fills a target with a sentinel color no cell
+// fg/bg in this fixture can ever produce (`FRAME_SENTINEL`: chromatic magenta against a pure black/white
+// fg/bg pair — no grayscale blend between black and white can land near it), draws a real, sparse cell
+// grid over it (a checkerboard of blank cells and small-footprint ink cells, so both "the whole cell is
+// bg" and "ink sits inside a margin" are exercised), and counts surviving sentinel pixels across the
+// *whole* target, not a sampled point.
+//
+// Two-sided against "the cells system removed": a second, control target gets the identical sentinel
+// pre-fill but `drawCells` is never called against it — its sentinel must survive completely. A probe
+// that read 0 on both targets would prove nothing (a probe that can't see the sentinel at all reads 0
+// either way); reading 0 on the drawn target *and* every pixel on the control is what shows the 0 is
+// evidence the grid replaced the frame, not a blind instrument.
+const FRAME_COLS = 4;
+const FRAME_ROWS = 3;
+const FRAME_CELL_PX = 16; // a multiple of the probe kernel's 8x8 workgroup on both axes
+const FRAME_VIEW_W = FRAME_COLS * FRAME_CELL_PX; // 64
+const FRAME_VIEW_H = FRAME_ROWS * FRAME_CELL_PX; // 48
+const FRAME_FORMAT: GPUTextureFormat = "rgba8unorm";
+const FRAME_FG = vec4f(1, 1, 1, 1); // white
+const FRAME_BG = vec4f(0, 0, 0, 1); // black — fg/bg span only grayscale; no mix of the two ever reads chromatic
+const FRAME_SENTINEL = vec4f(1, 0, 1, 1); // magenta — chromatic, unreachable by any mix(black, white, t)
+const FRAME_SENTINEL_PIXEL = [255, 0, 255, 255] as const;
+const FRAME_SENTINEL_BYTES = new Uint8Array(FRAME_VIEW_W * FRAME_VIEW_H * 4);
+for (let i = 0; i < FRAME_VIEW_W * FRAME_VIEW_H; i++)
+    FRAME_SENTINEL_BYTES.set(FRAME_SENTINEL_PIXEL, i * 4);
+const FRAME_TOLERANCE = 0.05;
+// deliberately small so most of an ink cell is its footprint's own margin — exactly the area the s3r
+// item 9 defect left unpainted.
+const FRAME_GLYPH_SIZE: readonly [number, number] = [0.3, 0.3];
+
+const frameProbeLayout = tgpu.bindGroupLayout({
+    src: {
+        texture: d.texture2d(d.f32),
+        sampleType: "unfilterable-float",
+        visibility: ["compute"],
+    },
+    out: {
+        storage: d.arrayOf(d.atomic(d.u32), 1),
+        access: "mutable",
+        visibility: ["compute"],
+    },
+});
+
+// one invocation per pixel of the FRAME_VIEW_W x FRAME_VIEW_H target — counts every pixel still within
+// FRAME_TOLERANCE of the pre-fill sentinel (module doc above).
+const frameProbeKernel = tgpu.computeFn({
+    workgroupSize: [8, 8],
+    in: { gid: d.builtin.globalInvocationId },
+})((input) => {
+    "use gpu";
+    const x = input.gid.x;
+    const y = input.gid.y;
+    if (x >= d.u32(FRAME_VIEW_W) || y >= d.u32(FRAME_VIEW_H)) return;
+    const c = std.textureLoad(frameProbeLayout.$.src, d.vec2u(x, y), 0);
+    const dr = std.abs(c.x - FRAME_SENTINEL.x);
+    const dg = std.abs(c.y - FRAME_SENTINEL.y);
+    const db = std.abs(c.z - FRAME_SENTINEL.z);
+    if (dr < FRAME_TOLERANCE && dg < FRAME_TOLERANCE && db < FRAME_TOLERANCE) {
+        std.atomicAdd(frameProbeLayout.$.out[0], 1);
+    }
+});
+
+let frameAtlas: GPUTexture | null = null;
+let frameGlyphUv: GlyphUvBuffer | null = null;
+let frameGlyphSize: GlyphSizeBuffer | null = null;
+let frameSampler: GPUSampler | null = null;
+let frameDrawnTarget: GPUTexture | null = null;
+let frameControlTarget: GPUTexture | null = null;
+let frameDrawnOut: ReturnType<typeof allocFrameOut> | null = null;
+let frameControlOut: ReturnType<typeof allocFrameOut> | null = null;
+let frameDrawnMirror: Mirror | null = null;
+let frameControlMirror: Mirror | null = null;
+
+function allocFrameGlyphUv() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.vec4f, 2))
+        .$usage("storage")
+        .$name("cells-gym-frame-glyphuv");
+}
+
+function allocFrameGlyphSize() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.vec2f, 2))
+        .$usage("storage")
+        .$name("cells-gym-frame-glyphsize");
+}
+
+function allocFrameOut() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.atomic(d.u32), 1))
+        .$usage("storage")
+        .$name("cells-gym-frame-out");
+}
+
+// a checkerboard of blank cells (glyph 0, `MISSING_GLYPH_UV` — the whole cell must render as pure bg) and
+// small-footprint ink cells (glyph 1, a synthetic solid atlas tile shrunk to `FRAME_GLYPH_SIZE` — most of
+// the cell is the footprint's own margin, which must also render as pure bg). Every populated pixel in
+// the drawn target is therefore either `FRAME_BG` or `FRAME_FG` — never the pre-fill sentinel. `packCell`
+// (the real GPU-side pack, called on the CPU here) rather than a hand-packed word, `writeMonoCells`'s own
+// shape.
+function writeFrameCells(buffer: GPUBuffer): void {
+    const count = FRAME_COLS * FRAME_ROWS;
+    const words = new Uint32Array(count * CELL_U32S);
+    for (let i = 0; i < count; i++) {
+        const glyph = i % 2 === 0 ? 0 : 1;
+        const packed = packCell(glyph, FRAME_FG, FRAME_BG);
+        const base = i * CELL_U32S;
+        words[base + CELL_AT.glyph] = packed.x;
+        words[base + CELL_AT.fg] = packed.y;
+        words[base + CELL_AT.bg] = packed.z;
+    }
+    Compute.device.queue.writeBuffer(buffer, 0, words);
+}
+
+const FramePlugin: Plugin = {
+    name: "GymCellsFrame",
+    initialize() {
+        const device = Compute.device;
+        resetDrawPipeline();
+        Render.format = FRAME_FORMAT;
+
+        const frameGrid = createCellGrid(FRAME_COLS, FRAME_ROWS, 2);
+        writeFrameCells(Compute.root.unwrap(frameGrid.buffer));
+
+        frameGlyphUv = allocFrameGlyphUv();
+        device.queue.writeBuffer(
+            Compute.root.unwrap(frameGlyphUv),
+            0,
+            new Float32Array([...MISSING_GLYPH_UV, 0, 0, 1, 1]),
+        );
+        frameGlyphSize = allocFrameGlyphSize();
+        device.queue.writeBuffer(
+            Compute.root.unwrap(frameGlyphSize),
+            0,
+            new Float32Array([1, 1, ...FRAME_GLYPH_SIZE]),
+        );
+
+        frameAtlas = device.createTexture({
+            label: "cells-gym-frame-atlas",
+            size: { width: 4, height: 4 },
+            format: "r8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        // 255 everywhere — the same "deep inside" SDF sentinel `DrawPlugin`'s own atlas above uses, so
+        // the small footprint's ink reads fully opaque with no real font or SDF generator involved.
+        device.queue.writeTexture(
+            { texture: frameAtlas },
+            new Uint8Array(16).fill(255),
+            { bytesPerRow: 4 },
+            { width: 4, height: 4 },
+        );
+        frameSampler = device.createSampler({
+            label: "cells-gym-frame",
+            magFilter: "linear",
+            minFilter: "linear",
+        });
+
+        const targetUsage =
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_DST;
+        frameDrawnTarget = device.createTexture({
+            label: "cells-gym-frame-drawn",
+            size: { width: FRAME_VIEW_W, height: FRAME_VIEW_H },
+            format: FRAME_FORMAT,
+            usage: targetUsage,
+        });
+        frameControlTarget = device.createTexture({
+            label: "cells-gym-frame-control",
+            size: { width: FRAME_VIEW_W, height: FRAME_VIEW_H },
+            format: FRAME_FORMAT,
+            usage: targetUsage,
+        });
+        for (const t of [frameDrawnTarget, frameControlTarget]) {
+            device.queue.writeTexture(
+                { texture: t },
+                FRAME_SENTINEL_BYTES,
+                { bytesPerRow: FRAME_VIEW_W * 4 },
+                { width: FRAME_VIEW_W, height: FRAME_VIEW_H },
+            );
+        }
+
+        frameDrawnOut = allocFrameOut();
+        frameControlOut = allocFrameOut();
+        device.queue.writeBuffer(Compute.root.unwrap(frameDrawnOut), 0, new Uint32Array([0]));
+        device.queue.writeBuffer(Compute.root.unwrap(frameControlOut), 0, new Uint32Array([0]));
+
+        const probePipeline = Compute.root
+            .createComputePipeline({ compute: frameProbeKernel })
+            .$name("cells-gym-frame-probe");
+        const drawnProbeGroup = Compute.root.createBindGroup(frameProbeLayout, {
+            src: frameDrawnTarget.createView(),
+            out: frameDrawnOut,
+        });
+        const controlProbeGroup = Compute.root.createBindGroup(frameProbeLayout, {
+            src: frameControlTarget.createView(),
+            out: frameControlOut,
+        });
+
+        const encoder = device.createCommandEncoder({ label: "cells-gym-frame" });
+        // the drawn target: the real drawCells pass runs over the sentinel-filled target.
+        drawCells(
+            encoder,
+            frameDrawnTarget.createView(),
+            frameGrid.buffer,
+            frameGlyphUv,
+            frameGlyphSize,
+            frameAtlas.createView(),
+            frameSampler,
+            FRAME_COLS,
+            FRAME_ROWS,
+            FRAME_VIEW_W,
+            FRAME_VIEW_H,
+        );
+        // the control target: "the cells system removed" — drawCells is never called against it, so its
+        // sentinel pre-fill must survive completely (the two-sidedness `assertFrameIsGrid` reads).
+        const probeDims: [number, number] = [
+            Math.ceil(FRAME_VIEW_W / 8),
+            Math.ceil(FRAME_VIEW_H / 8),
+        ];
+        const drawnProbePass = encoder.beginComputePass({ label: "cells-gym-frame-probe-drawn" });
+        probePipeline
+            .with(drawnProbeGroup)
+            .with(drawnProbePass)
+            .dispatchWorkgroups(...probeDims);
+        drawnProbePass.end();
+        const controlProbePass = encoder.beginComputePass({
+            label: "cells-gym-frame-probe-control",
+        });
+        probePipeline
+            .with(controlProbeGroup)
+            .with(controlProbePass)
+            .dispatchWorkgroups(...probeDims);
+        controlProbePass.end();
+
+        device.queue.submit([encoder.finish()]);
+        frameDrawnMirror = mirror(frameDrawnOut);
+        frameControlMirror = mirror(frameControlOut);
+    },
+};
+
+async function assertFrameIsGrid(): Promise<Check> {
+    const name =
+        "criterion 9: the drawn frame contains no trace of what was in the target before this pass";
+    if (!frameDrawnMirror || !frameControlMirror) {
+        return { name, pass: false, detail: "no frame probe mirror" };
+    }
+    await settle(frameDrawnMirror);
+    await settle(frameControlMirror);
+    const drawnSnap = frameDrawnMirror.snapshot;
+    const controlSnap = frameControlMirror.snapshot;
+    if (!drawnSnap || !controlSnap) {
+        return { name, pass: false, detail: "no frame probe snapshot" };
+    }
+    const drawnCount = new Uint32Array(drawnSnap.bytes)[0];
+    const controlCount = new Uint32Array(controlSnap.bytes)[0];
+    const totalPixels = FRAME_VIEW_W * FRAME_VIEW_H;
+    const pass = drawnCount === 0 && controlCount === totalPixels;
+    return {
+        name,
+        pass,
+        detail: pass
+            ? `drawn target: 0/${totalPixels} px still read the pre-existing sentinel — the grid replaced it rather than compositing over it; control ("the cells system removed", drawCells never called): ${controlCount}/${totalPixels} px still read it — the probe does detect the sentinel when it's there, so the drawn target's 0 is not a blind instrument`
+            : `drawn target: ${drawnCount}/${totalPixels} px still read the pre-existing sentinel (want 0 — the s3r item 9 defect: the grid composited over whatever the target already held instead of replacing it); control: ${controlCount}/${totalPixels} px read it (want ${totalPixels} — short of that, the probe can't see the sentinel at all and the drawn-target reading above is not evidence either way)`,
+    };
+}
+
 const scenario: Scenario = {
     name: "cells",
     noRender: true,
@@ -789,6 +1062,7 @@ const scenario: Scenario = {
                 SelectPlugin,
                 DrawPlugin,
                 MonoPlugin,
+                FramePlugin,
             ],
         });
         return {
@@ -818,6 +1092,21 @@ const scenario: Scenario = {
                 monoSampler = null;
                 monoOut = null;
                 monoMirror = null;
+                frameAtlas?.destroy();
+                frameAtlas = null;
+                frameGlyphUv?.destroy();
+                frameGlyphUv = null;
+                frameGlyphSize?.destroy();
+                frameGlyphSize = null;
+                frameSampler = null;
+                frameDrawnTarget?.destroy();
+                frameDrawnTarget = null;
+                frameControlTarget?.destroy();
+                frameControlTarget = null;
+                frameDrawnOut = null;
+                frameControlOut = null;
+                frameDrawnMirror = null;
+                frameControlMirror = null;
                 resetDrawPipeline();
                 dispose();
             },
@@ -829,6 +1118,7 @@ const scenario: Scenario = {
             await assertSelectDispatch(),
             await assertDrawDispatch(),
             await assertMonoRamp(),
+            await assertFrameIsGrid(),
         ];
     },
     live(): string {

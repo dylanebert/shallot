@@ -85,12 +85,13 @@ export function cellGlyphString(): string {
 //      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer, and its `glyphWidth, glyphHeight`
 //      (em-normalized, clamped to at most 1) into lane `i` of a `d.arrayOf(d.vec2f, CELL_GLYPH_COUNT)`
 //      sibling — the glyph's own measured footprint.
-//   3. The instanced draw's vertex stage indexes both buffers by `cells[i].glyph`: it shrinks + centers
-//      the quad-local corner to that glyph's own footprint before placing it (`glyphLocalCorner`,
-//      `draw.ts`) — size-proportional placement, so a glyph occupies the cell in proportion to its own
-//      measured size rather than every glyph's padded SDF tile stretching across the same cell footprint
-//      regardless of extent — mixes the UV corner across the whole `u0,v0..u1,v1` box unchanged, and the
-//      fragment stage samples the SDF there.
+//   3. The instanced draw's vertex stage indexes both buffers by `cells[i].glyph`: the quad geometry
+//      always covers the whole cell (`draw.ts`'s `cellVertex`), and a fragment maps into the glyph's own
+//      isotropically-scaled footprint within it (`cellFootprintPx` + `glyphFootprintT`, `draw.ts`) —
+//      size-proportional placement, so a glyph occupies the cell in proportion to its own measured size
+//      rather than every glyph's padded SDF tile stretching across the same cell footprint regardless of
+//      extent, and without re-stretching that footprint by the cell's own (non-square) aspect ratio.
+//      Outside the footprint, the fragment stage renders the cell's own background with no glyph ink.
 //
 // A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`) packs the zero-area uv
 // sentinel `(0,0,0,0)` (`u1 <= u0`, `MISSING_GLYPH_UV`) and the identity-footprint size sentinel `(1,1)`

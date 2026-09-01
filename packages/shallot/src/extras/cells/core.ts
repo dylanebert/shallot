@@ -32,10 +32,11 @@ export {
     unpackCell,
 } from "./cell";
 export {
+    cellFootprintPx,
     DrawParams as CellsDrawParams,
     drawCells,
     drawPipeline,
-    glyphLocalCorner,
+    glyphFootprintT,
     resetDrawPipeline,
 } from "./draw";
 export {

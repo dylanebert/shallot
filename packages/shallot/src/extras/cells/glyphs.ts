@@ -45,19 +45,20 @@ export function glyphUvTable(atlas: GlyphAtlas): Float32Array {
 /** the storage buffer type the draw pass's `glyphUv` binding reads: one `vec4f` rect per ramp index. */
 export type GlyphUvBuffer = TgpuBuffer<d.WgslArray<typeof d.vec4f>> & StorageFlag;
 
-/** the glyph-size sentinel a font-absent glyph packs — the identity footprint (fills the whole cell,
- *  `draw.ts`'s `glyphLocalCorner` leaves the corner unchanged at `size = (1, 1)`), harmless since a
- *  missing glyph never samples ink ({@link MISSING_GLYPH_UV}'s zero-area gate). */
+/** the glyph-size sentinel a font-absent glyph packs — the identity footprint, `(1, 1)`, harmless since a
+ *  missing glyph never samples ink regardless of its footprint size ({@link MISSING_GLYPH_UV}'s
+ *  zero-area gate, read at `draw.ts`'s `cellVertex`'s `has`). */
 export const MISSING_GLYPH_SIZE: readonly [number, number] = [1, 1];
 
 /** one glyph's own measured em-normalized footprint, `[glyphWidth, glyphHeight]` off a resident
  *  {@link GlyphAtlas} entry (`text/atlas.ts`'s `computeGlyphMetrics` — the padded-bounds box divided by
  *  `unitsPerEm`), each clamped to at most 1 so a wide glyph's quad never overflows into a neighboring
  *  cell. {@link MISSING_GLYPH_SIZE} when the font has no outline for it, mirroring {@link glyphUvRect}'s
- *  fallback. This is the measurement `draw.ts`'s vertex stage scales the glyph quad by
- *  (`glyphLocalCorner`) — without it every glyph's own tightly-cropped SDF tile stretches across the
- *  whole cell regardless of true size, destroying the coverage-ordered ramp's monotone progression at
- *  the point of use (`specs/shallot-tui.md`'s s3r item 8).
+ *  fallback. This is the measurement `draw.ts`'s vertex stage scales the glyph's footprint by
+ *  (`cellFootprintPx`, isotropically — both axes share one scale so the cell's own aspect never
+ *  re-stretches the glyph's true shape, `specs/shallot-tui.md`'s s3r item 9) — without it every glyph's
+ *  own tightly-cropped SDF tile stretches across the whole cell regardless of true size, destroying the
+ *  coverage-ordered ramp's monotone progression at the point of use (`specs/shallot-tui.md`'s s3r item 8).
  *  @example const size = glyphSizeRect(atlas, 0); // the lowest-coverage fill glyph's own footprint */
 export function glyphSizeRect(atlas: GlyphAtlas, index: number): readonly [number, number] {
     const metrics = atlas.glyphs.get(cellGlyphChar(index));
