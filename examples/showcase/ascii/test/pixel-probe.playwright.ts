@@ -8,15 +8,29 @@ import { adapterName, SOFTWARE } from "./gpu-adapter";
 // path — `cd examples/showcase/ascii && bunx playwright test test/pixel-probe.playwright.ts` — display-
 // gated (WSL bridge, `playwright.global-setup.ts`), never part of `bun run test`.
 //
-// The probe targets the cell grid's own background swatch — every visible cell paints its bg as the
+// Two probes, because the first alone doesn't discriminate the Cells system from a bare scene render.
+//
+// `boxSwatch` targets the cell grid's own background swatch — every visible cell paints its bg as the
 // scene's own tonemapped, gamma-encoded average color (`select.ts`'s `avgKernel` + `packCell`'s sRGB
-// pack), so a warm hue band over the box's flat, unlit color (`specs/shallot-tui.md`'s locked shading —
-// near-constant regardless of viewing angle) is a property of *this* render succeeding, not an assumption
-// about glyph shapes criterion 8 alone is responsible for. Measured directly (`shallot verify
-// examples/recipes/render-to-a-terminal --screenshot`, the same scene's frozen sibling, nvidia/lovelace):
-// the box's swatch reads rgb(172, 151, 126) at a sampled interior point, comfortably inside the band
-// below with real margin on every channel — the band is wide enough to tolerate AA/edge pixels and a
-// differently-sized canvas, never so wide it would pass a near-black blank frame.
+// pack), so a warm hue band over the box's own albedo (`specs/shallot-tui.md`'s locked shading — a
+// per-face lit color that stays constant per face regardless of viewing angle) is a property of *this*
+// render succeeding, not an assumption about glyph shapes criterion 8 alone is responsible for. Measured
+// directly (`shallot verify examples/recipes/render-to-a-terminal --screenshot`, the same scene's frozen
+// sibling, nvidia/lovelace): the box's swatch reads rgb(172, 151, 126) at a sampled interior point,
+// comfortably inside the band below with real margin on every channel. But this probe alone is
+// satisfiable by the *scene* alone — the box paints roughly the same warm hue whether or not Cells ever
+// runs (`"Cells": true` deleted from `shallot.json`, the scene's own draw still fills that hue region) —
+// so it discriminates blank-canvas from something-rendered, one rung below what criterion 5 names.
+//
+// `glyphInk` is the cells-only signal: `select.ts`'s `selectKernel` always draws its glyph ink in pure
+// grayscale — `fg = select(vec3f(0,0,0), vec3f(1,1,1), ownLuma < 0.5)`, i.e. exactly black or exactly
+// white, never the scene's own warm hue — and every visible cell (background or box) that selects any
+// glyph but the blank space glyph paints some of that grayscale ink. The scene's own box albedo
+// (rgb ~0.85 0.55 0.35, warm) and the background clear color are both chromatic (r ≠ g ≠ b well outside
+// this probe's per-channel bands), so no un-celled pixel in this scene can land inside a band demanding
+// all three channels simultaneously high (near-white ink) — a signal the raw scene cannot produce, only
+// the Cells system's glyph draw can. Deleting `"Cells": true` removes every ink pixel from the frame,
+// which is what `glyphInk`'s own two-sidedness rests on (this file's second test).
 
 test("ascii showcase — the cell grid reaches the compositor", async ({ page }) => {
     const errors: string[] = [];
@@ -48,7 +62,7 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
     const shot = await canvas.screenshot({ timeout: 5_000 });
     const png = PNG.sync.read(shot);
 
-    const probe = {
+    const boxSwatch = {
         name: "cell background reaches the compositor",
         minPixels: 500,
         minSpan: 40,
@@ -56,10 +70,27 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
         g: [40, 220] as [number, number],
         b: [10, 180] as [number, number],
     };
-    const result = probePixels(png.data, png.width, png.height, probe);
+    const boxResult = probePixels(png.data, png.width, png.height, boxSwatch);
     expect(
-        pixelProbePass(result, probe),
-        `matched ${result.pixels} px, span ${result.width}x${result.height} (want >= ${probe.minPixels} px, >= ${probe.minSpan} px span)`,
+        pixelProbePass(boxResult, boxSwatch),
+        `matched ${boxResult.pixels} px, span ${boxResult.width}x${boxResult.height} (want >= ${boxSwatch.minPixels} px, >= ${boxSwatch.minSpan} px span)`,
+    ).toBe(true);
+
+    // the cells-only signal (module doc above): grayscale glyph ink, which the scene's own chromatic
+    // colors (warm box, dark background) cannot produce — a probe `boxSwatch` alone can't discriminate,
+    // since deleting `"Cells": true` from `shallot.json` still leaves the box's own warm swatch on screen.
+    const glyphInk = {
+        name: "cell glyph ink reaches the compositor",
+        minPixels: 80,
+        minSpan: 20,
+        r: [210, 255] as [number, number],
+        g: [210, 255] as [number, number],
+        b: [210, 255] as [number, number],
+    };
+    const inkResult = probePixels(png.data, png.width, png.height, glyphInk);
+    expect(
+        pixelProbePass(inkResult, glyphInk),
+        `matched ${inkResult.pixels} px, span ${inkResult.width}x${inkResult.height} (want >= ${glyphInk.minPixels} px, >= ${glyphInk.minSpan} px span) — a pass here is the signal only the Cells system's glyph draw can produce`,
     ).toBe(true);
 
     expect(errors, `page errors: ${errors.join("\n")}`).toEqual([]);
