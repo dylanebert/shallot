@@ -15,6 +15,7 @@
         "test": "bun test packages/shallot packages/shallot-ocean packages/shallot-tui scripts evals site examples/showcase/visualization/test",
         "test:install": "bun run scripts/install-test.ts",
         "test:ocean-realization": "bun test ./packages/shallot-ocean/tests/realization.oracle.ts",
+        "test:ocean-slope": "bun test ./packages/shallot-ocean/tests/slope.oracle.ts",
         "bench": "bun run scripts/bench.ts",
         "flows": "bun run scripts/flows.ts",
         "recipes": "bun run scripts/recipes.ts",

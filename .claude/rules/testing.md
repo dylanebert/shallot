@@ -16,7 +16,8 @@ paths:
 
 # Testing
 
-Shallot-specific testing patterns.
+Shallot-specific testing patterns. `packages/shallot-ocean/tests/slope.oracle.ts` — the deterministic ocean slope cascade's N-invariance and per-band coverage arms, each with its own red witness — is reachable from the repository root with `bun run test:ocean-slope`.
+
 
 **A gate verifies and never writes; `bun run format` is the only writer.** `bun check` reports and exits without touching the tree, so the state you read before it is the state you commit.
 
