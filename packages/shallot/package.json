@@ -89,7 +89,8 @@
         "test:fixture:auto": "TUMBLE_THREADS=auto bun run scripts/run-tumble-fixtures.ts",
         "test:exit": "bun run scripts/tumble-exit-test.ts",
         "gen-tumble-fixtures": "bun run scripts/gen-tumble-fixtures.ts",
-        "gen-tumble-gold": "bun run scripts/gen-tumble-gold.ts"
+        "gen-tumble-gold": "bun run scripts/gen-tumble-gold.ts",
+        "dump-cells-ascii": "bun --preload ./tests/tgsl.ts scripts/dump-cells-ascii.ts"
     },
     "dependencies": {
         "@types/node": "^26.0.0",
