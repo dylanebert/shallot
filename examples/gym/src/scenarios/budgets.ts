@@ -84,24 +84,31 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // measured 2026-09-01, `--scenario cells` (WSL/NVIDIA bridge, lovelace), re-measured the same day
     // after S3r item 2's ramp-monotonicity arm landed (`specs/shallot-tui.md`'s s3r item 2 — the owed
     // regression guard driving `draw.ts`'s real pipeline against a real font atlas, not the synthetic
-    // solid atlas the draw differential below uses). Eight compute/render pipelines: `cells-fill` (S1's
-    // synthetic producer), `cells-avg` + `cells-select` (S3's two-pass real content producer), `cells-draw`
-    // (the draw differential's real render pipeline, shared by the mono-ramp arm — reused under the same
-    // label, which is why `pipelineCalls` (9) exceeds `pipelines` (8), `budgets.ts`'s own module doc names
-    // this), `cells-gym-draw-probe` (the draw differential's texture readback), `text-sdf-distance` +
-    // `text-sdf-finalize` (the real `GlyphAtlas`'s SDF generator, first exercised here against a real font
-    // — `extras/text/sdf.ts`, warmed by `buildGlyphUvTable`/`buildGlyphSizeTable`), and
-    // `cells-gym-mono-probe` (the ramp arm's own per-cell ink-average readback). gpuBytes excludes the lazy
-    // `Mirror` staging pool (3000 B, `mirror-staging`): the prior row's resources (`cells-grid`,
-    // `cells-select-src` + its params/avg buffers, the draw differential's synthetic glyph-uv/atlas/target/
-    // params/probe-out) are unchanged; the increase is almost entirely the ramp arm's real glyph atlas
-    // (`glyphAtlas`, a real `createGlyphAtlas` 2048×2048 `r8unorm` texture, 4_194_304 B — the same size
-    // every real-font cells/text scene allocates, not something this arm should shrink), its uv/size
-    // tables (`cells-glyph-uv` 1520 B, `cells-glyph-size` 760 B), its own 91-cell draw target
-    // (`cells-gym-mono-target`, 2184×24 `rgba8unorm`, 209_664 B), its params uniform (16 B), its probe
-    // output (`cells-gym-mono-out`, 364 B), and the SDF generator's unlabeled 96×96 `rgba8unorm`
-    // intermediate texture (36_864 B, `""` in `bun bench`'s by-label memory breakdown).
-    cells: { pipelines: 8, pipelineCalls: 9, gpuBytes: 4_456_576 },
+    // solid atlas the draw differential below uses) and again after the s3r item-8 background-detection
+    // repair, which grew `SelectParams` (`select.ts`) by one `bg: vec4f` reference (16 B) — the caller-
+    // supplied background color a cell's own block average is checked against so untouched clear-color
+    // background selects the blank fill glyph instead of a stray low ramp index. Eight compute/render
+    // pipelines: `cells-fill` (S1's synthetic producer), `cells-avg` + `cells-select` (S3's two-pass real
+    // content producer), `cells-draw` (the draw differential's real render pipeline, shared by the
+    // mono-ramp arm — reused under the same label, which is why `pipelineCalls` (9) exceeds `pipelines`
+    // (8), `budgets.ts`'s own module doc names this), `cells-gym-draw-probe` (the draw differential's
+    // texture readback), `text-sdf-distance` + `text-sdf-finalize` (the real `GlyphAtlas`'s SDF generator,
+    // first exercised here against a real font — `extras/text/sdf.ts`, warmed by
+    // `buildGlyphUvTable`/`buildGlyphSizeTable`), and `cells-gym-mono-probe` (the ramp arm's own per-cell
+    // ink-average readback). gpuBytes excludes the lazy `Mirror` staging pool (3_000 B,
+    // `mirror-staging`) — every other `bun bench --scenario cells`-reported label, summed exactly (this
+    // round's repair: the prior enumeration here quoted an unverified "prior row's 9_824 B" for the
+    // unlisted resources below, which was wrong by 3_260 B — this lists every one instead of citing a
+    // baseline nothing here re-derives): `cells-grid` 2_220 + `cells-select-src` 8_192 +
+    // `cells-select-params` 32 (16 B dims uniform + the item-8 `bg: vec4f` reference above) +
+    // `cells-select-avg` 512 + `cells-gym-draw-glyphuv` 32 + `cells-gym-draw-glyphsize` 16 +
+    // `cells-gym-draw-atlas` 16 + `cells-gym-draw-target` 2_048 + `cells-gym-draw-probe-out` 32 +
+    // `glyphAtlas` 4_194_304 (a real `createGlyphAtlas` 2048×2048 `r8unorm` texture, the same size every
+    // real-font cells/text scene allocates) + the SDF generator's unlabeled 96×96 `rgba8unorm`
+    // intermediate texture 36_864 (`""` in `bun bench`'s by-label memory breakdown) + `cells-glyph-uv`
+    // 1_520 + `cells-glyph-size` 760 + `cells-gym-mono-target` 209_664 (`2184×24 rgba8unorm`) +
+    // `cells-draw-params` 16 + `cells-gym-mono-out` 364 = 4_456_592, matching `gpuBytes` below exactly.
+    cells: { pipelines: 8, pipelineCalls: 9, gpuBytes: 4_456_592 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },
