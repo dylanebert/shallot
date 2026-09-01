@@ -1,9 +1,17 @@
 <scene>
+    <a ambient-light="color: 0x404040" />
+    <a directional-light="direction: -0.4 -0.8 -0.45; color: 0xffffff; intensity: 1.0" />
+
     <a id="camera" camera sear transform orbit="distance: 6; yaw: 0.6; pitch: 0.3" />
 
-    <!-- flat-shaded, unlit on purpose: near-constant albedo across the whole surface keeps each
-         facade's luminance (and so its slice of the glyph ramp) stable as the camera orbits — a lit
-         cube churns glyphs and criterion 8 would read shading motion instead of the ramp's shape
-         (`specs/shallot-tui.md`'s locked glyph-selection addendum). -->
-    <a id="box" part="surface: unlit" transform color="rgba: 0.85 0.55 0.35" />
+    <!-- lit, view-independent by construction (corrected 2026-09-01, `specs/shallot-tui.md`'s locked
+         glyph-selection addendum): the box never rotates (only the camera orbits it) and the light is
+         fixed in world space, so each face's normal·light angle — and so its luminance and its slice
+         of the glyph ramp — stays constant across every camera angle. A single constant albedo with no
+         lighting term at all (the prior `surface: unlit`) gives every visible face the *same* constant
+         value, so the face boundaries vanish and the cube reads as one silhouette blob — exactly the
+         defect this criterion exists to catch. Per-face-normal Lambertian shading against a fixed light
+         keeps view-independence while still separating the faces, because a face's normal (not the
+         camera) is what its luminance tracks. -->
+    <a id="box" part transform color="rgba: 0.85 0.55 0.35" />
 </scene>
