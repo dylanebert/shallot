@@ -14,27 +14,52 @@ import { generateH0, kIndex } from "../src/spectrum";
 const [config] = SLOPE_CASCADE_CONFIGS;
 
 /** Relative machine epsilon of the `Float32Array` storage the CPU pipeline reads and writes
- *  through (`ifft2`'s output, `slopeSpectra`'s input) — the quantization quantum of the
- *  representation being compared, not an authored constant. */
+ *  through — the quantization quantum of the representation being compared, not an authored
+ *  constant. */
 const FLOAT32_EPSILON = 2 ** -23;
 
 /**
- * FFT round-off bound for two rasters carrying identical modes by construction (same seed, same
- * represented band, denser grid's shared-`k` modes bit-identical to the base grid's — asserted
- * below). The internal `ifft2` butterfly accumulates in `Float64Array` at every stage, so its own
- * rounding is ~1e-16 relative and negligible next to the single `Float32Array` store/read that
- * brackets it on both ends of the pipeline; that Float32 quantization quantum is the dominant,
- * and only material, source of a genuine per-side reading error here. `realizedSlopeMss` reads
- * one real component per sample and squares it (`d(x²)/x² ≈ 2·dx/x`), so a single rounded read
- * carries a relative error bound of `FLOAT32_EPSILON` in the squared term; comparing two
- * independently-rounded readings (one per grid size) bounds their worst-case relative gap by
- * twice that quantum — no averaging or cancellation assumed, no free safety multiplier.
+ * Per-side accumulation depth: the count of independent `Float32Array` *store* points on the
+ * path from a seeded draw to the realized moment `rasterSlopeMoment` reads (every intervening
+ * arithmetic step — the time evolution's rotation, `slopeSpectra`'s `kx`/`kz` multiply, the
+ * FFT's own butterfly — runs in plain JS `number`s or an explicit `Float64Array`, so it is the
+ * *store*, not the arithmetic, that truncates to Float32):
+ *   1. `generateH0`'s own output (`spectrum.ts:364-365`)
+ *   2. `runSlopeCpuPipeline`'s time-evolved spectrum `h` (`slope.ts:211`, written `slope.ts:227-228`)
+ *   3. `slopeSpectra`'s `x`/`z` outputs (`slope.ts:176-177`, written `slope.ts:187-190`)
+ *   4. `ifft2`'s `out` (`fft.ts:121`, written `fft.ts:122-125`)
+ * `ifft2`'s internal butterfly accumulates in `Float64Array` at every stage, so its own rounding
+ * is ~1e-16 relative and negligible next to any one of the four Float32 stores above — it
+ * contributes no fifth term here.
+ */
+const FLOAT32_STORE_DEPTH = 4;
+
+/**
+ * FFT/storage round-off bound for two rasters carrying identical modes by construction (same
+ * seed, same represented band, denser grid's shared-`k` modes bit-identical to the base grid's —
+ * asserted below). Each of the `FLOAT32_STORE_DEPTH` stores above introduces an independent
+ * relative rounding of magnitude at most `FLOAT32_EPSILON`; treating the intervening linear steps
+ * as non-amplifying (a real-scalar multiply, a norm-preserving FFT, no near-cancelling sum on
+ * this path) bounds the compounded relative error in one side's realized field value, to first
+ * order, by the additive worst case `FLOAT32_STORE_DEPTH · FLOAT32_EPSILON` — no averaging or
+ * cancellation assumed. `realizedSlopeMss` then squares that field value
+ * (`d(x²)/x² ≈ 2·dx/x`), doubling the bound, and the comparison sums two independently-rounded
+ * sides (base `N` and denser `2N`), doubling it again. The combined multiplier is therefore
+ * `FLOAT32_STORE_DEPTH · 2 (square) · 2 (two sides) = 16`.
  */
 function fftRoundoffBound(): number {
-    return 2 * FLOAT32_EPSILON;
+    return FLOAT32_STORE_DEPTH * 2 * 2 * FLOAT32_EPSILON;
 }
 
-const DECLARED_BANDS = [
+/**
+ * A test-authored radial partition of the cascade's declared band, its outer edges (`config.kLo`,
+ * `config.kHi`) read from production, its four interior cut points (20, 40, 50, 55) chosen here
+ * for coverage and read from no production declaration — no drift arm is constructible against a
+ * production source for those interior edges today, since none exists to drift against. The two
+ * loops below iterate this array directly, so an emptied or shortened list would read green on
+ * both; the cardinality assertion after each loop is what catches that.
+ */
+const SUB_BANDS = [
     [config.kLo, 20],
     [20, 40],
     [40, 50],
@@ -63,7 +88,7 @@ function bandMask(h0: Float32Array, lo: number, hi: number): { band: Float32Arra
 }
 
 /**
- * This by-path oracle compares seeded CPU realizations and their declared radial bands. It does
+ * This by-path oracle compares seeded CPU realizations and their radial sub-bands. It does
  * not claim an independent source-density check or implement a second restricted-PSD quadrature;
  * the production composed-PSD helper supplies the expected band moments.
  */
@@ -75,7 +100,8 @@ test("slope N-invariance compares the declared raster moments directly", () => {
     const deviation = Math.abs(denserRasterMoment / rasterMoment - 1);
     console.log(
         `slope N-invariance: N=${config.N} moment=${rasterMoment}, ` +
-            `2N=${denser.N} moment=${denserRasterMoment}, deviation=${deviation}, bound=${bound}`,
+            `2N=${denser.N} moment=${denserRasterMoment}, deviation=${deviation}, bound=${bound}, ` +
+            `margin=${(bound / deviation).toFixed(1)}x`,
     );
     expect(rasterMoment).toBeGreaterThan(0);
     expect(denserRasterMoment).toBeGreaterThan(0);
@@ -104,28 +130,31 @@ test("slope N-invariance compares the declared raster moments directly", () => {
 
 /**
  * Red-witness for the round-off bound above: the guarded arm's own assertion
- * (`deviation < fftRoundoffBound()`) re-run with only the subject mutated — a per-`N` `H0` draw
- * (independent seeds at `N` and `2N`) in place of the shared-by-construction draw the guarded arm
- * uses. Two independently-drawn rasters carry different realized moments by physical variance, not
- * merely round-off, so the same tight bound must red here; if it didn't, the bound would be too
- * loose to mean anything.
+ * (`deviation < fftRoundoffBound()`) re-run with only the subject mutated. The base draw stays at
+ * the guarded arm's own seed (17); only the denser side's draw changes, to an independent seed, in
+ * place of the shared-by-construction draw the guarded arm uses. Two rasters sharing no drawn
+ * modes carry different realized moments by physical variance, not merely round-off, so the same
+ * tight bound must red here; if it didn't, the bound would be too loose to mean anything.
  */
-test("slope N-invariance's round-off bound reds on independently-drawn per-N rasters", () => {
+test("slope N-invariance's round-off bound reds on an independently-drawn denser raster", () => {
     const denser = { ...config, N: config.N * 2 };
-    const rasterMoment = rasterSlopeMoment(generateH0(config, 41), config);
+    const rasterMoment = rasterSlopeMoment(generateH0(config, 17), config);
     const independentDenserMoment = rasterSlopeMoment(generateH0(denser, 43), denser);
     const bound = fftRoundoffBound();
     const deviation = Math.abs(independentDenserMoment / rasterMoment - 1);
     console.log(
         `slope N-invariance round-off vacuity: independently-drawn deviation=${deviation}, ` +
-            `bound=${bound}`,
+            `bound=${bound}, overshoot=${(deviation / bound).toFixed(1)}x`,
     );
     expect(deviation).toBeGreaterThan(bound);
 });
 
-test("slope coverage checks every declared radial band against its composed moment", () => {
+test("slope coverage checks every radial sub-band against its composed moment", () => {
+    expect(SUB_BANDS.length).toBe(5);
     const h0 = generateH0(config, 0);
-    for (const [lo, hi] of DECLARED_BANDS) {
+    let iterations = 0;
+    for (const [lo, hi] of SUB_BANDS) {
+        iterations++;
         const { band, modes } = bandMask(h0, lo, hi);
         expect(modes, `no seeded modes in ${lo}..${hi} rad/m`).toBeGreaterThan(0);
         const realized = realizedSlopeMss(runSlopeCpuPipeline(band, config));
@@ -136,18 +165,22 @@ test("slope coverage checks every declared radial band against its composed mome
         expect(realized).toBeGreaterThan(0);
         expect(Math.abs(ratio - 1)).toBeLessThan(bound);
     }
+    expect(iterations).toBe(SUB_BANDS.length);
 });
 
 /**
  * The per-band twin of `slope.test.ts`'s "missing gradient k red-witnesses the composed-coverage
- * arm": the guarded arm above ("slope coverage checks every declared radial band...") re-run at
- * each declared sub-band with only the realized subject mutated. The expectation
- * (`composedSlopePsd`) and the bound (`slopeMomentAgreementTolerance`) stay the guarded arm's own,
- * unmutated, per band — no separation floor authored here.
+ * arm": the guarded arm above ("slope coverage checks every radial sub-band...") re-run at each
+ * sub-band with only the realized subject mutated. The expectation (`composedSlopePsd`) and the
+ * bound (`slopeMomentAgreementTolerance`) stay the guarded arm's own, unmutated, per band — no
+ * separation floor authored here.
  */
-test("missing gradient k red-witnesses the per-band coverage arm at every declared sub-band", () => {
+test("missing gradient k red-witnesses the per-band coverage arm at every radial sub-band", () => {
+    expect(SUB_BANDS.length).toBe(5);
     const h0 = generateH0(config, 0);
-    for (const [lo, hi] of DECLARED_BANDS) {
+    let iterations = 0;
+    for (const [lo, hi] of SUB_BANDS) {
+        iterations++;
         const { band } = bandMask(h0, lo, hi);
         const bandConfig = { ...config, kLo: lo, kHi: hi };
         const expected = composedSlopePsd(bandConfig);
@@ -166,4 +199,5 @@ test("missing gradient k red-witnesses the per-band coverage arm at every declar
         expect(greenDeviation).toBeLessThan(bound);
         expect(mutatedDeviation).toBeGreaterThan(bound);
     }
+    expect(iterations).toBe(SUB_BANDS.length);
 });
