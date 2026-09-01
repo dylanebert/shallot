@@ -18,6 +18,8 @@ paths:
 
 Shallot-specific testing patterns. `packages/shallot-ocean/tests/slope.oracle.ts` — the deterministic ocean slope cascade's N-invariance and per-band coverage arms, each with its own red witness — is reachable from the repository root with `bun run test:ocean-slope`.
 
+`packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts` — the render-mesh triangle-winding instrument (a displaced clipmap triangle's winding must not flip except where the field genuinely folds), with its own zero-displacement negative control and red witness — is reachable from the repository root with `bun run test:ocean-mesh-inversion`. Trigger: changes to the clipmap's spacing schedule or the reconstruction kernel a mesh vertex reads through.
+
 
 **A gate verifies and never writes; `bun run format` is the only writer.** `bun check` reports and exits without touching the tree, so the state you read before it is the state you commit.
 
