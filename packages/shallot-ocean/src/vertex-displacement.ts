@@ -6,8 +6,9 @@
 // vertex reads the field at an arbitrary sub-texel offset every frame — a C0 kernel's gradient
 // discontinuity at each texel boundary shows up on a displaced mesh as a lattice of hard creases,
 // not a smooth wave surface (`reconstruction.ts`'s header). `catmullRom1D`/`wrapIndex` below mirror
-// `reconstruction.ts`'s plain-TS reference exactly (same taps, same wrap, same coefficients), which
-// is what lets a CPU test drive the identical arithmetic without a GPU.
+// `reconstruction.ts`'s plain-TS reference (same taps, same wrap, same coefficients), asserted in
+// lockstep by `wrap-catmullrom-lockstep.test.ts`, which drives both from JS directly (no GPU dispatch
+// — see that file's own header for why this is sound for exactly these two functions).
 //
 // `bicubicSample0`/`bicubicSample1` are closed over one displacement texture each (`displace0`/
 // `displace1`) rather than taking a texture parameter — TGSL device functions don't take runtime
@@ -49,8 +50,11 @@ export const oceanDisplacementPatch = vsPatchSchema(oceanDisplacementVaryings);
  *  naive `i % n` on a negative `i` (the `-1` tap) returns negative; the double-mod is exact for
  *  any `i` in a texture's practical index range. (`%` is native integer remainder, unaffected by
  *  the `u32/u32`-compiles-as-real-division hazard `idiv` guards against elsewhere in this package —
- *  this function takes signed `i32`.) */
-const wrapIndex = tgpu.fn(
+ *  this function takes signed `i32`.) Exported so `wrap-catmullrom-lockstep.test.ts` can drive it
+ *  directly from JS (typegpu's CPU execution of a `tgpu.fn` free of transcendentals reproduces the
+ *  WGSL runtime exactly — pure add/mul/select/mod, unlike `gpu-fft.ts`'s `twiddleAngle`, which needs
+ *  a real device dispatch because `cos`/`sin` are hardware-approximated). */
+export const wrapIndex = tgpu.fn(
     [d.i32, d.i32],
     d.i32,
 )((i, n) => {
@@ -61,8 +65,9 @@ const wrapIndex = tgpu.fn(
 /** one dimension of uniform Catmull-Rom (tau=0.5) over 4 control points `p0..p3` (samples at local
  *  offsets -1,0,1,2), interpolating between `p1` and `p2` at `t ∈ [0,1]`. C1 by construction — the
  *  standard cubic-convolution basis, matrix-form coefficients expanded and Horner-evaluated. Exact
- *  GPU mirror of `reconstruction.ts`'s `catmullRom1D`. */
-const catmullRom1D = tgpu.fn(
+ *  GPU mirror of `reconstruction.ts`'s `catmullRom1D`, asserted in lockstep by
+ *  `wrap-catmullrom-lockstep.test.ts` — exported for the same reason `wrapIndex` is. */
+export const catmullRom1D = tgpu.fn(
     [d.vec4f, d.vec4f, d.vec4f, d.vec4f, d.f32],
     d.vec4f,
 )((p0, p1, p2, p3, t) => {
@@ -189,7 +194,11 @@ const bicubicSample1 = tgpu.fn(
  *  export, not a runtime-varying value, so the vertex stage reads it as a compile-time constant
  *  rather than through a params uniform (the spike this was ported from used a uniform; this port
  *  drops it as an unneeded indirection since the source of truth (`CASCADE_CONFIGS`) is already
- *  shared TS, not GPU state a frame can change). */
+ *  shared TS, not GPU state a frame can change). `L0`/`L1` cannot drift from `CASCADE_CONFIGS`: each
+ *  is a direct read of that array's own `.L` field, never a second authored literal, so a change to
+ *  `CASCADE_CONFIGS` moves both without a gate. A third cascade would need its own `L2`/`N2`/texture
+ *  bindings and `bicubicSample2` — this file's hard-coded `[0]`/`[1]` indices assume exactly two,
+ *  unenforced here. */
 const L0 = d.f32(CASCADE_CONFIGS[0].L);
 const L1 = d.f32(CASCADE_CONFIGS[1].L);
 

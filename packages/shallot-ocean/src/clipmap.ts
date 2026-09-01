@@ -71,13 +71,6 @@ export function buildClipLevels(opts: {
     return levels;
 }
 
-/** a uniform grid of `resolution` steps over `size` expressed as a one-level "clipmap" — lets the
- *  continuity checks run against a non-clipmap baseline for comparison. Spacing matches a plain
- *  `S / (G - 1)` grid step exactly. */
-export function uniformGridLevel(resolution: number, size: number): ClipLevel {
-    return { rInner: 0, rOuter: size / 2, spacing: size / (resolution - 1) };
-}
-
 /** the ocean clipmap configuration — near spacing is below half of cascade 1's texel size (the
  *  Nyquist-sampling bound for a mesh that must resolve every displacement wavelength the field
  *  carries). A 22.8 m core keeps the 0.12 m grid integral (190 steps), and its 364.8 m half-extent

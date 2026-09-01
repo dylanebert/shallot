@@ -11,7 +11,6 @@ export {
     finestCascadeTexel,
     OCEAN_CLIP_CONFIG,
     OCEAN_CLIP_LEVELS,
-    uniformGridLevel,
 } from "./clipmap";
 export {
     type ComplexArray,

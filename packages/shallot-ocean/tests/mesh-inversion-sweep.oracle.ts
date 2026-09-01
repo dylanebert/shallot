@@ -34,6 +34,33 @@
 // assertion with only the subject mutated: `ignoreZeroControl` forces real displacement through
 // even when the zero control is requested, mirroring the hand mutation ("comment out the early
 // return") this instrument now runs automatically.
+//
+// Beyond population, ring 0 (the near field — the one ring `OCEAN_CLIP_CONFIG.nearSpacing` is
+// derived to resolve at the finest cascade's Nyquist limit) is asserted against a composed CONTINUUM
+// reference: `continuumFoldFraction` re-runs the SAME central-difference-on-reconstruction comparison
+// `field-mesh-agreement.test.ts` uses, generalized to sum both cascades' contributions (matching
+// `measureMeshFlips`'s own `displacedXZ`) and sampled at random continuous points over ring 0's own
+// world extent — never through the mesh's discrete vertices. This is the "field measured through a
+// mesh is two instruments" split named in this spec's own residue: one instrument (the field-only
+// arm) reads the field alone, a second (this one) reads the geometry it is applied to, at the one
+// ring the mesh's own near spacing is derived to keep resolved.
+//
+// Rings 1-4 (leg a) and the two Nyquist-violating spacings (leg b) stay population-only, on purpose:
+// coarsening past the Nyquist bound is EXPECTED to under-count folds (a fold that fits between two
+// widely-spaced vertices cannot invert a triangle there), so a coarser ring's flip fraction has no
+// reason to track the continuum rate and asserting it as if it should would defend the wrong claim
+// (`checks.md`'s "pins the status quo at a position nobody has questioned"). Measured: ring 0 at the
+// shipped near spacing (0.12m, below the 0.1211m Nyquist bound `checkContinuity` derives) reads
+// 2.56% against a 2.52% continuum reference; leg (b)'s at-boundary (0.2422m) and above-boundary
+// (0.4844m) spacings read 2.06%/1.11% against continuum references of 2.70%/2.18% at their own
+// extents — a real, monotone undercount, not noise.
+//
+// Mutation table (each applied in place at this stage's own ref, run, reverted with
+// `git show HEAD:<path>`, never shipped):
+//   - `reconstruction.ts`'s `catmullRom1D` `c` coefficient (`0.5*p2` → `0.35*p2`) → RED (leg (a)'s
+//     ring 0 comparison and its red witness both fail: 9 pass / 4 fail).
+//   - `reconstruction.ts`'s `wrap` widened to `i % n` → RED (11 of 13 tests fail, several by thrown
+//     error on an out-of-range array read).
 import { describe, expect, test } from "bun:test";
 import {
     buildClipLevels,
@@ -84,6 +111,154 @@ const cascadeFields: CascadeField[] = CASCADE_CONFIGS.map((cfg) => {
 
 function texelUV(world: number, L: number, N: number): number {
     return (world / L + 0.5) * N - 0.5;
+}
+
+// ── frozen, test-local reference kernel — the continuum reference's inputs, never the mutable
+//    imported `bicubicSample`/`catmullRom1D` this file's leg (a) also grades ─────────────────────
+// Written from the textbook uniform Catmull-Rom (tau=0.5) formula, independently of
+// `reconstruction.ts` (same derivation `field-mesh-agreement.test.ts` uses, transcribed fresh here
+// rather than imported — a shared import would make this file's reference move with a mutation to
+// that OTHER test file's copy, not just with a mutation to the mutable subject). A defect in the
+// shipped `reconstruction.ts` moves the READING (`measureMeshFlips`, driven by the imported kernel)
+// away from this fixed reference, which is what lets leg (a)'s mutation reach this file (Gate law).
+function refWrap(i: number, n: number): number {
+    return ((i % n) + n) % n;
+}
+function refCatmullRom1D(p0: number, p1: number, p2: number, p3: number, t: number): number {
+    const a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
+    const b = p0 - 2.5 * p1 + 2 * p2 - 0.5 * p3;
+    const c = -0.5 * p0 + 0.5 * p2;
+    return p1 + t * (c + t * (b + t * a));
+}
+function refBicubicSample(field: Field, n: number, u: number, v: number): number {
+    const ix = Math.floor(u);
+    const iy = Math.floor(v);
+    const fx = u - ix;
+    const fy = v - iy;
+    const rows: number[] = [];
+    for (let j = -1; j <= 2; j++) {
+        const yy = refWrap(iy + j, n);
+        const p0 = field[yy][refWrap(ix - 1, n)];
+        const p1 = field[yy][refWrap(ix, n)];
+        const p2 = field[yy][refWrap(ix + 1, n)];
+        const p3 = field[yy][refWrap(ix + 2, n)];
+        rows.push(refCatmullRom1D(p0, p1, p2, p3, fx));
+    }
+    return refCatmullRom1D(rows[0], rows[1], rows[2], rows[3], fy);
+}
+
+/** deterministic PRNG (mulberry32) — reproducible random world points, matches
+ *  `field-mesh-agreement.test.ts`'s own generator (no external dependency, no shared import). */
+function mulberry32(seed: number): () => number {
+    let s = seed >>> 0;
+    return () => {
+        s = (s + 0x6d2b79f5) >>> 0;
+        let t = s;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+const CONTINUUM_H_STEP_FRAC = 1 / 8; // matches field-mesh-agreement.test.ts's own central-diff step.
+const CONTINUUM_POINTS = 20000; // see derivation in `samplingRelativeError`'s call sites below.
+
+/** composed Jacobian determinant of the SUMMED cascades' displacement field, through the FROZEN
+ *  reference kernel, at world point (x, z) — the continuum-side counterpart to `measureMeshFlips`'s
+ *  own per-vertex `displacedXZ` sum, generalized from `field-mesh-agreement.test.ts`'s single-cascade
+ *  `centralDiffDet`. Each cascade uses its OWN central-difference step (its own texel × H_STEP_FRAC),
+ *  matching that file's per-cascade convention. */
+function composedContinuumDet(fields: readonly CascadeField[], x: number, z: number): number {
+    let dDxdx = 0;
+    let dDxdz = 0;
+    let dDzdx = 0;
+    let dDzdz = 0;
+    for (const c of fields) {
+        const h = (c.L / c.N) * CONTINUUM_H_STEP_FRAC;
+        const sample = (field: Field, wx: number, wz: number) =>
+            refBicubicSample(field, c.N, texelUV(wx, c.L, c.N), texelUV(wz, c.L, c.N));
+        dDxdx += (sample(c.dx, x + h, z) - sample(c.dx, x - h, z)) / (2 * h);
+        dDxdz += (sample(c.dx, x, z + h) - sample(c.dx, x, z - h)) / (2 * h);
+        dDzdx += (sample(c.dz, x + h, z) - sample(c.dz, x - h, z)) / (2 * h);
+        dDzdz += (sample(c.dz, x, z + h) - sample(c.dz, x, z - h)) / (2 * h);
+    }
+    const Jxx = 1 + dDxdx;
+    const Jzz = 1 + dDzdz;
+    const Jxz = (dDxdz + dDzdx) / 2;
+    return Jxx * Jzz - Jxz * Jxz;
+}
+
+/** composed continuum fold fraction over `[-rOuter, rOuter]²` — `CONTINUUM_POINTS` random points,
+ *  the frozen reference kernel, never a mesh vertex. The "field's own fold fraction" ring 0's flip
+ *  fraction is compared against. */
+function continuumFoldFraction(
+    fields: readonly CascadeField[],
+    rOuter: number,
+    seed: number,
+): number {
+    const rand = mulberry32(seed);
+    let foldCount = 0;
+    for (let i = 0; i < CONTINUUM_POINTS; i++) {
+        const x = (rand() * 2 - 1) * rOuter;
+        const z = (rand() * 2 - 1) * rOuter;
+        if (composedContinuumDet(fields, x, z) < 0) foldCount++;
+    }
+    return foldCount / CONTINUUM_POINTS;
+}
+
+/** 95% normal-approximation relative-error bound on an `n`-sample Bernoulli-proportion estimator of
+ *  population value `p` — `slope.ts`'s `slopeMomentAgreementTolerance` z-quantile convention, same
+ *  formula `field-mesh-agreement.test.ts` uses. `Math.max(p, 1e-6)` matches this file's own relDiff
+ *  denominator floor below. */
+function samplingRelativeError(p: number, n: number): number {
+    const clampedP = Math.max(0, Math.min(1, p));
+    const se = Math.sqrt((clampedP * (1 - clampedP)) / n);
+    return (1.96 * se) / Math.max(clampedP, 1e-6);
+}
+
+/** relative difference between a ring's flip fraction and the continuum fold fraction over the SAME
+ *  world extent, denominator-floored the same way `field-mesh-agreement.test.ts`'s `relDiff` is. */
+function ring0RelDiff(ring0Flip: number, continuumFold: number): number {
+    return Math.abs(ring0Flip - continuumFold) / Math.max(ring0Flip, continuumFold, 1e-6);
+}
+
+/** the frozen reference kernel's own central-difference truncation error against a synthetic
+ *  single-mode field at cascade 1's `kHi` (the shipped bands' worst case — the highest frequency
+ *  either cascade admits) — verbatim `field-mesh-agreement.test.ts`'s `referenceTruncationError`,
+ *  transcribed fresh here for the same reason `refBicubicSample` is (see this file's header). Leg (a)
+ *  VARIES the reconstruction kernel (spacing held fixed, fine), so kernel truncation error is the
+ *  relevant, varying error source there and this term is included in ring 0's bound. Leg (b) holds
+ *  the kernel fixed at `bicubicSample` throughout and varies spacing instead — the SAME kernel drives
+ *  both the continuum reference and the mesh reading in that leg, so kernel truncation error is a
+ *  common-mode term that largely cancels out of their DIFFERENCE, and leg (b)'s bound omits it
+ *  (composed only of the two sides' own finite-sample error — see `leg (b)`'s tests below). */
+function worstCaseTruncationError(): number {
+    const cfg = CASCADE_CONFIGS[1];
+    const texel = cfg.L / cfg.N;
+    const h = texel * CONTINUUM_H_STEP_FRAC;
+    const field: Field = [];
+    for (let y = 0; y < cfg.N; y++) {
+        const row: number[] = new Array(cfg.N);
+        for (let x = 0; x < cfg.N; x++) {
+            const world = ((x + 0.5) / cfg.N - 0.5) * cfg.L;
+            row[x] = Math.cos(cfg.kHi * world);
+        }
+        field.push(row);
+    }
+    const rand = mulberry32(0xbeef);
+    let sumSq = 0;
+    let sumAnalyticSq = 0;
+    const samples = 64;
+    for (let i = 0; i < samples; i++) {
+        const world = (rand() - 0.5) * cfg.L;
+        const sampleAt = (w: number) =>
+            refBicubicSample(field, cfg.N, texelUV(w, cfg.L, cfg.N), 3.0);
+        const estD = (sampleAt(world + h) - sampleAt(world - h)) / (2 * h);
+        const analyticD = -cfg.kHi * Math.sin(cfg.kHi * world);
+        sumSq += (estD - analyticD) ** 2;
+        sumAnalyticSq += analyticD * analyticD;
+    }
+    return Math.sqrt(sumSq / samples) / Math.sqrt(Math.max(sumAnalyticSq / samples, 1e-9));
 }
 
 function signedArea2D(
@@ -263,6 +438,39 @@ describe("leg (a): reconstruction swap at the shipped mesh", () => {
             assertPopulated(res);
         });
     }
+
+    const ring0 = OCEAN_CLIP_LEVELS[0];
+    const continuumFold = continuumFoldFraction(cascadeFields, ring0.rOuter, 0xc0de);
+    const bound =
+        worstCaseTruncationError() + samplingRelativeError(continuumFold, CONTINUUM_POINTS);
+
+    test("bicubic (shipped): ring 0's flip fraction agrees with the composed continuum fold fraction within the reconstruction-error-derived tolerance", () => {
+        const res = measureMeshFlips(OCEAN_CLIP_LEVELS, bicubicSample, cascadeFields, false);
+        const ring0Flip = res.perRing[0].flipFraction;
+        const relDiff = ring0RelDiff(ring0Flip, continuumFold);
+        console.log(
+            `leg (a) ring 0: mesh flip=${(ring0Flip * 100).toFixed(3)}% continuum=${(continuumFold * 100).toFixed(3)}% ` +
+                `relDiff=${(relDiff * 100).toFixed(2)}% tolerance=${(bound * 100).toFixed(2)}%`,
+        );
+        expect(relDiff).toBeLessThanOrEqual(bound);
+    });
+
+    test("RED-WITNESS — nearest-texel sampling on ring 0 breaks the same tolerance", () => {
+        // re-runs the guarded arm's own comparison with only the subject (the reconstruction kernel)
+        // mutated to `nearestSample`, at the SAME ring 0 and the SAME continuum-reference-derived
+        // tolerance — never an overridden extent, never a separately authored bound. `bound` is
+        // computed once above from `continuumFold` alone (never from a mesh reading), so it is
+        // identical in this test and the green one above — only the kernel producing `ring0Flip`
+        // differs.
+        const res = measureMeshFlips(OCEAN_CLIP_LEVELS, nearestSample, cascadeFields, false);
+        const ring0Flip = res.perRing[0].flipFraction;
+        const relDiff = ring0RelDiff(ring0Flip, continuumFold);
+        console.log(
+            `leg (a) ring 0 RED-WITNESS (nearest): mesh flip=${(ring0Flip * 100).toFixed(3)}% continuum=${(continuumFold * 100).toFixed(3)}% ` +
+                `relDiff=${(relDiff * 100).toFixed(2)}% tolerance=${(bound * 100).toFixed(2)}%`,
+        );
+        expect(relDiff).toBeGreaterThan(bound);
+    });
 });
 
 describe("leg (b): near-spacing sweep at the shipped reconstruction (bicubic)", () => {
@@ -283,4 +491,54 @@ describe("leg (b): near-spacing sweep at the shipped reconstruction (bicubic)", 
             assertPopulated(res);
         });
     }
+
+    // Ring 0's flip fraction against the composed continuum fold fraction, at EACH spacing's own
+    // ring-0 world extent. The kernel is held fixed at `bicubicSample` throughout this leg, so the
+    // SAME kernel drives both the continuum reference and the mesh reading — kernel truncation error
+    // is common-mode and this bound omits it (see `worstCaseTruncationError`'s own docblock), leaving
+    // only the two sides' finite-sample error. Only `nearSpacing` (below the Nyquist bound
+    // `checkContinuity` derives) is asserted to AGREE: `finestTexel` sits at the boundary and
+    // `finestTexel * 2` sits above it, and coarsening past that bound is expected to under-count
+    // folds (this file's header) — not a defect, so nothing here defends that under-count as
+    // correctness. `finestTexel * 2` is this leg's own red witness: the SAME comparison, re-run with
+    // only the subject (near spacing) mutated to a spacing coarse enough to break it.
+    test(`near spacing ${OCEAN_CLIP_CONFIG.nearSpacing}m (below the Nyquist bound): ring 0's flip fraction agrees with the composed continuum fold fraction`, () => {
+        const nearSpacing = OCEAN_CLIP_CONFIG.nearSpacing;
+        const levels = buildClipLevels({
+            coreHalfExtent: nearSpacing * 100,
+            nearSpacing,
+            totalHalfExtent: nearSpacing * 100 * 16,
+        });
+        const res = measureMeshFlips(levels, bicubicSample, cascadeFields, false);
+        const ring0Flip = res.perRing[0].flipFraction;
+        const continuumFold = continuumFoldFraction(cascadeFields, levels[0].rOuter, 0xc0de);
+        const bound = samplingRelativeError(continuumFold, CONTINUUM_POINTS);
+        const relDiff = ring0RelDiff(ring0Flip, continuumFold);
+        console.log(
+            `leg (b) near spacing ${nearSpacing}m ring 0: mesh flip=${(ring0Flip * 100).toFixed(3)}% continuum=${(continuumFold * 100).toFixed(3)}% ` +
+                `relDiff=${(relDiff * 100).toFixed(2)}% tolerance=${(bound * 100).toFixed(2)}%`,
+        );
+        expect(relDiff).toBeLessThanOrEqual(bound);
+    });
+
+    test(`RED-WITNESS — near spacing ${finestTexel * 2}m (above the Nyquist bound) breaks the same comparison`, () => {
+        // re-runs the guarded arm's own comparison with only the subject (near spacing) mutated,
+        // using the SAME formula (no separately authored bound) at this spacing's own ring 0 extent.
+        const nearSpacing = finestTexel * 2;
+        const levels = buildClipLevels({
+            coreHalfExtent: nearSpacing * 100,
+            nearSpacing,
+            totalHalfExtent: nearSpacing * 100 * 16,
+        });
+        const res = measureMeshFlips(levels, bicubicSample, cascadeFields, false);
+        const ring0Flip = res.perRing[0].flipFraction;
+        const continuumFold = continuumFoldFraction(cascadeFields, levels[0].rOuter, 0xc0de);
+        const bound = samplingRelativeError(continuumFold, CONTINUUM_POINTS);
+        const relDiff = ring0RelDiff(ring0Flip, continuumFold);
+        console.log(
+            `leg (b) RED-WITNESS near spacing ${nearSpacing}m ring 0: mesh flip=${(ring0Flip * 100).toFixed(3)}% continuum=${(continuumFold * 100).toFixed(3)}% ` +
+                `relDiff=${(relDiff * 100).toFixed(2)}% tolerance=${(bound * 100).toFixed(2)}%`,
+        );
+        expect(relDiff).toBeGreaterThan(bound);
+    });
 });

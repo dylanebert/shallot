@@ -43,5 +43,7 @@ test("a default-suite run actually executes the mesh-inversion-sweep oracle's as
     const passMatch = stderr.match(/(\d+) pass/);
     expect(passMatch, `${stdout}\n${stderr}`).not.toBeNull();
     expect(Number(passMatch?.[1])).toBeGreaterThan(0);
-    expect(stderr).toContain("0 fail");
+    const failMatch = stderr.match(/(\d+) fail/);
+    expect(failMatch, `${stdout}\n${stderr}`).not.toBeNull();
+    expect(Number(failMatch?.[1])).toBe(0);
 });

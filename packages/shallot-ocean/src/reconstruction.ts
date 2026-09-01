@@ -8,10 +8,10 @@
 // `maxGradientJump` below measures directly. `nearestSample` (no interpolation, C^-1) brackets
 // bicubic from the opposite side bilinear does: no negative lobes to overshoot with.
 //
-// This module replicates both the GPU vertex-stage kernel and a plain-TS reference in exact
-// lockstep (same taps, same wrapping, same Catmull-Rom coefficients) so a divergence between the
-// two localizes to whichever side changed, rather than being explained away as "an equivalent
-// formula".
+// This module and `vertex-displacement.ts`'s GPU vertex-stage kernel express the same taps, wrapping
+// and Catmull-Rom coefficients twice, hand-authored on each side; `wrap-catmullrom-lockstep.test.ts`
+// drives both from the same inputs and asserts they agree, so a divergence between the two localizes
+// to whichever side changed rather than being explained away as "an equivalent formula".
 
 /** a periodic NxN scalar field, `field[y][x]`, wrapping in both axes — stands in for one channel of
  *  a cascade's displacement texture. The reconstruction kernels below don't care what the data
@@ -19,7 +19,9 @@
  *  degenerate data (e.g. all zero, or perfectly linear) would hide a real discontinuity. */
 export type Field = number[][];
 
-function wrap(i: number, n: number): number {
+/** wrap a possibly-negative texel index into `[0, n)`. Exported so
+ *  `wrap-catmullrom-lockstep.test.ts` can drive it against `vertex-displacement.ts`'s `wrapIndex`. */
+export function wrap(i: number, n: number): number {
     return ((i % n) + n) % n;
 }
 
