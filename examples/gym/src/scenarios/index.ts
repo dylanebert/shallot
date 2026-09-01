@@ -25,7 +25,9 @@
 // vs byte-exact readback), `accel` (the acceleration-structure pipeline: sort → build → traverse, gated on
 // both the subgroup and LDS-fallback builder arms each run), `text` (the typed SDF text producer's
 // real-GPU draw — a local-fixture-font label, gated by the same chroma-against-clear framebuffer probe
-// pattern `accel`'s line draw uses), and the
+// pattern `accel`'s line draw uses), `cells` (the `shallot-tui` cell-grid producer's real-GPU dispatch,
+// `noRender: true` like `gpu-diagnostic` — a `Mirror` readback of the fill pass differentialed against
+// the CPU `packCell` reference, the tier `cell.test.ts`'s device-free arm can't reach), and the
 // three §6 physics scenarios by simulation type — `pile` (contact-settling
 // rigidbodies), `constraints` (springs + joints), `character` (the kinematic controller), each gated
 // against the f64 oracle. `backend` is the substrate swap gate: one
@@ -98,6 +100,7 @@ import "./box-pyramid";
 import "./bridge";
 import "./bullet-vs-stack";
 import "./cantilever";
+import "./cells";
 import "./chain";
 import "./character";
 import "./character-mover";

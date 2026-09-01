@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Compute } from "../../engine";
 import { CELL_BYTES } from "./cell";
-import { createCellGrid, gridWgsl } from "./grid";
+import { createCellGrid, fillCellGrid, gridWgsl, resetPipeline } from "./grid";
 
 afterEach(() => {
-    Object.assign(Compute, { root: undefined });
+    Object.assign(Compute, { root: undefined, device: undefined });
 });
 
 describe("cell grid compute-pass contract (device-free structural)", () => {
@@ -65,5 +65,108 @@ describe("createCellGrid", () => {
         const cols = 10;
         const rows = 5;
         expect(cols * rows * CELL_BYTES).toBe(600);
+    });
+});
+
+// fillCellGrid + resetPipeline (device-free structural): a full fake of the WebGPU surface fillCellGrid
+// calls (buffer/bind-group/pipeline/pass/submit), so this proves *wiring* — call counts, not readback
+// values — with no device. Real dispatch correctness (the actual GPU intrinsic vs. the CPU packCell
+// reference) is the `cells` gym scenario's job (`bun bench --scenario cells`), per testing.md's tier
+// split; this tier can't and doesn't try to prove that.
+function fakeBuffer() {
+    const buf = {
+        $usage() {
+            return buf;
+        },
+        $name() {
+            return buf;
+        },
+        destroy() {},
+    };
+    return buf;
+}
+
+function fakeRoot(onCreatePipeline: () => void) {
+    const bindGroup = {};
+    return {
+        createBuffer: () => fakeBuffer(),
+        createBindGroup: () => bindGroup,
+        createComputePipeline: () => {
+            onCreatePipeline();
+            const p: {
+                with: () => typeof p;
+                dispatchWorkgroups: () => void;
+                $name(): typeof p;
+            } = {
+                with: () => p,
+                dispatchWorkgroups: () => {},
+                $name() {
+                    return p;
+                },
+            };
+            return p;
+        },
+    };
+}
+
+function fakeDevice() {
+    return {
+        createCommandEncoder: () => ({
+            beginComputePass: () => ({ end: () => {} }),
+            finish: () => ({}),
+        }),
+        queue: { submit: () => {} },
+    };
+}
+
+describe("fillCellGrid + resetPipeline (device-free structural)", () => {
+    // `_pipeline` is grid.ts's own module-singleton memo, shared across every test in the process — each
+    // test starts from a known-clean slate rather than leaning on file execution order.
+    beforeEach(() => {
+        resetPipeline();
+    });
+
+    test("memoizes the fill pipeline across dispatches against the same root", () => {
+        let calls = 0;
+        Object.assign(Compute, { root: fakeRoot(() => calls++), device: fakeDevice() });
+        const grid = createCellGrid(4, 4, 3);
+
+        fillCellGrid(grid);
+        fillCellGrid(grid);
+
+        expect(calls).toBe(1);
+    });
+
+    // The hazard `resetPipeline`'s own docblock names, armed: swapping the adopted root WITHOUT calling
+    // `resetPipeline` leaves the memoized pipeline bound to the destroyed root — `pipeline()` returns the
+    // stale object instead of building one against the new root, silently.
+    test("without resetPipeline, a re-adopted root keeps dispatching against the stale pipeline", () => {
+        let calls = 0;
+        Object.assign(Compute, { root: fakeRoot(() => calls++), device: fakeDevice() });
+        const gridA = createCellGrid(4, 4, 3);
+        fillCellGrid(gridA);
+        expect(calls).toBe(1);
+
+        // re-adopt: a fresh root + device, no resetPipeline
+        Object.assign(Compute, { root: fakeRoot(() => calls++), device: fakeDevice() });
+        const gridB = createCellGrid(4, 4, 3);
+        fillCellGrid(gridB);
+
+        expect(calls).toBe(1); // stale — the new root's createComputePipeline was never called
+    });
+
+    test("resetPipeline forces a fresh pipeline for the re-adopted root", () => {
+        let calls = 0;
+        Object.assign(Compute, { root: fakeRoot(() => calls++), device: fakeDevice() });
+        const gridA = createCellGrid(4, 4, 3);
+        fillCellGrid(gridA);
+        expect(calls).toBe(1);
+
+        resetPipeline();
+        Object.assign(Compute, { root: fakeRoot(() => calls++), device: fakeDevice() });
+        const gridB = createCellGrid(4, 4, 3);
+        fillCellGrid(gridB);
+
+        expect(calls).toBe(2); // fresh — the new root built its own pipeline
     });
 });

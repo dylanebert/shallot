@@ -58,6 +58,9 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
     text: {
         covers: ["packages/shallot/src/extras/text/**/*.ts"],
     },
+    cells: {
+        covers: ["packages/shallot/src/extras/cells/**/*.ts"],
+    },
     gltf: {
         covers: ["packages/shallot/src/extras/gltf/**/*.ts"],
         // keyed to gltf.ts's SOURCES — the same paths loadGltf fetches
@@ -282,11 +285,7 @@ export const GATE_EXEMPTIONS: Record<string, string> = {
     // extras/orbit/** and extras/tween/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not
     // exempted here — the classification lives beside the population, not as exemptions in this table.
 
-    // extras/cells/**: shallot-tui S1 ships the cell-grid contract + a headless fill producer (the
-    // compute pass, bind group layout, and pack/unpack codec) with no gym scenario driving it — S1's own
-    // scope excludes wiring an example/scenario (that lands with S3's web sink or S4's terminal command).
-    // The CPU-logic rungs (schema layout, resolved WGSL, the pack/unpack differential) are `bun test`
-    // gated in `extras/cells/*.test.ts`; real-device dispatch coverage is owed once a scene drives it.
-    "packages/shallot/src/extras/cells/**/*.ts":
-        "no scene wires the fill pass through a scenario yet — deferred to S3/S4, not a gap in this module",
+    // extras/cells/**: covered by the `cells` scenario's own `covers` glob above, not exempted — an
+    // exemption row here would be shadowed (`coverage.ts` asserts covered ∩ exempt = ∅), and shadowing is
+    // exactly the earlier defect this table's own doc comment names.
 };

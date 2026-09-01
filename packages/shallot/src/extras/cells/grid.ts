@@ -81,7 +81,7 @@ export interface CellGrid {
  * Empty until {@link fillCellGrid} dispatches the compute pass. `glyphCount` must be at least 1 — the
  * fill kernel wraps the test-pattern glyph index against it.
  *
- * @example const grid = createCellGrid(80, 24, 95);
+ * @example const grid = createCellGrid(80, 24, CELL_GLYPH_COUNT); // the printable-ASCII ramp, ramp.ts
  */
 export function createCellGrid(cols: number, rows: number, glyphCount: number): CellGrid {
     if (glyphCount < 1)
@@ -98,7 +98,7 @@ export function createCellGrid(cols: number, rows: number, glyphCount: number): 
  * stage ships. Encodes, submits, and returns; read the result back with `mirror(grid.buffer)`.
  *
  * @example
- * const grid = createCellGrid(80, 24, 95);
+ * const grid = createCellGrid(80, 24, CELL_GLYPH_COUNT);
  * fillCellGrid(grid);
  * const m = mirror(grid.buffer);
  * // MirrorSystem (or a manual Mirror.flush) populates m.snapshot on a later frame
