@@ -76,7 +76,11 @@ export function slopeMipSize(config: CascadeConfig, level: number): number {
 
 const PI = Math.PI;
 
-/** Deliberately omit the gradient k factor for the red-witness oracle. */
+/** Deliberately omit the gradient-k factor from the slope spectra (`slopeSpectra`) — the dropped-
+ *  gradient red-witness oracle's only production consumer (`slope.test.ts`, `slope.oracle.ts`).
+ *  `integrateComposedSlopePsd`/`composedSlopePsd` never took this flag: the correct red-witness for
+ *  the composed-quadrature side compares against the *unmutated* `composedSlopePsd` (I3c-r), so
+ *  there is no caller left that needs a mutable gradient term in the quadrature. */
 export interface SlopeMutation {
     missingGradientK?: boolean;
 }
@@ -88,7 +92,7 @@ export interface SlopeMutation {
  */
 function integrateComposedSlopePsd(
     config: CascadeConfig,
-    mutation: SpectrumMutation & SlopeMutation,
+    mutation: SpectrumMutation,
     radialSteps: number,
     angularSteps: number,
 ): number {
@@ -110,19 +114,16 @@ function integrateComposedSlopePsd(
                 mutation,
             );
         }
-        // k² from |∇h|², then k·dk = k²·dLog from the polar/log-radial measure.
-        // The resulting radial weight is k⁴·dLog·dTheta. Omitting both gradient factors leaves k².
-        const gradientMoment = mutation.missingGradientK ? k ** 2 : k ** 4;
+        // k² from |∇h|², then k·dk = k²·dLog from the polar/log-radial measure: the radial weight
+        // is k⁴·dLog·dTheta.
+        const gradientMoment = k ** 4;
         total += angularMean * gradientMoment * dLog * dTheta;
     }
     return total;
 }
 
 /** Restricted slope moment from the production density and a fixed midpoint quadrature. */
-export function composedSlopePsd(
-    config: CascadeConfig,
-    mutation: SpectrumMutation & SlopeMutation = {},
-): number {
+export function composedSlopePsd(config: CascadeConfig, mutation: SpectrumMutation = {}): number {
     return integrateComposedSlopePsd(config, mutation, 512, 256);
 }
 
@@ -419,7 +420,14 @@ function createSlopeState(config: CascadeConfig): SlopeState {
         size: { width: N, height: N },
         mipLevelCount: SLOPE_MIP_LEVELS,
         format: "rgba16float",
-        usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.TEXTURE_BINDING,
+        // COPY_SRC: the published-texture readback arm (`ocean-slope` gym scenario) probes this
+        // exact resource via `probeTexture`, which requires the source to carry COPY_SRC — without
+        // it the only way to inspect this texture's content is a second GPU state built from the
+        // same kernels, which the arm is written to avoid.
+        usage:
+            GPUTextureUsage.STORAGE_BINDING |
+            GPUTextureUsage.TEXTURE_BINDING |
+            GPUTextureUsage.COPY_SRC,
     });
     const h0T = root.createBuffer(d.arrayOf(d.vec2f, N * N), h0).$usage("storage");
     const xT = root.createBuffer(d.arrayOf(d.vec2f, N * N), x).$usage("storage");

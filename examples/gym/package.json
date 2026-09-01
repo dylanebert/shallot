@@ -11,6 +11,7 @@
     },
     "dependencies": {
         "@dylanebert/shallot": "workspace:*",
+        "@dylanebert/shallot-ocean": "workspace:*",
         "typegpu": "~0.12.4"
     },
     "devDependencies": {
