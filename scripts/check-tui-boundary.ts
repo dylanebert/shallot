@@ -50,22 +50,33 @@ import { dirname, relative, resolve, sep } from "path";
 const repoRoot = resolve(import.meta.dir, "..");
 const PKG = "@dylanebert/shallot";
 
+// All three specifier regexes accept a backtick-delimited literal alongside `"`/`'` (S2 N-2) —
+// `` await import(`@dylanebert/shallot`) `` is valid JS and a plain template literal (no `${...}`
+// interpolation) is exactly as much a specifier string as a quoted one; a regex that accepted only
+// `["']` silently missed it.
+//
 // Static `import ... from "spec"` / `import "spec"` / `export ... from "spec"`. `\s*` (not `\s+`)
 // between the keyword and the quote — `import{State}from"@dylanebert/shallot"` is valid,
-// minifier-shaped JS that a `\s+`-only pattern silently missed (N4).
-const STATIC_IMPORT_RE = /(?:from|import)\s*["']([^"']+)["']/g;
+// minifier-shaped JS that a `\s+`-only pattern silently missed (N4); `\s` matches a newline too, so
+// a `from`/specifier pair split across lines (S2 N-2) matches here as well, now that the scan runs
+// over the whole file rather than one line at a time (see `scanSpecifiers`).
+const STATIC_IMPORT_RE = /(?:from|import)\s*["'`]([^"'`]+)["'`]/g;
 // Dynamic `import("spec")` / `await import("spec")` — no `from`, and `import` is followed by `(`
 // rather than whitespace-then-quote, so `STATIC_IMPORT_RE` never matches this shape.
-const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["']([^"']+)["']/g;
+const DYNAMIC_IMPORT_RE = /\bimport\s*\(\s*["'`]([^"'`]+)["'`]/g;
 // Any call whose sole argument is a bare string specifier — covers `require("spec")` and
 // `createRequire(...)("spec")` alike, whatever the callee is named. Deliberately not restricted to
 // the engine's own literal (N4): `require("@dylanebert/shallot-ocean")` is call-style *and*
-// transitive, and a regex that only matched the engine's own specifier missed it. The specifier
-// captured here is run through the same `classify()` every static/dynamic import goes through, so
-// a non-specifier string argument to an unrelated call (e.g. `foo("hi")`) never becomes a false
-// positive — `classify` only flags a relative escape, the engine, or a workspace sibling that
-// reaches it.
-const CALL_ARG_RE = /\(\s*["']([^"']+)["']\s*\)/g;
+// transitive, and a regex that only matched the engine's own specifier missed it. This is the
+// route that can false-positive: the captured string is *any* single string-literal call argument,
+// not just a module specifier, so `foo("../fixtures/x")` inside the package classifies identically
+// to a real relative-escape import (`classify` cannot tell a call argument from an import
+// specifier — it only sees the string). Today's tree has no such call, so the false positive is
+// latent rather than observed; a future relative-path string argument to an unrelated call will
+// trip this route and report a nonsense "escapes packages/shallot-tui" reason. Bare (non-dotted)
+// string arguments cannot false-positive this way — `classify` only flags a dotted relative spec,
+// the engine's own specifier, or a workspace sibling name that reaches it.
+const CALL_ARG_RE = /\(\s*["'`]([^"'`]+)["'`]\s*\)/g;
 
 // File extensions the scan reads specifiers from. The package's `files` field ships all of `src`
 // (`packages/shallot-tui/package.json`), not just `.ts` — a `.mts`, `.tsx`, or plain `.js` sibling
@@ -207,25 +218,32 @@ async function scanSpecifiers(
     reaches: (name: string) => Promise<string | null>,
 ): Promise<Violation[]> {
     const violations: Violation[] = [];
-    const lines = (await Bun.file(full).text()).split("\n");
-    for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        const seen = new Set<string>();
-        for (const re of [STATIC_IMPORT_RE, DYNAMIC_IMPORT_RE, CALL_ARG_RE]) {
-            for (const match of line.matchAll(re)) {
-                const spec = match[1];
-                const key = `${spec}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                const reason = await classify(spec, full, root, reaches);
-                if (reason) {
-                    violations.push({
-                        file: relative(repoRoot, full),
-                        line: i + 1,
-                        import: spec,
-                        reason,
-                    });
-                }
+    // Scanned as one whole-file string, not split into lines first (S2 N-2): a per-line split
+    // matched each regex against one physical line at a time, so a `from`/specifier pair broken
+    // across lines (Biome wouldn't format it that way, but the check's own premise is "not a
+    // convention anybody can quietly cross") matched nothing. `\s` in the regexes already spans
+    // newlines, so scanning the whole text is enough to close the gap; the line number for a
+    // report is recovered from the match's string offset instead.
+    const text = await Bun.file(full).text();
+    const seen = new Set<string>();
+    for (const re of [STATIC_IMPORT_RE, DYNAMIC_IMPORT_RE, CALL_ARG_RE]) {
+        for (const match of text.matchAll(re)) {
+            const spec = match[1];
+            const line = text.slice(0, match.index).split("\n").length;
+            // Keyed by line + spec, not spec alone — the same specifier legitimately reappearing
+            // on a different line is a separate report; the same specifier matched twice on one
+            // line (e.g. a dynamic import matching both DYNAMIC_IMPORT_RE and CALL_ARG_RE) is one.
+            const key = `${line}:${spec}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const reason = await classify(spec, full, root, reaches);
+            if (reason) {
+                violations.push({
+                    file: relative(repoRoot, full),
+                    line,
+                    import: spec,
+                    reason,
+                });
             }
         }
     }

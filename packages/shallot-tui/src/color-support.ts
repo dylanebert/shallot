@@ -19,15 +19,19 @@ export interface ColorEnvSnapshot {
 /**
  * Selects a tier from TTY-ness plus the standard color-support environment variables.
  *
- * `FORCE_COLOR` (the standard override for CI and wrapped runs — the `supports-color`/chalk
- * convention) is checked **first, regardless of TTY-ness** (N6) — overriding a non-TTY sink (CI,
- * a wrapped run, `| less -R`) is the primary reason the variable exists, so a `FORCE_COLOR` set on
- * a pipe or file redirect is honored exactly like `supports-color` does (it short-circuits a
- * non-TTY stream only when `forceColor === undefined`), not silently discarded by a TTY check that
- * runs first. `"0"` or `"false"` forces `glyph`, `"1"` or `"2"` force `ansi256` (this ladder has no
- * separate 16-color tier, so both collapse to the lowest color tier it does have), `"3"` forces
- * `truecolor`, and any other set value (a bare `FORCE_COLOR=` or `"true"`) forces the lowest color
- * tier on.
+ * `FORCE_COLOR`'s **enable** values (a set value other than `"0"`/`"false"`) are checked **first,
+ * regardless of TTY-ness** (N6) — overriding a non-TTY sink (CI, a wrapped run, `| less -R`) into
+ * emitting color is the primary reason the variable exists, so an enabling `FORCE_COLOR` set on a
+ * pipe or file redirect is honored, not silently discarded by a TTY check that runs first. `"1"`
+ * or `"2"` force `ansi256` (this ladder has no separate 16-color tier, so both collapse to the
+ * lowest color tier it does have), `"3"` forces `truecolor`, and any other set value (a bare
+ * `FORCE_COLOR=` or `"true"`) forces the lowest color tier on.
+ *
+ * `FORCE_COLOR`'s **disable** values (`"0"` or `"false"`) do not short-circuit the TTY gate the
+ * same way: on a non-TTY sink `plain` already carries no color and no cursor addressing, so
+ * "disable color" is a no-op there and the sink still reads `plain` — never `glyph`, which is the
+ * *interactive* colorless tier and still emits `CLEAR_SCREEN`/`cursorTo` (`encoder.ts`), noise in
+ * a pipe. The disable value does real work only on a real TTY, where it forces `glyph`.
  *
  * Absent `FORCE_COLOR`: a non-TTY stream always gets `plain` — color escapes in a non-terminal
  * sink are noise, not content. On a real TTY: `NO_COLOR` (https://no-color.org) forces `glyph`.
@@ -45,14 +49,16 @@ export interface ColorEnvSnapshot {
  */
 export function detectTier({ isTTY, env }: ColorEnvSnapshot): Tier {
     const forceColor = env.FORCE_COLOR;
-    if (forceColor !== undefined) {
-        if (forceColor === "0" || forceColor === "false") return "glyph";
+    const forceDisabled = forceColor === "0" || forceColor === "false";
+    if (forceColor !== undefined && !forceDisabled) {
         if (forceColor === "3") return "truecolor";
         // "1", "2", or any other set value (bare/"true") — the lowest color tier this ladder has.
         return "ansi256";
     }
 
     if (!isTTY) return "plain";
+
+    if (forceDisabled) return "glyph";
 
     if (env.NO_COLOR !== undefined && env.NO_COLOR !== "") return "glyph";
     const term = env.TERM ?? "";

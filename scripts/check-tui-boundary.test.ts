@@ -12,6 +12,10 @@
 // The second-round S2 repair (B3/N4) adds coverage for the residual gaps a fresh review found in
 // that repair itself: the workspace graph missed every unscoped `examples/*` member, and the
 // scanner's regexes and file-extension list were narrower than what the package actually ships.
+//
+// A third-round S2 repair (N-2) closes two more evasions of the same class the second round left
+// open: a backtick (template-literal) specifier, and an import split across physical lines — both
+// below.
 
 import { expect, test } from "bun:test";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
@@ -220,6 +224,47 @@ test("check-tui-boundary — N4 repair: a non-.ts source file (.mts) is scanned 
         expect(out).toMatch(/_s2_arm_violation\.mts/);
     } finally {
         if (existsSync(SEED_SRC_MTS)) unlinkSync(SEED_SRC_MTS);
+    }
+});
+
+test("check-tui-boundary — S2 N-2 repair: a template-literal specifier (backtick, not quotes) exits nonzero (exit 1)", async () => {
+    // await import(`@dylanebert/shallot`) is valid JS and evaded all three regexes pre-repair,
+    // which accepted only `["']`.
+    const violation =
+        "// S2 arm seed — temporary violation file, removed in finally\n" +
+        "export async function load() {\n" +
+        "    return await import(`@dylanebert/shallot`);\n" +
+        "}\n";
+    writeFileSync(SEED_SRC, violation);
+    try {
+        const { exitCode, out } = await runScript();
+        expect(exitCode).toBe(1);
+        expect(out).toMatch(/engine-boundary violation/);
+        expect(out).toMatch(/@dylanebert\/shallot/);
+    } finally {
+        if (existsSync(SEED_SRC)) unlinkSync(SEED_SRC);
+    }
+});
+
+test("check-tui-boundary — S2 N-2 repair: an import split across lines exits nonzero (exit 1)", async () => {
+    // Biome wouldn't format it this way, but the check's own premise is "not a convention anybody
+    // can quietly cross" — a per-line scan (pre-repair) matched each regex against one physical
+    // line, so the `from` keyword and its quoted specifier on separate lines matched nothing.
+    const violation =
+        "// S2 arm seed — temporary violation file, removed in finally\n" +
+        "import {\n" +
+        "    State\n" +
+        "} from\n" +
+        '    "@dylanebert/shallot";\n' +
+        "export const _seed = State;\n";
+    writeFileSync(SEED_SRC, violation);
+    try {
+        const { exitCode, out } = await runScript();
+        expect(exitCode).toBe(1);
+        expect(out).toMatch(/engine-boundary violation/);
+        expect(out).toMatch(/@dylanebert\/shallot/);
+    } finally {
+        if (existsSync(SEED_SRC)) unlinkSync(SEED_SRC);
     }
 });
 

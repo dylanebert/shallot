@@ -89,11 +89,15 @@ describe("FORCE_COLOR — the standard override for CI and wrapped runs", () => 
         expect(detectTier({ isTTY: true, env: { FORCE_COLOR: "0", NO_COLOR: "" } })).toBe("glyph");
     });
 
-    test("N6: FORCE_COLOR overrides a non-TTY sink — the primary reason the variable exists (CI, a wrapped run, `| less -R`), matching supports-color's own short-circuit-only-when-undefined rule", () => {
+    test("N6: FORCE_COLOR's enable values override a non-TTY sink — the primary reason the variable exists (CI, a wrapped run, `| less -R`)", () => {
         expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "3" } })).toBe("truecolor");
         expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "1" } })).toBe("ansi256");
-        expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "0" } })).toBe("glyph");
         // absent FORCE_COLOR, a non-TTY sink still always reads plain.
         expect(detectTier({ isTTY: false, env: { COLORTERM: "truecolor" } })).toBe("plain");
+    });
+
+    test("B-1: FORCE_COLOR=0/false on a non-TTY sink still reads plain, not glyph — glyph is the interactive colorless tier and still emits cursor escapes (CLEAR_SCREEN, cursorTo), noise into a pipe that the enable case's override doesn't justify", () => {
+        expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "0" } })).toBe("plain");
+        expect(detectTier({ isTTY: false, env: { FORCE_COLOR: "false" } })).toBe("plain");
     });
 });
