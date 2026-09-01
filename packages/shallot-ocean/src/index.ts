@@ -52,13 +52,18 @@ export {
     getSlopeCascadeConfigs,
     getSlopeTexture,
     rasterSlopeMoment,
+    readSlopeBuffers,
+    readSlopeMips,
     realizedSlopeMss,
     reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
+    slopeFftErrorBound,
     slopeMipSize,
+    slopeMipTolerance,
     slopeSpectra,
+    slopeTextureQuantum,
 } from "./slope";
 export {
     ALL_CASCADE_CONFIGS,

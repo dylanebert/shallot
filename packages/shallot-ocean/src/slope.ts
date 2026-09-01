@@ -28,6 +28,71 @@ export { SLOPE_CASCADE_CONFIGS } from "./spectrum";
 /** Number of complete mip levels in each slope texture, including level zero. */
 export const SLOPE_MIP_LEVELS = Math.floor(Math.log2(SLOPE_CASCADE_CONFIGS[0].N)) + 1;
 
+const F16_MIN_NORMAL = 2 ** -14;
+const F16_MIN_SUBNORMAL = 2 ** -24;
+const F32_UNIT_ROUNDOFF = 2 ** -24;
+
+/** The spacing of the rgba16float value that contains `value`. */
+export function slopeTextureQuantum(value: number): number {
+    if (!Number.isFinite(value)) return Number.POSITIVE_INFINITY;
+    const magnitude = Math.abs(value);
+    if (magnitude === 0 || magnitude < F16_MIN_NORMAL) return F16_MIN_SUBNORMAL;
+    return 2 ** (Math.floor(Math.log2(magnitude)) - 10);
+}
+
+/**
+ * Bound one rgba16float mip payload against the CPU reduction. The first term is the output
+ * round-to-nearest error, the second carries one source-format quantum per reduction level, and the
+ * last term bounds f32 arithmetic over the four-tap reduction depth. Residual channels include the
+ * first-order error of their two squared means.
+ */
+export function slopeMipTolerance(
+    value: number,
+    level: number,
+    channel: number,
+    sourceError = 0,
+): number {
+    if (!Number.isInteger(level) || level < 0)
+        throw new RangeError("slopeMipTolerance: invalid level");
+    if (!Number.isInteger(channel) || channel < 0 || channel > 3)
+        throw new RangeError("slopeMipTolerance: invalid channel");
+    if (!Number.isFinite(sourceError) || sourceError < 0)
+        throw new RangeError("slopeMipTolerance: invalid source error");
+    const outputError = slopeTextureQuantum(value) / 2;
+    // Four source texels are each rounded before the reduction; bound every prior level with two
+    // output quanta so cancellation cannot make a residual channel look artificially precise.
+    const propagatedFormatError = outputError * (2 * level + 2);
+    const arithmeticError = Math.max(1, Math.abs(value)) * F32_UNIT_ROUNDOFF * (1 + 4 * level);
+    const propagatedSourceError =
+        channel >= 2 ? 4 * sourceError * Math.max(1, Math.abs(value)) : sourceError;
+    const residualError = channel >= 2 ? 4 * propagatedFormatError : 0;
+    return (
+        outputError +
+        propagatedFormatError +
+        arithmeticError +
+        propagatedSourceError +
+        residualError
+    );
+}
+
+/** Forward-error bound for one f32 two-dimensional inverse FFT from its input L1 norm. */
+export function slopeFftErrorBound(spectrum: Float32Array, N: number): number {
+    if (!Number.isInteger(N) || N < 1 || (N & (N - 1)) !== 0)
+        throw new RangeError("slopeFftErrorBound: N must be a power of two");
+    let inputL1 = 0;
+    for (const value of spectrum) inputL1 += Math.abs(value);
+    // Each complex butterfly has two products and two sums per component; both dimensions traverse
+    // log2(N) stages, so six component operations per stage is a conservative forward bound.
+    return inputL1 * 6 * Math.log2(N) * F32_UNIT_ROUNDOFF;
+}
+
+/** Checks the slope-only resource contract before GPU state is allocated. */
+export function assertSlopeOnly(config: CascadeConfig): void {
+    if (config.lambda !== 0) {
+        throw new Error("shallot-ocean: slope cascade must not couple to displacement");
+    }
+}
+
 /** CPU mirror of the GPU mip reduction: XY means plus second moment and sub-texel residual variance. */
 export function reduceSlopeMip(source: Float32Array, size: number): Float32Array {
     if (!Number.isInteger(size) || size < 2 || source.length !== size * size * 4) {
@@ -208,13 +273,8 @@ const slopeParams = d
     .struct({ n: d.u32, L: d.f32, time: d.f32, pad: d.vec3u })
     .$name("SlopeParams");
 const mipParams = d.struct({ width: d.u32, height: d.u32, pad: d.vec2u }).$name("SlopeMipParams");
-const slopeUpdateLayout = tgpu.bindGroupLayout({
-    h0: { storage: d.arrayOf(d.vec2f), access: "readonly" },
-    h: { storage: d.arrayOf(d.vec2f), access: "mutable" },
-    params: { uniform: slopeParams },
-});
 const slopeLayout = tgpu.bindGroupLayout({
-    h: { storage: d.arrayOf(d.vec2f), access: "readonly" },
+    h0: { storage: d.arrayOf(d.vec2f), access: "readonly" },
     x: { storage: d.arrayOf(d.vec2f), access: "mutable" },
     z: { storage: d.arrayOf(d.vec2f), access: "mutable" },
     params: { uniform: slopeParams },
@@ -234,38 +294,6 @@ const mipLayout = tgpu.bindGroupLayout({
     params: { uniform: mipParams, visibility: ["compute"] },
 });
 
-const slopeUpdateKernel = tgpu
-    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
-        "use gpu";
-        const idx = input.gid.x;
-        const N = slopeUpdateLayout.$.params.n;
-        if (idx >= N * N) return;
-        const x = idx % N;
-        const y = idiv(idx, N);
-        const dk = (d.f32(2) * PI) / slopeUpdateLayout.$.params.L;
-        const kx = std.select(d.f32(x) - d.f32(N), d.f32(x), d.f32(x) <= d.f32(N) / d.f32(2)) * dk;
-        const kz = std.select(d.f32(y) - d.f32(N), d.f32(y), d.f32(y) <= d.f32(N) / d.f32(2)) * dk;
-        const omega = std.sqrt(d.f32(9.81) * std.max(std.sqrt(kx * kx + kz * kz), d.f32(1e-6)));
-        const negX = (N - x) % N;
-        const negY = (N - y) % N;
-        const h0 = slopeUpdateLayout.$.h0[idx];
-        const hn = slopeUpdateLayout.$.h0[negY * N + negX];
-        const c = d.vec2f(
-            std.cos(omega * slopeUpdateLayout.$.params.time),
-            std.sin(omega * slopeUpdateLayout.$.params.time),
-        );
-        const cm = d.vec2f(
-            std.cos(-omega * slopeUpdateLayout.$.params.time),
-            std.sin(-omega * slopeUpdateLayout.$.params.time),
-        );
-        const nr = d.vec2f(hn.x, -hn.y);
-        slopeUpdateLayout.$.h[idx] = d.vec2f(
-            h0.x * c.x - h0.y * c.y + nr.x * cm.x - nr.y * cm.y,
-            h0.x * c.y + h0.y * c.x + nr.x * cm.y + nr.y * cm.x,
-        );
-    })
-    .$name("ocean-slope-update");
-
 const slopeKernel = tgpu
     .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
         "use gpu";
@@ -277,7 +305,24 @@ const slopeKernel = tgpu
         const dk = (d.f32(2) * PI) / slopeLayout.$.params.L;
         const kx = std.select(d.f32(x) - d.f32(N), d.f32(x), d.f32(x) <= d.f32(N) / d.f32(2)) * dk;
         const kz = std.select(d.f32(y) - d.f32(N), d.f32(y), d.f32(y) <= d.f32(N) / d.f32(2)) * dk;
-        const h = slopeLayout.$.h[idx];
+        const omega = std.sqrt(d.f32(9.81) * std.max(std.sqrt(kx * kx + kz * kz), d.f32(1e-6)));
+        const negX = (N - x) % N;
+        const negY = (N - y) % N;
+        const h0 = slopeLayout.$.h0[idx];
+        const hn = slopeLayout.$.h0[negY * N + negX];
+        const c = d.vec2f(
+            std.cos(omega * slopeLayout.$.params.time),
+            std.sin(omega * slopeLayout.$.params.time),
+        );
+        const cm = d.vec2f(
+            std.cos(-omega * slopeLayout.$.params.time),
+            std.sin(-omega * slopeLayout.$.params.time),
+        );
+        const nr = d.vec2f(hn.x, -hn.y);
+        const h = d.vec2f(
+            h0.x * c.x - h0.y * c.y + nr.x * cm.x - nr.y * cm.y,
+            h0.x * c.y + h0.y * c.x + nr.x * cm.y + nr.y * cm.x,
+        );
         slopeLayout.$.x[idx] = d.vec2f(-kx * h.y, kx * h.x);
         slopeLayout.$.z[idx] = d.vec2f(-kz * h.y, kz * h.x);
     })
@@ -334,7 +379,6 @@ interface SlopeState {
     config: CascadeConfig;
     n: number;
     h0: GPUBuffer;
-    h: GPUBuffer;
     x: GPUBuffer;
     z: GPUBuffer;
     xTemp: GPUBuffer;
@@ -342,13 +386,11 @@ interface SlopeState {
     params: GPUBuffer;
     mipParams: GPUBuffer[];
     texture: GPUTexture;
-    update: TgpuComputePipeline;
     slope: TgpuComputePipeline;
     post: TgpuComputePipeline;
     mip: TgpuComputePipeline;
     fftRow: TgpuComputePipeline;
     fftCol: TgpuComputePipeline;
-    updateGroup: TgpuBindGroup;
     slopeGroup: TgpuBindGroup;
     postGroup: TgpuBindGroup;
     xRowGroup: TgpuBindGroup;
@@ -360,6 +402,7 @@ interface SlopeState {
 const states: SlopeState[] = [];
 
 function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
+    assertSlopeOnly(config);
     const { device, root } = Compute;
     const N = config.N;
     const complexBytes = N * N * 8;
@@ -375,7 +418,6 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
     });
     device.queue.writeBuffer(h0, 0, generateH0(config, 0));
-    const h = make(`ocean-slope-h-${N}`);
     const x = make(`ocean-slope-x-${N}`);
     const z = make(`ocean-slope-z-${N}`);
     const xTemp = make(`ocean-slope-x-temp-${N}`);
@@ -403,7 +445,6 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
             (readback ? GPUTextureUsage.COPY_SRC : 0),
     });
     const h0T = root.createBuffer(d.arrayOf(d.vec2f, N * N), h0).$usage("storage");
-    const hT = root.createBuffer(d.arrayOf(d.vec2f, N * N), h).$usage("storage");
     const xT = root.createBuffer(d.arrayOf(d.vec2f, N * N), x).$usage("storage");
     const zT = root.createBuffer(d.arrayOf(d.vec2f, N * N), z).$usage("storage");
     const xTempT = root.createBuffer(d.arrayOf(d.vec2f, N * N), xTemp).$usage("storage");
@@ -413,9 +454,6 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
         root.createBuffer(mipParams, buffer).$usage("uniform"),
     );
     const fft = getFftKernels(N);
-    const update = root
-        .createComputePipeline({ compute: slopeUpdateKernel })
-        .$name(`ocean-slope-update-${N}`);
     const slope = root
         .createComputePipeline({ compute: slopeKernel })
         .$name(`ocean-slope-spectrum-${N}`);
@@ -429,12 +467,12 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
     const fftCol = root
         .createComputePipeline({ compute: fft.colKernel })
         .$name(`ocean-slope-fft-col-${N}`);
-    const updateGroup = root.createBindGroup(slopeUpdateLayout, {
+    const slopeGroup = root.createBindGroup(slopeLayout, {
         h0: h0T,
-        h: hT,
+        x: xT,
+        z: zT,
         params: paramsT,
     });
-    const slopeGroup = root.createBindGroup(slopeLayout, { h: hT, x: xT, z: zT, params: paramsT });
     const postGroup = root.createBindGroup(slopePostLayout, {
         x: xT,
         z: zT,
@@ -461,7 +499,6 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
         config,
         n: N,
         h0,
-        h,
         x,
         z,
         xTemp,
@@ -469,13 +506,11 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
         params,
         mipParams: mipParamsBuffers,
         texture,
-        update,
         slope,
         post,
         mip,
         fftRow,
         fftCol,
-        updateGroup,
         slopeGroup,
         postGroup,
         xRowGroup,
@@ -489,7 +524,6 @@ function createSlopeState(config: CascadeConfig, readback = false): SlopeState {
 function destroy(state: SlopeState): void {
     for (const buffer of [
         state.h0,
-        state.h,
         state.x,
         state.z,
         state.xTemp,
@@ -532,7 +566,6 @@ function encode(state: SlopeState, encoder: GPUCommandEncoder): void {
         pass.end();
     };
     const lines = Math.ceil((state.n * state.n) / 64);
-    run("ocean-slope-update", state.update, state.updateGroup, lines);
     run("ocean-slope-spectrum", state.slope, state.slopeGroup, lines);
     runFft(state, encoder, "ocean-slope-fft-row", state.fftRow, state.xRowGroup);
     runFft(state, encoder, "ocean-slope-fft-col", state.fftCol, state.xColGroup);
@@ -712,6 +745,7 @@ export const slopeCompute: System = {
 export function buildSlopes(): void {
     if (states.length > 0) teardownSlopes();
     for (const config of SLOPE_CASCADE_CONFIGS) {
+        assertSlopeOnly(config);
         const state = createSlopeState(config);
         states.push(state);
         slopeTextures.push(state.texture);

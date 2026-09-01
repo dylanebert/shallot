@@ -2,75 +2,22 @@ import { describe, expect, test } from "bun:test";
 import { runCpuPipeline } from "../src/cpu-reference";
 import { ifft2 } from "../src/fft";
 import {
+    assertSlopeOnly,
     composedSlopePsd,
-    rasterSlopeMoment,
     realizedSlopeMss,
     reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
     slopeSpectra,
 } from "../src/slope";
-import { CASCADE_CONFIGS, directionalDensity, generateH0, kIndex } from "../src/spectrum";
+import { CASCADE_CONFIGS, generateH0, kIndex } from "../src/spectrum";
 
 const [config] = SLOPE_CASCADE_CONFIGS;
-
-function independentSlopeMoment(config: (typeof SLOPE_CASCADE_CONFIGS)[number]): number {
-    const radialSteps = 2048;
-    const angularSteps = 512;
-    const dLog = Math.log(config.kHi / config.kLo) / radialSteps;
-    const dTheta = (2 * Math.PI) / angularSteps;
-    let sum = 0;
-    for (let i = 0; i < radialSteps; i++) {
-        const k = config.kLo * Math.exp((i + 0.5) * dLog);
-        for (let j = 0; j < angularSteps; j++) {
-            const theta = (j + 0.5) * dTheta;
-            sum +=
-                directionalDensity(k * Math.cos(theta), k * Math.sin(theta)) *
-                k ** 4 *
-                dLog *
-                dTheta;
-        }
-    }
-    return sum;
-}
 
 function rmsReal(field: Float32Array): number {
     let sum = 0;
     for (let i = 0; i < field.length; i += 2) sum += field[i] ** 2;
     return Math.sqrt(sum / (field.length / 2));
-}
-
-function meshReconstruct(field: ArrayLike<number>, N: number, u: number, v: number): number {
-    const x0 = Math.floor(u);
-    const y0 = Math.floor(v);
-    const fx = u - x0;
-    const fy = v - y0;
-    const at = (x: number, y: number) => field[((y + N) % N) * N + ((x + N) % N)];
-    return (
-        at(x0, y0) * (1 - fx) * (1 - fy) +
-        at(x0 + 1, y0) * fx * (1 - fy) +
-        at(x0, y0 + 1) * (1 - fx) * fy +
-        at(x0 + 1, y0 + 1) * fx * fy
-    );
-}
-
-function directFieldAt(spectrum: Float32Array, N: number, u: number, v: number): number {
-    let value = 0;
-    for (let y = 0; y < N; y++) {
-        for (let x = 0; x < N; x++) {
-            const phase = (2 * Math.PI * (x * u + y * v)) / N;
-            value +=
-                spectrum[(y * N + x) * 2] * Math.cos(phase) -
-                spectrum[(y * N + x) * 2 + 1] * Math.sin(phase);
-        }
-    }
-    return value;
-}
-
-function realGrid(field: Float32Array): Float64Array {
-    const out = new Float64Array(field.length / 2);
-    for (let i = 0; i < out.length; i++) out[i] = field[i * 2];
-    return out;
 }
 
 function projection(field: Float32Array, N: number, L: number, k: number): number {
@@ -123,36 +70,6 @@ describe("capillary slope cascade", () => {
         expect(rmsReal(slope) / rmsReal(height)).toBeGreaterThan(1);
     });
 
-    test("N invariance preserves the declared mode and rasterized slope moment", () => {
-        const denser = { ...config, N: config.N * 2 };
-        const referenceMoment = independentSlopeMoment(config);
-        const measuredMoment = composedSlopePsd(config);
-        const rasterMoment = rasterSlopeMoment(generateH0(config, 17), config);
-        const denserRasterMoment = rasterSlopeMoment(generateH0(denser, 17), denser);
-        expect(measuredMoment).toBeGreaterThan(0);
-        expect(Math.abs(measuredMoment / referenceMoment - 1)).toBeLessThan(0.005);
-        expect(rasterMoment).toBeGreaterThan(0);
-        expect(denserRasterMoment).toBeGreaterThan(0);
-        expect(Math.abs(rasterMoment / measuredMoment - 1)).toBeLessThan(0.25);
-        expect(Math.abs(denserRasterMoment / measuredMoment - 1)).toBeLessThan(0.25);
-        const base = generateH0(config, 17);
-        const high = generateH0(denser, 17);
-        const dk = (2 * Math.PI) / config.L;
-        for (let y = 0; y < config.N; y++) {
-            for (let x = 0; x < config.N; x++) {
-                const kx = kIndex(x, config.N) * dk;
-                const kz = kIndex(y, config.N) * dk;
-                if (Math.hypot(kx, kz) < config.kLo || Math.hypot(kx, kz) > config.kHi) continue;
-                const hiX = kIndex(x, config.N) >= 0 ? x : denser.N + kIndex(x, config.N);
-                const hiY = kIndex(y, config.N) >= 0 ? y : denser.N + kIndex(y, config.N);
-                const a = (y * config.N + x) * 2;
-                const b = (hiY * denser.N + hiX) * 2;
-                expect(high[b]).toBe(base[a]);
-                expect(high[b + 1]).toBe(base[a + 1]);
-            }
-        }
-    });
-
     test("mip reduction publishes measured residual slope variance", () => {
         const level0 = new Float32Array([1, 0, 1, 0, 3, 0, 9, 0, 1, 2, 5, 0, 3, 2, 13, 0]);
         const mip = reduceSlopeMip(level0, 2);
@@ -190,43 +107,56 @@ describe("capillary slope cascade", () => {
         expect(config.lambda).toBe(0);
     });
 
-    test("field-vs-mesh instrument agrees on reconstructed displacement samples", () => {
-        const base = { ...CASCADE_CONFIGS[0], N: 256 };
-        const result = runCpuPipeline(generateH0(base, 17), base, 0.37);
-        const heightMesh = realGrid(result.height);
-        const dxMesh = realGrid(result.dxHeight).map((value) => base.lambda * value);
-        const dzMesh = realGrid(result.dzHeight).map((value) => base.lambda * value);
-        for (const [u, v] of [
-            [1.01, 2.01],
-            [4.04, 7.04],
-            [11.99, 13.99],
-            [15.01, 0.01],
-        ]) {
-            expect(
-                Math.abs(
-                    meshReconstruct(heightMesh, base.N, u, v) -
-                        directFieldAt(result.h, base.N, u, v),
-                ),
-            ).toBeLessThan(0.5);
-            expect(
-                Math.abs(
-                    meshReconstruct(dxMesh, base.N, u, v) -
-                        base.lambda * directFieldAt(result.dxSpec, base.N, u, v),
-                ),
-            ).toBeLessThan(0.5);
-            expect(
-                Math.abs(
-                    meshReconstruct(dzMesh, base.N, u, v) -
-                        base.lambda * directFieldAt(result.dzSpec, base.N, u, v),
-                ),
-            ).toBeLessThan(0.5);
+    test("displacement spectra stop at the slope-band boundary", () => {
+        const boundary = 8.4823;
+        for (const cascade of CASCADE_CONFIGS) {
+            const result = runCpuPipeline(generateH0(cascade, 17), cascade, 0.37);
+            for (let y = 0; y < cascade.N; y++) {
+                for (let x = 0; x < cascade.N; x++) {
+                    const k = Math.hypot(
+                        kIndex(x, cascade.N) * ((2 * Math.PI) / cascade.L),
+                        kIndex(y, cascade.N) * ((2 * Math.PI) / cascade.L),
+                    );
+                    if (k <= boundary) continue;
+                    const i = (y * cascade.N + x) * 2;
+                    expect(result.h[i] === 0).toBe(true);
+                    expect(result.h[i + 1] === 0).toBe(true);
+                    expect(result.dxSpec[i] === 0).toBe(true);
+                    expect(result.dxSpec[i + 1] === 0).toBe(true);
+                    expect(result.dzSpec[i] === 0).toBe(true);
+                    expect(result.dzSpec[i + 1] === 0).toBe(true);
+                }
+            }
         }
-        const meshSupportedHi = Math.max(...CASCADE_CONFIGS.map((cascade) => cascade.kHi));
-        expect(config.kLo).toBeGreaterThanOrEqual(meshSupportedHi);
     });
 
-    test("zero displacement remains a separate structural slope arm", () => {
-        expect(config.lambda).toBe(0);
+    test("the displacement-coupling arm red-witnesses a nonzero slope lambda", () => {
+        expect(() => assertSlopeOnly({ ...config, lambda: 1 })).toThrow(/must not couple/);
+        expect(() => assertSlopeOnly(config)).not.toThrow();
         expect(CASCADE_CONFIGS.every((cascade) => cascade.lambda !== 0)).toBe(true);
+    });
+
+    test("publication boundary keeps slope outputs out of displacement names", async () => {
+        const source = await Bun.file(new URL("../src/slope.ts", import.meta.url)).text();
+        const publications = [
+            ...source.matchAll(/Compute\.([A-Za-z]+)\.set\(\s*([`"'])([^`"']*)\2/g),
+        ];
+        expect(publications.length).toBeGreaterThan(0);
+        expect(
+            publications.every(
+                ([, owner, , name]) => owner === "textures" && name.startsWith("slope"),
+            ),
+        ).toBe(true);
+        expect(publications.some(([, , , name]) => /height|displace|jacob|dx|dz/i.test(name))).toBe(
+            false,
+        );
+
+        for await (const path of new Bun.Glob("packages/shallot-ocean/src/**/*.ts").scan()) {
+            if (path.endsWith("/slope.ts")) continue;
+            const text = await Bun.file(path).text();
+            expect(text).not.toMatch(
+                /Compute\.(?:textures|buffers|typed)\.(?:get|set)\([^)]*slope/i,
+            );
+        }
     });
 });

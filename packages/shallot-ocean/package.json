@@ -18,6 +18,9 @@
     "exports": {
         ".": "./src/index.ts"
     },
+    "scripts": {
+        "test:slope": "bun test ./tests/slope.oracle.ts"
+    },
     "files": [
         "src",
         "!src/**/*.test.ts",
