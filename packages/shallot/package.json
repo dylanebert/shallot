@@ -47,6 +47,7 @@
         "./tumble/core": "./src/standard/tumble/core.ts",
         "./bvh/core": "./src/standard/bvh/core.ts",
         "./audio/core": "./src/standard/audio/core.ts",
+        "./cells/core": "./src/extras/cells/core.ts",
         "./gltf/core": "./src/extras/gltf/core.ts",
         "./skin/core": "./src/extras/skin/core.ts",
         "./tween/core": "./src/extras/tween/core.ts",

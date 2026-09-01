@@ -81,6 +81,10 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
+    // measured 2026-09-01, two agreeing `--scenario cells` runs (WSL/NVIDIA bridge, lovelace): one
+    // compute pipeline (`cells-fill`), gpuBytes excludes the lazy `Mirror` staging pool (1440 B),
+    // leaving the 720 B `cells-grid` buffer alone (10x6 cells × 12 B `CELL_BYTES`).
+    cells: { pipelines: 1, pipelineCalls: 1, gpuBytes: 720 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

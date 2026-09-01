@@ -26,8 +26,9 @@ export const GPU_MODULE_GLOBS: readonly string[] = [
     "packages/shallot/src/standard/slab/**/*.ts",
     "packages/shallot/src/standard/bvh/**/*.ts",
     "packages/shallot/src/standard/avbd/**/*.ts",
-    // `gpu.md` writes these eight as one brace glob; `globToRegExp` has no brace support, so they
+    // `gpu.md` writes these nine as one brace glob; `globToRegExp` has no brace support, so they
     // enumerate here. Same set — `checkExtrasClassification` is what holds the two together.
+    "packages/shallot/src/extras/cells/**/*.ts",
     "packages/shallot/src/extras/gltf/**/*.ts",
     "packages/shallot/src/extras/lines/**/*.ts",
     "packages/shallot/src/extras/outline/**/*.ts",
