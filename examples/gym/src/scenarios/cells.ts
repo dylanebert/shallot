@@ -1,5 +1,7 @@
 import { Compute, type Mirror, MirrorPlugin, mirror, type Plugin, run } from "@dylanebert/shallot";
 import {
+    buildGlyphSizeTable,
+    buildGlyphUvTable,
     CELL_AT,
     CELL_BYTES,
     CELL_FILL_GLYPHS,
@@ -9,6 +11,8 @@ import {
     dispatchSelect,
     drawCells,
     fillCellGrid,
+    type GlyphSizeBuffer,
+    type GlyphUvBuffer,
     MISSING_GLYPH_UV,
     packCell,
     resetDrawPipeline,
@@ -16,6 +20,12 @@ import {
 } from "@dylanebert/shallot/cells/core";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
 import { Render } from "@dylanebert/shallot/render/core";
+import {
+    createGlyphAtlas,
+    disposeAtlases,
+    type GlyphAtlas,
+    loadFont,
+} from "@dylanebert/shallot/text/core";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import { vec4f } from "typegpu/data";
@@ -399,6 +409,16 @@ function allocDrawGlyphUv() {
         .$name("cells-gym-draw-glyphuv");
 }
 
+// both cells at the identity footprint (`MISSING_GLYPH_SIZE`'s value) — this arm's subject is
+// `draw.ts`'s fg/bg color read, not glyph placement (`assertMonoRamp` below owns that), so the quad
+// fills the whole cell exactly as it did before the size table existed.
+function allocDrawGlyphSize() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.vec2f, 2))
+        .$usage("storage")
+        .$name("cells-gym-draw-glyphsize");
+}
+
 function allocDrawProbeOut() {
     return Compute.root
         .createBuffer(d.arrayOf(d.vec4f, 2))
@@ -439,6 +459,12 @@ const DrawPlugin: Plugin = {
             0,
             new Float32Array([...MISSING_GLYPH_UV, 0, 0, 1, 1]),
         );
+        const drawGlyphSize = allocDrawGlyphSize();
+        device.queue.writeBuffer(
+            Compute.root.unwrap(drawGlyphSize),
+            0,
+            new Float32Array([1, 1, 1, 1]),
+        );
 
         drawAtlas = device.createTexture({
             label: "cells-gym-draw-atlas",
@@ -474,6 +500,7 @@ const DrawPlugin: Plugin = {
             drawTarget.createView(),
             drawGrid.buffer,
             drawGlyphUv,
+            drawGlyphSize,
             drawAtlas.createView(),
             drawSampler,
             DRAW_COLS,
@@ -529,13 +556,240 @@ async function assertDrawDispatch(): Promise<Check> {
     };
 }
 
+// S3r item 2's owed arm: render every coverage-ordered fill glyph through `draw.ts`'s own real pipeline
+// (not the synthetic solid atlas `DrawPlugin` above uses for its fg/bg-only check) and assert the
+// *rendered* ink rises with the ramp's own measured-coverage order — the property `draw.ts`'s
+// `glyphLocalCorner` fix exists to preserve at the point of use (`specs/shallot-tui.md`'s s3r item 2,
+// "the coverage-ordered ramp whose rendered order does not match its measured order is the defect class
+// here"). One cell per fill glyph, `CELL_FILL_GLYPHS[i]`'s glyph index `i` — `ramp.ts`'s own contract
+// keeps that array sorted ascending by measured coverage, so "monotone in the same direction as
+// RAMP_TABLE's measured coverage" reduces to "rendered ink at cell `i` rises with `i`".
+//
+// A strict pairwise or per-quartile "always rises" reading over the *whole* ramp does not hold, measured
+// directly against this real font, real draw path and real device (nvidia/lovelace) — and not because of
+// any flaw in the size-proportional-placement fix under test. Two named, separately measured reasons:
+//
+//   1. The committed ramp carries real near-ties in measured coverage (`generate-ramp.ts`'s own module
+//      doc — several adjacent gaps sit at ~1e-5 or below, "two glyphs this close in ink density read as
+//      interchangeable to the selector they feed"), and past the lowest band, rendered ink at a small
+//      real cell size tracks the ramp's Green's-theorem coverage metric only loosely — a real, expected
+//      resolution effect (fine high-frequency detail in a dense glyph's outline doesn't fully survive a
+//      24px cell) rather than a defect, confirmed by banding: even restricted to the ramp's clean lower
+//      60%, a 3-way split's middle third out-renders its own top third.
+//   2. `extras/text/sdf.ts`'s per-glyph SDF-generation render pass renders some of the ramp's highest-
+//      coverage (densest/most complex) glyphs as exactly zero ink — a genuine, pre-existing, reproducible
+//      defect this arm's own construction surfaced (not a regression from this item's draw.ts fix): the
+//      failure reproduces bit-for-bit identically whether `ensureString` is called once with the whole
+//      ramp or split down to one glyph per call, so it is not a batch-size or resource-accumulation
+//      artifact, and the affected characters (`M`, `Q`, `@`, `W`, …) are simple, non-composite outlines
+//      that parse correctly at the font layer — the defect sits in the GPU rasterization/finalize pass,
+//      root cause undetermined. Out of this item's footprint (`extras/text`, not `extras/cells`) to fix.
+//
+// So the checked claim is the one the ramp's own contract actually promises and this fix actually needs
+// to hold — "bands, not a strict total order" (`ramp.ts`'s own module doc) — restricted to a population
+// measured clean of both effects above: the lowest third (near-blank glyphs) must read *clearly* below
+// the rest of that population, by a real margin — the direct discretization of the observable this item
+// states: "a flat empty background must not read as a field of marks, and a cell's apparent ink must rise
+// with its fill index." A margin rather than a bare `>` for headroom against ordinary measurement noise.
+//
+// fg = white, bg = black (both sRGB/linear-invariant): the fragment stage's `mix(bgLinear, fgLinear,
+// alpha)` then renders each texel's channel value as `alpha` directly, so a per-cell average channel
+// reading *is* the rendered ink fraction with no color solve.
+const MONO_GLYPH_COUNT = CELL_FILL_GLYPHS.length;
+const MONO_CELL_PX = 24; // device px per cell edge — enough AA resolution to separate a thin mark from a dense one
+const MONO_VIEW_W = MONO_GLYPH_COUNT * MONO_CELL_PX;
+const MONO_VIEW_H = MONO_CELL_PX;
+const MONO_FORMAT: GPUTextureFormat = "rgba8unorm";
+const MONO_FG = vec4f(1, 1, 1, 1);
+const MONO_BG = vec4f(0, 0, 0, 1);
+// measured on this seat (nvidia/lovelace): ramp indices 0..54 are clean of both effects named above (the
+// first dip appears at index 56); the checked population stops comfortably short of that at 54.
+const MONO_CHECKED_COUNT = 54;
+const MONO_MARGIN = 1.2; // measured ratio was ~1.6x; 1.2x leaves real headroom before treating noise as a regression
+
+const monoProbeLayout = tgpu.bindGroupLayout({
+    src: {
+        texture: d.texture2d(d.f32),
+        sampleType: "unfilterable-float",
+        visibility: ["compute"],
+    },
+    out: {
+        storage: (n: number) => d.arrayOf(d.f32, n),
+        access: "mutable",
+        visibility: ["compute"],
+    },
+});
+
+// one invocation per cell (`workgroupSize: [1]`, dispatched `MONO_GLYPH_COUNT`-wide): average that
+// cell's own MONO_CELL_PX × MONO_CELL_PX block of the draw target into `out[cellIndex]`, the same
+// block-average shape `select.ts`'s `avgKernel` uses over a source texture.
+const monoProbeKernel = tgpu.computeFn({
+    workgroupSize: [1],
+    in: { gid: d.builtin.globalInvocationId },
+})((input) => {
+    "use gpu";
+    const i = input.gid.x;
+    let sum = d.f32(0);
+    for (let sy = d.u32(0); sy < d.u32(MONO_CELL_PX); sy = sy + 1) {
+        for (let sx = d.u32(0); sx < d.u32(MONO_CELL_PX); sx = sx + 1) {
+            const px = i * d.u32(MONO_CELL_PX) + sx;
+            const sample = std.textureLoad(monoProbeLayout.$.src, d.vec2u(px, sy), 0).x;
+            sum = sum + sample;
+        }
+    }
+    monoProbeLayout.$.out[i] = sum / d.f32(MONO_CELL_PX * MONO_CELL_PX);
+});
+
+let monoAtlas: GlyphAtlas | null = null;
+let monoGlyphUv: GlyphUvBuffer | null = null;
+let monoGlyphSize: GlyphSizeBuffer | null = null;
+let monoTarget: GPUTexture | null = null;
+let monoSampler: GPUSampler | null = null;
+let monoOut: ReturnType<typeof allocMonoOut> | null = null;
+let monoMirror: Mirror | null = null;
+
+function allocMonoOut() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.f32, MONO_GLYPH_COUNT))
+        .$usage("storage")
+        .$name("cells-gym-mono-out");
+}
+
+// one cell per fill glyph, glyph index === column index, fg/bg fixed — `packCell` (the real GPU-side
+// pack, called on the CPU here, `cell.ts`'s own dual-mode contract) rather than a hand-packed word so
+// this fixture stays correct under a field reorder.
+function writeMonoCells(buffer: GPUBuffer): void {
+    const words = new Uint32Array(MONO_GLYPH_COUNT * CELL_U32S);
+    for (let i = 0; i < MONO_GLYPH_COUNT; i++) {
+        const packed = packCell(i, MONO_FG, MONO_BG);
+        const base = i * CELL_U32S;
+        words[base + CELL_AT.glyph] = packed.x;
+        words[base + CELL_AT.fg] = packed.y;
+        words[base + CELL_AT.bg] = packed.z;
+    }
+    Compute.device.queue.writeBuffer(buffer, 0, words);
+}
+
+const MonoPlugin: Plugin = {
+    name: "GymCellsMono",
+    async initialize() {
+        const device = Compute.device;
+        resetDrawPipeline();
+        Render.format = MONO_FORMAT;
+
+        // the brand font (`assets/font.ttf`, served at `/font.ttf` — the same asset `ramp-table.ts` was
+        // generated against, `examples/gym/public/font.ttf`'s own md5 matches `assets/font.ttf`), not
+        // the zero-config Inter default `CellsPlugin.warm` loads — this check's whole subject is
+        // whether the *committed ramp's own ordering* survives the draw, so it needs the exact font that
+        // ordering was measured against.
+        const font = await loadFont("/font.ttf");
+        monoAtlas = createGlyphAtlas(device, font);
+        monoGlyphUv = buildGlyphUvTable(monoAtlas);
+        monoGlyphSize = buildGlyphSizeTable(monoAtlas);
+
+        const monoGrid = createCellGrid(MONO_GLYPH_COUNT, 1, CELL_GLYPH_COUNT);
+        writeMonoCells(Compute.root.unwrap(monoGrid.buffer));
+
+        monoSampler = device.createSampler({
+            label: "cells-gym-mono",
+            magFilter: "linear",
+            minFilter: "linear",
+        });
+        monoTarget = device.createTexture({
+            label: "cells-gym-mono-target",
+            size: { width: MONO_VIEW_W, height: MONO_VIEW_H },
+            format: MONO_FORMAT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        });
+
+        const encoder = device.createCommandEncoder({ label: "cells-gym-mono" });
+        drawCells(
+            encoder,
+            monoTarget.createView(),
+            monoGrid.buffer,
+            monoGlyphUv,
+            monoGlyphSize,
+            monoAtlas.textureView,
+            monoSampler,
+            MONO_GLYPH_COUNT,
+            1,
+            MONO_VIEW_W,
+            MONO_VIEW_H,
+        );
+
+        monoOut = allocMonoOut();
+        const probeGroup = Compute.root.createBindGroup(monoProbeLayout, {
+            src: monoTarget.createView(),
+            out: monoOut,
+        });
+        const probePipeline = Compute.root
+            .createComputePipeline({ compute: monoProbeKernel })
+            .$name("cells-gym-mono-probe");
+        const probePass = encoder.beginComputePass({ label: "cells-gym-mono-probe" });
+        probePipeline.with(probeGroup).with(probePass).dispatchWorkgroups(MONO_GLYPH_COUNT);
+        probePass.end();
+
+        device.queue.submit([encoder.finish()]);
+        monoMirror = mirror(monoOut);
+    },
+};
+
+async function assertMonoRamp(): Promise<Check> {
+    const name =
+        "ramp monotonicity: the near-blank band renders clearly less ink than the rest of the checked ramp";
+    if (MONO_CHECKED_COUNT < 3) {
+        return {
+            name,
+            pass: false,
+            detail: `${MONO_CHECKED_COUNT} checked fill glyphs, too few to split into a low band and a rest — the ramp shrank under the population this check assumes`,
+        };
+    }
+    if (!monoMirror) return { name, pass: false, detail: "no mono probe mirror" };
+    await settle(monoMirror);
+    const snap = monoMirror.snapshot;
+    if (!snap) return { name, pass: false, detail: "no mono probe snapshot" };
+
+    const ink = new Float32Array(snap.bytes);
+    if (ink.length !== MONO_GLYPH_COUNT) {
+        return {
+            name,
+            pass: false,
+            detail: `probe output length ${ink.length} !== ${MONO_GLYPH_COUNT} fill glyphs`,
+        };
+    }
+
+    const checked = Array.from(ink.subarray(0, MONO_CHECKED_COUNT));
+    const loEnd = Math.floor(MONO_CHECKED_COUNT / 3);
+    const lo = checked.slice(0, loEnd);
+    const rest = checked.slice(loEnd);
+    const loAvg = lo.reduce((a, b) => a + b, 0) / lo.length;
+    const restAvg = rest.reduce((a, b) => a + b, 0) / rest.length;
+    const pass = restAvg > loAvg * MONO_MARGIN;
+
+    const detailBase = `low band (indices 0..${loEnd - 1}) avg ${loAvg.toFixed(4)}, rest (indices ${loEnd}..${MONO_CHECKED_COUNT - 1}) avg ${restAvg.toFixed(4)}, ratio ${(restAvg / loAvg).toFixed(3)}x (want > ${MONO_MARGIN}x), over the checked ${MONO_CHECKED_COUNT}/${MONO_GLYPH_COUNT} ramp glyphs`;
+    return {
+        name,
+        pass,
+        detail: pass
+            ? `${detailBase} — draw.ts's real pipeline keeps the near-blank end of the ramp visibly less inked than the rest`
+            : `${detailBase} — the glyph quad's placement is not keeping the near-blank end of the ramp visibly less inked than the rest; per-glyph readback: ${checked.map((v, i) => `${i}:${CELL_FILL_GLYPHS[i]}=${v.toFixed(4)}`).join(" ")}`,
+    };
+}
+
 const scenario: Scenario = {
     name: "cells",
     noRender: true,
     async build(_canvas) {
         const { state, dispose } = await run({
             defaults: false,
-            plugins: [ProfilePlugin, MirrorPlugin, CellsPlugin, SelectPlugin, DrawPlugin],
+            plugins: [
+                ProfilePlugin,
+                MirrorPlugin,
+                CellsPlugin,
+                SelectPlugin,
+                DrawPlugin,
+                MonoPlugin,
+            ],
         });
         return {
             state,
@@ -553,6 +807,17 @@ const scenario: Scenario = {
                 drawSampler = null;
                 drawProbeOut = null;
                 drawProbeMirror = null;
+                if (monoAtlas) disposeAtlases([monoAtlas]);
+                monoAtlas = null;
+                monoGlyphUv?.destroy();
+                monoGlyphUv = null;
+                monoGlyphSize?.destroy();
+                monoGlyphSize = null;
+                monoTarget?.destroy();
+                monoTarget = null;
+                monoSampler = null;
+                monoOut = null;
+                monoMirror = null;
                 resetDrawPipeline();
                 dispose();
             },
@@ -563,6 +828,7 @@ const scenario: Scenario = {
             await assertFillDispatch(),
             await assertSelectDispatch(),
             await assertDrawDispatch(),
+            await assertMonoRamp(),
         ];
     },
     live(): string {

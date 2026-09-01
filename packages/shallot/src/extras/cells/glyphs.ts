@@ -45,6 +45,43 @@ export function glyphUvTable(atlas: GlyphAtlas): Float32Array {
 /** the storage buffer type the draw pass's `glyphUv` binding reads: one `vec4f` rect per ramp index. */
 export type GlyphUvBuffer = TgpuBuffer<d.WgslArray<typeof d.vec4f>> & StorageFlag;
 
+/** the glyph-size sentinel a font-absent glyph packs — the identity footprint (fills the whole cell,
+ *  `draw.ts`'s `glyphLocalCorner` leaves the corner unchanged at `size = (1, 1)`), harmless since a
+ *  missing glyph never samples ink ({@link MISSING_GLYPH_UV}'s zero-area gate). */
+export const MISSING_GLYPH_SIZE: readonly [number, number] = [1, 1];
+
+/** one glyph's own measured em-normalized footprint, `[glyphWidth, glyphHeight]` off a resident
+ *  {@link GlyphAtlas} entry (`text/atlas.ts`'s `computeGlyphMetrics` — the padded-bounds box divided by
+ *  `unitsPerEm`), each clamped to at most 1 so a wide glyph's quad never overflows into a neighboring
+ *  cell. {@link MISSING_GLYPH_SIZE} when the font has no outline for it, mirroring {@link glyphUvRect}'s
+ *  fallback. This is the measurement `draw.ts`'s vertex stage scales the glyph quad by
+ *  (`glyphLocalCorner`) — without it every glyph's own tightly-cropped SDF tile stretches across the
+ *  whole cell regardless of true size, destroying the coverage-ordered ramp's monotone progression at
+ *  the point of use (`specs/shallot-tui.md`'s s3r item 8).
+ *  @example const size = glyphSizeRect(atlas, 0); // the lowest-coverage fill glyph's own footprint */
+export function glyphSizeRect(atlas: GlyphAtlas, index: number): readonly [number, number] {
+    const metrics = atlas.glyphs.get(cellGlyphChar(index));
+    if (!metrics) return MISSING_GLYPH_SIZE;
+    return [Math.min(1, metrics.glyphWidth), Math.min(1, metrics.glyphHeight)];
+}
+
+/** every ramp glyph's size, index-ordered — the flat data {@link buildGlyphSizeTable} writes to the GPU
+ *  buffer, split out so the pure derivation is testable with no device (`glyphs.test.ts`).
+ *  @example const table = glyphSizeTable(atlas); // table.length === CELL_GLYPH_COUNT * 2 */
+export function glyphSizeTable(atlas: GlyphAtlas): Float32Array {
+    const out = new Float32Array(CELL_GLYPH_COUNT * 2);
+    for (let i = 0; i < CELL_GLYPH_COUNT; i++) {
+        const [w, h] = glyphSizeRect(atlas, i);
+        out[i * 2] = w;
+        out[i * 2 + 1] = h;
+    }
+    return out;
+}
+
+/** the storage buffer type the draw pass's `glyphSize` binding reads: one `vec2f` footprint per ramp
+ *  index. */
+export type GlyphSizeBuffer = TgpuBuffer<d.WgslArray<typeof d.vec2f>> & StorageFlag;
+
 /**
  * ensure every ramp glyph is resident in `atlas` (`ensureString`, warming the SDF atlas texture), then
  * build + upload the uv-rect table as a fresh GPU storage buffer. Call once per atlas rebuild — a font
@@ -59,6 +96,25 @@ export function buildGlyphUvTable(atlas: GlyphAtlas): GlyphUvBuffer {
         .createBuffer(d.arrayOf(d.vec4f, CELL_GLYPH_COUNT))
         .$usage("storage")
         .$name("cells-glyph-uv");
+    Compute.device.queue.writeBuffer(Compute.root.unwrap(buffer), 0, table);
+    return buffer;
+}
+
+/**
+ * ensure every ramp glyph is resident in `atlas` (`ensureString`, warming the SDF atlas texture — a
+ * no-op for a glyph {@link buildGlyphUvTable} already warmed), then build + upload the glyph-size table
+ * ({@link glyphSizeTable}) as a fresh GPU storage buffer. Call once per atlas rebuild alongside
+ * {@link buildGlyphUvTable} — a font load, or a device re-adopt (`CellsPlugin.warm`) — never per frame.
+ *
+ * @example const glyphSize = buildGlyphSizeTable(atlas);
+ */
+export function buildGlyphSizeTable(atlas: GlyphAtlas): GlyphSizeBuffer {
+    ensureString(atlas, cellGlyphString());
+    const table = glyphSizeTable(atlas);
+    const buffer = Compute.root
+        .createBuffer(d.arrayOf(d.vec2f, CELL_GLYPH_COUNT))
+        .$usage("storage")
+        .$name("cells-glyph-size");
     Compute.device.queue.writeBuffer(Compute.root.unwrap(buffer), 0, table);
     return buffer;
 }

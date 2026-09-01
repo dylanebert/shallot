@@ -24,7 +24,12 @@ import {
     loadFont,
 } from "../text/core";
 import { drawCells, resetDrawPipeline } from "./draw";
-import { buildGlyphUvTable, type GlyphUvBuffer } from "./glyphs";
+import {
+    buildGlyphSizeTable,
+    buildGlyphUvTable,
+    type GlyphSizeBuffer,
+    type GlyphUvBuffer,
+} from "./glyphs";
 import { type CellGrid, createCellGrid } from "./grid";
 import { CELL_GLYPH_COUNT, cellGlyphString } from "./ramp";
 import { recordSelect, resetSelectPipelines } from "./select";
@@ -41,6 +46,7 @@ const DEFAULT_FONT =
 
 let _atlas: GlyphAtlas | null = null;
 let _glyphUv: GlyphUvBuffer | null = null;
+let _glyphSize: GlyphSizeBuffer | null = null;
 let _sampler: GPUSampler | null = null;
 const _grids = new Map<number, CellGrid>();
 
@@ -78,7 +84,7 @@ const CellsSystem: System = {
     before: [GlazeSystem],
     update(state: State) {
         const encoder = Render.encoder;
-        if (!encoder || !Compute.device || !_atlas || !_glyphUv || !_sampler) return;
+        if (!encoder || !Compute.device || !_atlas || !_glyphUv || !_glyphSize || !_sampler) return;
         let drawnEid: number | null = null;
         for (const eid of state.query([Camera])) {
             const view = Views.get(eid);
@@ -111,6 +117,7 @@ const CellsSystem: System = {
                 view.framebuffer,
                 grid.buffer,
                 _glyphUv,
+                _glyphSize,
                 _atlas.textureView,
                 _sampler,
                 COLS,
@@ -138,6 +145,7 @@ export const CellsPlugin: Plugin = {
         _atlas = createGlyphAtlas(device, font);
         ensureString(_atlas, cellGlyphString());
         _glyphUv = buildGlyphUvTable(_atlas);
+        _glyphSize = buildGlyphSizeTable(_atlas);
         _sampler = device.createSampler({
             label: "cells",
             magFilter: "linear",
@@ -150,6 +158,8 @@ export const CellsPlugin: Plugin = {
         _atlas = null;
         _glyphUv?.destroy();
         _glyphUv = null;
+        _glyphSize?.destroy();
+        _glyphSize = null;
         _sampler = null;
         for (const grid of _grids.values()) grid.buffer.destroy();
         _grids.clear();

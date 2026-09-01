@@ -82,22 +82,26 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
     // measured 2026-09-01, `--scenario cells` (WSL/NVIDIA bridge, lovelace), re-measured the same day
-    // after criterion 4's real draw differential landed (`shallot-tui` spec's s3r item 2 — the retired
-    // `decodeByteView` comparison shared `CELL_AT` with `unpackCell`, so it could never see a bug in
-    // `draw.ts`'s own body; `assertDrawDispatch` now drives `draw.ts`'s real render pipeline instead).
-    // Five compute/render pipelines: `cells-fill` (S1's synthetic producer), `cells-avg` + `cells-select`
-    // (S3's two-pass real content producer over the select differential's synthetic source texture),
-    // `cells-draw` (the new draw differential's real render pipeline) and `cells-gym-draw-probe` (its
-    // compute-shader texture readback, standing in for `Mirror`, which only reads buffers). gpuBytes
-    // excludes the lazy `Mirror` staging pool: `cells-grid` now covers *three* `createCellGrid` calls
-    // (S1's 10×6 fixture 720 B, the select differential's 8×4 fixture 384 B, the draw differential's 2×1
-    // fixture 24 B — all three share the name `createCellGrid` always gives its buffer, summing to
-    // 1128 B), the select differential's `rgba32float` synthetic source texture (8192 B), its
-    // intermediate per-cell average buffer (512 B), the persistent `cells-select-params` uniform (16 B),
-    // and the draw differential's own resources: a 2-entry synthetic glyph-uv table (32 B), a 4×4
-    // `r8unorm` synthetic atlas (16 B), a 32×16 `rgba8unorm` render target (2048 B), the persistent
-    // `cells-draw-params` uniform (16 B), and the probe's 2-entry output buffer (32 B).
-    cells: { pipelines: 5, pipelineCalls: 5, gpuBytes: 11_992 },
+    // after S3r item 2's ramp-monotonicity arm landed (`specs/shallot-tui.md`'s s3r item 2 — the owed
+    // regression guard driving `draw.ts`'s real pipeline against a real font atlas, not the synthetic
+    // solid atlas the draw differential below uses). Eight compute/render pipelines: `cells-fill` (S1's
+    // synthetic producer), `cells-avg` + `cells-select` (S3's two-pass real content producer), `cells-draw`
+    // (the draw differential's real render pipeline, shared by the mono-ramp arm — reused under the same
+    // label, which is why `pipelineCalls` (9) exceeds `pipelines` (8), `budgets.ts`'s own module doc names
+    // this), `cells-gym-draw-probe` (the draw differential's texture readback), `text-sdf-distance` +
+    // `text-sdf-finalize` (the real `GlyphAtlas`'s SDF generator, first exercised here against a real font
+    // — `extras/text/sdf.ts`, warmed by `buildGlyphUvTable`/`buildGlyphSizeTable`), and
+    // `cells-gym-mono-probe` (the ramp arm's own per-cell ink-average readback). gpuBytes excludes the lazy
+    // `Mirror` staging pool (3000 B, `mirror-staging`): the prior row's resources (`cells-grid`,
+    // `cells-select-src` + its params/avg buffers, the draw differential's synthetic glyph-uv/atlas/target/
+    // params/probe-out) are unchanged; the increase is almost entirely the ramp arm's real glyph atlas
+    // (`glyphAtlas`, a real `createGlyphAtlas` 2048×2048 `r8unorm` texture, 4_194_304 B — the same size
+    // every real-font cells/text scene allocates, not something this arm should shrink), its uv/size
+    // tables (`cells-glyph-uv` 1520 B, `cells-glyph-size` 760 B), its own 91-cell draw target
+    // (`cells-gym-mono-target`, 2184×24 `rgba8unorm`, 209_664 B), its params uniform (16 B), its probe
+    // output (`cells-gym-mono-out`, 364 B), and the SDF generator's unlabeled 96×96 `rgba8unorm`
+    // intermediate texture (36_864 B, `""` in `bun bench`'s by-label memory breakdown).
+    cells: { pipelines: 8, pipelineCalls: 9, gpuBytes: 4_456_576 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

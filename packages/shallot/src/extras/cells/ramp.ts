@@ -73,19 +73,27 @@ export function cellGlyphString(): string {
     return CELL_FILL_GLYPHS.join("") + CELL_DIRECTIONAL_GLYPHS.join("");
 }
 
-// The GPU-side half of this contract — the uv-rect table the instanced draw reads per glyph index — is
-// `glyphs.ts`'s `buildGlyphUvTable`, against a live `GlyphAtlas` (`text/core`'s `createGlyphAtlas` +
-// `ensureString`, the same shelf-packed atlas `extras/text`'s own instanced glyph quads use — reused
-// rather than re-derived) that `CellsPlugin` (`./index.ts`) owns the lifecycle of. The contract:
+// The GPU-side half of this contract — the uv-rect + size tables the instanced draw reads per glyph
+// index — is `glyphs.ts`'s `buildGlyphUvTable` / `buildGlyphSizeTable`, against a live `GlyphAtlas`
+// (`text/core`'s `createGlyphAtlas` + `ensureString`, the same shelf-packed atlas `extras/text`'s own
+// instanced glyph quads use — reused rather than re-derived) that `CellsPlugin` (`./index.ts`) owns the
+// lifecycle of. The contract:
 //
 //   1. Ensure every ramp glyph is resident once: `ensureString(atlas, cellGlyphString())`.
 //   2. For `i` in `0 .. CELL_GLYPH_COUNT - 1`, read `atlas.glyphs.get(cellGlyphChar(i))` (a
 //      `GlyphMetrics`) and pack its `u0, v0, u1, v1` into lane `i` of a
-//      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer.
-//   3. The instanced draw's vertex stage indexes that buffer by `cells[i].glyph`, mixes the quad-local
-//      corner across the whole `u0,v0..u1,v1` box (no anchor/kerning math — a monospace cell stretches
-//      the glyph's own padded bounds to fill it), and the fragment stage samples the SDF there.
+//      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer, and its `glyphWidth, glyphHeight`
+//      (em-normalized, clamped to at most 1) into lane `i` of a `d.arrayOf(d.vec2f, CELL_GLYPH_COUNT)`
+//      sibling — the glyph's own measured footprint.
+//   3. The instanced draw's vertex stage indexes both buffers by `cells[i].glyph`: it shrinks + centers
+//      the quad-local corner to that glyph's own footprint before placing it (`glyphLocalCorner`,
+//      `draw.ts`) — size-proportional placement, so a glyph occupies the cell in proportion to its own
+//      measured size rather than every glyph's padded SDF tile stretching across the same cell footprint
+//      regardless of extent — mixes the UV corner across the whole `u0,v0..u1,v1` box unchanged, and the
+//      fragment stage samples the SDF there.
 //
-// A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`) packs the zero-area sentinel
-// `(0,0,0,0)` (`u1 <= u0`) — the draw's fragment stage treats that as "no glyph" and renders the cell's
-// background alone, never sampling atlas texel `(0,0)`, which a real glyph could legitimately occupy.
+// A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`) packs the zero-area uv
+// sentinel `(0,0,0,0)` (`u1 <= u0`, `MISSING_GLYPH_UV`) and the identity-footprint size sentinel `(1,1)`
+// (`MISSING_GLYPH_SIZE`) — the draw's fragment stage treats the zero-area uv as "no glyph" and renders
+// the cell's background alone, never sampling atlas texel `(0,0)`, which a real glyph could legitimately
+// occupy; the size sentinel is inert there since no ink is ever sampled for a missing glyph.

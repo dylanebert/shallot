@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import type { GlyphAtlas } from "../text/core";
-import { glyphUvRect, glyphUvTable, MISSING_GLYPH_UV } from "./glyphs";
+import {
+    glyphSizeRect,
+    glyphSizeTable,
+    glyphUvRect,
+    glyphUvTable,
+    MISSING_GLYPH_SIZE,
+    MISSING_GLYPH_UV,
+} from "./glyphs";
 import { CELL_GLYPH_COUNT, cellGlyphChar } from "./ramp";
 
 // glyphUvRect/glyphUvTable are pure over `atlas.glyphs` (a Map<string, GlyphMetrics>) — a hand-built
@@ -10,6 +17,15 @@ function fakeAtlas(entries: Record<string, [number, number, number, number]>): G
     const glyphs = new Map<string, { u0: number; v0: number; u1: number; v1: number }>();
     for (const [char, [u0, v0, u1, v1]] of Object.entries(entries)) {
         glyphs.set(char, { u0, v0, u1, v1 });
+    }
+    return { glyphs } as unknown as GlyphAtlas;
+}
+
+// same shape, carrying the glyphWidth/glyphHeight lanes glyphSizeRect/glyphSizeTable read.
+function fakeSizedAtlas(entries: Record<string, [number, number]>): GlyphAtlas {
+    const glyphs = new Map<string, { glyphWidth: number; glyphHeight: number }>();
+    for (const [char, [glyphWidth, glyphHeight]] of Object.entries(entries)) {
+        glyphs.set(char, { glyphWidth, glyphHeight });
     }
     return { glyphs } as unknown as GlyphAtlas;
 }
@@ -56,6 +72,46 @@ describe("glyphUvTable", () => {
         );
         if (CELL_GLYPH_COUNT > 2) {
             expect(Array.from(table.slice(4, 8))).toEqual([...MISSING_GLYPH_UV]);
+        }
+    });
+});
+
+describe("glyphSizeRect", () => {
+    test("reads a resident glyph's own em-normalized footprint off the atlas", () => {
+        const char = cellGlyphChar(0);
+        const atlas = fakeSizedAtlas({ [char]: [0.3, 0.6] });
+        expect(glyphSizeRect(atlas, 0)).toEqual([0.3, 0.6]);
+    });
+
+    test("returns the identity-footprint sentinel when the font has no outline for the glyph", () => {
+        const atlas = fakeSizedAtlas({});
+        expect(glyphSizeRect(atlas, 0)).toEqual(MISSING_GLYPH_SIZE);
+    });
+
+    test("clamps a wider-than-em footprint to 1 so the quad never overflows its cell", () => {
+        // paddedBounds pads 10% of unitsPerEm each side, so a wide glyph can measure > 1
+        const char = cellGlyphChar(0);
+        const atlas = fakeSizedAtlas({ [char]: [1.2, 0.9] });
+        expect(glyphSizeRect(atlas, 0)).toEqual([1, 0.9]);
+    });
+});
+
+describe("glyphSizeTable", () => {
+    test("packs every ramp index in order, missing glyphs as the identity-footprint sentinel", () => {
+        const first = cellGlyphChar(0);
+        const last = cellGlyphChar(CELL_GLYPH_COUNT - 1);
+        const atlas = fakeSizedAtlas({
+            [first]: [0.2, 0.4],
+            [last]: [0.5, 0.7],
+        });
+        const table = glyphSizeTable(atlas);
+        expect(table.length).toBe(CELL_GLYPH_COUNT * 2);
+        expect(Array.from(table.slice(0, 2))).toEqual(Array.from(Float32Array.of(0.2, 0.4)));
+        expect(Array.from(table.slice((CELL_GLYPH_COUNT - 1) * 2, CELL_GLYPH_COUNT * 2))).toEqual(
+            Array.from(Float32Array.of(0.5, 0.7)),
+        );
+        if (CELL_GLYPH_COUNT > 2) {
+            expect(Array.from(table.slice(2, 4))).toEqual([...MISSING_GLYPH_SIZE]);
         }
     });
 });

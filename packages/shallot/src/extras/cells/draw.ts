@@ -1,10 +1,12 @@
 // The web sink: an instanced draw of `cols * rows` monospace quads against the shared SDF glyph atlas
 // (`text/core`), no readback — the Locked decision's "same pipeline with the expensive tail deleted"
 // (`specs/shallot-tui.md`). A simplification of `extras/text`'s own instanced glyph draw: no world
-// transform, no per-entity eid lookup, no anchor/kerning layout — every cell is a fixed monospace box
-// whose position derives purely from its instance index, and its glyph quad stretches the atlas glyph's
-// whole padded uv rect across that box rather than laying it out proportionally (`ramp.ts`'s module doc:
-// "no anchor/kerning math"). No vertex/index buffer either: the quad's six corners come from
+// transform, no per-entity eid lookup, no per-string layout pass — every cell is a fixed monospace box
+// whose position derives purely from its instance index, and its glyph quad is shrunk + centered within
+// that box to the glyph's own measured em-normalized footprint (`glyphLocalCorner` below, against
+// `glyphs.ts`'s size table) rather than stretched to fill it — size-proportional placement, the same
+// principle `extras/text`'s own `layoutText` applies per glyph (`ramp.ts`'s module doc names the
+// contract this reads). No vertex/index buffer either: the quad's six corners come from
 // `@builtin(vertex_index)` through a small lookup table (`fullscreenVs`'s shape, `extras/outline`), and
 // `@builtin(instance_index)` is the cell — `col = iid % cols`, `row = iid / cols`.
 //
@@ -26,12 +28,12 @@ import { Compute } from "../../engine";
 import { Render } from "../../standard/render/core";
 import { sdfToSignedDistance, textSrgbToLinear } from "../text/core";
 import { Cell } from "./cell";
-import type { GlyphUvBuffer } from "./glyphs";
+import type { GlyphSizeBuffer, GlyphUvBuffer } from "./glyphs";
 
 type CellBuffer = TgpuBuffer<d.WgslArray<typeof Cell>> & StorageFlag;
 
-/** the draw's one bind group: dims uniform, the cell buffer + glyph uv table (vertex-read), the shared
- *  atlas texture + sampler (fragment-read). @internal */
+/** the draw's one bind group: dims uniform, the cell buffer + glyph uv/size tables (vertex-read), the
+ *  shared atlas texture + sampler (fragment-read). @internal */
 export const DrawParams = d.struct({ cols: d.u32, rows: d.u32, viewW: d.f32, viewH: d.f32 });
 
 /** @internal */
@@ -47,8 +49,36 @@ export const drawLayout = tgpu.bindGroupLayout({
         access: "readonly",
         visibility: ["vertex"],
     },
+    glyphSize: {
+        storage: (n: number) => d.arrayOf(d.vec2f, n),
+        access: "readonly",
+        visibility: ["vertex"],
+    },
     atlasSamp: { sampler: "filtering", visibility: ["fragment"] },
     atlasTex: { texture: d.texture2d(d.f32), visibility: ["fragment"] },
+});
+
+/**
+ * map a quad-local corner (0..1, spanning the full glyph tile) to its footprint position within the
+ * cell: shrunk and centered to `size` (the glyph's own em-normalized width/height, `glyphs.ts`'s
+ * `glyphSizeTable`) rather than filling the whole cell regardless of the glyph's true extent. This is
+ * the point of use the Locked decision's coverage-ordered ramp (`ramp.ts`) needs preserved — without it,
+ * every glyph's own tightly-cropped SDF tile stretches across the same cell footprint, and the ramp's
+ * monotone-coverage ordering renders indistinguishable (`specs/shallot-tui.md`'s s3r item 8). One TGSL
+ * source, dual-mode like `cell.ts`'s `packCell`: `bun test` calls it directly on the CPU, `cellVertex`
+ * resolves the identical body. `size = (1, 1)` (`glyphs.ts`'s `MISSING_GLYPH_SIZE`, a font-absent
+ * glyph's sentinel) leaves the corner unchanged — the full-cell footprint — which is inert there since
+ * the fragment stage never samples ink for a missing glyph (`has`'s zero-area-uv gate).
+ *
+ * @example glyphLocalCorner(vec2f(0, 0), vec2f(0.5, 0.5)); // vec2f(0.25, 0.25) — centered, half-size
+ */
+export const glyphLocalCorner = tgpu.fn(
+    [d.vec2f, d.vec2f],
+    d.vec2f,
+)((corner, size) => {
+    "use gpu";
+    const margin = std.mul(std.sub(d.vec2f(1, 1), size), 0.5);
+    return std.add(margin, std.mul(corner, size));
 });
 
 // the unit quad's six corners (two triangles), indexed by @builtin(vertex_index) — no vertex buffer,
@@ -86,14 +116,17 @@ export const cellVertex = tgpu
         const row = input.iid / cols;
         const cellW = drawLayout.$.params.viewW / d.f32(cols);
         const cellH = drawLayout.$.params.viewH / d.f32(drawLayout.$.params.rows);
-        const px = (d.f32(col) + corner.x) * cellW;
-        const py = (d.f32(row) + corner.y) * cellH;
-        const ndcX = px / (drawLayout.$.params.viewW * 0.5) - 1;
-        const ndcY = 1 - py / (drawLayout.$.params.viewH * 0.5);
 
         const cell = Cell(drawLayout.$.cells[input.iid]);
         const rect = drawLayout.$.glyphUv[cell.glyph];
+        const size = drawLayout.$.glyphSize[cell.glyph];
         const has = std.select(d.u32(0), d.u32(1), rect.z > rect.x);
+        const local = glyphLocalCorner(corner, size);
+        const px = (d.f32(col) + local.x) * cellW;
+        const py = (d.f32(row) + local.y) * cellH;
+        const ndcX = px / (drawLayout.$.params.viewW * 0.5) - 1;
+        const ndcY = 1 - py / (drawLayout.$.params.viewH * 0.5);
+
         const uv = std.mix(rect.xy, rect.zw, corner);
         const fg = std.unpack4x8unorm(cell.fg);
         const bg = std.unpack4x8unorm(cell.bg);
@@ -102,7 +135,7 @@ export const cellVertex = tgpu
             pos: d.vec4f(ndcX, ndcY, 0, 1),
             corner,
             uv,
-            gsize: d.vec2f(cellW, cellH),
+            gsize: d.vec2f(cellW * size.x, cellH * size.y),
             fg,
             bg,
             has,
@@ -182,13 +215,14 @@ export function resetDrawPipeline(): void {
  * cols/rows pair that doesn't evenly divide the view leaves its uncovered edge strip showing the
  * rendered scene rather than clearing to black.
  *
- * @example drawCells(encoder, view.framebuffer, cellsBuffer, glyphUv, atlas, sampler, 80, 24, view.width, view.height);
+ * @example drawCells(encoder, view.framebuffer, cellsBuffer, glyphUv, glyphSize, atlas, sampler, 80, 24, view.width, view.height);
  */
 export function drawCells(
     encoder: GPUCommandEncoder,
     target: GPUTextureView,
     cellsBuffer: CellBuffer,
     glyphUv: GlyphUvBuffer,
+    glyphSize: GlyphSizeBuffer,
     atlasTex: GPUTextureView,
     atlasSamp: GPUSampler,
     cols: number,
@@ -202,6 +236,7 @@ export function drawCells(
         params,
         cells: cellsBuffer,
         glyphUv,
+        glyphSize,
         atlasSamp,
         atlasTex,
     });

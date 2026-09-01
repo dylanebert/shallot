@@ -4,7 +4,7 @@
 // `extras` barrel; this subpath is the GPU cell layout contract underneath it: the packing (`Cell` + its
 // byte/lane constants), the codec (`packCell` / `unpackCell`), the headless fill producer, the real
 // content producer (`recordSelect` / `dispatchSelect`, structure-first glyph selection over a rendered
-// scene), the glyph uv-rect table builder, the web sink's instanced draw, and the glyph ramp. Not on the
+// scene), the glyph uv-rect + size table builders, the web sink's instanced draw, and the glyph ramp. Not on the
 // main `extras` barrel itself: none of this is a component, singleton, or registration function a game
 // author calls (`exports.md`'s barrel-vs-`*/core` split), and `Cell` / `createCellGrid` are exactly the
 // kind of generic name that subpath exists to avoid colliding on the bare barrel (`exports.md`'s Naming
@@ -31,12 +31,23 @@ export {
     packCell,
     unpackCell,
 } from "./cell";
-export { DrawParams as CellsDrawParams, drawCells, drawPipeline, resetDrawPipeline } from "./draw";
 export {
+    DrawParams as CellsDrawParams,
+    drawCells,
+    drawPipeline,
+    glyphLocalCorner,
+    resetDrawPipeline,
+} from "./draw";
+export {
+    buildGlyphSizeTable,
     buildGlyphUvTable,
+    type GlyphSizeBuffer,
     type GlyphUvBuffer,
+    glyphSizeRect,
+    glyphSizeTable,
     glyphUvRect,
     glyphUvTable,
+    MISSING_GLYPH_SIZE,
     MISSING_GLYPH_UV,
 } from "./glyphs";
 export { type CellGrid, createCellGrid, fillCellGrid } from "./grid";
