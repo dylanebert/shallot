@@ -40,50 +40,187 @@ export function slopeTextureQuantum(value: number): number {
     return 2 ** (Math.floor(Math.log2(magnitude)) - 10);
 }
 
-/**
- * Bound one rgba16float mip payload against the CPU reduction. The first term is the output
- * round-to-nearest error, the second carries one source-format quantum per reduction level, and the
- * last term bounds f32 arithmetic over the four-tap reduction depth. Residual channels include the
- * first-order error of their two squared means.
- */
-export function slopeMipTolerance(
-    value: number,
-    level: number,
-    channel: number,
-    sourceError = 0,
-): number {
-    if (!Number.isInteger(level) || level < 0)
-        throw new RangeError("slopeMipTolerance: invalid level");
-    if (!Number.isInteger(channel) || channel < 0 || channel > 3)
-        throw new RangeError("slopeMipTolerance: invalid channel");
-    if (!Number.isFinite(sourceError) || sourceError < 0)
-        throw new RangeError("slopeMipTolerance: invalid source error");
-    const outputError = slopeTextureQuantum(value) / 2;
-    // Four source texels are each rounded before the reduction; bound every prior level with two
-    // output quanta so cancellation cannot make a residual channel look artificially precise.
-    const propagatedFormatError = outputError * (2 * level + 2);
-    const arithmeticError = Math.max(1, Math.abs(value)) * F32_UNIT_ROUNDOFF * (1 + 4 * level);
-    const propagatedSourceError =
-        channel >= 2 ? 4 * sourceError * Math.max(1, Math.abs(value)) : sourceError;
-    const residualError = channel >= 2 ? 4 * propagatedFormatError : 0;
-    return (
-        outputError +
-        propagatedFormatError +
-        arithmeticError +
-        propagatedSourceError +
-        residualError
-    );
-}
-
 /** Forward-error bound for one f32 two-dimensional inverse FFT from its input L1 norm. */
 export function slopeFftErrorBound(spectrum: Float32Array, N: number): number {
     if (!Number.isInteger(N) || N < 1 || (N & (N - 1)) !== 0)
         throw new RangeError("slopeFftErrorBound: N must be a power of two");
     let inputL1 = 0;
     for (const value of spectrum) inputL1 += Math.abs(value);
-    // Each complex butterfly has two products and two sums per component; both dimensions traverse
-    // log2(N) stages, so six component operations per stage is a conservative forward bound.
-    return inputL1 * 6 * Math.log2(N) * F32_UNIT_ROUNDOFF;
+    // A butterfly performs four twiddle products, two complex twiddle sums, and four output sums:
+    // ten component roundings per stage. Both dimensions traverse log2(N) stages.
+    return inputL1 * 20 * Math.log2(N) * F32_UNIT_ROUNDOFF;
+}
+
+function f32AccumulationError(
+    values: readonly number[],
+    result: number,
+    operations: number,
+): number {
+    const magnitude = values.reduce((sum, value) => sum + Math.abs(value), 0);
+    return F32_UNIT_ROUNDOFF * (operations * magnitude + Math.abs(result));
+}
+
+/** Bound source-spectrum arithmetic plus the two-dimensional f32 inverse FFT accumulation. */
+export function slopeSourceErrorBound(spectrum: Float32Array, N: number): number {
+    if (!Number.isInteger(N) || N < 1 || (N & (N - 1)) !== 0)
+        throw new RangeError("slopeSourceErrorBound: N must be a power of two");
+    let inputL1 = 0;
+    for (const value of spectrum) inputL1 += Math.abs(value);
+    // The slope source performs the complex phase/update and i*k multiplication before the FFT;
+    // sixteen component roundings cover those operations, while twenty per stage covers both FFT
+    // dimensions' butterfly products and sums.
+    return inputL1 * (16 + 20 * Math.log2(N)) * F32_UNIT_ROUNDOFF;
+}
+
+/** Error bounds for each stored channel, derived from the source FFT, f32 reductions, and f16 stores. */
+function slopeMipErrorBounds(
+    expected: readonly Float32Array[],
+    sourceError: number,
+): Float32Array[] {
+    if (!Number.isFinite(sourceError) || sourceError < 0)
+        throw new RangeError("slopeMipErrorBounds: invalid source error");
+    if (expected.length === 0) throw new RangeError("slopeMipErrorBounds: missing mip levels");
+    const bounds: Float32Array[] = [];
+    const level0 = new Float32Array(expected[0].length);
+    for (let i = 0; i < expected[0].length; i += 4) {
+        const x = expected[0][i];
+        const z = expected[0][i + 1];
+        const energy = expected[0][i + 2];
+        if (![x, z, energy, expected[0][i + 3]].every(Number.isFinite))
+            throw new RangeError("slopeMipErrorBounds: non-finite expected payload");
+        level0[i] = sourceError + slopeTextureQuantum(x) / 2;
+        level0[i + 1] = sourceError + slopeTextureQuantum(z) / 2;
+        const sourceEnergyError =
+            2 * Math.abs(x) * sourceError +
+            sourceError * sourceError +
+            2 * Math.abs(z) * sourceError +
+            sourceError * sourceError +
+            f32AccumulationError([x * x, z * z], energy, 3);
+        level0[i + 2] = sourceEnergyError + slopeTextureQuantum(energy) / 2;
+        // The post kernel writes this channel as the mathematical constant zero at level zero.
+        level0[i + 3] = 0;
+    }
+    bounds.push(level0);
+
+    for (let level = 1; level < expected.length; level++) {
+        const previous = expected[level - 1];
+        const previousBounds = bounds[level - 1];
+        const current = expected[level];
+        const currentBounds = new Float32Array(current.length);
+        const size = Math.sqrt(previous.length / 4);
+        if (!Number.isInteger(size) || size < 2 || current.length !== (size / 2) ** 2 * 4)
+            throw new RangeError("slopeMipErrorBounds: non-square or truncated expected payload");
+        const nextSize = size / 2;
+        for (let y = 0; y < nextSize; y++) {
+            for (let x = 0; x < nextSize; x++) {
+                const sourceOffsets = [
+                    (2 * y * size + 2 * x) * 4,
+                    (2 * y * size + 2 * x + 1) * 4,
+                    ((2 * y + 1) * size + 2 * x) * 4,
+                    ((2 * y + 1) * size + 2 * x + 1) * 4,
+                ];
+                const out = (y * nextSize + x) * 4;
+                for (const channel of [0, 1, 2] as const) {
+                    const values = sourceOffsets.map((offset) => previous[offset + channel]);
+                    const mean = current[out + channel];
+                    const inputError =
+                        sourceOffsets.reduce(
+                            (sum, offset) => sum + previousBounds[offset + channel],
+                            0,
+                        ) / 4;
+                    currentBounds[out + channel] =
+                        inputError +
+                        f32AccumulationError(values, mean, 4) +
+                        slopeTextureQuantum(mean) / 2;
+                }
+                const meanX = current[out];
+                const meanZ = current[out + 1];
+                const second = current[out + 2];
+                const meanXError = currentBounds[out];
+                const meanZError = currentBounds[out + 1];
+                const secondError = currentBounds[out + 2];
+                const residual = current[out + 3];
+                const residualArithmetic = f32AccumulationError(
+                    [second, meanX * meanX, meanZ * meanZ],
+                    residual,
+                    4,
+                );
+                currentBounds[out + 3] =
+                    secondError +
+                    2 * Math.abs(meanX) * meanXError +
+                    meanXError * meanXError +
+                    2 * Math.abs(meanZ) * meanZError +
+                    meanZError * meanZError +
+                    residualArithmetic +
+                    slopeTextureQuantum(residual) / 2;
+            }
+        }
+        bounds.push(currentBounds);
+    }
+    return bounds;
+}
+
+/** Compare every finite mip/channel payload and red-witness zeroing each non-zero channel. */
+export function slopeMipAgreement(
+    actual: readonly (Float32Array | undefined)[],
+    expected: readonly Float32Array[],
+    sourceError: number,
+): { pass: boolean; detail: string } {
+    if (actual.length !== expected.length)
+        return { pass: false, detail: `level count ${actual.length}/${expected.length}` };
+    let worstRatio = 0;
+    let worstLabel = "none";
+    const vacuity: string[] = [];
+    const bounds = slopeMipErrorBounds(expected, sourceError);
+    for (let level = 0; level < expected.length; level++) {
+        const got = actual[level];
+        const want = expected[level];
+        if (!got) return { pass: false, detail: `missing level=${level}` };
+        if (got.length !== want.length)
+            return { pass: false, detail: `truncated level=${level}:${got.length}/${want.length}` };
+        for (let i = 0; i < want.length; i++) {
+            if (!Number.isFinite(want[i]) || !Number.isFinite(got[i]))
+                return { pass: false, detail: `non-finite level=${level},index=${i}` };
+        }
+        for (let channel = 0; channel < 4; channel++) {
+            const structurallyZero =
+                (level === 0 && channel === 3) || (level === expected.length - 1 && channel < 2);
+            let comparisonRatio = 0;
+            let zeroedRatio = 0;
+            for (let i = channel; i < want.length; i += 4) {
+                const tolerance = Math.max(bounds[level][i], Number.MIN_VALUE);
+                comparisonRatio = Math.max(comparisonRatio, Math.abs(got[i] - want[i]) / tolerance);
+                // The vacuity witness is a format-boundary perturbation: it asks whether zeroing the
+                // payload changes a representable rgba16float value, independently of source noise.
+                const quantization = Math.max(slopeTextureQuantum(want[i]) / 2, Number.MIN_VALUE);
+                zeroedRatio = Math.max(zeroedRatio, Math.abs(want[i]) / quantization);
+            }
+            if (structurallyZero) {
+                const exactZero = want.every((value, i) => {
+                    if (i % 4 !== channel) return true;
+                    if (value === 0) return true;
+                    return level === expected.length - 1 && Math.abs(value) <= bounds[level][i];
+                });
+                if (!exactZero)
+                    return { pass: false, detail: `non-zero structural channel level=${level}` };
+                vacuity.push(`level=${level},channel=${channel}:mathematically-zero`);
+            } else {
+                vacuity.push(`level=${level},channel=${channel}:red-witness=${zeroedRatio}`);
+                if (!(zeroedRatio > 1))
+                    return { pass: false, detail: `vacuous level=${level},channel=${channel}` };
+            }
+            if (comparisonRatio > worstRatio) {
+                worstRatio = comparisonRatio;
+                worstLabel = `level=${level},channel=${channel}`;
+            }
+            if (!(comparisonRatio < 1))
+                return {
+                    pass: false,
+                    detail: `mismatch ${worstLabel}:${worstRatio}; ${vacuity.join(" ")}`,
+                };
+        }
+    }
+    return { pass: true, detail: `worst=${worstLabel}:${worstRatio}; ${vacuity.join(" ")}` };
 }
 
 /** Checks the slope-only resource contract before GPU state is allocated. */
@@ -607,31 +744,6 @@ function runFft(
     pass.end();
 }
 
-async function readComplexBuffer(buffer: GPUBuffer, n: number): Promise<Float32Array> {
-    const size = n * n * 8;
-    const readback = Compute.device.createBuffer({
-        label: "ocean-slope-readback",
-        size,
-        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-    });
-    try {
-        const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-copy" });
-        encoder.copyBufferToBuffer(buffer, 0, readback, 0, size);
-        Compute.device.queue.submit([encoder.finish()]);
-        await readback.mapAsync(GPUMapMode.READ);
-        return new Float32Array(readback.getMappedRange().slice(0));
-    } catch (cause) {
-        throw new Error("ocean slope GPU buffer readback failed", { cause });
-    } finally {
-        try {
-            readback.unmap();
-        } catch {
-            // A rejected mapAsync leaves the buffer unmapped.
-        }
-        readback.destroy();
-    }
-}
-
 function halfToFloat(value: number): number {
     const sign = (value & 0x8000) !== 0 ? -1 : 1;
     const exponent = (value >>> 10) & 0x1f;
@@ -681,24 +793,6 @@ async function readMipTexture(
         }
         readback.destroy();
     }
-}
-
-/** @internal test-only GPU output of one slope cascade's two inverse-transformed spectra. */
-export async function readSlopeBuffers(
-    config: CascadeConfig = SLOPE_CASCADE_CONFIGS[0],
-    time = 0,
-): Promise<{ x: Float32Array; z: Float32Array }> {
-    const state = createSlopeState(config, true);
-    writeParams(state, time);
-    const encoder = Compute.device.createCommandEncoder({ label: "ocean-slope-readback-run" });
-    encode(state, encoder);
-    Compute.device.queue.submit([encoder.finish()]);
-    const [x, z] = await Promise.all([
-        readComplexBuffer(state.x, state.n),
-        readComplexBuffer(state.z, state.n),
-    ]);
-    destroy(state);
-    return { x, z };
 }
 
 /** @internal test-only numerical readback of every slope mip payload. */

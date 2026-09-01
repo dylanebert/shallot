@@ -52,7 +52,6 @@ export {
     getSlopeCascadeConfigs,
     getSlopeTexture,
     rasterSlopeMoment,
-    readSlopeBuffers,
     readSlopeMips,
     realizedSlopeMss,
     reduceSlopeMip,
@@ -60,8 +59,9 @@ export {
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
     slopeFftErrorBound,
+    slopeMipAgreement,
     slopeMipSize,
-    slopeMipTolerance,
+    slopeSourceErrorBound,
     slopeSpectra,
     slopeTextureQuantum,
 } from "./slope";

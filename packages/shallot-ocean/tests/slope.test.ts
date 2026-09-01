@@ -8,6 +8,7 @@ import {
     reduceSlopeMip,
     runSlopeCpuPipeline,
     SLOPE_CASCADE_CONFIGS,
+    slopeMipAgreement,
     slopeSpectra,
 } from "../src/slope";
 import { CASCADE_CONFIGS, generateH0, kIndex } from "../src/spectrum";
@@ -136,27 +137,64 @@ describe("capillary slope cascade", () => {
         expect(CASCADE_CONFIGS.every((cascade) => cascade.lambda !== 0)).toBe(true);
     });
 
-    test("publication boundary keeps slope outputs out of displacement names", async () => {
-        const source = await Bun.file(new URL("../src/slope.ts", import.meta.url)).text();
-        const publications = [
-            ...source.matchAll(/Compute\.([A-Za-z]+)\.set\(\s*([`"'])([^`"']*)\2/g),
-        ];
+    test("publication enumeration covers the repo-wide slope reader boundary", async () => {
+        const shallotRoot = new URL("../../../", import.meta.url).pathname;
+        const productionFiles: string[] = [];
+        for (const pattern of ["packages/**/*.ts", "examples/**/*.ts"]) {
+            for await (const path of new Bun.Glob(pattern).scan({ cwd: shallotRoot })) {
+                if (
+                    !path.endsWith(".test.ts") &&
+                    !path.endsWith(".oracle.ts") &&
+                    !path.endsWith(".tier.ts")
+                )
+                    productionFiles.push(path);
+            }
+        }
+        const publications: string[] = [];
+        const publicationPattern = /Compute\.textures\.set\(\s*([`"'])([^`"']*)\1/g;
+        for (const path of productionFiles) {
+            const text = await Bun.file(new URL(path, `file://${shallotRoot}/`)).text();
+            for (const match of text.matchAll(publicationPattern)) {
+                if (match[2].startsWith("slope")) publications.push(match[2]);
+            }
+        }
+        expect(productionFiles.length).toBeGreaterThan(0);
         expect(publications.length).toBeGreaterThan(0);
+        expect(publications.every((name) => name.startsWith("slope"))).toBe(true);
+
+        const readsSlopeForDisplacement = (text: string): boolean =>
+            /(?:getSlopeTexture\s*\(|Compute\.textures\.get\(\s*[`"']slope)/.test(text) &&
+            /\b(?:displace|height|jacob(?:ian)?|vertex|mesh)\b/i.test(text);
         expect(
-            publications.every(
-                ([, owner, , name]) => owner === "textures" && name.startsWith("slope"),
-            ),
+            readsSlopeForDisplacement("const texture = getSlopeTexture(); use(displace(texture));"),
         ).toBe(true);
-        expect(publications.some(([, , , name]) => /height|displace|jacob|dx|dz/i.test(name))).toBe(
+
+        const slopeName = publications.find((name) => !name.includes("${"));
+        const directReader = slopeName
+            ? new RegExp(`Compute\\.textures\\.get\\(\\s*["']${slopeName}["']`)
+            : /$a/;
+        for (const path of productionFiles) {
+            if (path === "packages/shallot-ocean/src/slope.ts") continue;
+            const text = await Bun.file(new URL(path, `file://${shallotRoot}/`)).text();
+            expect(readsSlopeForDisplacement(text)).toBe(false);
+            expect(directReader.test(text)).toBe(false);
+        }
+    });
+
+    test("mip agreement rejects missing, truncated, and non-finite per-level payloads", () => {
+        const expected = [new Float32Array(16).fill(1), new Float32Array([0, 0, 7.25, 0.5])];
+        expected[0][3] = 0;
+        expected[0][7] = 0;
+        expected[0][11] = 0;
+        expected[0][15] = 0;
+        const valid = expected.map((level) => new Float32Array(level));
+        expect(slopeMipAgreement(valid, expected, 0).pass).toBe(true);
+        expect(slopeMipAgreement([valid[0]], expected, 0).pass).toBe(false);
+        expect(slopeMipAgreement([valid[0], new Float32Array([1.5])], expected, 0).pass).toBe(
             false,
         );
-
-        for await (const path of new Bun.Glob("packages/shallot-ocean/src/**/*.ts").scan()) {
-            if (path.endsWith("/slope.ts")) continue;
-            const text = await Bun.file(path).text();
-            expect(text).not.toMatch(
-                /Compute\.(?:textures|buffers|typed)\.(?:get|set)\([^)]*slope/i,
-            );
-        }
+        const nonFinite = valid.map((level) => new Float32Array(level));
+        nonFinite[1][0] = Number.NaN;
+        expect(slopeMipAgreement(nonFinite, expected, 0).pass).toBe(false);
     });
 });
