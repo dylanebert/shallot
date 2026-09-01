@@ -44,10 +44,15 @@ const PI = Math.PI;
  * the Sobel-magnitude gate between a directional glyph and the coverage-ordered fill ramp
  * (module doc above). Derived, not fitted: the 3×3 Sobel kernel's weights sum to 4 per axis, so a hard
  * black-to-white step edge (a post-tonemap luma jump of 1.0) between two adjacent cells reads magnitude
- * ≈4 axis-aligned or ≈5.66 diagonal; 0.4 requires roughly a 0.1 average per-tap luma delta across the
- * neighborhood to fire — well above sensor/render noise on a lit 3D scene, well below what a silhouette
- * or a hard shadow boundary produces. This is the constant criterion 8's taste read is expected to move —
- * record a new derivation here if it does, not just the number.
+ * ≈4 when axis-aligned. The diagonal case is **not** ≈5.66 (`gx = gy = 4` is unreachable — the two
+ * kernels share taps, e.g. `l02`/`l20` carry opposite sign between `gx` and `gy`, so driving `gx` to its
+ * axis maximum caps what `gy` can reach at the same time): the true maximum over the 8 free luma taps in
+ * `[0, 1]` a linear objective over a box, so the max sits at a vertex, brute-forced over all 256 in
+ * `select.test.ts` — is `4·cos(t) + 2·sin(t)` maximized over `t`, `sqrt(20) ≈ 4.47`. 0.4 requires roughly
+ * a 0.1 average per-tap luma delta across the neighborhood to fire (the axis-aligned case, `0.4 / 4`) —
+ * well above sensor/render noise on a lit 3D scene, well below what a silhouette or a hard shadow
+ * boundary produces. This is the constant criterion 8's taste read is expected to move — record a new
+ * derivation here if it does, not just the number.
  */
 export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
 
@@ -116,14 +121,23 @@ export const luma = tgpu.fn(
 });
 
 /**
- * the gradient angle `(gx, gy)` → a directional glyph index (`ramp.ts`'s `CELL_DIRECTIONAL_GLYPHS`,
- * appended after the fill ramp). Folds the gradient angle to `[0, π)` (a line has no polarity — gradient
- * 10° and gradient 190° are the same edge), buckets it into the four standard 45°-spaced Canny
+ * the gradient `(gx, gy)` → a directional glyph index (`ramp.ts`'s `CELL_DIRECTIONAL_GLYPHS`, appended
+ * after the fill ramp). `gx`/`gy` are read in `selectKernel`'s own grid frame — row index increases
+ * **downward** (`l02`/`l12`/`l22` sit at `cy2 = yi + 1`, the frame `gy = bottom row − top row` is
+ * measured in), while `ramp.ts`'s four bucket labels (`0°=-, 45°=/, 90°=|, 135°=\`) are stated as the
+ * angle the glyph visually runs, i.e. standard math convention (y **up**). `atan2(-gy, gx)` converts the
+ * grid's y-down gradient into that y-up frame before bucketing — a grid-frame positive `gy` (brighter
+ * below) is a math-frame negative `gy` (brighter toward −y) — folds to `[0, π)` (a line has no polarity —
+ * gradient 10° and gradient 190° are the same edge), buckets into the four standard 45°-spaced Canny
  * non-max-suppression buckets, then **rotates by two buckets (90°) to the perpendicular tangent bucket**
  * (`ramp.ts`'s locked contract): a gradient is perpendicular to the edge it belongs to, so indexing the
  * directional set by a raw gradient bucket draws every glyph turned 90° from the edge it's meant to
- * represent. A pure function of `(gx, gy)` — no binding access — so it's callable directly from
- * `bun test` (typegpu's dual CPU/GPU form, `packCell`'s own shape) with no device.
+ * represent. Dropping the y-down→y-up conversion swaps the two diagonal glyphs and leaves the two
+ * axis-aligned buckets untouched — negating `gy` doesn't change `atan2`'s bucket for `gy = 0` (horizontal)
+ * or `gx = 0` (vertical), only for a true diagonal, which is exactly the shape the first version of this
+ * function shipped with (`specs/shallot-tui.md`'s s3r item 1). A pure function of `(gx, gy)` — no binding
+ * access — so it's callable directly from `bun test` (typegpu's dual CPU/GPU form, `packCell`'s own shape)
+ * with no device.
  * @example const glyph = directionalGlyphIndex(gx, gy); // CELL_FILL_GLYPHS.length + a tangent bucket 0..3
  */
 export const directionalGlyphIndex = tgpu.fn(
@@ -131,15 +145,13 @@ export const directionalGlyphIndex = tgpu.fn(
     d.u32,
 )((gx, gy) => {
     "use gpu";
-    let angle = std.atan2(gy, gx);
+    let angle = std.atan2(-gy, gx);
     if (angle < 0) angle = angle + PI;
     const gradientBucket = d.u32(std.round(angle / (PI / 4))) % 4;
     const tangentBucket = (gradientBucket + 2) % 4;
     return d.u32(CELL_FILL_GLYPHS.length) + tangentBucket;
 });
 
-// A diagonal-then-axis-aligned 3×3 Sobel, unrolled over the 8 neighbors clamped to the grid edge (never
-// wraps): weights sum to 4 per axis, matching EDGE_MAGNITUDE_THRESHOLD's derivation above.
 const avgKernel = tgpu.computeFn({
     workgroupSize: [WG, WG],
     in: { gid: d.builtin.globalInvocationId },
@@ -171,6 +183,8 @@ const avgKernel = tgpu.computeFn({
     avgLayout.$.avg[i] = d.vec4f(avg, 1);
 });
 
+// A diagonal-then-axis-aligned 3×3 Sobel, unrolled over the 8 neighbors clamped to the grid edge (never
+// wraps): weights sum to 4 per axis, matching EDGE_MAGNITUDE_THRESHOLD's derivation above.
 const selectKernel = tgpu.computeFn({
     workgroupSize: [WG, WG],
     in: { gid: d.builtin.globalInvocationId },
