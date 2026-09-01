@@ -81,17 +81,23 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
-    // measured 2026-09-01, agreeing `--scenario cells` runs (WSL/NVIDIA bridge, lovelace): three compute
-    // pipelines (`cells-fill`, S1's synthetic producer; `cells-avg` + `cells-select`, S3's two-pass real
-    // content producer over the differential arm's synthetic source texture). gpuBytes excludes the lazy
-    // `Mirror` staging pool: two `cells-grid`-labeled buffers share that name (S1's 10×6 fixture, 720 B,
-    // and S3's differential 8×4 fixture, 384 B — both call `createCellGrid`, which always names its
-    // buffer `cells-grid`), the differential's `rgba32float` synthetic source texture (32×16×16 B =
-    // 8192 B), its intermediate per-cell average buffer (32 cells × 16 B `vec4f` = 512 B), and the
-    // persistent `cells-select-params` uniform (`select.ts`'s `paramsBuffer`, one `SelectParams` = 4×u32
-    // = 16 B) — allocated once and written per call rather than recreated, so it stands for the run
-    // rather than being destroyed before this snapshot the way a per-call buffer would be.
-    cells: { pipelines: 3, pipelineCalls: 3, gpuBytes: 9824 },
+    // measured 2026-09-01, `--scenario cells` (WSL/NVIDIA bridge, lovelace), re-measured the same day
+    // after criterion 4's real draw differential landed (`shallot-tui` spec's s3r item 2 — the retired
+    // `decodeByteView` comparison shared `CELL_AT` with `unpackCell`, so it could never see a bug in
+    // `draw.ts`'s own body; `assertDrawDispatch` now drives `draw.ts`'s real render pipeline instead).
+    // Five compute/render pipelines: `cells-fill` (S1's synthetic producer), `cells-avg` + `cells-select`
+    // (S3's two-pass real content producer over the select differential's synthetic source texture),
+    // `cells-draw` (the new draw differential's real render pipeline) and `cells-gym-draw-probe` (its
+    // compute-shader texture readback, standing in for `Mirror`, which only reads buffers). gpuBytes
+    // excludes the lazy `Mirror` staging pool: `cells-grid` now covers *three* `createCellGrid` calls
+    // (S1's 10×6 fixture 720 B, the select differential's 8×4 fixture 384 B, the draw differential's 2×1
+    // fixture 24 B — all three share the name `createCellGrid` always gives its buffer, summing to
+    // 1128 B), the select differential's `rgba32float` synthetic source texture (8192 B), its
+    // intermediate per-cell average buffer (512 B), the persistent `cells-select-params` uniform (16 B),
+    // and the draw differential's own resources: a 2-entry synthetic glyph-uv table (32 B), a 4×4
+    // `r8unorm` synthetic atlas (16 B), a 32×16 `rgba8unorm` render target (2048 B), the persistent
+    // `cells-draw-params` uniform (16 B), and the probe's 2-entry output buffer (32 B).
+    cells: { pipelines: 5, pipelineCalls: 5, gpuBytes: 11_992 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

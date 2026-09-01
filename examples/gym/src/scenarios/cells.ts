@@ -4,14 +4,22 @@ import {
     CELL_BYTES,
     CELL_FILL_GLYPHS,
     CELL_GLYPH_COUNT,
+    CELL_U32S,
     createCellGrid,
     dispatchSelect,
+    drawCells,
     fillCellGrid,
+    MISSING_GLYPH_UV,
     packCell,
+    resetDrawPipeline,
     unpackCell,
 } from "@dylanebert/shallot/cells/core";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
+import { Render } from "@dylanebert/shallot/render/core";
+import tgpu from "typegpu";
+import * as d from "typegpu/data";
 import { vec4f } from "typegpu/data";
+import * as std from "typegpu/std";
 import { type Check, register, type Scenario, settle } from "../gym";
 
 // The `shallot-tui` S1 cell-grid producer's real-GPU coverage: `fillCellGrid` had zero callers anywhere
@@ -254,81 +262,45 @@ const SelectPlugin: Plugin = {
     },
 };
 
-// criterion 4's cross-target differential: decode the *same* readback bytes two structurally independent
-// ways — `unpackCell` (a Uint32Array view + bit-shift, what `packages/shallot-tui`'s future terminal-side
-// bridge calls) against a raw Uint8Array walk assembling the glyph word by hand (what a GPU vertex fetch
-// reading the identical struct layout does, one level of abstraction lower). One producer buffer, one
-// scene tick, two independent readers — the strongest arm in the unit, per the spec's own naming: if the
-// web draw path and the terminal encoder's input could ever diverge on what one cell means, this is where
-// it would show, since nothing here is shared code between the two decode functions.
-function decodeByteView(bytes: ArrayBuffer, index: number) {
-    const u8 = new Uint8Array(bytes, index * CELL_BYTES, CELL_BYTES);
-    const glyphOff = CELL_AT.glyph * 4;
-    const fgOff = CELL_AT.fg * 4;
-    const bgOff = CELL_AT.bg * 4;
-    const glyph =
-        (u8[glyphOff] |
-            (u8[glyphOff + 1] << 8) |
-            (u8[glyphOff + 2] << 16) |
-            (u8[glyphOff + 3] << 24)) >>>
-        0;
-    const fg: [number, number, number, number] = [
-        u8[fgOff],
-        u8[fgOff + 1],
-        u8[fgOff + 2],
-        u8[fgOff + 3],
-    ];
-    const bg: [number, number, number, number] = [
-        u8[bgOff],
-        u8[bgOff + 1],
-        u8[bgOff + 2],
-        u8[bgOff + 3],
-    ];
-    return { glyph, fg, bg };
-}
-
+// select's own non-vacuity check: both selection branches (edge → directional, flat → fill) actually
+// fire against a real dispatch, over the same synthetic step-edge `SelectPlugin` built above. This used
+// to also compare `unpackCell` against a hand-rolled byte-walk decode of the same buffer as if that were
+// criterion 4's differential — it wasn't: both decoders import `CELL_AT` from `cell.ts`, so a field
+// reorder moves both offsets together and the "structurally independent" claim in the module comment
+// that used to sit above them was false. Criterion 4's real differential is `assertDrawDispatch` below,
+// which drives an actual GPU dispatch of `draw.ts`'s own render pipeline.
 async function assertSelectDispatch(): Promise<Check> {
-    const name =
-        "select dispatch: web-draw-shaped decode == terminal-encoder-shaped decode, one buffer";
+    const name = "select dispatch: a real edge fires both the directional and fill branches";
     if (!selectMirror) return { name, pass: false, detail: "no select grid mirror" };
     await settle(selectMirror);
     const snap = selectMirror.snapshot;
     if (!snap) return { name, pass: false, detail: "no select grid snapshot" };
 
-    let mismatches = 0;
-    let first = "";
     let directionalAtBoundary = 0;
     let fillAwayFromBoundary = 0;
+    // the s3r item 8 regression guard: a genuinely flat (zero-gradient), near-zero-luma region must
+    // never select a directional glyph — the reported defect (a uniform "|" over an unlit background)
+    // was diagnosed live against the real recipe scene and refuted at the selection layer: the flat
+    // background's own cells read back glyph index 2 (`'`, a legitimate near-blank fill glyph, per
+    // `ramp-table.ts`), never a directional index. `magnitude` is an exact 0 for a uniform 3×3
+    // neighborhood by algebraic cancellation (`(1·L+2·L+1·L) - (1·L+2·L+1·L) = 0` for any `L`, no
+    // floating-point rounding involved), so the fill branch is the only branch a flat field can ever
+    // reach — this arm pins that a low-luma flat region (`SELECT_DARK`, the far column below) lands on a
+    // low fill index specifically, not merely a non-directional one, since a low luma landing high in
+    // the ramp would be a different (real) selection bug this check would otherwise miss.
+    let farDarkLowIndex = true;
+    const wantLowIndexBound = 10; // SELECT_DARK's luma (~0.0476 post-tonemap) rounds to index ~4
     for (let y = 0; y < SELECT_ROWS; y++) {
         for (let x = 0; x < SELECT_COLS; x++) {
             const i = y * SELECT_COLS + x;
             const a = unpackCell(snap.bytes, i);
-            const b = decodeByteView(snap.bytes, i);
-            const same =
-                a.glyph === b.glyph &&
-                a.fg.every((c, k) => c === b.fg[k]) &&
-                a.bg.every((c, k) => c === b.bg[k]);
-            if (!same) {
-                mismatches++;
-                if (!first) {
-                    first = `(${x},${y}) unpackCell glyph ${a.glyph} fg [${a.fg}] bg [${a.bg}] / byteView glyph ${b.glyph} fg [${b.fg}] bg [${b.bg}]`;
-                }
-            }
             const directional = a.glyph >= CELL_FILL_GLYPHS.length;
             if ((x === 3 || x === 4) && directional) directionalAtBoundary++;
             if ((x === 0 || x === SELECT_COLS - 1) && !directional) fillAwayFromBoundary++;
+            if (x === SELECT_COLS - 1 && a.glyph >= wantLowIndexBound) farDarkLowIndex = false;
         }
     }
 
-    if (mismatches > 0) {
-        return {
-            name,
-            pass: false,
-            detail: `${mismatches}/${SELECT_COLS * SELECT_ROWS} cells disagreed between the two decode paths; first: ${first}`,
-        };
-    }
-    // non-vacuity: both selection branches (edge → directional, flat → fill) must actually have fired,
-    // or the decode-agreement check above is vacuously comparing an all-fill (or all-directional) buffer
     const wantBoundary = SELECT_ROWS * 2; // both boundary columns (3, 4), every row
     const wantAway = SELECT_ROWS * 2; // both far columns (0, last), every row
     if (directionalAtBoundary !== wantBoundary || fillAwayFromBoundary !== wantAway) {
@@ -338,10 +310,222 @@ async function assertSelectDispatch(): Promise<Check> {
             detail: `branch coverage missing — directional-at-boundary ${directionalAtBoundary}/${wantBoundary}, fill-away-from-boundary ${fillAwayFromBoundary}/${wantAway}; the synthetic edge didn't reach both selection branches`,
         };
     }
+    if (!farDarkLowIndex) {
+        return {
+            name,
+            pass: false,
+            detail: `the flat, near-zero-luma far column (SELECT_DARK) selected a fill glyph at or past index ${wantLowIndexBound} — a flat dark region should land near the blank end of the ramp`,
+        };
+    }
     return {
         name,
         pass: true,
-        detail: `${SELECT_COLS * SELECT_ROWS} cells' unpackCell and byte-view decodes agreed bit-exact; the edge fired a directional glyph at both boundary columns and a fill glyph at both far columns every row`,
+        detail: `${SELECT_COLS * SELECT_ROWS} cells read back; the edge fired a directional glyph at both boundary columns and a fill glyph at both far columns every row`,
+    };
+}
+
+// criterion 4's real differential: drive `draw.ts`'s own render pipeline — the actual vertex stage that
+// indexes `drawLayout.$.cells[iid]` and the actual fragment stage that decodes `cell.fg`/`cell.bg` via
+// `unpack4x8unorm` — against one hand-packed cell buffer neither `draw.ts` nor this arm's assertion
+// constructed together, then compare the *rendered pixels* against `packCell`'s own inputs. This is what
+// the retired `decodeByteView` comparison claimed to be and wasn't: that comparison read the same words
+// through two decoders sharing `CELL_AT`, so a bug in `draw.ts`'s own body (its fg/bg swapped, or its
+// `cell.glyph` read from the wrong lane) could never show there — both readers would still agree with
+// each other, just wrongly. Driving the real WGSL fragment stage is the only way to see `draw.ts`'s own
+// logic rather than a second transcription of `cell.ts`'s layout.
+//
+// Two cells, two colors, no font: cell 0's glyph indexes a zero-area (`MISSING_GLYPH_UV`) rect, so its
+// fragment never draws ink and its rendered pixel is pure `bg`; cell 1's glyph indexes a full `(0,0,1,1)`
+// rect sampled against a solid-255 synthetic "atlas" texture, which `sdfToSignedDistance` decodes as
+// maximally inside (`text/glyph.ts`'s own derivation) — so cell 1's *whole* quad saturates to alpha 1 and
+// its rendered pixel is pure `fg`. Swap `fg`/`bg` in `draw.ts`'s fragment stage and cell 0 renders `fg`'s
+// color while cell 1 renders `bg`'s — this arm reds on exactly that mutation.
+const DRAW_COLS = 2;
+const DRAW_ROWS = 1;
+const DRAW_CELL_PX = 16; // device px per cell edge, clear of any AA fringe at the sampled center
+const DRAW_VIEW_W = DRAW_COLS * DRAW_CELL_PX;
+const DRAW_VIEW_H = DRAW_ROWS * DRAW_CELL_PX;
+const DRAW_TARGET_FORMAT: GPUTextureFormat = "rgba8unorm";
+// two linear colors, comfortably mid-range — the sRGB transfer function's slope is steepest near 0,
+// where packCell's sRGB encode + this target's own unorm store would amplify 8-bit quantization noise.
+const DRAW_FG = vec4f(0.8, 0.2, 0.1, 1);
+const DRAW_BG = vec4f(0.1, 0.6, 0.9, 1);
+// two 8-bit quantization steps (packCell's sRGB pack, this target's unorm store) against a 0.7-wide gap
+// between fg and bg on every channel — comfortably inside a fg/bg swap, comfortably outside round-off.
+const DRAW_TOLERANCE = 0.03;
+
+const probeLayout = tgpu.bindGroupLayout({
+    src: {
+        texture: d.texture2d(d.f32),
+        sampleType: "unfilterable-float",
+        visibility: ["compute"],
+    },
+    out: {
+        storage: (n: number) => d.arrayOf(d.vec4f, n),
+        access: "mutable",
+        visibility: ["compute"],
+    },
+});
+
+// samples the center of each of the two cells drawn into the draw target — reads through no code this
+// unit authored beyond the bind group itself, so its own value is a plain GPU texture read.
+const probeKernel = tgpu.computeFn({
+    workgroupSize: [1],
+    in: { gid: d.builtin.globalInvocationId },
+})(() => {
+    "use gpu";
+    probeLayout.$.out[0] = std.textureLoad(
+        probeLayout.$.src,
+        d.vec2u(DRAW_CELL_PX / 2, DRAW_VIEW_H / 2),
+        0,
+    );
+    probeLayout.$.out[1] = std.textureLoad(
+        probeLayout.$.src,
+        d.vec2u(DRAW_CELL_PX + DRAW_CELL_PX / 2, DRAW_VIEW_H / 2),
+        0,
+    );
+});
+
+let drawTarget: GPUTexture | null = null;
+let drawAtlas: GPUTexture | null = null;
+let drawSampler: GPUSampler | null = null;
+let drawProbeOut: ReturnType<typeof allocDrawProbeOut> | null = null;
+let drawProbeMirror: Mirror | null = null;
+
+function allocDrawGlyphUv() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.vec4f, 2))
+        .$usage("storage")
+        .$name("cells-gym-draw-glyphuv");
+}
+
+function allocDrawProbeOut() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.vec4f, 2))
+        .$usage("storage")
+        .$name("cells-gym-draw-probe-out");
+}
+
+// place packCell's own (glyph, fgPacked, bgPacked) triple at Cell's *current* field offsets (`CELL_AT`,
+// the same source `unpackCell` and `draw.ts`'s struct read both derive from) rather than assuming a word
+// order — so this fixture stays correct under a field reorder and this arm's only sensitivity is to a
+// logic bug in what `draw.ts` does with those words, not to how `cell.ts` orders them.
+function writeDrawCells(buffer: GPUBuffer): void {
+    const words = new Uint32Array(DRAW_COLS * DRAW_ROWS * CELL_U32S);
+    const place = (cellIndex: number, packed: { x: number; y: number; z: number }) => {
+        const base = cellIndex * CELL_U32S;
+        words[base + CELL_AT.glyph] = packed.x;
+        words[base + CELL_AT.fg] = packed.y;
+        words[base + CELL_AT.bg] = packed.z;
+    };
+    place(0, packCell(0, DRAW_FG, DRAW_BG)); // glyph 0 -> MISSING_GLYPH_UV: blank, renders bg
+    place(1, packCell(1, DRAW_FG, DRAW_BG)); // glyph 1 -> full rect on the solid atlas: renders fg
+    Compute.device.queue.writeBuffer(buffer, 0, words);
+}
+
+const DrawPlugin: Plugin = {
+    name: "GymCellsDraw",
+    initialize() {
+        const device = Compute.device;
+        resetDrawPipeline();
+        Render.format = DRAW_TARGET_FORMAT;
+
+        const drawGrid = createCellGrid(DRAW_COLS, DRAW_ROWS, 2);
+        writeDrawCells(Compute.root.unwrap(drawGrid.buffer));
+
+        const drawGlyphUv = allocDrawGlyphUv();
+        device.queue.writeBuffer(
+            Compute.root.unwrap(drawGlyphUv),
+            0,
+            new Float32Array([...MISSING_GLYPH_UV, 0, 0, 1, 1]),
+        );
+
+        drawAtlas = device.createTexture({
+            label: "cells-gym-draw-atlas",
+            size: { width: 4, height: 4 },
+            format: "r8unorm",
+            usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST,
+        });
+        // 255 everywhere: sdfToSignedDistance(1, maxDim) = -maxDim (deep inside), so cell 1's whole quad
+        // reads alpha = 1 regardless of filtering — no real font, no real SDF generator, just the
+        // deep-inside sentinel value the fragment stage's smoothstep saturates on.
+        device.queue.writeTexture(
+            { texture: drawAtlas },
+            new Uint8Array(16).fill(255),
+            { bytesPerRow: 4 },
+            { width: 4, height: 4 },
+        );
+        drawSampler = device.createSampler({
+            label: "cells-gym-draw",
+            magFilter: "linear",
+            minFilter: "linear",
+        });
+
+        drawTarget = device.createTexture({
+            label: "cells-gym-draw-target",
+            size: { width: DRAW_VIEW_W, height: DRAW_VIEW_H },
+            format: DRAW_TARGET_FORMAT,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING,
+        });
+
+        const encoder = device.createCommandEncoder({ label: "cells-gym-draw" });
+        drawCells(
+            encoder,
+            drawTarget.createView(),
+            drawGrid.buffer,
+            drawGlyphUv,
+            drawAtlas.createView(),
+            drawSampler,
+            DRAW_COLS,
+            DRAW_ROWS,
+            DRAW_VIEW_W,
+            DRAW_VIEW_H,
+        );
+
+        drawProbeOut = allocDrawProbeOut();
+        const probeGroup = Compute.root.createBindGroup(probeLayout, {
+            src: drawTarget.createView(),
+            out: drawProbeOut,
+        });
+        const probePipeline = Compute.root
+            .createComputePipeline({ compute: probeKernel })
+            .$name("cells-gym-draw-probe");
+        const probePass = encoder.beginComputePass({ label: "cells-gym-draw-probe" });
+        probePipeline.with(probeGroup).with(probePass).dispatchWorkgroups(1);
+        probePass.end();
+
+        device.queue.submit([encoder.finish()]);
+        drawProbeMirror = mirror(drawProbeOut);
+    },
+};
+
+async function assertDrawDispatch(): Promise<Check> {
+    const name =
+        "draw dispatch: draw.ts's own vertex/fragment stage reads cell.fg/cell.bg correctly";
+    if (!drawProbeMirror) return { name, pass: false, detail: "no draw probe mirror" };
+    await settle(drawProbeMirror);
+    const snap = drawProbeMirror.snapshot;
+    if (!snap) return { name, pass: false, detail: "no draw probe snapshot" };
+
+    const out = new Float32Array(snap.bytes);
+    const blank: [number, number, number] = [out[0], out[1], out[2]];
+    const ink: [number, number, number] = [out[4], out[5], out[6]];
+    const wantBlank: [number, number, number] = [DRAW_BG.x, DRAW_BG.y, DRAW_BG.z];
+    const wantInk: [number, number, number] = [DRAW_FG.x, DRAW_FG.y, DRAW_FG.z];
+    const close = (a: [number, number, number], b: [number, number, number]) =>
+        Math.abs(a[0] - b[0]) < DRAW_TOLERANCE &&
+        Math.abs(a[1] - b[1]) < DRAW_TOLERANCE &&
+        Math.abs(a[2] - b[2]) < DRAW_TOLERANCE;
+    const blankOk = close(blank, wantBlank);
+    const inkOk = close(ink, wantInk);
+
+    return {
+        name,
+        pass: blankOk && inkOk,
+        detail:
+            blankOk && inkOk
+                ? `blank cell rendered [${blank.map((c) => c.toFixed(3))}] ~ bg [${wantBlank}], ink cell rendered [${ink.map((c) => c.toFixed(3))}] ~ fg [${wantInk}] — read through draw.ts's real bind-group accessors`
+                : `blank cell rendered [${blank.map((c) => c.toFixed(3))}] (want ~bg [${wantBlank}]), ink cell rendered [${ink.map((c) => c.toFixed(3))}] (want ~fg [${wantInk}]) — draw.ts's own read of cell.fg/cell.bg disagrees with what packCell packed`,
     };
 }
 
@@ -351,7 +535,7 @@ const scenario: Scenario = {
     async build(_canvas) {
         const { state, dispose } = await run({
             defaults: false,
-            plugins: [ProfilePlugin, MirrorPlugin, CellsPlugin, SelectPlugin],
+            plugins: [ProfilePlugin, MirrorPlugin, CellsPlugin, SelectPlugin, DrawPlugin],
         });
         return {
             state,
@@ -362,12 +546,24 @@ const scenario: Scenario = {
                 selectMirror = null;
                 selectSourceTexture?.destroy();
                 selectSourceTexture = null;
+                drawTarget?.destroy();
+                drawTarget = null;
+                drawAtlas?.destroy();
+                drawAtlas = null;
+                drawSampler = null;
+                drawProbeOut = null;
+                drawProbeMirror = null;
+                resetDrawPipeline();
                 dispose();
             },
         };
     },
     async assert(): Promise<Check[]> {
-        return [await assertFillDispatch(), await assertSelectDispatch()];
+        return [
+            await assertFillDispatch(),
+            await assertSelectDispatch(),
+            await assertDrawDispatch(),
+        ];
     },
     live(): string {
         return `${COLS}x${ROWS} cell grid, compute-only (no framed scene)`;
