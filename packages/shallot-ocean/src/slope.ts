@@ -16,6 +16,7 @@ import { getFftKernels } from "./gpu-fft";
 import {
     type CascadeConfig,
     directionalDensity,
+    G,
     generateH0,
     kIndex,
     SEA_STATE,
@@ -73,17 +74,7 @@ export function slopeMipSize(config: CascadeConfig, level: number): number {
     return Math.max(1, config.N >> level);
 }
 
-/** GPU slope texture for a cascade, or null before the Ocean plugin warms. */
-const slopeTextures: GPUTexture[] = [];
 const PI = Math.PI;
-export function getSlopeTexture(cascade = 0): GPUTexture | null {
-    return slopeTextures[cascade] ?? null;
-}
-
-/** Returns the immutable slope-cascade configuration list. */
-export function getSlopeCascadeConfigs(): readonly CascadeConfig[] {
-    return SLOPE_CASCADE_CONFIGS;
-}
 
 /** Deliberately omit the gradient k factor for the red-witness oracle. */
 export interface SlopeMutation {
@@ -95,12 +86,12 @@ export interface SlopeMutation {
  * supplies `k`, the gradient operator supplies `k²`, and the angular quadrature evaluates the
  * published Cartesian density without reusing the discrete height-variance helper.
  */
-export function composedSlopePsd(
+function integrateComposedSlopePsd(
     config: CascadeConfig,
-    mutation: SpectrumMutation & SlopeMutation = {},
+    mutation: SpectrumMutation & SlopeMutation,
+    radialSteps: number,
+    angularSteps: number,
 ): number {
-    const radialSteps = 512;
-    const angularSteps = 256;
     const logLo = Math.log(config.kLo);
     const dLog = Math.log(config.kHi / config.kLo) / radialSteps;
     const dTheta = (2 * Math.PI) / angularSteps;
@@ -120,11 +111,58 @@ export function composedSlopePsd(
             );
         }
         // k² from |∇h|², then k·dk = k²·dLog from the polar/log-radial measure.
-        // The resulting radial weight is k⁴·dLog·dTheta.
-        const gradientMoment = mutation.missingGradientK ? k ** 3 : k ** 4;
+        // The resulting radial weight is k⁴·dLog·dTheta. Omitting both gradient factors leaves k².
+        const gradientMoment = mutation.missingGradientK ? k ** 2 : k ** 4;
         total += angularMean * gradientMoment * dLog * dTheta;
     }
     return total;
+}
+
+/** Restricted slope moment from the production density and a fixed midpoint quadrature. */
+export function composedSlopePsd(
+    config: CascadeConfig,
+    mutation: SpectrumMutation & SlopeMutation = {},
+): number {
+    return integrateComposedSlopePsd(config, mutation, 512, 256);
+}
+
+/**
+ * Relative one-sigma sampling error of the seeded Fourier energy estimator.
+ * Each mode's weight is its published cell density times |k|²; the ratio is the effective
+ * inverse sample count and is used by deterministic agreement gates instead of a magic tolerance.
+ */
+export function slopeMomentSamplingError(config: CascadeConfig): number {
+    const dk = (2 * Math.PI) / config.L;
+    let sum = 0;
+    let squared = 0;
+    for (let y = 0; y < config.N; y++) {
+        for (let x = 0; x < config.N; x++) {
+            const kx = kIndex(x, config.N) * dk;
+            const kz = kIndex(y, config.N) * dk;
+            const k = Math.hypot(kx, kz);
+            if (k < config.kLo || k > config.kHi) continue;
+            const weight =
+                directionalDensity(
+                    kx,
+                    kz,
+                    SEA_STATE.windSpeed,
+                    SEA_STATE.windDir,
+                    SEA_STATE.omegaC,
+                ) *
+                dk *
+                dk *
+                k *
+                k;
+            sum += weight;
+            squared += weight * weight;
+        }
+    }
+    return sum > 0 ? Math.sqrt(squared) / sum : Infinity;
+}
+
+/** 95% deterministic agreement bound derived from the mode-weight sampling error. */
+export function slopeMomentAgreementTolerance(config: CascadeConfig): number {
+    return 1.96 * slopeMomentSamplingError(config);
 }
 
 /** CPU reference for the directional slope spectra used by the GPU slope kernel. */
@@ -176,7 +214,7 @@ export function runSlopeCpuPipeline(
             const index = y * N + x;
             const kx = kIndex(x, N) * dk;
             const kz = kIndex(y, N) * dk;
-            const omega = Math.sqrt(9.81 * Math.max(Math.hypot(kx, kz), 1e-6));
+            const omega = Math.sqrt(G * Math.max(Math.hypot(kx, kz), 1e-6));
             const neg = ((N - y) % N) * N + ((N - x) % N);
             const ar = h0[index * 2];
             const ai = h0[index * 2 + 1];
@@ -247,7 +285,7 @@ const slopeKernel = tgpu
         const dk = (d.f32(2) * PI) / slopeLayout.$.params.L;
         const kx = std.select(d.f32(x) - d.f32(N), d.f32(x), d.f32(x) <= d.f32(N) / d.f32(2)) * dk;
         const kz = std.select(d.f32(y) - d.f32(N), d.f32(y), d.f32(y) <= d.f32(N) / d.f32(2)) * dk;
-        const omega = std.sqrt(d.f32(9.81) * std.max(std.sqrt(kx * kx + kz * kz), d.f32(1e-6)));
+        const omega = std.sqrt(d.f32(G) * std.max(std.sqrt(kx * kx + kz * kz), d.f32(1e-6)));
         const negX = (N - x) % N;
         const negY = (N - y) % N;
         const h0 = slopeLayout.$.h0[idx];
@@ -570,7 +608,6 @@ export function buildSlopes(): void {
         assertSlopeOnly(config);
         const state = createSlopeState(config);
         states.push(state);
-        slopeTextures.push(state.texture);
         Compute.textures.set(`slope${states.length - 1}`, state.texture);
     }
 }
@@ -580,5 +617,4 @@ export function teardownSlopes(): void {
     for (const state of states) destroy(state);
     states.length = 0;
     for (let i = 0; i < SLOPE_CASCADE_CONFIGS.length; i++) Compute.textures.delete(`slope${i}`);
-    slopeTextures.length = 0;
 }

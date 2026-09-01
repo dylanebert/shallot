@@ -10,6 +10,8 @@ import {
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
     slopeMipSize,
+    slopeMomentAgreementTolerance,
+    slopeMomentSamplingError,
     slopeSpectra,
 } from "../src/slope";
 import { CASCADE_CONFIGS, generateH0, kIndex } from "../src/spectrum";
@@ -99,12 +101,53 @@ describe("capillary slope cascade", () => {
         expect(levels.at(-1)?.[3]).toBe(0);
     });
 
+    test("restricted slope moment covers every declared radial band", () => {
+        const h0 = generateH0(config, 0);
+        const bands = [
+            [config.kLo, 20],
+            [20, 40],
+            [40, 50],
+            [50, 55],
+            [55, config.kHi],
+        ] as const;
+        for (const [lo, hi] of bands) {
+            const band = new Float32Array(h0.length);
+            let modes = 0;
+            for (let y = 0; y < config.N; y++) {
+                for (let x = 0; x < config.N; x++) {
+                    const k = Math.hypot(
+                        kIndex(x, config.N) * ((2 * Math.PI) / config.L),
+                        kIndex(y, config.N) * ((2 * Math.PI) / config.L),
+                    );
+                    if (k < lo || k > hi) continue;
+                    const i = (y * config.N + x) * 2;
+                    band[i] = h0[i];
+                    band[i + 1] = h0[i + 1];
+                    if (h0[i] !== 0 || h0[i + 1] !== 0) modes++;
+                }
+            }
+            expect(modes, `no seeded modes in ${lo}..${hi} rad/m`).toBeGreaterThan(0);
+            const realized = realizedSlopeMss(runSlopeCpuPipeline(band, config));
+            expect(realized).toBeGreaterThan(0);
+            if (lo >= 50) {
+                const expected = composedSlopePsd({ ...config, kLo: lo, kHi: hi });
+                const tolerance = slopeMomentAgreementTolerance({ ...config, kLo: lo, kHi: hi });
+                expect(Math.abs(realized / expected - 1), `${lo}..${hi} rad/m`).toBeLessThan(
+                    tolerance,
+                );
+            }
+        }
+    });
+
     test("restricted slope moment ties to realized mean-square slope", () => {
         const expected = composedSlopePsd(config);
         const realized = realizedSlopeMss(runSlopeCpuPipeline(generateH0(config, 0), config));
+        const samplingError = slopeMomentSamplingError(config);
+        const tolerance = slopeMomentAgreementTolerance(config);
+        console.log(`slope moment sampling error=${samplingError}, agreement bound=${tolerance}`);
         expect(expected).toBeGreaterThan(0);
         expect(realized).toBeGreaterThan(0);
-        expect(Math.abs(realized / expected - 1)).toBeLessThan(0.25);
+        expect(Math.abs(realized / expected - 1)).toBeLessThan(tolerance);
     });
 
     test("missing gradient k red-witnesses both integral and spectra paths", () => {
@@ -113,7 +156,9 @@ describe("capillary slope cascade", () => {
         const missingResult = runSlopeCpuPipeline(h, config, 0, { missingGradientK: true });
         const correctEnergy = correct.x.reduce((sum, value) => sum + value * value, 0);
         const missingEnergy = missingResult.x.reduce((sum, value) => sum + value * value, 0);
-        expect(Math.abs(missingEnergy / correctEnergy - 1)).toBeGreaterThan(0.25);
+        expect(Math.abs(missingEnergy / correctEnergy - 1)).toBeGreaterThan(
+            slopeMomentAgreementTolerance(config),
+        );
         const expected = composedSlopePsd(config);
         const missingMoment = composedSlopePsd(config, { missingGradientK: true });
         expect(Math.abs(missingMoment / expected - 1)).toBeGreaterThan(0.25);
@@ -126,11 +171,34 @@ describe("capillary slope cascade", () => {
         expect(config.lambda).toBe(0);
     });
 
-    test("production slope state retains no height, displacement, or Jacobian resource", async () => {
+    test("production slope state enumerates only slope resources", async () => {
         const source = await Bun.file(new URL("../src/slope.ts", import.meta.url)).text();
         const state = source.match(/interface SlopeState \{([\s\S]*?)\n\}/)?.[1] ?? "";
-        expect(state).not.toMatch(/height|displace|jacob|dx|dz/i);
-        expect(source).not.toMatch(/ocean-slope-(?:height|displace|jacob|dx|dz)/i);
+        const fields = [...state.matchAll(/^ {4}(\w+):/gm)].map((match) => match[1]);
+        expect(fields).toEqual([
+            "config",
+            "n",
+            "h0",
+            "x",
+            "z",
+            "xTemp",
+            "zTemp",
+            "params",
+            "mipParams",
+            "texture",
+            "slope",
+            "post",
+            "mip",
+            "fftRow",
+            "fftCol",
+            "slopeGroup",
+            "postGroup",
+            "xRowGroup",
+            "xColGroup",
+            "zRowGroup",
+            "zColGroup",
+            "mipGroups",
+        ]);
         expect(SLOPE_MIP_LEVELS).toBe(Math.log2(config.N) + 1);
     });
 
