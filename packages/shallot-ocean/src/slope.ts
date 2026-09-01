@@ -76,11 +76,15 @@ export function slopeMipSize(config: CascadeConfig, level: number): number {
 
 const PI = Math.PI;
 
-/** Deliberately omit the gradient-k factor from the slope spectra (`slopeSpectra`) — the dropped-
- *  gradient red-witness oracle's only production consumer (`slope.test.ts`, `slope.oracle.ts`).
- *  `integrateComposedSlopePsd`/`composedSlopePsd` never took this flag: the correct red-witness for
- *  the composed-quadrature side compares against the *unmutated* `composedSlopePsd` (I3c-r), so
- *  there is no caller left that needs a mutable gradient term in the quadrature. */
+/** Deliberately omit the gradient-k factor from the slope spectra (`slopeSpectra`, the only
+ *  function that reads `missingGradientK`). `SlopeMutation` also types `runSlopeCpuPipeline`'s own
+ *  `mutation` parameter, which is the entry point the dropped-gradient red-witness oracle's
+ *  production consumers (`slope.test.ts`, `slope.oracle.ts`) actually call — both pass
+ *  `missingGradientK` to `runSlopeCpuPipeline`, which forwards it into `slopeSpectra` unchanged;
+ *  neither test calls `slopeSpectra` directly. `integrateComposedSlopePsd`/`composedSlopePsd` never
+ *  took this flag: the correct red-witness for the composed-quadrature side compares against the
+ *  *unmutated* `composedSlopePsd` (I3c-r), so there is no caller left that needs a mutable gradient
+ *  term in the quadrature. */
 export interface SlopeMutation {
     missingGradientK?: boolean;
 }
