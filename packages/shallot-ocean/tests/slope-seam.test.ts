@@ -1,29 +1,20 @@
-// CPU-only regression proof of the storage-seam pyramid claim's own math (`slope-seam.ts`) —
-// self-contained, no GPU adapter needed. What this file CAN see: level >= 1's "published" pyramid
-// is built here through `slope.ts`'s own `reduceSlopeMip` — a SEPARATE, independently-authored CPU
-// mirror of the GPU `mipKernel` (plain double-precision `reduce`/`/4`, no per-step `Math.fround`
-// discipline) — while the "expected" comparison below recomputes through `expectedFromPublished`,
-// a DIFFERENT implementation of the same reduction (Math.fround-chained, matching the WGSL
-// expression order exactly). Two independently-written functions computing the same mean/residual
-// formula: a defect in either one shows up as a step-distance divergence between "published" and
-// "expected", which the mutation table in `slope-seam.ts` now exercises directly on
-// `reduceSlopeMip` (mutation 6). What this file CANNOT see: level 0 has no second CPU
-// implementation anywhere in this package — `expectedLevel0` is the only CPU mirror of
-// `slopePostKernel`'s own WGSL logic that exists, so this file necessarily builds AND checks level
-// 0 with that SAME function, proving only that the f16 round-trip arithmetic is self-consistent,
-// never that `slopePostKernel` itself is correct. That reach belongs entirely to the companion
-// real-device arm in the `ocean-slope` gym scenario, which reads the ACTUAL published texture and
-// buffers (real WGSL kernel output) rather than a JS-simulated storage rounding.
+// CPU-only regression proof of `slope-seam.ts`'s own math — self-contained, no GPU adapter needed.
+// Every "expected" value below is a LITERAL or a CLOSED FORM written directly in this file,
+// derived from a position-encoded fixture (every source texel and channel a distinct value) —
+// never a call into `slope.ts` or `slope-seam.ts` on the same inputs (I3g-r2's re-verdict: two
+// prior rounds each built a "second mirror" by transcribing `expectedFromPublished` — a
+// `reduceSlopeMip` copy with `Math.fround` discipline inserted — or compared `slopePostKernel`'s
+// own output at level 0 against `expectedLevel0`'s rounding of itself (`x === f16Round(x)`), and
+// both are one derivation under two names, not independence). The seam claim itself — that a
+// published GPU texel is one of the two f16 neighbours of the value it was rounded FROM — has no
+// CPU instance anywhere in this package: it lives entirely on the adapter, in the `ocean-slope`
+// gym scenario (`bun bench --scenario ocean-slope`), which reads the actual published texture and
+// buffers rather than a JS-simulated storage round trip. What THIS file proves is narrower and
+// CPU-checkable: that `expectedLevel0` and `expectedFromPublished` — the two closed-form
+// "reference" functions the device-side seam comparison calls — themselves compute the formula
+// their docblocks claim, mutation-proven against literals nothing else in the package can move.
 import { expect, test } from "bun:test";
 import {
-    reduceSlopeMip,
-    runSlopeCpuPipeline,
-    SLOPE_CASCADE_CONFIGS,
-    SLOPE_MIP_LEVELS,
-    slopeMipSize,
-} from "../src/slope";
-import {
-    CHANNELS,
     expectedFromPublished,
     expectedLevel0,
     f16Neighbors,
@@ -32,43 +23,6 @@ import {
     f16Round,
     f16StepDistance,
 } from "../src/slope-seam";
-import { generateH0 } from "../src/spectrum";
-
-const [config] = SLOPE_CASCADE_CONFIGS;
-
-function quantize(field: Float32Array): Float32Array {
-    return Float32Array.from(new Float16Array(field));
-}
-
-/** Simulated published pyramid: level 0 quantized straight from the (unquantized) FFT output via
- *  `expectedLevel0` (the only CPU form level 0 has — see file header for what this cannot catch);
- *  every level >= 1 quantized from the PREVIOUS level's own quantized (published) values through
- *  `reduceSlopeMip`, the package's independently-authored CPU mirror of the GPU `mipKernel` —
- *  deliberately NOT `expectedFromPublished`, which is what the comparison below uses as `expected`,
- *  so the two sides of the level >= 1 comparison come from two different implementations. */
-function publishedPyramid(): Float32Array[] {
-    const h0 = generateH0(config, 0);
-    const { xField, zField } = runSlopeCpuPipeline(h0, config, 0);
-    const N = config.N;
-    const xReal = new Float32Array(N * N);
-    const zReal = new Float32Array(N * N);
-    for (let i = 0; i < N * N; i++) {
-        xReal[i] = xField[i * 2];
-        zReal[i] = zField[i * 2];
-    }
-    const level0 = quantize(expectedLevel0(xReal, zReal));
-    const levels = [level0];
-    for (let level = 1; level < SLOPE_MIP_LEVELS; level++) {
-        const parentSize = slopeMipSize(config, level - 1);
-        levels.push(quantize(reduceSlopeMip(levels[level - 1], parentSize)));
-    }
-    return levels;
-}
-
-function allowedSteps(level: number, channel: (typeof CHANNELS)[number]): number {
-    if (level === 0 && channel === "residual") return 0; // hardcoded literal, no rounding ambiguity
-    return 1; // bare discrete claim — see the Ledger's I3g-r re-verdict for why no slack term sits here
-}
 
 test("f16 neighbour helpers round-trip and bracket correctly across binades", () => {
     expect(f16Round(0)).toBe(0);
@@ -92,68 +46,80 @@ test("f16 neighbour helpers round-trip and bracket correctly across binades", ()
     expect(f16StepDistance(1.0, hiAbove)).toBe(1);
 });
 
-test("every published texel is within its allowed f16 rounding distance of its own expected value, at every level and channel", () => {
-    const published = publishedPyramid();
-    const h0 = generateH0(config, 0);
-    const { xField, zField } = runSlopeCpuPipeline(h0, config, 0);
-    const N = config.N;
-    const xReal = new Float32Array(N * N);
-    const zReal = new Float32Array(N * N);
-    for (let i = 0; i < N * N; i++) {
-        xReal[i] = xField[i * 2];
-        zReal[i] = zField[i * 2];
-    }
-    const histogram: Record<number, number> = { 0: 0, 1: 0 };
-    let total = 0;
-    let farCount = 0;
-    for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
-        const expected =
-            level === 0
-                ? expectedLevel0(xReal, zReal)
-                : expectedFromPublished(published[level - 1], slopeMipSize(config, level - 1));
-        const size = slopeMipSize(config, level);
-        for (let i = 0; i < size * size; i++) {
-            CHANNELS.forEach((channel, c) => {
-                total++;
-                const e = expected[i * 4 + c];
-                const p = published[level][i * 4 + c];
-                const steps = f16StepDistance(e, p);
-                const bucket = steps >= 2 ? 2 : steps;
-                histogram[bucket] = (histogram[bucket] ?? 0) + 1;
-                const limit = allowedSteps(level, channel);
-                if (steps > limit) farCount++;
-                expect(steps).toBeLessThanOrEqual(limit);
-            });
-        }
-    }
-    console.log(
-        `seam claim total=${total}, histogram[0]=${histogram[0]}, histogram[1]=${histogram[1]}, ` +
-            `histogram[>=2]=${histogram[2] ?? 0}, violations=${farCount}`,
-    );
-    expect(farCount).toBe(0);
+/**
+ * `expectedLevel0` against a hand-picked, position-encoded fixture: each of the 3 texels carries
+ * distinct `x`/`z` values chosen to be EXACT in binary floating point (0.25, 0.0625, 4.0625,
+ * 16.25, ... — every square and every sum below lands on an exact binary fraction), so the
+ * expected array is a closed-form literal computed by hand from the formula the docblock states
+ * (`energy = fround(fround(sx*sx) + fround(sz*sz))`, `residual = 0`) — never by calling
+ * `expectedLevel0` a second time or by re-deriving it through any other package export.
+ *
+ * Mutation table (each mutation applied directly to `expectedLevel0` in `src/slope-seam.ts`, this
+ * test re-run, then reverted to the pre-mutation text — the function has no other file to diff
+ * against since it is itself the CPU reference, so there is no `git show HEAD:<path>` to revert
+ * through; the exact pre-mutation source is preserved by hand instead):
+ *
+ *   1. swapped-channel (`out[i*4] = sz; out[i*4+1] = sx;`, output x/z channels swapped): exit 1.
+ *      Texel 0 read `[3, 1, 10, 0]` against the fixture's expected `[1, 3, 10, 0]` — the first two
+ *      channels mismatched at every texel, `toEqual` failed on the whole array.
+ *   2. dropped z-term (`energy = fround(fround(sx * sx))`, `sz*sz` never added): exit 1. Texel 0's
+ *      energy channel read `1` against the fixture's expected `10` (`sz=3` contributes `9`) —
+ *      every texel's energy channel mismatched, `toEqual` failed on the whole array.
+ */
+test("expectedLevel0 computes the literal energy formula on a position-encoded fixture", () => {
+    const xReal = new Float32Array([1, -2, 0.5]);
+    const zReal = new Float32Array([3, 0.25, -4]);
+    // biome-ignore format: one row per texel is the readable layout for a hand-derived table
+    const expected = new Float32Array([
+        1, 3, 10, 0, // texel 0: energy = 1*1 + 3*3 = 10
+        -2, 0.25, 4.0625, 0, // texel 1: energy = 4 + 0.0625 = 4.0625
+        0.5, -4, 16.25, 0, // texel 2: energy = 0.25 + 16 = 16.25
+    ]);
+    const actual = expectedLevel0(xReal, zReal);
+    expect(Array.from(actual)).toEqual(Array.from(expected));
 });
 
-test("a zeroed published level reds the same seam claim (vacuity witness)", () => {
-    const published = publishedPyramid();
-    const h0 = generateH0(config, 0);
-    const { xField, zField } = runSlopeCpuPipeline(h0, config, 0);
-    const N = config.N;
-    const xReal = new Float32Array(N * N);
-    const zReal = new Float32Array(N * N);
-    for (let i = 0; i < N * N; i++) {
-        xReal[i] = xField[i * 2];
-        zReal[i] = zField[i * 2];
-    }
-    const expected = expectedLevel0(xReal, zReal);
-    const zeroed = new Float32Array(published[0].length);
-    let violations = 0;
-    for (let i = 0; i < N * N; i++) {
-        for (let c = 0; c < CHANNELS.length; c++) {
-            const steps = f16StepDistance(expected[i * 4 + c], zeroed[i * 4 + c]);
-            if (steps > allowedSteps(0, CHANNELS[c])) violations++;
-        }
-    }
-    // slopeX/slopeZ/energy at level 0 are all nonzero over a real field, so zeroing the payload
-    // must red on at least those three channels' worth of texels.
-    expect(violations).toBeGreaterThan(0);
+/**
+ * `expectedFromPublished` against a position-encoded fixture: a 4x4 parent level where
+ * `parent[i] = i + 1` for every source texel and channel (every one of the 64 values distinct),
+ * reduced to a 2x2 child level. The expected array below is hand-derived closed form — each
+ * child texel's mean is `(sum of its 4 parent texels' channel values) / 4`, residual is
+ * `max(0, second - meanX^2 - meanZ^2)` — computed directly from the fixture's own index
+ * arithmetic, never by calling `expectedFromPublished`, `reduceSlopeMip`, or any other package
+ * export. Every value here is a small integer exactly representable in f32, so `Math.fround` is a
+ * no-op throughout and the closed form is exact, not approximate.
+ *
+ * Mutation table (each mutation applied directly to `expectedFromPublished` in `src/slope-seam.ts`,
+ * this test re-run, then reverted to the pre-mutation text by hand, the same reasoning as
+ * `expectedLevel0`'s table above — the function under test IS the CPU reference, so there is no
+ * separate production file to `git show HEAD:<path>` against):
+ *
+ *   1. weight (`* 0.25` -> `* 0.2` in `meanOf`): exit 1. Child (0,0)'s X channel read `8.8`
+ *      (`44 * 0.2`) against the fixture's expected `11` — every channel of every child texel
+ *      mismatched, `toEqual` failed on the whole array.
+ *   2. dropped-texel (`meanOf`'s `Math.fround(c + e)` term dropped, only `c` kept — the fourth
+ *      source texel's contribution never added): exit 1. Child (0,0)'s X channel read `5.75`
+ *      (`(1+5+17)/4`, texel `e`'s value `21` never summed) against expected `11` — every channel
+ *      of every child texel mismatched.
+ *   3. wrong-offset (`offsets[0]`'s formula changed to `offsets[1]`'s — `(2*y*size+2*x+1)*4`
+ *      instead of `(2*y*size+2*x)*4`, duplicating one source texel and dropping another): exit 1.
+ *      Child (0,0)'s X channel read `12` (`(5+5+17+21)/4`, texel 1 counted twice, texel 0 never
+ *      read) against expected `11` — every channel of every child texel mismatched.
+ *   4. swapped-channel (`out[index] = meanZ; out[index+1] = meanX;`, output x/z channels swapped):
+ *      exit 1. Child (0,0) read `[12, 11, 13, 0]` against the fixture's expected `[11, 12, 13, 0]`
+ *      — the first two channels mismatched at every child texel.
+ */
+test("expectedFromPublished computes the literal mean/residual formula on a position-encoded fixture", () => {
+    const parentSize = 4;
+    const parent = new Float32Array(parentSize * parentSize * 4);
+    for (let i = 0; i < parent.length; i++) parent[i] = i + 1;
+    // biome-ignore format: one row per output texel is the readable layout for a hand-derived table
+    const expected = new Float32Array([
+        11, 12, 13, 0, // child (0,0): parent texels 0,1,4,5
+        19, 20, 21, 0, // child (0,1): parent texels 2,3,6,7
+        43, 44, 45, 0, // child (1,0): parent texels 8,9,12,13
+        51, 52, 53, 0, // child (1,1): parent texels 10,11,14,15
+    ]);
+    const actual = expectedFromPublished(parent, parentSize);
+    expect(Array.from(actual)).toEqual(Array.from(expected));
 });

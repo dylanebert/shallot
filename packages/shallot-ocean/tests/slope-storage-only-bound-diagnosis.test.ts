@@ -10,9 +10,11 @@
 // gym scenario). This file exists so that ruling stays checkable: it reproduces the population a
 // naive storage-quantum-only bound convicts, on a frozen capture, and pins the count at exactly 8
 // — never re-measured against a live device here, since a live reading would only restate the seam
-// claim `slope-seam.ts` already makes properly. The last test below establishes the OTHER half of
-// the ruling on a live (non-frozen, self-consistent) CPU field: an f32 value's f16 round trip
-// always lands within one rounding step, never a spread residual.
+// claim `slope-seam.ts` already makes properly. The last test below is a diagnostic PRINT, at
+// every level (no assertion anywhere in it): max/rms deviation and the f16 rounding-direction
+// split for a live (non-frozen, self-consistent) CPU field — informational context for the frozen
+// count above, never a second claim. The storage-seam claim itself has no CPU instance in this
+// package; it is asserted exclusively on-device, in the `ocean-slope` gym scenario.
 //
 // FROZEN/PAYLOAD below are copied verbatim from a real WebGPU device capture taken during the
 // retired I3g-r review (`scratch/shallot-water-surface/eight-probe.ts`, gitignored — not a
@@ -28,7 +30,6 @@ import {
     SLOPE_MIP_LEVELS,
     slopeMipSize,
 } from "../src/slope";
-import { f16Round } from "../src/slope-seam";
 import { generateH0 } from "../src/spectrum";
 
 const [config] = SLOPE_CASCADE_CONFIGS;
@@ -219,25 +220,26 @@ test("f32-intermediate reading: max/rms deviation and the f16 rounding-direction
     // (`exact`) against the SAME field's own f16 round trip (`quantized`) — no device capture, no
     // frozen table, just the two readings this whole diagnosis rests on existing independently.
     //
-    // Level 0 ONLY carries a per-element assertion: `exactLevels[0]` and `quantizedLevels[0]` are
-    // both built from the SAME un-quantized level-0 field (`cpuSlopeLevels`'s `roundTrip` only
-    // takes effect from level 1 onward), so `quantized[i]` there really IS `exact[i]`'s own f16
-    // round trip and `quantized[i] === f16Round(exact[i])` is the real, checkable property — a
-    // cross-check between this file's own `Float16Array`-construction `roundTrip` helper and
-    // `slope-seam.ts`'s bit-manipulation `f16Round`, the function every seam-claim assertion in
-    // `slope-seam.test.ts` and the `ocean-slope` gym scenario relies on.
+    // PRINT ONLY AT EVERY LEVEL, level 0 included (I3g-r2's re-verdict retired the per-element
+    // assertion this block used to carry at level 0: `expect(quantized[i]).toBe(f16Round(exact[i]))`
+    // is an `x === f16Round(x)` self-comparison — `quantized[0]` is built by round-tripping
+    // `exact[0]` through `Float16Array`, so asserting it equals `f16Round(exact[0])` checks that
+    // one JS-spec-conversion helper agrees with another JS-spec-conversion helper on the same
+    // input, never a property of `slope-seam.ts`'s own math, and it is not the storage-seam claim
+    // either — that claim compares a PUBLISHED (GPU-computed) texel against the f32 value it was
+    // rounded from, and nothing here is GPU-computed).
     //
-    // Level >= 1 CANNOT carry that same assertion: `quantizedLevels[level]` is
+    // Level >= 1 was never assertable here at all: `quantizedLevels[level]` is
     // `reduceSlopeMip(quantizedLevels[level - 1], ...)` (the SELF-REFERENTIAL chain, quantizing at
     // every level, mirroring the GPU's own publish-then-read-back mip chain) while
     // `exactLevels[level]` is `reduceSlopeMip(exactLevels[level - 1], ...)` (the NEVER-quantized
     // chain) — two DIFFERENT parent inputs, not one value and its own rounding. Their divergence at
     // level >= 1 is real and compounding, not a single f16 step (this file's OWN prior test above
     // pins exactly 8 (level, channel) pairs where a naive per-level bound built from that
-    // divergence fails), so this block stays a PRINT past level 0: max/rms deviation and the
-    // rounding-direction split are diagnostic reads, asserting nothing about their magnitude. The
-    // self-referential comparison that IS correct at every level — quantized parent to quantized
-    // parent, both bracketed by the SAME two f16 neighbours — is `slope-seam.test.ts`'s own arm.
+    // divergence fails), so max/rms deviation and the rounding-direction split are diagnostic reads
+    // at every level, asserting nothing about their magnitude anywhere. The seam claim itself — a
+    // published GPU texel against the f32 value it was rounded from — has no CPU instance in this
+    // package; it is asserted exclusively on-device (`ocean-slope` gym scenario).
     const exactLevels = cpuSlopeLevels(false);
     const quantizedLevels = cpuSlopeLevels(true);
     for (let level = 0; level < SLOPE_MIP_LEVELS; level++) {
@@ -257,13 +259,11 @@ test("f32-intermediate reading: max/rms deviation and the f16 rounding-direction
             if (deviation < 0) down++;
             else if (deviation > 0) up++;
             else exactMatch++;
-            if (level === 0) expect(quantized[i]).toBe(f16Round(exact[i]));
         }
         const rms = Math.sqrt(sumSquares / count);
         console.log(
-            `L${level} f32->f16: max=${maxDeviation.toExponential(3)} rms=${rms.toExponential(3)} ` +
-                `rounding[down=${down}, exact=${exactMatch}, up=${up}] of ${count}` +
-                (level === 0 ? "" : " (print only past level 0 — see test header)"),
+            `L${level} f32->f16 (print only — see test header): max=${maxDeviation.toExponential(3)} ` +
+                `rms=${rms.toExponential(3)} rounding[down=${down}, exact=${exactMatch}, up=${up}] of ${count}`,
         );
     }
 });

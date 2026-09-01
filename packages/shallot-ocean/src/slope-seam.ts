@@ -22,13 +22,10 @@
 // against the SAME texel's own f32 source, never a scaled tolerance), and the computation claim's
 // only free inputs are the three measured/derived quantities above.
 //
-// Mutation table, re-run at the I3g-r2 review-round-1 correction against the LANDED I3g-r2 commits
-// (`bun bench --scenario ocean-slope` against a real WebGPU device, nvidia/lovelace, for every row
-// but 6; `bun test packages/shallot-ocean/tests/slope-seam.test.ts` for row 6, since `reduceSlopeMip`
-// has no GPU-reachable caller). Every mutation below targets `slope.ts`/`gpu-fft.ts` — files this
-// correction round does not otherwise edit — so each reverts cleanly with `git show HEAD:<path>`
-// (the commits now exist, so the earlier file-backup convention this table used at first authoring,
-// before any of this had landed, no longer applies):
+// Mutation table (device kernels), re-run at the I3g-r2 review-round-1 correction against the
+// LANDED I3g-r2 commits (`bun bench --scenario ocean-slope` against a real WebGPU device,
+// nvidia/lovelace). Every mutation below targets `slope.ts`/`gpu-fft.ts` — files this correction
+// round does not otherwise edit — so each reverts cleanly with `git show HEAD:<path>`:
 //
 //   1. `slope.ts`'s `mipKernel`, mean weight 0.25 -> 0.2 (wrong divisor, same 4 texels averaged):
 //      exit 1. "storage seam claim holds over every texel of every level and channel" failed —
@@ -50,15 +47,19 @@
 //      "level-0 computation claim holds on slopeX" failed — deviation L2 ~4.02e1 against E0
 //      ~1.6e-4 (reach 0.0x); slopeZ's claim and the storage-seam claim both stayed green, showing
 //      the computation claim discriminates per-channel rather than being fooled by one good side.
-//   6. `slope.ts`'s `reduceSlopeMip`, wrong divisor on all three means (`/4` -> `/5`, same 4 texels
-//      summed): exit 1 (`bun test`, not `bun bench` — this function has no GPU-reachable caller).
-//      "every published texel is within its allowed f16 rounding distance..." failed at the FIRST
-//      texel checked past level 0 — received steps=353 against limit=1. This is the row the I3g-r2
-//      review-round-1 correction added: `slope-seam.test.ts`'s `publishedPyramid()` now builds every
-//      level >= 1 through THIS function (the package's own independent CPU mirror of the GPU
-//      `mipKernel`) rather than through `expectedFromPublished` on both sides, so a defect here is
-//      now visible to the arm that mutation 1/2 above could already see through `bun bench` — this
-//      row is what makes it visible through `bun test` too, with no GPU adapter required.
+//
+// I3g-r2's re-verdict retired the sixth row this table used to carry: `slope-seam.test.ts` no
+// longer builds a "published" CPU pyramid by running level>=1 through `reduceSlopeMip` and
+// comparing it against `expectedFromPublished` on the same inputs — that was one derivation
+// (`reduceSlopeMip` is itself a transcription of the mean/residual formula below, with
+// `Math.fround` discipline inserted) checked against another restatement of itself, not an
+// independent reference, and its "seam claim" title was false — `reduceSlopeMip` is I3c's own
+// production function (mip-residual variance for shading), not part of this file's seam math, and
+// its correctness is covered by `slope.test.ts`'s literal-fixture arm. `expectedLevel0` and
+// `expectedFromPublished`'s OWN correctness — that they compute the formula their docblocks below
+// claim — is mutation-proven directly, against literals no other package export can move: see the
+// mutation table in `slope-seam.test.ts`'s own header (`bun test
+// packages/shallot-ocean/tests/slope-seam.test.ts`).
 
 export const CHANNELS = ["slopeX", "slopeZ", "energy", "residual"] as const;
 export type Channel = (typeof CHANNELS)[number];
