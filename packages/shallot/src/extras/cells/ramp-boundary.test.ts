@@ -33,7 +33,7 @@ describe("cellGlyphChar / CELL_GLYPH_COUNT boundary (S3's contract, ramp.ts's mo
         }
     });
 
-    test("the boundary itself: last fill index and first directional index are adjacent and distinct sets", () => {
+    test("the boundary itself: last fill index and first directional index are adjacent, and the first directional glyph isn't duplicated into the fill ramp (full disjointness pinned in ramp-table.test.ts)", () => {
         const lastFill = CELL_FILL_GLYPHS.length - 1;
         const firstDirectional = CELL_FILL_GLYPHS.length;
         expect(cellGlyphChar(lastFill)).toBe(CELL_FILL_GLYPHS[CELL_FILL_GLYPHS.length - 1]);
@@ -41,7 +41,7 @@ describe("cellGlyphChar / CELL_GLYPH_COUNT boundary (S3's contract, ramp.ts's mo
         expect(CELL_FILL_GLYPHS).not.toContain(CELL_DIRECTIONAL_GLYPHS[0]);
     });
 
-    test("out-of-range and non-integer indices throw — the range check `ramp.ts:61-63` names", () => {
+    test("out-of-range and non-integer indices throw — the range check `cellGlyphChar`'s own guard names", () => {
         expect(() => cellGlyphChar(-1)).toThrow();
         expect(() => cellGlyphChar(CELL_GLYPH_COUNT)).toThrow();
         expect(() => cellGlyphChar(CELL_GLYPH_COUNT + 1)).toThrow();

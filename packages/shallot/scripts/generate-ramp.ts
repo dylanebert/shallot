@@ -61,12 +61,22 @@ function contourArea(points: readonly Point[]): number {
 }
 
 // Chord-flatten one quadratic Bezier segment (`font.ts`'s own `Q cx,cy,x,y` emission) into STEPS points,
-// t in (0, 1] — t=0 (the segment's start) is already the caller's running cursor. 8 steps is plenty for a
-// coverage *ranking*: the flattening error is well under the gap between any two candidate glyphs'
-// measured coverage — reproducible claim, not a one-off: re-running `computeRampTable` against the same
-// brand font with STEPS edited to 32 produces an identical sort order (checked during shallot-tui S1's
-// second repair round; the largest single-glyph coverage delta between the two step counts was ~3e-5,
-// well inside every adjacent pair's coverage gap in the committed table).
+// t in (0, 1] — t=0 (the segment's start) is already the caller's running cursor. STEPS=8's flattening
+// error is NOT well inside every adjacent pair's coverage gap in the committed table — measured directly
+// against the committed table (this repair round): the smallest adjacent gap is exactly 0 (an exact tie,
+// "<" / ">"), the next two smallest are "*" / "+" at ~4e-6 and "H" / "E" at ~2.1e-5, and 6 of the table's
+// 90 adjacent gaps sit below 3e-5 — smaller than the ~5.4e-5 largest single-glyph coverage delta measured
+// between STEPS=8 and STEPS=32 (re-measured this round). So the margin claim was false as stated.
+//
+// What holds instead, also re-measured this round: STEPS=8 and STEPS=32 still produce an identical sort
+// order end to end, ties included. The defensible reading is that a pair whose coverage differs by
+// low-1e-5 or less is effectively tied at this measurement's resolution, and this ramp's contract
+// (`ramp.ts`'s module doc, the Locked decision) only needs coverage-ordered *bands* for a tone-based
+// fallback selector, not a strict total order at deltas this small — two glyphs this close in ink density
+// read as interchangeable to the selector they feed. If a future STEPS or font change ever does flip one
+// of these near-ties, nothing downstream regresses on that basis alone; it would regress only if the flip
+// crossed a coverage gap large enough to matter to the selector, which is a materially different claim
+// than "produces an identical sort order" and isn't the one this comment is making.
 const STEPS = 8;
 function flattenQuadratic(p0: Point, c: Point, p1: Point): Point[] {
     const pts: Point[] = [];

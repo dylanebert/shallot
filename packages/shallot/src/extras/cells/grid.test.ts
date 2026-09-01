@@ -58,9 +58,11 @@ describe("createCellGrid", () => {
         expect(() => createCellGrid(80, 24, 0)).toThrow(/glyphCount/);
     });
 
-    test("buffer size derives from CELL_BYTES, never a duplicated stride constant", () => {
-        // structural pin: a grid's byte footprint is cols * rows * CELL_BYTES, read off the schema — a
-        // second hand-authored stride would be exactly the "layout drift" gpu.md rule 4 warns against
+    test("CELL_BYTES-derived stride arithmetic matches a hand-computed literal for a fixed 10x5 grid (does not call createCellGrid — see the test above for the buffer actually allocated)", () => {
+        // structural pin on CELL_BYTES itself, not on createCellGrid's own buffer sizing (the test above
+        // this one already exercises createCellGrid and asserts its elementCount/dims wiring): this only
+        // proves cols * rows * CELL_BYTES equals the schema-derived byte count a caller would compute by
+        // hand, so a change to CELL_BYTES's own size shows up here even though this arm never allocates.
         expect(CELL_BYTES).toBeGreaterThan(0);
         const cols = 10;
         const rows = 5;

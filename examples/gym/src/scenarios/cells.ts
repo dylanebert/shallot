@@ -35,12 +35,21 @@ import { type Check, register, type Scenario, settle } from "../gym";
 const COLS = 10;
 const ROWS = 6;
 
-// this fixture's own even/odd tie geometry, fixed by COLS/ROWS: fg alpha's predicted byte diverges from
-// the naive half-up reference at every ODD x in [0, COLS) (5 of 10 — `1 - e` shifts the tie's floor
-// parity relative to the un-inverted `k = x` construction), each affecting all ROWS rows; bg alpha
-// diverges at every odd y in [0, ROWS) (3 of 6), each affecting all COLS columns. 5*6 + 3*10 = 60 — a
-// static property of this JS reference (not the device), so it's asserted as an exact pin below rather
-// than a >0 non-vacuity floor.
+// this fixture's own tie-divergence set, measured directly rather than derived from a parity law: fg
+// alpha's predicted byte diverges from the naive half-up reference at x = 1, 3, 5, 7, 9 (every odd x in
+// [0, COLS), 5 of 10), each affecting all ROWS rows; bg alpha diverges at y = 1, 3, 5 (every odd y in
+// [0, ROWS), 3 of 6), each affecting all COLS columns. 5*6 + 3*10 = 60 — a static property of this JS
+// reference (not the device), so it's asserted as an exact pin below rather than a >0 non-vacuity floor.
+//
+// The odd/even split above is NOT a parity law and doesn't generalize: `naiveAlphaByte` (`engine/utils/
+// tgsl.ts`'s `unorm8`) computes alpha in f64 and applies a single `Math.fround` at the very end, which
+// does not land exactly on the tie the multi-step f32 arithmetic (`alphaF32` below) constructs — the two
+// paths disagree by ordinary floating-point rounding along two different computation routes, not by a
+// half-up-vs-half-to-even split at a shared tie. That the disagreement lines up with x/y parity is a
+// property of this fixture's small range (COLS=10, ROWS=6): re-running the same predicted-vs-naive
+// comparison for idx in [0, 255) breaks the "diverges iff odd" rule 96 times out of 255 samples — so this
+// is a measured constant for this fixture, checked directly against the two production formulas above,
+// not a structural pattern that would hold at other grid sizes.
 const EXPECTED_TIE_DIVERGENCES = 60;
 
 let grid: ReturnType<typeof createCellGrid> | null = null;
@@ -96,9 +105,12 @@ function predictedAlphaByte(idx: number): number {
 // the diagonal fg/bg gradient) — the same differential shape `cell.test.ts` runs, but against a real
 // dispatched buffer instead of a hand-built one. Glyph and rgb come from production `packCell` unchanged
 // (never engineered onto a tie, so `unorm8`'s CPU-vs-GPU f64-vs-f32 seam never bites them). Alpha comes
-// from `predictedAlphaByte` — the spec-correct reference — not from `packCell`'s own CPU `unorm8` arm,
-// which is `naiveAlphaFg`/`naiveAlphaBg` below: computed only to derive the predicted-divergence count,
-// never used as the assertion target.
+// from `predictedAlphaByte` — which assumes correctly-rounded f32 division at each step (true of this
+// JS reference's f64-divide-then-`fround` construction), where WGSL's real division only guarantees a
+// spec'd ULP tolerance — so a green assertFillDispatch below is a reading about the adapter it actually
+// ran on (`grid.ts`'s own module doc states this honestly), never a universal spec guarantee. Naive alpha
+// (`naive.fg[3]`/`naive.bg[3]`, from `packCell`'s own CPU `unorm8` arm) is computed only to derive the
+// predicted-divergence count, never used as the assertion target.
 function expectedCell(x: number, y: number) {
     const glyph = (x + y) % CELL_GLYPH_COUNT;
     const u = x / COLS;
@@ -162,18 +174,18 @@ async function assertFillDispatch(): Promise<Check> {
     // pattern rewrite) reds here instead of the assertion below reading a vacuous 0-divergence green.
     if (predictedDivergences !== EXPECTED_TIE_DIVERGENCES) {
         return {
-            name: "cells fill dispatch matches the predicted-tie reference",
+            name: "cells fill dispatch matches the predicted-tie reference (adapter-dependent — a correctly-rounded-division reading, not a WGSL guarantee)",
             pass: false,
             detail: `predicted-tie reference constructed ${predictedDivergences} alpha divergences from the naive half-up reference, expected exactly ${EXPECTED_TIE_DIVERGENCES} — the fixture no longer constructs the rounding seam this scenario exists to exercise`,
         };
     }
     return {
-        name: "cells fill dispatch matches the predicted-tie reference",
+        name: "cells fill dispatch matches the predicted-tie reference (adapter-dependent — a correctly-rounded-division reading, not a WGSL guarantee)",
         pass: mismatches === 0,
         detail:
             mismatches === 0
                 ? `${COLS * ROWS} cells bit-exact on all 4 lanes (glyph, fg, bg incl. alpha, no tolerance); ${predictedDivergences}/${COLS * ROWS * 2} alpha samples predicted (ties-to-even) to diverge from the naive half-up CPU reference, all matched bit-exact against the device`
-                : `${mismatches}/${COLS * ROWS} cells mismatched against the predicted-tie reference; first (actual/expected): ${first}`,
+                : `${mismatches}/${COLS * ROWS} cells mismatched against the predicted-tie reference; first (actual/expected): ${first} — WGSL division carries only a spec'd ULP tolerance, not a correctly-rounded guarantee, so a red here on an adapter other than the one this reference was measured against (nvidia/lovelace) is a portability reading, not necessarily a code defect — diagnose against the adapter name before treating it as a regression`,
     };
 }
 
