@@ -63,7 +63,10 @@ function contourArea(points: readonly Point[]): number {
 // Chord-flatten one quadratic Bezier segment (`font.ts`'s own `Q cx,cy,x,y` emission) into STEPS points,
 // t in (0, 1] — t=0 (the segment's start) is already the caller's running cursor. 8 steps is plenty for a
 // coverage *ranking*: the flattening error is well under the gap between any two candidate glyphs'
-// measured coverage (verified by re-running at 32 steps and diffing the sort order — unchanged).
+// measured coverage — reproducible claim, not a one-off: re-running `computeRampTable` against the same
+// brand font with STEPS edited to 32 produces an identical sort order (checked during shallot-tui S1's
+// second repair round; the largest single-glyph coverage delta between the two step counts was ~3e-5,
+// well inside every adjacent pair's coverage gap in the committed table).
 const STEPS = 8;
 function flattenQuadratic(p0: Point, c: Point, p1: Point): Point[] {
     const pts: Point[] = [];

@@ -17,17 +17,28 @@ import { RAMP_TABLE } from "./ramp-table";
 //     measured by `scripts/generate-ramp.ts`, committed in `ramp-table.ts`, and reproduced by
 //     `ramp-table.test.ts` against the same brand font (`assets/font.ttf`) the generator reads.
 //   - `CELL_DIRECTIONAL_GLYPHS` (appended after the fill glyphs) — a small curated set, one glyph per
-//     quantized edge-angle bucket (0°, 45°, 90°, 135° — the standard four-bucket split inherited from
-//     Canny non-max suppression), kept separate from the fill ramp because they're selected by edge
-//     angle, not by coverage. S3's detector is what runs the Sobel/DoG selection; this file only names
-//     the set and where it lives in the index space.
+//     quantized *edge-tangent* angle bucket (0°=`-`, 45°=`/`, 90°=`|`, 135°=`\` — the angle the drawn
+//     glyph visually runs along), kept separate from the fill ramp because they're selected by edge
+//     angle, not by coverage. This is deliberately **not** the same angle Canny non-max suppression
+//     buckets: Canny's four buckets are *gradient* angles, and a gradient is perpendicular to the edge
+//     it belongs to, so indexing this array by a raw gradient bucket rotates every glyph 90° from the
+//     edge it's meant to draw (gradient 0° ↔ tangent 90°, gradient 45° ↔ tangent 135°, and the reverse
+//     pairs) — S3's detector must convert a computed gradient bucket to its perpendicular tangent bucket
+//     before indexing here. The four-bucket *count* and *spacing* (0°/45°/90°/135°) are still standard
+//     practice inherited from Canny's non-max suppression; only the angle each bucket names differs. S3's
+//     detector is what runs the Sobel/DoG selection; this file only names the set, its tangent-angle
+//     convention, and where it lives in the index space.
 //
 // Both halves still share one property with the code-point ramp they replace: a glyph index is a stable,
 // committed enumeration, so it survives a font swap or an atlas rebuild unchanged — a coverage-derived
 // table is exactly as stable as a code-point one, only its *ordering rule* differs.
 
 /** the small curated directional set (Locked decision, `specs/shallot-tui.md`) — one glyph per quantized
- *  edge-angle bucket, 0°/45°/90°/135°, the shape S3's structure-based selector consumes. Kept separate
+ *  edge-*tangent* angle bucket, 0°(`-`)/45°(`/`)/90°(`|`)/135°(`\`), the shape S3's structure-based
+ *  selector consumes. This is the angle the glyph visually runs along, **not** the gradient angle Canny
+ *  non-max suppression buckets (a gradient is perpendicular to its edge's tangent — module doc above has
+ *  the derivation) — a caller indexing by a raw gradient bucket must rotate it 90° to the perpendicular
+ *  tangent bucket first, or every glyph renders turned 90° from the edge it represents. Kept separate
  *  from {@link CELL_FILL_GLYPHS} (excluded from its coverage measurement, `scripts/generate-ramp.ts`)
  *  because a directional glyph is selected by edge angle, never by ink coverage. */
 export const CELL_DIRECTIONAL_GLYPHS: readonly string[] = ["-", "/", "|", "\\"] as const;

@@ -14,10 +14,21 @@ describe("RAMP_TABLE reproduces from generate-ramp.ts's own computeRampTable", (
         expect(RAMP_TABLE).toEqual(fresh);
     });
 
-    test("is sorted ascending by measured ink coverage", () => {
+    // N5 (shallot-tui S1's second repair round): this used to check `RAMP_TABLE[i].coverage` — the
+    // *committed* field — against itself, which can only ever red together with the reproduction test
+    // above (any RAMP_TABLE row order that broke monotonicity would already fail `toEqual(fresh)`, since
+    // `computeRampTable` is sorted by construction and `fresh` would then differ from RAMP_TABLE in
+    // exactly the positions that broke sort order). It never independently discriminated anything. This
+    // version re-measures each row's coverage straight off the font with `glyphCoverage` — bypassing both
+    // the committed `.coverage` field and `computeRampTable`'s own comparator — so it still reds if the
+    // *font* or the *character set* changes the true ordering, even with the reproduction test disabled.
+    test("is sorted ascending by independently re-measured ink coverage", () => {
         expect(RAMP_TABLE.length).toBeGreaterThan(0);
+        const font = loadBrandFont();
         for (let i = 1; i < RAMP_TABLE.length; i++) {
-            expect(RAMP_TABLE[i].coverage).toBeGreaterThanOrEqual(RAMP_TABLE[i - 1].coverage);
+            const prev = glyphCoverage(font, RAMP_TABLE[i - 1].char);
+            const curr = glyphCoverage(font, RAMP_TABLE[i].char);
+            expect(curr).toBeGreaterThanOrEqual(prev);
         }
     });
 
