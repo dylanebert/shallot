@@ -227,13 +227,12 @@ const SELECT_ROWS = 4;
 const SELECT_BLOCK = 4; // device px per cell edge
 const SELECT_SRC_W = SELECT_COLS * SELECT_BLOCK;
 const SELECT_SRC_H = SELECT_ROWS * SELECT_BLOCK;
-// bright/dark post-tonemap luma: reinhard(2.0) ≈ 0.667, reinhard(0.05) ≈ 0.0476 — a Sobel magnitude of
-// 4×|0.667−0.0476| ≈ 2.48 at the boundary columns, well over EDGE_MAGNITUDE_THRESHOLD (re-derived
-// downward by the s3r fill-treatment amendment, `select.ts`'s own docblock — comfortably below 2.48
-// regardless), and exactly 0 at every column away from the boundary (uniform neighborhoods, `select.ts`'s
-// own derivation)
-const SELECT_BRIGHT = 2.0;
-const SELECT_DARK = 0.05;
+// The two post-tonemap colors have strongly separated luma (bright ≈ 0.313, dark ≈ 0.087), yielding a
+// Sobel magnitude above EDGE_MAGNITUDE_THRESHOLD at the boundary columns while remaining visibly
+// non-neutral for criterion 10's color arm. Every column away from the boundary has a uniform neighborhood,
+// so its Sobel magnitude is exactly 0 (`select.ts`'s own derivation).
+const SELECT_BRIGHT = [2.0, 0.3, 0.1] as const;
+const SELECT_DARK = [0.05, 0.1, 0.2] as const;
 
 let selectGrid: ReturnType<typeof createCellGrid> | null = null;
 let selectMirror: Mirror | null = null;
@@ -252,11 +251,11 @@ const SelectPlugin: Plugin = {
         const data = new Float32Array(SELECT_SRC_W * SELECT_SRC_H * 4);
         for (let y = 0; y < SELECT_SRC_H; y++) {
             for (let x = 0; x < SELECT_SRC_W; x++) {
-                const v = x < SELECT_SRC_W / 2 ? SELECT_BRIGHT : SELECT_DARK;
+                const color = x < SELECT_SRC_W / 2 ? SELECT_BRIGHT : SELECT_DARK;
                 const o = (y * SELECT_SRC_W + x) * 4;
-                data[o] = v;
-                data[o + 1] = v;
-                data[o + 2] = v;
+                data[o] = color[0];
+                data[o + 1] = color[1];
+                data[o + 2] = color[2];
                 data[o + 3] = 1;
             }
         }
@@ -286,6 +285,14 @@ const SelectPlugin: Plugin = {
 // reorder moves both offsets together and the "structurally independent" claim in the module comment
 // that used to sit above them was false. Criterion 4's real differential is `assertDrawDispatch` below,
 // which drives an actual GPU dispatch of `draw.ts`'s own render pipeline.
+function expectedSelectColor(color: readonly [number, number, number]) {
+    const tone = color.map((channel) => channel / (channel + 1)) as [number, number, number];
+    const packed = packCell(0, vec4f(tone[0], tone[1], tone[2], 1), vec4f(0, 0, 0, 1));
+    const bytes = new ArrayBuffer(CELL_BYTES);
+    new Uint32Array(bytes).set([packed.x, packed.y, packed.z]);
+    return unpackCell(bytes, 0);
+}
+
 async function assertSelectDispatch(): Promise<Check> {
     const name = "select dispatch: a real edge fires both the directional and fill branches";
     if (!selectMirror) return { name, pass: false, detail: "no select grid mirror" };
@@ -306,7 +313,7 @@ async function assertSelectDispatch(): Promise<Check> {
     // low fill index specifically, not merely a non-directional one, since a low luma landing high in
     // the ramp would be a different (real) selection bug this check would otherwise miss.
     let farDarkLowIndex = true;
-    const wantLowIndexBound = 10; // SELECT_DARK's luma (~0.0476 post-tonemap) rounds to index ~4
+    const wantLowIndexBound = 10; // SELECT_DARK's luma (~0.087 post-tonemap) rounds below this bound
     for (let y = 0; y < SELECT_ROWS; y++) {
         for (let x = 0; x < SELECT_COLS; x++) {
             const i = y * SELECT_COLS + x;
@@ -338,6 +345,40 @@ async function assertSelectDispatch(): Promise<Check> {
         name,
         pass: true,
         detail: `${SELECT_COLS * SELECT_ROWS} cells read back; the edge fired a directional glyph at both boundary columns and a fill glyph at both far columns every row`,
+    };
+}
+
+async function assertSelectColors(): Promise<Check> {
+    const name =
+        "criterion 10: the glyph carries scene color and the cell background stays near-black";
+    if (!selectMirror) return { name, pass: false, detail: "no select grid mirror" };
+    await settle(selectMirror);
+    const snap = selectMirror.snapshot;
+    if (!snap) return { name, pass: false, detail: "no select grid snapshot" };
+
+    const samples = [
+        { x: 0, color: SELECT_BRIGHT },
+        { x: SELECT_COLS - 1, color: SELECT_DARK },
+    ];
+    const failures: string[] = [];
+    for (const { x, color } of samples) {
+        const actual = unpackCell(snap.bytes, x);
+        const wanted = expectedSelectColor(color);
+        const glyphColorMatches = actual.fg.every((channel, index) => channel === wanted.fg[index]);
+        const backgroundIsDark = actual.bg[0] <= 1 && actual.bg[1] <= 1 && actual.bg[2] <= 1;
+        if (!glyphColorMatches || !backgroundIsDark) {
+            failures.push(
+                `x=${x} fg [${actual.fg}] (want scene [${wanted.fg}]), bg [${actual.bg}] (want near-black)`,
+            );
+        }
+    }
+    const pass = failures.length === 0;
+    return {
+        name,
+        pass,
+        detail: pass
+            ? "non-neutral bright and dark scene colors are packed on fg while both sampled cell backgrounds are [0,0,0,255]"
+            : `${failures.join("; ")} — swapping the packed channels or restoring the luma-split fg fails this arm`,
     };
 }
 
@@ -1414,6 +1455,7 @@ const scenario: Scenario = {
         return [
             await assertFillDispatch(),
             await assertSelectDispatch(),
+            await assertSelectColors(),
             await assertDrawDispatch(),
             await assertMonoRamp(),
             await assertFacadeInk(),

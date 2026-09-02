@@ -31,11 +31,11 @@
 // left/right, own-column up/down only, no diagonals) — a metric that cannot see past its immediate
 // neighbor, so it reads exactly 0 for the flat-neighbor case the Sobel-based approach mis-fired on. Either
 // gate firing selects a directional glyph, oriented by the *full* Sobel `(gx, gy)` (the diagonal taps are
-// fine for angle, since a slightly bled angle is a far smaller defect than a mis-classified cell); `fg` is
-// forced to full-bright white whenever either fires — a solid, continuous, brighter-than-either-fill
-// stroke, per the reference's own contrast hierarchy (edges continuous and bright, fill dim and broken) —
-// and `bg` stays the cell's own tonemapped average (unchanged, cosmetic for the colored web preview;
-// criterion 8 strips color entirely so nothing here bears on it).
+// fine for angle, since a slightly bled angle is a far smaller defect than a mis-classified cell). The glyph's
+// `fg` carries the cell's own tonemapped average for both directional and fill branches while `bg` stays at
+// the dark floor. The glyph is the mark in both sinks; painting the cell background with scene color would turn
+// the grid into a low-resolution image with text overlaid rather than an ASCII render (the locked color model
+// in `specs/shallot-tui.md`).
 
 import tgpu, { type StorageFlag, type TgpuBuffer, type TgpuComputePipeline } from "typegpu";
 import * as d from "typegpu/data";
@@ -423,13 +423,11 @@ const selectKernel = tgpu.computeFn({
         glyph = fillIndexForLuma(ownLuma);
     }
 
-    // fill ink stays luma-derived (dim and broken, per the reference); an edge glyph always gets
-    // full-bright fg regardless of its own luma, so the stroke reads brighter than either adjacent fill
-    // rather than sometimes matching or undershooting a bright fill's own ink (`ownLuma < 0.5`'s old split
-    // would otherwise hand a bright-face edge black ink, the opposite of "brighter than either fill").
-    const fillFg = std.select(d.vec3f(0, 0, 0), d.vec3f(1, 1, 1), ownLuma < 0.5);
-    const fg = std.select(fillFg, d.vec3f(1, 1, 1), isEdge);
-    const packed = packCell(glyph, d.vec4f(fg, 1), d.vec4f(own, 1));
+    // The glyph carries the scene color for every selection branch. Keep the cell background at the
+    // dark floor so the rendered mark, rather than a colored rectangle behind it, is the scene output.
+    const fg = d.vec4f(own, 1);
+    const bg = d.vec4f(0, 0, 0, 1);
+    const packed = packCell(glyph, fg, bg);
     const i = y * cols + x;
     selectLayout.$.cells[i].glyph = packed.x;
     selectLayout.$.cells[i].fg = packed.y;
