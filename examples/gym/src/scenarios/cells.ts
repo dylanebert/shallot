@@ -996,17 +996,19 @@ const FacadePlugin: Plugin = {
 // per-pixel threshold count, `research/ascii-city-reference/`'s own readings: 13.2%, 32.5%, 21.3% of
 // pixels above 18% luma — {@link FACADE_PIXEL_LUMA_THRESHOLD}). This arm reads that same quantity, over a
 // real facade region rendered through the real draw pipeline: a grid of cells all carrying a fill glyph
-// {@link fillIndexForLuma} selects at a facade-representative luma ({@link FACADE_BAND_LUMAS}, the spec's
-// own observed band — `select.ts`'s `EDGE_MAGNITUDE_THRESHOLD` docblock names the same ~0.517-0.603
-// range at one orbit angle), read back and counted per-pixel against the threshold — `FacadePlugin`
+// {@link fillIndexForLuma} selects at a facade-representative luma ({@link FACADE_BAND_LUMAS}, hand-picked
+// to sit inside the luma band the recipe's faces occupy in the tier-0 dump — `select.ts`'s own docblock
+// has the derivation), read back and counted per-pixel against the threshold — `FacadePlugin`
 // below, `assertFrameIsGrid`'s own real-device-readback shape.
 //
-// Two-sided against the two edges of what a real render can produce, exactly like `assertFrameIsGrid`'s
-// drawn/control pair: a control render of the identical grid at the ramp's own densest glyph must clear
-// the ceiling (proving the ceiling is reachable on the real device at all, not just asserted of the font
-// in the abstract), and a control render at the blank glyph must clear the floor (proving the floor
-// discriminates a genuinely empty facade from a filled one). All three renders share one draw pipeline
-// and one probe kernel — the only thing that varies between them is which glyph index the grid carries.
+// The two controls are a vacuity guard, not independent evidence the band's own floor and ceiling are
+// each reachable — `FACADE_INK_FLOOR`/`FACADE_INK_CEILING` are ratios of the densest control's own
+// reading (`select.ts`'s own docblock has the derivation), so neither control leg can red against a
+// working pipeline by construction. What they establish: a zero readback on the band leg reds rather than
+// reading as a false pass (since the floor is > 0, a broken pipeline that draws nothing would otherwise
+// silently clear it), and the densest and blank renders bracket the band reading, showing the probe can
+// tell a dense glyph from an empty one at all. All three renders share one draw pipeline and one probe
+// kernel — the only thing that varies between them is which glyph index the grid carries.
 async function readFacadeFraction(
     mirrorRef: Mirror | null,
     label: string,
@@ -1020,7 +1022,8 @@ async function readFacadeFraction(
 }
 
 async function assertFacadeInk(): Promise<Check> {
-    const name = "facade ink: the real ramp's rendered ink lands in the reference's target band";
+    const name =
+        "facade ink: the rendered facade ink sits inside this pipeline's own measured band";
     const band = await readFacadeFraction(facadeBandMirror, "band");
     if ("error" in band) return { name, pass: false, detail: band.error };
     const ceiling = await readFacadeFraction(facadeCeilingMirror, "ceiling control");
@@ -1034,9 +1037,9 @@ async function assertFacadeInk(): Promise<Check> {
     const pass = bandInBand && ceilingReachable && floorReachable;
 
     const detail =
-        `band (facade lumas ${FACADE_BAND_LUMAS.join("/")}) ${(band.fraction * 100).toFixed(1)}% of ${FACADE_VIEW_W * FACADE_VIEW_H} px above ${(FACADE_PIXEL_LUMA_THRESHOLD * 100).toFixed(0)}% luma — want inside [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%] (${bandInBand ? "OK" : "OUTSIDE"}); ` +
-        `densest-glyph control ${(ceiling.fraction * 100).toFixed(1)}% — want > ${FACADE_INK_CEILING * 100}%, proves the ceiling reachable (${ceilingReachable ? "OK" : "UNREACHABLE — the ceiling is not a real bound on this device"}); ` +
-        `blank-glyph control ${(floor.fraction * 100).toFixed(1)}% — want < ${FACADE_INK_FLOOR * 100}%, proves the floor discriminates (${floorReachable ? "OK" : "UNREACHABLE — the floor does not discriminate a blank facade"})` +
+        `band (facade lumas ${FACADE_BAND_LUMAS.join("/")}) ${(band.fraction * 100).toFixed(1)}% of ${FACADE_VIEW_W * FACADE_VIEW_H} px above ${(FACADE_PIXEL_LUMA_THRESHOLD * 100).toFixed(0)}% luma — want inside this pipeline's own measured band [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%], below the reference's own 13.2-32.5% crops (${bandInBand ? "OK" : "OUTSIDE"}); ` +
+        `densest-glyph control ${(ceiling.fraction * 100).toFixed(1)}% — vacuity guard, want > ${FACADE_INK_CEILING * 100}%: paired with the blank control below, shows the probe can tell a dense glyph from an empty one rather than proving the ceiling independently reachable (${ceilingReachable ? "OK" : "BROKEN — the probe read no more ink on the densest glyph than the ceiling itself"}); ` +
+        `blank-glyph control ${(floor.fraction * 100).toFixed(1)}% — vacuity guard, want < ${FACADE_INK_FLOOR * 100}%: a nonzero reading here would mean the probe reports ink on a facade that paints nothing (${floorReachable ? "OK" : "BROKEN — the probe reads ink on a blank facade"})` +
         (pass || !(ceilingReachable && floorReachable)
             ? ""
             : "; both controls hold, so the lever is fillIndexForLuma's luma→index mapping (select.ts), never glyph geometry");
