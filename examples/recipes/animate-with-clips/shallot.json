@@ -1,7 +1,7 @@
 {
-  "scene": "scenes/animate-with-tweens.scene",
+  "scene": "scenes/animate-with-clips.scene",
   "plugins": {
-    "Tween": true,
+    "Animation": true,
     "Orbit": true,
     "Bouncer": "./src/bounce"
   }

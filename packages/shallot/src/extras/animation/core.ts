@@ -1,4 +1,4 @@
-import { Composite, Fill, getEasingIndex, owns, sample } from "../tween/core";
+import { Composite, Fill, getEasingIndex, owns, sample } from "./timing";
 
 export {
     Composite,
@@ -10,7 +10,7 @@ export {
     getEasingName,
     owns,
     sample,
-} from "../tween/core";
+} from "./timing";
 
 /** a reusable flat channel-to-value animation result. */
 export class Pose extends Map<string, number> {}

@@ -1,5 +1,5 @@
 // Cells' `*/core` extension surface — for a custom pipeline / tooling / diagnostic consumer
-// (`exports.md`'s Barrel rules), the way `gltf/core` / `skin/core` / `tween/core` publish their own
+// (`exports.md`'s Barrel rules), the way `gltf/core` / `skin/core` / `animation/core` publish their own
 // substrate ahead of (or instead of) an author-facing plugin. `CellsPlugin` (`./index.ts`) rides the main
 // `extras` barrel; this subpath is the GPU cell layout contract underneath it: the packing (`Cell` + its
 // byte/lane constants), the codec (`packCell` / `unpackCell`), the headless fill producer, the real

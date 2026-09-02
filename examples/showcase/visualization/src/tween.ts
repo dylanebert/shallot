@@ -1,8 +1,27 @@
-import { TweenPlugin } from "@dylanebert/shallot";
+import { AnimationPlugin, keyframes, Playables, type Plugin } from "@dylanebert/shallot";
 import { start } from "./boot";
 
-// Parallel + sequential + loop, authored entirely in the scene. Five cubes rise together then fall
-// together on one looping timeline (ten `<a tween>` placed at `at: 0` and `at: 1.4` on one `<a sequence>`),
-// each cube carrying its own easing curve. A retained reference line marks the top the springy curves
-// overshoot — lines + tween composited, the point of the visualization set. No script: the scene is the demo.
-await start([TweenPlugin], "../scenes/tween.scene");
+const curves = ["linear", "ease-out-cubic", "ease-out-back", "ease-out-elastic", "ease-out-bounce"];
+const Clips = {
+    name: "CurveClips",
+    dependencies: [AnimationPlugin],
+    initialize() {
+        for (const [i, easing] of curves.entries()) {
+            Playables.register({
+                name: `curve-${i}`,
+                ...keyframes(
+                    {
+                        "transform.pos.y": [
+                            { value: -1.5, offset: 0, easing },
+                            { value: 1.5, offset: 0.5, easing },
+                            { value: -1.5, offset: 1 },
+                        ],
+                    },
+                    { duration: 2.8 },
+                ),
+            });
+        }
+    },
+} satisfies Plugin;
+
+await start([Clips], "../scenes/tween.scene");

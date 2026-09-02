@@ -1,12 +1,14 @@
 import {
+    AnimationPlugin,
     f32,
+    keyframes,
+    Playables,
     type Plugin,
     type System,
     sparse,
     TextPlugin,
     Transform,
     TransformsPlugin,
-    TweenPlugin,
 } from "@dylanebert/shallot";
 import { start } from "./boot";
 
@@ -31,9 +33,24 @@ const RingSystem: System = {
 const RingPlugin: Plugin = {
     name: "TextRing",
     components: { Ring },
+    dependencies: [AnimationPlugin, TransformsPlugin],
+    initialize() {
+        Playables.register({
+            name: "bob",
+            ...keyframes(
+                {
+                    "transform.pos.y": [
+                        { value: 2.48, offset: 0, easing: "ease-in-out-sine" },
+                        { value: 2.72, offset: 0.5, easing: "ease-in-out-sine" },
+                        { value: 2.48, offset: 1 },
+                    ],
+                },
+                { duration: 4 },
+            ),
+        });
+    },
     systems: [RingSystem],
     traits: { Ring: { requires: [Transform], defaults: () => ({ phase: 0 }) } },
-    dependencies: [TransformsPlugin],
 };
 
-await start([TextPlugin, TweenPlugin, RingPlugin], "../scenes/text.scene");
+await start([TextPlugin, RingPlugin], "../scenes/text.scene");

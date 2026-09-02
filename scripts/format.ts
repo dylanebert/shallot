@@ -14,7 +14,7 @@ const {
     DEFAULT_PLUGINS,
     LinesPlugin,
     TextPlugin,
-    TweenPlugin,
+    AnimationPlugin,
     AudioPlugin,
 } = await import("../packages/shallot/src");
 const { register } = await import("../packages/shallot/src/engine/ecs/core");
@@ -22,7 +22,7 @@ const { normalizeAttr } = await import("../packages/shallot/src/engine/scene/cor
 
 // the engine defaults plus the opt-in viz extras that add scene-authorable components,
 // so normalizeAttr knows every component schema a scene can reference
-const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, TweenPlugin, AudioPlugin];
+const PLUGINS = [...DEFAULT_PLUGINS, LinesPlugin, TextPlugin, AnimationPlugin, AudioPlugin];
 
 const state = new State();
 for (const plugin of PLUGINS) {

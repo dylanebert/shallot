@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { attach } from "../../../tests/helpers";
 import {
+    AnimationPlugin,
     AudioPlugin,
     build,
     entity,
@@ -24,7 +25,6 @@ import {
     stringify,
     TextPlugin,
     TransformsPlugin,
-    TweenPlugin,
     u8,
     u32,
     vec2,
@@ -45,7 +45,7 @@ const PLUGINS: Plugin[] = [
     RenderPlugin,
     PartPlugin,
     OrbitPlugin,
-    TweenPlugin,
+    AnimationPlugin,
     LinesPlugin,
     TextPlugin,
     SearPlugin,

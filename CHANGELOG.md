@@ -139,3 +139,5 @@ First documented release.
 - **cli** — `bunx shallot` (editor), `shallot dev` (hot reload), `shallot build` / `shallot run` (web, or native windows/mac/linux via system webview; `--portable` bundles CEF)
 - **scaffold** — `bun create shallot`
 - **docs** — generated reference + guides, projected from code and runnable examples
+
+- **animation** — replaced entity-shaped tweens and sequences with registered keyframe, script, and mixer playables driven by `Animator`; moved the extension export to `animation/core`.

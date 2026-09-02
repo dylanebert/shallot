@@ -44,7 +44,7 @@ export const EXTRA_PLUGIN_NAMES = [
     "Sprite",
     "Text",
     "Tumble",
-    "Tween",
+    "Animation",
 ] as const;
 
 /** every engine plugin name a manifest may enable with a bool — the union the toolchain validates against. */

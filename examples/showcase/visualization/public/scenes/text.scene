@@ -3,16 +3,9 @@
     <a directional-light />
     <a camera sear orbit="distance: 13; pitch: 0.5236" transform />
 
-    <!-- the title bobs on a looping tween — the motion flows through the Transform slab the glyph VS
-         samples, so the glyph buffer lays out once at startup and never rebuilds as it moves -->
+    <!-- the title animation writes through the Transform slab the glyph shader samples -->
     <a id="title" text="anchor: 0.5; color: 0xffd089" transform="pos: 0 2.6 0" />
-    <a id="bob" sequence="loop: 1" />
-    <a
-        tween="field: transform.pos.y; from: 2.48; to: 2.72; duration: 2; easing: ease-in-out-sine; fill: none; target: @title; sequence: @bob"
-    />
-    <a
-        tween="field: transform.pos.y; from: 2.72; to: 2.48; at: 2; duration: 2; easing: ease-in-out-sine; fill: none; target: @title; sequence: @bob"
-    />
+    <a animator="loop: 1; target: @title" />
 
     <!-- a dim cube the captions orbit, for depth reference -->
     <a part transform="scale: 1.2 1.2 1.2" color="rgba: 0.42 0.46 0.52" />

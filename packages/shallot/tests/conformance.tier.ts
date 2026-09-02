@@ -26,7 +26,7 @@
 // walked from this file's import statements. The cone is the source tree of every plugin this file
 // (and the shared roster it imports) pulls in for a promoted arm: `src/standard/render/`,
 // `src/standard/part/`, `src/standard/sear/`, `src/standard/glaze/`, `src/extras/lines/`,
-// `src/extras/sprite/`, `src/extras/skin/`, `src/extras/gltf/`, `src/extras/tween/`, plus the
+// `src/extras/sprite/`, `src/extras/skin/`, `src/extras/gltf/`, `src/extras/animation/`, plus the
 // `src/standard/slab/` and `src/standard/transforms/` trees every promoted arm builds on
 // (`SlabPlugin`/`TransformsPlugin` ride in as `RenderPlugin`'s declared `dependencies`), plus —
 // for the physics-stack arms — `src/standard/avbd/` (the solver), `src/standard/physics/`
@@ -50,10 +50,10 @@
 import { describe, expect, test } from "bun:test";
 import { build, type Plugin } from "../src";
 import { clear, getComponent, getTraits } from "../src/engine/ecs/core";
+import { AnimationPlugin } from "../src/extras/animation";
 import { GltfPlugin } from "../src/extras/gltf";
 import { LinesPlugin } from "../src/extras/lines";
 import { LiveSkinSystem, Skin, SkinPlugin, skinTraits } from "../src/extras/skin";
-import { TweenPlugin } from "../src/extras/tween";
 import { PartPlugin } from "../src/standard/part";
 import { RenderPlugin } from "../src/standard/render";
 import { Draws, Surfaces } from "../src/standard/render/core";
@@ -79,14 +79,14 @@ describe("reload conformance (pipeline-compiling tier)", () => {
 
     // the plugin-toggle rebuild path: a rebuild with a CHANGED plugin set.
     // Toggling an extra on then back off must return the State to its pre-toggle shape — no residue from
-    // the toggled-out plugin. A non-producer (Tween: a component + a system, no GPU registries) isolates
+    // the toggled-out plugin. A non-producer (Animation: a component + a system, no GPU registries) isolates
     // the plain toggle from the producer-registry case below.
     test("a non-producer plugin toggle leaves no residue", async () => {
         const base: Plugin[] = [SlabPlugin, TransformsPlugin];
         const scene = `<scene><a id="thing" transform="pos: 1 2 3" /></scene>`;
         const violations = await conformSequence([
             { plugins: base, scene },
-            { plugins: [...base, TweenPlugin], scene },
+            { plugins: [...base, AnimationPlugin], scene },
             { plugins: base, scene },
         ]);
         expect(violations).toEqual([]);
