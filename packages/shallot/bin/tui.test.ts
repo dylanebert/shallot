@@ -1,12 +1,17 @@
+import { makeGrid } from "@dylanebert/shallot-tui";
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import {
     cellsBytesToGrid,
+    createQuitGuard,
     decodeStdinChunk,
     EXIT_NO_BUN_WEBGPU,
+    EXIT_NO_SHALLOT_TUI,
     EXIT_SETUP,
     importBunWebgpu,
+    importShallotTui,
     noBunWebgpuMessage,
+    noShallotTuiMessage,
     parseTuiArgs,
     runTui,
     type TuiArgs,
@@ -110,6 +115,47 @@ describe("decodeStdinChunk", () => {
     });
 });
 
+// Regression for the blocker diagnosed against runTui's own q/Ctrl-C quit path: `stopped` used to be one
+// boolean serving two meanings ("the frame loop should stop" and "disposeAll already ran"), so a quit
+// request set it directly and disposeAll's own idempotency guard read it as already-disposed before
+// disposeAll ever ran once — stdinBridge.stop() (raw mode off), held-key timer clearing, and
+// app.dispose() all silently no-op'd. Before this type existed, the reproduction of that exact shared-
+// flag shape failed identically to this: requesting a stop first, then calling the dispose sequence,
+// left it un-run. `createQuitGuard` is the fix — `requestStop()` and `disposeOnce()` are independent —
+// and this test exercises the real production type, not a copy.
+describe("createQuitGuard — requestStop and disposeOnce are independent (regression: q/Ctrl-C quit skipped teardown)", () => {
+    test("requesting a stop first still lets disposeOnce run its callback", () => {
+        const guard = createQuitGuard();
+        guard.requestStop(); // simulates the stdin bridge's onQuit ('q'/Ctrl-C)
+        let disposed = false;
+        guard.disposeOnce(() => {
+            disposed = true;
+        });
+        expect(disposed).toBe(true);
+        expect(guard.stopped).toBe(true);
+    });
+
+    test("disposeOnce runs its callback exactly once across repeated calls", () => {
+        const guard = createQuitGuard();
+        let calls = 0;
+        guard.disposeOnce(() => {
+            calls++;
+        });
+        guard.disposeOnce(() => {
+            calls++;
+        });
+        expect(calls).toBe(1);
+    });
+
+    test("stopped stays false until requestStop is called, and requestStop is itself idempotent", () => {
+        const guard = createQuitGuard();
+        expect(guard.stopped).toBe(false);
+        guard.requestStop();
+        guard.requestStop();
+        expect(guard.stopped).toBe(true);
+    });
+});
+
 describe("cellsBytesToGrid", () => {
     // a hand-built 2x1 grid over a trivial fake unpack/glyphChar pair — no GPU, no engine import,
     // proving the pure decode shape independent of the real cell packing.
@@ -121,7 +167,7 @@ describe("cellsBytesToGrid", () => {
     const fakeGlyphChar = (glyph: number) => (glyph === 1 ? "#" : ".");
 
     test("decodes glyph + fg/bg (dropping alpha) into the shallot-tui Grid shape", () => {
-        const grid = cellsBytesToGrid(new ArrayBuffer(0), 2, 1, fakeUnpack, fakeGlyphChar);
+        const grid = cellsBytesToGrid(new ArrayBuffer(0), 2, 1, fakeUnpack, fakeGlyphChar, makeGrid);
         expect(grid).toEqual({
             width: 2,
             height: 1,
@@ -178,5 +224,53 @@ describe("importBunWebgpu / runTui — missing bun-webgpu", () => {
     test("runTui rejects bad flags before ever reaching bun-webgpu (EXIT_SETUP, distinct code)", async () => {
         const code = await runTui(["--nope"]);
         expect(code).toBe(EXIT_SETUP);
+    });
+});
+
+// The criterion-7-shaped guard for the item 8 packaging fix: `@dylanebert/shallot-tui` moved from a hard
+// `dependencies` entry to `optionalDependencies` (`packages/shallot/package.json`), which means a real
+// registry install can legitimately lack it — a static top-level import would have crashed this whole
+// module with a raw "Cannot find module" stack trace at load time. `importShallotTui` mirrors
+// `importBunWebgpu` exactly: same two-sided proof (a resolving loader proves the success path, a rejecting
+// one proves the exit code + message rather than an uncaught throw), same "extract, never mock" reasoning
+// for why the printed-message half is proven via `noShallotTuiMessage`'s own text here and the genuine-
+// absence subprocess check in `scripts/install-test.ts` rather than a console spy.
+describe("importShallotTui / runTui — missing @dylanebert/shallot-tui", () => {
+    test("importShallotTui resolves via its DI'd loader, and returns null (never throws) on rejection", async () => {
+        const ok = await importShallotTui(() => Promise.resolve({ makeGrid } as never));
+        expect(ok).not.toBeNull();
+
+        const failing = await importShallotTui(() =>
+            Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
+        );
+        expect(failing).toBeNull();
+    });
+
+    test("runTui exits EXIT_NO_SHALLOT_TUI (never throws) when its shallot-tui loader rejects", async () => {
+        const code = await runTui(
+            [RECIPE_DIR],
+            undefined,
+            () => Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
+        );
+        expect(code).toBe(EXIT_NO_SHALLOT_TUI);
+    });
+
+    test("the shallot-tui check runs before the bun-webgpu check — missing both reports the encoder's own remedy, not the engine's", async () => {
+        const code = await runTui(
+            [RECIPE_DIR],
+            () => Promise.reject(new Error("Cannot find module 'bun-webgpu'")),
+            () => Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
+        );
+        expect(code).toBe(EXIT_NO_SHALLOT_TUI);
+        expect(code).not.toBe(EXIT_NO_BUN_WEBGPU);
+    });
+});
+
+describe("noShallotTuiMessage", () => {
+    test("names the install command and carries no stack-trace shape", () => {
+        const msg = noShallotTuiMessage();
+        expect(msg).toContain("bun add @dylanebert/shallot-tui");
+        expect(msg).not.toMatch(/\bat \S+\(.*:\d+:\d+\)/); // a "    at fn (file:line:col)" stack frame
+        expect(msg).not.toContain("Cannot find module");
     });
 });

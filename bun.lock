@@ -345,7 +345,6 @@
         "shallot": "./bin/cli.ts",
       },
       "dependencies": {
-        "@dylanebert/shallot-tui": "0.0.0",
         "@types/node": "^26.0.0",
         "@webgpu/types": "^0.1.70",
         "unplugin-typegpu": "~0.12.3",
@@ -360,6 +359,7 @@
         "wgpu-matrix": "^3.4.0",
       },
       "optionalDependencies": {
+        "@dylanebert/shallot-tui": "0.0.0",
         "pngjs": "^7.0.0",
       },
       "peerDependencies": {

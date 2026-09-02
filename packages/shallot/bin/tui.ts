@@ -14,29 +14,31 @@
 // build's `virtual:project` generator uses, reused rather than hand-copying a fixed plugin list) and
 // drives it continuously, not once.
 //
-// **The bun-webgpu import is late and guarded, not top-level (N-1).** `bin/gpu-globals.ts`'s own docblock
-// names the reason: the shipped CLI must not statically depend on `bun-webgpu`'s native wgpu bindings, or
-// a browser consumer's `bun add @dylanebert/shallot` would pull in a package no browser user wants
-// installed. So this module's own top-level imports stay engine-free and GPU-free — `parseTuiArgs`,
-// `importBunWebgpu`, and the exit-code/remedy-message helpers below are pure and DI-friendly, safely
-// importable (and unit-testable) with no GPU, no `bun-webgpu`, and no TGSL transform in the process. Every
-// engine-touching or bun-webgpu-touching step lives inside {@link runTui}, reached only once the optional
-// dependency has already resolved — so a test exercising the "missing bun-webgpu" exit path never
-// registers the TGSL bun-plugin at all, and never risks the double-registration `tests/tgsl.ts` warns
-// against (exactly one instance may run per process; a second pass re-wraps the emitted metadata and
-// corrupts it).
+// **The bun-webgpu AND @dylanebert/shallot-tui imports are late and guarded, not top-level (N-1).**
+// `bin/gpu-globals.ts`'s own docblock names the bun-webgpu reason: the shipped CLI must not statically
+// depend on `bun-webgpu`'s native wgpu bindings, or a browser consumer's `bun add @dylanebert/shallot`
+// would pull in a package no browser user wants installed. `@dylanebert/shallot-tui` (`packages/shallot/
+// package.json`'s `optionalDependencies`) needs the identical treatment for a different reason: it's an
+// optional dependency, so its own install can fail non-fatally on a real registry install, and a static
+// top-level import of a package that may not be on disk would crash this whole module at load time with a
+// raw `Cannot find module` rather than the named remedy criterion 7's shape requires. So this module's own
+// top-level imports stay engine-free, GPU-free, AND shallot-tui-free — `parseTuiArgs`, `importBunWebgpu`,
+// `importShallotTui`, and the exit-code/remedy-message helpers below are pure and DI-friendly, safely
+// importable (and unit-testable) with no GPU, no `bun-webgpu`, no `@dylanebert/shallot-tui`, and no TGSL
+// transform in the process. Every engine-touching, bun-webgpu-touching, or shallot-tui-touching step lives
+// inside {@link runTui}, reached only once the relevant optional dependency has already resolved — so a
+// test exercising a "missing dependency" exit path never registers the TGSL bun-plugin at all, and never
+// risks the double-registration `tests/tgsl.ts` warns against (exactly one instance may run per process; a
+// second pass re-wraps the emitted metadata and corrupts it). `cellsBytesToGrid` below takes `makeGrid` as
+// a DI parameter (alongside its existing `unpack`/`glyphChar` params) rather than importing it directly,
+// for the same reason.
 
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+// type-only — erased at compile time, so this carries no runtime import and no shallot-tui touch (unlike a
+// value import, verified already at this file's own module doc: `verify.ts` does the same with
+// `GpuDiagnostics`/`ShaderArtifact`).
 import type { RGB, Tier, Cell as TuiCell, Grid as TuiGrid } from "@dylanebert/shallot-tui";
-import {
-    ALT_SCREEN_ENTER,
-    detectTier,
-    Encoder,
-    installTeardown,
-    makeGrid,
-    onResize,
-} from "@dylanebert/shallot-tui";
 // type-only — erased at compile time, so this carries no runtime import and no GPU touch (unlike a
 // value import, verified already at this file's own module doc: `verify.ts` does the same with
 // `GpuDiagnostics`/`ShaderArtifact`).
@@ -119,6 +121,44 @@ export function parseTuiArgs(raw: string[]): TuiArgs {
     }
 }
 
+/**
+ * Owns two signals that used to be one shared `stopped` boolean, which was the bug: "the frame loop
+ * should stop" and "the dispose sequence already ran" are different once-only facts, and collapsing
+ * them into one flag meant a quit request (`q`/Ctrl-C, set directly by the stdin bridge's callback)
+ * satisfied `disposeAll`'s own idempotency guard before `disposeAll` ever ran once — so the clean-exit
+ * path (`teardown(); disposeAll();` after the loop falls out) silently no-op'd: `stdinBridge.stop()`
+ * (raw mode off, `stdin.pause()`) never ran, held-key timers were never cleared, `app.dispose()` never
+ * ran, leaving the real terminal in raw mode with a resumed stdin holding the event loop open. Regression
+ * covered directly against this type in `tui.test.ts`.
+ */
+export interface QuitGuard {
+    /** true once quit has been requested — the frame loop's own stop condition. */
+    readonly stopped: boolean;
+    /** request the frame loop stop. Idempotent; never affects disposal. */
+    requestStop(): void;
+    /** run `dispose` exactly once, however many times this is called, independent of {@link stopped}. */
+    disposeOnce(dispose: () => void): void;
+}
+
+/** Constructs a fresh {@link QuitGuard} — one per `runTui` call, never shared across invocations. */
+export function createQuitGuard(): QuitGuard {
+    let stopped = false;
+    let disposed = false;
+    return {
+        get stopped() {
+            return stopped;
+        },
+        requestStop() {
+            stopped = true;
+        },
+        disposeOnce(dispose) {
+            if (disposed) return;
+            disposed = true;
+            dispose();
+        },
+    };
+}
+
 // exit codes: distinct so a caller (CI, an agent) can tell a real failure from a missing tool — mirrors
 // verify.ts's EXIT_SETUP / EXIT_NO_PLAYWRIGHT convention, its own numbering (this command's exit space,
 // not shared with verify's).
@@ -150,6 +190,43 @@ export function noBunWebgpuMessage(): string {
 export async function importBunWebgpu(
     loader: () => Promise<typeof import("bun-webgpu")> = () => import("bun-webgpu"),
 ): Promise<typeof import("bun-webgpu") | null> {
+    try {
+        return await loader();
+    } catch {
+        return null;
+    }
+}
+
+export const EXIT_NO_SHALLOT_TUI = 4; // @dylanebert/shallot-tui isn't installed (optionalDependencies)
+
+const INSTALL_SHALLOT_TUI = "bun add @dylanebert/shallot-tui";
+
+/** the refusal diagnostic for a missing `@dylanebert/shallot-tui` — names the install command, never a
+ *  stack trace, the same shape {@link noBunWebgpuMessage} uses. `@dylanebert/shallot-tui` is an
+ *  `optionalDependencies` entry on `@dylanebert/shallot` (`packages/shallot/package.json`), not a hard
+ *  dependency: a real registry install tolerates it failing (unpublished, platform mismatch, `--omit=
+ *  optional`), which is exactly the case this message exists to name instead of a raw module-resolution
+ *  crash. */
+export function noShallotTuiMessage(): string {
+    return (
+        `shallot tui needs @dylanebert/shallot-tui to encode the cell grid, but it isn't installed. ` +
+        `Install it: ${INSTALL_SHALLOT_TUI}`
+    );
+}
+
+/**
+ * resolve the optional `@dylanebert/shallot-tui` module, or `null` when it isn't installed — the caller
+ * then prints {@link noShallotTuiMessage} and exits {@link EXIT_NO_SHALLOT_TUI} rather than letting a bare
+ * `Cannot find module` stack trace reach the user. `loader` is DI'd (default: the real dynamic import),
+ * mirroring {@link importBunWebgpu} exactly: a `loader` that resolves proves the success path reaches the
+ * encoder, and a `loader` that rejects proves the exit code + message rather than a thrown stack trace
+ * (`bin/tui.test.ts`). The genuine-absence arm (a real project with no `@dylanebert/shallot-tui` installed
+ * at all) lives in `scripts/install-test.ts`, mirroring its existing bun-webgpu-absence check.
+ */
+export async function importShallotTui(
+    loader: () => Promise<typeof import("@dylanebert/shallot-tui")> = () =>
+        import("@dylanebert/shallot-tui"),
+): Promise<typeof import("@dylanebert/shallot-tui") | null> {
     try {
         return await loader();
     } catch {
@@ -375,15 +452,18 @@ function installStdinBridge(win: EventTarget, onQuit: () => void): { stop: () =>
 // ---------------------------------------------------------------------------------------------------
 
 /** decode a raw cell-grid readback into the `@dylanebert/shallot-tui` `Grid` shape the encoder consumes.
- *  Pure — no GPU, no engine import (only the two decode functions passed in), so this is unit-testable
- *  against a hand-built buffer. `unpack`/`glyphChar` are DI'd rather than imported at module top, keeping
- *  this module's own top-level import-free of the engine (see the module doc's N-1 note). */
+ *  Pure — no GPU, no engine import, no `@dylanebert/shallot-tui` import (only the three functions passed
+ *  in), so this is unit-testable against a hand-built buffer with neither optional dependency installed.
+ *  `unpack`/`glyphChar`/`makeGrid` are all DI'd rather than imported at module top, keeping this module's
+ *  own top-level import-free of the engine and of `@dylanebert/shallot-tui` (see the module doc's N-1
+ *  note). */
 export function cellsBytesToGrid(
     bytes: ArrayBuffer,
     cols: number,
     rows: number,
     unpack: (bytes: ArrayBuffer, index: number) => { glyph: number; fg: number[]; bg: number[] },
     glyphChar: (glyph: number) => string,
+    makeGrid: (cols: number, rows: number, fn: (x: number, y: number) => TuiCell) => TuiGrid,
 ): TuiGrid {
     const rgb = (bytes4: number[]): RGB => ({ r: bytes4[0], g: bytes4[1], b: bytes4[2] });
     return makeGrid(cols, rows, (x, y) => {
@@ -452,19 +532,25 @@ const RENDER_W = 640;
 const RENDER_H = 360;
 
 /**
- * `shallot tui [dir]` — the real entry, reached only past {@link importBunWebgpu}'s success. Returns the
- * process exit code rather than calling `process.exit` itself (mirrors `runVerify`/`runRecipe`; `cli.ts`
- * calls `process.exit(await runTui(...))`), except for `requireProject` — reused verbatim from
- * `toolchain.ts`, and like `dev.ts`/`build.ts` already do, it exits the process directly on a missing
- * project rather than threading a second return convention through this one command.
+ * `shallot tui [dir]` — the real entry, reached only past {@link importShallotTui}'s and
+ * {@link importBunWebgpu}'s success. Returns the process exit code rather than calling `process.exit`
+ * itself (mirrors `runVerify`/`runRecipe`; `cli.ts` calls `process.exit(await runTui(...))`), except for
+ * `requireProject` — reused verbatim from `toolchain.ts`, and like `dev.ts`/`build.ts` already do, it
+ * exits the process directly on a missing project rather than threading a second return convention through
+ * this one command.
  *
- * `bunWebgpuLoader` forwards to {@link importBunWebgpu} — undefined (the real production call from
- * `cli.ts`) takes the real dynamic import; a test overrides it to prove this function's own exit-code +
- * message wiring on rejection without needing a real bun-webgpu absence (`bin/tui.test.ts`).
+ * `shallotTuiLoader`/`bunWebgpuLoader` forward to {@link importShallotTui}/{@link importBunWebgpu} —
+ * undefined (the real production call from `cli.ts`) takes the real dynamic import; a test overrides
+ * either to prove this function's own exit-code + message wiring on rejection without needing a real
+ * absence of either optional dependency (`bin/tui.test.ts`). The `@dylanebert/shallot-tui` check runs
+ * first: it's the lighter, cheaper-to-resolve optional dependency of the two, and checking it before
+ * committing to the heavier `bun-webgpu` boot means a project missing both reports the encoder's own named
+ * remedy rather than always reporting the engine's.
  */
 export async function runTui(
     argv: string[],
     bunWebgpuLoader?: () => Promise<typeof import("bun-webgpu")>,
+    shallotTuiLoader?: () => Promise<typeof import("@dylanebert/shallot-tui")>,
 ): Promise<number> {
     let args: TuiArgs;
     try {
@@ -480,6 +566,13 @@ export async function runTui(
 
     const projectDir = resolve(args.dir);
     requireProject(projectDir); // exits the process on a missing project (toolchain.ts's own contract)
+
+    const shallotTui = await importShallotTui(shallotTuiLoader);
+    if (!shallotTui) {
+        console.error(noShallotTuiMessage());
+        return EXIT_NO_SHALLOT_TUI;
+    }
+    const { ALT_SCREEN_ENTER, detectTier, Encoder, installTeardown, makeGrid, onResize } = shallotTui;
 
     const bunWebgpu = await importBunWebgpu(bunWebgpuLoader);
     if (!bunWebgpu) {
@@ -577,14 +670,14 @@ export async function runTui(
 
     let stdinBridge: { stop: () => void } | null = null;
     let unsubscribeResize: (() => void) | null = null;
-    let stopped = false;
+    const quitGuard = createQuitGuard();
 
     const disposeAll = () => {
-        if (stopped) return;
-        stopped = true;
-        stdinBridge?.stop();
-        unsubscribeResize?.();
-        app.dispose();
+        quitGuard.disposeOnce(() => {
+            stdinBridge?.stop();
+            unsubscribeResize?.();
+            app.dispose();
+        });
     };
 
     // Owns the "process killed externally" path (SIGINT/SIGTERM) — it writes the alt-screen restore
@@ -608,7 +701,7 @@ export async function runTui(
     if (interactive) {
         write(ALT_SCREEN_ENTER);
         stdinBridge = installStdinBridge(win, () => {
-            stopped = true; // 'q' / Ctrl-C: fall out of the loop below, the normal clean-exit path
+            quitGuard.requestStop(); // 'q' / Ctrl-C: fall out of the loop below, the normal clean-exit path
         });
         unsubscribeResize = onResize(
             process.stdout as unknown as Parameters<typeof onResize>[0],
@@ -618,7 +711,7 @@ export async function runTui(
 
     const dt = 1 / args.fps;
     let frame = 0;
-    while (!stopped && (args.frames === undefined || frame < args.frames)) {
+    while (!quitGuard.stopped && (args.frames === undefined || frame < args.frames)) {
         app.state.step(dt);
         const grid = cellsGridFor(cameraEid);
         if (grid) {
@@ -637,7 +730,7 @@ export async function runTui(
             await staging.mapAsync(GPUMapMode.READ, 0, raw.size);
             const bytes = staging.getMappedRange(0, raw.size).slice(0);
             staging.destroy();
-            const tuiGrid = cellsBytesToGrid(bytes, COLS, ROWS, unpackCell, cellGlyphChar);
+            const tuiGrid = cellsBytesToGrid(bytes, COLS, ROWS, unpackCell, cellGlyphChar, makeGrid);
             write(encoder.encode(tuiGrid));
         }
         frame++;

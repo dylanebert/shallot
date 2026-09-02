@@ -414,21 +414,29 @@ export const CLI_COVERAGE: readonly CoverageRow[] = [
         file: "packages/shallot/bin/tui.ts",
         arm: "gap",
         reason:
-            "parseTuiArgs, decodeStdinChunk, cellsBytesToGrid, noBunWebgpuMessage, and importBunWebgpu " +
-            "(its own DI'd loader, success and rejection) are all directly asserted by tui.test.ts, along " +
-            "with runTui's bad-flag path (EXIT_SETUP) and its missing-bun-webgpu path (EXIT_NO_BUN_WEBGPU " +
-            "+ the remedy message, not a thrown stack trace) via a rejecting loader override — no real " +
-            "device needed for either. runTui's real headless path — project plugin resolution off " +
-            "shallot.json (plan()), the engine build, the per-frame GPU cell-grid readback, and the " +
-            "encoder wiring — is exercised end to end by bin/tui.probes.ts (a real subprocess boot, " +
-            "hashed determinism across two independent runs plus a --tier byte-stream differential — " +
-            "criterion 6, specs/shallot-tui.md) and by scripts/install-test.ts's real bun-webgpu-absence " +
-            "check on a freshly scaffolded project (criterion 7, mirroring its existing playwright-" +
-            "absence rung). Reached by nothing: every interactive/real-tty-only path — " +
-            "installStdinBridge's raw-mode listener actually receiving live input, installTeardown's " +
-            "SIGINT/SIGTERM exit callback, onResize's live callback, and the real ALT_SCREEN_ENTER/EXIT " +
-            "sequence — since every gate above drives a piped, non-tty stdin/stdout. No stage in this " +
-            "unit's Approach owns a pty-driven interactive test; occupants: installStdinBridge, the " +
+            "parseTuiArgs, decodeStdinChunk, cellsBytesToGrid, createQuitGuard, noBunWebgpuMessage, " +
+            "importBunWebgpu, noShallotTuiMessage, and importShallotTui (each DI'd loader, success and " +
+            "rejection) are all directly asserted by tui.test.ts, along with runTui's bad-flag path " +
+            "(EXIT_SETUP), its missing-bun-webgpu path (EXIT_NO_BUN_WEBGPU + the remedy message, not a " +
+            "thrown stack trace) via a rejecting loader override, its missing-shallot-tui path " +
+            "(EXIT_NO_SHALLOT_TUI, same shape), and the shallot-tui-checked-before-bun-webgpu ordering — " +
+            "no real device needed for any of it. createQuitGuard's own regression coverage is the S3/S4 " +
+            "batch review's blocker fix (2026-09-01): requestStop and disposeOnce used to be one shared " +
+            "`stopped` boolean, so a q/Ctrl-C quit request satisfied disposeAll's idempotency guard before " +
+            "disposeAll ever ran, silently skipping stdinBridge.stop()/app.dispose() — tui.test.ts proves " +
+            "requestStop leaves disposeOnce's callback still runnable. runTui's real headless path — " +
+            "project plugin resolution off shallot.json (plan()), the engine build, the per-frame GPU " +
+            "cell-grid readback, and the encoder wiring — is exercised end to end by bin/tui.probes.ts (a " +
+            "real subprocess boot, hashed determinism across two independent runs plus a --tier byte-" +
+            "stream differential — criterion 6, specs/shallot-tui.md) and by scripts/install-test.ts's " +
+            "real bun-webgpu-absence and shallot-tui-absence checks on a freshly scaffolded project " +
+            "(criterion 7, mirroring its existing playwright-absence rung, plus the item-8 optional-" +
+            "dependency guard it now covers the same way). Reached by nothing: every interactive/real-tty-" +
+            "only path — installStdinBridge's raw-mode listener actually receiving live input (including " +
+            "requestStop's own real q/Ctrl-C call site inside that listener), installTeardown's SIGINT/" +
+            "SIGTERM exit callback, onResize's live callback, and the real ALT_SCREEN_ENTER/EXIT sequence " +
+            "— since every gate above drives a piped, non-tty stdin/stdout. No stage in this unit's " +
+            "Approach owns a pty-driven interactive test; occupants: installStdinBridge, the " +
             "installTeardown signal-exit callback, and the alt-screen enter/exit paths gated on " +
             "process.stdin.isTTY.",
     },

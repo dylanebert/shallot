@@ -93,7 +93,6 @@
         "dump-cells-ascii": "bun --preload ./tests/tgsl.ts scripts/dump-cells-ascii.ts"
     },
     "dependencies": {
-        "@dylanebert/shallot-tui": "0.0.0",
         "@types/node": "^26.0.0",
         "@webgpu/types": "^0.1.70",
         "unplugin-typegpu": "~0.12.3",
@@ -113,6 +112,7 @@
         }
     },
     "optionalDependencies": {
+        "@dylanebert/shallot-tui": "0.0.0",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {

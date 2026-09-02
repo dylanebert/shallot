@@ -59,15 +59,17 @@ function pack(dir: string, dest: string): string {
     return join(dest, tgz);
 }
 
-// The packed engine's own package.json declares a real (non-`file:`) dependency on
-// `@dylanebert/shallot-tui` (`check-versions.ts` forbids a `workspace:`/`file:`/`link:` protocol there —
-// it has to publish), but shallot-tui hasn't published yet — the same "ships ahead of a release" gap S3
-// named for `extras/cells` (specs/shallot-tui.md). So every real registry-driven install of the packed
-// engine tarball (npm/bun's own resolver, not this harness's `file:` rewrite of the *engine* dep alone)
-// needs a LOCAL override for that unpublished sibling too, or it 404s against the real registry.
-// Each package manager needs a DIFFERENT shape to reach the local tarball, measured directly (none of
-// this is documented behavior to trust blind). Mutates `pkg` in place, called right before it's
-// written/stringified:
+// The packed engine's own package.json declares `@dylanebert/shallot-tui` as an `optionalDependencies`
+// entry (moved off a hard `dependencies` entry — item 8 of the S3/S4 batch review, 2026-09-01), but
+// shallot-tui hasn't published yet — the same "ships ahead of a release" gap S3 named for `extras/cells`
+// (specs/shallot-tui.md). Being optional means a real registry-driven install of the packed engine tarball
+// no longer 404s on it (npm/bun tolerate a failed optional install), so this override is no longer load-
+// bearing for install survival — but every fixture below still applies it, so what it tests is that the
+// *local* tarball resolves and the encoder is genuinely present for every flow that boots `shallot tui`,
+// rather than leaving those flows to exercise the (now also covered, see the genuine-absence checks in
+// `createShallotFlow`) missing-optional-dependency path by accident. Each package manager needs a
+// DIFFERENT shape to reach the local tarball, measured directly (none of this is documented behavior to
+// trust blind). Mutates `pkg` in place, called right before it's written/stringified:
 //   - bun: reads a top-level `overrides` map, and it reaches a *transitive* dependency (one packed
 //     inside a `file:` tarball, not just a direct one) — confirmed. Bun does NOT hoist a same-named
 //     direct dependency into satisfying a nested package's own unrelated registry requirement (confirmed
@@ -332,6 +334,32 @@ function createShallotFlow(work: string, engineTgz: string, tuiTgz: string) {
             /bun add -d bun-webgpu/.test(noBunWebgpuOut) &&
             !/Cannot find module/.test(noBunWebgpuOut),
         `exit ${noBunWebgpu.exitCode}`,
+    );
+
+    // Item 8 (S3/S4 batch review, 2026-09-01): `@dylanebert/shallot-tui` moved off a hard `dependencies`
+    // entry to `optionalDependencies` specifically so a real registry install can survive its absence
+    // rather than 404ing — this is the genuine-absence rung proving the runtime guard actually fires when
+    // that survives-but-missing case happens for real, mirroring the bun-webgpu check directly above. This
+    // scaffold's `withTuiOverride` (above) installed a real local copy at
+    // node_modules/@dylanebert/shallot-tui; removing it (real absence, no mock) and re-running `shallot
+    // tui .` also exercises `runTui`'s check ordering — the shallot-tui guard runs before the bun-webgpu
+    // one (`bin/tui.test.ts`'s own ordering test), and bun-webgpu is still absent here too, so a wrong
+    // ordering would report the wrong remedy. The fast DI-driven proof of the same exit-code + message
+    // wiring lives in `bin/tui.test.ts`, which can't see whether a real optional-dependency absence
+    // actually reaches this path.
+    rmSync(join(proj, "node_modules/@dylanebert/shallot-tui"), { recursive: true, force: true });
+    const noShallotTui = Bun.spawnSync(["bun", CLI, "tui", "."], {
+        cwd: proj,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const noShallotTuiOut = `${noShallotTui.stdout.toString()}\n${noShallotTui.stderr.toString()}`;
+    check(
+        "shallot tui exits with an install remedy when @dylanebert/shallot-tui is absent, not a stack trace",
+        noShallotTui.exitCode === 4 &&
+            /bun add @dylanebert\/shallot-tui/.test(noShallotTuiOut) &&
+            !/Cannot find module/.test(noShallotTuiOut),
+        `exit ${noShallotTui.exitCode}`,
     );
 
     // the intact scaffold typechecks: spin.ts is present, so the program reaches the engine's shipped
