@@ -101,7 +101,9 @@
                 "packages/shallot-ocean/src/cpu-reference.ts",
                 "packages/shallot-ocean/src/ocean.ts",
                 "packages/shallot-ocean/src/clipmap.ts",
-                "packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts"
+                "packages/shallot-ocean/src/composed-fold.ts",
+                "packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts",
+                "packages/shallot-ocean/tests/fold-anchor.oracle.ts"
             ],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }

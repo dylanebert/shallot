@@ -33,6 +33,9 @@ export interface SeaState {
     truncationRatio: number;
 }
 
+/** Shared choppiness solved from the composed-world-grid fold ensemble. */
+export const LAMBDA = 4.39123025;
+
 /** Shipped power-of-two cascades; coprime world lengths avoid aligned repeat boundaries. */
 export const CASCADE_CONFIGS: CascadeConfig[] = [
     {
@@ -40,7 +43,7 @@ export const CASCADE_CONFIGS: CascadeConfig[] = [
         L: 80,
         windSpeed: 15,
         windDir: 0.6,
-        lambda: 1.925088,
+        lambda: LAMBDA,
         kLo: 0.07853981633974483,
         kHi: 0.75,
     },
@@ -49,7 +52,7 @@ export const CASCADE_CONFIGS: CascadeConfig[] = [
         L: 31,
         windSpeed: 15,
         windDir: 0.6,
-        lambda: 5.492399,
+        lambda: LAMBDA,
         kLo: 0.75,
         kHi: 8.482300164692441,
     },
@@ -110,6 +113,14 @@ const SURFACE_TENSION = 0.074;
 export const K_M = Math.sqrt((WATER_DENSITY * G) / SURFACE_TENSION);
 /** Minimum gravity-capillary phase speed in m/s. */
 export const C_M = Math.sqrt((2 * G) / K_M);
+
+/**
+ * Whitecap coverage from Monahan & O'Muircheartaigh (1980), “Whitecaps and the passive remote
+ * sensing of the ocean surface”, International Journal of Remote Sensing 1(2), 173–174.
+ */
+export function whitecapFraction(windSpeed: number): number {
+    return windSpeed <= 0 ? 0 : Math.min(0.5, 3.84e-6 * windSpeed ** 3.41);
+}
 
 /** Named factor removals used only by the production mutation oracle. */
 export interface SpectrumMutation {
@@ -273,6 +284,13 @@ export const SEA_STATE: SeaState = Object.freeze({
     windDir: WIND_DIR,
     significantWaveHeight: 4 * Math.sqrt(FULL_VARIANCE),
     truncationRatio: DECLARED_VARIANCE / FULL_VARIANCE,
+});
+
+/** Measured fold operating point consumed by foam seeding. */
+export const FOLD_REGIME = Object.freeze({
+    lambda: LAMBDA,
+    whitecapAnchor: whitecapFraction(U10),
+    measuredComposedFold: 0.03933710705910504,
 });
 
 /** Short-gravity/capillary cascade configuration; it is slope-only and contributes no displacement. */
