@@ -618,9 +618,9 @@ const MONO_BG = vec4f(0, 0, 0, 1);
 // unexplained reading rather than an instance of it); the checked population stops comfortably short of
 // that at 69.
 const MONO_CHECKED_COUNT = 69;
-// 1.2x sits 6.7% under the single measured ratio (~1.28x at MONO_CHECKED_COUNT=69, nvidia/lovelace,
-// one reading — no repeated-measurement spread taken), so this is the floor set under that one reading,
-// not established headroom against noise.
+// 1.2x sits roughly 6% under the single measured ratio (~1.28x at MONO_CHECKED_COUNT=69, nvidia/
+// lovelace, one reading — no repeated-measurement spread taken), so this is the floor set under that
+// one reading, not established headroom against noise.
 const MONO_MARGIN = 1.2;
 
 const monoProbeLayout = tgpu.bindGroupLayout({
