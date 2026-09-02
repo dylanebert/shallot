@@ -583,14 +583,18 @@ async function assertDrawDispatch(): Promise<Check> {
 //      resolution effect (fine high-frequency detail in a dense glyph's outline doesn't fully survive a
 //      24px cell) rather than a defect, confirmed by banding: even restricted to the ramp's clean lower
 //      60%, a 3-way split's middle third out-renders its own top third.
-//   2. `extras/text/sdf.ts`'s per-glyph SDF-generation render pass renders some of the ramp's highest-
-//      coverage (densest/most complex) glyphs as exactly zero ink — a genuine, pre-existing, reproducible
-//      defect this arm's own construction surfaced (not a regression from this item's draw.ts fix): the
-//      failure reproduces bit-for-bit identically whether `ensureString` is called once with the whole
-//      ramp or split down to one glyph per call, so it is not a batch-size or resource-accumulation
-//      artifact, and the affected characters (`M`, `Q`, `@`, `W`, …) are simple, non-composite outlines
-//      that parse correctly at the font layer — the defect sits in the GPU rasterization/finalize pass,
-//      root cause undetermined. Out of this item's footprint (`extras/text`, not `extras/cells`) to fix.
+//   2. `extras/text/sdf.ts`'s per-glyph SDF-generation render pass has been observed rendering some of
+//      the ramp's highest-coverage (densest/most complex) glyphs as exactly zero ink — a genuine,
+//      reproducible defect this arm's own construction surfaced (not a regression from this item's
+//      draw.ts fix): the failure reproduced bit-for-bit identically whether `ensureString` is called
+//      once with the whole ramp or split down to one glyph per call, so it is not a batch-size or
+//      resource-accumulation artifact. That reading, and the specific glyphs it named, were taken
+//      against the retired 91-glyph undilated ramp, which no longer exists — which glyphs (if any)
+//      render exactly zero ink on the current 87-glyph ramp is unmeasured; see the re-measurement note
+//      below (`MONO_CHECKED_COUNT`) for the reading that stands on this ramp (first dip at index 71,
+//      `m`; the current densest glyph, index 86 `W`, measures nonzero ink per `assertFacadeInk`'s own
+//      densest-glyph control, ~10.9% on nvidia/lovelace). Out of this item's footprint (`extras/text`,
+//      not `extras/cells`) to fix.
 //
 // So the checked claim is the one the ramp's own contract actually promises and this fix actually needs
 // to hold — "bands, not a strict total order" (`ramp.ts`'s own module doc) — restricted to a population
