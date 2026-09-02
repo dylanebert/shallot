@@ -48,6 +48,7 @@ import {
     getSlopeBuffers,
     higham242AbsoluteBound,
     ifft2Exact,
+    measureSlopePhaseTrigError,
     measureTwiddleTrigError,
     OceanPlugin,
     runSlopeCpuPipeline,
@@ -60,6 +61,7 @@ import { type Check, frames, register, type Scenario } from "../gym";
 
 const [SLOPE_CONFIG] = SLOPE_CASCADE_CONFIGS;
 const N = SLOPE_CONFIG.N;
+const DECLARED_TIME = 1 / 30;
 
 /** IEEE754 single-precision unit roundoff — Higham's own `u` (2^-24, matching the theorem's own
  *  convention for f32, `slope-seam.ts`'s `higham242RelativeBound`). */
@@ -404,6 +406,51 @@ async function runChecks(state: State): Promise<Check[]> {
         });
     }
 
+    state.resume();
+    state.step(DECLARED_TIME);
+    state.pause();
+    checks.push({
+        name: "level-0 phase reading is taken at the declared nonzero time",
+        pass: state.time.elapsed === DECLARED_TIME,
+        detail: `state.time.elapsed=${state.time.elapsed}, declared=${DECLARED_TIME}`,
+    });
+    if (state.time.elapsed !== DECLARED_TIME) return checks;
+
+    const phaseTrig = await measureSlopePhaseTrigError(SLOPE_CONFIG, DECLARED_TIME);
+    checks.push({
+        name: "phase trig error is measured over every level-0 kernel argument",
+        pass: phaseTrig.arguments === N * N,
+        detail:
+            `arguments=${phaseTrig.arguments}/${N * N}, maxCos=${phaseTrig.maxCosError.toExponential(4)}, ` +
+            `maxSin=${phaseTrig.maxSinError.toExponential(4)}, max=${phaseTrig.maxError.toExponential(4)}, ` +
+            `rms=${phaseTrig.rmsError.toExponential(4)}`,
+    });
+
+    const timedCpu = runSlopeCpuPipeline(h0, SLOPE_CONFIG, DECLARED_TIME);
+    const timedX64 = ifft2Exact(timedCpu.x, N);
+    const timedZ64 = ifft2Exact(timedCpu.z, N);
+    const timedNormX = complexL2Norm(timedX64.re, timedX64.im);
+    const timedNormZ = complexL2Norm(timedZ64.re, timedZ64.im);
+    const timedMu = Math.max(twiddle.muMax, phaseTrig.maxError);
+    const timedE0X = higham242AbsoluteBound(timedMu, F32_UNIT_ROUNDOFF, FFT_STAGES, timedNormX);
+    const timedE0Z = higham242AbsoluteBound(timedMu, F32_UNIT_ROUNDOFF, FFT_STAGES, timedNormZ);
+    const [timedXProbe, timedZProbe] = await Promise.all([
+        probeBuffer(Compute.device, buffers.x),
+        probeBuffer(Compute.device, buffers.z),
+    ]);
+    const timedDevX = complexDeviation(timedXProbe.bytes, timedX64.re, timedX64.im);
+    const timedDevZ = complexDeviation(timedZProbe.bytes, timedZ64.re, timedZ64.im);
+    checks.push({
+        name: "declared-time level-0 computation claim holds on slopeX",
+        pass: timedDevX.l2 <= timedE0X,
+        detail: `deviation(L2)=${timedDevX.l2.toExponential(4)}, E0=${timedE0X.toExponential(4)}, mu=${timedMu.toExponential(4)}`,
+    });
+    checks.push({
+        name: "declared-time level-0 computation claim holds on slopeZ",
+        pass: timedDevZ.l2 <= timedE0Z,
+        detail: `deviation(L2)=${timedDevZ.l2.toExponential(4)}, E0=${timedE0Z.toExponential(4)}, mu=${timedMu.toExponential(4)}`,
+    });
+
     return checks;
 }
 
@@ -415,7 +462,13 @@ const scenario: Scenario = {
     async build(_canvas) {
         const { state, dispose } = await run({
             defaults: false,
-            plugins: [ProfilePlugin, SlabPlugin, TransformsPlugin, RenderPlugin, OceanPlugin],
+            plugins: [
+                ProfilePlugin,
+                SlabPlugin,
+                TransformsPlugin,
+                RenderPlugin,
+                { ...OceanPlugin, dependencies: [] },
+            ],
         });
         // Pin `elapsed` at 0 before the auto frame loop's first `requestAnimationFrame` can fire.
         state.pause();

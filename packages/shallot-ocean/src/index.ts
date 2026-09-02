@@ -84,6 +84,8 @@ export {
     composedSlopePsd,
     getSlopeBuffers,
     getSlopeTexture,
+    measureSlopePhaseTrigError,
+    type PhaseTrigErrorReading,
     rasterSlopeMoment,
     realizedSlopeMss,
     reduceSlopeMip,
@@ -92,6 +94,8 @@ export {
     SLOPE_MIP_LEVELS,
     slopeCompute,
     slopeMipSize,
+    slopeOmega,
+    slopePhaseTrig,
     slopeSpectra,
 } from "./slope";
 export {

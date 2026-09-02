@@ -4,7 +4,7 @@
 // radix-2 FFT used by the displacement cascades. Each output texture owns every mip level so a
 // shading can select measured residual variance from hardware sample-coordinate gradients.
 
-import { Compute, type System } from "@dylanebert/shallot";
+import { Compute, probeBuffer, type System } from "@dylanebert/shallot";
 import { BeginFrameSystem, Render } from "@dylanebert/shallot/render/core";
 import { PrepassSystem } from "@dylanebert/shallot/sear/core";
 import { idiv } from "@dylanebert/shallot/utils/core";
@@ -75,6 +75,28 @@ export function slopeMipSize(config: CascadeConfig, level: number): number {
 }
 
 const PI = Math.PI;
+
+/** Production slope-kernel dispersion frequency for one discrete mode. */
+export const slopeOmega = tgpu.fn(
+    [d.u32, d.u32, d.u32, d.f32],
+    d.f32,
+)((x, y, N, L) => {
+    "use gpu";
+    const dk = (d.f32(2) * PI) / L;
+    const kx = std.select(d.f32(x) - d.f32(N), d.f32(x), d.f32(x) <= d.f32(N) / d.f32(2)) * dk;
+    const kz = std.select(d.f32(y) - d.f32(N), d.f32(y), d.f32(y) <= d.f32(N) / d.f32(2)) * dk;
+    return std.sqrt(d.f32(G) * std.max(std.sqrt(kx * kx + kz * kz), d.f32(1e-6)));
+});
+
+/** Production slope-kernel phase trig at one frequency and declared elapsed time. */
+export const slopePhaseTrig = tgpu.fn(
+    [d.f32, d.f32],
+    d.vec4f,
+)((omega, time) => {
+    "use gpu";
+    const phase = omega * time;
+    return d.vec4f(std.cos(phase), std.sin(phase), std.cos(-phase), std.sin(-phase));
+});
 
 /** Deliberately omit the gradient-k factor from the slope spectra (`slopeSpectra`, the only
  *  function that reads `missingGradientK`). `SlopeMutation` also types `runSlopeCpuPipeline`'s own
@@ -290,19 +312,14 @@ const slopeKernel = tgpu
         const dk = (d.f32(2) * PI) / slopeLayout.$.params.L;
         const kx = std.select(d.f32(x) - d.f32(N), d.f32(x), d.f32(x) <= d.f32(N) / d.f32(2)) * dk;
         const kz = std.select(d.f32(y) - d.f32(N), d.f32(y), d.f32(y) <= d.f32(N) / d.f32(2)) * dk;
-        const omega = std.sqrt(d.f32(G) * std.max(std.sqrt(kx * kx + kz * kz), d.f32(1e-6)));
+        const omega = slopeOmega(x, y, N, slopeLayout.$.params.L);
         const negX = (N - x) % N;
         const negY = (N - y) % N;
         const h0 = slopeLayout.$.h0[idx];
         const hn = slopeLayout.$.h0[negY * N + negX];
-        const c = d.vec2f(
-            std.cos(omega * slopeLayout.$.params.time),
-            std.sin(omega * slopeLayout.$.params.time),
-        );
-        const cm = d.vec2f(
-            std.cos(-omega * slopeLayout.$.params.time),
-            std.sin(-omega * slopeLayout.$.params.time),
-        );
+        const phaseTrig = slopePhaseTrig(omega, slopeLayout.$.params.time);
+        const c = d.vec2f(phaseTrig.x, phaseTrig.y);
+        const cm = d.vec2f(phaseTrig.z, phaseTrig.w);
         const nr = d.vec2f(hn.x, -hn.y);
         const h = d.vec2f(
             h0.x * c.x - h0.y * c.y + nr.x * cm.x - nr.y * cm.y,
@@ -312,6 +329,105 @@ const slopeKernel = tgpu
         slopeLayout.$.z[idx] = d.vec2f(-kz * h.y, kz * h.x);
     })
     .$name("ocean-slope-spectrum");
+
+const phaseProbeLayout = tgpu.bindGroupLayout({
+    output: { storage: d.arrayOf(d.vec4f), access: "mutable" },
+    params: { uniform: slopeParams },
+});
+
+const phaseProbeKernel = tgpu
+    .computeFn({ workgroupSize: [64], in: { gid: d.builtin.globalInvocationId } })((input) => {
+        "use gpu";
+        const idx = input.gid.x;
+        const N = phaseProbeLayout.$.params.n;
+        if (idx >= N * N) return;
+        const x = idx % N;
+        const y = idiv(idx, N);
+        const omega = slopeOmega(x, y, N, phaseProbeLayout.$.params.L);
+        phaseProbeLayout.$.output[idx] = slopePhaseTrig(omega, phaseProbeLayout.$.params.time);
+    })
+    .$name("ocean-slope-phase-probe");
+
+export interface PhaseTrigErrorReading {
+    /** Number of production mode arguments evaluated exhaustively. */
+    arguments: number;
+    maxCosError: number;
+    maxSinError: number;
+    maxError: number;
+    rmsError: number;
+}
+
+/** Exhaustively measure device phase-trig error over every mode argument the slope kernel evaluates. */
+export async function measureSlopePhaseTrigError(
+    config: CascadeConfig,
+    time: number,
+): Promise<PhaseTrigErrorReading> {
+    if (!Number.isFinite(time) || time === 0)
+        throw new RangeError("phase reading time must be finite and nonzero");
+    const { device, root } = Compute;
+    const count = config.N * config.N;
+    const output = device.createBuffer({
+        label: "ocean-slope-phase-out",
+        size: count * 16,
+        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
+    });
+    const params = device.createBuffer({
+        label: "ocean-slope-phase-params",
+        size: d.sizeOf(slopeParams),
+        usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
+    });
+    const bytes = new ArrayBuffer(d.sizeOf(slopeParams));
+    new Uint32Array(bytes)[0] = config.N;
+    const f32 = new Float32Array(bytes);
+    f32[1] = config.L;
+    f32[2] = time;
+    device.queue.writeBuffer(params, 0, bytes);
+    const pipeline = root.createComputePipeline({ compute: phaseProbeKernel });
+    const group = root.createBindGroup(phaseProbeLayout, {
+        output: root.createBuffer(d.arrayOf(d.vec4f, count), output).$usage("storage"),
+        params: root.createBuffer(slopeParams, params).$usage("uniform"),
+    });
+    const probe = await probeBuffer(device, output, {
+        label: "ocean-slope-phase-probe",
+        encode: (encoder) => {
+            const pass = encoder.beginComputePass({ label: "ocean-slope-phase-probe" });
+            pipeline
+                .with(group)
+                .with(pass)
+                .dispatchWorkgroups(Math.ceil(count / 64));
+            pass.end();
+        },
+    });
+    const actual = new Float32Array(probe.bytes);
+    let maxCosError = 0;
+    let maxSinError = 0;
+    let sumSquares = 0;
+    for (let idx = 0; idx < count; idx++) {
+        const x = idx % config.N;
+        const y = Math.floor(idx / config.N);
+        const dk = (2 * Math.PI) / config.L;
+        const kx = (x <= config.N / 2 ? x : x - config.N) * dk;
+        const kz = (y <= config.N / 2 ? y : y - config.N) * dk;
+        const omega = Math.sqrt(G * Math.max(Math.hypot(kx, kz), 1e-6));
+        const phase = omega * time;
+        const expected = [Math.cos(phase), Math.sin(phase), Math.cos(-phase), Math.sin(-phase)];
+        for (let lane = 0; lane < 4; lane++) {
+            const error = Math.abs(actual[idx * 4 + lane] - expected[lane]);
+            if (lane % 2 === 0) maxCosError = Math.max(maxCosError, error);
+            else maxSinError = Math.max(maxSinError, error);
+            sumSquares += error * error;
+        }
+    }
+    output.destroy();
+    params.destroy();
+    return {
+        arguments: count,
+        maxCosError,
+        maxSinError,
+        maxError: Math.max(maxCosError, maxSinError),
+        rmsError: Math.sqrt(sumSquares / (count * 4)),
+    };
+}
 
 const slopePostKernel = tgpu
     .computeFn({ workgroupSize: [8, 8], in: { gid: d.builtin.globalInvocationId } })((input) => {
