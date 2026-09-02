@@ -35,7 +35,7 @@ profile and drag-coefficient relation.
 
 ## Reproducing the source anchors
 
-Run `bun test ./packages/shallot-ocean/tests/elfouhaily-independent.test.ts` from the Shallot root.
+Run `bun test ./examples/showcase/ocean/test/elfouhaily-independent.test.ts` from the Shallot root.
 That test derives, without production imports, the paper's `km = √(ρg/τ)` (about 368.6 rad/m),
 `cm = √(2g/km)` (about 0.23 m/s), `Lpm(kp) = exp(−1.25)`, `Jp(kp) = γ = 1.7` at `Ωc = 0.9`, angular
 normalization to one, both `αm` regimes, and the full-tail slope moments at four winds. These

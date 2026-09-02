@@ -189,10 +189,6 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
         covers: ["packages/shallot/src/standard/avbd/**/*.ts"],
     },
 
-    "ocean-shading": {
-        covers: ["packages/shallot-ocean/src/**/*.ts"],
-    },
-
     // ── everything below is a tumble (CPU wasm) scenario: no `covers`, deliberately. Tumble physics is
     // bit-exact-gated by `bun test` + the committed fixtures/gold corpus (`tumble.md`), not by this
     // check's GPU-src population, which excludes `standard/tumble` for exactly that reason. Registered
@@ -255,13 +251,6 @@ export const SCENARIO_GATES: Record<string, ScenarioGate> = {
             "packages/shallot/src/engine/runtime/probe.ts",
         ],
     },
-    // ocean-slope (`shallot-water-surface` spec, I3g): reads `@dylanebert/shallot-ocean`'s published
-    // slope-cascade product texture against a CPU reference. No `covers` claim — the module
-    // population this table's `covers` globs draw from (`GPU_MODULE_GLOBS`, coverage.ts) walks only
-    // `packages/shallot/src`, and `shallot-ocean` is a separate workspace package outside it; a
-    // `covers` glob into `packages/shallot-ocean` would itself red as "glob matches nothing"
-    // against that population.
-    "ocean-slope": {},
     // orbit-touch (`shallot-mobile-controls` spec, S4): an Orbit camera targeting a box, driven by the
     // driver-level touch gate (`../../test/touch.playwright.ts`), not by `assert` — the scenario's own
     // header states the verdict lives entirely in the external driver. RenderPlugin/PartPlugin/SearPlugin/

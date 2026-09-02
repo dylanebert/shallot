@@ -1,1 +1,1 @@
-export { OceanPlugin as default } from "@dylanebert/shallot-ocean";
+export { OceanPlugin as default } from "./ocean/index";

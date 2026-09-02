@@ -5,7 +5,7 @@
 // IS a rounding of the f32 value it came from), so the claim is DISCRETE — no tolerance belongs
 // there at all — and the one place a real numeric tolerance is warranted is one layer up, at the
 // FFT's own floating-point arithmetic. Two independent claims, never one number standing in for
-// both (`packages/shallot-ocean/src/slope-seam.ts` owns the math for both):
+// both (`examples/showcase/ocean/src/ocean/slope-seam.ts` owns the math for both):
 //
 //  - STORAGE SEAM (every level, every channel, every texel — no tolerance): the published
 //    rgba16float texel is one of the f16-representable values immediately bracketing the f32
@@ -25,19 +25,7 @@
 // `bun bench` itself already skips loudly (`scripts/bench.ts`'s `skipReason()`) when the seat has
 // no real GPU adapter, before any scenario boots — this file adds no second adapter check.
 
-import {
-    Compute,
-    PartPlugin,
-    probeBuffer,
-    probeTexture,
-    RenderPlugin,
-    run,
-    SearPlugin,
-    SlabPlugin,
-    type State,
-    TransformsPlugin,
-} from "@dylanebert/shallot";
-import { ProfilePlugin } from "@dylanebert/shallot/extras";
+import { Compute, probeBuffer, probeTexture, type State } from "@dylanebert/shallot";
 import {
     CHANNELS,
     type Channel,
@@ -58,8 +46,19 @@ import {
     SLOPE_MIP_LEVELS,
     slopeCompute,
     slopeMipSize,
-} from "@dylanebert/shallot-ocean";
-import { type Check, frames, register, type Scenario } from "../gym";
+} from "../ocean/index";
+
+interface Check {
+    name: string;
+    pass: boolean;
+    detail?: string;
+}
+
+async function frames(count: number): Promise<void> {
+    for (let i = 0; i < count; i++) {
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+}
 
 const [SLOPE_CONFIG] = SLOPE_CASCADE_CONFIGS;
 const N = SLOPE_CONFIG.N;
@@ -543,36 +542,7 @@ async function runChecks(state: State): Promise<Check[]> {
     return checks;
 }
 
-let checks: Check[] = [];
-
-const scenario: Scenario = {
-    name: "ocean-slope",
-    noRender: true,
-    async build(_canvas) {
-        const { state, dispose } = await run({
-            defaults: false,
-            plugins: [
-                ProfilePlugin,
-                SlabPlugin,
-                TransformsPlugin,
-                PartPlugin,
-                RenderPlugin,
-                SearPlugin,
-                OceanPlugin,
-            ],
-        });
-        // Pin `elapsed` at 0 before the auto frame loop's first `requestAnimationFrame` can fire.
-        state.pause();
-        try {
-            checks = await runChecks(state);
-        } catch (err) {
-            checks = [{ name: "ocean-slope runChecks threw", pass: false, detail: String(err) }];
-        }
-        return { state, dispose };
-    },
-    async assert() {
-        return checks;
-    },
-};
-
-register(scenario);
+export async function runDeviceClaim(state: State): Promise<Check[]> {
+    state.pause();
+    return runChecks(state);
+}

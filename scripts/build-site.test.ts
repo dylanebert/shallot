@@ -45,7 +45,7 @@ test("build-site — discovers workspace extensions and rewrites them in both en
     const authored = {
         dependencies: {
             "@dylanebert/shallot": "workspace:*",
-            "@dylanebert/shallot-ocean": "workspace:*",
+            "@dylanebert/shallot-wave": "workspace:*",
             "@dylanebert/shallot-fixed": "1.2.3",
             typegpu: "~0.12.4",
         },
@@ -53,19 +53,19 @@ test("build-site — discovers workspace extensions and rewrites them in both en
     expect(shallotDependencies(authored)).toEqual([
         ["@dylanebert/shallot", "workspace:*"],
         ["@dylanebert/shallot-fixed", "1.2.3"],
-        ["@dylanebert/shallot-ocean", "workspace:*"],
+        ["@dylanebert/shallot-wave", "workspace:*"],
     ]);
-    expect(workspaceExtensionDependencies(authored)).toEqual(["@dylanebert/shallot-ocean"]);
+    expect(workspaceExtensionDependencies(authored)).toEqual(["@dylanebert/shallot-wave"]);
 
     for (const enginePin of ["0.8.0", "file:/tmp/shallot.tgz"]) {
         const pkg = structuredClone(authored);
         rewriteSiteDependencies(
             pkg,
             enginePin,
-            new Map([["@dylanebert/shallot-ocean", "file:/tmp/ocean.tgz"]]),
+            new Map([["@dylanebert/shallot-wave", "file:/tmp/wave.tgz"]]),
         );
         expect(pkg.dependencies["@dylanebert/shallot"]).toBe(enginePin);
-        expect(pkg.dependencies["@dylanebert/shallot-ocean"]).toBe("file:/tmp/ocean.tgz");
+        expect(pkg.dependencies["@dylanebert/shallot-wave"]).toBe("file:/tmp/wave.tgz");
         expect(pkg.dependencies["@dylanebert/shallot-fixed"]).toBe("1.2.3");
     }
 });
@@ -73,7 +73,7 @@ test("build-site — discovers workspace extensions and rewrites them in both en
 test("build-site — refuses to leave a discovered workspace extension unpinned", () => {
     expect(() =>
         rewriteSiteDependencies(
-            { dependencies: { "@dylanebert/shallot-ocean": "workspace:*" } },
+            { dependencies: { "@dylanebert/shallot-wave": "workspace:*" } },
             "0.8.0",
             new Map(),
         ),

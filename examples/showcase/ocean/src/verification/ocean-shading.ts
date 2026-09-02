@@ -1,25 +1,16 @@
-import {
-    Compute,
-    PartPlugin,
-    probeBuffer,
-    RenderPlugin,
-    run,
-    SearPlugin,
-    SlabPlugin,
-    TransformsPlugin,
-} from "@dylanebert/shallot";
-import { Profile, ProfilePlugin } from "@dylanebert/shallot/extras";
+import { Compute, probeBuffer, type State } from "@dylanebert/shallot";
+import { Profile } from "@dylanebert/shallot/extras";
 import { Xform } from "@dylanebert/shallot/utils/core";
-import {
-    OceanPlugin,
-    oceanEstimateDisplacement,
-    oceanFragmentNormal,
-    oceanSurfaceLayout,
-} from "@dylanebert/shallot-ocean";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
 import * as std from "typegpu/std";
-import { type Check, register, type Scenario } from "../gym";
+import { oceanEstimateDisplacement, oceanFragmentNormal, oceanSurfaceLayout } from "../ocean/index";
+
+interface Check {
+    name: string;
+    pass: boolean;
+    detail?: string;
+}
 
 const ProbeParams = d
     .struct({ world: d.vec2f, slopeTexel: d.vec2i })
@@ -174,57 +165,34 @@ async function dispatch(zeroed: boolean): Promise<Float32Array> {
 
 const F32_U = 2 ** -24;
 const ESTIMATOR_OPS = 640;
-let checks: Check[] = [];
-
-const scenario: Scenario = {
-    name: "ocean-shading",
-    noRender: true,
-    async build() {
-        const built = await run({
-            defaults: false,
-            plugins: [
-                ProfilePlugin,
-                SlabPlugin,
-                TransformsPlugin,
-                RenderPlugin,
-                PartPlugin,
-                SearPlugin,
-                OceanPlugin,
-            ],
-        });
-        built.state.pause();
-        const reference = expected(false);
-        const actual = await dispatch(false);
-        const zero = await dispatch(true);
-        const max = Math.max(...reference.map((value, i) => Math.abs(value - actual[i])));
-        const gamma = (ESTIMATOR_OPS * F32_U) / (1 - ESTIMATOR_OPS * F32_U);
-        const bound = gamma * Math.max(1, ...reference.map(Math.abs));
-        const witness = Math.max(...reference.map((value, i) => Math.abs(value - zero[i])));
-        const compiled = [...Profile.compiledPipelines].some((label) => label.includes("ocean"));
-        const published = ["displace0", "displace1", "slope0"].every((name) =>
-            Compute.textures.has(name),
-        );
-        checks = [
-            {
-                name: "registered ocean surface compiled and bound against published textures",
-                pass: compiled && published,
-                detail: `compiled=${compiled} published=${published}`,
-            },
-            {
-                name: "device shipped estimator agrees with position-encoded closed form",
-                pass: max <= bound,
-                detail: `max=${max} bound=${bound} u=${F32_U} ops=${ESTIMATOR_OPS}`,
-            },
-            {
-                name: "zeroed texture payload reds the same estimator comparison",
-                pass: witness > bound,
-                detail: `zeroedDeviation=${witness} sharedBound=${bound}`,
-            },
-        ];
-        return built;
-    },
-    async assert() {
-        return checks;
-    },
-};
-register(scenario);
+export async function runDeviceClaim(state: State): Promise<Check[]> {
+    state.pause();
+    const reference = expected(false);
+    const actual = await dispatch(false);
+    const zero = await dispatch(true);
+    const max = Math.max(...reference.map((value, i) => Math.abs(value - actual[i])));
+    const gamma = (ESTIMATOR_OPS * F32_U) / (1 - ESTIMATOR_OPS * F32_U);
+    const bound = gamma * Math.max(1, ...reference.map(Math.abs));
+    const witness = Math.max(...reference.map((value, i) => Math.abs(value - zero[i])));
+    const compiled = [...Profile.compiledPipelines].some((label) => label.includes("ocean"));
+    const published = ["displace0", "displace1", "slope0"].every((name) =>
+        Compute.textures.has(name),
+    );
+    return [
+        {
+            name: "registered ocean surface compiled and bound against published textures",
+            pass: compiled && published,
+            detail: `compiled=${compiled} published=${published}`,
+        },
+        {
+            name: "device shipped estimator agrees with position-encoded closed form",
+            pass: max <= bound,
+            detail: `max=${max} bound=${bound} u=${F32_U} ops=${ESTIMATOR_OPS}`,
+        },
+        {
+            name: "zeroed texture payload reds the same estimator comparison",
+            pass: witness > bound,
+            detail: `zeroedDeviation=${witness} sharedBound=${bound}`,
+        },
+    ];
+}

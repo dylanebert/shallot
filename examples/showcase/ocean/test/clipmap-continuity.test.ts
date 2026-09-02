@@ -17,8 +17,8 @@ import {
     finestCascadeTexel,
     OCEAN_CLIP_CONFIG,
     OCEAN_CLIP_LEVELS,
-} from "../src/clipmap";
-import { CASCADE_CONFIGS } from "../src/spectrum";
+} from "../src/ocean/clipmap";
+import { CASCADE_CONFIGS } from "../src/ocean/spectrum";
 
 describe("checkContinuity on the shipped clipmap config", () => {
     test("every finding holds for OCEAN_CLIP_LEVELS against CASCADE_CONFIGS", () => {

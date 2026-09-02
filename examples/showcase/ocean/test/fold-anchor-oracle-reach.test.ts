@@ -5,14 +5,14 @@ import { fileURLToPath } from "node:url";
 // sentinel spawns — one string, so an edit to either side can't drift from the other (pattern:
 // `slope-oracle-reach.test.ts`).
 const ROOT_ORACLE_COMMAND =
-    "FOLD_ENSEMBLE_MODE=full bun test ./packages/shallot-ocean/tests/fold-anchor.oracle.ts";
+    "FOLD_ENSEMBLE_MODE=full bun test ./examples/showcase/ocean/test/fold-anchor.oracle.ts";
 const REDUCED_ORACLE_COMMAND =
-    "env FOLD_ENSEMBLE_MODE=reduced bun test ./packages/shallot-ocean/tests/fold-anchor.oracle.ts";
+    "env FOLD_ENSEMBLE_MODE=reduced bun test ./examples/showcase/ocean/test/fold-anchor.oracle.ts";
 
-const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
 test("the choppiness fold-anchor oracle remains reachable through the root script", async () => {
-    const packageJson = await Bun.file(new URL("../../../package.json", import.meta.url)).json();
+    const packageJson = await Bun.file(new URL("../../../../package.json", import.meta.url)).json();
     expect(packageJson.scripts["test:ocean-fold"]).toBe(ROOT_ORACLE_COMMAND);
     expect(await Bun.file(new URL("./fold-anchor.oracle.ts", import.meta.url)).exists()).toBe(true);
 });

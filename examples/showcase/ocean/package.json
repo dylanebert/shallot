@@ -3,10 +3,11 @@
     "version": "0.0.0",
     "private": true,
     "type": "module",
-    "scripts": { "gate": "bunx shallot verify . --screenshot ocean.png" },
+    "scripts": {
+        "gate": "bunx shallot verify . --screenshot ocean.png"
+    },
     "dependencies": {
         "@dylanebert/shallot": "workspace:*",
-        "@dylanebert/shallot-ocean": "workspace:*",
         "typegpu": "~0.12.4"
     }
 }

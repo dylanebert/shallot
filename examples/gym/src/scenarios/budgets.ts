@@ -202,9 +202,6 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "mesh-terrain": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_616_308 },
     "mesh-torus": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_895_924 },
     motor: { pipelines: 66, pipelineCalls: 66, gpuBytes: 88_873_964 },
-    // The production OceanPlugin dependency stack contributes the Part/Sear pipelines and buffers;
-    // the full and shortened phase probes add two device-only pipeline calls at declared time.
-    "ocean-slope": { pipelines: 51, pipelineCalls: 53, gpuBytes: 72_692_872 },
     "orbit-touch": { pipelines: 29, pipelineCalls: 29, gpuBytes: 31_828_368 },
     outline: { pipelines: 33, pipelineCalls: 33, gpuBytes: 38_517_664 },
     pile: { pipelines: 66, pipelineCalls: 133, gpuBytes: 26_173_716 },

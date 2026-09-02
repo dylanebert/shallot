@@ -4,12 +4,12 @@ import { fileURLToPath } from "node:url";
 // The by-path oracle command, both the documented root-package script and the exact command this
 // sentinel spawns — one string, so an edit to either side can't drift from the other.
 const ROOT_ORACLE_COMMAND =
-    "bun test ./packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts";
+    "bun test ./examples/showcase/ocean/test/mesh-inversion-sweep.oracle.ts";
 
-const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL("../../../..", import.meta.url));
 
 test("the mesh-inversion-sweep oracle file remains reachable through the root script", async () => {
-    const packageJson = await Bun.file(new URL("../../../package.json", import.meta.url)).json();
+    const packageJson = await Bun.file(new URL("../../../../package.json", import.meta.url)).json();
     expect(packageJson.scripts["test:ocean-mesh-inversion"]).toBe(ROOT_ORACLE_COMMAND);
     expect(
         await Bun.file(new URL("./mesh-inversion-sweep.oracle.ts", import.meta.url)).exists(),

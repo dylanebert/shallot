@@ -32,7 +32,7 @@ export const SLOPE_MIP_LEVELS = Math.floor(Math.log2(SLOPE_CASCADE_CONFIGS[0].N)
 /** Checks the slope-only resource contract before GPU state is allocated. */
 export function assertSlopeOnly(config: CascadeConfig): void {
     if (config.lambda !== 0) {
-        throw new Error("shallot-ocean: slope cascade must not couple to displacement");
+        throw new Error("ocean: slope cascade must not couple to displacement");
     }
 }
 

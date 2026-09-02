@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { runCpuPipeline } from "../src/cpu-reference";
-import { ifft2 } from "../src/fft";
+import { runCpuPipeline } from "../src/ocean/cpu-reference";
+import { ifft2 } from "../src/ocean/fft";
 import {
     assertSlopeOnly,
     composedSlopePsd,
@@ -13,8 +13,8 @@ import {
     slopeMomentAgreementTolerance,
     slopeMomentSamplingError,
     slopeSpectra,
-} from "../src/slope";
-import { CASCADE_CONFIGS, generateH0, kIndex } from "../src/spectrum";
+} from "../src/ocean/slope";
+import { CASCADE_CONFIGS, generateH0, kIndex } from "../src/ocean/spectrum";
 
 const [config] = SLOPE_CASCADE_CONFIGS;
 
@@ -142,7 +142,7 @@ describe("capillary slope cascade", () => {
     });
 
     test("production slope state enumerates only slope resources", async () => {
-        const source = await Bun.file(new URL("../src/slope.ts", import.meta.url)).text();
+        const source = await Bun.file(new URL("../src/ocean/slope.ts", import.meta.url)).text();
         const state = source.match(/interface SlopeState \{([\s\S]*?)\n\}/)?.[1] ?? "";
         const fields = [...state.matchAll(/^ {4}(\w+):/gm)].map((match) => match[1]);
         expect(fields).toEqual([

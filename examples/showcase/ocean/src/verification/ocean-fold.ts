@@ -1,7 +1,7 @@
 // ocean-fold — I2r-b's GPU composed-field fold arm: the CPU-only fold-anchor oracle
-// (`packages/shallot-ocean/tests/fold-anchor.oracle.ts`) solves λ against the whitecap anchor
+// (`examples/showcase/ocean/test/fold-anchor.oracle.ts`) solves λ against the whitecap anchor
 // entirely on the CPU reference pipeline. This scenario is the one place that quantity is read off
-// the device the render loop actually runs on — `measureFoldFraction` (`@dylanebert/shallot-ocean`)
+// the device the render loop actually runs on — `measureFoldFraction` (`the showcase-local ocean`)
 // runs the ACTUAL production compute pipeline (`createCascadeState` + `encodeCascadePasses`, the
 // same functions the per-frame render loop uses) at an arbitrary one-off config and time, off the
 // persistent `cascades[]` array, and reads back the per-texel `ProbeData.negDetCount`/`totalCount`
@@ -15,7 +15,7 @@
 //       below, comparing each cascade's own closed-form det-J texel count between the two pipelines.
 //       This is the arm that actually gates CPU/GPU agreement in this file.
 //   (2) COMPOSED statistic (world-grid-superposed, CPU-only) — `composeWorldGrid`/`foldFractionAt`
-//       (`@dylanebert/shallot-ocean`, the exact functions `fold-anchor.oracle.ts` solves λ with),
+//       (`the showcase-local ocean`, the exact functions `fold-anchor.oracle.ts` solves λ with),
 //       read and printed at the same >= 8 phases, never compared to a GPU reading since none exists
 //       to compare it to. This is the statistic `fold-anchor.oracle.ts` actually gates λ against;
 //       this scenario reads it here only to confirm it stays reachable off the device-agnostic CPU
@@ -30,8 +30,7 @@
 //
 // `bun bench` itself already skips loudly (`scripts/bench.ts`'s `skipReason()`) when the seat has no
 // real GPU adapter, before any scenario boots — this file adds no second adapter check.
-import { RenderPlugin, run, SlabPlugin, type State, TransformsPlugin } from "@dylanebert/shallot";
-import { ProfilePlugin } from "@dylanebert/shallot/extras";
+import type { State } from "@dylanebert/shallot";
 import {
     CASCADE_CONFIGS,
     type CascadeGradientField,
@@ -39,12 +38,16 @@ import {
     foldFractionAt,
     generateH0,
     measureFoldFraction,
-    OceanPlugin,
     realPart,
     runCpuPipeline,
     worldGridSpec,
-} from "@dylanebert/shallot-ocean";
-import { type Check, register, type Scenario } from "../gym";
+} from "../ocean/index";
+
+interface Check {
+    name: string;
+    pass: boolean;
+    detail?: string;
+}
 
 const [CFG0, CFG1] = CASCADE_CONFIGS;
 const TOTAL_TEXELS = CFG0.N * CFG0.N + CFG1.N * CFG1.N;
@@ -184,27 +187,7 @@ async function runChecks(_state: State): Promise<Check[]> {
     return checks;
 }
 
-let checks: Check[] = [];
-
-const scenario: Scenario = {
-    name: "ocean-fold",
-    noRender: true,
-    async build(_canvas) {
-        const { state, dispose } = await run({
-            defaults: false,
-            plugins: [ProfilePlugin, SlabPlugin, TransformsPlugin, RenderPlugin, OceanPlugin],
-        });
-        state.pause();
-        try {
-            checks = await runChecks(state);
-        } catch (err) {
-            checks = [{ name: "ocean-fold runChecks threw", pass: false, detail: String(err) }];
-        }
-        return { state, dispose };
-    },
-    async assert() {
-        return checks;
-    },
-};
-
-register(scenario);
+export async function runDeviceClaim(state: State): Promise<Check[]> {
+    state.pause();
+    return runChecks(state);
+}

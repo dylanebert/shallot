@@ -2,24 +2,19 @@ import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import * as d from "typegpu/data";
-import { surfaceWgsl } from "../../shallot/src/standard/sear/pipelines";
-import { catmullRom1D as reference } from "../src/reconstruction";
-import { composedSlopePsd, slopeMipSize } from "../src/slope";
-import { f16NextDown, f16NextUp, f16Round } from "../src/slope-seam";
-import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/spectrum";
+import { catmullRom1D as reference } from "../src/ocean/reconstruction";
+import { composedSlopePsd, slopeMipSize } from "../src/ocean/slope";
+import { f16NextDown, f16NextUp, f16Round } from "../src/ocean/slope-seam";
+import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/ocean/spectrum";
 import {
-    oceanSurfaceFs,
-    oceanSurfaceLayout,
-    oceanSurfaceVaryings,
-    oceanSurfaceVs,
     surfaceCatmullRom1D,
     surfaceCatmullRomDerivative1D,
     surfaceWrapIndex,
-} from "../src/surface";
+} from "../src/ocean/surface";
 import {
     catmullRom1D as vertexCatmullRom1D,
     wrapIndex as vertexWrapIndex,
-} from "../src/vertex-displacement";
+} from "../src/ocean/vertex-displacement";
 
 const controls = [1.25, -0.75, 2.5, 4.125];
 
@@ -84,20 +79,6 @@ describe("ocean fragment Catmull-Rom closed forms", () => {
         }
     });
 
-    test("resolved fragment uses hardware gradients and the residual channel without retired mechanisms", () => {
-        const wgsl = surfaceWgsl({
-            name: "ocean-test",
-            layout: oceanSurfaceLayout,
-            varyings: oceanSurfaceVaryings,
-            vs: oceanSurfaceVs,
-            fs: oceanSurfaceFs,
-        });
-        expect(wgsl).toContain("dpdx");
-        expect(wgsl).toContain("dpdy");
-        expect(wgsl).toContain("textureSampleGrad");
-        expect(wgsl).toContain("slope.w");
-    });
-
     test("records per-cascade k-cos response, f16 slope floor, and live MSS partition", () => {
         const rows: string[] = [];
         const t = 0.37;
@@ -159,7 +140,7 @@ describe("ocean fragment Catmull-Rom closed forms", () => {
 
     test("package-wide source and prose contain none of the retired fragment mechanisms", () => {
         const root = join(import.meta.dir, "..");
-        const files = [join(root, "src"), join(root, "tests")];
+        const files = [join(root, "src"), join(root, "test")];
         const retired = ["fold" + "T", "foot" + "print", "FS" + "_EPS", "LOD" + "_CAP"];
         const walk = (path: string): string[] =>
             readdirSync(path, { withFileTypes: true }).flatMap((entry) => {

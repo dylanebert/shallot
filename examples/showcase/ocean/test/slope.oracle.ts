@@ -1,7 +1,7 @@
 // Trigger: changes to slope-cascade resolution, patch length, declared band, or seeded realization
 // can break the N-independent mode placement and represented slope moment checked here.
 import { expect, test } from "bun:test";
-import { ifft2 } from "../src/fft";
+import { ifft2 } from "../src/ocean/fft";
 import {
     composedSlopePsd,
     rasterSlopeMoment,
@@ -10,8 +10,8 @@ import {
     SLOPE_CASCADE_CONFIGS,
     slopeMomentAgreementTolerance,
     slopeSpectra,
-} from "../src/slope";
-import { generateH0, kIndex } from "../src/spectrum";
+} from "../src/ocean/slope";
+import { generateH0, kIndex } from "../src/ocean/spectrum";
 
 const [config] = SLOPE_CASCADE_CONFIGS;
 

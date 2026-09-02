@@ -21,9 +21,9 @@
 // are printed per cascade so a reader can see the effect this spec's Locked decision measures, but
 // nothing here gates on its size.
 import { describe, test } from "bun:test";
-import { runCpuPipeline } from "../src/cpu-reference";
-import { bicubicSample, type Field } from "../src/reconstruction";
-import { CASCADE_CONFIGS, generateH0 } from "../src/spectrum";
+import { runCpuPipeline } from "../src/ocean/cpu-reference";
+import { bicubicSample, type Field } from "../src/ocean/reconstruction";
+import { CASCADE_CONFIGS, generateH0 } from "../src/ocean/spectrum";
 
 const H_STEP_FRAC = 1 / 8; // central-difference step, as a fraction of one texel — matches the
 // scale a mesh's near-field ring samples the field at.

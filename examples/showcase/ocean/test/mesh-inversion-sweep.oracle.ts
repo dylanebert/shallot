@@ -90,16 +90,16 @@ import {
     finestCascadeTexel,
     OCEAN_CLIP_CONFIG,
     OCEAN_CLIP_LEVELS,
-} from "../src/clipmap";
-import { runCpuPipeline } from "../src/cpu-reference";
+} from "../src/ocean/clipmap";
+import { runCpuPipeline } from "../src/ocean/cpu-reference";
 import {
     bicubicSample,
     bilinearSample,
     type Field,
     nearestSample,
     type ReconstructionKernel,
-} from "../src/reconstruction";
-import { CASCADE_CONFIGS, generateH0 } from "../src/spectrum";
+} from "../src/ocean/reconstruction";
+import { CASCADE_CONFIGS, generateH0 } from "../src/ocean/spectrum";
 
 const T = 0; // the fold fraction is time-invariant — see this file's header.
 const VF = 8; // px py pz u | nx ny nz v — clipmap.ts's authoring layout.

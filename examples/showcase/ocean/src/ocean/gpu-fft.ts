@@ -237,7 +237,7 @@ export function getFftKernels(N: number): FftKernelSet {
 
 // ── exhaustive device twiddle-trig measurement ──────────────────────────────────────────────
 //
-// Higham's radix-2 FFT forward-error theorem (below, `packages/shallot-ocean/src/slope-seam.ts`'s
+// Higham's radix-2 FFT forward-error theorem (below, `examples/showcase/ocean/src/ocean/slope-seam.ts`'s
 // `higham242Bound`) bounds the FFT's OWN floating-point rounding error under unit roundoff `u`,
 // but says nothing about how far a real device's `cos`/`sin` intrinsics land from the
 // mathematically exact value — WGSL leaves transcendental built-ins to an accuracy CLASS, not an

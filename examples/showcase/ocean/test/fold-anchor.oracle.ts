@@ -55,9 +55,9 @@ import {
     foldFractionAt,
     realPart,
     worldGridSpec,
-} from "../src/composed-fold";
-import { chop, idft2, spectralGradient, updateH } from "../src/cpu-reference";
-import { bicubicSample } from "../src/reconstruction";
+} from "../src/ocean/composed-fold";
+import { chop, idft2, spectralGradient, updateH } from "../src/ocean/cpu-reference";
+import { bicubicSample } from "../src/ocean/reconstruction";
 import {
     CASCADE_CONFIGS,
     type CascadeConfig,
@@ -67,7 +67,7 @@ import {
     LAMBDA,
     SEA_STATE,
     whitecapFraction,
-} from "../src/spectrum";
+} from "../src/ocean/spectrum";
 
 const [CFG0, CFG1] = CASCADE_CONFIGS;
 const U10 = CFG0.windSpeed;
