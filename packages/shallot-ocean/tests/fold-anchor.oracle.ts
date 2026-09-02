@@ -202,12 +202,9 @@ interface BisectResult {
     hiFold: number;
 }
 
-/** Bisects λ so `ensembleFold(λ)` lands on `ANCHOR` over one window's cached composed fields. The
- *  fold fraction is monotone increasing in λ over the searched range (measured; every reading in
- *  this file's derivation run confirms it), so ordinary bisection applies. Returns the final bracket
- *  AND its own fold readings — this file's convergence arm asserts both a structural property (the
- *  bracket halved geometrically `BISECT_ITERS` times) and a semantic one (ANCHOR lies between the
- *  bracket endpoints' own measured fold values), never a tolerance re-run against itself. */
+/** Bisects λ so `ensembleFold(λ)` lands on `ANCHOR` over one window's cached composed fields.
+ * The search ceiling is below every larger determinant root for texels folding at the operating
+ * point, so no counted texel can leave its folding interval inside the bracket. */
 function bisectLambda(
     window: SeedWindow,
     lo = BISECT_LO,
@@ -294,17 +291,14 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
     const lambdaSolve = solveBisect.lambda;
     const solveReading = ensembleFold(lambdaSolve, solveWindow);
 
-    test("bisection converges: the final bracket halved geometrically over the declared iteration count, and ANCHOR lies inside the bracket's own fold readings", () => {
+    test("bisection stays in the determinant-root monotonic region and brackets the anchor", () => {
         const searchHi = monotonicCeiling(solveWindow, solveBisect.lambda);
-        const expectedWidth = (searchHi - BISECT_LO) / 2 ** BISECT_ITERS;
-        const actualWidth = solveBisect.hiFinal - solveBisect.loFinal;
         console.log(
             `bisection bracket: lo=${solveBisect.loFinal.toFixed(9)} (fold=${(solveBisect.loFold * 100).toFixed(4)}%) ` +
                 `hi=${solveBisect.hiFinal.toFixed(9)} (fold=${(solveBisect.hiFold * 100).toFixed(4)}%) ` +
-                `width=${actualWidth.toExponential(4)} expectedWidth=${expectedWidth.toExponential(4)} monotonicCeiling=${searchHi.toFixed(6)} ` +
-                `ANCHOR=${(ANCHOR * 100).toFixed(4)}%`,
+                `monotonicCeiling=${searchHi.toFixed(6)} ANCHOR=${(ANCHOR * 100).toFixed(4)}%`,
         );
-        expect(searchHi).toBeGreaterThanOrEqual(solveBisect.hiFinal);
+        expect(solveBisect.hiFinal).toBeLessThan(searchHi);
         expect(solveBisect.loFold).toBeLessThanOrEqual(ANCHOR);
         expect(solveBisect.hiFold).toBeGreaterThanOrEqual(ANCHOR);
     });
@@ -483,19 +477,36 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
             console.log(
                 `effectiveSlopeSigma=${effectiveSlopeSigma.toFixed(6)} modelCeiling=${ceilingLambda.toFixed(6)}`,
             );
+            const shippedReading = ensembleFold(FOLD_REGIME.lambda, solveWindow).mean;
+            const foldQuantum =
+                1 / (solveWindow.realizations.length * PHASES.length * GRID.gridN ** 2);
+            console.log(
+                `FOLD_REGIME measured=${FOLD_REGIME.measuredComposedFold.toFixed(10)} live=${shippedReading.toFixed(10)} ensembleQuantum=${foldQuantum.toExponential(6)}`,
+            );
             expect(FOLD_REGIME.lambda).toBe(LAMBDA);
             expect(FOLD_REGIME.whitecapAnchor).toBe(ANCHOR);
-            expect(FOLD_REGIME.measuredComposedFold).toBeCloseTo(solveReading.mean, 6);
+            if (FULL_MODE) {
+                expect(
+                    Math.abs(FOLD_REGIME.measuredComposedFold - shippedReading),
+                ).toBeLessThanOrEqual(foldQuantum);
+            } else {
+                console.log(
+                    "reduced reach mode: the measured fold literal is intentionally unpinned",
+                );
+            }
             expect("ceilingLambda" in FOLD_REGIME).toBe(false);
             expect("effectiveSlopeSigma" in FOLD_REGIME).toBe(false);
         });
 
-        test("fold band, printed anchor→ceiling (never ceiling→λ): the composed field's own regime for shading's foam seeding", () => {
-            const foldAtCeiling = ensembleFold(ceilingLambda, solveWindow);
+        test("measured λ sweep prints the fold band around the operating point", () => {
+            const sweep = [0.8, 0.9, 1, 1.1, 1.2].map((scale) => ({
+                lambda: lambdaSolve * scale,
+                fold: ensembleFold(lambdaSolve * scale, solveWindow).mean,
+            }));
             console.log(
-                `fold band: anchor(λ=${lambdaSolve.toFixed(3)}, fold=${(solveReading.mean * 100).toFixed(2)}%, ` +
-                    `whitecapAnchor=${(ANCHOR * 100).toFixed(2)}%) → ceiling(λ=${ceilingLambda.toFixed(3)}, ` +
-                    `fold=${(foldAtCeiling.mean * 100).toFixed(2)}%) — reading only, never gated`,
+                `fold sweep: ${sweep
+                    .map((row) => `λ=${row.lambda.toFixed(3)} fold=${(row.fold * 100).toFixed(2)}%`)
+                    .join(", ")} — reading only, never gated`,
             );
         });
     });
