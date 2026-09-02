@@ -94,7 +94,11 @@
 // atoms, in-flight dogfoods — is `CLAUDE.md` Examples + `testing.md`. `ocean-slope` (`@dylanebert/shallot-ocean`'s I3g)
 // reads the published slope-cascade product texture per mip level and channel against a CPU
 // reference, deriving its comparison bound from the rgba16float storage quantum and WGSL's own
-// trig-accuracy bound rather than an authored constant.
+// trig-accuracy bound rather than an authored constant. `ocean-fold` (I2r-b) is that stage's own
+// GPU arm: the composed (both displacement cascades pooled) fold-texel count from the production
+// compute pipeline (`measureFoldFraction`) against the CPU reference, over >= 8 declared phases —
+// the CPU-only λ solve against the whitecap anchor lives entirely in
+// `packages/shallot-ocean/tests/fold-anchor.oracle.ts`.
 import "./accel";
 import "./arch";
 import "./backend";
@@ -127,6 +131,7 @@ import "./joint-break";
 import "./mesh-fixture";
 import "./motion-locks";
 import "./motor";
+import "./ocean-fold";
 import "./ocean-slope";
 import "./orbit-touch";
 import "./outline";
