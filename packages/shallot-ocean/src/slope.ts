@@ -2,7 +2,7 @@
 // horizontal displacement, or Jacobian output is allocated for this band. The source is a seeded
 // height spectrum, converted to directional slope spectra (`i·kx·h̃`, `i·kz·h̃`) and inverse-transformed with the same
 // radix-2 FFT used by the displacement cascades. Each output texture owns every mip level so a
-// later shading pass can select measured residual variance without inventing a footprint heuristic.
+// shading can select measured residual variance from hardware sample-coordinate gradients.
 
 import { Compute, type System } from "@dylanebert/shallot";
 import { BeginFrameSystem, Render } from "@dylanebert/shallot/render/core";
@@ -626,6 +626,17 @@ export function buildSlopes(): void {
         states.push(state);
         Compute.textures.set(`slope${states.length - 1}`, state.texture);
     }
+    Compute.samplers.set(
+        "slopeSampler",
+        Compute.device.createSampler({
+            label: "ocean-slope-sampler",
+            minFilter: "linear",
+            magFilter: "linear",
+            mipmapFilter: "linear",
+            addressModeU: "repeat",
+            addressModeV: "repeat",
+        }),
+    );
 }
 
 /** Release slope-only GPU resources and named texture publications. */
@@ -633,6 +644,12 @@ export function teardownSlopes(): void {
     for (const state of states) destroy(state);
     states.length = 0;
     for (let i = 0; i < SLOPE_CASCADE_CONFIGS.length; i++) Compute.textures.delete(`slope${i}`);
+    Compute.samplers.delete("slopeSampler");
+}
+
+/** render-only access to the published slope texture. */
+export function getSlopeTexture(cascade: number): GPUTexture | null {
+    return states[cascade]?.texture ?? null;
 }
 
 /** Read-only accessor for one slope cascade's own post-inverse-FFT f32 complex buffers (`.x`

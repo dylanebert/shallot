@@ -83,6 +83,7 @@ export {
 export {
     composedSlopePsd,
     getSlopeBuffers,
+    getSlopeTexture,
     rasterSlopeMoment,
     realizedSlopeMss,
     reduceSlopeMip,
@@ -135,6 +136,22 @@ export {
     totalTheoreticalFlops,
     U10,
 } from "./spectrum";
+export {
+    OceanDisplacementEstimate,
+    OceanSampleGradient,
+    OceanSurfacePlugin,
+    oceanEstimateDisplacement,
+    oceanFragmentNormal,
+    oceanSurfaceFs,
+    oceanSurfaceLayout,
+    oceanSurfacePatch,
+    oceanSurfaceVaryings,
+    oceanSurfaceVs,
+    registerOceanSurface,
+    surfaceCatmullRom1D,
+    surfaceCatmullRomDerivative1D,
+    surfaceWrapIndex,
+} from "./surface";
 export {
     oceanDisplacementLayout,
     oceanDisplacementPatch,
