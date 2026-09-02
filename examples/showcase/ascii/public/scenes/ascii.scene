@@ -6,8 +6,14 @@
          the default distance the unit cube's 80x24 grid silhouette is ~5 rows tall, too small for the
          three faces to read as three faces. 2.2 puts the cube at ~14-18 rows across every orbit yaw this
          recipe reaches, still inside the 80x24 grid at every angle (near plane 0.1, cube half-extent
-         ~0.7, so no clipping). -->
-    <a id="camera" camera sear transform orbit="distance: 2.2; yaw: 0.6; pitch: 0.3" />
+         ~0.7, so no clipping).
+
+         pitch 0.55 (raised from 0.3, s3r review repair 2026-09-02): at pitch 0.3 the top face foreshortens
+         to a bare edge band and only two of the three visible faces carry legible fill; 0.5 opens the top
+         face to a real but still 2-row sliver, and 0.55 is where it clears three rows of its own fill
+         glyphs while the cube still stays inside the 80x24 grid
+         (`packages/shallot/scripts/dump-cells-ascii.ts`'s own dump confirms both at this orbit). -->
+    <a id="camera" camera sear transform orbit="distance: 2.2; yaw: 0.6; pitch: 0.55" />
 
     <!-- lit, view-independent by construction (corrected 2026-09-01, `specs/shallot-tui.md`'s locked
          glyph-selection addendum): the box never rotates (only the camera orbits it) and the light is

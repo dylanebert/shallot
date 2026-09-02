@@ -21,7 +21,7 @@
 // preload below — required, `bun run` alone does not apply a `bunfig.toml` `[test]`-only preload — is
 // never forgotten): `bun run dump-cells-ascii -- [--yaw <radians>] [--pitch <radians>]`, or equivalently
 // from the shallot repo root: `bun run --cwd packages/shallot dump-cells-ascii -- --yaw <radians>`.
-// Defaults match the recipe scene's own authored orbit (`yaw: 0.6; pitch: 0.3`).
+// Defaults match the recipe scene's own authored orbit (`yaw: 0.6; pitch: 0.55`).
 
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -139,7 +139,7 @@ interface Args {
 }
 
 function parseArgs(argv: readonly string[]): Args {
-    const args: Args = { yaw: 0.6, pitch: 0.3 };
+    const args: Args = { yaw: 0.6, pitch: 0.55 };
     for (let i = 0; i < argv.length; i++) {
         if (argv[i] === "--yaw" && argv[i + 1]) args.yaw = Number(argv[++i]);
         else if (argv[i] === "--pitch" && argv[i + 1]) args.pitch = Number(argv[++i]);
