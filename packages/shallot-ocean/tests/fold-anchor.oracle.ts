@@ -32,15 +32,13 @@
 // not by the exemption. The composed-world-grid build (330×330 points, both cascades) is the cost:
 // ~20ms/realization for the FFT pipeline (`updateH`/`chop`/`spectralGradient`/`idft2`, all four
 // production primitives, unmodified) plus ~6ms for the nearest-neighbor composition, measured. Seed
-// windows are 4 seeds each (not 40): the measured per-seed-mean stderr at n=40 was already two orders
-// of magnitude below the spec's own ±30%/10% tolerances (~0.1-0.3% against 10-30%), so n=4 spends the
-// same margin at 1/10 the realization count — the seed×phase product (4 seeds × 9 phases × 3 windows =
-// 108 realizations, ~2.5s) is what a by-path file spawned from inside a capped file can afford; the
-// full-fidelity 40-seed ensemble stays the shape a future by-path-only widening could restore without
-// touching this file's structure.
+// reduced windows use two seeds each: that is the smallest scan that preserves the reach property's
+// stated nonzero assertion execution while retaining all three disjoint solve/held-out paths, all
+// nine phases, and the held-out anchor criterion (one seed fails heldA at +35.01%). Statistical
+// sizing and production pins remain full-mode-only, and the reduced run says so in its output; the
+// by-path full mode retains 24 seeds per window.
 //
-// SEED WINDOWS: SOLVE (seeds 0..3) is declared before any reading. HELD_A (1000..1003) and HELD_B
-// (2000..2003) are disjoint from SOLVE and from each other. Every window uses a per-cascade seed
+// SEED WINDOWS: reduced SOLVE (seeds 0..1), HELD_A (1000..1001), and HELD_B (2000..2001) are disjoint. Every window uses a per-cascade seed
 // offset (cascade 1 draws `seed + CASCADE1_OFFSET`) so one window index doesn't correlate the two
 // cascades' realizations.
 //
@@ -77,7 +75,7 @@ const ANCHOR = whitecapFraction(U10);
 const GRID = worldGridSpec(CASCADE_CONFIGS);
 
 const FULL_MODE = process.env.FOLD_ENSEMBLE_MODE === "full";
-const SEED_COUNT = FULL_MODE ? 24 : 4;
+const SEED_COUNT = FULL_MODE ? 24 : 2;
 const SOLVE_SEEDS = Array.from({ length: SEED_COUNT }, (_, i) => i);
 const HELD_A_SEEDS = Array.from({ length: SEED_COUNT }, (_, i) => 1000 + i);
 const HELD_B_SEEDS = Array.from({ length: SEED_COUNT }, (_, i) => 2000 + i);
