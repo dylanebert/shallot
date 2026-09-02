@@ -824,7 +824,7 @@ export function formatFields(
     return parts.join("; ");
 }
 
-/** NaN is a valid sentinel default (e.g. `Tween.from` = "capture at runtime") but `NaN !== NaN`,
+/** NaN is a valid sentinel default (e.g. `Animation.from` = "capture at runtime") but `NaN !== NaN`,
  * so a plain `value === def` never elides it — this comparison treats a field sitting at its NaN
  * default as default, so it elides and re-parses back to the sentinel. */
 function atDefault(value: number, def: number | undefined): boolean {

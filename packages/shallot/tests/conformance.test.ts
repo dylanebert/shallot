@@ -15,7 +15,7 @@
 // (`tests/test-cap.ts`). The physics arms (Physics/Character/Player) compile the AVBD solver's
 // compute pipeline set on the device — their headless cost is measured in
 // `tests/avbd/headless.tier.ts`'s header. What stays here is the
-// cheap half of the roster (Project, Mirror, Input, Slab+Transforms, Orbit, Tween) plus the seeded
+// cheap half of the roster (Project, Mirror, Input, Slab+Transforms, Orbit, Animation) plus the seeded
 // non-idempotent red arm — the sentinel that discriminates: a split can silently drop the population
 // a red-capable arm needs, so the red arm stays to prove the harness still catches a violation.
 

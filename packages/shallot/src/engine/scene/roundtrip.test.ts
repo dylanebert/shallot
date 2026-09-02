@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { attach } from "../../../tests/helpers";
 import {
+    AnimationPlugin,
     AudioPlugin,
     build,
     entity,
@@ -24,7 +25,6 @@ import {
     stringify,
     TextPlugin,
     TransformsPlugin,
-    TweenPlugin,
     u8,
     u32,
     vec2,
@@ -36,7 +36,7 @@ import { formatFields, normalizeAttr, parseFields } from "./core";
 const SCENE_FILES = [
     "recipes/custom-material/public/scenes/custom-material.scene",
     "recipes/gpu-particles/public/scenes/gpu-particles.scene",
-    "showcase/visualization/public/scenes/tween.scene",
+    "showcase/visualization/public/scenes/animation.scene",
 ];
 
 const PLUGINS: Plugin[] = [
@@ -45,7 +45,7 @@ const PLUGINS: Plugin[] = [
     RenderPlugin,
     PartPlugin,
     OrbitPlugin,
-    TweenPlugin,
+    AnimationPlugin,
     LinesPlugin,
     TextPlugin,
     SearPlugin,

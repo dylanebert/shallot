@@ -54,7 +54,7 @@ import { type Check, frames, type Params, register, type Scenario, settle } from
 // Springs (soft, Phase 6.1) + joints (hard, Phase 6.2) share one scene because they share the constraint
 // adjacency (`constraintCsr` / `constraintList`); the solver branches on the kind tag. Both author as ECS
 // COMPONENTS — a `Spring` / `Joint` is its own entity holding two `@name` body refs + local anchors
-// (`ecs.md`, like `Tween.target`) — so this gym scenario exercises the ConstraintSystem upload-on-change
+// (`ecs.md`, like `Animation.target`) — so this gym scenario exercises the ConstraintSystem upload-on-change
 // path the imperative labs (`setSprings`/`setJoints`) don't. The GPU stamps each in the primal, a per-joint
 // jointInit/jointDual pair warmstarts + ramps the hard ones, the coloring repairs hard same-color conflicts.
 //

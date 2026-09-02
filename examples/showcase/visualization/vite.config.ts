@@ -20,7 +20,7 @@ export default {
                 retained: resolve(__dirname, "demos/retained.html"),
                 wireframe: resolve(__dirname, "demos/wireframe.html"),
                 text: resolve(__dirname, "demos/text.html"),
-                tween: resolve(__dirname, "demos/tween.html"),
+                animation: resolve(__dirname, "demos/animation.html"),
             },
         },
     },
