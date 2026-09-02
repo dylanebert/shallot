@@ -65,11 +65,9 @@ export {
     bicubicSample,
     bilinearSample,
     catmullRom1D,
-    checkReconstructionContinuity,
     type Field,
     maxGradientJump,
     nearestSample,
-    type ReconstructionFinding,
     type ReconstructionKernel,
     syntheticField,
 } from "./reconstruction";

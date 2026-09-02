@@ -126,24 +126,3 @@ export function maxGradientJump(
     }
     return maxJump;
 }
-
-export interface ReconstructionFinding {
-    ok: boolean;
-    message: string;
-}
-
-/** a reconstruction-continuity check: `kernel`'s worst-case gradient jump across a texel boundary,
- *  over a synthetic field of resolution `n`, must be ≤ `tolerance`. */
-export function checkReconstructionContinuity(
-    label: string,
-    kernel: ReconstructionKernel,
-    n: number,
-    tolerance: number,
-): ReconstructionFinding {
-    const field = syntheticField(n);
-    const jump = maxGradientJump(kernel, field, n);
-    return {
-        ok: jump <= tolerance,
-        message: `${label} reconstruction: max gradient jump across a texel boundary = ${jump.toFixed(6)} — must be ≤ ${tolerance} (C1 tolerance) — ratio ${(jump / tolerance).toFixed(2)}x`,
-    };
-}
