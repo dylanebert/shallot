@@ -1,0 +1,10 @@
+{
+  "scene": "scenes/ocean.scene",
+  "plugins": {
+    "Orbit": true,
+    "Sky": true,
+    "Ocean": "./src/ocean",
+    "Capture": "./src/capture"
+  },
+  "pixelRatio": 1
+}

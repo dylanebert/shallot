@@ -1,5 +1,31 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { CAPTURE, sunDirection } from "../src/conditions";
+
+const scene = readFileSync(join(import.meta.dir, "../public/scenes/ocean.scene"), "utf8");
+
+function declaredFrame(source: string) {
+    const direction = source
+        .match(/direction: ([^;"]+)/)?.[1]
+        .split(" ")
+        .map(Number);
+    const orbit = source.match(/orbit="distance: ([^;]+); yaw: ([^;]+); pitch: ([^"]+)"/);
+    if (!direction || !orbit) throw new Error("ocean scene is missing its declared frame");
+    return {
+        direction,
+        camera: { distance: Number(orbit[1]), yaw: Number(orbit[2]), pitch: Number(orbit[3]) },
+    };
+}
+
+function expectDeclaredFrame(source: string) {
+    const frame = declaredFrame(source);
+    const sun = sunDirection(CAPTURE.sunAzimuthOffset, CAPTURE.sunElevation);
+    for (let i = 0; i < sun.length; i++) expect(frame.direction[i]).toBeCloseTo(sun[i], 6);
+    expect(frame.camera.distance).toBeCloseTo(CAPTURE.camera.distance, 6);
+    expect(frame.camera.yaw).toBeCloseTo(CAPTURE.camera.yaw, 6);
+    expect(frame.camera.pitch).toBeCloseTo(CAPTURE.camera.pitch, 6);
+}
 
 describe("ocean showcase capture", () => {
     test("pins the matched frame conditions", () => {
@@ -14,5 +40,13 @@ describe("ocean showcase capture", () => {
         expect(
             Math.hypot(...sunDirection(CAPTURE.sunAzimuthOffset, CAPTURE.sunElevation)),
         ).toBeCloseTo(1, 12);
+    });
+
+    test("scene declares the capture light and camera", () => {
+        expectDeclaredFrame(scene);
+    });
+
+    test("scene oracle rejects a perturbed component", () => {
+        expect(() => expectDeclaredFrame(scene.replace("pitch: 0.24", "pitch: 0.25"))).toThrow();
     });
 });
