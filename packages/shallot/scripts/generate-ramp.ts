@@ -1,8 +1,8 @@
 // Generates `extras/cells/ramp-table.ts`: the coverage-ordered fill glyph ramp the Locked decision
 // requires (`specs/shallot-tui.md`'s glyph-selection addendum — "the ramp is an ordered artifact, sorted
 // by measured ink coverage", not a hand-authored character set in code-point order). Renders each
-// candidate printable-ASCII glyph's outline against the brand font (`assets/font.ttf`, Outfit —
-// `branding.md`) and measures its ink coverage: the glyph's TrueType contour area (Green's theorem over
+// candidate printable-ASCII glyph's outline against the cells face (`assets/jetbrains-mono.ttf`, the house
+// monospace from `branding.md`) and measures its ink coverage: the glyph's TrueType contour area (Green's theorem over
 // the parsed outline, `extras/text/font.ts`'s own `glyphPath`) divided by the font's em-square area,
 // sorted ascending.
 //
@@ -33,7 +33,7 @@ import { fileURLToPath } from "node:url";
 import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "../src/extras/cells/ramp";
 import { type Font, parseFont } from "../src/extras/text/font";
 
-const FONT_URL = new URL("../../../assets/font.ttf", import.meta.url);
+const FONT_URL = new URL("../../../assets/jetbrains-mono.ttf", import.meta.url);
 const OUTPUT_URL = new URL("../src/extras/cells/ramp-table.ts", import.meta.url);
 
 /** one point in a flattened glyph contour, font units. */
@@ -165,7 +165,7 @@ export function computeRampTable(font: Font): RampEntry[] {
         .sort((a, b) => a.coverage - b.coverage || a.char.codePointAt(0)! - b.char.codePointAt(0)!);
 }
 
-/** load the brand font (`assets/font.ttf`) the way `extras/text/font.test.ts` does — Node-only
+/** load the cells face (`assets/jetbrains-mono.ttf`) the way `extras/text/font.test.ts` does — Node-only
  *  (`readFileSync`), so callers stay confined to this script and its own test, never `ramp.ts`. */
 export function loadBrandFont(): Font {
     const bytes = readFileSync(fileURLToPath(FONT_URL));
@@ -190,7 +190,7 @@ function renderTable(table: readonly RampEntry[]): string {
 // packages/shallot/scripts/generate-ramp.ts\` from the shallot repo root and review the diff.
 // The coverage-ordered fill glyph ramp (module doc, scripts/generate-ramp.ts): every printable-ASCII
 // candidate minus the directional set (ramp.ts's CELL_DIRECTIONAL_GLYPHS), sorted ascending by measured
-// ink coverage against the brand font (assets/font.ttf). \`ramp-table.test.ts\` proves this file still
+// ink coverage against the cells face (assets/jetbrains-mono.ttf). \`ramp-table.test.ts\` proves this file still
 // equals a fresh computation off the same font.
 
 export interface RampEntry {

@@ -39,10 +39,9 @@ export const COLS = 80;
 /** @internal */
 export const ROWS = 24;
 
-// matches `extras/text`'s own zero-config default face (Inter) — a cells scene needs no font
-// registration of its own; an author-facing override is a later unit's surface, not this one's
-const DEFAULT_FONT =
-    "https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf";
+/** the default cells face: the house monospace with a uniform advance for every cell. */
+export const DEFAULT_FONT =
+    "https://fonts.gstatic.com/s/jetbrainsmono/v24/tDbY2o-flEEny0FZhsfKu5WU4zr3E_BX0PnT8RD8yKxjPQ.ttf";
 
 let _atlas: GlyphAtlas | null = null;
 let _glyphUv: GlyphUvBuffer | null = null;
@@ -145,40 +144,52 @@ const CellsSystem: System = {
 };
 
 /**
- * the ASCII-native render target: after `RenderPlugin` renders each camera's scene, `CellsSystem`
- * selects + draws a character-cell grid over it, before glaze composites the result to the swapchain.
+ * create the ASCII-native render target with an optional author-supplied monospace face. A process supports
+ * one cells face; use one `fontUrl` for the process. After
+ * `RenderPlugin` renders each camera's scene, the returned plugin selects + draws a character-cell grid
+ * over it, before glaze composites the result to the swapchain.
+ *
+ * @example
+ * ```
+ * cells("/fonts/my-monospace.ttf");
+ * ```
  */
-export const CellsPlugin: Plugin = {
-    name: "Cells",
-    systems: [CellsSystem],
-    dependencies: [RenderPlugin],
+export function cells(fontUrl = DEFAULT_FONT): Plugin {
+    return {
+        name: "Cells",
+        systems: [CellsSystem],
+        dependencies: [RenderPlugin],
 
-    async warm() {
-        if (!Compute.device) return;
-        const device = Compute.device;
-        const font = await loadFont(DEFAULT_FONT);
-        _atlas = createGlyphAtlas(device, font);
-        ensureString(_atlas, cellGlyphString());
-        _glyphUv = buildGlyphUvTable(_atlas);
-        _glyphSize = buildGlyphSizeTable(_atlas);
-        _sampler = device.createSampler({
-            label: "cells",
-            magFilter: "linear",
-            minFilter: "linear",
-        });
-    },
+        async warm() {
+            if (!Compute.device) return;
+            const device = Compute.device;
+            const font = await loadFont(fontUrl);
+            _atlas = createGlyphAtlas(device, font);
+            ensureString(_atlas, cellGlyphString());
+            _glyphUv = buildGlyphUvTable(_atlas);
+            _glyphSize = buildGlyphSizeTable(_atlas);
+            _sampler = device.createSampler({
+                label: "cells",
+                magFilter: "linear",
+                minFilter: "linear",
+            });
+        },
 
-    dispose() {
-        if (_atlas) disposeAtlases([_atlas]);
-        _atlas = null;
-        _glyphUv?.destroy();
-        _glyphUv = null;
-        _glyphSize?.destroy();
-        _glyphSize = null;
-        _sampler = null;
-        for (const grid of _grids.values()) grid.buffer.destroy();
-        _grids.clear();
-        resetSelectPipelines();
-        resetDrawPipeline();
-    },
-};
+        dispose() {
+            if (_atlas) disposeAtlases([_atlas]);
+            _atlas = null;
+            _glyphUv?.destroy();
+            _glyphUv = null;
+            _glyphSize?.destroy();
+            _glyphSize = null;
+            _sampler = null;
+            for (const grid of _grids.values()) grid.buffer.destroy();
+            _grids.clear();
+            resetSelectPipelines();
+            resetDrawPipeline();
+        },
+    };
+}
+
+/** the ASCII-native render target using the default JetBrains Mono face. */
+export const CellsPlugin: Plugin = cells();

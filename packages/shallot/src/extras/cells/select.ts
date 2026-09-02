@@ -304,9 +304,9 @@ export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
  * Ratios of the densest-glyph control's own reading, not copied from the reference's crops unread:
  * {@link fillIndexForLuma}'s device caller (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`)
  * renders a blank-glyph control (0% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, by construction —
- * the blank glyph paints nothing) and a densest-glyph control (this brand font's `@`/`W` entries,
- * `RAMP_TABLE`'s own coverage ceiling, ~10.9% at that arm's cell pixel size); `FACADE_INK_FLOOR` and
- * `FACADE_INK_CEILING` are set to roughly a fifth and five-sixths of that ~10.9% reading. Because both are
+ * the blank glyph paints nothing) and a densest-glyph control (this cells face's `@`/`W` entries,
+ * `RAMP_TABLE`'s own coverage ceiling, ~19.7% at that arm's cell pixel size); `FACADE_INK_FLOOR` and
+ * `FACADE_INK_CEILING` are set to roughly a fifth and five-sixths of that ~19.7% reading. Because both are
  * derived from the densest control's own number, neither control leg can red against a working pipeline by
  * construction — `ceiling.fraction > FACADE_INK_CEILING` compares the densest control's reading against a
  * fraction of itself, so it is not independent evidence the ceiling is reachable. What the two controls
@@ -314,19 +314,18 @@ export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
  * > 0, a broken pipeline that draws nothing would otherwise read a false pass), and the densest and blank
  * renders bracket the band reading, showing the probe can tell a dense glyph from an empty one at all. The
  * real reading this band is checked against — the facade band render at {@link FACADE_BAND_LUMAS} —
- * measures ~6.4% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, against the reference's own
- * 13.2/21.3/32.5% crops (`research/ascii-city-reference/`), so this pipeline sits below the reference's own
- * band: this font's SDF outlines cannot clear the reference's ink density (criterion 8's round-1 rejection
- * named this directly — "the 35% ceiling is unreachable by any real render, max glyph coverage 8.4%"), so
- * the band here pins this pipeline's own reachable range rather than meeting the reference's. Not reachable
+ * measures ~12.8% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD}, against the reference's own
+ * 13.2/21.3/32.5% crops (`research/ascii-city-reference/`), so this pipeline sits just below the reference's
+ * lower reading: this face's SDF outlines cannot clear the reference's ink density. The band here pins this
+ * pipeline's own reachable range rather than meeting the reference's. Not reachable
  * by any glyph-geometry lever: the SDF ink dilation this measurement used to previously clear 35%
  * (`draw.ts`'s retired `INK_DILATE_FRACTION`) also inverted the ramp's own coverage ordering
  * (`assertMonoRamp`'s low-band-vs-rest invariant), which is why it was removed rather than kept — so if a
  * real reading moves outside this band, the lever is {@link fillIndexForLuma}'s luma→index mapping, never
  * glyph geometry. Re-measure and update this derivation if either control's reading moves.
  */
-export const FACADE_INK_FLOOR = 0.02;
-export const FACADE_INK_CEILING = 0.09;
+export const FACADE_INK_FLOOR = 0.04;
+export const FACADE_INK_CEILING = 0.16;
 
 const avgKernel = tgpu.computeFn({
     workgroupSize: [WG, WG],
