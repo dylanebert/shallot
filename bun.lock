@@ -73,8 +73,8 @@
         "vite": "^8.0.16",
       },
     },
-    "examples/recipes/animate-with-tweens": {
-      "name": "animate-with-tweens",
+    "examples/recipes/animate-with-clips": {
+      "name": "animate-with-clips",
       "version": "0.0.0",
       "dependencies": {
         "@dylanebert/shallot": "workspace:*",
@@ -586,7 +586,7 @@
 
     "ajv": ["ajv@6.15.0", "", { "dependencies": { "fast-deep-equal": "^3.1.1", "fast-json-stable-stringify": "^2.0.0", "json-schema-traverse": "^0.4.1", "uri-js": "^4.2.2" } }, "sha512-fgFx7Hfoq60ytK2c7DhnF8jIvzYgOMxfugjLOSMHjLIPgenqa7S7oaagATUq99mV6IYvN2tRmC0wnTYX6iPbMw=="],
 
-    "animate-with-tweens": ["animate-with-tweens@workspace:examples/recipes/animate-with-tweens"],
+    "animate-with-clips": ["animate-with-clips@workspace:examples/recipes/animate-with-clips"],
 
     "annotate-the-world": ["annotate-the-world@workspace:examples/recipes/annotate-the-world"],
 
