@@ -18,6 +18,8 @@ paths:
 
 Shallot-specific testing patterns. `packages/shallot-ocean/tests/slope.oracle.ts` — the deterministic ocean slope cascade's N-invariance and per-band coverage arms, each with its own red witness — is reachable from the repository root with `bun run test:ocean-slope`.
 
+`packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts` — the render-mesh triangle-winding instrument, with its own zero-displacement negative control and red witness — is reachable from the repository root with `bun run test:ocean-mesh-inversion`. Ring 0 (the near field, the one ring `OCEAN_CLIP_CONFIG.nearSpacing` is derived to resolve at the finest cascade's Nyquist limit) asserts its flip fraction against a composed continuum fold-fraction reference, in both the reconstruction-kernel leg and the near-spacing leg; coarser rings and Nyquist-violating spacings stay population-only by design, since coarsening past that bound is expected to under-count folds rather than track the continuum rate. Trigger: changes to the clipmap's spacing schedule or the reconstruction kernel a mesh vertex reads through.
+
 
 **A gate verifies and never writes; `bun run format` is the only writer.** `bun check` reports and exits without touching the tree, so the state you read before it is the state you commit.
 

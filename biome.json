@@ -99,7 +99,9 @@
             "includes": [
                 "packages/shallot-ocean/src/spectrum.ts",
                 "packages/shallot-ocean/src/cpu-reference.ts",
-                "packages/shallot-ocean/src/ocean.ts"
+                "packages/shallot-ocean/src/ocean.ts",
+                "packages/shallot-ocean/src/clipmap.ts",
+                "packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts"
             ],
             "linter": { "rules": { "style": { "useNamingConvention": "off" } } }
         }

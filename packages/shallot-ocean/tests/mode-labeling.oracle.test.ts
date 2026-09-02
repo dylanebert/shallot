@@ -59,9 +59,8 @@ function projectOnto(raster: Float32Array, N: number, L: number, k: number): num
 }
 
 describe("mode-placement oracle — leg (a): both shipped power-of-two N", () => {
-    for (const N of [64, 128]) {
+    for (const { N, L } of CASCADE_CONFIGS) {
         test(`N=${N}: production energy lands on the label, not its Nyquist image`, () => {
-            const L = N === 64 ? 80 : 31; // the shipped cascades' own L (spectrum.ts's CASCADE_CONFIGS)
             const dk = (2 * PI) / L;
             const kNyquist = (N / 2) * dk;
             const target = 3 * dk;
@@ -76,7 +75,6 @@ describe("mode-placement oracle — leg (a): both shipped power-of-two N", () =>
         });
 
         test(`N=${N}: red-witness — the pre-fix centered label lands energy on the Nyquist image instead`, () => {
-            const L = N === 64 ? 80 : 31;
             const dk = (2 * PI) / L;
             const kNyquist = (N / 2) * dk;
             const target = 3 * dk;
