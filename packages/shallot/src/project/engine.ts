@@ -27,6 +27,7 @@ export const SUBPATH_PLUGIN_MODULES: Record<string, string> = {
 // "no export named ${name}Plugin" at bundle time).
 export const EXTRA_PLUGIN_NAMES = [
     "Audio",
+    "Cells",
     "Character",
     "Fog",
     "Gltf",

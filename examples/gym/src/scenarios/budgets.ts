@@ -81,10 +81,92 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     "bodies-body-type": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_519_028 },
     "bodies-motion-locks": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_516_692 },
     "bodies-spinning-book": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_517_860 },
-    // measured 2026-09-01, two agreeing `--scenario cells` runs (WSL/NVIDIA bridge, lovelace): one
-    // compute pipeline (`cells-fill`), gpuBytes excludes the lazy `Mirror` staging pool (1440 B),
-    // leaving the 720 B `cells-grid` buffer alone (10x6 cells × 12 B `CELL_BYTES`).
-    cells: { pipelines: 1, pipelineCalls: 1, gpuBytes: 720 },
+    // measured 2026-09-01, `--scenario cells` (WSL/NVIDIA bridge, lovelace), re-measured the same day
+    // after S3r item 2's ramp-monotonicity arm landed (`specs/shallot-tui.md`'s s3r item 2 — the owed
+    // regression guard driving `draw.ts`'s real pipeline against a real font atlas, not the synthetic
+    // solid atlas the draw differential below uses), again after the s3r item-8 background-detection
+    // repair, which grew `SelectParams` (`select.ts`) by one `bg: vec4f` reference (16 B), and again after
+    // criterion 9's arm (`assertFrameIsGrid`, `FramePlugin` below `MonoPlugin` in this file) — the two-
+    // sided proof that `drawCells` replaces a target's prior contents rather than compositing over them
+    // (`specs/shallot-tui.md`'s s3r item 9). Nine compute/render pipelines: `cells-fill` (S1's synthetic
+    // producer), `cells-avg` + `cells-select` (S3's two-pass real content producer), `cells-draw` (the
+    // draw differential's real render pipeline, shared by the mono-ramp arm and criterion 9's own
+    // `FramePlugin` draw — reused under the same label three times over, which is why `pipelineCalls` (11)
+    // exceeds `pipelines` (9), `budgets.ts`'s own module doc names this), `cells-gym-draw-probe` (the draw
+    // differential's texture readback), `text-sdf-distance` + `text-sdf-finalize` (the real `GlyphAtlas`'s
+    // SDF generator, first exercised here against a real font — `extras/text/sdf.ts`, warmed by
+    // `buildGlyphUvTable`/`buildGlyphSizeTable`), `cells-gym-mono-probe` (the ramp arm's own per-cell
+    // ink-average readback), and `cells-gym-frame-probe` (criterion 9's own sentinel-pixel counter, one
+    // pipeline dispatched twice — against the drawn target and the undrawn control — which is the other
+    // `pipelineCalls` unit past the reused `cells-draw`: 9 (prior pipelineCalls) + 1 (an extra `cells-draw`
+    // create, criterion 9's own `drawCells` call) + 1 (`cells-gym-frame-probe`'s single create) = 11).
+    // gpuBytes excludes the lazy `Mirror` staging pool (1_492 B, `mirror-staging`) — every other
+    // `bun bench --scenario cells`-reported label, summed exactly: `cells-grid` 2_316 — four scenarios'
+    // grids share this one label: `CellsPlugin`'s `COLS × ROWS` (10×6, 60 cells × 12 B/cell = 720),
+    // `SelectPlugin`'s `SELECT_COLS × SELECT_ROWS` (8×4, 32 × 12 = 384), `DrawPlugin`'s `DRAW_COLS ×
+    // DRAW_ROWS` (2×1, 2 × 12 = 24), `MonoPlugin`'s `MONO_GLYPH_COUNT × 1` (`= CELL_FILL_GLYPHS.length`,
+    // 87 × 12 = 1_044, down from 91 × 12 = 1_092 pre-rule-2), and `FramePlugin`'s `FRAME_COLS × FRAME_ROWS`
+    // (4×3, 12 × 12 = 144) — 720 + 384 + 24 + 1_044 + 144 = 2_316 — + `cells-select-src` 8_192 +
+    // `cells-select-params` 32 (16 B dims uniform + the item-8 `bg: vec4f` reference above) +
+    // `cells-select-avg` 512 + `cells-gym-draw-glyphuv`
+    // 32 + `cells-gym-draw-glyphsize` 16 + `cells-gym-draw-atlas` 16 + `cells-gym-draw-target` 2_048 +
+    // `cells-gym-draw-probe-out` 32 + `glyphAtlas` 4_194_304 (a real `createGlyphAtlas` 2048×2048
+    // `r8unorm` texture, the same size every real-font cells/text scene allocates) + the SDF generator's
+    // unlabeled 96×96 `rgba8unorm` intermediate texture 36_864 (`""` in `bun bench`'s by-label memory
+    // breakdown) + `cells-glyph-uv` 1_456 + `cells-glyph-size` 728 + `cells-gym-mono-target` 200_448
+    // (`2088×24 rgba8unorm`) + `cells-draw-params` 16 + `cells-gym-mono-out` 348 + `cells-gym-frame-glyphuv`
+    // 32 + `cells-gym-frame-glyphsize` 16 + `cells-gym-frame-atlas` 16 + `cells-gym-frame-drawn` 12_288
+    // (64×48 `rgba8unorm`) + `cells-gym-frame-control` 12_288 (same size, the undrawn sentinel control) +
+    // `cells-gym-frame-out` 8 (two 4 B atomic-u32 counters sharing that label) = 4_472_008, matching
+    // `gpuBytes` below exactly.
+    //
+    // Re-measured 2026-09-01, same day, after the s3r fill-treatment amendment (`specs/shallot-tui.md`):
+    // rule 2's curated curved-glyph exclusion (`ramp.ts`'s `CELL_FILL_EXCLUDED_GLYPHS`) shrinks
+    // `CELL_FILL_GLYPHS` from 91 to 87 and `MONO_GLYPH_COUNT` (this file, `= CELL_FILL_GLYPHS.length`)
+    // with it, moving five labels that scale off the fill-ramp length: `cells-grid` (-48 B, `MonoPlugin`'s
+    // own grid), `cells-glyph-uv` (-64 B, 16 B/glyph), `cells-glyph-size` (-32 B, 8 B/glyph),
+    // `cells-gym-mono-target` (-9_216 B, `MONO_CELL_PX²` × 4 B/glyph) and `cells-gym-mono-out` (-16 B, 4
+    // B/glyph) — a net -9_376 B, `4_481_384 → 4_472_008`. `pipelines`/`pipelineCalls` are unaffected (no
+    // pipeline count changed, only buffer/texture sizes); rule 1's threshold re-derivation and rule 3's
+    // now-retired `INK_DILATE_FRACTION` changed gpu *behavior*, not any allocation size, so neither moved
+    // this row at that measurement. Two independent same-day confirming runs agreed exactly on `gpuBytes`.
+    //
+    // Re-measured 2026-09-02, after the fill-treatment amendment's s3r review repair
+    // (`specs/shallot-tui.md`): `draw.ts`'s `INK_DILATE_FRACTION` is deleted outright (a behavior-only
+    // change, so it still moves nothing on its own) and the facade-ink measurement (rule 3) moves off the
+    // old per-glyph-average sweep onto a real per-pixel device readback — `examples/gym/src/scenarios/
+    // cells.ts`'s new `FacadePlugin`, added to this scenario's plugin list between `MonoPlugin` and
+    // `FramePlugin`. It builds its own real `GlyphAtlas` (independent of `MonoPlugin`'s own, so every
+    // label a font-atlas load produces is now counted twice) and renders three FACADE_COLS×FACADE_ROWS
+    // (12×8 = 96 cells) grids — the facade band, a densest-glyph control, a blank-glyph control — each its
+    // own draw target and atomic-counter probe output.
+    //
+    // `pipelines` 9 → 10: one new label, `cells-gym-facade-probe` (`FacadePlugin`'s own threshold-count
+    // kernel, `FramePlugin`'s `cells-gym-frame-probe` shape applied to a luma threshold instead of a
+    // sentinel distance).
+    //
+    // `pipelineCalls` 11 → 13: `FacadePlugin` calls `resetDrawPipeline()` once (like every other draw-
+    // pipeline consumer in this file) before its three `drawCells` calls, so `cells-draw` is re-created
+    // once for all three (the pipeline memoizes across calls until the next reset) — +1; plus one create
+    // of the new `cells-gym-facade-probe` pipeline — +1. 11 + 1 + 1 = 13.
+    //
+    // `gpuBytes` 4_472_008 → 9_372_380 (excl. `mirror-staging`, unchanged at 3_008 B). Every delta traces
+    // to `FacadePlugin` building its own atlas/tables/grids rather than reusing `MonoPlugin`'s:
+    // `glyphAtlas` doubles (4_194_304 → 8_388_608, a second real 2048×2048 `r8unorm` atlas texture), the
+    // SDF generator's unlabeled 96×96 `rgba8unorm` intermediate texture doubles (36_864 → 73_728, a second
+    // atlas's own SDF-generation scratch texture), `cells-glyph-uv` doubles (1_456 → 2_912) and
+    // `cells-glyph-size` doubles (728 → 1_456) — both hardcoded labels in `glyphs.ts`, so a second
+    // `buildGlyphUvTable`/`buildGlyphSizeTable` caller sums under the same label rather than a new one —
+    // and `cells-grid` grows by 3 × (FACADE_COLS × FACADE_ROWS × 12 B/cell) = 3 × 1_152 = 3_456 B (2_316 →
+    // 5_772, the three facade grids sharing that same label alongside the other four scenarios' grids).
+    // Three new distinct-labeled entries: `cells-gym-facade-band`/`-ceiling`/`-floor`, each
+    // FACADE_VIEW_W × FACADE_VIEW_H × 4 B = 288 × 192 × 4 = 221_184 B (rgba8unorm), and
+    // `cells-gym-facade-out`, 3 × 4 B atomic-u32 counters sharing that label = 12 B. Net delta:
+    // (8_388_608 − 4_194_304) + (73_728 − 36_864) + (2_912 − 1_456) + (1_456 − 728) + (5_772 − 2_316) +
+    // 3 × 221_184 + 12 = 4_194_304 + 36_864 + 1_456 + 728 + 3_456 + 663_552 + 12 = 4_900_372;
+    // 4_472_008 + 4_900_372 = 9_372_380, matching `gpuBytes` below exactly. Two independent same-day
+    // confirming runs (`bun bench --scenario cells`, this seat) agree exactly.
+    cells: { pipelines: 10, pipelineCalls: 13, gpuBytes: 9_372_380 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

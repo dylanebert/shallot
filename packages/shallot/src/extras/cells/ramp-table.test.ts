@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { computeRampTable, glyphCoverage, loadBrandFont } from "../../../scripts/generate-ramp";
-import { CELL_DIRECTIONAL_GLYPHS } from "./ramp";
+import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "./ramp";
 import { RAMP_TABLE } from "./ramp-table";
 
 // The reproduction arm the Locked decision requires (`specs/shallot-tui.md`'s glyph-selection
@@ -34,6 +34,17 @@ describe("RAMP_TABLE reproduces from generate-ramp.ts's own computeRampTable", (
 
     test("excludes every directional glyph — the two sets are disjoint", () => {
         for (const g of CELL_DIRECTIONAL_GLYPHS) {
+            expect(RAMP_TABLE.some((row) => row.char === g)).toBe(false);
+        }
+    });
+
+    // the s3r fill-treatment amendment's own regression guard: "the fill role emits angular glyphs only,
+    // never curved ones" (`specs/shallot-tui.md`) — pinned against `CELL_FILL_EXCLUDED_GLYPHS` (`ramp.ts`'s
+    // own curated set) rather than a hardcoded literal, so a widened exclusion in `ramp.ts` is what this
+    // arm proves reached the generated table, not a copy of today's four characters.
+    test("excludes every curated curved glyph — a regenerated ramp cannot reintroduce a parenthesis or brace into the fill role", () => {
+        expect(CELL_FILL_EXCLUDED_GLYPHS.length).toBeGreaterThan(0);
+        for (const g of CELL_FILL_EXCLUDED_GLYPHS) {
             expect(RAMP_TABLE.some((row) => row.char === g)).toBe(false);
         }
     });

@@ -3,7 +3,7 @@ import tgpu, { isTgpuFn } from "typegpu";
 import { TEST_TIER_SUFFIXES } from "./test-tiers";
 import { integerDiscipline, noDivision, noIntegerDivision, pointerDiscipline } from "./wgsl";
 
-export const STANDARDS_POPULATION_GOLDEN = 102;
+export const STANDARDS_POPULATION_GOLDEN = 109;
 
 const SRC_DIR = join(import.meta.dir, "../src");
 
@@ -368,6 +368,9 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     bvhRoot: {
         test: { file: "packages/shallot/src/standard/bvh/traverse.test.ts", symbol: "bvhRoot" },
     },
+    cellFootprintPx: {
+        test: { file: "packages/shallot/src/extras/cells/draw.test.ts", symbol: "cellFootprintPx" },
+    },
     clusterCell: {
         test: {
             file: "packages/shallot/src/standard/render/cluster.test.ts",
@@ -396,6 +399,12 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     decodeUv: {
         gap: "a CPU differential would call decodeUv on a quantized w3 word and a MeshQuant and compare against the analytic uv dequantize; none written",
     },
+    directionalGlyphIndex: {
+        test: {
+            file: "packages/shallot/src/extras/cells/select.test.ts",
+            symbol: "directionalGlyphIndex",
+        },
+    },
     distanceAttenuation: {
         test: {
             file: "packages/shallot/src/standard/render/lighting.test.ts",
@@ -417,6 +426,12 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     encodeUv: {
         gap: "a CPU differential would call encodeUv on a uv + MeshQuant and compare against decodeUv's inverse; none written",
     },
+    fillIndexForLuma: {
+        test: {
+            file: "packages/shallot/src/extras/cells/select.test.ts",
+            symbol: "fillIndexForLuma",
+        },
+    },
     fogComposite: {
         test: { file: "packages/shallot/src/standard/fog/march.test.ts", symbol: "fogComposite" },
     },
@@ -433,6 +448,12 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
         test: {
             file: "packages/shallot/src/standard/sear/shade.test.ts",
             symbol: "fresnelSchlick",
+        },
+    },
+    glyphFootprintT: {
+        test: {
+            file: "packages/shallot/src/extras/cells/draw.test.ts",
+            symbol: "glyphFootprintT",
         },
     },
     halfLambert: {
@@ -483,6 +504,15 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
     },
     litPbr: {
         gap: "a CPU differential would call litPbr(Pbr, normal, world) against a hand-computed Cook-Torrance value (or against brdf at radius 0) and assert agreement; none written",
+    },
+    localBoundaryMagnitude: {
+        test: {
+            file: "packages/shallot/src/extras/cells/select.test.ts",
+            symbol: "localBoundaryMagnitude",
+        },
+    },
+    luma: {
+        test: { file: "packages/shallot/src/extras/cells/select.test.ts", symbol: "luma" },
     },
     meshIdOf: {
         test: { file: "packages/shallot/src/engine/utils/encode.test.ts", symbol: "meshIdOf" },
@@ -549,6 +579,9 @@ export const DIFFERENTIAL_REGISTRY: DifferentialRegistry = {
             file: "packages/shallot/src/standard/fog/march.test.ts",
             symbol: "reconstructWorld",
         },
+    },
+    reinhard: {
+        test: { file: "packages/shallot/src/extras/cells/select.test.ts", symbol: "reinhard" },
     },
     sampleSky: {
         test: { file: "packages/shallot/src/extras/sky/sky.test.ts", symbol: "sampleSky" },

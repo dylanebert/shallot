@@ -18,7 +18,11 @@
 //
 // The directional glyphs (`CELL_DIRECTIONAL_GLYPHS`, `ramp.ts`) are excluded from the fill candidates —
 // they're selected by edge angle, not ink coverage (`ramp.ts`'s own module doc), so mixing one into the
-// coverage-sorted fill ramp would double-book it under a rule that doesn't govern it.
+// coverage-sorted fill ramp would double-book it under a rule that doesn't govern it. The curated curved
+// marks (`CELL_FILL_EXCLUDED_GLYPHS`, `ramp.ts`) are excluded too — the s3r fill-treatment amendment's
+// "angular glyphs only, never curved ones" — hand-curated rather than a coverage or curvature threshold
+// (`ramp.ts`'s own docblock has the derivation for why a threshold would wrongly exclude glyphs the
+// reference itself keeps).
 //
 // Run from the shallot repo root: `bun run packages/shallot/scripts/generate-ramp.ts`. Nothing
 // regenerates `ramp-table.ts` automatically — review the diff before committing, the same discipline
@@ -26,7 +30,7 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { CELL_DIRECTIONAL_GLYPHS } from "../src/extras/cells/ramp";
+import { CELL_DIRECTIONAL_GLYPHS, CELL_FILL_EXCLUDED_GLYPHS } from "../src/extras/cells/ramp";
 import { type Font, parseFont } from "../src/extras/text/font";
 
 const FONT_URL = new URL("../../../assets/font.ttf", import.meta.url);
@@ -39,7 +43,7 @@ interface Point {
 }
 
 function candidateChars(): string[] {
-    const excluded = new Set<string>(CELL_DIRECTIONAL_GLYPHS);
+    const excluded = new Set<string>([...CELL_DIRECTIONAL_GLYPHS, ...CELL_FILL_EXCLUDED_GLYPHS]);
     const chars: string[] = [];
     for (let code = 0x20; code <= 0x7e; code++) {
         const ch = String.fromCharCode(code);

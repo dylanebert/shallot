@@ -70,6 +70,7 @@ examples/showcase/visualization && bun dev`).
 The showcase demos are live at https://dylanebert.com/shallot/ — each playable in the browser, with a
 code link to its source pinned to the version it was built from.
 
+- **ascii** — `showcase/ascii/` — the cell-grid cube seeded on the web sink, the same scene `shallot tui` renders in a terminal.
 - **collapse** — `showcase/collapse/` — an AVBD rigidbody structure collapsing, profiled.
 - **roads** — `showcase/roads/` — a road network editor across terrain (capture, edit, re-drive corridors) that owns its own Playwright gate.
 - **sandbox** — `showcase/sandbox/` — a playable physics sandbox (character + AVBD + modal-synthesis audio).

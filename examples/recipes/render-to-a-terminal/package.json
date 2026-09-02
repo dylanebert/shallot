@@ -1,0 +1,9 @@
+{
+    "name": "render-to-a-terminal",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@dylanebert/shallot": "workspace:*"
+    }
+}

@@ -11,11 +11,12 @@ import { RAMP_TABLE } from "./ramp-table";
 // module's index space into two differently-selected halves, each ordered by the rule that selects it:
 //
 //   - `CELL_FILL_GLYPHS` (indices `0 .. CELL_FILL_GLYPHS.length - 1`) — every printable-ASCII candidate
-//     minus the directional set, ordered by *measured ink coverage* ascending (least ink first), not by
-//     code point. A character set in code-point order is not a ramp — it carries no shape signal a
-//     tone-based selector can walk. The ordering is generated data, not hand-authored: rendered and
-//     measured by `scripts/generate-ramp.ts`, committed in `ramp-table.ts`, and reproduced by
-//     `ramp-table.test.ts` against the same brand font (`assets/font.ttf`) the generator reads.
+//     minus the directional set and {@link CELL_FILL_EXCLUDED_GLYPHS}, ordered by *measured ink coverage*
+//     ascending (least ink first), not by code point. A character set in code-point order is not a ramp —
+//     it carries no shape signal a tone-based selector can walk. The ordering is generated data, not
+//     hand-authored: rendered and measured by `scripts/generate-ramp.ts`, committed in `ramp-table.ts`,
+//     and reproduced by `ramp-table.test.ts` against the same brand font (`assets/font.ttf`) the generator
+//     reads.
 //   - `CELL_DIRECTIONAL_GLYPHS` (appended after the fill glyphs) — a small curated set, one glyph per
 //     quantized *edge-tangent* angle bucket (0°=`-`, 45°=`/`, 90°=`|`, 135°=`\` — the angle the drawn
 //     glyph visually runs along), kept separate from the fill ramp because they're selected by edge
@@ -43,9 +44,27 @@ import { RAMP_TABLE } from "./ramp-table";
  *  because a directional glyph is selected by edge angle, never by ink coverage. */
 export const CELL_DIRECTIONAL_GLYPHS: readonly string[] = ["-", "/", "|", "\\"] as const;
 
-/** the coverage-ordered fill ramp — every printable-ASCII candidate minus {@link CELL_DIRECTIONAL_GLYPHS},
- *  ascending by measured ink coverage (least ink first). Generated data (`scripts/generate-ramp.ts` /
- *  `ramp-table.ts`), not hand-authored. */
+/**
+ * the fill role's curated curved-glyph exclusion (the s3r fill-treatment amendment,
+ * `specs/shallot-tui.md`: "the fill role emits angular glyphs only, never curved ones" — grounded against
+ * the reference's own selection habit, which uses `+ : X 0 " - .` for fill and never selects `(`/`)` even
+ * though its wider atlas contains them). A curved glyph reads as bumpy texture rather than a flat surface,
+ * which is the whole job of a fill glyph — but this is a hand-curated exclusion, not an ink-coverage or
+ * outline-curvature threshold: measuring the fraction of each candidate's outline built from quadratic
+ * Bezier segments (`generate-ramp.ts`'s own `M/L/Q/Z` path tokens) puts `.`, `:`, and `0` at or near 100%
+ * curve — the reference's own kept fill glyphs — so a curvature-ratio cutoff would exclude exactly the
+ * marks the reference proves belong in the fill role. What actually reads as "curved texture" instead of
+ * "flat ink" is a closed round-cornered *delimiter* shape — parentheses and braces, whose entire glyph is
+ * one or two continuous arcs with no straight run of any length — as opposed to an alphanumeric glyph
+ * (`0`, `.`, `:`, `c`, `o`, …) whose curve is part of reading as a character rather than as a texture
+ * primitive, or an angular delimiter (`[`, `]`, `<`, `>`) built from straight strokes. Kept minimal and
+ * named rather than threshold-derived so a font swap can't silently widen or narrow it.
+ */
+export const CELL_FILL_EXCLUDED_GLYPHS: readonly string[] = ["(", ")", "{", "}"] as const;
+
+/** the coverage-ordered fill ramp — every printable-ASCII candidate minus {@link CELL_DIRECTIONAL_GLYPHS}
+ *  and {@link CELL_FILL_EXCLUDED_GLYPHS}, ascending by measured ink coverage (least ink first). Generated
+ *  data (`scripts/generate-ramp.ts` / `ramp-table.ts`), not hand-authored. */
 export const CELL_FILL_GLYPHS: readonly string[] = RAMP_TABLE.map((entry) => entry.char);
 
 /** the glyph ramp's total length — fill glyphs plus the directional set — every {@link Cell.glyph} index
@@ -73,21 +92,28 @@ export function cellGlyphString(): string {
     return CELL_FILL_GLYPHS.join("") + CELL_DIRECTIONAL_GLYPHS.join("");
 }
 
-// The GPU-side half of this contract — the uv-rect table S3's instanced draw reads per glyph index —
-// is defined here and built there, not here: it needs a *live* `GlyphAtlas` (a real GPU device + a
-// loaded `Font`, `extras/text/atlas.ts`), which today only exists once a plugin's `initialize` creates
-// one (`TextPlugin`'s own `_atlases`), and S1 ships no cells-side plugin to own that lifecycle. The
-// contract a producer of that table fulfills:
+// The GPU-side half of this contract — the uv-rect + size tables the instanced draw reads per glyph
+// index — is `glyphs.ts`'s `buildGlyphUvTable` / `buildGlyphSizeTable`, against a live `GlyphAtlas`
+// (`text/core`'s `createGlyphAtlas` + `ensureString`, the same shelf-packed atlas `extras/text`'s own
+// instanced glyph quads use — reused rather than re-derived) that `CellsPlugin` (`./index.ts`) owns the
+// lifecycle of. The contract:
 //
 //   1. Ensure every ramp glyph is resident once: `ensureString(atlas, cellGlyphString())`.
 //   2. For `i` in `0 .. CELL_GLYPH_COUNT - 1`, read `atlas.glyphs.get(cellGlyphChar(i))` (a
-//      `GlyphMetrics`, `atlas.ts`) and pack its `u0, v0, u1, v1` into lane `i` of a
-//      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer — the same shelf-packed uv rect
-//      `computeGlyphMetrics` already produces for `extras/text`'s own instanced glyph quads, reused
-//      rather than re-derived.
-//   3. The instanced draw's vertex/fragment stage indexes that buffer by `cells[i].glyph`, exactly the
-//      way `extras/text/index.ts`'s `typedTextSurface` indexes `textGlyphs` by instance id today.
+//      `GlyphMetrics`) and pack its `u0, v0, u1, v1` into lane `i` of a
+//      `d.arrayOf(d.vec4f, CELL_GLYPH_COUNT)` storage buffer, and its `glyphWidth, glyphHeight`
+//      (em-normalized, clamped to at most 1) into lane `i` of a `d.arrayOf(d.vec2f, CELL_GLYPH_COUNT)`
+//      sibling — the glyph's own measured footprint.
+//   3. The instanced draw's vertex stage indexes both buffers by `cells[i].glyph`: the quad geometry
+//      always covers the whole cell (`draw.ts`'s `cellVertex`), and a fragment maps into the glyph's own
+//      isotropically-scaled footprint within it (`cellFootprintPx` + `glyphFootprintT`, `draw.ts`) —
+//      size-proportional placement, so a glyph occupies the cell in proportion to its own measured size
+//      rather than every glyph's padded SDF tile stretching across the same cell footprint regardless of
+//      extent, and without re-stretching that footprint by the cell's own (non-square) aspect ratio.
+//      Outside the footprint, the fragment stage renders the cell's own background with no glyph ink.
 //
-// A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`, e.g. an unsupported code
-// point) is S3's own concern to define a fallback for — out of this file's contract, which only fixes
-// the index ↔ character mapping every consumer shares.
+// A glyph absent from the loaded font (`computeGlyphMetrics` returns `null`) packs the zero-area uv
+// sentinel `(0,0,0,0)` (`u1 <= u0`, `MISSING_GLYPH_UV`) and the identity-footprint size sentinel `(1,1)`
+// (`MISSING_GLYPH_SIZE`) — the draw's fragment stage treats the zero-area uv as "no glyph" and renders
+// the cell's background alone, never sampling atlas texel `(0,0)`, which a real glyph could legitimately
+// occupy; the size sentinel is inert there since no ink is ever sampled for a missing glyph.
