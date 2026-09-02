@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { EXIT_ALT_SCREEN, HIDE_CURSOR, SHOW_CURSOR } from "../src/cursor";
-import { ALT_SCREEN_ENTER, ALT_SCREEN_EXIT, installTeardown } from "../src/screen";
+import { EXIT_ALT_SCREEN, HIDE_CURSOR, SHOW_CURSOR } from "./cursor";
+import { ALT_SCREEN_ENTER, ALT_SCREEN_EXIT, installTeardown } from "./screen";
 
 test("ALT_SCREEN_ENTER hides the cursor before switching buffers, ALT_SCREEN_EXIT restores it after", () => {
     expect(ALT_SCREEN_ENTER.endsWith(HIDE_CURSOR)).toBe(true);

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { ansi256FromRgb, cube6, encodeRun, sameStyle, sgrPrefix } from "../src/sgr";
-import type { Cell } from "../src/types";
+import { ansi256FromRgb, cube6, encodeRun, sameStyle, sgrPrefix } from "./sgr";
+import type { Cell } from "./types";
 
 const RED: Cell = { glyph: "R", fg: { r: 255, g: 0, b: 0 }, bg: null };
 const RED2: Cell = { glyph: "r", fg: { r: 255, g: 0, b: 0 }, bg: null };

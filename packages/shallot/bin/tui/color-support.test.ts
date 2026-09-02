@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { detectTier } from "../src/color-support";
+import { detectTier } from "./color-support";
 
 describe("detectTier", () => {
     test("non-tty always reads plain, regardless of color env", () => {

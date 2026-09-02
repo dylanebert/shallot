@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { diffRuns } from "../src/diff";
-import type { Cell } from "../src/types";
-import { makeGrid } from "../src/types";
+import { diffRuns } from "./diff";
+import type { Cell } from "./types";
+import { makeGrid } from "./types";
 
 const blank = (): Cell => ({ glyph: " ", fg: null, bg: null });
 
