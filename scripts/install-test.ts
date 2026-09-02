@@ -354,10 +354,15 @@ function createShallotFlow(work: string, engineTgz: string, tuiTgz: string) {
         stderr: "pipe",
     });
     const noShallotTuiOut = `${noShallotTui.stdout.toString()}\n${noShallotTui.stderr.toString()}`;
+    // The prescribed command is `bun install` (an in-repo dev's fix — `bin/tui.ts`'s `noShallotTuiMessage`
+    // docblock has the verified reasoning), never `bun add @dylanebert/shallot-tui` — that 404s against
+    // the public registry, this scaffold's own `proj` included, since the package isn't published.
     check(
         "shallot tui exits with an install remedy when @dylanebert/shallot-tui is absent, not a stack trace",
         noShallotTui.exitCode === 4 &&
-            /bun add @dylanebert\/shallot-tui/.test(noShallotTuiOut) &&
+            /bun install/.test(noShallotTuiOut) &&
+            /link the workspace package/.test(noShallotTuiOut) &&
+            !/bun add @dylanebert\/shallot-tui/.test(noShallotTuiOut) &&
             !/Cannot find module/.test(noShallotTuiOut),
         `exit ${noShallotTui.exitCode}`,
     );

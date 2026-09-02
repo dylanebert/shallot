@@ -348,9 +348,18 @@ describe("importShallotTui / runTui — missing @dylanebert/shallot-tui", () => 
 });
 
 describe("noShallotTuiMessage", () => {
-    test("names the install command and carries no stack-trace shape", () => {
+    // Two-sided: the message must name a command that actually resolves the package for the reader it
+    // can help (an in-repo dev — `bun install` from the shallot repo root links the workspace member,
+    // verified directly: `readlink node_modules/@dylanebert/shallot-tui` resolves to `packages/shallot-
+    // tui` after that command), and must NOT prescribe `bun add @dylanebert/shallot-tui` as the fix —
+    // that 404s against the public registry (measured: `bun add @dylanebert/shallot-tui` run from
+    // `packages/shallot` in this repo still hits `registry.npmjs.org` and 404s, since it isn't declared
+    // as a `workspace:*` dependency there).
+    test("names an install command that resolves the package, and carries no stack-trace shape", () => {
         const msg = noShallotTuiMessage();
-        expect(msg).toContain("bun add @dylanebert/shallot-tui");
+        expect(msg).toContain("bun install");
+        expect(msg).toContain("link the workspace package");
+        expect(msg).not.toContain("bun add @dylanebert/shallot-tui");
         expect(msg).not.toMatch(/\bat \S+\(.*:\d+:\d+\)/); // a "    at fn (file:line:col)" stack frame
         expect(msg).not.toContain("Cannot find module");
     });
