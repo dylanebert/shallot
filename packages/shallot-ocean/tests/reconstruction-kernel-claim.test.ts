@@ -1,9 +1,11 @@
 // Reconstruction kernel claim — closed-form correctness proofs for the shipped bicubic Catmull-Rom
-// kernel (`bicubicSample`), replacing `checkReconstructionContinuity`'s authored-tolerance gradient-
-// jump gate (I3m re-verdict, 2026-09-01): a linear operator's fidelity is proven on a polynomial
-// fixture in closed form, never a tail statistic with an authored or headroom-padded tolerance.
+// kernel (`bicubicSample`). A linear operator's fidelity is proven on a polynomial fixture in closed
+// form, never a tail statistic with an authored or headroom-padded tolerance, and continuity is the
+// discrete identity a piecewise cubic licenses — never an order-of-convergence limit (I3m-r correction
+// round 2, 2026-09-01: `checkReconstructionContinuity` and `maxGradientJump` are retired; this file's
+// seam-identity arm below is their heir).
 //
-// Two fixtures, two claim classes:
+// Three fixtures, three claim classes:
 //
 //   - A POSITION-ENCODED BI-QUADRATIC field (every texel a distinct value: `biQuadratic`) proves the
 //     structural claims — exact reproduction at texel centres and everywhere on the polynomial,
@@ -16,61 +18,83 @@
 //     fixture isolates the weaker claim `nearestSample` also fails: raw texel-nearest cannot reproduce
 //     even a straight line off-grid.
 //
-//   - GENERIC (pseudo-random, non-polynomial) data via `syntheticField` proves the convergence claim:
-//     a truly C1 kernel's two one-sided finite-difference derivative estimates at a texel boundary
-//     converge to the same value as the differencing step `h` -> 0, so the residual "jump"
-//     `maxGradientJump` reads is pure O(h) truncation error that HALVES when `h` halves — never a real
-//     discontinuity, which reads h-independent instead (bilinear's own red witness below). The
-//     bi-quadratic fixture above is unusable for THIS claim: bicubic reproduces it exactly everywhere
-//     (see above), so the "jump" it would read degenerates to pure round-off noise that does not scale
-//     as O(h) at all, which would prove nothing about convergence.
+//   - GENERIC (pseudo-random, non-polynomial) `syntheticField` data proves the CONTINUITY claim, as the
+//     seam identity a piecewise cubic licenses rather than a limit: for fixed `v`, `bicubicSample` is a
+//     degree-<=3 polynomial in `u` on each cell (the row taps `p0..p3` are constant within a cell, and
+//     `catmullRom1D` is cubic in its own `t` argument), so four IN-CELL samples on each side of a seam
+//     determine that side's cubic exactly — a closed-form Lagrange fit through those four samples
+//     recovers the cell's seam value and seam derivative in closed form, with no `h`, no limit, and no
+//     truncation term. C0 asserts the two sides' seam values agree; C1 asserts the two sides' seam
+//     derivatives agree — both within a bound derived from the Lagrange weights' own absolute sums, the
+//     kernel's per-call round-off model, and the fixture's magnitude (never authored). The fit's own
+//     premise — that the four in-cell samples really do determine a single cubic spanning the whole
+//     cell, not just the four points fitted — is its own leg: the same fit must predict an unseen FIFTH
+//     in-cell sample within the same bound. A seam-STRADDLING stencil (two samples from each side) is
+//     the leg's control: since the two cells carry different cubics beyond first order (C1 only, not
+//     C3), a fit built across the seam must MISS its own fifth sample by more than the bound — proving
+//     the premise leg is discriminating rather than vacuous.
 //
 // The only tolerance anywhere is f64 round-off, derived from EACH kernel's own operation count and the
 // fixture's own magnitude (never authored, never a headroom multiplier) — printed beside every reading
-// below. I3m-r correction round (2026-09-01): the round-off model used to be `bicubicSample`'s 110-flop
-// count applied in front of `bilinearSample` and `nearestSample` evaluations too (the "exact on the
-// linear" claim below graded bilinear's reading against bicubic's error model, and the C1 red witness
-// graded bilinear's jump reading the same way) — each kernel now carries its own model, derived from its
-// own source below, and a reading is only ever compared against the model for the kernel that produced
-// it (never against another kernel's model, and never against `nearestSample`'s, since `nearestSample`
-// performs no floating-point arithmetic on the payload at all and is only ever used as a RED-WITNESS
-// subject, reusing the tolerance of the claim it is shown to break rather than a model of its own).
+// below. Every seam-identity reading is graded at bicubic's own round-off bound, never a per-kernel one
+// (Gate law: "a red witness is the guarded arm's own assertion re-run with only the subject mutated") —
+// `modelFor(bicubicSample)` is resolved exactly once, and every witness call site below passes only the
+// swapped kernel, never a second model argument alongside it.
 //
 // Mutation table (each applied in place at this stage's own ref, run, reverted with
-// `git show HEAD:<path>`, never shipped):
-//   - `reconstruction.ts`'s `catmullRom1D` `c` coefficient (`0.5*p2` -> `0.35*p2`) -> RED: 9 pass / 3
-//     fail (exact bi-quadratic reproduction, exact linear reproduction, and the O(h) convergence claim
-//     all break).
-//   - `reconstruction.ts`'s `wrap` narrowed to `i % n` (drops the negative-index wraparound) -> RED:
-//     11 pass / 1 fail (only the dedicated literal-index assertions catch it — every other test's
-//     sample points stay >= 2 texels from the seam by construction, so `wrap` is never called
-//     out-of-range there; this is the fixture doing its job, not a coverage gap).
+// `git show HEAD:<path>`, never shipped — the exact counts below are measured, one mutation at a time,
+// against this file's own suite of 22 tests):
+//   - `reconstruction.ts`'s `catmullRom1D` `c` coefficient (`0.5*p2` -> `0.35*p2`) -> RED: 17 pass / 5
+//     fail (exact bi-quadratic reproduction, exact linear reproduction, the BICUBIC_MODEL before/after
+//     comparison — which re-runs the bi-quadratic reading — and BOTH seam legs, C0 and C1: mutating `c`
+//     breaks Catmull-Rom's `a+b+c === p2-p1` identity, so a cell's true value AND derivative at its far
+//     (`t=1`) boundary stop matching the next cell's exact `t=0` value of `p1`, a real discontinuity the
+//     closed-form fit on each side correctly recovers and compares). The premise and straddle-control
+//     legs do NOT break: each cell is still some cubic (just a different one), and a closed-form fit
+//     through four points of any cubic reproduces every other point of that same cubic exactly, so the
+//     mutation is invisible to a same-cell reading by construction.
+//   - `reconstruction.ts`'s `wrap` narrowed to `i % n` (drops the negative-index wraparound) -> RED: 10
+//     pass / 12 fail — reached at seam `k=0` on both axes, where the left-side fit's samples land at
+//     `ix`/`iy = -1` and every tap read goes through `wrap(ix-1, n) = wrap(-2, n)`; the narrowed form
+//     returns a negative row/column index there, and indexing `field[negativeIndex]` (the OUTER array,
+//     not a texel) is `undefined`, so the next index into it throws — every one of the 11 seam-identity
+//     tests (C0, C1, premise, straddle-control, and all 3 red-witness describes) shares this same
+//     `k=0` case in its own sweep and throws independently (each computes its own sweep rather than a
+//     shared one for exactly this reason — see this file's "continuity" describe), plus the dedicated
+//     `wrap` literal-index assertions break on their own terms. Every other seam (`k = 1..N-1`) stays
+//     in-range and is unaffected — this is the fixture doing its job (the periodic seam is swept, not
+//     skipped), not a coverage gap.
 //   - `bicubicSample`'s row-loop `p1` tap (`wrap(ix, n)` -> `wrap(ix + 1, n)`, reading the wrong texel
-//     at `t=0`) -> RED: 8 pass / 4 fail — reaches "exact at texel centres" (the arm neither of the two
+//     at `t=0`) -> RED: 16 pass / 6 fail — reaches "exact at texel centres" (the arm neither of the two
 //     mutations above can reach — `catmullRom1D`'s own `t` variable multiplies every one of `a`, `b`,
-//     `c` at `t=0`, so the identity `bicubicSample(field, N, ix, iy) === field[iy][ix]` holds
-//     regardless of any coefficient mutation by construction, and both recorded taps stay in-range so
-//     `wrap` is inert there too — a mutation to WHICH texel is read is the only thing this claim can be
-//     sensitive to, and this is that mutation) plus the bi-quadratic/linear bicubic-exactness and
-//     bicubic C1-convergence claims, which also read through the shifted `p1` tap. Does not reach
-//     "periodic under translation by N": the shift is itself periodic in `ix`
-//     (`wrap(ix + N + 1, n) === wrap(ix + 1, n)`), so a mesh-relative offset stays offset by the same
-//     wrong amount at `u` and `u + N` alike.
+//     `c` at `t=0`, so the identity `bicubicSample(field, N, ix, iy) === field[iy][ix]` holds regardless
+//     of any coefficient mutation by construction, and both recorded taps stay in-range so `wrap` is
+//     inert there too — a mutation to WHICH texel is read is the only thing this claim can be sensitive
+//     to, and this is that mutation), the bi-quadratic/linear bicubic-exactness claims, the
+//     BICUBIC_MODEL before/after comparison, and BOTH seam legs (shifting `p1` breaks the same-grid-
+//     point identity each side's fit relies on: the left cell's true `t=1` value is no longer `p2 =
+//     field[k]`). Does not reach "periodic under translation by N": the shift is itself periodic in
+//     `ix` (`wrap(ix + N + 1, n) === wrap(ix + 1, n)`), so a mesh-relative offset stays offset by the
+//     same wrong amount at `u` and `u + N` alike. Does not reach premise or straddle-control: each cell
+//     is still cubic, just reading a shifted window of the field, so a same-cell in-cell fit still
+//     reproduces it exactly.
 //   - `wrap`'s large-index branch clamped instead of reduced (`i >= n` returns `n - 1` rather than
-//     `i % n`) -> RED: 10 pass / 2 fail — reaches "periodic under translation by N" (the shifted taps
-//     at `u + N` land past `n` and collapse onto a single clamped texel, while the un-shifted taps at
-//     `u` stay untouched, so the two readings diverge far past round-off) and the literal-index
-//     assertions (`wrap(N, N)` and `wrap(N + 5, N)` both clamp to `N - 1` instead of reducing). Does
-//     not reach "exact at texel centres": every tap
-//     the texel-centre claim reads (`ix` in `[2, N-3]`, taps in `[1, N-1]`) stays `< n`, so the clamp
-//     branch never triggers there.
+//     `i % n`) -> RED: 19 pass / 3 fail — reaches "periodic under translation by N" (the shifted taps at
+//     `u + N` land past `n` and collapse onto a single clamped texel, while the un-shifted taps at `u`
+//     stay untouched, so the two readings diverge far past round-off), the literal-index assertions
+//     (`wrap(N, N)` and `wrap(N + 5, N)` both clamp to `N - 1` instead of reducing), and — unexpectedly —
+//     the `nearest` red-witness's premise leg: `nearestSample` rounds with `Math.round`, and at the last
+//     seam (`k = N-1 = 127`) an offset of `0.9` rounds `127.9` up to exactly `128 = n`, tripping the
+//     clamp branch and changing that one reading enough to (coincidentally) clear the "must exceed the
+//     bound" assertion at that single seam. Does not reach "exact at texel centres" or the seam-identity
+//     legs at any other seam: every in-range tap stays `< n`, so the clamp branch is otherwise inert.
 import { describe, expect, test } from "bun:test";
 import {
     bicubicSample,
     bilinearSample,
     type Field,
-    maxGradientJump,
     nearestSample,
+    type ReconstructionKernel,
     syntheticField,
     wrap,
 } from "../src/reconstruction";
@@ -83,16 +107,54 @@ interface KernelRoundoffModel {
     readonly intermediateMagnitudeBound: number;
 }
 
-// bicubicSample: `catmullRom1D`'s coefficients, read directly off its source: `a`'s 4 terms sum
-// |coeff| = 4, `b`'s = 6, `c`'s = 1; the Horner evaluation nests them under `t in [0,1]`, so the
-// worst-case intermediate magnitude is bounded by |p1| + |c| + |b| + |a| <= 12 * (max |field value|).
+/** max_{t in [0,1]} sum_i |w_i(t)| for a cubic blending-function set, over a dense sample (a closed-
+ *  form polynomial evaluated at 20001 points, no interpolation error of its own) — this bounds how
+ *  much a SINGLE `catmullRom1D`/`lagrangeCubic1D` call can amplify its 4 input magnitudes into its
+ *  output magnitude. `bicubicSample`/`lagrange4Sample` each make 5 such calls: 4 ROW calls over raw
+ *  texels (magnitude <= fieldMagnitude, so row-call output <= W * fieldMagnitude) and 1 COLUMN call
+ *  over the 4 ROW OUTPUTS (already amplified by this same W, so column-call output <= W * (W *
+ *  fieldMagnitude) = W^2 * fieldMagnitude) — the compounded per-kernel-evaluation bound is W^2, stated
+ *  per call rather than the single uniform constant this file used to apply to all 5 calls alike. */
+function maxAbsWeightSum(weights: (t: number) => readonly number[], samples = 20001): number {
+    let max = 0;
+    for (let i = 0; i <= samples; i++) {
+        const t = i / samples;
+        let sum = 0;
+        for (const wi of weights(t)) sum += Math.abs(wi);
+        if (sum > max) max = sum;
+    }
+    return max;
+}
+
+// `catmullRom1D`'s blending functions, read directly off its source (`a`, `b`, `c` collected as
+// coefficients of p0..p3, then `p1 + t*(c + t*(b + t*a))` expanded and regrouped by p_i):
+function catmullRomWeights(t: number): [number, number, number, number] {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return [
+        -0.5 * t + t2 - 0.5 * t3,
+        1 - 2.5 * t2 + 1.5 * t3,
+        0.5 * t + 2 * t2 - 1.5 * t3,
+        -0.5 * t2 + 0.5 * t3,
+    ];
+}
+const MAX_ROW_WEIGHT_SUM_CATMULLROM = maxAbsWeightSum(catmullRomWeights);
+
 // Flop count per `catmullRom1D` call, counted literally from its source: `a` (4 mul + 3 add/sub = 7),
 // `b` (3 mul + 3 add/sub = 6), `c` (2 mul + 1 add = 3), the Horner eval (3 mul + 3 add = 6) = 22.
-// `bicubicSample` makes 5 such calls (4 row combines + 1 column combine) = 110.
 const CATMULLROM_FLOPS = 7 + 6 + 3 + 6; // 22
+
+// I3m-r correction round 2 (2026-09-01): the intermediate bound used to be a single hand-derived
+// constant (12, from |p1| + |c| + |b| + |a| <= 12 * fieldMagnitude) applied uniformly to all 5 calls.
+// Stated per call instead: the row calls' own bound is `MAX_ROW_WEIGHT_SUM_CATMULLROM` (a dense-sampled
+// maximum of the same blending functions the row calls evaluate), and the column call — which combines
+// 4 already-amplified ROW OUTPUTS with the SAME blending functions — compounds it, giving W^2 (see
+// `maxAbsWeightSum`'s docblock). W^2 is tighter than the old uniform 12 (~1.5625 vs 12, ~7.7x), and the
+// "BICUBIC_MODEL intermediate bound" test below prints both and shows every measured reading in this
+// file still clears the tighter one — the derivation moves no verdict.
 const BICUBIC_MODEL: KernelRoundoffModel = {
     flops: 5 * CATMULLROM_FLOPS, // 110
-    intermediateMagnitudeBound: 12,
+    intermediateMagnitudeBound: MAX_ROW_WEIGHT_SUM_CATMULLROM ** 2,
 };
 
 // bilinearSample: two subtracts (`1 - fx`, `1 - fy`), four corner terms each two multiplies
@@ -100,12 +162,84 @@ const BICUBIC_MODEL: KernelRoundoffModel = {
 // literally off its source. Every weight (`1-fx`, `fx`, `1-fy`, `fy`) sits in `[0, 1]` and the four
 // per-corner weights sum to exactly 1 (a convex combination), unlike Catmull-Rom's `a`/`b`/`c`
 // coefficients above, which carry negative terms that amplify intermediates beyond the field
-// magnitude (the 12x bound above). No bilinear intermediate product or partial sum can exceed the
-// field magnitude itself, so its bound is 1x.
+// magnitude. No bilinear intermediate product or partial sum can exceed the field magnitude itself, so
+// its bound is 1x — a single combine step, no row/column compounding.
 const BILINEAR_MODEL: KernelRoundoffModel = {
     flops: 2 + 8 + 3, // 13
     intermediateMagnitudeBound: 1,
 };
+
+// ── test-side four-point Lagrange kernel (item 2's witness) ──────────────────────────────────────
+// Plain cubic Lagrange interpolation through the SAME 4 taps `bicubicSample` reads (nodes at local
+// coordinates -1, 0, 1, 2), as opposed to Catmull-Rom's Hermite-style blend. Exact on cubics (any
+// degree-<=3 source is reproduced everywhere by a 4-point Lagrange fit) — including at t=0 and t=1,
+// where it reproduces p1/p2 exactly, same as Catmull-Rom — but its DERIVATIVE at those shared
+// endpoints is whatever that cell's own 4-point cubic implies, with no cross-cell tangent-matching
+// construction the way Catmull-Rom's `a`/`b`/`c` provide, so it is generically only C0, not C1.
+function lagrangeCubic1D(p0: number, p1: number, p2: number, p3: number, t: number): number {
+    const tm1 = t - 1;
+    const tm2 = t - 2;
+    const tp1 = t + 1;
+    const l0 = (t * tm1 * tm2) / -6;
+    const l1 = (tp1 * tm1 * tm2) / 2;
+    const l2 = (tp1 * t * tm2) / -2;
+    const l3 = (tp1 * t * tm1) / 6;
+    return p0 * l0 + p1 * l1 + p2 * l2 + p3 * l3;
+}
+
+/** the test-side witness kernel — same 16-tap structure as `bicubicSample`, `lagrangeCubic1D` in place
+ *  of `catmullRom1D`. Committed here (never in `src/`), the one witness separating cubic-exactness
+ *  from C1. */
+function lagrange4Sample(field: Field, n: number, u: number, v: number): number {
+    const ix = Math.floor(u);
+    const iy = Math.floor(v);
+    const fx = u - ix;
+    const fy = v - iy;
+    const rows: number[] = [];
+    for (let j = -1; j <= 2; j++) {
+        const yy = wrap(iy + j, n);
+        const p0 = field[yy][wrap(ix - 1, n)];
+        const p1 = field[yy][wrap(ix, n)];
+        const p2 = field[yy][wrap(ix + 1, n)];
+        const p3 = field[yy][wrap(ix + 2, n)];
+        rows.push(lagrangeCubic1D(p0, p1, p2, p3, fx));
+    }
+    return lagrangeCubic1D(rows[0], rows[1], rows[2], rows[3], fy);
+}
+
+// `lagrangeCubic1D`'s blending functions, read literally off its source above.
+function lagrangeWeights(t: number): [number, number, number, number] {
+    const tm1 = t - 1;
+    const tm2 = t - 2;
+    const tp1 = t + 1;
+    return [(t * tm1 * tm2) / -6, (tp1 * tm1 * tm2) / 2, (tp1 * t * tm2) / -2, (tp1 * t * tm1) / 6];
+}
+const MAX_ROW_WEIGHT_SUM_LAGRANGE = maxAbsWeightSum(lagrangeWeights);
+
+// Flop count per `lagrangeCubic1D` call, counted literally: `tm1`/`tm2`/`tp1` (3 add/sub), `l0..l3`
+// (each 2 mul + 1 div = 3, times 4 = 12), the `p_i * l_i` sum (4 mul + 3 add = 7) = 3 + 12 + 7 = 22 —
+// coincidentally equal to `CATMULLROM_FLOPS` (both are order-4 evaluations of similar shape), derived
+// independently from this kernel's own source rather than shared by reference.
+const LAGRANGE_FLOPS = 3 + 12 + 7; // 22
+const LAGRANGE_MODEL: KernelRoundoffModel = {
+    flops: 5 * LAGRANGE_FLOPS,
+    intermediateMagnitudeBound: MAX_ROW_WEIGHT_SUM_LAGRANGE ** 2,
+};
+
+/** looks up a kernel's own round-off model by identity — introduced so every call site needing a
+ *  model passes only the kernel (the subject), never a second, independently-suppliable model
+ *  argument that could silently mismatch it (I3m-r correction round 2, item 6: the retired
+ *  `measureDeviationHalving(kernel, model, label)` shape took kernel and model as two separately-
+ *  varying arguments while its own docblock claimed "only kernel/model differ" — an admission, not a
+ *  proof, that two things varied where the Gate law permits one). `nearestSample` has no entry: it
+ *  performs no floating-point arithmetic on the payload at all and is only ever graded at another
+ *  kernel's bound, never its own. */
+function modelFor(kernel: ReconstructionKernel): KernelRoundoffModel {
+    if (kernel === bicubicSample) return BICUBIC_MODEL;
+    if (kernel === bilinearSample) return BILINEAR_MODEL;
+    if (kernel === lagrange4Sample) return LAGRANGE_MODEL;
+    throw new Error("modelFor: no round-off model for this kernel");
+}
 
 /** forward-error bound on one kernel evaluation (Higham-style: `model.flops` floating ops each
  *  contributing relative error <= the rounding unit, over intermediates bounded by
@@ -114,64 +248,82 @@ function evalRoundoff(fieldMagnitude: number, model: KernelRoundoffModel): numbe
     return model.flops * ROUNDING_UNIT * model.intermediateMagnitudeBound * fieldMagnitude;
 }
 
-/** round-off floor on one `maxGradientJump` reading at step `h` for kernel `model`: 4 kernel
- *  evaluations feed the jump (2 for each one-sided difference), each division by `h` amplifying its
- *  evaluation error by `1/h`. */
-function jumpRoundoff(h: number, fieldMagnitude: number, model: KernelRoundoffModel): number {
-    return (4 * evalRoundoff(fieldMagnitude, model)) / h;
-}
-
-/**
- * Round-off-only floor on one `ratio = jump(h) / jump(h/2)` measurement's own uncertainty, where
- * `jump(h) = C*h + O(h^2) + roundoff(h)`. Halving `h` doubles the `1/h` round-off floor
- * (`jumpRoundoff(h/2, M) = 2 * jumpRoundoff(h, M)`), and estimating `C*h` by the measured `jumpAtH`
- * itself (the raw jump reading — a well-resolved, non-vanishing quantity at these `h`, never the
- * small `ratio - 2` deviation the claim below tests FOR smallness; see `deviationHalvingTolerance`'s
- * docblock for why THAT quantity may never sit in a denominator), first-order error propagation gives
- * `|ratio - 2| <= 2/(C*h) * (roundoff(h) + 2*roundoff(h/2)) = 10 * jumpRoundoff(h, M) / jumpAtH`.
- */
-function ratioDeviationTolerance(
-    jumpAtH: number,
-    h: number,
-    fieldMagnitude: number,
-    model: KernelRoundoffModel,
-): number {
-    return (10 * jumpRoundoff(h, fieldMagnitude, model)) / jumpAtH;
-}
-
-/**
- * I3m-r correction round (2026-09-01): the C1 claim's tolerance used to be
- * `2 * (tol0/|dev0| + tol1/|dev1|)` — dividing by `dev0`/`dev1`, the very "ratio - 2" deviations the
- * claim tests for a halving relationship. A kernel converging BETTER than claimed (a smaller genuine
- * `dev0`/`dev1`) auto-widened its own tolerance under that form, so the assertion was structurally
- * unfailable in the limit regardless of how small the deviations happened to be (finite at today's
- * numbers, `devTol` ~= 0.37, but not derived from anything that keeps it finite).
- *
- * The claim "`dev0 / dev1 == 2`" is restated as "`dev0 - 2*dev1 == 0`" instead: each side's round-off
- * floor (`tol0` on `dev0`, `tol1` on `dev1` — themselves already relative-to-`jumpAtH` bounds from
- * `ratioDeviationTolerance`, not relative to `dev0`/`dev1`) propagates ADDITIVELY through the
- * subtraction (triangle inequality: `|dev0 - 2*dev1| <= tol0 + 2*tol1`), so the tolerance never
- * depends on how small `dev0`/`dev1` measure — it depends only on `tol0`/`tol1`, which are read off
- * `h`, the fixture magnitude and the raw jump readings.
- */
-function deviationHalvingTolerance(tol0: number, tol1: number): number {
-    return tol0 + 2 * tol1;
-}
-
-/** ASSERTED resolution floor (not merely printed): `dev`'s own round-off floor `tol` must sit
- *  strictly below `|dev|` itself, or the reading carries no signal above its own noise floor and the
- *  halving claim above is not yet a meaningful measurement of anything. */
-function assertResolved(label: string, dev: number, tol: number): void {
-    expect(
-        Math.abs(dev),
-        `${label}: |dev|=${Math.abs(dev).toExponential(3)} must clear its round-off floor ${tol.toExponential(3)} to be a resolved reading`,
-    ).toBeGreaterThan(tol);
-}
-
 function fieldMagnitude(field: Field): number {
     let m = 0;
     for (const row of field) for (const v of row) if (Math.abs(v) > m) m = Math.abs(v);
     return m;
+}
+
+// ── closed-form Lagrange fit — no `h`, no limit, no finite difference ────────────────────────────
+
+/** cubic Lagrange basis weight `L_i(x0)` and its EXACT derivative `L_i'(x0)` for 4 nodes `xs`,
+ *  evaluated at query point `x0` — a rational function of the nodes (product rule on the numerator),
+ *  never a finite difference. */
+function lagrangeWeightsAndDerivatives(
+    xs: readonly [number, number, number, number],
+    x0: number,
+): { weights: [number, number, number, number]; derivatives: [number, number, number, number] } {
+    const weights: number[] = [];
+    const derivatives: number[] = [];
+    for (let i = 0; i < 4; i++) {
+        let denom = 1;
+        for (let j = 0; j < 4; j++) if (j !== i) denom *= xs[i] - xs[j];
+        let num = 1;
+        for (let j = 0; j < 4; j++) if (j !== i) num *= x0 - xs[j];
+        let dNum = 0;
+        for (let m = 0; m < 4; m++) {
+            if (m === i) continue;
+            let term = 1;
+            for (let j = 0; j < 4; j++) {
+                if (j === i || j === m) continue;
+                term *= x0 - xs[j];
+            }
+            dNum += term;
+        }
+        weights.push(num / denom);
+        derivatives.push(dNum / denom);
+    }
+    return {
+        weights: weights as [number, number, number, number],
+        derivatives: derivatives as [number, number, number, number],
+    };
+}
+
+interface LagrangeFitResult {
+    value: number;
+    derivative: number;
+    valueTol: number;
+    derivativeTol: number;
+}
+
+/** fit the degree-<=3 polynomial through 4 samples `(xs[i], values[i])` and evaluate its value and
+ *  derivative at `x0` in closed form — exact for any degree-<=3 source, no truncation term. The fit's
+ *  own round-off floor is derived from the weights' absolute sums (never authored): each sample
+ *  carries independent round-off error bounded by `sampleErrorBound` (one kernel evaluation's own
+ *  forward-error bound), propagated linearly through the fixed weights. */
+function lagrangeFit(
+    xs: readonly [number, number, number, number],
+    values: readonly [number, number, number, number],
+    x0: number,
+    sampleErrorBound: number,
+): LagrangeFitResult {
+    const { weights, derivatives } = lagrangeWeightsAndDerivatives(xs, x0);
+    let value = 0;
+    let derivative = 0;
+    let absWeightSum = 0;
+    let absDerivSum = 0;
+    for (let i = 0; i < 4; i++) {
+        value += weights[i] * values[i];
+        derivative += derivatives[i] * values[i];
+        absWeightSum += Math.abs(weights[i]);
+        absDerivSum += Math.abs(derivatives[i]);
+    }
+    return {
+        value,
+        derivative,
+        valueTol: absWeightSum * sampleErrorBound,
+        derivativeTol: absDerivSum * sampleErrorBound,
+    };
 }
 
 // ── position-encoded bi-quadratic fixture ────────────────────────────────────────────────────────
@@ -218,11 +370,36 @@ describe("position-encoded fixture — every texel a distinct value", () => {
     });
 });
 
+describe("BICUBIC_MODEL intermediate bound — per-call derivation, before/after", () => {
+    test("the derived W^2 bound is tighter than the old uniform 12x and moves no verdict", () => {
+        const oldUniformBound = 12; // the single constant this file used to apply to all 5 calls
+        const newBound = BICUBIC_MODEL.intermediateMagnitudeBound;
+        console.log(
+            `BICUBIC_MODEL intermediate bound: before(uniform)=${oldUniformBound} ` +
+                `after(row W=${MAX_ROW_WEIGHT_SUM_CATMULLROM.toFixed(4)}, column W^2=${newBound.toFixed(4)})`,
+        );
+        expect(newBound).toBeLessThan(oldUniformBound);
+        // every measured bi-quadratic deviation in this file already clears the OLD (looser) bound;
+        // this shows they also clear the NEW, tighter, per-call-derived bound — the derivation moves
+        // no verdict.
+        const M = fieldMagnitude(quadraticField);
+        const oldTol = BICUBIC_MODEL.flops * ROUNDING_UNIT * oldUniformBound * M;
+        const newTol = evalRoundoff(M, BICUBIC_MODEL);
+        for (const [u, v] of SAFE_UV) {
+            const diff = Math.abs(bicubicSample(quadraticField, N, u, v) - biQuadratic(u, v));
+            console.log(
+                `  (${u},${v}) |diff|=${diff.toExponential(3)} oldTol=${oldTol.toExponential(3)} newTol=${newTol.toExponential(3)}`,
+            );
+            expect(diff).toBeLessThanOrEqual(newTol);
+        }
+    });
+});
+
 // I3m-r correction round (2026-09-01): neither recorded mutation above reached this claim — at
 // `t=0` (an exact integer sample point), `catmullRom1D`'s return collapses to `p1` regardless of the
 // `a`/`b`/`c` coefficients (each is multiplied by `t`), so no coefficient mutation can ever reach it,
 // and both sample-point taps stay in-range so `wrap`'s narrowing is inert here too. This file's
-// mutation table now records the mutation this claim IS sensitive to: which texel `p1` reads (the
+// mutation table records the mutation this claim IS sensitive to: which texel `p1` reads (the
 // `bicubicSample` row-loop `p1` tap, `wrap(ix, n)` -> `wrap(ix + 1, n)`) — see this file's header.
 describe("exact at texel centres", () => {
     test("bicubic reads the exact stored value at every integer (u, v) >= 2 texels from the seam", () => {
@@ -266,9 +443,6 @@ describe("exact on the bi-quadratic — bicubic reproduces it, bilinear does not
 
 describe("exact on the linear — bicubic and bilinear reproduce it, nearest does not", () => {
     const M = fieldMagnitude(linearField);
-    // I3m-r correction round (2026-09-01): bilinear's own reading used to be graded against
-    // bicubic's 110-flop model (`tolBicubic` below) — each kernel now carries its own tolerance,
-    // derived from its own operation count (see this file's header).
     const tolBicubic = evalRoundoff(M, BICUBIC_MODEL);
     const tolBilinear = evalRoundoff(M, BILINEAR_MODEL);
 
@@ -315,7 +489,7 @@ describe("exact on the linear — bicubic and bilinear reproduce it, nearest doe
 // the `c`-coefficient mutation changes VALUES, not which texel is read, so it does not distinguish
 // `f(u+N,v+N)` from `f(u,v)` (both sides read the same, still-consistently-wrong texels), and the
 // `wrap` mutation only drops NEGATIVE-index wraparound, which `u+N` (always positive here) never
-// reaches. This file's mutation table now records the mutation this claim IS sensitive to: `wrap`'s
+// reaches. This file's mutation table records the mutation this claim IS sensitive to: `wrap`'s
 // large-index branch clamped instead of reduced — see this file's header.
 describe("periodic under translation by N", () => {
     const M = fieldMagnitude(quadraticField);
@@ -345,68 +519,280 @@ describe("wrap — literal index assertions", () => {
     });
 });
 
-describe("C1 by order of convergence — generic (non-polynomial) data", () => {
-    // the position-encoded fixtures above are unusable here: bicubic reproduces the bi-quadratic
-    // EXACTLY everywhere (see this file's header), so the finite-difference "jump" it would read
-    // degenerates to pure round-off noise that does not scale as O(h) at all. `syntheticField`'s
-    // generic, non-polynomial data is what the original continuity gate exercised, and is what a real
-    // O(h) truncation signal needs to be visible above round-off.
-    const NGeneric = 128;
-    const field = syntheticField(NGeneric, 1);
-    const M = fieldMagnitude(field);
-    const H0 = 2e-4;
-    const H1 = H0 / 2;
-    const H2 = H1 / 2;
+// ── continuity: the seam identity a piecewise cubic licenses ────────────────────────────────────
+//
+// For fixed `v`, `bicubicSample(field, N, u, v)` is a degree-<=3 polynomial in `u` on each cell
+// `[k, k+1)`: the row taps `p0..p3` are constant within the cell (they depend only on `floor(u)`), and
+// `catmullRom1D` is cubic in its own `t = u - floor(u)` argument. Four samples strictly INSIDE a cell
+// therefore determine that cell's cubic exactly via a closed-form Lagrange fit (`lagrangeFit` above),
+// and extrapolating that fit to the cell's boundary (`x0 = k`, the seam) recovers the cell's exact seam
+// value and seam derivative — no `h`, no limit, no truncation term. Symmetric for `v`-seams (fixed `u`,
+// sweeping `v`).
+//
+// C0 asserts the two sides' extrapolated seam values agree; C1 asserts the two sides' extrapolated
+// seam derivatives agree — each within a bound derived purely from the Lagrange weights' own absolute
+// sums (`lagrangeFit`'s `valueTol`/`derivativeTol`) and bicubic's own per-call round-off bound
+// (`modelFor(bicubicSample)`), added across both sides (triangle inequality). No ratio, no `h`, and no
+// reading of the subject kernel appears in any denominator anywhere below.
+//
+// The fit's PREMISE — that four in-cell samples really do pin down the WHOLE cell's cubic, not just
+// those four points — is its own leg: the same fit (same nodes, same values) is re-evaluated at a
+// FIFTH in-cell point, distinct from the four fitted ones, and must match the kernel's own reading
+// there within the same `valueTol`. The STRADDLING-STENCIL control (two samples from each side of the
+// seam) proves that leg is discriminating rather than vacuous: since the two cells carry different
+// cubics beyond C1, a fit straddling the seam does not correspond to either cell's true cubic, and must
+// MISS its own fifth in-cell prediction by MORE than that fit's own `valueTol`.
+//
+// Every seam `k = 0..NSeam-1` on both axes is swept (the periodic seam at `k=0` included — its
+// left-side samples land at negative `u`/`v`, exercising `wrap`'s negative branch), each at several
+// off-grid perpendicular offsets, on `syntheticField` (generic, non-polynomial data: the bi-quadratic
+// fixture above is unusable here, since bicubic reproduces it exactly everywhere, degenerating any
+// "jump" to pure round-off noise carrying no continuity signal).
+describe("continuity — the seam identity a piecewise cubic licenses", () => {
+    const SeamN = 128;
+    const seamField = syntheticField(SeamN, 1);
+    const seamFieldMagnitude = fieldMagnitude(seamField);
+    const GuardedModel = modelFor(bicubicSample); // every seam-identity reading below is graded here
+    const seamSampleTol = evalRoundoff(seamFieldMagnitude, GuardedModel);
 
-    /** shared by the green bicubic reading and its bilinear red witness — Gate law: "a red witness is
-     *  the guarded arm's own assertion re-run with only the subject mutated" — so both call sites run
-     *  the exact same measurement, only `kernel`/`model` differ. Computes `dev0`, `dev1` and their
-     *  round-off floors for `kernel`, asserts the resolution floor (item 2's asserted floor, not a
-     *  printed one), and returns `dev0 - 2*dev1` plus its additive tolerance for the caller to gate. */
-    function measureDeviationHalving(
-        kernel: (field: Field, n: number, u: number, v: number) => number,
-        model: KernelRoundoffModel,
-        label: string,
-    ): { diff: number; tol: number } {
-        const j0 = maxGradientJump(kernel, field, NGeneric, H0);
-        const j1 = maxGradientJump(kernel, field, NGeneric, H1);
-        const j2 = maxGradientJump(kernel, field, NGeneric, H2);
-        const ratio01 = j0 / j1;
-        const ratio12 = j1 / j2;
-        const dev0 = ratio01 - 2;
-        const dev1 = ratio12 - 2;
-        const tol0 = ratioDeviationTolerance(j0, H0, M, model);
-        const tol1 = ratioDeviationTolerance(j1, H1, M, model);
-        assertResolved(`${label} dev0`, dev0, tol0);
-        assertResolved(`${label} dev1`, dev1, tol1);
-        const diff = dev0 - 2 * dev1;
-        const tol = deviationHalvingTolerance(tol0, tol1);
-        console.log(
-            `${label} jump(h)=${j0.toExponential(4)} jump(h/2)=${j1.toExponential(4)} jump(h/4)=${j2.toExponential(4)} ` +
-                `ratio01=${ratio01.toFixed(6)} ratio12=${ratio12.toFixed(6)} dev0=${dev0.toExponential(3)} dev1=${dev1.toExponential(3)} ` +
-                `dev0-2*dev1=${diff.toExponential(3)} (tol ${tol.toExponential(3)})`,
-        );
-        return { diff, tol };
+    const FitOffsets: [number, number, number, number] = [0.9, 0.7, 0.5, 0.3]; // distances from the seam, all strictly inside one cell
+    const PremiseOffset = 0.1; // a fifth in-cell point, distinct from every fit node above
+    const StraddleOffsets: [number, number, number, number] = [-0.3, -0.1, 0.1, 0.3]; // two nodes each side of the seam
+    const StraddleTargetOffset = 0.5; // an in-cell point on the right side, distinct from every straddle node
+    const PerpOffsets = [3.17, 47.44, 90.71]; // several off-grid perpendicular offsets, swept per seam
+    const Axes = ["u", "v"] as const;
+    type Axis = (typeof Axes)[number];
+
+    function sampleAt(
+        kernel: ReconstructionKernel,
+        axis: Axis,
+        along: number,
+        perp: number,
+    ): number {
+        return axis === "u"
+            ? kernel(seamField, SeamN, along, perp)
+            : kernel(seamField, SeamN, perp, along);
     }
 
-    test("bicubic: dev0 - 2*dev1 is within its round-off floor of 0 (order-2 halving, no headroom)", () => {
-        const { diff, tol } = measureDeviationHalving(bicubicSample, BICUBIC_MODEL, "bicubic");
-        expect(Math.abs(diff)).toBeLessThanOrEqual(tol);
+    interface SeamMeasurement {
+        axis: Axis;
+        seam: number;
+        perp: number;
+        c0Diff: number;
+        c0Tol: number;
+        c1Diff: number;
+        c1Tol: number;
+        leftPremiseDiff: number;
+        leftPremiseTol: number;
+        rightPremiseDiff: number;
+        rightPremiseTol: number;
+        straddleDiff: number;
+        straddleTol: number;
+    }
+
+    function measureSeam(
+        kernel: ReconstructionKernel,
+        axis: Axis,
+        seam: number,
+        perp: number,
+    ): SeamMeasurement {
+        const leftXs = FitOffsets.map((d) => seam - d) as [number, number, number, number];
+        const leftValues = leftXs.map((x) => sampleAt(kernel, axis, x, perp)) as [
+            number,
+            number,
+            number,
+            number,
+        ];
+        const rightXs = FitOffsets.map((d) => seam + d) as [number, number, number, number];
+        const rightValues = rightXs.map((x) => sampleAt(kernel, axis, x, perp)) as [
+            number,
+            number,
+            number,
+            number,
+        ];
+
+        const leftAtSeam = lagrangeFit(leftXs, leftValues, seam, seamSampleTol);
+        const rightAtSeam = lagrangeFit(rightXs, rightValues, seam, seamSampleTol);
+
+        const leftPremiseX = seam - PremiseOffset;
+        const rightPremiseX = seam + PremiseOffset;
+        const leftPremiseFit = lagrangeFit(leftXs, leftValues, leftPremiseX, seamSampleTol);
+        const rightPremiseFit = lagrangeFit(rightXs, rightValues, rightPremiseX, seamSampleTol);
+        const leftPremiseActual = sampleAt(kernel, axis, leftPremiseX, perp);
+        const rightPremiseActual = sampleAt(kernel, axis, rightPremiseX, perp);
+
+        const straddleXs = StraddleOffsets.map((d) => seam + d) as [number, number, number, number];
+        const straddleValues = straddleXs.map((x) => sampleAt(kernel, axis, x, perp)) as [
+            number,
+            number,
+            number,
+            number,
+        ];
+        const straddleTargetX = seam + StraddleTargetOffset;
+        const straddleFit = lagrangeFit(straddleXs, straddleValues, straddleTargetX, seamSampleTol);
+        const straddleActual = sampleAt(kernel, axis, straddleTargetX, perp);
+
+        return {
+            axis,
+            seam,
+            perp,
+            c0Diff: Math.abs(leftAtSeam.value - rightAtSeam.value),
+            c0Tol: leftAtSeam.valueTol + rightAtSeam.valueTol,
+            c1Diff: Math.abs(leftAtSeam.derivative - rightAtSeam.derivative),
+            c1Tol: leftAtSeam.derivativeTol + rightAtSeam.derivativeTol,
+            leftPremiseDiff: Math.abs(leftPremiseFit.value - leftPremiseActual),
+            leftPremiseTol: leftPremiseFit.valueTol,
+            rightPremiseDiff: Math.abs(rightPremiseFit.value - rightPremiseActual),
+            rightPremiseTol: rightPremiseFit.valueTol,
+            straddleDiff: Math.abs(straddleFit.value - straddleActual),
+            straddleTol: straddleFit.valueTol,
+        };
+    }
+
+    /** every seam on both axes, at every declared perpendicular offset — the population every describe
+     *  block below reads from, so a red witness's "only the kernel mutated" claim is literal: same
+     *  seams, same offsets, same fixture, same bound. */
+    function sweepSeams(kernel: ReconstructionKernel): SeamMeasurement[] {
+        const out: SeamMeasurement[] = [];
+        for (const axis of Axes) {
+            for (let seam = 0; seam < SeamN; seam++) {
+                for (const perp of PerpOffsets) out.push(measureSeam(kernel, axis, seam, perp));
+            }
+        }
+        return out;
+    }
+
+    function worstSlack(
+        results: readonly SeamMeasurement[],
+        diffKey: "c0Diff" | "c1Diff" | "leftPremiseDiff" | "rightPremiseDiff" | "straddleDiff",
+        tolKey: "c0Tol" | "c1Tol" | "leftPremiseTol" | "rightPremiseTol" | "straddleTol",
+    ): SeamMeasurement {
+        let worst = results[0];
+        let worstSlackValue = Number.POSITIVE_INFINITY;
+        for (const r of results) {
+            const slack = r[tolKey] - r[diffKey];
+            if (slack < worstSlackValue) {
+                worstSlackValue = slack;
+                worst = r;
+            }
+        }
+        return worst;
+    }
+
+    // Each test below computes its own sweep rather than sharing one eagerly-computed array: a
+    // mutation reached only at one seam (e.g. `wrap`'s negative-index branch, reached at k=0) can throw
+    // rather than merely misread, and a throw during a SHARED describe-scope computation would abort
+    // registration of every sibling test in this describe at once, hiding their own pass/fail status
+    // (measured while red-witnessing the `wrap` mutation below). Computing per-test costs a few extra
+    // cheap sweeps (each ~11k trivial kernel calls) and keeps every leg's own reach independently
+    // reportable.
+
+    test("C0: bicubic's two one-sided in-cell fits agree at the seam within round-off", () => {
+        const results = sweepSeams(bicubicSample);
+        const worst = worstSlack(results, "c0Diff", "c0Tol");
+        console.log(
+            `C0 worst case (axis=${worst.axis} seam=${worst.seam} perp=${worst.perp}): ` +
+                `diff=${worst.c0Diff.toExponential(3)} tol=${worst.c0Tol.toExponential(3)}`,
+        );
+        for (const r of results) expect(r.c0Diff).toBeLessThanOrEqual(r.c0Tol);
     });
 
-    test("RED-WITNESS — bilinear's jump is h-independent (a real discontinuity, not O(h) truncation)", () => {
-        // re-runs the guarded arm's own assertion ("dev0 - 2*dev1 within its round-off floor of 0")
-        // with only the subject mutated to bilinearSample — I3m-r correction round (2026-09-01): this
-        // used to test a DIFFERENT, weaker two-h claim ("ratio01 stays near 1, not 2") than the
-        // guarded arm's own three-h halving claim, so the docblock ("re-runs the guarded arm's own
-        // ratio-near-2 assertion") named an assertion the test didn't make. A real C0 discontinuity
-        // does not shrink with h, so its ratio stays near 1 at every h — dev0 and dev1 both sit near
-        // -1, and `dev0 - 2*dev1` sits near +1, far outside round-off.
-        const { diff, tol } = measureDeviationHalving(
-            bilinearSample,
-            BILINEAR_MODEL,
-            "bilinear RED-WITNESS",
+    test("C1: bicubic's two one-sided in-cell fits agree on the seam derivative within round-off", () => {
+        const results = sweepSeams(bicubicSample);
+        const worst = worstSlack(results, "c1Diff", "c1Tol");
+        console.log(
+            `C1 worst case (axis=${worst.axis} seam=${worst.seam} perp=${worst.perp}): ` +
+                `diff=${worst.c1Diff.toExponential(3)} tol=${worst.c1Tol.toExponential(3)}`,
         );
-        expect(Math.abs(diff)).toBeGreaterThan(tol);
+        for (const r of results) expect(r.c1Diff).toBeLessThanOrEqual(r.c1Tol);
+    });
+
+    test("premise: each side's fit predicts an unseen fifth in-cell sample within its own bound", () => {
+        const results = sweepSeams(bicubicSample);
+        const worstLeft = worstSlack(results, "leftPremiseDiff", "leftPremiseTol");
+        const worstRight = worstSlack(results, "rightPremiseDiff", "rightPremiseTol");
+        console.log(
+            `premise worst case left (axis=${worstLeft.axis} seam=${worstLeft.seam} perp=${worstLeft.perp}): ` +
+                `diff=${worstLeft.leftPremiseDiff.toExponential(3)} tol=${worstLeft.leftPremiseTol.toExponential(3)}`,
+        );
+        console.log(
+            `premise worst case right (axis=${worstRight.axis} seam=${worstRight.seam} perp=${worstRight.perp}): ` +
+                `diff=${worstRight.rightPremiseDiff.toExponential(3)} tol=${worstRight.rightPremiseTol.toExponential(3)}`,
+        );
+        for (const r of results) {
+            expect(r.leftPremiseDiff).toBeLessThanOrEqual(r.leftPremiseTol);
+            expect(r.rightPremiseDiff).toBeLessThanOrEqual(r.rightPremiseTol);
+        }
+    });
+
+    test("CONTROL — a seam-straddling stencil misses its own fifth in-cell prediction by more than its bound", () => {
+        const results = sweepSeams(bicubicSample);
+        const worst = worstSlack(results, "straddleDiff", "straddleTol");
+        console.log(
+            `straddle-control worst case (axis=${worst.axis} seam=${worst.seam} perp=${worst.perp}): ` +
+                `diff=${worst.straddleDiff.toExponential(3)} tol=${worst.straddleTol.toExponential(3)}`,
+        );
+        for (const r of results) expect(r.straddleDiff).toBeGreaterThan(r.straddleTol);
+    });
+
+    describe("RED-WITNESS — bilinear reds C1, passes C0 (guarded bound, only the kernel mutated)", () => {
+        // reaches: C0 (passes — bilinear is piecewise linear in each cell for fixed perp, and its two
+        // adjacent cells already share the exact corner value the seam sits on, so both one-sided fits
+        // recover that same value exactly), C1 (reds — bilinear's per-cell slope depends on that cell's
+        // own two corner values and is generically discontinuous across the seam).
+        test("C0 still agrees within the guarded bound", () => {
+            const results = sweepSeams(bilinearSample);
+            for (const r of results) expect(r.c0Diff).toBeLessThanOrEqual(r.c0Tol);
+        });
+
+        test("C1 breaks the guarded bound", () => {
+            const results = sweepSeams(bilinearSample);
+            for (const r of results) expect(r.c1Diff).toBeGreaterThan(r.c1Tol);
+        });
+    });
+
+    describe("RED-WITNESS — nearest reds C0 and the premise leg (guarded bound, only the kernel mutated)", () => {
+        // reaches: C0 (reds — `nearestSample` rounds to the nearest INTEGER texel, so among the four
+        // fit offsets [0.9, 0.7, 0.5, 0.3] two round to one texel and two round to its neighbour,
+        // making the "in-cell fit" read a step function rather than a cubic and its seam extrapolation
+        // meaningless), premise (reds — the same step-function data cannot predict its own unseen
+        // sample either).
+        test("C0 breaks the guarded bound", () => {
+            const results = sweepSeams(nearestSample);
+            for (const r of results) expect(r.c0Diff).toBeGreaterThan(r.c0Tol);
+        });
+
+        test("the premise leg breaks too", () => {
+            const results = sweepSeams(nearestSample);
+            for (const r of results) {
+                expect(r.leftPremiseDiff).toBeGreaterThan(r.leftPremiseTol);
+                expect(r.rightPremiseDiff).toBeGreaterThan(r.rightPremiseTol);
+            }
+        });
+    });
+
+    describe("RED-WITNESS — a test-side four-point Lagrange kernel reds C1 alone (guarded bound, only the kernel mutated)", () => {
+        // exact on cubics (see this file's header), so green on every arm except C1 — the one witness
+        // separating cubic-exactness from C1: reaches C0 (passes — both cells' Lagrange cubics already
+        // agree at the shared grid point p1/p2), premise (passes — a fit through 4 points of a cubic
+        // reproduces every other point of that SAME cubic exactly), C1 (reds — no cross-cell tangent
+        // construction ties the two cells' independently-fitted cubics' derivatives together).
+        test("C0 stays green", () => {
+            const results = sweepSeams(lagrange4Sample);
+            for (const r of results) expect(r.c0Diff).toBeLessThanOrEqual(r.c0Tol);
+        });
+
+        test("the premise leg stays green", () => {
+            const results = sweepSeams(lagrange4Sample);
+            for (const r of results) {
+                expect(r.leftPremiseDiff).toBeLessThanOrEqual(r.leftPremiseTol);
+                expect(r.rightPremiseDiff).toBeLessThanOrEqual(r.rightPremiseTol);
+            }
+        });
+
+        test("C1 breaks the guarded bound", () => {
+            const results = sweepSeams(lagrange4Sample);
+            for (const r of results) expect(r.c1Diff).toBeGreaterThan(r.c1Tol);
+        });
     });
 });

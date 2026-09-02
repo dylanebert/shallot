@@ -3,10 +3,12 @@
 //
 // A 4-tap bilinear kernel is only C0 continuous: its gradient jumps discontinuously at every texel
 // boundary, which is visible on a displaced mesh as a lattice of hard creases rather than a smooth
-// wave surface. Bicubic Catmull-Rom (16 wrapped taps, C1) removes that discontinuity — the
-// gradient's two one-sided estimates at a texel boundary converge to the same value, which
-// `maxGradientJump` below measures directly. `nearestSample` (no interpolation, C^-1) brackets
-// bicubic from the opposite side bilinear does: no negative lobes to overshoot with.
+// wave surface. Bicubic Catmull-Rom (16 wrapped taps, C1) removes that discontinuity — its seam value
+// and seam derivative on each side of a texel boundary agree exactly, which
+// `reconstruction-kernel-claim.test.ts`'s seam-identity arm measures via closed-form in-cell Lagrange
+// fits (the heir to this module's retired `maxGradientJump` order-of-convergence probe). `nearestSample`
+// (no interpolation, C^-1) brackets bicubic from the opposite side bilinear does: no negative lobes to
+// overshoot with.
 //
 // This module and `vertex-displacement.ts`'s GPU vertex-stage kernel express the same taps, wrapping
 // and Catmull-Rom coefficients twice, hand-authored on each side; `wrap-catmullrom-lockstep.test.ts`
@@ -98,31 +100,3 @@ export function nearestSample(field: Field, n: number, u: number, v: number): nu
 }
 
 export type ReconstructionKernel = (field: Field, n: number, u: number, v: number) => number;
-
-/**
- * The maximum |gradient jump| in `u` across any texel boundary, over every boundary `k` and a
- * spread of off-grid `v` offsets (never exactly on a boundary or the 0.5 midpoint — deliberately
- * asymmetric offsets so degenerate symmetric data can't hide a real jump). A central finite
- * difference of spacing `h` samples just inside and just outside each seam; a C1 kernel's two
- * one-sided derivative estimates converge to the same value as `h -> 0` (residual jump ~ O(h) from
- * truncation error, not a real discontinuity), while a C0 kernel's stay apart at any `h`.
- */
-export function maxGradientJump(
-    kernel: ReconstructionKernel,
-    field: Field,
-    n: number,
-    h = 1e-4,
-): number {
-    let maxJump = 0;
-    const vOffsets = [0.17, 0.44, 0.71]; // off-grid, off-midpoint row offsets
-    for (let k = 0; k < n; k++) {
-        for (const vFrac of vOffsets) {
-            const v = 3 + vFrac; // arbitrary row, clear of the x boundary under test
-            const gradLeft = (kernel(field, n, k - h, v) - kernel(field, n, k - 2 * h, v)) / h;
-            const gradRight = (kernel(field, n, k + 2 * h, v) - kernel(field, n, k + h, v)) / h;
-            const jump = Math.abs(gradRight - gradLeft);
-            if (jump > maxJump) maxJump = jump;
-        }
-    }
-    return maxJump;
-}

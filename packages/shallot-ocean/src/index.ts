@@ -66,7 +66,6 @@ export {
     bilinearSample,
     catmullRom1D,
     type Field,
-    maxGradientJump,
     nearestSample,
     type ReconstructionKernel,
     syntheticField,

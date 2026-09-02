@@ -17,9 +17,11 @@
 //   Catmull-Rom (shipped, C1) vs bilinear (C0) vs raw texel-nearest (C^-1, no interpolation — brackets
 //   bicubic from the opposite side bilinear does, since it has no negative lobes to overshoot with).
 //
-// Leg (b) — near-spacing sweep at the shipped reconstruction (bicubic): the shipped near spacing,
-//   cascade 1's own texel, and twice that texel (below / at / above the current boundary), holding
-//   the same ring structure (5 levels, doubling spacing/radius each ring) so ring-for-ring
+// Leg (b) — near-spacing sweep at the shipped reconstruction (bicubic): three near spacings relative
+//   to `finestCascadeTexel/2` (the Nyquist-sampling bound `OCEAN_CLIP_CONFIG.nearSpacing` targets) —
+//   the shipped spacing (0.99x), cascade 1's own texel (2x), and twice that texel (4x) — none of them
+//   sitting exactly "at" the bound; the ratio to `finestCascadeTexel/2` is printed beside each leg.
+//   Holds the same ring structure (5 levels, doubling spacing/radius each ring) so ring-for-ring
 //   comparisons are meaningful.
 //
 // Both legs read every ring's own triangle population (never vacuously passing a ring with zero
@@ -85,6 +87,7 @@ import {
     buildClipLevels,
     buildClipmapMesh,
     type ClipLevel,
+    finestCascadeTexel,
     OCEAN_CLIP_CONFIG,
     OCEAN_CLIP_LEVELS,
 } from "../src/clipmap";
@@ -342,33 +345,42 @@ describe("leg (b): near-spacing sweep at the shipped reconstruction (bicubic)", 
     // coreHalfExtent = nearSpacing * 100 keeps the core-grid-is-integral check exact for all three
     // spacings and totalHalfExtent = coreHalfExtent * 16 keeps the same 5-level, doubling-per-ring
     // structure OCEAN_CLIP_LEVELS uses, so ring r's spacing is always nearSpacing * 2^r.
-    const finestTexel = CASCADE_CONFIGS[1].L / CASCADE_CONFIGS[1].N;
-    const spacingLegs = [OCEAN_CLIP_CONFIG.nearSpacing, finestTexel, finestTexel * 2];
+    //
+    // The three legs are 0.99x / 2x / 4x of `finestCascadeTexel(CASCADE_CONFIGS)/2` (the Nyquist-
+    // sampling bound `OCEAN_CLIP_CONFIG.nearSpacing` is derived to sit just below) — none of them "at"
+    // that bound. The ratio to the reference is printed beside each leg below.
+    const nyquistReference = finestCascadeTexel(CASCADE_CONFIGS) / 2;
+    const spacingLegs = [OCEAN_CLIP_CONFIG.nearSpacing, nyquistReference * 2, nyquistReference * 4];
     for (const nearSpacing of spacingLegs) {
-        test(`near spacing ${nearSpacing}m: every ring has a nonzero triangle population`, () => {
+        test(`near spacing ${nearSpacing}m (${(nearSpacing / nyquistReference).toFixed(2)}x reference): every ring has a nonzero triangle population`, () => {
             const levels = buildClipLevels({
                 coreHalfExtent: nearSpacing * 100,
                 nearSpacing,
                 totalHalfExtent: nearSpacing * 100 * 16,
             });
             const res = measureMeshFlips(levels, bicubicSample, cascadeFields, false);
-            printSweep(`near spacing ${nearSpacing}m`, res);
+            printSweep(
+                `near spacing ${nearSpacing}m (${(nearSpacing / nyquistReference).toFixed(2)}x of finestCascadeTexel/2=${nyquistReference.toFixed(4)}m)`,
+                res,
+            );
             assertPopulated(res);
         });
     }
 
     // I3m-r correction round (2026-09-01): ring 0's flip fraction used to be ASSERTED non-increasing
-    // across these three near-spacing legs (below / at / above the Nyquist bound `checkContinuity`
-    // derives). The consult ruled the ordering claim wrong, same as leg (a)'s continuum comparison
+    // across these three near-spacing legs (0.99x / 2x / 4x of the Nyquist reference
+    // `finestCascadeTexel(CASCADE_CONFIGS)/2` — none of the three legs sits exactly "at" that
+    // reference). The consult ruled the ordering claim wrong, same as leg (a)'s continuum comparison
     // before it: a fold fraction is a tail statistic, and this file's own mutation table has no entry
     // that reaches an ordering over it — a `clipmap.ts` ring-doubling mutation this comment used to
     // cite as the ordering's red witness does not exist anywhere in this file's mutation table above,
     // and no mutation was ever run to check the ordering assertion's own reach. This is now a
     // print-only sweep, matching leg (a)'s shape: ring 0's flip fraction at each near spacing, printed
-    // with its Bernoulli interval, never ordered or gated. The near-spacing-above-Nyquist claim these
-    // spacings were chosen to bracket lives at `clipmap-continuity.test.ts`'s closed-form inequality
-    // on `OCEAN_CLIP_CONFIG` against `CASCADE_CONFIGS`, with its own red witness there (see this
-    // file's header) — not re-derived through a mesh reading here.
+    // with its Bernoulli interval and its ratio to the reference, never ordered or gated. The
+    // near-spacing-above-Nyquist claim these spacings were chosen to bracket lives at
+    // `clipmap-continuity.test.ts`'s closed-form inequality on `OCEAN_CLIP_CONFIG` against
+    // `CASCADE_CONFIGS`, with its own red witness there (see this file's header) — not re-derived
+    // through a mesh reading here.
     test("print-only: ring 0's flip fraction across the three near-spacing legs", () => {
         for (const nearSpacing of spacingLegs) {
             const levels = buildClipLevels({
@@ -379,7 +391,8 @@ describe("leg (b): near-spacing sweep at the shipped reconstruction (bicubic)", 
             const ring0 = measureMeshFlips(levels, bicubicSample, cascadeFields, false).perRing[0];
             const interval = bernoulliInterval(ring0.flipFraction, ring0.triCount);
             console.log(
-                `leg (b) ring 0 (spacing ${nearSpacing}m): mesh flip=${(ring0.flipFraction * 100).toFixed(3)}% ± ${(interval * 100).toFixed(3)}% (95%, n=${ring0.triCount}) — reading only, not gated`,
+                `leg (b) ring 0 (spacing ${nearSpacing}m, ${(nearSpacing / nyquistReference).toFixed(2)}x reference): ` +
+                    `mesh flip=${(ring0.flipFraction * 100).toFixed(3)}% ± ${(interval * 100).toFixed(3)}% (95%, n=${ring0.triCount}) — reading only, not gated`,
             );
         }
     });
