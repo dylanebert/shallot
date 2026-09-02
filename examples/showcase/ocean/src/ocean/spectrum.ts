@@ -219,7 +219,7 @@ function assertCascadeSeaState(
     seaState: Pick<SeaState, "windSpeed" | "windDir">,
 ): void {
     if (config.windSpeed !== seaState.windSpeed || config.windDir !== seaState.windDir) {
-        throw new Error("shallot-ocean: cascade wind must match the shared sea state");
+        throw new Error("ocean: cascade wind must match the shared sea state");
     }
 }
 
@@ -313,10 +313,10 @@ export const ALL_CASCADE_CONFIGS: readonly CascadeConfig[] = Object.freeze([
 ]);
 
 if (!assertAllPowerOfTwo(ALL_CASCADE_CONFIGS)) {
-    throw new Error("shallot-ocean: cascade N must be powers of two");
+    throw new Error("ocean: cascade N must be powers of two");
 }
 if (!assertCoprimeL(ALL_CASCADE_CONFIGS)) {
-    throw new Error("shallot-ocean: cascade patch lengths must be pairwise coprime");
+    throw new Error("ocean: cascade patch lengths must be pairwise coprime");
 }
 
 for (const config of ALL_CASCADE_CONFIGS) assertCascadeSeaState(config, SEA_STATE);
