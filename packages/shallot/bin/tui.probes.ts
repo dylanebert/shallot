@@ -83,6 +83,12 @@ describe("shallot tui — deterministic into a pipe (criterion 6, real subproces
     // vacuously on a broken pipeline (e.g. a command that always emits the same fixed bytes regardless of
     // tier) is not proving determinism, it's proving silence. Forcing a different --tier and asserting
     // the byte stream actually changes is what makes the "identical" reading above mean something.
+    // **This arm alone does not exclude an all-blank grid.** A selector emitting glyph index 0 (space) for
+    // every cell still passes both assertions below: plain renders as space/newline padding, byte-
+    // identical across runs (arm 1 above), while ansi256 still wraps that same blank content in SGR runs
+    // for its bg colour, so the two byte streams differ and `b` still contains `\x1b[` — determinism and
+    // a tier-dependent byte stream, with zero glyph ink either way. The arm below closes that gap by
+    // reading the plain-tier stdout directly for actual glyph content.
     test.skipIf(!hasBunWebgpu)(
         "a different --tier changes the byte stream (the pipe isn't emitting a fixed constant)",
         () => {
@@ -97,6 +103,29 @@ describe("shallot tui — deterministic into a pipe (criterion 6, real subproces
             expect(b.status).toBe(EXIT_PASS);
             expect(a.stdout.equals(b.stdout)).toBe(false);
             expect(b.stdout.toString()).toContain("\x1b["); // ansi256 carries SGR color escapes
+        },
+        30_000,
+    );
+
+    // Closes the vacuity gap the two arms above admit (see the comment on arm 2): neither excludes a
+    // selector that emits glyph index 0 for every cell, since an all-blank grid still hashes identically
+    // across runs and still differs byte-for-byte between plain and ansi256 (the bg colour escapes alone
+    // do that). This arm reads the plain-tier stdout directly and requires actual glyph content — at
+    // least one character outside {space, newline} (`\r` excluded too, though the encoder never emits
+    // CRLF) — so an all-blank grid reds here even though it satisfies both arms above.
+    test.skipIf(!hasBunWebgpu)(
+        "the plain-tier stdout carries real glyph content, not an all-blank grid",
+        () => {
+            const a = runPiped(["--tier", "plain"]);
+            const skip = skipReason(a);
+            if (skip) {
+                console.log(`skipping: ${skip}`);
+                return;
+            }
+            expect(a.status).toBe(EXIT_PASS);
+            const text = a.stdout.toString();
+            const nonBlank = [...text].filter((c) => c !== " " && c !== "\n" && c !== "\r");
+            expect(nonBlank.length).toBeGreaterThan(0);
         },
         30_000,
     );
