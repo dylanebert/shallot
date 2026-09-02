@@ -5,6 +5,7 @@ import * as d from "typegpu/data";
 import { surfaceWgsl } from "../../shallot/src/standard/sear/pipelines";
 import { catmullRom1D as reference } from "../src/reconstruction";
 import { composedSlopePsd, slopeMipSize } from "../src/slope";
+import { f16NextDown, f16NextUp, f16Round } from "../src/slope-seam";
 import { CASCADE_CONFIGS, SLOPE_CASCADE_CONFIGS } from "../src/spectrum";
 import {
     oceanSurfaceFs,
@@ -99,10 +100,16 @@ describe("ocean fragment Catmull-Rom closed forms", () => {
 
     test("records per-cascade k-cos response, f16 slope floor, and live MSS partition", () => {
         const rows: string[] = [];
+        const t = 0.37;
+        const derivativeWeights = [
+            closedDerivative(1, 0, 0, 0, t),
+            closedDerivative(0, 1, 0, 0, t),
+            closedDerivative(0, 0, 1, 0, t),
+            closedDerivative(0, 0, 0, 1, t),
+        ];
         for (const config of CASCADE_CONFIGS) {
             const spacing = config.L / config.N;
             const k = config.kHi;
-            const t = 0.37;
             const x = t * spacing;
             const samples = [-1, 0, 1, 2].map((offset) => Math.sin(k * offset * spacing));
             const vectors = samples.map((value) => d.vec4f(value));
@@ -113,39 +120,39 @@ describe("ocean fragment Catmull-Rom closed forms", () => {
                 closedDerivative(samples[0], samples[1], samples[2], samples[3], t) / spacing;
             const truth = k * Math.cos(k * x);
             const response = derivative / truth;
-            rows.push(`L=${config.L} spacing=${spacing} response=${response}`);
+            const expectedResponse = expectedDerivative / truth;
+            const rounded = samples.map(f16Round);
+            const quantizedVectors = rounded.map((value) => d.vec4f(value));
+            const quantizedDerivative =
+                surfaceCatmullRomDerivative1D(
+                    quantizedVectors[0],
+                    quantizedVectors[1],
+                    quantizedVectors[2],
+                    quantizedVectors[3],
+                    t,
+                ).x / spacing;
+            const noiseFloor =
+                rounded.reduce((sum, value, index) => {
+                    const quantum = Math.max(f16NextUp(value) - value, value - f16NextDown(value));
+                    return sum + Math.abs(derivativeWeights[index]) * quantum;
+                }, 0) / spacing;
+            rows.push(
+                `L=${config.L} spacing=${spacing} response=${response} f16SlopeNoiseFloor=${noiseFloor}`,
+            );
             expect(derivative).toBeCloseTo(expectedDerivative, 6);
+            expect(response).toBeCloseTo(expectedResponse, 6);
+            expect(Math.abs(quantizedDerivative - derivative)).toBeLessThanOrEqual(noiseFloor);
+            expect(noiseFloor).toBeGreaterThan(0);
         }
         const slopeConfig = SLOPE_CASCADE_CONFIGS[0];
-        const slopeSpacing = slopeConfig.L / slopeMipSize(slopeConfig, 0);
-        const probe = 1 / slopeSpacing;
-        const widened = Number(new Float16Array([probe])[0]);
-        const payloadQuantum = Math.abs(
-            Number(new Float16Array([probe + probe * 2 ** -10])[0]) - widened,
-        );
-        const t = 0.37;
-        const derivativeWeights = [
-            closedDerivative(1, 0, 0, 0, t),
-            closedDerivative(0, 1, 0, 0, t),
-            closedDerivative(0, 0, 1, 0, t),
-            closedDerivative(0, 0, 0, 1, t),
-        ];
-        const noiseFloor =
-            (payloadQuantum *
-                derivativeWeights.reduce((sum, weight) => sum + Math.abs(weight), 0)) /
-            slopeSpacing;
         const displacementMss = CASCADE_CONFIGS.reduce(
             (sum, config) => sum + composedSlopePsd(config),
             0,
         );
         const slopeMss = composedSlopePsd(slopeConfig);
         const slopeShare = slopeMss / (slopeMss + displacementMss);
-        console.log(
-            `${rows.join("; ")}; f16SlopeNoiseFloor=${noiseFloor}; slopeMssShare=${slopeShare}`,
-        );
+        console.log(`${rows.join("; ")}; slopeMssShare=${slopeShare}`);
         expect(slopeMipSize(slopeConfig, 0)).toBe(slopeConfig.N);
-        expect(payloadQuantum).toBeGreaterThan(0);
-        expect(noiseFloor).toBeGreaterThan(payloadQuantum / slopeSpacing);
         expect(slopeShare).toBeGreaterThan(0);
         expect(slopeShare).toBeLessThan(1);
     });
