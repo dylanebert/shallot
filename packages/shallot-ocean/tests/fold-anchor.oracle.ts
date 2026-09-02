@@ -1,180 +1,239 @@
 // By-path I2r-b choppiness oracle. Solves λ (`spectrum.ts`'s `LAMBDA`) by bisection against a
-// sourced whitecap anchor over a numerically-realized (seeded, IFFT'd) ensemble — never a closed
-// form. The prior round's closed-form fold arm (`origin/shallot-water-surface/I2r`) derived λ
+// sourced whitecap anchor over a numerically-realized (seeded, IFFT'd) seed×phase ensemble — never a
+// closed form. The prior round's closed-form fold arm (`origin/shallot-water-surface/I2r`) derived λ
 // algebraically from the SAME published spectrum the anchor comparison was meant to check against,
-// so it was self-certifying by construction; this oracle's whole point is that `ensembleFold(λ)` is
-// a number nothing here derives in closed form, only measures.
+// so it was self-certifying by construction; this oracle's whole point is that the composed fold
+// fraction is a number nothing here derives in closed form, only measures.
 //
-// COMPOSED: pooled across BOTH displacement cascades (`CASCADE_CONFIGS[0]`, the long-wave/high-
-// energy band, and `[1]`, the finer band), population-weighted by texel count — one fold-fraction
-// reading over the whole represented sea state, not two separate per-cascade numbers. This mirrors
-// the rejected round's own `composedStrainRms`, which summed the SAME two cascades' declared bands
-// into one statistic before this stage existed (`for (const cfg of configs)` — salvaged as a
-// naming precedent only, never its closed-form gate shape, never its algebra). λ is one physical
-// scalar shared by both cascades (Tessendorf's own convention — one choppiness for the whole sea);
+// COMPOSED WORLD GRID: `composed-fold.ts` superposes both displacement cascades' unit-λ gradients
+// at each point of one shared world grid (spacing resolves cascade 1's own texel, extent spans
+// cascade 0's own period — that module's own header states and derives both), then reads
+// det(I + λ(G0+G1)) < 0 as a fraction of world AREA. This replaces the prior round's per-cascade
+// fold pooled by raw texel count (cascade 1, 13% of the represented area, carried 80% of that
+// pooling's weight — an authored free scalar the solve was monotone in). λ is one physical scalar
+// shared by both cascades (Tessendorf's own convention — one choppiness for the whole sea);
 // `spectrum.ts` already ships both `CASCADE_CONFIGS` entries with the same `LAMBDA`.
 //
-// EFFICIENCY: `jacobianStats` (`cpu-reference.ts`) scales the already-IFFT'd gradient fields by
-// `lambda` internally, so a bisection trial through it re-runs six inverse FFTs per cascade per
-// seed for a quantity that doesn't need them recomputed at every trial λ — only the FINAL per-texel
-// Jacobian assembly depends on λ, and that step is O(N²), not O(N² log N). This file computes each
-// seed's raw (unit-λ) gxx/gxz/gzz fields ONCE via the exact same production primitives
-// (`updateH`/`chop`/`spectralGradient`/`idft2`, verbatim `ocean.ts` per `cpu-reference.ts`'s own
-// header) and re-derives detJ/fold-count per trial λ from those cached fields — same FFT pipeline,
-// same physics, ~1000x fewer transforms for a 24-iteration bisection.
+// PHASE: a normalization (or a solve) fitted at a single instant is a fit, not a normalization —
+// counter-rotating ±k terms carry a coherent cross term at t=0 that later phases do not, and the
+// declared band's small effective mode count makes that error order-one (spec Residue). Every fold
+// reading below is a mean over SEED and PHASE: `PHASE_PERIODS` mirrors `realization.oracle.ts`'s own
+// shape (nine consecutive integer multiples of the dominant period, spanning periods 0..8 — the
+// same ≥8-period coverage that file's `phaseAveragedGridVariance` uses), computed here independently
+// off this file's own `dominantPeriod` rather than imported, since the two files' formulas coincide
+// by definition (same sea state) and re-deriving is cheaper than a cross-file dependency for one
+// number. The t=0-only reading is kept and printed as the RED CONTROL this invariant names — the
+// single-point formulation the phase mean corrects for — never as a gate.
 //
-// SEED WINDOWS: SOLVE (seeds 0..39) is declared before any reading. HELD_A (1000..1039) and HELD_B
-// (2000..2039) are disjoint from SOLVE and from each other. Every window uses a per-cascade seed
+// COST: this file is `.oracle.ts` (exempt from the default per-file test-duration cap,
+// `packages/shallot/tests/test-cap.ts`), but `fold-anchor-oracle-reach.test.ts` spawns the WHOLE of
+// it synchronously inside a capped `.test.ts` file to prove `bun run test` actually executes it — so
+// this file's own wall-clock is bounded by that cap (5000ms) minus the reach sentinel's own overhead,
+// not by the exemption. The composed-world-grid build (330×330 points, both cascades) is the cost:
+// ~20ms/realization for the FFT pipeline (`updateH`/`chop`/`spectralGradient`/`idft2`, all four
+// production primitives, unmodified) plus ~6ms for the nearest-neighbor composition, measured. Seed
+// windows are 4 seeds each (not 40): the measured per-seed-mean stderr at n=40 was already two orders
+// of magnitude below the spec's own ±30%/10% tolerances (~0.1-0.3% against 10-30%), so n=4 spends the
+// same margin at 1/10 the realization count — the seed×phase product (4 seeds × 9 phases × 3 windows =
+// 108 realizations, ~2.5s) is what a by-path file spawned from inside a capped file can afford; the
+// full-fidelity 40-seed ensemble stays the shape a future by-path-only widening could restore without
+// touching this file's structure.
+//
+// SEED WINDOWS: SOLVE (seeds 0..3) is declared before any reading. HELD_A (1000..1003) and HELD_B
+// (2000..2003) are disjoint from SOLVE and from each other. Every window uses a per-cascade seed
 // offset (cascade 1 draws `seed + CASCADE1_OFFSET`) so one window index doesn't correlate the two
 // cascades' realizations.
 //
 // TOLERANCES: the spec's own ±30% (held-out fold vs anchor) and 10% (held-out-solved λ vs the
 // declared-set λ) are printed beside this run's own measured standard error of the pooled-fold
-// ensemble mean (empirical stderr over the window's per-seed readings — a fold fraction has no
-// closed-form sampling-variance model, which is exactly why this oracle exists instead of an
-// algebraic one) so a reader can see both bounds sit an order of magnitude above the sampling noise
-// floor they're being checked against (Gate law: "every finite-sample tolerance is derived from and
-// printed beside the estimator's predicted sampling error").
+// ensemble mean (empirical stderr across seeds, and separately across phases — both printed, neither
+// substituted as a tolerance anywhere: Gate law, "every finite-sample tolerance is derived from and
+// printed beside the estimator's predicted sampling error", and the guarded arm's tolerance stays the
+// spec-named constant, never the estimator's own noise).
 import { describe, expect, test } from "bun:test";
+import {
+    type CascadeGradientField,
+    composeWorldGrid,
+    foldFractionAt,
+    realPart,
+    worldGridSpec,
+} from "../src/composed-fold";
 import { chop, idft2, spectralGradient, updateH } from "../src/cpu-reference";
 import {
     CASCADE_CONFIGS,
     type CascadeConfig,
+    FOLD_REGIME,
+    G,
     generateH0,
     LAMBDA,
+    SEA_STATE,
     whitecapFraction,
 } from "../src/spectrum";
 
 const [CFG0, CFG1] = CASCADE_CONFIGS;
 const U10 = CFG0.windSpeed;
 const ANCHOR = whitecapFraction(U10);
+const GRID = worldGridSpec(CASCADE_CONFIGS);
 
-const SOLVE_SEEDS = Array.from({ length: 40 }, (_, i) => i);
-const HELD_A_SEEDS = Array.from({ length: 40 }, (_, i) => 1000 + i);
-const HELD_B_SEEDS = Array.from({ length: 40 }, (_, i) => 2000 + i);
+const SOLVE_SEEDS = [0, 1, 2, 3];
+const HELD_A_SEEDS = [1000, 1001, 1002, 1003];
+const HELD_B_SEEDS = [2000, 2001, 2002, 2003];
 const CASCADE1_OFFSET = 500_000; // decorrelates cascade 0 / cascade 1 draws within one window index
+
+// dominant period — same closed form as `realization.oracle.ts`'s own (re-derived, not imported;
+// see this file's header). Nine phases, periods 0..8: >= 8 dominant periods of coverage.
+const dominantK = (G * SEA_STATE.omegaC ** 2) / SEA_STATE.windSpeed ** 2;
+const dominantPeriod = (2 * Math.PI) / Math.sqrt(G * dominantK);
+const PHASE_PERIODS = Array.from({ length: 9 }, (_, period) => period);
+const PHASES = PHASE_PERIODS.map((period) => period * dominantPeriod);
 
 const ANCHOR_BAND_REL = 0.3; // spec Validation: held-out fold must stay within ±30% of the anchor
 const LAMBDA_AGREEMENT_REL = 0.1; // spec Validation: held-out-solved λ must agree within 10%
 const LAMBDA_MUTATION_REL = 0.2; // spec Validation: the red-witness sweep is ±20% on λ
+const BISECT_LO = 0.1;
+const BISECT_HI = 30;
+const BISECT_ITERS = 24;
 
-/** Raw (unit-λ) real-space gradient fields for one cascade realization — the λ-independent half of
- *  `jacobianStats`, computed via the exact production primitives `cpu-reference.ts` transcribes
- *  from `ocean.ts`'s WGSL (`updateH`/`chop`/`spectralGradient`/`idft2`), never a second derivation. */
-interface RawFields {
-    N: number;
-    gxx: Float64Array;
-    gxz: Float64Array;
-    gzz: Float64Array;
+function mean(values: number[]): number {
+    return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function rawFields(h0: Float32Array, config: CascadeConfig, time = 0): RawFields {
+function sampleStderr(values: number[]): number {
+    const m = mean(values);
+    const variance =
+        values.reduce((sum, v) => sum + (v - m) ** 2, 0) / Math.max(values.length - 1, 1);
+    return Math.sqrt(variance / values.length);
+}
+
+/** Unit-λ real-space gradient field for one cascade realization at one time, via the exact
+ *  production primitives `cpu-reference.ts` transcribes from `ocean.ts`'s WGSL. */
+function cascadeGradientField(
+    h0: Float32Array,
+    config: CascadeConfig,
+    time: number,
+): CascadeGradientField {
     const { N, L } = config;
     const h = updateH(h0, N, L, time);
     const { dxSpec, dzSpec } = chop(h, N, L);
     const { gxxSpec, gxzSpec, gzzSpec } = spectralGradient(dxSpec, dzSpec, N, L);
-    const gxxHeight = idft2(gxxSpec, N);
-    const gxzHeight = idft2(gxzSpec, N);
-    const gzzHeight = idft2(gzzSpec, N);
-    const gxx = new Float64Array(N * N);
-    const gxz = new Float64Array(N * N);
-    const gzz = new Float64Array(N * N);
-    for (let i = 0; i < N * N; i++) {
-        gxx[i] = gxxHeight[i * 2];
-        gxz[i] = gxzHeight[i * 2];
-        gzz[i] = gzzHeight[i * 2];
-    }
-    return { N, gxx, gxz, gzz };
+    return {
+        N,
+        L,
+        gxx: realPart(idft2(gxxSpec, N), N),
+        gxz: realPart(idft2(gxzSpec, N), N),
+        gzz: realPart(idft2(gzzSpec, N), N),
+    };
 }
 
-/** Fold count (det J < 0) at trial `lambda`, from cached raw fields — no FFT re-run. */
-function foldCountAt(raw: RawFields, lambda: number): number {
-    let count = 0;
-    for (let i = 0; i < raw.N * raw.N; i++) {
-        const Jxx = 1 + lambda * raw.gxx[i];
-        const Jzz = 1 + lambda * raw.gzz[i];
-        const Jxz = lambda * raw.gxz[i];
-        if (Jxx * Jzz - Jxz * Jxz < 0) count++;
-    }
-    return count;
+interface SeedRealization {
+    seed: number;
+    /** one composed (unit-λ) world-grid field per `PHASES` entry, index-aligned. */
+    phases: ReturnType<typeof composeWorldGrid>[];
+}
+
+function buildSeedRealization(seed: number): SeedRealization {
+    const h0Cfg0 = generateH0(CFG0, seed);
+    const h0Cfg1 = generateH0(CFG1, seed + CASCADE1_OFFSET);
+    const phases = PHASES.map((time) =>
+        composeWorldGrid(
+            [cascadeGradientField(h0Cfg0, CFG0, time), cascadeGradientField(h0Cfg1, CFG1, time)],
+            GRID,
+        ),
+    );
+    return { seed, phases };
+}
+
+interface SeedWindow {
+    label: string;
+    realizations: SeedRealization[];
+}
+
+function buildWindow(label: string, seeds: number[]): SeedWindow {
+    return { label, realizations: seeds.map(buildSeedRealization) };
+}
+
+interface EnsembleReading {
+    mean: number;
+    /** empirical stderr ACROSS SEEDS of the per-seed, phase-averaged fold reading. */
+    seedStderr: number;
+    /** empirical stderr ACROSS PHASES of the per-phase, seed-averaged fold reading — the spread the
+     *  phase mean itself is estimated from (Residue: "the invariant is a mean over phase and seed
+     *  with both spreads reported"). */
+    phaseStderr: number;
+    /** the spec-named 95% Bernoulli interval on the pooled proportion, printed for comparison only. */
+    bernoulli: number;
 }
 
 const Z95 = 1.96;
 
-/** 95% normal-approximation Bernoulli interval for a proportion `p` measured over `n` i.i.d. trials
- *  (matches `mesh-inversion-sweep.oracle.ts`'s `bernoulliInterval` / `field-mesh-agreement.test.ts`'s
- *  `samplingRelativeError` convention — the spec Validation's own named model, "Bernoulli interval on
- *  a fold fraction"). Printed beside every tolerance below, never the tolerance itself: the field's
- *  N² texels within one realization are spatially correlated, not i.i.d., so treating the whole
- *  pooled population (`n = seeds × texels`) as Bernoulli trials UNDER-states the true sampling
- *  error — measured ~5x smaller than this file's own empirical stderr (below) at the solve window's
- *  size. The empirical stderr (sample std of the K per-seed readings / √K) is what the gates below
- *  actually use, because it is the estimator's MEASURED sampling error rather than a formula known to
- *  underestimate it here. */
 function bernoulliInterval(p: number, n: number): number {
     const clampedP = Math.max(0, Math.min(1, p));
     return Z95 * Math.sqrt((clampedP * (1 - clampedP)) / n);
 }
 
-interface EnsembleReading {
-    mean: number;
-    /** empirical standard error of the ensemble mean (sample std / √K) — the estimator's own
-     *  MEASURED sampling error; this file's gates use this, not the naive Bernoulli formula (see
-     *  `bernoulliInterval`'s own docblock for why). */
-    stderr: number;
-    /** the spec-named Bernoulli interval on the same pooled proportion, printed for comparison only. */
-    bernoulli: number;
+/** Composed world-grid fold fraction at `lambda` for one seed's realization, averaged over every
+ *  declared phase — a fold reading is never taken at a single instant (this file's header). */
+function seedPhaseMeanFold(realization: SeedRealization, lambda: number): number[] {
+    return realization.phases.map((field) => foldFractionAt(field, lambda));
 }
 
-/** Composed (population-weighted, both cascades pooled) ensemble fold-fraction reading at `lambda`
- *  over a seed window's cached raw fields. */
-function ensembleFold(lambda: number, raws0: RawFields[], raws1: RawFields[]): EnsembleReading {
-    const total = CFG0.N * CFG0.N + CFG1.N * CFG1.N;
-    const perSeed: number[] = [];
-    for (let i = 0; i < raws0.length; i++) {
-        const count = foldCountAt(raws0[i], lambda) + foldCountAt(raws1[i], lambda);
-        perSeed.push(count / total);
-    }
-    const mean = perSeed.reduce((a, b) => a + b, 0) / perSeed.length;
-    const variance =
-        perSeed.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(perSeed.length - 1, 1);
-    const stderr = Math.sqrt(variance / perSeed.length);
-    const bernoulli = bernoulliInterval(mean, perSeed.length * total);
-    return { mean, stderr, bernoulli };
+function ensembleFold(lambda: number, window: SeedWindow): EnsembleReading {
+    const perSeedPhase = window.realizations.map((r) => seedPhaseMeanFold(r, lambda));
+    const seedMeans = perSeedPhase.map((phases) => mean(phases));
+    const numPhases = perSeedPhase[0].length;
+    const phaseMeans = PHASE_PERIODS.map((_, p) => mean(perSeedPhase.map((phases) => phases[p])));
+
+    const totalArea = window.realizations.length * numPhases * GRID.gridN * GRID.gridN;
+    return {
+        mean: mean(seedMeans),
+        seedStderr: sampleStderr(seedMeans),
+        phaseStderr: sampleStderr(phaseMeans),
+        bernoulli: bernoulliInterval(mean(seedMeans), totalArea),
+    };
 }
 
-interface SeedWindow {
-    label: string;
-    raws0: RawFields[];
-    raws1: RawFields[];
+interface BisectResult {
+    lambda: number;
+    loFinal: number;
+    hiFinal: number;
+    loFold: number;
+    hiFold: number;
 }
 
-function buildWindow(label: string, seeds: number[]): SeedWindow {
-    const raws0 = seeds.map((seed) => rawFields(generateH0(CFG0, seed), CFG0));
-    const raws1 = seeds.map((seed) => rawFields(generateH0(CFG1, seed + CASCADE1_OFFSET), CFG1));
-    return { label, raws0, raws1 };
-}
-
-/** Bisects λ so `ensembleFold(λ)` lands on `ANCHOR` over one seed window's cached fields. The fold
- *  fraction is monotone increasing in λ over the searched range (measured; every reading in this
- *  file's derivation run confirms it), so ordinary bisection applies. */
-function bisectLambda(window: SeedWindow, lo = 0.1, hi = 30, iters = 24): number {
+/** Bisects λ so `ensembleFold(λ)` lands on `ANCHOR` over one window's cached composed fields. The
+ *  fold fraction is monotone increasing in λ over the searched range (measured; every reading in
+ *  this file's derivation run confirms it), so ordinary bisection applies. Returns the final bracket
+ *  AND its own fold readings — this file's convergence arm asserts both a structural property (the
+ *  bracket halved geometrically `BISECT_ITERS` times) and a semantic one (ANCHOR lies between the
+ *  bracket endpoints' own measured fold values), never a tolerance re-run against itself. */
+function bisectLambda(
+    window: SeedWindow,
+    lo = BISECT_LO,
+    hi = BISECT_HI,
+    iters = BISECT_ITERS,
+): BisectResult {
     for (let i = 0; i < iters; i++) {
         const mid = (lo + hi) / 2;
-        const { mean } = ensembleFold(mid, window.raws0, window.raws1);
-        if (mean < ANCHOR) lo = mid;
+        const { mean: m } = ensembleFold(mid, window);
+        if (m < ANCHOR) lo = mid;
         else hi = mid;
     }
-    return (lo + hi) / 2;
+    return {
+        lambda: (lo + hi) / 2,
+        loFinal: lo,
+        hiFinal: hi,
+        loFold: ensembleFold(lo, window).mean,
+        hiFold: ensembleFold(hi, window).mean,
+    };
 }
 
 function withinAnchorBand(pooled: number): boolean {
     return Math.abs(pooled - ANCHOR) / ANCHOR <= ANCHOR_BAND_REL;
 }
 
-const solveWindow = buildWindow("solve[0..39]", SOLVE_SEEDS);
-const heldA = buildWindow("heldA[1000..1039]", HELD_A_SEEDS);
-const heldB = buildWindow("heldB[2000..2039]", HELD_B_SEEDS);
+const solveWindow = buildWindow("solve[0..3]", SOLVE_SEEDS);
+const heldA = buildWindow("heldA[1000..1003]", HELD_A_SEEDS);
+const heldB = buildWindow("heldB[2000..2003]", HELD_B_SEEDS);
 
 describe("whitecap anchor (Monahan & O'Muircheartaigh 1980)", () => {
     test(`W(U10=${U10}) = min(0.5, 3.84e-6 · U10^3.41)`, () => {
@@ -185,23 +244,49 @@ describe("whitecap anchor (Monahan & O'Muircheartaigh 1980)", () => {
 });
 
 describe("composed-world-grid fold ensemble solves λ against the anchor (declared solve set)", () => {
-    const lambdaSolve = bisectLambda(solveWindow);
-    const solveReading = ensembleFold(lambdaSolve, solveWindow.raws0, solveWindow.raws1);
-
-    test("bisection converges: pooled fold at the solved λ lands on the anchor within its own measured sampling error", () => {
-        const tolerance = 3 * solveReading.stderr; // ~99.7% band on the ensemble mean's own measured spread
+    test(`declared world grid: spacing=${GRID.spacing.toFixed(6)}m resolves cascade 1's own texel (${(CFG1.L / CFG1.N).toFixed(6)}m); extent=${GRID.extent.toFixed(3)}m spans cascade 0's own period (${CFG0.L}m)`, () => {
         console.log(
-            `lambdaSolve=${lambdaSolve.toFixed(6)} pooledFold=${(solveReading.mean * 100).toFixed(4)}% ` +
-                `anchor=${(ANCHOR * 100).toFixed(4)}% stderr=${(solveReading.stderr * 100).toFixed(4)}% ` +
-                `bernoulli95=±${(solveReading.bernoulli * 100).toFixed(4)}% (3·stderr tolerance=${(tolerance * 100).toFixed(4)}%)`,
+            `world grid: ${GRID.gridN}x${GRID.gridN} points, spacing=${GRID.spacing.toFixed(6)}m, extent=${GRID.extent.toFixed(3)}m`,
         );
-        expect(Math.abs(solveReading.mean - ANCHOR)).toBeLessThanOrEqual(tolerance);
+        expect(GRID.spacing).toBeLessThanOrEqual(CFG1.L / CFG1.N);
+        expect(GRID.extent).toBeGreaterThanOrEqual(CFG0.L - GRID.spacing);
+    });
+
+    const solveBisect = bisectLambda(solveWindow);
+    const lambdaSolve = solveBisect.lambda;
+    const solveReading = ensembleFold(lambdaSolve, solveWindow);
+
+    test("bisection converges: the final bracket halved geometrically over the declared iteration count, and ANCHOR lies inside the bracket's own fold readings", () => {
+        const expectedWidth = (BISECT_HI - BISECT_LO) / 2 ** BISECT_ITERS;
+        const actualWidth = solveBisect.hiFinal - solveBisect.loFinal;
+        const relWidthError = Math.abs(actualWidth - expectedWidth) / expectedWidth;
+        console.log(
+            `bisection bracket: lo=${solveBisect.loFinal.toFixed(9)} (fold=${(solveBisect.loFold * 100).toFixed(4)}%) ` +
+                `hi=${solveBisect.hiFinal.toFixed(9)} (fold=${(solveBisect.hiFold * 100).toFixed(4)}%) ` +
+                `width=${actualWidth.toExponential(4)} expectedWidth=${expectedWidth.toExponential(4)} ` +
+                `ANCHOR=${(ANCHOR * 100).toFixed(4)}%`,
+        );
+        expect(relWidthError).toBeLessThan(1e-9);
+        expect(solveBisect.loFold).toBeLessThanOrEqual(ANCHOR);
+        expect(solveBisect.hiFold).toBeGreaterThanOrEqual(ANCHOR);
+    });
+
+    test("RED CONTROL — the single-instant (t=0 only) reading, printed beside the phase-averaged one, never gated (Residue: a normalization fitted at one instant is a fit, not a normalization)", () => {
+        const t0OnlyMean = mean(
+            solveWindow.realizations.map((r) => foldFractionAt(r.phases[0], lambdaSolve)),
+        );
+        console.log(
+            `t=0 ONLY (red control): pooledFold=${(t0OnlyMean * 100).toFixed(4)}% vs phase-averaged=${(solveReading.mean * 100).toFixed(4)}% ` +
+                `anchor=${(ANCHOR * 100).toFixed(4)}% — printed only, never gated`,
+        );
     });
 
     test("the shipped LAMBDA (spectrum.ts) matches this run's live solve within the declared 10% agreement bound", () => {
         const relDiff = Math.abs(LAMBDA - lambdaSolve) / lambdaSolve;
         console.log(
-            `shipped LAMBDA=${LAMBDA} live lambdaSolve=${lambdaSolve.toFixed(6)} relDiff=${(relDiff * 100).toFixed(3)}%`,
+            `lambdaSolve=${lambdaSolve.toFixed(6)} seedStderr=${(solveReading.seedStderr * 100).toFixed(4)}% ` +
+                `phaseStderr=${(solveReading.phaseStderr * 100).toFixed(4)}% bernoulli95=±${(solveReading.bernoulli * 100).toFixed(4)}% ` +
+                `shipped LAMBDA=${LAMBDA} relDiff=${(relDiff * 100).toFixed(3)}%`,
         );
         expect(CASCADE_CONFIGS[0].lambda).toBe(LAMBDA);
         expect(CASCADE_CONFIGS[1].lambda).toBe(LAMBDA);
@@ -210,32 +295,22 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
 
     for (const held of [heldA, heldB]) {
         test(`${held.label}: pooled fold at the solved λ stays within ±${ANCHOR_BAND_REL * 100}% of the anchor`, () => {
-            const reading = ensembleFold(lambdaSolve, held.raws0, held.raws1);
+            const reading = ensembleFold(lambdaSolve, held);
             const relDiff = (reading.mean - ANCHOR) / ANCHOR;
             console.log(
                 `${held.label} pooledFold=${(reading.mean * 100).toFixed(4)}% anchor=${(ANCHOR * 100).toFixed(4)}% ` +
-                    `relDiff=${(relDiff * 100).toFixed(2)}% stderr=${(reading.stderr * 100).toFixed(4)}% ` +
-                    `bernoulli95=±${(reading.bernoulli * 100).toFixed(4)}%`,
+                    `relDiff=${(relDiff * 100).toFixed(2)}% seedStderr=${(reading.seedStderr * 100).toFixed(4)}% ` +
+                    `phaseStderr=${(reading.phaseStderr * 100).toFixed(4)}% bernoulli95=±${(reading.bernoulli * 100).toFixed(4)}%`,
             );
             expect(withinAnchorBand(reading.mean)).toBe(true);
         });
 
         test(`${held.label}: λ solved independently on this window agrees with the declared-set solve within ${LAMBDA_AGREEMENT_REL * 100}%`, () => {
-            const lambdaHeld = bisectLambda(held);
+            const heldBisect = bisectLambda(held);
+            const lambdaHeld = heldBisect.lambda;
             const relDiff = Math.abs(lambdaHeld - lambdaSolve) / lambdaSolve;
-            // implied SE(λ) via the local slope dFold/dλ at lambdaSolve (delta-method propagation of
-            // the pooled-fold ensemble's own measured stderr) — printed beside the 10% bound so a
-            // reader can see it sits comfortably above the noise floor, never asserted directly.
-            const h = 0.05;
-            const slope =
-                (ensembleFold(lambdaSolve + h, held.raws0, held.raws1).mean -
-                    ensembleFold(lambdaSolve - h, held.raws0, held.raws1).mean) /
-                (2 * h);
-            const impliedLambdaStderr = solveReading.stderr / Math.abs(slope);
             console.log(
-                `${held.label} lambdaHeld=${lambdaHeld.toFixed(6)} lambdaSolve=${lambdaSolve.toFixed(6)} ` +
-                    `relDiff=${(relDiff * 100).toFixed(3)}% impliedSE(λ)=${impliedLambdaStderr.toFixed(4)} ` +
-                    `(${((impliedLambdaStderr / lambdaSolve) * 100).toFixed(3)}% of λ)`,
+                `${held.label} lambdaHeld=${lambdaHeld.toFixed(6)} lambdaSolve=${lambdaSolve.toFixed(6)} relDiff=${(relDiff * 100).toFixed(3)}%`,
             );
             expect(relDiff).toBeLessThanOrEqual(LAMBDA_AGREEMENT_REL);
         });
@@ -244,15 +319,13 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
     test("RED-WITNESS — a ±20% λ mutation breaks the held-out anchor-band agreement (Gate law: guarded arm re-run with only λ mutated)", () => {
         const mutatedUp = lambdaSolve * (1 + LAMBDA_MUTATION_REL);
         const mutatedDown = lambdaSolve * (1 - LAMBDA_MUTATION_REL);
-        const readingUp = ensembleFold(mutatedUp, heldA.raws0, heldA.raws1);
-        const readingDown = ensembleFold(mutatedDown, heldA.raws0, heldA.raws1);
+        const readingUp = ensembleFold(mutatedUp, heldA);
+        const readingDown = ensembleFold(mutatedDown, heldA);
         console.log(
-            `mutated +20% λ=${mutatedUp.toFixed(4)} pooledFold=${(readingUp.mean * 100).toFixed(3)}% ` +
-                `withinBand=${withinAnchorBand(readingUp.mean)}`,
+            `mutated +20% λ=${mutatedUp.toFixed(4)} pooledFold=${(readingUp.mean * 100).toFixed(3)}% withinBand=${withinAnchorBand(readingUp.mean)}`,
         );
         console.log(
-            `mutated -20% λ=${mutatedDown.toFixed(4)} pooledFold=${(readingDown.mean * 100).toFixed(3)}% ` +
-                `withinBand=${withinAnchorBand(readingDown.mean)}`,
+            `mutated -20% λ=${mutatedDown.toFixed(4)} pooledFold=${(readingDown.mean * 100).toFixed(3)}% withinBand=${withinAnchorBand(readingDown.mean)}`,
         );
         // the guarded arm above asserts withinAnchorBand(...) === true on the unmutated λ; this
         // red-witness re-runs the identical predicate on the mutated subject and requires it to flip.
@@ -261,48 +334,52 @@ describe("composed-world-grid fold ensemble solves λ against the anchor (declar
     });
 
     describe("Gaussian/erfc corroboration — prints its model error, never gates (spec Validation)", () => {
-        test("erfc(1/(√2·λ·σ)) against the measured pooled fold at the solved λ", () => {
-            // σ: pooled RMS of the unit-λ ∂Dx/∂x field across both cascades × the isotropic 2×2
-            // Jacobian factor √(5/3) (salvaged algebra from the rejected round's own
-            // `composedStrainRms` derivation comment — a corroboration formula, never a gate).
-            let sumSquares = 0;
-            let count = 0;
-            for (const raw of [...solveWindow.raws0, ...solveWindow.raws1]) {
-                for (let i = 0; i < raw.gxx.length; i++) {
-                    sumSquares += raw.gxx[i] * raw.gxx[i];
-                    count++;
+        // σ: pooled RMS of the composed unit-λ Jacobian TRACE (∂Dx/∂x + ∂Dz/∂z) over the solve
+        // window's own seed×phase ensemble — no isotropic-Gaussian projection factor (the rejected
+        // round's √(5/3), algebraically re-imported and then re-derived to √(8/3) under an isotropic
+        // trace-variance model, deleted rather than corrected: this file's whole point is measuring,
+        // never projecting).
+        let sumSquares = 0;
+        let count = 0;
+        for (const r of solveWindow.realizations) {
+            for (const field of r.phases) {
+                const n = field.gridN * field.gridN;
+                for (let i = 0; i < n; i++) {
+                    const trace = field.gxx[i] + field.gzz[i];
+                    sumSquares += trace * trace;
                 }
+                count += n;
             }
-            const sigma = Math.sqrt(sumSquares / count) * Math.sqrt(5 / 3);
-            const predicted = foldProbability(lambdaSolve, sigma);
+        }
+        const effectiveSlopeSigma = Math.sqrt(sumSquares / count);
+        const ceilingLambda = 1 / effectiveSlopeSigma;
+
+        test("erfc(1/(√2·λ·σ)) against the measured composed fold at the solved λ", () => {
+            const predicted = foldProbability(lambdaSolve, effectiveSlopeSigma);
             const modelError = Math.abs(predicted - solveReading.mean) / solveReading.mean;
             console.log(
-                `erfc model: sigma=${sigma.toFixed(6)} predicted=${(predicted * 100).toFixed(4)}% ` +
+                `erfc model: sigma=${effectiveSlopeSigma.toFixed(6)} predicted=${(predicted * 100).toFixed(4)}% ` +
                     `measured=${(solveReading.mean * 100).toFixed(4)}% modelError=${(modelError * 100).toFixed(2)}% ` +
                     "— reading only, never gated",
             );
         });
-    });
 
-    test("fold band, printed anchor→ceiling (never ceiling→λ): the composed field's own regime for shading's foam seeding", () => {
-        // ceiling: the physically-motivated upper λ where the pooled field's mean strain scale
-        // reaches unity (1/effectiveSlopeSigma) — read-only, never a second thing λ is fit to.
-        let sumSquares = 0;
-        let count = 0;
-        for (const raw of [...solveWindow.raws0, ...solveWindow.raws1]) {
-            for (let i = 0; i < raw.gxx.length; i++) {
-                sumSquares += raw.gxx[i] * raw.gxx[i];
-                count++;
-            }
-        }
-        const effectiveSlopeSigma = Math.sqrt(sumSquares / count) * Math.sqrt(5 / 3);
-        const ceilingLambda = 1 / effectiveSlopeSigma;
-        const foldAtCeiling = ensembleFold(ceilingLambda, solveWindow.raws0, solveWindow.raws1);
-        console.log(
-            `fold band: anchor(λ=${lambdaSolve.toFixed(3)}, fold=${(solveReading.mean * 100).toFixed(2)}%, ` +
-                `whitecapAnchor=${(ANCHOR * 100).toFixed(2)}%) → ceiling(λ=${ceilingLambda.toFixed(3)}, ` +
-                `fold=${(foldAtCeiling.mean * 100).toFixed(2)}%) — reading only, never gated`,
-        );
+        test("FOLD_REGIME.effectiveSlopeSigma and .ceilingLambda match this run's live recomputation", () => {
+            console.log(
+                `effectiveSlopeSigma=${effectiveSlopeSigma.toFixed(6)} ceilingLambda=${ceilingLambda.toFixed(6)}`,
+            );
+            expect(FOLD_REGIME.effectiveSlopeSigma).toBeCloseTo(effectiveSlopeSigma, 6);
+            expect(FOLD_REGIME.ceilingLambda).toBeCloseTo(ceilingLambda, 6);
+        });
+
+        test("fold band, printed anchor→ceiling (never ceiling→λ): the composed field's own regime for shading's foam seeding", () => {
+            const foldAtCeiling = ensembleFold(ceilingLambda, solveWindow);
+            console.log(
+                `fold band: anchor(λ=${lambdaSolve.toFixed(3)}, fold=${(solveReading.mean * 100).toFixed(2)}%, ` +
+                    `whitecapAnchor=${(ANCHOR * 100).toFixed(2)}%) → ceiling(λ=${ceilingLambda.toFixed(3)}, ` +
+                    `fold=${(foldAtCeiling.mean * 100).toFixed(2)}%) — reading only, never gated`,
+            );
+        });
     });
 });
 

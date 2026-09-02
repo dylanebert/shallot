@@ -33,6 +33,23 @@ export interface SeaState {
     truncationRatio: number;
 }
 
+/**
+ * Choppiness — the single physical scalar `postKernel` applies after the inverse transform to turn
+ * the analytic slope field into a horizontal displacement (Tessendorf's convention: one number for
+ * the whole sea, never per-cascade). Solved by `fold-anchor.oracle.ts`, never authored: bisect the
+ * COMPOSED-WORLD-GRID (both displacement cascades' gradients superposed at each point of one shared
+ * world grid, `composed-fold.ts`, never pooled by per-cascade texel count) ensemble fold fraction
+ * against the Monahan & O'Muircheartaigh (1980) whitecap-coverage anchor at this sea state's
+ * `U10 = 15` — `whitecapFraction(15) = 0.039337…` — on a declared 4-seed solve set, each seed
+ * averaged over 9 phases spanning 8 dominant periods (never a single instant — a normalization
+ * fitted at one instant is a fit, not a normalization), confirmed within ±30% of the anchor and
+ * within 10% of independently-solved λ on two disjoint held-out 4-seed windows (`fold-anchor.
+ * oracle.ts` re-derives and asserts all three live; this literal is that oracle's own printed
+ * convergence value, transcribed once so production doesn't pay the ensemble's cost at every
+ * import).
+ */
+export const LAMBDA = 4.229965;
+
 /** Shipped power-of-two cascades; coprime world lengths avoid aligned repeat boundaries. */
 export const CASCADE_CONFIGS: CascadeConfig[] = [
     {
@@ -273,6 +290,27 @@ export const SEA_STATE: SeaState = Object.freeze({
     windDir: WIND_DIR,
     significantWaveHeight: 4 * Math.sqrt(FULL_VARIANCE),
     truncationRatio: DECLARED_VARIANCE / FULL_VARIANCE,
+});
+
+/**
+ * The fold regime this stage owns for shading (I4) to consume: the whitecap anchor `LAMBDA` was
+ * solved against, and a physically-motivated ceiling above the anchor where the composed field's
+ * mean strain scale reaches unity (`fold-anchor.oracle.ts`'s own erfc corroboration —
+ * `effectiveSlopeSigma` is the RMS of the composed unit-λ Jacobian TRACE, `∂Dx/∂x + ∂Dz/∂z`, pooled
+ * over the solve window's seed×phase ensemble on the composed world grid — no isotropy factor;
+ * `ceilingLambda = 1/effectiveSlopeSigma` is where that mean strain equals 1, the point past which
+ * the small-perturbation Gerstner/Tessendorf displacement map itself stops being a faithful
+ * description). Reported anchor→ceiling, never ceiling→λ (`Gate law`): the anchor is the solved,
+ * measured operating point; the ceiling is a read-only upper bound the oracle prints beside it,
+ * never a second thing `LAMBDA` is fit to. Both fields below are pinned against `fold-anchor.
+ * oracle.ts`'s own live recomputation (`toBeCloseTo`, 6 decimal places) — mutating either reds that
+ * oracle. Foam seeding decides how to use this range; this stage only derives the numbers.
+ */
+export const FOLD_REGIME = Object.freeze({
+    lambda: LAMBDA,
+    whitecapAnchor: whitecapFraction(U10),
+    effectiveSlopeSigma: 0.164156,
+    ceilingLambda: 6.091752,
 });
 
 /** Short-gravity/capillary cascade configuration; it is slope-only and contributes no displacement. */

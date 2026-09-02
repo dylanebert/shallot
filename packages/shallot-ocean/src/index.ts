@@ -13,6 +13,16 @@ export {
     OCEAN_CLIP_LEVELS,
 } from "./clipmap";
 export {
+    type CascadeGradientField,
+    type ComposedField,
+    composeWorldGrid,
+    foldFractionAt,
+    realPart,
+    traceRms,
+    type WorldGridSpec,
+    worldGridSpec,
+} from "./composed-fold";
+export {
     type ComplexArray,
     type CpuStageResult,
     chop,
