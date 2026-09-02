@@ -36,7 +36,7 @@ import { formatFields, normalizeAttr, parseFields } from "./core";
 const SCENE_FILES = [
     "recipes/custom-material/public/scenes/custom-material.scene",
     "recipes/gpu-particles/public/scenes/gpu-particles.scene",
-    "showcase/visualization/public/scenes/tween.scene",
+    "showcase/visualization/public/scenes/animation.scene",
 ];
 
 const PLUGINS: Plugin[] = [

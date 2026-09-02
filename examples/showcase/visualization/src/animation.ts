@@ -24,4 +24,4 @@ const Clips = {
     },
 } satisfies Plugin;
 
-await start([Clips], "../scenes/tween.scene");
+await start([Clips], "../scenes/animation.scene");
