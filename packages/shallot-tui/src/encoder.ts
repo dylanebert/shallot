@@ -69,8 +69,11 @@ export class Encoder {
     /** Encodes `grid` against the previously encoded grid (or as a full frame, on the first call,
      * or on the first call after `invalidate()`). */
     encode(grid: Grid): string {
+        // `plain` never reads `_prev` — `_tier` is readonly, so once an Encoder is constructed at
+        // `plain` this branch is the only one it ever takes, and `renderPlain` never diffs. Storing a
+        // clone here would be a per-frame allocation with no consumer, the tier documented above as
+        // "stateless by design" holding actual diff state.
         if (this._tier === "plain") {
-            this._prev = cloneGrid(grid);
             return renderPlain(grid);
         }
 
