@@ -18,6 +18,7 @@
         "test:ocean-slope": "bun test ./packages/shallot-ocean/tests/slope.oracle.ts",
         "test:ocean-mesh-inversion": "bun test ./packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts",
         "test:tui-probes": "bun test ./packages/shallot/bin/tui.probes.ts",
+        "test:ocean-fold": "bun test ./packages/shallot-ocean/tests/fold-anchor.oracle.ts",
         "bench": "bun run scripts/bench.ts",
         "flows": "bun run scripts/flows.ts",
         "recipes": "bun run scripts/recipes.ts",
