@@ -65,7 +65,10 @@ export const surfaceCatmullRomDerivative1D = tgpu.fn(
     return std.add(c, std.mul(t, std.add(std.mul(2, b), std.mul(std.mul(3, t), a))));
 });
 
-const SampleGradient = d.struct({ value: d.vec4f, du: d.vec4f, dv: d.vec4f });
+export const OceanSampleGradient = d
+    .struct({ value: d.vec4f, du: d.vec4f, dv: d.vec4f })
+    .$name("OceanSampleGradient");
+const SampleGradient = OceanSampleGradient;
 const sample0 = tgpu.fn(
     [d.i32, d.f32, d.f32],
     SampleGradient,
@@ -204,6 +207,33 @@ export const oceanSurfaceVs = tgpu.fn(
     });
 });
 
+/** composes both displacement-cascade derivatives with the published slope payload. */
+export const oceanFragmentNormal = tgpu.fn(
+    [OceanSampleGradient, OceanSampleGradient, d.f32, d.f32, d.vec4f],
+    d.vec4f,
+)((g0, g1, scale0, scale1, slope) => {
+    "use gpu";
+    const du = d.vec3f(
+        1 + g0.du.x * scale0 + g1.du.x * scale1,
+        g0.du.y * scale0 + g1.du.y * scale1,
+        g0.du.z * scale0 + g1.du.z * scale1,
+    );
+    const dv = d.vec3f(
+        g0.dv.x * scale0 + g1.dv.x * scale1,
+        g0.dv.y * scale0 + g1.dv.y * scale1,
+        1 + g0.dv.z * scale0 + g1.dv.z * scale1,
+    );
+    const displacementNormal = std.normalize(std.cross(dv, du));
+    const normal = std.normalize(
+        d.vec3f(
+            displacementNormal.x - slope.x,
+            displacementNormal.y,
+            displacementNormal.z - slope.y,
+        ),
+    );
+    return d.vec4f(normal, std.sqrt(std.max(0, slope.w)));
+});
+
 /** displacement normal plus the published high-frequency slope product. */
 export const oceanSurfaceFs = tgpu.fn(
     [fsCtxSchema(oceanSurfaceVaryings)],
@@ -219,16 +249,6 @@ export const oceanSurfaceFs = tgpu.fn(
     const g1 = sample1(n1, q1.x, q1.y);
     const scale0 = d.f32(n0) / L0;
     const scale1 = d.f32(n1) / L1;
-    const du = d.vec3f(
-        1 + g0.du.x * scale0 + g1.du.x * scale1,
-        g0.du.y * scale0 + g1.du.y * scale1,
-        g0.du.z * scale0 + g1.du.z * scale1,
-    );
-    const dv = d.vec3f(
-        g0.dv.x * scale0 + g1.dv.x * scale1,
-        g0.dv.y * scale0 + g1.dv.y * scale1,
-        1 + g0.dv.z * scale0 + g1.dv.z * scale1,
-    );
     const slopeUv = std.add(std.div(s, d.vec2f(SLOPE_CASCADE_CONFIGS[0].L)), d.vec2f(0.5));
     const dx = std.dpdx(slopeUv);
     const dy = std.dpdy(slopeUv);
@@ -239,15 +259,9 @@ export const oceanSurfaceFs = tgpu.fn(
         dx,
         dy,
     );
-    const displacementNormal = std.normalize(std.cross(dv, du));
-    const normal = std.normalize(
-        d.vec3f(
-            displacementNormal.x - slope.x,
-            displacementNormal.y,
-            displacementNormal.z - slope.y,
-        ),
-    );
-    const varianceRoughness = std.sqrt(std.max(0.0016, 0.0016 + slope.w));
+    const normalRoughness = oceanFragmentNormal(g0, g1, scale0, scale1, slope);
+    const normal = normalRoughness.xyz;
+    const varianceRoughness = normalRoughness.w;
     const eye = engineLayout.$.view.eye.xyz;
     const view = std.normalize(std.sub(eye, ctx.worldPos));
     const fresnel = 0.02 + 0.98 * std.pow(1 - std.max(std.dot(normal, view), 0), 5);

@@ -9,83 +9,90 @@ import {
     TransformsPlugin,
 } from "@dylanebert/shallot";
 import { ProfilePlugin } from "@dylanebert/shallot/extras";
-import {
-    OceanPlugin,
-    surfaceCatmullRom1D,
-    surfaceCatmullRomDerivative1D,
-} from "@dylanebert/shallot-ocean";
+import { OceanPlugin, OceanSampleGradient, oceanFragmentNormal } from "@dylanebert/shallot-ocean";
 import tgpu from "typegpu";
 import * as d from "typegpu/data";
-import * as std from "typegpu/std";
 import { type Check, register, type Scenario } from "../gym";
 
+const OracleInput = d.struct({
+    g0: OceanSampleGradient,
+    g1: OceanSampleGradient,
+    scale0: d.f32,
+    scale1: d.f32,
+    slope: d.vec4f,
+});
 const layout = tgpu.bindGroupLayout({
-    controls: { storage: d.arrayOf(d.vec4f, 5), access: "readonly" },
+    input: { uniform: OracleInput },
     output: { storage: d.arrayOf(d.vec4f, 1), access: "mutable" },
 });
-
 const kernel = tgpu
     .computeFn({ workgroupSize: [1] })(() => {
         "use gpu";
-        const derivative = surfaceCatmullRomDerivative1D(
-            layout.$.controls[0],
-            layout.$.controls[1],
-            layout.$.controls[2],
-            layout.$.controls[3],
-            0.37,
+        const input = layout.$.input;
+        layout.$.output[0] = oceanFragmentNormal(
+            input.g0,
+            input.g1,
+            input.scale0,
+            input.scale1,
+            input.slope,
         );
-        const value = surfaceCatmullRom1D(
-            layout.$.controls[0],
-            layout.$.controls[1],
-            layout.$.controls[2],
-            layout.$.controls[3],
-            0.37,
-        );
-        const slope = layout.$.controls[4];
-        const normal = std.normalize(d.vec3f(-derivative.y - slope.x, 1, -derivative.z - slope.y));
-        layout.$.output[0] = d.vec4f(normal, value.y + slope.w);
     })
-    .$name("ocean-shading-oracle");
+    .$name("ocean-fragment-normal-oracle");
 
-function cpu(controls: Float32Array): number[] {
-    const t = 0.37;
-    const deriv = (c: number) => {
-        const p0 = controls[c];
-        const p1 = controls[4 + c];
-        const p2 = controls[8 + c];
-        const p3 = controls[12 + c];
-        const a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
-        const b = p0 - 2.5 * p1 + 2 * p2 - 0.5 * p3;
-        return -0.5 * p0 + 0.5 * p2 + t * (2 * b + 3 * t * a);
-    };
-    const value = (c: number) => {
-        const p0 = controls[c];
-        const p1 = controls[4 + c];
-        const p2 = controls[8 + c];
-        const p3 = controls[12 + c];
-        const a = -0.5 * p0 + 1.5 * p1 - 1.5 * p2 + 0.5 * p3;
-        const b = p0 - 2.5 * p1 + 2 * p2 - 0.5 * p3;
-        const cc = -0.5 * p0 + 0.5 * p2;
-        return p1 + t * (cc + t * (b + t * a));
-    };
-    const x = -deriv(1) - controls[16];
-    const z = -deriv(2) - controls[17];
-    const length = Math.hypot(x, 1, z);
-    return [x / length, 1 / length, z / length, value(1) + controls[19]];
+const fixture = {
+    g0: {
+        value: d.vec4f(0.1, 0.2, 0.3, 7),
+        du: d.vec4f(0.04, 0.09, -0.03, 11),
+        dv: d.vec4f(-0.02, 0.07, 0.05, 13),
+    },
+    g1: {
+        value: d.vec4f(-0.2, 0.1, 0.4, 17),
+        du: d.vec4f(-0.01, 0.05, 0.02, 19),
+        dv: d.vec4f(0.03, -0.04, 0.06, 23),
+    },
+    scale0: 2.75,
+    scale1: 5.5,
+    slope: d.vec4f(0.35, -0.2, 29, 0.08),
+};
+
+function normalize(v: number[]): number[] {
+    const length = Math.hypot(...v);
+    return v.map((value) => value / length);
 }
 
-async function dispatch(values: Float32Array): Promise<Float32Array> {
-    const input = Compute.device.createBuffer({
-        size: values.byteLength,
-        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
-    });
+function cpu(input: typeof fixture): number[] {
+    const du = [
+        1 + input.g0.du.x * input.scale0 + input.g1.du.x * input.scale1,
+        input.g0.du.y * input.scale0 + input.g1.du.y * input.scale1,
+        input.g0.du.z * input.scale0 + input.g1.du.z * input.scale1,
+    ];
+    const dv = [
+        input.g0.dv.x * input.scale0 + input.g1.dv.x * input.scale1,
+        input.g0.dv.y * input.scale0 + input.g1.dv.y * input.scale1,
+        1 + input.g0.dv.z * input.scale0 + input.g1.dv.z * input.scale1,
+    ];
+    const displacement = normalize([
+        dv[1] * du[2] - dv[2] * du[1],
+        dv[2] * du[0] - dv[0] * du[2],
+        dv[0] * du[1] - dv[1] * du[0],
+    ]);
+    const normal = normalize([
+        displacement[0] - input.slope.x,
+        displacement[1],
+        displacement[2] - input.slope.y,
+    ]);
+    return [...normal, Math.sqrt(input.slope.w)];
+}
+
+async function dispatch(inputValue: typeof fixture): Promise<Float32Array> {
+    const input = Compute.root.createBuffer(OracleInput).$usage("uniform");
+    input.write(inputValue);
     const output = Compute.device.createBuffer({
         size: 16,
         usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
     });
-    Compute.device.queue.writeBuffer(input, 0, values);
     const group = Compute.root.createBindGroup(layout, {
-        controls: Compute.root.createBuffer(d.arrayOf(d.vec4f, 5), input).$usage("storage"),
+        input,
         output: Compute.root.createBuffer(d.arrayOf(d.vec4f, 1), output).$usage("storage"),
     });
     const pipeline = Compute.root.createComputePipeline({ compute: kernel });
@@ -95,10 +102,13 @@ async function dispatch(values: Float32Array): Promise<Float32Array> {
     pass.end();
     Compute.device.queue.submit([encoder.finish()]);
     const result = new Float32Array((await probeBuffer(Compute.device, output)).bytes);
-    input.destroy();
     output.destroy();
+    input.destroy();
     return result;
 }
+
+const F32_U = 2 ** -24;
+const NORMAL_OPS = 96;
 
 let checks: Check[] = [];
 const scenario: Scenario = {
@@ -118,25 +128,30 @@ const scenario: Scenario = {
             ],
         });
         built.state.pause();
-        const values = new Float32Array([
-            0.1, 0.2, -0.3, 0, 0.4, 0.7, 0.2, 0, -0.2, 1.1, 0.6, 0, 0.3, -0.1, 0.9, 0, 0.35, -0.2,
-            0, 0.08,
-        ]);
-        const expected = cpu(values);
-        const actual = await dispatch(values);
-        const zero = await dispatch(new Float32Array(20));
+        const expected = cpu(fixture);
+        const actual = await dispatch(fixture);
+        const zeroed = {
+            ...fixture,
+            g0: { value: d.vec4f(0), du: d.vec4f(0), dv: d.vec4f(0) },
+            g1: { value: d.vec4f(0), du: d.vec4f(0), dv: d.vec4f(0) },
+            slope: d.vec4f(0),
+        };
+        const zero = await dispatch(zeroed);
         const max = Math.max(...expected.map((value, i) => Math.abs(value - actual[i])));
+        const magnitude = Math.max(1, ...expected.map(Math.abs));
+        const gamma = (NORMAL_OPS * F32_U) / (1 - NORMAL_OPS * F32_U);
+        const bound = gamma * magnitude;
         const witness = Math.max(...expected.map((value, i) => Math.abs(value - zero[i])));
         checks = [
             {
-                name: "device shading normal agrees with the CPU closed form",
-                pass: max <= 2 ** -20,
-                detail: `max=${max}`,
+                name: "device executes the shipped fragment-normal kernel against the CPU closed form",
+                pass: max <= bound,
+                detail: `max=${max} bound=${bound} (u=${F32_U}, ops=${NORMAL_OPS}, magnitude=${magnitude})`,
             },
             {
                 name: "zeroed displacement/slope payload reds the same comparison",
-                pass: witness > 2 ** -20,
-                detail: `zeroedDeviation=${witness}`,
+                pass: witness > bound,
+                detail: `zeroedDeviation=${witness} sharedBound=${bound}`,
             },
         ];
         return built;

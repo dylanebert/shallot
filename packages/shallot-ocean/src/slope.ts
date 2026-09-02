@@ -2,7 +2,7 @@
 // horizontal displacement, or Jacobian output is allocated for this band. The source is a seeded
 // height spectrum, converted to directional slope spectra (`i·kx·h̃`, `i·kz·h̃`) and inverse-transformed with the same
 // radix-2 FFT used by the displacement cascades. Each output texture owns every mip level so a
-// later shading pass can select measured residual variance without inventing a footprint heuristic.
+// shading can select measured residual variance from hardware sample-coordinate gradients.
 
 import { Compute, type System } from "@dylanebert/shallot";
 import { BeginFrameSystem, Render } from "@dylanebert/shallot/render/core";
