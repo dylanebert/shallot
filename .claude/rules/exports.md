@@ -2,7 +2,7 @@
 paths:
     - "packages/shallot/src/**/*.ts"
     - "packages/shallot/package.json"
-    - "packages/shallot-ocean/**"
+    - "examples/showcase/ocean/src/ocean/**"
 ---
 
 # Exports

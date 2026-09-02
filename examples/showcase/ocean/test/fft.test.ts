@@ -2,7 +2,7 @@
 // against the direct O(N²) DFT it replaces, and the CPU/GPU shared cascade config sanity (power-of-two
 // N and reported patch period). No device.
 import { describe, expect, test } from "bun:test";
-import { directIdft2, fft1dInPlace, ifft2 } from "../src/fft";
+import { directIdft2, fft1dInPlace, ifft2 } from "../src/ocean/fft";
 import {
     ALL_CASCADE_CONFIGS,
     assertAllPowerOfTwo,
@@ -11,7 +11,7 @@ import {
     generateH0,
     isPowerOfTwo,
     tilePeriod,
-} from "../src/spectrum";
+} from "../src/ocean/spectrum";
 
 /** deterministic PRNG (mulberry32) — reproducible test fixtures, no external dependency. */
 function mulberry32(seed: number): () => number {

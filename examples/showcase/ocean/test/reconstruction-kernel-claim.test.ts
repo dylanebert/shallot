@@ -109,7 +109,7 @@ import {
     type ReconstructionKernel,
     syntheticField,
     wrap,
-} from "../src/reconstruction";
+} from "../src/ocean/reconstruction";
 
 // ── f64 round-off model — derived from each kernel's own operation count and coefficient structure,
 // never authored ─────────────────────────────────────────────────────────────────────────────────

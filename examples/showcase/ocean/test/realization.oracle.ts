@@ -4,7 +4,7 @@
 // cpu-reference.ts, fft.ts, this oracle, or the physical-spectrum tests that define its target.
 
 import { describe, expect, test } from "bun:test";
-import { idft2, updateH } from "../src/cpu-reference";
+import { idft2, updateH } from "../src/ocean/cpu-reference";
 import {
     CASCADE_CONFIGS,
     type CascadeConfig,
@@ -15,7 +15,7 @@ import {
     kIndex,
     type RealizationMutation,
     SEA_STATE,
-} from "../src/spectrum";
+} from "../src/ocean/spectrum";
 
 const SEEDS = Array.from({ length: 200 }, (_, seed) => seed);
 const MUTATION_SEEDS = SEEDS.slice(0, 48);

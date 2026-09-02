@@ -59,7 +59,7 @@
 // `expectedFromPublished`'s OWN correctness — that they compute the formula their docblocks below
 // claim — is mutation-proven directly, against literals no other package export can move: see the
 // mutation table in `slope-seam.test.ts`'s own header (`bun test
-// packages/shallot-ocean/tests/slope-seam.test.ts`).
+// examples/showcase/ocean/test/slope-seam.test.ts`).
 
 export const CHANNELS = ["slopeX", "slopeZ", "energy", "residual"] as const;
 export type Channel = (typeof CHANNELS)[number];

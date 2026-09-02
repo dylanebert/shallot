@@ -22,7 +22,7 @@ import {
     f16NextUp,
     f16Round,
     f16StepDistance,
-} from "../src/slope-seam";
+} from "../src/ocean/slope-seam";
 
 test("f16 neighbour helpers round-trip and bracket correctly across binades", () => {
     expect(f16Round(0)).toBe(0);

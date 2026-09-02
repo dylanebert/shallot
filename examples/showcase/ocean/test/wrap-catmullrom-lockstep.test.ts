@@ -16,8 +16,8 @@
 // kernel (`vertex-displacement.ts`'s own header names this boundary).
 import { describe, expect, test } from "bun:test";
 import * as d from "typegpu/data";
-import { catmullRom1D as refCatmullRom1D, wrap } from "../src/reconstruction";
-import { catmullRom1D, wrapIndex } from "../src/vertex-displacement";
+import { catmullRom1D as refCatmullRom1D, wrap } from "../src/ocean/reconstruction";
+import { catmullRom1D, wrapIndex } from "../src/ocean/vertex-displacement";
 
 describe("wrapIndex vs reconstruction.ts's wrap — same formula, called directly from JS", () => {
     test("agrees on every offset in a texture's practical index range, both signs", () => {

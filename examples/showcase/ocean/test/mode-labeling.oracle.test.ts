@@ -11,9 +11,9 @@
 // independently mismatched prediction; both must read a large disagreement so the witness cannot
 // pass merely because one callback drives every side of the comparison.
 import { describe, expect, test } from "bun:test";
-import { idft2, updateH } from "../src/cpu-reference";
-import { centeredLabelPreFix, lag1AutocorrParityWitness } from "../src/parity-witness";
-import { CASCADE_CONFIGS, kIndex, type LabelFn } from "../src/spectrum";
+import { idft2, updateH } from "../src/ocean/cpu-reference";
+import { centeredLabelPreFix, lag1AutocorrParityWitness } from "../src/ocean/parity-witness";
+import { CASCADE_CONFIGS, kIndex, type LabelFn } from "../src/ocean/spectrum";
 
 const PI = Math.PI;
 

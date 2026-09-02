@@ -29,8 +29,8 @@ import {
     SLOPE_CASCADE_CONFIGS,
     SLOPE_MIP_LEVELS,
     slopeMipSize,
-} from "../src/slope";
-import { generateH0 } from "../src/spectrum";
+} from "../src/ocean/slope";
+import { generateH0 } from "../src/ocean/spectrum";
 
 const [config] = SLOPE_CASCADE_CONFIGS;
 const CHANNEL_NAMES = ["slopeX", "slopeZ", "energy", "residual"] as const;

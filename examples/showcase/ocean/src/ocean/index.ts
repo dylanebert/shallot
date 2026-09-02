@@ -1,4 +1,4 @@
-// @dylanebert/shallot-ocean — FFT ocean surface extension. The package exposes a butterfly FFT,
+// the showcase-local ocean — FFT ocean surface extension. The package exposes a butterfly FFT,
 // spectral ocean kernels, CPU reference functions, and a Shallot plugin.
 
 export {

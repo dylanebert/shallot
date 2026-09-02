@@ -54,13 +54,13 @@ test("check-site clause 2 — rejects a fixed workspace extension version", () =
         nonWorkspaceShallotDependencies({
             dependencies: {
                 "@dylanebert/shallot": "workspace:*",
-                "@dylanebert/shallot-ocean": "0.1.0",
+                "@dylanebert/shallot-wave": "0.1.0",
             },
         }),
-    ).toEqual([["@dylanebert/shallot-ocean", "0.1.0"]]);
+    ).toEqual([["@dylanebert/shallot-wave", "0.1.0"]]);
     expect(
         nonWorkspaceShallotDependencies({
-            dependencies: { "@dylanebert/shallot-ocean": "workspace:*" },
+            dependencies: { "@dylanebert/shallot-wave": "workspace:*" },
         }),
     ).toEqual([]);
 });
@@ -169,13 +169,16 @@ function fixtureRepo(): string {
     mkdirSync(resolve(dir, "scripts"), { recursive: true });
     mkdirSync(resolve(dir, "site"), { recursive: true });
     mkdirSync(resolve(dir, "packages/shallot"), { recursive: true });
-    mkdirSync(resolve(dir, "packages/shallot-ocean/src"), { recursive: true });
+    mkdirSync(resolve(dir, "examples/showcase/ocean/src/ocean/src"), { recursive: true });
     writeFileSync(resolve(dir, "examples/showcase/demo/index.html"), "<html></html>\n");
     writeFileSync(
         resolve(dir, "examples/showcase/demo/package.json"),
-        `{"dependencies":{"@dylanebert/shallot-ocean":"workspace:*"}}\n`,
+        `{"dependencies":{"@dylanebert/shallot-wave":"workspace:*"}}\n`,
     );
-    writeFileSync(resolve(dir, "packages/shallot-ocean/src/index.ts"), "export const ocean = 1;\n");
+    writeFileSync(
+        resolve(dir, "examples/showcase/ocean/src/ocean/index.ts"),
+        "export const ocean = 1;\n",
+    );
     writeFileSync(resolve(dir, "scripts/build-site.ts"), "// builder\n");
     writeFileSync(resolve(dir, "site/rum-config.ts"), "// rum\n");
     writeFileSync(resolve(dir, "packages/shallot/package.json"), `{"version":"0.1.0"}\n`);
@@ -204,12 +207,12 @@ test("site-stamp — the fingerprint moves on a demo source, a builder, and the 
 
         // source from the workspace extension packed for this demo
         writeFileSync(
-            resolve(dir, "packages/shallot-ocean/src/index.ts"),
+            resolve(dir, "examples/showcase/ocean/src/ocean/index.ts"),
             "export const ocean = 2;\n",
         );
         expect(fp()).not.toBe(base);
         writeFileSync(
-            resolve(dir, "packages/shallot-ocean/src/index.ts"),
+            resolve(dir, "examples/showcase/ocean/src/ocean/index.ts"),
             "export const ocean = 1;\n",
         );
         expect(fp()).toBe(base);

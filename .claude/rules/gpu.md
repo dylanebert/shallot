@@ -8,7 +8,7 @@ paths:
     - "packages/shallot/src/standard/slab/**/*.ts"
     - "packages/shallot/src/standard/bvh/**/*.ts"
     - "packages/shallot/src/extras/{cells,gltf,lines,outline,profile,skin,sky,sprite,text}/**/*.ts"
-    - "packages/shallot-ocean/**"
+    - "examples/showcase/ocean/src/ocean/**"
 ---
 
 # GPU

@@ -2,7 +2,7 @@
 // parses the bytes `Encoder` emits (CUP, SGR, plain glyphs, the resize repaint's clear+home) back
 // into a `Grid`, playing the part of a real terminal rather than re-deriving the encoder's own
 // logic. Test-only: it lives beside the arm that uses it, not in `src/`, the same shape
-// `packages/shallot-ocean/tests/elfouhaily-independent.ts` already uses in this repo.
+// `examples/showcase/ocean/test/elfouhaily-independent.ts` already uses in this repo.
 
 import type { Tier } from "./color-support";
 import type { Cell, Grid, RGB } from "./types";
