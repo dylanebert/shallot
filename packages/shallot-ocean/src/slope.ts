@@ -349,18 +349,22 @@ const phaseProbeKernel = tgpu
     .$name("ocean-slope-phase-probe");
 
 export interface PhaseTrigErrorReading {
-    /** Number of production mode arguments evaluated exhaustively. */
+    /** Number of arguments whose four-lane result was actually written and compared. */
     arguments: number;
+    /** Number of vec4 results present in the GPU readback. */
+    readbackArguments: number;
     maxCosError: number;
     maxSinError: number;
     maxError: number;
     rmsError: number;
 }
 
-/** Exhaustively measure device phase-trig error over every mode argument the slope kernel evaluates. */
+/** Exhaustively measure device phase-trig error over the slope kernel's mode arguments.
+ * `dispatchWorkgroups` exists only to red-witness the exhaustive-population guard. */
 export async function measureSlopePhaseTrigError(
     config: CascadeConfig,
     time: number,
+    dispatchWorkgroups = Math.ceil((config.N * config.N) / 64),
 ): Promise<PhaseTrigErrorReading> {
     if (!Number.isFinite(time) || time === 0)
         throw new RangeError("phase reading time must be finite and nonzero");
@@ -391,18 +395,28 @@ export async function measureSlopePhaseTrigError(
         label: "ocean-slope-phase-probe",
         encode: (encoder) => {
             const pass = encoder.beginComputePass({ label: "ocean-slope-phase-probe" });
-            pipeline
-                .with(group)
-                .with(pass)
-                .dispatchWorkgroups(Math.ceil(count / 64));
+            pipeline.with(group).with(pass).dispatchWorkgroups(dispatchWorkgroups);
             pass.end();
         },
     });
     const actual = new Float32Array(probe.bytes);
+    const readbackArguments = actual.length / 4;
     let maxCosError = 0;
     let maxSinError = 0;
     let sumSquares = 0;
-    for (let idx = 0; idx < count; idx++) {
+    let argumentsCompared = 0;
+    for (let idx = 0; idx < readbackArguments; idx++) {
+        const base = idx * 4;
+        // A production phase result has unit-length (cos,sin) pairs. The zero-initialized tail is
+        // therefore an unambiguous unwritten lane population under a shortened dispatch.
+        if (
+            actual[base] === 0 &&
+            actual[base + 1] === 0 &&
+            actual[base + 2] === 0 &&
+            actual[base + 3] === 0
+        )
+            continue;
+        argumentsCompared++;
         const x = idx % config.N;
         const y = Math.floor(idx / config.N);
         const dk = (2 * Math.PI) / config.L;
@@ -412,7 +426,7 @@ export async function measureSlopePhaseTrigError(
         const phase = omega * time;
         const expected = [Math.cos(phase), Math.sin(phase), Math.cos(-phase), Math.sin(-phase)];
         for (let lane = 0; lane < 4; lane++) {
-            const error = Math.abs(actual[idx * 4 + lane] - expected[lane]);
+            const error = Math.abs(actual[base + lane] - expected[lane]);
             if (lane % 2 === 0) maxCosError = Math.max(maxCosError, error);
             else maxSinError = Math.max(maxSinError, error);
             sumSquares += error * error;
@@ -421,11 +435,12 @@ export async function measureSlopePhaseTrigError(
     output.destroy();
     params.destroy();
     return {
-        arguments: count,
+        arguments: argumentsCompared,
+        readbackArguments,
         maxCosError,
         maxSinError,
         maxError: Math.max(maxCosError, maxSinError),
-        rmsError: Math.sqrt(sumSquares / (count * 4)),
+        rmsError: Math.sqrt(sumSquares / (argumentsCompared * 4)),
     };
 }
 

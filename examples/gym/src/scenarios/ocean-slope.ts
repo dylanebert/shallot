@@ -27,10 +27,12 @@
 
 import {
     Compute,
+    PartPlugin,
     probeBuffer,
     probeTexture,
     RenderPlugin,
     run,
+    SearPlugin,
     SlabPlugin,
     type State,
     TransformsPlugin,
@@ -79,6 +81,37 @@ function realComponent(bytes: ArrayBuffer, count: number): Float32Array {
     const out = new Float32Array(count);
     for (let i = 0; i < count; i++) out[i] = raw[i * 2];
     return out;
+}
+
+function phaseInputPerturbationNorms(
+    h0: Float32Array,
+    maxTrigError: number,
+): { x: number; z: number } {
+    const { N, L } = SLOPE_CONFIG;
+    const dk = (2 * Math.PI) / L;
+    let xSquares = 0;
+    let zSquares = 0;
+    for (let y = 0; y < N; y++) {
+        for (let x = 0; x < N; x++) {
+            const index = y * N + x;
+            const neg = ((N - y) % N) * N + ((N - x) % N);
+            const amplitude =
+                Math.abs(h0[index * 2]) +
+                Math.abs(h0[index * 2 + 1]) +
+                Math.abs(h0[neg * 2]) +
+                Math.abs(h0[neg * 2 + 1]);
+            // Each complex spectrum component has two sums of four products. Bounding every
+            // measured trig-lane perturbation by maxTrigError gives sqrt(2) times this amplitude;
+            // the slope input then scales it by |k|. The normalized inverse FFT cannot increase
+            // this input L2 norm, so it is a conservative one-shot output perturbation term.
+            const modeError = Math.SQRT2 * amplitude * maxTrigError;
+            const kx = (x <= N / 2 ? x : x - N) * dk;
+            const kz = (y <= N / 2 ? y : y - N) * dk;
+            xSquares += (kx * modeError) ** 2;
+            zSquares += (kz * modeError) ** 2;
+        }
+    }
+    return { x: Math.sqrt(xSquares), z: Math.sqrt(zSquares) };
 }
 
 interface ComplexDeviation {
@@ -418,12 +451,23 @@ async function runChecks(state: State): Promise<Check[]> {
 
     const phaseTrig = await measureSlopePhaseTrigError(SLOPE_CONFIG, DECLARED_TIME);
     checks.push({
-        name: "phase trig error is measured over every level-0 kernel argument",
-        pass: phaseTrig.arguments === N * N,
+        name: "phase trig error is measured over every level-0 kernel argument and readback",
+        pass: phaseTrig.arguments === N * N && phaseTrig.readbackArguments === N * N,
         detail:
-            `arguments=${phaseTrig.arguments}/${N * N}, maxCos=${phaseTrig.maxCosError.toExponential(4)}, ` +
-            `maxSin=${phaseTrig.maxSinError.toExponential(4)}, max=${phaseTrig.maxError.toExponential(4)}, ` +
-            `rms=${phaseTrig.rmsError.toExponential(4)}`,
+            `compared=${phaseTrig.arguments}/${N * N}, readback=${phaseTrig.readbackArguments}/${N * N}, ` +
+            `maxCos=${phaseTrig.maxCosError.toExponential(4)}, maxSin=${phaseTrig.maxSinError.toExponential(4)}, ` +
+            `max=${phaseTrig.maxError.toExponential(4)}, rms=${phaseTrig.rmsError.toExponential(4)}`,
+    });
+    const fullWorkgroups = Math.ceil((N * N) / 64);
+    const shortPhaseTrig = await measureSlopePhaseTrigError(
+        SLOPE_CONFIG,
+        DECLARED_TIME,
+        fullWorkgroups - 1,
+    );
+    checks.push({
+        name: "shortened phase dispatch reds the exhaustive compared-population guard",
+        pass: shortPhaseTrig.arguments < N * N && shortPhaseTrig.readbackArguments === N * N,
+        detail: `compared=${shortPhaseTrig.arguments}/${N * N}, readback=${shortPhaseTrig.readbackArguments}/${N * N}`,
     });
 
     const timedCpu = runSlopeCpuPipeline(h0, SLOPE_CONFIG, DECLARED_TIME);
@@ -431,24 +475,69 @@ async function runChecks(state: State): Promise<Check[]> {
     const timedZ64 = ifft2Exact(timedCpu.z, N);
     const timedNormX = complexL2Norm(timedX64.re, timedX64.im);
     const timedNormZ = complexL2Norm(timedZ64.re, timedZ64.im);
-    const timedMu = Math.max(twiddle.muMax, phaseTrig.maxError);
-    const timedE0X = higham242AbsoluteBound(timedMu, F32_UNIT_ROUNDOFF, FFT_STAGES, timedNormX);
-    const timedE0Z = higham242AbsoluteBound(timedMu, F32_UNIT_ROUNDOFF, FFT_STAGES, timedNormZ);
+    const timedE0X = higham242AbsoluteBound(
+        twiddle.muMax,
+        F32_UNIT_ROUNDOFF,
+        FFT_STAGES,
+        timedNormX,
+    );
+    const timedE0Z = higham242AbsoluteBound(
+        twiddle.muMax,
+        F32_UNIT_ROUNDOFF,
+        FFT_STAGES,
+        timedNormZ,
+    );
+    const inputPerturbation = phaseInputPerturbationNorms(h0, phaseTrig.maxError);
+    const timedBoundX = timedE0X + inputPerturbation.x;
+    const timedBoundZ = timedE0Z + inputPerturbation.z;
+    checks.push({
+        name: "declared-time bound keeps FFT twiddle and input perturbation terms separate",
+        pass:
+            timedBoundX === timedE0X + inputPerturbation.x &&
+            timedBoundZ === timedE0Z + inputPerturbation.z,
+        detail:
+            `twiddleMu=${twiddle.muMax.toExponential(4)}, phaseMax=${phaseTrig.maxError.toExponential(4)}, ` +
+            `stages=${FFT_STAGES}, ||timedX64||2=${timedNormX.toExponential(4)}, ` +
+            `||timedZ64||2=${timedNormZ.toExponential(4)}, E0X=${timedE0X.toExponential(4)}, ` +
+            `E0Z=${timedE0Z.toExponential(4)}, ||deltaInputX||2=${inputPerturbation.x.toExponential(4)}, ` +
+            `||deltaInputZ||2=${inputPerturbation.z.toExponential(4)}, boundX=${timedBoundX.toExponential(4)}, ` +
+            `boundZ=${timedBoundZ.toExponential(4)}`,
+    });
     const [timedXProbe, timedZProbe] = await Promise.all([
         probeBuffer(Compute.device, buffers.x),
         probeBuffer(Compute.device, buffers.z),
     ]);
     const timedDevX = complexDeviation(timedXProbe.bytes, timedX64.re, timedX64.im);
     const timedDevZ = complexDeviation(timedZProbe.bytes, timedZ64.re, timedZ64.im);
+    const staleTimedDevX = complexDeviation(timedXProbe.bytes, x64.re, x64.im);
+    const staleTimedDevZ = complexDeviation(timedZProbe.bytes, z64.re, z64.im);
+    checks.push({
+        name: "time-zero reference reds the declared-time computation claim on slopeX",
+        pass: staleTimedDevX.l2 > timedBoundX,
+        detail: `deviation(L2)=${staleTimedDevX.l2.toExponential(4)}, bound=${timedBoundX.toExponential(4)}`,
+    });
+    checks.push({
+        name: "time-zero reference reds the declared-time computation claim on slopeZ",
+        pass: staleTimedDevZ.l2 > timedBoundZ,
+        detail: `deviation(L2)=${staleTimedDevZ.l2.toExponential(4)}, bound=${timedBoundZ.toExponential(4)}`,
+    });
     checks.push({
         name: "declared-time level-0 computation claim holds on slopeX",
-        pass: timedDevX.l2 <= timedE0X,
-        detail: `deviation(L2)=${timedDevX.l2.toExponential(4)}, E0=${timedE0X.toExponential(4)}, mu=${timedMu.toExponential(4)}`,
+        pass: timedDevX.l2 <= timedBoundX,
+        detail:
+            `deviation: L2=${timedDevX.l2.toExponential(4)} (gated), max=${timedDevX.max.toExponential(4)}, ` +
+            `rms=${timedDevX.rms.toExponential(4)}, E0=${timedE0X.toExponential(4)}, ` +
+            `input=${inputPerturbation.x.toExponential(4)}, bound=${timedBoundX.toExponential(4)}, ` +
+            `reach=${(timedBoundX / Math.max(timedDevX.l2, 1e-30)).toFixed(1)}x`,
     });
     checks.push({
         name: "declared-time level-0 computation claim holds on slopeZ",
-        pass: timedDevZ.l2 <= timedE0Z,
-        detail: `deviation(L2)=${timedDevZ.l2.toExponential(4)}, E0=${timedE0Z.toExponential(4)}, mu=${timedMu.toExponential(4)}`,
+        pass: timedDevZ.l2 <= timedBoundZ,
+        detail:
+            `deviation: L2=${timedDevZ.l2.toExponential(4)} (gated), max=${timedDevZ.max.toExponential(4)}, ` +
+            `rms=${timedDevZ.rms.toExponential(4)}, E0=${timedE0Z.toExponential(4)}, ` +
+            `input=${inputPerturbation.z.toExponential(4)}, bound=${timedBoundZ.toExponential(4)}, ` +
+            `reach=${(timedBoundZ / Math.max(timedDevZ.l2, 1e-30)).toFixed(1)}x`,
     });
 
     return checks;
@@ -466,8 +555,10 @@ const scenario: Scenario = {
                 ProfilePlugin,
                 SlabPlugin,
                 TransformsPlugin,
+                PartPlugin,
                 RenderPlugin,
-                { ...OceanPlugin, dependencies: [] },
+                SearPlugin,
+                OceanPlugin,
             ],
         });
         // Pin `elapsed` at 0 before the auto frame loop's first `requestAnimationFrame` can fire.
