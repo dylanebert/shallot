@@ -33,22 +33,8 @@ export interface SeaState {
     truncationRatio: number;
 }
 
-/**
- * Choppiness — the single physical scalar `postKernel` applies after the inverse transform to turn
- * the analytic slope field into a horizontal displacement (Tessendorf's convention: one number for
- * the whole sea, never per-cascade). Solved by `fold-anchor.oracle.ts`, never authored: bisect the
- * COMPOSED-WORLD-GRID (both displacement cascades' gradients superposed at each point of one shared
- * world grid, `composed-fold.ts`, never pooled by per-cascade texel count) ensemble fold fraction
- * against the Monahan & O'Muircheartaigh (1980) whitecap-coverage anchor at this sea state's
- * `U10 = 15` — `whitecapFraction(15) = 0.039337…` — on a declared 4-seed solve set, each seed
- * averaged over 9 phases spanning 8 dominant periods (never a single instant — a normalization
- * fitted at one instant is a fit, not a normalization), confirmed within ±30% of the anchor and
- * within 10% of independently-solved λ on two disjoint held-out 4-seed windows (`fold-anchor.
- * oracle.ts` re-derives and asserts all three live; this literal is that oracle's own printed
- * convergence value, transcribed once so production doesn't pay the ensemble's cost at every
- * import).
- */
-export const LAMBDA = 4.229965;
+/** Shared choppiness solved from the composed-world-grid fold ensemble. */
+export const LAMBDA = 4.39123025;
 
 /** Shipped power-of-two cascades; coprime world lengths avoid aligned repeat boundaries. */
 export const CASCADE_CONFIGS: CascadeConfig[] = [
@@ -57,7 +43,7 @@ export const CASCADE_CONFIGS: CascadeConfig[] = [
         L: 80,
         windSpeed: 15,
         windDir: 0.6,
-        lambda: 1.925088,
+        lambda: LAMBDA,
         kLo: 0.07853981633974483,
         kHi: 0.75,
     },
@@ -66,7 +52,7 @@ export const CASCADE_CONFIGS: CascadeConfig[] = [
         L: 31,
         windSpeed: 15,
         windDir: 0.6,
-        lambda: 5.492399,
+        lambda: LAMBDA,
         kLo: 0.75,
         kHi: 8.482300164692441,
     },
@@ -127,6 +113,14 @@ const SURFACE_TENSION = 0.074;
 export const K_M = Math.sqrt((WATER_DENSITY * G) / SURFACE_TENSION);
 /** Minimum gravity-capillary phase speed in m/s. */
 export const C_M = Math.sqrt((2 * G) / K_M);
+
+/**
+ * Whitecap coverage from Monahan & O'Muircheartaigh (1980), “Whitecaps and the passive remote
+ * sensing of the ocean surface”, International Journal of Remote Sensing 1(2), 173–174.
+ */
+export function whitecapFraction(windSpeed: number): number {
+    return windSpeed <= 0 ? 0 : Math.min(0.5, 3.84e-6 * windSpeed ** 3.41);
+}
 
 /** Named factor removals used only by the production mutation oracle. */
 export interface SpectrumMutation {
@@ -292,25 +286,11 @@ export const SEA_STATE: SeaState = Object.freeze({
     truncationRatio: DECLARED_VARIANCE / FULL_VARIANCE,
 });
 
-/**
- * The fold regime this stage owns for shading (I4) to consume: the whitecap anchor `LAMBDA` was
- * solved against, and a physically-motivated ceiling above the anchor where the composed field's
- * mean strain scale reaches unity (`fold-anchor.oracle.ts`'s own erfc corroboration —
- * `effectiveSlopeSigma` is the RMS of the composed unit-λ Jacobian TRACE, `∂Dx/∂x + ∂Dz/∂z`, pooled
- * over the solve window's seed×phase ensemble on the composed world grid — no isotropy factor;
- * `ceilingLambda = 1/effectiveSlopeSigma` is where that mean strain equals 1, the point past which
- * the small-perturbation Gerstner/Tessendorf displacement map itself stops being a faithful
- * description). Reported anchor→ceiling, never ceiling→λ (`Gate law`): the anchor is the solved,
- * measured operating point; the ceiling is a read-only upper bound the oracle prints beside it,
- * never a second thing `LAMBDA` is fit to. Both fields below are pinned against `fold-anchor.
- * oracle.ts`'s own live recomputation (`toBeCloseTo`, 6 decimal places) — mutating either reds that
- * oracle. Foam seeding decides how to use this range; this stage only derives the numbers.
- */
+/** Measured fold operating point consumed by foam seeding. */
 export const FOLD_REGIME = Object.freeze({
     lambda: LAMBDA,
     whitecapAnchor: whitecapFraction(U10),
-    effectiveSlopeSigma: 0.164156,
-    ceilingLambda: 6.091752,
+    measuredComposedFold: 0.03933710705910504,
 });
 
 /** Short-gravity/capillary cascade configuration; it is slope-only and contributes no displacement. */

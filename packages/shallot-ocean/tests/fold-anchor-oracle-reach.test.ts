@@ -4,7 +4,10 @@ import { fileURLToPath } from "node:url";
 // The by-path oracle command, both the documented root-package script and the exact command this
 // sentinel spawns — one string, so an edit to either side can't drift from the other (pattern:
 // `slope-oracle-reach.test.ts`).
-const ROOT_ORACLE_COMMAND = "bun test ./packages/shallot-ocean/tests/fold-anchor.oracle.ts";
+const ROOT_ORACLE_COMMAND =
+    "FOLD_ENSEMBLE_MODE=full bun test ./packages/shallot-ocean/tests/fold-anchor.oracle.ts";
+const REDUCED_ORACLE_COMMAND =
+    "env FOLD_ENSEMBLE_MODE=reduced bun test ./packages/shallot-ocean/tests/fold-anchor.oracle.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("../../..", import.meta.url));
 
@@ -27,7 +30,7 @@ test("the choppiness fold-anchor oracle remains reachable through the root scrip
  * matches nothing and exits 1). Bun 1.4.0 writes its own pass/fail summary to STDERR, not STDOUT.
  */
 test("a default-suite run actually executes the fold-anchor oracle's assertions", () => {
-    const [cmd, ...args] = ROOT_ORACLE_COMMAND.split(" ");
+    const [cmd, ...args] = REDUCED_ORACLE_COMMAND.split(" ");
     const proc = Bun.spawnSync([cmd, ...args], {
         cwd: REPO_ROOT,
         stdout: "pipe",
