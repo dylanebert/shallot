@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
 import { makeGrid } from "@dylanebert/shallot-tui";
 import {
+    buildDisposeAll,
     cellsBytesToGrid,
     createQuitGuard,
     decodeStdinChunk,
@@ -13,6 +14,7 @@ import {
     noBunWebgpuMessage,
     noShallotTuiMessage,
     parseTuiArgs,
+    runLoopWithTeardown,
     runTui,
     type TuiArgs,
     usage,
@@ -123,6 +125,13 @@ describe("decodeStdinChunk", () => {
 // flag shape failed identically to this: requesting a stop first, then calling the dispose sequence,
 // left it un-run. `createQuitGuard` is the fix — `requestStop()` and `disposeOnce()` are independent —
 // and this test exercises the real production type, not a copy.
+//
+// This block alone only proves `QuitGuard`'s own contract in isolation, though: it doesn't reach the
+// *composition* the original bug actually lived in (one flag serving both the loop's stop condition and
+// disposeAll's guard), so a future edit that rewires `runTui`'s own `disposeAll` to read
+// `quitGuard.stopped` directly — bypassing `disposeOnce` entirely, re-collapsing the two facts one layer
+// up from `QuitGuard` itself — would stay green here. The `buildDisposeAll` block right below reaches
+// that composition: it's the exact function `runTui` calls to build its own `disposeAll`, not a copy.
 describe("createQuitGuard — requestStop and disposeOnce are independent (regression: q/Ctrl-C quit skipped teardown)", () => {
     test("requesting a stop first still lets disposeOnce run its callback", () => {
         const guard = createQuitGuard();
@@ -153,6 +162,73 @@ describe("createQuitGuard — requestStop and disposeOnce are independent (regre
         guard.requestStop();
         guard.requestStop();
         expect(guard.stopped).toBe(true);
+    });
+});
+
+// `buildDisposeAll` is the actual production wiring — `runTui` calls it to build its own `disposeAll`,
+// not a hand-copied stand-in — so this reaches the composition the block above can't: a future edit
+// reading `quitGuard.stopped` here instead of calling `quitGuard.disposeOnce` would re-collapse the two
+// independent facts one layer above `QuitGuard` itself, and the test below reproduces the exact original
+// symptom (a quit request, then the dispose sequence) through this exact function.
+describe("buildDisposeAll — the real runTui composition, not just QuitGuard in isolation (regression: q/Ctrl-C quit skipped teardown)", () => {
+    test("requesting a stop first still lets the built disposeAll run its dispose callback", () => {
+        const guard = createQuitGuard();
+        guard.requestStop(); // simulates the stdin bridge's onQuit ('q'/Ctrl-C)
+        let disposed = false;
+        const disposeAll = buildDisposeAll(guard, () => {
+            disposed = true;
+        });
+        disposeAll();
+        expect(disposed).toBe(true);
+    });
+
+    test("the built disposeAll runs its dispose callback exactly once across repeated calls", () => {
+        const guard = createQuitGuard();
+        let calls = 0;
+        const disposeAll = buildDisposeAll(guard, () => {
+            calls++;
+        });
+        disposeAll();
+        disposeAll();
+        expect(calls).toBe(1);
+    });
+});
+
+// Regression for the throw-mid-loop finding (S3/S4 batch review round 2): before `runLoopWithTeardown`
+// existed, `teardown()`/`disposeAll()` sat inline after the frame loop as a normal-completion-only step
+// — a throw from inside the loop (app.state.step, cellsGridFor, staging.mapAsync, encoder.encode)
+// propagated straight out of `runTui`, skipping disposeAll entirely: stdinBridge.stop() never ran, so
+// setRawMode(false) was never called and held-key timers leaked, the same user-visible symptom the
+// q/Ctrl-C createQuitGuard fix removed through a different door. `installTeardown`'s own `"exit"`
+// listener doesn't cover this either — it only restores the alt screen on process exit, never calling
+// the disposal work (screen.ts's own docblock: `opts.exit` is never invoked for `"exit"`). This is the
+// real function `runTui` calls to run its own frame loop, not a copy.
+describe("runLoopWithTeardown — teardown/disposeAll run even when the loop throws (regression: a throw mid-loop skipped disposeAll)", () => {
+    test("teardown and disposeAll both run when the loop throws, and the throw still propagates", async () => {
+        const calls: string[] = [];
+        await expect(
+            runLoopWithTeardown(
+                async () => {
+                    calls.push("loop");
+                    throw new Error("boom");
+                },
+                () => calls.push("teardown"),
+                () => calls.push("disposeAll"),
+            ),
+        ).rejects.toThrow("boom");
+        expect(calls).toEqual(["loop", "teardown", "disposeAll"]);
+    });
+
+    test("teardown and disposeAll both run on normal completion too", async () => {
+        const calls: string[] = [];
+        await runLoopWithTeardown(
+            async () => {
+                calls.push("loop");
+            },
+            () => calls.push("teardown"),
+            () => calls.push("disposeAll"),
+        );
+        expect(calls).toEqual(["loop", "teardown", "disposeAll"]);
     });
 });
 

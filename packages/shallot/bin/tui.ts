@@ -159,6 +159,51 @@ export function createQuitGuard(): QuitGuard {
     };
 }
 
+/**
+ * Builds `runTui`'s own `disposeAll` from an independent {@link QuitGuard} and the actual teardown
+ * steps — extracted out of `runTui`'s inline wiring (rather than left as a closure only `runTui` can
+ * construct) so this exact composition, not just `QuitGuard`'s own contract in isolation, is unit-
+ * testable without booting the engine. The original defect (see the `QuitGuard` docblock above) was a
+ * composition defect: the frame loop's stop condition and `disposeAll`'s own idempotency guard read the
+ * same shared boolean. `QuitGuard` fixes that at the type level by keeping `stopped` and the dispose
+ * guard as two independent facts — but a *future* edit to this composition could still re-collapse them
+ * without ever touching `createQuitGuard`, e.g. by reading `quitGuard.stopped` here instead of calling
+ * `quitGuard.disposeOnce`. This function calling `disposeOnce` (never `stopped`) is what such an edit
+ * would have to change, and it's exercised directly — not via a hand-copied stand-in — by `runTui`
+ * itself. Regression covered against this exact function in `tui.test.ts`.
+ */
+export function buildDisposeAll(quitGuard: QuitGuard, dispose: () => void): () => void {
+    return () => quitGuard.disposeOnce(dispose);
+}
+
+/**
+ * Runs `loop`, then always runs `teardown` and `disposeAll` — including when `loop` throws.
+ * Extracted out of `runTui`'s own control flow (rather than a bare `try`/`finally` inline) so this
+ * exact composition is unit-testable without booting the engine. Before this wrapper existed,
+ * `teardown()`/`disposeAll()` sat after the frame loop as a normal-completion-only step: a throw from
+ * inside the loop (`app.state.step`, `cellsGridFor`, `staging.mapAsync`, `encoder.encode`) propagated
+ * straight out of `runTui`, skipping `disposeAll()` entirely — `stdinBridge.stop()` never ran, so
+ * `setRawMode(false)` was never called and held-key timers were never cleared, the same user-visible
+ * symptom (raw mode left on, the process held open) the q/Ctrl-C `createQuitGuard` fix removed, through
+ * a different door. `installTeardown`'s own `"exit"` listener only restores the alt screen on process
+ * exit — it never calls `disposeAll`'s work (see `screen.ts`'s own docblock: `opts.exit` is never
+ * invoked for the `"exit"` event), so it doesn't cover this gap either. The thrown error still
+ * propagates once teardown/disposeAll have run — this wrapper changes *when* cleanup happens, not
+ * whether the error is reported.
+ */
+export async function runLoopWithTeardown(
+    loop: () => Promise<void>,
+    teardown: () => void,
+    disposeAll: () => void,
+): Promise<void> {
+    try {
+        await loop();
+    } finally {
+        teardown();
+        disposeAll();
+    }
+}
+
 // exit codes: distinct so a caller (CI, an agent) can tell a real failure from a missing tool — mirrors
 // verify.ts's EXIT_SETUP / EXIT_NO_PLAYWRIGHT convention, its own numbering (this command's exit space,
 // not shared with verify's).
@@ -210,7 +255,8 @@ const INSTALL_SHALLOT_TUI = "bun add @dylanebert/shallot-tui";
 export function noShallotTuiMessage(): string {
     return (
         `shallot tui needs @dylanebert/shallot-tui to encode the cell grid, but it isn't installed. ` +
-        `Install it: ${INSTALL_SHALLOT_TUI}`
+        `Install it: ${INSTALL_SHALLOT_TUI} (not published yet; this command 404s on the public ` +
+        `registry until a shallot-tui release ships)`
     );
 }
 
@@ -673,13 +719,11 @@ export async function runTui(
     let unsubscribeResize: (() => void) | null = null;
     const quitGuard = createQuitGuard();
 
-    const disposeAll = () => {
-        quitGuard.disposeOnce(() => {
-            stdinBridge?.stop();
-            unsubscribeResize?.();
-            app.dispose();
-        });
-    };
+    const disposeAll = buildDisposeAll(quitGuard, () => {
+        stdinBridge?.stop();
+        unsubscribeResize?.();
+        app.dispose();
+    });
 
     // Owns the "process killed externally" path (SIGINT/SIGTERM) — it writes the alt-screen restore
     // itself (gated the same way `write` above is, so it's a no-op in piped mode) and this `exit`
@@ -712,41 +756,44 @@ export async function runTui(
 
     const dt = 1 / args.fps;
     let frame = 0;
-    while (!quitGuard.stopped && (args.frames === undefined || frame < args.frames)) {
-        app.state.step(dt);
-        const grid = cellsGridFor(cameraEid);
-        if (grid) {
-            const raw = engine.Compute.root.unwrap(grid.buffer);
-            const staging = engine.Compute.device.createBuffer({
-                label: "shallot-tui-staging",
-                size: raw.size,
-                usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
-            });
-            const cmd = engine.Compute.device.createCommandEncoder({
-                label: "shallot-tui-readback",
-            });
-            cmd.copyBufferToBuffer(raw, 0, staging, 0, raw.size);
-            engine.Compute.device.queue.submit([cmd.finish()]);
-            await engine.Compute.device.queue.onSubmittedWorkDone();
-            await staging.mapAsync(GPUMapMode.READ, 0, raw.size);
-            const bytes = staging.getMappedRange(0, raw.size).slice(0);
-            staging.destroy();
-            const tuiGrid = cellsBytesToGrid(
-                bytes,
-                COLS,
-                ROWS,
-                unpackCell,
-                cellGlyphChar,
-                makeGrid,
-            );
-            write(encoder.encode(tuiGrid));
-        }
-        frame++;
-        if (interactive) await Bun.sleep(dt * 1000);
-    }
-
-    teardown();
-    disposeAll();
+    await runLoopWithTeardown(
+        async () => {
+            while (!quitGuard.stopped && (args.frames === undefined || frame < args.frames)) {
+                app.state.step(dt);
+                const grid = cellsGridFor(cameraEid);
+                if (grid) {
+                    const raw = engine.Compute.root.unwrap(grid.buffer);
+                    const staging = engine.Compute.device.createBuffer({
+                        label: "shallot-tui-staging",
+                        size: raw.size,
+                        usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ,
+                    });
+                    const cmd = engine.Compute.device.createCommandEncoder({
+                        label: "shallot-tui-readback",
+                    });
+                    cmd.copyBufferToBuffer(raw, 0, staging, 0, raw.size);
+                    engine.Compute.device.queue.submit([cmd.finish()]);
+                    await engine.Compute.device.queue.onSubmittedWorkDone();
+                    await staging.mapAsync(GPUMapMode.READ, 0, raw.size);
+                    const bytes = staging.getMappedRange(0, raw.size).slice(0);
+                    staging.destroy();
+                    const tuiGrid = cellsBytesToGrid(
+                        bytes,
+                        COLS,
+                        ROWS,
+                        unpackCell,
+                        cellGlyphChar,
+                        makeGrid,
+                    );
+                    write(encoder.encode(tuiGrid));
+                }
+                frame++;
+                if (interactive) await Bun.sleep(dt * 1000);
+            }
+        },
+        teardown,
+        disposeAll,
+    );
     return EXIT_PASS;
 }
 
