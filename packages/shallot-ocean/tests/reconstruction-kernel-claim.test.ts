@@ -177,8 +177,10 @@ const CATMULLROM_FLOPS = 7 + 6 + 3 + 6; // 22
  *  four basis-vector evaluations at integer `t = 0,1,2,3` via finite differences — the third
  *  difference divided by `3!` gives the cubic coefficient (`a_i`), the reduced second difference
  *  gives the quadratic one (`b_i`), and the remainder gives the linear one (`c_i`). A mutated kernel's
- *  own coefficients are recovered just as faithfully — the recovery is generic over whatever
- *  `catmullRom1D` actually computes, never asserted equal to the source by construction. */
+ *  own coefficients are recovered just as faithfully — the recovery is generic over any cubic in
+ *  `t`, never asserted equal to the source by construction; the two literal-index evaluations at
+ *  `t=2`, `t=3` (beyond the `t=0,1` a cubic already needs) are what catch a non-cubic kernel's
+ *  divergence from this fit. */
 function catmullRomHornerCoeffs(i: 0 | 1 | 2 | 3): { a: number; b: number; c: number } {
     const p: [number, number, number, number] = [0, 0, 0, 0];
     p[i] = 1;
@@ -469,7 +471,17 @@ describe("BICUBIC_MODEL intermediate bound — per-call derivation, before/after
         console.log(
             `Sigma|w_i(t)| vs closed form 1+t(1-t): max pointwise deviation over [0,1] at ${samples} samples = ${maxDeviation.toExponential(3)}`,
         );
-        expect(maxDeviation).toBeLessThanOrEqual(1e-12); // f64 round-off over a handful of ops
+        // Derived, not authored: `recovered` is `absSum` (3 adds) over 4 `catmullRom1D` calls (each
+        // CATMULLROM_FLOPS=22 flops) on unit-magnitude basis vectors, so its forward-error bound is
+        // `evalRoundoff` at flops = 4*CATMULLROM_FLOPS + 3 with the same per-call Horner intermediate
+        // multiplier (M=1) every other catmullRom1D reading in this file uses; `closed`'s three
+        // exact-`t` ops carry negligible error beside it.
+        const identityTolerance = evalRoundoff(1, {
+            flops: 4 * CATMULLROM_FLOPS + 3,
+            intermediateMagnitudeBound: CATMULLROM_INTERMEDIATE_MULTIPLIER,
+        });
+        console.log(`  derived identity tolerance = ${identityTolerance.toExponential(3)}`);
+        expect(maxDeviation).toBeLessThanOrEqual(identityTolerance);
     });
 
     test("the correctly-derived per-call bound (row 12x, column 12x*W) replaces `9beeef3b`'s W^2 output-amplification bound; before/after moves no verdict", () => {
@@ -906,9 +918,10 @@ describe("continuity — the seam identity a piecewise cubic licenses", () => {
             expect(r.rightPremiseDiff).toBeLessThanOrEqual(r.rightPremiseTol);
             expect(r.rightPremiseDiff).toBeLessThanOrEqual(r.rightPremiseTol * scaleToBefore);
             // straddle control: a must-EXCEED leg, so the tighter (smaller) before-bound is the EASIER
-            // side to clear — checked anyway, both directions, rather than assumed.
+            // side to clear. Since `scaleToBefore < 1` is already asserted above, clearing today's
+            // tighter `mustExceed` bound implies clearing the looser `9beeef3b`-scaled one too, so only
+            // the single leg is asserted here.
             expect(r.straddleDiff).toBeGreaterThan(r.straddleTol);
-            expect(r.straddleDiff).toBeGreaterThan(r.straddleTol * scaleToBefore);
         }
 
         const worst = worstSlack(results, "c1Diff", "c1Tol");
