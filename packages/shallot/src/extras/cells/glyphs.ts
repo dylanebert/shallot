@@ -59,11 +59,6 @@ export const MISSING_GLYPH_SIZE: readonly [number, number] = [1, 1];
  *  re-stretches the glyph's true shape, `specs/shallot-tui.md`'s s3r item 9) — without it every glyph's
  *  own tightly-cropped SDF tile stretches across the whole cell regardless of true size, destroying the
  *  coverage-ordered ramp's monotone progression at the point of use (`specs/shallot-tui.md`'s s3r item 8).
- *  Facade ink (rule 3, the fill-treatment amendment) is raised at the *ink* level instead of here —
- *  `draw.ts`'s `INK_DILATE_FRACTION` — since an isotropic footprint scale was tried first and measured
- *  wrong: it inflates a small-em-size glyph (which the ramp's own low-coverage band is disproportionately
- *  made of) more than an already-near-1-em one, inverting `assertMonoRamp`'s own ordering rather than
- *  preserving it (own docblock in `draw.ts` has the measurement).
  *  @example const size = glyphSizeRect(atlas, 0); // the lowest-coverage fill glyph's own footprint */
 export function glyphSizeRect(atlas: GlyphAtlas, index: number): readonly [number, number] {
     const metrics = atlas.glyphs.get(cellGlyphChar(index));

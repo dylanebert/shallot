@@ -128,9 +128,45 @@ export const SCENARIO_BUDGETS: Record<string, AxisBudget> = {
     // `cells-gym-mono-target` (-9_216 B, `MONO_CELL_PX²` × 4 B/glyph) and `cells-gym-mono-out` (-16 B, 4
     // B/glyph) — a net -9_376 B, `4_481_384 → 4_472_008`. `pipelines`/`pipelineCalls` are unaffected (no
     // pipeline count changed, only buffer/texture sizes); rule 1's threshold re-derivation and rule 3's
-    // `INK_DILATE_FRACTION` change gpu*behavior*, not any allocation size, so neither moves this row.
-    // Two independent same-day confirming runs agree exactly on `gpuBytes`.
-    cells: { pipelines: 9, pipelineCalls: 11, gpuBytes: 4_472_008 },
+    // now-retired `INK_DILATE_FRACTION` changed gpu *behavior*, not any allocation size, so neither moved
+    // this row at that measurement. Two independent same-day confirming runs agreed exactly on `gpuBytes`.
+    //
+    // Re-measured 2026-09-02, after the fill-treatment amendment's s3r review repair
+    // (`specs/shallot-tui.md`): `draw.ts`'s `INK_DILATE_FRACTION` is deleted outright (a behavior-only
+    // change, so it still moves nothing on its own) and the facade-ink measurement (rule 3) moves off the
+    // old per-glyph-average sweep onto a real per-pixel device readback — `examples/gym/src/scenarios/
+    // cells.ts`'s new `FacadePlugin`, added to this scenario's plugin list between `MonoPlugin` and
+    // `FramePlugin`. It builds its own real `GlyphAtlas` (independent of `MonoPlugin`'s own, so every
+    // label a font-atlas load produces is now counted twice) and renders three FACADE_COLS×FACADE_ROWS
+    // (12×8 = 96 cells) grids — the facade band, a densest-glyph control, a blank-glyph control — each its
+    // own draw target and atomic-counter probe output.
+    //
+    // `pipelines` 9 → 10: one new label, `cells-gym-facade-probe` (`FacadePlugin`'s own threshold-count
+    // kernel, `FramePlugin`'s `cells-gym-frame-probe` shape applied to a luma threshold instead of a
+    // sentinel distance).
+    //
+    // `pipelineCalls` 11 → 13: `FacadePlugin` calls `resetDrawPipeline()` once (like every other draw-
+    // pipeline consumer in this file) before its three `drawCells` calls, so `cells-draw` is re-created
+    // once for all three (the pipeline memoizes across calls until the next reset) — +1; plus one create
+    // of the new `cells-gym-facade-probe` pipeline — +1. 11 + 1 + 1 = 13.
+    //
+    // `gpuBytes` 4_472_008 → 9_372_380 (excl. `mirror-staging`, unchanged at 3_008 B). Every delta traces
+    // to `FacadePlugin` building its own atlas/tables/grids rather than reusing `MonoPlugin`'s:
+    // `glyphAtlas` doubles (4_194_304 → 8_388_608, a second real 2048×2048 `r8unorm` atlas texture), the
+    // SDF generator's unlabeled 96×96 `rgba8unorm` intermediate texture doubles (36_864 → 73_728, a second
+    // atlas's own SDF-generation scratch texture), `cells-glyph-uv` doubles (1_456 → 2_912) and
+    // `cells-glyph-size` doubles (728 → 1_456) — both hardcoded labels in `glyphs.ts`, so a second
+    // `buildGlyphUvTable`/`buildGlyphSizeTable` caller sums under the same label rather than a new one —
+    // and `cells-grid` grows by 3 × (FACADE_COLS × FACADE_ROWS × 12 B/cell) = 3 × 1_152 = 3_456 B (2_316 →
+    // 5_772, the three facade grids sharing that same label alongside the other four scenarios' grids).
+    // Three new distinct-labeled entries: `cells-gym-facade-band`/`-ceiling`/`-floor`, each
+    // FACADE_VIEW_W × FACADE_VIEW_H × 4 B = 288 × 192 × 4 = 221_184 B (rgba8unorm), and
+    // `cells-gym-facade-out`, 3 × 4 B atomic-u32 counters sharing that label = 12 B. Net delta:
+    // (8_388_608 − 4_194_304) + (73_728 − 36_864) + (2_912 − 1_456) + (1_456 − 728) + (5_772 − 2_316) +
+    // 3 × 221_184 + 12 = 4_194_304 + 36_864 + 1_456 + 728 + 3_456 + 663_552 + 12 = 4_900_372;
+    // 4_472_008 + 4_900_372 = 9_372_380, matching `gpuBytes` below exactly. Two independent same-day
+    // confirming runs (`bun bench --scenario cells`, this seat) agree exactly.
+    cells: { pipelines: 10, pipelineCalls: 13, gpuBytes: 9_372_380 },
     chain: { pipelines: 26, pipelineCalls: 26, gpuBytes: 29_151_084 },
     character: { pipelines: 66, pipelineCalls: 66, gpuBytes: 21_761_544 },
     "character-mover": { pipelines: 30, pipelineCalls: 30, gpuBytes: 13_522_532 },

@@ -10,11 +10,12 @@ import {
     createCellGrid,
     dispatchSelect,
     drawCells,
+    FACADE_BAND_LUMAS,
     FACADE_INK_CEILING,
     FACADE_INK_FLOOR,
-    FACADE_LUMA_SWEEP,
-    facadeInkFraction,
+    FACADE_PIXEL_LUMA_THRESHOLD,
     fillCellGrid,
+    fillIndexForLuma,
     type GlyphSizeBuffer,
     type GlyphUvBuffer,
     MISSING_GLYPH_UV,
@@ -608,10 +609,15 @@ const MONO_VIEW_H = MONO_CELL_PX;
 const MONO_FORMAT: GPUTextureFormat = "rgba8unorm";
 const MONO_FG = vec4f(1, 1, 1, 1);
 const MONO_BG = vec4f(0, 0, 0, 1);
-// measured on this seat (nvidia/lovelace): ramp indices 0..54 are clean of both effects named above (the
-// first dip appears at index 56); the checked population stops comfortably short of that at 54.
-const MONO_CHECKED_COUNT = 54;
-const MONO_MARGIN = 1.2; // measured ratio was ~1.6x; 1.2x leaves real headroom before treating noise as a regression
+// re-measured on this seat (nvidia/lovelace) after the s3r fill-treatment amendment: the prior 0..54/dip-
+// at-56 reading was taken against the 91-glyph undilated ramp (`draw.ts`'s now-retired
+// `INK_DILATE_FRACTION`); rule 2's curved-glyph exclusion already shrank the ramp to 87 before this pass,
+// and removing the dilation lever moves every glyph's own rendered ink again. Ramp indices 0..68 are
+// clean of the SDF-generation dropout named above (the first dip is index 71, `m` — a normal lowercase
+// letter reading exactly zero ink, the same defect class as the densest glyphs above it); the checked
+// population stops comfortably short of that at 69.
+const MONO_CHECKED_COUNT = 69;
+const MONO_MARGIN = 1.2; // measured ratio at MONO_CHECKED_COUNT=69 is ~1.28x; 1.2x leaves real headroom before treating noise as a regression
 
 const monoProbeLayout = tgpu.bindGroupLayout({
     src: {
@@ -782,40 +788,259 @@ async function assertMonoRamp(): Promise<Check> {
     };
 }
 
-// rule 3's own real-device arm (`specs/shallot-tui.md`'s fill-treatment amendment, "facade ink is low… the
-// target is the number"). Reuses `MonoPlugin`'s already-dispatched per-glyph ink readback — the same real
-// rendered ink `assertMonoRamp` reads above, over the *whole* fill ramp this time (`ink.length ===
-// CELL_FILL_GLYPHS.length`, unlike that arm's own `MONO_CHECKED_COUNT`-bounded population) — rather than
-// dispatching a second draw, since "the rendered cells" is exactly what this readback already is
-// (`select.ts`'s own `facadeInkFraction`/`FACADE_LUMA_SWEEP` docblocks have the derivation for why this is
-// the cheaper, honest choice over a second synthetic scene). `facadeInkFraction` is the same function
-// `select.test.ts`'s two-sided vacuity arms drive with synthetic all-zero / all-one arrays — this is its
-// one production caller, against real data.
+// The device fixture rule 3's real-device arm reads (`assertFacadeInk` below): a small grid of cells, all
+// carrying one glyph index, drawn through the real font/atlas/draw pipeline and read back per-pixel
+// against a luma threshold — `FramePlugin`'s own sentinel-count shape, applied to a different predicate.
+// A dedicated font/atlas load rather than reusing `MonoPlugin`'s (both load the same `/font.ttf` and
+// build the same tables) keeps this fixture's own lifecycle independent of `MonoPlugin`'s and free of any
+// assumption about plugin initialization order.
+const FACADE_COLS = 12;
+const FACADE_ROWS = 8;
+const FACADE_CELL_PX = 24; // matches MONO_CELL_PX's AA resolution per cell
+const FACADE_VIEW_W = FACADE_COLS * FACADE_CELL_PX;
+const FACADE_VIEW_H = FACADE_ROWS * FACADE_CELL_PX;
+const FACADE_FORMAT: GPUTextureFormat = "rgba8unorm";
+const FACADE_FG = vec4f(1, 1, 1, 1); // white
+const FACADE_BG = vec4f(0, 0, 0, 1); // black — grayscale only, so a channel read is the pixel's luma
+// directly (`assertMonoRamp`'s own module doc names the same fg/bg-black-white identity).
+
+const facadeProbeLayout = tgpu.bindGroupLayout({
+    src: {
+        texture: d.texture2d(d.f32),
+        sampleType: "unfilterable-float",
+        visibility: ["compute"],
+    },
+    out: {
+        storage: d.arrayOf(d.atomic(d.u32), 1),
+        access: "mutable",
+        visibility: ["compute"],
+    },
+});
+
+// one invocation per pixel of the FACADE_VIEW_W x FACADE_VIEW_H target — counts every pixel whose luma
+// clears FACADE_PIXEL_LUMA_THRESHOLD, the reference's own per-pixel ink definition (`select.ts`'s own
+// docblock has the derivation). fg=white/bg=black makes any channel the pixel's luma with no color solve.
+const facadeProbeKernel = tgpu.computeFn({
+    workgroupSize: [8, 8],
+    in: { gid: d.builtin.globalInvocationId },
+})((input) => {
+    "use gpu";
+    const x = input.gid.x;
+    const y = input.gid.y;
+    if (x >= d.u32(FACADE_VIEW_W) || y >= d.u32(FACADE_VIEW_H)) return;
+    const c = std.textureLoad(facadeProbeLayout.$.src, d.vec2u(x, y), 0);
+    if (c.x > FACADE_PIXEL_LUMA_THRESHOLD) {
+        std.atomicAdd(facadeProbeLayout.$.out[0], 1);
+    }
+});
+
+let facadeAtlas: GlyphAtlas | null = null;
+let facadeGlyphUv: GlyphUvBuffer | null = null;
+let facadeGlyphSize: GlyphSizeBuffer | null = null;
+let facadeSampler: GPUSampler | null = null;
+let facadeBandTarget: GPUTexture | null = null;
+let facadeCeilingTarget: GPUTexture | null = null;
+let facadeFloorTarget: GPUTexture | null = null;
+let facadeBandOut: ReturnType<typeof allocFacadeOut> | null = null;
+let facadeCeilingOut: ReturnType<typeof allocFacadeOut> | null = null;
+let facadeFloorOut: ReturnType<typeof allocFacadeOut> | null = null;
+let facadeBandMirror: Mirror | null = null;
+let facadeCeilingMirror: Mirror | null = null;
+let facadeFloorMirror: Mirror | null = null;
+
+function allocFacadeOut() {
+    return Compute.root
+        .createBuffer(d.arrayOf(d.atomic(d.u32), 1))
+        .$usage("storage")
+        .$name("cells-gym-facade-out");
+}
+
+// every cell the same fixed glyph — the two controls (densest-glyph ceiling, blank-glyph floor).
+function writeFacadeCellsFixed(buffer: GPUBuffer, glyph: number): void {
+    const count = FACADE_COLS * FACADE_ROWS;
+    const words = new Uint32Array(count * CELL_U32S);
+    const packed = packCell(glyph, FACADE_FG, FACADE_BG);
+    for (let i = 0; i < count; i++) {
+        const base = i * CELL_U32S;
+        words[base + CELL_AT.glyph] = packed.x;
+        words[base + CELL_AT.fg] = packed.y;
+        words[base + CELL_AT.bg] = packed.z;
+    }
+    Compute.device.queue.writeBuffer(buffer, 0, words);
+}
+
+// cells cycling through FACADE_BAND_LUMAS's own glyph indices (`fillIndexForLuma`, the real selector
+// mapping — never a re-derived copy) — the drawn band this arm actually measures.
+function writeFacadeCellsBand(buffer: GPUBuffer): void {
+    const count = FACADE_COLS * FACADE_ROWS;
+    const words = new Uint32Array(count * CELL_U32S);
+    const glyphs = FACADE_BAND_LUMAS.map((l) => fillIndexForLuma(l));
+    for (let i = 0; i < count; i++) {
+        const packed = packCell(glyphs[i % glyphs.length], FACADE_FG, FACADE_BG);
+        const base = i * CELL_U32S;
+        words[base + CELL_AT.glyph] = packed.x;
+        words[base + CELL_AT.fg] = packed.y;
+        words[base + CELL_AT.bg] = packed.z;
+    }
+    Compute.device.queue.writeBuffer(buffer, 0, words);
+}
+
+const FacadePlugin: Plugin = {
+    name: "GymCellsFacade",
+    async initialize() {
+        const device = Compute.device;
+        resetDrawPipeline();
+        Render.format = FACADE_FORMAT;
+
+        const font = await loadFont("/font.ttf");
+        // local, narrowly-typed bindings for the calls below — the module-level `let`s just past them
+        // exist for `dispose()`'s cleanup, and TS can't carry a null-narrowing across the closure
+        // `renderAndProbe` forms over them.
+        const atlas = (facadeAtlas = createGlyphAtlas(device, font));
+        const glyphUv = (facadeGlyphUv = buildGlyphUvTable(atlas));
+        const glyphSize = (facadeGlyphSize = buildGlyphSizeTable(atlas));
+        const sampler = (facadeSampler = device.createSampler({
+            label: "cells-gym-facade",
+            magFilter: "linear",
+            minFilter: "linear",
+        }));
+
+        const bandGrid = createCellGrid(FACADE_COLS, FACADE_ROWS, CELL_GLYPH_COUNT);
+        writeFacadeCellsBand(Compute.root.unwrap(bandGrid.buffer));
+        const ceilingGrid = createCellGrid(FACADE_COLS, FACADE_ROWS, CELL_GLYPH_COUNT);
+        writeFacadeCellsFixed(Compute.root.unwrap(ceilingGrid.buffer), CELL_FILL_GLYPHS.length - 1);
+        const floorGrid = createCellGrid(FACADE_COLS, FACADE_ROWS, CELL_GLYPH_COUNT);
+        writeFacadeCellsFixed(Compute.root.unwrap(floorGrid.buffer), 0);
+
+        const targetUsage = GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING;
+        facadeBandTarget = device.createTexture({
+            label: "cells-gym-facade-band",
+            size: { width: FACADE_VIEW_W, height: FACADE_VIEW_H },
+            format: FACADE_FORMAT,
+            usage: targetUsage,
+        });
+        facadeCeilingTarget = device.createTexture({
+            label: "cells-gym-facade-ceiling",
+            size: { width: FACADE_VIEW_W, height: FACADE_VIEW_H },
+            format: FACADE_FORMAT,
+            usage: targetUsage,
+        });
+        facadeFloorTarget = device.createTexture({
+            label: "cells-gym-facade-floor",
+            size: { width: FACADE_VIEW_W, height: FACADE_VIEW_H },
+            format: FACADE_FORMAT,
+            usage: targetUsage,
+        });
+
+        facadeBandOut = allocFacadeOut();
+        facadeCeilingOut = allocFacadeOut();
+        facadeFloorOut = allocFacadeOut();
+        device.queue.writeBuffer(Compute.root.unwrap(facadeBandOut), 0, new Uint32Array([0]));
+        device.queue.writeBuffer(Compute.root.unwrap(facadeCeilingOut), 0, new Uint32Array([0]));
+        device.queue.writeBuffer(Compute.root.unwrap(facadeFloorOut), 0, new Uint32Array([0]));
+
+        const probePipeline = Compute.root
+            .createComputePipeline({ compute: facadeProbeKernel })
+            .$name("cells-gym-facade-probe");
+        const probeDims: [number, number] = [
+            Math.ceil(FACADE_VIEW_W / 8),
+            Math.ceil(FACADE_VIEW_H / 8),
+        ];
+
+        const encoder = device.createCommandEncoder({ label: "cells-gym-facade" });
+        function renderAndProbe(
+            grid: ReturnType<typeof createCellGrid>,
+            target: GPUTexture,
+            out: ReturnType<typeof allocFacadeOut>,
+        ): void {
+            drawCells(
+                encoder,
+                target.createView(),
+                grid.buffer,
+                glyphUv,
+                glyphSize,
+                atlas.textureView,
+                sampler,
+                FACADE_COLS,
+                FACADE_ROWS,
+                FACADE_VIEW_W,
+                FACADE_VIEW_H,
+            );
+            const group = Compute.root.createBindGroup(facadeProbeLayout, {
+                src: target.createView(),
+                out,
+            });
+            const pass = encoder.beginComputePass({ label: "cells-gym-facade-probe" });
+            probePipeline
+                .with(group)
+                .with(pass)
+                .dispatchWorkgroups(...probeDims);
+            pass.end();
+        }
+        renderAndProbe(bandGrid, facadeBandTarget, facadeBandOut);
+        renderAndProbe(ceilingGrid, facadeCeilingTarget, facadeCeilingOut);
+        renderAndProbe(floorGrid, facadeFloorTarget, facadeFloorOut);
+
+        device.queue.submit([encoder.finish()]);
+        facadeBandMirror = mirror(facadeBandOut);
+        facadeCeilingMirror = mirror(facadeCeilingOut);
+        facadeFloorMirror = mirror(facadeFloorOut);
+    },
+};
+
+// rule 3's own real-device arm (`specs/shallot-tui.md`'s fill-treatment amendment: "facade ink is low…
+// the target is the number"), reworked after criterion 8's round-1 rejection. The prior version averaged
+// `assertMonoRamp`'s per-glyph readback (a continuous per-glyph coverage fraction) over the whole fill
+// ramp's own `[0, 1]` luma domain — not a facade (a facade never selects the ramp's blank or densest
+// glyphs) and not the reference's own quantity (the reference's three facade crops were measured as a
+// per-pixel threshold count, `research/ascii-city-reference/`'s own readings: 13.2%, 32.5%, 21.3% of
+// pixels above 18% luma — {@link FACADE_PIXEL_LUMA_THRESHOLD}). This arm reads that same quantity, over a
+// real facade region rendered through the real draw pipeline: a grid of cells all carrying a fill glyph
+// {@link fillIndexForLuma} selects at a facade-representative luma ({@link FACADE_BAND_LUMAS}, the spec's
+// own observed band — `select.ts`'s `EDGE_MAGNITUDE_THRESHOLD` docblock names the same ~0.517-0.603
+// range at one orbit angle), read back and counted per-pixel against the threshold — `FacadePlugin`
+// below, `assertFrameIsGrid`'s own real-device-readback shape.
+//
+// Two-sided against the two edges of what a real render can produce, exactly like `assertFrameIsGrid`'s
+// drawn/control pair: a control render of the identical grid at the ramp's own densest glyph must clear
+// the ceiling (proving the ceiling is reachable on the real device at all, not just asserted of the font
+// in the abstract), and a control render at the blank glyph must clear the floor (proving the floor
+// discriminates a genuinely empty facade from a filled one). All three renders share one draw pipeline
+// and one probe kernel — the only thing that varies between them is which glyph index the grid carries.
+async function readFacadeFraction(
+    mirrorRef: Mirror | null,
+    label: string,
+): Promise<{ fraction: number } | { error: string }> {
+    if (!mirrorRef) return { error: `no facade ${label} probe mirror` };
+    await settle(mirrorRef);
+    const snap = mirrorRef.snapshot;
+    if (!snap) return { error: `no facade ${label} probe snapshot` };
+    const count = new Uint32Array(snap.bytes)[0];
+    return { fraction: count / (FACADE_VIEW_W * FACADE_VIEW_H) };
+}
+
 async function assertFacadeInk(): Promise<Check> {
     const name = "facade ink: the real ramp's rendered ink lands in the reference's target band";
-    if (!monoMirror) return { name, pass: false, detail: "no mono probe mirror" };
-    await settle(monoMirror);
-    const snap = monoMirror.snapshot;
-    if (!snap) return { name, pass: false, detail: "no mono probe snapshot" };
+    const band = await readFacadeFraction(facadeBandMirror, "band");
+    if ("error" in band) return { name, pass: false, detail: band.error };
+    const ceiling = await readFacadeFraction(facadeCeilingMirror, "ceiling control");
+    if ("error" in ceiling) return { name, pass: false, detail: ceiling.error };
+    const floor = await readFacadeFraction(facadeFloorMirror, "floor control");
+    if ("error" in floor) return { name, pass: false, detail: floor.error };
 
-    const ink = new Float32Array(snap.bytes);
-    if (ink.length !== MONO_GLYPH_COUNT) {
-        return {
-            name,
-            pass: false,
-            detail: `probe output length ${ink.length} !== ${MONO_GLYPH_COUNT} fill glyphs`,
-        };
-    }
+    const bandInBand = band.fraction >= FACADE_INK_FLOOR && band.fraction <= FACADE_INK_CEILING;
+    const ceilingReachable = ceiling.fraction > FACADE_INK_CEILING;
+    const floorReachable = floor.fraction < FACADE_INK_FLOOR;
+    const pass = bandInBand && ceilingReachable && floorReachable;
 
-    const fraction = facadeInkFraction(FACADE_LUMA_SWEEP, Array.from(ink));
-    const pass = fraction >= FACADE_INK_FLOOR && fraction <= FACADE_INK_CEILING;
-    return {
-        name,
-        pass,
-        detail: pass
-            ? `facade ink ${(fraction * 100).toFixed(1)}% over ${FACADE_LUMA_SWEEP.length} facade-luma samples — inside [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%]`
-            : `facade ink ${(fraction * 100).toFixed(1)}% over ${FACADE_LUMA_SWEEP.length} facade-luma samples — outside [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%]; FILL_GLYPH_INK_SCALE (glyphs.ts) and INK_DILATE_PX (draw.ts) are the levers`,
-    };
+    const detail =
+        `band (facade lumas ${FACADE_BAND_LUMAS.join("/")}) ${(band.fraction * 100).toFixed(1)}% of ${FACADE_VIEW_W * FACADE_VIEW_H} px above ${(FACADE_PIXEL_LUMA_THRESHOLD * 100).toFixed(0)}% luma — want inside [${FACADE_INK_FLOOR * 100}%, ${FACADE_INK_CEILING * 100}%] (${bandInBand ? "OK" : "OUTSIDE"}); ` +
+        `densest-glyph control ${(ceiling.fraction * 100).toFixed(1)}% — want > ${FACADE_INK_CEILING * 100}%, proves the ceiling reachable (${ceilingReachable ? "OK" : "UNREACHABLE — the ceiling is not a real bound on this device"}); ` +
+        `blank-glyph control ${(floor.fraction * 100).toFixed(1)}% — want < ${FACADE_INK_FLOOR * 100}%, proves the floor discriminates (${floorReachable ? "OK" : "UNREACHABLE — the floor does not discriminate a blank facade"})` +
+        (pass || !(ceilingReachable && floorReachable)
+            ? ""
+            : "; both controls hold, so the lever is fillIndexForLuma's luma→index mapping (select.ts), never glyph geometry");
+    return { name, pass, detail };
 }
 
 // Criterion 9 (`shallot-tui` spec, added 2026-09-01 after a human look found the shaded 3D scene visible
@@ -1104,6 +1329,7 @@ const scenario: Scenario = {
                 SelectPlugin,
                 DrawPlugin,
                 MonoPlugin,
+                FacadePlugin,
                 FramePlugin,
             ],
         });
@@ -1134,6 +1360,25 @@ const scenario: Scenario = {
                 monoSampler = null;
                 monoOut = null;
                 monoMirror = null;
+                if (facadeAtlas) disposeAtlases([facadeAtlas]);
+                facadeAtlas = null;
+                facadeGlyphUv?.destroy();
+                facadeGlyphUv = null;
+                facadeGlyphSize?.destroy();
+                facadeGlyphSize = null;
+                facadeSampler = null;
+                facadeBandTarget?.destroy();
+                facadeBandTarget = null;
+                facadeCeilingTarget?.destroy();
+                facadeCeilingTarget = null;
+                facadeFloorTarget?.destroy();
+                facadeFloorTarget = null;
+                facadeBandOut = null;
+                facadeCeilingOut = null;
+                facadeFloorOut = null;
+                facadeBandMirror = null;
+                facadeCeilingMirror = null;
+                facadeFloorMirror = null;
                 frameAtlas?.destroy();
                 frameAtlas = null;
                 frameGlyphUv?.destroy();

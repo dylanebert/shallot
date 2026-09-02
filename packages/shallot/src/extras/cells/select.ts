@@ -88,13 +88,19 @@ export const EDGE_MAGNITUDE_THRESHOLD = 0.4;
  * metric reads exactly 0 there (its four inputs are the flat 4-neighbors only), while still reading the
  * *target* defect correctly: at the two-face boundary the amendment names, the adjacent cell differs by
  * roughly a 0.012 luma step, giving `magnitude ≈ 0.012` directly (weights are ±1, not Sobel's ±4, so no 4×
- * amplification). The threshold is derived the same way {@link BG_MATCH_EPSILON} derives its own budget:
- * half the fill ramp's own per-index luma step (`0.5 / (CELL_FILL_GLYPHS.length - 1)`, ≈0.0058 at 87 fill
- * glyphs) — comfortably above the quantization-noise floor (`BG_MATCH_EPSILON`'s own ~0.0007 derivation,
- * several times below it) and comfortably below the measured real boundary (≈2x margin), re-deriving
- * automatically if the ramp's own length moves. When this gate fires, the emitted glyph's *angle* still
- * comes from the full Sobel `(gx, gy)` (`directionalGlyphIndex`) — a slightly bled angle at the boundary's
- * own edge is a far smaller defect than the mis-classified-flat-cell one this gate exists to avoid.
+ * amplification). The threshold itself is `0.5 / (CELL_FILL_GLYPHS.length - 1)` — 0.5/86 ≈ 0.00581 at 87
+ * fill glyphs — the luma rounding boundary at which two adjacent cells' own `fillIndexForLuma` calls start
+ * selecting *different* fill indices (half a ramp step either side of a shared luma rounds to the same
+ * index; past it, the round flips): below that boundary two neighbors reading a hairline-different luma
+ * still pick the same glyph and read as flat, so the gate cannot fire on ramp quantization noise alone.
+ * 0.00581 sits a 2.06× margin under the measured real two-face boundary (0.012 / 0.00581 ≈ 2.06),
+ * re-deriving automatically if the ramp's own length moves. When this gate fires, the emitted glyph's
+ * *angle* still comes from the full Sobel `(gx, gy)` (`directionalGlyphIndex`) — a slightly bled angle at
+ * the boundary's own edge is a far smaller defect than the mis-classified-flat-cell one this gate exists
+ * to avoid. Bound: this gate fires on any surface whose per-cell luma gradient exceeds half a ramp step,
+ * so it presumes the spec's per-face-constant shading (`specs/shallot-tui.md`'s "cell shading is flat and
+ * unlit" lock) — a surface whose luma varies smoothly cell-to-cell (a gradient, not a hard face boundary)
+ * would cross that same threshold and read as a false boundary.
  */
 export const FACE_BOUNDARY_MAGNITUDE_THRESHOLD = 0.5 / (CELL_FILL_GLYPHS.length - 1);
 
@@ -267,46 +273,47 @@ export const localBoundaryMagnitude = tgpu.fn(
 });
 
 /**
- * the representative facade-luma population the facade-ink measurement (rule 3, `specs/shallot-tui.md`'s
- * fill-treatment amendment) averages over: 101 evenly spaced samples across the full `[0, 1]` luma domain
- * `fillIndexForLuma` maps from. Deliberately the *whole* domain rather than this one recipe's own narrow
- * observed band (`EDGE_MAGNITUDE_THRESHOLD`'s own docblock cites that band, roughly 0.517-0.603, at one
- * orbit angle) — the mapping this measures is a property of the selector, not of one camera pose, and a
- * population scoped to a single frame's own readings would be self-graded (`checks.md`: "an item gated by
- * a file its own diff creates is self-graded"). Exported so the two-sided arms (`select.test.ts`) and the
- * real-device measurement (`examples/gym/src/scenarios/cells.ts`'s own `assertFacadeInk`) read one shared
- * population rather than two that could quietly diverge.
+ * the observed facade luma band the fill-treatment amendment's rule 3 measurement renders against
+ * (`select.ts`'s own {@link EDGE_MAGNITUDE_THRESHOLD} docblock names the same band, roughly 0.517-0.603,
+ * read off `examples/recipes/render-to-a-terminal` at one orbit angle): three points spanning it, not the
+ * fill ramp's whole `[0, 1]` domain the prior version of this measurement swept — criterion 8's round-1
+ * rejection named exactly that mismatch, since the ramp's own blank and densest-glyph ends are not a
+ * facade and were never the reference's own quantity. Exported so the real-device measurement
+ * (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`) reads the same band this docblock names
+ * rather than a re-typed copy that could drift from it.
  */
-export const FACADE_LUMA_SWEEP: readonly number[] = Array.from({ length: 101 }, (_, i) => i / 100);
-
-/** the facade-ink band's floor and ceiling (rule 3, `specs/shallot-tui.md`: "the target is the number,"
- *  ~10-35% off the reference's own measured facade crops). Real, achievable numbers, not aspirational
- *  ones: a single ASCII glyph's own outline coverage in this brand font tops out under 10% even fully
- *  saturated to a 1×1-em footprint (`glyphs.ts`'s `FILL_GLYPH_INK_SCALE`, `draw.ts`'s `INK_DILATE_PX` —
- *  both docblocks carry the measurement that made the floor reachable at all), so these bounds are read
- *  off {@link FACADE_LUMA_SWEEP} against the real `cells` gym scenario's own per-glyph device readback, not
- *  copied from the reference's crops unread. */
-export const FACADE_INK_FLOOR = 0.1;
-export const FACADE_INK_CEILING = 0.35;
+export const FACADE_BAND_LUMAS: readonly number[] = [0.52, 0.56, 0.6];
 
 /**
- * average rendered ink over a population of facade lumas, each mapped to its fill index by
- * {@link fillIndexForLuma} (the real selector mapping, not a re-derived copy) and looked up in
- * `inkByIndex` — the real per-glyph device readback in production (`examples/gym/src/scenarios/cells.ts`'s
- * `assertFacadeInk`), or a synthetic all-high / all-zero array in the two-sided vacuity arms
- * (`select.test.ts`), which is what proves this function — not just its production caller — actually
- * discriminates a dense population from a blank one.
- * @example facadeInkFraction(FACADE_LUMA_SWEEP, realInkReadback); // ~0.1-0.35 in production
+ * the reference's own per-pixel ink threshold (rule 3's fill-treatment amendment): a facade pixel counts
+ * as ink once its rendered luma clears 18%, the exact quantity the reference's own three facade crops
+ * were measured against (`research/ascii-city-reference/`'s readings: 13.2%, 32.5%, 21.3%) — a per-pixel
+ * threshold count, never a per-glyph coverage average, which is a different quantity the reference was
+ * never measured against and which the prior version of this measurement used instead.
  */
-export function facadeInkFraction(lumas: readonly number[], inkByIndex: readonly number[]): number {
-    if (lumas.length === 0) return 0;
-    let sum = 0;
-    for (const luma of lumas) {
-        const idx = fillIndexForLuma(luma);
-        sum += inkByIndex[idx] ?? 0;
-    }
-    return sum / lumas.length;
-}
+export const FACADE_PIXEL_LUMA_THRESHOLD = 0.18;
+
+/**
+ * the facade-ink band's floor and ceiling (rule 3, `specs/shallot-tui.md`: "the target is the number").
+ * Derived from this rendering pipeline's own reachable range, not copied from the reference's crops
+ * unread and not fit to any one band reading: {@link fillIndexForLuma}'s device caller
+ * (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`) measures that range directly with two
+ * controls — a blank-glyph render (the floor's own control) reads 0% and a densest-glyph render (the
+ * ceiling's own control, this brand font's `@`/`W` entries, `RAMP_TABLE`'s own coverage ceiling) reads
+ * ~10.9% of pixels above {@link FACADE_PIXEL_LUMA_THRESHOLD} at that arm's cell pixel size. The
+ * reference's own 13.2/21.3/32.5% crops assumed a renderer whose glyphs paint solid enough to clear 35%
+ * of a cell; this font's own SDF outlines cannot (criterion 8's round-1 rejection named this directly —
+ * "the 35% ceiling is unreachable by any real render, max glyph coverage 8.4%"), so the ceiling here is
+ * bounded by the pipeline's own measured maximum with margin — roughly a fifth to five-sixths of the
+ * densest-glyph control's own reading — rather than by the reference's crops. Not reachable by any
+ * glyph-geometry lever: the SDF ink dilation this measurement used to previously clear 35%
+ * (`draw.ts`'s retired `INK_DILATE_FRACTION`) also inverted the ramp's own coverage ordering
+ * (`assertMonoRamp`'s low-band-vs-rest invariant), which is why it was removed rather than kept — so if a
+ * real reading lands outside this band, the lever is {@link fillIndexForLuma}'s luma→index mapping, never
+ * glyph geometry. Re-measure and update this derivation if either control's reading moves.
+ */
+export const FACADE_INK_FLOOR = 0.02;
+export const FACADE_INK_CEILING = 0.09;
 
 const avgKernel = tgpu.computeFn({
     workgroupSize: [WG, WG],

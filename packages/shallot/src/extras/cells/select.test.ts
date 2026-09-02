@@ -10,11 +10,7 @@ import {
     directionalGlyphIndex,
     dispatchSelect,
     EDGE_MAGNITUDE_THRESHOLD,
-    FACADE_INK_CEILING,
-    FACADE_INK_FLOOR,
-    FACADE_LUMA_SWEEP,
     FACE_BOUNDARY_MAGNITUDE_THRESHOLD,
-    facadeInkFraction,
     fillIndexForLuma,
     localBoundaryMagnitude,
     luma,
@@ -301,41 +297,84 @@ describe("background detection (s3r item 8's own repair)", () => {
     });
 });
 
-// rule 3's own two-sided vacuity proof (`specs/shallot-tui.md`'s fill-treatment amendment): the real
-// facade-ink assertion lives against a real device readback (`examples/gym/src/scenarios/cells.ts`'s
-// `assertFacadeInk`, since only a real dispatch can measure rendered ink); this proves the *measurement
-// function itself* discriminates, with no device — the same shared `facadeInkFraction`/`fillIndexForLuma`
-// the production check calls, fed a synthetic ink array instead of a real one.
-describe("facadeInkFraction (rule 3's own two-sided vacuity proof)", () => {
-    test("an all-blank (zero ink) population reads under the floor", () => {
-        const allBlank = CELL_FILL_GLYPHS.map(() => 0);
-        const fraction = facadeInkFraction(FACADE_LUMA_SWEEP, allBlank);
-        expect(fraction).toBe(0);
-        expect(fraction).toBeLessThan(FACADE_INK_FLOOR);
-    });
-
-    test("a maximally dense ('all-@'-shaped) population reads over the ceiling", () => {
-        // every fill index reads as fully inked — the "all-@" fill the criterion names, generalized past
-        // this font's own specific ceiling (`glyphs.ts`'s FILL_GLYPH_INK_SCALE docblock has that
-        // measurement) so this arm proves the *arithmetic* discriminates regardless of what any one real
-        // glyph happens to measure.
-        const allDense = CELL_FILL_GLYPHS.map(() => 1);
-        const fraction = facadeInkFraction(FACADE_LUMA_SWEEP, allDense);
-        expect(fraction).toBe(1);
-        expect(fraction).toBeGreaterThan(FACADE_INK_CEILING);
-    });
+// fillIndexForLuma's own in-range property, swept across its whole luma domain — device-free, unlike the
+// real facade-ink measurement, which now lives entirely against a real device readback
+// (`examples/gym/src/scenarios/cells.ts`'s `assertFacadeInk`, rendering `FACADE_BAND_LUMAS` through this
+// mapping and the real draw pipeline, since only a real dispatch can measure rendered ink over a per-pixel
+// threshold). The old version of this population was `FACADE_LUMA_SWEEP`, a 101-point sweep the facade-ink
+// measurement itself averaged over; that measurement moved to the device (round-1's criterion-8 rejection:
+// averaging over the whole ramp is not a facade), so the sweep's only remaining job is this file's own
+// in-range check, local rather than exported.
+describe("fillIndexForLuma (in-range property)", () => {
+    const FullLumaDomainSweep: readonly number[] = Array.from({ length: 101 }, (_, i) => i / 100);
 
     test("the sweep is non-empty and spans the full luma domain — a non-vacuity control on the population itself", () => {
-        expect(FACADE_LUMA_SWEEP.length).toBeGreaterThan(2);
-        expect(Math.min(...FACADE_LUMA_SWEEP)).toBe(0);
-        expect(Math.max(...FACADE_LUMA_SWEEP)).toBe(1);
+        expect(FullLumaDomainSweep.length).toBeGreaterThan(2);
+        expect(Math.min(...FullLumaDomainSweep)).toBe(0);
+        expect(Math.max(...FullLumaDomainSweep)).toBe(1);
     });
 
     test("fillIndexForLuma stays in range across the whole sweep", () => {
-        for (const l of FACADE_LUMA_SWEEP) {
+        for (const l of FullLumaDomainSweep) {
             const idx = fillIndexForLuma(l);
             expect(idx).toBeGreaterThanOrEqual(0);
             expect(idx).toBeLessThan(CELL_FILL_GLYPHS.length);
+        }
+    });
+});
+
+// fillIndexForLuma's own differential (`packages/shallot/tests/standards.ts` registry entry) — the
+// range-check above proves the output stays in bounds, never that the rounding is correct, so this is
+// the independent reference. WGSL's round() rounds ties to even, not JS's default half-away-from-zero,
+// and `fillIndexForLuma`'s `luma` parameter is `d.f32`, so the input itself is quantized to float32
+// precision before the ramp multiply — a boundary luma placed at an exact mathematical tie can land a
+// few ULPs either side of it under that quantization and round the "wrong" way against naive
+// double-precision arithmetic (reproduced directly against this file's own fixtures while deriving the
+// epsilon below). 1e-4 sits many orders above that f32-rounding noise (~1e-7 relative), so "just below"
+// / "just above" a boundary reads unambiguously regardless of which side an exact tie would land on.
+function roundTiesToEven(v: number): number {
+    const floor = Math.floor(v);
+    return v === floor + 0.5 ? (floor % 2 === 0 ? floor : floor + 1) : Math.round(v);
+}
+
+// the reference mapping computed from scratch, never by calling `fillIndexForLuma` — a defect in the
+// production rounding or clamping can't hide behind a shared implementation this way (`checks.md`:
+// "an oracle that shares an assumption with the thing it checks proves nothing").
+function referenceFillIndex(luma: number, fillCount: number): number {
+    const sat = Math.min(1, Math.max(0, luma));
+    const idx = roundTiesToEven(sat * (fillCount - 1));
+    return Math.min(idx, fillCount - 1);
+}
+
+describe("fillIndexForLuma (the standards.ts differential)", () => {
+    const fillCount = CELL_FILL_GLYPHS.length;
+    const step = 1 / (fillCount - 1);
+
+    test("exact index centers land on their own index, hand-computed", () => {
+        for (const i of [0, 1, 2, Math.floor(fillCount / 2), fillCount - 2, fillCount - 1]) {
+            const luma = i / (fillCount - 1);
+            expect(fillIndexForLuma(luma)).toBe(referenceFillIndex(luma, fillCount));
+            expect(fillIndexForLuma(luma)).toBe(i);
+        }
+    });
+
+    test("out-of-domain luma clamps to the ramp's own endpoints", () => {
+        expect(fillIndexForLuma(-0.5)).toBe(0);
+        expect(fillIndexForLuma(1.5)).toBe(fillCount - 1);
+    });
+
+    test("crossing a rounding boundary flips the index by exactly one, on both sides", () => {
+        // half a ramp step past an index center is where the mapping switches to its neighbor — the
+        // same quantity FACE_BOUNDARY_MAGNITUDE_THRESHOLD derives (`select.ts`'s own docblock).
+        const eps = 1e-4;
+        for (const i of [0, 1, 10, Math.floor(fillCount / 2), fillCount - 12, fillCount - 2]) {
+            const boundary = (i + 0.5) * step;
+            const below = fillIndexForLuma(boundary - eps);
+            const above = fillIndexForLuma(boundary + eps);
+            expect(below).toBe(referenceFillIndex(boundary - eps, fillCount));
+            expect(above).toBe(referenceFillIndex(boundary + eps, fillCount));
+            expect(below).toBe(i);
+            expect(above).toBe(i + 1);
         }
     });
 });
