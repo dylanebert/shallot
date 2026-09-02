@@ -205,6 +205,30 @@ describe("Encoder does not alias the caller's grid (N8)", () => {
         model.write(encoder.encode(grid));
         expect(model.grid()).toEqual(projectForTier(grid, "truecolor"));
     });
+
+    // Deeper than the row-replacement case above: this producer never allocates a new `Cell` or a new
+    // row array at all — it reuses the exact same `Cell` object across frames and overwrites its own
+    // `glyph`/`fg` fields in place (bypassing the `readonly` modifier the same way any non-TypeScript
+    // caller, or a `.fg = ...` cast, would). A shallow `row.slice()` clone still shares this object's
+    // reference with `_prev`, so the in-place mutation below would mutate `_prev` too, `diffRuns` would
+    // compare the grid to itself, and the second `encode()` call would emit zero bytes — the model
+    // would still read back "A"/COLOR_A. `cloneGrid`'s deep clone (every `Cell` and `RGB` value, not
+    // just the row array) is what keeps this case from aliasing.
+    test("mutating an existing Cell's own fields in place after encode() does not alias _prev either", () => {
+        const encoder = new Encoder("truecolor");
+        const model = new TerminalModel(3, 1);
+        const mutableCell: Cell = { glyph: "A", fg: COLOR_A, bg: null };
+        const rows: Cell[][] = [[mutableCell, mutableCell, mutableCell]];
+        const grid: Grid = { width: 3, height: 1, cells: rows };
+
+        model.write(encoder.encode(grid));
+        expect(model.grid()).toEqual(projectForTier(grid, "truecolor"));
+
+        (mutableCell as { glyph: string }).glyph = "B";
+        (mutableCell as { fg: Cell["fg"] }).fg = COLOR_B;
+        model.write(encoder.encode(grid));
+        expect(model.grid()).toEqual(projectForTier(grid, "truecolor"));
+    });
 });
 
 // N3 — the two-sided proof itself, wired structurally rather than demonstrated by hand. Each

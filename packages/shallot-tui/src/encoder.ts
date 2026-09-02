@@ -6,7 +6,7 @@ import type { Tier } from "./color-support";
 import { CLEAR_SCREEN, CURSOR_HOME, cursorTo, SGR_RESET } from "./cursor";
 import { diffRuns } from "./diff";
 import { encodeRun } from "./sgr";
-import type { Grid } from "./types";
+import type { Cell, Grid, RGB } from "./types";
 
 /** Renders a full grid as tier-`plain` text: one row per line, no escapes, no cursor state at all. */
 function renderPlain(grid: Grid): string {
@@ -16,6 +16,35 @@ function renderPlain(grid: Grid): string {
         out += "\n";
     }
     return out;
+}
+
+/** Deep-clones one nullable `RGB` — `Cell`'s `fg`/`bg` fields are typed `readonly` but nothing at
+ *  runtime stops a caller from mutating the object those fields point at, so a value-level clone (not
+ *  a reference copy) is what actually keeps `_prev` independent of the caller's object. */
+function cloneRGB(rgb: RGB | null): RGB | null {
+    return rgb === null ? null : { r: rgb.r, g: rgb.g, b: rgb.b };
+}
+
+/** Deep-clones one `Cell`, including its `fg`/`bg` `RGB` values — see {@link cloneRGB}. */
+function cloneCell(cell: Cell): Cell {
+    return { glyph: cell.glyph, fg: cloneRGB(cell.fg), bg: cloneRGB(cell.bg) };
+}
+
+/** Deep-clones a `Grid`: every row, every `Cell`, and every `RGB` value it carries — backs the
+ *  `Encoder` class's own "never stores the caller's `Grid` by reference" guarantee below at every
+ *  depth, not just the top-level `cells` array. A shallow `row.slice()` clone would still share `Cell`
+ *  (and `RGB`) object references with the caller: a producer that reuses `Cell` objects across frames
+ *  and mutates their fields in place, rather than allocating fresh ones, would alias `_prev` at the
+ *  cell level, and `diffRuns`' structural comparison would then see `_prev` and the current grid as
+ *  identical by construction (they're the same objects) and emit zero bytes forever. Cheap at this
+ *  grid's fixed size (80x24) — a few thousand small object allocations per frame, not a hot loop this
+ *  package needs to avoid. */
+function cloneGrid(grid: Grid): Grid {
+    return {
+        width: grid.width,
+        height: grid.height,
+        cells: grid.cells.map((row) => row.map(cloneCell)),
+    };
 }
 
 /**
@@ -37,18 +66,15 @@ function renderPlain(grid: Grid): string {
  * the seam for that case — call it from a real resize notification (`resize.ts`'s `onResize`) and
  * the next `encode()` call repaints in full, exactly like the first frame ever encoded.
  *
- * **`encode()` never stores the caller's `Grid` by reference (N8).** A producer that reuses one
- * grid buffer per frame — writing new cells into the same object rather than allocating a fresh
- * `Grid` each call — is the natural shape for a GPU readback loop. If `_prev` aliased that object,
- * a later in-place mutation would also mutate `_prev`, so the next `diffRuns(_prev, curr)` would
- * compare the grid to itself and emit zero bytes forever. `encode()` snapshots the row array
- * (`cloneGrid` below) before storing it, so the caller's own object is free to mutate between
- * calls.
+ * **`encode()` never stores the caller's `Grid` by reference, nor any `Cell` or `RGB` value it
+ * carries (N8).** A producer that reuses one grid buffer per frame — mutating the cells or colors
+ * of an existing `Grid` in place rather than allocating a fresh one each call — is the natural
+ * shape for a GPU readback loop. If `_prev` aliased any of those objects, a later in-place
+ * mutation would also mutate `_prev`, so the next `diffRuns(_prev, curr)` would compare the grid
+ * to itself and emit zero bytes forever. `encode()` deep-clones the grid (`cloneGrid` below: every
+ * row, `Cell`, and `RGB` value) before storing it, so the caller's own objects, at any depth, are
+ * free to mutate between calls.
  */
-function cloneGrid(grid: Grid): Grid {
-    return { width: grid.width, height: grid.height, cells: grid.cells.map((row) => row.slice()) };
-}
-
 export class Encoder {
     private _prev: Grid | null = null;
     private _cursorRow = -1;
