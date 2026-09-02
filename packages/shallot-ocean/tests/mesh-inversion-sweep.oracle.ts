@@ -42,34 +42,44 @@
 // derivative error bounds, so a "frozen reference" transcribed from the very kernel under test is a
 // regression pin, not an independent check. That comparison, its red witness, and the frozen
 // transcription are deleted rather than re-sized — this oracle now imports the shipped kernel on
-// BOTH sides of every assertion and asserts only the mesh: population (both legs), the
-// zero-displacement negative control above, and leg (b)'s spacing-monotonicity claim below. Leg (a)'s
-// ring-0-vs-continuum reading becomes a print-only sweep; `field-mesh-agreement.test.ts` is where a
-// field-only fold-fraction reading is printed with its own Bernoulli interval, never gated.
+// BOTH sides of every assertion and asserts only the mesh: population (both legs) and the
+// zero-displacement negative control above. Leg (a)'s ring-0-vs-continuum reading becomes a
+// print-only sweep (leg (b)'s own ring-0 reading follows the same shape — see the I3m-r correction
+// round paragraph below); `field-mesh-agreement.test.ts` is where a field-only fold-fraction reading
+// is printed with its own Bernoulli interval, never gated.
 //
 // Rings 1-4 (leg a) stay population-only, on purpose: coarsening past the Nyquist bound is EXPECTED
 // to under-count folds (a fold that fits between two widely-spaced vertices cannot invert a triangle
 // there), so a coarser ring's flip fraction has no reason to track any reference rate and asserting
 // it as if it should would defend the wrong claim (`checks.md`'s "pins the status quo at a position
-// nobody has questioned"). Leg (b) turns that same under-count into its own mesh-only assertion
-// instead: ring 0's flip fraction, read through the SAME shipped kernel at three increasing near
-// spacings (below / at / above the Nyquist bound `checkContinuity` derives), must be non-increasing —
-// a structural property of the mesh alone, comparing the mesh to itself at coarser spacing, never to
-// a field or continuum reference. Measured: 4.286% / 2.058% / 1.113% across the three legs.
+// nobody has questioned").
+//
+// I3m-r correction round (2026-09-01): leg (b)'s ring-0 flip fraction used to be ASSERTED
+// non-increasing across the three near-spacing legs. The consult ruled that ordering claim wrong too
+// (not just the continuum comparison the I3m re-verdict already retired): a fold fraction is a tail
+// statistic (this file's own header, above) with no mutation in this file's table that reaches an
+// ordering over it — the two recorded mutations below leave the direction of the trend unexamined,
+// so the assertion was never red-witnessed by anything this file actually runs. Leg (b) is now a
+// print-only sweep, exactly like leg (a): ring 0's flip fraction at each of the three near spacings,
+// printed with its 95% Bernoulli sampling interval, never ordered or gated. The near-spacing-above-
+// Nyquist claim these three spacings were chosen to bracket is the closed-form inequality
+// `clipmap-continuity.test.ts` already asserts on `OCEAN_CLIP_CONFIG` against `CASCADE_CONFIGS`
+// (`checkContinuity`'s near-field finding), with its own red witness there — not re-asserted through
+// a mesh reading here. Measured: 4.286% / 2.058% / 1.113% across the three legs (unchanged by this
+// correction; only the assertion around the reading moved).
 //
 // Mutation table (each applied in place at this stage's own ref, run, reverted with
 // `git show HEAD:<path>`, never shipped):
 //   - `reconstruction.ts`'s `catmullRom1D` `c` coefficient (`0.5*p2` → `0.35*p2`) → GREEN, 11 pass / 0
 //     fail. This oracle asserts only the mesh, so a reconstruction-kernel-fidelity defect does not
-//     reach it by design — leg (b)'s spacing-monotonicity claim held (10.168% / 6.635% / 1.542%, still
-//     non-increasing under the mutated kernel; bicubic, bilinear and nearest all agree on the
-//     direction of this trend, verified before shipping the claim). This mutation is caught by
-//     `reconstruction-kernel-claim.test.ts`'s closed-form claims instead, the correct instrument for
-//     a reconstruction-kernel defect per the Gate law — recorded here as a negative result so a
-//     reader doesn't mistake this oracle's silence on it for a coverage gap.
+//     reach it by design. This mutation is caught by `reconstruction-kernel-claim.test.ts`'s
+//     closed-form claims instead, the correct instrument for a reconstruction-kernel defect per the
+//     Gate law — recorded here as a negative result so a reader doesn't mistake this oracle's silence
+//     on it for a coverage gap.
 //   - `reconstruction.ts`'s `wrap` narrowed to `i % n` (drops the negative-index wraparound) → RED:
 //     9 fail / 2 pass, every failure a thrown out-of-range array read propagating out of
-//     `bicubicSample` — population, print-only sweep, and the spacing-monotonicity claim all reach it.
+//     `bicubicSample` — population and both print-only sweeps all reach it (a thrown error inside a
+//     `console.log` argument still fails the enclosing `test`).
 import { describe, expect, test } from "bun:test";
 import {
     buildClipLevels,
@@ -237,6 +247,18 @@ function measureMeshFlips(
     };
 }
 
+const Z95 = 1.96; // matches `field-mesh-agreement.test.ts`'s own Bernoulli interval z-quantile.
+
+/** 95% normal-approximation Bernoulli interval half-width, in the same units as `flipFraction`, for
+ *  a proportion measured over `triCount` triangles — a tail statistic's reading gets its sampling
+ *  uncertainty stated beside it, never a gate (Gate law; `field-mesh-agreement.test.ts`'s own reading
+ *  is the field-only sibling this print sweep matches in shape). Returns 0 (never NaN) at `p=0`. */
+function bernoulliInterval(flipFraction: number, triCount: number): number {
+    if (triCount === 0) return Number.NaN;
+    const p = Math.max(0, Math.min(1, flipFraction));
+    return Z95 * Math.sqrt((p * (1 - p)) / triCount);
+}
+
 function printSweep(label: string, res: SweepResult): void {
     console.log(
         `[${label}] total: ${res.totalFlips} / ${res.totalTriCount} triangles flipped (${(res.totalFlipFraction * 100).toFixed(2)}%)`,
@@ -307,8 +329,10 @@ describe("leg (a): reconstruction swap at the shipped mesh", () => {
     test("print-only: ring 0's flip fraction across every reconstruction leg", () => {
         for (const [label, kernel] of reconLegs) {
             const res = measureMeshFlips(OCEAN_CLIP_LEVELS, kernel, cascadeFields, false);
+            const ring0 = res.perRing[0];
+            const interval = bernoulliInterval(ring0.flipFraction, ring0.triCount);
             console.log(
-                `leg (a) ring 0 (${label}): mesh flip=${(res.perRing[0].flipFraction * 100).toFixed(3)}% — reading only, not gated`,
+                `leg (a) ring 0 (${label}): mesh flip=${(ring0.flipFraction * 100).toFixed(3)}% ± ${(interval * 100).toFixed(3)}% (95%, n=${ring0.triCount}) — reading only, not gated`,
             );
         }
     });
@@ -333,37 +357,30 @@ describe("leg (b): near-spacing sweep at the shipped reconstruction (bicubic)", 
         });
     }
 
-    // I3m re-verdict (2026-09-01): ring 0's flip fraction used to be asserted against a composed
-    // continuum fold-fraction reference here, per spacing (see this file's header) — retired outright.
-    // Replaced with a MESH-ONLY structural claim: ring 0's flip fraction, read through the shipped
-    // kernel on both sides, must be non-increasing across these three near-spacing legs (below / at /
-    // above the Nyquist bound `checkContinuity` derives) — the mesh compared to itself at coarser
-    // spacing, never to a field or continuum reference. This does not discriminate a reconstruction-
-    // kernel defect (bicubic, bilinear and nearest all show the same monotone-decreasing trend at
-    // these spacings — verified before shipping this claim; `reconstruction-kernel-claim.test.ts` is
-    // the correct instrument for that class per the Gate law). It does catch a spacing-derivation
-    // defect: this file's own mutation table records `clipmap.ts`'s ring-doubling step mutated to
-    // collapse two of the three legs onto the same spacing, which breaks the strict decrease.
-    test("ring 0's flip fraction is non-increasing across the three near-spacing legs (mesh-only)", () => {
-        const ring0Flips = spacingLegs.map((nearSpacing) => {
+    // I3m-r correction round (2026-09-01): ring 0's flip fraction used to be ASSERTED non-increasing
+    // across these three near-spacing legs (below / at / above the Nyquist bound `checkContinuity`
+    // derives). The consult ruled the ordering claim wrong, same as leg (a)'s continuum comparison
+    // before it: a fold fraction is a tail statistic, and this file's own mutation table has no entry
+    // that reaches an ordering over it — a `clipmap.ts` ring-doubling mutation this comment used to
+    // cite as the ordering's red witness does not exist anywhere in this file's mutation table above,
+    // and no mutation was ever run to check the ordering assertion's own reach. This is now a
+    // print-only sweep, matching leg (a)'s shape: ring 0's flip fraction at each near spacing, printed
+    // with its Bernoulli interval, never ordered or gated. The near-spacing-above-Nyquist claim these
+    // spacings were chosen to bracket lives at `clipmap-continuity.test.ts`'s closed-form inequality
+    // on `OCEAN_CLIP_CONFIG` against `CASCADE_CONFIGS`, with its own red witness there (see this
+    // file's header) — not re-derived through a mesh reading here.
+    test("print-only: ring 0's flip fraction across the three near-spacing legs", () => {
+        for (const nearSpacing of spacingLegs) {
             const levels = buildClipLevels({
                 coreHalfExtent: nearSpacing * 100,
                 nearSpacing,
                 totalHalfExtent: nearSpacing * 100 * 16,
             });
-            return measureMeshFlips(levels, bicubicSample, cascadeFields, false).perRing[0]
-                .flipFraction;
-        });
-        console.log(
-            `leg (b) ring 0 flip fraction by spacing: ${spacingLegs
-                .map((s, i) => `${s}m=${(ring0Flips[i] * 100).toFixed(3)}%`)
-                .join(", ")}`,
-        );
-        for (let i = 1; i < ring0Flips.length; i++) {
-            expect(
-                ring0Flips[i],
-                `spacing ${spacingLegs[i]}m must not exceed spacing ${spacingLegs[i - 1]}m's flip fraction`,
-            ).toBeLessThanOrEqual(ring0Flips[i - 1]);
+            const ring0 = measureMeshFlips(levels, bicubicSample, cascadeFields, false).perRing[0];
+            const interval = bernoulliInterval(ring0.flipFraction, ring0.triCount);
+            console.log(
+                `leg (b) ring 0 (spacing ${nearSpacing}m): mesh flip=${(ring0.flipFraction * 100).toFixed(3)}% ± ${(interval * 100).toFixed(3)}% (95%, n=${ring0.triCount}) — reading only, not gated`,
+            );
         }
     });
 });
