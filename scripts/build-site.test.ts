@@ -18,7 +18,12 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { RUM_ENV_SNIPPET, RUM_ENV_SNIPPET_STAGING } from "../site/rum-config";
-import { datadogInitSnippet } from "./build-site";
+import {
+    datadogInitSnippet,
+    rewriteSiteDependencies,
+    shallotDependencies,
+    workspaceExtensionDependencies,
+} from "./build-site";
 
 const src = readFileSync(resolve(import.meta.dir, "build-site.ts"), "utf8");
 
@@ -34,6 +39,45 @@ test("build-site — datadogInitSnippet selects the env constant by mode, mutual
     // no mode arg defaults to prod — the prod build path stays byte-unchanged for a caller that
     // never learns about `--staging`
     expect(datadogInitSnippet()).toBe(prod);
+});
+
+test("build-site — discovers workspace extensions and rewrites them in both engine modes", () => {
+    const authored = {
+        dependencies: {
+            "@dylanebert/shallot": "workspace:*",
+            "@dylanebert/shallot-ocean": "workspace:*",
+            "@dylanebert/shallot-fixed": "1.2.3",
+            typegpu: "~0.12.4",
+        },
+    };
+    expect(shallotDependencies(authored)).toEqual([
+        ["@dylanebert/shallot", "workspace:*"],
+        ["@dylanebert/shallot-fixed", "1.2.3"],
+        ["@dylanebert/shallot-ocean", "workspace:*"],
+    ]);
+    expect(workspaceExtensionDependencies(authored)).toEqual(["@dylanebert/shallot-ocean"]);
+
+    for (const enginePin of ["0.8.0", "file:/tmp/shallot.tgz"]) {
+        const pkg = structuredClone(authored);
+        rewriteSiteDependencies(
+            pkg,
+            enginePin,
+            new Map([["@dylanebert/shallot-ocean", "file:/tmp/ocean.tgz"]]),
+        );
+        expect(pkg.dependencies["@dylanebert/shallot"]).toBe(enginePin);
+        expect(pkg.dependencies["@dylanebert/shallot-ocean"]).toBe("file:/tmp/ocean.tgz");
+        expect(pkg.dependencies["@dylanebert/shallot-fixed"]).toBe("1.2.3");
+    }
+});
+
+test("build-site — refuses to leave a discovered workspace extension unpinned", () => {
+    expect(() =>
+        rewriteSiteDependencies(
+            { dependencies: { "@dylanebert/shallot-ocean": "workspace:*" } },
+            "0.8.0",
+            new Map(),
+        ),
+    ).toThrow("no packed tarball");
 });
 
 // The staging pack-and-`file:`-pin mechanism itself needs a real `bun pm pack` + `bun install`,
