@@ -76,10 +76,49 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
         const c = document.querySelector("canvas");
         return c instanceof HTMLCanvasElement && c.width > 0 && c.height > 0;
     });
-    // the atlas font load (`CellsPlugin.warm`) is async and gates the first cell draw — a fixed settle
-    // rather than a harness hook, since this project ships no `window.__harness` (no smoke concept to
-    // assert, only that the sink painted)
-    await page.waitForTimeout(1000);
+
+    // the cells-only signal (module doc above): grayscale glyph ink, which the scene's own chromatic
+    // colors (warm box, dark background) cannot produce — a probe `boxSwatch` alone can't discriminate,
+    // since deleting `"Cells": true` from `shallot.json` still leaves the box's own warm swatch on screen.
+    const glyphInk = {
+        name: "cell glyph ink reaches the compositor",
+        minPixels: 80,
+        minSpan: 20,
+        r: [210, 255] as [number, number],
+        g: [210, 255] as [number, number],
+        b: [210, 255] as [number, number],
+    };
+
+    // the atlas font load (`CellsPlugin.warm`) is async and gates the first cell draw. This project ships
+    // no `window.__harness` readiness hook, so wait on the derived value the assertion below is about to
+    // read — real ink on the composited canvas — rather than a frame count or a fixed sleep (`checks.md`'s
+    // Measurement discipline: a property that recalculates promptly still reads the previous state's
+    // values if you poll the wrong thing, so poll what the read will see). `page.waitForFunction` can't do
+    // that read here: this canvas presents through `RenderPlugin`'s `GPUTextureUsage.RENDER_ATTACHMENT |
+    // GPUTextureUsage.STORAGE_BINDING` WebGPU context (`view.ts`'s `attachCanvas`, no `COPY_SRC`), and
+    // measured directly against this real page (a same-page `drawImage`+`getImageData` probe run after a
+    // fixed settle, both channels and error state logged) — the in-page readback reads every channel 0
+    // even though the same frame's real pixels are present, so it cannot see the signal it would need to
+    // poll. `canvas.screenshot()` (Playwright's own CDP capture, reading the compositor rather than the
+    // page's JS realm) *does* see them, which is why the assertions below already use it and why this
+    // repo's other touch-driven gate (`examples/showcase/roads/test/touch-smoke.playwright.ts`) polls the
+    // same way. So this waits on `canvas.screenshot()` through `expect.poll`, driven by the exact
+    // `probePixels`/`pixelProbePass` classifier and `glyphInk` swatch the real assertion reads below — the
+    // derived value, read the only way this canvas lets it be read.
+    await expect
+        .poll(
+            async () => {
+                const shot = await canvas.screenshot({ timeout: 5_000 });
+                const png = PNG.sync.read(shot);
+                const result = probePixels(png.data, png.width, png.height, glyphInk);
+                return pixelProbePass(result, glyphInk);
+            },
+            {
+                message: "cells glyph ink should reach the compositor before probing",
+                timeout: 15_000,
+            },
+        )
+        .toBe(true);
 
     const shot = await canvas.screenshot({ timeout: 5_000 });
     const png = PNG.sync.read(shot);
@@ -98,17 +137,6 @@ test("ascii showcase — the cell grid reaches the compositor", async ({ page })
         `matched ${boxResult.pixels} px, span ${boxResult.width}x${boxResult.height} (want >= ${boxSwatch.minPixels} px, >= ${boxSwatch.minSpan} px span)`,
     ).toBe(true);
 
-    // the cells-only signal (module doc above): grayscale glyph ink, which the scene's own chromatic
-    // colors (warm box, dark background) cannot produce — a probe `boxSwatch` alone can't discriminate,
-    // since deleting `"Cells": true` from `shallot.json` still leaves the box's own warm swatch on screen.
-    const glyphInk = {
-        name: "cell glyph ink reaches the compositor",
-        minPixels: 80,
-        minSpan: 20,
-        r: [210, 255] as [number, number],
-        g: [210, 255] as [number, number],
-        b: [210, 255] as [number, number],
-    };
     const inkResult = probePixels(png.data, png.width, png.height, glyphInk);
     expect(
         pixelProbePass(inkResult, glyphInk),
