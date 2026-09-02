@@ -15,7 +15,7 @@ import { RAMP_TABLE } from "./ramp-table";
 //     ascending (least ink first), not by code point. A character set in code-point order is not a ramp —
 //     it carries no shape signal a tone-based selector can walk. The ordering is generated data, not
 //     hand-authored: rendered and measured by `scripts/generate-ramp.ts`, committed in `ramp-table.ts`,
-//     and reproduced by `ramp-table.test.ts` against the same brand font (`assets/font.ttf`) the generator
+//     and reproduced by `ramp-table.test.ts` against the cells face (`assets/jetbrains-mono.ttf`) the generator
 //     reads.
 //   - `CELL_DIRECTIONAL_GLYPHS` (appended after the fill glyphs) — a small curated set, one glyph per
 //     quantized *edge-tangent* angle bucket (0°=`-`, 45°=`/`, 90°=`|`, 135°=`\` — the angle the drawn

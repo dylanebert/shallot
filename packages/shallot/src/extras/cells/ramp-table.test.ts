@@ -6,10 +6,10 @@ import { RAMP_TABLE } from "./ramp-table";
 // The reproduction arm the Locked decision requires (`specs/shallot-tui.md`'s glyph-selection
 // addendum): "a derived table nobody can re-derive is a hand-authored guess with extra steps" — this
 // proves `ramp-table.ts` (the committed data) is exactly what `generate-ramp.ts`'s own pure
-// `computeRampTable` produces off the same brand font, right now, not just at the moment it was
+// `computeRampTable` produces off the same JetBrains Mono face, right now, not just at the moment it was
 // generated.
 describe("RAMP_TABLE reproduces from generate-ramp.ts's own computeRampTable", () => {
-    test("the committed table is identical to a fresh computation off the brand font", () => {
+    test("the committed table is identical to a fresh computation off the JetBrains Mono face", () => {
         const fresh = computeRampTable(loadBrandFont());
         expect(RAMP_TABLE).toEqual(fresh);
     });
