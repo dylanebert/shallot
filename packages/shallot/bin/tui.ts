@@ -244,19 +244,26 @@ export async function importBunWebgpu(
 
 export const EXIT_NO_SHALLOT_TUI = 4; // @dylanebert/shallot-tui isn't installed (optionalDependencies)
 
-const INSTALL_SHALLOT_TUI = "bun add @dylanebert/shallot-tui";
+const INSTALL_SHALLOT_TUI = "bun install";
 
-/** the refusal diagnostic for a missing `@dylanebert/shallot-tui` — names the install command, never a
- *  stack trace, the same shape {@link noBunWebgpuMessage} uses. `@dylanebert/shallot-tui` is an
+/** the refusal diagnostic for a missing `@dylanebert/shallot-tui` — names an install command that works,
+ *  never a stack trace, the same shape {@link noBunWebgpuMessage} uses. `@dylanebert/shallot-tui` is an
  *  `optionalDependencies` entry on `@dylanebert/shallot` (`packages/shallot/package.json`), not a hard
  *  dependency: a real registry install tolerates it failing (unpublished, platform mismatch, `--omit=
  *  optional`), which is exactly the case this message exists to name instead of a raw module-resolution
- *  crash. */
+ *  crash. `@dylanebert/shallot-tui` isn't published to npm — this unit authors the package and its
+ *  release metadata but does not publish (`specs/shallot-tui.md`'s Out of scope) — so `bun add
+ *  @dylanebert/shallot-tui` 404s against the registry rather than fixing anything; the reader this
+ *  message can actually help today is a developer inside the shallot repo, where the package already
+ *  exists as a workspace member (`packages/shallot-tui`), and running {@link INSTALL_SHALLOT_TUI} from
+ *  the repo root links it (verified: `bun install` there resolves `node_modules/@dylanebert/shallot-tui`
+ *  to a symlink onto `packages/shallot-tui`). */
 export function noShallotTuiMessage(): string {
     return (
         `shallot tui needs @dylanebert/shallot-tui to encode the cell grid, but it isn't installed. ` +
-        `Install it: ${INSTALL_SHALLOT_TUI} (not published yet; this command 404s on the public ` +
-        `registry until a shallot-tui release ships)`
+        `It isn't published to the public npm registry yet, so \`bun add\` 404s against it — inside ` +
+        `the shallot repo, run \`${INSTALL_SHALLOT_TUI}\` from its root to link the workspace package ` +
+        `instead.`
     );
 }
 
