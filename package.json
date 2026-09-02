@@ -16,6 +16,7 @@
         "test:install": "bun run scripts/install-test.ts",
         "test:ocean-realization": "bun test ./packages/shallot-ocean/tests/realization.oracle.ts",
         "test:ocean-slope": "bun test ./packages/shallot-ocean/tests/slope.oracle.ts",
+        "test:ocean-mesh-inversion": "bun test ./packages/shallot-ocean/tests/mesh-inversion-sweep.oracle.ts",
         "bench": "bun run scripts/bench.ts",
         "flows": "bun run scripts/flows.ts",
         "recipes": "bun run scripts/recipes.ts",

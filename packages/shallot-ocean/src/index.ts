@@ -2,6 +2,17 @@
 // spectral ocean kernels, CPU reference functions, and a Shallot plugin.
 
 export {
+    buildClipLevels,
+    buildClipmapMesh,
+    type CascadeTexel,
+    type ClipLevel,
+    type ContinuityFinding,
+    checkContinuity,
+    finestCascadeTexel,
+    OCEAN_CLIP_CONFIG,
+    OCEAN_CLIP_LEVELS,
+} from "./clipmap";
+export {
     type ComplexArray,
     type CpuStageResult,
     chop,
@@ -50,6 +61,15 @@ export {
     measuredLag1AutocorrX,
     type ParityWitnessReading,
 } from "./parity-witness";
+export {
+    bicubicSample,
+    bilinearSample,
+    catmullRom1D,
+    type Field,
+    nearestSample,
+    type ReconstructionKernel,
+    syntheticField,
+} from "./reconstruction";
 export {
     composedSlopePsd,
     getSlopeBuffers,
@@ -105,3 +125,9 @@ export {
     totalTheoreticalFlops,
     U10,
 } from "./spectrum";
+export {
+    oceanDisplacementLayout,
+    oceanDisplacementPatch,
+    oceanDisplacementVaryings,
+    oceanDisplacementVs,
+} from "./vertex-displacement";
