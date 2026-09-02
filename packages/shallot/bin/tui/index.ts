@@ -1,4 +1,4 @@
-// @dylanebert/shallot-tui — an engine-agnostic encoder turning a character-cell grid into
+// Private terminal encoder turning a character-cell grid into
 // terminal bytes. No GPU, no `@dylanebert/shallot` import (`scripts/check-tui-boundary.ts`
 // enforces it), so this is fully testable on any seat with no adapter.
 

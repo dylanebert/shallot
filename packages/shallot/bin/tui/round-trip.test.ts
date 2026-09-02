@@ -16,14 +16,14 @@
 // one-time proof whose witness doesn't survive in the tree.
 
 import { describe, expect, test } from "bun:test";
-import type { Tier } from "../src/color-support";
-import { CLEAR_SCREEN, CURSOR_HOME, cursorTo, SGR_RESET } from "../src/cursor";
-import { diffRuns } from "../src/diff";
-import { Encoder } from "../src/encoder";
-import { encodeRun } from "../src/sgr";
-import type { Cell, Grid } from "../src/types";
-import { makeGrid } from "../src/types";
+import type { Tier } from "./color-support";
+import { CLEAR_SCREEN, CURSOR_HOME, cursorTo, SGR_RESET } from "./cursor";
+import { diffRuns } from "./diff";
+import { Encoder } from "./encoder";
+import { encodeRun } from "./sgr";
 import { projectForTier, TerminalModel } from "./terminal-model";
+import type { Cell, Grid } from "./types";
+import { makeGrid } from "./types";
 
 const COLOR_A = { r: 37, g: 140, b: 201 };
 const COLOR_B = { r: 220, g: 20, b: 60 };

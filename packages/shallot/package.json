@@ -112,7 +112,6 @@
         }
     },
     "optionalDependencies": {
-        "@dylanebert/shallot-tui": "0.0.0",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {

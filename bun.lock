@@ -294,10 +294,6 @@
         "@dylanebert/shallot-ocean": "workspace:*",
         "typegpu": "~0.12.4",
       },
-      "devDependencies": {
-        "unplugin-typegpu": "~0.12.3",
-        "vite": "^8.0.16",
-      },
     },
     "examples/showcase/roads": {
       "name": "roads",

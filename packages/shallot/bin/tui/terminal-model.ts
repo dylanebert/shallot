@@ -4,9 +4,9 @@
 // logic. Test-only: it lives beside the arm that uses it, not in `src/`, the same shape
 // `packages/shallot-ocean/tests/elfouhaily-independent.ts` already uses in this repo.
 
-import type { Tier } from "../src/color-support";
-import type { Cell, Grid, RGB } from "../src/types";
-import { makeGrid } from "../src/types";
+import type { Tier } from "./color-support";
+import type { Cell, Grid, RGB } from "./types";
+import { makeGrid } from "./types";
 
 // The real xterm 256-color palette, restated here independently of `src/sgr.ts` rather than
 // imported from it (B2) — this file's own docblock disclaims re-deriving the encoder's own logic,

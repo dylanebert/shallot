@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { onResize, terminalSize } from "../src/resize";
+import { onResize, terminalSize } from "./resize";
 
 describe("terminalSize", () => {
     test("reads columns/rows straight off the stream", () => {

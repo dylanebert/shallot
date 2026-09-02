@@ -1,24 +1,21 @@
 import { describe, expect, test } from "bun:test";
 import { resolve } from "node:path";
-import { makeGrid } from "@dylanebert/shallot-tui";
 import {
     buildDisposeAll,
     cellsBytesToGrid,
     createQuitGuard,
     decodeStdinChunk,
     EXIT_NO_BUN_WEBGPU,
-    EXIT_NO_SHALLOT_TUI,
     EXIT_SETUP,
     importBunWebgpu,
-    importShallotTui,
     noBunWebgpuMessage,
-    noShallotTuiMessage,
     parseTuiArgs,
     runLoopWithTeardown,
     runTui,
     type TuiArgs,
     usage,
 } from "./tui";
+import { makeGrid } from "./tui/index";
 
 // This file stays in the default (fast, no-GPU) `.test.ts` tier — every arm here is pure or DI-driven,
 // no subprocess, no real bun-webgpu device. Criterion 6's real determinism oracle needs a genuine
@@ -242,7 +239,7 @@ describe("cellsBytesToGrid", () => {
     }
     const fakeGlyphChar = (glyph: number) => (glyph === 1 ? "#" : ".");
 
-    test("decodes glyph + fg/bg (dropping alpha) into the shallot-tui Grid shape", () => {
+    test("decodes glyph + fg/bg (dropping alpha) into the private encoder Grid shape", () => {
         const grid = cellsBytesToGrid(
             new ArrayBuffer(0),
             2,
@@ -307,60 +304,5 @@ describe("importBunWebgpu / runTui — missing bun-webgpu", () => {
     test("runTui rejects bad flags before ever reaching bun-webgpu (EXIT_SETUP, distinct code)", async () => {
         const code = await runTui(["--nope"]);
         expect(code).toBe(EXIT_SETUP);
-    });
-});
-
-// The criterion-7-shaped guard for the item 8 packaging fix: `@dylanebert/shallot-tui` moved from a hard
-// `dependencies` entry to `optionalDependencies` (`packages/shallot/package.json`), which means a real
-// registry install can legitimately lack it — a static top-level import would have crashed this whole
-// module with a raw "Cannot find module" stack trace at load time. `importShallotTui` mirrors
-// `importBunWebgpu` exactly: same two-sided proof (a resolving loader proves the success path, a rejecting
-// one proves the exit code + message rather than an uncaught throw), same "extract, never mock" reasoning
-// for why the printed-message half is proven via `noShallotTuiMessage`'s own text here and the genuine-
-// absence subprocess check in `scripts/install-test.ts` rather than a console spy.
-describe("importShallotTui / runTui — missing @dylanebert/shallot-tui", () => {
-    test("importShallotTui resolves via its DI'd loader, and returns null (never throws) on rejection", async () => {
-        const ok = await importShallotTui(() => Promise.resolve({ makeGrid } as never));
-        expect(ok).not.toBeNull();
-
-        const failing = await importShallotTui(() =>
-            Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
-        );
-        expect(failing).toBeNull();
-    });
-
-    test("runTui exits EXIT_NO_SHALLOT_TUI (never throws) when its shallot-tui loader rejects", async () => {
-        const code = await runTui([RECIPE_DIR], undefined, () =>
-            Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
-        );
-        expect(code).toBe(EXIT_NO_SHALLOT_TUI);
-    });
-
-    test("the shallot-tui check runs before the bun-webgpu check — missing both reports the encoder's own remedy, not the engine's", async () => {
-        const code = await runTui(
-            [RECIPE_DIR],
-            () => Promise.reject(new Error("Cannot find module 'bun-webgpu'")),
-            () => Promise.reject(new Error("Cannot find module '@dylanebert/shallot-tui'")),
-        );
-        expect(code).toBe(EXIT_NO_SHALLOT_TUI);
-        expect(code).not.toBe(EXIT_NO_BUN_WEBGPU);
-    });
-});
-
-describe("noShallotTuiMessage", () => {
-    // Two-sided: the message must name a command that actually resolves the package for the reader it
-    // can help (an in-repo dev — `bun install` from the shallot repo root links the workspace member,
-    // verified directly: `readlink node_modules/@dylanebert/shallot-tui` resolves to `packages/shallot-
-    // tui` after that command), and must NOT prescribe `bun add @dylanebert/shallot-tui` as the fix —
-    // that 404s against the public registry (measured: `bun add @dylanebert/shallot-tui` run from
-    // `packages/shallot` in this repo still hits `registry.npmjs.org` and 404s, since it isn't declared
-    // as a `workspace:*` dependency there).
-    test("names an install command that resolves the package, and carries no stack-trace shape", () => {
-        const msg = noShallotTuiMessage();
-        expect(msg).toContain("bun install");
-        expect(msg).toContain("link the workspace package");
-        expect(msg).not.toContain("bun add @dylanebert/shallot-tui");
-        expect(msg).not.toMatch(/\bat \S+\(.*:\d+:\d+\)/); // a "    at fn (file:line:col)" stack frame
-        expect(msg).not.toContain("Cannot find module");
     });
 });
