@@ -293,7 +293,7 @@ export const GATE_EXEMPTIONS: Record<string, string> = {
     "packages/shallot/src/engine/runtime/platform.ts":
         "cross-cutting frame/timing primitive, unit-gated by runtime.test.ts, not a real-device concern",
 
-    // extras/orbit/** and extras/tween/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not
+    // extras/orbit/** and extras/animation/** are CPU-only (`NON_GPU_EXTRAS`, coverage.ts), so they are not
     // exempted here — the classification lives beside the population, not as exemptions in this table.
 
     // extras/cells/**: covered by the `cells` scenario's own `covers` glob above, not exempted — an
