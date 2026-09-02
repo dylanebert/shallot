@@ -33,8 +33,9 @@ import { resolve } from "node:path";
 //     a different published package.
 //
 // Not an input: `packages/shallot/**` source. Each demo is ejected and installed against the
-// *published* package, so in-repo package edits do not reach the artifact until a release
-// changes the version — which the version input already catches.
+// *published* engine package, so in-repo engine edits do not reach the artifact until a release
+// changes the version. Tracked source under each workspace extension a demo declares is an input,
+// because build-site packs that extension and installs its tarball in both modes.
 
 /** The stamp lives at the root of the output dir, next to `index.html`. Plain-named (not a
  * dotfile) so no static host's filter drops it and the artifact carries its own provenance. */
@@ -60,9 +61,8 @@ function isSiteMode(v: unknown): v is SiteMode {
 export interface SiteStamp {
     /** Bumped when the fingerprint recipe below changes: an old stamp then reads stale, which is
      * the correct answer — a fingerprint computed by a different recipe is not comparable. Bumped
-     * 1 → 2 to add `mode` — a recipe-1 stamp predates mode recording and reads stale rather than
-     * being read with a mode it never carried. */
-    recipe: 2;
+     * 1 → 2 to add `mode`; 2 → 3 to include tracked source from packed workspace extensions. */
+    recipe: 3;
     /** The mode this build ran in, and the engine pin it used — see `SiteMode` above. Overwritten
      * on every write (unlike `demos`, which merges) since a build run has exactly one mode. */
     mode: SiteMode;
@@ -70,7 +70,7 @@ export interface SiteStamp {
     demos: Record<string, string>;
 }
 
-const RECIPE: SiteStamp["recipe"] = 2;
+const RECIPE: SiteStamp["recipe"] = 3;
 
 /** The builder files whose contents reach every built page regardless of demo. */
 const BUILDER_FILES = [
@@ -95,6 +95,12 @@ function hashFile(hasher: Bun.CryptoHasher, rootDir: string, rel: string): void 
 
 /** Tracked files under `examples/showcase/`, grouped by slug. Asking git makes the scope
  * identical in every checkout (`site/roster.ts`'s law, same reason). */
+function trackedFiles(rootDir: string, prefix: string): string[] {
+    const tracked = Bun.spawnSync(["git", "ls-files", "-z", prefix], { cwd: rootDir });
+    if (!tracked.success) throw new Error(`\`git ls-files\` failed for ${prefix}`);
+    return tracked.stdout.toString().split("\0").filter(Boolean).sort();
+}
+
 function trackedShowcaseFiles(rootDir: string): Map<string, string[]> {
     const tracked = Bun.spawnSync(["git", "ls-files", "-z", SHOWCASE_PREFIX], { cwd: rootDir });
     if (!tracked.success) {
@@ -135,6 +141,25 @@ export function demoFingerprints(rootDir: string, slugs: string[]): Record<strin
         const hasher = new Bun.CryptoHasher("sha256");
         hasher.update(`${sharedDigest}\0${slug}\0`);
         for (const rel of bySlug.get(slug) ?? []) hashFile(hasher, rootDir, rel);
+
+        const packagePath = resolve(rootDir, SHOWCASE_PREFIX, slug, "package.json");
+        const dependencies = existsSync(packagePath)
+            ? ((
+                  JSON.parse(readFileSync(packagePath, "utf8")) as {
+                      dependencies?: Record<string, string>;
+                  }
+              ).dependencies ?? {})
+            : {};
+        const extensions = Object.entries(dependencies)
+            .filter(
+                ([name, pin]) => name.startsWith("@dylanebert/shallot-") && pin === "workspace:*",
+            )
+            .map(([name]) => name.slice("@dylanebert/".length))
+            .sort();
+        for (const packageDir of extensions) {
+            for (const rel of trackedFiles(rootDir, `packages/${packageDir}/`))
+                hashFile(hasher, rootDir, rel);
+        }
         out[slug] = hasher.digest("hex").slice(0, 32);
     }
     return out;
