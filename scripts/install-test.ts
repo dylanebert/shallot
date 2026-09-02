@@ -64,13 +64,10 @@ function pack(dir: string, dest: string): string {
 // it has to publish), but shallot-tui hasn't published yet — the same "ships ahead of a release" gap S3
 // named for `extras/cells` (specs/shallot-tui.md). So every real registry-driven install of the packed
 // engine tarball (npm/bun's own resolver, not this harness's `file:` rewrite of the *engine* dep alone)
-// needs a LOCAL override for that unpublished sibling too, or it 404s against the real registry. Applied
-// via every package manager's own override field so this works unconditionally, regardless of which
-// manager a given flow drives — bun and npm both read a top-level `overrides` map (verified: it reaches a
-// *transitive* dependency packed inside a `file:` tarball, not just a direct one); pnpm reads
-// `pnpm.overrides` instead. Mutates `pkg` in place, called right before it's written/stringified.
+// needs a LOCAL override for that unpublished sibling too, or it 404s against the real registry.
 // Each package manager needs a DIFFERENT shape to reach the local tarball, measured directly (none of
-// this is documented behavior to trust blind):
+// this is documented behavior to trust blind). Mutates `pkg` in place, called right before it's
+// written/stringified:
 //   - bun: reads a top-level `overrides` map, and it reaches a *transitive* dependency (one packed
 //     inside a `file:` tarball, not just a direct one) — confirmed. Bun does NOT hoist a same-named
 //     direct dependency into satisfying a nested package's own unrelated registry requirement (confirmed
