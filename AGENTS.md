@@ -2,7 +2,7 @@
 
 WebGPU game engine. The repo is the documentation: readable source with JSDoc contracts on every public export, a problem-indexed examples corpus, and this file plus `.claude/rules/` as the behavioral contract. There is no docs site and no editor — agents and humans both read the source, the examples index (`examples/AGENTS.md`), and `packages/shallot/AGENTS.md` (the consumer-facing contract — how to build games on Shallot: ECS, plugins, GPU, render, physics, testing — shipped with the npm package). This file covers engine-internal layout and commands; behavioral constraints live in `.claude/rules/`.
 
-**Layout:** `packages/shallot/` (engine — `src/engine/`, `src/standard/`, `src/extras/`, `src/project/` (manifest/generate/vite toolchain behind the CLI)), `packages/create-shallot/` (the `bun create shallot` scaffold), `packages/vscode-shallot/` (the VS Code extension), `evals/` (the eval harness), `examples/` (standalone projects).
+**Layout:** `packages/shallot/` (engine — `src/engine/`, `src/standard/`, `src/extras/`, `src/project/` (manifest/generate/vite toolchain behind the CLI)), `packages/create-shallot/` (the `bun create shallot` scaffold), `evals/` (the eval harness), `examples/` (standalone projects).
 
 Code is source of truth — elegant first, document what's non-obvious.
 

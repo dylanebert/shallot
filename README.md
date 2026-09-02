@@ -99,7 +99,6 @@ Portable builds bundle the Chromium runtime (CEF) instead of the system webview.
 
 - `packages/shallot/` — the engine. published as `@dylanebert/shallot`
 - `packages/create-shallot/` — `bun create shallot` scaffold
-- `packages/vscode-shallot/` — VS Code extension
 - `examples/` — example projects against the engine
 - `evals/` — agent-agnostic eval suite
 
