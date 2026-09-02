@@ -137,8 +137,10 @@ export {
     U10,
 } from "./spectrum";
 export {
+    OceanDisplacementEstimate,
     OceanSampleGradient,
     OceanSurfacePlugin,
+    oceanEstimateDisplacement,
     oceanFragmentNormal,
     oceanSurfaceFs,
     oceanSurfaceLayout,

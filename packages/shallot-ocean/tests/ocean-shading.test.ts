@@ -105,17 +105,35 @@ describe("ocean fragment Catmull-Rom closed forms", () => {
             const t = 0.37;
             const x = t * spacing;
             const samples = [-1, 0, 1, 2].map((offset) => Math.sin(k * offset * spacing));
+            const vectors = samples.map((value) => d.vec4f(value));
             const derivative =
+                surfaceCatmullRomDerivative1D(vectors[0], vectors[1], vectors[2], vectors[3], t).x /
+                spacing;
+            const expectedDerivative =
                 closedDerivative(samples[0], samples[1], samples[2], samples[3], t) / spacing;
             const truth = k * Math.cos(k * x);
-            rows.push(`L=${config.L} spacing=${spacing} response=${derivative / truth}`);
-            expect(Number.isFinite(derivative / truth)).toBe(true);
+            const response = derivative / truth;
+            rows.push(`L=${config.L} spacing=${spacing} response=${response}`);
+            expect(derivative).toBeCloseTo(expectedDerivative, 6);
         }
         const slopeConfig = SLOPE_CASCADE_CONFIGS[0];
         const slopeSpacing = slopeConfig.L / slopeMipSize(slopeConfig, 0);
         const probe = 1 / slopeSpacing;
         const widened = Number(new Float16Array([probe])[0]);
-        const noiseFloor = Math.abs(widened - probe);
+        const payloadQuantum = Math.abs(
+            Number(new Float16Array([probe + probe * 2 ** -10])[0]) - widened,
+        );
+        const t = 0.37;
+        const derivativeWeights = [
+            closedDerivative(1, 0, 0, 0, t),
+            closedDerivative(0, 1, 0, 0, t),
+            closedDerivative(0, 0, 1, 0, t),
+            closedDerivative(0, 0, 0, 1, t),
+        ];
+        const noiseFloor =
+            (payloadQuantum *
+                derivativeWeights.reduce((sum, weight) => sum + Math.abs(weight), 0)) /
+            slopeSpacing;
         const displacementMss = CASCADE_CONFIGS.reduce(
             (sum, config) => sum + composedSlopePsd(config),
             0,
@@ -126,7 +144,8 @@ describe("ocean fragment Catmull-Rom closed forms", () => {
             `${rows.join("; ")}; f16SlopeNoiseFloor=${noiseFloor}; slopeMssShare=${slopeShare}`,
         );
         expect(slopeMipSize(slopeConfig, 0)).toBe(slopeConfig.N);
-        expect(Number.isFinite(noiseFloor) && noiseFloor >= 0).toBe(true);
+        expect(payloadQuantum).toBeGreaterThan(0);
+        expect(noiseFloor).toBeGreaterThan(payloadQuantum / slopeSpacing);
         expect(slopeShare).toBeGreaterThan(0);
         expect(slopeShare).toBeLessThan(1);
     });

@@ -23,6 +23,11 @@ export const oceanSurfaceLayout = surfaceLayout({
     slope0: { type: "texture-2d" },
     slopeSampler: { type: "sampler" },
 });
+// The device oracle executes the exact texture-reading estimator through this layout in compute;
+// render keeps the same group and bindings, while the extra visibility changes no shader interface.
+for (const entry of Object.values(oceanSurfaceLayout.entries)) {
+    entry.visibility = [...entry.visibility, "compute"];
+}
 
 export const oceanSurfaceVaryings = { samplePos: d.vec2f, worldPos: d.vec3f };
 export const oceanSurfacePatch = vsPatchSchema(oceanSurfaceVaryings);
@@ -175,6 +180,10 @@ const sample1 = tgpu.fn(
 const L0 = d.f32(CASCADE_CONFIGS[0].L);
 const L1 = d.f32(CASCADE_CONFIGS[1].L);
 
+export const OceanDisplacementEstimate = d
+    .struct({ g0: OceanSampleGradient, g1: OceanSampleGradient, scale0: d.f32, scale1: d.f32 })
+    .$name("OceanDisplacementEstimate");
+
 const coordinates = tgpu.fn(
     [d.vec2f, d.f32, d.f32],
     d.vec2f,
@@ -186,17 +195,32 @@ const coordinates = tgpu.fn(
     );
 });
 
+/** samples both published displacement textures and applies their texture-to-world scales. */
+export const oceanEstimateDisplacement = tgpu.fn(
+    [d.vec2f],
+    OceanDisplacementEstimate,
+)((s) => {
+    "use gpu";
+    const n0 = d.i32(std.textureDimensions(oceanSurfaceLayout.$.displace0).x);
+    const n1 = d.i32(std.textureDimensions(oceanSurfaceLayout.$.displace1).x);
+    const q0 = coordinates(s, L0, d.f32(n0));
+    const q1 = coordinates(s, L1, d.f32(n1));
+    return OceanDisplacementEstimate({
+        g0: sample0(n0, q0.x, q0.y),
+        g1: sample1(n1, q1.x, q1.y),
+        scale0: d.f32(n0) / L0,
+        scale1: d.f32(n1) / L1,
+    });
+});
+
 export const oceanSurfaceVs = tgpu.fn(
     [VsIn],
     oceanSurfacePatch,
 )((input) => {
     "use gpu";
     const s = d.vec2f(input.localPos.x, input.localPos.z);
-    const n0 = d.i32(std.textureDimensions(oceanSurfaceLayout.$.displace0).x);
-    const n1 = d.i32(std.textureDimensions(oceanSurfaceLayout.$.displace1).x);
-    const q0 = coordinates(s, L0, d.f32(n0));
-    const q1 = coordinates(s, L1, d.f32(n1));
-    const displacement = std.add(sample0(n0, q0.x, q0.y).value, sample1(n1, q1.x, q1.y).value);
+    const estimate = oceanEstimateDisplacement(s);
+    const displacement = std.add(estimate.g0.value, estimate.g1.value);
     const world = d.vec4f(s.x + displacement.x, displacement.y, s.y + displacement.z, 1);
     return oceanSurfacePatch({
         world,
@@ -241,14 +265,7 @@ export const oceanSurfaceFs = tgpu.fn(
 )((ctx) => {
     "use gpu";
     const s = ctx.samplePos;
-    const n0 = d.i32(std.textureDimensions(oceanSurfaceLayout.$.displace0).x);
-    const n1 = d.i32(std.textureDimensions(oceanSurfaceLayout.$.displace1).x);
-    const q0 = coordinates(s, L0, d.f32(n0));
-    const q1 = coordinates(s, L1, d.f32(n1));
-    const g0 = sample0(n0, q0.x, q0.y);
-    const g1 = sample1(n1, q1.x, q1.y);
-    const scale0 = d.f32(n0) / L0;
-    const scale1 = d.f32(n1) / L1;
+    const estimate = oceanEstimateDisplacement(s);
     const slopeUv = std.add(std.div(s, d.vec2f(SLOPE_CASCADE_CONFIGS[0].L)), d.vec2f(0.5));
     const dx = std.dpdx(slopeUv);
     const dy = std.dpdy(slopeUv);
@@ -259,7 +276,13 @@ export const oceanSurfaceFs = tgpu.fn(
         dx,
         dy,
     );
-    const normalRoughness = oceanFragmentNormal(g0, g1, scale0, scale1, slope);
+    const normalRoughness = oceanFragmentNormal(
+        estimate.g0,
+        estimate.g1,
+        estimate.scale0,
+        estimate.scale1,
+        slope,
+    );
     const normal = normalRoughness.xyz;
     const varianceRoughness = normalRoughness.w;
     const eye = engineLayout.$.view.eye.xyz;
