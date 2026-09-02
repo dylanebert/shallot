@@ -14,7 +14,7 @@ bunx shallot verify [dir]   # headless-browser gate, exit 0/nonzero (below)
 
 The check is `bunx tsc --noEmit` — run it after every change. Native builds (`bunx shallot build --target windows|mac|linux`, `--portable` for bundled Chromium) download a prebuilt shell from GitHub Releases when available (no Rust toolchain needed); on a miss, compiles from source, needing the Rust toolchain plus per-target system dependencies. If you author TGSL, add `eslint-plugin-typegpu` too; the engine runs its recommended rules with zero warnings allowed.
 
-A project is pure data: `shallot.json` (the manifest: scene + plugin enablement) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
+A project is pure data: `shallot.json` (scene + plugins, optionally capacity + pixel ratio) + `public/scenes/*.scene` + plugin modules under `src/`. No index.html, no vite config — the CLI supplies the scaffolding.
 
 ## Philosophy
 
