@@ -30,6 +30,7 @@ import {
 } from "./verify";
 
 const ENGINE_DIR = resolve(import.meta.dir, "../packages/shallot");
+const TUI_DIR = resolve(import.meta.dir, "../packages/shallot-tui");
 const WIDGET_DIR = resolve(import.meta.dir, "install-test/widget");
 const CREATE_SHALLOT = resolve(import.meta.dir, "../packages/create-shallot/index.ts");
 const CREATE_SHALLOT_PKG = resolve(import.meta.dir, "../packages/create-shallot/package.json");
@@ -56,6 +57,69 @@ function pack(dir: string, dest: string): string {
     const tgz = readdirSync(dest).find((f) => f.endsWith(".tgz") && !f.startsWith("."));
     if (!tgz) throw new Error(`no tarball produced in ${dest}:\n${r.out}`);
     return join(dest, tgz);
+}
+
+// The packed engine's own package.json declares `@dylanebert/shallot-tui` as an `optionalDependencies`
+// entry (moved off a hard `dependencies` entry — item 8 of the S3/S4 batch review, 2026-09-01), but
+// shallot-tui hasn't published yet — the same "ships ahead of a release" gap S3 named for `extras/cells`
+// (specs/shallot-tui.md). Being optional means a real registry-driven install of the packed engine tarball
+// no longer 404s on it (npm/bun tolerate a failed optional install), so this override is no longer load-
+// bearing for install survival — but every fixture below still applies it, so what it tests is that the
+// *local* tarball resolves and the encoder is genuinely present for every flow that boots `shallot tui`,
+// rather than leaving those flows to exercise the (now also covered, see the genuine-absence checks in
+// `createShallotFlow`) missing-optional-dependency path by accident. Each package manager needs a
+// DIFFERENT shape to reach the local tarball, measured directly (none of this is documented behavior to
+// trust blind). Mutates `pkg` in place, called right before it's written/stringified:
+//   - bun: reads a top-level `overrides` map, and it reaches a *transitive* dependency (one packed
+//     inside a `file:` tarball, not just a direct one) — confirmed. Bun does NOT hoist a same-named
+//     direct dependency into satisfying a nested package's own unrelated registry requirement (confirmed
+//     against a throwaway unpublished-package fixture), so it needs the override.
+//   - npm: the *opposite* — a top-level `overrides` entry whose value is a `file:` spec crashes npm 9.2.0
+//     outright ("Invalid comparator: file:...", reproduced against both an absolute and a relative
+//     path). But npm DOES hoist: declaring the same package as a plain direct `file:` dependency
+//     satisfies the engine's nested transitive requirement with no override at all (confirmed against
+//     the same fixture) — so npm gets a direct dependency instead, never the `overrides` field.
+//   - pnpm: its isolated `node_modules` doesn't hoist that way either (confirmed, same fixture, same
+//     failure shape as bun) — it needs `pnpm.overrides` specifically (a nested field, not the bare
+//     top-level `overrides` npm/bun read).
+type PackManager = "bun" | "npm" | "pnpm";
+
+function withTuiOverride(
+    pkg: Record<string, unknown>,
+    tuiTgz: string,
+    manager: PackManager = "bun",
+): void {
+    const spec = `file:${tuiTgz}`;
+    if (manager === "npm") {
+        const deps = (pkg.dependencies as Record<string, unknown> | undefined) ?? {};
+        pkg.dependencies = { ...deps, "@dylanebert/shallot-tui": spec };
+        return;
+    }
+    const entry = { "@dylanebert/shallot-tui": spec };
+    if (manager === "pnpm") {
+        const pnpm = (pkg.pnpm as Record<string, unknown> | undefined) ?? {};
+        pkg.pnpm = {
+            ...pnpm,
+            overrides: { ...(pnpm.overrides as Record<string, unknown> | undefined), ...entry },
+        };
+        return;
+    }
+    pkg.overrides = { ...(pkg.overrides as Record<string, unknown> | undefined), ...entry };
+}
+
+/** the one-line replacement for every inline `${JSON.stringify({...fields}, null, N)}` package.json
+ *  literal below: folds {@link withTuiOverride} in so each fixture site names only its own fields rather
+ *  than repeating the override boilerplate. Every call site but `pmIdentityFlow`'s npm branch drives
+ *  `bun install`, hence the default. */
+function pkgJson(
+    fields: Record<string, unknown>,
+    tuiTgz: string,
+    manager: PackManager = "bun",
+    indent = 2,
+): string {
+    const pkg: Record<string, unknown> = { ...fields };
+    withTuiOverride(pkg, tuiTgz, manager);
+    return JSON.stringify(pkg, null, indent);
 }
 
 /** vite colors its banner and its errors; match against the plain text so a TTY can't change a verdict. */
@@ -165,7 +229,7 @@ function identityProbeScript(withPaths = false): string {
 
 // `bun create shallot` → install the packed engine → build — the brand-new-user path (the starter
 // template is an index.html-free manifest project; this is the asserted form of `bun local`'s scaffold).
-function createShallotFlow(work: string, engineTgz: string) {
+function createShallotFlow(work: string, engineTgz: string, tuiTgz: string) {
     console.log("bun create shallot (scaffold → install → build the starter)…");
     const parent = join(work, "scaffold");
     mkdirSync(parent, { recursive: true });
@@ -190,6 +254,7 @@ function createShallotFlow(work: string, engineTgz: string) {
         `got ${pkg.dependencies?.["@dylanebert/shallot"]}, expected ${expectedShallotRange}`,
     );
     pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
+    withTuiOverride(pkg, tuiTgz);
     writeFileSync(join(proj, "package.json"), `${JSON.stringify(pkg, null, 2)}\n`);
     const inst = run(["bun", "install"], proj);
     check("the scaffolded starter installs", inst.ok, inst.ok ? "" : inst.out.slice(-400));
@@ -249,6 +314,54 @@ function createShallotFlow(work: string, engineTgz: string) {
         `exit ${noPw.exitCode}`,
     );
 
+    // criterion 7 (specs/shallot-tui.md): "a missing bun-webgpu produces a named remedy" — the genuine-
+    // absence rung, mirroring the playwright check directly above exactly. This scaffold never installs
+    // bun-webgpu (a devDependency of the monorepo's own packages/shallot, never shipped or declared for a
+    // consumer), so `shallot tui` here hits a real absence, not an injected one — real subprocess stdout/
+    // stderr, never a mock. The fast DI-driven proof of the same exit-code + message wiring lives in
+    // bin/tui.test.ts, which can't see whether the real dynamic import actually fails on a real install.
+    const tuiHelp = run(["bun", CLI, "tui", "--help"], proj);
+    check("shallot tui --help exits 0", tuiHelp.ok, tuiHelp.ok ? "" : tuiHelp.out.slice(-200));
+    const noBunWebgpu = Bun.spawnSync(["bun", CLI, "tui", "."], {
+        cwd: proj,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const noBunWebgpuOut = `${noBunWebgpu.stdout.toString()}\n${noBunWebgpu.stderr.toString()}`;
+    check(
+        "shallot tui exits with an install remedy when bun-webgpu is absent, not a stack trace",
+        noBunWebgpu.exitCode === 3 &&
+            /bun add -d bun-webgpu/.test(noBunWebgpuOut) &&
+            !/Cannot find module/.test(noBunWebgpuOut),
+        `exit ${noBunWebgpu.exitCode}`,
+    );
+
+    // Item 8 (S3/S4 batch review, 2026-09-01): `@dylanebert/shallot-tui` moved off a hard `dependencies`
+    // entry to `optionalDependencies` specifically so a real registry install can survive its absence
+    // rather than 404ing — this is the genuine-absence rung proving the runtime guard actually fires when
+    // that survives-but-missing case happens for real, mirroring the bun-webgpu check directly above. This
+    // scaffold's `withTuiOverride` (above) installed a real local copy at
+    // node_modules/@dylanebert/shallot-tui; removing it (real absence, no mock) and re-running `shallot
+    // tui .` also exercises `runTui`'s check ordering — the shallot-tui guard runs before the bun-webgpu
+    // one (`bin/tui.test.ts`'s own ordering test), and bun-webgpu is still absent here too, so a wrong
+    // ordering would report the wrong remedy. The fast DI-driven proof of the same exit-code + message
+    // wiring lives in `bin/tui.test.ts`, which can't see whether a real optional-dependency absence
+    // actually reaches this path.
+    rmSync(join(proj, "node_modules/@dylanebert/shallot-tui"), { recursive: true, force: true });
+    const noShallotTui = Bun.spawnSync(["bun", CLI, "tui", "."], {
+        cwd: proj,
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const noShallotTuiOut = `${noShallotTui.stdout.toString()}\n${noShallotTui.stderr.toString()}`;
+    check(
+        "shallot tui exits with an install remedy when @dylanebert/shallot-tui is absent, not a stack trace",
+        noShallotTui.exitCode === 4 &&
+            /bun add @dylanebert\/shallot-tui/.test(noShallotTuiOut) &&
+            !/Cannot find module/.test(noShallotTuiOut),
+        `exit ${noShallotTui.exitCode}`,
+    );
+
     // the intact scaffold typechecks: spin.ts is present, so the program reaches the engine's shipped
     // source in node_modules — the shipped types (@types/node dep + ImportMeta.env augmentation) must
     // resolve every error a consumer's tsc would see.
@@ -274,7 +387,7 @@ function createShallotFlow(work: string, engineTgz: string) {
 // the copy's engine dep is version-pinned by the CLI, so here we point it back at the packed tarball
 // (as a real user's registry install would resolve) and build it headlessly. Guards the whole copy-out
 // path: recipe present in the pack, CLI copies it, the pinned dep installs, the project builds.
-function recipeFlow(work: string, engineTgz: string, sandbox: string) {
+function recipeFlow(work: string, engineTgz: string, tuiTgz: string, sandbox: string) {
     console.log("shallot recipe (copy a recipe out → install → build)…");
     const dest = join(work, "recipe-out", "joints");
     const copied = run(["bun", CLI, "recipe", "joints", dest], sandbox);
@@ -289,6 +402,7 @@ function recipeFlow(work: string, engineTgz: string, sandbox: string) {
         String(pkg.dependencies?.["@dylanebert/shallot"]),
     );
     pkg.dependencies["@dylanebert/shallot"] = `file:${engineTgz}`;
+    withTuiOverride(pkg, tuiTgz);
     writeFileSync(join(dest, "package.json"), `${JSON.stringify(pkg, null, 4)}\n`);
     const inst = run(["bun", "install"], dest);
     check("the copied recipe installs", inst.ok, inst.ok ? "" : inst.out.slice(-400));
@@ -358,14 +472,14 @@ function ejectedViteConfig(): string {
 // (and `./harness/browser`) are the two exports whose only consumption context is Node, so they ship a
 // compiled `dist/*.js` default alongside the `.ts` source `types` (`exports.md`), the reason this recipe
 // boots at all against a packed tarball.
-async function ejectedFlow(work: string, engineTgz: string) {
+async function ejectedFlow(work: string, engineTgz: string, tuiTgz: string) {
     console.log("ejected Vite project (MIGRATION.md's recipe, booted verbatim)…");
     const proj = join(work, "ejected");
     mkdirSync(join(proj, "src"), { recursive: true });
     mkdirSync(join(proj, "scenes"), { recursive: true });
     writeFileSync(
         join(proj, "package.json"),
-        `${JSON.stringify(
+        `${pkgJson(
             {
                 name: "ejected-sandbox",
                 private: true,
@@ -378,8 +492,7 @@ async function ejectedFlow(work: string, engineTgz: string) {
                 },
                 devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.12.3" },
             },
-            null,
-            2,
+            tuiTgz,
         )}\n`,
     );
     const config = ejectedViteConfig();
@@ -500,13 +613,13 @@ const TRANSPILED =
 // its own `node_modules/typegpu2`, a distinct module-graph evaluation with its own `Symbol()` calls, not
 // a re-export of the first. The red arm is the whole point: a probe green on first run with no witnessed
 // red proves nothing.
-function identityFlow(work: string, engineTgz: string) {
+function identityFlow(work: string, engineTgz: string, tuiTgz: string) {
     console.log("typegpu peer identity (brand check, red-first)…");
     const proj = join(work, "identity");
     mkdirSync(proj, { recursive: true });
     writeFileSync(
         join(proj, "package.json"),
-        `${JSON.stringify(
+        `${pkgJson(
             {
                 name: "identity-sandbox",
                 private: true,
@@ -517,8 +630,7 @@ function identityFlow(work: string, engineTgz: string) {
                     typegpu2: "npm:typegpu@~0.12.4",
                 },
             },
-            null,
-            2,
+            tuiTgz,
         )}\n`,
     );
     const install = run(["bun", "install"], proj);
@@ -634,12 +746,12 @@ function identityPluginSource(): string {
     );
 }
 
-function writeIdentityZeroConfig(dir: string, engineTgz: string) {
+function writeIdentityZeroConfig(dir: string, engineTgz: string, tuiTgz: string) {
     mkdirSync(join(dir, "src"), { recursive: true });
     mkdirSync(join(dir, "scenes"), { recursive: true });
     writeFileSync(
         join(dir, "package.json"),
-        `${JSON.stringify(
+        `${pkgJson(
             {
                 name: "identity-browser-sandbox",
                 private: true,
@@ -649,8 +761,7 @@ function writeIdentityZeroConfig(dir: string, engineTgz: string) {
                     typegpu: "~0.12.4",
                 },
             },
-            null,
-            2,
+            tuiTgz,
         )}\n`,
     );
     writeFileSync(
@@ -697,11 +808,11 @@ function identityEjectedEntrySource(): string {
     );
 }
 
-function writeIdentityEjected(dir: string, engineTgz: string, configText: string) {
+function writeIdentityEjected(dir: string, engineTgz: string, tuiTgz: string, configText: string) {
     mkdirSync(join(dir, "src"), { recursive: true });
     writeFileSync(
         join(dir, "package.json"),
-        `${JSON.stringify(
+        `${pkgJson(
             {
                 name: "identity-browser-ejected",
                 private: true,
@@ -712,8 +823,7 @@ function writeIdentityEjected(dir: string, engineTgz: string, configText: string
                 },
                 devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.12.3" },
             },
-            null,
-            2,
+            tuiTgz,
         )}\n`,
     );
     writeFileSync(join(dir, "vite.config.ts"), `${configText}\n`);
@@ -752,11 +862,11 @@ function identityRedProofEntrySource(): string {
     );
 }
 
-function writeIdentityRedProof(dir: string, engineTgz: string, configText: string) {
+function writeIdentityRedProof(dir: string, engineTgz: string, tuiTgz: string, configText: string) {
     mkdirSync(join(dir, "src"), { recursive: true });
     writeFileSync(
         join(dir, "package.json"),
-        `${JSON.stringify(
+        `${pkgJson(
             {
                 name: "identity-browser-red-proof",
                 private: true,
@@ -768,8 +878,7 @@ function writeIdentityRedProof(dir: string, engineTgz: string, configText: strin
                 },
                 devDependencies: { vite: "^8.0.0", "unplugin-typegpu": "~0.12.3" },
             },
-            null,
-            2,
+            tuiTgz,
         )}\n`,
     );
     writeFileSync(join(dir, "vite.config.ts"), `${configText}\n`);
@@ -843,7 +952,7 @@ function checkPrebundled(label: string, result: VerifyResult | null, expect: boo
     );
 }
 
-async function identityBrowserFlow(work: string, engineTgz: string) {
+async function identityBrowserFlow(work: string, engineTgz: string, tuiTgz: string) {
     const skip = skipReason();
     if (skip) {
         console.log(
@@ -854,7 +963,7 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
 
     console.log("typegpu peer identity (browser, red-proof fixture)…");
     const redProofDir = join(work, "identity-browser-red-proof");
-    writeIdentityRedProof(redProofDir, engineTgz, ejectedViteConfig());
+    writeIdentityRedProof(redProofDir, engineTgz, tuiTgz, ejectedViteConfig());
     const redProofInstall = run(["bun", "install"], redProofDir);
     check(
         "identity-browser (red-proof): the fixture installs",
@@ -892,7 +1001,7 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
 
     console.log("typegpu peer identity (browser, zero-config sandbox)…");
     const sandboxDir = join(work, "identity-browser-sandbox");
-    writeIdentityZeroConfig(sandboxDir, engineTgz);
+    writeIdentityZeroConfig(sandboxDir, engineTgz, tuiTgz);
     const sandboxInstall = run(["bun", "install"], sandboxDir);
     check(
         "identity-browser (zero-config sandbox): the fixture installs",
@@ -929,7 +1038,7 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
     console.log("typegpu peer identity (browser, ejected fixture)…");
     const normalConfig = ejectedViteConfig();
     const ejectedNormalDir = join(work, "identity-browser-ejected");
-    writeIdentityEjected(ejectedNormalDir, engineTgz, normalConfig);
+    writeIdentityEjected(ejectedNormalDir, engineTgz, tuiTgz, normalConfig);
     const ejectedNormalInstall = run(["bun", "install"], ejectedNormalDir);
     check(
         "identity-browser (ejected, normal config): the fixture installs",
@@ -945,7 +1054,7 @@ async function identityBrowserFlow(work: string, engineTgz: string) {
 
     const perturbedConfig = stripTypegpuExclude(normalConfig);
     const ejectedPerturbedDir = join(work, "identity-browser-ejected-perturbed");
-    writeIdentityEjected(ejectedPerturbedDir, engineTgz, perturbedConfig);
+    writeIdentityEjected(ejectedPerturbedDir, engineTgz, tuiTgz, perturbedConfig);
     const ejectedPerturbedInstall = run(["bun", "install"], ejectedPerturbedDir);
     check(
         "identity-browser (ejected, perturbed — typegpu prebundled): the fixture installs",
@@ -1001,13 +1110,13 @@ const managerInstall: Record<"npm" | "pnpm", string[]> = {
 // copy; pnpm's isolated `node_modules` is the high-risk arm the spec calls out. Failure output names
 // the manager and both resolved paths, so a real cross-manager divergence is diagnosable from the
 // gate log alone.
-function pmIdentityFlow(work: string, engineTgz: string, manager: "npm" | "pnpm") {
+function pmIdentityFlow(work: string, engineTgz: string, tuiTgz: string, manager: "npm" | "pnpm") {
     console.log(`typegpu peer identity (${manager}, brand check, red-first)…`);
     const proj = join(work, `identity-${manager}`);
     mkdirSync(proj, { recursive: true });
     writeFileSync(
         join(proj, "package.json"),
-        `${JSON.stringify(
+        `${pkgJson(
             {
                 name: "identity-sandbox",
                 private: true,
@@ -1018,8 +1127,8 @@ function pmIdentityFlow(work: string, engineTgz: string, manager: "npm" | "pnpm"
                     typegpu2: `npm:typegpu@${PM_RED_COPY_VERSION}`,
                 },
             },
-            null,
-            2,
+            tuiTgz,
+            manager,
         )}\n`,
     );
 
@@ -1168,14 +1277,15 @@ if (import.meta.main) {
     const work = realpathSync(mkdtempSync(join(tmpdir(), "shallot-install-")));
     const sandbox = join(work, "app");
     try {
-        console.log("packing engine + widget…");
+        console.log("packing engine + tui encoder + widget…");
         const engineTgz = pack(ENGINE_DIR, join(work, "engine-pack"));
+        const tuiTgz = pack(TUI_DIR, join(work, "tui-pack"));
         const widgetTgz = pack(WIDGET_DIR, join(work, "widget-pack"));
 
         // display-independent, so it runs first: no GPU, no `skipReason()` guard anywhere above it
-        identityFlow(work, engineTgz);
-        pmIdentityFlow(work, engineTgz, "npm");
-        pmIdentityFlow(work, engineTgz, "pnpm");
+        identityFlow(work, engineTgz, tuiTgz);
+        pmIdentityFlow(work, engineTgz, tuiTgz, "npm");
+        pmIdentityFlow(work, engineTgz, tuiTgz, "pnpm");
 
         // a real manifest project: installed engine + an installed plugin library + a local plugin, the
         // audio plugin pulling its wasm in. No vite.config, no index.html — the CLI supplies the harness.
@@ -1183,7 +1293,7 @@ if (import.meta.main) {
             mkdirSync(join(sandbox, d), { recursive: true });
         writeFileSync(
             join(sandbox, "package.json"),
-            `${JSON.stringify(
+            `${pkgJson(
                 {
                     name: "install-sandbox",
                     private: true,
@@ -1197,8 +1307,7 @@ if (import.meta.main) {
                         typegpu: "~0.12.4",
                     },
                 },
-                null,
-                2,
+                tuiTgz,
             )}\n`,
         );
         writeFileSync(
@@ -1489,13 +1598,13 @@ if (import.meta.main) {
             await teardownBridge();
         }
 
-        if (install.ok) recipeFlow(work, engineTgz, sandbox);
+        if (install.ok) recipeFlow(work, engineTgz, tuiTgz, sandbox);
 
-        await ejectedFlow(work, engineTgz);
+        await ejectedFlow(work, engineTgz, tuiTgz);
 
-        await identityBrowserFlow(work, engineTgz);
+        await identityBrowserFlow(work, engineTgz, tuiTgz);
 
-        createShallotFlow(work, engineTgz);
+        createShallotFlow(work, engineTgz, tuiTgz);
     } finally {
         rmSync(work, { recursive: true, force: true });
     }

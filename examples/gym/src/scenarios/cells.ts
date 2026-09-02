@@ -614,10 +614,14 @@ const MONO_BG = vec4f(0, 0, 0, 1);
 // `INK_DILATE_FRACTION`); rule 2's curved-glyph exclusion already shrank the ramp to 87 before this pass,
 // and removing the dilation lever moves every glyph's own rendered ink again. Ramp indices 0..68 are
 // clean of the SDF-generation dropout named above (the first dip is index 71, `m` — a normal lowercase
-// letter reading exactly zero ink, the same defect class as the densest glyphs above it); the checked
-// population stops comfortably short of that at 69.
+// letter, not one of the densest/most-complex glyphs that defect names, so this dip is a separate,
+// unexplained reading rather than an instance of it); the checked population stops comfortably short of
+// that at 69.
 const MONO_CHECKED_COUNT = 69;
-const MONO_MARGIN = 1.2; // measured ratio at MONO_CHECKED_COUNT=69 is ~1.28x; 1.2x leaves real headroom before treating noise as a regression
+// 1.2x sits roughly 6% under the single measured ratio (~1.28x at MONO_CHECKED_COUNT=69, nvidia/
+// lovelace, one reading — no repeated-measurement spread taken), so this is the floor set under that
+// one reading, not established headroom against noise.
+const MONO_MARGIN = 1.2;
 
 const monoProbeLayout = tgpu.bindGroupLayout({
     src: {

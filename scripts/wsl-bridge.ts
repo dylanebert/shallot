@@ -241,6 +241,16 @@ function buildBundle(): void {
             "rollup",
             "--external",
             "fsevents",
+            // `bin/tui.ts`'s own dynamic `import("bun-webgpu")` (guarded, optional — bin/tui.ts's own
+            // module doc) is still a literal-string specifier, and this single-outfile `--target node`
+            // build has no code-splitting boundary to stop at, so it inlines the whole reachable graph
+            // regardless of whether that import ever executes. `bun-webgpu`'s own native-binding loader
+            // imports the Bun-only `bun:ffi` builtin at its module top, which node's ESM loader rejects
+            // outright ("Only URLs with a scheme in: file, data, and node are supported... Received
+            // protocol 'bun:'") — a build-time inlining problem, not a runtime one; this `verify --connect`
+            // bundle never actually calls `shallot tui`. Same shape as every other external above.
+            "--external",
+            "bun-webgpu",
         ],
         { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
     );

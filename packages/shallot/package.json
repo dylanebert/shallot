@@ -99,15 +99,20 @@
         "vite": "^8.0.16"
     },
     "peerDependencies": {
+        "bun-webgpu": "^0.1.4",
         "playwright": "^1.0.0",
         "typegpu": "~0.12.4"
     },
     "peerDependenciesMeta": {
+        "bun-webgpu": {
+            "optional": true
+        },
         "playwright": {
             "optional": true
         }
     },
     "optionalDependencies": {
+        "@dylanebert/shallot-tui": "0.0.0",
         "pngjs": "^7.0.0"
     },
     "devDependencies": {

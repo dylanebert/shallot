@@ -2,12 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { type CliArgs, parseCliArgs } from "./cli";
 
 describe("parseCliArgs", () => {
-    test("routes verify/recipe before the shared parse, carrying the rest of argv untouched", () => {
+    test("routes verify/recipe/tui before the shared parse, carrying the rest of argv untouched", () => {
         const v = parseCliArgs(["verify", "--dist", "--json"]);
         expect(v).toEqual({ kind: "delegate", cmd: "verify", rest: ["--dist", "--json"] });
 
         const r = parseCliArgs(["recipe", "joints", "dest"]);
         expect(r).toEqual({ kind: "delegate", cmd: "recipe", rest: ["joints", "dest"] });
+
+        const t = parseCliArgs(["tui", "examples/x", "--frames", "10"]);
+        expect(t).toEqual({ kind: "delegate", cmd: "tui", rest: ["examples/x", "--frames", "10"] });
     });
 
     test("bare invocation prints usage, exit 0; an unrecognized subcommand exits 1", () => {

@@ -359,13 +359,16 @@
         "wgpu-matrix": "^3.4.0",
       },
       "optionalDependencies": {
+        "@dylanebert/shallot-tui": "0.0.0",
         "pngjs": "^7.0.0",
       },
       "peerDependencies": {
+        "bun-webgpu": "^0.1.4",
         "playwright": "^1.0.0",
         "typegpu": "~0.12.4",
       },
       "optionalPeers": [
+        "bun-webgpu",
         "playwright",
       ],
     },

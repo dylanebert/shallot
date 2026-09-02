@@ -155,7 +155,7 @@ describe("localBoundaryMagnitude / FACE_BOUNDARY_MAGNITUDE_THRESHOLD (rule 1's s
         expect(localBoundaryMagnitude(0.517, 0.517, 0.517, 0.517)).toBe(0);
     });
 
-    test("the full-Sobel construction this gate replaces would have read nonzero on the same case, from diagonal taps alone", () => {
+    test("the full-Sobel construction this gate replaces would have fired FACE_BOUNDARY_MAGNITUDE_THRESHOLD on the same case, from diagonal taps alone", () => {
         // the reproduction's own numbers: own row/column flat at 0.517, but the diagonal corners (top-right,
         // bottom-right) sit in the next face over at 0.473 — a real, measured bled-Sobel input.
         const l00 = 0.517;
@@ -169,7 +169,11 @@ describe("localBoundaryMagnitude / FACE_BOUNDARY_MAGNITUDE_THRESHOLD (rule 1's s
         const gx = l20 + 2 * l21 + l22 - (l00 + 2 * l01 + l02);
         const gy = l02 + 2 * l12 + l22 - (l00 + 2 * l10 + l20);
         const fullSobelMagnitude = Math.hypot(gx, gy);
-        expect(fullSobelMagnitude).toBeGreaterThan(0);
+        // the claim this reproduction rests on is that the replaced construction actually fires the
+        // boundary gate on this input (|g| = 0.088), not merely that it reads nonzero — a bare `> 0`
+        // passes even at 1e-12, far below FACE_BOUNDARY_MAGNITUDE_THRESHOLD (≈0.00581 at 87 fill
+        // glyphs), which would not be the defect this rule exists to fix.
+        expect(fullSobelMagnitude).toBeGreaterThan(FACE_BOUNDARY_MAGNITUDE_THRESHOLD);
         // and this gate's own localized metric reads 0 on the identical 4-connected neighbors
         expect(localBoundaryMagnitude(l01, l21, l10, l12)).toBe(0);
     });
